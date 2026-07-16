@@ -1,0 +1,33 @@
+{
+  "name": "hotel_search_agent",
+  "description": "Searches Dayuse day-use hotel offers (by destination or by hotel name) via the read-only MCP_B2C server; stateless — profile in/out through the A2A DataPart.",
+  "version": "0.1.0",
+  "url": "${AGENT_PUBLIC_URL}",
+  "provider": {
+    "organization": "Dayuse",
+    "url": "https://dayuse.com"
+  },
+  "capabilities": {
+    "streaming": true
+  },
+  "defaultInputModes": ["text/plain", "application/json"],
+  "defaultOutputModes": ["text/plain", "application/json"],
+  "skills": [
+    {
+      "id": "hotel_search",
+      "name": "hotel_search",
+      "description": "Given query_params (destination, dates, filters, or a hotel name) plus profile_in, returns {results, profile_delta, diagnostics} from the read-only MCP_B2C tools search_offers / find_hotel_by_name. Stateless: no session, no Redis.",
+      "tags": ["dayuse", "b2c", "hotel", "search", "day-use"]
+    }
+  ],
+  "securitySchemes": {
+    "bearer-interim": {
+      "type": "http",
+      "scheme": "bearer",
+      "description": "Interim static bearer over the private network (D7 exception, unsigned card); replaced by oidc-mtls at the latest before the S11 canary."
+    }
+  },
+  "security": [
+    { "bearer-interim": [] }
+  ]
+}
