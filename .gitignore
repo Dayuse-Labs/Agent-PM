@@ -1,0 +1,17 @@
+# Données brutes prod (messages utilisateurs) — NE JAMAIS COMMITER (RGPD)
+baseline/
+
+# Secrets & env locaux
+.env
+
+# Logs de run locaux
+.run-logs/
+
+# Python
+__pycache__/
+*.egg-info/
+.pytest_cache/
+.venv*
+
+# macOS
+.DS_Store

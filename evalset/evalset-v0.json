@@ -1,0 +1,423 @@
+{
+ "version": "v0",
+ "generated": "2026-07-15",
+ "source": "conversation_logs prod 30j (anonymisé)",
+ "families": {
+  "named_hotel": 81,
+  "compare": 22,
+  "empty_recovered": 708,
+  "empty_dead": 326,
+  "budget_search": 851,
+  "timeslot_search": 986,
+  "multi_turn_long": 213,
+  "simple_search": 382
+ },
+ "scenarios": [
+  {
+   "id": "named_hotel-9636e62a",
+   "family": "named_hotel",
+   "lang": "fr",
+   "source_turns": 2,
+   "user_turns": [
+    "Les jardins de la villa",
+    "Oui"
+   ],
+   "expected": "L'hôtel nommé est retrouvé (shortlist d'abord, DB ensuite) ; jamais de dead-end ; ambiguïté ville levée si besoin."
+  },
+  {
+   "id": "named_hotel-05de93e8",
+   "family": "named_hotel",
+   "lang": "it",
+   "source_turns": 5,
+   "user_turns": [
+    "è compreso qualche pasto?",
+    "villa stucky",
+    "Mogliano Veneto",
+    "max 60€",
+    "sì"
+   ],
+   "expected": "L'hôtel nommé est retrouvé (shortlist d'abord, DB ensuite) ; jamais de dead-end ; ambiguïté ville levée si besoin."
+  },
+  {
+   "id": "named_hotel-06ab9aeb",
+   "family": "named_hotel",
+   "lang": "de",
+   "source_turns": 4,
+   "user_turns": [
+    "Room at Mandarina Hotel Luxembourg",
+    "Luxembourg",
+    "no budgeht",
+    "Please show me the rooms available at Mandarina Hotel near the airport in luxembour"
+   ],
+   "expected": "L'hôtel nommé est retrouvé (shortlist d'abord, DB ensuite) ; jamais de dead-end ; ambiguïté ville levée si besoin."
+  },
+  {
+   "id": "named_hotel-f7d1c181",
+   "family": "named_hotel",
+   "lang": "es",
+   "source_turns": 6,
+   "user_turns": [
+    "hotel con piscina incluida",
+    "madrid",
+    "80 euros. de 12 a 19",
+    "dime mas opciones asi",
+    "cuales son los otros 4 hoteles seleccionados?",
+    "el ibis"
+   ],
+   "expected": "L'hôtel nommé est retrouvé (shortlist d'abord, DB ensuite) ; jamais de dead-end ; ambiguïté ville levée si besoin."
+  },
+  {
+   "id": "compare-2a37fc8b",
+   "family": "compare",
+   "lang": "fr",
+   "source_turns": 10,
+   "user_turns": [
+    "Journée à hotel Famille de 5 avec accès piscine",
+    "70km autour de fougères",
+    "Max 120",
+    "Journée à hotel Famille de 5 avec accès piscine",
+    "Compare les deux premières options",
+    "Fais voir l autre option",
+    "Montre moi le Novotel",
+    "Chambre famille"
+   ],
+   "expected": "Comparaison factuelle des hôtels de la shortlist uniquement (prix/note/étoiles/distance/amenities), aucune amenity inventée."
+  },
+  {
+   "id": "compare-f6da98ee",
+   "family": "compare",
+   "lang": "en",
+   "source_turns": 4,
+   "user_turns": [
+    "Rooftop pool in Los Angeles",
+    "400$",
+    "yes",
+    "Compare the first two options"
+   ],
+   "expected": "Comparaison factuelle des hôtels de la shortlist uniquement (prix/note/étoiles/distance/amenities), aucune amenity inventée."
+  },
+  {
+   "id": "compare-47f3aa87",
+   "family": "compare",
+   "lang": "en",
+   "source_turns": 5,
+   "user_turns": [
+    "Calgary caore or banff",
+    "Calgary Canmore or banff",
+    "Only 1 place out of 3 locations?",
+    "Compare the first two options",
+    "Go to banff and canmore"
+   ],
+   "expected": "Comparaison factuelle des hôtels de la shortlist uniquement (prix/note/étoiles/distance/amenities), aucune amenity inventée."
+  },
+  {
+   "id": "compare-bb241810",
+   "family": "compare",
+   "lang": "en",
+   "source_turns": 5,
+   "user_turns": [
+    "Calgary caore or banff",
+    "Calgary Canmore or banff",
+    "Only 1 place out of 3 locations?",
+    "Compare the first two options",
+    "Go to banff and canmore"
+   ],
+   "expected": "Comparaison factuelle des hôtels de la shortlist uniquement (prix/note/étoiles/distance/amenities), aucune amenity inventée."
+  },
+  {
+   "id": "empty_recovered-e1deb6bd",
+   "family": "empty_recovered",
+   "lang": "fr",
+   "source_turns": 3,
+   "user_turns": [
+    "Piscine rooftop à Los Angeles",
+    "400$",
+    "piscine à Paris pour moins de 200€"
+   ],
+   "expected": "Recherche vide → annonce honnête (aucune carte), UNE relaxation proposée, hôtels affichés après élargissement, pas de question répétée."
+  },
+  {
+   "id": "empty_recovered-a411efb2",
+   "family": "empty_recovered",
+   "lang": "it",
+   "source_turns": 3,
+   "user_turns": [
+    "Camera a uso diurno vicino a me",
+    "Martina Franca (TA)",
+    "Un massimo di 4/5 ore , 50 euro"
+   ],
+   "expected": "Recherche vide → annonce honnête (aucune carte), UNE relaxation proposée, hôtels affichés après élargissement, pas de question répétée."
+  },
+  {
+   "id": "empty_recovered-1bcde43d",
+   "family": "empty_recovered",
+   "lang": "de",
+   "source_turns": 3,
+   "user_turns": [
+    "Ahaus",
+    "Egal",
+    "In der Stadt ahaus ein hotel"
+   ],
+   "expected": "Recherche vide → annonce honnête (aucune carte), UNE relaxation proposée, hôtels affichés après élargissement, pas de question répétée."
+  },
+  {
+   "id": "empty_recovered-f7c646e2",
+   "family": "empty_recovered",
+   "lang": "es",
+   "source_turns": 3,
+   "user_turns": [
+    "Dayroom para 4 personas",
+    "Fort lauredale",
+    "100"
+   ],
+   "expected": "Recherche vide → annonce honnête (aucune carte), UNE relaxation proposée, hôtels affichés après élargissement, pas de question répétée."
+  },
+  {
+   "id": "empty_dead-d281afb4",
+   "family": "empty_dead",
+   "lang": "fr",
+   "source_turns": 1,
+   "user_turns": [
+    "sto cercando un albergho in milano"
+   ],
+   "expected": "Zéro inventaire → réponse honnête « non couvert », pas d'invention, pas de boucle de clarification, alternative proposée."
+  },
+  {
+   "id": "empty_dead-056d6379",
+   "family": "empty_dead",
+   "lang": "it",
+   "source_turns": 1,
+   "user_turns": [
+    "Vorrei una camera disponile dalle 21 alle 3 zona Sassuolo Rubiera e limitrofi"
+   ],
+   "expected": "Zéro inventaire → réponse honnête « non couvert », pas d'invention, pas de boucle de clarification, alternative proposée."
+  },
+  {
+   "id": "empty_dead-7bce8772",
+   "family": "empty_dead",
+   "lang": "de",
+   "source_turns": 1,
+   "user_turns": [
+    "Hotel für 2-3 Stunden mit Klimaanlage bei Cuxhafen in der Nähe"
+   ],
+   "expected": "Zéro inventaire → réponse honnête « non couvert », pas d'invention, pas de boucle de clarification, alternative proposée."
+  },
+  {
+   "id": "empty_dead-aff16982",
+   "family": "empty_dead",
+   "lang": "es",
+   "source_turns": 1,
+   "user_turns": [
+    "Ezeiza, aterrizaje 6 a.m., salida 4 PM de un viernes"
+   ],
+   "expected": "Zéro inventaire → réponse honnête « non couvert », pas d'invention, pas de boucle de clarification, alternative proposée."
+  },
+  {
+   "id": "budget_search-127d46db",
+   "family": "budget_search",
+   "lang": "fr",
+   "source_turns": 6,
+   "user_turns": [
+    "je recherche un hôtel en journée près de l'A4 avec piscine extérieure",
+    "Noisy le grand",
+    "10h/19h",
+    "L'équivalent près de bercy village",
+    "Bercy paris 12eme",
+    "Peux tu élargir la recherche vers l'est de paris?"
+   ],
+   "expected": "Budget explicite respecté (jamais auto-élargi sans le dire) ; cartes affichées ; prix cohérents avec le filtre."
+  },
+  {
+   "id": "budget_search-7571e0b3",
+   "family": "budget_search",
+   "lang": "it",
+   "source_turns": 3,
+   "user_turns": [
+    "hotel piscina aperto Milano",
+    "quello che vuoi",
+    "cerca a Milano MILANO"
+   ],
+   "expected": "Budget explicite respecté (jamais auto-élargi sans le dire) ; cartes affichées ; prix cohérents avec le filtre."
+  },
+  {
+   "id": "budget_search-c0d330b4",
+   "family": "budget_search",
+   "lang": "de",
+   "source_turns": 8,
+   "user_turns": [
+    "Irgendwo zwischen Berlin in Nürnberg",
+    "Tagsüber",
+    "Room service",
+    "Irgendwas näher zu Nürnberg",
+    "In der Mitte",
+    "Erfurt",
+    "Leipzig",
+    "Pool"
+   ],
+   "expected": "Budget explicite respecté (jamais auto-élargi sans le dire) ; cartes affichées ; prix cohérents avec le filtre."
+  },
+  {
+   "id": "budget_search-c5228ef5",
+   "family": "budget_search",
+   "lang": "es",
+   "source_turns": 3,
+   "user_turns": [
+    "Hotel centrico por dos horas",
+    "Madrid",
+    "Puede ser una hora. Maximo 70"
+   ],
+   "expected": "Budget explicite respecté (jamais auto-élargi sans le dire) ; cartes affichées ; prix cohérents avec le filtre."
+  },
+  {
+   "id": "timeslot_search-0d9652d6",
+   "family": "timeslot_search",
+   "lang": "fr",
+   "source_turns": 2,
+   "user_turns": [
+    "Cherche piscine pour samedi 11 juillet",
+    "À Paris"
+   ],
+   "expected": "Créneau extrait correctement (pas d'inversion), offres compatibles avec la fenêtre horaire."
+  },
+  {
+   "id": "timeslot_search-fcd320b6",
+   "family": "timeslot_search",
+   "lang": "it",
+   "source_turns": 6,
+   "user_turns": [
+    "Non so, qualcosa con l'idromassaggio in camera",
+    "Nel nord est possibilmente",
+    "Giornata potrebbe andare bene, diciamo non più di 80 euro",
+    "Verona",
+    "Verona con idromassaggio in camera",
+    "Mostra i dettagli della prima opzione"
+   ],
+   "expected": "Créneau extrait correctement (pas d'inversion), offres compatibles avec la fenêtre horaire."
+  },
+  {
+   "id": "timeslot_search-91e0d904",
+   "family": "timeslot_search",
+   "lang": "de",
+   "source_turns": 3,
+   "user_turns": [
+    "München",
+    "Morgen",
+    "Ab 15:00 Uhr"
+   ],
+   "expected": "Créneau extrait correctement (pas d'inversion), offres compatibles avec la fenêtre horaire."
+  },
+  {
+   "id": "timeslot_search-c5228ef5",
+   "family": "timeslot_search",
+   "lang": "es",
+   "source_turns": 3,
+   "user_turns": [
+    "Hotel centrico por dos horas",
+    "Madrid",
+    "Puede ser una hora. Maximo 70"
+   ],
+   "expected": "Créneau extrait correctement (pas d'inversion), offres compatibles avec la fenêtre horaire."
+  },
+  {
+   "id": "multi_turn_long-6db48ee1",
+   "family": "multi_turn_long",
+   "lang": "fr",
+   "source_turns": 5,
+   "user_turns": [
+    "Chambre d'hôtel pour 2h en soirée près de Juvisy",
+    "Peu importe",
+    "Juvisy sur orge",
+    "50",
+    "Y a-t-il des options moins chères ?"
+   ],
+   "expected": "Le profil persiste entre les tours (ville/budget/créneau), pas de re-question sur une info déjà donnée."
+  },
+  {
+   "id": "multi_turn_long-1d160f35",
+   "family": "multi_turn_long",
+   "lang": "it",
+   "source_turns": 6,
+   "user_turns": [
+    "Camera a Torino nei pressi di corso Giulio Cesare",
+    "Senza budget ,basta che sia in zona ,per le ore 12",
+    "L’ingresso deve essere per le ore 12.00",
+    "L’ingresso deve essere per le ore 12.00",
+    "L’ingresso deve essere per le ore 12.00",
+    "Il check-in deve essere per le ore 12"
+   ],
+   "expected": "Le profil persiste entre les tours (ville/budget/créneau), pas de re-question sur une info déjà donnée."
+  },
+  {
+   "id": "multi_turn_long-a327653e",
+   "family": "multi_turn_long",
+   "lang": "de",
+   "source_turns": 7,
+   "user_turns": [
+    "Ein günstiges stundenhotel für 3-4 Stunden für 2 Personen in nrw",
+    "50€",
+    "Location egal",
+    "Stadt ist egal",
+    "Budget 60 €",
+    "zeitfenster fleixbel",
+    "Zeitfenster flexibel"
+   ],
+   "expected": "Le profil persiste entre les tours (ville/budget/créneau), pas de re-question sur une info déjà donnée."
+  },
+  {
+   "id": "multi_turn_long-3979bc02",
+   "family": "multi_turn_long",
+   "lang": "es",
+   "source_turns": 5,
+   "user_turns": [
+    "Quiero saber acerca de costes",
+    "Al coste de la reserva",
+    "Quiero una estancia de 7 horas",
+    "Barcelona",
+    "100€"
+   ],
+   "expected": "Le profil persiste entre les tours (ville/budget/créneau), pas de re-question sur une info déjà donnée."
+  },
+  {
+   "id": "simple_search-e755f211",
+   "family": "simple_search",
+   "lang": "fr",
+   "source_turns": 1,
+   "user_turns": [
+    "Chambre en journée près de moi"
+   ],
+   "expected": "Recherche simple → cartes hôtels dès le 1er ou 2e tour, question de clarification unique au plus."
+  },
+  {
+   "id": "simple_search-e262f02b",
+   "family": "simple_search",
+   "lang": "it",
+   "source_turns": 2,
+   "user_turns": [
+    "modena",
+    "modena"
+   ],
+   "expected": "Recherche simple → cartes hôtels dès le 1er ou 2e tour, question de clarification unique au plus."
+  },
+  {
+   "id": "simple_search-7206639b",
+   "family": "simple_search",
+   "lang": "de",
+   "source_turns": 1,
+   "user_turns": [
+    "Stundenhotel 17.30 bis 20.30 Peine und Umgebung"
+   ],
+   "expected": "Recherche simple → cartes hôtels dès le 1er ou 2e tour, question de clarification unique au plus."
+  },
+  {
+   "id": "simple_search-85933a05",
+   "family": "simple_search",
+   "lang": "es",
+   "source_turns": 2,
+   "user_turns": [
+    "Un hotel cerca del aeropuerto de barajas T4 salidas o en San Sebastián de los reyes cerca de centro comercial Zona Norte 2",
+    "Horario de 11 a 16"
+   ],
+   "expected": "Recherche simple → cartes hôtels dès le 1er ou 2e tour, question de clarification unique au plus."
+  }
+ ]
+}
