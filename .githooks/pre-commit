@@ -1,0 +1,5 @@
+#!/usr/bin/env bash
+# Local gate: Dayuse static guardrails on every commit (enable once per clone:
+# git config core.hooksPath .githooks).
+set -euo pipefail
+bash "$(git rev-parse --show-toplevel)/scripts/dayuse_guardrails.sh" "$(git rev-parse --show-toplevel)"
