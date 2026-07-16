@@ -32,7 +32,23 @@ Orchestrateur conversationnel B2C (ADK Python) remplaçant `agent-usa` (POC Flas
 
 ## Commandes
 
-(À remplir dès la session S1 — scaffolding. CI attendue : lint, typecheck, tests, `dayuse_guardrails.sh`, `adk eval` sur `evalset/evalset-v0.json`.)
+```bash
+# Setup (une fois par clone)
+uv venv --python 3.12 .venv
+uv pip install --python .venv/bin/python -r agents/hotel_search_agent/requirements.txt -r requirements-dev.txt
+git config core.hooksPath .githooks   # guardrails en pre-commit
+
+# Run local — feuille search sur :8101 (source .env si présent ; aucun appel LLM/MCP au boot)
+bash scripts/run_local.sh
+
+# Tests (offline — ni réseau ni clé API)
+.venv/bin/pytest -q
+
+# Guardrails statiques Dayuse (aussi exécutés par le hook pre-commit)
+bash scripts/dayuse_guardrails.sh .
+```
+
+(CI complète en S3 : lint, typecheck, tests, guardrails, `adk eval` sur `evalset/evalset-v0.json`.)
 
 ## Fin de session — OBLIGATOIRE
 
