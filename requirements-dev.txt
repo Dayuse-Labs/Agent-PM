@@ -1,0 +1,3 @@
+# Dev/test only — runtime deps live in agents/*/requirements.txt.
+pytest~=8.3
+httpx  # starlette TestClient backend (also pulled transitively by litellm)
