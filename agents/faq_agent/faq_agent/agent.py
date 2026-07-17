@@ -42,9 +42,11 @@ MODEL = LiteLlm(model=os.environ.get("DAYUSE_MODEL", "gpt-4o-mini"))
 def build_connection_params() -> StreamableHTTPConnectionParams:
     """Connection params for the MCP_B2C Streamable-HTTP server (read-only ES).
 
-    MCP_B2C_AUTH_TOKEN travels as a Bearer header and never enters the model
-    context. Only send Authorization when a token is actually set: an empty
-    value ("Bearer ") is an ILLEGAL header (h11 rejects the trailing
+    MCP_B2C_AUTH_TOKEN travels as a standard RFC 6750 Bearer header (the
+    server initially compared the raw header value and rejected the Bearer
+    scheme; fixed server-side and deployed on 2026-07-17). It never enters
+    the model context. Only send Authorization when a token is actually set:
+    an empty value ("Bearer ") is an ILLEGAL header (h11 rejects the trailing
     whitespace) and would fail MCP session creation. .strip() guards a stray
     newline. Not validated eagerly — a bad URL/token fails loudly on the first
     tool call (connection is lazy, same pattern as hotel_search_agent).

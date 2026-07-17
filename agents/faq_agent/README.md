@@ -19,7 +19,7 @@ La feuille ne détient AUCUN état : pas de Redis, pas de session — le Redis d
 
 S2 fige l'enveloppe uniquement ; les champs métier internes suivent les mêmes sessions de durcissement que la recherche (S4/S5).
 
-⚠️ Côté MCP_B2C, `get_faq_conditions` est **en review, non mergé** (état au 2026-07-16) : tant qu'il n'est pas exposé par le serveur, l'allowlist filtre à zéro tool et la feuille répond en le disant dans `diagnostics` (jamais d'invention).
+`get_faq_conditions` est exposé par le MCP_B2C staging depuis le 2026-07-17. Si le serveur cible ne l'expose pas, l'allowlist filtre à zéro tool et la feuille répond en le disant dans `diagnostics` (jamais d'invention).
 
 ## Lancer / tester
 
@@ -38,7 +38,7 @@ bash scripts/dayuse_guardrails.sh .
 | `DAYUSE_MODEL` | `gpt-4o-mini` | Slug LiteLLM (D3 — jamais de SDK cloud direct) |
 | `OPENAI_API_KEY` | — | Clé du provider LiteLLM (aucun appel au boot, connexions lazy) |
 | `MCP_B2C_URL` | `http://localhost:8099/mcp` | Serveur MCP_B2C Streamable HTTP (placeholder local ; staging via `.env`) |
-| `MCP_B2C_AUTH_TOKEN` | (vide) | Bearer MCP ; header omis si vide, jamais dans le contexte modèle |
+| `MCP_B2C_AUTH_TOKEN` | (vide) | Bearer MCP standard (RFC 6750 — accepté côté serveur depuis le fix du 2026-07-17) ; header omis si vide, jamais dans le contexte modèle |
 | `FAQ_MCP_TIMEOUT_SECONDS` | `5.0` | Budget MCP, propriété de cette feuille |
 | `A2A_HOST` | `localhost` | Hôte joignable par les pairs — écrit dans l'URL de la carte servie |
 | `PORT` | `8102` | Port d'écoute (plage AgentB2C : 8100 concierge / 8101 search / 8102 faq) |

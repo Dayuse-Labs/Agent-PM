@@ -2,9 +2,18 @@
 
 État du chantier pour reprise en session fraîche. **Lire en entier avant d'agir ; ne pas reconstruire ce qui existe.** Mettre à jour en fin de CHAQUE session (bloc daté en tête).
 
+## ⏱ État au 2026-07-17 (suite) — post-merge S2 : MCP_B2C complet + retour au Bearer standard
+
+**Fait (branche `fix-mcp-bearer-standard`, PR ouverte)** :
+- ⚠️ **La PR #2 a été mergée à `b36a2e0`, AVANT les 2 derniers commits de la branche S2** (`d6dab14` compteur LLM visible au runtime, `0137c93` contrat MCP + date smoke + drain run_local) — ils n'étaient PAS dans main. **Cherry-pickés dans cette PR.** Leçon : après un push tardif sur une PR déjà mergée, GitHub ne re-merge rien et ne prévient pas.
+- Côté MCP_B2C (fix de Fabien déployé le 2026-07-17, vérifié au probe) : **`Bearer <token>` accepté** (token brut toujours toléré en rétro-compat), et **les 6 tools sont exposés** (`get_faq_conditions` et `generate_booking_link` inclus). Les 2 feuilles sont **rebasculées sur le header Bearer standard** (RFC 6750) + tests/README alignés.
+- `.env` : renommage `MCP_B2C_TOKEN` → `MCP_B2C_AUTH_TOKEN` fait par Fabien — plus aucun mapping nécessaire, `run_local.sh` + `smoke_e2e.py` tournent tels quels.
+
+**Reste** : review + merge de cette PR, puis S3 (prompt dans `PROMPTS-SESSIONS.md`).
+
 ## ⏱ État au 2026-07-17 — S2 terminée (feuille faq-agent + orchestrateur b2c-concierge)
 
-**Fait (branche `s2-faq-orchestrateur`, PR ouverte — la review de Fabien reste le gate, rien n'est mergé)** :
+**Fait (branche `s2-faq-orchestrateur`, **PR #2 mergée le 2026-07-17** — mais voir bloc « suite » ci-dessus : les 2 derniers commits ont raté le merge)** :
 - `agents/faq_agent/` : miroir exact de la feuille S1 (allowlist `["get_faq_conditions"]`, `FAQ_MCP_TIMEOUT_SECONDS` 5 s, bearer D7 fail-closed, carte non signée, Dockerfile :8102, README = D1 + parades latence + RGPD). ⚠️ côté serveur MCP_B2C, `get_faq_conditions` est **en review non mergé** : l'allowlist filtre à zéro tool en attendant, la feuille répond en le disant dans `diagnostics`.
 - `agents/b2c_concierge/` : **spine code-owned** custom `BaseAgent` (pattern `cs_copilot`, PAS de LlmAgent+sub_agents) —
   - ack fast-path regex (0 LLM) → template ; **triage** 1 appel LLM éco `{family, language}` + **fallback regex** sur tout échec (aucun retry : LiteLLM est la seule couche de retry) ;
@@ -14,10 +23,17 @@
   - **compteur LLM/tour** (`budget.py`) : cap 3, `LlmBudgetExceededError` au-delà ; test `test_spine.py::test_simple_search_turn_stays_within_llm_budget` échoue si > 3 ; métriques logs `b2c_concierge.metrics` **sans contenu de message** (verrouillé par `test_logs_never_contain_message_content`).
 - **Restructuration nécessaire** : `serve.py` déplacé DANS chaque package (`<pkg>.serve:app`, Dockerfiles mis à jour) + `pytest --import-mode=importlib` + pythonpath des 3 agents — sans ça, collision du module `serve` entre les 3 services co-testés.
 - `scripts/run_local.sh` : boote les 3 services (pids + logs `.run-logs/`, readiness = carte, `stop`) ; `scripts/smoke_e2e.py` : 3 tours (ack + search + faq) via l'orchestrateur.
-- **DoD exécutée** : `pytest -q` → **110 passed** ; guardrails OK ; boot des 3 services OK ; **smoke PASS** — ack = chemin nominal complet (12 ms, 0 LLM) ; search/faq = chemin de **dégradation honnête** (pas d'`OPENAI_API_KEY` dans l'env de dev) : le fallback regex a routé les bonnes familles, les legs A2A ont **atteint les feuilles** (bearer accepté, 200, la feuille a tenté son LLM interne). **Le chemin nominal LLM+MCP n'est PAS exercé localement (aucune clé disponible)** — à re-smoker avec un `.env` (OPENAI_API_KEY + MCP_B2C_URL staging) : `bash scripts/run_local.sh && python scripts/smoke_e2e.py`.
+- **DoD exécutée** : `pytest -q` → **110 passed** ; guardrails OK ; boot des 3 services OK ; **smoke PASS** — d'abord sans clé (dégradation honnête exercée de bout en bout), puis **avec `OPENAI_API_KEY` (.env ajouté par Fabien le 2026-07-17)** : chemin nominal LLM confirmé aux métriques runtime — ack `llm_calls=0` (6 ms), search et faq `llm_calls=3 phases=triage,leaf_llm,synthesis status=ok` (~6,8 s). ⚠️ `OPENAI_MODEL` (ajouté aussi) n'est lu par RIEN — le knob modèle est `DAYUSE_MODEL`.
+- **MCP_B2C staging branché le 2026-07-17** (URL + token ajoutés par Fabien) — validé par probe direct : session OK, **vraies données** (`search_offers` Paris → NH Paris Gare de l'Est, 6 offres, payload 28 Ko). Découvertes de contrat, TOUTES vérifiées empiriquement :
+  - ~~**Auth = token BRUT dans `Authorization`**~~ (résolu le 2026-07-17 : fix serveur déployé, Bearer standard accepté — voir bloc « suite ») ; renommage `.env` fait.
+  - ~~Le staging n'expose que **4 tools**~~ (résolu : les 6 tools sont exposés depuis le redeploy du 2026-07-17).
+  - `search_offers` **exige `lat`/`lon` numériques + `date`** — aucun géocodage serveur : le Mapbox de S4 est indispensable (aujourd'hui gpt-4o-mini fournit les coords de tête — les guards géo S4 rendront ça déterministe) ; « demain » sans date explicite part n'importe où (date anchoring S4 — le smoke épingle une date absolue).
+- **Latence feuille search sur payload réel : ~10,5 s** (2 passes LLM internes obligatoires avec ADK — le modèle doit INGÉRER les 28 Ko — même avec l'instruction « top 5 compact » ajoutée) → **dépasse le budget 10 s de l'orchestrateur** → le tour search via concierge dégrade honnêtement de façon quasi systématique. Le budget 10 s est un invariant, on n'y touche PAS : la correction appartient à S4/S6 (troncature code-owned du payload tool AVANT le modèle, ground-truth ≤ 5, streaming). Preuve du chemin data : appel direct feuille = offres réelles compactes en 10,5 s.
+- **Dérive de grounding observée** : sans tool disponible, le LLM feuille (faq) répond du savoir générique au lieu de refuser strictement — l'instruction seule ne suffit pas, confirmé empiriquement = spec vivante des guards S4-S7.
+- Piège `run_local.sh` corrigé : après `kill`, attendre la mort effective du process (un uvicorn en drain tient encore le port et répond au probe de readiness à la place de son successeur → « Connection refused » juste après « ready »).
 
 **Reste** :
-- Fabien : review + merge de la PR S2 ; re-run du smoke avec un `.env` réel (validation du chemin nominal).
+- ~~Fabien : review + merge de la PR S2 ; re-run du smoke avec un `.env` réel~~ (faits le 2026-07-17).
 - S3 : `dayuse_agent_common` (`build_model()` per-phase — le triage doit rester éco quand le modèle de synthèse montera —, `metrics_pg` → `llm_metric_events` + verrou test contenu, budget tool-calls), CI complète.
 - Notes S4/S5 : l'enveloppe DataPart `{query_params, profile_in}` n'est **pas encore émise par le spine** (les feuilles reçoivent le texte utilisateur transmis par `RemoteA2aAgent` ; mécanisme identifié pour S4/S5 : encodage `inline_data` `<a2a_datapart_json>` du part converter ADK) ; sessions du concierge en mémoire process (Redis + TTL = S5) ; comportement historique de `RemoteA2aAgent` en multi-tour à trancher en S5 (`full_history_when_stateless`).
 - Exception D7 toujours ouverte — désormais sur **3 services** (cartes non signées + bearers statiques) ; échéance inchangée : oidc-mtls avant le canary S11.
