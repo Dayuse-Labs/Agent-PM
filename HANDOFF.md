@@ -2,6 +2,34 @@
 
 État du chantier pour reprise en session fraîche. **Lire en entier avant d'agir ; ne pas reconstruire ce qui existe.** Mettre à jour en fin de CHAQUE session (bloc daté en tête).
 
+## ⏱ État au 2026-07-17 — S2 terminée (feuille faq-agent + orchestrateur b2c-concierge)
+
+**Fait (branche `s2-faq-orchestrateur`, PR ouverte — la review de Fabien reste le gate, rien n'est mergé)** :
+- `agents/faq_agent/` : miroir exact de la feuille S1 (allowlist `["get_faq_conditions"]`, `FAQ_MCP_TIMEOUT_SECONDS` 5 s, bearer D7 fail-closed, carte non signée, Dockerfile :8102, README = D1 + parades latence + RGPD). ⚠️ côté serveur MCP_B2C, `get_faq_conditions` est **en review non mergé** : l'allowlist filtre à zéro tool en attendant, la feuille répond en le disant dans `diagnostics`.
+- `agents/b2c_concierge/` : **spine code-owned** custom `BaseAgent` (pattern `cs_copilot`, PAS de LlmAgent+sub_agents) —
+  - ack fast-path regex (0 LLM) → template ; **triage** 1 appel LLM éco `{family, language}` + **fallback regex** sur tout échec (aucun retry : LiteLLM est la seule couche de retry) ;
+  - **table de routage EN CODE** (`routing.py`) : search/faq → `RemoteA2aAgent` (clients httpx **persistants** avec bearer D7 sortant par feuille ; **`asyncio.timeout` 10 s SANS retry** = le vrai plafond, le timeout httpx ne borne pas un stream) ; details/compare/booking → **stubs inline** (`inline_tools.py`, réponse template honnête, 0 LLM de plus ; le stub `generate_booking_link` ne produit AUCUN lien par construction = posture R9) ; ack → template ;
+  - **dégradation honnête** (`templates.py`) : feuille injoignable → message qui le dit, zéro invention, pas de synthèse ;
+  - **UNE synthèse** litellm par tour (squelette S6) ; échec → texte feuille servi verbatim (grounded) ;
+  - **compteur LLM/tour** (`budget.py`) : cap 3, `LlmBudgetExceededError` au-delà ; test `test_spine.py::test_simple_search_turn_stays_within_llm_budget` échoue si > 3 ; métriques logs `b2c_concierge.metrics` **sans contenu de message** (verrouillé par `test_logs_never_contain_message_content`).
+- **Restructuration nécessaire** : `serve.py` déplacé DANS chaque package (`<pkg>.serve:app`, Dockerfiles mis à jour) + `pytest --import-mode=importlib` + pythonpath des 3 agents — sans ça, collision du module `serve` entre les 3 services co-testés.
+- `scripts/run_local.sh` : boote les 3 services (pids + logs `.run-logs/`, readiness = carte, `stop`) ; `scripts/smoke_e2e.py` : 3 tours (ack + search + faq) via l'orchestrateur.
+- **DoD exécutée** : `pytest -q` → **110 passed** ; guardrails OK ; boot des 3 services OK ; **smoke PASS** — ack = chemin nominal complet (12 ms, 0 LLM) ; search/faq = chemin de **dégradation honnête** (pas d'`OPENAI_API_KEY` dans l'env de dev) : le fallback regex a routé les bonnes familles, les legs A2A ont **atteint les feuilles** (bearer accepté, 200, la feuille a tenté son LLM interne). **Le chemin nominal LLM+MCP n'est PAS exercé localement (aucune clé disponible)** — à re-smoker avec un `.env` (OPENAI_API_KEY + MCP_B2C_URL staging) : `bash scripts/run_local.sh && python scripts/smoke_e2e.py`.
+
+**Reste** :
+- Fabien : review + merge de la PR S2 ; re-run du smoke avec un `.env` réel (validation du chemin nominal).
+- S3 : `dayuse_agent_common` (`build_model()` per-phase — le triage doit rester éco quand le modèle de synthèse montera —, `metrics_pg` → `llm_metric_events` + verrou test contenu, budget tool-calls), CI complète.
+- Notes S4/S5 : l'enveloppe DataPart `{query_params, profile_in}` n'est **pas encore émise par le spine** (les feuilles reçoivent le texte utilisateur transmis par `RemoteA2aAgent` ; mécanisme identifié pour S4/S5 : encodage `inline_data` `<a2a_datapart_json>` du part converter ADK) ; sessions du concierge en mémoire process (Redis + TTL = S5) ; comportement historique de `RemoteA2aAgent` en multi-tour à trancher en S5 (`full_history_when_stateless`).
+- Exception D7 toujours ouverte — désormais sur **3 services** (cartes non signées + bearers statiques) ; échéance inchangée : oidc-mtls avant le canary S11.
+
+**Pièges découverts en S2** :
+- `RemoteA2aAgent` construit le message sortant à partir des **événements de session** (aucun hook « message override ») ; le spine consomme les événements du leg **sans les re-yield** → réponse A2A propre côté client, MAIS la réponse feuille n'est pas persistée en session (le multi-tour se règle en S5 avec le profil).
+- Le timeout httpx ne plafonne PAS une réponse streamée (reset à chaque chunk) : le budget 10 s réel est l'`asyncio.timeout` de `_run_leaf`.
+- `.env` / `.env.example` sont **refusés par les permission settings** de l'agent Claude Code — les variables sont documentées dans les README de chaque service à la place.
+- Un token sortant vide n'est pas fatal au boot du concierge : la feuille fail-closed répond 401 et le tour dégrade honnêtement (jamais d'auth contournée) — comportement voulu, documenté dans le README concierge.
+
+**Ports + env (concierge)** : port **8100**. Env : `DAYUSE_MODEL` (déf. `gpt-4o-mini`), `OPENAI_API_KEY`, `HOTEL_SEARCH_CARD_URL` / `FAQ_AGENT_CARD_URL` (déf. localhost:8101/8102), `HOTEL_SEARCH_A2A_TOKEN` / `FAQ_AGENT_A2A_TOKEN` (bearers D7 sortants, par feuille), `CONCIERGE_LEAF_TIMEOUT_SECONDS` (10), `CONCIERGE_TRIAGE_TIMEOUT_SECONDS` (5), `CONCIERGE_SYNTHESIS_TIMEOUT_SECONDS` (15), `CONCIERGE_SYNTHESIS_NUM_RETRIES` (1), `A2A_HOST`, `PORT`, `A2A_BEARER_TOKEN` (**obligatoire**, fail-closed). Feuille faq : mêmes vars que la feuille search avec `FAQ_MCP_TIMEOUT_SECONDS`, port **8102**. Détail : README de chaque service.
+
 ## ⏱ État au 2026-07-16 — S1 terminée (socle repo + feuille hotel-search-agent)
 
 **Fait (branche `s1-socle-feuille-search`, poussée sur GitHub — merge en attente de review)** :
@@ -12,8 +40,8 @@
 - **DoD exécutée verte** : boot réel sur :8101 ; carte servie SANS bearer (`.name == "hotel_search_agent"`, `bearer-interim` déclaré) ; `GET /` sans bearer → 401, mauvais bearer → 401, bon bearer → 405 (≠401, gate passée) ; boot sans token → RuntimeError (fail-closed) ; `pytest -q` → 30 passed ; guardrails OK.
 
 **Reste** :
-- Fabien : review + merge de la PR #1 (github.com/Dayuse-Labs/AgentB2C/pull/1).
-- S2 : faq-agent + orchestrateur (voir `phases/S02-faq-orchestrateur.md`).
+- ~~Fabien : review + merge de la PR #1~~ (mergée le 2026-07-16).
+- ~~S2 : faq-agent + orchestrateur~~ (faite, voir bloc du 2026-07-17 ci-dessus).
 - S3 : brancher `dayuse_agent_common` (`build_model()`, metrics, budget tool-calls), CI complète.
 - Exception D7 ouverte : carte NON signée + bearer statique — bascule oidc-mtls au plus tard avant le canary S11 (documentée dans le README de la feuille).
 

@@ -38,8 +38,12 @@ uv venv --python 3.12 .venv
 uv pip install --python .venv/bin/python -r agents/hotel_search_agent/requirements.txt -r requirements-dev.txt
 git config core.hooksPath .githooks   # guardrails en pre-commit
 
-# Run local — feuille search sur :8101 (source .env si présent ; aucun appel LLM/MCP au boot)
+# Run local — 3 services : concierge :8100, search :8101, faq :8102 (pids + logs dans .run-logs/ ;
+# source .env si présent ; aucun appel LLM/MCP au boot). Stop : bash scripts/run_local.sh stop
 bash scripts/run_local.sh
+
+# Smoke e2e (les 3 services doivent tourner) — 1 tour ack + 1 search + 1 faq via l'orchestrateur
+python scripts/smoke_e2e.py
 
 # Tests (offline — ni réseau ni clé API)
 .venv/bin/pytest -q
