@@ -1,0 +1,33 @@
+{
+  "name": "faq_agent",
+  "description": "Answers Dayuse FAQ and policy questions (cancellation conditions, how day-use works) via the read-only MCP_B2C server; stateless — profile in/out through the A2A DataPart.",
+  "version": "0.1.0",
+  "url": "${AGENT_PUBLIC_URL}",
+  "provider": {
+    "organization": "Dayuse",
+    "url": "https://dayuse.com"
+  },
+  "capabilities": {
+    "streaming": true
+  },
+  "defaultInputModes": ["text/plain", "application/json"],
+  "defaultOutputModes": ["text/plain", "application/json"],
+  "skills": [
+    {
+      "id": "faq_conditions",
+      "name": "faq_conditions",
+      "description": "Given query_params (a question about Dayuse conditions, policies, or how day-use works) plus profile_in, returns {results, profile_delta, diagnostics} from the read-only MCP_B2C tool get_faq_conditions. Stateless: no session, no Redis.",
+      "tags": ["dayuse", "b2c", "faq", "policy", "day-use"]
+    }
+  ],
+  "securitySchemes": {
+    "bearer-interim": {
+      "type": "http",
+      "scheme": "bearer",
+      "description": "Interim static bearer over the private network (D7 exception, unsigned card); replaced by oidc-mtls at the latest before the S11 canary."
+    }
+  },
+  "security": [
+    { "bearer-interim": [] }
+  ]
+}
