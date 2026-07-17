@@ -1,5 +1,5 @@
 {
-  "name": "hotel_search_agent",
+  "name": "b2c_hotel_search",
   "description": "Searches Dayuse day-use hotel offers (by destination or by hotel name) via the read-only MCP_B2C server; stateless — profile in/out through the A2A DataPart.",
   "version": "0.1.0",
   "url": "${AGENT_PUBLIC_URL}",

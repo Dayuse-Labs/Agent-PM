@@ -83,8 +83,10 @@ class TestMcpConnection:
 
 
 class TestModel:
-    def test_agent_name(self):
-        assert root_agent.name == "faq_agent"
+    def test_agent_name_is_the_metrics_service_label(self):
+        # The ADK agent name feeds `service` in llm_metric_events — b2c_ prefixed
+        # to distinguish B2C rows from fleet rows in the shared Postgres (S3).
+        assert root_agent.name == "b2c_faq"
 
     def test_model_defaults_to_gpt_4o_mini(self, monkeypatch, reload_agent):
         monkeypatch.delenv("DAYUSE_MODEL", raising=False)
@@ -93,3 +95,35 @@ class TestModel:
     def test_model_is_driven_by_dayuse_model(self, monkeypatch, reload_agent):
         monkeypatch.setenv("DAYUSE_MODEL", "openrouter/some/model")
         assert reload_agent().root_agent.model.model == "openrouter/some/model"
+
+
+class TestMetricsWiring:
+    """S3: the lib's day-1 metrics callbacks + tool budget are wired; model
+    switching stays OFF (B2C serves the public)."""
+
+    @staticmethod
+    def _as_list(value):
+        return value if isinstance(value, list) else [value]
+
+    def test_llm_callbacks_wired(self):
+        from dayuse_agent_common import llm_error_metric, llm_timing_after, llm_timing_before
+
+        assert llm_timing_before in self._as_list(root_agent.before_model_callback)
+        assert llm_timing_after in self._as_list(root_agent.after_model_callback)
+        assert llm_error_metric in self._as_list(root_agent.on_model_error_callback)
+
+    def test_tool_callbacks_wired_with_budget(self):
+        from dayuse_agent_common import tool_error_metric, tool_timing_after, tool_timing_before
+
+        before = self._as_list(root_agent.before_tool_callback)
+        # timing FIRST (budget short-circuits the rest of the list), budget second.
+        assert before[0] is tool_timing_before
+        assert len(before) == 2
+        assert tool_timing_after in self._as_list(root_agent.after_tool_callback)
+        assert tool_error_metric in self._as_list(root_agent.on_tool_error_callback)
+
+    def test_no_model_switch_callback(self):
+        # A per-request MODEL: override must never be honored on public traffic.
+        from dayuse_agent_common import switch_model_callback
+
+        assert switch_model_callback not in self._as_list(root_agent.before_model_callback)

@@ -9,6 +9,7 @@ Locks the S2 structural invariants:
 - logs and metrics never carry message content (GDPR).
 """
 import asyncio
+import json
 import logging
 from types import SimpleNamespace
 
@@ -187,6 +188,32 @@ class TestHonestDegradation:
             answer = _drive(USER_MESSAGE_SEARCH)
         assert answer == "GROUNDED LEAF TEXT"
         assert _turn_metric(caplog)["status"] == "synthesis_fallback"
+
+
+class TestGdprMetricEvents:
+    def test_metric_events_never_contain_message_content(self, scripted, monkeypatch):
+        """S3 lock: every llm_metric_events row the spine emits carries counters
+        and labels only — never the user message (GDPR invariant)."""
+        import b2c_concierge.triage as triage_module
+
+        events: list[dict] = []
+
+        def capture(event_type, service, invocation_id, **fields):
+            events.append({"event_type": event_type, "service": service, **fields})
+
+        monkeypatch.setattr(agent_module, "enqueue_metric_event", capture)
+        monkeypatch.setattr(triage_module, "enqueue_metric_event", capture)
+        scripted(
+            '{"family": "search", "language": "fr"}',
+            "Réponse synthétisée.",
+            leaf_text="results: hotel A",
+        )
+        _drive(USER_MESSAGE_SEARCH)
+        assert {e["event_type"] for e in events} >= {"llm_call", "turn"}
+        assert all(e["service"] == "b2c_concierge" for e in events)
+        blob = json.dumps(events, ensure_ascii=False)
+        assert "Paris" not in blob
+        assert USER_MESSAGE_SEARCH not in blob
 
 
 class TestGdprLogs:

@@ -17,13 +17,17 @@ import json
 import logging
 import os
 import re
+import time
 from dataclasses import dataclass
 
 import litellm
+from dayuse_agent_common import cost_from_tokens, enqueue_metric_event, provider_cost_usd
 
 from .budget import TurnBudget
 
 logger = logging.getLogger(__name__)
+
+SERVICE = "b2c_concierge"
 
 FAMILIES = ("search", "faq", "details", "compare", "booking", "ack")
 FALLBACK_FAMILY = "search"
@@ -128,12 +132,14 @@ def _parse_triage_json(text: str) -> dict | None:
     return data if isinstance(data, dict) else None
 
 
-async def classify(message: str, budget: TurnBudget) -> Triage:
+async def classify(message: str, budget: TurnBudget, invocation_id: str = "") -> Triage:
     """ONE economy LLM classify, charged to the turn budget BEFORE the call
     (an attempt consumes the slot). Any failure falls back to regex — never
-    a retry, never a hard fail."""
+    a retry, never a hard fail. Emits one llm_call metric row (phase=triage,
+    counters only — never the message, GDPR)."""
     budget.charge("triage")
     model_slug = os.environ.get("DAYUSE_MODEL", "gpt-4o-mini")
+    t0 = time.monotonic()
     try:
         resp = await litellm.acompletion(
             model=model_slug,
@@ -146,8 +152,35 @@ async def classify(message: str, budget: TurnBudget) -> Triage:
         )
     except Exception as exc:  # noqa: BLE001 — triage must never hard-fail; fall back to regex
         logger.warning("b2c_concierge: triage LLM failed, using regex fallback: %s", type(exc).__name__)
+        enqueue_metric_event(
+            "llm_call",
+            service=SERVICE,
+            invocation_id=invocation_id,
+            agent=SERVICE,
+            model=model_slug,
+            ms=int((time.monotonic() - t0) * 1000),
+            status="error",
+            error_type=type(exc).__name__,
+            phase="triage",
+        )
         return Triage(fallback_family(message), guess_language(message), used_llm=False)
 
+    usage = getattr(resp, "usage", None)
+    prompt_tokens = getattr(usage, "prompt_tokens", None) or 0
+    completion_tokens = getattr(usage, "completion_tokens", None) or 0
+    enqueue_metric_event(
+        "llm_call",
+        service=SERVICE,
+        invocation_id=invocation_id,
+        agent=SERVICE,
+        model=model_slug,
+        ms=int((time.monotonic() - t0) * 1000),
+        status="ok",
+        prompt_tokens=prompt_tokens,
+        completion_tokens=completion_tokens,
+        cost_usd=provider_cost_usd(resp) or cost_from_tokens(model_slug, prompt_tokens, completion_tokens),
+        phase="triage",
+    )
     data = _parse_triage_json(resp.choices[0].message.content or "") or {}
     family = data.get("family")
     if family not in FAMILIES:
