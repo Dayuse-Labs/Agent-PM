@@ -47,6 +47,13 @@ from .triage import classify, guess_language, is_social_ack
 
 logger = logging.getLogger(__name__)
 metrics_logger = logging.getLogger("b2c_concierge.metrics")
+# uvicorn configures only its own loggers: without a handler here the per-turn
+# counter would be dropped at runtime (root logger defaults to WARNING). Own
+# stdout handler + propagate kept True (pytest caplog reads propagated records).
+# S3 replaces this with dayuse_agent_common.metrics/metrics_pg.
+if not metrics_logger.handlers:
+    metrics_logger.setLevel(logging.INFO)
+    metrics_logger.addHandler(logging.StreamHandler())
 
 # Single owner of the leaf budget (orchestrator → feuille): 10 s, NO retry —
 # an unreachable leaf degrades the turn honestly (audit lesson: today's prod
