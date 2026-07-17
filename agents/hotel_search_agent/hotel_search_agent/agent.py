@@ -37,18 +37,21 @@ MODEL = LiteLlm(model=os.environ.get("DAYUSE_MODEL", "gpt-4o-mini"))
 def build_connection_params() -> StreamableHTTPConnectionParams:
     """Connection params for the MCP_B2C Streamable-HTTP server (read-only ES).
 
-    MCP_B2C_AUTH_TOKEN travels as a Bearer header and never enters the model
-    context. Only send Authorization when a token is actually set: an empty
-    value ("Bearer ") is an ILLEGAL header (h11 rejects the trailing
-    whitespace) and would fail MCP session creation. .strip() guards a stray
-    newline. Not validated eagerly — a bad URL/token fails loudly on the first
-    tool call (connection is lazy, same pattern as the fleet leaves).
+    MCP_B2C_AUTH_TOKEN travels in the Authorization header as the RAW token —
+    the MCP_B2C server compares the full header value to its secret and
+    REJECTS an RFC-style "Bearer <token>" (observed contract of the staging
+    server, 2026-07-17: "Bearer x" → 401 Invalid token, raw x → 200). It never
+    enters the model context. Only send Authorization when a token is actually
+    set (an empty header is illegal and would fail MCP session creation);
+    .strip() guards a stray newline. Not validated eagerly — a bad URL/token
+    fails loudly on the first tool call (connection is lazy, same pattern as
+    the fleet leaves).
 
     The 5 s default timeout is this leaf's OWNED budget for its MCP dependency
     (single-owner rule); the circuit breaker lands on this path in S4.
     """
     token = os.environ.get("MCP_B2C_AUTH_TOKEN", "").strip()
-    headers = {"Authorization": f"Bearer {token}"} if token else {}
+    headers = {"Authorization": token} if token else {}
     return StreamableHTTPConnectionParams(
         # Local placeholder default — dev points at the staging MCP_B2C via .env
         # (staging is OK to develop against, FORBIDDEN for the shadow-run).
@@ -76,6 +79,10 @@ request, and everything you learned must be returned in the response.
 How to act, frugally (at most ONE reasoning pass — no tool-call loops):
 - A destination/area search → call search_offers with the query params.
 - A specific hotel named by the user → call find_hotel_by_name.
+- Keep the response SMALL: report AT MOST the top 5 results, each with only
+  the fields a booking decision needs (name, address, rating, and per-offer
+  price/hours/bedding). NEVER paste the raw tool payload — the caller has a
+  strict latency budget. (The deterministic ≤5 ground-truth cap lands in S6.)
 - Then return the outcome as structured data matching the response contract:
   `results` (the offers/hotels found, as returned by the tool), `profile_delta`
   (only the NEW facts this turn taught about the user, e.g. a city preference;
