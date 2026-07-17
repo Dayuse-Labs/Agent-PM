@@ -4,35 +4,28 @@ A2A_HOST must be the host peers can reach (e.g. hotel-search-agent.railway.inter
 written into the served card's url, and RemoteA2aAgent callers POST to that url — with the
 default localhost a remote caller would call ITSELF.
 
-Interim identity (D7), an AgentB2C requirement the fleet does not have yet:
+Interim identity (D7), an AgentB2C requirement the fleet does not have yet — consolidated
+in b2c_common.auth (S3) so the oidc-mtls switch happens in one place:
 - every route requires `Authorization: Bearer $A2A_BEARER_TOKEN`, EXCEPT the agent card
   (discovery must stay open);
-- FAIL-CLOSED: the process refuses to start without a token — "dev-insecure" is never deployed;
+- FAIL-CLOSED: the process refuses to start without a token;
 - the card is served UNSIGNED (sign_agent_card is not implemented in dayuse_agent_common yet):
   documented D7 exception, deadline = oidc-mtls switch, at the latest before the S11 canary.
 """
 import asyncio
-import hmac
 import os
 
 from a2a.types import AgentCapabilities, HTTPAuthSecurityScheme, SecurityScheme
+from b2c_common import BearerAuthMiddleware, require_bearer_token
 from google.adk.a2a.utils.agent_card_builder import AgentCardBuilder
 from google.adk.a2a.utils.agent_to_a2a import to_a2a
-from starlette.responses import JSONResponse
 
 from hotel_search_agent.agent import root_agent
-
-AGENT_CARD_PATH = "/.well-known/agent-card.json"
 
 _HOST = os.environ.get("A2A_HOST", "localhost")
 _PORT = int(os.environ.get("PORT", "8101"))
 
-_BEARER_TOKEN = os.environ.get("A2A_BEARER_TOKEN", "").strip()
-if not _BEARER_TOKEN:
-    raise RuntimeError(
-        "A2A_BEARER_TOKEN is missing/empty: this leaf fails closed (D7 — dev-insecure is never "
-        "deployed). Set it in the environment (any non-empty static token for local dev)."
-    )
+_BEARER_TOKEN = require_bearer_token()
 
 # to_a2a auto-builds a card with no securitySchemes and capabilities.streaming unset; build it
 # ourselves (cs_copilot precedent) to advertise streaming AND the D7 interim bearer scheme so
@@ -57,31 +50,6 @@ _agent_card.security_schemes = {
     )
 }
 _agent_card.security = [{"bearer-interim": []}]
-
-
-class BearerAuthMiddleware:
-    """Pure-ASGI D7 gate: constant-time bearer check on every route except the card."""
-
-    def __init__(self, app, token: str) -> None:
-        self._app = app
-        self._expected = f"Bearer {token}".encode()
-
-    async def __call__(self, scope, receive, send):
-        if scope["type"] != "http" or scope["path"] == AGENT_CARD_PATH:
-            await self._app(scope, receive, send)
-            return
-        authorization = next(
-            (value for key, value in scope["headers"] if key == b"authorization"), b""
-        )
-        if not hmac.compare_digest(authorization, self._expected):
-            response = JSONResponse(
-                {"detail": "unauthorized"},
-                status_code=401,
-                headers={"WWW-Authenticate": "Bearer"},
-            )
-            await response(scope, receive, send)
-            return
-        await self._app(scope, receive, send)
 
 
 app = to_a2a(root_agent, host=_HOST, port=_PORT, agent_card=_agent_card)
