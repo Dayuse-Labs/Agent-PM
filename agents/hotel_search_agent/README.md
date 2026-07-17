@@ -16,7 +16,7 @@ S1 fige l'enveloppe uniquement ; les champs métier internes sont spécifiés en
 Depuis la racine du repo (voir `CLAUDE.md` § Commandes) :
 
 ```bash
-bash scripts/run_local.sh        # boote sur :8101 (source .env si présent)
+bash scripts/run_local.sh        # boote les 3 services (search sur :8101)
 .venv/bin/pytest -q              # tests offline (ni réseau ni clé API)
 bash scripts/dayuse_guardrails.sh .
 ```

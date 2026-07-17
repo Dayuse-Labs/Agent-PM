@@ -1,0 +1,39 @@
+"""Per-turn LLM-call budget of the b2c-concierge spine (structural invariant).
+
+The structural budget is <= 3 LLM calls on a typical turn (audit invariant):
+economy triage + the leaf's internal 0-1 call + ONE synthesis. The spine
+charges the budget BEFORE each call site (an attempt consumes budget) and
+charges 1 slot when a leaf leg runs (the leaf's contract allows it 0-1
+internal LLM call). Exceeding the cap raises: a guard never re-runs a loop,
+so a 4th call is a programming error to fail loudly on, never to retry
+around.
+
+S2: in-memory counter + one log line per turn, no message content (GDPR).
+S3 plugs dayuse_agent_common metrics_pg on top of the same counter.
+"""
+from __future__ import annotations
+
+from dataclasses import dataclass, field
+
+MAX_LLM_CALLS_PER_TURN = 3
+
+
+class LlmBudgetExceededError(RuntimeError):
+    """A 4th LLM call was attempted in one turn — structural bug, fail loudly."""
+
+
+@dataclass
+class TurnBudget:
+    """Counts the LLM-call slots spent on ONE turn; created fresh each turn."""
+
+    llm_calls: int = 0
+    phases: list[str] = field(default_factory=list)
+
+    def charge(self, phase: str) -> None:
+        if self.llm_calls >= MAX_LLM_CALLS_PER_TURN:
+            raise LlmBudgetExceededError(
+                f"LLM budget exceeded: {self.llm_calls} call(s) already spent this turn, "
+                f"refusing '{phase}' (max {MAX_LLM_CALLS_PER_TURN}/turn)"
+            )
+        self.llm_calls += 1
+        self.phases.append(phase)
