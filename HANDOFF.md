@@ -2,6 +2,27 @@
 
 État du chantier pour reprise en session fraîche. **Lire en entier avant d'agir ; ne pas reconstruire ce qui existe.** Mettre à jour en fin de CHAQUE session (bloc daté en tête).
 
+## ⏱ État au 2026-07-17 — S3 terminée (socle transverse : lib commune, métriques, CI, éval)
+
+**Fait (branche `s3-socle-transverse`, PR ouverte)** :
+- **`dayuse_agent_common` en dépendance git PINNÉE** (mode d'install **acté avec Fabien** — décision de session) : `dayuse-agent-common @ git+ssh://…dayuse-agent-fleet.git@8071917…#subdirectory=libs/dayuse_agent_common` dans les requirements des 3 agents. Jamais de copie du code ; bump du SHA délibéré. ⚠️ repo fleet PRIVÉ : la CI et les builds d'image ont besoin d'un accès lecture (`FLEET_READ_TOKEN`, insteadOf https) — **secret à créer par Fabien sur le repo GitHub** ; wiring build Docker complet en S10/S11.
+- **`libs/b2c_common`** (nouveau package interne, layout fleet, COPY dans les 3 Dockerfiles) : identité intérimaire D7 consolidée en UN point (`require_bearer_token` fail-closed + `BearerAuthMiddleware`) — la lib fleet ne vérifie AUCUN bearer entrant, le régime AgentB2C reste plus strict ; la bascule oidc-mtls (échéance S11) se fera dans ce seul module. **Verrou `dev-insecure`** : `test_no_dev_insecure_in_deploy_configs` échoue si la chaîne atteint Dockerfiles/workflows/manifests.
+- **Métriques jour 1** : feuilles = `build_model()` (défaut B2C `gpt-4o-mini` conservé — ⚠️ le défaut de la lib est un slug OpenRouter) + callbacks lib (llm/tool timing + erreurs) + `make_tool_budget_callback(2)` ; PAS de `switch_model_callback` (trafic public). Spine = `enqueue_metric_event` sur `turn`/`leaf_call`/`llm_call` (phase=triage|synthesis, tokens+coût). **Noms d'agents renommés `b2c_hotel_search`/`b2c_faq`** (le nom EST le label `service` des métriques — dashes de la spec → underscores, contrainte identifiant ADK ; cartes + tests alignés, l'orchestrateur résout par URL donc zéro impact A2A). **Verrou RGPD étendu aux événements** (`test_metric_events_never_contain_message_content`) en plus des logs.
+- **CI GitHub Actions** (`.github/workflows/ci.yml` — transposition du plan GitLab au host réel du repo, décision S1) : ruff + mypy + pytest + guardrails (bloquants), job `adk eval` non bloquant (skippé sans `OPENAI_API_KEY`). Configs : `ruff.toml` (défauts, py312), `mypy.ini` (pragmatique, tests exclus — 3 packages `tests` homonymes).
+- **Evalset ADK** : `scripts/convert_evalset.py` (rejouable, validé pydantic) → `evalset/evalset-v0.adk.json` (32 cas, 118 tours, multi-tours préservés ; la rubrique `expected` = référence du dernier tour) + `evalset/test_config.json` (ROUGE 0,1 — indicatif en attendant un juge LLM).
+- **DoD exécutée verte** : `ruff check .` OK ; `mypy agents libs` OK (19 fichiers — `mypy src/` adapté au layout réel) ; `pytest -q` → **129 passed** ; guardrails OK ; **`adk eval` complet : 32 cas exécutés, 2 passed / 30 failed** (score libre assumé : squelette + rubrique≠verbatim) ; **Postgres jetable docker** : `SELECT service, count(*) FROM llm_metric_events GROUP BY 1` → `b2c_concierge=8, b2c_faq=3, b2c_hotel_search=3` sur un smoke (feuilles via callbacks lib, spine via enqueues) + **0 row contenant du contenu de message** (vérifié en SQL).
+
+**Reste** :
+- Fabien : review + merge PR S3 ; créer le secret **`FLEET_READ_TOKEN`** (PAT lecture fleet) et `OPENAI_API_KEY` sur le repo GitHub — sans le premier, le job CI `checks` échoue à l'install.
+- S4 (feuille search) : Mapbox + guards géo/date — l'eval montre exactement pourquoi (30/32 échecs dont la latence feuille > 10 s et l'absence de géocodage/ancrage date).
+- `GET /model` (serving.py de la lib) volontairement NON branché : sa résolution (`resolved_model()`) divergerait du défaut B2C `gpt-4o-mini` — à brancher quand `DAYUSE_MODEL` sera posé partout en env de déploiement.
+
+**Pièges découverts en S3** :
+- `mypy` ne tolère pas les 3 packages `tests` homonymes (importlib pytest oui) → tests exclus du typecheck, source seulement.
+- `adk eval` exige l'extra **`google-adk[eval]`** (rouge-score…) — absent des requirements des agents, installé par la CI eval et le setup dev.
+- L'historique d'eval s'écrit dans `agents/…/.adk/eval_history/` → gitignoré (`**/.adk/`).
+- Le process `adk eval` configure le root logging → les lignes `concierge_metric=` sortent en double dans ses logs (handler dédié + propagation) — cosmétique, pas un double comptage en base.
+
 ## ⏱ État au 2026-07-17 (suite) — post-merge S2 : MCP_B2C complet + retour au Bearer standard
 
 **Fait (branche `fix-mcp-bearer-standard`, PR ouverte)** :
