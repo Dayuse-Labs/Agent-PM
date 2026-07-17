@@ -37,21 +37,20 @@ MODEL = LiteLlm(model=os.environ.get("DAYUSE_MODEL", "gpt-4o-mini"))
 def build_connection_params() -> StreamableHTTPConnectionParams:
     """Connection params for the MCP_B2C Streamable-HTTP server (read-only ES).
 
-    MCP_B2C_AUTH_TOKEN travels in the Authorization header as the RAW token —
-    the MCP_B2C server compares the full header value to its secret and
-    REJECTS an RFC-style "Bearer <token>" (observed contract of the staging
-    server, 2026-07-17: "Bearer x" → 401 Invalid token, raw x → 200). It never
-    enters the model context. Only send Authorization when a token is actually
-    set (an empty header is illegal and would fail MCP session creation);
-    .strip() guards a stray newline. Not validated eagerly — a bad URL/token
-    fails loudly on the first tool call (connection is lazy, same pattern as
-    the fleet leaves).
+    MCP_B2C_AUTH_TOKEN travels as a standard RFC 6750 Bearer header (the
+    server initially compared the raw header value and rejected the Bearer
+    scheme; fixed server-side and deployed on 2026-07-17). It never enters
+    the model context. Only send Authorization when a token is actually set:
+    an empty value ("Bearer ") is an ILLEGAL header (h11 rejects the trailing
+    whitespace) and would fail MCP session creation. .strip() guards a stray
+    newline. Not validated eagerly — a bad URL/token fails loudly on the first
+    tool call (connection is lazy, same pattern as the fleet leaves).
 
     The 5 s default timeout is this leaf's OWNED budget for its MCP dependency
     (single-owner rule); the circuit breaker lands on this path in S4.
     """
     token = os.environ.get("MCP_B2C_AUTH_TOKEN", "").strip()
-    headers = {"Authorization": token} if token else {}
+    headers = {"Authorization": f"Bearer {token}"} if token else {}
     return StreamableHTTPConnectionParams(
         # Local placeholder default — dev points at the staging MCP_B2C via .env
         # (staging is OK to develop against, FORBIDDEN for the shadow-run).

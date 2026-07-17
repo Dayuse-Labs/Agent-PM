@@ -28,7 +28,7 @@ bash scripts/dayuse_guardrails.sh .
 | `DAYUSE_MODEL` | `gpt-4o-mini` | Slug LiteLLM (D3 — jamais de SDK cloud direct) |
 | `OPENAI_API_KEY` | — | Clé du provider LiteLLM (aucun appel au boot, connexions lazy) |
 | `MCP_B2C_URL` | `http://localhost:8099/mcp` | Serveur MCP_B2C Streamable HTTP (placeholder local ; staging via `.env`) |
-| `MCP_B2C_AUTH_TOKEN` | (vide) | Token MCP **brut** dans `Authorization` (le serveur refuse le schéma `Bearer` — contrat observé) ; header omis si vide, jamais dans le contexte modèle |
+| `MCP_B2C_AUTH_TOKEN` | (vide) | Bearer MCP standard (RFC 6750 — accepté côté serveur depuis le fix du 2026-07-17) ; header omis si vide, jamais dans le contexte modèle |
 | `HOTEL_SEARCH_MCP_TIMEOUT_SECONDS` | `5.0` | Budget MCP, propriété de cette feuille (circuit-breaker en S4) |
 | `A2A_HOST` | `localhost` | Hôte joignable par les pairs — écrit dans l'URL de la carte servie |
 | `PORT` | `8101` | Port d'écoute (plage AgentB2C : 8100 concierge / 8101 search / 8102 faq) |
