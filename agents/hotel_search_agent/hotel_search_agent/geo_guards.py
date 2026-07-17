@@ -18,6 +18,16 @@ turn's `profile_in` (owned by the orchestrator's session — S5).
 
 A guard never re-runs a loop: every function here is a single deterministic
 pass — reject/accept/demote once, never retry the reasoning.
+
+Generic geographic REFERENCE DATA (the raw 50 US state names/abbreviations,
+Unicode→ASCII transliteration) comes from `us` and `anyascii` rather than
+hand-copied tables — neither library is used anywhere else in the Dayuse
+ecosystem yet (checked agent-usa too: it hardcodes the same data), so this is
+a deliberate upgrade, not a break from precedent. What stays hardcoded below
+(`_TEXT_UNSAFE_STATE_ABBREVS`, `_GENERIC_LOCATION_WORDS`, `_ECHO_NOISE_WORDS`)
+is Dayuse's own curated judgment from the audited prod incidents — no library
+knows which 2-letter codes collide with common EN/FR/ES/IT/PT words, or which
+words are "generic" for OUR search product.
 """
 from __future__ import annotations
 
@@ -25,60 +35,18 @@ import re
 import unicodedata
 from dataclasses import dataclass
 
+import us
+from anyascii import anyascii
+
 # ── US state tables (echo-back + state-hint extraction) ─────────────────────
 
-US_STATE_ABBREV_TO_NAME = {
-    "al": "Alabama",
-    "ak": "Alaska",
-    "az": "Arizona",
-    "ar": "Arkansas",
-    "ca": "California",
-    "co": "Colorado",
-    "ct": "Connecticut",
-    "de": "Delaware",
-    "fl": "Florida",
-    "ga": "Georgia",
-    "hi": "Hawaii",
-    "id": "Idaho",
-    "il": "Illinois",
-    "in": "Indiana",
-    "ia": "Iowa",
-    "ks": "Kansas",
-    "ky": "Kentucky",
-    "la": "Louisiana",
-    "me": "Maine",
-    "md": "Maryland",
-    "ma": "Massachusetts",
-    "mi": "Michigan",
-    "mn": "Minnesota",
-    "ms": "Mississippi",
-    "mo": "Missouri",
-    "mt": "Montana",
-    "ne": "Nebraska",
-    "nv": "Nevada",
-    "nh": "New Hampshire",
-    "nj": "New Jersey",
-    "nm": "New Mexico",
-    "ny": "New York",
-    "nc": "North Carolina",
-    "nd": "North Dakota",
-    "oh": "Ohio",
-    "ok": "Oklahoma",
-    "or": "Oregon",
-    "pa": "Pennsylvania",
-    "ri": "Rhode Island",
-    "sc": "South Carolina",
-    "sd": "South Dakota",
-    "tn": "Tennessee",
-    "tx": "Texas",
-    "ut": "Utah",
-    "vt": "Vermont",
-    "va": "Virginia",
-    "wa": "Washington",
-    "wv": "West Virginia",
-    "wi": "Wisconsin",
-    "wy": "Wyoming",
-}
+# `us.STATES` is exactly the 50 states — no DC, no territories, by construction
+# (DC only appears if the DC_STATEHOOD env var is set, which it never is here).
+# That is precisely the table agent-usa hand-copied: DC is excluded from THIS
+# table on purpose (see the "washington" exclusion below), and territories were
+# never part of the guard's US-state vocabulary. Verified 1:1 against the old
+# hardcoded 50-entry dict before this swap.
+US_STATE_ABBREV_TO_NAME = {state.abbr.lower(): state.name for state in us.STATES}
 US_STATE_NAME_TO_CANONICAL = {name.lower(): name for name in US_STATE_ABBREV_TO_NAME.values()}
 # Common shorthand ("west springfield mass" — prod session 5d7c8813).
 US_STATE_NAME_TO_CANONICAL["mass"] = "Massachusetts"
@@ -256,25 +224,22 @@ def demote_generic_city(query_params: dict) -> dict:
 
 # ── Geocode echo-back — guard 1 ──────────────────────────────────────────────
 
-_ENDONYM_LIGATURES: tuple[tuple[str, str], ...] = (
-    ("ß", "ss"),
-    ("ø", "o"),
-    ("æ", "ae"),
-    ("œ", "oe"),
-    ("ð", "d"),
-    ("þ", "th"),
-    ("ł", "l"),
-    ("đ", "d"),
-)
-
 
 def _echo_fold(value: str | None) -> str:
-    """Lower-case, transliterate endonym ligatures (ß→ss, ø→o, æ→ae, …) and
-    strip combining accents, so a geocoded endonym echoes the ASCII a user
-    typed ("Gießen" must echo "giessen", prod f4ef0259)."""
-    text = str(value or "").lower()
-    for src, dst in _ENDONYM_LIGATURES:
-        text = text.replace(src, dst)
+    """Lower-case, transliterate to ASCII (endonym ligatures ß→ss, ø→o, æ→ae,
+    … AND non-Latin scripts generally) and strip any residual combining
+    accents, so a geocoded endonym echoes the ASCII a user typed ("Gießen"
+    must echo "giessen", prod f4ef0259).
+
+    `anyascii` transliterates FAR more broadly than the 8 ligatures this used
+    to hand-fold (it also romanizes Greek/Cyrillic/CJK — "Κηφισιά" → "Kifisia").
+    That does not weaken the non-Latin-script rejection in
+    `geocode_echo_matches`: a transliterated Greek token still won't match an
+    unrelated US place's tokens, it just gets rejected via the normal
+    token-mismatch path instead of the empty-token special case — the latter
+    remains a defensive fallback for any character `anyascii` can't map.
+    """
+    text = anyascii(str(value or "").lower())
     return "".join(ch for ch in unicodedata.normalize("NFKD", text) if not unicodedata.combining(ch))
 
 

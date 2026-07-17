@@ -6,11 +6,13 @@ Feuille A2A de recherche hôtelière day-use pour l'orchestrateur `b2c-concierge
 
 MCP_B2C n'effectue aucun géocodage serveur : `search_offers` exige `lat`/`lon` numériques. Laisser le LLM deviner ces coordonnées est exactement ce qui a produit les échecs prod audités (voir `agent-usa/tests/unit/application/test_audit_fixes_2026_06.py`) — ce leaf porte donc 3 guards déterministes (`geo_guards.py`, ~30 tests portés dans `tests/test_geo_guards.py`), composés dans le tool code-owned `geocode_location` (`geocode_tool.py`) :
 
-1. **Geocode echo-back** (`geocode_echo_matches`) : un résultat Mapbox `limit=1` doit refléter l'état US demandé et au moins un token distinctif de la ville/zone — sinon rejeté (mésolution "Colorado Springs" pour "Birmingham airport", "Atlanta" pour "Budapest", etc.). Comprend l'exemption des alias courts (NYC), le repli sur script non-latin, et le folding des ligatures endonymes (ß, ø, æ…).
+1. **Geocode echo-back** (`geocode_echo_matches`) : un résultat Mapbox `limit=1` doit refléter l'état US demandé et au moins un token distinctif de la ville/zone — sinon rejeté (mésolution "Colorado Springs" pour "Birmingham airport", "Atlanta" pour "Budapest", etc.). Comprend l'exemption des alias courts (NYC), le repli sur script non-latin, et la translittération Unicode→ASCII (ß, ø, æ… et au-delà — voir ci-dessous).
 2. **Generic place words** (`is_generic_location_token` / `demote_generic_city`) : "airport", "downtown", "terminal 5"… ne sont jamais géocodés comme ville — démotion en indice de zone, le tool refuse la recherche (`no_geocodable_location`) plutôt que d'envoyer le mot générique à Mapbox.
 3. **State anchoring** (`resolve_state_hint` / `anchor_state_context`) : un état US explicitement nommé ("Milford **ct**") qualifie le géocodage et est renvoyé dans `profile_delta` (`last_state_context`/`last_city`) pour ancrer les tours suivants — effacé si une nouvelle ville est nommée sans état. Ce leaf étant stateless (décision B3), l'ancre voyage via `profile_in`/`profile_delta`, pas une session : c'est à l'appelant (orchestrateur, S5) de la faire suivre au tour suivant.
 
 `geocode_location` ne raise JAMAIS : tout rejet de guard ou échec Mapbox devient un diagnostic propre `{"ok": False, "error": ..., "diagnostics": {...}}` que le modèle relaie honnêtement (jamais de coordonnées inventées).
+
+Le référentiel géographique générique (les 50 états US, la translittération Unicode→ASCII) vient des libs `us` et `anyascii` plutôt que de tables recopiées à la main — aucune autre lib géo n'était utilisée nulle part dans l'écosystème Dayuse (vérifié, y compris agent-usa qui hardcode la même donnée). Les listes réellement Dayuse-spécifiques (codes ambigus multilingues, mots génériques, bruit d'echo-back) restent en dur : ce sont des décisions produit issues des audits prod, pas du référentiel géo.
 
 ## Circuit-breaker MCP (S4)
 
