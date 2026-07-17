@@ -1,0 +1,77 @@
+# CI AgentB2C (S3). GitHub Actions — le repo vit sur GitHub Dayuse-Labs (décision S1),
+# le plan GitLab de la phase est transposé à jobs identiques.
+#
+# Secrets requis :
+# - FLEET_READ_TOKEN : PAT fine-grained en LECTURE sur Dayuse-Labs/dayuse-agent-fleet
+#   (dayuse-agent-common est une dépendance git pinnée vers ce repo privé).
+# - OPENAI_API_KEY (optionnel) : active le job eval ; sans lui le job est sauté.
+name: ci
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+
+jobs:
+  checks:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: Autoriser pip à résoudre la dépendance fleet (repo privé)
+        run: |
+          git config --global url."https://x-access-token:${{ secrets.FLEET_READ_TOKEN }}@github.com/".insteadOf "ssh://git@github.com/"
+      - name: Install
+        run: |
+          pip install -r agents/hotel_search_agent/requirements.txt \
+                      -r agents/faq_agent/requirements.txt \
+                      -r agents/b2c_concierge/requirements.txt \
+                      -r requirements-dev.txt \
+                      -e libs/b2c_common
+      - name: Lint (ruff)
+        run: ruff check .
+      - name: Typecheck (mypy)
+        run: mypy agents libs
+      - name: Tests (pytest — offline, ni réseau ni clé API)
+        run: pytest -q
+      - name: Guardrails statiques Dayuse (zéro lock-in)
+        run: bash scripts/dayuse_guardrails.sh .
+
+  # adk eval du concierge sur l'evalset v0 (32 scénarios). Échecs fonctionnels
+  # TOLÉRÉS à ce stade (le squelette dégrade honnêtement) : le job ne bloque pas.
+  eval:
+    runs-on: ubuntu-latest
+    needs: checks
+    continue-on-error: true
+    env:
+      OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: Skip si OPENAI_API_KEY absent
+        id: gate
+        run: |
+          if [ -z "$OPENAI_API_KEY" ]; then echo "run=false" >> "$GITHUB_OUTPUT"; else echo "run=true" >> "$GITHUB_OUTPUT"; fi
+      - name: Autoriser pip à résoudre la dépendance fleet (repo privé)
+        if: steps.gate.outputs.run == 'true'
+        run: |
+          git config --global url."https://x-access-token:${{ secrets.FLEET_READ_TOKEN }}@github.com/".insteadOf "ssh://git@github.com/"
+      - name: Install
+        if: steps.gate.outputs.run == 'true'
+        run: |
+          pip install -r agents/hotel_search_agent/requirements.txt \
+                      -r agents/faq_agent/requirements.txt \
+                      -r agents/b2c_concierge/requirements.txt \
+                      -e libs/b2c_common \
+                      "google-adk[eval]==2.4.0"
+      - name: Boot des 3 services + adk eval (score libre à ce stade)
+        if: steps.gate.outputs.run == 'true'
+        run: |
+          bash scripts/run_local.sh
+          adk eval agents/b2c_concierge/b2c_concierge evalset/evalset-v0.adk.json \
+            --config_file_path evalset/test_config.json || true
+          bash scripts/run_local.sh stop
