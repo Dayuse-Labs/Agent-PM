@@ -10,3 +10,12 @@ a2a-sdk==0.3.26  # A2A backbone (pulled by adk[a2a]); 0.3.x is volatile — pin 
 litellm==1.90.2  # pinned: 1.91+ compiled wheels need orjson (undeclared) -> breaks OpenRouter
 uvicorn==0.51.0
 mcp==1.28.1
+# S4: real Mapbox client (mapbox_client.py) — already pulled transitively (a2a/mcp/litellm
+# all depend on it), pinned explicitly here because this leaf now imports it directly.
+httpx==0.28.1
+# S4 (post-review): geo_guards.py sources its US-state reference table and Unicode->ASCII
+# transliteration from these instead of hand-copied data — neither is used anywhere else in
+# the Dayuse ecosystem yet (checked), no existing pattern broken. `us` pulls in `jellyfish`
+# transitively (phonetic name matching we don't use) — not zero-dependency, still tiny/pure.
+us==3.2.0            # unitedstates/python-us (CC0) — 50 US states, excludes DC/territories by default
+anyascii==0.3.3       # Unicode->ASCII transliteration (ISC license), successor to Unidecode
