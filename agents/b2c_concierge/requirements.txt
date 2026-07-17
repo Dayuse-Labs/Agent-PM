@@ -1,0 +1,7 @@
+# b2c_concierge — external deps, pinned identically to the two leaves (fleet precedent).
+# No `mcp` yet: the inline MCP tools are stubs until S4+. dayuse_agent_common arrives in S3
+# (dev: pip install -e; image: Dockerfile).
+google-adk[a2a]==2.4.0
+a2a-sdk==0.3.26  # A2A backbone (pulled by adk[a2a]); 0.3.x is volatile — pin explicitly
+litellm==1.90.2  # pinned: 1.91+ compiled wheels need orjson (undeclared) -> breaks OpenRouter
+uvicorn==0.51.0

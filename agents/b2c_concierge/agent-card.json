@@ -1,0 +1,33 @@
+{
+  "name": "b2c_concierge",
+  "description": "Dayuse B2C concierge orchestrator (code-owned spine): routes each turn to the hotel-search or FAQ A2A leaf, inline tools, or templates — one economy triage and at most one synthesis LLM call per turn.",
+  "version": "0.1.0",
+  "url": "${AGENT_PUBLIC_URL}",
+  "provider": {
+    "organization": "Dayuse",
+    "url": "https://dayuse.com"
+  },
+  "capabilities": {
+    "streaming": true
+  },
+  "defaultInputModes": ["text/plain", "application/json"],
+  "defaultOutputModes": ["text/plain", "application/json"],
+  "skills": [
+    {
+      "id": "b2c_concierge",
+      "name": "b2c_concierge",
+      "description": "One conversational turn of the Dayuse B2C assistant: triage (search / faq / details / compare / booking / ack), code-owned routing to the hotel-search or FAQ leaf, honest degradation on failure, single synthesized reply. Structural budget <= 3 LLM calls per turn.",
+      "tags": ["dayuse", "b2c", "concierge", "orchestrator", "day-use"]
+    }
+  ],
+  "securitySchemes": {
+    "bearer-interim": {
+      "type": "http",
+      "scheme": "bearer",
+      "description": "Interim static bearer over the private network (D7 exception, unsigned card); replaced by oidc-mtls at the latest before the S11 canary."
+    }
+  },
+  "security": [
+    { "bearer-interim": [] }
+  ]
+}

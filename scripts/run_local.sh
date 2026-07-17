@@ -1,11 +1,18 @@
 #!/usr/bin/env bash
-# Boots the hotel-search-agent leaf locally on port 8101 (AgentB2C range:
-# 8100 concierge / 8101 search / 8102 faq — the fleet occupies 8092/8093).
+# Boots the 3 AgentB2C services locally (AgentB2C port range; the fleet occupies 8092/8093):
+#   b2c-concierge :8100 · hotel-search-agent :8101 · faq-agent :8102
+# Background processes with pidfiles + logs under .run-logs/ (gitignored).
 # Sources repo-root .env if present; safe local defaults otherwise. No LLM/MCP
 # call happens at boot (lazy connections) — booting needs no real credentials.
+#
+#   bash scripts/run_local.sh          # start the 3 services (idempotent: stops leftovers first)
+#   bash scripts/run_local.sh stop     # stop them
 set -euo pipefail
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 cd "$ROOT"
+
+RUN_DIR="$ROOT/.run-logs"
+mkdir -p "$RUN_DIR"
 
 if [ -f .env ]; then
   set -a
@@ -14,12 +21,76 @@ if [ -f .env ]; then
   set +a
 fi
 
-export PORT="${PORT:-8101}"
-# Local default only — serve.py fails closed without a token (D7); deploys use a real secret.
+# Local defaults only — serve.py fails closed without a token (D7); deploys use real secrets.
+# Locally the 3 services share ONE token; in deployment each service has its own.
 export A2A_BEARER_TOKEN="${A2A_BEARER_TOKEN:-local-dev-token}"
+export HOTEL_SEARCH_A2A_TOKEN="${HOTEL_SEARCH_A2A_TOKEN:-$A2A_BEARER_TOKEN}"
+export FAQ_AGENT_A2A_TOKEN="${FAQ_AGENT_A2A_TOKEN:-$A2A_BEARER_TOKEN}"
 
 UVICORN="$ROOT/.venv/bin/uvicorn"
 [ -x "$UVICORN" ] || UVICORN="uvicorn"
 
-cd agents/hotel_search_agent
-exec "$UVICORN" serve:app --port "$PORT"
+SERVICES=(
+  "hotel_search_agent:hotel_search_agent.serve:8101"
+  "faq_agent:faq_agent.serve:8102"
+  "b2c_concierge:b2c_concierge.serve:8100"
+)
+
+stop_all() {
+  for spec in "${SERVICES[@]}"; do
+    name="${spec%%:*}"
+    pidfile="$RUN_DIR/$name.pid"
+    if [ -f "$pidfile" ]; then
+      pid="$(cat "$pidfile")"
+      if kill -0 "$pid" 2>/dev/null; then
+        kill "$pid" 2>/dev/null || true
+        echo "stopped $name (pid $pid)"
+      fi
+      rm -f "$pidfile"
+    fi
+  done
+}
+
+if [ "${1:-start}" = "stop" ]; then
+  stop_all
+  exit 0
+fi
+
+stop_all >/dev/null 2>&1 || true
+
+for spec in "${SERVICES[@]}"; do
+  name="${spec%%:*}"
+  rest="${spec#*:}"
+  module="${rest%:*}"
+  port="${rest##*:}"
+  logfile="$RUN_DIR/$name.log"
+  (
+    cd "$ROOT/agents/$name"
+    PORT="$port" nohup "$UVICORN" "$module:app" --port "$port" >"$logfile" 2>&1 &
+    echo $! > "$RUN_DIR/$name.pid"
+  )
+  echo "starting $name on :$port (log: .run-logs/$name.log, pid: $(cat "$RUN_DIR/$name.pid"))"
+done
+
+# The agent card is the readiness probe (served without bearer by design).
+for spec in "${SERVICES[@]}"; do
+  name="${spec%%:*}"
+  port="${spec##*:}"
+  ready=""
+  for _ in $(seq 1 40); do
+    if curl -sf "http://localhost:$port/.well-known/agent-card.json" >/dev/null 2>&1; then
+      ready=1
+      break
+    fi
+    sleep 0.5
+  done
+  if [ -z "$ready" ]; then
+    echo "ERROR: $name did not become ready on :$port — last log lines:" >&2
+    tail -n 20 "$RUN_DIR/$name.log" >&2 || true
+    stop_all
+    exit 1
+  fi
+  echo "$name ready on :$port"
+done
+
+echo "all 3 services up — smoke: python scripts/smoke_e2e.py ; stop: bash scripts/run_local.sh stop"
