@@ -56,7 +56,7 @@ Même régime que les feuilles : réseau privé Railway + bearer statique (entra
 ## RGPD
 
 - **Sessions** : le Redis de session (TTL + rétention documentées) appartient à l'orchestrateur seul et arrive en **S5** — en S2 les sessions vivent en mémoire du process A2A (éphémères).
-- **Logs/métriques** : AUCUN contenu de message — uniquement family/route/compteurs/latences (`b2c_concierge.metrics`), verrouillé par test (`test_spine.py::test_logs_never_contain_message_content`). Le socle S3 ajoutera le même verrou côté `llm_metric_events`.
+- **Logs/métriques** : AUCUN contenu de message — uniquement family/route/compteurs/latences, verrouillé par test côté logs (`test_logs_never_contain_message_content`) ET côté événements `llm_metric_events` (`test_metric_events_never_contain_message_content`). Depuis S3, chaque tour est aussi mirroré en Postgres via `dayuse_agent_common.metrics_pg` (`service=b2c_concierge`, no-op sans `DATABASE_URL`).
 - **Résidence EU** du provider modèle derrière LiteLLM : à vérifier AVANT tout trafic réel (précondition de prod, cf. brief §4).
 
 ## ⚠️ Staging ≠ shadow-run

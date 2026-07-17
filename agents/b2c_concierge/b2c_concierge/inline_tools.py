@@ -10,6 +10,8 @@ no-op payload and the spine answers with an honest template (zero extra LLM)
 """
 from __future__ import annotations
 
+from collections.abc import Callable
+
 
 def _stub(tool: str) -> dict:
     return {
@@ -34,7 +36,7 @@ def generate_booking_link(offer_id: str | None = None) -> dict:
     return _stub("generate_booking_link")
 
 
-STUBS = {
+STUBS: dict[str, Callable[..., dict]] = {
     "get_hotel_details": get_hotel_details,
     "compare_hotels": compare_hotels,
     "generate_booking_link": generate_booking_link,

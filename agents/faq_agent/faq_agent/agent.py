@@ -17,15 +17,26 @@ tools — search, details, compare and booking-link belong to other components
 (hotel-search-agent, orchestrator inline tools) and must never be reachable
 from here.
 
-S2 scope: functional skeleton only. dayuse_agent_common (build_model, metrics
-callbacks, tool budget) is wired in S3.
+S3 wired dayuse_agent_common: build_model, day-1 metrics callbacks (stdout +
+llm_metric_events, no-op without DATABASE_URL, never any message content) and
+the tool budget. The agent NAME is the metrics `service` label — b2c_ prefixed
+so B2C rows are distinguishable from fleet rows in the shared Postgres.
 """
 from __future__ import annotations
 
 import os
 
+from dayuse_agent_common import (
+    build_model,
+    llm_error_metric,
+    llm_timing_after,
+    llm_timing_before,
+    make_tool_budget_callback,
+    tool_error_metric,
+    tool_timing_after,
+    tool_timing_before,
+)
 from google.adk.agents import Agent
-from google.adk.models.lite_llm import LiteLlm
 from google.adk.tools.mcp_tool import McpToolset, StreamableHTTPConnectionParams
 
 # The only MCP_B2C tool this leaf may call, passed to McpToolset(tool_filter=...)
@@ -34,9 +45,14 @@ ALLOWED_MCP_TOOLS = [
     "get_faq_conditions",
 ]
 
-# D3: model routed through LiteLLM only (DAYUSE_MODEL slug), never a direct
-# cloud SDK. S3 replaces this with dayuse_agent_common.build_model().
-MODEL = LiteLlm(model=os.environ.get("DAYUSE_MODEL", "gpt-4o-mini"))
+# D3: model via the lib's LiteLLM factory (reasoning kwargs included). B2C keeps
+# its OWN departure default (iso-model comparison vs agent-usa): the lib's
+# DEFAULT_MODEL is an OpenRouter slug and must never silently take over.
+MODEL = build_model(os.environ.get("DAYUSE_MODEL", "gpt-4o-mini"))
+
+# Hard cap on real tool calls per turn (one FAQ lookup; 2 leaves margin for a
+# refined retry the model may attempt). Beyond it: deterministic short-circuit.
+MAX_TOOL_CALLS = int(os.environ.get("FAQ_MAX_TOOL_CALLS", "2"))
 
 
 def build_connection_params() -> StreamableHTTPConnectionParams:
@@ -94,8 +110,11 @@ Never fabricate policies, conditions, deadlines, or amounts: only report what
 the tool returned. If the tool returns nothing relevant or fails, say so in
 diagnostics instead of guessing."""
 
+# Metrics callbacks (fleet contract, booking_qa precedent). Deliberately NO
+# switch_model_callback: B2C serves the public — a per-request MODEL: override
+# must never be honored here.
 root_agent = Agent(
-    name="faq_agent",
+    name="b2c_faq",
     model=MODEL,
     description=(
         "Answers Dayuse FAQ and policy questions (cancellation conditions, how day-use works) "
@@ -103,4 +122,12 @@ root_agent = Agent(
     ),
     instruction=INSTRUCTION,
     tools=[build_mcp_toolset()],
+    before_model_callback=[llm_timing_before],
+    after_model_callback=[llm_timing_after],
+    on_model_error_callback=llm_error_metric,
+    # timing before budget: budget-stopped calls still get a t0 (the budget callback
+    # is the only one returning non-None, which short-circuits the rest of the list).
+    before_tool_callback=[tool_timing_before, make_tool_budget_callback(MAX_TOOL_CALLS)],
+    after_tool_callback=[tool_timing_after],
+    on_tool_error_callback=tool_error_metric,
 )

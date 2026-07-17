@@ -1,7 +1,10 @@
 # hotel_search_agent — external deps, pinned identically to the fleet leaves (booking_qa
 # precedent). HTTP MCP CLIENT of the remote MCP_B2C server (Streamable HTTP) — needs the MCP
-# client lib but vendors no server package. dayuse_agent_common arrives in S3 (dev: pip install
-# -e; image: Dockerfile), not used in S1.
+# client lib but vendors no server package.
+# dayuse-agent-common: git dependency PINNED to a fleet SHA (decision S3 — AgentB2C is a separate
+# repo, no monorepo libs/ to COPY). Bump the SHA deliberately. CI/Docker builds of this private
+# dep need read access to Dayuse-Labs/dayuse-agent-fleet (FLEET_READ_TOKEN, see .github/workflows).
+dayuse-agent-common @ git+ssh://git@github.com/Dayuse-Labs/dayuse-agent-fleet.git@8071917da5dd541c71b5062319f1451779abc5c3#subdirectory=libs/dayuse_agent_common
 google-adk[a2a]==2.4.0
 a2a-sdk==0.3.26  # A2A backbone (pulled by adk[a2a]); 0.3.x is volatile — pin explicitly
 litellm==1.90.2  # pinned: 1.91+ compiled wheels need orjson (undeclared) -> breaks OpenRouter

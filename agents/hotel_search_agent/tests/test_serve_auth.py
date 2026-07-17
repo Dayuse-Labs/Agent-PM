@@ -53,7 +53,7 @@ class TestAgentCardDiscovery:
         response = client.get("/.well-known/agent-card.json")
         assert response.status_code == 200
         card = response.json()
-        assert card["name"] == "hotel_search_agent"
+        assert card["name"] == "b2c_hotel_search"
 
     def test_card_declares_the_interim_bearer_scheme(self, client):
         card = client.get("/.well-known/agent-card.json").json()

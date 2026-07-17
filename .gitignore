@@ -7,6 +7,9 @@ baseline/
 # Logs de run locaux
 .run-logs/
 
+# Historique local des runs adk eval
+**/.adk/
+
 # Python
 __pycache__/
 *.egg-info/

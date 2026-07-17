@@ -33,9 +33,13 @@ Orchestrateur conversationnel B2C (ADK Python) remplaçant `agent-usa` (POC Flas
 ## Commandes
 
 ```bash
-# Setup (une fois par clone)
+# Setup (une fois par clone) — dayuse-agent-common est une dépendance git PINNÉE vers le repo
+# privé Dayuse-Labs/dayuse-agent-fleet (accès ssh requis ; en CI : FLEET_READ_TOKEN)
 uv venv --python 3.12 .venv
-uv pip install --python .venv/bin/python -r agents/hotel_search_agent/requirements.txt -r requirements-dev.txt
+uv pip install --python .venv/bin/python \
+  -r agents/hotel_search_agent/requirements.txt -r agents/faq_agent/requirements.txt \
+  -r agents/b2c_concierge/requirements.txt -r requirements-dev.txt -e libs/b2c_common \
+  "google-adk[eval]==2.4.0"
 git config core.hooksPath .githooks   # guardrails en pre-commit
 
 # Run local — 3 services : concierge :8100, search :8101, faq :8102 (pids + logs dans .run-logs/ ;
@@ -48,11 +52,18 @@ python scripts/smoke_e2e.py
 # Tests (offline — ni réseau ni clé API)
 .venv/bin/pytest -q
 
+# Lint + typecheck (mêmes jobs qu'en CI)
+.venv/bin/ruff check . && .venv/bin/mypy agents libs
+
 # Guardrails statiques Dayuse (aussi exécutés par le hook pre-commit)
 bash scripts/dayuse_guardrails.sh .
+
+# Eval ADK (32 scénarios, 8 familles — score libre au stade squelette ; services up requis)
+.venv/bin/adk eval agents/b2c_concierge/b2c_concierge evalset/evalset-v0.adk.json \
+  --config_file_path evalset/test_config.json
 ```
 
-(CI complète en S3 : lint, typecheck, tests, guardrails, `adk eval` sur `evalset/evalset-v0.json`.)
+CI GitHub Actions : `.github/workflows/ci.yml` (ruff, mypy, pytest, guardrails, job eval non bloquant). Secrets requis : `FLEET_READ_TOKEN` (lecture du repo fleet privé), `OPENAI_API_KEY` (job eval).
 
 ## Fin de session — OBLIGATOIRE
 
