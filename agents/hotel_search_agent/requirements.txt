@@ -10,3 +10,6 @@ a2a-sdk==0.3.26  # A2A backbone (pulled by adk[a2a]); 0.3.x is volatile — pin 
 litellm==1.90.2  # pinned: 1.91+ compiled wheels need orjson (undeclared) -> breaks OpenRouter
 uvicorn==0.51.0
 mcp==1.28.1
+# S4: real Mapbox client (mapbox_client.py) — already pulled transitively (a2a/mcp/litellm
+# all depend on it), pinned explicitly here because this leaf now imports it directly.
+httpx==0.28.1

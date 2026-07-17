@@ -16,6 +16,7 @@ from hotel_search_agent.agent import (
     build_connection_params,
     root_agent,
 )
+from hotel_search_agent.geocode_tool import geocode_location
 
 EXPECTED_ALLOWLIST = ["search_offers", "find_hotel_by_name"]
 
@@ -49,8 +50,10 @@ class TestToolAllowlist:
         assert FORBIDDEN_TOOLS & set(ALLOWED_MCP_TOOLS) == set()
 
     def test_toolset_is_built_with_the_allowlist(self):
-        assert len(root_agent.tools) == 1
+        # S4: the McpToolset (MCP_B2C) plus the code-owned geocode_location tool.
+        assert len(root_agent.tools) == 2
         assert root_agent.tools[0].tool_filter == ALLOWED_MCP_TOOLS
+        assert root_agent.tools[1] is geocode_location
 
 
 class TestMcpConnection:
@@ -114,12 +117,22 @@ class TestMetricsWiring:
     def test_tool_callbacks_wired_with_budget(self):
         from dayuse_agent_common import tool_error_metric, tool_timing_after, tool_timing_before
 
+        from hotel_search_agent.mcp_guard import (
+            mcp_circuit_after_tool,
+            mcp_circuit_before_tool,
+            mcp_circuit_on_error,
+        )
+
         before = self._as_list(root_agent.before_tool_callback)
-        # timing FIRST (budget short-circuits the rest of the list), budget second.
+        # timing FIRST (budget short-circuits the rest of the list), budget
+        # second, the MCP circuit guard (S4) last.
         assert before[0] is tool_timing_before
-        assert len(before) == 2
+        assert len(before) == 3
+        assert before[2] is mcp_circuit_before_tool
         assert tool_timing_after in self._as_list(root_agent.after_tool_callback)
+        assert mcp_circuit_after_tool in self._as_list(root_agent.after_tool_callback)
         assert tool_error_metric in self._as_list(root_agent.on_tool_error_callback)
+        assert mcp_circuit_on_error in self._as_list(root_agent.on_tool_error_callback)
 
     def test_no_model_switch_callback(self):
         # A per-request MODEL: override must never be honored on public traffic.
