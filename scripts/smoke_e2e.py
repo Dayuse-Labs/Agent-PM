@@ -19,6 +19,7 @@ test prompts, no real user data).
 """
 from __future__ import annotations
 
+import datetime
 import os
 import sys
 import time
@@ -31,9 +32,13 @@ BEARER = os.environ.get("A2A_BEARER_TOKEN", "local-dev-token")
 # triage (5 s) + leaf (10 s) + synthesis (15 s) + margin
 TIMEOUT_SECONDS = float(os.environ.get("SMOKE_TIMEOUT_SECONDS", "60"))
 
+# Explicit date: the leaf LLM has no clock, so a bare "demain" resolves to an
+# arbitrary date until the S4 date-anchoring guard lands. The smoke pins it.
+_TOMORROW = (datetime.date.today() + datetime.timedelta(days=1)).isoformat()
+
 TURNS = [
     ("ack", "Bonjour !"),
-    ("search", "Je cherche un hôtel en journée à Paris demain"),
+    ("search", f"Je cherche un hôtel en journée à Paris le {_TOMORROW}"),
     ("faq", "Quelles sont les conditions d'annulation d'une réservation Dayuse ?"),
 ]
 

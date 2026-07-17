@@ -66,12 +66,14 @@ class TestMcpConnection:
         monkeypatch.setenv("MCP_B2C_URL", "https://mcp-b2c.example.internal/mcp")
         assert build_connection_params().url == "https://mcp-b2c.example.internal/mcp"
 
-    def test_bearer_header_present_when_token_set(self, monkeypatch):
+    def test_authorization_header_is_the_raw_token_when_set(self, monkeypatch):
+        # The MCP_B2C server rejects "Bearer <token>" (observed contract): the
+        # raw token IS the header value.
         monkeypatch.setenv("MCP_B2C_AUTH_TOKEN", "tok-123")
-        assert build_connection_params().headers["Authorization"] == "Bearer tok-123"
+        assert build_connection_params().headers["Authorization"] == "tok-123"
 
     def test_no_authorization_header_when_token_empty(self, monkeypatch):
-        # An empty "Bearer " header is illegal (h11) — must be omitted entirely.
+        # An empty Authorization header is illegal — must be omitted entirely.
         for value in (None, "", "  \n"):
             if value is None:
                 monkeypatch.delenv("MCP_B2C_AUTH_TOKEN", raising=False)

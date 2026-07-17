@@ -44,6 +44,12 @@ stop_all() {
       pid="$(cat "$pidfile")"
       if kill -0 "$pid" 2>/dev/null; then
         kill "$pid" 2>/dev/null || true
+        # Wait for the process to actually die: a draining uvicorn still holds
+        # the port and would answer the readiness probe in place of its successor.
+        for _ in $(seq 1 40); do
+          kill -0 "$pid" 2>/dev/null || break
+          sleep 0.25
+        done
         echo "stopped $name (pid $pid)"
       fi
       rm -f "$pidfile"
