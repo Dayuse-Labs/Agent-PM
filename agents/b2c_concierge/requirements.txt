@@ -6,3 +6,4 @@ google-adk[a2a]==2.4.0
 a2a-sdk==0.3.26  # A2A backbone (pulled by adk[a2a]); 0.3.x is volatile — pin explicitly
 litellm==1.90.2  # pinned: 1.91+ compiled wheels need orjson (undeclared) -> breaks OpenRouter
 uvicorn==0.51.0
+redis==5.3.1  # session profile store (S5) — orchestrator-only, the leaves never depend on this

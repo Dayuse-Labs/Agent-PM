@@ -58,9 +58,9 @@ def scripted(monkeypatch):
         monkeypatch.setattr(agent_module.litellm, "acompletion", llm)
         leaf_calls: list[str] = []
 
-        async def fake_run_leaf(leaf, ctx):
+        async def fake_run_leaf(leaf, ctx, profile_in):
             leaf_calls.append(leaf)
-            return leaf_text
+            return leaf_text, {}
 
         monkeypatch.setattr(agent_module, "_run_leaf", fake_run_leaf)
         return llm, leaf_calls
@@ -168,8 +168,8 @@ class TestHonestDegradation:
     def test_leaf_failure_degrades_honestly_without_synthesis(self, scripted, caplog, monkeypatch):
         llm, _ = scripted('{"family": "search", "language": "fr"}')
 
-        async def dead_leaf(leaf, ctx):
-            return None
+        async def dead_leaf(leaf, ctx, profile_in):
+            return None, {}
 
         monkeypatch.setattr(agent_module, "_run_leaf", dead_leaf)
         with caplog.at_level(logging.INFO, logger="b2c_concierge.metrics"):

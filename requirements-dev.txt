@@ -2,5 +2,6 @@
 # Local shared lib: pip install -e libs/b2c_common (CI does the same).
 pytest~=8.3
 httpx  # starlette TestClient backend (also pulled transitively by litellm)
+fakeredis~=2.36  # in-memory Redis for ProfileStore tests (S5) — no broker needed to run the suite
 ruff==0.15.22
 mypy==2.3.0
