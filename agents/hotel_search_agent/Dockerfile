@@ -17,4 +17,4 @@ RUN useradd --create-home --uid 10001 appuser
 USER appuser
 # --host :: — dual-stack bind required by Railway's IPv6 private network (fleet precedent).
 # A2A_BEARER_TOKEN has no default on purpose: serve.py fails closed without it (D7).
-CMD ["sh", "-c", "uvicorn serve:app --host :: --port ${PORT}"]
+CMD ["sh", "-c", "uvicorn hotel_search_agent.serve:app --host :: --port ${PORT}"]

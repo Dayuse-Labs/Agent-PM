@@ -12,10 +12,12 @@ from starlette.testclient import TestClient
 
 TOKEN = "test-token-s1"
 
+SERVE_MODULE = "hotel_search_agent.serve"
+
 
 def _import_serve_fresh():
-    sys.modules.pop("serve", None)
-    return importlib.import_module("serve")
+    sys.modules.pop(SERVE_MODULE, None)
+    return importlib.import_module(SERVE_MODULE)
 
 
 @pytest.fixture
@@ -23,7 +25,7 @@ def serve(monkeypatch):
     monkeypatch.setenv("A2A_BEARER_TOKEN", TOKEN)
     module = _import_serve_fresh()
     yield module
-    sys.modules.pop("serve", None)
+    sys.modules.pop(SERVE_MODULE, None)
 
 
 @pytest.fixture
@@ -37,13 +39,13 @@ class TestFailClosed:
         monkeypatch.delenv("A2A_BEARER_TOKEN", raising=False)
         with pytest.raises(RuntimeError, match="A2A_BEARER_TOKEN"):
             _import_serve_fresh()
-        sys.modules.pop("serve", None)
+        sys.modules.pop(SERVE_MODULE, None)
 
     def test_boot_fails_with_blank_token(self, monkeypatch):
         monkeypatch.setenv("A2A_BEARER_TOKEN", "   ")
         with pytest.raises(RuntimeError, match="A2A_BEARER_TOKEN"):
             _import_serve_fresh()
-        sys.modules.pop("serve", None)
+        sys.modules.pop(SERVE_MODULE, None)
 
 
 class TestAgentCardDiscovery:
