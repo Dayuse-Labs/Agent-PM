@@ -19,10 +19,14 @@ from b2c_concierge.profile import (
     _split_one_sided_clock,
     apply_profile_delta,
     extract_final_question,
+    is_booking_confirmation_signal,
     is_search_refinement_signal,
     maybe_auto_widen,
     questions_equivalent,
     record_search_outcome,
+    record_search_shortlist,
+    resolve_hotel_reference,
+    resolve_hotel_references,
 )
 
 
@@ -320,3 +324,94 @@ class TestQuestionsEquivalent:
         assert not questions_equivalent(self.QUESTION, None)
         assert not questions_equivalent(self.QUESTION, "")
         assert not questions_equivalent(None, None)
+
+
+# ── S07: named-hotel lookup (the `_last_results` equivalent) ───────────────
+
+SHORTLIST = [
+    {"hotel_id": 4242, "name": "Kimpton - Hotel Palomar South Beach"},
+    {"hotel_id": 4243, "name": "Hampton Inn Miami Midtown"},
+]
+
+
+class TestRecordSearchShortlist:
+    def test_non_empty_results_populate_the_shortlist(self):
+        profile = SessionProfile()
+        record_search_shortlist(
+            profile, [{"hotelId": 1, "name": "Hotel A"}, {"hotel_id": 2, "name": "Hotel B"}]
+        )
+        assert profile.last_results == [
+            {"hotel_id": 1, "name": "Hotel A"},
+            {"hotel_id": 2, "name": "Hotel B"},
+        ]
+
+    def test_empty_results_leave_a_previous_shortlist_untouched(self):
+        profile = SessionProfile(last_results=list(SHORTLIST))
+        record_search_shortlist(profile, [])
+        record_search_shortlist(profile, None)
+        assert profile.last_results == SHORTLIST
+
+    def test_bounded_to_max_shortlist(self):
+        profile = SessionProfile()
+        results = [{"hotel_id": i, "name": f"Hotel {i}"} for i in range(10)]
+        record_search_shortlist(profile, results)
+        assert len(profile.last_results) == 5
+
+    def test_entries_without_a_name_are_dropped(self):
+        profile = SessionProfile()
+        record_search_shortlist(profile, [{"hotel_id": 1}, {"hotel_id": 2, "name": "Hotel B"}])
+        assert profile.last_results == [{"hotel_id": 2, "name": "Hotel B"}]
+
+
+class TestResolveHotelReference:
+    def test_short_reference_matches_the_full_shortlist_name(self):
+        # prod session 34d216e3: find_hotel_by_name failed on "Kimpton" even
+        # though the agent had just shown that hotel.
+        hotel = resolve_hotel_reference("Kimpton", SHORTLIST)
+        assert hotel is not None and hotel["hotel_id"] == 4242
+
+    def test_full_name_matches_exactly(self):
+        hotel = resolve_hotel_reference("Kimpton - Hotel Palomar South Beach", SHORTLIST)
+        assert hotel is not None and hotel["hotel_id"] == 4242
+
+    def test_message_wrapping_the_name_still_matches(self):
+        hotel = resolve_hotel_reference("book the Hampton Inn Miami Midtown please", SHORTLIST)
+        assert hotel is not None and hotel["hotel_id"] == 4243
+
+    def test_no_match_returns_none(self):
+        assert resolve_hotel_reference("Moxy NYC Chelsea", SHORTLIST) is None
+
+    def test_empty_shortlist_returns_none(self):
+        assert resolve_hotel_reference("Kimpton", None) is None
+        assert resolve_hotel_reference("Kimpton", []) is None
+
+    def test_too_short_names_are_never_matched(self):
+        assert resolve_hotel_reference("W", [{"hotel_id": 1, "name": "W"}]) is None
+
+
+class TestResolveHotelReferences:
+    def test_two_named_hotels_both_resolve(self):
+        hits = resolve_hotel_references("compare Kimpton and Hampton Inn Miami Midtown", SHORTLIST)
+        ids = {h["hotel_id"] for h in hits}
+        assert ids == {4242, 4243}
+
+    def test_no_names_mentioned_returns_empty(self):
+        assert resolve_hotel_references("compare them", SHORTLIST) == []
+
+
+# ── S07: booking confirmation signal (R9, guard #12) ────────────────────────
+
+
+class TestIsBookingConfirmationSignal:
+    def test_bare_affirmative_with_pending_booking_is_a_signal(self):
+        profile = SessionProfile(pending_booking={"hotel_id": 1})
+        assert is_booking_confirmation_signal("yes", profile)
+        assert is_booking_confirmation_signal("d'accord", profile)
+
+    def test_bare_affirmative_without_pending_booking_is_not_a_signal(self):
+        profile = SessionProfile()
+        assert not is_booking_confirmation_signal("yes", profile)
+
+    def test_non_affirmative_message_is_not_a_signal_even_with_pending_booking(self):
+        profile = SessionProfile(pending_booking={"hotel_id": 1})
+        assert not is_booking_confirmation_signal("what about a different hotel?", profile)

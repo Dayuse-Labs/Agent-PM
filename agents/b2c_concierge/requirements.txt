@@ -1,5 +1,4 @@
 # b2c_concierge — external deps, pinned identically to the two leaves (fleet precedent).
-# No `mcp` yet: the inline MCP tools are stubs until S4+.
 # dayuse-agent-common: git dependency PINNED to a fleet SHA (decision S3). Bump deliberately.
 dayuse-agent-common @ git+ssh://git@github.com/Dayuse-Labs/dayuse-agent-fleet.git@8071917da5dd541c71b5062319f1451779abc5c3#subdirectory=libs/dayuse_agent_common
 google-adk[a2a]==2.4.0
@@ -7,3 +6,5 @@ a2a-sdk==0.3.26  # A2A backbone (pulled by adk[a2a]); 0.3.x is volatile — pin 
 litellm==1.90.2  # pinned: 1.91+ compiled wheels need orjson (undeclared) -> breaks OpenRouter
 uvicorn==0.51.0
 redis==5.3.1  # session profile store (S5) — orchestrator-only, the leaves never depend on this
+mcp==1.28.1  # S07: inline tools (get_hotel_details/compare_hotels/generate_booking_link) call
+             # MCP_B2C directly (own session per call, see inline_tools.py) — same pin as the leaves

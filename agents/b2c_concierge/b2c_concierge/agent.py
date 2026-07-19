@@ -14,14 +14,19 @@ the leaf makes internally):
                      work at all (the TTFT the SSE facade — S9 — will expose).
   1. Ack fast-path — purely social message → template, ZERO LLM (triage.py),
                      UNLESS the profile signals a search refinement (S06:
-                     P2 recovery-ack — a bare "ok" after an empty search must
-                     never be a static celebration).
+                     P2 recovery-ack) OR a pending booking confirmation (S07:
+                     R9) — a bare "ok" after an empty search, or a bare "yes"
+                     confirming a booking, must never be a static celebration.
   2. Triage        — ONE economy LLM classify {family, language} + regex
                      fallback, direct litellm, kept off the ADK session/stream.
   3. Routing       — code-owned table (routing.py): search/faq → RemoteA2aAgent
-                     leaves (A2A + D7 bearer), details/compare/booking → inline
-                     MCP tool stubs (S4+), ack → template. A recovery-ack
-                     signal overrides an "ack" classification to "search".
+                     leaves (A2A + D7 bearer); details/compare → real MCP_B2C
+                     calls (S07, inline_tools.py) grounded through the SAME
+                     synthesis path as a leaf (`_run_inline_lookup`);
+                     booking → a fully deterministic, ZERO-LLM confirmation
+                     flow (S07, R9, `_run_booking`); ack → template. A
+                     recovery-ack signal overrides "ack" to "search"; a
+                     booking-confirmation signal overrides it to "booking".
   4. Leaf leg      — the 10 s budget is owned HERE, with NO retry: on timeout
                      or error the turn degrades honestly (templates.py) — a
                      message saying so, never an invention, never a re-run.
@@ -29,7 +34,8 @@ the leaf makes internally):
                      B3, profile.py/profile_store.py) travels OUT as an A2A
                      DataPart `{query_params, profile_in}` and comes back as
                      `profile_delta`. An internal `hotels` marker event fires
-                     right after the leaf returns (S06).
+                     right after the leaf returns (S06) — `_run_inline_lookup`
+                     fires the same marker for details/compare (S07).
   5. Synthesis     — ONE litellm call (budget slot), grounded in a ground-truth
                      block (S06: ≤5 hotels, capped amenities, "does not replace
                      tool calls", empty-screen note) + the auto-widen
@@ -37,18 +43,27 @@ the leaf makes internally):
                      once) + the anti-clarification-loop guard (a repeated
                      trailing question → 1 bounded retry with a do-not-ask
                      directive, then a deterministic strip — never a 3rd
-                     attempt). The approved text is replayed to the caller as
-                     a sequence of `partial=True` chunk events (token-by-token
-                     from the OBSERVABLE contract's point of view) followed by
-                     ONE final non-partial event — see `_chunk_text`'s
-                     docstring for why generation is buffered before replay.
-                     On total failure the leaf text is returned verbatim.
+                     attempt) + the amenity claim verifier (S07: hedges any
+                     amenity the approved text asserts that the SAME
+                     ground-truth hotels don't back). The approved text is
+                     replayed to the caller as a sequence of `partial=True`
+                     chunk events (token-by-token from the OBSERVABLE
+                     contract's point of view) followed by ONE final
+                     non-partial event — see `_chunk_text`'s docstring for why
+                     generation is buffered before replay. On total failure
+                     the leaf text is returned verbatim.
 
-Not wired here (documented, not silently missing): the mini bounded tool-loop
-(tool_loop.py, built + unit-tested standalone — S07 decides when synthesis
-offers get_hotel_details/compare_hotels for real), the public SSE facade (S9),
-dayuse_agent_common metrics_pg/build_model (S3, already wired). Logs carry NO
-message content (GDPR) — only family/route/timings/counters.
+S07 evaluated `tool_loop.py` (built + unit-tested standalone in S06) for
+details/compare and deliberately did NOT wire it: which hotel(s) a message
+refers to is fully resolvable in CODE (the named-hotel lookup guard —
+shortlist fuzzy-match, MCP `find_hotel_by_name` fallback — inline_tools.py),
+so there is no decision left for an LLM to make about whether/which tool to
+call; doing so anyway would hand control flow back to the LLM, against this
+file's own "never routes" invariant. `tool_loop.py` stays built, tested, and
+unused — available if a future family genuinely needs open-ended tool
+selection. Not wired here (documented, not silently missing): the public SSE
+facade (S9), dayuse_agent_common metrics_pg/build_model (S3, already wired).
+Logs carry NO message content (GDPR) — only family/route/timings/counters.
 """
 from __future__ import annotations
 
@@ -71,16 +86,19 @@ from google.genai import types as genai_types
 
 from . import inline_tools, templates
 from .a2a_datapart import encode_datapart, find_datapart
+from .amenity_guard import apply_amenity_truthfulness
 from .budget import TurnBudget
-from .ground_truth import shortlist_ground_truth_block
+from .ground_truth import shortlist_ground_truth_block, shortlist_hotels
 from .profile import (
     SessionProfile,
     apply_profile_delta,
     extract_final_question,
+    is_booking_confirmation_signal,
     is_search_refinement_signal,
     maybe_auto_widen,
     questions_equivalent,
     record_search_outcome,
+    record_search_shortlist,
 )
 from .profile_store import get_profile_store
 from .routing import LEAF_HOTEL_SEARCH, ROUTES, bearer_token, card_url
@@ -387,12 +405,16 @@ class _B2cConcierge(BaseAgent):
         leaf's own 0-1 internal tool calls counting as ONE "leaf_llm" slot).
 
         Applies, in order: the ground-truth block (S06), the auto-widen
-        disclosure surfaced exactly once (S05's silent flag), and the
+        disclosure surfaced exactly once (S05's silent flag), the
         anti-clarification-loop guard — 1 bounded retry with a do-not-ask
-        directive, then a deterministic strip of the repeated question.
-        JAMAIS a full loop restart. Mutates `profile.last_clarifying_question`
-        and clears `profile.auto_widen_disclosure` in place; the caller
-        persists the profile.
+        directive, then a deterministic strip of the repeated question,
+        JAMAIS a full loop restart — and finally the amenity claim verifier
+        (S07): the approved text is checked against the SAME hotels the
+        ground-truth block just grounded it in, hedging any unbacked amenity
+        claim in place. Mutates `profile.last_clarifying_question`, clears
+        `profile.auto_widen_disclosure`, and updates
+        `profile.amenity_claim_corrections` in place; the caller persists the
+        profile.
         """
         budget.charge("synthesis")
         ground_truth_block = shortlist_ground_truth_block(response, profile)
@@ -431,7 +453,105 @@ class _B2cConcierge(BaseAgent):
                     question = extract_final_question(candidate)
 
         profile.last_clarifying_question = question
+        if candidate:
+            hotels = shortlist_hotels(response)
+            if hotels:
+                candidate, corrections = apply_amenity_truthfulness(
+                    candidate, hotels, language, profile.amenity_claim_corrections
+                )
+                profile.amenity_claim_corrections = corrections or None
         return candidate or None
+
+    # --- Inline tools (S07) ---------------------------------------------------------------------
+    async def _run_inline_lookup(
+        self, ctx: InvocationContext, profile: SessionProfile, store: Any, message: str,
+        family: str, language: str, route: Any, budget: TurnBudget, t_start: float, inv: str,
+    ) -> AsyncGenerator[Event, None]:
+        """details / compare: the real MCP_B2C call is a CODE decision
+        (route.kind == "inline" was already resolved by triage + the routing
+        table — no LLM ever chooses whether/which tool to call here, keeping
+        the "LLM never routes" invariant intact). Once resolved, the result
+        is shaped exactly like a leaf's `{"results": [...]}` response and fed
+        through the SAME `_synthesize_with_guards` used by search/faq — the
+        ground-truth block and the amenity claim verifier (item 3) apply
+        identically, no matter the source. Named-hotel lookup (item 4) lives
+        in inline_tools.py's hotel resolver."""
+        if route.target == "get_hotel_details":
+            result = await inline_tools.get_hotel_details(message, profile)
+            hotels = [result["hotel"]] if result.get("ok") else []
+            leaf_text = f"Hotel details retrieved for {hotels[0].get('name')}." if hotels else ""
+        else:
+            result = await inline_tools.compare_hotels(message, profile)
+            hotels = result.get("hotels") or [] if result.get("ok") else []
+            names = ", ".join(str(h.get("name")) for h in hotels)
+            leaf_text = f"Comparison retrieved for: {names}." if hotels else ""
+
+        if not result.get("ok") or not hotels:
+            self._emit_turn_metric(family, f"inline:{route.target}", budget, t_start, "degraded", inv)
+            yield self._final(ctx, templates.inline_unresolved_response(route.target, language))
+            return
+
+        response = {"results": hotels}
+        yield self._hotels_event(ctx, response)
+
+        synth = await self._synthesize_with_guards(
+            message=message, language=language, leaf_text=leaf_text, response=response,
+            profile=profile, budget=budget, invocation_id=inv,
+        )
+        await store.set(ctx.session.id, profile)
+
+        self._emit_turn_metric(
+            family, f"inline:{route.target}", budget, t_start,
+            "ok" if synth else "synthesis_fallback", inv,
+        )
+        final_text = synth or templates.inline_unresolved_response(route.target, language)
+        for chunk in _chunk_text(final_text):
+            yield self._chunk_event(ctx, chunk)
+        yield self._final(ctx, final_text)
+
+    async def _run_booking(
+        self, ctx: InvocationContext, profile: SessionProfile, store: Any, message: str,
+        family: str, language: str, user_confirmed: bool, budget: TurnBudget, t_start: float, inv: str,
+    ) -> AsyncGenerator[Event, None]:
+        """R9 / guard #12: fully deterministic, ZERO extra LLM call — a
+        booking confirmation is security-sensitive control flow and must
+        never be delegated to an LLM's judgment (architecture invariant:
+        "ALL control flow lives in Python"). `user_confirmed` is only the
+        code-owned SIGNAL that this turn might be confirming a pending offer
+        (`is_booking_confirmation_signal`, computed by the caller); the
+        actual `confirmed` flag sent to MCP is re-derived from
+        `profile.pending_booking` inside `inline_tools.generate_booking_link`
+        itself, so this signal alone can never authorize a link — see that
+        function's docstring for the full guarantee, including the bypass
+        case."""
+        result = await inline_tools.generate_booking_link(message, profile, user_confirmed)
+        await store.set(ctx.session.id, profile)  # persists pending_booking either way
+
+        if not result.get("ok"):
+            self._emit_turn_metric(family, "inline:generate_booking_link", budget, t_start, "degraded", inv)
+            yield self._final(ctx, templates.inline_unresolved_response("generate_booking_link", language))
+            return
+
+        self._emit_turn_metric(family, "inline:generate_booking_link", budget, t_start, "ok", inv)
+        if result["confirmed"]:
+            yield self._final(
+                ctx,
+                templates.booking_link_response(
+                    hotel_name=result.get("hotel_name") or "", url=result.get("url"), language=language
+                ),
+            )
+        else:
+            yield self._final(
+                ctx,
+                templates.booking_offer_summary_response(
+                    hotel_name=result.get("hotel_name") or "",
+                    date=result.get("date") or "",
+                    start_hour=result.get("start_hour"),
+                    end_hour=result.get("end_hour"),
+                    price=result.get("price"),
+                    language=language,
+                ),
+            )
 
     # --- Spine --------------------------------------------------------------------------------
     async def _run_async_impl(self, ctx: InvocationContext) -> AsyncGenerator[Event, None]:
@@ -451,8 +571,14 @@ class _B2cConcierge(BaseAgent):
 
         # 1. Ack fast-path: zero LLM, template only — UNLESS the profile
         # signals a search refinement (a bare "ok" after an empty search must
-        # re-run the search, never celebrate a stale/empty shortlist).
-        if is_social_ack(message) and not is_search_refinement_signal(message, profile):
+        # re-run the search, never celebrate a stale/empty shortlist) OR a
+        # pending booking confirmation (R9: a bare "yes" must reach the
+        # code-owned confirmation gate, never the ack template).
+        if (
+            is_social_ack(message)
+            and not is_search_refinement_signal(message, profile)
+            and not is_booking_confirmation_signal(message, profile)
+        ):
             self._emit_turn_metric("ack", "template:ack", budget, t_start, "ok", inv)
             yield self._final(ctx, templates.ack_response(guess_language(message)))
             return
@@ -463,6 +589,8 @@ class _B2cConcierge(BaseAgent):
         route = ROUTES[family]
         if route.kind == "template" and is_search_refinement_signal(message, profile):
             family, route = "search", ROUTES["search"]
+        elif route.kind == "template" and is_booking_confirmation_signal(message, profile):
+            family, route = "booking", ROUTES["booking"]
 
         # 3-5. Code-owned routing.
         if route.kind == "template":
@@ -472,13 +600,25 @@ class _B2cConcierge(BaseAgent):
             return
 
         if route.kind == "inline":
-            # S2 stub: the call site exists (S7 wires the real MCP tool here);
-            # the user gets an honest template, zero extra LLM.
-            payload = inline_tools.STUBS[route.target]()
-            self._emit_turn_metric(
-                family, f"inline:{route.target}", budget, t_start, payload["status"], inv
-            )
-            yield self._final(ctx, templates.stub_response(route.target, triage.language))
+            if route.target == "generate_booking_link":
+                # R9 (guard #12): fully deterministic, ZERO extra LLM — see
+                # _run_booking's docstring for why a booking confirmation is
+                # never delegated to an LLM's judgment.
+                user_confirmed = is_booking_confirmation_signal(message, profile)
+                async for event in self._run_booking(
+                    ctx, profile, store, message, family, triage.language,
+                    user_confirmed, budget, t_start, inv,
+                ):
+                    yield event
+                return
+            # get_hotel_details / compare_hotels (S07): a real MCP_B2C call
+            # the CODE decided to make (routing stays code-owned — no LLM
+            # ever chooses whether/which tool to call here), then the same
+            # grounded-synthesis pattern as a leaf leg.
+            async for event in self._run_inline_lookup(
+                ctx, profile, store, message, family, triage.language, route, budget, t_start, inv,
+            ):
+                yield event
             return
 
         # Leaf leg (search / faq): charge the leaf's 0-1 internal LLM slot, then
@@ -499,6 +639,7 @@ class _B2cConcierge(BaseAgent):
             apply_profile_delta(profile, delta, message)
         if route.target == LEAF_HOTEL_SEARCH and "results" in response:
             record_search_outcome(profile, results_count=len(response["results"]), language=triage.language)
+            record_search_shortlist(profile, response["results"])  # S07: named-hotel lookup guard
             maybe_auto_widen(profile)
 
         synth = await self._synthesize_with_guards(

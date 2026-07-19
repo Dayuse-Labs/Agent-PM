@@ -1,10 +1,10 @@
 # b2c-concierge
 
-Orchestrateur conversationnel B2C de Dayuse (ADK Python + LiteLLM, portable) — **spine code-owned** (pattern `cs_copilot` de la fleet : custom `BaseAgent`, PAS de LlmAgent + sub_agents libre). Remplace `agent-usa`. Squelette S2 : les guards restants arrivent en S6-S7, la façade `/v3/chat` + SSE en S9, la synthèse riche/streamée en S6, `dayuse_agent_common` (metrics, build_model) en S3. **Le Redis de session + profil (guards budget/timeslot) a atterri en S5** (ci-dessous).
+Orchestrateur conversationnel B2C de Dayuse (ADK Python + LiteLLM, portable) — **spine code-owned** (pattern `cs_copilot` de la fleet : custom `BaseAgent`, PAS de LlmAgent + sub_agents libre). Remplace `agent-usa`. La façade `/v3/chat` + SSE arrive en S9. **S7 câble les 3 tools MCP inline pour de vrai + guard R9 + amenity claim verifier + named-hotel lookup** (ci-dessous) ; synthèse streamée + ground-truth + anti-loop/recovery-ack (S6) et Redis de session + profil (S5) déjà en place.
 
-## Flux d'un tour (budget structurel ≤ 3 appels LLM)
+## Flux d'un tour (budget structurel ≤ 3 appels LLM — n'inclut QUE les appels LLM, jamais un appel MCP)
 
-1. **Fast-path ack** (`triage.py`) — message purement social → template, **0 LLM**.
+1. **Fast-path ack** (`triage.py`) — message purement social → template, **0 LLM** — SAUF signal de reprise de recherche (P2) ou de confirmation de réservation en attente (R9), qui désactivent ce fast-path.
 2. **Triage** — 1 appel LLM **éco** (`DAYUSE_MODEL`) classifiant `{family, language}`, litellm direct hors session ADK ; **fallback regex** sur tout échec (jamais de retry : LiteLLM est la seule couche de retry).
 3. **Routage en code** (`routing.py`) — aucune décision de contrôle par LLM :
 
@@ -12,19 +12,28 @@ Orchestrateur conversationnel B2C de Dayuse (ADK Python + LiteLLM, portable) —
 |---|---|
 | `search` | `RemoteA2aAgent` → feuille **hotel-search-agent** (:8101) |
 | `faq` | `RemoteA2aAgent` → feuille **faq-agent** (:8102) |
-| `details` / `compare` / `booking` | tools MCP inline — **STUBS S2** (`inline_tools.py`), réponse template honnête, 0 LLM de plus |
+| `details` / `compare` | appel MCP_B2C réel (`inline_tools.py`, S7) grounded par la MÊME synthèse que search/faq (`_run_inline_lookup`) |
+| `booking` | flux de confirmation **déterministe, ZÉRO LLM** (guard R9, `_run_booking`) |
 | `ack` | template (`templates.py`) |
 
-4. **Appel feuille** — timeout **10 s SANS retry**, propriété de l'orchestrateur (`asyncio.timeout` = le vrai plafond ; httpx keep-alive persistant + bearer D7 sortant). Échec/timeout → **dégradation honnête** : un message qui le dit, zéro invention. Le profil de session part avec l'appel (`{query_params, profile_in}`) et revient éventuellement enrichi (`profile_delta`) — voir « Profil de session » ci-dessous.
-5. **UNE synthèse LLM** par tour (squelette — streaming en S6). Échec de synthèse → texte de la feuille servi tel quel (grounded).
+4. **Appel feuille / tool inline** — timeout **10 s** (feuille) ou **5 s** (tool MCP inline, `CONCIERGE_INLINE_MCP_TIMEOUT_SECONDS`) SANS retry, propriété de l'orchestrateur. Échec/timeout → **dégradation honnête** : un message qui le dit, zéro invention. Le profil de session part avec l'appel feuille (`{query_params, profile_in}`) et revient éventuellement enrichi (`profile_delta`) — voir « Profil de session » ci-dessous.
+5. **UNE synthèse LLM** par tour pour search/faq/details/compare (streamée en chunks — S6), grounded par le ground-truth block + l'**amenity claim verifier** (S7 : hedge en place toute amenity affirmée non backée par les données). `booking` ne passe JAMAIS par la synthèse (0 LLM). Échec de synthèse → texte source servi tel quel (grounded).
 
-Le compteur d'appels LLM par tour (`budget.py`) est instrumenté dès maintenant : dépasser 3 lève `LlmBudgetExceededError` (un guard ne relance jamais une boucle), et le test `tests/test_spine.py::test_simple_search_turn_stays_within_llm_budget` échoue si un tour simple dépasse le budget. R9 (lien de réservation inappelable sans flag de confirmation) est porté par le stub `generate_booking_link` — il ne produit AUCUN lien par construction — et devient un guard exécutable en S6-S7.
+Le compteur d'appels LLM par tour (`budget.py`) est instrumenté : dépasser 3 lève `LlmBudgetExceededError` (un guard ne relance jamais une boucle), et `tests/test_spine.py::test_simple_search_turn_stays_within_llm_budget` échoue si un tour simple dépasse le budget.
+
+### Guard R9 / #12 — `generate_booking_link` (S7)
+
+Le tool MCP `generate_booking_link` est **stateless côté serveur** (vérifié en direct contre le staging : un premier appel `confirmed=true` renvoie un vrai lien, sans mémoire d'un éventuel appel `confirmed=false` précédent) — toute la garantie de confirmation vit donc **côté code** (`inline_tools.generate_booking_link`) : le flag `confirmed` réellement envoyé à MCP est dérivé de `profile.pending_booking` (état serveur, jamais de l'argument `user_confirmed` seul). Flux : (1) pas d'offre en attente → appel `confirmed=false` systématique, résumé présenté, offre mémorisée ; (2) offre en attente **ET** confirmation de l'utilisateur → réutilise l'identité de l'offre mémorisée (jamais re-résolue depuis un simple « oui »), appelle `confirmed=true`. Une tentative de contournement (`user_confirmed=true` sans offre en attente préalable) ne produit **jamais** de lien. Testé aux deux chemins + tentative de bypass (`tests/test_inline_tools.py::TestGenerateBookingLinkR9`, `tests/test_spine.py::TestBookingGuardR9`) et par `scripts/smoke_e2e.py --booking` (flux réel en 2 tours contre MCP_B2C).
+
+### Named-hotel lookup guard (item 4, S7)
+
+`get_hotel_details`/`compare_hotels`/`generate_booking_link` résolvent d'abord un hôtel nommé dans la shortlist **du tour précédent** (`profile.last_results`, fuzzy match — `resolve_hotel_reference`), MCP `find_hotel_by_name` ensuite (jamais pour `compare_hotels`, qui reste shortlist-only par périmètre de phase) — un hôtel qu'on vient de recommander ne fait jamais de dead-end. `find_hotel_by_name` ne tolère pas une phrase entière autour du nom (vérifié en direct) : un strip déterministe des tournures de requête courantes (« book », « compare », « tell me about »…) précède l'appel MCP.
 
 ## Profil de session (S5)
 
 **Orchestrateur-only** (décision B3) : les feuilles restent stateless, le Redis n'appartient qu'au concierge — enforcé statiquement par `tests/test_stateless_leaves.py` (aucune occurrence de `redis` dans `agents/hotel_search_agent` ou `agents/faq_agent`).
 
-- **Schéma** (`profile.py::SessionProfile`) : `city`, `state_anchor`/`country_anchor` (ancres géo, complément des guards S4), `budget_max`/`budget_request_source`, `timeslot`/`timeslot_start`/`timeslot_end`/`timeslot_request_source`/`timeslot_mode`, `amenities`, `language`, `consecutive_empty_searches`, `auto_widen_disclosure`.
+- **Schéma** (`profile.py::SessionProfile`) : `city`, `state_anchor`/`country_anchor` (ancres géo, complément des guards S4), `budget_max`/`budget_request_source`, `timeslot`/`timeslot_start`/`timeslot_end`/`timeslot_request_source`/`timeslot_mode`, `amenities`, `language`, `consecutive_empty_searches`, `auto_widen_disclosure`, `last_suggestions`, `last_clarifying_question`, et depuis S7 : `last_results` (shortlist à l'écran, ≤5, guard named-hotel lookup), `pending_booking` (offre en attente de confirmation, guard R9), `amenity_claim_corrections` (corrections déjà émises, jamais répétées).
 - **Stockage** (`profile_store.py`) : une clé Redis JSON par session (`b2c_concierge:profile:<session_id>`), TTL glissant (rafraîchi à chaque écriture) — `CONCIERGE_PROFILE_TTL_SECONDS` (défaut 1800 s = 30 min d'inactivité).
 - **Transport** (`a2a_datapart.py`) : le profil voyage en A2A `DataPart` — encodage `inline_data` `<a2a_datapart_json>` du part converter ADK (aucun autre point d'injection : `RemoteA2aAgent` construit son message sortant uniquement à partir de `ctx.session.events`). `{query_params: {}, profile_in: profile.to_dict()}` part avant l'appel feuille ; `profile_delta` (et `results` pour la feuille search) revient dans la réponse et est fusionné avec les guards.
 - **Guards portés (spec agent-usa, comportement rejoué — pas le code)** :
@@ -35,9 +44,11 @@ Le compteur d'appels LLM par tour (`budget.py`) est instrumenté dès maintenant
 ## Lancer / tester
 
 ```bash
-bash scripts/run_local.sh        # boote les 3 services (concierge sur :8100)
-python scripts/smoke_e2e.py      # 1 tour ack + 1 search + 1 faq via l'orchestrateur
-.venv/bin/pytest -q              # tests offline (ni réseau ni clé API)
+bash scripts/run_local.sh          # boote les 3 services (concierge sur :8100)
+python scripts/smoke_e2e.py        # 1 tour ack + 1 search + 1 faq via l'orchestrateur
+python scripts/smoke_e2e.py --conversation  # 4 tours, un seul contextId (continuité de session)
+python scripts/smoke_e2e.py --booking       # guard R9 : book <hôtel> puis "yes" (2 tours, un contextId)
+.venv/bin/pytest -q                # tests offline (ni réseau ni clé API)
 bash scripts/dayuse_guardrails.sh .
 ```
 
@@ -60,6 +71,9 @@ bash scripts/dayuse_guardrails.sh .
 | `A2A_BEARER_TOKEN` | — **(obligatoire)** | Bearer **entrant** D7, vérifié par `serve.py` — fail-closed au boot |
 | `CONCIERGE_REDIS_URL` | `redis://localhost:6379/0` | Redis du profil de session (orchestrateur seul — décision B3) |
 | `CONCIERGE_PROFILE_TTL_SECONDS` | `1800` | TTL glissant du profil (rafraîchi à chaque écriture) — rétention RGPD |
+| `MCP_B2C_URL` | `http://localhost:8099/mcp` | Serveur MCP_B2C — les 3 tools inline (S7) l'appellent directement, une session par appel (`inline_tools.py`) |
+| `MCP_B2C_AUTH_TOKEN` | (vide) | Bearer RFC 6750 vers MCP_B2C (même token que les 2 feuilles) |
+| `CONCIERGE_INLINE_MCP_TIMEOUT_SECONDS` | `5.0` | Budget d'un appel MCP inline (connexion + appel(s)), propriété de l'orchestrateur — SANS retry |
 
 Un token sortant vide n'est pas fatal au boot : la feuille fail-closed répond 401 et le tour dégrade honnêtement (jamais d'auth contournée). `scripts/run_local.sh` partage un même token local pour les 3 services.
 
