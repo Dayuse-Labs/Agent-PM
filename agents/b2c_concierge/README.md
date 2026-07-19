@@ -1,6 +1,6 @@
 # b2c-concierge
 
-Orchestrateur conversationnel B2C de Dayuse (ADK Python + LiteLLM, portable) — **spine code-owned** (pattern `cs_copilot` de la fleet : custom `BaseAgent`, PAS de LlmAgent + sub_agents libre). Remplace `agent-usa`. Squelette S2 : les 12 guards arrivent en S4-S7, la façade `/v3/chat` + SSE en S9, la synthèse riche/streamée en S6, `dayuse_agent_common` (metrics, build_model) en S3, le Redis de session + profil en S5.
+Orchestrateur conversationnel B2C de Dayuse (ADK Python + LiteLLM, portable) — **spine code-owned** (pattern `cs_copilot` de la fleet : custom `BaseAgent`, PAS de LlmAgent + sub_agents libre). Remplace `agent-usa`. Squelette S2 : les guards restants arrivent en S6-S7, la façade `/v3/chat` + SSE en S9, la synthèse riche/streamée en S6, `dayuse_agent_common` (metrics, build_model) en S3. **Le Redis de session + profil (guards budget/timeslot) a atterri en S5** (ci-dessous).
 
 ## Flux d'un tour (budget structurel ≤ 3 appels LLM)
 
@@ -15,10 +15,22 @@ Orchestrateur conversationnel B2C de Dayuse (ADK Python + LiteLLM, portable) —
 | `details` / `compare` / `booking` | tools MCP inline — **STUBS S2** (`inline_tools.py`), réponse template honnête, 0 LLM de plus |
 | `ack` | template (`templates.py`) |
 
-4. **Appel feuille** — timeout **10 s SANS retry**, propriété de l'orchestrateur (`asyncio.timeout` = le vrai plafond ; httpx keep-alive persistant + bearer D7 sortant). Échec/timeout → **dégradation honnête** : un message qui le dit, zéro invention.
+4. **Appel feuille** — timeout **10 s SANS retry**, propriété de l'orchestrateur (`asyncio.timeout` = le vrai plafond ; httpx keep-alive persistant + bearer D7 sortant). Échec/timeout → **dégradation honnête** : un message qui le dit, zéro invention. Le profil de session part avec l'appel (`{query_params, profile_in}`) et revient éventuellement enrichi (`profile_delta`) — voir « Profil de session » ci-dessous.
 5. **UNE synthèse LLM** par tour (squelette — streaming en S6). Échec de synthèse → texte de la feuille servi tel quel (grounded).
 
-Le compteur d'appels LLM par tour (`budget.py`) est instrumenté dès maintenant : dépasser 3 lève `LlmBudgetExceededError` (un guard ne relance jamais une boucle), et le test `tests/test_spine.py::test_simple_search_turn_stays_within_llm_budget` échoue si un tour simple dépasse le budget. R9 (lien de réservation inappelable sans flag de confirmation) est porté par le stub `generate_booking_link` — il ne produit AUCUN lien par construction — et devient un guard exécutable en S4-S7.
+Le compteur d'appels LLM par tour (`budget.py`) est instrumenté dès maintenant : dépasser 3 lève `LlmBudgetExceededError` (un guard ne relance jamais une boucle), et le test `tests/test_spine.py::test_simple_search_turn_stays_within_llm_budget` échoue si un tour simple dépasse le budget. R9 (lien de réservation inappelable sans flag de confirmation) est porté par le stub `generate_booking_link` — il ne produit AUCUN lien par construction — et devient un guard exécutable en S6-S7.
+
+## Profil de session (S5)
+
+**Orchestrateur-only** (décision B3) : les feuilles restent stateless, le Redis n'appartient qu'au concierge — enforcé statiquement par `tests/test_stateless_leaves.py` (aucune occurrence de `redis` dans `agents/hotel_search_agent` ou `agents/faq_agent`).
+
+- **Schéma** (`profile.py::SessionProfile`) : `city`, `state_anchor`/`country_anchor` (ancres géo, complément des guards S4), `budget_max`/`budget_request_source`, `timeslot`/`timeslot_start`/`timeslot_end`/`timeslot_request_source`/`timeslot_mode`, `amenities`, `language`, `consecutive_empty_searches`, `auto_widen_disclosure`.
+- **Stockage** (`profile_store.py`) : une clé Redis JSON par session (`b2c_concierge:profile:<session_id>`), TTL glissant (rafraîchi à chaque écriture) — `CONCIERGE_PROFILE_TTL_SECONDS` (défaut 1800 s = 30 min d'inactivité).
+- **Transport** (`a2a_datapart.py`) : le profil voyage en A2A `DataPart` — encodage `inline_data` `<a2a_datapart_json>` du part converter ADK (aucun autre point d'injection : `RemoteA2aAgent` construit son message sortant uniquement à partir de `ctx.session.events`). `{query_params: {}, profile_in: profile.to_dict()}` part avant l'appel feuille ; `profile_delta` (et `results` pour la feuille search) revient dans la réponse et est fusionné avec les guards.
+- **Guards portés (spec agent-usa, comportement rejoué — pas le code)** :
+  - **Budget integrity (P1)** : une réponse nombre nu (« 180 », « $40 ») marque `budget_request_source=explicit`, quelle que soit la classification renvoyée par la feuille — un budget explicite n'est **jamais** auto-élargi silencieusement ; l'auto-widen (×1,5 après 2 recherches vides consécutives, budgets par défaut seulement) pose `auto_widen_disclosure={from, to}` (obligatoire à surfacer par la synthèse — S06).
+  - **Timeslot sanitization (P6)** : un horaire à borne unique corrompu (« 15:00- », « -09:00 ») est salvage en `timeslot_start`/`timeslot_end`, jamais persisté tel quel ; une borne ancrée (ex. fin à 09:00) n'est jamais inversée par une ré-extraction d'un tour sans nouvelle mention d'heure.
+  - **Ancres géo** : `state_anchor`/`country_anchor` persistent tant que la ville ne change pas explicitement ; un changement de ville efface les ancres (sauf si le même delta en fournit une fraîche).
 
 ## Lancer / tester
 
@@ -46,6 +58,8 @@ bash scripts/dayuse_guardrails.sh .
 | `A2A_HOST` | `localhost` | Hôte joignable par les pairs — écrit dans l'URL de la carte servie |
 | `PORT` | `8100` | Port d'écoute (plage AgentB2C : 8100 concierge / 8101 search / 8102 faq) |
 | `A2A_BEARER_TOKEN` | — **(obligatoire)** | Bearer **entrant** D7, vérifié par `serve.py` — fail-closed au boot |
+| `CONCIERGE_REDIS_URL` | `redis://localhost:6379/0` | Redis du profil de session (orchestrateur seul — décision B3) |
+| `CONCIERGE_PROFILE_TTL_SECONDS` | `1800` | TTL glissant du profil (rafraîchi à chaque écriture) — rétention RGPD |
 
 Un token sortant vide n'est pas fatal au boot : la feuille fail-closed répond 401 et le tour dégrade honnêtement (jamais d'auth contournée). `scripts/run_local.sh` partage un même token local pour les 3 services.
 
@@ -55,7 +69,7 @@ Même régime que les feuilles : réseau privé Railway + bearer statique (entra
 
 ## RGPD
 
-- **Sessions** : le Redis de session (TTL + rétention documentées) appartient à l'orchestrateur seul et arrive en **S5** — en S2 les sessions vivent en mémoire du process A2A (éphémères).
+- **Sessions** : le Redis de profil (TTL glissant `CONCIERGE_PROFILE_TTL_SECONDS`, défaut 1800 s) appartient à l'orchestrateur seul (S5) — la session ADK elle-même (historique d'événements) reste en mémoire du process A2A (éphémère, hors scope S5).
 - **Logs/métriques** : AUCUN contenu de message — uniquement family/route/compteurs/latences, verrouillé par test côté logs (`test_logs_never_contain_message_content`) ET côté événements `llm_metric_events` (`test_metric_events_never_contain_message_content`). Depuis S3, chaque tour est aussi mirroré en Postgres via `dayuse_agent_common.metrics_pg` (`service=b2c_concierge`, no-op sans `DATABASE_URL`).
 - **Résidence EU** du provider modèle derrière LiteLLM : à vérifier AVANT tout trafic réel (précondition de prod, cf. brief §4).
 

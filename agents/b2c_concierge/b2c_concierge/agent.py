@@ -15,14 +15,18 @@ Flow per turn, structural budget <= 3 LLM calls (budget.py):
   3. Leaf leg      — the 10 s budget is owned HERE, with NO retry: on timeout
                      or error the turn degrades honestly (templates.py) — a
                      message saying so, never an invention, never a re-run.
+                     The session profile (Redis, orchestrator-only — decision
+                     B3, profile.py/profile_store.py) travels OUT as an A2A
+                     DataPart `{query_params, profile_in}` and comes back as
+                     `profile_delta`, merged with the budget-integrity and
+                     timeslot-sanitization guards (S5).
   4. Synthesis     — ONE litellm call turning the grounded leaf outcome into
                      the user-facing answer (skeleton; streaming lands in S6).
                      On failure the leaf text is returned verbatim (grounded).
 
-Not here yet: the 12 deterministic guards (S4-S7), the SSE facade + progress
-events (S9), dayuse_agent_common metrics_pg/build_model (S3), the session
-Redis + profile plumbing (S5). Logs carry NO message content (GDPR) — only
-family/route/timings/counters.
+Not here yet: the remaining deterministic guards (S6-S7), the SSE facade +
+progress events (S9), dayuse_agent_common metrics_pg/build_model (S3). Logs
+carry NO message content (GDPR) — only family/route/timings/counters.
 """
 from __future__ import annotations
 
@@ -30,7 +34,7 @@ import asyncio
 import logging
 import os
 import time
-from typing import AsyncGenerator
+from typing import Any, AsyncGenerator
 
 import httpx
 import litellm
@@ -42,8 +46,11 @@ from google.adk.events import Event
 from google.genai import types as genai_types
 
 from . import inline_tools, templates
+from .a2a_datapart import encode_datapart, find_datapart
 from .budget import TurnBudget
-from .routing import ROUTES, bearer_token, card_url
+from .profile import apply_profile_delta, maybe_auto_widen, record_search_outcome
+from .profile_store import get_profile_store
+from .routing import LEAF_HOTEL_SEARCH, ROUTES, bearer_token, card_url
 from .triage import SERVICE, classify, guess_language, is_social_ack
 
 logger = logging.getLogger(__name__)
@@ -97,9 +104,26 @@ def _reset_legs() -> None:
     _legs.clear()
 
 
-async def _run_leaf(leaf: str, ctx: InvocationContext) -> str | None:
-    """One leaf leg over A2A: returns the leaf's final text, or None on
-    timeout/error (the caller degrades honestly — no retry, no invention).
+def _attach_outgoing_datapart(ctx: InvocationContext, payload: dict[str, Any]) -> None:
+    """Appends the `{query_params, profile_in}` envelope (contract.py) as an
+    A2A DataPart to the CURRENT turn's user event. RemoteA2aAgent builds its
+    outgoing A2A message purely from `ctx.session.events` content parts —
+    there is no other injection point (see a2a_datapart.py's docstring)."""
+    if not ctx.session.events:
+        return
+    last_event = ctx.session.events[-1]
+    if not last_event.content:
+        return
+    last_event.content.parts = [*(last_event.content.parts or []), encode_datapart(payload)]
+
+
+async def _run_leaf(
+    leaf: str, ctx: InvocationContext, profile_in: dict[str, Any]
+) -> tuple[str | None, dict[str, Any]]:
+    """One leaf leg over A2A: returns (the leaf's final text, its decoded A2A
+    DataPart response — `{}` if it didn't send one, e.g. not wired yet). The
+    text is None on timeout/error (the caller degrades honestly — no retry,
+    no invention).
 
     asyncio.timeout is the single owner of the 10 s deadline: httpx's own
     timeout resets per chunk on streaming responses, so it cannot cap the
@@ -108,7 +132,11 @@ async def _run_leaf(leaf: str, ctx: InvocationContext) -> str | None:
     reaches the end user unsynthesized.
     """
     leg = _get_leg(leaf)
+    # query_params stays an empty dict here on purpose: its business schema
+    # (destination, dates, filters…) is S4's contract to fill, not S5's.
+    _attach_outgoing_datapart(ctx, {"query_params": {}, "profile_in": profile_in})
     texts: list[str] = []
+    response: dict[str, Any] = {}
     t0 = time.monotonic()
     try:
         async with asyncio.timeout(_LEAF_TIMEOUT):
@@ -116,6 +144,9 @@ async def _run_leaf(leaf: str, ctx: InvocationContext) -> str | None:
                 if not event.content or not event.content.parts:
                     continue
                 texts += [p.text for p in event.content.parts if p.text and not p.thought]
+                decoded = find_datapart(event.content.parts)
+                if decoded is not None:
+                    response = decoded
     except Exception as exc:  # noqa: BLE001 — a leaf failure degrades the turn, never crashes it
         ms = int((time.monotonic() - t0) * 1000)
         metrics_logger.info(
@@ -127,7 +158,7 @@ async def _run_leaf(leaf: str, ctx: InvocationContext) -> str | None:
             ms=ms, status="error", error_type=type(exc).__name__, leaf=leaf,
         )
         logger.warning("b2c_concierge: %s leg failed: %s", leaf, exc)
-        return None
+        return None, {}
     ms = int((time.monotonic() - t0) * 1000)
     metrics_logger.info("concierge_metric=leaf_call leaf=%s ms=%d status=ok", leaf, ms)
     enqueue_metric_event(
@@ -135,7 +166,7 @@ async def _run_leaf(leaf: str, ctx: InvocationContext) -> str | None:
         ms=ms, status="ok", leaf=leaf,
     )
     text = "\n".join(t for t in texts if t.strip()).strip()
-    return text or None
+    return text or None, response
 
 
 # --- Synthesis ------------------------------------------------------------------------------
@@ -270,15 +301,26 @@ class _B2cConcierge(BaseAgent):
             return
 
         # Leaf leg (search / faq): charge the leaf's 0-1 internal LLM slot, then
-        # ONE call, 10 s, no retry.
+        # ONE call, 10 s, no retry. Session profile (Redis, orchestrator-only —
+        # decision B3) travels OUT as profile_in and comes back as profile_delta.
         budget.charge("leaf_llm")
-        leaf_text = await _run_leaf(route.target, ctx)
+        store = get_profile_store()
+        profile = await store.get(ctx.session.id)
+        leaf_text, response = await _run_leaf(route.target, ctx, profile.to_dict())
         if leaf_text is None:
             self._emit_turn_metric(
                 triage.family, f"leaf:{route.target}", budget, t_start, "degraded", inv
             )
             yield self._final(ctx, templates.leaf_degraded_response(triage.family, triage.language))
             return
+
+        delta = response.get("profile_delta") or {}
+        if delta:
+            apply_profile_delta(profile, delta, message)
+        if route.target == LEAF_HOTEL_SEARCH and "results" in response:
+            record_search_outcome(profile, results_count=len(response["results"]))
+            maybe_auto_widen(profile)
+        await store.set(ctx.session.id, profile)
 
         synth = await _synthesize(message, triage.language, leaf_text, budget, inv)
         self._emit_turn_metric(
