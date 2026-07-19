@@ -16,6 +16,22 @@ different, workflow-based architecture):
     a start/end bound, never persisted as a corrupted free-text string; an
     anchored bound (e.g. an end-only "before 9am") is never inverted by a
     later turn's re-extraction that carries no new time-of-day text.
+
+S06 adds two more, both deterministic and code-owned (never LLM-decided):
+  - recovery-ack (P2): a bare "ok"/"sure" is NEVER a social celebration when
+    the last search came back empty — the ack fast-path must be disabled so
+    the turn re-runs the search instead of dead-ending on a canned template.
+    Matching is against the PERSISTED `last_suggestions` list (code-set when a
+    search returns zero results), never a regex over the assistant's own
+    prose (agent-usa's older approach — the synthesis text here is
+    LLM-authored and streamed, so its exact wording is not a stable regex
+    target).
+  - anti-clarification-loop (P10): `extract_final_question`/
+    `questions_equivalent` are the pure detectors the spine (agent.py) uses
+    to notice a synthesized reply repeats the PREVIOUS turn's trailing
+    question — the retry-then-strip orchestration itself lives in agent.py
+    since it must re-invoke the synthesis LLM, which this module intentionally
+    stays free of (guards here are pure, Redis/LLM-free, unit-testable alone).
 """
 from __future__ import annotations
 
@@ -28,6 +44,21 @@ BUDGET_SOURCE_FLEXIBLE_DEFAULT = "flexible_default"
 
 AUTO_WIDEN_STREAK_THRESHOLD = 2
 AUTO_WIDEN_FACTOR = 1.5
+
+# Recovery suggestions (P2): code-owned, localized — set on the profile the
+# moment a search returns zero results so a later bare "ok"/"sure" can be
+# matched against them deterministically (never against the LLM's own prose).
+_RECOVERY_SUGGESTIONS_FR = ["augmenter le budget", "élargir la zone", "retirer un filtre"]
+_RECOVERY_SUGGESTIONS_EN = ["increase the budget", "try a nearby area", "remove a filter"]
+
+# A bare affirmative — narrower than triage.is_social_ack (which also matches
+# greetings/thanks/farewells): only THESE words, alone, signal "yes, do that"
+# and must be reinterpreted as a search refinement when the screen is empty.
+_AFFIRMATIVE_RE = re.compile(
+    r"^\s*(?:ok(?:ay)?|d'accord|sure|yes|yeah|oui|super|parfait|great|perfect|cool)"
+    r"[\s!,.?;:🙂😊👍❤️✨]*\s*$",
+    re.IGNORECASE,
+)
 
 
 @dataclass
@@ -49,6 +80,8 @@ class SessionProfile:
     language: str | None = None
     consecutive_empty_searches: int = 0
     auto_widen_disclosure: dict[str, float] | None = None
+    last_suggestions: list[str] | None = None
+    last_clarifying_question: str | None = None
 
     def to_dict(self) -> dict[str, Any]:
         return {
@@ -66,6 +99,8 @@ class SessionProfile:
             "language": self.language,
             "consecutive_empty_searches": self.consecutive_empty_searches,
             "auto_widen_disclosure": self.auto_widen_disclosure,
+            "last_suggestions": self.last_suggestions,
+            "last_clarifying_question": self.last_clarifying_question,
         }
 
     @classmethod
@@ -259,9 +294,75 @@ def apply_profile_delta(
     return profile
 
 
-def record_search_outcome(profile: SessionProfile, results_count: int) -> None:
+def record_search_outcome(profile: SessionProfile, results_count: int, language: str = "en") -> None:
     """Tracks the empty-search streak that feeds `maybe_auto_widen` — called
-    once per search turn with the leaf's returned result count."""
+    once per search turn with the leaf's returned result count. A zero-result
+    outcome also sets the code-owned recovery suggestions (P2) so a later
+    bare "ok"/"sure" can be matched deterministically; fresh results clear
+    them (a stale offer must never be replayed after the screen changes)."""
     profile.consecutive_empty_searches = (
         0 if results_count > 0 else profile.consecutive_empty_searches + 1
     )
+    if results_count > 0:
+        profile.last_suggestions = None
+    else:
+        profile.last_suggestions = list(
+            _RECOVERY_SUGGESTIONS_FR if language == "fr" else _RECOVERY_SUGGESTIONS_EN
+        )
+
+
+# --- Recovery ack (P2) --------------------------------------------------
+
+
+def is_search_refinement_signal(message: str, profile: SessionProfile) -> bool:
+    """True when `message` is the user accepting/continuing after an empty
+    search, and must therefore be routed to a fresh search rather than the
+    zero-LLM social-ack template:
+    - a bare affirmative ("ok", "sure"...) while the last search came back
+      empty (`consecutive_empty_searches > 0`) — the social-ack fast path is
+      disabled in this state, whatever the exact wording;
+    - the message matches one of the PERSISTED `last_suggestions` verbatim
+      (a recovery chip click) — never a regex over the assistant's prose.
+    """
+    stripped = (message or "").strip()
+    if not stripped:
+        return False
+    if profile.consecutive_empty_searches > 0 and _AFFIRMATIVE_RE.match(stripped):
+        return True
+    suggestions = profile.last_suggestions or []
+    return stripped.lower() in {s.strip().lower() for s in suggestions}
+
+
+# --- Anti-clarification-loop (P10) --------------------------------------
+
+_FINAL_QUESTION_RE = re.compile(r"([^.!?\n]*\?)\s*$")
+
+# Cheap normalization for fuzzy equivalence: lowercase, drop punctuation, and
+# collapse whitespace — "Which airport area exactly should I prioritize?" and
+# "Which airport area, exactly, should I prioritize?" must compare equal.
+_NORMALIZE_RE = re.compile(r"[^\w\s]")
+
+
+def extract_final_question(text: str) -> str | None:
+    """The last sentence of `text` if it is a question, else None. Used to
+    detect a synthesized reply that ends by asking something — the shape a
+    repeated clarifying question always takes (prod sessions 493b86e8 /
+    cfa9c579 repeated the SAME trailing question up to 7 times)."""
+    if not text:
+        return None
+    match = _FINAL_QUESTION_RE.search(text.strip())
+    if not match:
+        return None
+    question = match.group(1).strip()
+    return question or None
+
+
+def questions_equivalent(a: str | None, b: str | None) -> bool:
+    """Fuzzy equality tolerant of punctuation/whitespace drift — the LLM
+    rarely repeats a question byte-for-byte, but a human recognizes it as
+    the same question."""
+    if not a or not b:
+        return False
+    norm_a = _NORMALIZE_RE.sub("", a).lower().split()
+    norm_b = _NORMALIZE_RE.sub("", b).lower().split()
+    return bool(norm_a) and norm_a == norm_b
