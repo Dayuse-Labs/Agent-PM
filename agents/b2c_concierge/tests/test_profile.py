@@ -18,7 +18,10 @@ from b2c_concierge.profile import (
     _normalize_timeslot,
     _split_one_sided_clock,
     apply_profile_delta,
+    extract_final_question,
+    is_search_refinement_signal,
     maybe_auto_widen,
+    questions_equivalent,
     record_search_outcome,
 )
 
@@ -220,3 +223,100 @@ class TestAmenitiesAndLanguage:
         profile = SessionProfile(language="en")
         apply_profile_delta(profile, {"language": "fr"}, "en français")
         assert profile.language == "fr"
+
+
+# ── P2 (S06): recovery suggestions + the recovery-ack signal ────────────────
+
+
+class TestRecoverySuggestionsLifecycle:
+    def test_zero_results_sets_localized_suggestions(self):
+        profile = SessionProfile()
+        record_search_outcome(profile, results_count=0, language="fr")
+        assert profile.last_suggestions == [
+            "augmenter le budget", "élargir la zone", "retirer un filtre",
+        ]
+
+    def test_zero_results_defaults_to_english(self):
+        profile = SessionProfile()
+        record_search_outcome(profile, results_count=0, language="en")
+        assert profile.last_suggestions == [
+            "increase the budget", "try a nearby area", "remove a filter",
+        ]
+
+    def test_fresh_results_clear_a_stale_offer(self):
+        profile = SessionProfile(last_suggestions=["increase the budget"])
+        record_search_outcome(profile, results_count=3, language="en")
+        assert profile.last_suggestions is None
+
+
+class TestRecoveryAckSignal:
+    def test_bare_ok_after_empty_streak_is_a_refinement_signal(self):
+        profile = SessionProfile(consecutive_empty_searches=1)
+        assert is_search_refinement_signal("Ok", profile)
+        assert is_search_refinement_signal("sure", profile)
+
+    def test_bare_ok_without_empty_streak_is_not_a_signal(self):
+        profile = SessionProfile(consecutive_empty_searches=0)
+        assert not is_search_refinement_signal("Ok", profile)
+
+    def test_unrelated_message_after_empty_streak_is_not_a_signal(self):
+        profile = SessionProfile(consecutive_empty_searches=2)
+        assert not is_search_refinement_signal("what about parking", profile)
+
+    def test_greeting_after_empty_streak_is_not_a_signal(self):
+        # Only a bare AFFIRMATIVE counts — a greeting/thanks is not "yes, do that".
+        profile = SessionProfile(consecutive_empty_searches=2)
+        assert not is_search_refinement_signal("Bonjour", profile)
+
+    def test_recovery_chip_matches_last_suggestions_verbatim(self):
+        profile = SessionProfile(
+            last_suggestions=["increase the budget", "try a nearby area", "remove a filter"]
+        )
+        assert is_search_refinement_signal("Try a nearby area", profile)
+        assert not is_search_refinement_signal("Adjust your price range", profile)
+
+    def test_chip_match_is_case_insensitive_and_never_a_prose_regex(self):
+        """The match is against the PERSISTED list verbatim, not a regex over
+        the assistant's own synthesized prose (which is LLM-authored/streamed
+        and not a stable target)."""
+        profile = SessionProfile(last_suggestions=["remove a filter"])
+        assert is_search_refinement_signal("REMOVE A FILTER", profile)
+        assert not is_search_refinement_signal("please remove a filter for me", profile)
+
+
+# ── P10 (S06): anti-clarification-loop pure detectors ───────────────────────
+
+
+class TestExtractFinalQuestion:
+    def test_returns_last_question(self):
+        message = (
+            "Thanks — 5pm works.\n"
+            "Quick note: I can't re-run the same list from here, but I can refine "
+            "if you tell me one thing: do you want Queens or Brooklyn?"
+        )
+        question = extract_final_question(message)
+        assert question is not None
+        assert "Queens or Brooklyn" in question
+
+    def test_none_without_a_trailing_question(self):
+        assert extract_final_question("Here are your hotels.") is None
+        assert extract_final_question("") is None
+
+    def test_none_when_the_question_is_not_the_last_sentence(self):
+        assert extract_final_question("Which area? Anyway, here are your hotels.") is None
+
+
+class TestQuestionsEquivalent:
+    QUESTION = "Which airport area exactly should I prioritize?"
+
+    def test_exact_and_fuzzy_match(self):
+        assert questions_equivalent(self.QUESTION, self.QUESTION)
+        assert questions_equivalent(self.QUESTION, "Which airport area, exactly, should I prioritize?")
+
+    def test_different_question_does_not_match(self):
+        assert not questions_equivalent(self.QUESTION, "What budget should I use for the search?")
+
+    def test_none_or_empty_never_matches(self):
+        assert not questions_equivalent(self.QUESTION, None)
+        assert not questions_equivalent(self.QUESTION, "")
+        assert not questions_equivalent(None, None)

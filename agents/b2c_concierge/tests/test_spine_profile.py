@@ -28,8 +28,10 @@ def _llm_response(text: str):
 class ScriptedLlm:
     def __init__(self, *plan):
         self.plan = list(plan)
+        self.calls: list[dict] = []
 
     async def __call__(self, **kwargs):
+        self.calls.append(kwargs)
         item = self.plan.pop(0)
         if isinstance(item, Exception):
             raise item
@@ -69,8 +71,10 @@ def fake_leg(monkeypatch):
     return leg
 
 
-def _scripted_llm(monkeypatch, *plan):
-    monkeypatch.setattr(agent_module.litellm, "acompletion", ScriptedLlm(*plan))
+def _scripted_llm(monkeypatch, *plan) -> ScriptedLlm:
+    llm = ScriptedLlm(*plan)
+    monkeypatch.setattr(agent_module.litellm, "acompletion", llm)
+    return llm
 
 
 def _new_session(runner):
@@ -91,10 +95,13 @@ def _run_turn(runner, session_id, message):
         ]
 
     events = asyncio.run(go())
+    # S06: progress/hotels markers and streamed synthesis chunks are all
+    # `partial=True` (never appended to the session — see agent.py's
+    # `_marker_event`); the answer is the ONE terminal non-partial event.
     texts = [
         part.text
         for event in events
-        if event.content and event.content.parts
+        if not event.partial and event.content and event.content.parts
         for part in event.content.parts
         if part.text
     ]
@@ -161,7 +168,7 @@ class TestAutoWidenThroughTheSpine:
             "results": [],
             "profile_delta": {"budget_max": 100, "budget_request_source": BUDGET_SOURCE_FLEXIBLE_DEFAULT},
         }
-        _scripted_llm(
+        llm = _scripted_llm(
             monkeypatch,
             '{"family": "search", "language": "en"}', "No luck yet.",
             '{"family": "search", "language": "en"}', "Still nothing.",
@@ -176,7 +183,16 @@ class TestAutoWidenThroughTheSpine:
         stored = asyncio.run(fake_profile_store.get(session.id))
         assert stored.consecutive_empty_searches == 2
         assert stored.budget_max == 150.0
-        assert stored.auto_widen_disclosure == {"from": 100.0, "to": 150.0}
+        # S06: the disclosure is surfaced by THIS SAME turn's synthesis (see
+        # agent.py's _synthesize_with_guards) and cleared right after — it
+        # must never persist to be silently re-surfaced (or re-suppressed)
+        # on a later turn.
+        assert stored.auto_widen_disclosure is None
+        # The widening turn's own synthesis call must have SEEN the note —
+        # otherwise the guard stays silent (the exact S05 handoff gap).
+        synthesis_calls = [c for c in llm.calls if "AUTO_WIDEN" in c["messages"][1]["content"]]
+        assert len(synthesis_calls) == 1
+        assert "100.0 to 150.0" in synthesis_calls[0]["messages"][1]["content"]
 
     def test_explicit_budget_is_never_auto_widened(self, monkeypatch, fake_leg, fake_profile_store):
         fake_leg.response_payload = {"results": [], "profile_delta": {"budget_max": 100}}
