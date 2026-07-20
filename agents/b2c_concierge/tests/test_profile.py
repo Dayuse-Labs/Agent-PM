@@ -27,6 +27,7 @@ from b2c_concierge.profile import (
     record_search_shortlist,
     resolve_hotel_reference,
     resolve_hotel_references,
+    search_context_line,
 )
 
 
@@ -286,6 +287,52 @@ class TestRecoveryAckSignal:
         profile = SessionProfile(last_suggestions=["remove a filter"])
         assert is_search_refinement_signal("REMOVE A FILTER", profile)
         assert not is_search_refinement_signal("please remove a filter for me", profile)
+
+
+# ── Multi-turn refinement (S9+): a follow-up adjusting a prior search ────────
+
+
+class TestRefinementModifierSignal:
+    def test_date_change_after_a_search_is_a_refinement(self):
+        profile = SessionProfile(city="Paris")
+        assert is_search_refinement_signal("je le veux pour le 28", profile)
+        assert is_search_refinement_signal("plutôt demain", profile)
+        assert is_search_refinement_signal("actually the 28th of July", profile)
+
+    def test_budget_change_after_a_search_is_a_refinement(self):
+        profile = SessionProfile(city="Paris")
+        assert is_search_refinement_signal("moins cher", profile)
+        assert is_search_refinement_signal("cheaper please", profile)
+        assert is_search_refinement_signal("150", profile)  # bare number = a budget
+
+    def test_timeslot_change_after_a_search_is_a_refinement(self):
+        assert is_search_refinement_signal("plutôt le matin", SessionProfile(city="Paris"))
+
+    def test_no_prior_search_context_no_refinement(self):
+        # A date/budget with NO prior search is a fresh search via triage, not a
+        # refinement override.
+        assert not is_search_refinement_signal("je le veux pour le 28", SessionProfile())
+
+    def test_naming_a_shortlist_hotel_stays_booking_not_refinement(self):
+        profile = SessionProfile(
+            city="Paris", last_results=[{"hotel_id": 1, "name": "Villa Paris Orly"}]
+        )
+        assert not is_search_refinement_signal("book Villa Paris Orly for the 28th", profile)
+
+    def test_prior_context_via_shortlist_only(self):
+        profile = SessionProfile(last_results=[{"hotel_id": 1, "name": "Foo Palace"}])
+        assert is_search_refinement_signal("le 28 juillet", profile)
+
+
+class TestSearchContextLine:
+    def test_summarizes_known_params(self):
+        line = search_context_line(
+            SessionProfile(city="Paris", budget_max=150.0, amenities=["pool"])
+        )
+        assert "Paris" in line and "150" in line and "pool" in line
+
+    def test_empty_when_nothing_known(self):
+        assert search_context_line(SessionProfile()) == ""
 
 
 # ── P10 (S06): anti-clarification-loop pure detectors ───────────────────────

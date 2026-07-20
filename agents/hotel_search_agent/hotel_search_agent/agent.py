@@ -119,6 +119,10 @@ How to act, frugally (at most ONE reasoning pass — no tool-call loops):
   honestly instead (never invent coordinates or guess a nearby city).
   If it returns ok=True, call search_offers with its latitude/longitude plus
   the rest of the query params, and fold its profile_delta into your own.
+- A FOLLOW-UP that only changes the date/budget/filters with NO new destination
+  (e.g. "for the 28th instead", "cheaper", "earlier") → reuse profile_in.city as
+  the destination and run a fresh search with the new constraint. Do not ask the
+  user to repeat the city they already gave.
 - A specific hotel named by the user → call find_hotel_by_name directly (no
   geocoding needed).
 - On a SUCCESSFUL search, reply with a SHORT one-line outcome in plain language
