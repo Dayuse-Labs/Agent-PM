@@ -15,6 +15,7 @@ from hotel_search_agent.response_bridge import (
     capture_after_tool,
     emit_search_datapart,
     normalize_search_results,
+    skip_final_generation,
 )
 
 
@@ -208,3 +209,40 @@ def test_emit_delta_only_when_no_search_ran():
 
 def test_emit_returns_none_when_nothing_captured():
     assert emit_search_datapart(_Ctx()) is None
+
+
+# --- skip_final_generation (short-circuits the wasted 3rd LLM call) --------------------------
+def _skip_text(resp) -> str:
+    """Outcome text carried by the canned LlmResponse (or '' if none)."""
+    if resp is None or resp.content is None:
+        return ""
+    return "".join(p.text for p in resp.content.parts if p.text)
+
+
+def test_skip_short_circuits_once_results_are_stashed():
+    ctx = _Ctx({"temp:hotel_search_results": [{"id": 1, "name": "Villa Test"}]})
+    resp = skip_final_generation(ctx, llm_request=None)
+    assert resp is not None  # the real final-prose LLM call is skipped
+    assert "Villa Test" in _skip_text(resp)  # same code-built outcome the emit step uses
+
+
+def test_skip_short_circuits_on_zero_results():
+    # A 0-result search is a real outcome (stashes []): still short-circuit — the
+    # honest "no offers" line, not a wasted LLM call, and the orchestrator re-synthesizes it.
+    ctx = _Ctx({"temp:hotel_search_results": []})
+    resp = skip_final_generation(ctx, llm_request=None)
+    assert resp is not None
+    assert _skip_text(resp)  # non-empty ("No day-use offers found…")
+
+
+def test_skip_lets_model_speak_when_no_search_ran():
+    # geocode-fail / clarification / MCP-degraded: no results stashed → the model must
+    # still generate the honest diagnostic that becomes the orchestrator's leaf_text.
+    assert skip_final_generation(_Ctx(), llm_request=None) is None
+
+
+def test_skip_lets_model_speak_after_geocode_only():
+    # geocode ran and stashed a profile_delta, but no search yet → do NOT short-circuit
+    # (the model still needs to decide/emit search_offers, i.e. LLM call #2).
+    ctx = _Ctx({"temp:hotel_search_profile_delta": {"last_city": "Paris"}})
+    assert skip_final_generation(ctx, llm_request=None) is None

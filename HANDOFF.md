@@ -2,6 +2,20 @@
 
 État du chantier pour reprise en session fraîche. **Lire en entier avant d'agir ; ne pas reconstruire ce qui existe.** Mettre à jour en fin de CHAQUE session (bloc daté en tête).
 
+## ⏱ Addendum 2026-07-20 (même branche `s9-facade`) — feuille search : 3e appel LLM (prose finale gaspillée) supprimé → 3→2 appels internes
+
+**Contexte** : la latence feuille borderline notée depuis S2 (Fougères/Quimper timeout > 10 s puis passés) tenait pour partie à un **3e appel LLM inutile**. La feuille est un `LlmAgent` : sa boucle tool-calling fait geocode-décision (#1) → search-décision (#2) → **prose finale (#3)**. Or #3 est **doublement jeté** : `emit_search_datapart` (after_agent_callback) écrase sa prose par un `_outcome_text` construit en CODE (zéro LLM), et le concierge **re-synthétise** de toute façon la réponse utilisateur depuis les `results` structurés + le ground-truth block (la prose feuille n'est qu'un input « OUTCOME » non fiable + un fallback total-échec). Coûtait ~2–4 s gaspillées par recherche. **Purement latence** (la feuille compte comme UN slot `leaf_llm`, budget ≤3/tour intact).
+
+**Fait (zone feuille `hotel_search_agent`, `s9-facade`)** :
+- **`response_bridge.py::skip_final_generation`** (neuf) — un `before_model_callback` : si `capture_after_tool` a déjà stashé les résultats (`temp:hotel_search_results` présent), il renvoie un `LlmResponse` canné (le MÊME `_outcome_text`) → ADK **court-circuite l'appel modèle réel** (`base_llm_flow` : une réponse before_model_callback truthy est yieldée, l'appel n'a pas lieu). Garde sur `is None`, PAS falsiness : un search à **0 résultat** stashe `[]` (vrai outcome) et court-circuite quand même ; seuls geocode-fail / clarification / MCP-dégradé laissent la clé absente → le modèle génère alors le diagnostic honnête (fallback `leaf_text`).
+- **`agent.py`** — `skip_final_generation` câblé **EN PREMIER** dans `before_model_callback` : le court-circuit revient avant `after_model_callback`, donc `llm_timing_after` ne tire pas ; le placer en tête évite que `llm_timing_before` stampe un timer orphelin (et `inject_today` un append inutile) sur un appel qui n'aura pas lieu.
+- **DoD verte** : `pytest -q` → **417** (+4 : `test_response_bridge.py::skip_*` — non-vide court-circuite, `[]` court-circuite avec ligne « no offers », pas-de-search → None, geocode-seul → None) ; `ruff` OK ; `mypy` **33** ; guardrails OK.
+- **Vérifié LIVE (3 services redémarrés — pas de hot-reload — `.env` réel Mapbox + MCP staging, sans Redis)** : compteur `dayuse_metric=llm_call` de la feuille = **exactement 2 par `inv`** (était 3 ; le 3e ex-appel avait `completion_tokens=17-20`, la prose jetée). Paris (5 offres), **Fougères** (1 offre, Campanile 47 €), **Quimper** (3 offres) → tous `status=ok`, réponses correctes/groundées, cartes peuplées. `leaf_call ms` : Paris **4592**, Fougères **2725**, Quimper **2661** (avant, même run précédent : 3403/4185/**8696** + un **degraded** 6258) — les villes qui timeoutaient passent avec marge sous les 10 s, zéro dégradation. Turn budget inchangé (`llm_calls=3` = triage+leaf_llm+synthesis).
+
+**Reste** :
+- **Tail worst-case toujours borné par l'I/O séquentiel** (Mapbox geocode 1,5 s +1 retry, MCP search ≤5 s) que ce fix ne coupe pas. Si une ville repasse > 10 s malgré les 2 appels, l'option différée = **feuille code-owned** (1 appel LLM d'extraction de params → geocode+search déterministes, 3→1) — plus gros rewrite, worst-case toujours I/O-bound. Cache géocode inutile pour les villes froides type Fougères/Quimper (1er géocodage).
+- Non commité : working tree prêt sur `s9-facade`, en attente du go de Fabien (le commit + MR sont sa décision ; la review reste le gate).
+
 ## ⏱ Addendum 2026-07-20 (même branche `s9-facade`) — multi-tours souple (refinement) + réponses transparentes
 
 **Contexte** : tests live post-search → deux manques UX. (1) « je le veux pour le 28 » / « moins cher » (changer la date/le budget d'une recherche) partaient en `booking` → cul-de-sac « Je n'arrive pas à préparer cette réservation ». (2) Quand rien ne revient, l'utilisateur est perdu : la réponse ne dit pas ce qui a été compris, ni pourquoi c'est vide.
@@ -15,7 +29,7 @@
 
 **Reste** :
 - **Multi-tours EXIGE Redis** (continuité de profil) — inhérent ; **:6380** en local, vrai Redis en déploiement. Sans Redis, l'override refinement ne détecte pas le contexte antérieur.
-- **Latence feuille toujours borderline** sur certaines villes (3 appels LLM internes) : Fougères/Quimper ont **timeouté** (>10 s → dégradation technique) à un moment, puis passé plus tard. Pré-existant (S2), la troncature (addendum précédent) a réduit sans éliminer — un vrai fix = réduire les appels LLM de la feuille (hors périmètre).
+- ~~**Latence feuille toujours borderline** sur certaines villes (3 appels LLM internes)~~ **RÉSOLU** par l'addendum en tête (3e appel LLM gaspillé supprimé → 3→2 ; Fougères/Quimper repassent à ~2,7 s, zéro dégradation). Tail worst-case restant borné par l'I/O (Mapbox+MCP), voir « Reste » du bloc en tête.
 - La date n'est pas un champ de profil (elle vit dans le message du tour) : « change encore la date » sur un tour SANS ville re-mentionnée marche via `profile_in.city`, mais une date n'est pas persistée pour un tour ultérieur — extension future si besoin.
 - Sélection ordinale (« le premier ») non gérée comme refinement (pas un modificateur de param) — tombe sur booking-needs-selection (liste la shortlist), acceptable ; résolution d'ordinal = futur.
 

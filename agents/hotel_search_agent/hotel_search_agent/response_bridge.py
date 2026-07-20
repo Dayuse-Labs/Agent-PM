@@ -41,6 +41,7 @@ from google.adk.a2a.converters.part_converter import (
     A2A_DATA_PART_START_TAG,
     A2A_DATA_PART_TEXT_MIME_TYPE,
 )
+from google.adk.models.llm_response import LlmResponse
 from google.genai import types as genai_types
 
 # The concierge reports AT MOST 5 (ground-truth cap) — match it so the model
@@ -260,3 +261,38 @@ def emit_search_datapart(callback_context: Any) -> genai_types.Content | None:
         parts.append(genai_types.Part(text=_outcome_text(results)))
     parts.append(encode_datapart(payload))
     return genai_types.Content(role="model", parts=parts)
+
+
+def skip_final_generation(callback_context: Any, llm_request: Any) -> LlmResponse | None:
+    """`before_model_callback`: skip the leaf's wasted final-prose LLM call.
+
+    Once search_offers / find_hotel_by_name has run this turn, `capture_after_tool`
+    has stashed the normalized results in state. ADK would now call the model one
+    more time ONLY to write a prose outcome that `emit_search_datapart` discards
+    (last non-partial event wins) — and that the orchestrator never shows the user
+    anyway (it re-synthesizes the answer from the structured results + ground-truth
+    block). Returning an `LlmResponse` here makes ADK skip that real model call
+    (base_llm_flow: a truthy before_model_callback response is yielded, the call is
+    not made), cutting the leaf from 3 → 2 internal LLM calls per successful search.
+
+    The canned response carries the SAME code-built outcome text the emit step
+    would use, so nothing downstream changes shape.
+
+    Guard on `is None`, NOT falsiness: a 0-result search stashes `[]` (a real
+    outcome) and MUST still short-circuit; only the geocode-fail / clarification /
+    MCP-degraded paths leave the key unset (capture returns early without stashing),
+    and THOSE must still reach the model so it speaks the honest diagnostic that
+    becomes the orchestrator's `leaf_text` fallback.
+
+    Must be wired FIRST in `before_model_callback`: the short-circuit returns before
+    `after_model_callback` runs, so `llm_timing_after` never fires — placing this
+    first means `llm_timing_before` never stamps an orphaned timer for a call that
+    won't happen."""
+    results = callback_context.state.get(_STATE_RESULTS_KEY)
+    if results is None:  # no search this turn → let the model speak (honest diagnostic / clarify)
+        return None
+    return LlmResponse(
+        content=genai_types.Content(
+            role="model", parts=[genai_types.Part(text=_outcome_text(results))]
+        )
+    )
