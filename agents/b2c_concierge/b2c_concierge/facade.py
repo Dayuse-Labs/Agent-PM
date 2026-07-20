@@ -340,16 +340,25 @@ def build_active_filters(profile: SessionProfile) -> dict[str, Any]:
     }
 
 
+def _iso_alpha2(value: Any) -> str | None:
+    """ISO alpha-2 country code or None. The widget's market table is ISO-keyed:
+    a full country name uppercased into a pseudo-code ("FRANCE") is strictly
+    worse than None (None lets the widget fall back to its entry market)."""
+    if isinstance(value, str):
+        candidate = value.strip()
+        if len(candidate) == 2 and candidate.isalpha():
+            return candidate.upper()
+    return None
+
+
 def _infer_market_country(hotels: list | None, profile: SessionProfile) -> str | None:
     for hotel in hotels or []:
         if not isinstance(hotel, dict):
             continue
-        code = hotel.get("country_code") or hotel.get("country")
-        if isinstance(code, str) and code.strip():
-            return code.strip().upper()
-    if isinstance(profile.country_anchor, str) and profile.country_anchor.strip():
-        return profile.country_anchor.strip().upper()
-    return None
+        code = _iso_alpha2(hotel.get("country_code")) or _iso_alpha2(hotel.get("country"))
+        if code:
+            return code
+    return _iso_alpha2(profile.country_anchor)
 
 
 def _profile_status(profile: SessionProfile) -> str:

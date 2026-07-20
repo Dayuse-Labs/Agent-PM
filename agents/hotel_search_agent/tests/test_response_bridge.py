@@ -15,6 +15,7 @@ from hotel_search_agent.response_bridge import (
     capture_after_tool,
     emit_search_datapart,
     normalize_search_results,
+    skip_final_generation,
 )
 
 
@@ -147,6 +148,53 @@ def test_capture_find_hotel_by_name_stashes_but_does_not_truncate():
     assert len(ctx.state["temp:hotel_search_results"]) == 1
 
 
+# --- geocoded country → per-card country_code (widget market resolution) ---------------------
+def test_capture_geocode_stashes_iso_country_code():
+    ctx = _Ctx()
+    resp = {"ok": True, "country_code": "fr", "profile_delta": {"last_city": "Paris"}}
+    capture_after_tool(_Tool("geocode_location"), {}, ctx, resp)
+    assert ctx.state["temp:hotel_search_country_code"] == "FR"  # normalized upper
+
+
+def test_capture_geocode_rejects_non_iso_country_values():
+    for bad in ("France", "", "F", None, 33):
+        ctx = _Ctx()
+        capture_after_tool(_Tool("geocode_location"), {}, ctx, {"ok": True, "country_code": bad})
+        assert "temp:hotel_search_country_code" not in ctx.state
+
+
+def test_capture_search_offers_stamps_geocoded_country_on_cards():
+    ctx = _Ctx({"temp:hotel_search_country_code": "FR"})
+    resp = {"structuredContent": _search_offers_structured(3), "isError": False}
+    returned = capture_after_tool(_Tool("search_offers"), {}, ctx, resp)
+    assert all(c["country_code"] == "FR" for c in ctx.state["temp:hotel_search_results"])
+    assert all(c["country_code"] == "FR" for c in returned["hotels"])
+
+
+def test_capture_search_offers_server_sent_country_code_wins_over_stamp():
+    hotel = _hotel(1, 5000)
+    hotel["countryCode"] = "ch"  # the day MCP ships a per-hotel code, it wins
+    ctx = _Ctx({"temp:hotel_search_country_code": "FR"})
+    resp = {"structuredContent": {"results": [hotel]}, "isError": False}
+    capture_after_tool(_Tool("search_offers"), {}, ctx, resp)
+    assert ctx.state["temp:hotel_search_results"][0]["country_code"] == "CH"
+
+
+def test_capture_search_offers_without_geocode_leaves_cards_uncoded():
+    ctx = _Ctx()
+    resp = {"structuredContent": _search_offers_structured(2), "isError": False}
+    capture_after_tool(_Tool("search_offers"), {}, ctx, resp)
+    assert all("country_code" not in c for c in ctx.state["temp:hotel_search_results"])
+
+
+def test_capture_find_hotel_by_name_is_never_stamped():
+    # A name lookup is not bound to the geocoded location — no stamp.
+    ctx = _Ctx({"temp:hotel_search_country_code": "FR"})
+    resp = {"structuredContent": {"hotel": {"hotelId": 7, "name": "Villa"}}, "isError": False}
+    capture_after_tool(_Tool("find_hotel_by_name"), {}, ctx, resp)
+    assert "country_code" not in ctx.state["temp:hotel_search_results"][0]
+
+
 def test_capture_ignores_non_target_tools():
     ctx = _Ctx()
     assert capture_after_tool(_Tool("some_other_tool"), {}, ctx, {"structuredContent": {}}) is None
@@ -206,5 +254,63 @@ def test_emit_delta_only_when_no_search_ran():
     assert data["profile_delta"] == {"city": "Lyon"}
 
 
+def test_emit_delta_carries_country_anchor_from_geocode():
+    ctx = _Ctx(
+        {
+            "temp:hotel_search_results": [{"id": 1, "name": "Villa Test"}],
+            "temp:hotel_search_profile_delta": {"last_city": "Paris"},
+            "temp:hotel_search_country_code": "FR",
+        }
+    )
+    data = _decode(emit_search_datapart(ctx))
+    # the orchestrator's apply_profile_delta reads `country_anchor` (its schema)
+    assert data["profile_delta"] == {"city": "Paris", "country_anchor": "FR"}
+
+
+def test_emit_country_anchor_flows_even_on_a_geocode_only_turn():
+    # geocode ran but no search (e.g. the model asked a clarification): the anchor
+    # still reaches the orchestrator so active_filters/market survive the turn.
+    ctx = _Ctx({"temp:hotel_search_country_code": "FR"})
+    data = _decode(emit_search_datapart(ctx))
+    assert data == {"profile_delta": {"country_anchor": "FR"}}
+
+
 def test_emit_returns_none_when_nothing_captured():
     assert emit_search_datapart(_Ctx()) is None
+
+
+# --- skip_final_generation (short-circuits the wasted 3rd LLM call) --------------------------
+def _skip_text(resp) -> str:
+    """Outcome text carried by the canned LlmResponse (or '' if none)."""
+    if resp is None or resp.content is None:
+        return ""
+    return "".join(p.text for p in resp.content.parts if p.text)
+
+
+def test_skip_short_circuits_once_results_are_stashed():
+    ctx = _Ctx({"temp:hotel_search_results": [{"id": 1, "name": "Villa Test"}]})
+    resp = skip_final_generation(ctx, llm_request=None)
+    assert resp is not None  # the real final-prose LLM call is skipped
+    assert "Villa Test" in _skip_text(resp)  # same code-built outcome the emit step uses
+
+
+def test_skip_short_circuits_on_zero_results():
+    # A 0-result search is a real outcome (stashes []): still short-circuit — the
+    # honest "no offers" line, not a wasted LLM call, and the orchestrator re-synthesizes it.
+    ctx = _Ctx({"temp:hotel_search_results": []})
+    resp = skip_final_generation(ctx, llm_request=None)
+    assert resp is not None
+    assert _skip_text(resp)  # non-empty ("No day-use offers found…")
+
+
+def test_skip_lets_model_speak_when_no_search_ran():
+    # geocode-fail / clarification / MCP-degraded: no results stashed → the model must
+    # still generate the honest diagnostic that becomes the orchestrator's leaf_text.
+    assert skip_final_generation(_Ctx(), llm_request=None) is None
+
+
+def test_skip_lets_model_speak_after_geocode_only():
+    # geocode ran and stashed a profile_delta, but no search yet → do NOT short-circuit
+    # (the model still needs to decide/emit search_offers, i.e. LLM call #2).
+    ctx = _Ctx({"temp:hotel_search_profile_delta": {"last_city": "Paris"}})
+    assert skip_final_generation(ctx, llm_request=None) is None
