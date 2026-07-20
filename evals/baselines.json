@@ -1,0 +1,55 @@
+{
+  "updated_at": "2026-07-20T07:47:43.020910+00:00",
+  "updated_by_label": "s08_baseline",
+  "note": "Baselines for the b2c-concierge release gate (S08). Update ONLY via run_release_gate.py --update-baseline, on an INTENTIONAL bar change — never to make a red run green. Budget is a structural invariant and is never relaxed here.",
+  "units": {
+    "max_failed": 0,
+    "note": "Gate fails if the offline unit suite has MORE failures than this."
+  },
+  "budget": {
+    "max_llm_calls_per_turn": 3,
+    "max_over_budget_turns": 0,
+    "note": "ZERO tolerance: any turn over 3 LLM calls is ship-blocking (CLAUDE.md invariant)."
+  },
+  "conversation": {
+    "min_passed": 3,
+    "total": 32,
+    "tolerance": 2,
+    "judge_model": "gpt-4o-mini",
+    "by_family": {
+      "simple_search": {
+        "passed": 0,
+        "count": 4
+      },
+      "empty_dead": {
+        "passed": 3,
+        "count": 4
+      },
+      "empty_recovered": {
+        "passed": 0,
+        "count": 4
+      },
+      "budget_search": {
+        "passed": 0,
+        "count": 4
+      },
+      "timeslot_search": {
+        "passed": 0,
+        "count": 4
+      },
+      "named_hotel": {
+        "passed": 0,
+        "count": 4
+      },
+      "compare": {
+        "passed": 0,
+        "count": 4
+      },
+      "multi_turn_long": {
+        "passed": 0,
+        "count": 4
+      }
+    },
+    "note": "Live-LLM battery: min_passed is a floor; the gate fails only if a run drops below min_passed - tolerance. by_family is informational."
+  }
+}

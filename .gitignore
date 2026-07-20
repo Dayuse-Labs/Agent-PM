@@ -7,6 +7,9 @@ baseline/
 # Logs de run locaux
 .run-logs/
 
+# Rapports d'eval / release gate (générés — baselines.json EST committé)
+evals/reports/
+
 # Historique local des runs adk eval
 **/.adk/
 
