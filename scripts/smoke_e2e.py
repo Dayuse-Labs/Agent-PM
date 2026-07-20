@@ -18,10 +18,18 @@ The A2A executor derives both `session_id` and `user_id` from `contextId`
 (google.adk.a2a.converters.request_converter) — passing the same one across
 `message/send` calls is what continues the session.
 
-Without credentials (.env: OPENAI_API_KEY, MCP_B2C_URL) the search/faq turns
-exercise the HONEST DEGRADATION path (triage regex fallback + leaf failure →
-a message that says so) — still non-empty by contract, never an invention.
-With credentials they exercise the nominal LLM + MCP path.
+`--booking` (S07 DoD, guard #12 / R9): two turns sharing ONE contextId —
+"book <a real MCP_B2C hotel>" then a bare "yes" — proving the confirmed=false
+-> confirmed=true confirmation gate works end to end, not just at the
+inline_tools.py unit level. Turn 1 must NEVER contain a link (the core R9
+safety invariant, true even under honest degradation with no live
+credentials); turn 2's link depends on MCP_B2C/OPENAI_API_KEY actually being
+reachable, printed but not hard-asserted for that reason.
+
+Without credentials (.env: OPENAI_API_KEY, MCP_B2C_URL) the search/faq/
+booking turns exercise the HONEST DEGRADATION path (triage regex fallback +
+leaf/tool failure → a message that says so) — still non-empty by contract,
+never an invention. With credentials they exercise the nominal LLM + MCP path.
 
 No message content is logged beyond what this script itself sends (its own
 test prompts, no real user data).
@@ -76,7 +84,10 @@ def _answer_text(result: dict) -> str:
     return "\n".join(texts).strip()
 
 
-def run_turn(client: httpx.Client, label: str, message: str, context_id: str | None = None) -> bool:
+def run_turn(client: httpx.Client, label: str, message: str, context_id: str | None = None) -> str | None:
+    """Runs one turn; returns the answer text, or None on failure (empty
+    answer, transport error, JSON-RPC error, or a context_id that wasn't
+    honored)."""
     req_id = f"smoke-{label}-{uuid.uuid4().hex[:8]}"
     message_payload = {
         "role": "user",
@@ -100,31 +111,31 @@ def run_turn(client: httpx.Client, label: str, message: str, context_id: str | N
         body = resp.json()
     except Exception as exc:  # noqa: BLE001 — a smoke failure must be printed, not raised
         print(f"FAIL  {label:<12} {type(exc).__name__}: {exc}")
-        return False
+        return None
     ms = int((time.monotonic() - t0) * 1000)
     if "error" in body:
         print(f"FAIL  {label:<12} JSON-RPC error: {body['error']} ({ms} ms)")
-        return False
+        return None
     result = body.get("result") or {}
     if context_id and result.get("contextId") != context_id:
         print(
             f"FAIL  {label:<12} contextId not honored: sent {context_id!r}, "
             f"got {result.get('contextId')!r} — the session did NOT continue ({ms} ms)"
         )
-        return False
+        return None
     answer = _answer_text(result)
     if not answer:
         print(f"FAIL  {label:<12} empty answer ({ms} ms)")
-        return False
+        return None
     preview = answer.replace("\n", " ")[:100]
     print(f"OK    {label:<12} {ms:>6} ms  {preview!r}")
-    return True
+    return answer
 
 
 def run_independent_turns(client: httpx.Client) -> bool:
     ok = True
     for label, message in TURNS:
-        ok = run_turn(client, label, message) and ok
+        ok = (run_turn(client, label, message) is not None) and ok
     return ok
 
 
@@ -135,16 +146,52 @@ def run_conversation(client: httpx.Client) -> bool:
     print(f"conversation contextId={context_id}")
     ok = True
     for label, message in CONVERSATION_TURNS:
-        ok = run_turn(client, label, message, context_id=context_id) and ok
+        ok = (run_turn(client, label, message, context_id=context_id) is not None) and ok
     return ok
+
+
+# A real, bookable MCP_B2C staging hotel (verified live during S07) — lets
+# the smoke exercise the named-hotel lookup guard's MCP find_hotel_by_name
+# fallback directly, with no prior search turn needed to seed a shortlist.
+_BOOKING_HOTEL = "Villa Paris Orly"
+
+
+def run_booking(client: httpx.Client) -> bool:
+    """S07 DoD, guard #12 (R9): 2 turns, ONE shared contextId — "book <hotel>"
+    then a bare "yes". Turn 1 must NEVER contain a link (the core safety
+    invariant — true even under honest degradation with no live
+    credentials); turn 2 carrying a REAL tracked link additionally proves the
+    confirmation gate end to end when MCP_B2C/OPENAI_API_KEY are reachable."""
+    context_id = str(uuid.uuid4())
+    print(f"booking contextId={context_id}")
+    quote = run_turn(client, "book-quote", f"Book {_BOOKING_HOTEL} for me", context_id=context_id)
+    if quote is None:
+        return False
+    if "http" in quote:
+        print("FAIL  book-quote   a link appeared on the FIRST request — R9 guard breach")
+        return False
+    confirm = run_turn(client, "book-confirm", "yes", context_id=context_id)
+    if confirm is None:
+        return False
+    if "http" in confirm:
+        print("      book-confirm real tracked link returned — confirmation gate verified end to end")
+    else:
+        print("      book-confirm no link (honest degradation — check MCP_B2C/OPENAI_API_KEY in .env)")
+    return True
 
 
 def main() -> int:
     parser = argparse.ArgumentParser()
-    parser.add_argument(
+    mode = parser.add_mutually_exclusive_group()
+    mode.add_argument(
         "--conversation",
         action="store_true",
         help="Run a 4-turn conversation sharing one A2A contextId instead of 3 independent turns.",
+    )
+    mode.add_argument(
+        "--booking",
+        action="store_true",
+        help="Run the 2-turn booking confirmation flow (R9, guard #12): quote then confirm.",
     )
     args = parser.parse_args()
 
@@ -152,7 +199,12 @@ def main() -> int:
     with httpx.Client(
         timeout=TIMEOUT_SECONDS, headers={"Authorization": f"Bearer {BEARER}"}
     ) as client:
-        ok = run_conversation(client) if args.conversation else run_independent_turns(client)
+        if args.booking:
+            ok = run_booking(client)
+        elif args.conversation:
+            ok = run_conversation(client)
+        else:
+            ok = run_independent_turns(client)
     print("smoke_e2e:", "PASS" if ok else "FAIL")
     return 0 if ok else 1
 

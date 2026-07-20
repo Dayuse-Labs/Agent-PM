@@ -32,6 +32,22 @@ S06 adds two more, both deterministic and code-owned (never LLM-decided):
     question — the retry-then-strip orchestration itself lives in agent.py
     since it must re-invoke the synthesis LLM, which this module intentionally
     stays free of (guards here are pure, Redis/LLM-free, unit-testable alone).
+
+S07 adds the `_last_results` equivalent this spine was structurally missing
+(S06's HANDOFF noted the difference from agent-usa on purpose — inline tools
+now need it back):
+  - named-hotel lookup: `resolve_hotel_reference`/`resolve_hotel_references`
+    fuzzy-match a hotel mentioned in a message against the PERSISTED on-screen
+    shortlist (`last_results`, set by `record_search_shortlist`) before the
+    caller (inline_tools.py) falls back to the MCP `find_hotel_by_name` tool —
+    a hotel this session just recommended must never dead-end.
+  - booking confirmation (R9, guard #12): `is_booking_confirmation_signal`
+    is the ack-fast-path override for a bare "yes"/"ok" while `pending_booking`
+    is set — symmetric to `is_search_refinement_signal` (P2). The actual
+    confirmed=false/true decision is NEVER made from this signal alone: it
+    is re-derived in code from `pending_booking` at the inline-tool call site
+    (inline_tools.py) — this function only keeps the turn from being swallowed
+    by the zero-LLM ack template before it can reach that gate.
 """
 from __future__ import annotations
 
@@ -82,6 +98,9 @@ class SessionProfile:
     auto_widen_disclosure: dict[str, float] | None = None
     last_suggestions: list[str] | None = None
     last_clarifying_question: str | None = None
+    last_results: list[dict[str, Any]] | None = None
+    pending_booking: dict[str, Any] | None = None
+    amenity_claim_corrections: dict[str, list[str]] | None = None
 
     def to_dict(self) -> dict[str, Any]:
         return {
@@ -101,6 +120,9 @@ class SessionProfile:
             "auto_widen_disclosure": self.auto_widen_disclosure,
             "last_suggestions": self.last_suggestions,
             "last_clarifying_question": self.last_clarifying_question,
+            "last_results": self.last_results,
+            "pending_booking": self.pending_booking,
+            "amenity_claim_corrections": self.amenity_claim_corrections,
         }
 
     @classmethod
@@ -366,3 +388,119 @@ def questions_equivalent(a: str | None, b: str | None) -> bool:
     norm_a = _NORMALIZE_RE.sub("", a).lower().split()
     norm_b = _NORMALIZE_RE.sub("", b).lower().split()
     return bool(norm_a) and norm_a == norm_b
+
+
+# --- Named-hotel lookup (S07) — the `_last_results` equivalent -------------
+
+MAX_SHORTLIST = 5  # same cap as ground_truth.MAX_HOTELS; not imported to avoid
+# a circular import (ground_truth.py already imports SessionProfile from here).
+
+_MIN_MATCHABLE_NAME_LEN = 4  # same floor as agent-usa's own matcher: below
+# this a hotel name is too short/generic to match reliably by substring.
+
+_NAME_TOKEN_RE = re.compile(r"[a-z0-9]+")
+# Generic hospitality words are never distinctive enough to identify ONE
+# hotel among a shortlist ("compare the Hampton Inn and the Ibis Hotel" must
+# match on "hampton"/"ibis", never on the shared "hotel"/"inn").
+_NAME_STOPWORDS = {
+    "hotel", "hotels", "inn", "the", "and", "de", "le", "la", "les", "el",
+    "resort", "resorts", "suite", "suites", "spa",
+}
+
+
+def _significant_name_tokens(name: str) -> set[str]:
+    tokens = _NAME_TOKEN_RE.findall(name.lower())
+    return {t for t in tokens if len(t) >= _MIN_MATCHABLE_NAME_LEN and t not in _NAME_STOPWORDS}
+
+
+def _hotel_matches(stripped: str, message_tokens: set[str], hotel: dict[str, Any]) -> bool:
+    name = str(hotel.get("name") or "").strip()
+    if len(name) < _MIN_MATCHABLE_NAME_LEN:
+        return False
+    name_l = name.lower()
+    if name_l in stripped or stripped in name_l:
+        return True
+    # Free-text fallback (no upstream entity extraction here, unlike
+    # agent-usa's NamedHotelTool which received an already-isolated
+    # hotel_name argument): a distinctive word from the name showing up
+    # anywhere in the message is enough — "compare Kimpton and the Hampton
+    # Inn" must resolve both without either name appearing verbatim.
+    significant = _significant_name_tokens(name)
+    return bool(significant) and bool(significant & message_tokens)
+
+
+def record_search_shortlist(profile: SessionProfile, results: list[dict[str, Any]] | None) -> None:
+    """Persists the on-screen shortlist so a LATER turn can reference a hotel
+    by name without a fresh MCP round-trip (named-hotel lookup guard). A
+    non-empty result REPLACES the previous shortlist (the screen now shows
+    THESE hotels); an empty result leaves it untouched on purpose — the user
+    must still be able to say "book the one you showed me" right after a
+    later, unrelated empty search (never dead-end on a hotel just
+    recommended). Defensive about the hotel-id key name: the leaf's own
+    response shape is not schema-fixed yet (S1-S6), so `hotel_id`/`hotelId`/
+    `id` are all accepted."""
+    if not results:
+        return
+    shortlist: list[dict[str, Any]] = []
+    for hotel in results:
+        if not isinstance(hotel, dict):
+            continue
+        name = str(hotel.get("name") or "").strip()
+        if not name:
+            continue
+        hotel_id = hotel.get("hotel_id", hotel.get("hotelId", hotel.get("id")))
+        shortlist.append({"hotel_id": hotel_id, "name": name})
+    if shortlist:
+        profile.last_results = shortlist[:MAX_SHORTLIST]
+
+
+def resolve_hotel_reference(
+    text: str, last_results: list[dict[str, Any]] | None
+) -> dict[str, Any] | None:
+    """The first shortlist entry `text` refers to — case-insensitive
+    substring match (either direction, so a short reference "Kimpton"
+    matches the full on-screen name "Kimpton - Hotel Palomar South Beach"),
+    falling back to a distinctive-word match for free text that never
+    contains the name verbatim. Names under `_MIN_MATCHABLE_NAME_LEN` chars
+    are skipped as too generic to match reliably (same floor as agent-usa's
+    own matcher, prod session 34d216e3)."""
+    stripped = (text or "").strip().lower()
+    if not stripped or not last_results:
+        return None
+    tokens = set(_NAME_TOKEN_RE.findall(stripped))
+    for hotel in last_results:
+        if _hotel_matches(stripped, tokens, hotel):
+            return hotel
+    return None
+
+
+def resolve_hotel_references(
+    text: str, last_results: list[dict[str, Any]] | None
+) -> list[dict[str, Any]]:
+    """Every shortlist entry `text` mentions (compare_hotels: a user naming
+    two or more hotels in one message) — same matching rule as
+    `resolve_hotel_reference`, but collecting all hits instead of the first."""
+    stripped = (text or "").strip().lower()
+    if not stripped or not last_results:
+        return []
+    tokens = set(_NAME_TOKEN_RE.findall(stripped))
+    return [hotel for hotel in last_results if _hotel_matches(stripped, tokens, hotel)]
+
+
+# --- Booking confirmation (R9, guard #12) -----------------------------------
+
+
+def is_booking_confirmation_signal(message: str, profile: SessionProfile) -> bool:
+    """True when `message` is a bare affirmative WHILE a booking offer is
+    awaiting the user's explicit confirmation (`pending_booking` set) — the
+    zero-LLM ack template and any other family must not swallow it, or the
+    confirmation could never reach the code-owned gate that turns
+    confirmed=false into confirmed=true (inline_tools.generate_booking_link).
+    This function only routes the turn; it never decides the confirmed flag
+    itself — that decision is re-derived from `pending_booking` at the call
+    site, so this signal alone can never be the thing that authorizes a link.
+    """
+    if not profile.pending_booking:
+        return False
+    stripped = (message or "").strip()
+    return bool(stripped) and bool(_AFFIRMATIVE_RE.match(stripped))

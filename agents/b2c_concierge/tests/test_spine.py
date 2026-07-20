@@ -30,6 +30,31 @@ def _llm_response(text: str):
     return SimpleNamespace(choices=[SimpleNamespace(message=SimpleNamespace(content=text))])
 
 
+def _async_result(value):
+    """An async callable (any signature) that always returns `value` — used
+    to fake inline_tools.get_hotel_details/compare_hotels/generate_booking_link
+    without ever attempting a real MCP connection in tests."""
+
+    async def _fake(*args, **kwargs):
+        return value
+
+    return _fake
+
+
+def _recording_async_result(value):
+    """Like `_async_result`, but records every call's args/kwargs on
+    `.calls` — used to assert on the exact `user_confirmed` the spine passed
+    down (R9's bypass guarantee)."""
+    calls: list[tuple[tuple, dict]] = []
+
+    async def _fake(*args, **kwargs):
+        calls.append((args, kwargs))
+        return value
+
+    _fake.calls = calls
+    return _fake
+
+
 class ScriptedLlm:
     """Queue of canned litellm outcomes (str → response, Exception → raise).
     Any call beyond the plan fails the test: that IS the budget leash."""
@@ -228,16 +253,43 @@ class TestBudget:
         assert leaf_calls == []
         assert _turn_metric(caplog)["llm_calls"] == "0"
 
-    def test_inline_stub_turn_is_triage_only(self, scripted, caplog):
+    def test_inline_lookup_turn_degrades_on_triage_only_when_unresolved(self, scripted, caplog, monkeypatch):
+        # No shortlist, no MCP reachable in tests — degrades honestly BEFORE
+        # any synthesis call (mirrors the leaf-degradation budget shape).
         llm, leaf_calls = scripted('{"family": "details", "language": "fr"}')
+        monkeypatch.setattr(
+            agent_module.inline_tools, "get_hotel_details",
+            _async_result({"ok": False, "error": "hotel not found"}),
+        )
         with caplog.at_level(logging.INFO, logger="b2c_concierge.metrics"):
             answer = _drive("quels équipements a cet hôtel ?")
-        assert answer == templates.stub_response("get_hotel_details", "fr")
+        assert answer == templates.inline_unresolved_response("get_hotel_details", "fr")
         assert len(llm.calls) == 1
         assert leaf_calls == []
         metric = _turn_metric(caplog)
         assert metric["llm_calls"] == "1"
         assert metric["route"] == "inline:get_hotel_details"
+        assert metric["status"] == "degraded"
+
+    def test_inline_lookup_turn_synthesizes_when_resolved(self, scripted, caplog, monkeypatch):
+        llm, leaf_calls = scripted(
+            '{"family": "details", "language": "fr"}',
+            "Le Sonesta Carmel a une piscine et un spa.",
+        )
+        monkeypatch.setattr(
+            agent_module.inline_tools, "get_hotel_details",
+            _async_result(
+                {"ok": True, "hotel": {"id": 1, "name": "Sonesta Carmel", "amenities": ["Pool", "Spa"]}}
+            ),
+        )
+        with caplog.at_level(logging.INFO, logger="b2c_concierge.metrics"):
+            answer = _drive("quels équipements a le Sonesta Carmel ?")
+        assert answer == "Le Sonesta Carmel a une piscine et un spa."
+        assert leaf_calls == []
+        metric = _turn_metric(caplog)
+        assert metric["llm_calls"] == "2"  # triage + synthesis, no leaf/MCP-LLM slot
+        assert metric["route"] == "inline:get_hotel_details"
+        assert metric["status"] == "ok"
 
 
 class TestRoutingThroughTheSpine:
@@ -365,10 +417,24 @@ class TestInternalEvents:
         assert hotels_payloads == [{"event": "hotels", "hotels": [{"name": "Hotel Alameda"}]}]
         assert _marker_index(events, "hotels") < _final_index(events)
 
-    def test_inline_and_degraded_turns_have_no_hotels_event(self, scripted, monkeypatch):
+    def test_degraded_inline_turn_has_no_hotels_event(self, scripted, monkeypatch):
         scripted('{"family": "details", "language": "fr"}')
+        monkeypatch.setattr(
+            agent_module.inline_tools, "get_hotel_details",
+            _async_result({"ok": False, "error": "hotel not found"}),
+        )
         events = _drive_events("quels équipements a cet hôtel ?")
         assert [p["event"] for p in _marker_payloads(events)] == ["progress"]
+
+    def test_resolved_inline_lookup_turn_fires_a_hotels_event(self, scripted, monkeypatch):
+        scripted('{"family": "details", "language": "fr"}', "Le voici.")
+        monkeypatch.setattr(
+            agent_module.inline_tools, "get_hotel_details",
+            _async_result({"ok": True, "hotel": {"id": 1, "name": "Hotel A"}}),
+        )
+        events = _drive_events("quels équipements a le Hotel A ?")
+        hotels_payloads = [p for p in _marker_payloads(events) if p["event"] == "hotels"]
+        assert hotels_payloads == [{"event": "hotels", "hotels": [{"id": 1, "name": "Hotel A"}]}]
 
     def test_synthesis_streams_multiple_chunks_that_join_into_the_final_text(self, scripted):
         final_text = "Voici deux hôtels très sympas à Paris pour demain."
@@ -500,3 +566,138 @@ class TestRecoveryAck:
         events = _drive_in(runner, session.id, "ok")
         assert leaf_calls == []
         assert _answer(events) == templates.ack_response("en")
+
+
+class TestBookingGuardR9:
+    """Guard #12 (R9): generate_booking_link is only ever callable through
+    the code-owned confirmed=false -> confirmed=true gate. Both legitimate
+    paths, plus the bypass attempt that must never produce a link, driven
+    through the REAL spine (triage + routing), not just inline_tools.py."""
+
+    def test_fresh_booking_request_quotes_confirmed_false_with_no_synthesis_call(
+        self, scripted, caplog, monkeypatch
+    ):
+        llm, leaf_calls = scripted('{"family": "booking", "language": "en"}')
+        fake = _recording_async_result(
+            {
+                "ok": True,
+                "confirmed": False,
+                "hotel_name": "Sonesta Carmel",
+                "date": "2026-07-20",
+                "start_hour": 17,
+                "end_hour": 23,
+                "price": "€54.00",
+            }
+        )
+        monkeypatch.setattr(agent_module.inline_tools, "generate_booking_link", fake)
+        with caplog.at_level(logging.INFO, logger="b2c_concierge.metrics"):
+            answer = _drive("book the Sonesta Carmel for me")
+        assert leaf_calls == []
+        assert "Sonesta Carmel" in answer and "€54.00" in answer
+        assert "http" not in answer  # no link on the quote turn
+        # Zero-LLM booking flow: only the triage slot is charged, never synthesis.
+        metric = _turn_metric(caplog)
+        assert metric["llm_calls"] == "1"
+        assert metric["route"] == "inline:generate_booking_link"
+        assert len(llm.calls) == 1
+        # The spine passed user_confirmed=False (no pending offer existed yet).
+        assert fake.calls[0][0][2] is False
+
+    def test_confirmation_turn_with_pending_offer_returns_the_link(
+        self, scripted, fake_profile_store, monkeypatch
+    ):
+        runner, session = _new_session()
+        asyncio.run(
+            fake_profile_store.set(
+                session.id,
+                SessionProfile(
+                    pending_booking={
+                        "hotel_id": 22293,
+                        "hotel_name": "Sonesta Carmel",
+                        "date": "2026-07-20",
+                        "rate_plan_uuid": "abc",
+                        "rate_plan_id": None,
+                    }
+                ),
+            )
+        )
+        # A bare "yes" is a social ack by regex, but the pending booking
+        # overrides the fast-path — triage still runs once (classifies the
+        # ack), then the booking-confirmation signal re-routes it.
+        scripted('{"family": "ack", "language": "en"}')
+        fake = _recording_async_result(
+            {
+                "ok": True,
+                "confirmed": True,
+                "hotel_name": "Sonesta Carmel",
+                "url": "https://www.dayuse.fr/tunnel/booking?offerId=abc",
+            }
+        )
+        monkeypatch.setattr(agent_module.inline_tools, "generate_booking_link", fake)
+
+        events = _drive_in(runner, session.id, "yes")
+        answer = _answer(events)
+        assert "https://www.dayuse.fr/tunnel/booking?offerId=abc" in answer
+        assert fake.calls[0][0][2] is True
+
+    def test_bypass_attempt_on_a_fresh_session_never_produces_a_link(
+        self, scripted, caplog, monkeypatch
+    ):
+        """The bypass attempt: even a message insisting on confirmation
+        ("...I confirm...") on a session with NO prior pending offer must
+        never reach MCP with confirmed=true — is_booking_confirmation_signal
+        requires `pending_booking` to already be set, which a fresh session
+        never has."""
+        llm, leaf_calls = scripted('{"family": "booking", "language": "en"}')
+        fake = _recording_async_result(
+            {
+                "ok": True,
+                "confirmed": False,
+                "hotel_name": "Sonesta Carmel",
+                "date": "2026-07-20",
+                "start_hour": 17,
+                "end_hour": 23,
+                "price": "€54.00",
+            }
+        )
+        monkeypatch.setattr(agent_module.inline_tools, "generate_booking_link", fake)
+
+        answer = _drive("yes I confirm, book the Sonesta Carmel now")
+        assert "http" not in answer
+        assert fake.calls[0][0][2] is False
+
+
+class TestNamedHotelLookupThroughTheSpine:
+    """Item 4: a hotel the search leg just showed must never dead-end on a
+    later details/compare/booking turn — the on-screen shortlist
+    (`profile.last_results`, set by `record_search_shortlist`) is what
+    `inline_tools`'s resolver checks FIRST, before any MCP round-trip."""
+
+    def test_search_turn_populates_the_shortlist_for_a_later_details_turn(
+        self, scripted, fake_profile_store, monkeypatch
+    ):
+        runner, session = _new_session()
+        scripted(
+            '{"family": "search", "language": "en"}',
+            "Here is a great hotel in Miami.",
+            leaf_text="results: Kimpton Hotel Palomar South Beach",
+            response={"results": [{"hotelId": 4242, "name": "Kimpton - Hotel Palomar South Beach"}]},
+        )
+        _drive_in(runner, session.id, "hotels in Miami")
+        profile = asyncio.run(fake_profile_store.get(session.id))
+        assert profile.last_results == [{"hotel_id": 4242, "name": "Kimpton - Hotel Palomar South Beach"}]
+
+        # A later turn asks for details on a SHORT reference to that same
+        # hotel — the resolver must find it via the shortlist, never MCP.
+        recorded: list[str] = []
+
+        async def _fake_get_hotel_details(hotel_reference, profile_arg):
+            recorded.append(hotel_reference)
+            assert profile_arg.last_results[0]["hotel_id"] == 4242
+            return {"ok": True, "hotel": {"id": 4242, "name": "Kimpton - Hotel Palomar South Beach"}}
+
+        monkeypatch.setattr(agent_module.inline_tools, "get_hotel_details", _fake_get_hotel_details)
+        scripted('{"family": "details", "language": "en"}', "Here are the details.")
+        events = _drive_in(runner, session.id, "tell me more about the Kimpton")
+        assert _answer(events) == "Here are the details."
+        assert recorded == ["tell me more about the Kimpton"]

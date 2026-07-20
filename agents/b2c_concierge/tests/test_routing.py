@@ -1,4 +1,4 @@
-"""Routing table + leaf endpoints + inline stubs — all code-owned, all pinned."""
+"""Routing table + leaf endpoints — all code-owned, all pinned."""
 from b2c_concierge import inline_tools
 from b2c_concierge.routing import (
     LEAF_ENDPOINTS,
@@ -17,7 +17,7 @@ class TestRoutingTable:
         assert ROUTES["faq"].kind == "leaf"
         assert ROUTES["faq"].target == LEAF_FAQ
 
-    def test_details_compare_booking_are_inline_stubs(self):
+    def test_details_compare_booking_are_inline(self):
         for family, tool in (
             ("details", "get_hotel_details"),
             ("compare", "compare_hotels"),
@@ -25,7 +25,7 @@ class TestRoutingTable:
         ):
             assert ROUTES[family].kind == "inline"
             assert ROUTES[family].target == tool
-            assert tool in inline_tools.STUBS
+            assert hasattr(inline_tools, tool)
 
     def test_ack_is_a_template(self):
         assert ROUTES["ack"].kind == "template"
@@ -60,18 +60,3 @@ class TestLeafEndpoints:
         assert leaf_targets == set(LEAF_ENDPOINTS)
 
 
-class TestInlineStubs:
-    def test_stubs_return_deterministic_no_op_payloads(self):
-        for name, stub in inline_tools.STUBS.items():
-            payload = stub()
-            assert payload["tool"] == name
-            assert payload["status"] == "stub_s2"
-            assert payload["results"] == []
-
-    def test_booking_link_stub_never_emits_a_link(self):
-        # R9 posture: no confirmation flag machinery exists yet, so the stub
-        # must be structurally unable to hand out a booking link.
-        payload = inline_tools.generate_booking_link("offer-42")
-        assert "url" not in payload
-        assert "link" not in payload
-        assert payload["results"] == []

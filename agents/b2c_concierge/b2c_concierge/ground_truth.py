@@ -61,12 +61,21 @@ def _hotel_line(hotel: dict[str, Any]) -> str:
     return line
 
 
+def shortlist_hotels(response: dict[str, Any] | None) -> list[dict[str, Any]]:
+    """The same bounded hotel list the ground-truth block renders — shared
+    with the amenity-claim verifier (S07, amenity_guard.py) so it checks the
+    synthesis text against EXACTLY the hotels the LLM was grounded in,
+    whatever the response's source (search leaf, or an S07 inline tool
+    shaped the same way: `{"results": [...]}`)."""
+    results = (response or {}).get("results")
+    return [h for h in (results or []) if isinstance(h, dict)][:MAX_HOTELS]
+
+
 def shortlist_ground_truth_block(response: dict[str, Any] | None, profile: SessionProfile) -> str:
     """System-prompt block anchoring the synthesis LLM to this turn's search
     outcome. Empty string when there is nothing to ground (no leaf results and
     no empty-search streak yet) — never adds an empty section to the prompt."""
-    results = (response or {}).get("results")
-    hotels = [h for h in (results or []) if isinstance(h, dict)][:MAX_HOTELS]
+    hotels = shortlist_hotels(response)
     if not hotels:
         if profile.consecutive_empty_searches > 0:
             return "\n\n## CURRENT RESULTS (GROUND TRUTH)\n" + _EMPTY_SCREEN_NOTE
