@@ -68,6 +68,52 @@ def test_search_turn_maps_hotel_list_and_ready():
     assert payload["market"] == {"country_code": "US"}
 
 
+# --- market country (the widget's ISO-keyed market table drives button + card URLs) ----------
+def test_market_falls_back_to_profile_country_anchor():
+    payload = build_chat_payload(
+        session_id="s", final_text="Voici.", hotels=[{"id": 1, "name": "Villa Paris Orly"}],
+        profile=SessionProfile(city="Paris", country_anchor="FR"), language="fr", turn_id="t",
+    )
+    assert payload["market_country"] == "FR"
+    assert payload["entry_market_country"] == "FR"
+    assert payload["search_country"] == "FR"
+    assert payload["market"] == {"country_code": "FR"}
+    assert payload["active_filters"]["country_code"] == "FR"
+
+
+def test_market_absent_without_any_country_signal():
+    payload = build_chat_payload(
+        session_id="s", final_text="Voici.", hotels=[{"id": 1, "name": "Villa"}],
+        profile=SessionProfile(city="Paris"), language="fr", turn_id="t",
+    )
+    assert payload["market"] == {}
+    assert payload["market_country"] is None
+    assert payload["search_country"] is None
+
+
+def test_full_country_name_never_becomes_a_pseudo_market_code():
+    # MCP sends `country: "France"` (full name, probed live 2026-07-20). The
+    # widget's COUNTRY_META is ISO-keyed: "FRANCE" would silently fail there —
+    # None is strictly better (widget falls back to its entry market).
+    payload = build_chat_payload(
+        session_id="s", final_text="Voici.",
+        hotels=[{"id": 1, "name": "Villa", "country": "France"}],
+        profile=SessionProfile(city="Paris", country_anchor="Île-de-France"),
+        language="fr", turn_id="t",
+    )
+    assert payload["market_country"] is None
+    assert payload["market"] == {}
+
+
+def test_first_hotel_with_iso_code_wins():
+    hotels = [{"id": 1, "name": "A", "country": "France"}, {"id": 2, "name": "B", "country_code": "FR"}]
+    payload = build_chat_payload(
+        session_id="s", final_text="Voici.", hotels=hotels,
+        profile=SessionProfile(), language="fr", turn_id="t",
+    )
+    assert payload["market_country"] == "FR"
+
+
 # --- price formatting (consistent with S07) -------------------------------------------------
 def test_normalize_hotels_formats_price_euro_cents():
     out = normalize_hotels([{"name": "H", "priceEuro": 8000}])
