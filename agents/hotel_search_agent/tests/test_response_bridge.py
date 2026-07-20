@@ -1,0 +1,210 @@
+"""Offline unit tests for the leaf's structured-results DataPart + truncation bridge.
+
+No network, no LLM, no MCP: the callbacks are pure functions over fake
+tool/agent contexts. The DataPart is verified through the REAL ADK A2A converter
+(`convert_genai_part_to_a2a_part`), the exact hop the orchestrator relies on.
+"""
+from __future__ import annotations
+
+import json
+
+from a2a import types as a2a_types
+from google.adk.a2a.converters.part_converter import convert_genai_part_to_a2a_part
+
+from hotel_search_agent.response_bridge import (
+    capture_after_tool,
+    emit_search_datapart,
+    normalize_search_results,
+)
+
+
+class _Ctx:
+    """Minimal stand-in for ADK ToolContext/CallbackContext (a dict-backed .state)."""
+
+    def __init__(self, state=None):
+        self.state = state if state is not None else {}
+
+
+class _Tool:
+    def __init__(self, name):
+        self.name = name
+
+
+def _hotel(i: int, price: int) -> dict:
+    return {
+        "hotelId": i,
+        "name": f"Hotel {i}",
+        "cityName": "Paris",
+        "countryName": "France",
+        "starRating": 4,
+        "globalAverageRating": 4.5,
+        "offers": [
+            {
+                "priceEuro": price,
+                "startHour": 10,
+                "startMinute": 0,
+                "endHour": 17,
+                "endMinute": 0,
+                "availabilityDate": "2026-07-21",
+                "ratePlanId": 1,
+            }
+        ],
+    }
+
+
+def _search_offers_structured(n: int = 7) -> dict:
+    return {
+        "resolvedDate": "2026-07-21",
+        "total": n,
+        "results": [_hotel(i, 5000 + i * 100) for i in range(n)],
+    }
+
+
+# --- normalize_search_results ---------------------------------------------------------------
+def test_normalize_maps_camelcase_and_caps_at_five():
+    out = normalize_search_results(_search_offers_structured(7))
+    assert len(out) == 5  # capped
+    first = out[0]
+    assert first["id"] == 0 and first["hotel_id"] == 0
+    assert first["name"] == "Hotel 0"
+    assert first["city"] == "Paris"
+    assert first["country"] == "France"
+    assert first["stars"] == 4
+    assert first["rating"] == 4.5
+    assert first["price"] == "€50.00"  # priceEuro 5000 cents → €50.00 (S07-consistent)
+    assert first["timeslots"] == [{"start": "10:00", "end": "17:00"}]
+
+
+def test_normalize_picks_cheapest_offer():
+    hotel = {
+        "hotelId": 9,
+        "name": "Multi",
+        "offers": [
+            {"priceEuro": 9000, "startHour": 9, "startMinute": 0, "endHour": 12, "endMinute": 0},
+            {"priceEuro": 4000, "startHour": 14, "startMinute": 0, "endHour": 20, "endMinute": 30},
+        ],
+    }
+    card = normalize_search_results({"results": [hotel]})[0]
+    assert card["price"] == "€40.00"
+    assert card["timeslots"] == [{"start": "14:00", "end": "20:30"}]
+
+
+def test_normalize_handles_find_hotel_by_name_single_shape():
+    out = normalize_search_results({"hotel": {"hotelId": 42, "name": "Solo", "cityName": "Lyon"}})
+    assert len(out) == 1
+    assert out[0]["id"] == 42 and out[0]["name"] == "Solo" and out[0]["city"] == "Lyon"
+    assert out[0]["amenities"] == []  # search_offers/identity carry no amenities
+
+
+def test_normalize_empty_and_garbage():
+    assert normalize_search_results({}) == []
+    assert normalize_search_results({"results": []}) == []
+    assert normalize_search_results(None) == []
+    assert normalize_search_results("nope") == []
+
+
+# --- capture_after_tool ---------------------------------------------------------------------
+def test_capture_search_offers_truncates_and_stashes():
+    ctx = _Ctx()
+    big_text = json.dumps(_search_offers_structured(7))  # the ~24k-token mirror
+    resp = {"structuredContent": _search_offers_structured(7), "content": [{"type": "text", "text": big_text}], "isError": False}
+    returned = capture_after_tool(_Tool("search_offers"), {}, ctx, resp)
+    # payload the model now ingests is the compact top-5, WITHOUT the text mirror
+    assert returned is not None
+    assert "content" not in returned
+    assert len(returned["hotels"]) == 5
+    assert returned["total"] == 7
+    # full normalized results stashed for emit_search_datapart
+    assert len(ctx.state["temp:hotel_search_results"]) == 5
+
+
+def test_capture_search_offers_failure_is_untouched():
+    ctx = _Ctx()
+    assert capture_after_tool(_Tool("search_offers"), {}, ctx, {"isError": True}) is None
+    assert capture_after_tool(_Tool("search_offers"), {}, ctx, {"ok": False, "error": "x"}) is None
+    assert ctx.state == {}  # nothing stashed on failure
+
+
+def test_capture_falls_back_to_content_text_when_no_structured_content():
+    ctx = _Ctx()
+    resp = {"content": [{"type": "text", "text": json.dumps(_search_offers_structured(2))}], "isError": False}
+    returned = capture_after_tool(_Tool("search_offers"), {}, ctx, resp)
+    assert returned is not None and len(returned["hotels"]) == 2
+    assert len(ctx.state["temp:hotel_search_results"]) == 2
+
+
+def test_capture_geocode_stashes_profile_delta_no_truncation():
+    ctx = _Ctx()
+    resp = {"ok": True, "latitude": 48.8, "longitude": 2.3, "profile_delta": {"last_city": "Paris"}}
+    assert capture_after_tool(_Tool("geocode_location"), {}, ctx, resp) is None  # not truncated
+    assert ctx.state["temp:hotel_search_profile_delta"] == {"last_city": "Paris"}
+
+
+def test_capture_find_hotel_by_name_stashes_but_does_not_truncate():
+    ctx = _Ctx()
+    resp = {"structuredContent": {"hotel": {"hotelId": 7, "name": "Villa"}}, "isError": False}
+    assert capture_after_tool(_Tool("find_hotel_by_name"), {}, ctx, resp) is None
+    assert len(ctx.state["temp:hotel_search_results"]) == 1
+
+
+def test_capture_ignores_non_target_tools():
+    ctx = _Ctx()
+    assert capture_after_tool(_Tool("some_other_tool"), {}, ctx, {"structuredContent": {}}) is None
+    assert ctx.state == {}
+
+
+# --- emit_search_datapart (verified through the REAL ADK A2A converter) ----------------------
+def _decode(content) -> dict:
+    """Find the datapart among the Content's parts (a text summary may precede
+    it) and decode it through the real ADK converter."""
+    for part in content.parts:
+        if part.inline_data is not None:
+            a2a_part = convert_genai_part_to_a2a_part(part)
+            assert isinstance(a2a_part.root, a2a_types.DataPart)
+            return a2a_part.root.data
+    raise AssertionError("no datapart in content")
+
+
+def _text(content) -> str:
+    return "".join(p.text for p in content.parts if p.text)
+
+
+def test_emit_builds_decodable_datapart_with_results_and_mapped_delta():
+    ctx = _Ctx(
+        {
+            "temp:hotel_search_results": [{"id": 1, "name": "Villa Test"}],
+            "temp:hotel_search_profile_delta": {"last_city": "Paris", "last_state_context": "NY"},
+        }
+    )
+    content = emit_search_datapart(ctx)
+    assert content is not None
+    data = _decode(content)
+    assert data["results"] == [{"id": 1, "name": "Villa Test"}]
+    # leaf keys mapped to the orchestrator's profile schema (S5 naming gap)
+    assert data["profile_delta"] == {"city": "Paris", "state_anchor": "NY"}
+    # a grounded text outcome rides in the SAME Content (becomes leaf_text), so
+    # the orchestrator never sees a datapart-only response and degrades
+    assert "Villa Test" in _text(content)
+
+
+def test_emit_zero_results_carries_a_no_offers_outcome_text():
+    content = emit_search_datapart(_Ctx({"temp:hotel_search_results": []}))
+    assert _decode(content) == {"results": []}
+    assert _text(content)  # non-empty outcome line ("No day-use offers found…")
+
+
+def test_emit_results_only_when_no_delta():
+    ctx = _Ctx({"temp:hotel_search_results": []})
+    data = _decode(emit_search_datapart(ctx))
+    assert data == {"results": []}  # a real 0-result search, no profile_delta
+
+
+def test_emit_delta_only_when_no_search_ran():
+    ctx = _Ctx({"temp:hotel_search_profile_delta": {"last_city": "Lyon"}})
+    data = _decode(emit_search_datapart(ctx))
+    assert "results" not in data  # no search this turn → orchestrator won't record a 0-outcome
+    assert data["profile_delta"] == {"city": "Lyon"}
+
+
+def test_emit_returns_none_when_nothing_captured():
+    assert emit_search_datapart(_Ctx()) is None

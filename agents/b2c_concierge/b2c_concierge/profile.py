@@ -333,18 +333,58 @@ def record_search_outcome(profile: SessionProfile, results_count: int, language:
         )
 
 
-# --- Recovery ack (P2) --------------------------------------------------
+# --- Recovery ack + refinement (P2 / multi-turn) ------------------------
+
+# Month names (fr + en) shared by the date detectors below.
+_MONTHS = (
+    "janvier|f[ée]vrier|mars|avril|mai|juin|juillet|ao[ûu]t|septembre|octobre|novembre|d[ée]cembre|"
+    "january|february|march|april|may|june|july|august|september|october|november|december"
+)
+# A date the user might give to CHANGE a prior search's date: a relative day, a
+# weekday, a "le 28"/"28 juillet"/ISO date, or a bare month.
+_DATE_MENTION_RE = re.compile(
+    r"\b(?:aujourd'hui|demain|apr[eè]s[- ]demain|today|tomorrow|"
+    r"lundi|mardi|mercredi|jeudi|vendredi|samedi|dimanche|"
+    r"monday|tuesday|wednesday|thursday|friday|saturday|sunday)\b"
+    r"|\b(?:" + _MONTHS + r")\b"
+    r"|\ble\s+\d{1,2}\b|\b\d{1,2}\s+(?:" + _MONTHS + r")\b|\b\d{4}-\d{2}-\d{2}\b",
+    re.IGNORECASE,
+)
+# Budget / zone / "cheaper" / "change the date" refinement keywords.
+_REFINEMENT_KEYWORDS_RE = re.compile(
+    r"\b(?:moins\s+cher|cheaper|pas\s+trop\s+cher|budget|"
+    r"[ée]largir|autour|nearby|plus\s+pr[eè]s|plus\s+t[ôo]t|plus\s+tard|earlier|later|"
+    r"chang\w*\s+(?:la\s+)?date|autre\s+date|other\s+date|autre\s+quartier|arrondissement)\b"
+    r"|[€$£]",
+    re.IGNORECASE,
+)
+
+
+def _has_refinement_modifier(message: str) -> bool:
+    """A follow-up that adjusts a prior search's parameters — a date, a budget/
+    price (keyword, symbol, or a bare number), a time-of-day, or a zone keyword."""
+    return bool(
+        _DATE_MENTION_RE.search(message)
+        or _REFINEMENT_KEYWORDS_RE.search(message)
+        or _TIME_MENTION_RE.search(message)
+        or _bare_number_value(message) is not None
+    )
+
+
+def _has_prior_search_context(profile: SessionProfile) -> bool:
+    return bool(profile.city) or bool(profile.last_results) or profile.consecutive_empty_searches > 0
 
 
 def is_search_refinement_signal(message: str, profile: SessionProfile) -> bool:
-    """True when `message` is the user accepting/continuing after an empty
-    search, and must therefore be routed to a fresh search rather than the
-    zero-LLM social-ack template:
-    - a bare affirmative ("ok", "sure"...) while the last search came back
-      empty (`consecutive_empty_searches > 0`) — the social-ack fast path is
-      disabled in this state, whatever the exact wording;
-    - the message matches one of the PERSISTED `last_suggestions` verbatim
-      (a recovery chip click) — never a regex over the assistant's prose.
+    """True when `message` continues/refines a PRIOR search and must be routed to
+    a fresh search rather than the ack template OR a mis-triaged booking/detail:
+    - a bare affirmative ("ok"/"sure") while the last search came back empty;
+    - a verbatim `last_suggestions` recovery-chip click;
+    - a follow-up carrying a search-parameter modifier (a new date, a budget, a
+      time-of-day, a zone/"cheaper" keyword) while a prior search context exists
+      (`city`/`last_results`/empty streak) AND NOT naming a specific shortlist
+      hotel (naming one stays a booking/details intent). Never a regex over the
+      assistant's own prose.
     """
     stripped = (message or "").strip()
     if not stripped:
@@ -352,7 +392,47 @@ def is_search_refinement_signal(message: str, profile: SessionProfile) -> bool:
     if profile.consecutive_empty_searches > 0 and _AFFIRMATIVE_RE.match(stripped):
         return True
     suggestions = profile.last_suggestions or []
-    return stripped.lower() in {s.strip().lower() for s in suggestions}
+    if stripped.lower() in {s.strip().lower() for s in suggestions}:
+        return True
+    if (
+        _has_prior_search_context(profile)
+        and _has_refinement_modifier(stripped)
+        and resolve_hotel_reference(stripped, profile.last_results) is None
+    ):
+        return True
+    return False
+
+
+def _timeslot_label(profile: SessionProfile) -> str | None:
+    """Human-readable time-of-day: a free-text label, or the start/end bounds."""
+    if profile.timeslot:
+        return profile.timeslot
+    start, end = profile.timeslot_start, profile.timeslot_end
+    if start and end:
+        return f"{start}-{end}"
+    if start:
+        return f"{start}-"
+    if end:
+        return f"-{end}"
+    return None
+
+
+def search_context_line(profile: SessionProfile) -> str:
+    """One-line summary of the understood search params (destination/budget/time/
+    amenities), for the synthesis to restate to the user (transparency). Empty
+    when nothing is known. The DATE isn't a profile field — it stays in the raw
+    message the synthesis already sees."""
+    bits: list[str] = []
+    if profile.city:
+        bits.append(f"destination: {profile.city}")
+    if profile.budget_max:
+        bits.append(f"budget max: €{profile.budget_max:.0f}")
+    slot = _timeslot_label(profile)
+    if slot:
+        bits.append(f"time of day: {slot}")
+    if profile.amenities:
+        bits.append("amenities: " + ", ".join(profile.amenities))
+    return "; ".join(bits)
 
 
 # --- Anti-clarification-loop (P10) --------------------------------------

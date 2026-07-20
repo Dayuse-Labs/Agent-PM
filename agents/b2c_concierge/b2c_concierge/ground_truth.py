@@ -27,7 +27,10 @@ _EMPTY_SCREEN_NOTE = (
     "NOTE: the MOST RECENT search returned ZERO results, so the user "
     "currently sees NO hotel cards. If the user says they see no list, that "
     "is correct — acknowledge it and offer a concrete way to adjust the "
-    "search instead of suggesting a display or refresh problem.\n"
+    "search instead of suggesting a display or refresh problem. STATE PLAINLY "
+    "what was searched using the SEARCH CONTEXT and the date in the MESSAGE "
+    "(e.g. \"no day-use offers in <place> for <date>\"), then propose ONE "
+    "concrete next step: change the date, widen the area, or adjust the budget.\n"
 )
 
 _HEADER = (

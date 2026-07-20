@@ -99,6 +99,7 @@ from .profile import (
     questions_equivalent,
     record_search_outcome,
     record_search_shortlist,
+    search_context_line,
 )
 from .profile_store import get_profile_store
 from .routing import LEAF_HOTEL_SEARCH, ROUTES, bearer_token, card_url
@@ -274,6 +275,12 @@ ABSOLUTE RULES — a violation is a defect:
    automatically increased and by how much — never leave it silent.
 6. Avoid ending on a question the user has already been asked in this
    conversation (a DO NOT ASK directive, when present, names it explicitly).
+7. TRANSPARENCY: when a SEARCH CONTEXT block is present, briefly restate what you
+   searched (the destination, the date from the MESSAGE if any, and any budget/
+   time filter) so the user sees what you understood. This matters most when
+   there are NO results: say plainly "no day-use offers in <place> for <date>"
+   and offer one concrete next step (change the date, widen the area, or adjust
+   the budget) — never leave the user unsure whether it's a display glitch.
 
 Output only the reply — no preamble, no headings."""
 
@@ -347,6 +354,7 @@ class _B2cConcierge(BaseAgent):
     async def _generate_once(
         self, *, message: str, language: str, leaf_text: str, ground_truth_block: str,
         widen_note: str | None, invocation_id: str, extra_instruction: str = "",
+        search_context: str = "",
     ) -> str | None:
         """ONE litellm call producing a candidate synthesis text, or None on
         failure. The system prompt's STATIC prefix never changes (cache); only
@@ -362,6 +370,8 @@ class _B2cConcierge(BaseAgent):
         )
         if widen_note:
             user += f"\n\nAUTO_WIDEN: {widen_note}"
+        if search_context:
+            user += f"\n\nSEARCH CONTEXT (what you understood — restate briefly): {search_context}"
         t0 = time.monotonic()
         try:
             resp = await litellm.acompletion(
@@ -426,10 +436,13 @@ class _B2cConcierge(BaseAgent):
                 "after repeated empty searches."
             )
         profile.auto_widen_disclosure = None  # surfaced at most once, regardless of outcome below
+        # Transparency: let the reply restate the understood search params (S9+).
+        search_context = search_context_line(profile)
 
         candidate = await self._generate_once(
             message=message, language=language, leaf_text=leaf_text,
-            ground_truth_block=ground_truth_block, widen_note=widen_note, invocation_id=invocation_id,
+            ground_truth_block=ground_truth_block, widen_note=widen_note,
+            invocation_id=invocation_id, search_context=search_context,
         )
         if candidate is None:
             return None
@@ -441,6 +454,7 @@ class _B2cConcierge(BaseAgent):
                 message=message, language=language, leaf_text=leaf_text,
                 ground_truth_block=ground_truth_block, widen_note=widen_note,
                 invocation_id=invocation_id, extra_instruction=directive,
+                search_context=search_context,
             )
             if retry is not None:
                 candidate = retry
@@ -529,7 +543,14 @@ class _B2cConcierge(BaseAgent):
 
         if not result.get("ok"):
             self._emit_turn_metric(family, "inline:generate_booking_link", budget, t_start, "degraded", inv)
-            yield self._final(ctx, templates.inline_unresolved_response("generate_booking_link", language))
+            # Transparency: don't dead-end — when a shortlist is on screen, list it
+            # so the user can pick; otherwise say what's missing (reason-aware).
+            yield self._final(
+                ctx,
+                templates.booking_needs_selection_response(
+                    profile.last_results, result.get("error"), language
+                ),
+            )
             return
 
         self._emit_turn_metric(family, "inline:generate_booking_link", budget, t_start, "ok", inv)
@@ -587,10 +608,16 @@ class _B2cConcierge(BaseAgent):
         triage = await classify(message, budget, inv)
         family = triage.family
         route = ROUTES[family]
-        if route.kind == "template" and is_search_refinement_signal(message, profile):
-            family, route = "search", ROUTES["search"]
-        elif route.kind == "template" and is_booking_confirmation_signal(message, profile):
+        # Code-owned overrides (LLM never routes). A pending-offer confirmation
+        # wins; otherwise a refinement of a PRIOR search re-routes to a fresh
+        # search REGARDLESS of what triage guessed — a terse "le 28"/"moins cher"
+        # often mis-triages as booking/details and would otherwise dead-end. FAQ
+        # is left untouched (a policy question that happens to carry a date is not
+        # a re-search).
+        if is_booking_confirmation_signal(message, profile):
             family, route = "booking", ROUTES["booking"]
+        elif family != "faq" and is_search_refinement_signal(message, profile):
+            family, route = "search", ROUTES["search"]
 
         # 3-5. Code-owned routing.
         if route.kind == "template":
@@ -628,7 +655,7 @@ class _B2cConcierge(BaseAgent):
         leaf_text, response = await _run_leaf(route.target, ctx, profile.to_dict())
         if leaf_text is None:
             self._emit_turn_metric(family, f"leaf:{route.target}", budget, t_start, "degraded", inv)
-            yield self._final(ctx, templates.leaf_degraded_response(family, triage.language))
+            yield self._final(ctx, templates.leaf_degraded_response(family, triage.language, profile.city))
             return
 
         # `hotels` marker — as soon as the leaf returns (S06).

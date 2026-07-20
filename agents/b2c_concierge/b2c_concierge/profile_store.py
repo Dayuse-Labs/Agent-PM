@@ -60,6 +60,14 @@ class ProfileStore:
         except Exception as exc:  # noqa: BLE001 — Redis outage must not crash the turn
             logger.warning("b2c_concierge: profile store unreachable (set), not persisted: %s", exc)
 
+    async def delete(self, session_id: str) -> None:
+        """Drop a session's profile (S09 reset). Best-effort like get/set: a
+        Redis outage is logged, never raised — reset must never 500."""
+        try:
+            await self._client.delete(_key(session_id))
+        except Exception as exc:  # noqa: BLE001 — Redis outage must not crash reset
+            logger.warning("b2c_concierge: profile store unreachable (delete): %s", exc)
+
     async def close(self) -> None:
         await self._client.aclose()
 

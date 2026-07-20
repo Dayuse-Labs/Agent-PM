@@ -22,29 +22,6 @@ def ack_response(language: str) -> str:
     )
 
 
-_STUB_FR = {
-    "get_hotel_details": "Je ne peux pas encore afficher la fiche détaillée d'un hôtel",
-    "compare_hotels": "Je ne peux pas encore comparer des hôtels",
-    "generate_booking_link": "Je ne peux pas encore générer de lien de réservation",
-}
-_STUB_EN = {
-    "get_hotel_details": "I can't show a hotel's detailed sheet yet",
-    "compare_hotels": "I can't compare hotels yet",
-    "generate_booking_link": "I can't generate a booking link yet",
-}
-
-
-def stub_response(tool: str, language: str) -> str:
-    """Honest answer for an inline capability not wired yet (S4+)."""
-    return _pick(
-        language,
-        f"{_STUB_FR[tool]} — cette fonction arrive très bientôt. En attendant, je peux "
-        "chercher un hôtel en journée ou répondre à vos questions sur Dayuse.",
-        f"{_STUB_EN[tool]} — this feature is coming very soon. In the meantime I can "
-        "search day-use hotels or answer your questions about Dayuse.",
-    )
-
-
 # --- S07: inline tools (real MCP wiring) — zero-LLM honest degradation ------
 
 _INLINE_UNRESOLVED_FR = {
@@ -117,29 +94,64 @@ def booking_link_response(*, hotel_name: str, url: str | None, language: str) ->
     """R9 (guard #12), step 2: the tracked link, only ever reached after an
     explicit confirmation turn set `pending_booking` and matched it."""
     if not url:
-        return inline_unresolved_response("generate_booking_link", language)
+        return booking_needs_selection_response(None, None, language)
     if language == "fr":
         return f"C'est confirmé — voici votre lien de réservation pour {hotel_name} : {url}"
     return f"Confirmed — here is your booking link for {hotel_name}: {url}"
 
 
-_DEGRADED_FR = {
-    "search": "Je n'arrive pas à joindre la recherche d'hôtels pour le moment",
-    "faq": "Je n'arrive pas à consulter les conditions Dayuse pour le moment",
-}
-_DEGRADED_EN = {
-    "search": "I can't reach the hotel search right now",
-    "faq": "I can't look up the Dayuse conditions right now",
-}
-
-
-def leaf_degraded_response(family: str, language: str) -> str:
-    """Honest degradation when a leaf leg timed out or failed: say it, invent
-    nothing, no retry (the 10 s budget is spent)."""
+def booking_needs_selection_response(
+    shortlist: list[dict] | None, reason: str | None, language: str
+) -> str:
+    """Booking couldn't resolve WHICH hotel — never dead-end. When a shortlist is
+    on screen, LIST it so the user just picks; otherwise say what's missing,
+    worded from the inline-tool reason (no hotel reference / hotel not found / no
+    bookable offer). Zero LLM, never invents a hotel."""
+    names = [str(h.get("name")) for h in (shortlist or []) if isinstance(h, dict) and h.get("name")]
+    if names:
+        listing = "\n".join(f"{i}. {name}" for i, name in enumerate(names, 1))
+        return _pick(
+            language,
+            "Quel hôtel de cette liste souhaitez-vous réserver ? Dites-moi son nom :\n" + listing,
+            "Which hotel from this list would you like to book? Tell me its name:\n" + listing,
+        )
+    if reason and "no bookable offer" in reason:
+        return _pick(
+            language,
+            "Cet hôtel n'a pas d'offre en journée réservable pour cette date — "
+            "voulez-vous essayer une autre date ou un autre hôtel ?",
+            "That hotel has no bookable day-use offer for this date — want to try "
+            "another date or another hotel?",
+        )
     return _pick(
         language,
-        f"{_DEGRADED_FR.get(family, _DEGRADED_FR['search'])} et je préfère ne rien "
-        "inventer. Pouvez-vous réessayer dans un instant ?",
-        f"{_DEGRADED_EN.get(family, _DEGRADED_EN['search'])} and I'd rather not make "
-        "anything up. Could you try again in a moment?",
+        "Je n'ai pas encore de liste d'hôtels à réserver — dites-moi d'abord la ville "
+        "(et la date) et je cherche pour vous.",
+        "I don't have a hotel list to book from yet — tell me the city (and date) "
+        "first and I'll search for you.",
+    )
+
+
+_DEGRADED_FR = {
+    "search": "Je n'arrive pas à joindre la recherche d'hôtels",
+    "faq": "Je n'arrive pas à consulter les conditions Dayuse",
+}
+_DEGRADED_EN = {
+    "search": "I can't reach the hotel search",
+    "faq": "I can't look up the Dayuse conditions",
+}
+
+
+def leaf_degraded_response(family: str, language: str, city: str | None = None) -> str:
+    """Honest degradation when a leaf leg timed out or failed: say it — naming the
+    destination when known so the user sees what was attempted — invent nothing,
+    no retry (the 10 s budget is spent)."""
+    where_fr = f" à {city}" if city and family == "search" else ""
+    where_en = f" in {city}" if city and family == "search" else ""
+    return _pick(
+        language,
+        f"{_DEGRADED_FR.get(family, _DEGRADED_FR['search'])}{where_fr} pour le moment, et je "
+        "préfère ne rien inventer. Pouvez-vous réessayer dans un instant ?",
+        f"{_DEGRADED_EN.get(family, _DEGRADED_EN['search'])}{where_en} right now, and I'd "
+        "rather not make anything up. Could you try again in a moment?",
     )

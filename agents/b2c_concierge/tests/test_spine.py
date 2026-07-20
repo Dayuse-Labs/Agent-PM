@@ -568,6 +568,69 @@ class TestRecoveryAck:
         assert _answer(events) == templates.ack_response("en")
 
 
+class TestRefinementRouting:
+    """Multi-turn (S9+): a follow-up adjusting a PRIOR search (new date, cheaper,
+    other zone) must re-search, even when triage mis-labels it booking/details —
+    the flat booking dead-end ("Je n'arrive pas à préparer cette réservation")
+    was the bug. FAQ is never overridden."""
+
+    def test_date_change_triaged_booking_reroutes_to_search(self, scripted, fake_profile_store):
+        runner, session = _new_session()
+        asyncio.run(fake_profile_store.set(session.id, SessionProfile(city="Paris")))
+        llm, leaf_calls = scripted(
+            '{"family": "booking", "language": "fr"}',  # triage MIS-labels it booking
+            "Voici des hôtels à Paris pour le 28.",  # synthesis (search path)
+            leaf_text="results",
+            response={"results": [{"name": "H", "hotel_id": 1}]},
+        )
+        _drive_in(runner, session.id, "ok je le veux pour le 28")
+        assert leaf_calls == ["hotel_search"]  # re-routed to a fresh search, not booking
+
+    def test_budget_change_triaged_details_reroutes_to_search(self, scripted, fake_profile_store):
+        runner, session = _new_session()
+        asyncio.run(fake_profile_store.set(session.id, SessionProfile(city="Paris")))
+        llm, leaf_calls = scripted(
+            '{"family": "details", "language": "fr"}',
+            "Voici des options moins chères à Paris.",
+            leaf_text="results",
+            response={"results": [{"name": "H", "hotel_id": 1}]},
+        )
+        _drive_in(runner, session.id, "moins cher")
+        assert leaf_calls == ["hotel_search"]
+
+    def test_faq_is_not_overridden_by_a_refinement_modifier(self, scripted, fake_profile_store):
+        runner, session = _new_session()
+        asyncio.run(fake_profile_store.set(session.id, SessionProfile(city="Paris")))
+        llm, leaf_calls = scripted(
+            '{"family": "faq", "language": "fr"}',
+            "Les conditions d'annulation sont…",
+            leaf_text="policy text",
+        )
+        _drive_in(runner, session.id, "peut-on annuler pour le 28 juillet ?")
+        assert leaf_calls == ["faq"]  # a policy question with a date stays FAQ
+
+
+class TestBookingNeedsSelection:
+    """Transparency: a booking that can't resolve a hotel never dead-ends — it
+    lists the on-screen shortlist to pick from, or says what's missing."""
+
+    def test_lists_the_shortlist_when_present(self):
+        msg = templates.booking_needs_selection_response(
+            [{"hotel_id": 1, "name": "Villa Paris Orly"}, {"hotel_id": 2, "name": "OKKO"}],
+            "hotel not found",
+            "fr",
+        )
+        assert "1. Villa Paris Orly" in msg and "2. OKKO" in msg
+
+    def test_no_bookable_offer_reason_is_worded(self):
+        msg = templates.booking_needs_selection_response([], "no bookable offer for this hotel", "en")
+        assert "no bookable day-use offer" in msg
+
+    def test_no_shortlist_asks_to_search_first(self):
+        msg = templates.booking_needs_selection_response(None, "no hotel reference in the message", "fr")
+        assert "ville" in msg.lower()
+
+
 class TestBookingGuardR9:
     """Guard #12 (R9): generate_booking_link is only ever callable through
     the code-owned confirmed=false -> confirmed=true gate. Both legitimate

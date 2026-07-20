@@ -26,6 +26,8 @@ so B2C rows are distinguishable from fleet rows in the shared Postgres.
 from __future__ import annotations
 
 import os
+from datetime import date
+from typing import Any
 
 from dayuse_agent_common import (
     build_model,
@@ -46,6 +48,7 @@ from hotel_search_agent.mcp_guard import (
     mcp_circuit_before_tool,
     mcp_circuit_on_error,
 )
+from hotel_search_agent.response_bridge import capture_after_tool, emit_search_datapart
 
 # The only MCP_B2C tools this leaf may call, passed to McpToolset(tool_filter=...)
 # so the other 4 server tools are never presented to the model.
@@ -116,22 +119,45 @@ How to act, frugally (at most ONE reasoning pass — no tool-call loops):
   honestly instead (never invent coordinates or guess a nearby city).
   If it returns ok=True, call search_offers with its latitude/longitude plus
   the rest of the query params, and fold its profile_delta into your own.
+- A FOLLOW-UP that only changes the date/budget/filters with NO new destination
+  (e.g. "for the 28th instead", "cheaper", "earlier") → reuse profile_in.city as
+  the destination and run a fresh search with the new constraint. Do not ask the
+  user to repeat the city they already gave.
 - A specific hotel named by the user → call find_hotel_by_name directly (no
   geocoding needed).
-- Keep the response SMALL: report AT MOST the top 5 results, each with only
-  the fields a booking decision needs (name, address, rating, and per-offer
-  price/hours/bedding). NEVER paste the raw tool payload — the caller has a
-  strict latency budget. (The deterministic ≤5 ground-truth cap lands in S6.)
-- Then return the outcome as structured data matching the response contract:
-  `results` (the offers/hotels found, as returned by the tool), `profile_delta`
-  (only the NEW facts this turn taught about the user, e.g. a city preference
-  or geocode_location's state anchor; empty if none), and `diagnostics` (what
-  you called and why, plus any tool error — never invent results when a tool
-  fails, including when MCP_B2C itself is degraded).
+- On a SUCCESSFUL search, reply with a SHORT one-line outcome in plain language
+  (how many day-use offers, and in which city). Do NOT format a detailed hotel
+  list and NEVER paste the raw tool payload — the structured top-5 results are
+  attached to the response for the caller AUTOMATICALLY, and the caller has a
+  strict latency budget, so keep this text to a single sentence.
+- On FAILURE (geocode ok=False, no offers, or MCP_B2C degraded), do NOT call
+  further tools: explain honestly in one or two sentences what happened.
 
 Never fabricate hotels, prices, availability, or coordinates: only report what
-the tools returned. If the request lacks enough to search, say so in
-diagnostics instead of guessing."""
+the tools returned. If the request lacks enough to search, say so plainly
+instead of guessing."""
+
+
+def inject_today_before_model(callback_context: Any, llm_request: Any) -> None:
+    """Injects TODAY into the model's context on every LLM call. The model has no
+    clock: without this it cannot turn "demain"/"tomorrow" into a real date and
+    sends search_offers a wrong/hallucinated date → zero offers (the S4 date-
+    anchoring gap — the smoke only ever pinned an absolute date, so this stayed
+    hidden). MCP_B2C does no date resolution server-side, exactly like geocoding.
+    Done here (not via a callable instruction) because the A2A card builder
+    regex-scans `instruction` and rejects a callable."""
+    today = date.today()
+    llm_request.append_instructions(
+        [
+            f"TODAY is {today.isoformat()} ({today.strftime('%A')}) — you have no other clock. "
+            "Resolve EVERY relative date against it before calling search_offers: "
+            "'today'/'aujourd'hui' = TODAY, 'tomorrow'/'demain' = TODAY + 1 day, "
+            "'après-demain' = TODAY + 2 days, a named weekday = its NEXT occurrence. ALWAYS "
+            "pass search_offers an absolute date as YYYY-MM-DD; never a past date, never guess "
+            "the year."
+        ]
+    )
+    return None
 
 # Metrics callbacks (fleet contract, booking_qa precedent). Deliberately NO
 # switch_model_callback: B2C serves the public — a per-request MODEL: override
@@ -145,7 +171,9 @@ root_agent = Agent(
     ),
     instruction=INSTRUCTION,
     tools=[build_mcp_toolset(), geocode_location],
-    before_model_callback=[llm_timing_before],
+    # inject_today_before_model gives the (clockless) model TODAY so it resolves
+    # "demain"/"tomorrow"/weekdays into an absolute date for search_offers.
+    before_model_callback=[llm_timing_before, inject_today_before_model],
     after_model_callback=[llm_timing_after],
     on_model_error_callback=llm_error_metric,
     # Order matters: timing stamps t0 first; the budget callback short-circuits
@@ -156,6 +184,14 @@ root_agent = Agent(
         make_tool_budget_callback(MAX_TOOL_CALLS),
         mcp_circuit_before_tool,
     ],
-    after_tool_callback=[tool_timing_after, mcp_circuit_after_tool],
+    # capture_after_tool is LAST: it may return a truncated payload (which breaks
+    # the after-tool chain), so it must never run before mcp_circuit_after_tool
+    # observes the real tool outcome. It stashes normalized results + the geocode
+    # profile_delta and shrinks the ~24k-token search_offers payload the model
+    # ingests (response_bridge.py).
+    after_tool_callback=[tool_timing_after, mcp_circuit_after_tool, capture_after_tool],
     on_tool_error_callback=[tool_error_metric, mcp_circuit_on_error],
+    # Emits the structured {results, profile_delta} A2A DataPart the orchestrator
+    # decodes — the leaf's prose answer alone left `hotels` empty (S4/S5/S6 gap).
+    after_agent_callback=[emit_search_datapart],
 )
