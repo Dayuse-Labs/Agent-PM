@@ -60,6 +60,7 @@ BUDGET_SOURCE_FLEXIBLE_DEFAULT = "flexible_default"
 
 AUTO_WIDEN_STREAK_THRESHOLD = 2
 AUTO_WIDEN_FACTOR = 1.5
+AUTO_WIDEN_MAX_ATTEMPTS = 2
 
 # Recovery suggestions (P2): code-owned, localized — set on the profile the
 # moment a search returns zero results so a later bare "ok"/"sure" can be
@@ -75,6 +76,13 @@ _AFFIRMATIVE_RE = re.compile(
     r"[\s!,.?;:🙂😊👍❤️✨]*\s*$",
     re.IGNORECASE,
 )
+
+
+def is_bare_affirmative(message: str) -> bool:
+    """True when `message` is ONLY an affirmative token, nothing else — the
+    search-exhaustion gate's inverse of this decides whether a reply carries
+    a new constraint worth retrying the search for (S12 audit 2026-07-20)."""
+    return bool(_AFFIRMATIVE_RE.match((message or "").strip()))
 
 
 @dataclass
@@ -96,6 +104,8 @@ class SessionProfile:
     language: str | None = None
     consecutive_empty_searches: int = 0
     auto_widen_disclosure: dict[str, float] | None = None
+    widen_attempt_count: int = 0
+    search_exhausted: bool = False
     last_suggestions: list[str] | None = None
     last_clarifying_question: str | None = None
     last_results: list[dict[str, Any]] | None = None
@@ -118,6 +128,8 @@ class SessionProfile:
             "language": self.language,
             "consecutive_empty_searches": self.consecutive_empty_searches,
             "auto_widen_disclosure": self.auto_widen_disclosure,
+            "widen_attempt_count": self.widen_attempt_count,
+            "search_exhausted": self.search_exhausted,
             "last_suggestions": self.last_suggestions,
             "last_clarifying_question": self.last_clarifying_question,
             "last_results": self.last_results,
@@ -145,21 +157,51 @@ def _bare_number_value(message: str) -> float | None:
     return float(match.group(1).replace(",", "."))
 
 
+def _looks_like_time_derived_budget(message: str, budget_max: float) -> bool:
+    """True when `budget_max` more plausibly came from a duration/distance
+    mention ("less than 20 minutes away") than a real currency amount —
+    ported from agent-usa's guard of the same name (prod audit 2026-07-19,
+    Hillsborough session). A currency marker on the SAME number always wins,
+    so a real €20/$20 budget is never dropped."""
+    text = (message or "").lower()
+    token = re.escape(str(int(budget_max)) if float(budget_max).is_integer() else str(budget_max))
+    currency = (
+        rf"(?:[$€£]\s*{token}\b|\b{token}\s*[$€£]|\b{token}\s*(?:euros?|dollars?|pounds?)\b)"
+    )
+    if re.search(currency, text):
+        return False
+    unit = rf"\b{token}\s*(?:am|pm|h|hours?|hrs?|minutes?|mins?|kilometers?|kilometres?|km|miles?|mi)\b"
+    return bool(re.search(unit, text))
+
+
 def maybe_auto_widen(profile: SessionProfile) -> bool:
     """Auto-widen the budget after a streak of empty searches — SKIPPED when
     the current budget is the user's own explicit figure (never silently
     override what they typed). Sets the mandatory disclosure payload when it
-    does widen; a later synthesis step (S06) must surface it to the user."""
+    does widen; a later synthesis step (S06) must surface it to the user.
+
+    Capped at `AUTO_WIDEN_MAX_ATTEMPTS` (S12 audit 2026-07-20 — prod session
+    034c97c4, Rimini: an uncapped version widened ×1.5 on EVERY empty turn
+    forever). Once a widen attempt fails (explicit budget, no budget, or the
+    cap already reached) AFTER at least `AUTO_WIDEN_MAX_ATTEMPTS` real widens
+    happened, `search_exhausted` is set — the spine's pre-leaf gate (agent.py)
+    then stops searching until the user provides a new constraint."""
     if profile.consecutive_empty_searches < AUTO_WIDEN_STREAK_THRESHOLD:
         return False
-    if profile.budget_request_source == BUDGET_SOURCE_EXPLICIT:
-        return False
-    if profile.budget_max is None:
-        return False
     old_budget = profile.budget_max
+    can_widen = (
+        profile.budget_request_source != BUDGET_SOURCE_EXPLICIT
+        and old_budget is not None
+        and profile.widen_attempt_count < AUTO_WIDEN_MAX_ATTEMPTS
+    )
+    if not can_widen or old_budget is None:
+        if profile.widen_attempt_count >= AUTO_WIDEN_MAX_ATTEMPTS:
+            profile.search_exhausted = True
+        return False
     new_budget = round(old_budget * AUTO_WIDEN_FACTOR, 2)
     profile.budget_max = new_budget
     profile.auto_widen_disclosure = {"from": old_budget, "to": new_budget}
+    profile.widen_attempt_count += 1
     return True
 
 
@@ -251,15 +293,18 @@ def apply_profile_delta(
         profile.country_anchor = delta["country_anchor"]
 
     # Budget integrity (P1): a bare-number reply is ALWAYS explicit, whatever
-    # the delta's own source claim says.
+    # the delta's own source claim says. A number that looks time/distance-
+    # derived ("less than 20 minutes away") is never persisted as a budget at
+    # all (S12 audit 2026-07-20) — profile.budget_max is simply left as-is.
     if delta.get("budget_max") is not None:
         new_budget = float(delta["budget_max"])
-        profile.budget_max = new_budget
-        source = delta.get("budget_request_source")
-        if _bare_number_value(user_message) == new_budget:
-            source = BUDGET_SOURCE_EXPLICIT
-        if source is not None:
-            profile.budget_request_source = source
+        if not _looks_like_time_derived_budget(user_message, new_budget):
+            profile.budget_max = new_budget
+            source = delta.get("budget_request_source")
+            if _bare_number_value(user_message) == new_budget:
+                source = BUDGET_SOURCE_EXPLICIT
+            if source is not None:
+                profile.budget_request_source = source
 
     # Timeslot sanitization (P6): salvage a raw one-sided clock label into a
     # bound instead of persisting the corrupted string.
@@ -327,6 +372,8 @@ def record_search_outcome(profile: SessionProfile, results_count: int, language:
     )
     if results_count > 0:
         profile.last_suggestions = None
+        profile.widen_attempt_count = 0
+        profile.search_exhausted = False
     else:
         profile.last_suggestions = list(
             _RECOVERY_SUGGESTIONS_FR if language == "fr" else _RECOVERY_SUGGESTIONS_EN
@@ -493,12 +540,20 @@ def _significant_name_tokens(name: str) -> set[str]:
     return {t for t in tokens if len(t) >= _MIN_MATCHABLE_NAME_LEN and t not in _NAME_STOPWORDS}
 
 
-def _hotel_matches(stripped: str, message_tokens: set[str], hotel: dict[str, Any]) -> bool:
-    name = str(hotel.get("name") or "").strip()
+def _substring_match(stripped: str, name: str) -> bool:
+    """The STRONG tier: `name` and `stripped` contain each other, either
+    direction (a short reference "Kimpton" matches the full on-screen name
+    "Kimpton - Hotel Palomar South Beach"). The only tier trusted with zero
+    verification against the global catalogue (S12 audit 2026-07-20)."""
     if len(name) < _MIN_MATCHABLE_NAME_LEN:
         return False
     name_l = name.lower()
-    if name_l in stripped or stripped in name_l:
+    return name_l in stripped or stripped in name_l
+
+
+def _hotel_matches(stripped: str, message_tokens: set[str], hotel: dict[str, Any]) -> bool:
+    name = str(hotel.get("name") or "").strip()
+    if _substring_match(stripped, name):
         return True
     # Free-text fallback (no upstream entity extraction here, unlike
     # agent-usa's NamedHotelTool which received an already-isolated
@@ -550,6 +605,25 @@ def resolve_hotel_reference(
     tokens = set(_NAME_TOKEN_RE.findall(stripped))
     for hotel in last_results:
         if _hotel_matches(stripped, tokens, hotel):
+            return hotel
+    return None
+
+
+def resolve_hotel_reference_strict(
+    text: str, last_results: list[dict[str, Any]] | None
+) -> dict[str, Any] | None:
+    """Same lookup as `resolve_hotel_reference`, but ONLY the strong substring
+    tier — never the distinctive-token fallback (S12 audit 2026-07-20). A
+    stale shortlist entry that merely SHARES ONE WORD with an explicitly-named
+    (different) hotel must never be trusted with zero verification: the
+    caller (`inline_tools._resolve_hotel_id`) uses this to decide whether a
+    shortlist hit is safe to return immediately, or must still be checked
+    against the global `find_hotel_by_name` catalogue first."""
+    stripped = (text or "").strip().lower()
+    if not stripped or not last_results:
+        return None
+    for hotel in last_results:
+        if _substring_match(stripped, str(hotel.get("name") or "").strip()):
             return hotel
     return None
 

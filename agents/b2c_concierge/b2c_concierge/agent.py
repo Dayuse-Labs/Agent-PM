@@ -90,9 +90,11 @@ from .amenity_guard import apply_amenity_truthfulness
 from .budget import TurnBudget
 from .ground_truth import shortlist_ground_truth_block, shortlist_hotels
 from .profile import (
+    BUDGET_SOURCE_EXPLICIT,
     SessionProfile,
     apply_profile_delta,
     extract_final_question,
+    is_bare_affirmative,
     is_booking_confirmation_signal,
     is_search_refinement_signal,
     maybe_auto_widen,
@@ -281,6 +283,10 @@ ABSOLUTE RULES — a violation is a defect:
    there are NO results: say plainly "no day-use offers in <place> for <date>"
    and offer one concrete next step (change the date, widen the area, or adjust
    the budget) — never leave the user unsure whether it's a display glitch.
+8. If a PROVENANCE note is present, never claim the user requested the
+   budget/timeslot values it names — they came from a system default, not
+   something the user said; state them, if at all, only as your own
+   working assumption.
 
 Output only the reply — no preamble, no headings."""
 
@@ -354,7 +360,7 @@ class _B2cConcierge(BaseAgent):
     async def _generate_once(
         self, *, message: str, language: str, leaf_text: str, ground_truth_block: str,
         widen_note: str | None, invocation_id: str, extra_instruction: str = "",
-        search_context: str = "",
+        search_context: str = "", provenance_note: str = "",
     ) -> str | None:
         """ONE litellm call producing a candidate synthesis text, or None on
         failure. The system prompt's STATIC prefix never changes (cache); only
@@ -370,6 +376,8 @@ class _B2cConcierge(BaseAgent):
         )
         if widen_note:
             user += f"\n\nAUTO_WIDEN: {widen_note}"
+        if provenance_note:
+            user += f"\n\nPROVENANCE: {provenance_note}"
         if search_context:
             user += f"\n\nSEARCH CONTEXT (what you understood — restate briefly): {search_context}"
         t0 = time.monotonic()
@@ -438,11 +446,27 @@ class _B2cConcierge(BaseAgent):
         profile.auto_widen_disclosure = None  # surfaced at most once, regardless of outcome below
         # Transparency: let the reply restate the understood search params (S9+).
         search_context = search_context_line(profile)
+        # Provenance honesty (S12 audit 2026-07-20): a non-explicit budget/
+        # timeslot must never be claimed as user-requested (rule 8) — this
+        # is independent of auto-widen, so it fires from turn 1 whenever a
+        # default value is in play, not just after a widen happened.
+        prov_bits: list[str] = []
+        if profile.budget_max is not None and profile.budget_request_source not in (
+            None, BUDGET_SOURCE_EXPLICIT,
+        ):
+            prov_bits.append(f"budget source: {profile.budget_request_source}")
+        if (
+            (profile.timeslot or profile.timeslot_start or profile.timeslot_end)
+            and profile.timeslot_request_source not in (None, BUDGET_SOURCE_EXPLICIT)
+        ):
+            prov_bits.append(f"timeslot source: {profile.timeslot_request_source}")
+        provenance_note = "; ".join(prov_bits)
 
         candidate = await self._generate_once(
             message=message, language=language, leaf_text=leaf_text,
             ground_truth_block=ground_truth_block, widen_note=widen_note,
             invocation_id=invocation_id, search_context=search_context,
+            provenance_note=provenance_note,
         )
         if candidate is None:
             return None
@@ -454,7 +478,7 @@ class _B2cConcierge(BaseAgent):
                 message=message, language=language, leaf_text=leaf_text,
                 ground_truth_block=ground_truth_block, widen_note=widen_note,
                 invocation_id=invocation_id, extra_instruction=directive,
-                search_context=search_context,
+                search_context=search_context, provenance_note=provenance_note,
             )
             if retry is not None:
                 candidate = retry
@@ -647,6 +671,20 @@ class _B2cConcierge(BaseAgent):
             ):
                 yield event
             return
+
+        # Search-exhaustion terminal gate (S12 audit 2026-07-20): once
+        # maybe_auto_widen has capped out, a bare affirmative ("ok"/"oui")
+        # must NOT relaunch the leaf — it costs only the triage call already
+        # spent above. Any non-bare-affirmative message (a new city, a new
+        # budget, anything substantive) clears the flags and searches again.
+        if route.target == LEAF_HOTEL_SEARCH and profile.search_exhausted:
+            if not is_bare_affirmative(message):
+                profile.search_exhausted = False
+                profile.widen_attempt_count = 0
+            else:
+                self._emit_turn_metric(family, "template:search_exhausted", budget, t_start, "ok", inv)
+                yield self._final(ctx, templates.search_exhausted_response(triage.language, profile.city))
+                return
 
         # Leaf leg (search / faq): charge the leaf's 0-1 internal LLM slot, then
         # ONE call, 10 s, no retry. Session profile (Redis, orchestrator-only —

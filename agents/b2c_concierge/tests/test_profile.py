@@ -12,13 +12,16 @@ implementation lived in a workflow-based architecture and is not reused.
 from __future__ import annotations
 
 from b2c_concierge.profile import (
+    AUTO_WIDEN_MAX_ATTEMPTS,
     BUDGET_SOURCE_EXPLICIT,
     BUDGET_SOURCE_FLEXIBLE_DEFAULT,
     SessionProfile,
+    _looks_like_time_derived_budget,
     _normalize_timeslot,
     _split_one_sided_clock,
     apply_profile_delta,
     extract_final_question,
+    is_bare_affirmative,
     is_booking_confirmation_signal,
     is_search_refinement_signal,
     maybe_auto_widen,
@@ -26,6 +29,7 @@ from b2c_concierge.profile import (
     record_search_outcome,
     record_search_shortlist,
     resolve_hotel_reference,
+    resolve_hotel_reference_strict,
     resolve_hotel_references,
     search_context_line,
 )
@@ -96,6 +100,110 @@ class TestBudgetIntegrity:
         profile = SessionProfile(consecutive_empty_searches=1)
         record_search_outcome(profile, results_count=0)
         assert profile.consecutive_empty_searches == 2
+
+
+# ── S12 audit 2026-07-20: search-exhaustion terminal guard (prod 034c97c4) ──
+
+
+class TestSearchExhaustion:
+    def test_first_widen_increments_attempt_count(self):
+        profile = SessionProfile(
+            consecutive_empty_searches=2, budget_max=100.0,
+            budget_request_source=BUDGET_SOURCE_FLEXIBLE_DEFAULT,
+        )
+        assert maybe_auto_widen(profile) is True
+        assert profile.widen_attempt_count == 1
+        assert profile.search_exhausted is False
+
+    def test_second_widen_increments_to_the_cap(self):
+        profile = SessionProfile(
+            consecutive_empty_searches=2, budget_max=150.0,
+            budget_request_source=BUDGET_SOURCE_FLEXIBLE_DEFAULT, widen_attempt_count=1,
+        )
+        assert maybe_auto_widen(profile) is True
+        assert profile.widen_attempt_count == 2
+        assert profile.search_exhausted is False
+
+    def test_failed_widen_below_the_cap_does_not_exhaust(self):
+        """Only 1 prior real widen and nothing left to widen (explicit budget)
+        — must NOT exhaust yet (agent-usa: exhaustion needs >= 2 prior widens)."""
+        profile = SessionProfile(
+            consecutive_empty_searches=2, budget_max=499.0,
+            budget_request_source=BUDGET_SOURCE_EXPLICIT, widen_attempt_count=1,
+        )
+        assert maybe_auto_widen(profile) is False
+        assert profile.search_exhausted is False
+
+    def test_failed_widen_at_the_cap_sets_exhausted(self):
+        profile = SessionProfile(
+            consecutive_empty_searches=2, budget_max=499.0,
+            budget_request_source=BUDGET_SOURCE_EXPLICIT,
+            widen_attempt_count=AUTO_WIDEN_MAX_ATTEMPTS,
+        )
+        assert maybe_auto_widen(profile) is False
+        assert profile.search_exhausted is True
+
+    def test_missing_budget_at_the_cap_also_sets_exhausted(self):
+        profile = SessionProfile(
+            consecutive_empty_searches=2, budget_max=None,
+            widen_attempt_count=AUTO_WIDEN_MAX_ATTEMPTS,
+        )
+        assert maybe_auto_widen(profile) is False
+        assert profile.search_exhausted is True
+
+    def test_successful_search_clears_exhaustion_and_attempt_count(self):
+        profile = SessionProfile(
+            search_exhausted=True, widen_attempt_count=2, consecutive_empty_searches=4,
+        )
+        record_search_outcome(profile, results_count=3)
+        assert profile.search_exhausted is False
+        assert profile.widen_attempt_count == 0
+
+    def test_empty_outcome_never_clears_exhaustion(self):
+        profile = SessionProfile(search_exhausted=True, widen_attempt_count=2)
+        record_search_outcome(profile, results_count=0)
+        assert profile.search_exhausted is True
+        assert profile.widen_attempt_count == 2
+
+
+class TestIsBareAffirmative:
+    def test_matches_bare_affirmatives(self):
+        for message in ["ok", "Ok!", "oui", "sure", "d'accord", "parfait 👍"]:
+            assert is_bare_affirmative(message) is True
+
+    def test_rejects_substantive_messages(self):
+        for message in ["Lyon", "20", "try Lyon instead", "ok let's go to Lyon", ""]:
+            assert is_bare_affirmative(message) is False
+
+
+# ── S12 audit 2026-07-20: budget-vs-duration false positive (prod audit 2026-07-19) ──
+
+
+class TestBudgetVsDurationGuard:
+    def test_flags_a_duration_mention(self):
+        assert _looks_like_time_derived_budget("Less than 20 minutes away", 20) is True
+
+    def test_flags_a_distance_mention(self):
+        assert _looks_like_time_derived_budget("within 35 km", 35) is True
+
+    def test_currency_marker_is_never_dropped(self):
+        for message in ["less than $20", "budget less than 20 dollars", "20€ max"]:
+            assert _looks_like_time_derived_budget(message, 20) is False
+
+    def test_apply_profile_delta_drops_a_time_derived_budget(self):
+        profile = SessionProfile()
+        apply_profile_delta(
+            profile,
+            {"city": "Hillsborough", "budget_max": 20, "budget_request_source": "llm_extraction"},
+            "Less than 20 minutes away",
+        )
+        assert profile.budget_max is None
+        assert profile.budget_request_source is None
+
+    def test_apply_profile_delta_keeps_a_currency_marked_budget(self):
+        profile = SessionProfile()
+        apply_profile_delta(profile, {"city": "Hillsborough", "budget_max": 20}, "less than $20")
+        assert profile.budget_max == 20.0
 
 
 class TestTimeslotSanitization:
@@ -434,6 +542,34 @@ class TestResolveHotelReference:
 
     def test_too_short_names_are_never_matched(self):
         assert resolve_hotel_reference("W", [{"hotel_id": 1, "name": "W"}]) is None
+
+
+# ── S12 audit 2026-07-20: the strict (substring-only) tier of the same lookup ──
+
+_STALE_TOKEN_ONLY_SHORTLIST = [{"hotel_id": 99, "name": "Wren Valley Inn"}]
+
+
+class TestResolveHotelReferenceStrict:
+    def test_substring_match_still_resolves(self):
+        hotel = resolve_hotel_reference_strict("Kimpton", SHORTLIST)
+        assert hotel is not None and hotel["hotel_id"] == 4242
+
+    def test_token_only_overlap_is_never_trusted(self):
+        # "Sir Christopher Wren Hotel" shares only the word "wren" with the
+        # stale shortlist's "Wren Valley Inn" — the WEAK tier (unchanged,
+        # resolve_hotel_reference) still matches it, but the STRICT tier must
+        # not (audit 2026-07-20: a stale shortlist must never mask a
+        # different, explicitly-named hotel via a one-word coincidence).
+        assert resolve_hotel_reference_strict(
+            "Sir Christopher Wren Hotel", _STALE_TOKEN_ONLY_SHORTLIST
+        ) is None
+        assert resolve_hotel_reference(
+            "Sir Christopher Wren Hotel", _STALE_TOKEN_ONLY_SHORTLIST
+        ) is not None
+
+    def test_empty_shortlist_returns_none(self):
+        assert resolve_hotel_reference_strict("Kimpton", None) is None
+        assert resolve_hotel_reference_strict("Kimpton", []) is None
 
 
 class TestResolveHotelReferences:

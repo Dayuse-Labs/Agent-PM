@@ -51,8 +51,10 @@ class FakeLeg:
         # ctx.session.events[-1] after the turn would see the FINAL answer
         # event instead of the user turn we were sent.
         self.seen_outgoing_parts: list[genai_types.Part] = []
+        self.call_count = 0  # S12: proves the search-exhaustion gate skips the leaf entirely
 
     async def run_async(self, ctx):
+        self.call_count += 1
         self.seen_outgoing_parts = list(ctx.session.events[-1].content.parts or [])
         parts = [genai_types.Part(text=self.text)]
         if self.response_payload is not None:
@@ -237,6 +239,123 @@ class TestAutoWidenThroughTheSpine:
         assert stored.consecutive_empty_searches == 2
         assert stored.budget_max == 100.0
         assert stored.auto_widen_disclosure is None
+
+
+class TestSearchExhaustionThroughTheSpine:
+    """S12 audit 2026-07-20 (prod session 034c97c4, Rimini): 2 widens, then a
+    3rd empty search that can't widen further sets `search_exhausted` — a
+    later bare affirmative must be gated BEFORE the leaf, a substantive
+    message must clear the flags and search again."""
+
+    def test_repeated_empty_searches_reach_terminal_exhaustion_on_a_bare_ok(
+        self, monkeypatch, fake_leg, fake_profile_store
+    ):
+        llm = _scripted_llm(
+            monkeypatch,
+            '{"family": "search", "language": "en"}', "No luck yet.",       # turn 1: streak 1, no widen
+            '{"family": "search", "language": "en"}', "Still nothing.",    # turn 2: streak 2, widen #1
+            '{"family": "search", "language": "en"}', "Nothing here.",     # turn 3: streak 3, widen #2 (cap)
+            '{"family": "search", "language": "en"}', "Still no offers.",  # turn 4: streak 4, can't widen -> exhausted
+            '{"family": "ack", "language": "en"}',                          # turn 5: bare "ok" -> gated, NO synthesis
+        )
+        runner = InMemoryRunner(root_agent)
+        session = _new_session(runner)
+
+        fake_leg.response_payload = {
+            "results": [],
+            "profile_delta": {"budget_max": 100, "budget_request_source": BUDGET_SOURCE_FLEXIBLE_DEFAULT},
+        }
+        _run_turn(runner, session.id, "a hotel under 100")
+        fake_leg.response_payload = {"results": []}
+        _run_turn(runner, session.id, "still looking")
+        _run_turn(runner, session.id, "no luck")
+        _run_turn(runner, session.id, "anything else")
+
+        stored = asyncio.run(fake_profile_store.get(session.id))
+        assert stored.search_exhausted is True
+        assert stored.widen_attempt_count == 2
+        assert stored.budget_max == 225.0  # 100 -> 150 -> 225 (2 widens, then capped)
+
+        calls_before = fake_leg.call_count
+        llm_calls_before = len(llm.calls)
+        reply = _run_turn(runner, session.id, "ok")
+
+        assert fake_leg.call_count == calls_before  # the leaf was NEVER called this turn
+        assert len(llm.calls) == llm_calls_before + 1  # triage only, zero synthesis call
+        assert "widening the budget" in reply.lower() or "élargi" in reply.lower()
+
+    def test_new_constraint_after_exhaustion_clears_flags_and_searches_again(
+        self, monkeypatch, fake_leg, fake_profile_store
+    ):
+        _scripted_llm(
+            monkeypatch,
+            '{"family": "search", "language": "en"}', "No luck yet.",
+            '{"family": "search", "language": "en"}', "Still nothing.",
+            '{"family": "search", "language": "en"}', "Nothing here.",
+            '{"family": "search", "language": "en"}', "Still no offers.",
+            '{"family": "search", "language": "en"}', "A hotel in Lyon.",
+        )
+        runner = InMemoryRunner(root_agent)
+        session = _new_session(runner)
+
+        fake_leg.response_payload = {
+            "results": [],
+            "profile_delta": {"budget_max": 100, "budget_request_source": BUDGET_SOURCE_FLEXIBLE_DEFAULT},
+        }
+        _run_turn(runner, session.id, "a hotel under 100")
+        fake_leg.response_payload = {"results": []}
+        _run_turn(runner, session.id, "still looking")
+        _run_turn(runner, session.id, "no luck")
+        _run_turn(runner, session.id, "anything else")
+
+        calls_before = fake_leg.call_count
+        fake_leg.response_payload = {"results": ["hotel B"], "profile_delta": {"city": "Lyon"}}
+        _run_turn(runner, session.id, "Lyon instead")
+
+        assert fake_leg.call_count == calls_before + 1  # the leaf WAS called this time
+        stored = asyncio.run(fake_profile_store.get(session.id))
+        assert stored.search_exhausted is False
+        assert stored.widen_attempt_count == 0
+
+
+class TestProvenanceHonestyThroughTheSpine:
+    """S12 audit 2026-07-20: a non-explicit budget/timeslot must never be
+    claimed as user-requested by the synthesis LLM (rule 8) — the PROVENANCE
+    marker mirrors the existing AUTO_WIDEN precedent."""
+
+    def test_default_budget_source_is_exposed_as_provenance(
+        self, monkeypatch, fake_leg, fake_profile_store
+    ):
+        fake_leg.response_payload = {
+            "results": [{"id": 1, "name": "Hotel A"}],
+            "profile_delta": {"budget_max": 150, "budget_request_source": BUDGET_SOURCE_FLEXIBLE_DEFAULT},
+        }
+        llm = _scripted_llm(monkeypatch, '{"family": "search", "language": "en"}', "Here is a hotel.")
+        runner = InMemoryRunner(root_agent)
+        session = _new_session(runner)
+
+        _run_turn(runner, session.id, "hotels in Paris")
+
+        user_msg = llm.calls[-1]["messages"][1]["content"]
+        system_msg = llm.calls[-1]["messages"][0]["content"]
+        assert "PROVENANCE" in user_msg
+        assert "flexible_default" in user_msg
+        assert "never claim the user requested" in system_msg.lower()
+
+    def test_explicit_budget_never_gets_a_provenance_note(
+        self, monkeypatch, fake_leg, fake_profile_store
+    ):
+        fake_leg.response_payload = {
+            "results": [{"id": 1, "name": "Hotel A"}],
+            "profile_delta": {"budget_max": 150, "budget_request_source": BUDGET_SOURCE_EXPLICIT},
+        }
+        llm = _scripted_llm(monkeypatch, '{"family": "search", "language": "en"}', "Here is a hotel.")
+        runner = InMemoryRunner(root_agent)
+        session = _new_session(runner)
+
+        _run_turn(runner, session.id, "hotels in Paris under 150")
+
+        assert "PROVENANCE" not in llm.calls[-1]["messages"][1]["content"]
 
 
 class TestProfileContinuityAcrossTurns:

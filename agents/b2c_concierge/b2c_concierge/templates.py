@@ -142,6 +142,23 @@ _DEGRADED_EN = {
 }
 
 
+def search_exhausted_response(language: str, city: str | None = None) -> str:
+    """Terminal, zero-LLM message once auto-widening has been tried and
+    exhausted (S12, audit 2026-07-20 — prod session 034c97c4, Rimini: an
+    uncapped widen loop never told the user it had given up). Never a retry;
+    the spine's pre-leaf gate only reaches here on a bare affirmative — a
+    new constraint clears the flag and searches again instead."""
+    where_fr = f" à {city}" if city else ""
+    where_en = f" in {city}" if city else ""
+    return _pick(
+        language,
+        f"Même après avoir élargi le budget, je ne trouve toujours rien{where_fr}. "
+        "Essayez une autre ville, ou dites-moi ce que je peux ajuster (date, quartier).",
+        f"Even after widening the budget, I still couldn't find anything{where_en}. "
+        "Try a different city, or tell me what I should adjust (date, area).",
+    )
+
+
 def leaf_degraded_response(family: str, language: str, city: str | None = None) -> str:
     """Honest degradation when a leaf leg timed out or failed: say it — naming the
     destination when known so the user sees what was attempted — invent nothing,
