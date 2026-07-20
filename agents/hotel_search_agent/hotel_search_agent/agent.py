@@ -48,7 +48,11 @@ from hotel_search_agent.mcp_guard import (
     mcp_circuit_before_tool,
     mcp_circuit_on_error,
 )
-from hotel_search_agent.response_bridge import capture_after_tool, emit_search_datapart
+from hotel_search_agent.response_bridge import (
+    capture_after_tool,
+    emit_search_datapart,
+    skip_final_generation,
+)
 
 # The only MCP_B2C tools this leaf may call, passed to McpToolset(tool_filter=...)
 # so the other 4 server tools are never presented to the model.
@@ -171,9 +175,14 @@ root_agent = Agent(
     ),
     instruction=INSTRUCTION,
     tools=[build_mcp_toolset(), geocode_location],
+    # skip_final_generation is FIRST: once the search tool has run, it short-circuits
+    # the model's wasted final-prose call (emit_search_datapart overwrites that prose
+    # and the orchestrator re-synthesizes anyway) — 3 → 2 internal LLM calls. Being
+    # first means a skipped call never stamps an orphaned llm_timing_before timer
+    # (the short-circuit returns before after_model_callback/llm_timing_after runs).
     # inject_today_before_model gives the (clockless) model TODAY so it resolves
     # "demain"/"tomorrow"/weekdays into an absolute date for search_offers.
-    before_model_callback=[llm_timing_before, inject_today_before_model],
+    before_model_callback=[skip_final_generation, llm_timing_before, inject_today_before_model],
     after_model_callback=[llm_timing_after],
     on_model_error_callback=llm_error_metric,
     # Order matters: timing stamps t0 first; the budget callback short-circuits

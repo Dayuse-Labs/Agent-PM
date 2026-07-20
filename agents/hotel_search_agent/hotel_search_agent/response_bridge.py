@@ -21,9 +21,9 @@ to see "aucun résultat de recherche":
    results from the DataPart, not from the model's text.
 
 State hand-off: `capture_after_tool` stashes the normalized results (and the
-geocode `profile_delta`) in `tool_context.state` under `temp:` keys (invocation-
-scoped, never persisted — the leaf is stateless); `emit_search_datapart` reads
-them back at the end of the turn.
+geocode `profile_delta` + resolved ISO `country_code`) in `tool_context.state`
+under `temp:` keys (invocation-scoped, never persisted — the leaf is stateless);
+`emit_search_datapart` reads them back at the end of the turn.
 
 `profile_delta` key mapping: geocode returns `last_city`/`last_state_context`,
 but the orchestrator's `apply_profile_delta` reads `city`/`state_anchor` (the S5
@@ -41,6 +41,7 @@ from google.adk.a2a.converters.part_converter import (
     A2A_DATA_PART_START_TAG,
     A2A_DATA_PART_TEXT_MIME_TYPE,
 )
+from google.adk.models.llm_response import LlmResponse
 from google.genai import types as genai_types
 
 # The concierge reports AT MOST 5 (ground-truth cap) — match it so the model
@@ -53,6 +54,17 @@ _TARGET_TOOLS = {"search_offers", "find_hotel_by_name"}
 # temp: → invocation-scoped, discarded after the turn (leaf stays stateless).
 _STATE_RESULTS_KEY = "temp:hotel_search_results"
 _STATE_DELTA_KEY = "temp:hotel_search_profile_delta"
+_STATE_COUNTRY_KEY = "temp:hotel_search_country_code"
+
+
+def _iso_alpha2(value: Any) -> str | None:
+    """ISO alpha-2 country code or None — never lets a full country name
+    ("France") masquerade as a code (the widget's market table is ISO-keyed)."""
+    if isinstance(value, str):
+        candidate = value.strip()
+        if len(candidate) == 2 and candidate.isalpha():
+            return candidate.upper()
+    return None
 
 
 # --- DataPart encoding (byte-identical to b2c_concierge.a2a_datapart.encode_datapart) --------
@@ -129,6 +141,13 @@ def normalize_hotel(hotel: dict[str, Any]) -> dict[str, Any]:
         "rating": hotel.get("globalAverageRating"),
         "amenities": _flatten_amenities(hotel.get("amenities")),
     }
+    # The widget resolves the hotel's market from an ISO alpha-2 `country_code`
+    # (a full `country` name never matches its ISO-keyed table). search_offers
+    # doesn't send one today (probed live 2026-07-20: countryName + slug only) —
+    # keep the preference so a server-provided code wins the day it appears.
+    country_code = _iso_alpha2(hotel.get("countryCode"))
+    if country_code:
+        card["country_code"] = country_code
     best = _best_offer(hotel.get("offers") or [])
     if best:
         price = _format_price_eur_cents(best.get("priceEuro"))
@@ -190,6 +209,9 @@ def capture_after_tool(
             delta = tool_response.get("profile_delta")
             if isinstance(delta, dict) and delta:
                 tool_context.state[_STATE_DELTA_KEY] = delta
+            country_code = _iso_alpha2(tool_response.get("country_code"))
+            if country_code:
+                tool_context.state[_STATE_COUNTRY_KEY] = country_code
         return None
 
     if name not in _TARGET_TOOLS or not isinstance(tool_response, dict):
@@ -204,6 +226,15 @@ def capture_after_tool(
         return None
 
     results = normalize_search_results(structured)
+    if name == "search_offers":
+        # The search ran at the geocoded coordinates, so the geocoded country is
+        # a legitimate attribute of ITS results (a server-sent countryCode always
+        # wins via setdefault). find_hotel_by_name is NOT stamped — a name lookup
+        # is not bound to the geocoded location.
+        search_country = tool_context.state.get(_STATE_COUNTRY_KEY)
+        if search_country:
+            for card in results:
+                card.setdefault("country_code", search_country)
     tool_context.state[_STATE_RESULTS_KEY] = results
 
     if name != "search_offers":
@@ -246,6 +277,9 @@ def emit_search_datapart(callback_context: Any) -> genai_types.Content | None:
         profile_delta["city"] = raw_delta["last_city"]
     if "last_state_context" in raw_delta:  # may be None → clears the anchor
         profile_delta["state_anchor"] = raw_delta["last_state_context"]
+    country_code = state.get(_STATE_COUNTRY_KEY)
+    if country_code:  # only-when-present — the orchestrator's city-change wipe
+        profile_delta["country_anchor"] = country_code  # handles staleness
 
     payload: dict[str, Any] = {}
     if results is not None:  # a search ran (even 0 results is a real outcome)
@@ -260,3 +294,38 @@ def emit_search_datapart(callback_context: Any) -> genai_types.Content | None:
         parts.append(genai_types.Part(text=_outcome_text(results)))
     parts.append(encode_datapart(payload))
     return genai_types.Content(role="model", parts=parts)
+
+
+def skip_final_generation(callback_context: Any, llm_request: Any) -> LlmResponse | None:
+    """`before_model_callback`: skip the leaf's wasted final-prose LLM call.
+
+    Once search_offers / find_hotel_by_name has run this turn, `capture_after_tool`
+    has stashed the normalized results in state. ADK would now call the model one
+    more time ONLY to write a prose outcome that `emit_search_datapart` discards
+    (last non-partial event wins) — and that the orchestrator never shows the user
+    anyway (it re-synthesizes the answer from the structured results + ground-truth
+    block). Returning an `LlmResponse` here makes ADK skip that real model call
+    (base_llm_flow: a truthy before_model_callback response is yielded, the call is
+    not made), cutting the leaf from 3 → 2 internal LLM calls per successful search.
+
+    The canned response carries the SAME code-built outcome text the emit step
+    would use, so nothing downstream changes shape.
+
+    Guard on `is None`, NOT falsiness: a 0-result search stashes `[]` (a real
+    outcome) and MUST still short-circuit; only the geocode-fail / clarification /
+    MCP-degraded paths leave the key unset (capture returns early without stashing),
+    and THOSE must still reach the model so it speaks the honest diagnostic that
+    becomes the orchestrator's `leaf_text` fallback.
+
+    Must be wired FIRST in `before_model_callback`: the short-circuit returns before
+    `after_model_callback` runs, so `llm_timing_after` never fires — placing this
+    first means `llm_timing_before` never stamps an orphaned timer for a call that
+    won't happen."""
+    results = callback_context.state.get(_STATE_RESULTS_KEY)
+    if results is None:  # no search this turn → let the model speak (honest diagnostic / clarify)
+        return None
+    return LlmResponse(
+        content=genai_types.Content(
+            role="model", parts=[genai_types.Part(text=_outcome_text(results))]
+        )
+    )
