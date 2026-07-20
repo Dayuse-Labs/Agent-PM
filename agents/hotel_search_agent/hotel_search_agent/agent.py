@@ -26,6 +26,8 @@ so B2C rows are distinguishable from fleet rows in the shared Postgres.
 from __future__ import annotations
 
 import os
+from datetime import date
+from typing import Any
 
 from dayuse_agent_common import (
     build_model,
@@ -131,6 +133,28 @@ Never fabricate hotels, prices, availability, or coordinates: only report what
 the tools returned. If the request lacks enough to search, say so plainly
 instead of guessing."""
 
+
+def inject_today_before_model(callback_context: Any, llm_request: Any) -> None:
+    """Injects TODAY into the model's context on every LLM call. The model has no
+    clock: without this it cannot turn "demain"/"tomorrow" into a real date and
+    sends search_offers a wrong/hallucinated date → zero offers (the S4 date-
+    anchoring gap — the smoke only ever pinned an absolute date, so this stayed
+    hidden). MCP_B2C does no date resolution server-side, exactly like geocoding.
+    Done here (not via a callable instruction) because the A2A card builder
+    regex-scans `instruction` and rejects a callable."""
+    today = date.today()
+    llm_request.append_instructions(
+        [
+            f"TODAY is {today.isoformat()} ({today.strftime('%A')}) — you have no other clock. "
+            "Resolve EVERY relative date against it before calling search_offers: "
+            "'today'/'aujourd'hui' = TODAY, 'tomorrow'/'demain' = TODAY + 1 day, "
+            "'après-demain' = TODAY + 2 days, a named weekday = its NEXT occurrence. ALWAYS "
+            "pass search_offers an absolute date as YYYY-MM-DD; never a past date, never guess "
+            "the year."
+        ]
+    )
+    return None
+
 # Metrics callbacks (fleet contract, booking_qa precedent). Deliberately NO
 # switch_model_callback: B2C serves the public — a per-request MODEL: override
 # must never be honored here.
@@ -143,7 +167,9 @@ root_agent = Agent(
     ),
     instruction=INSTRUCTION,
     tools=[build_mcp_toolset(), geocode_location],
-    before_model_callback=[llm_timing_before],
+    # inject_today_before_model gives the (clockless) model TODAY so it resolves
+    # "demain"/"tomorrow"/weekdays into an absolute date for search_offers.
+    before_model_callback=[llm_timing_before, inject_today_before_model],
     after_model_callback=[llm_timing_after],
     on_model_error_callback=llm_error_metric,
     # Order matters: timing stamps t0 first; the budget callback short-circuits
