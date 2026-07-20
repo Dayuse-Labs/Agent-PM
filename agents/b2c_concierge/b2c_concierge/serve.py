@@ -1,19 +1,21 @@
-"""serve.py — exposes b2c_concierge over A2A (Agent Card at /.well-known/agent-card.json).
+"""serve.py — exposes b2c_concierge over A2A + the public /v3 facade (S09).
 
-The public iso-contract facade (POST /v3/chat + SSE) lands in S9; until then the
-orchestrator is only reachable over A2A on the private network, under the same
-interim identity regime as the leaves.
+TWO identity regimes on ONE Starlette app, deliberately split:
+- A2A surface (`/`, `/.well-known/agent-card.json`): the D7 interim bearer, same
+  regime as the two leaves — peer AGENTS on the private network. FAIL-CLOSED:
+  the process refuses to start without `A2A_BEARER_TOKEN`. The card is served
+  UNSIGNED and open (discovery). D7 stays consolidated in b2c_common.auth so the
+  oidc-mtls switch (before the S11 canary) happens in one place.
+- Public facade (`/v3/*`, S09): the phase-minimum internal API key
+  (`X-Internal-Api-Key`, facade.py) — its caller is the frontend/BFF replacing
+  agent-usa, NOT a peer agent, so it must NOT be behind the D7 A2A bearer. The
+  D7 gate is therefore applied to everything EXCEPT `/v3/*`; the facade routes
+  carry their own auth. Keeping this composition here (not in b2c_common) leaves
+  the D7 VERIFICATION logic single-sourced while the concierge owns which of its
+  own paths are open.
 
 A2A_HOST must be the host peers can reach (e.g. b2c-concierge.railway.internal): it is
 written into the served card's url.
-
-Interim identity (D7), same regime as the two leaves — consolidated in b2c_common.auth
-(S3) so the oidc-mtls switch happens in one place:
-- every route requires `Authorization: Bearer $A2A_BEARER_TOKEN`, EXCEPT the agent card
-  (discovery must stay open);
-- FAIL-CLOSED: the process refuses to start without a token;
-- the card is served UNSIGNED (sign_agent_card is not implemented in dayuse_agent_common yet):
-  documented D7 exception, deadline = oidc-mtls switch, at the latest before the S11 canary.
 """
 import asyncio
 import os
@@ -24,6 +26,7 @@ from google.adk.a2a.utils.agent_card_builder import AgentCardBuilder
 from google.adk.a2a.utils.agent_to_a2a import to_a2a
 
 from b2c_concierge.agent import root_agent
+from b2c_concierge.facade import register_v3_routes
 
 _HOST = os.environ.get("A2A_HOST", "localhost")
 _PORT = int(os.environ.get("PORT", "8100"))
@@ -55,5 +58,23 @@ _agent_card.security_schemes = {
 _agent_card.security = [{"bearer-interim": []}]
 
 
-app = to_a2a(root_agent, host=_HOST, port=_PORT, agent_card=_agent_card)
-app.add_middleware(BearerAuthMiddleware, token=_BEARER_TOKEN)
+# The ADK A2A Starlette app. Mount the public /v3 facade routes on it BEFORE
+# wrapping, so both surfaces share one app (one lifespan, one process).
+_a2a_app = to_a2a(root_agent, host=_HOST, port=_PORT, agent_card=_agent_card)
+register_v3_routes(_a2a_app)
+
+# D7 gate wraps the whole app; the dispatcher below sends /v3/* to the RAW app
+# instead (facade owns its own internal-API-key auth), and everything else —
+# A2A calls, the card, lifespan/websocket scopes — through the D7 gate.
+_guarded = BearerAuthMiddleware(_a2a_app, token=_BEARER_TOKEN)
+
+_V3_PREFIX = "/v3"
+
+
+async def app(scope, receive, send):
+    """ASGI composition: /v3/* bypasses the D7 A2A bearer (public facade, own
+    API-key gate); every other scope goes through the D7 gate."""
+    if scope["type"] == "http" and scope.get("path", "").startswith(_V3_PREFIX):
+        await _a2a_app(scope, receive, send)
+        return
+    await _guarded(scope, receive, send)

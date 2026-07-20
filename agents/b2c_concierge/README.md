@@ -1,6 +1,6 @@
 # b2c-concierge
 
-Orchestrateur conversationnel B2C de Dayuse (ADK Python + LiteLLM, portable) — **spine code-owned** (pattern `cs_copilot` de la fleet : custom `BaseAgent`, PAS de LlmAgent + sub_agents libre). Remplace `agent-usa`. La façade `/v3/chat` + SSE arrive en S9. **S7 câble les 3 tools MCP inline pour de vrai + guard R9 + amenity claim verifier + named-hotel lookup** (ci-dessous) ; synthèse streamée + ground-truth + anti-loop/recovery-ack (S6) et Redis de session + profil (S5) déjà en place.
+Orchestrateur conversationnel B2C de Dayuse (ADK Python + LiteLLM, portable) — **spine code-owned** (pattern `cs_copilot` de la fleet : custom `BaseAgent`, PAS de LlmAgent + sub_agents libre). Remplace `agent-usa`. **La façade publique `/v3/chat` + SSE (S9) est en place** (ci-dessous). **S7 câble les 3 tools MCP inline pour de vrai + guard R9 + amenity claim verifier + named-hotel lookup** ; synthèse streamée + ground-truth + anti-loop/recovery-ack (S6) et Redis de session + profil (S5) déjà en place.
 
 ## Flux d'un tour (budget structurel ≤ 3 appels LLM — n'inclut QUE les appels LLM, jamais un appel MCP)
 
@@ -29,6 +29,21 @@ Le tool MCP `generate_booking_link` est **stateless côté serveur** (vérifié 
 
 `get_hotel_details`/`compare_hotels`/`generate_booking_link` résolvent d'abord un hôtel nommé dans la shortlist **du tour précédent** (`profile.last_results`, fuzzy match — `resolve_hotel_reference`), MCP `find_hotel_by_name` ensuite (jamais pour `compare_hotels`, qui reste shortlist-only par périmètre de phase) — un hôtel qu'on vient de recommander ne fait jamais de dead-end. `find_hotel_by_name` ne tolère pas une phrase entière autour du nom (vérifié en direct) : un strip déterministe des tournures de requête courantes (« book », « compare », « tell me about »…) précède l'appel MCP.
 
+## Façade publique `/v3/chat` + SSE (S9)
+
+Bascule **iso-contrat** avec `agent-usa` : même surface HTTP pour le frontend, orchestrateur remplacé de façon invisible. Servie sur le **même app Starlette** que la surface A2A (`serve.py`), mais sous une **identité séparée** (`facade.py`).
+
+- **`POST /v3/chat`** — réponse JSON iso-contrat (mêmes clés/formes qu'agent-usa : `message`/`response`/`context` (alias legacy), `hotels`, `suggestions`, `session_id`/`conversation_id`, `response_language`, `state`, `ready_to_search`, `requires_clarification`, `profile_status`, `active_filters`, `market`/`market_country`/`entry_market_country`/`search_country`, `turn_id`). **Iso-contrat en FORME, pas en sémantique** : le spine B2C n'a ni intake staged, ni market engine, ni langues es/it — les champs sans équivalent sont mappés depuis l'état réel du profil ou reçoivent un défaut honnête documenté (`facade.build_chat_payload`). Le prix est affiché depuis `priceEuro` (centimes EUR) → `€X.XX`, cohérent avec S7.
+- **`POST /v3/chat/stream`** — SSE : `event: progress` (le marqueur TTFT, immédiat) → `event: hotels` → `event: token` (chunks) → `event: done` (le payload contrat complet). Le JSON non-streamé ci-dessus sert exactement le même payload en un coup.
+- **`POST /v3/chat/session/reset`** — 204, efface le cookie + la session ADK + le profil Redis.
+- **Session** : id résolu cookie `du_chat_sid` → header `X-Client-Session-Id` → `session_id` du body (phase M1 legacy) → nouveau. L'id de session de la façade EST l'id de session ADK, donc le profil Redis (clé `ctx.session.id`) porte la continuité entre tours HTTP sans plomberie supplémentaire.
+- **Auth (minimum, phase OUT)** : les routes `/v3/*` prennent une **API key interne** (`X-Internal-Api-Key`, env `CHAT_API_KEY`), PAS le bearer D7 des routes A2A (voir « Deux régimes d'identité » plus bas). Ouvertes quand `CHAT_API_KEY` est vide ou `AUTH_BYPASS=true` (défaut dev).
+- **Budget** : la façade ajoute **ZÉRO appel LLM** — elle ne fait que consommer le flux d'événements du spine (mêmes ≤ 3 appels/tour).
+
+### Deux régimes d'identité (serve.py)
+
+Un seul app, deux surfaces : les routes A2A (`/`, carte) gardent le **bearer D7** (agent↔agent, réseau privé, fail-closed au boot) ; les routes `/v3/*` prennent l'**API key interne** (frontend/BFF). La composition (quelles routes sont ouvertes) vit dans `serve.py` ; la *vérification* D7 reste consolidée dans `b2c_common.auth` (invariant — bascule oidc-mtls en un seul endroit).
+
 ## Profil de session (S5)
 
 **Orchestrateur-only** (décision B3) : les feuilles restent stateless, le Redis n'appartient qu'au concierge — enforcé statiquement par `tests/test_stateless_leaves.py` (aucune occurrence de `redis` dans `agents/hotel_search_agent` ou `agents/faq_agent`).
@@ -48,7 +63,9 @@ bash scripts/run_local.sh          # boote les 3 services (concierge sur :8100)
 python scripts/smoke_e2e.py        # 1 tour ack + 1 search + 1 faq via l'orchestrateur
 python scripts/smoke_e2e.py --conversation  # 4 tours, un seul contextId (continuité de session)
 python scripts/smoke_e2e.py --booking       # guard R9 : book <hôtel> puis "yes" (2 tours, un contextId)
+python scripts/smoke_e2e.py --contract      # S9 : aller-retour /v3/chat (JSON) + SSE progress
 .venv/bin/pytest -q                # tests offline (ni réseau ni clé API)
+.venv/bin/pytest tests/api -q      # S9 : tests de contrat de la façade uniquement
 bash scripts/dayuse_guardrails.sh .
 ```
 
@@ -74,6 +91,15 @@ bash scripts/dayuse_guardrails.sh .
 | `MCP_B2C_URL` | `http://localhost:8099/mcp` | Serveur MCP_B2C — les 3 tools inline (S7) l'appellent directement, une session par appel (`inline_tools.py`) |
 | `MCP_B2C_AUTH_TOKEN` | (vide) | Bearer RFC 6750 vers MCP_B2C (même token que les 2 feuilles) |
 | `CONCIERGE_INLINE_MCP_TIMEOUT_SECONDS` | `5.0` | Budget d'un appel MCP inline (connexion + appel(s)), propriété de l'orchestrateur — SANS retry |
+| `CHAT_API_KEY` | (vide) | Façade `/v3` (S9) : clé API interne attendue ; vide → façade ouverte (dev) |
+| `CHAT_API_KEY_HEADER` | `X-Internal-Api-Key` | Header portant la clé API interne de la façade |
+| `AUTH_BYPASS` | (vide) | `true` → désactive l'auth de la façade `/v3` (dev/tests) |
+| `SESSION_MIGRATION_PHASE` | `M1` | `M1` accepte un `session_id` legacy dans le body quand aucun cookie ; `M2` l'ignore |
+| `CONCIERGE_SESSION_COOKIE_NAME` | `du_chat_sid` | Nom du cookie de session de la façade |
+| `CONCIERGE_SESSION_TTL_SECONDS` | `3600` | Max-Age du cookie de session |
+| `CONCIERGE_SESSION_COOKIE_SECURE` | `true` | `Secure` sur le cookie (mettre `false` en dev http local) |
+| `CONCIERGE_SESSION_COOKIE_SAMESITE` | `lax` | Attribut `SameSite` du cookie |
+| `DATABASE_URL` | (vide) | Postgres partagé : `conversation_logs` (S9) + `llm_metric_events` (S3) ; **write no-op sans cette variable** |
 
 Un token sortant vide n'est pas fatal au boot : la feuille fail-closed répond 401 et le tour dégrade honnêtement (jamais d'auth contournée). `scripts/run_local.sh` partage un même token local pour les 3 services.
 
@@ -81,10 +107,11 @@ Un token sortant vide n'est pas fatal au boot : la feuille fail-closed répond 4
 
 Même régime que les feuilles : réseau privé Railway + bearer statique (entrant vérifié par `serve.py`, sortant porté par les clients httpx des legs), carte servie **non signée** (`sign_agent_card` non implémenté). **Échéance : bascule oidc-mtls au plus tard avant le canary S11.** Suivi dans `HANDOFF.md`.
 
-## RGPD
+## RGPD — données & rétention
 
-- **Sessions** : le Redis de profil (TTL glissant `CONCIERGE_PROFILE_TTL_SECONDS`, défaut 1800 s) appartient à l'orchestrateur seul (S5) — la session ADK elle-même (historique d'événements) reste en mémoire du process A2A (éphémère, hors scope S5).
-- **Logs/métriques** : AUCUN contenu de message — uniquement family/route/compteurs/latences, verrouillé par test côté logs (`test_logs_never_contain_message_content`) ET côté événements `llm_metric_events` (`test_metric_events_never_contain_message_content`). Depuis S3, chaque tour est aussi mirroré en Postgres via `dayuse_agent_common.metrics_pg` (`service=b2c_concierge`, no-op sans `DATABASE_URL`).
+- **Sessions (Redis, profil)** : TTL glissant `CONCIERGE_PROFILE_TTL_SECONDS` (défaut **1800 s = 30 min** d'inactivité, rafraîchi à chaque écriture), orchestrateur seul (S5). Le cookie de session HTTP (`du_chat_sid`, `CONCIERGE_SESSION_TTL_SECONDS`, défaut 3600 s) porte le même id ; `POST /v3/chat/session/reset` efface cookie + session ADK + profil Redis. La session ADK elle-même (historique d'événements) reste en mémoire du process (éphémère).
+- **`conversation_logs` (Postgres, S9)** — la SEULE table qui porte du **contenu de message** (`user_message`, `assistant_message`), par design (analytics/export), à ne jamais confondre avec les métriques. Colonnes = celles d'agent-usa + **`is_synthetic`** (booléen) : le trafic synthétique (batteries, shadow-run) se marque lui-même via le header interne `X-Dayuse-Synthetic` et reste filtrable hors de toute analyse. Écriture **best-effort, no-op sans `DATABASE_URL`** (posture `metrics_pg`) — jamais un 500 sur un tour réussi. **Rétention à appliquer côté DB** (précondition de prod, S10/S11) : purge/anonymisation périodique de la table (aucune purge automatique n'est encore posée ici — la table stocke du contenu brut, sa durée de conservation doit être bornée par une politique DB avant tout trafic réel).
+- **Métriques (`llm_metric_events`, Postgres)** : AUCUN contenu de message — uniquement family/route/compteurs/latences, verrouillé par test côté logs (`test_logs_never_contain_message_content`) ET côté événements (`test_metric_events_never_contain_message_content`). Mirroré via `dayuse_agent_common.metrics_pg` (`service=b2c_concierge`, no-op sans `DATABASE_URL`).
 - **Résidence EU** du provider modèle derrière LiteLLM : à vérifier AVANT tout trafic réel (précondition de prod, cf. brief §4).
 
 ## ⚠️ Staging ≠ shadow-run

@@ -1,48 +1,48 @@
-# S08 — Batteries conversationnelles + release gate
+# S09 — Façade `POST /v3/chat` iso-contrat + SSE
 
-Scope (phase S08, zone `evals/**` + `scripts/**` + tests — NE PAS toucher la façade S9).
+Branch: `s9-facade` (S08 déjà mergée → pas de worktree). Zone: façade/API + ses tests. NE PAS toucher `evals/**`.
 
-## Design decisions (adaptées d'agent-usa)
-- **Driving = in-process** `InMemoryRunner(root_agent)` (pattern `measure_ttft_local.py`),
-  one ADK session per scenario (turns share continuity). Justification : garde S08 HORS
-  de la zone façade S9 (le HTTP `/v3/chat`+SSE est S9) ; capture du budget propre (log
-  handler, pas de scraping de fichier) ; état de profil auto-contenu via fakeredis injecté
-  (pas de serveur Redis requis). "Live" = LLM réel (triage/synthèse/juge), pas "sur le réseau".
-- **Judge = LLM-as-judge via LiteLLM** (invariant LiteLLM, PAS de SDK direct — le juge
-  d'agent-usa mélangeait client OpenAI + shape Anthropic, bug corrigé ici), temperature 0,
-  sortie JSON `{verdict, score 1-5, reasoning, red_flags}`, jugée contre le `expected` du
-  scénario + ancres par famille. Modèle configurable (`RELEASE_GATE_JUDGE_MODEL`, déf gpt-4o-mini).
-- **Budget = zéro-tolérance** : le compteur `llm_calls` de S02 (log `concierge_metric=turn`)
-  capturé par tour ; tout tour > 3 = gate rouge (ship-blocking).
-- **"Gate verte" = pas de régression vs baseline** (pas "32/32 passent") — modèle agent-usa
-  (`min_passed - tolerance`). Baselines posées via `--update-baseline` uniquement.
+## Contexte / décisions de contrat (zone à jugement, mode phase)
+- Le contrat golden d'agent-usa est capturé **en FORME** (clés/types), pas en sémantique :
+  le spine B2C n'a NI intake staged, NI market engine, NI langues es/it — reproduire le
+  comportement d'agent-usa (clarification espagnole, staged workflow) est structurellement
+  impossible et hors design. On mappe l'état réel du spine → les clés du contrat, avec des
+  défauts honnêtes documentés là où le spine n'a pas d'équivalent.
+- **Auth split** : les routes A2A (`/`, carte) gardent le bearer D7 (réseau privé, agent↔agent) ;
+  les routes `/v3/*` (frontend/BFF) prennent le **minimum** demandé par la phase : une API key
+  interne (`X-Internal-Api-Key`, env `CHAT_API_KEY`, `AUTH_BYPASS`). D7 reste consolidé dans
+  b2c_common (invariant) — la composition (quelles routes sont ouvertes) vit dans serve.py.
+- **hotels** : liste du marker `hotels` si non-vide, sinon `None` (faq/ack/dégradé → None ;
+  search-avec-résultats/details/compare → liste). `ready_to_search = hotels is not None`.
+- **conversation_logs** : mêmes colonnes qu'agent-usa + `is_synthetic` (header `X-Dayuse-Synthetic`).
+  Persistance Postgres best-effort, no-op sans `DATABASE_URL` (posture metrics_pg S3). Testé en
+  pur (row builder + détection header) ; write live Postgres = S10/S11.
 
-## Steps
-- [ ] `evals/judge.py` — LLMJudge (litellm, JSON, temp 0, par-famille via `expected`)
-- [ ] `evals/battery.py` — chargement scénarios (evalset-v0.json), driving in-process,
-      capture budget/tour, fakeredis, agrégation par famille → results dict
-- [ ] `scripts/run_dynamic_conversation_regression.py` — CLI battery, écrit un report JSON
-- [ ] `scripts/run_release_gate.py` — gate : units (pytest) + budget + battery vs baseline,
-      `--quick`, `--update-baseline`, exit 1 = don't merge
-- [ ] `evals/baselines.json` — posées par un run `--update-baseline`
-- [ ] `evals/tests/test_*.py` — tests OFFLINE (mock litellm) : parsing juge, parsing budget,
-      agrégation, logique de comparaison baseline + exit code
-- [ ] `pytest.ini` — ajouter `evals` aux testpaths/pythonpath (additif)
-- [ ] `.gitignore` — `evals/reports/`
+## Étapes
+- [ ] 1. Golden : figer le schéma de réponse (clés/types) depuis les tests API d'agent-usa → fixtures de non-régression.
+- [ ] 2. `facade.py` : mapping état spine → contrat v3, prix `priceEuro` cents → `€X.XX`, cookie/session, reset, API-key interne, Runner get-or-create keyé sur session_id.
+- [ ] 3. SSE `POST /v3/chat/stream` : `progress` (<300 ms) → `hotels` → tokens → `done` ; JSON `/v3/chat` inchangé.
+- [ ] 4. `conversation_log.py` : row builder pur + `is_synthetic` + persister best-effort (no-op sans DATABASE_URL).
+- [ ] 5. `serve.py` : composition (D7 pour A2A + lifespan, API-key interne pour /v3).
+- [ ] 6. Tests `tests/api/` (+ `tests` dans testpaths) : shape, mapping pur, HTTP (ack offline + search mocké), cookie/session/reset, auth, is_synthetic, ordre SSE.
+- [ ] 7. `scripts/smoke_e2e.py --contract`.
+- [ ] 8. README concierge : section rétention (TTL Redis + conversation_logs).
+- [ ] 9. DoD verte + HANDOFF + commit branche (jamais de merge).
 
-## DoD (exécutable)
-- [ ] `python scripts/run_release_gate.py --quick`  (units + budget, offline)
-- [ ] `python scripts/run_release_gate.py`           (gate complète verte sur 32 scénarios)
-- [ ] `.venv/bin/pytest -q` vert ; `ruff check .` OK ; guardrails OK
+## DoD
+- `pytest tests/api -q` vert ; `pytest -q` (suite complète) vert ; `ruff` + `mypy` OK ; guardrails OK.
+- SSE : premier event = `progress` immédiat (TTFT).
+- `scripts/smoke_e2e.py --contract` PASS (services up).
 
-## Review
-- Harness livré : `evals/{judge,battery}.py` + `evals/tests/` (26 tests offline) +
-  `scripts/run_{dynamic_conversation_regression,release_gate}.py` + `evals/baselines.json`.
-- Driving in-process (justifié : hors zone façade S9, budget capté proprement, fakeredis
-  auto-contenu). Juge via LiteLLM (bug OpenAI/Anthropic d'agent-usa corrigé), rubrique par famille.
-- **Budget vérifié sur toute la batterie : 0 tour au-dessus de 3 LLM/tour** (invariant dur, gate ship-blocking).
-- DoD verte : `--quick` PASS, gate complet PASS (3/32, 0 over-budget, no regression),
-  pytest 352, ruff, mypy 30, guardrails.
-- Découverte live : baseline basse (3/32) HONNÊTE — dominée par le token Mapbox (ajouté par Fabien
-  en session, 1/32→3/32) + inventaire ES staging partiel (caveat S10, re-poser en S10 vs ES prod).
-- Détail complet dans le bloc HANDOFF daté 2026-07-20.
+## Review (fait)
+- Livré : `facade.py` (v3 JSON + SSE + reset, auth API-key, Runner keyé session_id, mapping contrat),
+  `conversation_log.py` (row pur + is_synthetic + persister best-effort no-op sans DATABASE_URL),
+  serve.py composé (split D7 A2A / API-key /v3), `ProfileStore.delete`, `tests/api/` (32 tests),
+  `pytest.ini` (+tests), `smoke_e2e.py --contract`, README (façade + rétention).
+- Décisions assumées (mode « contrat = zone à jugement ») : iso-contrat en FORME pas sémantique ;
+  hotels empty→None + ready_to_search=hotels is not None ; conversation_logs best-effort ;
+  auth split D7/API-key ; Runner in-process InMemory (profil Redis = vraie continuité).
+- DoD verte : pytest tests/api 32, pytest -q 384, ruff, mypy 32, guardrails ; live : smoke --contract PASS
+  (SSE progress 2 ms), curl SSE progress-first, tour FAQ nominal live OK.
+- À valider par Fabien (review = gate) : fidélité de contrat des champs staged-workflow.
+- Détail complet : bloc HANDOFF daté 2026-07-20 (S9).

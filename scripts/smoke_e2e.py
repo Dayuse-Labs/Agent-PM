@@ -26,6 +26,13 @@ safety invariant, true even under honest degradation with no live
 credentials); turn 2's link depends on MCP_B2C/OPENAI_API_KEY actually being
 reachable, printed but not hard-asserted for that reason.
 
+`--contract` (S09 DoD): a full round-trip through the PUBLIC `/v3/chat` facade
+(iso-contract JSON) — an ack + a search turn sharing one session (via
+`X-Client-Session-Id`), asserting the core contract keys and session
+continuity — plus the SSE endpoint (`/v3/chat/stream`) emitting `progress` as
+its first event. The facade uses the internal API key (`X-Internal-Api-Key`,
+sent only if `CHAT_API_KEY` is set), NOT the D7 A2A bearer.
+
 Without credentials (.env: OPENAI_API_KEY, MCP_B2C_URL) the search/faq/
 booking turns exercise the HONEST DEGRADATION path (triage regex fallback +
 leaf/tool failure → a message that says so) — still non-empty by contract,
@@ -180,6 +187,95 @@ def run_booking(client: httpx.Client) -> bool:
     return True
 
 
+# --- S09: public /v3 facade (iso-contract) --------------------------------------------------
+_BASE_URL = CONCIERGE_URL.rstrip("/")
+# The facade takes the internal API key (X-Internal-Api-Key), NOT the D7 A2A
+# bearer — open when CHAT_API_KEY is unset (local dev default). Session
+# continuity via X-Client-Session-Id (cookie-free: no Secure-cookie round-trip
+# over plain http).
+_CONTRACT_CORE_KEYS = {"message", "hotels", "suggestions", "session_id", "active_filters"}
+
+
+def _v3_headers(session_id: str) -> dict[str, str]:
+    headers = {"X-Client-Session-Id": session_id}
+    api_key = os.environ.get("CHAT_API_KEY", "").strip()
+    if api_key:
+        headers["X-Internal-Api-Key"] = api_key
+    return headers
+
+
+def _post_v3_chat(client: httpx.Client, label: str, message: str, session_id: str) -> dict | None:
+    t0 = time.monotonic()
+    try:
+        resp = client.post(
+            f"{_BASE_URL}/v3/chat", json={"message": message}, headers=_v3_headers(session_id)
+        )
+        resp.raise_for_status()
+        data = resp.json()
+    except Exception as exc:  # noqa: BLE001
+        print(f"FAIL  {label:<12} {type(exc).__name__}: {exc}")
+        return None
+    ms = int((time.monotonic() - t0) * 1000)
+    missing = _CONTRACT_CORE_KEYS - set(data)
+    if missing:
+        print(f"FAIL  {label:<12} missing contract keys: {sorted(missing)} ({ms} ms)")
+        return None
+    if data.get("session_id") != session_id:
+        print(
+            f"FAIL  {label:<12} session not honored: sent {session_id!r}, got "
+            f"{data.get('session_id')!r} ({ms} ms)"
+        )
+        return None
+    preview = (data.get("message") or "").replace("\n", " ")[:90]
+    print(f"OK    {label:<12} {ms:>6} ms  {preview!r}")
+    return data
+
+
+def _sse_progress_first(client: httpx.Client, session_id: str) -> bool:
+    """The SSE endpoint must emit `progress` as its FIRST event (the TTFT the
+    facade exposes) — checked without waiting for the whole answer."""
+    t0 = time.monotonic()
+    try:
+        with client.stream(
+            "POST",
+            f"{_BASE_URL}/v3/chat/stream",
+            json={"message": "Bonjour !"},
+            headers=_v3_headers(session_id),
+        ) as resp:
+            resp.raise_for_status()
+            for line in resp.iter_lines():
+                if line.startswith("event:"):
+                    event = line.split(":", 1)[1].strip()
+                    ms = int((time.monotonic() - t0) * 1000)
+                    if event == "progress":
+                        print(f"OK    sse-progress {ms:>6} ms  first event = progress")
+                        return True
+                    print(f"FAIL  sse-progress first event = {event!r}, expected progress ({ms} ms)")
+                    return False
+    except Exception as exc:  # noqa: BLE001
+        print(f"FAIL  sse-progress {type(exc).__name__}: {exc}")
+        return False
+    print("FAIL  sse-progress no event received")
+    return False
+
+
+def run_contract(client: httpx.Client) -> bool:
+    """S09 DoD: full round-trip through the public /v3 facade — an ack + a search
+    turn sharing one session (contract keys + session continuity), plus the SSE
+    endpoint emitting `progress` first."""
+    session_id = uuid.uuid4().hex
+    print(f"contract session_id={session_id}")
+    ok = _post_v3_chat(client, "v3-ack", "Bonjour !", session_id) is not None
+    ok = (
+        _post_v3_chat(
+            client, "v3-search", f"Je cherche un hôtel en journée à Paris le {_TOMORROW}", session_id
+        )
+        is not None
+    ) and ok
+    ok = _sse_progress_first(client, uuid.uuid4().hex) and ok
+    return ok
+
+
 def main() -> int:
     parser = argparse.ArgumentParser()
     mode = parser.add_mutually_exclusive_group()
@@ -193,6 +289,11 @@ def main() -> int:
         action="store_true",
         help="Run the 2-turn booking confirmation flow (R9, guard #12): quote then confirm.",
     )
+    mode.add_argument(
+        "--contract",
+        action="store_true",
+        help="Run the S09 iso-contract round-trip through the public /v3/chat facade + SSE.",
+    )
     args = parser.parse_args()
 
     print(f"smoke_e2e → {CONCIERGE_URL}")
@@ -203,6 +304,8 @@ def main() -> int:
             ok = run_booking(client)
         elif args.conversation:
             ok = run_conversation(client)
+        elif args.contract:
+            ok = run_contract(client)
         else:
             ok = run_independent_turns(client)
     print("smoke_e2e:", "PASS" if ok else "FAIL")
