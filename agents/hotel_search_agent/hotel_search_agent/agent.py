@@ -42,6 +42,11 @@ from dayuse_agent_common import (
 from google.adk.agents import Agent
 from google.adk.tools.mcp_tool import McpToolset, StreamableHTTPConnectionParams
 
+from hotel_search_agent.equipment_ids import (
+    EQUIPMENT_IDS,
+    enforce_equipment_filters,
+    inject_amenities_declaration,
+)
 from hotel_search_agent.geocode_tool import geocode_location
 from hotel_search_agent.mcp_guard import (
     mcp_circuit_after_tool,
@@ -123,6 +128,16 @@ How to act, frugally (at most ONE reasoning pass — no tool-call loops):
   honestly instead (never invent coordinates or guess a nearby city).
   If it returns ok=True, call search_offers with its latitude/longitude plus
   the rest of the query params, and fold its profile_delta into your own.
+- Pass search_offers an `amenities` argument ONLY when the user asked FOR one
+  or more amenities, using ONLY these canonical keys: {amenity_keys}. Include
+  ONLY what the user asked for — never any other key from the list. A negated
+  or excluded amenity ("sans piscine", "no pool") is NOT a request: do not
+  include it and do NOT compensate with the remaining keys — when nothing was
+  asked for, OMIT the argument entirely (an omitted argument means an
+  unfiltered search, which is what an exclusion wants). Never set
+  hotelEquipmentIds or roomEquipmentIds yourself: equipment-ID filters are
+  code-owned and applied automatically from your `amenities` keys plus the
+  request profile.
 - A FOLLOW-UP that only changes the date/budget/filters with NO new destination
   (e.g. "for the 28th instead", "cheaper", "earlier") → reuse profile_in.city as
   the destination and run a fresh search with the new constraint. Do not ask the
@@ -139,7 +154,10 @@ How to act, frugally (at most ONE reasoning pass — no tool-call loops):
 
 Never fabricate hotels, prices, availability, or coordinates: only report what
 the tools returned. If the request lacks enough to search, say so plainly
-instead of guessing."""
+instead of guessing.""".format(amenity_keys=", ".join(EQUIPMENT_IDS))
+# ^ .format at module level: the instruction stays a plain str (the A2A card
+#   builder rejects a callable) and can never drift from the enum the model
+#   is offered in the widened search_offers declaration.
 
 
 def inject_today_before_model(callback_context: Any, llm_request: Any) -> None:
@@ -182,16 +200,27 @@ root_agent = Agent(
     # (the short-circuit returns before after_model_callback/llm_timing_after runs).
     # inject_today_before_model gives the (clockless) model TODAY so it resolves
     # "demain"/"tomorrow"/weekdays into an absolute date for search_offers.
-    before_model_callback=[skip_final_generation, llm_timing_before, inject_today_before_model],
+    # inject_amenities_declaration widens the search_offers declaration with the
+    # virtual `amenities` enum param (skip_final_generation staying first means
+    # a short-circuited final call correctly skips the injection too).
+    before_model_callback=[
+        skip_final_generation,
+        llm_timing_before,
+        inject_today_before_model,
+        inject_amenities_declaration,
+    ],
     after_model_callback=[llm_timing_after],
     on_model_error_callback=llm_error_metric,
     # Order matters: timing stamps t0 first; the budget callback short-circuits
     # beyond MAX_TOOL_CALLS; the MCP circuit guard short-circuits the 2 MCP
     # tools while the breaker is open. First non-None wins (ADK semantics).
+    # enforce_equipment_filters is LAST: it mutates args in place (the ONLY
+    # writer of hotelEquipmentIds), so it must only run when the call proceeds.
     before_tool_callback=[
         tool_timing_before,
         make_tool_budget_callback(MAX_TOOL_CALLS),
         mcp_circuit_before_tool,
+        enforce_equipment_filters,
     ],
     # capture_after_tool is LAST: it may return a truncated payload (which breaks
     # the after-tool chain), so it must never run before mcp_circuit_after_tool

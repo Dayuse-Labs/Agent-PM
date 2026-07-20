@@ -142,6 +142,31 @@ class TestProfileDeltaAppliedAndPersisted:
         assert stored.budget_max == 150.0
         assert stored.budget_request_source == BUDGET_SOURCE_FLEXIBLE_DEFAULT
 
+    def test_amenities_delta_is_persisted_and_surfaces_in_search_context(
+        self, monkeypatch, fake_leg, fake_profile_store
+    ):
+        """S10: the leaf emits the amenity filters it hard-applied
+        (equipment_ids/response_bridge) as `profile_delta.amenities`; the
+        orchestrator must merge them (accumulating filter for next turns) AND
+        show them in the SAME turn's SEARCH CONTEXT (transparency)."""
+        fake_leg.response_payload = {
+            "results": [{"id": 1, "name": "Hotel A", "amenities": ["pool"]}],
+            "profile_delta": {"amenities": ["pool"]},
+        }
+        llm = _scripted_llm(
+            monkeypatch, '{"family": "search", "language": "fr"}', "Voici un hôtel avec piscine."
+        )
+        runner = InMemoryRunner(root_agent)
+        session = _new_session(runner)
+
+        _run_turn(runner, session.id, "un hotel à miami avec une piscine")
+
+        stored = asyncio.run(fake_profile_store.get(session.id))
+        assert stored.amenities == ["pool"]
+        # The delta is applied BEFORE synthesis (agent.py), so the search-context
+        # line the model saw this turn already restates the amenity.
+        assert "amenities: pool" in llm.calls[-1]["messages"][1]["content"]
+
     def test_bare_number_reply_overrides_the_leafs_own_source_claim(
         self, monkeypatch, fake_leg, fake_profile_store
     ):

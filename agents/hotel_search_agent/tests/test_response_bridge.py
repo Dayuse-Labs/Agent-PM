@@ -12,8 +12,12 @@ from a2a import types as a2a_types
 from google.adk.a2a.converters.part_converter import convert_genai_part_to_a2a_part
 
 from hotel_search_agent.response_bridge import (
+    STATE_APPLIED_AMENITIES_KEY,
     capture_after_tool,
+    decode_datapart,
     emit_search_datapart,
+    encode_datapart,
+    find_datapart,
     normalize_search_results,
     skip_final_generation,
 )
@@ -201,6 +205,45 @@ def test_capture_ignores_non_target_tools():
     assert ctx.state == {}
 
 
+# --- applied amenity filters → per-card amenities (server-guaranteed truths) ------------------
+def test_capture_stamps_hard_filtered_amenities_on_search_cards():
+    # hotelEquipmentIds is a HARD filter: every returned hotel has the amenity,
+    # even though search_offers sends no amenity list. "pet_friendly" is stamped
+    # as "pet friendly" — the claim guard's synonym table only knows the spaced form.
+    ctx = _Ctx({STATE_APPLIED_AMENITIES_KEY: ["pool", "pet_friendly"]})
+    resp = {"structuredContent": _search_offers_structured(3), "isError": False}
+    returned = capture_after_tool(_Tool("search_offers"), {}, ctx, resp)
+    for card in ctx.state["temp:hotel_search_results"]:
+        assert "pool" in card["amenities"]
+        assert "pet friendly" in card["amenities"]
+    for card in returned["hotels"]:
+        assert "pool" in card["amenities"]
+
+
+def test_capture_without_applied_filter_leaves_amenities_empty():
+    ctx = _Ctx({STATE_APPLIED_AMENITIES_KEY: []})
+    resp = {"structuredContent": _search_offers_structured(2), "isError": False}
+    capture_after_tool(_Tool("search_offers"), {}, ctx, resp)
+    assert all(c["amenities"] == [] for c in ctx.state["temp:hotel_search_results"])
+
+
+def test_capture_stamp_never_duplicates_a_server_sent_amenity():
+    hotel = _hotel(1, 5000)
+    hotel["amenities"] = [{"id": 33, "name": "pool"}]  # hypothetical server list
+    ctx = _Ctx({STATE_APPLIED_AMENITIES_KEY: ["pool"]})
+    resp = {"structuredContent": {"results": [hotel]}, "isError": False}
+    capture_after_tool(_Tool("search_offers"), {}, ctx, resp)
+    assert ctx.state["temp:hotel_search_results"][0]["amenities"] == ["pool"]
+
+
+def test_capture_never_stamps_find_hotel_by_name():
+    # A name lookup is not bound to this search's filters.
+    ctx = _Ctx({STATE_APPLIED_AMENITIES_KEY: ["pool"]})
+    resp = {"structuredContent": {"hotel": {"hotelId": 7, "name": "Villa"}}, "isError": False}
+    capture_after_tool(_Tool("find_hotel_by_name"), {}, ctx, resp)
+    assert ctx.state["temp:hotel_search_results"][0]["amenities"] == []
+
+
 # --- emit_search_datapart (verified through the REAL ADK A2A converter) ----------------------
 def _decode(content) -> dict:
     """Find the datapart among the Content's parts (a text summary may precede
@@ -277,6 +320,42 @@ def test_emit_country_anchor_flows_even_on_a_geocode_only_turn():
 
 def test_emit_returns_none_when_nothing_captured():
     assert emit_search_datapart(_Ctx()) is None
+
+
+def test_emit_includes_applied_amenities_in_profile_delta():
+    # The concierge re-learns the filter (apply_profile_delta merges amenities),
+    # so next turn's profile_in accumulates it and active_filters light up.
+    ctx = _Ctx(
+        {
+            "temp:hotel_search_results": [{"id": 1, "name": "Villa Test"}],
+            STATE_APPLIED_AMENITIES_KEY: ["pool"],
+        }
+    )
+    data = _decode(emit_search_datapart(ctx))
+    assert data["profile_delta"] == {"amenities": ["pool"]}
+
+
+def test_emit_omits_amenities_when_none_applied():
+    # An empty list must never reach the delta — it could read as a wipe.
+    ctx = _Ctx({"temp:hotel_search_results": [], STATE_APPLIED_AMENITIES_KEY: []})
+    data = _decode(emit_search_datapart(ctx))
+    assert "profile_delta" not in data
+
+
+# --- inbound DataPart codec (the leaf reading profile_in from user_content) -------------------
+def test_decode_datapart_roundtrips_encode():
+    payload = {"query_params": {}, "profile_in": {"amenities": ["pool"], "city": "Miami"}}
+    assert decode_datapart(encode_datapart(payload)) == payload
+
+
+def test_find_datapart_skips_text_parts_and_survives_garbage():
+    from google.genai import types as genai_types
+
+    text_part = genai_types.Part(text="hello")
+    assert find_datapart([text_part]) is None
+    assert find_datapart(None) is None
+    payload = {"profile_in": {"amenities": []}}
+    assert find_datapart([text_part, encode_datapart(payload)]) == payload
 
 
 # --- skip_final_generation (short-circuits the wasted 3rd LLM call) --------------------------
