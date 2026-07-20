@@ -110,7 +110,15 @@ class TestMetricsWiring:
     def test_llm_callbacks_wired(self):
         from dayuse_agent_common import llm_error_metric, llm_timing_after, llm_timing_before
 
-        assert llm_timing_before in self._as_list(root_agent.before_model_callback)
+        from hotel_search_agent.equipment_ids import inject_amenities_declaration
+        from hotel_search_agent.response_bridge import skip_final_generation
+
+        before = self._as_list(root_agent.before_model_callback)
+        assert llm_timing_before in before
+        # skip_final_generation stays FIRST: its short-circuit correctly skips
+        # the amenity declaration injection along with the model call.
+        assert before[0] is skip_final_generation
+        assert inject_amenities_declaration in before
         assert llm_timing_after in self._as_list(root_agent.after_model_callback)
         assert llm_error_metric in self._as_list(root_agent.on_model_error_callback)
 
@@ -123,12 +131,16 @@ class TestMetricsWiring:
             mcp_circuit_on_error,
         )
 
+        from hotel_search_agent.equipment_ids import enforce_equipment_filters
+
         before = self._as_list(root_agent.before_tool_callback)
         # timing FIRST (budget short-circuits the rest of the list), budget
-        # second, the MCP circuit guard (S4) last.
+        # second, the MCP circuit guard (S4) third, the equipment-filter
+        # enforcement LAST (it mutates args — only when the call proceeds).
         assert before[0] is tool_timing_before
-        assert len(before) == 3
+        assert len(before) == 4
         assert before[2] is mcp_circuit_before_tool
+        assert before[3] is enforce_equipment_filters
         assert tool_timing_after in self._as_list(root_agent.after_tool_callback)
         assert mcp_circuit_after_tool in self._as_list(root_agent.after_tool_callback)
         assert tool_error_metric in self._as_list(root_agent.on_tool_error_callback)
@@ -139,3 +151,17 @@ class TestMetricsWiring:
         from dayuse_agent_common import switch_model_callback
 
         assert switch_model_callback not in self._as_list(root_agent.before_model_callback)
+
+
+class TestAmenityInstruction:
+    """The closed key list the INSTRUCTION offers the model must be exactly the
+    table the enforcement callback can honor — locks instruction<->enum drift."""
+
+    def test_instruction_lists_exactly_the_closed_amenity_keys(self):
+        from hotel_search_agent.agent import INSTRUCTION
+        from hotel_search_agent.equipment_ids import EQUIPMENT_IDS
+
+        for key in EQUIPMENT_IDS:
+            assert key in INSTRUCTION
+        assert "{amenity_keys}" not in INSTRUCTION  # .format really ran
+        assert "hotelEquipmentIds" in INSTRUCTION  # the prohibition is spelled out

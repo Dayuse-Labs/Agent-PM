@@ -55,6 +55,10 @@ _TARGET_TOOLS = {"search_offers", "find_hotel_by_name"}
 _STATE_RESULTS_KEY = "temp:hotel_search_results"
 _STATE_DELTA_KEY = "temp:hotel_search_profile_delta"
 _STATE_COUNTRY_KEY = "temp:hotel_search_country_code"
+# Public (unlike the keys above): written by equipment_ids.enforce_equipment_filters,
+# read back here for card stamping + the profile_delta — same cross-callback
+# `temp:` hand-off as _STATE_COUNTRY_KEY.
+STATE_APPLIED_AMENITIES_KEY = "temp:hotel_search_applied_amenities"
 
 
 def _iso_alpha2(value: Any) -> str | None:
@@ -79,6 +83,35 @@ def encode_datapart(data: dict[str, Any]) -> genai_types.Part:
             mime_type=A2A_DATA_PART_TEXT_MIME_TYPE,
         )
     )
+
+
+def decode_datapart(part: genai_types.Part) -> dict[str, Any] | None:
+    """Inverse of `encode_datapart` — mirror of the orchestrator's
+    `a2a_datapart.decode_datapart` (same envelope, no orchestrator import, B3).
+    The leaf needs it to read the INBOUND `{query_params, profile_in}` DataPart
+    the a2a→genai conversion re-wraps onto `user_content`."""
+    blob = part.inline_data
+    if not blob or blob.mime_type != A2A_DATA_PART_TEXT_MIME_TYPE or not blob.data:
+        return None
+    raw = blob.data
+    if not (raw.startswith(A2A_DATA_PART_START_TAG) and raw.endswith(A2A_DATA_PART_END_TAG)):
+        return None
+    inner = raw[len(A2A_DATA_PART_START_TAG) : -len(A2A_DATA_PART_END_TAG)]
+    try:
+        parsed = a2a_types.DataPart.model_validate_json(inner)
+    except ValueError:
+        return None
+    return parsed.data
+
+
+def find_datapart(parts: list[genai_types.Part] | None) -> dict[str, Any] | None:
+    """First decodable DataPart among `parts`, or None — silent no-op, never a
+    crash (mirror of the orchestrator's `a2a_datapart.find_datapart`)."""
+    for part in parts or []:
+        decoded = decode_datapart(part)
+        if decoded is not None:
+            return decoded
+    return None
 
 
 # --- display normalization (mirrors b2c_concierge.inline_tools shape, S07) -------------------
@@ -235,6 +268,19 @@ def capture_after_tool(
         if search_country:
             for card in results:
                 card.setdefault("country_code", search_country)
+        # Amenities the search was HARD-filtered on are server-guaranteed truths
+        # for every returned hotel (search_offers itself sends no amenity list) —
+        # stamping them is what lets the concierge's ground-truth block back a
+        # "pool" claim instead of hedging it "(non confirmé)". "pet_friendly" →
+        # "pet friendly": the claim guard's synonym table only knows the spaced
+        # form. find_hotel_by_name is never stamped (a name lookup is not bound
+        # to this search's filters).
+        applied = tool_context.state.get(STATE_APPLIED_AMENITIES_KEY) or []
+        if applied:
+            labels = [key.replace("_", " ") for key in applied]
+            for card in results:
+                existing = card.get("amenities") or []
+                card["amenities"] = existing + [lbl for lbl in labels if lbl not in existing]
     tool_context.state[_STATE_RESULTS_KEY] = results
 
     if name != "search_offers":
@@ -280,6 +326,13 @@ def emit_search_datapart(callback_context: Any) -> genai_types.Content | None:
     country_code = state.get(_STATE_COUNTRY_KEY)
     if country_code:  # only-when-present — the orchestrator's city-change wipe
         profile_delta["country_anchor"] = country_code  # handles staleness
+    # Applied amenity filters → the concierge re-learns them (apply_profile_delta
+    # merges without duplicates), so the NEXT turn's profile_in accumulates the
+    # filter and search_context_line/active_filters show it SAME turn. Only-when-
+    # present: an empty list must never wipe the profile.
+    applied_amenities = state.get(STATE_APPLIED_AMENITIES_KEY) or []
+    if applied_amenities:
+        profile_delta["amenities"] = list(applied_amenities)
 
     payload: dict[str, Any] = {}
     if results is not None:  # a search ran (even 0 results is a real outcome)
