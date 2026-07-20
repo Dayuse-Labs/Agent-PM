@@ -2,6 +2,30 @@
 
 État du chantier pour reprise en session fraîche. **Lire en entier avant d'agir ; ne pas reconstruire ce qui existe.** Mettre à jour en fin de CHAQUE session (bloc daté en tête).
 
+## ⏱ Addendum 2026-07-20 (même branche `s9-facade`) — feuille search : résultats STRUCTURÉS + troncature payload → « aucun résultat » RÉSOLU
+
+**Contexte** : après S9, un test live via l'interface d'agent-usa remontait « aucun résultat de recherche ». Audit de bout en bout (3 couches) : `search_offers`/géocodage MARCHENT, mais deux gaps AMONT (feuille, déjà notés « Reste » S4/S5/S6) :
+1. **Pas de DataPart structuré** — la feuille (`LlmAgent`) répondait en PROSE seule ; le concierge (`find_datapart`) ne trouvait rien → `hotels` toujours vide → carousel vide MÊME sur un succès.
+2. **Payload ~24k tokens** — `search_offers` (structuredContent + miroir texte) réinjecté dans le modèle → appel LLM final ~11 s > budget feuille 10 s → `TimeoutError` → dégradation honnête (dominait : 3/3).
+
+**Fait (zone feuille `hotel_search_agent`, sur `s9-facade` — décision explicite de Fabien : hors zone façade S9, expansion assumée de la PR S9)** :
+- **`response_bridge.py` (neuf)** — deux hooks ADK natifs sur l'`LlmAgent` existant (pas de wrapper) :
+  - **`capture_after_tool`** (`after_tool_callback`, placé **DERNIER** après `mcp_circuit_after_tool` — un retour non-None coupe la chaîne, ne doit jamais masquer l'observation du breaker) : normalise le top-5 (camelCase MCP → shape d'affichage, prix `priceEuro` cents → `€X.XX`, timeslots), **stashe** dans `tool_context.state["temp:…"]`, et **remplace** le payload que le modèle ingère par le compact top-5 (24k → **~2,9k tokens** vérifié). Sur échec (`isError`/`ok False`) → `None` (le modèle voit l'erreur). Géocode : stashe son `profile_delta`, pas de troncature.
+  - **`emit_search_datapart`** (`after_agent_callback`) : émet UN event portant à la fois un **texte d'outcome court (construit en CODE, zéro LLM)** ET le DataPart `{results, profile_delta}` — encodage byte-compatible avec `b2c_concierge.a2a_datapart` (constantes ADK `part_converter`, aucune dépendance au package concierge, feuilles indépendantes B3).
+- **`agent.py`** — `after_tool_callback += [capture_after_tool]`, `after_agent_callback=[emit_search_datapart]` ; **instruction raccourcie** (le texte du modèle est de toute façon remplacé/redondant → 1 phrase → gagne de la latence sur l'appel final).
+- **3 bugs trouvés EN LIVE (pas au 1er jet, cohérent avec la leçon S7 « probe/exécute pour de vrai »)** :
+  1. `hotel.get("hotelId") or hotel.get("id")` transforme un `hotelId==0` légitime en `None` (0 falsy) → helper `_first` (première valeur non-None). Attrapé par un test.
+  2. **L'event du `after_agent_callback` (non-partial, dernier) REMPLACE le texte du modèle dans l'artefact A2A** (miroir inverse du piège S6 : dernier non-partial gagne) → le concierge recevait un DataPart SANS `leaf_text` → `leaf_text None` → dégradation (alors que `leaf_call status=ok` !). **Fix : émettre texte + datapart dans le MÊME `Content`** (les deux parts survivent). Diagnostiqué par un probe A2A direct de la feuille (`part kinds: ['data']`, aucun texte).
+  3. **Écart de nommage S5** confirmé et corrigé ICI : géocode renvoie `last_city`/`last_state_context`, le concierge `apply_profile_delta` lit `city`/`state_anchor` → mapping fait dans `emit_search_datapart` (le concierge possède le schéma profil).
+- **Vérifié LIVE (services réels, `.env`, sans Redis/DATABASE_URL)** : recherche Paris via `/v3/chat` → **5 hôtels** (Villa Paris Orly €54, OKKO €70, Eurohotel Créteil €58, Novotel €72, Campanile €60) avec stars/rating/timeslots, `ready_to_search=True`, `active_filters.city="Paris"`, message FR synthétisé listant les offres. **4/4 recherches OK**, `leaf_call` désormais **4,3–6 s** (était ~11 s timeout), `turn status=ok` (3 LLM/tour, budget respecté). `smoke_e2e.py --contract` : le tour search renvoie les vraies offres (plus le message dégradé). Relayé aussi par le proxy UI (:8090) → cartes rendues côté navigateur.
+- **DoD gate verte** : `pytest -q` → **399** (+15 `test_response_bridge.py`, offline : normalize/troncature/emit vérifiés via le VRAI converter ADK `convert_genai_part_to_a2a_part`) ; `ruff` OK ; `mypy agents libs` → **33 fichiers** (+1) ; guardrails OK.
+
+**Reste (partiels honnêtes, pas des blocages)** :
+- `search_offers` ne porte PAS d'amenities (seul `get_hotel_details` en a) → `amenities: []` sur les cartes de recherche (le guard amenity n'a donc rien à hedger sur ces cartes). Pas d'`image`/`url` sur les cartes (chemin `mainPhotoNormal` relatif sans base connue / jamais inventer de lien) — le carousel affiche nom/prix/étoiles/note/créneau.
+- Seul `city` remonte au profil (via géocode `last_city`) ; budget/timeslot/amenities du tour ne sont pas encore réémis en `profile_delta` (le tour courant les a via `profile_in` mais le concierge ne les ré-apprend pas de la feuille) — extension future, hors périmètre « aucun résultat ».
+- `find_hotel_by_name` : stashé (une carte possible) mais non tronqué (payload déjà petit).
+- Latence TOTALE du tour ~11 s (triage + feuille ~5 s + synthèse ~5 s) : sous les budgets par-dépendance (feuille 10 s), pas de budget total ; acceptable. La feuille fait 3 appels LLM (géocode-décision + search-décision + final) — structurel à l'`LlmAgent`, la troncature a supprimé le facteur bloquant (le payload).
+
 ## ⏱ État au 2026-07-20 — S9 terminée (façade publique `/v3/chat` iso-contrat + SSE + conversation_logs)
 
 **Fait (branche `s9-facade`, séquentielle sur S8 mergée — pas de worktree, S9 pas lancée en ∥)** :
