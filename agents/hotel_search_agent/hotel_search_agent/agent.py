@@ -138,6 +138,15 @@ How to act, frugally (at most ONE reasoning pass — no tool-call loops):
   hotelEquipmentIds or roomEquipmentIds yourself: equipment-ID filters are
   code-owned and applied automatically from your `amenities` keys plus the
   request profile.
+- Pass search_offers a `priceRangeMax` (a number, in euros) ONLY when the user
+  states an explicit maximum budget ("under 80 euros", "max 120€", "no more
+  than 90€"); also pass `priceRangeMin` if they give a lower bound too. Pass
+  search_offers a `timeSlot` with integer `startHour` and `endHour` (0-23, on a
+  24-hour clock) ONLY when the user states explicit clock hours ("between 2pm
+  and 8pm", "from 14h to 20h", "checkout by 6pm"). NEVER invent a budget or a
+  time slot the user did not state, and do NOT turn a vague "cheaper"/"earlier"
+  into a number — when none is mentioned, OMIT these arguments (an omitted
+  argument means no budget or time-slot constraint).
 - A FOLLOW-UP that only changes the date/budget/filters with NO new destination
   (e.g. "for the 28th instead", "cheaper", "earlier") → reuse profile_in.city as
   the destination and run a fresh search with the new constraint. Do not ask the
