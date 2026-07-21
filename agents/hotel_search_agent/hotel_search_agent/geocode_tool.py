@@ -26,6 +26,7 @@ from hotel_search_agent.geo_guards import (
     demote_generic_city,
     geocode_echo_matches,
     resolve_state_hint,
+    select_us_postal_anchor,
 )
 from hotel_search_agent.mapbox_client import MapboxClient
 
@@ -68,7 +69,9 @@ def geocode_location(
         zone: A sub-city area/landmark, if any.
         metro: A metro-area name, if distinct from city.
         country_code: A trusted ISO-3166-1 alpha-2 country to scope the
-            geocode to, if already known.
+            geocode to, if already known. When omitted, a 5-digit US ZIP
+            anywhere in the request (`select_us_postal_anchor`) deterministically
+            forces "US" — never a locale→country guess otherwise.
         raw_user_message: The turn's raw text — feeds state-hint extraction
             ("Milford ct") and the state anchor.
         profile_state_context: The US state anchored on an earlier turn
@@ -98,19 +101,30 @@ def geocode_location(
             },
         }
 
+    # A 5-digit US ZIP anywhere in the request is stronger, deterministic
+    # evidence than trusting the model to also extract country_code — without
+    # this, an unscoped ZIP can geocode worldwide (prod bug: "near 11580"
+    # resolved outside the US). Only fills the gap when the model gave no
+    # country signal at all; an explicit country_code always wins.
+    effective_country_code = country_code
+    if not effective_country_code and select_us_postal_anchor(
+        raw_user_message, effective_city, effective_zone, effective_metro
+    ):
+        effective_country_code = "US"
+
     state_hint = resolve_state_hint(
         city=effective_city,
         zone=effective_zone,
         profile_location_hint=profile_location_hint,
         raw_user_message=raw_user_message,
         profile_state_context=profile_state_context,
-        country_code=country_code,
+        country_code=effective_country_code,
     )
 
     query = ", ".join(
         part for part in (effective_zone, effective_city or effective_metro, state_hint) if part
     )
-    result = get_mapbox_client().geocode(query, country=country_code)
+    result = get_mapbox_client().geocode(query, country=effective_country_code)
     if result is None:
         return {
             "ok": False,

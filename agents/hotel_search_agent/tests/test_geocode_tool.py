@@ -4,9 +4,11 @@ raise.
 """
 from __future__ import annotations
 
+import httpx
+
 from hotel_search_agent import geocode_tool
 from hotel_search_agent.geocode_tool import geocode_location
-from hotel_search_agent.mapbox_client import GeocodeResult
+from hotel_search_agent.mapbox_client import GeocodeResult, MapboxClient
 
 
 class FakeMapboxClient:
@@ -146,3 +148,84 @@ class TestGeocoderDegradation:
             "error": "geocode_unavailable",
             "diagnostics": {"query": "Nowhereville"},
         }
+
+
+class TestUsZipCountryScoping:
+    """Prod bug: a 5-digit US ZIP ("near 11580") geocoded worldwide when the
+    model didn't also extract country_code. `select_us_postal_anchor`
+    (geo_guards.py, ported S4) existed but was never wired into a real
+    request — this locks the fix at the FakeMapboxClient level (mirrors the
+    existing suite's convention) and once more against the real MapboxClient
+    HTTP layer (httpx.MockTransport) so the actual Mapbox URL is asserted.
+    """
+
+    def test_zip_anchor_forces_country_code_on_the_fake_client(self, monkeypatch):
+        fake = _patch_client(monkeypatch, FLORENCE_KY)
+
+        geocode_location(city="11580", raw_user_message="Allows cats. Near 11580")
+
+        assert fake.calls == [("11580", "US")]
+
+    def test_no_zip_and_no_country_signal_stays_unscoped(self, monkeypatch):
+        fake = _patch_client(monkeypatch, FLORENCE_KY)
+
+        geocode_location(city="Florence", raw_user_message="florence kentucky")
+
+        assert fake.calls == [("Florence, Kentucky", None)]
+
+    def test_explicit_country_code_wins_over_a_stray_five_digit_number(self, monkeypatch):
+        fake = _patch_client(monkeypatch, FLORENCE_KY)
+
+        geocode_location(city="Paris", raw_user_message="paris 75015", country_code="FR")
+
+        assert fake.calls == [("Paris", "FR")]
+
+    def test_zip_anchor_scopes_the_real_mapbox_request_url(self, monkeypatch):
+        seen: dict = {}
+
+        def handler(request: httpx.Request) -> httpx.Response:
+            seen["params"] = dict(request.url.params)
+            return httpx.Response(
+                200,
+                json={
+                    "features": [
+                        {
+                            "geometry": {"coordinates": [-73.6501, 40.6187]},
+                            "properties": {
+                                "full_address": "11580, Island Park, New York, United States",
+                                "context": {
+                                    "country": {"country_code": "us"},
+                                    "region": {"region_code": "NY", "name": "New York"},
+                                },
+                            },
+                        }
+                    ]
+                },
+            )
+
+        real_client = MapboxClient(
+            "test-token", client=httpx.Client(transport=httpx.MockTransport(handler))
+        )
+        monkeypatch.setattr(geocode_tool, "get_mapbox_client", lambda: real_client)
+
+        result = geocode_location(city="11580", raw_user_message="Allows cats. Near 11580")
+
+        assert result["ok"] is True
+        assert result["country_code"] == "US"
+        assert seen["params"]["country"] == "us"
+
+    def test_no_zip_anchor_leaves_the_real_mapbox_request_url_unscoped(self, monkeypatch):
+        seen: dict = {}
+
+        def handler(request: httpx.Request) -> httpx.Response:
+            seen["params"] = dict(request.url.params)
+            return httpx.Response(200, json={"features": []})
+
+        real_client = MapboxClient(
+            "test-token", client=httpx.Client(transport=httpx.MockTransport(handler))
+        )
+        monkeypatch.setattr(geocode_tool, "get_mapbox_client", lambda: real_client)
+
+        geocode_location(city="Florence", raw_user_message="florence kentucky")
+
+        assert "country" not in seen["params"]

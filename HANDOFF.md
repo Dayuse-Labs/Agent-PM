@@ -2,6 +2,34 @@
 
 État du chantier pour reprise en session fraîche. **Lire en entier avant d'agir ; ne pas reconstruire ce qui existe.** Mettre à jour en fin de CHAQUE session (bloc daté en tête).
 
+## ⏱ Addendum 2026-07-21 (branche `s13-drift-geo-zip`) — S13 : scoping pays du géocodage ZIP US (feuille search)
+
+**Contexte** : `AUDIT-DRIFT-AGENT-USA-2026-07-20.md` pointait un bug prod agent-usa (`b429125`, spec `test_us_market_five_digit_postcode_never_falls_through_worldwide`) : un ZIP US 5 chiffres (« near 11580 ») partait en géocodage MONDE ENTIER faute de scope pays. Zone stricte `agents/hotel_search_agent/**` — zéro changement concierge.
+
+**Probe AVANT code (constat, comme demandé par la phase)** :
+- `mapbox_client.py` supporte déjà un paramètre `country` optionnel sur `.geocode()`, forwardé en `country=<lower>` au paramètre Mapbox v6 — déjà testé (`test_mapbox_client.py`), **aucun changement nécessaire ici**.
+- `geocode_tool.py::geocode_location` reçoit déjà un paramètre `country_code` et le transmet tel quel au client Mapbox — MAIS cette valeur est **entièrement fournie par le modèle** (argument de tool-call LLM), jamais validée ni forcée par du code déterministe.
+- `select_us_postal_anchor` (`geo_guards.py`, porté en S4, déjà testé dans `test_geo_guards.py`) n'était appelé **NULLE PART** en dehors des tests — code mort, zéro influence sur la requête Mapbox réelle. C'est exactement le gap du bug prod : si le LLM ne reconnaît pas que « 11580 » implique les USA, le géocodage part sans scope, à la merci du premier match mondial de Mapbox.
+
+**Fait** :
+- `geocode_tool.py::geocode_location` — appelle désormais `select_us_postal_anchor(raw_user_message, effective_city, effective_zone, effective_metro)` **avant** la construction de la query, et force `country_code = "US"` **uniquement si le modèle n'a fourni aucun `country_code`** (`not effective_country_code`) — un `country_code` explicite du modèle gagne toujours (jamais de scope inventé par-dessus un signal existant, jamais de biais locale→pays ajouté, posture reconduite de S4/S12). La valeur forcée traverse aussi `resolve_state_hint` (cohérence : `"US"` ne bloque pas la résolution d'un state-hint textuel — seul un pays non-US *truthy* le ferait).
+- Aucune modification de `mapbox_client.py` (déjà correct) ni de `select_us_postal_anchor` (déjà correct/testé S4) — seul le câblage manquant a été ajouté, strictement dans le périmètre.
+
+**Tests** (`test_geocode_tool.py`, nouvelle classe `TestUsZipCountryScoping`, 5 tests) :
+- Pattern existant (`FakeMapboxClient`) : ZIP US détecté → `country="US"` passé au client ; aucun ZIP/signal pays → `country=None` inchangé ; un `country_code` explicite du modèle l'emporte même sur un nombre à 5 chiffres présent dans le message (« paris 75015 » + `country_code="FR"` → reste `"FR"`, jamais écrasé).
+- Preuve renforcée demandée par la phase (« l'URL mockée porte `country=us` ») : 2 tests supplémentaires exercent le VRAI `MapboxClient` via `httpx.MockTransport`, assertion directe sur `request.url.params["country"]`.
+
+**DoD verte** : `pytest agents/hotel_search_agent -q` → **177 passed** (+5, les 172 existants inchangés) ; `pytest -q` (repo entier) → **511 passed** ; `ruff` OK ; `mypy agents libs` → **34 fichiers** OK (inchangé) ; guardrails OK.
+
+**Vérifié LIVE (Mapbox réel, `.env`, aucun token ni contenu de requête imprimé — uniquement des diagnostics structurels : status, feature_count, country résolu, place générique)** :
+- **Reproduction ET fix du bug prod sur le VRAI endpoint Mapbox v6**, même query `"11580"` : sans scope pays → `full_address="Mexico City, 11580, Mexico"` (**le bug exact, reproduit en direct**) ; avec `country=us` (notre fix) → `full_address="Valley Stream, New York 11580, United States"` — bascule confirmée.
+- **À travers le vrai `geocode_location`** (message combinant zip+ville, « near 11580 baldwin », sans state hint) : `country_param_sent="us"` (forcé par l'ancre), `ok=True`, `resolved_country_code="US"` — le scoping fonctionne de bout en bout dans la feuille réelle. (Résolu vers « Baldwin Park, California » plutôt que le Baldwin NY visé — limitation PRÉEXISTANTE et hors périmètre du guard d'écho `geocode_echo_matches` sur les homonymes multi-états, jamais durci ici — cf. audit « durcissement géo massif », explicitement OUT.)
+- **Caveat honnête découvert au probe** : la feuille utilise `DEFAULT_TYPES="place,locality,neighborhood"` (`mapbox_client.py`) — **sans** le type `postcode`. Un message **ZIP SEUL, sans mot de lieu** (« near 11580 », repro le plus littéral du test agent-usa) obtient donc **0 feature** de Mapbox avec CE filtre de types, **que le pays soit scopé ou non** — dégradation honnête (`geocode_unavailable`), identique avant/après ce fix (aucune régression, mais pas non plus une résolution bout-en-bout du repro le plus nu). Élargir `types` pour couvrir ce cas est un changement de capacité géo distinct (même famille que POI/Search Box) — explicitement **hors périmètre S13** (cf. audit : « durcissement géo massif… décision produit, pas un fix »). Le scoping lui-même (l'objet exact de cette session) est prouvé correct et actif dès qu'un mot de lieu accompagne le ZIP dans le message.
+
+**Reste / recommandations** :
+- Si la couverture « ZIP seul, sans ville » doit un jour fonctionner de bout en bout : soit élargir `DEFAULT_TYPES` (ajouter `postcode`), soit injecter le ZIP littéral dans la query construite par `geocode_location` (aujourd'hui `query = zone, city, state_hint` — ne réutilise jamais le ZIP lui-même) — décision produit, hors de ce scope.
+- `select_us_postal_anchor` reste un détecteur texte pur (aucune connaissance de pays déjà déclaré) : un code postal français à 5 chiffres coïncidant avec le pattern (ex. « 75015 ») pourrait en théorie être mal identifié comme ZIP US si AUCUN `country_code` n'est fourni par ailleurs — comportement hérité tel quel de la fonction déjà portée en S4 (hors périmètre de modifier la détection elle-même ici), mais un `country_code` explicite (le cas normal quand le modèle reconnaît un contexte français) le neutralise toujours (verrouillé par `test_explicit_country_code_wins_over_a_stray_five_digit_number`).
+
 ## ⏱ Addendum 2026-07-21 (branche `s14-search-leaf-budget-timeslot`) — S14 : budget/timeslot du tour → `profile_delta` (feuille search) → guards S12 ENFIN actifs en trafic réel
 
 **Contexte** : le gap noté « Reste » depuis S9 et re-souligné en S12 est comblé. `hotel_search_agent` n'émettait toujours pas `budget_max`/`timeslot_*` dans son `profile_delta` → les 3 guards S12 (budget-vs-durée, auto-widen/exhaustion, honnêteté de provenance) étaient des machines à états correctes mais **dormantes**. Zone stricte `agents/hotel_search_agent/**` — **zéro changement concierge** (le contrat `apply_profile_delta` existe depuis S5, clés vérifiées en direct 2026-07-21).
