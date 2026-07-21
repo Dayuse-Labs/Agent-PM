@@ -183,6 +183,21 @@ def _format_price_eur_cents(cents: Any) -> str | None:
         return None
 
 
+# Empirically verified 2026-07-20 (no documented constant in MCP_B2C or the
+# main site's own code): the production Next.js site serves hotel photos at
+# static.dayuse.com/<mainPhotoNormal path> — confirmed live for hotel 22293
+# (Villa Paris Orly), same path suffix MCP_B2C returns for the same hotel.
+# The widget's host allowlist (isDayuseHost, agent-usa security.js) already
+# accepts any *.dayuse.com subdomain, so this needs no frontend change.
+_PHOTO_BASE_URL = "https://static.dayuse.com"
+
+
+def _photo_url(main_photo_normal: Any) -> str | None:
+    if not isinstance(main_photo_normal, str) or not main_photo_normal.startswith("/"):
+        return None
+    return f"{_PHOTO_BASE_URL}{main_photo_normal}"
+
+
 def _normalize_hotel_for_display(hotel: dict[str, Any], best_offer: dict[str, Any] | None) -> dict[str, Any]:
     normalized: dict[str, Any] = {
         "id": hotel.get("hotelId") or hotel.get("id"),
@@ -193,6 +208,9 @@ def _normalize_hotel_for_display(hotel: dict[str, Any], best_offer: dict[str, An
         "stars": hotel.get("starRating"),
         "amenities": _flatten_amenities(hotel.get("amenities")),
     }
+    photo = _photo_url(hotel.get("mainPhotoNormal"))
+    if photo:
+        normalized["image_urls"] = [photo]
     if best_offer:
         normalized["price"] = _format_price_eur_cents(best_offer.get("priceEuro"))
     return normalized

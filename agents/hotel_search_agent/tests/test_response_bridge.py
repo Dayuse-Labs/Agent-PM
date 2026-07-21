@@ -13,11 +13,13 @@ from google.adk.a2a.converters.part_converter import convert_genai_part_to_a2a_p
 
 from hotel_search_agent.response_bridge import (
     STATE_APPLIED_AMENITIES_KEY,
+    _photo_url,
     capture_after_tool,
     decode_datapart,
     emit_search_datapart,
     encode_datapart,
     find_datapart,
+    normalize_hotel,
     normalize_search_results,
     skip_final_generation,
 )
@@ -78,6 +80,30 @@ def test_normalize_maps_camelcase_and_caps_at_five():
     assert first["rating"] == 4.5
     assert first["price"] == "€50.00"  # priceEuro 5000 cents → €50.00 (S07-consistent)
     assert first["timeslots"] == [{"start": "10:00", "end": "17:00"}]
+
+
+# --- hotel photo URL (mainPhotoNormal -> static.dayuse.com) ----------------------------------
+def test_photo_url_prefixes_a_relative_main_photo_normal():
+    assert _photo_url("/hotels/22293/abc-villa-paris-orly.png") == (
+        "https://static.dayuse.com/hotels/22293/abc-villa-paris-orly.png"
+    )
+
+
+def test_photo_url_rejects_missing_or_malformed_values():
+    for bad in (None, "", "not-a-path", 42, ["/hotels/1/a.png"]):
+        assert _photo_url(bad) is None
+
+
+def test_normalize_hotel_sets_image_urls_when_main_photo_normal_present():
+    hotel = _hotel(1, 5000)
+    hotel["mainPhotoNormal"] = "/hotels/1/photo.png"
+    card = normalize_hotel(hotel)
+    assert card["image_urls"] == ["https://static.dayuse.com/hotels/1/photo.png"]
+
+
+def test_normalize_hotel_omits_image_urls_without_a_photo():
+    card = normalize_hotel(_hotel(1, 5000))  # no mainPhotoNormal in the fixture
+    assert "image_urls" not in card
 
 
 def test_normalize_picks_cheapest_offer():

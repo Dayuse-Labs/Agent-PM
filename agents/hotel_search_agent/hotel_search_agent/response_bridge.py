@@ -159,10 +159,25 @@ def _best_offer(offers: list[dict[str, Any]]) -> dict[str, Any] | None:
     return offers[0] if offers and isinstance(offers[0], dict) else None
 
 
+# Empirically verified 2026-07-20 (no documented constant in MCP_B2C or the
+# main site's own code): the production Next.js site serves hotel photos at
+# static.dayuse.com/<mainPhotoNormal path> — confirmed live for hotel 22293
+# (Villa Paris Orly), same path suffix MCP_B2C returns for the same hotel.
+# The widget's host allowlist (isDayuseHost, agent-usa security.js) already
+# accepts any *.dayuse.com subdomain, so this needs no frontend change.
+_PHOTO_BASE_URL = "https://static.dayuse.com"
+
+
+def _photo_url(main_photo_normal: Any) -> str | None:
+    if not isinstance(main_photo_normal, str) or not main_photo_normal.startswith("/"):
+        return None
+    return f"{_PHOTO_BASE_URL}{main_photo_normal}"
+
+
 def normalize_hotel(hotel: dict[str, Any]) -> dict[str, Any]:
     """One compact hotel card from an MCP_B2C hotel dict (camelCase). Only the
-    fields a booking decision / a card needs — no `mainPhotoNormal` (relative
-    path, no known base) or invented URL (never fabricate a link)."""
+    fields a booking decision / a card needs — never an invented booking link,
+    but `mainPhotoNormal` IS resolved to a real photo URL (see `_photo_url`)."""
     hotel_id = _first(hotel.get("hotelId"), hotel.get("id"))
     card: dict[str, Any] = {
         "id": hotel_id,
@@ -174,6 +189,9 @@ def normalize_hotel(hotel: dict[str, Any]) -> dict[str, Any]:
         "rating": hotel.get("globalAverageRating"),
         "amenities": _flatten_amenities(hotel.get("amenities")),
     }
+    photo = _photo_url(hotel.get("mainPhotoNormal"))
+    if photo:
+        card["image_urls"] = [photo]
     # The widget resolves the hotel's market from an ISO alpha-2 `country_code`
     # (a full `country` name never matches its ISO-keyed table). search_offers
     # doesn't send one today (probed live 2026-07-20: countryName + slug only) —

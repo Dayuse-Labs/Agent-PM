@@ -121,6 +121,22 @@ class TestGetHotelDetails:
         assert hotel["price"] == "€54.00"
         assert [c[0] for c in session.calls] == ["get_hotel_details"]
 
+    def test_resolves_the_real_photo_url_from_main_photo_normal(self, monkeypatch):
+        response = {
+            **HOTEL_DETAILS_RESPONSE,
+            "hotel": {**HOTEL_DETAILS_RESPONSE["hotel"], "mainPhotoNormal": "/hotels/22293/photo.png"},
+        }
+        _install(monkeypatch, {"get_hotel_details": FakeResult(response)})
+        profile = SessionProfile(last_results=SHORTLIST)
+        result = _run(inline_tools.get_hotel_details("Villa Paris Orly", profile))
+        assert result["hotel"]["image_urls"] == ["https://static.dayuse.com/hotels/22293/photo.png"]
+
+    def test_omits_image_urls_without_a_main_photo_normal(self, monkeypatch):
+        _install(monkeypatch, {"get_hotel_details": FakeResult(HOTEL_DETAILS_RESPONSE)})
+        profile = SessionProfile(last_results=SHORTLIST)
+        result = _run(inline_tools.get_hotel_details("Villa Paris Orly", profile))
+        assert "image_urls" not in result["hotel"]
+
     def test_falls_back_to_find_hotel_by_name_when_not_in_shortlist(self, monkeypatch):
         session = _install(
             monkeypatch,
@@ -242,6 +258,22 @@ class TestCompareHotels:
         # compare_hotels never falls back to MCP find_hotel_by_name (scope:
         # shortlist only) — nothing else should have been called.
         assert {c[0] for c in session.calls} == {"compare_hotels"}
+
+    def test_compared_hotels_carry_the_real_photo_url(self, monkeypatch):
+        response = {
+            **COMPARE_RESPONSE,
+            "hotels": [
+                {**COMPARE_RESPONSE["hotels"][0], "mainPhotoNormal": "/hotels/22293/photo.png"},
+                COMPARE_RESPONSE["hotels"][1],
+            ],
+        }
+        _install(monkeypatch, {"compare_hotels": FakeResult(response)})
+        profile = SessionProfile(last_results=self.SHORTLIST_TWO)
+        result = _run(inline_tools.compare_hotels("compare Villa Paris Orly and Red Roof", profile))
+        villa = next(h for h in result["hotels"] if h["id"] == 22293)
+        red_roof = next(h for h in result["hotels"] if h["id"] == 22294)
+        assert villa["image_urls"] == ["https://static.dayuse.com/hotels/22293/photo.png"]
+        assert "image_urls" not in red_roof
 
     def test_defaults_to_the_on_screen_shortlist_when_no_names_resolve(self, monkeypatch):
         session = _install(monkeypatch, {"compare_hotels": FakeResult(COMPARE_RESPONSE)})
