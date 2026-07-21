@@ -125,6 +125,14 @@ def test_normalize_hotels_keeps_existing_display_price():
     assert out[0]["price"] == "€54.00"  # not overwritten
 
 
+def test_normalize_hotels_passes_image_urls_through_untouched():
+    # image_urls is set upstream (response_bridge.py / inline_tools.py) from
+    # mainPhotoNormal -> static.dayuse.com — the facade must not drop or
+    # reshape it (widget reads hotel.image_urls to render the photo carousel).
+    out = normalize_hotels([{"name": "H", "image_urls": ["https://static.dayuse.com/hotels/1/a.png"]}])
+    assert out[0]["image_urls"] == ["https://static.dayuse.com/hotels/1/a.png"]
+
+
 def test_normalize_hotels_empty_and_non_dict_passthrough():
     assert normalize_hotels(None) == []
     assert normalize_hotels([]) == []

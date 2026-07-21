@@ -2,6 +2,29 @@
 
 État du chantier pour reprise en session fraîche. **Lire en entier avant d'agir ; ne pas reconstruire ce qui existe.** Mettre à jour en fin de CHAQUE session (bloc daté en tête).
 
+## ⏱ Addendum 2026-07-20 (branche `fix-hotel-photos`) — vraies photos hôtel (toutes les cartes montraient le placeholder par défaut)
+
+**Bug (repro widget)** : toutes les cartes affichaient `https://images.dayuse.com/hotels/default/default.jpg` au lieu d'une vraie photo.
+
+**Cause** : le widget (`agent-usa/static/js/chat/hotels/card.js`, `ui/messages.js`) lit `hotel.image_urls` (tableau) et retombe TOUJOURS sur ce placeholder codé en dur quand il est vide. Les deux constructeurs de carte AgentB2C (`hotel_search_agent/response_bridge.py::normalize_hotel`, `b2c_concierge/inline_tools.py::_normalize_hotel_for_display`) ne posaient jamais `image_urls` — décision documentée depuis S6/S7 : MCP ne renvoie `mainPhotoNormal` qu'en **chemin relatif** (`/hotels/22293/....png`), « base inconnue, jamais inventer de lien ».
+
+**Ce qui a changé** : cette base est désormais résolue avec une preuve empirique, pas une supposition.
+- Page hôtel réelle (`www.dayuse.com/hotels/france/villa-paris-orly`, hôtel 22293) → sa vraie photo vit à `https://static.dayuse.com/hotels/22293/c243849e1e41ef651a1dabaabe49bfd6-villa-paris-orly.png` — **exactement le même suffixe de chemin** que `mainPhotoNormal` renvoie pour ce même hôtel côté MCP.
+- Aucune constante documentée trouvée ni dans MCP_B2C (`hotel-document.schema.ts` : le champ est un simple `z.string()`, aucune base assumée) ni dans un repo du site principal accessible localement — le chemin relatif est une caractéristique réelle du stockage ES, la résolution est une convention du frontend Next.js.
+- L'allowlist du widget (`security.js::isDayuseHost`) accepte déjà N'IMPORTE QUEL sous-domaine de `dayuse.com` (`hostname.endsWith('.dayuse.com')`) → `static.dayuse.com` passe sans AUCUN changement widget.
+- `mainPhotoNormal` est présent sur toutes les formes d'hôtel MCP utiles : `search_offers`, `get_hotel_details`, `find_hotel_by_name`, `compare_hotels`.
+
+**Fait (zone concierge + feuille search, zéro changement facade/widget)** :
+- `_PHOTO_BASE_URL = "https://static.dayuse.com"` + `_photo_url(main_photo_normal)` — dupliqué dans les deux constructeurs de carte (même convention existante que `_format_price_eur_cents`, déjà dupliqué à l'identique dans les deux fichiers — pas de module `card_utils` partagé dans ce repo). Provenance empirique documentée en commentaire dans le code.
+- `normalize_hotel` (feuille, couvre `search_offers`+`find_hotel_by_name`) et `_normalize_hotel_for_display` (concierge, couvre `get_hotel_details`+`compare_hotels`) posent `card["image_urls"] = [photo]` quand `mainPhotoNormal` résout ; sinon la clé est absente (jamais un tableau vide/cassé).
+- `facade.py::normalize_hotels` — **zéro changement de code** : fait déjà `card = dict(hotel)` (passthrough générique) avant le formatage prix, donc `image_urls` atteint le JSON public `/v3/chat` automatiquement. Un test de verrouillage ajouté.
+- **DoD verte** : `pytest -q` → **467 passed** (+8 neufs : `test_response_bridge.py` ×4, `test_inline_tools.py` ×3, `tests/api/test_contract_mapping.py` ×1) ; ruff OK ; mypy 34 fichiers OK ; guardrails OK.
+- **Vérifié LIVE** (3 services relancés, `.env` réel) : recherche Paris → 5 cartes, chacune avec un `image_urls` `static.dayuse.com` réel ; **les 5 URLs `curl -I` → `200`** (vraies images, pas des 404) ; `details sur villa paris orly` → même photo réelle sur la carte inline ; `smoke_e2e.py` PASS.
+
+**Reste / limites** :
+- La provenance de `static.dayuse.com` est empirique (reverse-engineering de la page prod), pas un contrat documenté par MCP_B2C ni le site principal — si l'un ou l'autre change un jour sa convention de stockage/CDN, cette constante devra être mise à jour ici (aucun signal automatique ne préviendrait d'une rupture, à part des photos cassées en prod).
+- `mainPhotoOriginal` (haute résolution, vu sur `get_hotel_details`) n'est pas utilisé — `mainPhotoNormal` seul suffit au besoin actuel (une vignette de carousel).
+
 ## ⏱ Addendum 2026-07-20 (branche `s10-amenity-filters`) — filtres amenities réels sur la recherche (« piscine à Miami » → 0 offre corrigé)
 
 **Bug (repro live)** : « je voudrais un hotel à miami avec une piscine » → « aucune offre » alors que Miami a 55 hôtels (44 avec piscine). Cause : `search_offers` n'a AUCUN paramètre amenity texte — uniquement `hotelEquipmentIds`/`roomEquipmentIds` (IDs équipement **entiers**, hard filters, `additionalProperties: false`) ; rien ne mappait « piscine » → ID, le LLM feuille **hallucinait un ID** (repro : `[33]` réel → total=44, `[1]` halluciné → **total=0**). Invisible aux logs (métriques scrubbed RGPD : un hard filter trop strict ressemble à un search sain `status=ok`). Défaut secondaire : cartes `amenities: []` → le guard de véracité hedgeait des claims « pool » VRAIS (« (non confirmé) »).
@@ -95,7 +118,7 @@
 - **DoD gate verte** : `pytest -q` → **399** (+15 `test_response_bridge.py`, offline : normalize/troncature/emit vérifiés via le VRAI converter ADK `convert_genai_part_to_a2a_part`) ; `ruff` OK ; `mypy agents libs` → **33 fichiers** (+1) ; guardrails OK.
 
 **Reste (partiels honnêtes, pas des blocages)** :
-- `search_offers` ne porte PAS d'amenities (seul `get_hotel_details` en a) → `amenities: []` sur les cartes de recherche… **[PÉRIMÉ depuis S10 — voir l'addendum s10-amenity-filters : les cartes d'une recherche hard-filtrée sont estampillées avec les amenities garanties serveur.]** Pas d'`image`/`url` sur les cartes (chemin `mainPhotoNormal` relatif sans base connue / jamais inventer de lien) — le carousel affiche nom/prix/étoiles/note/créneau.
+- `search_offers` ne porte PAS d'amenities (seul `get_hotel_details` en a) → `amenities: []` sur les cartes de recherche… **[PÉRIMÉ depuis S10 — voir l'addendum s10-amenity-filters : les cartes d'une recherche hard-filtrée sont estampillées avec les amenities garanties serveur.]** Pas d'`image`/`url` sur les cartes (chemin `mainPhotoNormal` relatif sans base connue / jamais inventer de lien)… **[PÉRIMÉ depuis l'addendum `fix-hotel-photos` ci-dessous — la base `static.dayuse.com` est désormais résolue, `image_urls` posé sur toutes les cartes.]** Pas d'`url` de booking sur les cartes — le carousel affiche nom/prix/étoiles/note/créneau/photo.
 - Seul `city` remonte au profil (via géocode `last_city`) ; budget/timeslot du tour ne sont pas encore réémis en `profile_delta` — extension future. **[Partiellement clos en S10 : les `amenities` appliquées sont désormais réémises et ré-apprises par le concierge.]**
 - `find_hotel_by_name` : stashé (une carte possible) mais non tronqué (payload déjà petit).
 - Latence TOTALE du tour ~11 s (triage + feuille ~5 s + synthèse ~5 s) : sous les budgets par-dépendance (feuille 10 s), pas de budget total ; acceptable. La feuille fait 3 appels LLM (géocode-décision + search-décision + final) — structurel à l'`LlmAgent`, la troncature a supprimé le facteur bloquant (le payload).
