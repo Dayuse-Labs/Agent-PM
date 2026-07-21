@@ -200,6 +200,45 @@ class TestGetHotelDetails:
         assert result["ok"] is False
         assert session.calls == []
 
+    def test_stale_token_only_shortlist_hit_never_shadows_the_global_lookup(self, monkeypatch):
+        # S12 audit 2026-07-20: a stale shortlist entry ("Wren Valley Inn")
+        # sharing only the word "wren" with the explicitly-named "Sir
+        # Christopher Wren Hotel" must NOT resolve to itself with zero
+        # verification — the global find_hotel_by_name must still run, and
+        # ITS result must win.
+        session = _install(
+            monkeypatch,
+            {
+                "find_hotel_by_name": FakeResult(
+                    {"hotelId": 55, "name": "Sir Christopher Wren Hotel"}
+                ),
+                "get_hotel_details": FakeResult(HOTEL_DETAILS_RESPONSE),
+            },
+        )
+        profile = SessionProfile(last_results=[{"hotel_id": 99, "name": "Wren Valley Inn"}])
+        result = _run(inline_tools.get_hotel_details("Sir Christopher Wren Hotel", profile))
+        assert result["ok"] is True
+        assert [c[0] for c in session.calls] == ["find_hotel_by_name", "get_hotel_details"]
+        details_call = next(c for c in session.calls if c[0] == "get_hotel_details")
+        assert details_call[1]["hotelId"] == 55  # the MCP hotel, never the stale 99
+
+    def test_stale_token_only_shortlist_hit_is_a_last_resort_when_mcp_degrades(self, monkeypatch):
+        # Same stale, token-only shortlist — but this time MCP itself fails.
+        # The weak hit must still be used rather than dead-ending (honest
+        # degradation, "never a dead end" precedent).
+        session = _install(
+            monkeypatch,
+            {
+                "find_hotel_by_name": FakeResult(is_error=True),
+                "get_hotel_details": FakeResult(HOTEL_DETAILS_RESPONSE),
+            },
+        )
+        profile = SessionProfile(last_results=[{"hotel_id": 99, "name": "Wren Valley Inn"}])
+        result = _run(inline_tools.get_hotel_details("Sir Christopher Wren Hotel", profile))
+        assert result["ok"] is True
+        details_call = next(c for c in session.calls if c[0] == "get_hotel_details")
+        assert details_call[1]["hotelId"] == 99
+
 
 class TestCompareHotels:
     SHORTLIST_TWO = [

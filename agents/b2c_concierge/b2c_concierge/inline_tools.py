@@ -41,7 +41,12 @@ import httpx
 from mcp import ClientSession
 from mcp.client.streamable_http import streamable_http_client
 
-from .profile import SessionProfile, resolve_hotel_reference, resolve_hotel_references
+from .profile import (
+    SessionProfile,
+    resolve_hotel_reference,
+    resolve_hotel_reference_strict,
+    resolve_hotel_references,
+)
 
 _INLINE_MCP_TIMEOUT = float(os.environ.get("CONCIERGE_INLINE_MCP_TIMEOUT_SECONDS", "5.0"))
 
@@ -114,27 +119,37 @@ def _extract_hotel_name_candidate(text: str) -> str:
 async def _resolve_hotel_id(
     session: ClientSession, reference: str, profile: SessionProfile
 ) -> tuple[int | None, str | None]:
-    """Named-hotel lookup guard (item 4): the on-screen shortlist resolves
-    FIRST (code-only, zero MCP round-trip); `find_hotel_by_name` is the
-    fallback for a hotel named but not currently on screen. Returns
-    `(hotel_id, resolved_name)`, `(None, None)` when nothing resolves."""
-    shortlist_hit = resolve_hotel_reference(reference, profile.last_results)
-    if shortlist_hit is not None and shortlist_hit.get("hotel_id") is not None:
-        return int(shortlist_hit["hotel_id"]), str(shortlist_hit["name"])
+    """Named-hotel lookup guard (item 4, hardened S12 audit 2026-07-20): a
+    STRONG shortlist hit (exact/substring name match) resolves immediately,
+    zero MCP round-trip. A hotel that only matches the shortlist via the WEAK
+    distinctive-token fallback — or doesn't match at all — is never trusted
+    alone: it always reaches the global `find_hotel_by_name` first (an
+    explicitly named hotel absent from a stale shortlist must never be
+    masked by a same-word coincidence with an unrelated on-screen entry). The
+    weak shortlist hit is used only as a last-resort fallback if MCP itself
+    degrades or finds nothing. Returns `(hotel_id, resolved_name)`,
+    `(None, None)` when nothing resolves."""
+    strong_hit = resolve_hotel_reference_strict(reference, profile.last_results)
+    if strong_hit is not None and strong_hit.get("hotel_id") is not None:
+        return int(strong_hit["hotel_id"]), str(strong_hit["name"])
+
     args: dict[str, Any] = {"name": _extract_hotel_name_candidate(reference)}
     if profile.city:
         args["cityName"] = profile.city
     result = await _call_tool(session, "find_hotel_by_name", args)
-    if not result["ok"]:
-        return None, None
-    # find_hotel_by_name wraps the resolved identity under "hotel" (verified
-    # live) — NOT flat at the top level, unlike get_hotel_details's own
-    # top-level fields when accessed directly.
-    hotel = result["data"].get("hotel") or result["data"]
-    hotel_id = hotel.get("hotelId") or hotel.get("id")
-    if hotel_id is None:
-        return None, None
-    return int(hotel_id), hotel.get("name")
+    if result["ok"]:
+        # find_hotel_by_name wraps the resolved identity under "hotel"
+        # (verified live) — NOT flat at the top level, unlike
+        # get_hotel_details's own top-level fields when accessed directly.
+        hotel = result["data"].get("hotel") or result["data"]
+        hotel_id = hotel.get("hotelId") or hotel.get("id")
+        if hotel_id is not None:
+            return int(hotel_id), hotel.get("name")
+
+    weak_hit = resolve_hotel_reference(reference, profile.last_results)
+    if weak_hit is not None and weak_hit.get("hotel_id") is not None:
+        return int(weak_hit["hotel_id"]), str(weak_hit["name"])
+    return None, None
 
 
 # --- Display normalization ---------------------------------------------------------------------

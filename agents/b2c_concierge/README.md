@@ -39,6 +39,7 @@ Bascule **iso-contrat** avec `agent-usa` : même surface HTTP pour le frontend, 
 - **Session** : id résolu cookie `du_chat_sid` → header `X-Client-Session-Id` → `session_id` du body (phase M1 legacy) → nouveau. L'id de session de la façade EST l'id de session ADK, donc le profil Redis (clé `ctx.session.id`) porte la continuité entre tours HTTP sans plomberie supplémentaire.
 - **Auth (minimum, phase OUT)** : les routes `/v3/*` prennent une **API key interne** (`X-Internal-Api-Key`, env `CHAT_API_KEY`), PAS le bearer D7 des routes A2A (voir « Deux régimes d'identité » plus bas). Ouvertes quand `CHAT_API_KEY` est vide ou `AUTH_BYPASS=true` (défaut dev).
 - **Budget** : la façade ajoute **ZÉRO appel LLM** — elle ne fait que consommer le flux d'événements du spine (mêmes ≤ 3 appels/tour).
+- **`client_local_time`/`client_timezone`** (S12, drift audit 2026-07-20) : le front d'agent-usa envoie désormais ces deux champs optionnels dans le body `POST /v3/chat` (PR agent-usa #125, pour résoudre "now" côté agent-usa). Cette façade les ignore sans casse — ce spine n'a aucune résolution de date/"now" à brancher dessus aujourd'hui ; à consommer le jour où ce besoin existera.
 
 ### Deux régimes d'identité (serve.py)
 
