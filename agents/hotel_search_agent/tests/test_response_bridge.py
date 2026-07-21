@@ -270,6 +270,115 @@ def test_capture_never_stamps_find_hotel_by_name():
     assert ctx.state["temp:hotel_search_results"][0]["amenities"] == []
 
 
+# --- budget / time-slot capture (the real search_offers args) --------------------------------
+_BUDGET_TIMESLOT_KEY = "temp:hotel_search_budget_timeslot"
+
+
+def test_capture_search_offers_stashes_budget_and_timeslot_from_args():
+    ctx = _Ctx()
+    args = {"priceRangeMax": 80, "timeSlot": {"startHour": 14, "endHour": 20}}
+    resp = {"structuredContent": _search_offers_structured(2), "isError": False}
+    capture_after_tool(_Tool("search_offers"), args, ctx, resp)
+    stashed = ctx.state[_BUDGET_TIMESLOT_KEY]
+    assert stashed["budget_max"] == 80.0
+    assert stashed["timeslot_start"] == "14:00"
+    assert stashed["timeslot_end"] == "20:00"
+
+
+def test_capture_search_offers_without_budget_or_timeslot_stashes_nothing():
+    ctx = _Ctx()
+    resp = {"structuredContent": _search_offers_structured(2), "isError": False}
+    capture_after_tool(_Tool("search_offers"), {}, ctx, resp)
+    assert _BUDGET_TIMESLOT_KEY not in ctx.state  # never a wrong/empty entry
+
+
+def test_capture_search_offers_captures_budget_even_on_zero_results():
+    # A 0-result search is exactly when auto-widen (S12) needs the budget.
+    ctx = _Ctx()
+    resp = {"structuredContent": {"results": [], "total": 0}, "isError": False}
+    capture_after_tool(_Tool("search_offers"), {"priceRangeMax": 60}, ctx, resp)
+    assert ctx.state[_BUDGET_TIMESLOT_KEY] == {"budget_max": 60.0}
+
+
+def test_capture_ignores_garbage_budget_and_keeps_one_sided_timeslot():
+    ctx = _Ctx()
+    args = {"priceRangeMax": "not-a-number", "timeSlot": {"startHour": 9}}
+    resp = {"structuredContent": _search_offers_structured(1), "isError": False}
+    capture_after_tool(_Tool("search_offers"), args, ctx, resp)
+    stashed = ctx.state[_BUDGET_TIMESLOT_KEY]
+    assert "budget_max" not in stashed
+    assert stashed["timeslot_start"] == "09:00"
+    assert "timeslot_end" not in stashed
+
+
+def test_capture_rejects_non_positive_budget():
+    ctx = _Ctx()
+    resp = {"structuredContent": _search_offers_structured(1), "isError": False}
+    for bad in (0, -20, None):
+        ctx.state.clear()
+        capture_after_tool(_Tool("search_offers"), {"priceRangeMax": bad}, ctx, resp)
+        assert _BUDGET_TIMESLOT_KEY not in ctx.state
+
+
+def test_capture_midnight_start_hour_is_not_dropped_as_falsy():
+    ctx = _Ctx()
+    args = {"timeSlot": {"startHour": 0, "endHour": 6}}
+    resp = {"structuredContent": _search_offers_structured(1), "isError": False}
+    capture_after_tool(_Tool("search_offers"), args, ctx, resp)
+    assert ctx.state[_BUDGET_TIMESLOT_KEY] == {"timeslot_start": "00:00", "timeslot_end": "06:00"}
+
+
+def test_capture_budget_not_stashed_on_failed_search():
+    ctx = _Ctx()
+    capture_after_tool(_Tool("search_offers"), {"priceRangeMax": 80}, ctx, {"isError": True})
+    assert _BUDGET_TIMESLOT_KEY not in ctx.state
+
+
+def test_capture_find_hotel_by_name_ignores_budget_args():
+    # find_hotel_by_name has no budget/timeslot params — never capture from it.
+    ctx = _Ctx()
+    resp = {"structuredContent": {"hotel": {"hotelId": 7, "name": "Villa"}}, "isError": False}
+    capture_after_tool(_Tool("find_hotel_by_name"), {"priceRangeMax": 80}, ctx, resp)
+    assert _BUDGET_TIMESLOT_KEY not in ctx.state
+
+
+def _capture_metric_lines(args: dict) -> list[str]:
+    """The dayuse.metrics lines a search_offers capture emits. Uses a manual
+    handler (the metrics logger is self-configured, may not propagate to caplog)."""
+    import logging as _logging
+
+    records: list[str] = []
+
+    class _Grab(_logging.Handler):
+        def emit(self, record):
+            records.append(record.getMessage())
+
+    logger = _logging.getLogger("dayuse.metrics")
+    handler = _Grab()
+    logger.addHandler(handler)
+    try:
+        resp = {"structuredContent": _search_offers_structured(1), "isError": False}
+        capture_after_tool(_Tool("search_offers"), args, _Ctx(), resp)
+    finally:
+        logger.removeHandler(handler)
+    return [m for m in records if "budget_timeslot" in m]
+
+
+def test_capture_budget_metric_logs_flags_only_never_the_values():
+    # GDPR: the counter emits presence flags (0/1), NEVER the budget amount (80)
+    # or the hours (14/20) — a budget/time preference is user content.
+    line = _capture_metric_lines({"priceRangeMax": 80, "timeSlot": {"startHour": 14, "endHour": 20}})[0]
+    assert "has_budget=1" in line and "has_timeslot=1" in line
+    assert "80" not in line and "14" not in line and "20" not in line
+
+
+def test_capture_budget_metric_reports_zero_when_nothing_extracted():
+    # The negation/hallucination check: a search with no budget in the message
+    # logs has_budget=0 (not a fabricated filter).
+    line = _capture_metric_lines({})[0]
+    assert "has_budget=0" in line and "has_timeslot=0" in line
+
+
 # --- emit_search_datapart (verified through the REAL ADK A2A converter) ----------------------
 def _decode(content) -> dict:
     """Find the datapart among the Content's parts (a text summary may precede
@@ -366,6 +475,79 @@ def test_emit_omits_amenities_when_none_applied():
     ctx = _Ctx({"temp:hotel_search_results": [], STATE_APPLIED_AMENITIES_KEY: []})
     data = _decode(emit_search_datapart(ctx))
     assert "profile_delta" not in data
+
+
+# --- budget / time-slot → profile_delta (the S9/S12 gap this session closes) -----------------
+def test_emit_maps_budget_and_timeslot_to_the_concierge_schema_keys():
+    ctx = _Ctx(
+        {
+            "temp:hotel_search_results": [{"id": 1, "name": "Villa Test"}],
+            _BUDGET_TIMESLOT_KEY: {
+                "budget_max": 80.0,
+                "timeslot_start": "14:00",
+                "timeslot_end": "20:00",
+            },
+        }
+    )
+    data = _decode(emit_search_datapart(ctx))
+    # EXACT keys apply_profile_delta reads (verified 2026-07-21). The leaf always
+    # reports flexible_default — the concierge's P1 guard owns the explicit upgrade.
+    assert data["profile_delta"] == {
+        "budget_max": 80.0,
+        "budget_request_source": "flexible_default",
+        "timeslot_start": "14:00",
+        "timeslot_end": "20:00",
+        "timeslot_request_source": "flexible_default",
+    }
+
+
+def test_emit_budget_only_carries_no_timeslot_keys():
+    ctx = _Ctx({"temp:hotel_search_results": [], _BUDGET_TIMESLOT_KEY: {"budget_max": 120.0}})
+    data = _decode(emit_search_datapart(ctx))
+    assert data["profile_delta"] == {
+        "budget_max": 120.0,
+        "budget_request_source": "flexible_default",
+    }
+
+
+def test_emit_timeslot_only_carries_no_budget_keys():
+    ctx = _Ctx({"temp:hotel_search_results": [], _BUDGET_TIMESLOT_KEY: {"timeslot_start": "09:00"}})
+    data = _decode(emit_search_datapart(ctx))
+    assert data["profile_delta"] == {
+        "timeslot_start": "09:00",
+        "timeslot_request_source": "flexible_default",
+    }
+
+
+def test_emit_never_reports_an_explicit_budget_source():
+    ctx = _Ctx({"temp:hotel_search_results": [], _BUDGET_TIMESLOT_KEY: {"budget_max": 50.0}})
+    data = _decode(emit_search_datapart(ctx))
+    assert data["profile_delta"]["budget_request_source"] == "flexible_default"
+
+
+def test_emit_omits_budget_timeslot_when_none_captured():
+    ctx = _Ctx({"temp:hotel_search_results": []})
+    data = _decode(emit_search_datapart(ctx))
+    assert "profile_delta" not in data
+
+
+def test_emit_budget_timeslot_coexists_with_city_and_amenities():
+    # The new keys must not clobber the delta the earlier steps already built.
+    ctx = _Ctx(
+        {
+            "temp:hotel_search_results": [{"id": 1, "name": "Villa Test"}],
+            "temp:hotel_search_profile_delta": {"last_city": "Paris"},
+            STATE_APPLIED_AMENITIES_KEY: ["pool"],
+            _BUDGET_TIMESLOT_KEY: {"budget_max": 90.0},
+        }
+    )
+    data = _decode(emit_search_datapart(ctx))
+    assert data["profile_delta"] == {
+        "city": "Paris",
+        "amenities": ["pool"],
+        "budget_max": 90.0,
+        "budget_request_source": "flexible_default",
+    }
 
 
 # --- inbound DataPart codec (the leaf reading profile_in from user_content) -------------------

@@ -28,11 +28,15 @@ under `temp:` keys (invocation-scoped, never persisted — the leaf is stateless
 `profile_delta` key mapping: geocode returns `last_city`/`last_state_context`,
 but the orchestrator's `apply_profile_delta` reads `city`/`state_anchor` (the S5
 naming gap). The mapping happens HERE, when emitting — the orchestrator owns the
-profile schema, so the leaf emits in that schema.
+profile schema, so the leaf emits in that schema. The turn's budget/time-slot
+(`budget_max` + `timeslot_start`/`timeslot_end`, each with a `*_request_source`)
+are captured from the real `search_offers` args and mapped the same way (S14 —
+closing the S9/S12 gap that left the concierge's budget/timeslot guards dormant).
 """
 from __future__ import annotations
 
 import json
+import logging
 from typing import Any
 
 from a2a import types as a2a_types
@@ -55,10 +59,28 @@ _TARGET_TOOLS = {"search_offers", "find_hotel_by_name"}
 _STATE_RESULTS_KEY = "temp:hotel_search_results"
 _STATE_DELTA_KEY = "temp:hotel_search_profile_delta"
 _STATE_COUNTRY_KEY = "temp:hotel_search_country_code"
+# The budget / time-slot the model actually sent search_offers, captured from
+# the tool args (search_offers has NATIVE priceRangeMax/timeSlot params — no
+# virtual param needed, unlike amenities in S10) and mapped to the profile in
+# emit. This is what lets the concierge's S12 guards (budget-vs-duration,
+# auto-widen/exhaustion, provenance) finally run on real traffic (S9/S12 gap).
+_STATE_BUDGET_TIMESLOT_KEY = "temp:hotel_search_budget_timeslot"
 # Public (unlike the keys above): written by equipment_ids.enforce_equipment_filters,
 # read back here for card stamping + the profile_delta — same cross-callback
 # `temp:` hand-off as _STATE_COUNTRY_KEY.
 STATE_APPLIED_AMENITIES_KEY = "temp:hotel_search_applied_amenities"
+
+# The leaf ALWAYS reports a non-explicit provenance for a captured budget/
+# time-slot: the concierge's budget-integrity guard (P1) owns the upgrade to
+# "explicit" when the user's message was a bare number/time. Mirrors
+# b2c_concierge.profile.BUDGET_SOURCE_FLEXIBLE_DEFAULT — kept as a local literal,
+# never imported (the leaf must not depend on the orchestrator package, B3).
+_REQUEST_SOURCE_FLEXIBLE = "flexible_default"
+
+# Same stdout metrics logger as equipment_ids.py / dayuse_agent_common.metrics.
+# GDPR posture: presence FLAGS only (0/1), never the budget amount or the hours —
+# a budget/time preference is user content, same rule as never logging the city.
+_metrics_logger = logging.getLogger("dayuse.metrics")
 
 
 def _iso_alpha2(value: Any) -> str | None:
@@ -150,6 +172,40 @@ def _first(*values: Any) -> Any:
         if value is not None:
             return value
     return None
+
+
+def _positive_budget(value: Any) -> float | None:
+    """A search_offers `priceRangeMax` coerced to a positive float, else None.
+    The args are model-generated (untrusted): never persist a garbage or a
+    non-positive (0 / negative) budget."""
+    try:
+        budget = float(value)
+    except (TypeError, ValueError):
+        return None
+    return budget if budget > 0 else None
+
+
+def _budget_timeslot_from_args(args: dict[str, Any]) -> dict[str, Any]:
+    """The budget / time-slot the model sent search_offers, in the orchestrator's
+    profile schema (`budget_max` float, `timeslot_start`/`timeslot_end` "HH:MM").
+    Only-when-present: an absent/garbage value simply yields no key, never a wrong
+    one. `priceRangeMin` is intentionally NOT mapped — it genuinely narrows the
+    MCP search but the concierge profile has no budget-min field (never invent
+    one). A one-sided time-slot (only startHour, or only endHour) is kept as-is;
+    the concierge handles start_only/end_only modes."""
+    captured: dict[str, Any] = {}
+    budget_max = _positive_budget(args.get("priceRangeMax"))
+    if budget_max is not None:
+        captured["budget_max"] = budget_max
+    time_slot = args.get("timeSlot")
+    if isinstance(time_slot, dict):
+        start = _hhmm(time_slot.get("startHour"), 0)
+        end = _hhmm(time_slot.get("endHour"), 0)
+        if start:
+            captured["timeslot_start"] = start
+        if end:
+            captured["timeslot_end"] = end
+    return captured
 
 
 def _best_offer(offers: list[dict[str, Any]]) -> dict[str, Any] | None:
@@ -299,6 +355,22 @@ def capture_after_tool(
             for card in results:
                 existing = card.get("amenities") or []
                 card["amenities"] = existing + [lbl for lbl in labels if lbl not in existing]
+        # Capture the budget / time-slot the model actually passed search_offers
+        # (from the REAL args, not the model's prose) → emit maps it to the
+        # profile so the concierge's S12 budget/timeslot guards finally engage.
+        # Runs for a 0-result search too (that is exactly when auto-widen needs
+        # the budget); a failed search already returned above, so nothing here.
+        budget_timeslot = _budget_timeslot_from_args(args)
+        if budget_timeslot:
+            tool_context.state[_STATE_BUDGET_TIMESLOT_KEY] = budget_timeslot
+        # Content-free counter (flags only): lets a live run confirm whether the
+        # model extracted a budget/time-slot — including the negation/hallucination
+        # trap (has_budget=0 on a search with no budget in the message).
+        _metrics_logger.info(
+            "dayuse_metric=budget_timeslot agent=b2c_hotel_search has_budget=%d has_timeslot=%d",
+            int("budget_max" in budget_timeslot),
+            int("timeslot_start" in budget_timeslot or "timeslot_end" in budget_timeslot),
+        )
     tool_context.state[_STATE_RESULTS_KEY] = results
 
     if name != "search_offers":
@@ -351,6 +423,21 @@ def emit_search_datapart(callback_context: Any) -> genai_types.Content | None:
     applied_amenities = state.get(STATE_APPLIED_AMENITIES_KEY) or []
     if applied_amenities:
         profile_delta["amenities"] = list(applied_amenities)
+    # Budget / time-slot → the orchestrator's schema keys (exact match, verified
+    # 2026-07-21 against apply_profile_delta). The request-source is ALWAYS the
+    # non-explicit constant; the concierge's P1 guard upgrades it to "explicit"
+    # itself when the message was a bare number/time. Only-when-present: a source
+    # is never sent without its value, and an empty capture wipes nothing.
+    budget_timeslot = state.get(_STATE_BUDGET_TIMESLOT_KEY) or {}
+    if budget_timeslot.get("budget_max") is not None:
+        profile_delta["budget_max"] = budget_timeslot["budget_max"]
+        profile_delta["budget_request_source"] = _REQUEST_SOURCE_FLEXIBLE
+    if budget_timeslot.get("timeslot_start") or budget_timeslot.get("timeslot_end"):
+        if budget_timeslot.get("timeslot_start"):
+            profile_delta["timeslot_start"] = budget_timeslot["timeslot_start"]
+        if budget_timeslot.get("timeslot_end"):
+            profile_delta["timeslot_end"] = budget_timeslot["timeslot_end"]
+        profile_delta["timeslot_request_source"] = _REQUEST_SOURCE_FLEXIBLE
 
     payload: dict[str, Any] = {}
     if results is not None:  # a search ran (even 0 results is a real outcome)
