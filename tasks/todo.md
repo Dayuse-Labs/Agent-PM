@@ -10,7 +10,7 @@ Plan complet : `~/.claude/plans/dans-le-repo-j-ai-serene-wreath.md`
 - [x] Smoke run : 249 cas via l'adapter sur staging ES → 110/249 (44,2 %) — plumbing validé, PAS un chiffre d'audit
 - [x] Triage : 90 cas zéro-hôtel (staging), ~20 hors-zone US à investiguer sur prod, 20 gap-only (36 assertions < budget ≈45), adapter 541+23 mappings divulgués
 - [x] Fixture inventaire régénérée (exports agent-usa 2026-07-15, 8 701 hôtels / 29 marchés)
-- [ ] HANDOFF.md + commit + MR (en cours)
+- [x] HANDOFF.md + commit + MR (PR #18 — review Fabien = gate)
 
 ## S-B — Baseline agent-usa local (BLOQUÉ : procédure de boot :5002 + inventaire prod → Fabien)
 - [ ] `scripts/run_llm_meter.py` (comptage tokens old agent) + baseline `local_5002.json`
