@@ -2,6 +2,30 @@
 
 État du chantier pour reprise en session fraîche. **Lire en entier avant d'agir ; ne pas reconstruire ce qui existe.** Mettre à jour en fin de CHAQUE session (bloc daté en tête).
 
+## ⏱ Addendum 2026-07-21 (branche `s15-eval-adapter`) — S-A : adapter eval-pack + smoke staging (audit comparatif agent-usa vs AgentB2C)
+
+**Contexte** : Fabien a ajouté `dayuse_eval_pack/` (249 cas black-box en 7 suites, runner stdlib POST `/v3/chat`, comparateur régression/amélioration — extrait du repo agent-usa, PII-clean par construction). Objectif global : audit comparatif qualité/perf/scalabilité agent-usa (prod) vs ce rework — plan complet validé par Fabien (sessions S-A→S-F) : baseline agent-usa **local :5002**, candidat sur **prod ES read-only** (run-of-record), load test borné, + passe LLM-judge (evalset-v0) sur les 2 agents. **Le pack n'est JAMAIS modifié** (byte-identique entre runs) ; tout le code neuf vit dans `scripts/`.
+
+**Fait (S-A)** :
+1. **`scripts/run_eval_adapter.py`** — proxy stdlib `:8110 → :8100` (pattern `run_widget_proxy.py`). Requêtes pass-through + header `X-Dayuse-Synthetic: 1` (→ `is_synthetic=true` en conversation_logs). Réponses `/v3/chat` : 3 règles de mapping, **uniquement clé absente, jamais d'écrasement, jamais d'invention** : (a) `country_code` ← table statique nom-complet→ISO2 (29 marchés du fixture + variantes ; nom inconnu = laissé visible en échec) ; (b) `currency:"EUR"` ssi `price` matche le format façade `^€\d+(\.\d{2})?$` (fait de provenance `priceEuro`) ; (c) `display_price` float parsé de la même chaîne. Chaque ajout divulgué par carte sous `eval_debug.adapter_mapped` (archivé dans les rapports). Non-buts documentés en docstring : lat/lon/distance_km, booking_card, devises non-EUR.
+2. **`tests/test_eval_adapter_mapping.py`** — 15 tests offline (fonctions pures, import via importlib du script) : no-overwrite, no-invention, disclosure, formats prix non-façade rejetés, entries non-dict, eval_debug préservé.
+3. **Fixture inventaire régénérée** (`eval_pack/fixtures/`) depuis les exports frais `~/Projects/agent-usa/data/structured_hotels_*.json` du 2026-07-15 (l'ancienne provenait du 2026-06-24) : 8 701 hôtels / 29 marchés (inchangé — catalogue stable), manifest + SHA à jour. `dayuse_eval_pack/data/` (exports bruts) gitignoré ; le fichier `rate-plans-export-2026-07-20.json` déposé par Fabien est un export PRICING (ratePlanId/price/availability, zéro attribut hôtel) — inutilisable pour la fixture, gardé comme cross-check prix éventuel.
+4. **Smoke run complet (staging ES = plumbing only, PAS un chiffre d'audit)** : 249/249 cas exécutés via l'adapter → `eval_pack/results/candidate_staging.json` (gitignoré, debug). **110/249 passed (44,2 %)**, latence par cas p50 6,2 s / p95 15,8 s (⚠ latence pack = SOMME des tours d'un cas). Adapter prouvé sous charge : 541 cartes `currency`/`display_price`, 23 `country_code` (le reste déjà stampé géocode côté leaf — cohérent), 100 % divulgué.
+5. **Triage des 139 échecs** (script d'analyse en scratchpad, à re-porter en S-C comme `annotate_inventory_confound.py`) : **90 cas = 0 hôtel retourné** (pattern inventaire staging/géocode — à rejouer sur prod ES en S-C) ; **~20 cas = hôtels hors zone** (US : NYC/Atlanta/Seattle, `allowed_geo_terms` 0/5 — candidats investigation réelle S-C) ; **20 cas gap-only** (36 assertions sur les gaps documentés : langue de/es/it/pt/zh, devises non-EUR, distance, filtres zone/metro/named_hotel/date_reference — SOUS le budget ≈45 prédit par la table des gaps du plan) ; multiturn `message_contains_any` : mix environnement (FAQ MCP dégradé sur staging → « I can't look up the Dayuse conditions ») et wording `named_hotel_absent`/`date_availability` à revérifier sur prod.
+
+**DoD verte** : `pytest -q` → **526 passed** (+15) ; `ruff` OK ; `mypy agents libs` → 34 fichiers OK ; guardrails OK. Vérifié live : round-trip adapter (session body honorée), run 249 cas complet.
+
+**Reste (sessions suivantes — bloquants Fabien marqués)** :
+- **S-B baseline** : boot agent-usa local :5002 (procédure + backend données prod-comparable → **Fabien**) + `scripts/run_llm_meter.py` (coût old agent). Préfixe sessions runner `canonical-eval-` : PAS dans la liste d'exclusion synthétique historique — le header `X-Dayuse-Synthetic` du candidat couvre le neuf ; côté agent-usa local, hors prod, non-problème.
+- **S-C run-of-record** : creds MCP_B2C **prod ES read-only** + `DATABASE_URL` (coûts) → **Fabien** ; puis `candidate.json`, `comparison.json`, `annotate_inventory_confound.py`, `measure_ab_perceived_latency.py` (TTFT SSE vs TTFB bloquant), SQL coût/tour.
+- **S-D judge A/B** (`run_judge_ab.py`, evalset-v0 × 2 agents) ; **S-E load probe** (1/5/10/20) ; **S-F rapport `AUDIT-COMPARATIF-AB-2026-07.md`**.
+- `scripts/run_widget_proxy.py` (S9) traîne toujours en untracked — à committer dans une session dédiée ou avec l'accord de Fabien.
+
+**Pièges découverts** :
+- **Sandbox Bash de Claude Code : les écritures fs des commandes composées/background ne persistent PAS toujours dans le repo** (le nohup initial écrivait dans un overlay ; un `cd` relatif a même créé un `dayuse_eval_pack/dayuse_eval_pack/` fantôme, nettoyé). Parade fiable utilisée : sortir les artefacts long-running vers le **scratchpad session** puis `cp` simple vers le repo. Toujours vérifier `pwd` avant un lancement détaché ; chemins absolus partout.
+- Le runner du pack somme les latences des tours d'un cas (`latency_ms` par cas) — toute comparaison de latence dans le rapport final doit le divulguer.
+- `python3 -u` obligatoire pour un runner nohup (sinon stdout bufferisé, log illisible en cours de run).
+
 ## ⏱ Addendum 2026-07-21 (branche `s13-drift-geo-zip`) — S13 : scoping pays du géocodage ZIP US (feuille search)
 
 **Contexte** : `AUDIT-DRIFT-AGENT-USA-2026-07-20.md` pointait un bug prod agent-usa (`b429125`, spec `test_us_market_five_digit_postcode_never_falls_through_worldwide`) : un ZIP US 5 chiffres (« near 11580 ») partait en géocodage MONDE ENTIER faute de scope pays. Zone stricte `agents/hotel_search_agent/**` — zéro changement concierge.
