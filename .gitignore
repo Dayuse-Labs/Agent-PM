@@ -9,6 +9,13 @@ baseline/
 
 # Rapports d'eval / release gate (générés — baselines.json EST committé)
 evals/reports/
+dayuse_eval_pack//model
+
+# Exports d'inventaire bruts (source des fixtures — la fixture compacte EST committée)
+dayuse_eval_pack/data/
+
+# Rapports de smoke/debug du pack (les artefacts run-of-record seront décidés en S-F)
+dayuse_eval_pack/eval_pack/results/
 
 # Rapports du toolset d'audit comparatif agent-usa vs AgentB2C (S-A→S-F, générés)
 reports/
