@@ -2,6 +2,35 @@
 
 État du chantier pour reprise en session fraîche. **Lire en entier avant d'agir ; ne pas reconstruire ce qui existe.** Mettre à jour en fin de CHAQUE session (bloc daté en tête).
 
+## ⏱ Addendum 2026-07-22 (branche `s-eval-pack-comparison`) — les 249 cas de `dayuse_eval_pack` rejoués sur les 2 agents, comparaison triée
+
+**Contexte** : suite directe de S-A (PR #18, mergée). Fabien a demandé de faire tourner le pack complet (`eval_pack.runner`/`eval_pack.compare`, code déjà existant, aucun code neuf) contre agent-usa (démarré en local, `:5002`) ET AgentB2C (via l'adapter S-A, `:8110→:8100`), et de produire un comparatif clair. **2 kills accidentels en cours de route** (l'utilisateur faisait des modifs en parallèle) ont fait perdre la première tentative (~75 %/~68 % de progression) — relancé intégralement depuis zéro sur sa confirmation.
+
+**Fait** : 249 cas × 2 stacks (`eval_pack/results/{agent_usa,candidate}.json`) + `eval_pack.compare` (`eval_pack/results/comparison.json`). Rapport complet + triage : `EVAL-PACK-COMPARISON-2026-07-22.md`. Dashboard : artifact publié dans la conversation.
+
+**⚠️ Constat central (à ne jamais oublier en relisant les chiffres bruts)** : les deux runs sont dominés par un confond d'inventaire local, PAS un signal qualité propre :
+- **agent-usa** : 202/249 échecs, dont **197 (98 %) à 0 hôtel retourné** — y compris sur ses propres métros US phares (New York, Miami, Chicago), pourtant dans son `MarketRegistry` documenté (80+ villes US). Ses propres réponses le disent explicitement ("no listings available in the wider Miami area either"). Pointe vers des données de disponibilité locales périmées/éparses (Postgres+Qdrant figés sur l'export du 2026-07-15), pas un défaut de raisonnement.
+- **AgentB2C** : 139/249 échecs, dont **91 (65 %) aussi à 0 hôtel** — cohérent avec le gap déjà documenté (ES staging partiel, `AUDIT-REWORK-2026-07.md` §5).
+- **Preuve concrète** : même requête "hotel in Queens Village NY" → AgentB2C 5 hôtels réels (staging ES) vs agent-usa 0 (alors que Queens Village est dans son propre périmètre documenté).
+
+**Chiffres bruts** : pass rate AgentB2C 110/249 (44,2 %) vs agent-usa 47/249 (18,9 %) ; diff `improvement=80 / unchanged_fail=122 / unchanged_pass=30 / regression=17` ; latence p95/cas AgentB2C 11,6 s vs agent-usa 25,4 s (**-54 %**, cohérent avec le budget ≤3 appels LLM/tour).
+
+**2 signaux propres (non confondus par l'inventaire)** :
+1. **Suite `domain`** (langue/devise par ccTLD, 8 cas, aucune dépendance à la disponibilité hôtel) : agent-usa 8/8 vs AgentB2C 2/8 — gap de capacité réel et déjà documenté (spine fr/en + EUR uniquement, décision de périmètre S9), pas un bug.
+2. **Latence** — cf. ci-dessus, cohérent avec le bench Judge A/B du même jour (`JUDGE-AB-BENCH-2026-07-22.md`).
+
+**Les 17 régressions, triées une par une** (règle du pack : jamais conclure sans relire chaque régression) :
+- 7 = gap langue/devise documenté (suite domain + `prod-wound-date-not-budget`).
+- 6 = gap d'exposition `active_filters.zone/date_reference/named_hotel` déjà au registre S-A.
+- **2 = VRAIS bugs neufs découverts par ce run** : `core-e2e-084` (créneau "7h30-13h30" tronqué en "07:00-13:00", le schéma `timeSlot` de `search_offers` n'a que des heures entières, la demi-heure est perdue silencieusement) ; `core-e2e-201` ("for 1 hour" = une DURÉE, extraite comme une fenêtre horaire absolue "00:00-01:00" — même famille de bug que l'incident prod historique "20 minutes → budget 20 €", sur un autre champ). **À corriger, indépendamment du confond d'inventaire.**
+- 1 = dégradation FAQ MCP staging déjà connue (S-A).
+- 1 = probablement transitoire (Le Meridien DC, dégradation honnête complète, à revérifier).
+
+**Reste / recommandations** :
+- Ne PAS lire les gaps core/geo/international/worldwide comme "AgentB2C meilleur en recherche" — 98 % des échecs agent-usa sont 0-hôtel, pas un signal de raisonnement.
+- `core-e2e-201` (durée→horloge) mérite un vrai fix côté feuille search, indépendamment de tout confond.
+- S-C (accès ES prod pour MCP_B2C) reste le préalable bloquant pour une vraie mesure de parité — ce run renforce plutôt la nécessité de S-C qu'il ne s'y substitue.
+
 ## ⏱ Addendum 2026-07-21 (branche `s15-eval-adapter`) — S-A : adapter eval-pack + smoke staging (audit comparatif agent-usa vs AgentB2C)
 
 **Contexte** : Fabien a ajouté `dayuse_eval_pack/` (249 cas black-box en 7 suites, runner stdlib POST `/v3/chat`, comparateur régression/amélioration — extrait du repo agent-usa, PII-clean par construction). Objectif global : audit comparatif qualité/perf/scalabilité agent-usa (prod) vs ce rework — plan complet validé par Fabien (sessions S-A→S-F) : baseline agent-usa **local :5002**, candidat sur **prod ES read-only** (run-of-record), load test borné, + passe LLM-judge (evalset-v0) sur les 2 agents. **Le pack n'est JAMAIS modifié** (byte-identique entre runs) ; tout le code neuf vit dans `scripts/`.
