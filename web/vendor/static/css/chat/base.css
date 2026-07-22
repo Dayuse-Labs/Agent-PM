@@ -1,0 +1,59 @@
+/**
+ * Base Styles
+ * Fonts, resets, and foundational styles
+ */
+
+/* ===== FONTS ===== */
+@font-face {
+    font-family: 'MaisonNeueExtended-Bold';
+    src: url('/static/fonts/MaisonNeueExtended-Bold.otf') format('opentype');
+    font-weight: 800;
+    font-style: normal;
+    font-display: swap;
+}
+
+/* ===== BASE ===== */
+body {
+    font-family: 'Manrope', sans-serif;
+    font-size: 14px;
+    color: #292935;
+    line-height: 1.6;
+    margin: 0;
+    padding: 0;
+    background: #F9F9F9;
+}
+
+/* ===== CONTEXT MESSAGE ===== */
+.context-message {
+    font-weight: 600;
+    margin-bottom: 20px;
+    padding: 12px 16px;
+    background: #F5F5F7;
+    border-radius: 12px;
+}
+
+/* ===== DISCLAIMER ===== */
+.disclaimer {
+    padding: 8px 20px 12px 20px;
+    text-align: center;
+    color: #8E8E93;
+    font-size: 11px;
+}
+
+/* ===== STARS ===== */
+.stars {
+    display: flex;
+    gap: 2px;
+    margin-right: 8px;
+    align-items: center;
+}
+
+.stars img {
+    width: 10px;
+    height: 10px;
+}
+
+.star {
+    color: #292935;
+    font-size: 12px;
+}

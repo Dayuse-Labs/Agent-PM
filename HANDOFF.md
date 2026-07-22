@@ -2,7 +2,47 @@
 
 État du chantier pour reprise en session fraîche. **Lire en entier avant d'agir ; ne pas reconstruire ce qui existe.** Mettre à jour en fin de CHAQUE session (bloc daté en tête).
 
-## ⏱ Addendum 2026-07-22 (branche `s-eval-pack-comparison`) — les 249 cas de `dayuse_eval_pack` rejoués sur les 2 agents, comparaison triée
+## ⏱ Addendum 2026-07-22 (branche `s-railway-deploy-demo`) — déploiement Railway du démo hébergé (widget + 3 services + Redis)
+
+**Contexte** : Fabien a demandé de déployer AgentB2C sur Railway **avec le front webapp comme sur `localhost:8090`**. Décisions (Fabien) : **démo hébergée sur MCP staging** (pas la parité prod, qui reste bloquée S-C), **vendoriser le widget + proxy en 4e service**, **nouveau projet Railway `AgentB2C`**. Trafic synthétique/démo uniquement, aucun utilisateur réel.
+
+**Le front `:8090` n'était PAS dans ce repo** : `scripts/run_widget_proxy.py` sert le widget d'`agent-usa` (`templates/chat_clean.html` + `static/js|css/chat/**`) qui vit dans le repo voisin. Il a fallu le vendoriser.
+
+**Fait (code, branche `s-railway-deploy-demo`)** :
+1. **`web/vendor/`** — manifeste widget complet vendorisé (39 fichiers, 1,2 Mo ; les 2 hero JPG + la police MaisonNeue dominent). Exhaustif vérifié : chaque `@import`/`src`/`href`/import JS résout en local (le graphe `js/chat` est 100 % relatif → dossier autonome). Seule dépendance externe = Google Fonts CDN (client-side, dégrade en police système).
+2. **`scripts/run_widget_proxy.py`** (était untracked S9, committé ici) — honore `PORT`/`HOST`/`WIDGET_BACKEND` ; **bind IPv6 dual-stack** (`_WidgetProxyServer` : `http.server` bind AF_INET par défaut, **incapable de binder `::`** contrairement à uvicorn — bug réel trouvé au run conteneur) ; défaut `--agent-usa-dir` = dossier vendorisé (plus besoin du repo voisin).
+3. **`web/Dockerfile`** (neuf, stdlib only, aucun token) + **3 Dockerfiles backend patchés** : ajout `apt-get install git` (**la vraie raison pour laquelle ils n'avaient jamais buildé** — `python:3.12-slim` n'a pas git, donc pip ne pouvait pas résoudre le git+ dep privé) + résolution du token fleet via **build ARG** `FLEET_READ_TOKEN` (rewrite `insteadOf` de la CI), token scrubé (`rm /root/.gitconfig`) dans la MÊME couche. **⚠️ Piège Railway** : le builder Metal **rejette** `--mount=type=secret` + la directive `# syntax=docker/dockerfile:1` (build échoue au « scheduling », zéro log Docker) — build ARG simple obligatoire (Railway passe les variables de service en build args).
+4. **`.railwayignore`** (neuf) — `railway up` honore `.gitignore` par défaut MAIS pas garanti ; **`baseline/` (messages users bruts, RGPD) + `.env` + `.venv` explicitement exclus de l'upload de contexte**.
+
+**Topologie Railway (projet `AgentB2C` = `a200e208-863d-4771-8b4d-03b5a6280904`, env `production`, workspace Inno Labs)** :
+| Service | Source | Public | Rôle |
+|---|---|---|---|
+| `Redis` | managé | privé | session store concierge (`CONCIERGE_REDIS_URL=${{Redis.REDIS_URL}}` → `redis.railway.internal`) |
+| `hotel-search` | `agents/hotel_search_agent/Dockerfile` | privé | feuille A2A (:8101) |
+| `faq` | `agents/faq_agent/Dockerfile` | privé | feuille A2A (:8102) |
+| `concierge` | `agents/b2c_concierge/Dockerfile` | privé | orchestrateur + façade `/v3` (:8100) |
+| `widget` | `web/Dockerfile` | **PUBLIC** | proxy widget → `/v3/*` vers concierge (privé) |
+
+**URL publique démo** : **https://widget-production-3f56.up.railway.app** (le navigateur ne parle qu'à cette origine ; le proxy forwarde `/v3/*` en privé). Concierge/feuilles jamais exposés. Câblage : cartes A2A `http://<svc>.railway.internal:<port>/.well-known/agent-card.json`, 3 bearers A2A générés (scratchpad session), MCP staging = `https://mcp-server-production-bcbe.up.railway.app/mcp` (public, joignable), `DAYUSE_MODEL=gpt-4o-mini` (miroir local ; `.env` `OPENAI_MODEL=gpt-5.2` = dead config non lu). Pas de `DATABASE_URL` (logs conversation off pour la démo), `CHAT_API_KEY` vide (façade ouverte, mais concierge privé).
+
+**Vérifié LIVE (via l'URL publique)** :
+- Page widget 200 + tous les assets 200 + `du-chat-endpoint=/v3/chat`.
+- Les 5 services `Application startup complete`, bind `[::]`, zéro crash.
+- **SEARCH** « hotel à Marseille avec piscine » → **5 hôtels réels** (staging ES), `active_filters.amenities=['pool']` (filtre amenity actif). Paris → Villa Paris Orly €54 etc. (mêmes données que les runs locaux).
+- **FAQ** « payer sur place ? » → vraie réponse synthétisée (MCP `get_faq_conditions` : erreur-puis-retry-OK côté feuille, doc volumineuse).
+- **ACK** « bonjour » → template zéro-LLM.
+- Feuille prouvée joignable en privé (`GET agent-card 200` depuis IPv6 `fd12:…`), `geocode_location ok 32ms`, `search_offers ok 951ms`.
+
+**⚠️ Déviation d'invariant assumée pour la démo** : `CONCIERGE_LEAF_TIMEOUT_SECONDS` monté **10 → 30 s** (variable Railway, zéro code). Le budget 10 s « feuille SANS retry » (invariant CLAUDE.md) est trop serré sur Railway : le **premier** appel search cold-start dépasse 10 s (le travail outil est rapide — geocode 32 ms, search 951 ms — c'est la latence LLM gpt-4o-mini à froid) et la **synthèse FAQ** (doc ~6 K tokens, ~9 s) dépasse 10 s même à chaud → dégradation honnête « je n'arrive pas à joindre… ». À 30 s tout passe. **À rediscuter** : soit assumer 30 s en démo, soit garder 10 s prod et accepter que le 1er appel dégrade (miroir de la latence documentée p95 ≈ 11,6 s/cas).
+
+**Reste / pièges** :
+- **Cold start** : le tout premier appel après un (re)déploiement/idle peut dégrader (LLM à froid). Railway ne met pas en sommeil (min 1 instance), donc une fois chaud ça reste chaud. Un warm-up post-deploy lisserait la 1re impression.
+- **Rendu navigateur non vu par moi** : API + page + assets vérifiés au curl ; le rendu visuel des cartes (card.js) reste à confirmer par Fabien en ouvrant l'URL.
+- Bruit ADK expérimental « original event loop is closed » au cleanup de session feuille après un timeout concierge — quirk A2A expérimental, inoffensif.
+- Secrets de build/tokens A2A dans le scratchpad de session (éphémère). `FLEET_READ_TOKEN` déposé par Fabien dans `.env` (gitignored) + posé en variable Railway des 3 backends.
+- MCP staging = inventaire épars (cf. addendum eval) : certaines villes « 0 offre » — fidèle au local, pas un signal qualité.
+
+
 
 **Contexte** : suite directe de S-A (PR #18, mergée). Fabien a demandé de faire tourner le pack complet (`eval_pack.runner`/`eval_pack.compare`, code déjà existant, aucun code neuf) contre agent-usa (démarré en local, `:5002`) ET AgentB2C (via l'adapter S-A, `:8110→:8100`), et de produire un comparatif clair. **2 kills accidentels en cours de route** (l'utilisateur faisait des modifs en parallèle) ont fait perdre la première tentative (~75 %/~68 % de progression) — relancé intégralement depuis zéro sur sa confirmation.
 

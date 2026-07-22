@@ -1,0 +1,223 @@
+#!/usr/bin/env python3
+"""Dev-only reverse proxy: serves agent-usa's chat WIDGET (static/js/chat/**
++ templates/chat_clean.html) standalone and forwards every /v3/chat* call to
+the AgentB2C facade (default :8100) — so the legacy front can be exercised
+against this stack without agent-usa's own Flask backend running at all.
+
+The browser only ever talks to ONE origin (this proxy): no CORS, no CSP
+connect-src issue, no cross-origin cookie problem. `/api/track` (Amplitude
+beacon) is swallowed locally (204) — AgentB2C doesn't implement it and it's
+fire-and-forget analytics.
+
+chat_clean.html has exactly 8 Jinja `{{ var | default('...') }}` meta tags
+(no loops/conditionals) — substituted here with a tiny regex, no Jinja2
+dependency needed. Only `chat_endpoint` is overridden (kept at '/v3/chat',
+same-origin relative — the facade's own auth is CHAT_API_KEY-based, unset
+locally, so agent-usa's public-token/cookie dance is irrelevant here).
+
+The widget assets are VENDORED into this repo at `web/vendor/` (templates/ +
+static/ mirror agent-usa's layout) so the proxy is self-contained — no sibling
+repo needed, and the container image can COPY them in. `AGENT_USA_DIR` (or
+`--agent-usa-dir`) still overrides, e.g. to test against a live agent-usa tree.
+
+Container/deploy knobs (Railway): `PORT` and `HOST` env are honored (bind `::`
+for the IPv6 private network), `WIDGET_BACKEND` sets the upstream facade.
+
+Usage:
+    python3 scripts/run_widget_proxy.py                    # :8090 -> :8100, vendored widget
+    python3 scripts/run_widget_proxy.py --port 8090 --backend http://127.0.0.1:8100
+    AGENT_USA_DIR=/path/to/agent-usa python3 scripts/run_widget_proxy.py   # live agent-usa tree
+    HOST=:: PORT=8090 WIDGET_BACKEND=http://concierge.railway.internal:8100 python3 scripts/run_widget_proxy.py
+"""
+from __future__ import annotations
+
+import argparse
+import mimetypes
+import os
+import re
+import socket
+import urllib.error
+import urllib.request
+from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
+from pathlib import Path
+
+# Vendored widget lives at <repo>/web/vendor (this file is <repo>/scripts/…).
+_VENDORED_WIDGET_DIR = Path(__file__).resolve().parent.parent / "web" / "vendor"
+
+# Prefer an explicit AGENT_USA_DIR; else the vendored copy if present; else the
+# historical sibling-repo path (kept so an un-vendored checkout still works).
+if os.environ.get("AGENT_USA_DIR"):
+    DEFAULT_AGENT_USA_DIR = Path(os.environ["AGENT_USA_DIR"])
+elif (_VENDORED_WIDGET_DIR / "templates" / "chat_clean.html").is_file():
+    DEFAULT_AGENT_USA_DIR = _VENDORED_WIDGET_DIR
+else:
+    DEFAULT_AGENT_USA_DIR = Path.home() / "Projects" / "agent-usa"
+
+_JINJA_VAR_RE = re.compile(r"\{\{\s*(\w+)\s*(?:\|\s*default\(\s*'([^']*)'\s*\)\s*)?\}\}")
+
+# Only override what matters for wiring the widget to a different backend —
+# everything else keeps the template's own default (cosmetic, overwritten by
+# the first real /v3/chat response anyway via applyMarketFromResponse).
+_META_OVERRIDES = {"chat_endpoint": "/v3/chat"}
+
+_HOP_BY_HOP_REQUEST_HEADERS = {"host", "content-length", "connection", "accept-encoding"}
+_HOP_BY_HOP_RESPONSE_HEADERS = {"transfer-encoding", "connection", "content-length"}
+
+
+def render_index(agent_usa_dir: Path) -> bytes:
+    html = (agent_usa_dir / "templates" / "chat_clean.html").read_text(encoding="utf-8")
+
+    def repl(match: "re.Match[str]") -> str:
+        name, default = match.group(1), match.group(2) or ""
+        return _META_OVERRIDES.get(name, default)
+
+    return _JINJA_VAR_RE.sub(repl, html).encode("utf-8")
+
+
+class WidgetProxyHandler(BaseHTTPRequestHandler):
+    agent_usa_dir: Path
+    backend: str
+
+    # --- routing -------------------------------------------------------------------------
+    def do_GET(self) -> None:  # noqa: N802 (stdlib method name)
+        path = self.path.split("?", 1)[0]
+        if path == "/":
+            self._respond_html(render_index(self.agent_usa_dir))
+        elif path.startswith("/static/"):
+            self._serve_static(path)
+        elif path.startswith("/v3/"):
+            self._proxy("GET")
+        else:
+            self.send_error(404)
+
+    def do_POST(self) -> None:  # noqa: N802
+        path = self.path.split("?", 1)[0]
+        if path == "/api/track":
+            self.send_response(204)
+            self.end_headers()
+        elif path.startswith("/v3/"):
+            self._proxy("POST")
+        else:
+            self.send_error(404)
+
+    # --- static / index --------------------------------------------------------------------
+    def _respond_html(self, body: bytes) -> None:
+        self.send_response(200)
+        self.send_header("Content-Type", "text/html; charset=utf-8")
+        self.send_header("Content-Length", str(len(body)))
+        self.end_headers()
+        self.wfile.write(body)
+
+    def _serve_static(self, path: str) -> None:
+        root = (self.agent_usa_dir / "static").resolve()
+        target = (self.agent_usa_dir / path.lstrip("/")).resolve()
+        if root not in target.parents and target != root:
+            self.send_error(403)
+            return
+        if not target.is_file():
+            self.send_error(404)
+            return
+        content_type = mimetypes.guess_type(str(target))[0] or "application/octet-stream"
+        body = target.read_bytes()
+        self.send_response(200)
+        self.send_header("Content-Type", content_type)
+        self.send_header("Content-Length", str(len(body)))
+        self.end_headers()
+        self.wfile.write(body)
+
+    # --- reverse proxy (streams incrementally — SSE-safe) -----------------------------------
+    def _proxy(self, method: str) -> None:
+        length = int(self.headers.get("Content-Length") or 0)
+        body = self.rfile.read(length) if length else None
+        url = f"{self.backend}{self.path}"
+        req = urllib.request.Request(url, data=body, method=method)
+        for key, value in self.headers.items():
+            if key.lower() not in _HOP_BY_HOP_REQUEST_HEADERS:
+                req.add_header(key, value)
+
+        try:
+            resp = urllib.request.urlopen(req, timeout=60)
+        except urllib.error.HTTPError as exc:
+            resp = exc  # HTTPError quacks like a response (status/headers/read)
+        except urllib.error.URLError as exc:
+            self.send_response(502)
+            self.send_header("Content-Type", "text/plain; charset=utf-8")
+            self.end_headers()
+            self.wfile.write(f"widget-proxy: backend unreachable ({exc.reason})".encode())
+            return
+
+        status = getattr(resp, "status", None) or getattr(resp, "code", 502)
+        self.send_response(status)
+        for key, value in resp.getheaders():
+            if key.lower() not in _HOP_BY_HOP_RESPONSE_HEADERS:
+                self.send_header(key, value)
+        self.send_header("Connection", "close")
+        self.end_headers()
+        while True:
+            chunk = resp.read(4096)
+            if not chunk:
+                break
+            try:
+                self.wfile.write(chunk)
+                self.wfile.flush()
+            except BrokenPipeError:
+                break
+
+    def log_message(self, fmt: str, *args: object) -> None:  # quieter default logging
+        print(f"widget-proxy: {self.address_string()} {fmt % args}")
+
+
+class _WidgetProxyServer(ThreadingHTTPServer):
+    """ThreadingHTTPServer that can bind an IPv6 literal (e.g. `::`). http.server
+    defaults to AF_INET and raises `Address family for hostname not supported` on
+    `::`; Railway's private network is IPv6, so the container binds `::` and needs
+    AF_INET6 with V6ONLY disabled (dual-stack: also accepts IPv4)."""
+
+    def __init__(self, server_address, handler_class):  # noqa: ANN001
+        if ":" in server_address[0]:
+            self.address_family = socket.AF_INET6
+        super().__init__(server_address, handler_class)
+
+    def server_bind(self) -> None:
+        if self.address_family == socket.AF_INET6:
+            try:
+                self.socket.setsockopt(socket.IPPROTO_IPV6, socket.IPV6_V6ONLY, 0)
+            except (AttributeError, OSError):
+                pass  # kernel without dual-stack: IPv6-only bind is still correct on Railway
+        super().server_bind()
+
+
+def main() -> None:
+    parser = argparse.ArgumentParser(description=__doc__)
+    # PORT/HOST env win over the defaults so Railway (which injects PORT) needs no flags.
+    parser.add_argument("--port", type=int, default=int(os.environ.get("PORT", "8090")))
+    parser.add_argument("--host", default=os.environ.get("HOST", "127.0.0.1"))
+    parser.add_argument(
+        "--backend", default=os.environ.get("WIDGET_BACKEND", "http://127.0.0.1:8100")
+    )
+    parser.add_argument("--agent-usa-dir", default=str(DEFAULT_AGENT_USA_DIR))
+    args = parser.parse_args()
+
+    agent_usa_dir = Path(args.agent_usa_dir)
+    if not (agent_usa_dir / "templates" / "chat_clean.html").is_file():
+        raise SystemExit(
+            f"widget-proxy: no templates/chat_clean.html under {agent_usa_dir} "
+            "— pass --agent-usa-dir or set AGENT_USA_DIR"
+        )
+
+    WidgetProxyHandler.agent_usa_dir = agent_usa_dir
+    WidgetProxyHandler.backend = args.backend.rstrip("/")
+
+    server = _WidgetProxyServer((args.host, args.port), WidgetProxyHandler)
+    print(
+        f"widget-proxy: listening on {args.host}:{args.port} "
+        f"(widget: {agent_usa_dir}, backend: {args.backend})"
+    )
+    try:
+        server.serve_forever()
+    except KeyboardInterrupt:
+        pass
+
+
+if __name__ == "__main__":
+    main()

@@ -1,0 +1,170 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover">
+    <title>DayuseAI - Find Your Perfect Daytime Hotel</title>
+    <meta name="du-chat-endpoint" content="{{ chat_endpoint | default('/v3/chat') }}">
+    <meta name="du-chat-public-token-header" content="{{ chat_public_token_header | default('X-Chat-Public-Token') }}">
+    <meta name="du-chat-public-token" content="{{ chat_public_token | default('') }}">
+    <meta name="du-chat-language" content="{{ market_language | default('en') }}">
+    <meta name="du-chat-currency" content="{{ market_currency | default('USD') }}">
+    <meta name="du-chat-country" content="{{ market_country | default('US') }}">
+    <meta name="du-chat-domain" content="{{ market_domain | default('dayuse.com') }}">
+    <meta name="du-chat-browse-url" content="{{ market_browse_url | default('') }}">
+    <link rel="icon" type="image/x-icon" sizes="32x32" href="/static/favicon_32.ico">
+    <link rel="icon" type="image/x-icon" sizes="64x64" href="/static/favicon_64.ico">
+    <link href="https://fonts.googleapis.com/css2?family=Manrope:wght@400;500;600;700;800&display=swap" rel="stylesheet">
+    <script defer src="/static/js/chat/amplitude-bootstrap.js"></script>
+
+    <!-- Modular CSS -->
+    <link rel="stylesheet" href="/static/css/chat/index.css">
+    <!-- Open straight into the chat (hide the hero, reveal the chat container)
+         on first paint whenever this load is going to auto-open the chat anyway:
+         the app webview (window.__DAYUSE_NATIVE__) or a deep link (?q=/?query=).
+         Without this the hero paints first and flashes before the auto-open
+         cross-fade — on the app AND on desktop deep links. No-op on a plain web
+         landing, where the hero stays the entry point. -->
+    <style>
+        html.chat-immediate .initial-state { display: none !important; }
+        html.chat-immediate .chat-container {
+            opacity: 1 !important;
+            visibility: visible !important;
+            transform: none !important;
+        }
+    </style>
+    <script>
+        (function () {
+            try {
+                var hasNative = !!window.__DAYUSE_NATIVE__;
+                var params = new URLSearchParams(window.location.search);
+                var hasDeepLink = !!(params.get('q') || params.get('query'));
+                if (hasNative || hasDeepLink) {
+                    document.documentElement.classList.add('chat-immediate');
+                }
+            } catch (e) { /* no-op */ }
+        })();
+    </script>
+</head>
+<body>
+    <!-- Hero / Initial State -->
+    <div class="initial-state" id="initial-state">
+        <div class="hero-header">
+            <div class="hero-logo">
+                <img src="/static/dayuse.svg" alt="Dayuse">
+            </div>
+        </div>
+
+        <div class="hero-content">
+            <h1><span id="hero-title-main">Book a hotel for the day</span> <span class="gradient-text" id="hero-title-emphasis">just ask.</span></h1>
+            <div class="subtitle" id="hero-subtitle">Tell us what you need, we'll find the best match in seconds.</div>
+
+            <div class="initial-input-container">
+                <div class="chat-input">
+                    <input type="text" id="initial-input" placeholder="Try &quot;pool day in Miami under $100&quot;" maxlength="400">
+                    <button id="initial-submit-button"><span class="arrow-icon">↑</span></button>
+                </div>
+                <div style="text-align: right; margin-top: 4px; font-size: 12px; color: #999;">
+                    <span id="initial-char-count">0</span>/400
+                </div>
+            </div>
+
+            <div class="search-examples">
+                <div class="search-example" data-action="fill-search-example" id="search-example-1">
+                    Layover in JFK
+                </div>
+                <div class="search-example" data-action="fill-search-example" id="search-example-2">
+                    Rooftop pool in Los Angeles
+                </div>
+                <div class="search-example" data-action="fill-search-example" id="search-example-3">
+                    Romantic date in Miami
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Chat Container -->
+    <div class="chat-container" id="chat-container">
+        <div class="chat-header">
+            <div class="chat-header-brand">
+                <div class="chat-header-brand-mark" aria-hidden="true">
+                    <svg viewBox="0 0 24 24" fill="currentColor" aria-hidden="true">
+                        <path d="M12 2 13.9 8.1 20 10l-6.1 1.9L12 18l-1.9-6.1L4 10l6.1-1.9L12 2Z"/>
+                        <path d="M19 14l.95 3.05L23 18l-3.05.95L19 22l-.95-3.05L15 18l3.05-.95L19 14Z" opacity=".7"/>
+                    </svg>
+                </div>
+                <div class="chat-header-brand-text">
+                    <span class="chat-header-kicker" id="chat-header-kicker">AI Concierge</span>
+                    <span class="chat-header-name">Dayuse</span>
+                </div>
+            </div>
+            <button id="new-chat-button" class="chat-header-reset" type="button">
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+                    <path d="M3 12a9 9 0 0115-6.7L21 8M21 3v5h-5"/>
+                    <path d="M21 12a9 9 0 01-15 6.7L3 16M3 21v-5h5"/>
+                </svg>
+                <span id="new-chat-label">New chat</span>
+            </button>
+        </div>
+        <div class="chat-messages" id="chat-messages">
+            <div class="message bot">
+                <div class="avatar avatar--ai" aria-hidden="true">
+                    <svg viewBox="0 0 24 24" fill="currentColor" aria-hidden="true">
+                        <path d="M12 2 13.9 8.1 20 10l-6.1 1.9L12 18l-1.9-6.1L4 10l6.1-1.9L12 2Z"/>
+                        <path d="M19 14l.95 3.05L23 18l-3.05.95L19 22l-.95-3.05L15 18l3.05-.95L19 14Z" opacity=".7"/>
+                    </svg>
+                </div>
+                <div class="message-content">
+                    Hello! I'm your Dayuse AI assistant. Tell me what you're looking for and I'll find the best hotel for you!
+                </div>
+            </div>
+        </div>
+        <div class="chat-composer" id="chat-composer">
+            <div class="composer-bubble">
+                <div class="composer-suggestions" id="composer-suggestions" hidden></div>
+                <div class="composer-input">
+                    <textarea id="user-input" rows="1" placeholder="Refine your search or ask a question..." maxlength="400"></textarea>
+                    <div class="composer-actions">
+                        <!-- Voice input (dictaphone) temporarily disabled. Re-enable by
+                             restoring this button + the initVoiceInput() call in index.js. -->
+                        <button id="main-submit-button" type="button" class="composer-send-btn" aria-label="Send">
+                            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 19V5M5 12l7-7 7 7"/></svg>
+                        </button>
+                    </div>
+                </div>
+            </div>
+            <div class="chat-footer composer-footer">
+                <div class="disclaimer">
+                    DayuseAI can make mistakes. It's recommended to verify important information.
+                </div>
+                <div class="composer-char-count">
+                    <span id="chat-char-count">0</span>/400
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Bottom Reassurance -->
+    <div class="bottom-reassurance" id="bottom-reassurance">
+        <div class="reassurance-item">
+            <span class="reassurance-icon"><img src="/static/icon/freecancel.svg" alt=""></span>
+            <span id="reassurance-free-cancel">Free cancellation</span>
+        </div>
+        <div class="reassurance-item">
+            <span class="reassurance-icon"><img src="/static/icon/nocreditcard.svg" alt=""></span>
+            <span id="reassurance-pay-hotel">Pay at hotel</span>
+        </div>
+        <div class="reassurance-item">
+            <span class="reassurance-icon"><img src="/static/icon/discount.svg" alt=""></span>
+            <span id="reassurance-discount">Up to 75% off</span>
+        </div>
+        <div class="reassurance-item">
+            <span class="reassurance-icon"><img src="/static/icon/leader.svg" alt=""></span>
+            <span id="reassurance-leader">Worldwide leader</span>
+        </div>
+    </div>
+
+    <!-- Modular ES6 Chat Application -->
+    <script type="module" src="/static/js/chat/index.js"></script>
+</body>
+</html>

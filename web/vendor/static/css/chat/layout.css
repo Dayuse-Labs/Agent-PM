@@ -1,0 +1,462 @@
+/**
+ * Layout Styles
+ * Chat container and message structure
+ */
+
+/* ===== CHAT CONTAINER ===== */
+.chat-container {
+    max-width: 800px;
+    margin: 20px auto;
+    background: white;
+    border-radius: 10px;
+    box-shadow: 0px 0px 10px rgba(0, 0, 0, 0.10);
+    overflow: hidden;
+    opacity: 0;
+    transform: translateY(20px);
+    transition: opacity 0.5s ease-in-out, transform 0.5s ease-in-out;
+    visibility: hidden;
+    position: relative;
+    display: flex;
+    flex-direction: column;
+    min-height: min(600px, calc(100vh - 40px));
+    /* Bound the container to the viewport so .chat-messages does the
+       internal scroll instead of the whole page. Mobile clears this in
+       responsive.css and falls back to native page scroll. */
+    max-height: calc(100vh - 40px);
+}
+
+.chat-container.visible {
+    opacity: 1;
+    transform: translateY(0);
+    visibility: visible;
+}
+
+.chat-header {
+    background: rgba(255, 255, 255, 0.72);
+    backdrop-filter: blur(16px);
+    -webkit-backdrop-filter: blur(16px);
+    color: var(--fg-default);
+    padding: var(--space-3) var(--space-5);
+    border-bottom: 1px solid var(--border-subtle);
+    z-index: 10;
+    position: relative;
+    display: flex;
+    align-items: center;
+    gap: var(--space-3);
+}
+
+.chat-header-brand {
+    display: flex;
+    align-items: center;
+    gap: var(--space-3);
+    min-width: 0;
+}
+
+.chat-header-brand-mark {
+    width: 32px;
+    height: 32px;
+    border-radius: var(--radius-full);
+    background: var(--dy-gradient-primary);
+    color: var(--fg-inverse);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    flex-shrink: 0;
+    box-shadow: var(--shadow-100);
+}
+
+.chat-header-brand-mark svg {
+    width: 16px;
+    height: 16px;
+}
+
+.chat-header-brand-text {
+    display: flex;
+    flex-direction: column;
+    line-height: 1.15;
+    min-width: 0;
+}
+
+.chat-header-kicker {
+    font-size: var(--fs-xs);
+    font-weight: var(--fw-semi);
+    color: var(--fg-muted);
+    text-transform: uppercase;
+    letter-spacing: 0.06em;
+}
+
+.chat-header-name {
+    font-family: var(--font-display);
+    font-size: var(--fs-md);
+    font-weight: var(--fw-black);
+    color: var(--fg-brand);
+    letter-spacing: 0.01em;
+}
+
+/* Legacy logo (kept for fallback if a template still uses it) */
+.chat-header-logo {
+    display: none;
+}
+
+.chat-header-reset {
+    margin-left: auto;
+    display: inline-flex;
+    align-items: center;
+    gap: var(--space-2);
+    border: 1px solid rgba(41, 41, 53, 0.14);
+    background: rgba(255, 255, 255, 0.82);
+    color: var(--fg-default);
+    border-radius: var(--radius-full);
+    padding: 6px 12px;
+    font-size: var(--fs-sm);
+    font-weight: var(--fw-semi);
+    line-height: 1;
+    cursor: pointer;
+    transition: background-color var(--dur-base) var(--ease-out),
+                border-color var(--dur-base) var(--ease-out);
+}
+
+.chat-header-reset svg {
+    width: 12px;
+    height: 12px;
+}
+
+.chat-header-reset:hover {
+    background: #ffffff;
+    border-color: rgba(41, 41, 53, 0.26);
+}
+
+.chat-header-reset:disabled {
+    opacity: 0.6;
+    cursor: default;
+}
+
+.chat-messages {
+    padding: 20px;
+    flex: 1 1 auto;
+    overflow-y: auto;
+    overflow-x: hidden;
+    min-height: 0;
+}
+
+/* ===== MESSAGES ===== */
+.message {
+    margin-bottom: 8px;
+    display: flex;
+    align-items: flex-start;
+}
+
+.message:has(+ .message .with-hotels) {
+    margin-bottom: 14px;
+}
+
+.message.bot {
+    flex-direction: row;
+}
+
+.message.user {
+    flex-direction: row-reverse;
+}
+
+/* ===== AVATARS ===== */
+.avatar {
+    width: 28px;
+    height: 28px;
+    flex-shrink: 0;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    margin: 2px var(--space-2) 0 0;
+    font-size: 0; /* avoid stray text rendering */
+}
+
+.avatar--ai {
+    border-radius: var(--radius-full);
+    background: var(--dy-gradient-primary);
+    color: var(--fg-inverse);
+    box-shadow: var(--shadow-100);
+}
+
+.avatar--ai svg {
+    width: 14px;
+    height: 14px;
+}
+
+/* User avatar is empty in the Concierge layout (user bubble carries identity). */
+.avatar--user {
+    display: none;
+}
+
+/* Action rows (chips, follow-up suggestions) sit visually *under* the previous
+   bot reply rather than being their own message — keep the avatar slot for
+   alignment but hide the gradient mark. */
+.message--actions .avatar {
+    visibility: hidden;
+}
+
+.message--actions {
+    margin-top: -4px;
+}
+
+.message-content {
+    padding: 4px 0;
+    max-width: 85%;
+}
+
+.bot .message-content {
+    background: transparent;
+}
+
+.user .message-content {
+    background: #EEEEF0;
+    color: #292935;
+    padding: 12px 16px;
+    border-radius: 18px;
+}
+
+/* ===== CHAT INPUT ===== */
+.chat-input {
+    padding: 20px;
+    border-top: 1px solid var(--border-default);
+    display: flex;
+    gap: 10px;
+}
+
+/* ===== COMPOSER BUBBLE (Concierge layout) ===== */
+.chat-composer {
+    padding: var(--space-3) var(--space-4) var(--space-4) var(--space-4);
+    border-top: 1px solid var(--border-subtle);
+    background: var(--bg-surface);
+    /* Keep the composer fully visible at the bottom of the bounded
+       container — without this, a busy .chat-messages can squeeze it
+       and the textarea ends up clipped off-screen. */
+    flex-shrink: 0;
+}
+
+.composer-bubble {
+    background: var(--bg-surface);
+    border: 1px solid var(--border-default);
+    border-radius: var(--radius-lg);
+    padding: var(--space-2) var(--space-3) var(--space-3) var(--space-3);
+    box-shadow: var(--shadow-100);
+    display: flex;
+    flex-direction: column;
+    gap: var(--space-2);
+    transition: border-color var(--dur-base) var(--ease-out),
+                box-shadow var(--dur-base) var(--ease-out);
+}
+
+.composer-bubble:focus-within {
+    border-color: var(--border-focus);
+    box-shadow: var(--shadow-200);
+}
+
+.composer-suggestions {
+    display: flex;
+    flex-wrap: wrap;
+    gap: var(--space-2);
+    padding-bottom: var(--space-1);
+    border-bottom: 1px solid var(--border-subtle);
+}
+
+.composer-suggestions[hidden] {
+    display: none;
+}
+
+.composer-suggestions .chip {
+    padding: 6px 12px;
+    background: var(--bg-muted);
+    border: 0;
+    border-radius: var(--radius-full);
+    font-size: var(--fs-sm);
+    font-weight: var(--fw-semi);
+    color: var(--fg-default);
+    cursor: pointer;
+    transition: background-color var(--dur-fast) var(--ease-out);
+}
+
+.composer-suggestions .chip:hover {
+    background: var(--dy-ink-200);
+}
+
+.composer-input {
+    display: flex;
+    align-items: flex-end;
+    gap: var(--space-2);
+}
+
+.composer-input textarea {
+    flex: 1;
+    appearance: none;
+    border: 0;
+    background: transparent;
+    color: var(--fg-default);
+    font-family: inherit;
+    font-size: var(--fs-base);
+    line-height: var(--lh-snug);
+    resize: none;
+    outline: none;
+    padding: 8px 0;
+    max-height: 140px;
+    overflow-y: auto;
+}
+
+.composer-input textarea::placeholder {
+    color: var(--fg-subtle);
+}
+
+.composer-actions {
+    display: flex;
+    align-items: center;
+    gap: var(--space-1);
+    flex-shrink: 0;
+}
+
+.composer-icon-btn {
+    appearance: none;
+    background: transparent;
+    border: 0;
+    width: 32px;
+    height: 32px;
+    border-radius: var(--radius-full);
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    color: var(--fg-muted);
+    cursor: pointer;
+    padding: 0;
+    transition: background-color var(--dur-fast) var(--ease-out),
+                color var(--dur-fast) var(--ease-out);
+}
+
+.composer-icon-btn:hover {
+    background: var(--bg-muted);
+    color: var(--fg-default);
+}
+
+.composer-icon-btn svg {
+    width: 18px;
+    height: 18px;
+}
+
+/* Voice input: red pulse while recording, dimmed spinner while uploading. */
+.composer-icon-btn.is-recording {
+    color: #E53935;
+    background: rgba(229, 57, 53, 0.12);
+    animation: voice-input-pulse 1.2s ease-in-out infinite;
+}
+
+.composer-icon-btn.is-processing {
+    color: var(--fg-muted);
+    opacity: 0.6;
+    pointer-events: none;
+}
+
+.composer-icon-btn.is-error {
+    color: #E53935;
+    background: rgba(229, 57, 53, 0.12);
+}
+
+@keyframes voice-input-pulse {
+    0%, 100% { box-shadow: 0 0 0 0 rgba(229, 57, 53, 0.45); }
+    50%      { box-shadow: 0 0 0 6px rgba(229, 57, 53, 0); }
+}
+
+.composer-send-btn {
+    appearance: none;
+    width: 36px;
+    height: 36px;
+    border: 0;
+    border-radius: var(--radius-full);
+    background: var(--dy-gradient-cta);
+    color: var(--fg-brand);
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    cursor: pointer;
+    padding: 0;
+    transition: transform var(--dur-fast) var(--ease-out),
+                box-shadow var(--dur-fast) var(--ease-out);
+}
+
+.composer-send-btn:hover:not(:disabled) {
+    transform: translateY(-1px);
+    box-shadow: var(--shadow-200);
+}
+
+.composer-send-btn:disabled {
+    background: var(--bg-muted);
+    color: var(--fg-subtle);
+    cursor: not-allowed;
+    transform: none;
+    box-shadow: none;
+}
+
+.composer-send-btn svg {
+    width: 16px;
+    height: 16px;
+}
+
+.composer-footer {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: var(--space-3);
+    padding: 0;
+    margin-top: var(--space-2);
+}
+
+.composer-footer .disclaimer {
+    padding: 0;
+    margin: 0;
+    text-align: left;
+    font-size: var(--fs-xs);
+    color: var(--fg-subtle);
+}
+
+.composer-char-count {
+    flex-shrink: 0;
+    font-size: var(--fs-sm);
+    color: var(--fg-subtle);
+}
+
+/* ===== INLINE MARKDOWN ===== */
+.md-spacer {
+    height: 10px;
+}
+
+.md-heading {
+    font-weight: 700;
+    margin-top: 8px;
+    margin-bottom: 2px;
+}
+
+.md-list {
+    margin: 8px 0 8px 20px;
+    padding: 0;
+}
+
+.md-list li {
+    margin: 6px 0;
+    padding-left: 4px;
+}
+
+/* Paragraphs within bot messages */
+.bot .message-content > div {
+    margin-bottom: 4px;
+}
+
+.bot .message-content > div:last-child {
+    margin-bottom: 0;
+}
+
+/* ===== TYPING INDICATOR ===== */
+.typing-indicator {
+    display: none;
+    padding: 10px;
+    color: #54545D;
+}
+
+.typing-indicator.active {
+    display: block;
+}

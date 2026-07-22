@@ -1,0 +1,34 @@
+/**
+ * DayuseAI Chat Styles
+ * Modular CSS Architecture
+ *
+ * This file imports all CSS modules in the correct order.
+ * The order matters for proper cascade and specificity.
+ */
+
+/* Design tokens (Sunrise v2.3) — must come before everything else */
+@import url('./tokens.css');
+
+/* Base styles first */
+@import url('./base.css');
+
+/* Layout and structure */
+@import url('./layout.css');
+
+/* Form elements */
+@import url('./forms.css');
+
+/* Hotel cards and pricing */
+@import url('./hotels.css');
+
+/* Carousel components */
+@import url('./carousel.css');
+
+/* Hero/landing page */
+@import url('./hero.css');
+
+/* Animations */
+@import url('./animations.css');
+
+/* Responsive (must be last for specificity) */
+@import url('./responsive.css');

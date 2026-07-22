@@ -1,0 +1,25 @@
+# Controls what `railway up` uploads as build context. Railway does NOT honor
+# .gitignore, so anything sensitive or heavy must be listed HERE explicitly.
+
+# RGPD: raw user messages — MUST NEVER leave the machine (mirrors .gitignore).
+baseline/
+dayuse_eval_pack/data/
+dayuse_eval_pack/eval_pack/results/
+
+# Secrets / local env (values live as Railway service variables, not in the image).
+.env
+
+# Heavy / irrelevant to any image build (Dockerfiles COPY only libs/, agents/, web/, scripts/).
+.git/
+.venv/
+.venv*
+.run-logs/
+reports/
+evals/reports/
+**/.adk/
+**/__pycache__/
+.mypy_cache/
+.pytest_cache/
+.ruff_cache/
+*.egg-info/
+.DS_Store

@@ -1,0 +1,393 @@
+/**
+ * Responsive Styles
+ * Mobile and tablet breakpoints
+ */
+
+/* ===== MOBILE RESPONSIVE ===== */
+@media (max-width: 768px) {
+    html, body {
+        overflow-x: hidden;
+        max-width: 100vw;
+    }
+
+    /* Hero mobile */
+    .initial-state {
+        background: url('/static/hero_usa_mobile.jpg') center center / cover no-repeat;
+    }
+
+    .hero-header {
+        padding: 16px 20px;
+    }
+
+    .hero-logo {
+        height: 28px;
+        justify-content: center;
+    }
+
+    .hero-content {
+        padding: 0 16px;
+        width: 100%;
+    }
+
+    .initial-state h1 {
+        font-size: 30px;
+        letter-spacing: -0.5px;
+        margin: 0 0 12px 0;
+        line-height: 1.1;
+        font-family: 'MaisonNeueExtended-Bold', 'Manrope', sans-serif;
+    }
+
+    .initial-state .subtitle {
+        font-size: 15px;
+        margin-bottom: 28px;
+        line-height: 1.5;
+    }
+
+    .initial-input-container {
+        max-width: 100%;
+        width: 100%;
+        padding: 0 16px;
+        margin: 0 0 20px 0;
+        box-sizing: border-box;
+    }
+
+    .initial-input-container .chat-input {
+        padding: 6px;
+        width: 100%;
+        box-sizing: border-box;
+    }
+
+    .initial-input-container input[type="text"] {
+        font-size: 16px;
+        padding: 12px 16px;
+        flex: 1;
+        min-width: 0;
+        border: none;
+    }
+
+    .initial-input-container button {
+        font-size: 14px;
+        padding: 12px 18px;
+        white-space: nowrap;
+        flex-shrink: 0;
+    }
+
+    /* Search examples mobile */
+    .search-examples {
+        gap: 8px;
+        max-width: 100%;
+        width: 100%;
+        margin-bottom: 20px;
+        flex-direction: row;
+        flex-wrap: nowrap;
+        justify-content: flex-start;
+        overflow-x: scroll;
+        overflow-y: hidden;
+        -webkit-overflow-scrolling: touch;
+        scrollbar-width: none;
+        padding: 0 16px;
+        box-sizing: border-box;
+    }
+
+    .search-examples::-webkit-scrollbar {
+        display: none;
+    }
+
+    .search-example {
+        padding: 10px 14px;
+        font-size: 13px;
+        flex: 0 0 auto;
+        flex-shrink: 0;
+        white-space: nowrap;
+        display: inline-block;
+    }
+
+    /* Bottom reassurance mobile */
+    .bottom-reassurance {
+        gap: 16px;
+        padding: 12px 16px;
+        flex-wrap: nowrap;
+        overflow-x: auto;
+        justify-content: center;
+        -webkit-overflow-scrolling: touch;
+    }
+
+    .reassurance-item {
+        flex-shrink: 0;
+        font-size: 12px;
+        gap: 6px;
+        flex: 0 0 auto;
+    }
+
+    .reassurance-item:nth-child(n+3) {
+        display: none;
+    }
+
+    .reassurance-icon {
+        font-size: 14px;
+    }
+
+    /* Chat mobile: rely on native page scroll (more reliable on iOS/Android) */
+    html.chat-active,
+    body.chat-active {
+        position: static;
+        width: auto;
+        overflow: visible;
+        padding: 0;
+        margin: 0;
+    }
+
+    .chat-container {
+        border-radius: 0;
+        box-shadow: none;
+        margin: 0;
+        max-width: 100%;
+        width: 100%;
+        min-height: 100vh;
+        min-height: 100dvh;
+        max-height: none;
+        position: relative;
+        inset: auto;
+        display: flex;
+        flex-direction: column;
+        overflow: visible;
+        /* The composer below is position:fixed on mobile (truly glued bottom
+           bar). A transformed ancestor makes fixed resolve against IT instead
+           of the viewport, so neutralise the open-animation transform here.
+           !important beats .chat-container.visible's translateY(0); dropping the
+           transform from the transition stops it animating through an identity
+           matrix (which would itself establish a containing block). The opacity
+           fade-in is preserved. (The chat-immediate path already sets none.) */
+        transform: none !important;
+        transition: opacity 0.5s ease-in-out;
+    }
+
+    .chat-header {
+        flex-shrink: 0;
+        padding: 10px 16px;
+    }
+
+    .chat-header-logo {
+        height: 16px;
+    }
+
+    .chat-header-brand-mark {
+        width: 28px;
+        height: 28px;
+    }
+
+    .chat-header-brand-mark svg {
+        width: 14px;
+        height: 14px;
+    }
+
+    .chat-header-name {
+        font-size: 14px;
+    }
+
+    .chat-header-reset {
+        padding: 5px 10px;
+        font-size: 11px;
+    }
+
+    .chat-header-reset svg {
+        width: 11px;
+        height: 11px;
+    }
+
+    .chat-messages {
+        flex: 1 1 auto;
+        overflow-y: visible;
+        overflow-x: hidden;
+        min-height: 0;
+        padding: 16px;
+        padding-bottom: calc(var(--chat-composer-height, 116px) + 16px);
+        width: 100%;
+        box-sizing: border-box;
+        max-height: none;
+    }
+
+    .chat-composer {
+        /* Truly glued to the viewport bottom (was sticky, which lags on iOS
+           during momentum/rubber-band scroll). The .chat-messages padding-bottom
+           (composer-height + 16) already reserves space so content isn't hidden,
+           and dropping the in-flow sticky element removes the duplicate bottom
+           gap. Requires the .chat-container transform:none above to pin to the
+           viewport rather than the container. */
+        position: fixed;
+        left: 0;
+        right: 0;
+        bottom: 0;
+        z-index: 20;
+        background: #FFFFFF;
+        border-top: 1px solid var(--border-default);
+        padding: 10px 12px calc(10px + env(safe-area-inset-bottom)) 12px;
+    }
+
+    .chat-composer .chat-input {
+        padding: 12px 16px 8px 16px;
+        width: 100%;
+        box-sizing: border-box;
+        flex-shrink: 0;
+        background: white;
+        overflow: hidden;
+        border-top: 0;
+    }
+
+    .chat-composer .chat-input input {
+        font-size: 16px;
+        width: 100%;
+        box-sizing: border-box;
+    }
+
+    /* Composer bubble (Concierge) — mobile tuning */
+    .composer-bubble {
+        padding: 8px 10px 10px 10px;
+        border-radius: 16px;
+    }
+
+    .composer-input textarea {
+        /* 16px prevents iOS zoom on focus */
+        font-size: 16px;
+        line-height: 1.35;
+        padding: 8px 0;
+    }
+
+    .composer-icon-btn {
+        width: 30px;
+        height: 30px;
+    }
+
+    .composer-send-btn {
+        width: 34px;
+        height: 34px;
+    }
+
+    .chat-composer .disclaimer {
+        padding: 0;
+        text-align: left;
+        color: var(--fg-subtle);
+        font-size: 10px;
+    }
+
+    .composer-char-count {
+        font-size: 11px;
+    }
+
+    /* Bottom bar (disclaimer + char count): must not shrink or vanish */
+    .chat-composer .chat-footer {
+        flex-shrink: 0;
+        margin-top: 6px;
+    }
+
+    /* Hotel message must not overflow the scrollable area */
+    .message-content.with-hotels {
+        max-width: 100% !important;
+        width: 100%;
+        min-width: 0;
+        overflow: hidden;
+    }
+
+    /* Hotel cards mobile */
+    .hotel-card {
+        margin-bottom: 16px;
+        box-sizing: border-box;
+    }
+
+    .message-content.with-hotels .hotel-name {
+        font-size: 18px;
+        line-height: 1.18;
+        margin-bottom: 6px;
+    }
+
+    .current-price {
+        font-size: 22px;
+    }
+
+    .chip {
+        font-size: 11px;
+        padding: 6px 10px;
+    }
+
+    /* Carousel mobile */
+    .carousel-nav-button {
+        display: none;
+    }
+
+    .hotel-cards-container {
+        padding: 0;
+        margin: 12px 0;
+        overflow: hidden;
+        max-width: 100%;
+    }
+
+    .hotel-cards-wrapper {
+        display: flex;
+        padding: 8px 10px 12px;
+        gap: 12px;
+        overflow-x: auto;
+        overflow-y: hidden;
+        -webkit-overflow-scrolling: touch;
+        overscroll-behavior-x: contain;
+        scroll-behavior: auto;
+        scroll-snap-type: x mandatory;
+        scroll-padding-left: 10px;
+    }
+
+    .hotel-cards-container .hotel-card {
+        flex: 0 0 100%;
+        min-width: 0;
+        max-width: 100%;
+        scroll-snap-align: start;
+    }
+
+    .carousel-indicator {
+        padding: 0 10px;
+        margin-top: 8px;
+    }
+
+    /* Prevent images from breaking layout */
+    img {
+        max-width: 100%;
+    }
+}
+
+/* ===== DESKTOP TUNING ===== */
+@media (min-width: 769px) {
+    /* Keep the same design, scaled down by ~20% on desktop */
+    /* Keep the first card aligned with the intro/meta while preserving enough
+       scroll padding for shadows and the right-side carousel control. */
+    .message-content.with-hotels .hotel-cards-container {
+        padding: 0;
+        margin: 3px 0 10px;
+    }
+
+    .message-content.with-hotels .hotel-cards-wrapper {
+        gap: 13px;
+        margin: 0 -18px 0 -14px;
+        padding: 8px 18px 13px 14px;
+        scroll-padding-left: 14px;
+    }
+
+    .message-content.with-hotels .hotel-cards-container .hotel-card {
+        zoom: 0.8;
+    }
+
+    .message-content.with-hotels .carousel-nav-button {
+        width: 32px;
+        height: 32px;
+        min-width: 32px;
+        min-height: 32px;
+        font-size: 14px;
+    }
+
+    .message-content.with-hotels .carousel-nav-button.next {
+        right: 12px;
+    }
+
+    .message-content.with-hotels .carousel-indicator {
+        margin-top: 10px;
+        padding: 0 13px;
+        font-size: 11px;
+    }
+}

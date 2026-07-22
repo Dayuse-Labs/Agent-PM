@@ -1,0 +1,146 @@
+/**
+ * Dayuse "Sunrise" Design System tokens — v2.3
+ * Source: Figma "Sunrise - Dayuse.com Design system" (Colors, Typography, Radius, Shadows)
+ *
+ * Two layers:
+ *   - Primitives  (--dy-*)   : raw palette / scales. Never use directly in components.
+ *   - Semantic    (--fg/--bg/--border/--radius/--space/--font/--shadow/--dur/--ease) :
+ *                              what components reference.
+ *
+ * Migration plan: existing CSS still uses raw hex values (#FFC536, #292935, …).
+ * New work should reference the semantic aliases below; legacy declarations will be
+ * migrated file-by-file.
+ */
+
+:root {
+    /* ===== Brand / primary palette ====================================== */
+    --dy-sunshine-yellow: #ffc536;
+    --dy-blue-sky:        #3597c8;
+    --dy-pure-cloud:      #ffffff;
+    --dy-evening-blue:    #120223;
+
+    /* ===== Secondary palette ============================================ */
+    --dy-watermelon:        #f45c5a;
+    --dy-pacific-blue:      #3cb1cc;
+    --dy-cloud-blue:        #a4bfd2;
+    --dy-cloud-blue-light:  #f4f7fa;
+    --dy-smart-blue:        #51b0b0;
+    --dy-aqua-fria:         #b7d5d5;
+    --dy-aqua-fria-light:   #f3f9f9;
+    --dy-coral-pink:        #ff7a6a;
+    --dy-pale-pink:         #ffe5ea;
+    --dy-pale-pink-light:   #fff7f9;
+    --dy-purple-dawn:       #6e69ac;
+    --dy-pale-purple:       #f1efff;
+    --dy-pale-purple-light: #f8f7fb;
+
+    /* ===== Warm accents (gradient stops, promo, hero) =================== */
+    --dy-peach:        #ee825f;
+    --dy-apricot:      #ffaf36;
+    --dy-amber:        #feb900;
+    --dy-mango:        #fd7030;
+    --dy-sunset-pink:  #fdaa9a;
+    --dy-coral-light:  #ff9a9a;
+
+    /* ===== Semantic (success / warning / error / info) ================== */
+    --dy-success: #51b0b0;
+    --dy-warning: #ffc536;
+    --dy-error:   #f45c5a;
+    --dy-info:    #3597c8;
+
+    /* ===== Ink scale (Evening-blue based neutrals) ====================== */
+    --dy-ink-900: #120223;
+    --dy-ink-700: #292935;
+    --dy-ink-500: #54545d;
+    --dy-ink-400: #8e8e93;
+    --dy-ink-300: #d4d4d7;
+    --dy-ink-200: #eaeaeb;
+    --dy-ink-100: #f5f5f7;
+    --dy-ink-50:  #f9f9f9;
+
+    /* ===== Gradients ==================================================== */
+    --dy-gradient-generic: linear-gradient(180deg, #ffd86b 0%, #ffc536 50%, #feb900 100%);
+    --dy-gradient-primary: linear-gradient(135deg, #ffd86b 0%, #ffc536 50%, #feb900 100%);
+    --dy-gradient-sunset:  linear-gradient(135deg, #ffe58a 0%, #ffc536 60%, #ffaf36 100%);
+    --dy-gradient-cta:     linear-gradient(62deg,  #ffaf36 0%, #ffc536 100%);
+
+    /* ===== Semantic aliases (use these in components) =================== */
+    /* Foreground */
+    --fg-default: var(--dy-ink-700);
+    --fg-muted:   var(--dy-ink-500);
+    --fg-subtle:  var(--dy-ink-400);
+    --fg-inverse: var(--dy-pure-cloud);
+    --fg-brand:   var(--dy-evening-blue);
+    --fg-accent:  var(--dy-peach);
+    --fg-link:    var(--dy-evening-blue);
+
+    /* Background */
+    --bg-page:    var(--dy-ink-50);
+    --bg-surface: var(--dy-pure-cloud);
+    --bg-muted:   var(--dy-ink-100);
+    --bg-brand:   var(--dy-evening-blue);
+    --bg-hero:    var(--dy-sunshine-yellow);
+
+    /* Border */
+    --border-subtle:  var(--dy-ink-100);
+    --border-default: var(--dy-ink-200);
+    --border-strong:  var(--dy-ink-300);
+    --border-focus:   var(--dy-evening-blue);
+
+    /* ===== Spacing (Figma gaps: 4 / 8 / 12 / 16 / 20 / 24 / 32 / 40 / 64 / 80) */
+    --space-1:  4px;
+    --space-2:  8px;
+    --space-3:  12px;
+    --space-4:  16px;
+    --space-5:  20px;
+    --space-6:  24px;
+    --space-8:  32px;
+    --space-10: 40px;
+    --space-16: 64px;
+    --space-20: 80px;
+
+    /* ===== Radius ======================================================= */
+    --radius-xs:   5px;   /* small tokens, tabs */
+    --radius-sm:   10px;  /* chips, swatches */
+    --radius-md:   14px;  /* composer bubbles */
+    --radius-lg:   20px;  /* cards, tiles */
+    --radius-xl:   28px;  /* hero surfaces */
+    --radius-full: 9999px;
+
+    /* ===== Elevation (Figma Shadow 100 / 200 / 300) ===================== */
+    --shadow-100: 0 1px 2px rgba(18, 2, 35, 0.06);
+    --shadow-200: 0 4px 12px rgba(18, 2, 35, 0.08);
+    --shadow-300: 0 12px 32px rgba(18, 2, 35, 0.12);
+
+    /* ===== Motion ======================================================= */
+    --ease-out:    cubic-bezier(0.22, 0.61, 0.36, 1);
+    --ease-in-out: cubic-bezier(0.65, 0, 0.35, 1);
+    --dur-fast: 120ms;
+    --dur-base: 200ms;
+    --dur-slow: 320ms;
+
+    /* ===== Type ========================================================= */
+    --font-display: 'MaisonNeueExtended-Bold', 'Maison Neue Extended', 'Archivo', 'Helvetica Neue', sans-serif;
+    --font-ui:      'Manrope', 'Helvetica Neue', system-ui, sans-serif;
+    --font-alt:     'Poppins', 'Manrope', system-ui, sans-serif;
+
+    --fs-xs:   11px;
+    --fs-sm:   12px;
+    --fs-base: 14px;
+    --fs-md:   15px;
+    --fs-lg:   17px;
+    --fs-xl:   20px;
+    --fs-2xl:  24px;
+    --fs-3xl:  32px;
+
+    --fw-regular: 400;
+    --fw-medium:  500;
+    --fw-semi:    600;
+    --fw-bold:    700;
+    --fw-black:   800;
+
+    --lh-tight: 1.2;
+    --lh-snug:  1.35;
+    --lh-base:  1.5;
+    --lh-loose: 1.7;
+}

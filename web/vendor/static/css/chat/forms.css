@@ -1,0 +1,186 @@
+/**
+ * Form Styles
+ * Inputs, buttons, chips, and suggestions
+ */
+
+/* ===== FORM ELEMENTS ===== */
+input[type="text"] {
+    flex: 1;
+    padding: 12px 20px;
+    border: 1px solid #EAEAEB;
+    border-radius: 100px;
+    font-family: inherit;
+    font-size: inherit;
+}
+
+button {
+    background: linear-gradient(62deg, #FFAF36 0%, #FFC536 100%);
+    border: none;
+    border-radius: 100px;
+    padding: 12px 24px;
+    font-weight: 600;
+    cursor: pointer;
+    font-family: inherit;
+    font-size: inherit;
+    color: inherit;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+}
+
+button.button-loading {
+    background-image: none !important;
+    background-color: #CCCCCC !important;
+    background: #CCCCCC !important;
+    color: #666666 !important;
+    opacity: 0.5;
+    cursor: not-allowed !important;
+    pointer-events: none;
+    box-shadow: none !important;
+}
+
+button .arrow-icon {
+    font-size: 18px;
+    line-height: 1;
+}
+
+/* ===== CHIPS & SUGGESTIONS ===== */
+.chips-container {
+    display: flex;
+    gap: 8px;
+    flex-wrap: wrap;
+    margin: 10px 20px 0 20px;
+}
+
+.chip {
+    padding: 8px 12px;
+    background: #FFFFFF;
+    border: 1px solid #D4D4D7;
+    border-radius: 100px;
+    font-size: 12px;
+    font-weight: 600;
+    cursor: pointer;
+}
+
+.chip-group {
+    margin-bottom: 12px;
+}
+
+.chip-group__label {
+    font-size: 13px;
+    color: #54545D;
+    margin-bottom: 8px;
+    font-weight: 600;
+}
+
+.chips-inline {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 8px;
+    margin: 8px 20px 0 20px;
+}
+
+.chips-inline .chip {
+    padding: 8px 12px;
+    background: #fff;
+    border: 1px solid #D4D4D7;
+    border-radius: 100px;
+    font-size: 12px;
+    font-weight: 600;
+    cursor: pointer;
+}
+
+.suggestions {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 8px;
+    margin: 4px 0 0 0;
+}
+
+.chip--suggestion {
+    display: inline-flex;
+    align-items: center;
+    gap: 7px;
+    padding: 9px 15px;
+    /* Soft warm tint so the suggestion pills read as inviting, not utilitarian. */
+    background: linear-gradient(135deg, #ffffff 0%, var(--dy-pale-pink-light) 100%);
+    color: var(--fg-default);
+    border: 1px solid var(--border-default);
+    border-radius: var(--radius-full);
+    font-size: var(--fs-sm);
+    font-weight: var(--fw-semi);
+    line-height: 1.2;
+    cursor: pointer;
+    box-shadow: 0 1px 2px rgba(18, 2, 35, 0.05);
+    transition: transform var(--dur-fast) var(--ease-out),
+                box-shadow var(--dur-fast) var(--ease-out),
+                border-color var(--dur-fast) var(--ease-out),
+                background var(--dur-fast) var(--ease-out);
+}
+
+/* Little warm gradient dot — brand polish without putting an emoji in the chip
+   text (the text is sent verbatim as the user's message on click). */
+.chip--suggestion::before {
+    content: "";
+    flex: 0 0 auto;
+    width: 6px;
+    height: 6px;
+    border-radius: 50%;
+    background: linear-gradient(135deg, var(--dy-mango), var(--dy-apricot));
+}
+
+.chip--suggestion:hover {
+    transform: translateY(-1px);
+    background: linear-gradient(135deg, #ffffff 0%, var(--dy-pale-pink) 100%);
+    border-color: var(--dy-apricot);
+    box-shadow: 0 4px 12px rgba(255, 122, 106, 0.18);
+}
+
+.chip--suggestion:active {
+    transform: translateY(0);
+    box-shadow: 0 1px 2px rgba(18, 2, 35, 0.05);
+}
+
+.suggestions-list {
+    margin-top: 12px;
+    padding-left: 16px;
+    font-size: 12px;
+}
+
+/* ===== BOOK BUTTON ===== */
+.book-button-link {
+    text-decoration: none;
+    display: inline-flex;
+    flex-shrink: 0;
+}
+
+.book-button {
+    background: var(--dy-gradient-cta);
+    border: none;
+    border-radius: var(--radius-full);
+    padding: 10px 18px;
+    font-weight: var(--fw-bold);
+    cursor: pointer;
+    color: var(--fg-brand);
+    width: auto;
+    margin: 0;
+    font-size: var(--fs-sm);
+    line-height: 1;
+    transition: background var(--dur-base) var(--ease-out),
+                transform var(--dur-base) var(--ease-out);
+}
+
+.book-button:hover {
+    background: linear-gradient(62deg, #FF9F26 0%, #FFB526 100%);
+    transform: translateY(-1px);
+}
+
+/* Inline CTA link variant (for fallback/redirect buttons) */
+.fallback-cta {
+    display: inline-flex;
+    align-items: center;
+    gap: 8px;
+    width: auto;
+    text-decoration: none;
+    margin-top: 12px;
+}
