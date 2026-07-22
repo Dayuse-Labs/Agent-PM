@@ -1,0 +1,53 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://dayuse.com/schemas/canonical-eval-case-v1.json",
+  "title": "Dayuse canonical evaluation case",
+  "type": "object",
+  "required": ["schema_version", "id", "suite", "description", "turns"],
+  "properties": {
+    "schema_version": {"const": "1.0"},
+    "id": {"type": "string", "minLength": 1},
+    "suite": {"type": "string", "minLength": 1},
+    "description": {"type": "string"},
+    "tags": {"type": "array", "items": {"type": "string"}},
+    "source": {"type": "object"},
+    "clock": {"type": "string", "format": "date-time"},
+    "request": {
+      "type": "object",
+      "properties": {
+        "locale": {"type": "string"},
+        "currency": {"type": "string"},
+        "headers": {"type": "object", "additionalProperties": {"type": "string"}},
+        "native_context": {"type": "object"},
+        "payload": {"type": "object"}
+      },
+      "additionalProperties": false
+    },
+    "turns": {
+      "type": "array",
+      "minItems": 1,
+      "items": {
+        "type": "object",
+        "required": ["message", "expect"],
+        "properties": {
+          "message": {"type": "string", "minLength": 1},
+          "payload": {"type": "object"},
+          "expect": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "required": ["type"],
+              "properties": {
+                "type": {"type": "string"},
+                "severity": {"enum": ["critical", "warning", "info"]}
+              },
+              "additionalProperties": true
+            }
+          }
+        },
+        "additionalProperties": false
+      }
+    }
+  },
+  "additionalProperties": false
+}

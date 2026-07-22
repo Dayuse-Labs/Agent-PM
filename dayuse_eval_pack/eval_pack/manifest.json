@@ -1,0 +1,286 @@
+{
+  "schema_version": "1.0",
+  "pack_version": "2026.07.21-v1",
+  "generated_at": "2026-07-21T08:35:05.588877+00:00",
+  "repository_commit": "998fe1c1a581bd6b4babe0d874dbd4052e9401b2",
+  "repository_branch": "fix/worldwide-fallback-subcity-locale-guard",
+  "deployed_commit": null,
+  "deployed_commit_verified": false,
+  "warning": "A production baseline and deployed commit could not be generated without approved production credentials. Run the pack against the verified deployed endpoint before comparison.",
+  "privacy": {
+    "raw_session_ids_included": false,
+    "customer_pii_included": false,
+    "prod_references": "salted one-way short hashes only"
+  },
+  "total_cases": 249,
+  "suites": {
+    "core": {
+      "file": "cases/core.jsonl",
+      "cases": 95,
+      "sha256": "e5c1f05314a8c26af638be4b9fefbb94df59ef17c76baf5966d101abf4c851e0"
+    },
+    "domain": {
+      "file": "cases/domain.jsonl",
+      "cases": 8,
+      "sha256": "2f20c51cab1df1f14c79df6b9f1d9b73749fa7658ee4433ba9dfbd787082cfdc"
+    },
+    "geo": {
+      "file": "cases/geo.jsonl",
+      "cases": 41,
+      "sha256": "bcd371fff9ddfa1712ff9d661ac86b1121aaaa87508bb6c945d35f3b3ac2fe53"
+    },
+    "international": {
+      "file": "cases/international.jsonl",
+      "cases": 13,
+      "sha256": "8983647b36391593ca01cf1da6f8d1d22e2f3636f810b59800f4a4768034cf66"
+    },
+    "multiturn": {
+      "file": "cases/multiturn.jsonl",
+      "cases": 27,
+      "sha256": "3c4f24d9257d809a86d7940f4b0517b4d58a3100a2e26b97ba7f0cb04eb5b09d"
+    },
+    "prod_wounds": {
+      "file": "cases/prod_wounds.jsonl",
+      "cases": 13,
+      "sha256": "8adaa0f080fb5ff8a3dd2fe6ab829e3f93afdf80cf60483e993dda7791c28a25"
+    },
+    "worldwide": {
+      "file": "cases/worldwide.jsonl",
+      "cases": 52,
+      "sha256": "b29af216712a69f18c519c6a16cdd7c343ea6dd6b3d554f635ab69161a193ece"
+    }
+  },
+  "inventory_fixture": {
+    "schema_version": "1.0",
+    "generated_at": "2026-07-21T08:35:05.429464+00:00",
+    "source_kind": "tracked_repository_exports",
+    "production_fresh": false,
+    "warning": "This snapshot comes from tracked repository exports, not a live production query. Regenerate from an approved fresh export before using it as current production truth.",
+    "privacy": {
+      "removed": [
+        "address",
+        "photos",
+        "descriptions",
+        "reviews",
+        "orders",
+        "customer data"
+      ],
+      "contains_customer_pii": false
+    },
+    "hotels": 8701,
+    "rate_plans": 22177,
+    "markets": {
+      "AE": 128,
+      "AT": 45,
+      "AU": 350,
+      "BE": 134,
+      "BH": 3,
+      "BR": 20,
+      "CA": 207,
+      "CH": 154,
+      "CZ": 14,
+      "DE": 528,
+      "ES": 135,
+      "FR": 1962,
+      "GB": 928,
+      "HK": 138,
+      "IE": 22,
+      "IT": 704,
+      "KR": 11,
+      "LU": 20,
+      "MO": 5,
+      "NL": 158,
+      "NZ": 72,
+      "PT": 26,
+      "QA": 8,
+      "SA": 12,
+      "SE": 4,
+      "SG": 144,
+      "TH": 67,
+      "TR": 12,
+      "US": 2690
+    },
+    "output": "inventory_snapshot.jsonl.gz",
+    "output_sha256": "5dba592be268953d885c6a1f2ae71b4ba5335bfaf0110ae5b9d10501beb08e25",
+    "source_files": [
+      {
+        "name": "structured_hotels_ae.json",
+        "rows": 128,
+        "sha256": "70e4fdce1d895ecd4b017b90a40eca312c37602e6865195efcad806d6e085489",
+        "modified_at": "2026-06-24T15:54:00.233440+00:00"
+      },
+      {
+        "name": "structured_hotels_at.json",
+        "rows": 45,
+        "sha256": "f6ffeb79a1e564127477b050e9fd39528e396340040bbdfcc6c37e133b0393d6",
+        "modified_at": "2026-06-24T15:54:00.234561+00:00"
+      },
+      {
+        "name": "structured_hotels_au.json",
+        "rows": 350,
+        "sha256": "b10e9ead0904d953e44a2901191137b8aa33b883bbe1fe732e917caee3639053",
+        "modified_at": "2026-06-24T15:54:00.240759+00:00"
+      },
+      {
+        "name": "structured_hotels_be.json",
+        "rows": 134,
+        "sha256": "fb14d3a08754520cd3fb41913b1b7b4c438064b6060fb57cb6196f52d2edef43",
+        "modified_at": "2026-06-24T15:54:00.245854+00:00"
+      },
+      {
+        "name": "structured_hotels_bh.json",
+        "rows": 3,
+        "sha256": "1605996d1d4e561fc6abb1760f2200aa6d1d858e213af03b60f45e86b999cc4c",
+        "modified_at": "2026-06-24T15:54:00.246871+00:00"
+      },
+      {
+        "name": "structured_hotels_br.json",
+        "rows": 20,
+        "sha256": "28dded33ec84deab042f15a11f18cd6e89440ed6904f0e0fd291fcfe61627e33",
+        "modified_at": "2026-06-24T15:54:00.247813+00:00"
+      },
+      {
+        "name": "structured_hotels_ca.json",
+        "rows": 207,
+        "sha256": "9c0cba580e7ddc59772be46e6e90f8fb71b4d811b2a931b69b190601e88311e2",
+        "modified_at": "2026-06-24T15:54:00.251944+00:00"
+      },
+      {
+        "name": "structured_hotels_ch.json",
+        "rows": 154,
+        "sha256": "7a022d5f9388366d47219407fc20ef2f27f8bef9133de0b29c7faa5bda7d051c",
+        "modified_at": "2026-06-24T15:54:00.258334+00:00"
+      },
+      {
+        "name": "structured_hotels_cz.json",
+        "rows": 14,
+        "sha256": "ccbc233647e238538c89165f1a5d73adb1b710c49c3c6d00ec1edf88d4f507fe",
+        "modified_at": "2026-06-24T15:54:00.259249+00:00"
+      },
+      {
+        "name": "structured_hotels_de.json",
+        "rows": 528,
+        "sha256": "51bee5e485855251e3f3bb8329ccd40675177c4d549d10c3476e08b75d99c7b8",
+        "modified_at": "2026-06-24T15:54:00.268225+00:00"
+      },
+      {
+        "name": "structured_hotels_es.json",
+        "rows": 135,
+        "sha256": "22c2ca346c0b46ab1314cfdf58143e1e48dd6a32e8699877a565935bb11a8d0b",
+        "modified_at": "2026-06-24T15:54:00.274492+00:00"
+      },
+      {
+        "name": "structured_hotels_fr.json",
+        "rows": 1962,
+        "sha256": "baf7c45a805c9e29b48d53a9318e1b69671cf0a9f8cce86aefc72d77cde0c120",
+        "modified_at": "2026-06-24T15:54:00.316252+00:00"
+      },
+      {
+        "name": "structured_hotels_gb.json",
+        "rows": 928,
+        "sha256": "7ad1a17d06e382e60cdeea5ed8a2529234ab40e6d4815f2fe2520955bc996f16",
+        "modified_at": "2026-06-24T15:54:00.336221+00:00"
+      },
+      {
+        "name": "structured_hotels_hk.json",
+        "rows": 138,
+        "sha256": "7a7adacdf72ed7706477fdd11eea3d035b6ba7897c3f5069420dbb55703681b7",
+        "modified_at": "2026-06-24T15:54:00.342075+00:00"
+      },
+      {
+        "name": "structured_hotels_ie.json",
+        "rows": 22,
+        "sha256": "a9e22ab9abfe2d370a5c7c9013241838b03b1077ed715b19bf454e52a829e918",
+        "modified_at": "2026-06-24T15:54:00.348177+00:00"
+      },
+      {
+        "name": "structured_hotels_it.json",
+        "rows": 704,
+        "sha256": "5b91bb408ba94b9a3abc26e3f5c64b80c2a2f0077b729d841f202413f8660761",
+        "modified_at": "2026-06-24T15:54:00.363294+00:00"
+      },
+      {
+        "name": "structured_hotels_kr.json",
+        "rows": 11,
+        "sha256": "ee2f1269f8a807b8896ae81225c6fd87bbc87db7bf0e7c4eb752ebf0790e89f0",
+        "modified_at": "2026-06-24T15:54:00.364097+00:00"
+      },
+      {
+        "name": "structured_hotels_lu.json",
+        "rows": 20,
+        "sha256": "e8debf267124ecc3e4132d273bfd752cce149980479e83ee9759914566e851f1",
+        "modified_at": "2026-06-24T15:54:00.366910+00:00"
+      },
+      {
+        "name": "structured_hotels_mo.json",
+        "rows": 5,
+        "sha256": "3edf0cacee13ed24f3b58dc7c78e49b2fa1eee207a5949a7cf780103d148ff2d",
+        "modified_at": "2026-06-24T15:54:00.368483+00:00"
+      },
+      {
+        "name": "structured_hotels_nl.json",
+        "rows": 158,
+        "sha256": "5fcaa0f8545e7b45162340581c67135853cb79ba0e229471899f1d316dad15c6",
+        "modified_at": "2026-06-24T15:54:00.375165+00:00"
+      },
+      {
+        "name": "structured_hotels_nz.json",
+        "rows": 72,
+        "sha256": "6571a123fcdc7918092909742e22f880e345de077477d3dd7e2a420fe62a69ee",
+        "modified_at": "2026-06-24T15:54:00.378239+00:00"
+      },
+      {
+        "name": "structured_hotels_pt.json",
+        "rows": 26,
+        "sha256": "fe813b1c087abb62fc761091c4b27e00c45b3348aadff574d42a034f9c543fe1",
+        "modified_at": "2026-06-24T15:54:00.379603+00:00"
+      },
+      {
+        "name": "structured_hotels_qa.json",
+        "rows": 8,
+        "sha256": "d5c67b90236e77fb52de8845fabc9c367eeab224fbda117b3d344ce670bb8545",
+        "modified_at": "2026-06-24T15:54:00.380083+00:00"
+      },
+      {
+        "name": "structured_hotels_sa.json",
+        "rows": 12,
+        "sha256": "01d26913ac661f8dc7e8e897aaa0df43b3c9b637f7e4d6d9edf51acbe6822d8f",
+        "modified_at": "2026-06-24T15:54:00.380709+00:00"
+      },
+      {
+        "name": "structured_hotels_se.json",
+        "rows": 4,
+        "sha256": "2965f9da452c38bd3bb026b29a58e71ee9babe23f1a99c1a16e5333dcd9e3787",
+        "modified_at": "2026-06-24T15:54:00.381118+00:00"
+      },
+      {
+        "name": "structured_hotels_sg.json",
+        "rows": 144,
+        "sha256": "e40320fdc33efad767252d0176a5a53d76d8bf0013ca13707d1926a4281555f5",
+        "modified_at": "2026-06-24T15:54:00.384306+00:00"
+      },
+      {
+        "name": "structured_hotels_th.json",
+        "rows": 67,
+        "sha256": "c70d630970f7dba4e5f3c8e0b8d6bae19ba4a8ce1af32a3cc9dafbf34706f5a0",
+        "modified_at": "2026-06-24T15:54:00.388673+00:00"
+      },
+      {
+        "name": "structured_hotels_tr.json",
+        "rows": 12,
+        "sha256": "f2973c26c59cf7a582fbf72666dd3ed4d5fd8de882f01a39f7b550bf10e22b98",
+        "modified_at": "2026-06-24T15:54:00.389477+00:00"
+      },
+      {
+        "name": "structured_hotels_us.json",
+        "rows": 2690,
+        "sha256": "ede009559761d3f41eb38e2914ff3bdfafab1a9e746f35e9ad17666e1a81b17e",
+        "modified_at": "2026-06-24T15:54:00.441824+00:00"
+      }
+    ]
+  },
+  "baseline": {
+    "included": false,
+    "instructions": "See baselines/README.md"
+  }
+}
