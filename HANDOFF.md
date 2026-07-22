@@ -2,6 +2,33 @@
 
 État du chantier pour reprise en session fraîche. **Lire en entier avant d'agir ; ne pas reconstruire ce qui existe.** Mettre à jour en fin de CHAQUE session (bloc daté en tête).
 
+## ⏱ Addendum 2026-07-22 (branche `s-d-judge-ab`) — S-D : bench Judge A/B agent-usa vs AgentB2C (réel, pas juste le harness)
+
+**Contexte** : suite du plan S-A→S-F (`~/.claude/plans/dans-le-repo-j-ai-serene-wreath.md`, `tasks/todo.md`) démarré par ailleurs (branche `s15-eval-adapter`/`s16-agent-usa-baseline`, PR #18, S-A fait). **Découverte en tout début de session** : une session Claude Code différente avait déjà construit un harness plus complet et exécuté un premier smoke — j'ai abandonné mon propre plan initial (un mini shadow-run harness, redondant) pour reprendre S-D, seul item de la suite NON bloqué par toi (S-B/S-C attendent une procédure de boot agent-usa + accès prod ES/DB). Branche coupée sur `main` (PAS sur `s16-agent-usa-baseline`, potentiellement en cours d'usage ailleurs) — `dayuse_eval_pack/` n'existe pas encore sur `main` (PR #18 pas mergée), et S-D n'en a pas besoin (juste `evalset/evalset-v0.json` + `evals/judge.py`).
+
+**Fait** :
+- **`scripts/run_judge_ab.py`** (neuf) — rejoue `evalset-v0.json` (32 scénarios) en HTTP contre UN endpoint `/v3/chat` à la fois, note chaque scénario avec le `LLMJudge` existant (`evals/judge.py`, inchangé). Protocole calqué sur `dayuse_eval_pack/eval_pack/runner.py::HttpChatClient` (stdlib `urllib`, `session_id` en BODY — pas le header — car ça marche identiquement côté agent-usa et côté façade AgentB2C ; préfixe `canonical-eval-`), `X-Dayuse-Synthetic: 1` toujours posé. `summarize_judge_ab` est volontairement DISTINCT de `evals.battery.summarize` (ce dernier suppose un budget LLM/tour mesurable, impossible en HTTP boîte-noire côté agent-usa). `tests/test_run_judge_ab.py` (22 tests offline, `httpx`... non, `urllib.request.urlopen` mocké + faux judge, script chargé par `importlib` comme `test_release_gate.py`).
+- **DoD verte** : `pytest tests/test_run_judge_ab.py -q` → 22 passed ; `pytest -q` (repo entier) → 535 passed, **1 échec préexistant hors périmètre** (`tests/test_llm_meter_usage.py`, fichier untracked d'une autre session, S-B, bug d'arrondi trivial — pas touché) ; `ruff` OK ; guardrails OK.
+- **Décision Fabien en cours de session** : au lieu de s'arrêter au harness+tests offline, faire tourner le VRAI bench contre les deux stacks, avec artefact + markdown.
+
+**Bench réel exécuté** (32 scénarios × 2 stacks, juge gpt-4o-mini) :
+- **AgentB2C** : `bash scripts/run_local.sh` (MCP_B2C staging).
+- **agent-usa** : démarré en LOCAL avec succès (`flask --app src.api.app:create_app run --port 5002`) — Postgres+Redis+Qdrant (`dayuse-postgres`/`dayuse-redis`/`dayuse-qdrant`, déjà up depuis une session précédente) **déjà migrés (`alembic current` → head) ET seedés** (8 701 hôtels/29 marchés, export prod du 2026-07-15, Qdrant réindexé pareil) — aucune migration/seed à refaire.
+- **2 bugs d'environnement trouvés et corrigés en route** :
+  1. `.env` d'agent-usa pointait `DATABASE_URL`/`REDIS_URL` sur les MAUVAIS ports (5432/6380 au lieu des vrais 5433/6381 des conteneurs `dayuse-postgres`/`dayuse-redis` réellement up) — `DATABASE_URL` visait donc un Postgres SANS RAPPORT (`plan_dev_mission_space-db-1`), et **`REDIS_URL` visait `agentb2c-redis-6380` — LE Redis dédié d'AgentB2C**. Corrigé (2 lignes, ports uniquement) dans `agent-usa/.env` avant boot.
+  2. **⚠️ Plus sérieux** : `bash scripts/run_local.sh` ne fixe PAS `CONCIERGE_REDIS_URL` → le défaut code (`profile_store.py`) est `redis://localhost:6379/0`, **le vrai Redis perso de Fabien** (`dayuse-redis-1`), déjà up. Mon 1er run candidate (+ le `smoke_e2e.py` lancé juste avant) a donc écrit **31 clefs `b2c_concierge:profile:*`** dedans (sessions synthétiques `canonical-eval-*` + 2 issues de mon `smoke_e2e.py`). **Stack stoppée immédiatement, signalé à Fabien avant toute suite — décision : ne pas nettoyer, il s'en occupe.** Relancé avec `CONCIERGE_REDIS_URL=redis://localhost:6380/0` (le Redis dédié déjà up) ; le run candidate a été REFAIT proprement. Recommandation laissée dans le rapport : ce défaut est un piège récurrent (déjà documenté dans plusieurs addenda précédents comme règle à respecter à la main) — envisager un défaut moins collisionnel ou fixer `CONCIERGE_REDIS_URL` dans `run_local.sh`.
+- **Effet concret du bug #2** : avant fix, une recherche « Bercy Village » (Paris) renvoyait des hôtels à **Toronto/Markham** (résolution géo sans mémoire de ville) — disparu après le fix, cohérence de ville confirmée sur tous les tours suivants.
+
+**Résultats** (rapport complet + transcripts : `JUDGE-AB-BENCH-2026-07-22.md`, dashboard : artifact publié dans la conversation) :
+- Pass rate juge : AgentB2C 5/32 (15,6 %) vs agent-usa 6/32 (18,8 %) — proches, dominés par des gaps DOCUMENTÉS (langues de/es/it/pt non couvertes par aucun des deux spines, inventaire staging partiel côté candidat) plutôt qu'une vraie régression qualité.
+- **Latence — signal net et structurel** : AgentB2C p50 4,2 s / p95 9,1 s vs agent-usa p50 6,9 s / p95 14,3 s → **-37 % à -43 %**, cohérent avec le budget ≤3 appels LLM/tour vs les 3-20+ documentés côté agent-usa.
+- `empty_dead` : AgentB2C 4/4 (100 %) vs agent-usa 2/4 (50 %) — le guard anti-dead-end (S6) tient, agent-usa redemande parfois la ville même quand la zone est déjà donnée.
+
+**Reste / recommandations** :
+- **Pas une mesure de parité valable pour le GO/hybride** — asymétrie d'inventaire non résolue (candidat sur ES staging, agent-usa sur un vrai extrait prod local) tant que S-C (accès ES prod pour MCP_B2C) reste bloqué.
+- Les 31 clefs `b2c_concierge:profile:*` dans `dayuse-redis-1` (port 6379) restent en place — à nettoyer par Fabien quand il veut (namespace clairement identifiable, zéro risque de confusion avec les données du site principal).
+- `run_judge_ab.py` est prêt à re-tourner tel quel dès que S-C lève le blocage prod ES — juste repointer `--endpoint`.
+
 ## ⏱ Addendum 2026-07-21 (branche `s13-drift-geo-zip`) — S13 : scoping pays du géocodage ZIP US (feuille search)
 
 **Contexte** : `AUDIT-DRIFT-AGENT-USA-2026-07-20.md` pointait un bug prod agent-usa (`b429125`, spec `test_us_market_five_digit_postcode_never_falls_through_worldwide`) : un ZIP US 5 chiffres (« near 11580 ») partait en géocodage MONDE ENTIER faute de scope pays. Zone stricte `agents/hotel_search_agent/**` — zéro changement concierge.
