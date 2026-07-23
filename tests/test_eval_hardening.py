@@ -249,6 +249,21 @@ def test_zone_change_fail_when_zone_stuck():
     assert outcome["status"] == "fail"
 
 
+def test_zone_change_pass_when_the_place_moves_as_city():
+    # D2-a (2026-07-23): the agent records a neighboring-city change under
+    # `city`, not `zone` — the check must credit either.
+    case = _case("c1", tags=["zone_change"], turns=[_turn("a"), _turn("b")])
+    result = _result(
+        "c1",
+        [
+            _response(active_filters={"city": "Miami", "zone": None}),
+            _response(active_filters={"city": "Fort Lauderdale", "zone": None}),
+        ],
+    )
+    outcome = eh.check_zone_change(case, result)
+    assert outcome["status"] == "pass"
+
+
 def test_zone_change_none_when_untagged():
     case = _case("c1", tags=[], turns=[_turn("a"), _turn("b")])
     result = _result("c1", [_response(), _response()])

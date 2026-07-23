@@ -110,6 +110,38 @@ def test_echo_back_accepts_saint_st_variants():
     )
 
 
+def test_echo_back_accepts_translated_exonym_wien_vienna():
+    # S-G9 finding 9: "Wien" resolved as "Vienna, Austria" was rejected —
+    # a translated exonym is a different word, not a diacritic variant, so
+    # only the explicit pair table can bridge it.
+    assert geocode_echo_matches(
+        "Vienna, Austria",
+        city="Wien",
+        zone=None,
+        state_hint=None,
+    )
+
+
+def test_echo_back_accepts_exonym_in_the_other_direction():
+    assert geocode_echo_matches(
+        "Praha, Czechia",
+        city="Prague",
+        zone=None,
+        state_hint=None,
+    )
+
+
+def test_echo_back_still_rejects_unrelated_place_despite_exonym_table():
+    # The table must only bridge its own pairs — an unrelated resolution for
+    # "Wien" stays rejected.
+    assert not geocode_echo_matches(
+        "Vienne, Isère, France",
+        city="Wien",
+        zone=None,
+        state_hint=None,
+    )
+
+
 def test_echo_back_passes_when_no_distinctive_tokens():
     # Short aliases ("NYC") carry no >=4-char token — never block on them.
     assert geocode_echo_matches(

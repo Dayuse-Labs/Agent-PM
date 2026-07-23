@@ -107,6 +107,10 @@ _STATE_TIMESLOT_FALLBACK_KEY = "temp:hotel_search_timeslot_fallback"
 # 3 and see how much is unaccounted for (A2A/ADK overhead, MCP session setup)
 # instead of just the phases that happen to call a tool or the model.
 _STATE_TURN_T0_KEY = "temp:hotel_search_turn_t0"
+# S-G10 (D3): the geocode clarify question of THIS turn — emitted as a
+# deterministic `requires_clarification` DataPart flag so the orchestrator's
+# facade can report the clarification honestly (it used to be hardcoded False).
+_STATE_CLARIFY_QUESTION_KEY = "temp:hotel_search_clarify_question"
 
 # The leaf ALWAYS reports a non-explicit provenance for a captured budget/
 # time-slot: the concierge's budget-integrity guard (P1) owns the upgrade to
@@ -574,6 +578,13 @@ def capture_after_tool(
                     "label": tool_response.get("resolved_place"),
                     "type": tool_response.get("distance_origin_type") or "city_centroid",
                 }
+        elif isinstance(tool_response, dict) and tool_response.get("error") == "geocode_ambiguous":
+            # S-G10 (D3): remember the clarify question — emit_search_datapart
+            # turns it into a deterministic `requires_clarification` flag when
+            # no search ends up running this turn.
+            question = (tool_response.get("diagnostics") or {}).get("question")
+            if isinstance(question, str) and question.strip():
+                tool_context.state[_STATE_CLARIFY_QUESTION_KEY] = question.strip()
         return None
 
     if name not in _TARGET_TOOLS or not isinstance(tool_response, dict):
@@ -808,16 +819,28 @@ def emit_search_datapart(callback_context: Any) -> genai_types.Content | None:
             profile_delta["timeslot_end"] = budget_timeslot["timeslot_end"]
         profile_delta["timeslot_request_source"] = _REQUEST_SOURCE_FLEXIBLE
 
+    # Distance origin (A8-a) only when there are cards to attach distances to — a
+    # 0-result search carries none. Nested INSIDE profile_delta: the concierge
+    # only ever reads `profile_delta` off the wire (agent.py), so a top-level
+    # sibling key silently never reaches the profile (S-G9 finding 1).
+    distance_origin = state.get(_STATE_DISTANCE_ORIGIN_KEY)
+    if distance_origin and results:
+        profile_delta["distance_origin"] = distance_origin
+
+    clarify_question = state.get(_STATE_CLARIFY_QUESTION_KEY)
+    clarify_turn = results is None and isinstance(clarify_question, str)
+
     payload: dict[str, Any] = {}
     if results is not None:  # a search ran (even 0 results is a real outcome)
         payload["results"] = results
     if profile_delta:
         payload["profile_delta"] = profile_delta
-    # Distance origin (A8-a) only when there are cards to attach distances to — a
-    # 0-result search carries none, keeping the emitted payload minimal.
-    distance_origin = state.get(_STATE_DISTANCE_ORIGIN_KEY)
-    if distance_origin and results:
-        payload["distance_origin"] = distance_origin
+    if clarify_turn:
+        # A geocode homonym clarify ended this turn with no search (S-G10, D3):
+        # flag it deterministically so the orchestrator's facade can report
+        # `requires_clarification` honestly (it used to be hardcoded False and
+        # safe clarifying questions scored as hard failures).
+        payload["requires_clarification"] = True
     if not payload:
         return None
 
@@ -825,6 +848,11 @@ def emit_search_datapart(callback_context: Any) -> genai_types.Content | None:
     if results is not None:
         timeslot_fallback = bool(state.get(_STATE_TIMESLOT_FALLBACK_KEY))
         parts.append(genai_types.Part(text=_outcome_text(results, timeslot_fallback)))
+    elif clarify_turn:
+        # This event replaces the model's own final text (last non-partial
+        # wins), so the deterministic clarify question must ride here or the
+        # question would be lost — the orchestrator's synthesis re-localizes it.
+        parts.append(genai_types.Part(text=clarify_question))
     parts.append(encode_datapart(payload))
     return genai_types.Content(role="model", parts=parts)
 

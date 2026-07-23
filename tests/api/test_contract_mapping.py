@@ -50,8 +50,22 @@ def test_no_lookup_turn_maps_hotels_none_and_not_ready():
     )
     assert payload["hotels"] is None
     assert payload["ready_to_search"] is False
-    assert payload["requires_clarification"] is False
+    assert payload["requires_clarification"] is False  # default stays False
     assert payload["state"] == "responding"
+
+
+def test_geocode_clarify_turn_reports_requires_clarification():
+    # S-G10 (D3): the leaf's deterministic geocode-clarify flag reaches the
+    # contract field (was hardcoded False — safe clarifying questions scored
+    # as hard failures). Reporting only: nothing blocks.
+    payload = build_chat_payload(
+        session_id="s", final_text="Did you mean Budapest (Hungary), or Budapest (Georgia)?",
+        hotels=None, profile=SessionProfile(), language="en", turn_id="t",
+        requires_clarification=True,
+    )
+    assert payload["requires_clarification"] is True
+    assert payload["ready_to_search"] is False
+    assert set(payload.keys()) == set(CONTRACT_KEYS)  # shape untouched
 
 
 def test_search_turn_maps_hotel_list_and_ready():

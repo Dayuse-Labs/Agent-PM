@@ -38,6 +38,12 @@ date, time window and hard filters** the leaf itself would have used
   the integer-hour window MCP accepts (same floor/ceil semantics as
   `datetime_resolver.py::resolve_search_timeslot`, re-derived inline rather
   than imported)
+- the pool is then strict-filtered against the EXACT minutes-of-day window
+  with the leaf's own semantics (`_offer_fits_exact_window` + the A4-c
+  fallback to the unfiltered pool when the strict cut empties it, re-derived
+  inline — S-G10, D5): the leaf excludes hotels whose offers don't fit the
+  exact window, so a ground truth that skipped this filter would unfairly
+  count those correct exclusions as ranking misses
 
 This gives an **identical candidate pool** to the one the real search drew
 from (same anchor, same hard filters) — the exact requirement from the audit
@@ -111,3 +117,13 @@ verdict on whether MCP's own `score` is "wrong".
 This is a first pass on one live replay's data, not a standing baseline —
 rerun as inventory/model conditions change, exactly like the gate's own ×3
 stability replay.
+
+**Temporal-skew disclosure (S-G10, D5)**: the ground-truth pool is fetched at
+*scoring* time, not at replay time — inventory drifts, and a `date` that has
+passed makes MCP legitimately return a different (or empty) pool. The output
+now stamps `ground_truth_fetched_at` and the summary counts
+`n_samples_with_past_date` (printed as a warning): only trust the numbers when
+the pool fetch closely follows the replay it scores. The mono-agent scope
+(limit 5 below) was reviewed and accepted as-is on 2026-07-23 (decision D5) —
+a cross-agent comparison stays a separate, future run of this same script
+against an agent-usa report.
