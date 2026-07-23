@@ -26,7 +26,7 @@ class TestBuildActiveFiltersV2:
             city="Miami",
             zone="Fort Lauderdale",
             currency="EUR",
-            distance_origin="gps",
+            distance_origin={"latitude": 48.9, "longitude": 2.2, "label": "here", "type": "gps"},
             named_hotel={"hotel_id": 1, "name": "Villa Paris Orly", "source": "shortlist"},
             date="2026-07-24",
             date_reference={"expression": "demain", "resolved_from": "2026-07-23", "client_tz": "Europe/Paris"},
@@ -38,7 +38,9 @@ class TestBuildActiveFiltersV2:
         assert filters["date_reference"]["expression"] == "demain"
         assert filters["zone"] == "Fort Lauderdale"
         assert filters["currency"] == "EUR"
-        assert filters["distance_origin"] == "gps"
+        assert filters["distance_origin"] == {
+            "latitude": 48.9, "longitude": 2.2, "label": "here", "type": "gps",
+        }
         assert filters["client_timezone"] == "Europe/Paris"
 
     def test_pre_existing_keys_are_unchanged(self):

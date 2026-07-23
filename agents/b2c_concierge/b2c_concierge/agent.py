@@ -832,10 +832,18 @@ class _B2cConcierge(BaseAgent):
         # comes back as profile_delta.
         budget.charge("leaf_llm")
         leaf_text, response = await _run_leaf(route.target, ctx, profile.to_dict())
-        if leaf_text is None:
+        if leaf_text is None and not response:
             self._emit_turn_metric(family, f"leaf:{route.target}", budget, t_start, "degraded", inv)
             yield self._final(ctx, templates.leaf_degraded_response(family, triage.language, profile.city))
             return
+        # A text-less leaf turn that still carried a DataPart is NOT a leaf
+        # failure (S-G9 finding 2: under gpt-5.2 a follow-up turn can end with
+        # zero text parts while the search itself succeeded, MCP status=ok).
+        # The synthesis re-writes from the structured results + ground-truth
+        # block anyway — leaf prose never reaches the user — so discarding a
+        # valid response here threw away a successful search. Only the
+        # truly-empty case above degrades.
+        leaf_text = leaf_text or ""
 
         # `hotels` marker — as soon as the leaf returns (S06).
         yield self._hotels_event(ctx, response)
@@ -875,7 +883,11 @@ class _B2cConcierge(BaseAgent):
             family, f"leaf:{route.target}", budget, t_start,
             "ok" if synth else "synthesis_fallback", inv,
         )
-        final_text = synth or leaf_text
+        # Double failure only (text-less leaf AND failed synthesis): honest
+        # degraded template rather than an empty message.
+        final_text = synth or leaf_text or templates.leaf_degraded_response(
+            family, triage.language, profile.city
+        )
         for chunk in _chunk_text(final_text):
             yield self._chunk_event(ctx, chunk)
         yield self._final(ctx, final_text)

@@ -214,7 +214,10 @@ def test_emit_includes_distance_origin_when_results_present():
         d = _dec(part)
         if d is not None:
             data = d
-    assert data["distance_origin"]["type"] == "city_centroid"
+    # Nested in profile_delta — the concierge only reads that key off the wire
+    # (S-G9 finding 1: a top-level sibling never reaches the profile).
+    assert data["profile_delta"]["distance_origin"]["type"] == "city_centroid"
+    assert "distance_origin" not in data  # no stale top-level duplicate
     assert data["results"][0]["distance_km"] == 0.5
 
 

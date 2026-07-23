@@ -100,6 +100,34 @@ def test_victoria_bc_selected_via_explicit_region_hint():
     assert res.chosen is bc
 
 
+def test_budapest_hungary_is_not_silently_lost_to_a_one_hotel_georgia_homonym():
+    # S-G9 gate re-run (3/3 reproducible): Budapest HU (place, Mapbox rank 0,
+    # zero snapshot inventory — Hungary isn't a market) silently lost to
+    # Budapest, Georgia US (locality, rank 1, ONE snapshot hotel: the Quality
+    # Inn & Suites Bremen ~7 km away) and a US hotel was served for "Budapest
+    # near Keleti station". A micro-inventory homonym must never win the tier:
+    # both fall in the same tier, and the cross-country near-tie asks ONE question.
+    hu = cand("Budapest", "HU", "Budapest", ftype="place", rank=0, lat=47.4979)
+    ga = cand("Budapest", "US", "Georgia", ftype="locality", rank=1, lat=33.7151)
+    inv = FakeInventory({47.4979: 0, 33.7151: 1})
+    res = geo_resolver.resolve([hu, ga], inventory=inv)
+    assert res.decision == "clarify"
+    assert hu in res.options and ga in res.options
+
+
+def test_la_defense_shape_micro_inventory_fuzz_does_not_silently_win():
+    # S-G9's second wrong-country: "La Défense" → 'Defense, Al Ain, Abu Dhabi'
+    # (neighborhood, rank 2, ONE hotel near Al Aïn) silently beat every
+    # zero-inventory candidate via the 0-vs-1 tier. With the tier minimum it
+    # competes on score instead — anything but a silent AE select.
+    co = cand("La Defensa", "CO", "Vichada", ftype="locality", rank=0, lat=5.5787)
+    ae = cand("Defense", "AE", "Abu Dhabi", ftype="neighborhood", rank=2, lat=23.6391)
+    inv = FakeInventory({5.5787: 0, 23.6391: 1})
+    res = geo_resolver.resolve([co, ae], inventory=inv)
+    assert not (res.decision == "select" and res.chosen is ae)
+    assert res.decision == "clarify"
+
+
 # ── Hard filters ────────────────────────────────────────────────────────────────
 def test_explicit_country_is_a_hard_filter_not_a_boost():
     lisbon_pt = cand("Lisbon", "PT", "Lisboa", lat=38.72, rank=0)

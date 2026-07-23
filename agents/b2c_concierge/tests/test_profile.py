@@ -731,7 +731,7 @@ class TestProfileV2Schema:
             locale="fr-FR",
             domain="dayuse.com",
             search_anchor={"type": "gps", "lat": 48.8, "lon": 2.3, "label": "here", "set_at_turn": 1},
-            distance_origin="gps",
+            distance_origin={"latitude": 48.8, "longitude": 2.3, "label": "here", "type": "gps"},
             shown_hotel_ids=[1, 2, 3],
             search_cursor=2,
             client_timezone="Europe/Paris",
@@ -789,14 +789,15 @@ class TestFlatDeltaRetroCompat:
 
 class TestTypedPatchOpsGeneric:
     def test_absent_slot_is_always_carryover(self):
+        origin = {"latitude": 48.8, "longitude": 2.3, "label": "Paris", "type": "city_centroid"}
         profile = SessionProfile(
-            currency="EUR", locale="fr-FR", domain="dayuse.com", distance_origin="gps",
+            currency="EUR", locale="fr-FR", domain="dayuse.com", distance_origin=origin,
         )
         apply_profile_delta(profile, {"budget_max": 50}, "50")
         assert profile.currency == "EUR"
         assert profile.locale == "fr-FR"
         assert profile.domain == "dayuse.com"
-        assert profile.distance_origin == "gps"
+        assert profile.distance_origin == origin
 
     def test_typed_set_op_applies_the_value(self):
         profile = SessionProfile()

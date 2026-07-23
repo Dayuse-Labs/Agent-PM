@@ -1,3 +1,28 @@
+# S-G10 — fixes issus de l'audit S-G9 (branche `sg10-geo-fixes`, 2026-07-23)
+
+Périmètre approuvé par Fabien : 4 fixes + tests + re-vérification live.
+
+- [x] **Fix 1 (P0) — `distance_origin` niché dans `profile_delta`** (`response_bridge.py::emit_search_datapart`)
+  - [x] Nester le dict dans `profile_delta` ; corriger le test feuille (assertion top-level → nichée)
+  - [x] Test de soudure côté concierge (`tests/test_leaf_concierge_seam.py` — emit réel → `apply_profile_delta` → `build_active_filters`)
+  - [x] Corriger le type vestige `profile.py` (`str | None` → `dict[str, Any] | None`) + tests concierge qui passaient une string
+- [x] **Fix 2 (P0) — Gate 1 : tier inventaire gamé par micro-homonymes** (`geo_resolver.py`)
+  - [x] Le tier quasi-dur exige `inventory >= 3` (`_MIN_TIER_INVENTORY`) ; en dessous, inventaire = poids soft seulement
+  - [x] Tests nommés : Budapest HU vs GA (inv=1) → clarify ; La Défense/Al Aïn ; gros marchés (inv≥3) inchangés
+- [x] **Fix 3 (P0-bis) — fallback `language` Mapbox** (`geocode_tool.py` + injection `language_hint`)
+  - [x] Injecté depuis `profile_in.language`, utilisé SEULEMENT pour le param Mapbox `language` — test verrouille que le prior pays (`_locale_country`) n'est jamais nourri par le triage
+- [x] **Fix 4 (P1) — filet concierge** (`agent.py`) : dégrade seulement si `leaf_text is None` ET `response` vide ; double échec → template dégradé, jamais de message vide
+- [x] **Fix 5 (P1) — exonymes echo-guard** (`geo_guards.py`) : table Wien/Vienna + 15 paires (« vienne » exclu exprès — vraie ville FR)
+- [x] **Fix 6 (découvert au probe) — clarify → tier-2 Search-Box** (`geocode_tool.py`) : un clarify avec zone nommée tente d'abord le POI Search-Box (echo-validé) avant de poser la question
+- [x] **DoD** : 872 passed (+14) · ruff OK · mypy 38 fichiers OK · guardrails OK (1 échec préexistant `test_llm_meter_usage`, hors zone, documenté)
+- [x] **Live (gpt-5.2)** : geo-budapest → **PASS 2/2** (`country_code=HU`, le POI « Keleti station » désambiguïse) ; geo-la-defense → plus jamais AE 2/2 (clarify honnête) ; `distance_origin` présent sur tous les tours de recherche ; `eval_ranking.py` → **2 échantillons scorés** (precision@5=0.4, NDCG@5=0.27 — pipeline débloquée, pas un baseline)
+- [x] HANDOFF.md (bloc daté) + commit + MR (review Fabien = gate, pas de merge)
+
+## Review S-G10
+6 changements, tous petits et localisés : 2 fichiers feuille cœur (`geo_resolver.py` ~10 lignes, `geocode_tool.py` ~30), 2 guards (`geo_guards.py` table + 3 lignes, `response_bridge.py` 4 lignes), concierge (`agent.py` 10 lignes, `profile.py` 1 ligne de type). 14 tests neufs, dont 2 cas d'échec S-G9 nommés en régression et 1 test de soudure cross-package qui manquait structurellement. Restes connus (non-scope) : options de clarify parfois moches sur du fuzz Mapbox (La Defensa Colombie…), sémantique zone-vs-city des fixtures multiturn (décision Fabien, pack intouchable), mécanisme exact du texte-vide gpt-5.2 non reproduit (le filet Fix 4 le rend inoffensif).
+
+---
+
 # Audit comparatif agent-usa vs AgentB2C — suivi
 
 Plan complet : `~/.claude/plans/dans-le-repo-j-ai-serene-wreath.md`

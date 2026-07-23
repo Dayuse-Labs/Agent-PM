@@ -339,6 +339,48 @@ class TestHonestDegradation:
         assert answer == "GROUNDED LEAF TEXT"
         assert _turn_metric(caplog)["status"] == "synthesis_fallback"
 
+    def test_textless_leaf_with_datapart_synthesizes_instead_of_degrading(
+        self, scripted, caplog, monkeypatch
+    ):
+        # S-G9 finding 2 / S-G10 fix: a leaf turn that ends with ZERO text parts
+        # but a real DataPart (the search itself succeeded — observed under
+        # gpt-5.2 on follow-up turns) must NOT read as a dead leaf. The
+        # synthesis re-writes from the structured results anyway; discarding
+        # the response here threw away a successful search AND its profile_delta.
+        llm, _ = scripted(
+            '{"family": "search", "language": "fr"}',
+            "Voici 1 hôtel trouvé à Paris.",
+        )
+
+        async def textless_leaf(leaf, ctx, profile_in):
+            return None, {
+                "results": [{"id": 1, "name": "Villa", "price": "€50.00"}],
+                "profile_delta": {"city": {"op": "set", "value": "Paris"}},
+            }
+
+        monkeypatch.setattr(agent_module, "_run_leaf", textless_leaf)
+        with caplog.at_level(logging.INFO, logger="b2c_concierge.metrics"):
+            answer = _drive(USER_MESSAGE_SEARCH)
+        assert answer == "Voici 1 hôtel trouvé à Paris."
+        assert _turn_metric(caplog)["status"] == "ok"
+
+    def test_textless_leaf_with_failed_synthesis_degrades_honestly(
+        self, scripted, monkeypatch
+    ):
+        # Double failure only: no leaf text AND the synthesis call dies —
+        # honest degraded template, never an empty final message.
+        llm, _ = scripted(
+            '{"family": "search", "language": "fr"}',
+            TimeoutError("synthesis down"),
+        )
+
+        async def textless_leaf(leaf, ctx, profile_in):
+            return None, {"results": [{"id": 1, "name": "Villa", "price": "€50.00"}]}
+
+        monkeypatch.setattr(agent_module, "_run_leaf", textless_leaf)
+        answer = _drive(USER_MESSAGE_SEARCH)
+        assert answer == templates.leaf_degraded_response("search", "fr")
+
 
 class TestGdprMetricEvents:
     def test_metric_events_never_contain_message_content(self, scripted, monkeypatch):

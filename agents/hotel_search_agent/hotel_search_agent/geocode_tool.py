@@ -131,6 +131,7 @@ def geocode_location(
     profile_state_context: str | None = None,
     profile_location_hint: str | None = None,
     locale: str | None = None,
+    language_hint: str | None = None,
     proximity_lat: float | None = None,
     proximity_lon: float | None = None,
 ) -> dict:
@@ -164,6 +165,16 @@ def geocode_location(
             deterministically by `inject_profile_geo_context` below (S-G7) —
             never expected from the model itself (it has no reliable way to
             know the client's UI locale).
+        language_hint: The conversation language (profile_in.language, triage's
+            fr/en guess), injected deterministically like `locale`. Used ONLY
+            as a fallback for the Mapbox `language` request param when no real
+            locale exists — NEVER for the resolver's country prior
+            (`_locale_country` stays locale-only: a triage language guess must
+            not boost a country, S-G7 pitfall). Why it matters: S-G9 showed
+            Mapbox's candidate LIST itself changes with `language` — the bare
+            "La Défense" query returns the Puteaux-FR candidates only when a
+            language is sent, and without them the resolver can only pick
+            among foreign fuzz.
         proximity_lat: GPS latitude bias (profile_in.search_anchor, S-G2/S-G5)
             — a SOFT, band-limited signal (Pelias rule): it never overrides an
             explicit distant destination ("hotel in New York" typed from Paris
@@ -219,7 +230,11 @@ def geocode_location(
     query = ", ".join(
         part for part in (effective_zone, effective_city or effective_metro, state_hint) if part
     )
-    lang = (locale or "").strip().lower()[:2] or None
+    lang = (
+        (locale or "").strip().lower()[:2]
+        or (language_hint or "").strip().lower()[:2]
+        or None
+    )
     # GPS proximity (S-G5): a Mapbox "lon,lat" bias string for the API call,
     # and a (lat, lon) tuple for the resolver's own bounded scoring credit —
     # both derived from the SAME two floats, present only when BOTH are given
@@ -244,8 +259,9 @@ def geocode_location(
 
     echo_city = effective_city or effective_metro
 
+    clarify_response: dict | None = None
     if resolution.decision == "clarify":
-        return {
+        clarify_response = {
             "ok": False,
             "error": "geocode_ambiguous",
             "diagnostics": {
@@ -261,6 +277,14 @@ def geocode_location(
                 ],
             },
         }
+        # A named zone/landmark can make v6's whole candidate list fuzz (the
+        # real place isn't a v6 feature at all — "La Défense" only exists in
+        # the Search-Box tier). Don't ask the user to pick among fuzzy
+        # homonyms before trying tier 2 below: an echo-validated POI hit IS
+        # the answer; the clarify is only surfaced when tier 2 misses too
+        # (S-G10 — same fall-through the failed-echo select path already had).
+        if not effective_zone:
+            return clarify_response
 
     if resolution.decision == "select" and resolution.chosen is not None:
         chosen = resolution.chosen
@@ -314,6 +338,11 @@ def geocode_location(
                 zone=effective_zone,
                 metro=effective_metro,
             )
+
+    # Tier 2 missed too — a pending clarify (homonym near-tie) is the honest
+    # outcome now, ahead of the generic diagnostics below.
+    if clarify_response is not None:
+        return clarify_response
 
     # Nothing survived: distinguish "no candidate at all" from "resolved to the
     # wrong place" for honest diagnostics (both degrade — never a fabricated coord).
@@ -380,6 +409,8 @@ def inject_profile_geo_context(tool: object, args: dict, tool_context: object) -
         args["profile_location_hint"] = profile_in["city"]
     if profile_in.get("locale"):
         args["locale"] = profile_in["locale"]
+    if profile_in.get("language"):
+        args["language_hint"] = profile_in["language"]
 
     anchor = profile_in.get("search_anchor")
     if isinstance(anchor, dict):

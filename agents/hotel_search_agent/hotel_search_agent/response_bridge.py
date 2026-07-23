@@ -808,16 +808,19 @@ def emit_search_datapart(callback_context: Any) -> genai_types.Content | None:
             profile_delta["timeslot_end"] = budget_timeslot["timeslot_end"]
         profile_delta["timeslot_request_source"] = _REQUEST_SOURCE_FLEXIBLE
 
+    # Distance origin (A8-a) only when there are cards to attach distances to — a
+    # 0-result search carries none. Nested INSIDE profile_delta: the concierge
+    # only ever reads `profile_delta` off the wire (agent.py), so a top-level
+    # sibling key silently never reaches the profile (S-G9 finding 1).
+    distance_origin = state.get(_STATE_DISTANCE_ORIGIN_KEY)
+    if distance_origin and results:
+        profile_delta["distance_origin"] = distance_origin
+
     payload: dict[str, Any] = {}
     if results is not None:  # a search ran (even 0 results is a real outcome)
         payload["results"] = results
     if profile_delta:
         payload["profile_delta"] = profile_delta
-    # Distance origin (A8-a) only when there are cards to attach distances to — a
-    # 0-result search carries none, keeping the emitted payload minimal.
-    distance_origin = state.get(_STATE_DISTANCE_ORIGIN_KEY)
-    if distance_origin and results:
-        payload["distance_origin"] = distance_origin
     if not payload:
         return None
 
