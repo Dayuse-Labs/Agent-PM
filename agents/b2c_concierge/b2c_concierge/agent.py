@@ -27,7 +27,8 @@ the leaf makes internally):
                      flow (S07, R9, `_run_booking`); ack → template. A
                      recovery-ack signal overrides "ack" to "search"; a
                      booking-confirmation signal overrides it to "booking".
-  4. Leaf leg      — the 10 s budget is owned HERE, with NO retry: on timeout
+  4. Leaf leg      — a per-family budget is owned HERE (`_leaf_timeout`,
+                     search vs faq, S-G4), with NO retry: on timeout
                      or error the turn degrades honestly (templates.py) — a
                      message saying so, never an invention, never a re-run.
                      The session profile (Redis, orchestrator-only — decision
@@ -105,7 +106,7 @@ from .profile import (
     search_context_line,
 )
 from .profile_store import get_profile_store
-from .routing import LEAF_HOTEL_SEARCH, ROUTES, bearer_token, card_url
+from .routing import LEAF_FAQ, LEAF_HOTEL_SEARCH, ROUTES, bearer_token, card_url
 from .triage import SERVICE, classify, guess_language, is_social_ack
 
 logger = logging.getLogger(__name__)
@@ -118,14 +119,95 @@ if not metrics_logger.handlers:
     metrics_logger.setLevel(logging.INFO)
     metrics_logger.addHandler(logging.StreamHandler())
 
-# Single owner of the leaf budget (orchestrator → feuille): 10 s, NO retry —
-# an unreachable leaf degrades the turn honestly (audit lesson: today's prod
+# Single owner of the leaf budget (orchestrator → feuille): NO retry — an
+# unreachable leaf degrades the turn honestly (audit lesson: today's prod
 # stacks ~6 nested retries × 60 s worst case; retries live at the LiteLLM
 # level ONLY, and inside the leaf for ITS own dependencies).
-_LEAF_TIMEOUT = float(os.environ.get("CONCIERGE_LEAF_TIMEOUT_SECONDS", "10.0"))
+#
+# S-G4: one 10 s wall for every leaf ignored that FAQ synthesis and search
+# have different healthy tails — method is the false-timeout-rate percentile
+# (Amazon Builders' Library; reports/research/timeouts-latency-memo.md §a.2):
+# set the timeout at the healthy tail of the family's OWN latency, not one
+# number for both. No live p95-per-family metric exists yet (S-G4's own
+# instrumentation is what makes measuring that possible going forward); these
+# are starting budgets anchored on the two concrete points already measured
+# live (HANDOFF Railway addendum, 2026-07-22, real Mapbox + MCP staging):
+# FAQ synthesis ~9 s warm (large doc, ~6k tokens) -> 25 s (~2.5x margin);
+# first/cold search call routinely >10 s (LLM cold start; the tool work
+# itself is fast: geocode 32 ms, search_offers 951 ms) -> 15 s (~1.5x margin
+# over a warm call, generous over the measured cold one since a search leaf
+# does strictly less synthesis work than FAQ).
+# CONCIERGE_LEAF_TIMEOUT_SECONDS (legacy, singular) still wins for EITHER
+# family when set, so the Railway demo's 30 s override keeps working
+# unchanged without a variable rename on that deployment. Read at CALL time
+# (not frozen at import, unlike the other budgets below) — same pattern as
+# hotel_search_agent.agent.build_connection_params — so tests can exercise
+# every precedence case with plain monkeypatch.setenv, no module reload.
+def _leaf_timeout(leaf: str) -> float:
+    """Per-family leaf budget — FAQ synthesis legitimately needs more room
+    than a search turn (see the comment block above)."""
+    legacy = os.environ.get("CONCIERGE_LEAF_TIMEOUT_SECONDS")
+    if leaf == LEAF_FAQ:
+        return float(os.environ.get("CONCIERGE_LEAF_TIMEOUT_FAQ_SECONDS", legacy or "25.0"))
+    return float(os.environ.get("CONCIERGE_LEAF_TIMEOUT_SEARCH_SECONDS", legacy or "15.0"))
+
+
 _SYNTHESIS_TIMEOUT = float(os.environ.get("CONCIERGE_SYNTHESIS_TIMEOUT_SECONDS", "15.0"))
 # LiteLLM is the single retry layer for LLM calls; bounded, never a loop.
+# S-G4 local probe (litellm==1.90.2, SDK-level acompletion): num_retries gives
+# EACH attempt its OWN full `timeout` — it does NOT share one budget across
+# attempts (contrary to the router-level docs' "timeout is for the entire
+# length of the call"; that phrasing was verified only for Router, not the
+# plain completion()/acompletion() path used here). Measured: num_retries=2
+# against a hung endpoint took ~5x a single attempt's wall time, not ~1x.
+# Worst case for a call THIS retried is therefore ~(1 + num_retries) x timeout
+# (+ backoff) — sized deliberately into _SYNTHESIS_NUM_RETRIES=1 (worst case
+# ~2x15s=30s, still under the leaf's own budget headroom) rather than assumed
+# free.
+#
+# S-G4 second local probe: plain `acompletion(num_retries=N)` retries BLINDLY
+# — a stub endpoint returning 400 (BadRequest) or 401 (Auth) was retried
+# exactly as many times as one returning 429 (RateLimit). That wastes the
+# full retry budget (and its latency) on an error that can never succeed on
+# a second try. `litellm.Router` + `RetryPolicy` is the ONLY litellm construct
+# that retries PER EXCEPTION TYPE (verified live against a stub: 400/401 -> 1
+# request, 429 -> 1 + num_retries requests) — used here for exactly that.
+# Confirmed a Router does not break the test suite's `litellm.acompletion`
+# mocks: Router.acompletion still calls `litellm.acompletion` by attribute
+# lookup internally, so `monkeypatch.setattr(litellm, "acompletion", fake)`
+# is still honored.
 _SYNTHESIS_NUM_RETRIES = int(os.environ.get("CONCIERGE_SYNTHESIS_NUM_RETRIES", "1"))
+_SYNTHESIS_MODEL_GROUP = "concierge-synthesis"  # fixed Router alias, one per model_slug
+_synthesis_routers: dict[str, "litellm.Router"] = {}
+
+
+def _get_synthesis_router(model_slug: str) -> "litellm.Router":
+    """Lazily built, cached per model slug (mirrors `_get_leg`'s per-leaf cache).
+    Timeout/RateLimit are transient — worth `_SYNTHESIS_NUM_RETRIES` attempt(s);
+    BadRequest/Auth/ContentPolicy are permanent — 0 retries, straight to the
+    `_generate_once` failure path (leaf text served verbatim, S06). Router's
+    OWN blind `num_retries` is pinned to 0 so the RetryPolicy above is the
+    only retry source (no double-retry stacking)."""
+    if model_slug not in _synthesis_routers:
+        _synthesis_routers[model_slug] = litellm.Router(
+            model_list=[
+                {"model_name": _SYNTHESIS_MODEL_GROUP, "litellm_params": {"model": model_slug}}
+            ],
+            retry_policy=litellm.RetryPolicy(
+                TimeoutErrorRetries=_SYNTHESIS_NUM_RETRIES,
+                RateLimitErrorRetries=_SYNTHESIS_NUM_RETRIES,
+                BadRequestErrorRetries=0,
+                AuthenticationErrorRetries=0,
+                ContentPolicyViolationErrorRetries=0,
+            ),
+            num_retries=0,
+        )
+    return _synthesis_routers[model_slug]
+
+
+def _reset_synthesis_routers() -> None:
+    """Test hook: drop cached synthesis routers (they capture env at first use)."""
+    _synthesis_routers.clear()
 
 # Unit Separator: prefixes an internal marker event's text so a consumer (the
 # S9 SSE facade, or a test) tells it from real answer text — same contract as
@@ -170,7 +252,7 @@ def _get_leg(leaf: str) -> RemoteA2aAgent:
             name=f"{leaf}_leg",
             agent_card=card_url(leaf),
             httpx_client=httpx.AsyncClient(
-                timeout=_LEAF_TIMEOUT,
+                timeout=_leaf_timeout(leaf),
                 headers={"Authorization": f"Bearer {token}"} if token else {},
             ),
         )
@@ -209,11 +291,11 @@ async def _run_leaf(
     text is None on timeout/error (the caller degrades honestly — no retry,
     no invention).
 
-    asyncio.timeout is the single owner of the 10 s deadline: httpx's own
-    timeout resets per chunk on streaming responses, so it cannot cap the
-    total. The leg's events are consumed, not re-yielded: the caller's A2A
-    stream stays clean (one final answer), and the raw leaf output never
-    reaches the end user unsynthesized.
+    asyncio.timeout is the single owner of the deadline (per-family budget,
+    `_leaf_timeout`): httpx's own timeout resets per chunk on streaming
+    responses, so it cannot cap the total. The leg's events are consumed, not
+    re-yielded: the caller's A2A stream stays clean (one final answer), and
+    the raw leaf output never reaches the end user unsynthesized.
     """
     leg = _get_leg(leaf)
     # query_params stays an empty dict here on purpose: its business schema
@@ -223,7 +305,7 @@ async def _run_leaf(
     response: dict[str, Any] = {}
     t0 = time.monotonic()
     try:
-        async with asyncio.timeout(_LEAF_TIMEOUT):
+        async with asyncio.timeout(_leaf_timeout(leaf)):
             async for event in leg.run_async(ctx):
                 if not event.content or not event.content.parts:
                     continue
@@ -366,7 +448,16 @@ class _B2cConcierge(BaseAgent):
         """ONE litellm call producing a candidate synthesis text, or None on
         failure. The system prompt's STATIC prefix never changes (cache); only
         the trailing DO NOT ASK directive (retry-only) and the user message's
-        dynamic blocks vary."""
+        dynamic blocks vary.
+
+        S-G4 considered `stream_timeout` (protects TTFT on a streamed call) —
+        deliberately NOT set: this call never streams (`stream=True` is never
+        passed; see `_chunk_text`'s docstring for why generation is buffered,
+        not streamed, from litellm). `stream_timeout` has no effect on a
+        non-streaming call, so setting it would be a no-op that reads as
+        protection it doesn't provide. The <300 ms TTFT SLO is protected
+        structurally instead: the `progress` marker event fires BEFORE any
+        LLM work at all (see the module docstring's step 0)."""
         model_slug = os.environ.get("DAYUSE_MODEL", "gpt-4o-mini")
         system = _SYNTHESIS_INSTRUCTION + extra_instruction
         user = (
@@ -383,15 +474,14 @@ class _B2cConcierge(BaseAgent):
             user += f"\n\nSEARCH CONTEXT (what you understood — restate briefly): {search_context}"
         t0 = time.monotonic()
         try:
-            resp = await litellm.acompletion(
-                model=model_slug,
+            resp = await _get_synthesis_router(model_slug).acompletion(
+                model=_SYNTHESIS_MODEL_GROUP,
                 messages=[
                     {"role": "system", "content": system},
                     {"role": "user", "content": user},
                 ],
                 temperature=0.2,  # faithful to the grounded outcome > creativity
                 timeout=_SYNTHESIS_TIMEOUT,
-                num_retries=_SYNTHESIS_NUM_RETRIES,
             )
         except Exception as exc:  # noqa: BLE001 — synthesis failure must not lose the leaf answer
             logger.warning(
@@ -694,8 +784,9 @@ class _B2cConcierge(BaseAgent):
                 return
 
         # Leaf leg (search / faq): charge the leaf's 0-1 internal LLM slot, then
-        # ONE call, 10 s, no retry. Session profile (Redis, orchestrator-only —
-        # decision B3) travels OUT as profile_in and comes back as profile_delta.
+        # ONE call, per-family budget (_leaf_timeout), no retry. Session profile
+        # (Redis, orchestrator-only — decision B3) travels OUT as profile_in and
+        # comes back as profile_delta.
         budget.charge("leaf_llm")
         leaf_text, response = await _run_leaf(route.target, ctx, profile.to_dict())
         if leaf_text is None:

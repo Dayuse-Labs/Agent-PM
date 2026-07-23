@@ -22,6 +22,7 @@ from hotel_search_agent.response_bridge import (
     normalize_hotel,
     normalize_search_results,
     skip_final_generation,
+    stamp_turn_start,
 )
 
 
@@ -682,3 +683,69 @@ def test_skip_lets_model_speak_after_geocode_only():
     # (the model still needs to decide/emit search_offers, i.e. LLM call #2).
     ctx = _Ctx({"temp:hotel_search_profile_delta": {"last_city": "Paris"}})
     assert skip_final_generation(ctx, llm_request=None) is None
+
+
+# --- stamp_turn_start / leaf_turn_total (S-G4 per-phase instrumentation) ----------------------
+def _total_metric_lines(ctx) -> list[str]:
+    """The dayuse.metrics lines an emit_search_datapart call emits, filtered to
+    leaf_turn_total (same manual-handler pattern as _capture_metric_lines)."""
+    import logging as _logging
+
+    records: list[str] = []
+
+    class _Grab(_logging.Handler):
+        def emit(self, record):
+            records.append(record.getMessage())
+
+    logger = _logging.getLogger("dayuse.metrics")
+    handler = _Grab()
+    logger.addHandler(handler)
+    try:
+        emit_search_datapart(ctx)
+    finally:
+        logger.removeHandler(handler)
+    return [m for m in records if "leaf_turn_total" in m]
+
+
+def test_stamp_turn_start_sets_a_monotonic_float():
+    ctx = _Ctx()
+    assert stamp_turn_start(ctx) is None
+    assert isinstance(ctx.state["temp:hotel_search_turn_t0"], float)
+
+
+def test_emit_logs_total_ms_minus_one_when_stamp_never_ran():
+    # The unit tests above call emit_search_datapart directly on a bare fake
+    # context — same "-1 means the before-callback didn't fire" convention as
+    # dayuse_agent_common.metrics._elapsed_ms.
+    line = _total_metric_lines(_Ctx())[0]
+    assert "ms=-1" in line
+
+
+def test_emit_logs_a_real_total_ms_after_stamp_turn_start():
+    ctx = _Ctx()
+    stamp_turn_start(ctx)
+    line = _total_metric_lines(ctx)[0]
+    assert "ms=-1" not in line
+    ms = int(line.split("ms=")[1].split()[0])
+    assert ms >= 0
+
+
+def test_emit_logs_total_even_when_nothing_was_captured():
+    # A geocode-fail / clarification-only turn (emit_search_datapart returns
+    # None) must still get a total-ms row — that path is exactly what a
+    # bimodal-latency bug (Chester GB) needs instrumented.
+    ctx = _Ctx()
+    stamp_turn_start(ctx)
+    assert emit_search_datapart(ctx) is None
+    assert _total_metric_lines(ctx)  # the row still fired despite no payload
+
+
+def test_emit_total_metric_never_carries_message_content():
+    # GDPR: flags/durations only — the line is a fixed format with no room for
+    # free text, but assert it explicitly (same posture as the budget/timeslot
+    # counter test above).
+    ctx = _Ctx({"temp:hotel_search_results": [{"id": 1, "name": "Secret Villa Name"}]})
+    stamp_turn_start(ctx)
+    line = _total_metric_lines(ctx)[0]
+    assert "Secret Villa Name" not in line
+    assert line.startswith("dayuse_metric=leaf_turn_total agent=b2c_hotel_search ms=")

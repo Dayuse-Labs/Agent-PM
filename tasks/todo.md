@@ -80,7 +80,7 @@ Plan : `reports/PLAN-RESOLUTION-GEO-MULTITURN-2026-07-23.md` · phases : `phases
 - [ ] S-G1 profil v2 + ops reducer (concierge)
 - [ ] S-G2 intake contexte natif (facade) — après S-G1
 - [ ] S-G3 résolveur géo multi-candidats (feuille, Opus, probe live d'abord)
-- [ ] S-G4 budgets timeout + RetryPolicy + Chester
+- [x] S-G4 budgets timeout + RetryPolicy + Chester — branche `sg4-timeout-budgets`, Chester résolu (GPT-5.2 latency + ancien budget 10s, pas un bug), voir HANDOFF
 - [ ] S-G5 pont déterministe + pagination — après S-G1+S-G3
 - [ ] S-G6 dates/durées/demi-heures — après S-G5
 - [ ] S-G7 locale/devise propagation — après S-G6

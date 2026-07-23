@@ -57,6 +57,7 @@ from hotel_search_agent.response_bridge import (
     capture_after_tool,
     emit_search_datapart,
     skip_final_generation,
+    stamp_turn_start,
 )
 
 # The only MCP_B2C tools this leaf may call, passed to McpToolset(tool_filter=...)
@@ -205,6 +206,9 @@ root_agent = Agent(
     ),
     instruction=INSTRUCTION,
     tools=[build_mcp_toolset(), geocode_location],
+    # S-G4: stamps t0 for the turn's total-ms counter (emit_search_datapart logs
+    # it) — runs before anything else so it covers every path, not just search.
+    before_agent_callback=[stamp_turn_start],
     # skip_final_generation is FIRST: once the search tool has run, it short-circuits
     # the model's wasted final-prose call (emit_search_datapart overwrites that prose
     # and the orchestrator re-synthesizes anyway) — 3 → 2 internal LLM calls. Being

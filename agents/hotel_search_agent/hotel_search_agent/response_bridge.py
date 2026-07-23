@@ -37,6 +37,7 @@ from __future__ import annotations
 
 import json
 import logging
+import time
 from typing import Any
 
 from a2a import types as a2a_types
@@ -77,6 +78,14 @@ _STATE_BUDGET_TIMESLOT_KEY = "temp:hotel_search_budget_timeslot"
 # read back here for card stamping + the profile_delta — same cross-callback
 # `temp:` hand-off as _STATE_COUNTRY_KEY.
 STATE_APPLIED_AMENITIES_KEY = "temp:hotel_search_applied_amenities"
+# S-G4 per-phase instrumentation: dayuse_agent_common's tool_timing_before/after
+# already emit a `dayuse_metric=tool_call tool=geocode_location` / `tool=search_offers`
+# row (geocode ms / MCP ms) and llm_timing_before/after a `dayuse_metric=llm_call`
+# row (the leaf's own reasoning-pass ms) — this key adds the missing 4th number
+# (total turn ms) so a live probe can diff total against the sum of the other
+# 3 and see how much is unaccounted for (A2A/ADK overhead, MCP session setup)
+# instead of just the phases that happen to call a tool or the model.
+_STATE_TURN_T0_KEY = "temp:hotel_search_turn_t0"
 
 # The leaf ALWAYS reports a non-explicit provenance for a captured budget/
 # time-slot: the concierge's budget-integrity guard (P1) owns the upgrade to
@@ -457,6 +466,15 @@ def _outcome_text(results: list[dict[str, Any]]) -> str:
     return f"{len(results)} day-use offer(s) found: {names}."
 
 
+def stamp_turn_start(callback_context: Any) -> None:
+    """`before_agent_callback`: stamps the turn's start time (S-G4 per-phase
+    instrumentation — the "total" counter). Runs BEFORE anything else, so it
+    covers the whole turn regardless of which path it takes (search / clarify
+    / geocode-fail) — `emit_search_datapart` reads it back unconditionally."""
+    callback_context.state[_STATE_TURN_T0_KEY] = time.monotonic()
+    return None
+
+
 def emit_search_datapart(callback_context: Any) -> genai_types.Content | None:
     """`after_agent_callback`: emit ONE event carrying BOTH a short grounded text
     outcome AND the structured `{results, profile_delta}` DataPart from what
@@ -467,6 +485,15 @@ def emit_search_datapart(callback_context: Any) -> genai_types.Content | None:
     nothing was captured (a clarification-only turn) — the model's own text then
     stands as the response."""
     state = callback_context.state
+    # S-G4: the turn's total ms, logged UNCONDITIONALLY (before any early
+    # return below) so it covers every path — search, clarify, geocode-fail —
+    # not just a successful search. -1 when stamp_turn_start never ran (the
+    # unit tests below call this function directly with a bare fake context;
+    # same "-1 means the before-callback didn't fire" convention as
+    # dayuse_agent_common.metrics._elapsed_ms).
+    t0 = state.get(_STATE_TURN_T0_KEY)
+    turn_ms = int((time.monotonic() - t0) * 1000) if isinstance(t0, float) else -1
+    _metrics_logger.info("dayuse_metric=leaf_turn_total agent=b2c_hotel_search ms=%d", turn_ms)
     results = state.get(_STATE_RESULTS_KEY)
     raw_delta = state.get(_STATE_DELTA_KEY) or {}
 
