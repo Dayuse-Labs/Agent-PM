@@ -48,11 +48,30 @@ now need it back):
     is re-derived in code from `pending_booking` at the inline-tool call site
     (inline_tools.py) — this function only keeps the turn from being swallowed
     by the zero-LLM ack template before it can reach that gate.
+
+S-G1 (2026-07-23 geo/multi-turn remediation, arbitrated option A3-a) widens
+the schema with the audit-identified missing slots (`named_hotel`, `zone`,
+`metro`, `date`/`date_reference`, `currency`/`locale`/`domain`,
+`search_anchor`, `distance_origin`, `shown_hotel_ids`, `search_cursor`) and
+turns `apply_profile_delta` into a typed-ops reducer: any slot MAY arrive as
+`{"op": "set"|"clear", "value": ...}` instead of a bare value — an explicit,
+auditable clear, never a silent loss (SOM-DST/Diable carryover-by-default
+semantics, preferred over RFC-7386 null-as-clear because a bare `null` from
+an LLM extraction is error-prone, cf. the S10 negation-inversion lesson).
+A slot simply ABSENT from the delta is always carryover. The leaf still
+emits today's flat `{key: value}` shape (it migrates in S-G5/S-G6) — that
+shape is treated as an implicit "set", so nothing here breaks in the
+meantime. A city change clears the geo-scoped slots (`zone`/`metro`/
+`search_anchor`/`state_anchor`/`country_anchor`) and resets the pagination
+state (`shown_hotel_ids`/`search_cursor`); a zone-only change deliberately
+keeps everything else (date/timeslot/budget/amenities) — the audit's
+"context lost on a suburb change" failure.
 """
 from __future__ import annotations
 
+import logging
 import re
-from dataclasses import dataclass, field
+from dataclasses import MISSING, dataclass, field
 from typing import Any
 
 BUDGET_SOURCE_EXPLICIT = "explicit"
@@ -61,6 +80,19 @@ BUDGET_SOURCE_FLEXIBLE_DEFAULT = "flexible_default"
 AUTO_WIDEN_STREAK_THRESHOLD = 2
 AUTO_WIDEN_FACTOR = 1.5
 AUTO_WIDEN_MAX_ATTEMPTS = 2
+
+# S-G1: profile schema version stamped on the outgoing `profile_in` DataPart
+# (`to_dict()`) so leaf and concierge can evolve independently (ISE A2A
+# pattern) — NOT a SessionProfile field itself, tolerated-but-ignored on the
+# way back in (`from_dict`/`apply_profile_delta` both silently drop unknown
+# keys).
+PROFILE_SCHEMA_VERSION = "2.0"
+
+# S-G1: pagination exclusion set cap (`shown_hotel_ids`) — oldest ids drop
+# first once a session has been shown more hotels than this across turns.
+MAX_SHOWN_HOTEL_IDS = 25
+
+_metrics_logger = logging.getLogger("b2c_concierge.metrics")
 
 # Recovery suggestions (P2): code-owned, localized — set on the profile the
 # moment a search returns zero results so a later bare "ok"/"sure" can be
@@ -111,6 +143,21 @@ class SessionProfile:
     last_results: list[dict[str, Any]] | None = None
     pending_booking: dict[str, Any] | None = None
     amenity_claim_corrections: dict[str, list[str]] | None = None
+    # S-G1 (2026-07-23): audit-identified missing slots — all optional, all
+    # absent-tolerant, so a leaf that hasn't migrated yet (S-G5/S-G6) never
+    # breaks by omitting them.
+    named_hotel: dict[str, Any] | None = None  # {hotel_id, name, source}
+    zone: str | None = None
+    metro: str | None = None
+    date: str | None = None  # ISO 8601
+    date_reference: dict[str, Any] | None = None  # {expression, resolved_from, client_tz}
+    currency: str | None = None
+    locale: str | None = None
+    domain: str | None = None
+    search_anchor: dict[str, Any] | None = None  # {type, lat, lon, label, set_at_turn}
+    distance_origin: str | None = None
+    shown_hotel_ids: list[Any] = field(default_factory=list)
+    search_cursor: int = 0
 
     def to_dict(self) -> dict[str, Any]:
         return {
@@ -135,12 +182,38 @@ class SessionProfile:
             "last_results": self.last_results,
             "pending_booking": self.pending_booking,
             "amenity_claim_corrections": self.amenity_claim_corrections,
+            "named_hotel": self.named_hotel,
+            "zone": self.zone,
+            "metro": self.metro,
+            "date": self.date,
+            "date_reference": self.date_reference,
+            "currency": self.currency,
+            "locale": self.locale,
+            "domain": self.domain,
+            "search_anchor": self.search_anchor,
+            "distance_origin": self.distance_origin,
+            "shown_hotel_ids": list(self.shown_hotel_ids),
+            "search_cursor": self.search_cursor,
+            "schema_version": PROFILE_SCHEMA_VERSION,
         }
 
     @classmethod
     def from_dict(cls, data: dict[str, Any]) -> "SessionProfile":
         known = {f: data[f] for f in cls.__dataclass_fields__ if f in data}
         return cls(**known)
+
+
+def _slot_default(name: str) -> Any:
+    """The dataclass-declared zero-value for `name` — what an explicit
+    `{"op": "clear"}` resets a slot to (its own natural "nothing here" value,
+    e.g. `None` for an optional field, `[]` for `shown_hotel_ids`, `0` for
+    `search_cursor`)."""
+    f = SessionProfile.__dataclass_fields__[name]
+    if f.default_factory is not MISSING:
+        return f.default_factory()
+    if f.default is not MISSING:
+        return f.default
+    return None
 
 
 # --- Budget integrity (P1) --------------------------------------------------
@@ -270,37 +343,86 @@ def _mentions_explicit_time(message: str) -> bool:
 # --- Combined delta application ---------------------------------------------
 
 
+def _normalize_delta(delta: dict[str, Any]) -> tuple[dict[str, Any], set[str]]:
+    """Splits an incoming (possibly mixed) delta into (`values` — the
+    effective flat value per "set" slot, `clears` — the slot names carrying
+    an explicit `{"op": "clear"}`). A slot absent from `delta` never appears
+    in either output — that IS carryover, enforced by construction (the
+    caller only ever reads a slot it finds in `values`/`clears`). A slot NOT
+    shaped as a typed op (`{"op": "set"|"clear", ...}`) is today's plain
+    `{key: value}` leaf format — treated as an implicit "set" (S-G1 retro-
+    compat: the leaf migrates to typed ops in S-G5/S-G6, nothing breaks
+    before then)."""
+    values: dict[str, Any] = {}
+    clears: set[str] = set()
+    for key, raw in delta.items():
+        if isinstance(raw, dict) and raw.get("op") in ("set", "clear"):
+            if raw["op"] == "clear":
+                clears.add(key)
+            else:
+                values[key] = raw.get("value")
+        else:
+            values[key] = raw
+    return values, clears
+
+
+def _log_profile_ops(set_slots: set[str], clear_slots: set[str]) -> None:
+    """RGPD-safe reducer counter: slot NAMES and counts only, never a value —
+    same discipline as the leaf's `amenity_filter`/`budget_timeslot` metrics."""
+    if not set_slots and not clear_slots:
+        return
+    slots = ",".join(sorted(set_slots | clear_slots))
+    _metrics_logger.info(
+        "dayuse_metric=profile_ops set=%d clear=%d slots=%s",
+        len(set_slots), len(clear_slots), slots,
+    )
+
+
 def apply_profile_delta(
     profile: SessionProfile, delta: dict[str, Any], user_message: str
 ) -> SessionProfile:
     """Merge a leaf-returned `profile_delta` into the stored profile, with the
     budget-integrity and timeslot-sanitization guards applied in-place.
     Mutates and returns `profile`. `delta` is untrusted wire data — read-only,
-    never mutated."""
-    delta = dict(delta)
+    never mutated.
 
-    # City change clears the geo anchors (S04 complement) — unless the SAME
-    # delta also carries a fresh anchor, applied right after.
-    if delta.get("city"):
-        new_city = delta["city"]
+    S-G1: each slot may arrive as a typed op (`{"op": "set"|"clear", "value":
+    ...}`) or today's flat value — `_normalize_delta` resolves both into a
+    single `values` dict (drop-in replacement for the old `delta` everywhere
+    below, byte-for-byte retro-compatible with a flat delta) plus a `clears`
+    set applied generically at the end, after every field-specific guard has
+    run."""
+    values, clears = _normalize_delta(dict(delta))
+    known_fields = set(SessionProfile.__dataclass_fields__)
+
+    # City change clears the geo anchors/zone/metro/search-anchor (S04 +
+    # S-G1) and resets the pagination state — unless the SAME delta also
+    # carries a fresh anchor/zone, applied right after.
+    if values.get("city"):
+        new_city = values["city"]
         if profile.city and new_city != profile.city:
             profile.state_anchor = None
             profile.country_anchor = None
+            profile.zone = None
+            profile.metro = None
+            profile.search_anchor = None
+            profile.shown_hotel_ids = []
+            profile.search_cursor = 0
         profile.city = new_city
-    if "state_anchor" in delta:
-        profile.state_anchor = delta["state_anchor"]
-    if "country_anchor" in delta:
-        profile.country_anchor = delta["country_anchor"]
+    if "state_anchor" in values:
+        profile.state_anchor = values["state_anchor"]
+    if "country_anchor" in values:
+        profile.country_anchor = values["country_anchor"]
 
     # Budget integrity (P1): a bare-number reply is ALWAYS explicit, whatever
     # the delta's own source claim says. A number that looks time/distance-
     # derived ("less than 20 minutes away") is never persisted as a budget at
     # all (S12 audit 2026-07-20) — profile.budget_max is simply left as-is.
-    if delta.get("budget_max") is not None:
-        new_budget = float(delta["budget_max"])
+    if values.get("budget_max") is not None:
+        new_budget = float(values["budget_max"])
         if not _looks_like_time_derived_budget(user_message, new_budget):
             profile.budget_max = new_budget
-            source = delta.get("budget_request_source")
+            source = values.get("budget_request_source")
             if _bare_number_value(user_message) == new_budget:
                 source = BUDGET_SOURCE_EXPLICIT
             if source is not None:
@@ -308,20 +430,20 @@ def apply_profile_delta(
 
     # Timeslot sanitization (P6): salvage a raw one-sided clock label into a
     # bound instead of persisting the corrupted string.
-    if "timeslot" in delta:
-        raw = delta.get("timeslot")
+    if "timeslot" in values:
+        raw = values.get("timeslot")
         normalized = _normalize_timeslot(raw) if raw else None
         if raw and normalized is None:
             start, end = _split_one_sided_clock(raw)
             if start:
-                delta.setdefault("timeslot_start", start)
+                values.setdefault("timeslot_start", start)
             if end:
-                delta.setdefault("timeslot_end", end)
+                values.setdefault("timeslot_end", end)
         else:
             profile.timeslot = normalized
 
-    start_candidate = delta.get("timeslot_start")
-    end_candidate = delta.get("timeslot_end")
+    start_candidate = values.get("timeslot_start")
+    end_candidate = values.get("timeslot_end")
     reject_start = bool(
         start_candidate
         and profile.timeslot_mode == "end_only"
@@ -345,18 +467,63 @@ def apply_profile_delta(
             profile.timeslot_mode = "start_only"
         elif profile.timeslot_end:
             profile.timeslot_mode = "end_only"
-    if "timeslot_request_source" in delta:
-        profile.timeslot_request_source = delta["timeslot_request_source"]
+    if "timeslot_request_source" in values:
+        profile.timeslot_request_source = values["timeslot_request_source"]
 
-    if delta.get("amenities"):
+    if values.get("amenities"):
         merged = list(profile.amenities)
-        for amenity in delta["amenities"]:
+        for amenity in values["amenities"]:
             if amenity not in merged:
                 merged.append(amenity)
         profile.amenities = merged
 
-    if delta.get("language"):
-        profile.language = delta["language"]
+    if values.get("language"):
+        profile.language = values["language"]
+
+    # S-G1 new slots: plain carryover-by-default copy, no extra guard (guards
+    # land once a leaf actually extracts these — S-G5/S-G6). `zone`/`metro`/
+    # `search_anchor` deliberately do NOT reset `shown_hotel_ids`/
+    # `search_cursor` — only an actual city change does (see above); a
+    # zone-only change is exactly the audit's "keep everything else" case.
+    if "zone" in values:
+        profile.zone = values["zone"]
+    if "metro" in values:
+        profile.metro = values["metro"]
+    if "named_hotel" in values:
+        profile.named_hotel = values["named_hotel"]
+    if "date" in values:
+        profile.date = values["date"]
+    if "date_reference" in values:
+        profile.date_reference = values["date_reference"]
+    if "currency" in values:
+        profile.currency = values["currency"]
+    if "locale" in values:
+        profile.locale = values["locale"]
+    if "domain" in values:
+        profile.domain = values["domain"]
+    if "search_anchor" in values:
+        profile.search_anchor = values["search_anchor"]
+    if "distance_origin" in values:
+        profile.distance_origin = values["distance_origin"]
+    if "shown_hotel_ids" in values:
+        profile.shown_hotel_ids = list(values["shown_hotel_ids"] or [])[-MAX_SHOWN_HOTEL_IDS:]
+    if "search_cursor" in values:
+        profile.search_cursor = int(values["search_cursor"])
+
+    # Explicit clears (A3-a: an auditable per-slot clear, never a silent
+    # omission) — each slot resets to its OWN dataclass default. Applied last
+    # so a clear always wins over any earlier field-specific derivation for
+    # the SAME slot (a slot can only be in `values` XOR `clears`, never both,
+    # so there is no ordering conflict — this is just the generic path for
+    # slots the guards above don't already special-case).
+    for slot in clears:
+        if slot in known_fields:
+            setattr(profile, slot, _slot_default(slot))
+
+    _log_profile_ops(
+        {k for k in values if k in known_fields},
+        {k for k in clears if k in known_fields},
+    )
 
     return profile
 
@@ -573,7 +740,12 @@ def record_search_shortlist(profile: SessionProfile, results: list[dict[str, Any
     later, unrelated empty search (never dead-end on a hotel just
     recommended). Defensive about the hotel-id key name: the leaf's own
     response shape is not schema-fixed yet (S1-S6), so `hotel_id`/`hotelId`/
-    `id` are all accepted."""
+    `id` are all accepted.
+
+    S-G1: also accumulates every shown hotel id into `shown_hotel_ids` (the
+    pagination exclusion set — schema only here; wiring it into
+    `search_offers` args is S-G5). Unlike `last_results`, this NEVER resets on
+    an empty search — only an actual city change does (`apply_profile_delta`)."""
     if not results:
         return
     shortlist: list[dict[str, Any]] = []
@@ -587,6 +759,30 @@ def record_search_shortlist(profile: SessionProfile, results: list[dict[str, Any
         shortlist.append({"hotel_id": hotel_id, "name": name})
     if shortlist:
         profile.last_results = shortlist[:MAX_SHORTLIST]
+        _accumulate_shown_hotel_ids(profile, [entry["hotel_id"] for entry in shortlist])
+
+
+def _accumulate_shown_hotel_ids(profile: SessionProfile, hotel_ids: list[Any]) -> None:
+    """Moves each id in `hotel_ids` to the end of `shown_hotel_ids` (deduped —
+    a re-shown hotel is now the MOST recently shown, not a stale entry),
+    capped at `MAX_SHOWN_HOTEL_IDS` — the oldest ids drop first once a
+    session has been shown more hotels than that."""
+    merged = list(profile.shown_hotel_ids)
+    for hotel_id in hotel_ids:
+        if hotel_id is None:
+            continue
+        if hotel_id in merged:
+            merged.remove(hotel_id)
+        merged.append(hotel_id)
+    profile.shown_hotel_ids = merged[-MAX_SHOWN_HOTEL_IDS:]
+
+
+def advance_search_cursor(profile: SessionProfile) -> None:
+    """The pure "other options" step (audit multi-turn case): every other
+    filter stays exactly as-is, only the pagination cursor moves forward.
+    Detecting the "other options" signal and wiring this into a leaf call is
+    S-G5 — this function is the deterministic step it will call."""
+    profile.search_cursor += 1
 
 
 def resolve_hotel_reference(

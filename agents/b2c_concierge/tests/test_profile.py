@@ -8,17 +8,27 @@ implementation lived in a workflow-based architecture and is not reused.
 - P6 (timeslot sanitization): a one-sided clock label is salvaged into a
   bound, never persisted corrupted; an anchored bound is never inverted by a
   later timeless turn's re-extraction.
+
+S-G1 (2026-07-23 geo/multi-turn remediation) adds the profile v2 schema +
+typed-ops reducer tests: new slots, `{"op": "set"|"clear"}` semantics,
+absent-is-carryover, flat-delta retro-compat, city-vs-zone invalidation
+rules, and the pagination accumulator (`shown_hotel_ids`/`search_cursor`).
 """
 from __future__ import annotations
+
+import logging
 
 from b2c_concierge.profile import (
     AUTO_WIDEN_MAX_ATTEMPTS,
     BUDGET_SOURCE_EXPLICIT,
     BUDGET_SOURCE_FLEXIBLE_DEFAULT,
+    MAX_SHOWN_HOTEL_IDS,
+    PROFILE_SCHEMA_VERSION,
     SessionProfile,
     _looks_like_time_derived_budget,
     _normalize_timeslot,
     _split_one_sided_clock,
+    advance_search_cursor,
     apply_profile_delta,
     extract_final_question,
     is_bare_affirmative,
@@ -646,3 +656,323 @@ class TestIsBookingConfirmationSignal:
     def test_non_affirmative_message_is_not_a_signal_even_with_pending_booking(self):
         profile = SessionProfile(pending_booking={"hotel_id": 1})
         assert not is_booking_confirmation_signal("what about a different hotel?", profile)
+
+
+# ── S-G1 (2026-07-23): profile v2 schema + typed-ops reducer ────────────────
+
+
+class TestProfileV2Schema:
+    def test_new_fields_default_to_none_or_empty(self):
+        profile = SessionProfile()
+        assert profile.named_hotel is None
+        assert profile.zone is None
+        assert profile.metro is None
+        assert profile.date is None
+        assert profile.date_reference is None
+        assert profile.currency is None
+        assert profile.locale is None
+        assert profile.domain is None
+        assert profile.search_anchor is None
+        assert profile.distance_origin is None
+        assert profile.shown_hotel_ids == []
+        assert profile.search_cursor == 0
+
+    def test_round_trips_with_all_v2_fields_populated(self):
+        profile = SessionProfile(
+            city="Paris",
+            named_hotel={"hotel_id": 1, "name": "A", "source": "shortlist"},
+            zone="Le Marais",
+            metro="Chatelet",
+            date="2026-07-24",
+            date_reference={
+                "expression": "demain", "resolved_from": "2026-07-23", "client_tz": "Europe/Paris",
+            },
+            currency="EUR",
+            locale="fr-FR",
+            domain="dayuse.com",
+            search_anchor={"type": "gps", "lat": 48.8, "lon": 2.3, "label": "here", "set_at_turn": 1},
+            distance_origin="gps",
+            shown_hotel_ids=[1, 2, 3],
+            search_cursor=2,
+        )
+        restored = SessionProfile.from_dict(profile.to_dict())
+        assert restored == profile
+
+    def test_to_dict_stamps_schema_version(self):
+        assert SessionProfile().to_dict()["schema_version"] == PROFILE_SCHEMA_VERSION
+
+    def test_from_dict_tolerates_an_unknown_schema_version(self):
+        restored = SessionProfile.from_dict({"city": "Lyon", "schema_version": "0.9-unknown"})
+        assert restored.city == "Lyon"
+
+    def test_apply_profile_delta_tolerates_a_schema_version_key(self):
+        profile = SessionProfile(city="Lyon")
+        apply_profile_delta(profile, {"schema_version": "2.0", "budget_max": 50}, "50")
+        assert profile.budget_max == 50.0
+
+
+class TestFlatDeltaRetroCompat:
+    def test_flat_legacy_delta_still_works_unchanged(self):
+        """The leaf doesn't emit typed ops yet (migrates in S-G5/S-G6) — a
+        plain 'key: value' delta must behave exactly as before."""
+        profile = SessionProfile()
+        apply_profile_delta(
+            profile,
+            {"city": "New York", "budget_max": 180, "amenities": ["pool"], "language": "en"},
+            "180",
+        )
+        assert profile.city == "New York"
+        assert profile.budget_max == 180.0
+        assert profile.budget_request_source == BUDGET_SOURCE_EXPLICIT
+        assert profile.amenities == ["pool"]
+        assert profile.language == "en"
+
+    def test_mixed_flat_and_typed_ops_in_the_same_delta(self):
+        profile = SessionProfile(city="Miami", zone="Miami")
+        apply_profile_delta(
+            profile, {"budget_max": 90, "zone": {"op": "clear"}}, "90, forget the zone",
+        )
+        assert profile.budget_max == 90.0
+        assert profile.zone is None
+
+
+class TestTypedPatchOpsGeneric:
+    def test_absent_slot_is_always_carryover(self):
+        profile = SessionProfile(
+            currency="EUR", locale="fr-FR", domain="dayuse.com", distance_origin="gps",
+        )
+        apply_profile_delta(profile, {"budget_max": 50}, "50")
+        assert profile.currency == "EUR"
+        assert profile.locale == "fr-FR"
+        assert profile.domain == "dayuse.com"
+        assert profile.distance_origin == "gps"
+
+    def test_typed_set_op_applies_the_value(self):
+        profile = SessionProfile()
+        apply_profile_delta(profile, {"currency": {"op": "set", "value": "USD"}}, "in dollars please")
+        assert profile.currency == "USD"
+
+    def test_typed_clear_op_resets_to_the_slot_default(self):
+        profile = SessionProfile(currency="USD", search_cursor=3, shown_hotel_ids=[1, 2])
+        apply_profile_delta(
+            profile,
+            {
+                "currency": {"op": "clear"},
+                "search_cursor": {"op": "clear"},
+                "shown_hotel_ids": {"op": "clear"},
+            },
+            "reset",
+        )
+        assert profile.currency is None
+        assert profile.search_cursor == 0
+        assert profile.shown_hotel_ids == []
+
+    def test_date_and_date_reference_set_then_carryover(self):
+        profile = SessionProfile()
+        apply_profile_delta(
+            profile,
+            {
+                "date": "2026-07-24",
+                "date_reference": {
+                    "expression": "demain", "resolved_from": "2026-07-23", "client_tz": "Europe/Paris",
+                },
+            },
+            "demain",
+        )
+        assert profile.date == "2026-07-24"
+        assert profile.date_reference["expression"] == "demain"
+        apply_profile_delta(profile, {"budget_max": 100}, "100")
+        assert profile.date == "2026-07-24"
+        assert profile.date_reference["expression"] == "demain"
+
+    def test_search_anchor_set_and_clear(self):
+        profile = SessionProfile()
+        apply_profile_delta(
+            profile,
+            {
+                "search_anchor": {
+                    "op": "set",
+                    "value": {"type": "gps", "lat": 48.8, "lon": 2.3, "label": "here", "set_at_turn": 1},
+                },
+            },
+            "near me",
+        )
+        assert profile.search_anchor["type"] == "gps"
+        apply_profile_delta(profile, {"search_anchor": {"op": "clear"}}, "forget my location")
+        assert profile.search_anchor is None
+
+
+class TestNamedHotelSetClear:
+    def test_named_hotel_flat_set(self):
+        profile = SessionProfile()
+        apply_profile_delta(
+            profile,
+            {"named_hotel": {"hotel_id": 42, "name": "Villa Paris Orly", "source": "shortlist"}},
+            "book Villa Paris Orly",
+        )
+        assert profile.named_hotel == {"hotel_id": 42, "name": "Villa Paris Orly", "source": "shortlist"}
+
+    def test_named_hotel_typed_set_op(self):
+        profile = SessionProfile()
+        apply_profile_delta(
+            profile,
+            {"named_hotel": {"op": "set", "value": {"hotel_id": 7, "name": "Ibis", "source": "mcp"}}},
+            "book the Ibis",
+        )
+        assert profile.named_hotel == {"hotel_id": 7, "name": "Ibis", "source": "mcp"}
+
+    def test_named_hotel_typed_clear_op(self):
+        profile = SessionProfile(named_hotel={"hotel_id": 7, "name": "Ibis", "source": "mcp"})
+        apply_profile_delta(profile, {"named_hotel": {"op": "clear"}}, "never mind, show me options again")
+        assert profile.named_hotel is None
+
+    def test_named_hotel_absent_is_carryover(self):
+        profile = SessionProfile(named_hotel={"hotel_id": 7, "name": "Ibis", "source": "mcp"})
+        apply_profile_delta(profile, {"budget_max": 90}, "90")
+        assert profile.named_hotel == {"hotel_id": 7, "name": "Ibis", "source": "mcp"}
+
+
+class TestCityChangeInvalidationV2:
+    def test_city_change_clears_zone_metro_and_search_anchor(self):
+        profile = SessionProfile(
+            city="Miami", zone="Miami", metro="Miami-Dade",
+            search_anchor={"type": "gps", "lat": 1.0, "lon": 2.0, "label": "here", "set_at_turn": 1},
+        )
+        apply_profile_delta(profile, {"city": "Paris"}, "actually Paris")
+        assert profile.zone is None
+        assert profile.metro is None
+        assert profile.search_anchor is None
+
+    def test_city_change_resets_shown_hotel_ids_and_search_cursor(self):
+        profile = SessionProfile(city="Miami", shown_hotel_ids=[1, 2, 3], search_cursor=2)
+        apply_profile_delta(profile, {"city": "Paris"}, "actually Paris")
+        assert profile.shown_hotel_ids == []
+        assert profile.search_cursor == 0
+
+    def test_zone_change_alone_does_not_reset_shown_hotel_ids_or_cursor(self):
+        profile = SessionProfile(city="Miami", zone="Miami", shown_hotel_ids=[1, 2], search_cursor=1)
+        apply_profile_delta(profile, {"zone": "Fort Lauderdale"}, "Fort Lauderdale instead")
+        assert profile.shown_hotel_ids == [1, 2]
+        assert profile.search_cursor == 1
+
+    def test_fresh_zone_in_the_same_delta_survives_the_city_change(self):
+        profile = SessionProfile(city="Miami", zone="Miami")
+        apply_profile_delta(profile, {"city": "Paris", "zone": "Le Marais"}, "paris le marais")
+        assert profile.zone == "Le Marais"
+
+
+# ── the 3 eval-pack zone-change variants (multiturn-zone_change_0/1/2,
+# multiturn-carry_same_time_0/1/2): a suburb/zone change must never drop the
+# date/timeslot/budget/amenities already collected (audit case 0/3) ────────
+
+
+class TestZoneChangeConservation:
+    def test_zone_change_preserves_budget_timeslot_amenities_and_date(self):
+        profile = SessionProfile(
+            city="Miami", budget_max=200.0, budget_request_source=BUDGET_SOURCE_EXPLICIT,
+            timeslot_start="14:00", timeslot_end="18:00", timeslot_mode="range",
+            amenities=["pool"], date="2026-07-24", zone="Miami",
+        )
+        apply_profile_delta(profile, {"zone": "Fort Lauderdale"}, "Same budget in Fort Lauderdale")
+        assert profile.zone == "Fort Lauderdale"
+        assert profile.city == "Miami"
+        assert profile.budget_max == 200.0
+        assert profile.timeslot_start == "14:00" and profile.timeslot_end == "18:00"
+        assert profile.amenities == ["pool"]
+        assert profile.date == "2026-07-24"
+
+    def test_repeated_zone_changes_keep_conserving_context(self):
+        profile = SessionProfile(city="Miami", budget_max=200.0, zone="Miami")
+        apply_profile_delta(profile, {"zone": "Fort Lauderdale"}, "Same budget in Fort Lauderdale")
+        apply_profile_delta(profile, {"zone": "Boca Raton"}, "Actually Boca Raton instead")
+        assert profile.zone == "Boca Raton"
+        assert profile.budget_max == 200.0
+
+    def test_zone_change_preserves_date_reference_and_timeslot_start(self):
+        profile = SessionProfile(
+            city="Boca Raton", timeslot_start="11:00",
+            date_reference={
+                "expression": "tomorrow", "resolved_from": "2026-07-10", "client_tz": "America/New_York",
+            },
+        )
+        apply_profile_delta(
+            profile, {"zone": "Fort Lauderdale"}, "Use the same time for tomorrow in Fort Lauderdale",
+        )
+        assert profile.zone == "Fort Lauderdale"
+        assert profile.timeslot_start == "11:00"
+        assert profile.date_reference["expression"] == "tomorrow"
+
+
+class TestShownHotelIdsAccumulation:
+    def test_accumulates_ids_across_searches(self):
+        profile = SessionProfile()
+        record_search_shortlist(profile, [{"hotel_id": 1, "name": "A"}, {"hotel_id": 2, "name": "B"}])
+        record_search_shortlist(profile, [{"hotel_id": 3, "name": "C"}])
+        assert profile.shown_hotel_ids == [1, 2, 3]
+
+    def test_re_shown_hotel_moves_to_the_end_without_duplicating(self):
+        profile = SessionProfile()
+        record_search_shortlist(profile, [{"hotel_id": 1, "name": "A"}, {"hotel_id": 2, "name": "B"}])
+        record_search_shortlist(profile, [{"hotel_id": 1, "name": "A"}])
+        assert profile.shown_hotel_ids == [2, 1]
+
+    def test_capped_at_25_dropping_the_oldest(self):
+        profile = SessionProfile()
+        for i in range(30):
+            record_search_shortlist(profile, [{"hotel_id": i, "name": f"Hotel {i}"}])
+        assert len(profile.shown_hotel_ids) == MAX_SHOWN_HOTEL_IDS == 25
+        assert profile.shown_hotel_ids == list(range(5, 30))
+
+    def test_empty_results_do_not_touch_shown_hotel_ids(self):
+        profile = SessionProfile(shown_hotel_ids=[1, 2])
+        record_search_shortlist(profile, [])
+        record_search_shortlist(profile, None)
+        assert profile.shown_hotel_ids == [1, 2]
+
+
+class TestSearchCursorAdvance:
+    def test_advance_increments_the_cursor(self):
+        profile = SessionProfile(search_cursor=0)
+        advance_search_cursor(profile)
+        assert profile.search_cursor == 1
+        advance_search_cursor(profile)
+        assert profile.search_cursor == 2
+
+    def test_advance_touches_no_other_field(self):
+        profile = SessionProfile(
+            city="Paris", budget_max=100.0, zone="Le Marais", amenities=["pool"],
+            shown_hotel_ids=[1, 2], search_cursor=3,
+        )
+        advance_search_cursor(profile)
+        assert profile.city == "Paris"
+        assert profile.budget_max == 100.0
+        assert profile.zone == "Le Marais"
+        assert profile.amenities == ["pool"]
+        assert profile.shown_hotel_ids == [1, 2]
+        assert profile.search_cursor == 4
+
+
+class TestProfileOpsRgpdMetric:
+    def test_logs_set_and_clear_counts_with_slot_names_never_values(self, caplog):
+        profile = SessionProfile(city="Miami", zone="Miami", currency="USD")
+        with caplog.at_level(logging.INFO):
+            apply_profile_delta(
+                profile,
+                {"budget_max": 150, "zone": {"op": "clear"}, "currency": {"op": "clear"}},
+                "150, forget the zone and currency",
+            )
+        lines = [r.getMessage() for r in caplog.records if "profile_ops" in r.getMessage()]
+        assert lines, "expected a profile_ops metric line"
+        line = lines[0]
+        assert "set=1" in line and "clear=2" in line
+        assert "budget_max" in line and "zone" in line and "currency" in line
+        assert "150" not in line
+        assert "Miami" not in line
+        assert "USD" not in line
+
+    def test_no_op_delta_logs_nothing(self, caplog):
+        profile = SessionProfile()
+        with caplog.at_level(logging.INFO):
+            apply_profile_delta(profile, {}, "hello")
+        lines = [r.getMessage() for r in caplog.records if "profile_ops" in r.getMessage()]
+        assert lines == []

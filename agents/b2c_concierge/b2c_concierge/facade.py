@@ -324,7 +324,15 @@ def _synth_timeslot(profile: SessionProfile) -> str | None:
 def build_active_filters(profile: SessionProfile) -> dict[str, Any]:
     """The effective search filters the spine actually knows, under the same key
     names as agent-usa's `_build_active_filters` (subset — the spine has no geo
-    resolution pipeline, so those keys are simply absent rather than faked)."""
+    resolution pipeline, so those keys are simply absent rather than faked).
+
+    S-G1 (2026-07-23): `named_hotel`/`date_reference`/`zone`/`currency`/
+    `distance_origin` are no longer hardcoded null — the profile schema now
+    has a field for each (still legitimately None until a leaf actually
+    populates them — S-G3/S-G5/S-G6/S-G7 — this only stops FAKING absence
+    when the profile does hold a value). These keys live INSIDE
+    `active_filters` only; `CONTRACT_KEYS` (the top-level response shape) is
+    untouched — iso-contract."""
     return {
         "city": profile.city,
         "resolved_city": profile.city,
@@ -335,8 +343,11 @@ def build_active_filters(profile: SessionProfile) -> dict[str, Any]:
         "timeslot_end": profile.timeslot_end,
         "budget_max": profile.budget_max,
         "amenities": list(profile.amenities or []),
-        "named_hotel": None,
-        "date_reference": None,
+        "named_hotel": profile.named_hotel,
+        "date_reference": profile.date_reference,
+        "zone": profile.zone,
+        "currency": profile.currency,
+        "distance_origin": profile.distance_origin,
     }
 
 
