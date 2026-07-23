@@ -3,7 +3,12 @@ from __future__ import annotations
 
 import httpx
 
-from hotel_search_agent.mapbox_client import GeocodeResult, MapboxClient
+from hotel_search_agent.mapbox_client import (
+    CANDIDATE_TYPES,
+    DEFAULT_CANDIDATE_LIMIT,
+    GeocodeResult,
+    MapboxClient,
+)
 
 FLORENCE_KY_RESPONSE = {
     "features": [
@@ -181,3 +186,121 @@ class TestCache:
         assert len(client._cache) == 2
         assert ("a", None, "en", "place,locality,neighborhood") not in client._cache
         assert ("c", None, "en", "place,locality,neighborhood") in client._cache
+
+
+def _feature(name, ftype, cc, region, lon, lat, *, place_formatted, full_address, bbox=None):
+    props = {
+        "name": name,
+        "feature_type": ftype,
+        "place_formatted": place_formatted,
+        "full_address": full_address,
+        "context": {"country": {"country_code": cc}, "region": {"name": region}},
+    }
+    if bbox is not None:
+        props["bbox"] = bbox
+    return {"geometry": {"coordinates": [lon, lat]}, "properties": props}
+
+
+VICTORIA_MULTI = {
+    "features": [
+        _feature("Victoria", "place", "ca", "British Columbia", -123.36, 48.42,
+                 place_formatted="British Columbia, Canada",
+                 full_address="Victoria, British Columbia, Canada",
+                 bbox=[-123.5, 48.3, -123.2, 48.5]),
+        _feature("Victoria", "region", "au", "Victoria", 144.0, -37.0,
+                 place_formatted="Australia",
+                 full_address="Victoria, Australia"),
+        _feature("Victoria", "place", "us", "Texas", -96.99, 28.80,
+                 place_formatted="Texas, United States",
+                 full_address="Victoria, Texas, United States"),
+    ]
+}
+
+
+class TestGeocodeCandidates:
+    def test_returns_all_parsed_candidates_with_rank(self):
+        client = _client_with(lambda request: httpx.Response(200, json=VICTORIA_MULTI))
+        cands = client.geocode_candidates("Victoria")
+        assert len(cands) == 3
+        assert [c.rank for c in cands] == [0, 1, 2]
+        bc = cands[0]
+        assert bc.name == "Victoria"
+        assert bc.country_code == "CA"
+        assert bc.region == "British Columbia"
+        assert bc.feature_type == "place"
+        assert bc.place_formatted == "British Columbia, Canada"
+        assert bc.place_name == "Victoria, British Columbia, Canada"
+        assert bc.bbox == (-123.5, 48.3, -123.2, 48.5)
+        assert (bc.latitude, bc.longitude) == (48.42, -123.36)
+
+    def test_bbox_absent_is_none(self):
+        client = _client_with(lambda request: httpx.Response(200, json=VICTORIA_MULTI))
+        au = client.geocode_candidates("Victoria")[1]
+        assert au.bbox is None
+
+    def test_request_carries_limit_types_autocomplete_and_optional_params(self):
+        seen = {}
+
+        def handler(request: httpx.Request) -> httpx.Response:
+            seen["params"] = dict(request.url.params)
+            return httpx.Response(200, json={"features": []})
+
+        client = _client_with(handler)
+        client.geocode_candidates("Lisboa", country="PT", language="pt", proximity="ip")
+        p = seen["params"]
+        assert p["limit"] == str(DEFAULT_CANDIDATE_LIMIT)
+        assert p["types"] == CANDIDATE_TYPES
+        assert p["autocomplete"] == "false"
+        assert p["language"] == "pt"
+        assert p["country"] == "pt"
+        assert p["proximity"] == "ip"
+
+    def test_optional_params_omitted_when_absent(self):
+        seen = {}
+
+        def handler(request: httpx.Request) -> httpx.Response:
+            seen["params"] = dict(request.url.params)
+            return httpx.Response(200, json={"features": []})
+
+        client = _client_with(handler)
+        client.geocode_candidates("Victoria")
+        assert "language" not in seen["params"]
+        assert "country" not in seen["params"]
+        assert "proximity" not in seen["params"]
+
+    def test_empty_features_returns_empty_list(self):
+        client = _client_with(lambda request: httpx.Response(200, json={"features": []}))
+        assert client.geocode_candidates("nowhere") == []
+
+    def test_transient_failure_returns_empty_list_after_one_retry(self):
+        calls = {"n": 0}
+
+        def handler(request: httpx.Request) -> httpx.Response:
+            calls["n"] += 1
+            raise httpx.ConnectTimeout("timed out", request=request)
+
+        client = _client_with(handler)
+        assert client.geocode_candidates("Victoria") == []
+        assert calls["n"] == 2
+
+    def test_candidates_are_cached(self):
+        calls = {"n": 0}
+
+        def handler(request: httpx.Request) -> httpx.Response:
+            calls["n"] += 1
+            return httpx.Response(200, json=VICTORIA_MULTI)
+
+        client = _client_with(handler)
+        client.geocode_candidates("Victoria")
+        client.geocode_candidates("Victoria")
+        assert calls["n"] == 1
+
+    def test_geocode_limit_one_path_is_unaffected_by_candidate_cache(self):
+        # The two entry points use distinct cache-key shapes: calling one must not
+        # serve the other a stale value.
+        client = _client_with(lambda request: httpx.Response(200, json=VICTORIA_MULTI))
+        single = client.geocode("Victoria")
+        cands = client.geocode_candidates("Victoria")
+        assert isinstance(single, GeocodeResult)
+        assert single.place_name == "Victoria, British Columbia, Canada"
+        assert len(cands) == 3

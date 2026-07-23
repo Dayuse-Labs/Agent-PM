@@ -5,13 +5,19 @@ raise.
 from __future__ import annotations
 
 import httpx
+import pytest
 
 from hotel_search_agent import geocode_tool
 from hotel_search_agent.geocode_tool import geocode_location
-from hotel_search_agent.mapbox_client import GeocodeResult, MapboxClient
+from hotel_search_agent.mapbox_client import GeocodeCandidate, GeocodeResult, MapboxClient
 
 
 class FakeMapboxClient:
+    """Serves ONE candidate (or none) so the single-result guard behaviours
+    (echo, ZIP scoping, generic demotion, state anchoring) can be asserted
+    without a network call. A lone candidate always wins the resolver
+    (len==1 → select), so the downstream echo check runs exactly as before."""
+
     def __init__(self, result: GeocodeResult | None):
         self.result = result
         self.calls: list[tuple] = []
@@ -19,6 +25,39 @@ class FakeMapboxClient:
     def geocode(self, query, *, country=None, **kwargs):
         self.calls.append((query, country))
         return self.result
+
+    def geocode_candidates(self, query, *, country=None, language=None, proximity=None, **kwargs):
+        self.calls.append((query, country))
+        if self.result is None:
+            return []
+        r = self.result
+        return [
+            GeocodeCandidate(
+                latitude=r.latitude,
+                longitude=r.longitude,
+                name=r.place_name.split(",")[0],
+                place_name=r.place_name,
+                place_formatted=r.place_name,
+                feature_type="place",
+                country_code=r.country_code,
+                region=r.region,
+                bbox=None,
+                rank=0,
+            )
+        ]
+
+
+class _NoSearchBox:
+    """Tier-2 disabled offline: a miss degrades honestly instead of hitting the
+    network. Tests that exercise the Search-Box fallback patch this explicitly."""
+
+    def forward(self, *args, **kwargs):
+        return None
+
+
+@pytest.fixture(autouse=True)
+def _no_network_searchbox(monkeypatch):
+    monkeypatch.setattr(geocode_tool, "get_searchbox_client", lambda: _NoSearchBox())
 
 
 def _patch_client(monkeypatch, result: GeocodeResult | None) -> FakeMapboxClient:
@@ -229,3 +268,127 @@ class TestUsZipCountryScoping:
         geocode_location(city="Florence", raw_user_message="florence kentucky")
 
         assert "country" not in seen["params"]
+
+
+# --- multi-candidate resolver / clarify / Search-Box tier-2 (S-G3) --------------------------
+def _c(name, cc, region, *, ftype="place", rank=0, lat=0.0, lon=0.0):
+    return GeocodeCandidate(
+        latitude=lat,
+        longitude=lon,
+        name=name,
+        place_name=f"{name}, {region}, {cc}",
+        place_formatted=f"{region}, {cc}",
+        feature_type=ftype,
+        country_code=cc,
+        region=region,
+        bbox=None,
+        rank=rank,
+    )
+
+
+class _MultiClient:
+    def __init__(self, candidates):
+        self.candidates = candidates
+        self.calls: list[tuple] = []
+        self.langs: list = []
+
+    def geocode_candidates(self, query, *, country=None, language=None, proximity=None, **kwargs):
+        self.calls.append((query, country))
+        self.langs.append(language)
+        return list(self.candidates)
+
+
+class _FakeSearchBox:
+    def __init__(self, result):
+        self.result = result
+        self.calls: list[tuple] = []
+
+    def forward(self, query, *, country=None, language=None, **kwargs):
+        self.calls.append((query, country))
+        return self.result
+
+
+class _FakeInventory:
+    def __init__(self, by_lat):
+        self.by_lat = by_lat
+
+    def count_near(self, lat, lon, *, radius_km=25.0):
+        return self.by_lat.get(round(lat, 4), 0)
+
+
+def _patch_multi(monkeypatch, candidates, *, inventory=None):
+    client = _MultiClient(candidates)
+    monkeypatch.setattr(geocode_tool, "get_mapbox_client", lambda: client)
+    inv = _FakeInventory(inventory or {})
+    monkeypatch.setattr(geocode_tool, "get_inventory", lambda: inv)
+    return client
+
+
+class TestMultiCandidateResolution:
+    def test_inventory_winner_is_selected_across_candidates(self, monkeypatch):
+        milan = _c("Milano", "IT", "Milan", lat=45.46, rank=0)
+        texas = _c("Milano", "US", "Texas", lat=30.71, rank=1)
+        _patch_multi(monkeypatch, [milan, texas], inventory={45.46: 40, 30.71: 0})
+
+        result = geocode_location(city="Milano", raw_user_message="hotel a Milano")
+
+        assert result["ok"] is True
+        assert result["resolved_place"] == "Milano, Milan, IT"
+        assert result["country_code"] == "IT"
+        assert result["distance_origin_type"] == "city_centroid"
+
+    def test_ambiguous_homonym_returns_clarify_not_a_guess(self, monkeypatch):
+        bc = _c("Victoria", "CA", "British Columbia", lat=48.43, rank=0)
+        tx = _c("Victoria", "US", "Texas", lat=28.80, rank=1)
+        _patch_multi(monkeypatch, [bc, tx], inventory={48.43: 20, 28.80: 15})
+
+        result = geocode_location(city="Victoria", raw_user_message="hotel in Victoria")
+
+        assert result["ok"] is False
+        assert result["error"] == "geocode_ambiguous"
+        assert "Victoria" in result["diagnostics"]["question"]
+        countries = {o["country_code"] for o in result["diagnostics"]["options"]}
+        assert {"CA", "US"} <= countries
+
+    def test_locale_is_passed_to_mapbox_as_language(self, monkeypatch):
+        lisbon = _c("Lisbon", "PT", "Lisboa", lat=38.72, rank=0)
+        client = _patch_multi(monkeypatch, [lisbon], inventory={38.72: 26})
+
+        geocode_location(city="Lisboa", raw_user_message="hotel em Lisboa", locale="pt")
+
+        assert client.langs == ["pt"]
+
+
+class TestSearchBoxTier2:
+    def test_zone_miss_falls_back_to_search_box(self, monkeypatch):
+        # v6 returns only junk that fails the echo check; a zone was named.
+        junk = _c("Al Ain", "AE", "Abu Dhabi", ftype="neighborhood", lat=24.2, rank=0)
+        _patch_multi(monkeypatch, [junk], inventory={24.2: 0})
+        poi = GeocodeResult(
+            latitude=48.8918,
+            longitude=2.2387,
+            place_name="La Défense, 92800 Puteaux, France",
+            country_code="FR",
+            region="Île-de-France",
+        )
+        box = _FakeSearchBox(poi)
+        monkeypatch.setattr(geocode_tool, "get_searchbox_client", lambda: box)
+
+        result = geocode_location(city="Paris", zone="La Défense", raw_user_message="hotel la défense")
+
+        assert result["ok"] is True
+        assert result["resolved_place"] == "La Défense, 92800 Puteaux, France"
+        assert result["distance_origin_type"] == "poi"
+        assert box.calls  # the fallback was actually invoked
+
+    def test_no_zone_never_calls_search_box(self, monkeypatch):
+        junk = _c("Al Ain", "AE", "Abu Dhabi", ftype="neighborhood", lat=24.2, rank=0)
+        _patch_multi(monkeypatch, [junk], inventory={24.2: 0})
+        box = _FakeSearchBox(None)
+        monkeypatch.setattr(geocode_tool, "get_searchbox_client", lambda: box)
+
+        result = geocode_location(city="Budapestttt", raw_user_message="hotel budapestttt")
+
+        assert result["ok"] is False
+        assert result["error"] == "geocode_echo_mismatch"
+        assert box.calls == []  # never invoked without a zone/landmark

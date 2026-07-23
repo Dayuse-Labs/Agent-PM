@@ -121,10 +121,13 @@ request, and everything you learned must be returned in the response.
 
 How to act, frugally (at most ONE reasoning pass — no tool-call loops):
 - A destination/area search → FIRST call geocode_location (pass the city/zone/
-  metro/country_code you extracted, the raw user message, and any state/city
-  context you saw in profile_in as profile_state_context/profile_location_hint).
-  It is a deterministic, guarded tool — never geocode a destination yourself.
-  If it returns ok=False, DO NOT call search_offers: relay its diagnostics
+  metro/country_code you extracted, the raw user message, any state/city context
+  you saw in profile_in as profile_state_context/profile_location_hint, and
+  profile_in.language as `locale`). It is a deterministic, guarded tool — never
+  geocode a destination yourself, and never rank or pick among places yourself.
+  If it returns ok=False with error "geocode_ambiguous", DO NOT search: ask the
+  user the exact clarifying question in its diagnostics (the place is a homonym).
+  For any other ok=False, DO NOT call search_offers: relay its diagnostics
   honestly instead (never invent coordinates or guess a nearby city).
   If it returns ok=True, call search_offers with its latitude/longitude plus
   the rest of the query params, and fold its profile_delta into your own.

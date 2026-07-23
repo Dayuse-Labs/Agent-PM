@@ -94,6 +94,87 @@ def test_photo_url_rejects_missing_or_malformed_values():
         assert _photo_url(bad) is None
 
 
+# --- card coordinates + distance instrumentation (A8-a, S-G3) -------------------------------
+_ANCHOR_KEY = "temp:hotel_search_anchor"
+_DISTANCE_ORIGIN_KEY = "temp:hotel_search_distance_origin"
+_RESULTS_KEY = "temp:hotel_search_results"
+
+
+def _geo_hotel(i, lat, lon):
+    return {"hotelId": i, "name": f"Hotel {i}", "lat": lat, "lon": lon,
+            "offers": [{"priceEuro": 5000, "startHour": 10, "startMinute": 0, "endHour": 17, "endMinute": 0}]}
+
+
+def test_normalize_hotel_carries_lat_lon_when_present():
+    card = normalize_hotel(_geo_hotel(1, 48.8588, 2.3469))
+    assert card["latitude"] == 48.8588
+    assert card["longitude"] == 2.3469
+
+
+def test_normalize_hotel_omits_lat_lon_when_absent():
+    card = normalize_hotel(_hotel(1, 5000))  # helper carries no coordinates
+    assert "latitude" not in card and "longitude" not in card
+
+
+def test_normalize_hotel_omits_lat_lon_on_garbage():
+    card = normalize_hotel({"hotelId": 1, "name": "X", "lat": "nope", "lon": None})
+    assert "latitude" not in card and "longitude" not in card
+
+
+def test_capture_geocode_stashes_the_resolved_anchor():
+    ctx = _Ctx()
+    resp = {"ok": True, "latitude": 48.8566, "longitude": 2.3522,
+            "resolved_place": "Paris, Île-de-France, France", "distance_origin_type": "city_centroid",
+            "profile_delta": {"last_city": "Paris"}}
+    capture_after_tool(_Tool("geocode_location"), {}, ctx, resp)
+    anchor = ctx.state[_ANCHOR_KEY]
+    assert anchor["latitude"] == 48.8566 and anchor["longitude"] == 2.3522
+    assert anchor["type"] == "city_centroid"
+    assert anchor["label"] == "Paris, Île-de-France, France"
+
+
+def test_capture_search_offers_stamps_distance_km_from_stashed_anchor():
+    ctx = _Ctx({_ANCHOR_KEY: {"latitude": 48.8566, "longitude": 2.3522, "label": "Paris", "type": "city_centroid"}})
+    structured = {"total": 1, "results": [_geo_hotel(1, 48.8588, 2.3469)]}
+    capture_after_tool(_Tool("search_offers"), {"lat": 48.8566, "lon": 2.3522}, ctx, {"structuredContent": structured, "isError": False})
+    card = ctx.state[_RESULTS_KEY][0]
+    assert "distance_km" in card and card["distance_km"] < 1.0  # ~0.6 km from Notre-Dame
+    origin = ctx.state[_DISTANCE_ORIGIN_KEY]
+    assert origin["type"] == "city_centroid"
+
+
+def test_capture_search_offers_distance_from_args_when_no_anchor():
+    ctx = _Ctx()  # no stashed anchor (e.g. the model geocoded in a prior turn)
+    structured = {"total": 1, "results": [_geo_hotel(1, 40.71, -74.0)]}
+    capture_after_tool(_Tool("search_offers"), {"lat": 40.71, "lon": -74.0}, ctx, {"structuredContent": structured, "isError": False})
+    assert ctx.state[_RESULTS_KEY][0]["distance_km"] == 0.0
+    assert ctx.state[_DISTANCE_ORIGIN_KEY]["type"] == "search_coordinate"
+
+
+def test_capture_search_offers_no_distance_without_any_origin():
+    ctx = _Ctx()
+    structured = {"total": 1, "results": [_geo_hotel(1, 40.71, -74.0)]}
+    capture_after_tool(_Tool("search_offers"), {}, ctx, {"structuredContent": structured, "isError": False})
+    assert "distance_km" not in ctx.state[_RESULTS_KEY][0]
+    assert _DISTANCE_ORIGIN_KEY not in ctx.state
+
+
+def test_emit_includes_distance_origin_when_results_present():
+    ctx = _Ctx({
+        _RESULTS_KEY: [{"id": 1, "name": "Villa", "latitude": 48.8, "longitude": 2.3, "distance_km": 0.5}],
+        _DISTANCE_ORIGIN_KEY: {"latitude": 48.8566, "longitude": 2.3522, "label": "Paris", "type": "city_centroid"},
+    })
+    from hotel_search_agent.response_bridge import decode_datapart as _dec  # local, avoids top churn
+    content = emit_search_datapart(ctx)
+    data = None
+    for part in content.parts:
+        d = _dec(part)
+        if d is not None:
+            data = d
+    assert data["distance_origin"]["type"] == "city_centroid"
+    assert data["results"][0]["distance_km"] == 0.5
+
+
 def test_normalize_hotel_sets_image_urls_when_main_photo_normal_present():
     hotel = _hotel(1, 5000)
     hotel["mainPhotoNormal"] = "/hotels/1/photo.png"
