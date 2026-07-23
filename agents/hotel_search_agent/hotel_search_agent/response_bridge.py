@@ -48,6 +48,8 @@ from google.adk.a2a.converters.part_converter import (
 from google.adk.models.llm_response import LlmResponse
 from google.genai import types as genai_types
 
+from hotel_search_agent.inventory import haversine_km
+
 # The concierge reports AT MOST 5 (ground-truth cap) — match it so the model
 # never ingests more than the caller can use.
 _MAX_RESULTS = 5
@@ -59,6 +61,12 @@ _TARGET_TOOLS = {"search_offers", "find_hotel_by_name"}
 _STATE_RESULTS_KEY = "temp:hotel_search_results"
 _STATE_DELTA_KEY = "temp:hotel_search_profile_delta"
 _STATE_COUNTRY_KEY = "temp:hotel_search_country_code"
+# The resolved geocode anchor (lat/lon/label/type) stashed by the geocode branch,
+# and the per-search distance origin derived from it (A8-a: verifiable ranking —
+# cards carry coords + distance from the anchor, so shortlist relevance stops
+# being unmeasurable). Additive to the DataPart; the concierge ignores unknown keys.
+_STATE_ANCHOR_KEY = "temp:hotel_search_anchor"
+_STATE_DISTANCE_ORIGIN_KEY = "temp:hotel_search_distance_origin"
 # The budget / time-slot the model actually sent search_offers, captured from
 # the tool args (search_offers has NATIVE priceRangeMax/timeSlot params — no
 # virtual param needed, unlike amenities in S10) and mapped to the profile in
@@ -81,6 +89,16 @@ _REQUEST_SOURCE_FLEXIBLE = "flexible_default"
 # GDPR posture: presence FLAGS only (0/1), never the budget amount or the hours —
 # a budget/time preference is user content, same rule as never logging the city.
 _metrics_logger = logging.getLogger("dayuse.metrics")
+
+
+def _coord(value: Any) -> float | None:
+    """A finite lat/lon float, else None — never lets a string/garbage coordinate
+    reach a distance computation or a card."""
+    try:
+        f = float(value)
+    except (TypeError, ValueError):
+        return None
+    return f if -180.0 <= f <= 180.0 else None
 
 
 def _iso_alpha2(value: Any) -> str | None:
@@ -208,6 +226,23 @@ def _budget_timeslot_from_args(args: dict[str, Any]) -> dict[str, Any]:
     return captured
 
 
+def _stamp_distances(
+    results: list[dict[str, Any]], origin: dict[str, Any] | None
+) -> None:
+    """A8-a instrumentation: set `distance_km` on every card that has coordinates,
+    measured from the resolved anchor. In-place; a card without coords is left as-is
+    (never a fabricated distance)."""
+    if not origin:
+        return
+    olat, olon = origin.get("latitude"), origin.get("longitude")
+    if olat is None or olon is None:
+        return
+    for card in results:
+        clat, clon = card.get("latitude"), card.get("longitude")
+        if clat is not None and clon is not None:
+            card["distance_km"] = round(haversine_km(olat, olon, clat, clon), 1)
+
+
 def _best_offer(offers: list[dict[str, Any]]) -> dict[str, Any] | None:
     priced = [o for o in offers if isinstance(o, dict) and o.get("priceEuro") is not None]
     if priced:
@@ -245,6 +280,13 @@ def normalize_hotel(hotel: dict[str, Any]) -> dict[str, Any]:
         "rating": hotel.get("globalAverageRating"),
         "amenities": _flatten_amenities(hotel.get("amenities")),
     }
+    # Coordinates the MCP returns per hotel (probed live 2026-07-23: `lat`/`lon`).
+    # Kept on the card so the shortlist becomes verifiable (A8-a) — distance_km is
+    # stamped from the search anchor in capture_after_tool.
+    lat, lon = _coord(hotel.get("lat")), _coord(hotel.get("lon"))
+    if lat is not None and lon is not None:
+        card["latitude"] = lat
+        card["longitude"] = lon
     photo = _photo_url(hotel.get("mainPhotoNormal"))
     if photo:
         card["image_urls"] = [photo]
@@ -319,6 +361,15 @@ def capture_after_tool(
             country_code = _iso_alpha2(tool_response.get("country_code"))
             if country_code:
                 tool_context.state[_STATE_COUNTRY_KEY] = country_code
+            # The resolved place is the distance origin for this search's cards.
+            a_lat, a_lon = _coord(tool_response.get("latitude")), _coord(tool_response.get("longitude"))
+            if a_lat is not None and a_lon is not None:
+                tool_context.state[_STATE_ANCHOR_KEY] = {
+                    "latitude": a_lat,
+                    "longitude": a_lon,
+                    "label": tool_response.get("resolved_place"),
+                    "type": tool_response.get("distance_origin_type") or "city_centroid",
+                }
         return None
 
     if name not in _TARGET_TOOLS or not isinstance(tool_response, dict):
@@ -334,6 +385,17 @@ def capture_after_tool(
 
     results = normalize_search_results(structured)
     if name == "search_offers":
+        # Distance instrumentation (A8-a): the anchor is the geocode result the
+        # model copied into search_offers' lat/lon — prefer the richer stashed
+        # anchor (carries a label/type), fall back to the raw args coords.
+        origin = tool_context.state.get(_STATE_ANCHOR_KEY)
+        if not origin:
+            a_lat, a_lon = _coord(args.get("lat")), _coord(args.get("lon"))
+            if a_lat is not None and a_lon is not None:
+                origin = {"latitude": a_lat, "longitude": a_lon, "label": None, "type": "search_coordinate"}
+        if origin and results:
+            _stamp_distances(results, origin)
+            tool_context.state[_STATE_DISTANCE_ORIGIN_KEY] = origin
         # The search ran at the geocoded coordinates, so the geocoded country is
         # a legitimate attribute of ITS results (a server-sent countryCode always
         # wins via setdefault). find_hotel_by_name is NOT stamped — a name lookup
@@ -444,6 +506,11 @@ def emit_search_datapart(callback_context: Any) -> genai_types.Content | None:
         payload["results"] = results
     if profile_delta:
         payload["profile_delta"] = profile_delta
+    # Distance origin (A8-a) only when there are cards to attach distances to — a
+    # 0-result search carries none, keeping the emitted payload minimal.
+    distance_origin = state.get(_STATE_DISTANCE_ORIGIN_KEY)
+    if distance_origin and results:
+        payload["distance_origin"] = distance_origin
     if not payload:
         return None
 
