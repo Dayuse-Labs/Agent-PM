@@ -13,11 +13,13 @@ class TestBuildActiveFiltersV2:
     def test_empty_profile_still_yields_all_keys_as_none_or_empty(self):
         filters = build_active_filters(SessionProfile())
         assert filters["named_hotel"] is None
+        assert filters["date"] is None
         assert filters["date_reference"] is None
         assert filters["zone"] is None
         assert filters["currency"] is None
         assert filters["distance_origin"] is None
         assert filters["amenities"] == []
+        assert filters["client_timezone"] is None
 
     def test_populated_profile_surfaces_the_new_slots_instead_of_faking_null(self):
         profile = SessionProfile(
@@ -26,14 +28,18 @@ class TestBuildActiveFiltersV2:
             currency="EUR",
             distance_origin="gps",
             named_hotel={"hotel_id": 1, "name": "Villa Paris Orly", "source": "shortlist"},
+            date="2026-07-24",
             date_reference={"expression": "demain", "resolved_from": "2026-07-23", "client_tz": "Europe/Paris"},
+            client_timezone="Europe/Paris",
         )
         filters = build_active_filters(profile)
         assert filters["named_hotel"] == {"hotel_id": 1, "name": "Villa Paris Orly", "source": "shortlist"}
+        assert filters["date"] == "2026-07-24"
         assert filters["date_reference"]["expression"] == "demain"
         assert filters["zone"] == "Fort Lauderdale"
         assert filters["currency"] == "EUR"
         assert filters["distance_origin"] == "gps"
+        assert filters["client_timezone"] == "Europe/Paris"
 
     def test_pre_existing_keys_are_unchanged(self):
         profile = SessionProfile(city="Paris", state_anchor="IDF", budget_max=150.0, amenities=["pool"])

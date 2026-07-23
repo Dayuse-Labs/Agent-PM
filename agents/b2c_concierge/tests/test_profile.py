@@ -715,6 +715,7 @@ class TestProfileV2Schema:
         assert profile.distance_origin is None
         assert profile.shown_hotel_ids == []
         assert profile.search_cursor == 0
+        assert profile.client_timezone is None
 
     def test_round_trips_with_all_v2_fields_populated(self):
         profile = SessionProfile(
@@ -733,6 +734,7 @@ class TestProfileV2Schema:
             distance_origin="gps",
             shown_hotel_ids=[1, 2, 3],
             search_cursor=2,
+            client_timezone="Europe/Paris",
         )
         restored = SessionProfile.from_dict(profile.to_dict())
         assert restored == profile
@@ -773,6 +775,16 @@ class TestFlatDeltaRetroCompat:
         )
         assert profile.budget_max == 90.0
         assert profile.zone is None
+
+    def test_client_timezone_applies_and_carries_over(self):
+        # S-G6: facade native-context intake sends it fresh every request, but
+        # apply_profile_delta must still carry it over when a turn's delta
+        # simply doesn't mention it (e.g. a leaf-only delta).
+        profile = SessionProfile()
+        apply_profile_delta(profile, {"client_timezone": "Europe/Paris"}, "")
+        assert profile.client_timezone == "Europe/Paris"
+        apply_profile_delta(profile, {"city": "Lyon"}, "Lyon")
+        assert profile.client_timezone == "Europe/Paris"  # untouched, absent = carryover
 
 
 class TestTypedPatchOpsGeneric:

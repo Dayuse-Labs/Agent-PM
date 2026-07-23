@@ -13,6 +13,7 @@ from __future__ import annotations
 from b2c_concierge.facade import (
     _locale_response_language,
     _native_context_delta,
+    _parse_client_timezone,
     _parse_currency,
     _parse_domain,
     _parse_gps_anchor,
@@ -134,6 +135,20 @@ class TestParseGpsAnchor:
             assert _parse_gps_anchor(body, turn_index=0) is None
 
 
+# --- _parse_client_timezone (S-G6) -------------------------------------------------------------
+class TestParseClientTimezone:
+    def test_accepts_a_valid_iana_timezone(self):
+        assert _parse_client_timezone("Europe/Paris") == "Europe/Paris"
+        assert _parse_client_timezone(" America/New_York ") == "America/New_York"
+
+    def test_rejects_malformed_or_wrong_type(self):
+        assert _parse_client_timezone("") is None
+        assert _parse_client_timezone(None) is None
+        assert _parse_client_timezone("Not/AZone") is None
+        assert _parse_client_timezone(123) is None
+        assert _parse_client_timezone("CEST") is None  # abbreviation, not an IANA name
+
+
 # --- _native_context_delta ------------------------------------------------------------------------
 class TestNativeContextDelta:
     def test_empty_body_yields_empty_delta(self):
@@ -147,6 +162,7 @@ class TestNativeContextDelta:
             "client_geo_context": {
                 "device": {"latitude": 1.0, "longitude": 2.0, "permission": "granted"}
             },
+            "client_timezone": "Europe/Paris",
         }
         delta = _native_context_delta(body, turn_index=1)
         assert delta["locale"] == "fr-FR"
@@ -159,9 +175,13 @@ class TestNativeContextDelta:
             "label": None,
             "set_at_turn": 1,
         }
+        assert delta["client_timezone"] == "Europe/Paris"
 
     def test_invalid_fields_are_simply_omitted_never_500(self):
-        body = {"locale": 123, "currency": "not-a-currency", "domain": None, "native_context": "??"}
+        body = {
+            "locale": 123, "currency": "not-a-currency", "domain": None,
+            "native_context": "??", "client_timezone": "Not/AZone",
+        }
         assert _native_context_delta(body, turn_index=0) == {}
 
     def test_opaque_native_context_never_breaks_parsing(self):

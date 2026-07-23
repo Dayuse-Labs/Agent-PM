@@ -684,8 +684,8 @@ class _B2cConcierge(BaseAgent):
                 templates.booking_offer_summary_response(
                     hotel_name=result.get("hotel_name") or "",
                     date=result.get("date") or "",
-                    start_hour=result.get("start_hour"),
-                    end_hour=result.get("end_hour"),
+                    start_time=result.get("start_time"),
+                    end_time=result.get("end_time"),
                     price=result.get("price"),
                     language=language,
                 ),

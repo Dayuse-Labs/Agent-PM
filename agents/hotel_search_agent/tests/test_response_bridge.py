@@ -18,6 +18,8 @@ from google.genai import types as genai_types
 from hotel_search_agent.response_bridge import (
     MAX_RESULTS,
     STATE_APPLIED_AMENITIES_KEY,
+    STATE_EXACT_WINDOW_KEY,
+    STATE_RESOLVED_DATE_KEY,
     _photo_url,
     capture_after_tool,
     decode_datapart,
@@ -916,3 +918,166 @@ def test_emit_total_metric_never_carries_message_content():
     line = _total_metric_lines(ctx)[0]
     assert "Secret Villa Name" not in line
     assert line.startswith("dayuse_metric=leaf_turn_total agent=b2c_hotel_search ms=")
+
+
+# --- S-G6: exact-minute window (A4-c) -----------------------------------------------------------
+
+
+def _offer(start_hour, start_minute, end_hour, end_minute, price=5000):
+    return {
+        "priceEuro": price,
+        "startHour": start_hour,
+        "startMinute": start_minute,
+        "endHour": end_hour,
+        "endMinute": end_minute,
+        "availabilityDate": "2026-07-21",
+        "ratePlanId": 1,
+    }
+
+
+def _hotel_with_offers(i, offers):
+    return {
+        "hotelId": i,
+        "name": f"Hotel {i}",
+        "cityName": "Paris",
+        "countryName": "France",
+        "offers": offers,
+    }
+
+
+def test_normalize_hotel_drops_offers_outside_exact_window():
+    hotel = _hotel_with_offers(1, [_offer(7, 0, 13, 0)])  # 07:00-13:00
+    card = normalize_hotel(hotel, exact_window=(7 * 60 + 30, 13 * 60 + 30))  # 07:30-13:30 asked
+    assert "price" not in card  # the only offer starts too early — doesn't fit
+
+
+def test_normalize_hotel_keeps_offers_fitting_inside_exact_window():
+    hotel = _hotel_with_offers(1, [_offer(7, 30, 13, 30)])
+    card = normalize_hotel(hotel, exact_window=(7 * 60, 14 * 60))  # wider ask, offer fits inside
+    assert card["price"] == "€50.00"
+
+
+def test_normalize_search_results_drops_hotels_with_no_fitting_offer():
+    structured = {
+        "results": [
+            _hotel_with_offers(1, [_offer(7, 0, 13, 0)]),  # too early, excluded
+            _hotel_with_offers(2, [_offer(7, 30, 13, 30)]),  # fits exactly
+        ]
+    }
+    results = normalize_search_results(structured, exact_window=(7 * 60 + 30, 13 * 60 + 30))
+    assert [h["id"] for h in results] == [2]
+
+
+def test_normalize_search_results_without_exact_window_behaves_exactly_as_before():
+    structured = {"results": [_hotel_with_offers(1, [_offer(7, 0, 13, 0)])]}
+    results = normalize_search_results(structured, exact_window=None)
+    assert len(results) == 1  # no strict filter applied
+
+
+def test_capture_overrides_timeslot_minutes_from_the_exact_window_state():
+    # core-e2e-084: args["timeSlot"] only holds the FLOORED/CEILED hours by
+    # now (the before_tool_callback already rewrote them) — the exact minutes
+    # must come from the stashed state, not args.
+    ctx = _Ctx({STATE_EXACT_WINDOW_KEY: {"start_total": 7 * 60 + 30, "end_total": 13 * 60 + 30}})
+    args = {"priceRangeMax": 200, "timeSlot": {"startHour": 7, "endHour": 14}}
+    resp = {
+        "structuredContent": {"results": [_hotel_with_offers(1, [_offer(7, 30, 13, 30)])]},
+        "isError": False,
+    }
+    capture_after_tool(_Tool("search_offers"), args, ctx, resp)
+    stashed = ctx.state[_BUDGET_TIMESLOT_KEY]
+    assert stashed["timeslot_start"] == "07:30"
+    assert stashed["timeslot_end"] == "13:30"
+    assert stashed["budget_max"] == 200.0  # unrelated capture untouched
+
+
+def test_capture_applies_exact_window_post_filter():
+    ctx = _Ctx({STATE_EXACT_WINDOW_KEY: {"start_total": 7 * 60 + 30, "end_total": 13 * 60 + 30}})
+    resp = {
+        "structuredContent": {
+            "results": [
+                _hotel_with_offers(1, [_offer(7, 0, 13, 0)]),  # excluded
+                _hotel_with_offers(2, [_offer(7, 30, 13, 30)]),  # kept
+            ]
+        },
+        "isError": False,
+    }
+    capture_after_tool(_Tool("search_offers"), {}, ctx, resp)
+    results = ctx.state["temp:hotel_search_results"]
+    assert [h["id"] for h in results] == [2]
+    assert "temp:hotel_search_timeslot_fallback" not in ctx.state
+
+
+def test_capture_falls_back_when_exact_window_would_empty_everything():
+    ctx = _Ctx({STATE_EXACT_WINDOW_KEY: {"start_total": 7 * 60 + 30, "end_total": 13 * 60 + 30}})
+    resp = {
+        "structuredContent": {
+            "results": [_hotel_with_offers(1, [_offer(7, 0, 13, 0)])],  # only non-fitting offer
+        },
+        "isError": False,
+    }
+    capture_after_tool(_Tool("search_offers"), {}, ctx, resp)
+    results = ctx.state["temp:hotel_search_results"]
+    assert [h["id"] for h in results] == [1]  # fallback: coarser results, never a silent 0
+    assert ctx.state["temp:hotel_search_timeslot_fallback"] is True
+
+
+def test_capture_no_exact_window_state_never_filters():
+    ctx = _Ctx()  # resolve_search_timeslot never ran (e.g. an older-style test/caller)
+    resp = {
+        "structuredContent": {"results": [_hotel_with_offers(1, [_offer(7, 0, 13, 0)])]},
+        "isError": False,
+    }
+    capture_after_tool(_Tool("search_offers"), {}, ctx, resp)
+    assert len(ctx.state["temp:hotel_search_results"]) == 1
+
+
+def test_outcome_text_appends_fallback_disclosure():
+    from hotel_search_agent.response_bridge import _outcome_text
+
+    text = _outcome_text([{"name": "Hotel 1"}], timeslot_fallback=True)
+    assert "closest matches" in text
+    assert _outcome_text([{"name": "Hotel 1"}], timeslot_fallback=False) == (
+        "1 day-use offer(s) found: Hotel 1."
+    )
+
+
+def test_skip_final_generation_includes_fallback_note():
+    ctx = _Ctx(
+        {
+            "temp:hotel_search_results": [{"id": 1, "name": "Villa"}],
+            "temp:hotel_search_timeslot_fallback": True,
+        }
+    )
+    response = skip_final_generation(ctx, None)
+    assert "closest matches" in response.content.parts[0].text
+
+
+# --- S-G6: resolved date -> profile_delta --------------------------------------------------------
+
+
+def test_emit_delta_carries_resolved_date_and_date_reference():
+    ctx = _Ctx(
+        {
+            "temp:hotel_search_results": [{"id": 1, "name": "Villa"}],
+            STATE_RESOLVED_DATE_KEY: {
+                "date": "2026-07-24",
+                "date_reference": {"resolved_from": "relative", "expression": "demain"},
+            },
+        }
+    )
+    data = _decode(emit_search_datapart(ctx))
+    assert data["profile_delta"]["date"] == {"op": "set", "value": "2026-07-24"}
+    assert data["profile_delta"]["date_reference"] == {
+        "op": "set",
+        "value": {"resolved_from": "relative", "expression": "demain"},
+    }
+
+
+def test_emit_omits_date_when_no_fresh_label_was_resolved():
+    # A carryover-only turn (resolve_search_date never stashed anything): the
+    # profile's own carried-over date/date_reference must NOT be touched.
+    ctx = _Ctx({"temp:hotel_search_results": [{"id": 1, "name": "Villa"}]})
+    data = _decode(emit_search_datapart(ctx))
+    assert "date" not in data.get("profile_delta", {})
+    assert "date_reference" not in data.get("profile_delta", {})
