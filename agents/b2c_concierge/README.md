@@ -80,10 +80,12 @@ bash scripts/dayuse_guardrails.sh .
 | `FAQ_AGENT_CARD_URL` | `http://localhost:8102/.well-known/agent-card.json` | Carte de la feuille faq |
 | `HOTEL_SEARCH_A2A_TOKEN` | (vide) | Bearer D7 **sortant** vers la feuille search (secret par feuille en déploiement) |
 | `FAQ_AGENT_A2A_TOKEN` | (vide) | Bearer D7 **sortant** vers la feuille faq |
-| `CONCIERGE_LEAF_TIMEOUT_SECONDS` | `10.0` | Budget appel feuille, propriété de l'orchestrateur — SANS retry |
-| `CONCIERGE_TRIAGE_TIMEOUT_SECONDS` | `5.0` | Timeout du classify éco (échec → fallback regex) |
+| `CONCIERGE_LEAF_TIMEOUT_SEARCH_SECONDS` | `15.0` | Budget appel feuille search, propriété de l'orchestrateur — SANS retry (S-G4) |
+| `CONCIERGE_LEAF_TIMEOUT_FAQ_SECONDS` | `25.0` | Budget appel feuille faq — SANS retry (S-G4 : la synthèse FAQ doc-lourde a besoin de plus de marge) |
+| `CONCIERGE_LEAF_TIMEOUT_SECONDS` | — (legacy) | Si posée, gagne pour LES DEUX familles (compat démo Railway `=30`) — sinon chaque famille utilise sa variable dédiée |
+| `CONCIERGE_TRIAGE_TIMEOUT_SECONDS` | `5.0` | Timeout du classify éco (échec → fallback regex) — pas de retry, décision S-G4 (voir HANDOFF) |
 | `CONCIERGE_SYNTHESIS_TIMEOUT_SECONDS` | `15.0` | Timeout de la synthèse |
-| `CONCIERGE_SYNTHESIS_NUM_RETRIES` | `1` | Retries LiteLLM (seule couche de retry LLM) |
+| `CONCIERGE_SYNTHESIS_NUM_RETRIES` | `1` | Retries PAR EXCEPTION TRANSITOIRE (Timeout/RateLimit) via `litellm.Router` + `RetryPolicy` (S-G4) — BadRequest/Auth/ContentPolicy restent à 0 retry |
 | `A2A_HOST` | `localhost` | Hôte joignable par les pairs — écrit dans l'URL de la carte servie |
 | `PORT` | `8100` | Port d'écoute (plage AgentB2C : 8100 concierge / 8101 search / 8102 faq) |
 | `A2A_BEARER_TOKEN` | — **(obligatoire)** | Bearer **entrant** D7, vérifié par `serve.py` — fail-closed au boot |

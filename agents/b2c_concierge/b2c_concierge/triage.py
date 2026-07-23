@@ -10,6 +10,16 @@ Control flow stays code-owned (cs_copilot pattern): the LLM only CLASSIFIES
   fallback IS the recovery path, and LiteLLM is the only retry layer anywhere.
 - On any failure (timeout, bad JSON, unknown family) triage falls back to
   regex family + language guess: triage can never hard-fail a turn.
+
+S-G4 (budgets/RetryPolicy session) deliberately did NOT add a retry here,
+despite adding one for the concierge's synthesis call: verified live that
+omitting `num_retries` already means zero retries (confirmed against a stub
+endpoint), matching this docstring's claim — so there was no latent bug to
+fix. Unlike synthesis (where a successful retry produces a materially better
+answer than the "leaf text verbatim" fallback), triage's fallback (regex) is
+INSTANT and equally correct on the failures that matter — spending a retry's
+worth of latency here would only delay reaching the exact same regex path,
+for zero upside. Kept as-is; not a gap.
 """
 from __future__ import annotations
 

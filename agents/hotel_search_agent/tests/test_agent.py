@@ -152,6 +152,15 @@ class TestMetricsWiring:
 
         assert switch_model_callback not in self._as_list(root_agent.before_model_callback)
 
+    def test_turn_total_instrumentation_wired(self):
+        # S-G4: stamp_turn_start (before_agent) feeds the leaf_turn_total ms
+        # emit_search_datapart (after_agent) logs — the 4th per-phase counter
+        # alongside geocode/MCP (tool_call) and the reasoning pass (llm_call).
+        from hotel_search_agent.response_bridge import emit_search_datapart, stamp_turn_start
+
+        assert stamp_turn_start in self._as_list(root_agent.before_agent_callback)
+        assert emit_search_datapart in self._as_list(root_agent.after_agent_callback)
+
 
 class TestAmenityInstruction:
     """The closed key list the INSTRUCTION offers the model must be exactly the
