@@ -186,8 +186,18 @@ def _resolve_origin(case: dict[str, Any], assertion: dict[str, Any]) -> tuple[fl
     if isinstance(origin, list) and len(origin) == 2:
         return float(origin[0]), float(origin[1])
     if origin == "native_geolocation":
-        native = (case.get("request") or {}).get("native_context") or {}
-        geo = native.get("geolocation") or {}
+        request = case.get("request") or {}
+        # Real widget contract (S-G2, verified against the vendored JS):
+        # client_geo_context.device.{latitude, longitude}.
+        device = (request.get("client_geo_context") or {}).get("device") or {}
+        if (
+            isinstance(device, dict)
+            and device.get("latitude") is not None
+            and device.get("longitude") is not None
+        ):
+            return float(device["latitude"]), float(device["longitude"])
+        # Legacy fixture shape, kept readable for any old report replays.
+        geo = (request.get("native_context") or {}).get("geolocation") or {}
         if isinstance(geo, dict) and geo.get("lat") is not None and geo.get("lon") is not None:
             return float(geo["lat"]), float(geo["lon"])
     return None
@@ -233,15 +243,42 @@ def _evaluate_assertion(
 
     if kind == "filter_equals":
         expected = assertion.get("values") or {}
+
+        def _filter_matches(actual: Any, value: Any) -> bool:
+            if actual == value:
+                return True
+            # A structured filter (e.g. date_reference is a dict with
+            # {expression, resolved_from, ...}) matches a plain string
+            # expectation via its `expression` — the fixture asserts the
+            # user's literal token, not the resolved internals.
+            if isinstance(actual, dict) and isinstance(value, str):
+                return actual.get("expression") == value
+            return False
+
         failures = {
             key: (filters.get(key), value)
             for key, value in expected.items()
-            if filters.get(key) != value
+            if not _filter_matches(filters.get(key), value)
         }
         return _check(
             kind,
             not failures,
             f"filter mismatches={failures}" if failures else "filters match",
+            severity,
+        )
+
+    if kind == "filter_place":
+        # The place moved to `value` — recorded wherever the agent records
+        # places (`zone` for a sub-city area, `city`/`resolved_city` for a
+        # neighboring city). Cross-field on purpose: "Fort Lauderdale" is a
+        # city, not a zone of Miami, and the assertion must not encode one
+        # modeling choice (decision D2-a, 2026-07-23).
+        expected = assertion.get("value")
+        actual = {key: filters.get(key) for key in ("zone", "city", "resolved_city")}
+        return _check(
+            kind,
+            expected in actual.values(),
+            f"place {expected!r} not in {actual}",
             severity,
         )
 
@@ -668,7 +705,7 @@ def _case_payload(case: dict[str, Any], turn: dict[str, Any], session_id: str) -
         "session_id": session_id,
         "message": turn["message"],
     }
-    for key in ("locale", "currency", "native_context"):
+    for key in ("locale", "currency", "native_context", "client_geo_context"):
         if request.get(key) is not None:
             payload[key] = request[key]
     if case.get("clock"):

@@ -243,6 +243,53 @@ def _echo_fold(value: str | None) -> str:
     return "".join(ch for ch in unicodedata.normalize("NFKD", text) if not unicodedata.combining(ch))
 
 
+# Translated exonym pairs the transliteration fold cannot bridge (S-G9 finding
+# 9: "Wien" → "Vienna, Austria" was rejected as an echo mismatch — unlike
+# Gießen/giessen, Wien/Vienna is a different WORD in each language, not a
+# diacritic variant). Folded ASCII on both sides, both directions listed.
+# Deliberately small — famous hotel-market cities only; this is an echo
+# validator, not a gazetteer. NOT included on purpose: fr "vienne" (Vienne is
+# also a real French city — mapping it to Vienna would make the guard accept
+# exactly the wrong-country swap it exists to catch).
+_EXONYM_EQUIVALENTS: dict[str, tuple[str, ...]] = {
+    "wien": ("vienna",),
+    "vienna": ("wien",),
+    "munchen": ("munich",),
+    "munich": ("munchen",),
+    "koln": ("cologne",),
+    "cologne": ("koln",),
+    "firenze": ("florence",),
+    "florence": ("firenze",),
+    "venezia": ("venice",),
+    "venice": ("venezia",),
+    "napoli": ("naples",),
+    "naples": ("napoli",),
+    "roma": ("rome",),
+    "rome": ("roma",),
+    "torino": ("turin",),
+    "turin": ("torino",),
+    "genova": ("genoa",),
+    "genoa": ("genova",),
+    "milano": ("milan",),
+    "milan": ("milano",),
+    "praha": ("prague",),
+    "prague": ("praha",),
+    "lisboa": ("lisbon",),
+    "lisbon": ("lisboa",),
+    "sevilla": ("seville",),
+    "seville": ("sevilla",),
+    "geneve": ("geneva",),
+    "geneva": ("geneve",),
+    "bruxelles": ("brussels",),
+    "brussels": ("bruxelles",),
+    "kobenhavn": ("copenhagen",),
+    "copenhagen": ("kobenhavn",),
+    "francfort": ("frankfurt",),
+    "frankfurt": ("francfort",),
+    "londres": ("london",),
+    "london": ("londres",),
+}
+
 _ECHO_NOISE_WORDS = frozenset(
     {
         "airport",
@@ -323,6 +370,9 @@ def geocode_echo_matches(
     def _token_matches(tok: str) -> bool:
         if f" {tok} " in place or tok in compact_place:
             return True
+        for alt in _EXONYM_EQUIVALENTS.get(tok, ()):
+            if f" {alt} " in place or alt in compact_place:
+                return True
         if tok.startswith("saint") and tok.replace("saint", "st", 1) in compact_place:
             return True
         if tok.startswith("st") and len(tok) > 4 and tok.replace("st", "saint", 1) in compact_place:

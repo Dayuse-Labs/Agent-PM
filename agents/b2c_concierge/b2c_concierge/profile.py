@@ -155,7 +155,7 @@ class SessionProfile:
     locale: str | None = None
     domain: str | None = None
     search_anchor: dict[str, Any] | None = None  # {type, lat, lon, label, set_at_turn}
-    distance_origin: str | None = None
+    distance_origin: dict[str, Any] | None = None  # {latitude, longitude, label, type}
     shown_hotel_ids: list[Any] = field(default_factory=list)
     search_cursor: int = 0
     # S-G6 (2026-07-23): the client's own IANA timezone (facade native-context

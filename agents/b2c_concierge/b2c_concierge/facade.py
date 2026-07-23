@@ -256,7 +256,9 @@ def _count_user_turns(session: Any) -> int:
 # --- event-stream parsing (progress / hotels markers, token chunks, final) ------------------
 def _parse_event(event: Any) -> tuple[str, Any] | None:
     """Maps one raw ADK event to a facade item, or None if it carries nothing:
-    - a marker (`\\x1f{...}`) → ("progress", None) / ("hotels", list)
+    - a marker (`\\x1f{...}`) → ("progress", None) / ("hotels", full marker
+      payload dict — carries `hotels` plus per-turn flags like
+      `requires_clarification`, S-G10)
     - a partial text chunk → ("token", str)
     - the terminal non-partial event → ("final", str)."""
     if not event.content or not event.content.parts:
@@ -270,7 +272,7 @@ def _parse_event(event: Any) -> tuple[str, Any] | None:
         except (ValueError, TypeError):
             return None
         if payload.get("event") == "hotels":
-            return ("hotels", payload.get("hotels") or [])
+            return ("hotels", payload)
         return ("progress", None)
     if event.partial:
         return ("token", text)
@@ -422,6 +424,7 @@ def build_chat_payload(
     profile: SessionProfile,
     language: str,
     turn_id: str,
+    requires_clarification: bool = False,
 ) -> dict[str, Any]:
     """Assemble the iso-contract v3 payload (pure). Mapping notes:
     - message/response/context: the same synthesized text (response/context are
@@ -432,8 +435,11 @@ def build_chat_payload(
       a search came back empty, else [];
     - ready_to_search: True iff a lookup produced a hotel list this turn (the
       spine never gates a search behind intake, so this reflects OUTCOME);
-    - requires_clarification: always False (the spine attempts an answer or
-      degrades honestly — it never blocks on a structured clarification stage);
+    - requires_clarification: True ONLY when the search leaf reported a
+      geocode homonym clarify THIS turn (deterministic signal from the leaf's
+      DataPart, S-G10) — the spine still never BLOCKS on a clarification
+      stage, this is honest reporting so the harness can credit a safe
+      clarifying question instead of scoring it as a hard failure;
     - state/profile_status/market: honest defaults/derivations for concepts the
       spine does not model (documented per field)."""
     hotels_norm = normalize_hotels(hotels) if hotels else None
@@ -449,7 +455,7 @@ def build_chat_payload(
         "response_language": language,
         "state": "responding",
         "ready_to_search": hotels_norm is not None,
-        "requires_clarification": False,
+        "requires_clarification": requires_clarification,
         "profile_status": _profile_status(profile),
         "active_filters": build_active_filters(profile),
         "market": {"country_code": market_country} if market_country else {},
@@ -464,7 +470,7 @@ def build_chat_payload(
 # --- turn orchestration (shared by JSON + SSE) ----------------------------------------------
 async def _finalize(
     *, session_id: str, message: str, final_text: str, hotels: list | None,
-    is_synthetic: bool, turn_index: int,
+    is_synthetic: bool, turn_index: int, requires_clarification: bool = False,
 ) -> dict[str, Any]:
     """Build the payload from the post-turn profile and persist the conversation
     log (best-effort). Returns the payload."""
@@ -475,6 +481,7 @@ async def _finalize(
     payload = build_chat_payload(
         session_id=session_id, final_text=final_text, hotels=hotels,
         profile=profile, language=language, turn_id=uuid.uuid4().hex,
+        requires_clarification=requires_clarification,
     )
     row = build_conversation_log_row(
         session_id=session_id, turn_index=turn_index, user_message=message,
@@ -675,19 +682,22 @@ async def chat(request: Request) -> Response:
     await _apply_native_context(session_id, body, turn_index)
 
     hotels: list | None = None
+    requires_clarification = False
     final_text = ""
     if not message:
         final_text = _empty_ack_text(message, _parse_locale(body.get("locale")))
     else:
         async for kind, data in _drive(session_id, user_id, message):
             if kind == "hotels":
-                hotels = data or None
+                hotels = data.get("hotels") or None
+                requires_clarification = bool(data.get("requires_clarification"))
             elif kind == "final":
                 final_text = data
 
     payload = await _finalize(
         session_id=session_id, message=message, final_text=final_text,
         hotels=hotels, is_synthetic=is_synthetic, turn_index=turn_index,
+        requires_clarification=requires_clarification,
     )
     response = JSONResponse(payload)
     _set_session_cookie(response, session_id)
@@ -720,6 +730,7 @@ async def chat_stream(request: Request) -> Response:
 
     async def _body() -> AsyncGenerator[bytes, None]:
         hotels: list | None = None
+        requires_clarification = False
         final_text = ""
         if not message:
             yield _sse("progress", {})
@@ -729,8 +740,9 @@ async def chat_stream(request: Request) -> Response:
                 if kind == "progress":
                     yield _sse("progress", {})
                 elif kind == "hotels":
-                    hotels = data or None
-                    yield _sse("hotels", {"hotels": normalize_hotels(data) if data else []})
+                    hotels = data.get("hotels") or None
+                    requires_clarification = bool(data.get("requires_clarification"))
+                    yield _sse("hotels", {"hotels": normalize_hotels(hotels) if hotels else []})
                 elif kind == "token":
                     yield _sse("token", {"text": data})
                 elif kind == "final":
@@ -738,6 +750,7 @@ async def chat_stream(request: Request) -> Response:
         payload = await _finalize(
             session_id=session_id, message=message, final_text=final_text,
             hotels=hotels, is_synthetic=is_synthetic, turn_index=turn_index,
+            requires_clarification=requires_clarification,
         )
         yield _sse("done", payload)
 

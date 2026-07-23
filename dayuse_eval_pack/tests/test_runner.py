@@ -3,7 +3,7 @@ from __future__ import annotations
 import json
 
 from eval_pack.compare import compare_reports
-from eval_pack.runner import evaluate_turn, load_cases
+from eval_pack.runner import _case_payload, evaluate_turn, load_cases
 
 
 def _case(**overrides):
@@ -51,6 +51,83 @@ def test_distance_accuracy_accepts_correct_reported_distance():
     )
 
     assert all(check.passed for check in checks)
+
+
+def test_distance_accuracy_origin_reads_client_geo_context_device():
+    # The real facade contract (S-G2): client_geo_context.device.{latitude,
+    # longitude, permission} — decision D1-a (2026-07-23) moved the GPS
+    # fixtures to it; "native_geolocation" resolves from either shape.
+    case = _case(
+        request={
+            "client_geo_context": {
+                "device": {"latitude": 48.8566, "longitude": 2.3522, "permission": "granted"}
+            }
+        }
+    )
+    turn = {
+        "message": "Near me",
+        "expect": [
+            {
+                "type": "distance_accuracy",
+                "origin": "native_geolocation",
+                "tolerance_km": 0.2,
+                "tolerance_ratio": 0.01,
+            }
+        ],
+    }
+    response = {
+        "_http_status": 200,
+        "hotels": [
+            {"name": "Nearby", "latitude": 48.8656, "longitude": 2.3522, "distance_km": 1.0}
+        ],
+    }
+
+    checks = evaluate_turn(case=case, turn_index=1, turn=turn, response=response, prior_responses=[])
+
+    assert all(check.passed for check in checks)
+
+
+def test_case_payload_forwards_client_geo_context():
+    geo = {"device": {"latitude": 48.9, "longitude": 2.4, "permission": "granted"}}
+    case = _case(request={"client_geo_context": geo})
+    payload = _case_payload(case, {"message": "near me"}, "sid")
+    assert payload["client_geo_context"] == geo
+
+
+def test_filter_place_matches_zone_or_city():
+    # D2-a (2026-07-23): a place change must count wherever the agent records
+    # it — zone for a sub-city area, city/resolved_city for a neighboring city.
+    case = _case()
+    turn = {"message": "Same budget in Fort Lauderdale", "expect": [{"type": "filter_place", "value": "Fort Lauderdale"}]}
+    as_city = {"_http_status": 200, "active_filters": {"city": "Fort Lauderdale", "zone": None}}
+    as_zone = {"_http_status": 200, "active_filters": {"zone": "Fort Lauderdale", "city": "Miami"}}
+    elsewhere = {"_http_status": 200, "active_filters": {"city": "Miami", "zone": None}}
+
+    for response, expected in ((as_city, True), (as_zone, True), (elsewhere, False)):
+        checks = evaluate_turn(case=case, turn_index=1, turn=turn, response=response, prior_responses=[])
+        place_checks = [c for c in checks if c.check_type == "filter_place"]
+        assert place_checks and place_checks[0].passed is expected
+
+
+def test_filter_equals_matches_structured_date_reference_by_expression():
+    # active_filters.date_reference is a dict ({expression, resolved_from, ...},
+    # S-G6); a plain-string fixture expectation asserts the user's literal token.
+    case = _case()
+    turn = {
+        "message": "Tomorrow 11:00",
+        "expect": [{"type": "filter_equals", "values": {"date_reference": "tomorrow"}}],
+    }
+    response = {
+        "_http_status": 200,
+        "active_filters": {
+            "date_reference": {"expression": "tomorrow", "resolved_from": "relative"}
+        },
+    }
+
+    checks = evaluate_turn(case=case, turn_index=1, turn=turn, response=response, prior_responses=[])
+
+    equals_checks = [c for c in checks if c.check_type == "filter_equals"]
+    assert equals_checks and equals_checks[0].passed
 
 
 def test_distance_accuracy_rejects_centroid_drift():

@@ -363,6 +363,84 @@ class TestMultiCandidateResolution:
 
         assert client.langs == ["pt"]
 
+    def test_language_hint_fills_mapbox_language_when_no_locale(self, monkeypatch):
+        # S-G10 (La Défense→AE root cause): Mapbox's candidate LIST changes with
+        # `language` — the bare "La Défense" query only returns the Puteaux-FR
+        # candidates when a language is sent. The triage language is the fallback.
+        paris = _c("Paris", "FR", "Île-de-France", lat=48.85, rank=0)
+        client = _patch_multi(monkeypatch, [paris], inventory={48.85: 40})
+
+        geocode_location(city="Paris", raw_user_message="hôtel à Paris", language_hint="fr")
+
+        assert client.langs == ["fr"]
+
+    def test_real_locale_wins_over_language_hint(self, monkeypatch):
+        lisbon = _c("Lisbon", "PT", "Lisboa", lat=38.72, rank=0)
+        client = _patch_multi(monkeypatch, [lisbon], inventory={38.72: 26})
+
+        geocode_location(
+            city="Lisboa", raw_user_message="hoteis", locale="pt-PT", language_hint="fr"
+        )
+
+        assert client.langs == ["pt"]
+
+    def test_language_hint_never_feeds_the_country_prior(self, monkeypatch):
+        # S-G7 pitfall, locked: a triage fr/en guess must never act as the
+        # _W_LOCALE country boost. Two same-tier `place` candidates, US at
+        # Mapbox rank 0 — if "fr" wrongly fed the prior, the FR candidate
+        # (+1.0) would become the top (and lead the clarify options).
+        us = _c("Clermont", "US", "Florida", lat=28.55, rank=0)
+        fr = _c("Clermont", "FR", "Auvergne", lat=45.78, rank=1)
+        _patch_multi(monkeypatch, [us, fr], inventory={28.55: 20, 45.78: 20})
+
+        result = geocode_location(
+            city="Clermont", raw_user_message="hotel in Clermont", language_hint="fr"
+        )
+
+        assert result["error"] == "geocode_ambiguous"
+        assert result["diagnostics"]["options"][0]["country_code"] == "US"
+
+
+class TestGpsOnlyResolution:
+    def test_near_me_with_gps_anchor_resolves_to_the_fix(self, monkeypatch):
+        # S-G10 (D1 follow-up): a GPS-only request ("near me", no city/zone
+        # anywhere) resolves to the device fix itself — before this the leaf
+        # could never search at all for the widget's real GPS-only requests.
+        _patch_multi(monkeypatch, [], inventory={})
+
+        result = geocode_location(
+            city="", raw_user_message="a room in the daytime near me",
+            proximity_lat=48.9385, proximity_lon=2.4906,
+        )
+
+        assert result["ok"] is True
+        assert result["latitude"] == 48.9385
+        assert result["longitude"] == 2.4906
+        assert result["distance_origin_type"] == "gps"
+
+    def test_named_landmark_is_never_replaced_by_the_gps_fix(self, monkeypatch):
+        # Gate 3: "near the airport" + GPS must NOT silently search the user's
+        # own location — the zone-without-city error stands.
+        _patch_multi(monkeypatch, [], inventory={})
+        box = _FakeSearchBox(None)
+        monkeypatch.setattr(geocode_tool, "get_searchbox_client", lambda: box)
+
+        result = geocode_location(
+            city="", zone="the airport", raw_user_message="near the airport",
+            proximity_lat=48.9385, proximity_lon=2.4906,
+        )
+
+        assert result["ok"] is False
+        assert result["error"] == "no_geocodable_location"
+
+    def test_near_me_without_gps_still_asks_for_a_destination(self, monkeypatch):
+        _patch_multi(monkeypatch, [], inventory={})
+
+        result = geocode_location(city="", raw_user_message="near me")
+
+        assert result["ok"] is False
+        assert result["error"] == "no_geocodable_location"
+
 
 class TestSearchBoxTier2:
     def test_zone_miss_falls_back_to_search_box(self, monkeypatch):
@@ -397,6 +475,42 @@ class TestSearchBoxTier2:
         assert result["ok"] is False
         assert result["error"] == "geocode_echo_mismatch"
         assert box.calls == []  # never invoked without a zone/landmark
+
+    def test_clarify_with_a_zone_tries_search_box_before_asking(self, monkeypatch):
+        # S-G10: a named landmark can make v6's whole list fuzzy homonyms in a
+        # near-tie (clarify) — the echo-validated POI tier must win over asking
+        # the user to pick among fuzz ("La Defensa (Colombia) or ...?").
+        co = _c("La Defensa", "CO", "Vichada", ftype="locality", lat=5.58, rank=0)
+        ae = _c("Defense", "AE", "Abu Dhabi", ftype="neighborhood", lat=23.64, rank=2)
+        _patch_multi(monkeypatch, [co, ae], inventory={5.58: 0, 23.64: 1})
+        poi = GeocodeResult(
+            latitude=48.8918,
+            longitude=2.2387,
+            place_name="La Défense, 92800 Puteaux, France",
+            country_code="FR",
+            region="Île-de-France",
+        )
+        box = _FakeSearchBox(poi)
+        monkeypatch.setattr(geocode_tool, "get_searchbox_client", lambda: box)
+
+        result = geocode_location(city="Paris", zone="La Défense", raw_user_message="hotel la défense")
+
+        assert result["ok"] is True
+        assert result["country_code"] == "FR"
+        assert result["distance_origin_type"] == "poi"
+
+    def test_clarify_surfaces_when_search_box_misses_too(self, monkeypatch):
+        co = _c("La Defensa", "CO", "Vichada", ftype="locality", lat=5.58, rank=0)
+        ae = _c("Defense", "AE", "Abu Dhabi", ftype="neighborhood", lat=23.64, rank=2)
+        _patch_multi(monkeypatch, [co, ae], inventory={5.58: 0, 23.64: 1})
+        box = _FakeSearchBox(None)
+        monkeypatch.setattr(geocode_tool, "get_searchbox_client", lambda: box)
+
+        result = geocode_location(city="Paris", zone="La Défense", raw_user_message="hotel la défense")
+
+        assert result["ok"] is False
+        assert result["error"] == "geocode_ambiguous"
+        assert box.calls  # tier 2 was tried first
 
 
 # --- zone/metro in profile_delta (S-G5: previously never persisted) --------------------------
@@ -601,3 +715,12 @@ class TestInjectProfileGeoContext:
         ctx = _Ctx(user_content=_user_content_with_profile_in({"city": "Paris"}))
         inject_profile_geo_context(_Tool("geocode_location"), args, ctx)
         assert "locale" not in args
+
+    def test_language_hint_always_profile_sourced(self):
+        # S-G10: same category as locale — the triage conversation language
+        # (profile_in.language) is a pure profile lookup, injected so Mapbox's
+        # `language` param has a fallback when the client sent no locale.
+        args = {"city": "La Défense", "language_hint": "should be overwritten"}
+        ctx = _Ctx(user_content=_user_content_with_profile_in({"language": "fr"}))
+        inject_profile_geo_context(_Tool("geocode_location"), args, ctx)
+        assert args["language_hint"] == "fr"

@@ -11,11 +11,17 @@ The ranking rules, in priority order (geo memo §C, Pelias §B.1, Airbnb §B.2):
   1. Explicit country/region hint = HARD filter. A stated country is never a
      boost; it removes every other-country candidate. If it removes everyone,
      we resolve NOTHING (honest) rather than a wrong-country homonym.
-  2. Inventory density = NEAR-HARD. A candidate with zero bookable Dayuse hotels
-     nearby is ranked strictly below ANY candidate that has some — this one rule
-     kills "Lisbon, Arkansas" and the Victoria homonyms a prominence-ranked
-     geocoder gets wrong. Among candidates that all have (or all lack) inventory,
-     the magnitude is a bounded soft weight.
+  2. Inventory density = NEAR-HARD, above a small minimum. A candidate with a
+     real inventory footprint (≥ _MIN_TIER_INVENTORY hotels nearby) is ranked
+     strictly above any candidate without one — this rule kills "Lisbon,
+     Arkansas" and the Victoria homonyms a prominence-ranked geocoder gets
+     wrong. The minimum exists because S-G9 proved the 0-vs-1 version of this
+     tier causes wrong-country resolutions (Budapest→Georgia US, La Défense→
+     Al Aïn AE): a 1-hotel micro-homonym must never silently outrank a
+     world-famous zero-inventory city — that configuration falls through to
+     the same-tier scoring and, when genuinely close cross-country, to ONE
+     clarifying question. Below the minimum (and among same-tier candidates),
+     the count still contributes its bounded soft weight.
   3. Locale prior = bounded soft boost (a pt user's "Lisboa" leans PT).
   4. GPS proximity = bounded, BAND-LIMITED soft boost (Pelias: proximity breaks
      ties within a prominence band; it must NEVER override an explicit distant
@@ -29,6 +35,7 @@ from the candidates' `place_formatted` — never a candidate dump, never a loop
 """
 from __future__ import annotations
 
+import unicodedata
 from dataclasses import dataclass, field
 
 from hotel_search_agent.inventory import DEFAULT_RADIUS_KM, InventoryProvider, haversine_km
@@ -47,6 +54,8 @@ _W_INVENTORY = 2.0    # soft magnitude among candidates that HAVE inventory (the
 _W_PROXIMITY = 0.5    # GPS closeness — deliberately small so it can only break ties (band rule)
 
 _INVENTORY_SOFT_CAP = 30   # counts above this add no more soft weight (bounded)
+_MIN_TIER_INVENTORY = 3    # the NEAR-HARD tier needs at least this many hotels nearby (S-G10:
+                           # 1-2 can be a single hotel in a neighboring town — micro-homonym trap)
 _PROXIMITY_FULL_KM = 25.0  # within this, full (small) proximity credit; decays to 0 by _PROXIMITY_ZERO_KM
 _PROXIMITY_ZERO_KM = 500.0
 
@@ -72,8 +81,11 @@ class ScoredCandidate:
     inventory: int
 
     @property
-    def has_inventory(self) -> bool:
-        return self.inventory > 0
+    def in_inventory_tier(self) -> bool:
+        """NEAR-HARD tier membership — requires _MIN_TIER_INVENTORY, not just >0
+        (see module docstring rule 2: the 0-vs-1 version of this tier is exactly
+        the S-G9 Budapest→Georgia / La Défense→Al Aïn wrong-country mechanism)."""
+        return self.inventory >= _MIN_TIER_INVENTORY
 
 
 @dataclass(frozen=True)
@@ -128,6 +140,14 @@ def _score(
     return score
 
 
+def _name_fold(value: str | None) -> str:
+    """Case/diacritic-insensitive name for EXACT-name comparison ("Défense" ==
+    "defense") — deliberately simpler than geo_guards' transliterating echo
+    fold: this compares two short proper names, not free text."""
+    text = unicodedata.normalize("NFKD", str(value or "").strip().lower())
+    return "".join(ch for ch in text if not unicodedata.combining(ch))
+
+
 def _differs_by_place(a: GeocodeCandidate, b: GeocodeCandidate) -> bool:
     """True when two candidates denote genuinely different places (different
     country, or different region within a country) — the case worth asking about.
@@ -160,9 +180,20 @@ def resolve(
     locale_country: str | None = None,
     proximity: tuple[float, float] | None = None,
     radius_km: float = DEFAULT_RADIUS_KM,
+    requested_name: str | None = None,
 ) -> Resolution:
     """Re-rank `candidates` and decide select / clarify / none. Pure and
-    deterministic given the injected `inventory` provider."""
+    deterministic given the injected `inventory` provider.
+
+    `requested_name` (the city label the user actually typed) powers ONE
+    asymmetric rule: when the top candidate's name is an EXACT (fold-
+    insensitive) match for what was asked and a would-be clarify option's
+    name is not, that option is not a genuine alternative — "Fort
+    Lauderdale" typed exactly must not trigger "did you mean Lauderdale,
+    Minnesota?" (S-G10). Asymmetric on purpose: it only ever TRIMS options
+    when the top is exact; a non-exact top (fuzzy resolution) never
+    suppresses anything, and two exact-name homonyms (Budapest HU/GA,
+    Victoria) still clarify."""
     survivors = list(candidates)
 
     # 1 — hard filters (a stated country/region removes, never boosts).
@@ -192,7 +223,7 @@ def resolve(
         )
     # Sort by inventory tier first (near-hard), then score. Stable within ties on
     # Mapbox rank (survivors kept their input order, which is rank order).
-    scored.sort(key=lambda s: (s.has_inventory, s.score), reverse=True)
+    scored.sort(key=lambda s: (s.in_inventory_tier, s.score), reverse=True)
 
     top = scored[0]
     if len(scored) == 1:
@@ -200,8 +231,10 @@ def resolve(
 
     second = scored[1]
 
-    # A candidate WITH inventory always beats one without → decisive, select.
-    if top.has_inventory and not second.has_inventory:
+    # A candidate with a REAL inventory footprint always beats one without →
+    # decisive, select. (Micro-inventory candidates are not in the tier, so
+    # they can't win silently on 1 hotel — S-G9 findings.)
+    if top.in_inventory_tier and not second.in_inventory_tier:
         return Resolution(decision="select", chosen=top.candidate, scored=scored)
 
     # Same inventory tier: a clear score lead selects silently.
@@ -212,10 +245,15 @@ def resolve(
     # competitive: a different country/region, far enough to be a distinct
     # destination (not an adjacent suburb sharing the same search area), in the same
     # inventory tier, and within the selection margin of the top.
+    requested_fold = _name_fold(requested_name)
+    top_name_exact = bool(requested_fold) and _name_fold(top.candidate.name) == requested_fold
+
     def _genuine_alternative(other: ScoredCandidate) -> bool:
-        if other.has_inventory != top.has_inventory:
+        if other.in_inventory_tier != top.in_inventory_tier:
             return False
         if top.score - other.score >= _MARGIN_SELECT:
+            return False
+        if top_name_exact and _name_fold(other.candidate.name) != requested_fold:
             return False
         if not _differs_by_place(top.candidate, other.candidate):
             return False
