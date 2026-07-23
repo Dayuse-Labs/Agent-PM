@@ -2,6 +2,28 @@
 
 État du chantier pour reprise en session fraîche. **Lire en entier avant d'agir ; ne pas reconstruire ce qui existe.** Mettre à jour en fin de CHAQUE session (bloc daté en tête).
 
+## ⏱ Addendum 2026-07-23 (docs only, aucun code) — plan de remédiation geo/multi-turn ARBITRÉ + série S-G prête à lancer
+
+**Contexte** : Fabien a déposé `REVIEW-GEO-MULTITURN-AGENTB2C-2026-07-22.md` (audit 249 cas vs agent-usa : geo 26/41 vs 36/41, multi-turn 12/27 vs 16/27) et demandé : étude + recherche web + rapport d'options + arbitrage + plan de dev.
+
+**Fait (cette session, zéro changement de code)** :
+1. **Vérification code des 10 claims de l'audit → 10/10 VRAIS** sur `main@453c77f`, preuves file:line dans `reports/research/code-verification-memo.md` (+ inventaire complet des guards existants et du flux profile_in/delta). Deux constats au-delà de l'audit : le géocodeur n'envoie JAMAIS `proximity` ni ne varie `language` ; le handling `zone` est à moitié construit (accepté par geocode_tool, validé par l'echo guard, jamais persisté au profil).
+2. **3 mémos de recherche web** (sources citées, non-vérifiés flaggés) : `reports/research/geo-disambiguation-memo.md` (Mapbox v6 : limit défaut=5/max 10, AUCUN score de pertinence renvoyé pour les places → le ranking doit être à nous ; Airbnb/Expedia rankent contre leur PROPRE inventaire ; règle Pelias : la proximité ne surclasse jamais une destination explicite) · `multiturn-state-memo.md` (SOM-DST/Diable : ops par slot, carryover par défaut ; RFC 7386 ; confirmation mainteneur ADK : les sessions ne sont PAS partagées en A2A, le DataPart est le bon pattern) · `timeouts-latency-memo.md` (percentile sain + false-timeout-rate ; params LiteLLM vérifiés : RetryPolicy par exception, stream_timeout ; hedging analysé et rejeté).
+3. **Plan d'options arbitrable** : `reports/PLAN-RESOLUTION-GEO-MULTITURN-2026-07-23.md` (+ artifact HTML publié dans la conversation). Diagnostic : UNE famille de cause racine — le contrat/l'état ne portent pas le contexte, et le pont profil→outils repose sur la recopie LLM. Zéro nouvel appel LLM dans tout le plan.
+4. **ARBITRAGE (Fabien, 2026-07-23) : toutes les recommandations acceptées** — A1-a snapshot inventaire statique · A2-b Search Box tranché par probe · A3-a ops typées · A4-c · A5-a budgets par famille · A6-a contexte maintenant/pricing gated · A7 probe d'abord · A8-a instrumenter avant reranker. **⚠️ A4 : Fabien pensait les demi-heures déjà corrigées — vérifié NON corrigé sur main** (`hotel_search_agent/agent.py:144` impose des heures entières au modèle ; `response_bridge.py:202-203` force minute=0 à la capture ; seul l'AFFICHAGE des offres lit `startMinute`/`endMinute` — c'est probablement la source de la confusion, avec le « HH:MM » du profil livré en S14). `core-e2e-084` reste ouvert, A4-c reste au plan.
+5. **Plan de dev prêt à passer à d'autres sessions** : `phases/SG1-…SG9-*.md` (9 fichiers autonomes : périmètre IN/OUT, étapes, DoD exécutable, prompt de lancement inclus) + vue d'ensemble/timeline/modèles dans `SESSIONS-CLAUDE-CODE.md` §S-G + checklist `tasks/todo.md`. Fenêtres : (S-G1 ∥ S-G3 ∥ S-G4) → (S-G2 ∥ S-G5 ∥ S-G8) → S-G6 → S-G7 → S-G9. S-G3 = Opus ; S-G9 = jamais loop.
+
+**Reste** :
+- Lancer la série S-G (chaque phase porte son prompt de lancement). Merge order des fenêtres parallèles : numéro le plus bas d'abord.
+- Cross-repo MCP_B2C : demandes à ouvrir (minutes timeSlot, offset/exclusion pagination, pricing/devise, éventuel count_hotels_near) — matérialisées dans `reports/MCP-B2C-REQUESTS.md` en S-G6/S-G7.
+- Ops : contrôle plateforme de `DAYUSE_MODEL` (défaut committé = `gpt-4o-mini`, l'eval de l'audit tournait GPT-5.2) avant toute comparaison canary.
+
+**Pièges découverts** :
+- Mapbox v6 ne renvoie AUCUN champ de pertinence numérique pour les features de type place (`match_code`/`confidence` = adresses seulement) — ne pas espérer un seuil de confiance API, le ranker est forcément à nous (position + nos signaux).
+- Les claims « La Défense = neighborhood v6 » / « Orange County = district » sont inférés des docs, PAS testés live — d'où le probe obligatoire en tête de S-G3.
+- LiteLLM : router `timeout` couvre l'appel entier retries compris (docs), mais l'interaction exacte `num_retries` × `timeout` est à vérifier par un test local de 10 lignes (fait en S-G4).
+- Les tests de ce repo (`pytest -q`) : 1 échec pré-existant `tests/test_llm_meter_usage.py` (untracked S-B, sans rapport avec cette session).
+
 ## ⏱ Addendum 2026-07-23 (branche `s-railway-deploy-demo`) — fix sélection d'hôtel par numéro (booking) découvert sur le démo
 
 **Bug (signalé par Fabien, capture d'écran)** : sur le démo, après une recherche Miami, « je veux booker » → « Quel hôtel ? Dites-moi son nom : 1. … 2. … » ; répondre **« 1 »/« 2 »** → « I can't reach the hotel search in Miami » (dégradation). Impossible de choisir un hôtel de la liste.

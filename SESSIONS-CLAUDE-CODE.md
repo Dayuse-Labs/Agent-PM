@@ -41,3 +41,44 @@ Principe retenu : sessions fraîches bornées + état durable dans les fichiers 
 **Mauvais terrain** : S1-S3 (scaffolding = skills interactifs + choix de structure — à faire en session pilotée), S9 (contrat front = zone à jugement), S10-S11 (prod, données réelles — jamais en boucle autonome).
 
 **Risques à garder en tête** : une boucle « verte » peut le devenir en affaiblissant les tests (d'où : tests = spec intouchable, le diff de tests est un signal de STOP) ; et le coût tokens croît vite — la boucle ne vaut que sur les scopes répétitifs où elle bat une session pilotée.
+
+## Sessions S-G — remédiation geo/multi-turn (arbitrée 2026-07-23)
+
+> Source : `REVIEW-GEO-MULTITURN-AGENTB2C-2026-07-22.md` (audit) + `reports/PLAN-RESOLUTION-GEO-MULTITURN-2026-07-23.md` (plan arbitré, décisions A1-A8). Détail par session : `phases/SG1…SG9.md` (prompt de lancement inclus dans chaque fichier). Recherche à l'appui : `reports/research/*.md`.
+
+| # | Scope (1 session) | Zone | Prérequis | Durée |
+|---|---|---|---|---|
+| S-G1 | Profil v2 : schéma complet (named_hotel, zone, date+référence, devise, ancre GPS, shown_ids, curseur) + reducer ops typées (set/clear, absent=carryover, rétro-compat delta plat) + `active_filters` dé-nullé | concierge | — | 1 j |
+| S-G2 | Intake contexte natif : GPS/locale/domaine/devise/timezone lus du body (probe du widget vendorisé = spec), ancre taguée + règle no-silent-downgrade | facade | S-G1 | ½ j |
+| S-G3 | Résolveur géo multi-candidats : probe live Mapbox D'ABORD (tranche Search Box), limit=10 + language + proximity, ranker déterministe inventory-aware (snapshot statique), clarify-once, cartes avec lat/lon/distance | feuille | token Mapbox | 1,5-2 j |
+| S-G4 | Budgets timeout par famille (search/faq) + LiteLLM RetryPolicy/stream_timeout + instrumentation par phase + root-cause Chester | concierge (+instr. feuille) | — | ½-1 j |
+| S-G5 | Pont déterministe profil→geocode (before_tool_callback, pattern equipment_ids) + pagination shown_ids/curseur/disclosure (probe search_offers d'abord) | feuille + concierge | S-G1+S-G3 | 1 j |
+| S-G6 | Dates (LLM étiquette / code calcule, timezone client), durées ≠ fenêtres (core-e2e-201), demi-heures bout-en-bout (core-e2e-084, post-filtre intérim + demande schéma MCP) | feuille + concierge | S-G1+S-G2, après S-G5 | 1 j |
+| S-G7 | Locale→Mapbox language + prior ranker, response_language, devise stockée + disclosure display EUR, probe pricing MCP | feuille + concierge | S-G2+S-G3, après S-G6 | ½ j |
+| S-G8 | Durcissement harness : les 8 items de l'audit en couche d'annotation `scripts/` (pack byte-identique, assertions manquantes = skipped divulgué) | scripts/ | — | 1 j |
+| S-G9 | Gate 81 cas ×3 replays + rapport 7 critères + design éval ranking (precision@5/NDCG@5) — mesure seulement, jamais de fix | scripts/ + reports/ | S-G1→S-G8 | 1 j |
+
+### Timeline & parallélisation
+
+```
+Fenêtre 1                Fenêtre 2                Fenêtre 3        Fenêtre 4
+S-G1 ∥ S-G3 ∥ S-G4  →    S-G2 ∥ S-G5 ∥ S-G8  →    S-G6 → S-G7  →   S-G9
+(worktrees ; merge       (merge S-G2 d'abord)     (séquentiel :    (gate, piloté,
+ S-G1 d'abord)                                     mêmes fichiers   jamais loop)
+                                                   feuille)
+```
+
+Ordre de merge des fenêtres parallèles : **numéro le plus bas d'abord**, les autres rebasent. Estimation totale : ~2 semaines.
+
+### Modèles & modes
+
+| Session | Modèle | Mode |
+|---|---|---|
+| S-G3 | **Opus** | piloté (design ranker + probes = jugement) |
+| S-G1, S-G5, S-G6, S-G8 | Sonnet | piloté puis **loop possible** (spec exécutable, tests d'abord) |
+| S-G2, S-G4, S-G7 | Sonnet | piloté (courts) |
+| S-G9 | Sonnet | piloté, **jamais loop** (mesure, données réelles) |
+
+### Décisions arbitrées (2026-07-23, Fabien) — ne pas re-litiger en session
+
+A1-a snapshot inventaire statique (provider swappable) · A2-b Search Box tranché par le probe S-G3 · A3-a ops typées · A4-c demi-heures : post-filtre intérim + demande schéma MCP (⚠️ vérifié NON corrigé sur main : `agent.py:144` heures entières, `response_bridge.py:202-203` minute=0 — seul l'AFFICHAGE des offres lit les minutes) · A5-a budgets statiques par famille (deadline propagation = plus tard) · A6-a contexte maintenant, pricing gated sur probe MCP · A7 probe search_offers d'abord · A8-a instrumenter avant tout reranker. Hedging : rejeté. Flag ops : contrôle plateforme de `DAYUSE_MODEL` requis avant toute comparaison canary.
