@@ -93,10 +93,12 @@ from .ground_truth import shortlist_ground_truth_block, shortlist_hotels
 from .profile import (
     BUDGET_SOURCE_EXPLICIT,
     SessionProfile,
+    advance_search_cursor,
     apply_profile_delta,
     extract_final_question,
     is_bare_affirmative,
     is_booking_confirmation_signal,
+    is_more_options_signal,
     is_search_refinement_signal,
     maybe_auto_widen,
     questions_equivalent,
@@ -783,6 +785,16 @@ class _B2cConcierge(BaseAgent):
                 yield self._final(ctx, templates.search_exhausted_response(triage.language, profile.city))
                 return
 
+        # S-G5: "other options" pagination — advance the cursor deterministically
+        # (never LLM-decided) so profile_in.search_cursor reaches the leaf's
+        # search_offers call via its code-owned `from`-offset bridge
+        # (hotel_search_agent.response_bridge.inject_pagination_offset).
+        # shown_hotel_ids stays the belt-and-suspenders exclusion filter
+        # regardless of what the cursor computes.
+        more_options = route.target == LEAF_HOTEL_SEARCH and is_more_options_signal(message)
+        if more_options:
+            advance_search_cursor(profile)
+
         # Leaf leg (search / faq): charge the leaf's 0-1 internal LLM slot, then
         # ONE call, per-family budget (_leaf_timeout), no retry. Session profile
         # (Redis, orchestrator-only — decision B3) travels OUT as profile_in and
@@ -801,8 +813,25 @@ class _B2cConcierge(BaseAgent):
         if delta:
             apply_profile_delta(profile, delta, message)
         if route.target == LEAF_HOTEL_SEARCH and "results" in response:
-            record_search_outcome(profile, results_count=len(response["results"]), language=triage.language)
+            results_count = len(response["results"])
+            record_search_outcome(profile, results_count=results_count, language=triage.language)
             record_search_shortlist(profile, response["results"])  # S07: named-hotel lookup guard
+            if more_options and results_count == 0:
+                # S-G5: pagination pool exhausted for the CURRENT filters (the
+                # leaf already excluded shown_hotel_ids before returning) —
+                # extend S12's exhaustion flag/template (never a parallel
+                # mechanism), immediate and zero-LLM, same turn: no streak to
+                # wait for, one empty "other options" page is proof enough.
+                profile.search_exhausted = True
+                await store.set(ctx.session.id, profile)
+                self._emit_turn_metric(family, "template:search_exhausted", budget, t_start, "ok", inv)
+                yield self._final(
+                    ctx,
+                    templates.search_exhausted_response(
+                        triage.language, profile.city, reason="pagination"
+                    ),
+                )
+                return
             maybe_auto_widen(profile)
 
         synth = await self._synthesize_with_guards(

@@ -318,6 +318,94 @@ class TestSearchExhaustionThroughTheSpine:
         assert stored.widen_attempt_count == 0
 
 
+class TestPaginationThroughTheSpine:
+    """S-G5: "other options" advances `profile.search_cursor` (sent to the leaf
+    as `profile_in.search_cursor`, read by the leaf's own `inject_pagination_offset`
+    before_tool_callback to compute search_offers' `from`) — and a page that
+    comes back with ZERO new hotels immediately extends the S12 exhaustion
+    flag/template (never a parallel mechanism): zero extra LLM call, same
+    turn, no streak to wait for."""
+
+    def test_other_options_advances_the_cursor_sent_to_the_leaf(
+        self, monkeypatch, fake_leg, fake_profile_store
+    ):
+        _scripted_llm(
+            monkeypatch,
+            '{"family": "search", "language": "en"}', "A hotel in Paris.",
+            # Mis-triaged as ack on purpose — the code-owned routing override
+            # (is_search_refinement_signal, now covering "other options") must
+            # force this to search regardless of what triage guessed.
+            '{"family": "ack", "language": "en"}', "More hotels in Paris.",
+        )
+        runner = InMemoryRunner(root_agent)
+        session = _new_session(runner)
+
+        fake_leg.response_payload = {
+            "results": [{"id": 1, "name": "Hotel A"}],
+            "profile_delta": {"city": "Paris"},
+        }
+        _run_turn(runner, session.id, "a hotel in Paris")
+
+        fake_leg.response_payload = {"results": [{"id": 2, "name": "Hotel B"}]}
+        _run_turn(runner, session.id, "any other options?")
+
+        outgoing = find_datapart(fake_leg.seen_outgoing_parts)
+        assert outgoing["profile_in"]["search_cursor"] == 1
+
+    def test_more_options_with_zero_new_results_is_immediately_exhausted(
+        self, monkeypatch, fake_leg, fake_profile_store
+    ):
+        llm = _scripted_llm(
+            monkeypatch,
+            '{"family": "search", "language": "en"}', "A hotel in Paris.",
+            '{"family": "search", "language": "en"}', "unused — must not be consumed",
+        )
+        runner = InMemoryRunner(root_agent)
+        session = _new_session(runner)
+
+        fake_leg.response_payload = {
+            "results": [{"id": 1, "name": "Hotel A"}],
+            "profile_delta": {"city": "Paris"},
+        }
+        _run_turn(runner, session.id, "a hotel in Paris")
+
+        # The leaf already excluded shown_hotel_ids before returning — nothing
+        # new survived this page.
+        fake_leg.response_payload = {"results": []}
+        calls_before = len(llm.calls)
+        reply = _run_turn(runner, session.id, "other options")
+
+        assert len(llm.calls) == calls_before + 1  # triage only — zero synthesis call
+        stored = asyncio.run(fake_profile_store.get(session.id))
+        assert stored.search_exhausted is True
+        assert "criteria" in reply.lower() or "crit" in reply.lower()
+
+    def test_plain_refinement_does_not_advance_the_cursor(
+        self, monkeypatch, fake_leg, fake_profile_store
+    ):
+        # "cheaper" is a real new constraint, not a pagination continuation —
+        # only is_more_options_signal advances the cursor.
+        _scripted_llm(
+            monkeypatch,
+            '{"family": "search", "language": "en"}', "A hotel in Paris.",
+            '{"family": "search", "language": "en"}', "A cheaper one.",
+        )
+        runner = InMemoryRunner(root_agent)
+        session = _new_session(runner)
+
+        fake_leg.response_payload = {
+            "results": [{"id": 1, "name": "Hotel A"}],
+            "profile_delta": {"city": "Paris"},
+        }
+        _run_turn(runner, session.id, "a hotel in Paris")
+
+        fake_leg.response_payload = {"results": [{"id": 1, "name": "Hotel A"}]}
+        _run_turn(runner, session.id, "cheaper please")
+
+        outgoing = find_datapart(fake_leg.seen_outgoing_parts)
+        assert outgoing["profile_in"]["search_cursor"] == 0
+
+
 class TestProvenanceHonestyThroughTheSpine:
     """S12 audit 2026-07-20: a non-explicit budget/timeslot must never be
     claimed as user-requested by the synthesis LLM (rule 8) — the PROVENANCE

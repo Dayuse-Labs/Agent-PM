@@ -6,9 +6,12 @@ from __future__ import annotations
 
 import httpx
 import pytest
+from a2a import types as a2a_types
+from google.adk.a2a.converters.part_converter import convert_a2a_part_to_genai_part
+from google.genai import types as genai_types
 
 from hotel_search_agent import geocode_tool
-from hotel_search_agent.geocode_tool import geocode_location
+from hotel_search_agent.geocode_tool import geocode_location, inject_profile_geo_context
 from hotel_search_agent.mapbox_client import GeocodeCandidate, GeocodeResult, MapboxClient
 
 
@@ -291,10 +294,12 @@ class _MultiClient:
         self.candidates = candidates
         self.calls: list[tuple] = []
         self.langs: list = []
+        self.proximities: list = []
 
     def geocode_candidates(self, query, *, country=None, language=None, proximity=None, **kwargs):
         self.calls.append((query, country))
         self.langs.append(language)
+        self.proximities.append(proximity)
         return list(self.candidates)
 
 
@@ -392,3 +397,192 @@ class TestSearchBoxTier2:
         assert result["ok"] is False
         assert result["error"] == "geocode_echo_mismatch"
         assert box.calls == []  # never invoked without a zone/landmark
+
+
+# --- zone/metro in profile_delta (S-G5: previously never persisted) --------------------------
+class TestZoneMetroDelta:
+    def test_zone_included_in_delta_when_resolved(self, monkeypatch):
+        _patch_multi(
+            monkeypatch,
+            [_c("Hollywood", "US", "Florida", lat=25.79)],
+            inventory={25.79: 5},
+        )
+
+        result = geocode_location(city="Miami", zone="Hollywood")
+
+        assert result["profile_delta"]["zone"] == "Hollywood"
+
+    def test_metro_included_in_delta_when_resolved(self, monkeypatch):
+        _patch_multi(monkeypatch, [_c("Paris", "FR", "Île-de-France", lat=48.85)], inventory={48.85: 5})
+
+        result = geocode_location(city="Paris", metro="Île-de-France")
+
+        assert result["profile_delta"]["metro"] == "Île-de-France"
+
+    def test_zone_absent_from_delta_when_not_given(self, monkeypatch):
+        _patch_multi(monkeypatch, [_c("Milano", "IT", "Milan", lat=45.46)], inventory={45.46: 5})
+
+        result = geocode_location(city="Milano")
+
+        assert "zone" not in result["profile_delta"]
+        assert "metro" not in result["profile_delta"]
+
+    def test_zone_included_via_search_box_tier2(self, monkeypatch):
+        junk = _c("Al Ain", "AE", "Abu Dhabi", ftype="neighborhood", lat=24.2, rank=0)
+        _patch_multi(monkeypatch, [junk], inventory={24.2: 0})
+        poi = GeocodeResult(
+            latitude=48.8918, longitude=2.2387,
+            place_name="La Défense, 92800 Puteaux, France",
+            country_code="FR", region="Île-de-France",
+        )
+        monkeypatch.setattr(geocode_tool, "get_searchbox_client", lambda: _FakeSearchBox(poi))
+
+        result = geocode_location(city="Paris", zone="La Défense", raw_user_message="hotel la défense")
+
+        assert result["ok"] is True
+        assert result["profile_delta"]["zone"] == "La Défense"
+
+
+# --- GPS proximity wiring (S-G5) --------------------------------------------------------------
+class TestProximityWiring:
+    def test_lat_and_lon_reach_mapbox_as_lon_lat_string_and_resolver_as_tuple(self, monkeypatch):
+        milan = _c("Milano", "IT", "Milan", lat=45.46, rank=0)
+        client = _patch_multi(monkeypatch, [milan], inventory={45.46: 10})
+
+        captured: dict = {}
+        real_resolve = geocode_tool.geo_resolver.resolve
+
+        def spy_resolve(candidates, **kwargs):
+            captured["proximity"] = kwargs.get("proximity")
+            return real_resolve(candidates, **kwargs)
+
+        monkeypatch.setattr(geocode_tool.geo_resolver, "resolve", spy_resolve)
+
+        geocode_location(city="Milano", proximity_lat=45.0, proximity_lon=9.0)
+
+        assert client.proximities == ["9.0,45.0"]
+        assert captured["proximity"] == (45.0, 9.0)
+
+    def test_a_lone_lat_or_lon_is_ignored(self, monkeypatch):
+        milan = _c("Milano", "IT", "Milan", lat=45.46, rank=0)
+        client = _patch_multi(monkeypatch, [milan], inventory={45.46: 10})
+
+        geocode_location(city="Milano", proximity_lat=45.0, proximity_lon=None)
+
+        assert client.proximities == [None]
+
+    def test_no_proximity_by_default(self, monkeypatch):
+        milan = _c("Milano", "IT", "Milan", lat=45.46, rank=0)
+        client = _patch_multi(monkeypatch, [milan], inventory={45.46: 10})
+
+        geocode_location(city="Milano")
+
+        assert client.proximities == [None]
+
+
+# --- inject_profile_geo_context (before_tool_callback, P0 #4 fix / S-G5) ----------------------
+class _Ctx:
+    def __init__(self, state=None, user_content=None):
+        self.state = state if state is not None else {}
+        self.user_content = user_content
+
+
+class _Tool:
+    def __init__(self, name):
+        self.name = name
+
+
+def _user_content_with_profile_in(profile_in: dict) -> genai_types.Content:
+    datapart = a2a_types.Part(
+        root=a2a_types.DataPart(data={"query_params": {}, "profile_in": profile_in})
+    )
+    return genai_types.Content(
+        role="user",
+        parts=[genai_types.Part(text="autres options"), convert_a2a_part_to_genai_part(datapart)],
+    )
+
+
+class TestInjectProfileGeoContext:
+    def test_ignores_other_tools(self):
+        args = {"lat": 1}
+        ctx = _Ctx(user_content=_user_content_with_profile_in({"city": "Miami"}))
+        assert inject_profile_geo_context(_Tool("search_offers"), args, ctx) is None
+        assert args == {"lat": 1}
+
+    def test_empty_profile_leaves_args_untouched(self):
+        args = {"city": "Paris"}
+        assert inject_profile_geo_context(_Tool("geocode_location"), args, _Ctx()) is None
+        assert args == {"city": "Paris"}
+
+    def test_fresh_city_wins_over_profile(self):
+        args = {"city": "Lisbon"}
+        ctx = _Ctx(user_content=_user_content_with_profile_in({"city": "Paris"}))
+        inject_profile_geo_context(_Tool("geocode_location"), args, ctx)
+        assert args["city"] == "Lisbon"
+
+    def test_blank_city_filled_from_profile(self):
+        for blank_city in ("", "   "):
+            args = {"city": blank_city}
+            ctx = _Ctx(user_content=_user_content_with_profile_in({"city": "Paris"}))
+            inject_profile_geo_context(_Tool("geocode_location"), args, ctx)
+            assert args["city"] == "Paris"
+
+    def test_zone_metro_country_code_filled_when_blank(self):
+        args = {"city": "Paris"}
+        ctx = _Ctx(
+            user_content=_user_content_with_profile_in(
+                {"zone": "La Défense", "metro": "Île-de-France", "country_anchor": "FR"}
+            )
+        )
+        inject_profile_geo_context(_Tool("geocode_location"), args, ctx)
+        assert args["zone"] == "La Défense"
+        assert args["metro"] == "Île-de-France"
+        assert args["country_code"] == "FR"
+
+    def test_zone_metro_country_code_not_overwritten_when_fresh(self):
+        args = {"city": "Paris", "zone": "Montmartre", "country_code": "FR"}
+        ctx = _Ctx(
+            user_content=_user_content_with_profile_in(
+                {"zone": "La Défense", "country_anchor": "US"}
+            )
+        )
+        inject_profile_geo_context(_Tool("geocode_location"), args, ctx)
+        assert args["zone"] == "Montmartre"
+        assert args["country_code"] == "FR"
+
+    def test_profile_state_context_and_location_hint_always_profile_sourced(self):
+        # Pure profile lookups by definition — set regardless of what the model
+        # itself extracted for `city` THIS turn.
+        args = {"city": "Lisbon", "profile_state_context": "should be overwritten"}
+        ctx = _Ctx(
+            user_content=_user_content_with_profile_in({"city": "Paris", "state_anchor": "KY"})
+        )
+        inject_profile_geo_context(_Tool("geocode_location"), args, ctx)
+        assert args["profile_state_context"] == "KY"
+        assert args["profile_location_hint"] == "Paris"
+
+    def test_no_state_anchor_leaves_profile_state_context_unset(self):
+        args = {"city": "Paris"}
+        ctx = _Ctx(user_content=_user_content_with_profile_in({"city": "Paris"}))
+        inject_profile_geo_context(_Tool("geocode_location"), args, ctx)
+        assert "profile_state_context" not in args
+
+    def test_search_anchor_becomes_proximity_lat_lon(self):
+        args = {"city": "Paris"}
+        ctx = _Ctx(
+            user_content=_user_content_with_profile_in(
+                {"search_anchor": {"type": "gps", "lat": 48.85, "lon": 2.35, "label": "me"}}
+            )
+        )
+        inject_profile_geo_context(_Tool("geocode_location"), args, ctx)
+        assert args["proximity_lat"] == 48.85
+        assert args["proximity_lon"] == 2.35
+
+    def test_incomplete_search_anchor_is_ignored(self):
+        args = {"city": "Paris"}
+        ctx = _Ctx(
+            user_content=_user_content_with_profile_in({"search_anchor": {"type": "gps", "lat": 48.85}})
+        )
+        inject_profile_geo_context(_Tool("geocode_location"), args, ctx)
+        assert "proximity_lat" not in args
+        assert "proximity_lon" not in args

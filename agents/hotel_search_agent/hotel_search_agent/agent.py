@@ -47,7 +47,7 @@ from hotel_search_agent.equipment_ids import (
     enforce_equipment_filters,
     inject_amenities_declaration,
 )
-from hotel_search_agent.geocode_tool import geocode_location
+from hotel_search_agent.geocode_tool import geocode_location, inject_profile_geo_context
 from hotel_search_agent.mcp_guard import (
     mcp_circuit_after_tool,
     mcp_circuit_before_tool,
@@ -56,6 +56,7 @@ from hotel_search_agent.mcp_guard import (
 from hotel_search_agent.response_bridge import (
     capture_after_tool,
     emit_search_datapart,
+    inject_pagination_offset,
     skip_final_generation,
     stamp_turn_start,
 )
@@ -122,10 +123,12 @@ request, and everything you learned must be returned in the response.
 
 How to act, frugally (at most ONE reasoning pass — no tool-call loops):
 - A destination/area search → FIRST call geocode_location (pass the city/zone/
-  metro/country_code you extracted, the raw user message, any state/city context
-  you saw in profile_in as profile_state_context/profile_location_hint, and
+  metro/country_code you extracted from THIS message, the raw user message, and
   profile_in.language as `locale`). It is a deterministic, guarded tool — never
   geocode a destination yourself, and never rank or pick among places yourself.
+  A FOLLOW-UP with no new destination in THIS message → leave city blank ("");
+  the system fills in the previous destination, state/city anchor, and GPS bias
+  automatically from profile_in — you never need to copy those yourself.
   If it returns ok=False with error "geocode_ambiguous", DO NOT search: ask the
   user the exact clarifying question in its diagnostics (the place is a homonym).
   For any other ok=False, DO NOT call search_offers: relay its diagnostics
@@ -151,10 +154,11 @@ How to act, frugally (at most ONE reasoning pass — no tool-call loops):
   time slot the user did not state, and do NOT turn a vague "cheaper"/"earlier"
   into a number — when none is mentioned, OMIT these arguments (an omitted
   argument means no budget or time-slot constraint).
-- A FOLLOW-UP that only changes the date/budget/filters with NO new destination
-  (e.g. "for the 28th instead", "cheaper", "earlier") → reuse profile_in.city as
-  the destination and run a fresh search with the new constraint. Do not ask the
-  user to repeat the city they already gave.
+- A FOLLOW-UP that only changes the date/budget/filters, or just asks for OTHER
+  options, with NO new destination (e.g. "for the 28th instead", "cheaper",
+  "earlier", "any other options") → still call geocode_location first (leave
+  city blank, per above) then run a fresh search with the new constraint. Do
+  not ask the user to repeat the city they already gave.
 - A specific hotel named by the user → call find_hotel_by_name directly (no
   geocoding needed).
 - On a SUCCESSFUL search, reply with a SHORT one-line outcome in plain language
@@ -230,13 +234,18 @@ root_agent = Agent(
     # Order matters: timing stamps t0 first; the budget callback short-circuits
     # beyond MAX_TOOL_CALLS; the MCP circuit guard short-circuits the 2 MCP
     # tools while the breaker is open. First non-None wins (ADK semantics).
-    # enforce_equipment_filters is LAST: it mutates args in place (the ONLY
-    # writer of hotelEquipmentIds), so it must only run when the call proceeds.
+    # enforce_equipment_filters / inject_profile_geo_context / inject_pagination_offset
+    # are LAST: each mutates args in place for its own tool (equipment ids,
+    # geocode_location's city/zone/state/proximity, search_offers' `from`), so
+    # they must only run when the call proceeds — order between the 3 doesn't
+    # matter, they touch disjoint tool names/keys.
     before_tool_callback=[
         tool_timing_before,
         make_tool_budget_callback(MAX_TOOL_CALLS),
         mcp_circuit_before_tool,
         enforce_equipment_filters,
+        inject_profile_geo_context,
+        inject_pagination_offset,
     ],
     # capture_after_tool is LAST: it may return a truncated payload (which breaks
     # the after-tool chain), so it must never run before mcp_circuit_after_tool

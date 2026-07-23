@@ -52,8 +52,10 @@ from google.genai import types as genai_types
 from hotel_search_agent.inventory import haversine_km
 
 # The concierge reports AT MOST 5 (ground-truth cap) — match it so the model
-# never ingests more than the caller can use.
-_MAX_RESULTS = 5
+# never ingests more than the caller can use. Public (S-G5): also the page
+# size the pagination bridge uses to turn profile_in.search_cursor into the
+# search_offers `from` offset (one page == one shown shortlist).
+MAX_RESULTS = 5
 
 # Tools whose result is a hotel list/identity worth surfacing as `results`.
 _TARGET_TOOLS = {"search_offers", "find_hotel_by_name"}
@@ -154,13 +156,43 @@ def decode_datapart(part: genai_types.Part) -> dict[str, Any] | None:
 
 
 def find_datapart(parts: list[genai_types.Part] | None) -> dict[str, Any] | None:
-    """First decodable DataPart among `parts`, or None — silent no-op, never a
-    crash (mirror of the orchestrator's `a2a_datapart.find_datapart`)."""
+    """The MOST RECENT decodable DataPart among `parts`, or None — silent
+    no-op, never a crash (mirror of the orchestrator's
+    `a2a_datapart.find_datapart`).
+
+    S-G5 root-cause fix, live-verified 2026-07-23: `tool_context.user_content
+    .parts` on THIS side accumulates every turn's inbound DataPart across the
+    WHOLE A2A session (n_parts grows turn over turn — the leaf's own ADK
+    session keeps the full history, unlike the concierge's per-event decode
+    loop in `_run_leaf` which naturally lands on the latest by construction).
+    Returning the FIRST match — the old behavior — silently pinned every
+    profile-driven bridge (amenities, geo context, pagination) to turn 1's
+    stale snapshot forever; only `search_cursor` (monotonically advancing,
+    never coincidentally equal to turn 1's value) made the bug visible."""
+    found: dict[str, Any] | None = None
     for part in parts or []:
         decoded = decode_datapart(part)
         if decoded is not None:
-            return decoded
-    return None
+            found = decoded
+    return found
+
+
+def read_profile_in(tool_context: Any) -> dict[str, Any]:
+    """The inbound `profile_in` dict riding `tool_context.user_content` (the
+    a2a→genai conversion re-wraps the orchestrator's DataPart onto it) — {}
+    when missing/undecodable, never a crash. S-G5: the shared reader behind
+    the deterministic profile→tool-args bridges (`geocode_tool.
+    inject_profile_geo_context`, `inject_pagination_offset` below) — same
+    decode as `equipment_ids._profile_amenities`, generalized to the whole
+    dict instead of just `.amenities`."""
+    content = getattr(tool_context, "user_content", None)
+    parts = getattr(content, "parts", None) if content is not None else None
+    data = find_datapart(parts)
+    if isinstance(data, dict):
+        profile = data.get("profile_in")
+        if isinstance(profile, dict):
+            return profile
+    return {}
 
 
 # --- display normalization (mirrors b2c_concierge.inline_tools shape, S07) -------------------
@@ -319,11 +351,21 @@ def normalize_hotel(hotel: dict[str, Any]) -> dict[str, Any]:
     return card
 
 
-def normalize_search_results(structured: Any) -> list[dict[str, Any]]:
+def normalize_search_results(
+    structured: Any, exclude_ids: set[Any] | None = None
+) -> list[dict[str, Any]]:
     """Top-5 compact cards from a tool's structuredContent. Handles the
     `search_offers` envelope (`{"results": [...]}`, confirmed live) and the
     `find_hotel_by_name` single-hotel shape (`{"hotel": {...}}`); tolerant of a
-    `hotels` key just in case (the server owns the envelope)."""
+    `hotels` key just in case (the server owns the envelope).
+
+    S-G5: `exclude_ids` (the profile's accumulated `shown_hotel_ids`) is
+    filtered out BEFORE the top-5 cut — the belt-and-suspenders safety net for
+    "other options" alongside the `from`-offset pagination bridge
+    (`inject_pagination_offset`): the server's own offset advances the page,
+    this filter catches any overlap the offset math didn't (a page-size change
+    between turns, ranking drift). `find_hotel_by_name` never passes
+    `exclude_ids` — a named lookup must never be hidden as "already shown"."""
     if not isinstance(structured, dict):
         return []
     items = structured.get("results")
@@ -332,7 +374,10 @@ def normalize_search_results(structured: Any) -> list[dict[str, Any]]:
     if items is None:
         single = structured.get("hotel")
         items = [single] if isinstance(single, dict) else []
-    return [normalize_hotel(h) for h in (items or [])[:_MAX_RESULTS] if isinstance(h, dict)]
+    hotels = [normalize_hotel(h) for h in (items or []) if isinstance(h, dict)]
+    if exclude_ids:
+        hotels = [h for h in hotels if h.get("hotel_id") not in exclude_ids]
+    return hotels[:MAX_RESULTS]
 
 
 def _parse_content_text(tool_response: dict[str, Any]) -> dict[str, Any] | None:
@@ -350,6 +395,33 @@ def _parse_content_text(tool_response: dict[str, Any]) -> dict[str, Any] | None:
 
 
 # --- callbacks ------------------------------------------------------------------------------
+def inject_pagination_offset(tool: Any, args: dict[str, Any], tool_context: Any) -> None:
+    """`before_tool_callback` (S-G5, A7): the ONLY writer of search_offers'
+    `from` — the model is never taught pagination (there is nothing in the
+    message to extract; whether this is page 2 lives entirely in
+    `profile_in.search_cursor`, S-G1's `advance_search_cursor`). Live-probed
+    2026-07-23 against MCP_B2C staging: `search_offers` accepts `from`
+    (offset, default 0) / `size` (page size, default 10, max 50) and an
+    offset advanced by a full page returns genuinely disjoint hotel ids —
+    real server-side pagination, no `excludeHotelIds`-style param exists
+    (confirmed: an unrecognized key is a hard schema-validation error). So the
+    `from` offset is the PRIMARY pagination driver; `shown_hotel_ids`
+    (normalize_search_results, above) stays a client-side safety net for
+    misaligned page boundaries. Any `from` the model itself supplied is
+    unconditionally overwritten — same doctrine as `hotelEquipmentIds`: the
+    LLM never owns a filter/paging value."""
+    if getattr(tool, "name", "") != "search_offers":
+        return None
+    profile_in = read_profile_in(tool_context)
+    cursor = profile_in.get("search_cursor") or 0
+    try:
+        cursor = int(cursor)
+    except (TypeError, ValueError):
+        cursor = 0
+    args["from"] = max(cursor, 0) * MAX_RESULTS
+    return None
+
+
 def capture_after_tool(
     tool: Any, args: dict[str, Any], tool_context: Any, tool_response: Any
 ) -> dict[str, Any] | None:
@@ -392,7 +464,15 @@ def capture_after_tool(
     if not isinstance(structured, dict):
         return None
 
-    results = normalize_search_results(structured)
+    exclude_ids: set[Any] | None = None
+    if name == "search_offers":
+        # S-G5 pagination safety net: hotels already shown across earlier turns
+        # (accumulated at the profile, S-G1) are filtered out before the top-5
+        # cut. A named lookup (find_hotel_by_name) never excludes — see below.
+        shown = read_profile_in(tool_context).get("shown_hotel_ids")
+        if isinstance(shown, list) and shown:
+            exclude_ids = set(shown)
+    results = normalize_search_results(structured, exclude_ids)
     if name == "search_offers":
         # Distance instrumentation (A8-a): the anchor is the geocode result the
         # model copied into search_offers' lat/lon — prefer the richer stashed
@@ -455,6 +535,15 @@ def capture_after_tool(
     }
 
 
+def _op_set(value: Any) -> dict[str, Any]:
+    """S-G1 typed-ops envelope for an explicit "set" — the concierge's
+    `apply_profile_delta` reducer accepts this identically to a bare value
+    (S-G1 retro-compat), so this is purely the leaf's migration to the
+    auditable shape (S-G5) for the geo slots it owns; amenities/budget/
+    timeslot stay flat here on purpose (out of this phase's scope)."""
+    return {"op": "set", "value": value}
+
+
 def _outcome_text(results: list[dict[str, Any]]) -> str:
     """A short, code-built (zero-LLM) grounded outcome line. This becomes the
     orchestrator's `leaf_text` — it re-synthesizes the user-facing answer in the
@@ -499,12 +588,22 @@ def emit_search_datapart(callback_context: Any) -> genai_types.Content | None:
 
     profile_delta: dict[str, Any] = {}
     if raw_delta.get("last_city"):
-        profile_delta["city"] = raw_delta["last_city"]
+        profile_delta["city"] = _op_set(raw_delta["last_city"])
     if "last_state_context" in raw_delta:  # may be None → clears the anchor
-        profile_delta["state_anchor"] = raw_delta["last_state_context"]
+        profile_delta["state_anchor"] = _op_set(raw_delta["last_state_context"])
     country_code = state.get(_STATE_COUNTRY_KEY)
     if country_code:  # only-when-present — the orchestrator's city-change wipe
-        profile_delta["country_anchor"] = country_code  # handles staleness
+        profile_delta["country_anchor"] = _op_set(country_code)  # handles staleness
+    # Zone/metro (S-G5, typed ops): the geocode branch's EFFECTIVE zone/metro
+    # for THIS turn — previously never persisted at all (audit gap: "zone is
+    # lost across turns", zone accepted by geocode_tool/validated by the echo
+    # guard but never reaching the profile). Only-when-present: no zone/metro
+    # mention this turn is carryover, not a clear (a zone-only change
+    # deliberately keeps everything else, S-G1's invalidation rule).
+    if raw_delta.get("zone"):
+        profile_delta["zone"] = _op_set(raw_delta["zone"])
+    if raw_delta.get("metro"):
+        profile_delta["metro"] = _op_set(raw_delta["metro"])
     # Applied amenity filters → the concierge re-learns them (apply_profile_delta
     # merges without duplicates), so the NEXT turn's profile_in accumulates the
     # filter and search_context_line/active_filters show it SAME turn. Only-when-

@@ -142,14 +142,32 @@ _DEGRADED_EN = {
 }
 
 
-def search_exhausted_response(language: str, city: str | None = None) -> str:
-    """Terminal, zero-LLM message once auto-widening has been tried and
-    exhausted (S12, audit 2026-07-20 — prod session 034c97c4, Rimini: an
-    uncapped widen loop never told the user it had given up). Never a retry;
-    the spine's pre-leaf gate only reaches here on a bare affirmative — a
-    new constraint clears the flag and searches again instead."""
+def search_exhausted_response(
+    language: str, city: str | None = None, *, reason: str = "budget"
+) -> str:
+    """Terminal, zero-LLM message once the search is exhausted — reuses the
+    SAME `profile.search_exhausted` flag/gate for two distinct triggers
+    (extend, never a parallel mechanism):
+    - "budget" (S12, audit 2026-07-20 — prod session 034c97c4, Rimini: an
+      uncapped widen loop never told the user it had given up) — auto-widening
+      was tried and still came back empty;
+    - "pagination" (S-G5) — an "other options" request came back with zero
+      NEW hotels: every match for the current filters has already been shown,
+      so the message proposes relaxing ONE named constraint instead of the
+      generic "try another city".
+    Never a retry; the spine's pre-leaf gate only reaches here on a bare
+    affirmative — a new constraint clears the flag and searches again instead.
+    """
     where_fr = f" à {city}" if city else ""
     where_en = f" in {city}" if city else ""
+    if reason == "pagination":
+        return _pick(
+            language,
+            f"Vous avez vu tous les hôtels correspondant à vos critères{where_fr}. "
+            "Voulez-vous que j'élargisse le budget, la zone, ou que je retire un filtre ?",
+            f"You've now seen every hotel matching your criteria{where_en}. "
+            "Want me to widen the budget, the area, or drop a filter?",
+        )
     return _pick(
         language,
         f"Même après avoir élargi le budget, je ne trouve toujours rien{where_fr}. "

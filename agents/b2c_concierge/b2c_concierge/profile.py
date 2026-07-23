@@ -573,6 +573,26 @@ _REFINEMENT_KEYWORDS_RE = re.compile(
     re.IGNORECASE,
 )
 
+# S-G5: "show me more of the same search" — no new constraint at all, just the
+# NEXT page (advances profile.search_cursor). Deliberately separate from
+# `_REFINEMENT_KEYWORDS_RE` (a real new constraint like "cheaper") since only
+# THIS phrasing should advance the pagination cursor.
+_MORE_OPTIONS_RE = re.compile(
+    r"\b(?:autres?\s+options?|autre\s+chose|d'autres?\s+h[ôo]tels?|encore\s+des?\s+h[ôo]tels?|"
+    r"other\s+options?|more\s+options?|show\s+me\s+more|anything\s+else|what\s+else|"
+    r"any\s+other(?:\s+ones?)?)\b",
+    re.IGNORECASE,
+)
+
+
+def is_more_options_signal(message: str) -> bool:
+    """True when `message` asks for MORE of the same search (audit multi-turn
+    "other options" case) — no new constraint, just the next page. Distinct
+    from `is_search_refinement_signal`'s other modifiers: this is the ONLY
+    signal that should advance `profile.search_cursor` (S-G1's
+    `advance_search_cursor`, wired in agent.py)."""
+    return bool(_MORE_OPTIONS_RE.search((message or "").strip()))
+
 
 def _has_refinement_modifier(message: str) -> bool:
     """A follow-up that adjusts a prior search's parameters — a date, a budget/
@@ -594,6 +614,8 @@ def is_search_refinement_signal(message: str, profile: SessionProfile) -> bool:
     a fresh search rather than the ack template OR a mis-triaged booking/detail:
     - a bare affirmative ("ok"/"sure") while the last search came back empty;
     - a verbatim `last_suggestions` recovery-chip click;
+    - a "show me more"/"other options" request while a prior search context
+      exists (S-G5 — pagination, no new constraint at all);
     - a follow-up carrying a search-parameter modifier (a new date, a budget, a
       time-of-day, a zone/"cheaper" keyword) while a prior search context exists
       (`city`/`last_results`/empty streak) AND NOT naming a specific shortlist
@@ -607,6 +629,8 @@ def is_search_refinement_signal(message: str, profile: SessionProfile) -> bool:
         return True
     suggestions = profile.last_suggestions or []
     if stripped.lower() in {s.strip().lower() for s in suggestions}:
+        return True
+    if _has_prior_search_context(profile) and is_more_options_signal(stripped):
         return True
     if (
         _has_prior_search_context(profile)
