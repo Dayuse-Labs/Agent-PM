@@ -122,3 +122,203 @@ done
 3. À la sortie (verte ou budget épuisé) : relire le diff **humainement** (`git log --oneline`, `git diff main`), vérifier qu'aucun test n'a été modifié (`git diff main -- '**/test_*.py'` doit être vide sur les tests portés), puis MR.
 
 Adapter pour S5/S7/S8 : remplacer le fichier de phase, la commande DoD et la zone. Budget 15 itérations par défaut ; si 2 sorties consécutives sans progrès (compteur HANDOFF stable), arrêter la boucle et repasser en session pilotée.
+
+---
+
+# Série S-G — remédiation geo/multi-turn (arbitrée 2026-07-23)
+
+> Détail par session : `phases/SG1…SG9.md`. Plan arbitré : `reports/PLAN-RESOLUTION-GEO-MULTITURN-2026-07-23.md`. Décisions A1-A8 tranchées — ne pas re-litiger en session.
+
+## Timeline & parallélisation
+
+```
+Fenêtre 1 (3 worktrees)      Fenêtre 2 (3 worktrees)      Fenêtre 3 (séquentiel)   Fenêtre 4
+S-G1 ∥ S-G3 ∥ S-G4      →    S-G2 ∥ S-G5 ∥ S-G8      →    S-G6 → S-G7          →   S-G9
+(Son)  (Opus)  (Son)         (Son)  (Son)  (Son)          (Sonnet)                 (Sonnet)
+merge : G1 → G3 → G4         merge : G2 → G5 → G8         sur main fraîche         jamais loop
+```
+
+| Fenêtre | Sessions | Parallèle ? | Condition d'entrée |
+|---|---|---|---|
+| 1 | S-G1 ∥ S-G3 ∥ S-G4 | **Oui — 3 worktrees** (zones : profil concierge / feuille geo / timeouts) | branche `sg0-plan-remediation-geo-multiturn` mergée |
+| 2 | S-G2 ∥ S-G5 ∥ S-G8 | **Oui — 3 worktrees** (facade / feuille+concierge / scripts) | fenêtre 1 mergée (S-G5 exige S-G1+S-G3) |
+| 3 | S-G6 puis S-G7 | Non (mêmes fichiers feuille : instruction + response_bridge) | fenêtre 2 mergée |
+| 4 | S-G9 | Non — mesure, jamais loop | S-G1→S-G8 mergées + 3 services up |
+
+Ordre de merge des fenêtres parallèles : **numéro le plus bas d'abord**, les autres rebasent avant MR.
+
+## Modèles
+
+| Session | Modèle | Mode |
+|---|---|---|
+| S-G3 | **Opus** (`claude-opus-4-8`) | piloté — design du ranker + probes live = jugement |
+| S-G1, S-G5, S-G6, S-G8 | Sonnet (`claude-sonnet-5`) | piloté, **loop possible** une fois les probes faits |
+| S-G2, S-G4, S-G7 | Sonnet (`claude-sonnet-5`) | piloté (sessions courtes) |
+| S-G9 | Sonnet (`claude-sonnet-5`) | piloté, **jamais loop** (données réelles) |
+
+## Fenêtre 1 — S-G1 ∥ S-G3 ∥ S-G4 (3 terminaux)
+
+Terminal A :
+```bash
+cd ~/Projects/AgentB2C && git worktree add ../AgentB2C-sg1 -b sg1-profile-v2 && cd ../AgentB2C-sg1 && claude --model claude-sonnet-5
+```
+Prompt A (S-G1) :
+```
+Lis CLAUDE.md, HANDOFF.md, reports/PLAN-RESOLUTION-GEO-MULTITURN-2026-07-23.md (§4),
+reports/research/multiturn-state-memo.md, reports/research/code-verification-memo.md (claims 3/4/9),
+puis phases/SG1-profil-v2-patch-ops.md et exécute cette phase, dans ce périmètre exactement.
+Tu es dans un worktree dédié (branche sg1-profile-v2) : S-G3 et S-G4 travaillent EN PARALLÈLE.
+INTERDICTION de toucher un fichier hors de ta zone (agents/b2c_concierge/** + tests). Besoin hors zone → HANDOFF + STOP sur ce point.
+Règles : tests de transitions AVANT le code ; rétro-compat du delta plat obligatoire ; CONTRACT_KEYS intouché ;
+fin = DoD verte + HANDOFF + commit branche, jamais de merge. Ta branche merge EN PREMIER dans cette fenêtre.
+```
+
+Terminal B :
+```bash
+cd ~/Projects/AgentB2C && git worktree add ../AgentB2C-sg3 -b sg3-geo-resolver && cd ../AgentB2C-sg3 && claude --model claude-opus-4-8
+```
+Prompt B (S-G3) :
+```
+Lis CLAUDE.md, HANDOFF.md, reports/PLAN-RESOLUTION-GEO-MULTITURN-2026-07-23.md (§2),
+reports/research/geo-disambiguation-memo.md (en entier), reports/research/code-verification-memo.md (claims 1/7/8),
+puis phases/SG3-resolveur-geo-multicandidats.md et exécute cette phase, dans ce périmètre exactement.
+Tu es dans un worktree dédié (branche sg3-geo-resolver) : S-G1 et S-G4 travaillent EN PARALLÈLE.
+INTERDICTION de toucher agents/b2c_concierge/** ; ta zone = agents/hotel_search_agent/** + scripts/build_inventory_snapshot.py.
+Règles : PROBE LIVE Mapbox avant tout code (documenter, trancher Search Box / décision A2) ; le ranker est
+100 % déterministe, zéro appel LLM ; tous les guards géo existants restent verts ; chaque cas d'échec de
+l'audit devient un test nommé ; fin = DoD verte + vérif live + HANDOFF + commit branche, jamais de merge.
+Ta branche merge APRÈS sg1-profile-v2 : rebase sur main fraîche avant la MR.
+```
+
+Terminal C :
+```bash
+cd ~/Projects/AgentB2C && git worktree add ../AgentB2C-sg4 -b sg4-timeout-budgets && cd ../AgentB2C-sg4 && claude --model claude-sonnet-5
+```
+Prompt C (S-G4) :
+```
+Lis CLAUDE.md, HANDOFF.md, reports/research/timeouts-latency-memo.md (en entier),
+reports/research/code-verification-memo.md (claim 6), puis phases/SG4-budgets-timeout-litellm.md
+et exécute cette phase, dans ce périmètre exactement.
+Tu es dans un worktree dédié (branche sg4-timeout-budgets) : S-G1 et S-G3 travaillent EN PARALLÈLE.
+Ta zone = consts timeout/config LiteLLM du concierge + instrumentation par phase de la feuille — ne touche PAS
+profile.py (zone S-G1) ni geocode_tool/mapbox_client (zone S-G3).
+Règles : 0 retry orchestrateur→feuille (invariant) ; budgets posés depuis des mesures, méthode documentée ;
+Chester = bug de correctness à tracer par l'instrumentation, pas un timeout à élargir ;
+fin = DoD verte + HANDOFF + commit branche, jamais de merge. Ta branche merge EN DERNIER (rebase après G1 et G3).
+```
+
+Nettoyage après merge des trois : `git worktree remove ../AgentB2C-sg1 ../AgentB2C-sg3 ../AgentB2C-sg4`.
+
+## Fenêtre 2 — S-G2 ∥ S-G5 ∥ S-G8 (3 terminaux)
+
+Terminal A :
+```bash
+cd ~/Projects/AgentB2C && git worktree add ../AgentB2C-sg2 -b sg2-native-context && cd ../AgentB2C-sg2 && claude --model claude-sonnet-5
+```
+Prompt A (S-G2) :
+```
+Lis CLAUDE.md, HANDOFF.md, reports/PLAN-RESOLUTION-GEO-MULTITURN-2026-07-23.md (§3),
+reports/research/code-verification-memo.md (claim 2), puis phases/SG2-intake-contexte-natif.md
+et exécute cette phase, dans ce périmètre exactement.
+Tu es dans un worktree dédié (branche sg2-native-context) : S-G5 et S-G8 travaillent EN PARALLÈLE.
+Ta zone = facade.py + mapping profil + tests — ne touche PAS la feuille (zone S-G5) ni scripts/ (zone S-G8).
+Règles : probe du widget vendorisé AVANT de coder (web/vendor/ — le payload réel = la spec) ;
+tout optionnel, jamais de 500 sur un champ invalide ; GPS jamais dans les métriques ;
+fin = DoD verte + HANDOFF + commit branche, jamais de merge. Ta branche merge EN PREMIER dans cette fenêtre.
+```
+
+Terminal B :
+```bash
+cd ~/Projects/AgentB2C && git worktree add ../AgentB2C-sg5 -b sg5-bridge-pagination && cd ../AgentB2C-sg5 && claude --model claude-sonnet-5
+```
+Prompt B (S-G5) :
+```
+Lis CLAUDE.md, HANDOFF.md, reports/PLAN-RESOLUTION-GEO-MULTITURN-2026-07-23.md (§4),
+reports/research/code-verification-memo.md (claims 9/10), le pattern equipment_ids.py,
+puis phases/SG5-pont-deterministe-pagination.md et exécute cette phase, dans ce périmètre exactement.
+Tu es dans un worktree dédié (branche sg5-bridge-pagination) : S-G2 et S-G8 travaillent EN PARALLÈLE.
+Ne touche PAS facade.py (zone S-G2) ni scripts/ d'annotation (zone S-G8).
+Règles : probe search_offers AVANT la pagination (décision A7) ; le callback comble, ne réécrit jamais une
+extraction fraîche ; étendre l'exhaustion S12, pas de machine parallèle ; preuve live « autres options » =
+nouveaux IDs obligatoire ; fin = DoD verte + HANDOFF + commit branche, jamais de merge.
+Ta branche merge APRÈS sg2-native-context : rebase avant MR.
+```
+
+Terminal C :
+```bash
+cd ~/Projects/AgentB2C && git worktree add ../AgentB2C-sg8 -b sg8-harness-hardening && cd ../AgentB2C-sg8 && claude --model claude-sonnet-5
+```
+Prompt C (S-G8) :
+```
+Lis CLAUDE.md, HANDOFF.md (addendum S-A), REVIEW-GEO-MULTITURN-AGENTB2C-2026-07-22.md (§ Durcissements),
+scripts/run_eval_adapter.py, puis phases/SG8-durcissement-harness.md et exécute cette phase,
+dans ce périmètre exactement.
+Tu es dans un worktree dédié (branche sg8-harness-hardening) : S-G2 et S-G5 travaillent EN PARALLÈLE.
+Ta zone = scripts/** + tests/** UNIQUEMENT — le pack dayuse_eval_pack/eval_pack/** est INTOUCHABLE, agents/** interdit.
+Règles : une assertion sans champ disponible = skipped divulgué, jamais un faux vert ;
+fin = DoD verte + HANDOFF + commit branche, jamais de merge. Ta branche merge EN DERNIER (rebase après G2 et G5).
+```
+
+Nettoyage : `git worktree remove ../AgentB2C-sg2 ../AgentB2C-sg5 ../AgentB2C-sg8`.
+
+## Fenêtre 3 — S-G6 puis S-G7 (séquentiel, checkout principal)
+
+S-G6 :
+```bash
+cd ~/Projects/AgentB2C && git checkout main && git pull && git checkout -b sg6-dates-durations-minutes && claude --model claude-sonnet-5
+```
+```
+Lis CLAUDE.md, HANDOFF.md, reports/PLAN-RESOLUTION-GEO-MULTITURN-2026-07-23.md (§4 A4),
+reports/research/multiturn-state-memo.md (§e), tasks/lessons.md, puis phases/SG6-dates-durees-demiheures.md
+et exécute cette phase, dans ce périmètre exactement.
+Règles : le LLM étiquette (date/durée/fenêtre), le code calcule — jamais l'inverse ; une durée n'est jamais
+une fenêtre absolue ; vérifs live des formulations pièges obligatoires (leçon S10 #4) ;
+fin = DoD verte + HANDOFF + commit branche, jamais de merge.
+```
+
+S-G7 (après merge S-G6) :
+```bash
+cd ~/Projects/AgentB2C && git checkout main && git pull && git checkout -b sg7-locale-currency && claude --model claude-sonnet-5
+```
+```
+Lis CLAUDE.md, HANDOFF.md, reports/PLAN-RESOLUTION-GEO-MULTITURN-2026-07-23.md (§5 axe C),
+reports/research/code-verification-memo.md (claims 2/7), puis phases/SG7-locale-devise-propagation.md
+et exécute cette phase, dans ce périmètre exactement.
+Règles : display EUR conservé, disclosure honnête, jamais de conversion inventée ; le pricing réel est
+gated sur le probe MCP (constat, pas de code) ; preuve live Lisboa-pt obligatoire ;
+fin = DoD verte + HANDOFF + commit branche, jamais de merge.
+```
+
+## Fenêtre 4 — S-G9 (piloté, jamais loop)
+
+```bash
+cd ~/Projects/AgentB2C && git checkout main && git pull && git checkout -b sg9-gate-rerun && bash scripts/run_local.sh && claude --model claude-sonnet-5
+```
+```
+Lis CLAUDE.md, HANDOFF.md, REVIEW-GEO-MULTITURN-AGENTB2C-2026-07-22.md (§ gates),
+reports/PLAN-RESOLUTION-GEO-MULTITURN-2026-07-23.md (§8), puis phases/SG9-gate-rerun-eval-ranking.md
+et exécute cette phase, dans ce périmètre exactement.
+Règles : mesure seulement, zéro fix agent (documenter les bugs trouvés) ; chaque échec trié un par un ;
+conditions du run loggées (modèle, inventaire, séquentiel) ; le GO canary appartient à Fabien ;
+fin = DoD verte + HANDOFF + commit branche, jamais de merge.
+```
+
+## Mode LOOP — S-G1, S-G5, S-G6, S-G8 (après la partie probe/design faite en piloté)
+
+Même mécanique que la section loop S4-S8 ci-dessus (budget 15 itérations, stop-conditions, tests = spec intouchable). Prompt d'itération type (`prompts/loop-sg1.txt`, adapter le fichier de phase et la commande DoD) :
+```
+Lis CLAUDE.md, HANDOFF.md, puis phases/SG1-profil-v2-patch-ops.md.
+Prends LE PREMIER item de la phase non encore fait d'après HANDOFF.md. Implémente-le, LUI SEUL.
+Interdictions : modifier un test existant (les tests sont la spec — un test qui te semble faux → HANDOFF + stop) ;
+toucher hors zone autorisée ; git push. Les décisions A1-A8 sont arbitrées : ne les rouvre pas.
+Fin d'itération : tests de la zone ; HANDOFF à jour (item fait/rouge + compteur) ; commit local descriptif.
+Même test rouge 2 itérations de suite → n'insiste pas, documente et termine.
+```
+Boucle externe :
+```bash
+for i in $(seq 1 15); do
+  claude -p "$(cat prompts/loop-sg1.txt)" --model claude-sonnet-5 --permission-mode acceptEdits
+  bash -c 'pytest agents/b2c_concierge -q && bash scripts/dayuse_guardrails.sh .' && echo "DoD VERTE en $i itérations" && break
+done
+```
+DoD par session : S-G1 `pytest agents/b2c_concierge -q` · S-G5/S-G6 `pytest -q` · S-G8 `pytest tests/ -q`. ⚠️ S-G3, S-G4 (probes live), S-G2, S-G7 (courts) et S-G9 (mesure) : piloté uniquement.
