@@ -33,6 +33,7 @@ from b2c_concierge.profile import (
     extract_final_question,
     is_bare_affirmative,
     is_booking_confirmation_signal,
+    is_more_options_signal,
     is_search_refinement_signal,
     maybe_auto_widen,
     questions_equivalent,
@@ -488,6 +489,44 @@ class TestRefinementModifierSignal:
     def test_prior_context_via_shortlist_only(self):
         profile = SessionProfile(last_results=[{"hotel_id": 1, "name": "Foo Palace"}])
         assert is_search_refinement_signal("le 28 juillet", profile)
+
+
+# ── "Other options" pagination signal (S-G5) ────────────────────────────────
+
+
+class TestMoreOptionsSignal:
+    def test_matches_common_phrasings(self):
+        for text in (
+            "other options?", "any other options", "show me more",
+            "more options please", "anything else?", "what else do you have",
+            "any other ones", "autres options", "autre chose",
+            "d'autres hôtels", "encore des hôtels",
+        ):
+            assert is_more_options_signal(text), text
+
+    def test_does_not_match_an_unrelated_message(self):
+        assert not is_more_options_signal("hotel in Paris tomorrow")
+        assert not is_more_options_signal("cheaper please")
+
+    def test_empty_message_never_matches(self):
+        assert not is_more_options_signal("")
+        assert not is_more_options_signal(None)
+
+    def test_routes_to_search_via_refinement_signal_with_prior_context(self):
+        profile = SessionProfile(city="Paris")
+        assert is_search_refinement_signal("other options", profile)
+        assert is_search_refinement_signal("autres options", profile)
+
+    def test_no_prior_context_is_not_a_refinement_signal(self):
+        assert not is_search_refinement_signal("other options", SessionProfile())
+
+    def test_naming_a_shortlist_hotel_is_unaffected(self):
+        # "other options" itself never names a hotel — sanity check it doesn't
+        # accidentally disable the booking/details exclusion for a real pick.
+        profile = SessionProfile(
+            city="Paris", last_results=[{"hotel_id": 1, "name": "Villa Paris Orly"}]
+        )
+        assert not is_search_refinement_signal("book Villa Paris Orly", profile)
 
 
 class TestSearchContextLine:

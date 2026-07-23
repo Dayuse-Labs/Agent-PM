@@ -55,10 +55,16 @@ def decode_datapart(part: genai_types.Part) -> dict[str, Any] | None:
 
 
 def find_datapart(parts: list[genai_types.Part] | None) -> dict[str, Any] | None:
-    """First decodable DataPart among `parts`, or None (e.g. the leaf hasn't
-    been wired to emit one yet — an honest, silent no-op, never a crash)."""
+    """The MOST RECENT decodable DataPart among `parts`, or None (e.g. the
+    leaf hasn't been wired to emit one yet — an honest, silent no-op, never a
+    crash). S-G5: symmetry fix with the leaf's mirror `response_bridge.
+    find_datapart` — `_run_leaf`'s per-event loop already lands on the latest
+    by construction (it overwrites `response` as events stream by), so this
+    side was never observed broken, but "most recent, never first" is the
+    only semantically correct reading of an accumulating parts list."""
+    found: dict[str, Any] | None = None
     for part in parts or []:
         decoded = decode_datapart(part)
         if decoded is not None:
-            return decoded
-    return None
+            found = decoded
+    return found

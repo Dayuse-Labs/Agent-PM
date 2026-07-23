@@ -132,15 +132,20 @@ class TestMetricsWiring:
         )
 
         from hotel_search_agent.equipment_ids import enforce_equipment_filters
+        from hotel_search_agent.geocode_tool import inject_profile_geo_context
+        from hotel_search_agent.response_bridge import inject_pagination_offset
 
         before = self._as_list(root_agent.before_tool_callback)
         # timing FIRST (budget short-circuits the rest of the list), budget
-        # second, the MCP circuit guard (S4) third, the equipment-filter
-        # enforcement LAST (it mutates args — only when the call proceeds).
+        # second, the MCP circuit guard (S4) third, then the 3 args-mutating
+        # bridges LAST (S-G5) — each only runs when the call proceeds, order
+        # among the 3 is immaterial (disjoint tool names/keys).
         assert before[0] is tool_timing_before
-        assert len(before) == 4
+        assert len(before) == 6
         assert before[2] is mcp_circuit_before_tool
         assert before[3] is enforce_equipment_filters
+        assert before[4] is inject_profile_geo_context
+        assert before[5] is inject_pagination_offset
         assert tool_timing_after in self._as_list(root_agent.after_tool_callback)
         assert mcp_circuit_after_tool in self._as_list(root_agent.after_tool_callback)
         assert tool_error_metric in self._as_list(root_agent.on_tool_error_callback)

@@ -36,6 +36,7 @@ from hotel_search_agent.geo_guards import (
 )
 from hotel_search_agent.inventory import get_inventory
 from hotel_search_agent.mapbox_client import GeocodeResult, MapboxClient
+from hotel_search_agent.response_bridge import read_profile_in
 from hotel_search_agent.searchbox_client import SearchBoxClient
 
 _client: MapboxClient | None = None
@@ -97,7 +98,18 @@ def _ok(
     feature_type: str,
     profile_delta: dict,
     distance_origin_type: str,
+    zone: str | None = None,
+    metro: str | None = None,
 ) -> dict:
+    # S-G5: zone/metro were accepted by this tool and validated by the echo
+    # guard, but never reached the profile before now (audit gap — "a zone is
+    # lost across turns"). Only-when-present: no zone/metro this turn is
+    # carryover at the concierge (S-G1), never a clear.
+    delta = dict(profile_delta)
+    if zone:
+        delta["zone"] = zone
+    if metro:
+        delta["metro"] = metro
     return {
         "ok": True,
         "latitude": result.latitude,
@@ -106,7 +118,7 @@ def _ok(
         "resolved_feature_type": feature_type,
         "distance_origin_type": distance_origin_type,
         "country_code": result.country_code,
-        "profile_delta": profile_delta,
+        "profile_delta": delta,
     }
 
 
@@ -119,6 +131,8 @@ def geocode_location(
     profile_state_context: str | None = None,
     profile_location_hint: str | None = None,
     locale: str | None = None,
+    proximity_lat: float | None = None,
+    proximity_lon: float | None = None,
 ) -> dict:
     """Resolve a destination to coordinates for `search_offers`, guarded.
 
@@ -144,8 +158,14 @@ def geocode_location(
             city switch that should clear a stale state anchor.
         locale: The user's language tag from profile_in (e.g. "fr", "pt") — a
             SOFT signal: it biases Mapbox scoring/localisation and gives the
-            same-country candidate a bounded prior. Never a filter. (GPS
-            proximity, a separate soft signal, is wired from the profile in S-G5.)
+            same-country candidate a bounded prior. Never a filter.
+        proximity_lat: GPS latitude bias (profile_in.search_anchor, S-G2/S-G5)
+            — a SOFT, band-limited signal (Pelias rule): it never overrides an
+            explicit distant destination ("hotel in New York" typed from Paris
+            still resolves New York). Injected deterministically by the leaf's
+            `inject_profile_geo_context` before_tool_callback — never expected
+            from the model itself (it has no real GPS awareness).
+        proximity_lon: paired with `proximity_lat`; either alone is ignored.
 
     Returns a dict — NEVER raises. On success:
         {"ok": True, "latitude", "longitude", "resolved_place",
@@ -195,8 +215,17 @@ def geocode_location(
         part for part in (effective_zone, effective_city or effective_metro, state_hint) if part
     )
     lang = (locale or "").strip().lower()[:2] or None
+    # GPS proximity (S-G5): a Mapbox "lon,lat" bias string for the API call,
+    # and a (lat, lon) tuple for the resolver's own bounded scoring credit —
+    # both derived from the SAME two floats, present only when BOTH are given
+    # (a lone lat or lon is meaningless and ignored).
+    proximity_str: str | None = None
+    proximity_tuple: tuple[float, float] | None = None
+    if proximity_lat is not None and proximity_lon is not None:
+        proximity_str = f"{proximity_lon},{proximity_lat}"
+        proximity_tuple = (proximity_lat, proximity_lon)
     candidates = get_mapbox_client().geocode_candidates(
-        query, country=effective_country_code, language=lang
+        query, country=effective_country_code, language=lang, proximity=proximity_str
     )
 
     resolution = geo_resolver.resolve(
@@ -205,9 +234,7 @@ def geocode_location(
         country_hint=effective_country_code,
         region_hint=state_hint,
         locale_country=_locale_country(locale),
-        # proximity (GPS) is accepted by the client + resolver but wired from the
-        # profile in S-G5 — none is sourced here yet (band rule already enforced).
-        proximity=None,
+        proximity=proximity_tuple,
     )
 
     echo_city = effective_city or effective_metro
@@ -246,6 +273,8 @@ def geocode_location(
                 feature_type=chosen.feature_type,
                 profile_delta=profile_delta,
                 distance_origin_type="city_centroid",
+                zone=effective_zone,
+                metro=effective_metro,
             )
         # The chosen candidate failed the echo sanity check — fall through to the
         # Search-Box tier-2 fallback below if a zone/landmark was named.
@@ -277,6 +306,8 @@ def geocode_location(
                 feature_type="poi",
                 profile_delta=profile_delta,
                 distance_origin_type="poi",
+                zone=effective_zone,
+                metro=effective_metro,
             )
 
     # Nothing survived: distinguish "no candidate at all" from "resolved to the
@@ -289,3 +320,57 @@ def geocode_location(
         "error": "geocode_echo_mismatch",
         "diagnostics": {"query": query, "resolved_place": resolved_place},
     }
+
+
+def _is_blank(value: object) -> bool:
+    """True for a missing/empty destination arg — an empty string counts as
+    "the model omitted this" exactly like an absent key (P0 #4: the model is
+    never trusted to reliably copy a stale value forward on its own)."""
+    return value is None or (isinstance(value, str) and not value.strip())
+
+
+def inject_profile_geo_context(tool: object, args: dict, tool_context: object) -> None:
+    """`before_tool_callback` (P0 #4 fix, S-G5) — the deterministic
+    profile→tool-args bridge for `geocode_location`, same pattern as
+    `equipment_ids.enforce_equipment_filters`: the leaf's own instruction used
+    to ask the model to COPY `city`/`state_anchor` into
+    `profile_location_hint`/`profile_state_context` itself (the audit's P0 #4
+    — "the model stops being a copy machine" is this fix). Precedence:
+    - `city`/`zone`/`metro`/`country_code`: a value the model DID extract for
+      THIS turn always wins; a blank one is filled from `profile_in` (the
+      city-reuse case the leaf's instruction used to spell out in prose).
+      Never rewrites a fresh extraction.
+    - `profile_state_context`/`profile_location_hint`: PURE profile lookups by
+      definition (an earlier turn's anchor, never something extracted from
+      THIS message) — always set here, deterministically, whatever the model
+      passed.
+    - `proximity_lat`/`proximity_lon`: the GPS soft bias (S-G2's
+      `search_anchor`) — likewise always profile-sourced; the model has no
+      real GPS awareness to extract from text.
+    A profile with nothing to offer (first turn, no DataPart) leaves `args`
+    exactly as the model wrote them."""
+    if getattr(tool, "name", "") != "geocode_location":
+        return None
+    profile_in = read_profile_in(tool_context)
+
+    if _is_blank(args.get("city")) and profile_in.get("city"):
+        args["city"] = profile_in["city"]
+    if _is_blank(args.get("zone")) and profile_in.get("zone"):
+        args["zone"] = profile_in["zone"]
+    if _is_blank(args.get("metro")) and profile_in.get("metro"):
+        args["metro"] = profile_in["metro"]
+    if _is_blank(args.get("country_code")) and profile_in.get("country_anchor"):
+        args["country_code"] = profile_in["country_anchor"]
+
+    if profile_in.get("state_anchor"):
+        args["profile_state_context"] = profile_in["state_anchor"]
+    if profile_in.get("city"):
+        args["profile_location_hint"] = profile_in["city"]
+
+    anchor = profile_in.get("search_anchor")
+    if isinstance(anchor, dict):
+        lat, lon = anchor.get("lat"), anchor.get("lon")
+        if isinstance(lat, (int, float)) and isinstance(lon, (int, float)):
+            args["proximity_lat"] = float(lat)
+            args["proximity_lon"] = float(lon)
+    return None

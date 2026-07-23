@@ -31,6 +31,15 @@ class TestEncodeDecodeRoundTrip:
         assert find_datapart(None) is None
         assert find_datapart([]) is None
 
+    def test_find_datapart_prefers_the_last_match_over_the_first(self):
+        # S-G5 root-cause fix (live-verified 2026-07-23): a parts list carrying
+        # SEVERAL turns' DataParts (an accumulating history) must yield the
+        # MOST RECENT one, never the first/stale one.
+        stale = {"profile_delta": {"city": "Lyon"}}
+        fresh = {"profile_delta": {"city": "Paris"}}
+        parts = [encode_datapart(stale), genai_types.Part(text="text in between"), encode_datapart(fresh)]
+        assert find_datapart(parts) == fresh
+
 
 class TestRoundTripThroughRealA2aConverters:
     """The encoded Part must survive an actual genai -> A2A -> genai hop

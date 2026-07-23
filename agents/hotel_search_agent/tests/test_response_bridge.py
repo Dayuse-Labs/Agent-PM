@@ -9,9 +9,14 @@ from __future__ import annotations
 import json
 
 from a2a import types as a2a_types
-from google.adk.a2a.converters.part_converter import convert_genai_part_to_a2a_part
+from google.adk.a2a.converters.part_converter import (
+    convert_a2a_part_to_genai_part,
+    convert_genai_part_to_a2a_part,
+)
+from google.genai import types as genai_types
 
 from hotel_search_agent.response_bridge import (
+    MAX_RESULTS,
     STATE_APPLIED_AMENITIES_KEY,
     _photo_url,
     capture_after_tool,
@@ -19,23 +24,41 @@ from hotel_search_agent.response_bridge import (
     emit_search_datapart,
     encode_datapart,
     find_datapart,
+    inject_pagination_offset,
     normalize_hotel,
     normalize_search_results,
+    read_profile_in,
     skip_final_generation,
     stamp_turn_start,
 )
 
 
 class _Ctx:
-    """Minimal stand-in for ADK ToolContext/CallbackContext (a dict-backed .state)."""
+    """Minimal stand-in for ADK ToolContext/CallbackContext (dict-backed .state
+    + optional user_content, mirroring test_equipment_ids.py's fixture)."""
 
-    def __init__(self, state=None):
+    def __init__(self, state=None, user_content=None):
         self.state = state if state is not None else {}
+        self.user_content = user_content
 
 
 class _Tool:
     def __init__(self, name):
         self.name = name
+
+
+def _user_content_with_profile_in(profile_in: dict) -> genai_types.Content:
+    """The inbound message as the leaf actually sees it: the orchestrator's
+    `{query_params, profile_in}` a2a DataPart converted by the REAL ADK
+    converter into the tag-envelope genai Part riding user_content (same
+    pattern as test_equipment_ids.py's `_user_content_with_profile`)."""
+    datapart = a2a_types.Part(
+        root=a2a_types.DataPart(data={"query_params": {}, "profile_in": profile_in})
+    )
+    return genai_types.Content(
+        role="user",
+        parts=[genai_types.Part(text="autres options"), convert_a2a_part_to_genai_part(datapart)],
+    )
 
 
 def _hotel(i: int, price: int) -> dict:
@@ -216,6 +239,28 @@ def test_normalize_empty_and_garbage():
     assert normalize_search_results("nope") == []
 
 
+# --- exclude_ids (S-G5 pagination safety net) --------------------------------------------------
+def test_normalize_excludes_already_shown_ids_before_the_top_five_cut():
+    structured = _search_offers_structured(7)  # hotelId 0..6
+    out = normalize_search_results(structured, exclude_ids={0, 1, 2})
+    ids = [h["hotel_id"] for h in out]
+    assert 0 not in ids and 1 not in ids and 2 not in ids
+    assert ids == [3, 4, 5, 6]  # 4 survivors, still capped at MAX_RESULTS (not hit here)
+
+
+def test_normalize_exclude_ids_can_shrink_below_max_results():
+    structured = _search_offers_structured(3)  # hotelId 0,1,2
+    out = normalize_search_results(structured, exclude_ids={0, 1})
+    assert len(out) == 1 and out[0]["hotel_id"] == 2
+
+
+def test_normalize_no_exclude_ids_behaves_exactly_as_before():
+    out = normalize_search_results(_search_offers_structured(7), exclude_ids=None)
+    assert len(out) == MAX_RESULTS
+    out2 = normalize_search_results(_search_offers_structured(7), exclude_ids=set())
+    assert len(out2) == MAX_RESULTS
+
+
 # --- capture_after_tool ---------------------------------------------------------------------
 def test_capture_search_offers_truncates_and_stashes():
     ctx = _Ctx()
@@ -311,6 +356,72 @@ def test_capture_ignores_non_target_tools():
     ctx = _Ctx()
     assert capture_after_tool(_Tool("some_other_tool"), {}, ctx, {"structuredContent": {}}) is None
     assert ctx.state == {}
+
+
+# --- read_profile_in (S-G5 shared reader) ------------------------------------------------------
+def test_read_profile_in_decodes_the_inbound_datapart():
+    ctx = _Ctx(user_content=_user_content_with_profile_in({"city": "Miami", "search_cursor": 2}))
+    assert read_profile_in(ctx) == {"city": "Miami", "search_cursor": 2}
+
+
+def test_read_profile_in_defaults_to_empty_dict():
+    for content in (None, genai_types.Content(role="user", parts=[genai_types.Part(text="hi")])):
+        assert read_profile_in(_Ctx(user_content=content)) == {}
+    assert read_profile_in(_Ctx()) == {}
+
+
+# --- shown_hotel_ids exclusion wired end-to-end through capture_after_tool (S-G5) --------------
+def test_capture_search_offers_excludes_shown_hotel_ids_from_profile_in():
+    ctx = _Ctx(user_content=_user_content_with_profile_in({"shown_hotel_ids": [0, 1]}))
+    resp = {"structuredContent": _search_offers_structured(3), "isError": False}  # ids 0,1,2
+    returned = capture_after_tool(_Tool("search_offers"), {}, ctx, resp)
+    assert [h["hotel_id"] for h in ctx.state["temp:hotel_search_results"]] == [2]
+    assert [h["hotel_id"] for h in returned["hotels"]] == [2]
+
+
+def test_capture_find_hotel_by_name_is_never_excluded():
+    # A named lookup must never be hidden as "already shown".
+    ctx = _Ctx(user_content=_user_content_with_profile_in({"shown_hotel_ids": [7]}))
+    resp = {"structuredContent": {"hotel": {"hotelId": 7, "name": "Villa"}}, "isError": False}
+    capture_after_tool(_Tool("find_hotel_by_name"), {}, ctx, resp)
+    assert len(ctx.state["temp:hotel_search_results"]) == 1
+
+
+# --- inject_pagination_offset (before_tool_callback, S-G5/A7) ----------------------------------
+def test_inject_pagination_offset_computes_from_the_cursor():
+    ctx = _Ctx(user_content=_user_content_with_profile_in({"search_cursor": 2}))
+    args = {"lat": 1.0, "lon": 2.0, "date": "2026-07-21"}
+    assert inject_pagination_offset(_Tool("search_offers"), args, ctx) is None
+    assert args["from"] == 2 * MAX_RESULTS
+
+
+def test_inject_pagination_offset_defaults_to_zero_without_a_cursor():
+    ctx = _Ctx()
+    args = {}
+    inject_pagination_offset(_Tool("search_offers"), args, ctx)
+    assert args["from"] == 0
+
+
+def test_inject_pagination_offset_overwrites_any_model_supplied_from():
+    # The model is never taught pagination — any `from` it invents is not trusted.
+    ctx = _Ctx(user_content=_user_content_with_profile_in({"search_cursor": 1}))
+    args = {"from": 999}
+    inject_pagination_offset(_Tool("search_offers"), args, ctx)
+    assert args["from"] == MAX_RESULTS
+
+
+def test_inject_pagination_offset_ignores_other_tools():
+    ctx = _Ctx(user_content=_user_content_with_profile_in({"search_cursor": 5}))
+    args = {"name": "Villa"}
+    inject_pagination_offset(_Tool("find_hotel_by_name"), args, ctx)
+    assert "from" not in args
+
+
+def test_inject_pagination_offset_tolerates_garbage_cursor():
+    ctx = _Ctx(user_content=_user_content_with_profile_in({"search_cursor": "nope"}))
+    args = {}
+    inject_pagination_offset(_Tool("search_offers"), args, ctx)
+    assert args["from"] == 0
 
 
 # --- applied amenity filters → per-card amenities (server-guaranteed truths) ------------------
@@ -488,8 +599,13 @@ def test_emit_builds_decodable_datapart_with_results_and_mapped_delta():
     assert content is not None
     data = _decode(content)
     assert data["results"] == [{"id": 1, "name": "Villa Test"}]
-    # leaf keys mapped to the orchestrator's profile schema (S5 naming gap)
-    assert data["profile_delta"] == {"city": "Paris", "state_anchor": "NY"}
+    # leaf keys mapped to the orchestrator's profile schema (S5 naming gap),
+    # typed-ops shape (S-G5 migration — the concierge's reducer accepts both,
+    # this locks the leaf's OWN emission format).
+    assert data["profile_delta"] == {
+        "city": {"op": "set", "value": "Paris"},
+        "state_anchor": {"op": "set", "value": "NY"},
+    }
     # a grounded text outcome rides in the SAME Content (becomes leaf_text), so
     # the orchestrator never sees a datapart-only response and degrades
     assert "Villa Test" in _text(content)
@@ -511,7 +627,7 @@ def test_emit_delta_only_when_no_search_ran():
     ctx = _Ctx({"temp:hotel_search_profile_delta": {"last_city": "Lyon"}})
     data = _decode(emit_search_datapart(ctx))
     assert "results" not in data  # no search this turn → orchestrator won't record a 0-outcome
-    assert data["profile_delta"] == {"city": "Lyon"}
+    assert data["profile_delta"] == {"city": {"op": "set", "value": "Lyon"}}
 
 
 def test_emit_delta_carries_country_anchor_from_geocode():
@@ -524,7 +640,10 @@ def test_emit_delta_carries_country_anchor_from_geocode():
     )
     data = _decode(emit_search_datapart(ctx))
     # the orchestrator's apply_profile_delta reads `country_anchor` (its schema)
-    assert data["profile_delta"] == {"city": "Paris", "country_anchor": "FR"}
+    assert data["profile_delta"] == {
+        "city": {"op": "set", "value": "Paris"},
+        "country_anchor": {"op": "set", "value": "FR"},
+    }
 
 
 def test_emit_country_anchor_flows_even_on_a_geocode_only_turn():
@@ -532,7 +651,39 @@ def test_emit_country_anchor_flows_even_on_a_geocode_only_turn():
     # still reaches the orchestrator so active_filters/market survive the turn.
     ctx = _Ctx({"temp:hotel_search_country_code": "FR"})
     data = _decode(emit_search_datapart(ctx))
-    assert data == {"profile_delta": {"country_anchor": "FR"}}
+    assert data == {"profile_delta": {"country_anchor": {"op": "set", "value": "FR"}}}
+
+
+# --- zone/metro → profile_delta (S-G5: previously never persisted at all) --------------------
+def test_emit_delta_carries_zone_and_metro_as_typed_ops():
+    ctx = _Ctx(
+        {
+            "temp:hotel_search_results": [{"id": 1, "name": "Villa Test"}],
+            "temp:hotel_search_profile_delta": {
+                "last_city": "Paris",
+                "zone": "La Défense",
+                "metro": "Île-de-France",
+            },
+        }
+    )
+    data = _decode(emit_search_datapart(ctx))
+    assert data["profile_delta"] == {
+        "city": {"op": "set", "value": "Paris"},
+        "zone": {"op": "set", "value": "La Défense"},
+        "metro": {"op": "set", "value": "Île-de-France"},
+    }
+
+
+def test_emit_omits_zone_metro_when_absent():
+    ctx = _Ctx(
+        {
+            "temp:hotel_search_results": [{"id": 1, "name": "Villa Test"}],
+            "temp:hotel_search_profile_delta": {"last_city": "Paris"},
+        }
+    )
+    data = _decode(emit_search_datapart(ctx))
+    assert "zone" not in data["profile_delta"]
+    assert "metro" not in data["profile_delta"]
 
 
 def test_emit_returns_none_when_nothing_captured():
@@ -625,7 +776,7 @@ def test_emit_budget_timeslot_coexists_with_city_and_amenities():
     )
     data = _decode(emit_search_datapart(ctx))
     assert data["profile_delta"] == {
-        "city": "Paris",
+        "city": {"op": "set", "value": "Paris"},
         "amenities": ["pool"],
         "budget_max": 90.0,
         "budget_request_source": "flexible_default",
@@ -646,6 +797,22 @@ def test_find_datapart_skips_text_parts_and_survives_garbage():
     assert find_datapart(None) is None
     payload = {"profile_in": {"amenities": []}}
     assert find_datapart([text_part, encode_datapart(payload)]) == payload
+
+
+def test_find_datapart_prefers_the_last_match_over_the_first():
+    # S-G5 root-cause fix, live-verified 2026-07-23: on THIS side,
+    # tool_context.user_content.parts accumulates every turn's inbound
+    # DataPart across the whole A2A session (n_parts grows turn over turn) —
+    # the FIRST match is turn 1's stale snapshot forever; only the LAST one
+    # is the current turn's real profile_in. This is what silently pinned
+    # every profile-driven bridge (amenities, geo context, pagination) to
+    # turn 1 until search_cursor made it visible (the one field that can
+    # never coincidentally equal turn 1's value).
+    turn1 = {"profile_in": {"search_cursor": 0, "city": "Paris"}}
+    turn2 = {"profile_in": {"search_cursor": 1, "city": "Paris"}}
+    turn3 = {"profile_in": {"search_cursor": 2, "city": "Paris"}}
+    parts = [encode_datapart(turn1), encode_datapart(turn2), encode_datapart(turn3)]
+    assert find_datapart(parts) == turn3
 
 
 # --- skip_final_generation (short-circuits the wasted 3rd LLM call) --------------------------
