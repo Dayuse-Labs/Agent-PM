@@ -271,8 +271,11 @@ def check_timeslot_minutes(case: dict[str, Any], result: dict[str, Any]) -> list
 
 def check_zone_change(case: dict[str, Any], result: dict[str, Any]) -> dict[str, Any] | None:
     """For cases tagged `zone_change` (fixture-driven, not hand-picked): the
-    LAST refinement should actually have moved `zone`, not left it stuck on
-    the previous turn's value."""
+    LAST refinement should actually have moved the PLACE — recorded wherever
+    the agent records it (`zone` for a sub-city area, `city`/`resolved_city`
+    for a neighboring city, decision D2-a 2026-07-23: "Fort Lauderdale" is a
+    city, so pinning this check to `zone` made the family structurally
+    unpassable)."""
     if "zone_change" not in (case.get("tags") or []):
         return None
     pairs = _turn_responses(case, result)
@@ -280,11 +283,15 @@ def check_zone_change(case: dict[str, Any], result: dict[str, Any]) -> dict[str,
         return None
     last_filters = _filters(pairs[-1][1])
     prev_filters = _filters(pairs[-2][1])
-    if "zone" not in last_filters:
-        return _skip("zone_change", len(pairs), "zone not in active_filters")
-    zone = last_filters.get("zone")
-    changed = bool(zone) and zone != prev_filters.get("zone")
-    return _outcome("zone_change", len(pairs), changed, f"zone {prev_filters.get('zone')!r} -> {zone!r}")
+    place_keys = ("zone", "city", "resolved_city")
+    if not any(key in last_filters for key in place_keys):
+        return _skip("zone_change", len(pairs), "no place field in active_filters")
+    changed = any(
+        bool(last_filters.get(key)) and last_filters.get(key) != prev_filters.get(key)
+        for key in place_keys
+    )
+    moves = {key: (prev_filters.get(key), last_filters.get(key)) for key in place_keys}
+    return _outcome("zone_change", len(pairs), changed, f"place moves={moves}")
 
 
 def check_named_hotel_present(case: dict[str, Any], result: dict[str, Any]) -> dict[str, Any] | None:

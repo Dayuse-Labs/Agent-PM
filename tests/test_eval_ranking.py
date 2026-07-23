@@ -115,6 +115,47 @@ def test_extract_samples_maps_amenities_to_equipment_ids():
     assert samples[0]["hotel_equipment_ids"] == sorted({33, 34, 2982, 3000, 3001, 35})
 
 
+# --- _exact_window / filter_pool_exact_window (S-G10, D5) -------------------
+def test_exact_window_keeps_minutes():
+    assert er._exact_window("07:30", "13:30") == (450, 810)
+
+
+def test_exact_window_none_when_one_sided():
+    assert er._exact_window(None, "13:30") is None
+    assert er._exact_window("07:30", None) is None
+
+
+def _pool_hotel(hid, offers):
+    return {"hotelId": hid, "lat": 48.86, "lon": 2.35, "offers": offers}
+
+
+def test_filter_pool_exact_window_drops_non_fitting_hotels():
+    fits = _pool_hotel(1, [{"startHour": 8, "startMinute": 0, "endHour": 13, "endMinute": 0}])
+    too_early = _pool_hotel(2, [{"startHour": 7, "startMinute": 0, "endHour": 12, "endMinute": 0}])
+    pool = [fits, too_early]
+    assert er.filter_pool_exact_window(pool, (450, 810)) == [fits]  # 07:30-13:30
+
+
+def test_filter_pool_exact_window_falls_back_when_strict_cut_empties():
+    # Mirrors the leaf's A4-c fallback: the leaf shows the hour-rounded results
+    # when nothing fits exactly — the ground truth must do the same.
+    too_early = _pool_hotel(2, [{"startHour": 7, "startMinute": 0, "endHour": 12, "endMinute": 0}])
+    pool = [too_early]
+    assert er.filter_pool_exact_window(pool, (450, 810)) == pool
+
+
+def test_filter_pool_exact_window_no_window_is_identity():
+    pool = [_pool_hotel(1, [])]
+    assert er.filter_pool_exact_window(pool, None) is pool
+
+
+def test_filter_pool_offer_missing_bounds_never_fits():
+    # Same rule as the leaf: never assume a fit we can't verify — but the
+    # empty strict cut then falls back to the full pool.
+    no_end = _pool_hotel(1, [{"startHour": 8, "startMinute": 0}])
+    assert er.filter_pool_exact_window([no_end], (450, 810)) == [no_end]  # fallback path
+
+
 # --- rank_by_distance -------------------------------------------------------
 def test_rank_by_distance_sorts_nearest_first():
     anchor = (48.8566, 2.3522)  # Paris

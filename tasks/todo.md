@@ -18,8 +18,20 @@ Périmètre approuvé par Fabien : 4 fixes + tests + re-vérification live.
 - [x] **Live (gpt-5.2)** : geo-budapest → **PASS 2/2** (`country_code=HU`, le POI « Keleti station » désambiguïse) ; geo-la-defense → plus jamais AE 2/2 (clarify honnête) ; `distance_origin` présent sur tous les tours de recherche ; `eval_ranking.py` → **2 échantillons scorés** (precision@5=0.4, NDCG@5=0.27 — pipeline débloquée, pas un baseline)
 - [x] HANDOFF.md (bloc daté) + commit + MR (review Fabien = gate, pas de merge)
 
-## Review S-G10
-6 changements, tous petits et localisés : 2 fichiers feuille cœur (`geo_resolver.py` ~10 lignes, `geocode_tool.py` ~30), 2 guards (`geo_guards.py` table + 3 lignes, `response_bridge.py` 4 lignes), concierge (`agent.py` 10 lignes, `profile.py` 1 ligne de type). 14 tests neufs, dont 2 cas d'échec S-G9 nommés en régression et 1 test de soudure cross-package qui manquait structurellement. Restes connus (non-scope) : options de clarify parfois moches sur du fuzz Mapbox (La Defensa Colombie…), sémantique zone-vs-city des fixtures multiturn (décision Fabien, pack intouchable), mécanisme exact du texte-vide gpt-5.2 non reproduit (le filet Fix 4 le rend inoffensif).
+## Review S-G10 (commit 1 — fixes audit)
+6 changements, tous petits et localisés : 2 fichiers feuille cœur (`geo_resolver.py` ~10 lignes, `geocode_tool.py` ~30), 2 guards (`geo_guards.py` table + 3 lignes, `response_bridge.py` 4 lignes), concierge (`agent.py` 10 lignes, `profile.py` 1 ligne de type). 14 tests neufs, dont 2 cas d'échec S-G9 nommés en régression et 1 test de soudure cross-package qui manquait structurellement.
+
+# S-G10 bis — décisions Fabien D1-a/D2-a/D3-a + arbitrages D5/D6/D7 (même branche, commit 2)
+
+- [x] **D1-a — fixtures GPS** : `native_context.geolocation` → `client_geo_context.device.{latitude,longitude,permission:"granted"}` (2 cas prod_wounds) ; runner forwarde `client_geo_context` + `_resolve_origin` lit les 2 formes
+- [x] **D1 follow-up (découvert live)** : la feuille n'avait AUCUN chemin de recherche GPS-only — `geocode_location` résout désormais sur le fix GPS du profil quand rien n'est géocodable (jamais quand une zone/landmark est nommée — Gate 3) ; vérifié live : Detroit « near me » → 4 hôtels, `distance_origin.type="gps"`
+- [x] **D2-a — zone vs city** : nouveau type d'assertion `filter_place` (zone OU city OU resolved_city) dans le runner + 9 assertions migrées ; `filter_equals` accepte un dict structuré (`date_reference`) contre le token littéral via `expression` ; `check_zone_change` S-G8 accepte le déplacement en `city` ; + règle nom-exact du resolver (« Fort Lauderdale » tapé exactement ne clarifie plus contre « Lauderdale, MN ») — vérifié live : `carry_same_time_0` et `zone_change_0` **PASSENT** (0/3 avant)
+- [x] **D3-a — `requires_clarification` minimal non-bloquant** : chaîne feuille (capture geocode_ambiguous → DataPart flag + question déterministe) → marker concierge → façade ; vérifié live : la-defense → `requires_clarification: true`, `outcome_counts.safe_clarification: 1` (structurellement 0 avant)
+- [x] **D5 (mon arbitrage)** : limite mono-agent acceptée + documentée ; skew temporel divulgué (`ground_truth_fetched_at`, `n_samples_with_past_date` + warning) ; post-filtre minute-exact reproduit dans le pool (mêmes sémantiques + fallback A4-c)
+- [x] **D6 (mon arbitrage)** : la règle nom-exact du resolver EST le poli principal (supprime le pire cas) ; le filtrage écho des options résiduelles (fuzz colombien de la-defense) volontairement non fait — risque de sur-filtrage > gain
+- [x] **D7 (mon arbitrage) : DIFFÉRÉ** — honorer `_eval_clock` (horloge fournie par le client) = surface d'injection ; à designer gated (env flag éval) dans une session dédiée ; `check_date_reference` reste approximatif tant que les runs sont same-day
+- [x] DoD : 889 passed (+17), pack tests 11 passed, ruff/mypy/guardrails OK
+- [x] Live (gpt-5.2) : budapest PASS, carry_same_time_0 PASS, zone_change_0 PASS, detroit GPS tour 1 = 4 hôtels ancrés GPS, la-defense = clarify honnête flaggé, ranking eval 1 échantillon (precision@5=1.0, NDCG@5=0.83)
 
 ---
 

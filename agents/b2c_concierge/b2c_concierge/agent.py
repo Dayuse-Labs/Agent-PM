@@ -417,7 +417,16 @@ class _B2cConcierge(BaseAgent):
         return self._marker_event(ctx, {"event": "progress"})
 
     def _hotels_event(self, ctx: InvocationContext, response: dict[str, Any]) -> Event:
-        return self._marker_event(ctx, {"event": "hotels", "hotels": response.get("results") or []})
+        return self._marker_event(
+            ctx,
+            {
+                "event": "hotels",
+                "hotels": response.get("results") or [],
+                # S-G10 (D3): the leaf's deterministic geocode-clarify flag —
+                # rides the marker so the facade can report it (never blocks).
+                "requires_clarification": bool(response.get("requires_clarification")),
+            },
+        )
 
     def _chunk_event(self, ctx: InvocationContext, chunk: str) -> Event:
         return Event(

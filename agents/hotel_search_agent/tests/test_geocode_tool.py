@@ -401,6 +401,47 @@ class TestMultiCandidateResolution:
         assert result["diagnostics"]["options"][0]["country_code"] == "US"
 
 
+class TestGpsOnlyResolution:
+    def test_near_me_with_gps_anchor_resolves_to_the_fix(self, monkeypatch):
+        # S-G10 (D1 follow-up): a GPS-only request ("near me", no city/zone
+        # anywhere) resolves to the device fix itself — before this the leaf
+        # could never search at all for the widget's real GPS-only requests.
+        _patch_multi(monkeypatch, [], inventory={})
+
+        result = geocode_location(
+            city="", raw_user_message="a room in the daytime near me",
+            proximity_lat=48.9385, proximity_lon=2.4906,
+        )
+
+        assert result["ok"] is True
+        assert result["latitude"] == 48.9385
+        assert result["longitude"] == 2.4906
+        assert result["distance_origin_type"] == "gps"
+
+    def test_named_landmark_is_never_replaced_by_the_gps_fix(self, monkeypatch):
+        # Gate 3: "near the airport" + GPS must NOT silently search the user's
+        # own location — the zone-without-city error stands.
+        _patch_multi(monkeypatch, [], inventory={})
+        box = _FakeSearchBox(None)
+        monkeypatch.setattr(geocode_tool, "get_searchbox_client", lambda: box)
+
+        result = geocode_location(
+            city="", zone="the airport", raw_user_message="near the airport",
+            proximity_lat=48.9385, proximity_lon=2.4906,
+        )
+
+        assert result["ok"] is False
+        assert result["error"] == "no_geocodable_location"
+
+    def test_near_me_without_gps_still_asks_for_a_destination(self, monkeypatch):
+        _patch_multi(monkeypatch, [], inventory={})
+
+        result = geocode_location(city="", raw_user_message="near me")
+
+        assert result["ok"] is False
+        assert result["error"] == "no_geocodable_location"
+
+
 class TestSearchBoxTier2:
     def test_zone_miss_falls_back_to_search_box(self, monkeypatch):
         # v6 returns only junk that fails the echo check; a zone was named.

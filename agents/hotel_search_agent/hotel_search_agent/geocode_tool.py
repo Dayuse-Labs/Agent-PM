@@ -198,6 +198,26 @@ def geocode_location(
     effective_metro: str | None = demoted.get("metro")
 
     if not effective_city and not effective_metro:
+        # Pure "near me" (S-G10, D1 follow-up): no geocodable destination
+        # anywhere in the request, but the profile carries a device GPS fix
+        # (search_anchor → proximity_lat/lon, always code-injected) — resolve
+        # to the fix itself instead of failing the turn; before this, a
+        # GPS-only request could never search at all. ONLY when no
+        # zone/landmark was named either: a stated landmark must never be
+        # silently replaced by the user's own location (Gate 3).
+        if not effective_zone and proximity_lat is not None and proximity_lon is not None:
+            return _ok(
+                GeocodeResult(
+                    latitude=float(proximity_lat),
+                    longitude=float(proximity_lon),
+                    place_name="your current location",
+                    country_code="",
+                    region="",
+                ),
+                feature_type="gps",
+                profile_delta={},
+                distance_origin_type="gps",
+            )
         return {
             "ok": False,
             "error": "no_geocodable_location",
@@ -255,6 +275,7 @@ def geocode_location(
         region_hint=state_hint,
         locale_country=_locale_country(locale),
         proximity=proximity_tuple,
+        requested_name=effective_city or effective_metro,
     )
 
     echo_city = effective_city or effective_metro

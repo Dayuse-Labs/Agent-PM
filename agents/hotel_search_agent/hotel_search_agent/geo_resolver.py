@@ -35,6 +35,7 @@ from the candidates' `place_formatted` — never a candidate dump, never a loop
 """
 from __future__ import annotations
 
+import unicodedata
 from dataclasses import dataclass, field
 
 from hotel_search_agent.inventory import DEFAULT_RADIUS_KM, InventoryProvider, haversine_km
@@ -139,6 +140,14 @@ def _score(
     return score
 
 
+def _name_fold(value: str | None) -> str:
+    """Case/diacritic-insensitive name for EXACT-name comparison ("Défense" ==
+    "defense") — deliberately simpler than geo_guards' transliterating echo
+    fold: this compares two short proper names, not free text."""
+    text = unicodedata.normalize("NFKD", str(value or "").strip().lower())
+    return "".join(ch for ch in text if not unicodedata.combining(ch))
+
+
 def _differs_by_place(a: GeocodeCandidate, b: GeocodeCandidate) -> bool:
     """True when two candidates denote genuinely different places (different
     country, or different region within a country) — the case worth asking about.
@@ -171,9 +180,20 @@ def resolve(
     locale_country: str | None = None,
     proximity: tuple[float, float] | None = None,
     radius_km: float = DEFAULT_RADIUS_KM,
+    requested_name: str | None = None,
 ) -> Resolution:
     """Re-rank `candidates` and decide select / clarify / none. Pure and
-    deterministic given the injected `inventory` provider."""
+    deterministic given the injected `inventory` provider.
+
+    `requested_name` (the city label the user actually typed) powers ONE
+    asymmetric rule: when the top candidate's name is an EXACT (fold-
+    insensitive) match for what was asked and a would-be clarify option's
+    name is not, that option is not a genuine alternative — "Fort
+    Lauderdale" typed exactly must not trigger "did you mean Lauderdale,
+    Minnesota?" (S-G10). Asymmetric on purpose: it only ever TRIMS options
+    when the top is exact; a non-exact top (fuzzy resolution) never
+    suppresses anything, and two exact-name homonyms (Budapest HU/GA,
+    Victoria) still clarify."""
     survivors = list(candidates)
 
     # 1 — hard filters (a stated country/region removes, never boosts).
@@ -225,10 +245,15 @@ def resolve(
     # competitive: a different country/region, far enough to be a distinct
     # destination (not an adjacent suburb sharing the same search area), in the same
     # inventory tier, and within the selection margin of the top.
+    requested_fold = _name_fold(requested_name)
+    top_name_exact = bool(requested_fold) and _name_fold(top.candidate.name) == requested_fold
+
     def _genuine_alternative(other: ScoredCandidate) -> bool:
         if other.in_inventory_tier != top.in_inventory_tier:
             return False
         if top.score - other.score >= _MARGIN_SELECT:
+            return False
+        if top_name_exact and _name_fold(other.candidate.name) != requested_fold:
             return False
         if not _differs_by_place(top.candidate, other.candidate):
             return False

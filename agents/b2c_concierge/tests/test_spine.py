@@ -364,6 +364,35 @@ class TestHonestDegradation:
         assert answer == "Voici 1 hôtel trouvé à Paris."
         assert _turn_metric(caplog)["status"] == "ok"
 
+    def test_leaf_clarify_flag_rides_the_hotels_marker(self, scripted):
+        # S-G10 (D3): the leaf's deterministic geocode-clarify DataPart flag
+        # must reach the facade via the hotels marker payload.
+        llm, _ = scripted(
+            '{"family": "search", "language": "en"}',
+            "Did you mean Budapest (Hungary) or Budapest (Georgia)?",
+            leaf_text="Did you mean Budapest (Hungary), or Budapest (Georgia, United States)?",
+            response={"requires_clarification": True},
+        )
+        runner, session = _new_session()
+        events = _drive_in(runner, session.id, USER_MESSAGE_SEARCH)
+        hotels_markers = [m for m in _marker_payloads(events) if m.get("event") == "hotels"]
+        assert hotels_markers
+        assert hotels_markers[0]["requires_clarification"] is True
+        assert hotels_markers[0]["hotels"] == []
+
+    def test_search_turn_marker_reports_no_clarification(self, scripted):
+        llm, _ = scripted(
+            '{"family": "search", "language": "fr"}',
+            "Voici ce que j'ai trouvé.",
+            leaf_text="results: hotel A",
+            response={"results": [{"id": 1, "name": "Villa"}]},
+        )
+        runner, session = _new_session()
+        events = _drive_in(runner, session.id, USER_MESSAGE_SEARCH)
+        hotels_markers = [m for m in _marker_payloads(events) if m.get("event") == "hotels"]
+        assert hotels_markers
+        assert hotels_markers[0]["requires_clarification"] is False
+
     def test_textless_leaf_with_failed_synthesis_degrades_honestly(
         self, scripted, monkeypatch
     ):
@@ -456,7 +485,9 @@ class TestInternalEvents:
         )
         events = _drive_events(USER_MESSAGE_SEARCH)
         hotels_payloads = [p for p in _marker_payloads(events) if p["event"] == "hotels"]
-        assert hotels_payloads == [{"event": "hotels", "hotels": [{"name": "Hotel Alameda"}]}]
+        assert hotels_payloads == [
+            {"event": "hotels", "hotels": [{"name": "Hotel Alameda"}], "requires_clarification": False}
+        ]
         assert _marker_index(events, "hotels") < _final_index(events)
 
     def test_degraded_inline_turn_has_no_hotels_event(self, scripted, monkeypatch):
@@ -476,7 +507,9 @@ class TestInternalEvents:
         )
         events = _drive_events("quels équipements a le Hotel A ?")
         hotels_payloads = [p for p in _marker_payloads(events) if p["event"] == "hotels"]
-        assert hotels_payloads == [{"event": "hotels", "hotels": [{"id": 1, "name": "Hotel A"}]}]
+        assert hotels_payloads == [
+            {"event": "hotels", "hotels": [{"id": 1, "name": "Hotel A"}], "requires_clarification": False}
+        ]
 
     def test_synthesis_streams_multiple_chunks_that_join_into_the_final_text(self, scripted):
         final_text = "Voici deux hôtels très sympas à Paris pour demain."

@@ -320,6 +320,53 @@ def test_capture_geocode_stashes_profile_delta_no_truncation():
     assert ctx.state["temp:hotel_search_profile_delta"] == {"last_city": "Paris"}
 
 
+def test_capture_geocode_ambiguous_stashes_the_clarify_question():
+    # S-G10 (D3): the homonym clarify question becomes a deterministic
+    # requires_clarification signal downstream.
+    ctx = _Ctx()
+    resp = {
+        "ok": False,
+        "error": "geocode_ambiguous",
+        "diagnostics": {"question": "Did you mean Budapest (Hungary), or Budapest (Georgia, United States)?"},
+    }
+    assert capture_after_tool(_Tool("geocode_location"), {}, ctx, resp) is None
+    assert "Budapest (Hungary)" in ctx.state["temp:hotel_search_clarify_question"]
+
+
+def test_capture_geocode_other_errors_stash_no_clarify_question():
+    ctx = _Ctx()
+    resp = {"ok": False, "error": "geocode_echo_mismatch", "diagnostics": {"query": "x"}}
+    capture_after_tool(_Tool("geocode_location"), {}, ctx, resp)
+    assert "temp:hotel_search_clarify_question" not in ctx.state
+
+
+def test_emit_flags_requires_clarification_when_no_search_ran():
+    question = "Did you mean Budapest (Hungary), or Budapest (Georgia, United States)?"
+    ctx = _Ctx({"temp:hotel_search_clarify_question": question})
+    content = emit_search_datapart(ctx)
+    from hotel_search_agent.response_bridge import decode_datapart as _dec
+    data = next(d for d in (_dec(p) for p in content.parts) if d is not None)
+    assert data["requires_clarification"] is True
+    assert "results" not in data
+    # The question rides as this event's text (the emitted content replaces the
+    # model's final text — losing it would leave the orchestrator nothing to say).
+    texts = [p.text for p in content.parts if p.text]
+    assert question in texts
+
+
+def test_emit_does_not_flag_clarification_when_a_search_ran():
+    # A clarify followed by a successful search the same turn is a search turn.
+    ctx = _Ctx({
+        "temp:hotel_search_clarify_question": "Did you mean X or Y?",
+        _RESULTS_KEY: [{"id": 1, "name": "Villa"}],
+    })
+    content = emit_search_datapart(ctx)
+    from hotel_search_agent.response_bridge import decode_datapart as _dec
+    data = next(d for d in (_dec(p) for p in content.parts) if d is not None)
+    assert "requires_clarification" not in data
+    assert data["results"]
+
+
 def test_capture_find_hotel_by_name_stashes_but_does_not_truncate():
     ctx = _Ctx()
     resp = {"structuredContent": {"hotel": {"hotelId": 7, "name": "Villa"}}, "isError": False}

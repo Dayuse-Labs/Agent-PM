@@ -55,6 +55,7 @@ from __future__ import annotations
 
 import argparse
 import asyncio
+import datetime
 import json
 import math
 import os
@@ -117,6 +118,58 @@ def _hour_window(start_hhmm: str | None, end_hhmm: str | None) -> tuple[int, int
     return max(0, min(23, start_hour)), max(0, min(23, end_hour))
 
 
+def _exact_window(start_hhmm: str | None, end_hhmm: str | None) -> tuple[int, int] | None:
+    """The two-sided EXACT minutes-of-day window — the leaf strict-filters its
+    shown hotels against it (response_bridge._offer_fits_exact_window, S-G6),
+    so the ground-truth pool must apply the same filter or nearer-but-
+    non-fitting hotels would unfairly count as misses (S-G10, D5)."""
+    if not start_hhmm or not end_hhmm:
+        return None
+    try:
+        sh, sm = (int(p) for p in start_hhmm.split(":"))
+        eh, em = (int(p) for p in end_hhmm.split(":"))
+    except (ValueError, AttributeError):
+        return None
+    return sh * 60 + sm, eh * 60 + em
+
+
+def _offer_minutes(offer: dict[str, Any], hour_key: str, minute_key: str) -> int | None:
+    try:
+        hour = int(offer.get(hour_key))  # type: ignore[arg-type]
+        minute = int(offer.get(minute_key) or 0)
+    except (TypeError, ValueError):
+        return None
+    if not (0 <= hour <= 23 and 0 <= minute <= 59):
+        return None
+    return hour * 60 + minute
+
+
+def filter_pool_exact_window(
+    pool: list[dict[str, Any]], window: tuple[int, int] | None
+) -> list[dict[str, Any]]:
+    """Mirror of the leaf's strict-then-fallback behavior (verbatim
+    re-derivation of _offer_fits_exact_window + the A4-c fallback, never an
+    agents/** import): keep hotels with at least one offer fitting ENTIRELY
+    inside the exact window; if the strict cut empties a non-empty pool, fall
+    back to the unfiltered pool — exactly what the leaf shows in that case."""
+    if window is None:
+        return pool
+    start_total, end_total = window
+
+    def _fits(offer: dict[str, Any]) -> bool:
+        offer_start = _offer_minutes(offer, "startHour", "startMinute")
+        if offer_start is None or offer_start < start_total:
+            return False
+        offer_end = _offer_minutes(offer, "endHour", "endMinute")
+        return offer_end is not None and offer_end <= end_total
+
+    strict = [
+        h for h in pool
+        if any(_fits(o) for o in (h.get("offers") or []) if isinstance(o, dict))
+    ]
+    return strict if strict else pool
+
+
 def extract_samples(report: dict[str, Any]) -> tuple[list[dict[str, Any]], dict[str, int]]:
     """One sample per case: its FIRST turn with hotels + a resolved anchor +
     a resolved date. Returns (samples, skip_counts) — skips are counted, never
@@ -169,6 +222,9 @@ def extract_samples(report: dict[str, Any]) -> tuple[list[dict[str, Any]], dict[
                     "budget_max": filters.get("budget_max"),
                     "hotel_equipment_ids": sorted(set(amenity_ids)),
                     "time_window": window,
+                    "exact_window": _exact_window(
+                        filters.get("timeslot_start"), filters.get("timeslot_end")
+                    ),
                     "shown_ids": shown_ids,
                 }
             )
@@ -266,11 +322,14 @@ async def run(report_path: Path, output_path: Path) -> dict[str, Any]:
                     round(sample["lon"], 4),
                     sample["date"],
                     sample["time_window"],
+                    sample["exact_window"],
                     tuple(sample["hotel_equipment_ids"]),
                     sample["budget_max"],
                 )
                 if cache_key not in cache:
-                    pool = await fetch_pool(session, sample)
+                    pool = filter_pool_exact_window(
+                        await fetch_pool(session, sample), sample["exact_window"]
+                    )
                     cache[cache_key] = rank_by_distance(pool, sample["lat"], sample["lon"])
                 true_ranked_ids = cache[cache_key]
                 scored = score_sample(sample["shown_ids"], true_ranked_ids)
@@ -303,15 +362,27 @@ async def run(report_path: Path, output_path: Path) -> dict[str, Any]:
         for suite, b in by_suite.items()
     }
 
+    # Ground-truth pools are fetched NOW, not when the replay ran — inventory
+    # drifts, and a past `date` makes MCP legitimately return a different (or
+    # empty) pool. Disclose instead of letting a stale re-run read as signal.
+    today = datetime.date.today().isoformat()
+    n_past_date = sum(1 for s in samples if s["date"] < today)
+
     summary = {
         "n_samples_scored": len(scored_rows),
         "n_samples_skipped_empty_pool": len(per_sample) - len(scored_rows),
         "skip_counts_pre_pool": skips,
+        "n_samples_with_past_date": n_past_date,
         "mean_precision_at_5": round(sum(precisions) / len(precisions), 4) if precisions else None,
         "mean_ndcg_at_5": round(sum(ndcgs) / len(ndcgs), 4) if ndcgs else None,
         "by_suite": by_suite_summary,
     }
-    out = {"source_report": str(report_path), "summary": summary, "samples": per_sample}
+    out = {
+        "source_report": str(report_path),
+        "ground_truth_fetched_at": datetime.datetime.now().isoformat(timespec="seconds"),
+        "summary": summary,
+        "samples": per_sample,
+    }
     output_path.write_text(json.dumps(out, indent=2, ensure_ascii=False), encoding="utf-8")
     return out
 
@@ -333,6 +404,12 @@ def main() -> int:
         f"skips pre-pool={s['skip_counts_pre_pool']}) — "
         f"mean precision@5={s['mean_precision_at_5']} mean NDCG@5={s['mean_ndcg_at_5']}"
     )
+    if s["n_samples_with_past_date"]:
+        print(
+            f"  WARNING: {s['n_samples_with_past_date']} sample(s) have a past `date` — "
+            "the ground-truth pool fetched today may not match the pool the replay drew "
+            "from (re-run the gate replay fresh before trusting these numbers)"
+        )
     for suite, row in s["by_suite"].items():
         print(f"  {suite}: n={row['n']} precision@5={row['mean_precision_at_5']} NDCG@5={row['mean_ndcg_at_5']}")
     return 0

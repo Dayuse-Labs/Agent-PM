@@ -128,6 +128,38 @@ def test_la_defense_shape_micro_inventory_fuzz_does_not_silently_win():
     assert res.decision == "clarify"
 
 
+def test_exact_name_match_is_not_asked_about_a_differently_named_place():
+    # S-G10: "Fort Lauderdale" typed exactly must never trigger "did you mean
+    # Lauderdale, Minnesota?" — a same-tier near-tie whose name does NOT match
+    # what the user typed is not a genuine alternative when the top's name does.
+    fl = cand("Fort Lauderdale", "US", "Florida", lat=26.12, rank=0)
+    mn = cand("Lauderdale", "US", "Minnesota", lat=44.99, rank=1)
+    inv = FakeInventory({26.12: 20, 44.99: 5})
+    res = geo_resolver.resolve([fl, mn], inventory=inv, requested_name="Fort Lauderdale")
+    assert res.decision == "select"
+    assert res.chosen is fl
+
+
+def test_two_exact_name_homonyms_still_clarify():
+    # The exact-name rule is asymmetric: it trims differently-named options,
+    # never a true homonym — Budapest HU vs Budapest GA still asks.
+    hu = cand("Budapest", "HU", "Budapest", ftype="place", rank=0, lat=47.4979)
+    ga = cand("Budapest", "US", "Georgia", ftype="locality", rank=1, lat=33.7151)
+    inv = FakeInventory({47.4979: 0, 33.7151: 1})
+    res = geo_resolver.resolve([hu, ga], inventory=inv, requested_name="Budapest")
+    assert res.decision == "clarify"
+
+
+def test_non_exact_top_never_suppresses_alternatives():
+    # A fuzzy top ("La Defensa" for "La Défense") keeps the clarify — the rule
+    # only fires when the TOP is an exact match for what was typed.
+    co = cand("La Defensa", "CO", "Vichada", ftype="locality", rank=0, lat=5.5787)
+    ae = cand("Defense", "AE", "Abu Dhabi", ftype="neighborhood", rank=2, lat=23.6391)
+    inv = FakeInventory({5.5787: 0, 23.6391: 1})
+    res = geo_resolver.resolve([co, ae], inventory=inv, requested_name="La Défense")
+    assert res.decision == "clarify"
+
+
 # ── Hard filters ────────────────────────────────────────────────────────────────
 def test_explicit_country_is_a_hard_filter_not_a_boost():
     lisbon_pt = cand("Lisbon", "PT", "Lisboa", lat=38.72, rank=0)
