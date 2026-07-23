@@ -27,6 +27,7 @@ from __future__ import annotations
 import hmac
 import json
 import logging
+import math
 import os
 import re
 import uuid
@@ -41,7 +42,7 @@ from . import conversation_log, templates
 from .agent import _US, root_agent
 from .conversation_log import build_conversation_log_row, detect_is_synthetic
 from .inline_tools import _format_price_eur_cents
-from .profile import SessionProfile
+from .profile import SessionProfile, apply_profile_delta
 from .profile_store import get_profile_store
 from .triage import guess_language
 
@@ -332,7 +333,11 @@ def build_active_filters(profile: SessionProfile) -> dict[str, Any]:
     populates them — S-G3/S-G5/S-G6/S-G7 — this only stops FAKING absence
     when the profile does hold a value). These keys live INSIDE
     `active_filters` only; `CONTRACT_KEYS` (the top-level response shape) is
-    untouched — iso-contract."""
+    untouched — iso-contract.
+
+    S-G2 (2026-07-23): `locale`/`domain`/`search_anchor` join the same
+    pattern — the facade is now their producer (native-context intake), so
+    they follow `currency`/`zone`/etc. in being surfaced instead of omitted."""
     return {
         "city": profile.city,
         "resolved_city": profile.city,
@@ -348,6 +353,9 @@ def build_active_filters(profile: SessionProfile) -> dict[str, Any]:
         "zone": profile.zone,
         "currency": profile.currency,
         "distance_origin": profile.distance_origin,
+        "locale": profile.locale,
+        "domain": profile.domain,
+        "search_anchor": profile.search_anchor,
     }
 
 
@@ -453,7 +461,9 @@ async def _finalize(
     """Build the payload from the post-turn profile and persist the conversation
     log (best-effort). Returns the payload."""
     profile = await get_profile_store().get(session_id)
-    language = profile.language or guess_language(message)
+    language = (
+        profile.language or _locale_response_language(profile.locale) or guess_language(message)
+    )
     payload = build_chat_payload(
         session_id=session_id, final_text=final_text, hotels=hotels,
         profile=profile, language=language, turn_id=uuid.uuid4().hex,
@@ -476,9 +486,143 @@ async def _read_body(request: Request) -> dict[str, Any]:
     return body if isinstance(body, dict) else {}
 
 
-def _empty_ack_text(message: str) -> str:
-    """Empty message → the zero-LLM ack template (no pointless triage call)."""
-    return templates.ack_response(guess_language(message))
+# --- native context intake (S-G2, 2026-07-23) ------------------------------------------------
+# Probed against the vendored widget (web/vendor/static/js/chat/) BEFORE writing any of this —
+# the real POST /v3/chat body is the spec, not the phase brief's original assumption. Verified
+# (handlers/send.js:298-362, filters/search.js:98-127, utils.js:17-40):
+#   - `locale`/`currency` are top-level string fields (state.marketContext.language/.currency),
+#     NOT nested under `native_context`.
+#   - GPS is `client_geo_context.device.{latitude, longitude, accuracy_m, permission}` — sent
+#     ONLY when the message explicitly asks for device location AND geolocation succeeded
+#     (handlers/send.js:266-292); `permission` is "granted"/"denied"/"unavailable", lat/lon
+#     present only when "granted".
+#   - `native_context` (the mobile app's `window.__DAYUSE_NATIVE__`) is an OPAQUE blob: its own
+#     comment (utils.js:12-15) says it carries "recent bookings, favourites, geolocation" but no
+#     field name/shape is defined anywhere in this vendored snapshot. Inventing a
+#     `native_context.geolocation` sub-shape (the brief's original assumption) would be coding
+#     against a guess with zero evidence — NOT done here. `native_context` never errors the
+#     request; it is simply not decoded. Open item for whenever the mobile schema is specified.
+#   - `domain` is NOT actually sent in the body by this widget (baked server-side into an HTML
+#     `<meta>` tag, never echoed back) — parsed here defensively/for forward-compat, not
+#     exercised by the real traffic this probe captured.
+#   - `client_local_time`/`client_timezone` ARE sent (confirmed, `getClientTimeContext()`) but
+#     are deliberately NOT wired into the profile here: `client_local_time` is a per-request
+#     instant, never carryover-safe session state, and `client_timezone`'s correct home (a bare
+#     profile field vs nested in `date_reference.client_tz`) is a date-resolution design call
+#     that belongs to S-G6 — explicitly OUT of this phase.
+_LOCALE_RE = re.compile(r"^[A-Za-z]{2,3}(-[A-Za-z0-9]{1,8})*$")
+_CURRENCY_RE = re.compile(r"^[A-Za-z]{3}$")
+_DOMAIN_RE = re.compile(
+    r"^(?=.{1,253}$)[A-Za-z0-9](?:[A-Za-z0-9-]{0,61}[A-Za-z0-9])?"
+    r"(?:\.[A-Za-z0-9](?:[A-Za-z0-9-]{0,61}[A-Za-z0-9])?)+$"
+)
+
+
+def _parse_locale(raw: Any) -> str | None:
+    if isinstance(raw, str) and _LOCALE_RE.fullmatch(raw.strip()):
+        return raw.strip()
+    return None
+
+
+def _parse_currency(raw: Any) -> str | None:
+    if isinstance(raw, str) and _CURRENCY_RE.fullmatch(raw.strip()):
+        return raw.strip().upper()
+    return None
+
+
+def _parse_domain(raw: Any) -> str | None:
+    if isinstance(raw, str) and _DOMAIN_RE.fullmatch(raw.strip()):
+        return raw.strip().lower()
+    return None
+
+
+def _locale_response_language(locale: str | None) -> str | None:
+    """The 2-letter response-language hint carried by `locale` (e.g. "fr-FR"
+    -> "fr"), restricted to the spine's actual fr/en scope: an unsupported
+    primary tag (e.g. "es") is None rather than a language the synthesis
+    cannot actually produce — this facade does not control generation
+    language, so reporting one here would desync `response_language` from
+    the real text (this module's `language` fallback keeps a message's own
+    detected language ahead of this, for the same reason)."""
+    if not locale:
+        return None
+    primary = locale.split("-")[0].lower()
+    return primary if primary in ("fr", "en") else None
+
+
+def _parse_gps_anchor(body: dict[str, Any], turn_index: int) -> dict[str, Any] | None:
+    """`search_anchor` sourced from `client_geo_context.device` — ONLY when
+    the browser granted a fresh fix THIS turn (`permission == "granted"` and
+    both coordinates present and in-range). Anything else (denied/
+    unavailable/absent/malformed) returns None so the caller omits the delta
+    key entirely — absent-from-delta is carryover under the typed-ops
+    reducer (profile.py), which IS the no-silent-downgrade rule: a
+    permission blip on turn N never erases a fix acquired on an earlier
+    turn, and a turn with no location signal at all never invents one."""
+    ctx = body.get("client_geo_context")
+    if not isinstance(ctx, dict):
+        return None
+    device = ctx.get("device")
+    if not isinstance(device, dict) or device.get("permission") != "granted":
+        return None
+    lat, lon = device.get("latitude"), device.get("longitude")
+    if isinstance(lat, bool) or not isinstance(lat, (int, float)) or not math.isfinite(lat):
+        return None
+    if isinstance(lon, bool) or not isinstance(lon, (int, float)) or not math.isfinite(lon):
+        return None
+    if not (-90.0 <= lat <= 90.0 and -180.0 <= lon <= 180.0):
+        return None
+    return {
+        "type": "gps",
+        "lat": float(lat),
+        "lon": float(lon),
+        "label": None,
+        "set_at_turn": turn_index,
+    }
+
+
+def _native_context_delta(body: dict[str, Any], turn_index: int) -> dict[str, Any]:
+    """The profile delta for every optional native-context field this facade
+    recognizes in `body` — a field simply absent/invalid here is carryover
+    (never a clear), so a request carrying none of this is a full no-op."""
+    delta: dict[str, Any] = {}
+    locale = _parse_locale(body.get("locale"))
+    if locale is not None:
+        delta["locale"] = locale
+    currency = _parse_currency(body.get("currency"))
+    if currency is not None:
+        delta["currency"] = currency
+    domain = _parse_domain(body.get("domain"))
+    if domain is not None:
+        delta["domain"] = domain
+    anchor = _parse_gps_anchor(body, turn_index)
+    if anchor is not None:
+        delta["search_anchor"] = anchor
+    return delta
+
+
+async def _apply_native_context(session_id: str, body: dict[str, Any], turn_index: int) -> None:
+    """Merges this turn's native-context delta into the STORED profile before
+    the spine runs, so a leaf reading `profile_in` this same turn already
+    sees it (actually USING GPS/locale — Mapbox proximity, response
+    generation language, price display — is later phases' job: S-G3/S-G5/
+    S-G7; this only makes the signal reach the profile). Zero Redis round-
+    trip when the request carries none of these optional fields."""
+    delta = _native_context_delta(body, turn_index)
+    if not delta:
+        return
+    store = get_profile_store()
+    profile = await store.get(session_id)
+    apply_profile_delta(profile, delta, "")
+    await store.set(session_id, profile)
+
+
+def _empty_ack_text(message: str, locale: str | None = None) -> str:
+    """Empty message → the zero-LLM ack template (no pointless triage call).
+    `locale`, when it resolves to a supported response language, beats the
+    "en" default `guess_language` falls back to when there is no message
+    text to detect a language from at all."""
+    return templates.ack_response(_locale_response_language(locale) or guess_language(message))
 
 
 # --- handlers -------------------------------------------------------------------------------
@@ -498,11 +642,12 @@ async def chat(request: Request) -> Response:
     session = await _get_or_create_session(session_id, user_id)
     turn_index = _count_user_turns(session)
     is_synthetic = detect_is_synthetic(request.headers)
+    await _apply_native_context(session_id, body, turn_index)
 
     hotels: list | None = None
     final_text = ""
     if not message:
-        final_text = _empty_ack_text(message)
+        final_text = _empty_ack_text(message, _parse_locale(body.get("locale")))
     else:
         async for kind, data in _drive(session_id, user_id, message):
             if kind == "hotels":
@@ -541,13 +686,14 @@ async def chat_stream(request: Request) -> Response:
     session = await _get_or_create_session(session_id, user_id)
     turn_index = _count_user_turns(session)
     is_synthetic = detect_is_synthetic(request.headers)
+    await _apply_native_context(session_id, body, turn_index)
 
     async def _body() -> AsyncGenerator[bytes, None]:
         hotels: list | None = None
         final_text = ""
         if not message:
             yield _sse("progress", {})
-            final_text = _empty_ack_text(message)
+            final_text = _empty_ack_text(message, _parse_locale(body.get("locale")))
         else:
             async for kind, data in _drive(session_id, user_id, message):
                 if kind == "progress":
