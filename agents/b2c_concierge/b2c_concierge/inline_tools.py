@@ -193,17 +193,32 @@ def _hhmm(hour: Any, minute: Any) -> str | None:
 
 
 def _format_price_eur_cents(cents: Any) -> str | None:
-    """P3 (AUDIT-REWORK-2026-07.md): `priceEuro` is EUR cents; devise du user
-    si connue sinon EUR. This profile carries no user-currency signal today
-    (nothing upstream ever captures one), so display is always EUR — the
-    simple, honest default the phase pre-approved; revisit if a user-currency
-    preference is ever captured."""
+    """P3 (AUDIT-REWORK-2026-07.md): `priceEuro` is EUR cents. S-G7: the
+    profile DOES now carry a user-currency signal (`profile.currency`,
+    S-G1/S-G2 native-context) and MCP_B2C exposes a per-hotel `currencyCode`
+    (live-probed 2026-07-23) — but neither is a numeric price in that
+    currency, and MCP performs no conversion server-side (verified: a hotel's
+    `priceEuro` is identical whether its own `currencyCode` is EUR or USD/GBP).
+    Display therefore stays EUR here — the simple, honest default — while
+    `agent.py::_synthesize_with_guards` discloses the mismatch to the user
+    instead of silently implying this is their own currency."""
     if cents is None:
         return None
     try:
         return f"€{float(cents) / 100:.2f}"
     except (TypeError, ValueError):
         return None
+
+
+def _iso_currency(value: Any) -> str | None:
+    """ISO 4217 alpha-3 currency code or None — mirrors
+    hotel_search_agent.response_bridge._iso_currency (no cross-package
+    import, B3: each side owns its own tiny formatting helper)."""
+    if isinstance(value, str):
+        candidate = value.strip()
+        if len(candidate) == 3 and candidate.isalpha():
+            return candidate.upper()
+    return None
 
 
 # Empirically verified 2026-07-20 (no documented constant in MCP_B2C or the
@@ -234,6 +249,9 @@ def _normalize_hotel_for_display(hotel: dict[str, Any], best_offer: dict[str, An
     photo = _photo_url(hotel.get("mainPhotoNormal"))
     if photo:
         normalized["image_urls"] = [photo]
+    currency_code = _iso_currency(hotel.get("currencyCode"))
+    if currency_code:
+        normalized["currency_code"] = currency_code
     if best_offer:
         normalized["price"] = _format_price_eur_cents(best_offer.get("priceEuro"))
     return normalized

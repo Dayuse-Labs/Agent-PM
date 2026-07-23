@@ -372,6 +372,10 @@ ABSOLUTE RULES — a violation is a defect:
    budget/timeslot values it names — they came from a system default, not
    something the user said; state them, if at all, only as your own
    working assumption.
+9. If a CURRENCY note is present, mention plainly that prices are shown in
+   EUR with no conversion applied — NEVER invent a converted amount or state
+   a price in any other currency; the number itself is only ever the one
+   given in the OUTCOME/GROUND TRUTH.
 
 Output only the reply — no preamble, no headings."""
 
@@ -445,7 +449,7 @@ class _B2cConcierge(BaseAgent):
     async def _generate_once(
         self, *, message: str, language: str, leaf_text: str, ground_truth_block: str,
         widen_note: str | None, invocation_id: str, extra_instruction: str = "",
-        search_context: str = "", provenance_note: str = "",
+        search_context: str = "", provenance_note: str = "", currency_note: str = "",
     ) -> str | None:
         """ONE litellm call producing a candidate synthesis text, or None on
         failure. The system prompt's STATIC prefix never changes (cache); only
@@ -472,6 +476,8 @@ class _B2cConcierge(BaseAgent):
             user += f"\n\nAUTO_WIDEN: {widen_note}"
         if provenance_note:
             user += f"\n\nPROVENANCE: {provenance_note}"
+        if currency_note:
+            user += f"\n\nCURRENCY: {currency_note}"
         if search_context:
             user += f"\n\nSEARCH CONTEXT (what you understood — restate briefly): {search_context}"
         t0 = time.monotonic()
@@ -516,7 +522,9 @@ class _B2cConcierge(BaseAgent):
         leaf's own 0-1 internal tool calls counting as ONE "leaf_llm" slot).
 
         Applies, in order: the ground-truth block (S06), the auto-widen
-        disclosure surfaced exactly once (S05's silent flag), the
+        disclosure surfaced exactly once (S05's silent flag), the provenance
+        and currency honesty notes (S12/S-G7 — never let the synthesis imply
+        a value came from the user or a price is in a currency it isn't), the
         anti-clarification-loop guard — 1 bounded retry with a do-not-ask
         directive, then a deterministic strip of the repeated question,
         JAMAIS a full loop restart — and finally the amenity claim verifier
@@ -555,11 +563,33 @@ class _B2cConcierge(BaseAgent):
             prov_bits.append(f"timeslot source: {profile.timeslot_request_source}")
         provenance_note = "; ".join(prov_bits)
 
+        # Currency honesty (S-G7, A6-a: display stays EUR, never an invented
+        # conversion — this is the disclosure, not the pricing). Two
+        # independent triggers, either alone is enough: (a) the user's own
+        # native-context currency (profile.currency, S-G1/S-G2) differs from
+        # EUR; (b) a hotel actually shown this turn has its OWN currency
+        # (`currency_code`, live-probed 2026-07-23 — MCP sends it, but never a
+        # converted price) that differs from EUR — a fact independent of
+        # whatever the user's client currency happens to be.
+        currency_bits: list[str] = []
+        if profile.currency and profile.currency.upper() != "EUR":
+            currency_bits.append(f"user's own currency: {profile.currency}")
+        hotel_currencies = sorted(
+            {
+                h["currency_code"]
+                for h in shortlist_hotels(response)
+                if isinstance(h.get("currency_code"), str) and h["currency_code"].upper() != "EUR"
+            }
+        )
+        if hotel_currencies:
+            currency_bits.append(f"hotel's own currency: {', '.join(hotel_currencies)}")
+        currency_note = "; ".join(currency_bits)
+
         candidate = await self._generate_once(
             message=message, language=language, leaf_text=leaf_text,
             ground_truth_block=ground_truth_block, widen_note=widen_note,
             invocation_id=invocation_id, search_context=search_context,
-            provenance_note=provenance_note,
+            provenance_note=provenance_note, currency_note=currency_note,
         )
         if candidate is None:
             return None
@@ -572,6 +602,7 @@ class _B2cConcierge(BaseAgent):
                 ground_truth_block=ground_truth_block, widen_note=widen_note,
                 invocation_id=invocation_id, extra_instruction=directive,
                 search_context=search_context, provenance_note=provenance_note,
+                currency_note=currency_note,
             )
             if retry is not None:
                 candidate = retry

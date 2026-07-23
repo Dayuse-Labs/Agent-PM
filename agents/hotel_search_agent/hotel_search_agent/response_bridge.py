@@ -141,6 +141,24 @@ def _iso_alpha2(value: Any) -> str | None:
     return None
 
 
+def _iso_currency(value: Any) -> str | None:
+    """ISO 4217 alpha-3 currency code or None. S-G7: live-probed 2026-07-23,
+    `search_offers`/`get_hotel_details` return a per-hotel `currencyCode`
+    (e.g. "USD" for Miami, "GBP" for London) — the hotel's OWN local
+    currency. It is purely informational: the only numeric price fields
+    (`priceEuro`/`priceEuroWithBookingFees`) stay EUR cents regardless of
+    this code (verified live: a Miami hotel's `priceEuro` matches its
+    already-known EUR quote even though its `currencyCode` is "USD") — no
+    conversion exists server-side. Stamping it on the card is what lets the
+    concierge's synthesis disclose honestly when the displayed EUR price
+    isn't the hotel's own currency, instead of implying it is."""
+    if isinstance(value, str):
+        candidate = value.strip()
+        if len(candidate) == 3 and candidate.isalpha():
+            return candidate.upper()
+    return None
+
+
 # --- DataPart encoding (byte-identical to b2c_concierge.a2a_datapart.encode_datapart) --------
 def encode_datapart(data: dict[str, Any]) -> genai_types.Part:
     """A genai Part whose outgoing A2A conversion becomes a real a2a
@@ -410,6 +428,12 @@ def normalize_hotel(
     country_code = _iso_alpha2(hotel.get("countryCode"))
     if country_code:
         card["country_code"] = country_code
+    # S-G7: the hotel's own local currency (display-only, see `_iso_currency`) —
+    # `search_offers` sends this directly per hotel (probed live 2026-07-23),
+    # unlike country_code above which it never sends.
+    currency_code = _iso_currency(hotel.get("currencyCode"))
+    if currency_code:
+        card["currency_code"] = currency_code
     offers = hotel.get("offers") or []
     if exact_window is not None:
         start_total, end_total = exact_window

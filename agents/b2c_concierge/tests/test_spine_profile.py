@@ -446,6 +446,76 @@ class TestProvenanceHonestyThroughTheSpine:
         assert "PROVENANCE" not in llm.calls[-1]["messages"][1]["content"]
 
 
+class TestCurrencyDisclosureThroughTheSpine:
+    """S-G7 (A6-a): display stays EUR, never an invented conversion — the
+    CURRENCY marker mirrors the existing PROVENANCE/AUTO_WIDEN precedent.
+    Two independent triggers: the user's own native-context currency
+    (profile.currency), and a shown hotel's own `currency_code` (live-probed
+    2026-07-23 — MCP sends it, but the numeric price stays EUR regardless)."""
+
+    def test_non_eur_user_currency_triggers_a_disclosure(
+        self, monkeypatch, fake_leg, fake_profile_store
+    ):
+        fake_leg.response_payload = {
+            "results": [{"id": 1, "name": "Hotel A"}],
+            "profile_delta": {"city": "Miami", "currency": "USD"},
+        }
+        llm = _scripted_llm(monkeypatch, '{"family": "search", "language": "en"}', "Here is a hotel.")
+        runner = InMemoryRunner(root_agent)
+        session = _new_session(runner)
+
+        _run_turn(runner, session.id, "hotels in Miami")
+
+        user_msg = llm.calls[-1]["messages"][1]["content"]
+        system_msg = llm.calls[-1]["messages"][0]["content"]
+        assert "CURRENCY" in user_msg
+        assert "USD" in user_msg
+        assert "no conversion" in system_msg.lower()
+
+    def test_non_eur_hotel_currency_triggers_a_disclosure_even_without_user_currency(
+        self, monkeypatch, fake_leg, fake_profile_store
+    ):
+        fake_leg.response_payload = {
+            "results": [{"id": 1, "name": "Hotel A", "currency_code": "USD"}],
+            "profile_delta": {"city": "Miami"},
+        }
+        llm = _scripted_llm(monkeypatch, '{"family": "search", "language": "en"}', "Here is a hotel.")
+        runner = InMemoryRunner(root_agent)
+        session = _new_session(runner)
+
+        _run_turn(runner, session.id, "hotels in Miami")
+
+        user_msg = llm.calls[-1]["messages"][1]["content"]
+        assert "CURRENCY" in user_msg
+        assert "USD" in user_msg
+
+    def test_eur_currency_never_gets_a_disclosure(self, monkeypatch, fake_leg, fake_profile_store):
+        fake_leg.response_payload = {
+            "results": [{"id": 1, "name": "Hotel A", "currency_code": "EUR"}],
+            "profile_delta": {"city": "Paris", "currency": "EUR"},
+        }
+        llm = _scripted_llm(monkeypatch, '{"family": "search", "language": "en"}', "Here is a hotel.")
+        runner = InMemoryRunner(root_agent)
+        session = _new_session(runner)
+
+        _run_turn(runner, session.id, "hotels in Paris")
+
+        assert "CURRENCY" not in llm.calls[-1]["messages"][1]["content"]
+
+    def test_unknown_currency_never_gets_a_disclosure(self, monkeypatch, fake_leg, fake_profile_store):
+        fake_leg.response_payload = {
+            "results": [{"id": 1, "name": "Hotel A"}],
+            "profile_delta": {"city": "Paris"},
+        }
+        llm = _scripted_llm(monkeypatch, '{"family": "search", "language": "en"}', "Here is a hotel.")
+        runner = InMemoryRunner(root_agent)
+        session = _new_session(runner)
+
+        _run_turn(runner, session.id, "hotels in Paris")
+
+        assert "CURRENCY" not in llm.calls[-1]["messages"][1]["content"]
+
+
 class TestProfileContinuityAcrossTurns:
     def test_city_from_turn_one_is_sent_as_profile_in_on_turn_two(
         self, monkeypatch, fake_leg, fake_profile_store
