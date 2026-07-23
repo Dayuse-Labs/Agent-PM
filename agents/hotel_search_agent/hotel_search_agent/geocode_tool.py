@@ -332,13 +332,20 @@ def geocode_location(
     # Tier 2 (A2-b): v6 gave us nothing acceptable. When the request named a
     # zone/landmark ("La Défense", "Tour Eiffel"), retry ONCE via Search Box,
     # which v6 can't resolve (POI support dropped). Never on a bare-city miss
-    # (Search Box is worse for cities and a separate SKU).
-    if effective_zone:
+    # (Search Box is worse for cities and a separate SKU) — EXCEPT when v6
+    # returned ZERO candidates (S-G11, "Layover in JFK"): an airport/landmark
+    # used AS the destination is a POI, invisible to v6's city feature types,
+    # so the zone-only trigger left it unreachable; a bare-city miss that HAS
+    # candidates still never reaches Search Box, unchanged.
+    searchbox_query = effective_zone
+    if not searchbox_query and not candidates:
+        searchbox_query = effective_city or effective_metro
+    if searchbox_query:
         # The landmark ALONE — appending the city biases Search Box toward
         # businesses named after the landmark (probed: "La Défense, Paris" →
         # a hotel "Citadines La Défense"; bare "La Défense" → the district).
         poi = get_searchbox_client().forward(
-            effective_zone, country=effective_country_code, language=lang
+            searchbox_query, country=effective_country_code, language=lang
         )
         if poi is not None and _echoes(
             poi.place_name, city=echo_city, zone=effective_zone, state_hint=state_hint
@@ -368,7 +375,11 @@ def geocode_location(
     # Nothing survived: distinguish "no candidate at all" from "resolved to the
     # wrong place" for honest diagnostics (both degrade — never a fabricated coord).
     if not candidates:
-        return {"ok": False, "error": "geocode_unavailable", "diagnostics": {"query": query}}
+        # Named "no_match", not "unavailable": the geocoder DID answer, the
+        # query just matched nothing it can see (and the Search-Box fallback
+        # above missed too) — the model used to dress "unavailable" up as a
+        # service outage for the user (S-G11, "geolocation service unavailable").
+        return {"ok": False, "error": "geocode_no_match", "diagnostics": {"query": query}}
     resolved_place = resolution.chosen.place_name if resolution.chosen is not None else None
     return {
         "ok": False,

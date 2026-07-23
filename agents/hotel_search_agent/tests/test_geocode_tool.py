@@ -181,15 +181,21 @@ class TestEchoBackGuard:
 
 class TestGeocoderDegradation:
     def test_no_result_degrades_honestly(self, monkeypatch):
+        # Zero v6 candidates now also tries the Search-Box tier (S-G11) — a
+        # miss there too degrades with "no_match" (the geocoder answered,
+        # nothing matched — never dressed up as a service outage).
         _patch_client(monkeypatch, None)
+        box = _FakeSearchBox(None)
+        monkeypatch.setattr(geocode_tool, "get_searchbox_client", lambda: box)
 
         result = geocode_location(city="Nowhereville")
 
         assert result == {
             "ok": False,
-            "error": "geocode_unavailable",
+            "error": "geocode_no_match",
             "diagnostics": {"query": "Nowhereville"},
         }
+        assert box.calls  # the POI tier was tried before giving up
 
 
 class TestUsZipCountryScoping:
@@ -475,6 +481,43 @@ class TestSearchBoxTier2:
         assert result["ok"] is False
         assert result["error"] == "geocode_echo_mismatch"
         assert box.calls == []  # never invoked without a zone/landmark
+
+    def test_bare_poi_destination_with_zero_candidates_falls_back_to_search_box(self, monkeypatch):
+        # S-G11 "Layover in JFK": an airport used AS the destination is a POI —
+        # v6's city feature types return ZERO candidates for it, and the old
+        # zone-only trigger made the Search-Box tier unreachable (the user got
+        # a bogus "geolocation service unavailable"). Zero candidates → try
+        # Search Box with the city string itself.
+        _patch_multi(monkeypatch, [], inventory={})
+        poi = GeocodeResult(
+            latitude=40.6413,
+            longitude=-73.7781,
+            place_name="John F. Kennedy International Airport, Jamaica, New York 11430, United States",
+            country_code="US",
+            region="New York",
+        )
+        box = _FakeSearchBox(poi)
+        monkeypatch.setattr(geocode_tool, "get_searchbox_client", lambda: box)
+
+        result = geocode_location(city="JFK", raw_user_message="Layover in JFK")
+
+        assert result["ok"] is True
+        assert result["distance_origin_type"] == "poi"
+        assert result["country_code"] == "US"
+        assert box.calls == [("JFK", None)]
+
+    def test_bare_city_miss_with_candidates_still_never_calls_search_box(self, monkeypatch):
+        # The SKU-cost rule is unchanged: when v6 HAS candidates (they just
+        # fail the echo), a bare-city request must not hit Search Box.
+        junk = _c("Al Ain", "AE", "Abu Dhabi", ftype="neighborhood", lat=24.2, rank=0)
+        _patch_multi(monkeypatch, [junk], inventory={24.2: 0})
+        box = _FakeSearchBox(None)
+        monkeypatch.setattr(geocode_tool, "get_searchbox_client", lambda: box)
+
+        result = geocode_location(city="Budapestttt", raw_user_message="hotel budapestttt")
+
+        assert result["error"] == "geocode_echo_mismatch"
+        assert box.calls == []
 
     def test_clarify_with_a_zone_tries_search_box_before_asking(self, monkeypatch):
         # S-G10: a named landmark can make v6's whole list fuzzy homonyms in a
