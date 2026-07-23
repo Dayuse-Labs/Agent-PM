@@ -72,3 +72,19 @@ Only `widget` gets a public domain. Browser talks to one origin (proxy); proxy f
 - Staging MCP = sparse inventory → some "0 offres" cities, faithful to local not a quality signal.
 - `DAYUSE_MODEL=gpt-4o-mini` mirrors local (`.env` `OPENAI_MODEL=gpt-5.2` is dead config, not read).
 - 4 always-on services + Redis = small non-zero cost.
+
+# Remédiation geo/multi-turn (S-G series, arbitrée 2026-07-23)
+
+Plan : `reports/PLAN-RESOLUTION-GEO-MULTITURN-2026-07-23.md` · phases : `phases/SG1…SG9.md` · vue d'ensemble : `SESSIONS-CLAUDE-CODE.md` §S-G.
+
+- [ ] S-G1 profil v2 + ops reducer (concierge)
+- [ ] S-G2 intake contexte natif (facade) — après S-G1
+- [ ] S-G3 résolveur géo multi-candidats (feuille, Opus, probe live d'abord)
+- [ ] S-G4 budgets timeout + RetryPolicy + Chester
+- [ ] S-G5 pont déterministe + pagination — après S-G1+S-G3
+- [ ] S-G6 dates/durées/demi-heures — après S-G5
+- [ ] S-G7 locale/devise propagation — après S-G6
+- [ ] S-G8 durcissement harness (∥ possible)
+- [ ] S-G9 gate 81 cas ×3 + éval ranking — dernier
+- [ ] Cross-repo MCP_B2C : ouvrir les demandes (minutes timeSlot, offset/exclusion, pricing) — `reports/MCP-B2C-REQUESTS.md` créé en S-G6/S-G7
+- [ ] Ops : contrôle plateforme `DAYUSE_MODEL` (défaut committé = gpt-4o-mini, eval = gpt-5.2)
