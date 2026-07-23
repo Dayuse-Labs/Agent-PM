@@ -142,6 +142,23 @@ def test_normalize_hotel_omits_lat_lon_when_absent():
     assert "latitude" not in card and "longitude" not in card
 
 
+# --- per-hotel currency_code (S-G7, display-only — live-probed 2026-07-23) -------------------
+def test_normalize_hotel_stamps_currency_code_from_currencycode():
+    hotel = _hotel(1, 11933)
+    hotel["currencyCode"] = "usd"
+    card = normalize_hotel(hotel)
+    assert card["currency_code"] == "USD"
+    assert card["price"] == "€119.33"  # priceEuro is unaffected — no conversion
+
+
+def test_normalize_hotel_omits_currency_code_when_absent_or_garbage():
+    for bad in (None, "", "EURO", 42):
+        hotel = _hotel(1, 5000)
+        hotel["currencyCode"] = bad
+        assert "currency_code" not in normalize_hotel(hotel)
+    assert "currency_code" not in normalize_hotel(_hotel(1, 5000))  # key absent entirely
+
+
 def test_normalize_hotel_omits_lat_lon_on_garbage():
     card = normalize_hotel({"hotelId": 1, "name": "X", "lat": "nope", "lon": None})
     assert "latitude" not in card and "longitude" not in card

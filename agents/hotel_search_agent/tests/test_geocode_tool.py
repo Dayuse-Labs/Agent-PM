@@ -586,3 +586,18 @@ class TestInjectProfileGeoContext:
         inject_profile_geo_context(_Tool("geocode_location"), args, ctx)
         assert "proximity_lat" not in args
         assert "proximity_lon" not in args
+
+    def test_locale_always_profile_sourced(self):
+        # S-G7: PURE profile lookup (profile_in.locale, the client's real
+        # native-context tag) — always set, whatever the model itself passed
+        # (the model has no reliable way to know the client's UI locale).
+        args = {"city": "Lisboa", "locale": "should be overwritten"}
+        ctx = _Ctx(user_content=_user_content_with_profile_in({"locale": "pt-PT"}))
+        inject_profile_geo_context(_Tool("geocode_location"), args, ctx)
+        assert args["locale"] == "pt-PT"
+
+    def test_no_locale_leaves_locale_unset(self):
+        args = {"city": "Paris"}
+        ctx = _Ctx(user_content=_user_content_with_profile_in({"city": "Paris"}))
+        inject_profile_geo_context(_Tool("geocode_location"), args, ctx)
+        assert "locale" not in args

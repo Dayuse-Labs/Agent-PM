@@ -137,6 +137,25 @@ class TestGetHotelDetails:
         result = _run(inline_tools.get_hotel_details("Villa Paris Orly", profile))
         assert "image_urls" not in result["hotel"]
 
+    def test_stamps_currency_code_when_mcp_sends_it(self, monkeypatch):
+        # S-G7: live-probed 2026-07-23 — get_hotel_details returns a per-hotel
+        # currencyCode; display-only, priceEuro is unaffected (no conversion).
+        response = {
+            **HOTEL_DETAILS_RESPONSE,
+            "hotel": {**HOTEL_DETAILS_RESPONSE["hotel"], "currencyCode": "usd"},
+        }
+        _install(monkeypatch, {"get_hotel_details": FakeResult(response)})
+        profile = SessionProfile(last_results=SHORTLIST)
+        result = _run(inline_tools.get_hotel_details("Villa Paris Orly", profile))
+        assert result["hotel"]["currency_code"] == "USD"
+        assert result["hotel"]["price"] == "€54.00"
+
+    def test_omits_currency_code_when_absent(self, monkeypatch):
+        _install(monkeypatch, {"get_hotel_details": FakeResult(HOTEL_DETAILS_RESPONSE)})
+        profile = SessionProfile(last_results=SHORTLIST)
+        result = _run(inline_tools.get_hotel_details("Villa Paris Orly", profile))
+        assert "currency_code" not in result["hotel"]
+
     def test_falls_back_to_find_hotel_by_name_when_not_in_shortlist(self, monkeypatch):
         session = _install(
             monkeypatch,
