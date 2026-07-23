@@ -31,8 +31,56 @@ from b2c_concierge.profile import (
     resolve_hotel_reference,
     resolve_hotel_reference_strict,
     resolve_hotel_references,
+    resolve_shortlist_ordinal,
     search_context_line,
 )
+
+
+class TestResolveShortlistOrdinal:
+    SHORTLIST = [
+        {"hotel_id": 111, "name": "Cadillac Hotel & Beach Club"},
+        {"hotel_id": 222, "name": "Wyndham Garden Miami"},
+        {"hotel_id": 333, "name": "Regency Miami Airport"},
+    ]
+
+    def _pick(self, text):
+        hit = resolve_shortlist_ordinal(text, self.SHORTLIST)
+        return hit["hotel_id"] if hit else None
+
+    def test_bare_digit_picks_by_position(self):
+        assert self._pick("1") == 111
+        assert self._pick("2") == 222
+        assert self._pick("3") == 333
+
+    def test_common_prefixes_and_whitespace(self):
+        assert self._pick(" #2 ") == 222
+        assert self._pick("n°3") == 333
+        assert self._pick("option 1") == 111
+
+    def test_ordinal_words_both_languages(self):
+        assert self._pick("the first") == 111
+        assert self._pick("premier") == 111
+        assert self._pick("deuxième") == 222
+        assert self._pick("third") == 333
+
+    def test_out_of_range_is_none(self):
+        assert self._pick("0") is None
+        assert self._pick("4") is None
+        assert self._pick("9") is None
+
+    def test_date_like_le_number_is_not_a_pick(self):
+        # "le 2"/"le 28" is a French date refinement, never a position pick.
+        assert self._pick("le 2") is None
+        assert self._pick("le 28") is None
+
+    def test_non_ordinal_messages_are_none(self):
+        assert self._pick("cheaper") is None
+        assert self._pick("1 star hotel please") is None
+        assert self._pick("book the Cadillac") is None
+
+    def test_no_shortlist_is_none(self):
+        assert resolve_shortlist_ordinal("1", None) is None
+        assert resolve_shortlist_ordinal("1", []) is None
 
 
 class TestBudgetIntegrity:

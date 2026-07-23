@@ -291,6 +291,53 @@ class TestCompareHotels:
         assert session.calls == []
 
 
+class TestOrdinalSelection:
+    """A bare list position ("2") replying to the numbered shortlist resolves
+    from that shortlist directly — never MCP find_hotel_by_name (whose exact
+    cityName filter mis-handles greater-metro inventory)."""
+
+    SHORTLIST3 = [
+        {"hotel_id": 111, "name": "Cadillac Hotel & Beach Club"},
+        {"hotel_id": 222, "name": "Wyndham Garden Miami International Airport"},
+        {"hotel_id": 333, "name": "Regency Miami Airport by Sonesta"},
+    ]
+
+    def test_details_by_ordinal_uses_shortlist_id_no_name_lookup(self, monkeypatch):
+        session = _install(monkeypatch, {"get_hotel_details": FakeResult(HOTEL_DETAILS_RESPONSE)})
+        profile = SessionProfile(last_results=self.SHORTLIST3)
+        result = _run(inline_tools.get_hotel_details("2", profile))
+        assert result["ok"] is True
+        # resolved the 2nd shortlist hotel by position — and ONLY get_hotel_details ran.
+        assert [c[0] for c in session.calls] == ["get_hotel_details"]
+        assert session.calls[0][1]["hotelId"] == 222
+
+    def test_booking_by_ordinal_quotes_the_right_shortlist_hotel(self, monkeypatch):
+        _install(
+            monkeypatch,
+            {
+                "get_hotel_details": FakeResult(HOTEL_DETAILS_RESPONSE),
+                "generate_booking_link": lambda args: FakeResult(
+                    {"confirmationRequired": True, "hotel": {}, "offer": {}}
+                ),
+            },
+        )
+        profile = SessionProfile(last_results=self.SHORTLIST3)
+        result = _run(inline_tools.generate_booking_link("1", profile, user_confirmed=False))
+        assert result["ok"] is True and result["confirmed"] is False
+        # picked position #1 from the shortlist, no find_hotel_by_name round-trip.
+        assert profile.pending_booking["hotel_id"] == 111
+
+    def test_out_of_range_ordinal_falls_through_to_name_matching(self, monkeypatch):
+        # "9" is not a valid position (3 hotels) → not an ordinal hit; with no
+        # name match and no shortlist name, resolution degrades honestly.
+        session = _install(monkeypatch, {"find_hotel_by_name": FakeResult(is_error=True)})
+        profile = SessionProfile(last_results=self.SHORTLIST3)
+        result = _run(inline_tools.generate_booking_link("9", profile, user_confirmed=False))
+        assert result["ok"] is False
+        # it did try the name path (not silently swallowed as a bogus ordinal).
+        assert any(c[0] == "find_hotel_by_name" for c in session.calls)
+
+
 class TestGenerateBookingLinkR9:
     """Guard #12: confirmed is derived from server-side state, never from the
     caller's own assertion — the two legitimate paths, plus the bypass

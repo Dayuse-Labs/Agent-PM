@@ -46,6 +46,7 @@ from .profile import (
     resolve_hotel_reference,
     resolve_hotel_reference_strict,
     resolve_hotel_references,
+    resolve_shortlist_ordinal,
 )
 
 _INLINE_MCP_TIMEOUT = float(os.environ.get("CONCIERGE_INLINE_MCP_TIMEOUT_SECONDS", "5.0"))
@@ -129,6 +130,16 @@ async def _resolve_hotel_id(
     weak shortlist hit is used only as a last-resort fallback if MCP itself
     degrades or finds nothing. Returns `(hotel_id, resolved_name)`,
     `(None, None)` when nothing resolves."""
+    # A bare list position ("2", "the first") the user typed to pick from the
+    # numbered shortlist just shown resolves from that shortlist directly —
+    # never MCP (the shortlist already holds the id; find_hotel_by_name's
+    # exact-city filter mis-handles greater-metro inventory). Checked FIRST so
+    # a digit is never fed to name matching (which would fuzzy-hit a wrong or
+    # no hotel).
+    ordinal_hit = resolve_shortlist_ordinal(reference, profile.last_results)
+    if ordinal_hit is not None and ordinal_hit.get("hotel_id") is not None:
+        return int(ordinal_hit["hotel_id"]), str(ordinal_hit["name"])
+
     strong_hit = resolve_hotel_reference_strict(reference, profile.last_results)
     if strong_hit is not None and strong_hit.get("hotel_id") is not None:
         return int(strong_hit["hotel_id"]), str(strong_hit["name"])

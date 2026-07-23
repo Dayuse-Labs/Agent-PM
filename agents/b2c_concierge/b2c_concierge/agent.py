@@ -101,6 +101,7 @@ from .profile import (
     questions_equivalent,
     record_search_outcome,
     record_search_shortlist,
+    resolve_shortlist_ordinal,
     search_context_line,
 )
 from .profile_store import get_profile_store
@@ -639,6 +640,12 @@ class _B2cConcierge(BaseAgent):
         # is left untouched (a policy question that happens to carry a date is not
         # a re-search).
         if is_booking_confirmation_signal(message, profile):
+            family, route = "booking", ROUTES["booking"]
+        elif resolve_shortlist_ordinal(message, profile.last_results) is not None:
+            # A bare list position ("2") replying to the numbered shortlist is a
+            # hotel PICK, not a new search — route it to the booking flow, which
+            # resolves it from the shortlist. Without this, a lone digit
+            # mis-triages as search and dead-ends ("I can't reach hotel search").
             family, route = "booking", ROUTES["booking"]
         elif family != "faq" and is_search_refinement_signal(message, profile):
             family, route = "search", ROUTES["search"]

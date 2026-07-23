@@ -641,6 +641,50 @@ def resolve_hotel_references(
     return [hotel for hotel in last_results if _hotel_matches(stripped, tokens, hotel)]
 
 
+# A hotel picked by its LIST POSITION ("2", "#3", "option 1", "the first") from
+# the numbered shortlist the concierge just showed. Deliberately TIGHT so it can
+# only be a bare selection: a leading "le "/"the " + number is EXCLUDED because
+# "le 2"/"le 28" is a French date refinement, not a pick. `search_offers` is
+# never re-run and MCP `find_hotel_by_name` is never touched — the shortlist
+# already carries each hotel's id, and MCP's exact-city filter is a poor match
+# for greater-metro inventory (a "Miami" search returns hotels indexed under
+# Miami Beach / Doral / Aventura, which find_hotel_by_name(cityName="Miami")
+# then reports as "no hotel found").
+_BARE_ORDINAL_RE = re.compile(
+    r"^\s*(?:#\s*|n[°o]\s*|option\s+|choix\s+)?(\d{1,2})\s*$", re.IGNORECASE
+)
+_ORDINAL_WORDS = {
+    "first": 1, "1st": 1, "premier": 1, "premiere": 1, "première": 1,
+    "second": 2, "2nd": 2, "deuxieme": 2, "deuxième": 2,
+    "third": 3, "3rd": 3, "troisieme": 3, "troisième": 3,
+    "fourth": 4, "4th": 4, "quatrieme": 4, "quatrième": 4,
+    "fifth": 5, "5th": 5, "cinquieme": 5, "cinquième": 5,
+}
+
+
+def resolve_shortlist_ordinal(
+    text: str, last_results: list[dict[str, Any]] | None
+) -> dict[str, Any] | None:
+    """The shortlist entry `text` picks BY POSITION, or None when `text` is not
+    a bare ordinal / the position is out of range. Lets a user reply to the
+    numbered "which hotel?" prompt with "2" (or "the first") and resolve the
+    RIGHT hotel from the on-screen shortlist — no MCP round-trip."""
+    if not last_results:
+        return None
+    stripped = (text or "").strip()
+    match = _BARE_ORDINAL_RE.match(stripped)
+    if match:
+        position: int | None = int(match.group(1))
+    else:
+        # word ordinals can't collide with a date, so a leading article is safe
+        # to strip here (unlike the digit path, which must reject "le 2"/"le 28").
+        word = re.sub(r"^(?:the|le|la)\s+", "", stripped.lower()).strip()
+        position = _ORDINAL_WORDS.get(word)
+    if position is None or not 1 <= position <= len(last_results):
+        return None
+    return last_results[position - 1]
+
+
 # --- Booking confirmation (R9, guard #12) -----------------------------------
 
 

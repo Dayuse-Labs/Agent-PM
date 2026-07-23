@@ -2,6 +2,29 @@
 
 État du chantier pour reprise en session fraîche. **Lire en entier avant d'agir ; ne pas reconstruire ce qui existe.** Mettre à jour en fin de CHAQUE session (bloc daté en tête).
 
+## ⏱ Addendum 2026-07-23 (branche `s-railway-deploy-demo`) — fix sélection d'hôtel par numéro (booking) découvert sur le démo
+
+**Bug (signalé par Fabien, capture d'écran)** : sur le démo, après une recherche Miami, « je veux booker » → « Quel hôtel ? Dites-moi son nom : 1. … 2. … » ; répondre **« 1 »/« 2 »** → « I can't reach the hotel search in Miami » (dégradation). Impossible de choisir un hôtel de la liste.
+
+**Root cause (3 constats, tous logique applicative PRÉEXISTANTE — pas le déploiement, reproductible en local)** :
+1. **Un numéro nu n'était jamais mappé à la position dans la shortlist.** « 1 » partait au name-matching → `resolve_hotel_reference_strict("1")` = rien, puis fuzzy → mauvais hôtel (a tenté « Regency » = #3).
+2. **Le numéro nu était triagé `family=search`** (pas booking) → feuille → dégradation + épuisement du budget de recherche, ce qui pouvait aussi écraser la shortlist.
+3. **`find_hotel_by_name(cityName=profile.city)` est un PIÈGE** (prouvé par probe MCP direct) : `cityName="Miami"` → « No hotel found » même pour un nom exact (« Cadillac… »), car les hôtels sont indexés sous Miami Beach/Doral/Aventura, pas « Miami ». Donc « passer cityName » (le fix naïf envisagé) est contre-productif — **non retenu**.
+
+**Fix retenu (élégant, subsume tout le cluster ; zone concierge uniquement)** : résolution **shortlist-first par position**. La shortlist porte déjà le `hotelId` → aucun aller-retour MCP, aucun filtre ville.
+- `profile.py::resolve_shortlist_ordinal(text, last_results)` (neuf) : « 1 », « #2 », « n°3 », « option 1 », mots ordinaux fr/en (`premier`/`first`/`deuxième`…). **Volontairement STRICT** : rejette « le 2 »/« le 28 » (raffinement de DATE fr), hors-plage, « 1 star hotel ».
+- `inline_tools.py::_resolve_hotel_id` : ordinal testé EN PREMIER (avant strict/MCP/weak).
+- `agent.py` override de routage : un ordinal nu avec shortlist présente → `family=booking` (plus jamais search).
+
+**DoD verte** : `pytest -q` → **538 passed** (+13 neufs : `TestResolveShortlistOrdinal` ×7 dans test_profile, `TestOrdinalSelection` ×3 dans test_inline_tools + ajustements) ; ruff/mypy(34)/guardrails OK. (1 échec restant = `tests/test_llm_meter_usage.py`, untracked S-B, sans rapport.)
+
+**Vérifié LIVE (URL publique du démo)** : Miami → « je veux booker » → **« 1 » → offre Cadillac Hotel & Beach Club €119.33 quotée** (R9, demande confirmation) → **« oui » → lien réel `https://www.dayuse.com/tunnel/booking?offerId=…`**. Le cluster de la capture est résolu.
+
+**Résidus honnêtes (pré-existants, NON régressions, hors périmètre de ce fix)** :
+- **« oui je confirme » (affirmatif NON nu) → template ack**, pas confirmation : `is_booking_confirmation_signal` n'accepte qu'un affirmatif NU (« oui »/« ok »). Un « oui » nu confirme bien. Gap de formulation R9, à traiter séparément si besoin.
+- **Certains hôtels (ex. Wyndham #2) n'ont pas d'offre réservable** sur staging → `get_hotel_details` sans `offers` → « no bookable offer » (dégradation honnête). Manque de données staging, pas un bug de routage.
+- La qualité de `find_hotel_by_name` (hôtel HORS shortlist, nommé) reste limitée par le filtre ville exact du MCP — item MCP-B2C, hors périmètre.
+
 ## ⏱ Addendum 2026-07-22 (branche `s-railway-deploy-demo`) — déploiement Railway du démo hébergé (widget + 3 services + Redis)
 
 **Contexte** : Fabien a demandé de déployer AgentB2C sur Railway **avec le front webapp comme sur `localhost:8090`**. Décisions (Fabien) : **démo hébergée sur MCP staging** (pas la parité prod, qui reste bloquée S-C), **vendoriser le widget + proxy en 4e service**, **nouveau projet Railway `AgentB2C`**. Trafic synthétique/démo uniquement, aucun utilisateur réel.
