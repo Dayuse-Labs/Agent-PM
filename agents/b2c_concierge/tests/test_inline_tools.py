@@ -370,6 +370,31 @@ class TestGenerateBookingLinkR9:
         assert profile.pending_booking is not None
         assert profile.pending_booking["hotel_id"] == 22293
         assert profile.pending_booking["rate_plan_uuid"] == "019d2b0c-4f34-7110-882d-d5709ca05b6f"
+        # S-G6: HOTEL_DETAILS_RESPONSE's offer has no startMinute/endMinute ->
+        # defaults to :00, but as a real "HH:MM" string now, not a bare int.
+        assert result["start_time"] == "17:00"
+        assert result["end_time"] == "23:00"
+
+    def test_quote_captures_real_offer_minutes_not_forced_to_zero(self, monkeypatch):
+        details_with_minutes = {
+            **HOTEL_DETAILS_RESPONSE,
+            "offers": [{**HOTEL_DETAILS_RESPONSE["offers"][0], "startMinute": 30, "endMinute": 15}],
+        }
+        _install(
+            monkeypatch,
+            {
+                "get_hotel_details": FakeResult(details_with_minutes),
+                "generate_booking_link": lambda args: FakeResult(
+                    {"confirmationRequired": True, "hotel": {"name": "Villa Paris Orly"}, "offer": {}}
+                ),
+            },
+        )
+        profile = SessionProfile(last_results=SHORTLIST)
+        result = _run(
+            inline_tools.generate_booking_link("Villa Paris Orly", profile, user_confirmed=False)
+        )
+        assert result["start_time"] == "17:30"
+        assert result["end_time"] == "23:15"
 
     def test_confirmation_turn_with_matching_pending_offer_returns_the_link(self, monkeypatch):
         session = _install(

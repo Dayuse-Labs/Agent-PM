@@ -42,6 +42,11 @@ from dayuse_agent_common import (
 from google.adk.agents import Agent
 from google.adk.tools.mcp_tool import McpToolset, StreamableHTTPConnectionParams
 
+from hotel_search_agent.datetime_resolver import (
+    inject_datetime_declaration,
+    resolve_search_date,
+    resolve_search_timeslot,
+)
 from hotel_search_agent.equipment_ids import (
     EQUIPMENT_IDS,
     enforce_equipment_filters,
@@ -148,12 +153,28 @@ How to act, frugally (at most ONE reasoning pass — no tool-call loops):
 - Pass search_offers a `priceRangeMax` (a number, in euros) ONLY when the user
   states an explicit maximum budget ("under 80 euros", "max 120€", "no more
   than 90€"); also pass `priceRangeMin` if they give a lower bound too. Pass
-  search_offers a `timeSlot` with integer `startHour` and `endHour` (0-23, on a
-  24-hour clock) ONLY when the user states explicit clock hours ("between 2pm
-  and 8pm", "from 14h to 20h", "checkout by 6pm"). NEVER invent a budget or a
-  time slot the user did not state, and do NOT turn a vague "cheaper"/"earlier"
+  search_offers a `timeSlot` with `startHour`/`endHour` (0-23) ONLY when the
+  user states explicit clock hours ("between 2pm and 8pm", "from 14h to 20h",
+  "checkout by 6pm"), plus `startMinute`/`endMinute` (0/15/30/45) ONLY when
+  they state minutes too ("7:30am", "13h30"). NEVER invent a budget or a time
+  slot the user did not state, and do NOT turn a vague "cheaper"/"earlier"
   into a number — when none is mentioned, OMIT these arguments (an omitted
   argument means no budget or time-slot constraint).
+- A DURATION ("for 1 hour", "for 30 minutes", "pour 2 heures") is NOT a clock
+  time: pass it as `duration` (ISO-8601, e.g. "PT1H", "PT30M") — NEVER as
+  `timeSlot` and NEVER converted into a start/end window yourself ("for 1
+  hour" is not "00:00-01:00"). The system computes any real window from it.
+- `date`: LABEL what the user said, you never resolve it. It has 3 fields:
+  `type` (either "relative" or "absolute"), `value`, and `expression` (their
+  exact wording). For "today"/"tomorrow"/"the day after tomorrow"/a bare
+  weekday, set type="relative" and value to one of: today, tomorrow,
+  day_after_tomorrow, or an English weekday name (a weekday name always means
+  its NEXT occurrence, never today). For an explicit calendar date ("the
+  28th", "July 28", "2026-08-05"), set type="absolute" and value to
+  YYYY-MM-DD if they gave a year, else MM-DD — NEVER add or guess a year
+  yourself. OMIT `date` entirely when no day/date is mentioned at all — the
+  system keeps searching the same date already established, or today if none
+  was ever given.
 - A FOLLOW-UP that only changes the date/budget/filters, or just asks for OTHER
   options, with NO new destination (e.g. "for the 28th instead", "cheaper",
   "earlier", "any other options") → still call geocode_location first (leave
@@ -178,22 +199,24 @@ instead of guessing.""".format(amenity_keys=", ".join(EQUIPMENT_IDS))
 
 
 def inject_today_before_model(callback_context: Any, llm_request: Any) -> None:
-    """Injects TODAY into the model's context on every LLM call. The model has no
-    clock: without this it cannot turn "demain"/"tomorrow" into a real date and
-    sends search_offers a wrong/hallucinated date → zero offers (the S4 date-
-    anchoring gap — the smoke only ever pinned an absolute date, so this stayed
-    hidden). MCP_B2C does no date resolution server-side, exactly like geocoding.
+    """Injects TODAY into the model's context on every LLM call — informational
+    only. S-G6: the model has no clock and must NEVER compute or convert a
+    date/duration itself (the historic bug this replaces: the model resolving
+    "tomorrow"/"for 1 hour" into a concrete date/window itself, error-prone
+    exactly like the S10 negation-inversion lesson generalizes — never trust
+    LLM arithmetic on a value code can compute deterministically). The actual
+    resolution — against the CLIENT's own timezone when known, never just this
+    server's clock — happens in code (datetime_resolver.resolve_search_date),
+    using the `date`/`duration` LABELS the model extracts per the instruction.
     Done here (not via a callable instruction) because the A2A card builder
     regex-scans `instruction` and rejects a callable."""
     today = date.today()
     llm_request.append_instructions(
         [
-            f"TODAY is {today.isoformat()} ({today.strftime('%A')}) — you have no other clock. "
-            "Resolve EVERY relative date against it before calling search_offers: "
-            "'today'/'aujourd'hui' = TODAY, 'tomorrow'/'demain' = TODAY + 1 day, "
-            "'après-demain' = TODAY + 2 days, a named weekday = its NEXT occurrence. ALWAYS "
-            "pass search_offers an absolute date as YYYY-MM-DD; never a past date, never guess "
-            "the year."
+            f"TODAY is {today.isoformat()} ({today.strftime('%A')}), for context only — you have "
+            "no clock and must NEVER compute a calendar date or a time window yourself. Always "
+            "emit the `date`/`duration`/`timeSlot` fields exactly as labels of what the user "
+            "said (see their descriptions); the system resolves them."
         ]
     )
     return None
@@ -218,26 +241,30 @@ root_agent = Agent(
     # and the orchestrator re-synthesizes anyway) — 3 → 2 internal LLM calls. Being
     # first means a skipped call never stamps an orphaned llm_timing_before timer
     # (the short-circuit returns before after_model_callback/llm_timing_after runs).
-    # inject_today_before_model gives the (clockless) model TODAY so it resolves
-    # "demain"/"tomorrow"/weekdays into an absolute date for search_offers.
-    # inject_amenities_declaration widens the search_offers declaration with the
-    # virtual `amenities` enum param (skip_final_generation staying first means
-    # a short-circuited final call correctly skips the injection too).
+    # inject_today_before_model gives the (clockless) model TODAY for context
+    # only (S-G6: it must never compute a date/window itself — see the
+    # function's own docstring). inject_amenities_declaration /
+    # inject_datetime_declaration widen the search_offers declaration with the
+    # virtual `amenities`/`date`/`duration`/timeSlot-minutes params
+    # (skip_final_generation staying first means a short-circuited final call
+    # correctly skips both injections too).
     before_model_callback=[
         skip_final_generation,
         llm_timing_before,
         inject_today_before_model,
         inject_amenities_declaration,
+        inject_datetime_declaration,
     ],
     after_model_callback=[llm_timing_after],
     on_model_error_callback=llm_error_metric,
     # Order matters: timing stamps t0 first; the budget callback short-circuits
     # beyond MAX_TOOL_CALLS; the MCP circuit guard short-circuits the 2 MCP
     # tools while the breaker is open. First non-None wins (ADK semantics).
-    # enforce_equipment_filters / inject_profile_geo_context / inject_pagination_offset
-    # are LAST: each mutates args in place for its own tool (equipment ids,
-    # geocode_location's city/zone/state/proximity, search_offers' `from`), so
-    # they must only run when the call proceeds — order between the 3 doesn't
+    # enforce_equipment_filters / inject_profile_geo_context / inject_pagination_offset /
+    # resolve_search_date / resolve_search_timeslot are LAST: each mutates args
+    # in place for its own tool (equipment ids, geocode_location's
+    # city/zone/state/proximity, search_offers' `from`/`date`/`timeSlot`), so
+    # they must only run when the call proceeds — order between them doesn't
     # matter, they touch disjoint tool names/keys.
     before_tool_callback=[
         tool_timing_before,
@@ -246,6 +273,8 @@ root_agent = Agent(
         enforce_equipment_filters,
         inject_profile_geo_context,
         inject_pagination_offset,
+        resolve_search_date,
+        resolve_search_timeslot,
     ],
     # capture_after_tool is LAST: it may return a truncated payload (which breaks
     # the after-tool chain), so it must never run before mcp_circuit_after_tool

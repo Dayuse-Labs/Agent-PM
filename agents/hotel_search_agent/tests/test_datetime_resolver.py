@@ -1,0 +1,379 @@
+"""Offline unit tests for S-G6's date/duration/minute resolution.
+
+No network, no LLM, no MCP. The injection tests use the REAL ADK `LlmRequest`
+and genai `FunctionDeclaration` types (same pattern as test_equipment_ids.py);
+the before_tool_callback tests build `user_content` through the REAL ADK
+a2a->genai part converter (same pattern as test_response_bridge.py).
+"""
+from __future__ import annotations
+
+import copy
+from datetime import date
+
+from a2a import types as a2a_types
+from google.adk.a2a.converters.part_converter import convert_a2a_part_to_genai_part
+from google.adk.models.llm_request import LlmRequest
+from google.genai import types as genai_types
+
+from hotel_search_agent.datetime_resolver import (
+    inject_datetime_declaration,
+    parse_duration_minutes,
+    reference_today,
+    resolve_date_label,
+    resolve_search_date,
+    resolve_search_timeslot,
+)
+from hotel_search_agent.response_bridge import STATE_EXACT_WINDOW_KEY, STATE_RESOLVED_DATE_KEY
+
+
+class _Ctx:
+    def __init__(self, state=None, user_content=None):
+        self.state = state if state is not None else {}
+        self.user_content = user_content
+
+
+class _Tool:
+    def __init__(self, name):
+        self.name = name
+
+
+def _user_content_with_profile(profile_in: dict) -> genai_types.Content:
+    datapart = a2a_types.Part(
+        root=a2a_types.DataPart(data={"query_params": {}, "profile_in": profile_in})
+    )
+    return genai_types.Content(
+        role="user",
+        parts=[genai_types.Part(text="hotel"), convert_a2a_part_to_genai_part(datapart)],
+    )
+
+
+def _ctx_with_profile(profile_in: dict) -> _Ctx:
+    return _Ctx(user_content=_user_content_with_profile(profile_in))
+
+
+# --- inject_datetime_declaration (before_model) -------------------------------------------------
+
+_MCP_SCHEMA = {
+    "type": "object",
+    "properties": {
+        "lat": {"type": "number"},
+        "lon": {"type": "number"},
+        "date": {"type": "string", "format": "date"},
+        "timeSlot": {
+            "type": "object",
+            "properties": {
+                "startHour": {"type": "integer", "minimum": 0, "maximum": 23},
+                "endHour": {"type": "integer", "minimum": 0, "maximum": 23},
+            },
+            "additionalProperties": False,
+        },
+    },
+    "required": ["lat", "lon", "date"],
+    "additionalProperties": False,
+}
+
+
+def _llm_request(schema: dict | None) -> LlmRequest:
+    decl = genai_types.FunctionDeclaration(name="search_offers")
+    if schema is not None:
+        decl.parameters_json_schema = schema
+    other = genai_types.FunctionDeclaration(
+        name="find_hotel_by_name", parameters_json_schema={"type": "object", "properties": {}}
+    )
+    return LlmRequest(
+        config=genai_types.GenerateContentConfig(
+            tools=[genai_types.Tool(function_declarations=[other, decl])]
+        )
+    )
+
+
+def test_inject_replaces_date_with_a_label_object():
+    request = _llm_request(copy.deepcopy(_MCP_SCHEMA))
+    assert inject_datetime_declaration(None, request) is None
+    decl = request.config.tools[0].function_declarations[1]
+    date_prop = decl.parameters_json_schema["properties"]["date"]
+    assert date_prop["type"] == "object"
+    assert date_prop["properties"]["type"]["enum"] == ["absolute", "relative"]
+
+
+def test_inject_adds_duration_and_timeslot_minutes():
+    request = _llm_request(copy.deepcopy(_MCP_SCHEMA))
+    inject_datetime_declaration(None, request)
+    decl = request.config.tools[0].function_declarations[1]
+    schema = decl.parameters_json_schema
+    assert schema["properties"]["duration"]["type"] == "string"
+    slot_props = schema["properties"]["timeSlot"]["properties"]
+    assert slot_props["startMinute"]["enum"] == [0, 15, 30, 45]
+    assert slot_props["endMinute"]["enum"] == [0, 15, 30, 45]
+
+
+def test_inject_removes_date_from_required_but_keeps_lat_lon():
+    request = _llm_request(copy.deepcopy(_MCP_SCHEMA))
+    inject_datetime_declaration(None, request)
+    decl = request.config.tools[0].function_declarations[1]
+    assert decl.parameters_json_schema["required"] == ["lat", "lon"]
+
+
+def test_inject_never_mutates_the_source_schema_dict():
+    source = copy.deepcopy(_MCP_SCHEMA)
+    request = _llm_request(source)
+    inject_datetime_declaration(None, request)
+    assert source == _MCP_SCHEMA
+
+
+def test_inject_leaves_other_declarations_untouched():
+    request = _llm_request(copy.deepcopy(_MCP_SCHEMA))
+    inject_datetime_declaration(None, request)
+    other = request.config.tools[0].function_declarations[0]
+    assert "date" not in (other.parameters_json_schema or {}).get("properties", {})
+
+
+def test_inject_noop_without_parameters_json_schema():
+    request = _llm_request(None)
+    assert inject_datetime_declaration(None, request) is None
+    assert request.config.tools[0].function_declarations[1].parameters_json_schema is None
+
+
+def test_inject_is_idempotent_per_request():
+    request = _llm_request(copy.deepcopy(_MCP_SCHEMA))
+    inject_datetime_declaration(None, request)
+    inject_datetime_declaration(None, request)
+    decl = request.config.tools[0].function_declarations[1]
+    assert decl.parameters_json_schema["properties"]["duration"]["type"] == "string"
+
+
+# --- reference_today ------------------------------------------------------------------------
+
+
+def test_reference_today_uses_client_timezone_when_valid():
+    # Fixed comparison: a timezone far ahead of UTC vs far behind can legally
+    # disagree with the OS local date at the instant of the test run, so we
+    # only assert it does NOT raise and returns a real date object.
+    result = reference_today({"client_timezone": "Asia/Tokyo"})
+    assert isinstance(result, date)
+
+
+def test_reference_today_falls_back_to_server_clock_on_invalid_timezone():
+    assert reference_today({"client_timezone": "Not/AZone"}) == date.today()
+
+
+def test_reference_today_falls_back_to_server_clock_when_absent():
+    assert reference_today({}) == date.today()
+
+
+# --- resolve_date_label ----------------------------------------------------------------------
+
+_TODAY = date(2026, 7, 23)  # a Thursday
+
+
+def test_resolve_relative_today_tomorrow_day_after_tomorrow():
+    assert resolve_date_label({"type": "relative", "value": "today"}, _TODAY) == (
+        _TODAY, "relative", None,
+    )
+    assert resolve_date_label({"type": "relative", "value": "tomorrow"}, _TODAY)[0] == date(
+        2026, 7, 24
+    )
+    assert resolve_date_label(
+        {"type": "relative", "value": "day_after_tomorrow"}, _TODAY
+    )[0] == date(2026, 7, 25)
+
+
+def test_resolve_relative_weekday_means_next_occurrence_never_today():
+    # _TODAY is a Thursday: "thursday" must resolve to NEXT week, not today.
+    resolved, resolved_from, _ = resolve_date_label(
+        {"type": "relative", "value": "thursday"}, _TODAY
+    )
+    assert resolved == date(2026, 7, 30)
+    assert resolved_from == "relative"
+
+
+def test_resolve_relative_weekday_ahead_this_week():
+    resolved, _, _ = resolve_date_label({"type": "relative", "value": "monday"}, _TODAY)
+    assert resolved == date(2026, 7, 27)  # next Monday, 4 days ahead
+
+
+def test_resolve_absolute_iso_date():
+    resolved, resolved_from, _ = resolve_date_label(
+        {"type": "absolute", "value": "2026-08-05", "expression": "August 5th"}, _TODAY
+    )
+    assert resolved == date(2026, 8, 5)
+    assert resolved_from == "absolute"
+
+
+def test_resolve_absolute_month_day_without_year_stays_this_year_when_future():
+    resolved, _, _ = resolve_date_label({"type": "absolute", "value": "12-25"}, _TODAY)
+    assert resolved == date(2026, 12, 25)
+
+
+def test_resolve_absolute_month_day_without_year_rolls_to_next_year_when_past():
+    resolved, _, _ = resolve_date_label({"type": "absolute", "value": "01-01"}, _TODAY)
+    assert resolved == date(2027, 1, 1)
+
+
+def test_resolve_missing_or_malformed_label_defaults_to_today():
+    assert resolve_date_label(None, _TODAY) == (_TODAY, "default", None)
+    assert resolve_date_label({}, _TODAY) == (_TODAY, "default", None)
+    assert resolve_date_label({"type": "relative", "value": "gibberish"}, _TODAY)[1] == "default"
+    assert resolve_date_label({"type": "absolute", "value": "not-a-date"}, _TODAY)[1] == "default"
+
+
+def test_resolve_absolute_invalid_calendar_date_defaults():
+    assert resolve_date_label({"type": "absolute", "value": "02-30"}, _TODAY)[1] == "default"
+
+
+# --- resolve_search_date (before_tool_callback) -----------------------------------------------
+
+
+def test_resolve_date_ignores_other_tools():
+    ctx = _ctx_with_profile({})
+    args = {"date": {"type": "relative", "value": "tomorrow"}}
+    assert resolve_search_date(_Tool("find_hotel_by_name"), args, ctx) is None
+    assert args["date"] == {"type": "relative", "value": "tomorrow"}  # untouched
+
+
+def test_resolve_date_fresh_relative_label_writes_iso_and_stashes_delta():
+    ctx = _ctx_with_profile({})
+    args = {"date": {"type": "relative", "value": "tomorrow", "expression": "demain"}}
+    resolve_search_date(_Tool("search_offers"), args, ctx)
+    assert args["date"] != "tomorrow"
+    assert len(args["date"]) == 10 and args["date"].count("-") == 2  # ISO YYYY-MM-DD
+    stashed = ctx.state[STATE_RESOLVED_DATE_KEY]
+    assert stashed["date"] == args["date"]
+    assert stashed["date_reference"]["resolved_from"] == "relative"
+    assert stashed["date_reference"]["expression"] == "demain"
+
+
+def test_resolve_date_fresh_absolute_label_writes_iso_and_stashes_delta():
+    ctx = _ctx_with_profile({})
+    args = {"date": {"type": "absolute", "value": "2026-08-05", "expression": "August 5th"}}
+    resolve_search_date(_Tool("search_offers"), args, ctx)
+    assert args["date"] == "2026-08-05"
+    stashed = ctx.state[STATE_RESOLVED_DATE_KEY]
+    assert stashed["date"] == "2026-08-05"
+    assert stashed["date_reference"]["resolved_from"] == "absolute"
+
+
+def test_resolve_date_includes_client_tz_in_date_reference_when_present():
+    ctx = _ctx_with_profile({"client_timezone": "Europe/Paris"})
+    args = {"date": {"type": "relative", "value": "today"}}
+    resolve_search_date(_Tool("search_offers"), args, ctx)
+    assert ctx.state[STATE_RESOLVED_DATE_KEY]["date_reference"]["client_tz"] == "Europe/Paris"
+
+
+def test_resolve_date_no_label_carries_over_profile_date_and_stashes_nothing():
+    ctx = _ctx_with_profile({"date": "2026-07-28"})
+    args = {}
+    resolve_search_date(_Tool("search_offers"), args, ctx)
+    assert args["date"] == "2026-07-28"
+    assert STATE_RESOLVED_DATE_KEY not in ctx.state  # nothing new to persist
+
+
+def test_resolve_date_no_label_no_profile_date_falls_back_to_today():
+    ctx = _ctx_with_profile({})
+    args = {}
+    resolve_search_date(_Tool("search_offers"), args, ctx)
+    assert args["date"] == date.today().isoformat()
+    assert STATE_RESOLVED_DATE_KEY not in ctx.state
+
+
+def test_resolve_date_malformed_label_behaves_like_no_label():
+    ctx = _ctx_with_profile({"date": "2026-07-28"})
+    args = {"date": {"type": "relative", "value": "gibberish"}}
+    resolve_search_date(_Tool("search_offers"), args, ctx)
+    assert args["date"] == "2026-07-28"  # carryover wins, "gibberish" never persisted
+    assert STATE_RESOLVED_DATE_KEY not in ctx.state
+
+
+# --- parse_duration_minutes --------------------------------------------------------------------
+
+
+def test_parse_duration_hours_minutes_and_combined():
+    assert parse_duration_minutes("PT1H") == 60
+    assert parse_duration_minutes("PT30M") == 30
+    assert parse_duration_minutes("PT1H30M") == 90
+    assert parse_duration_minutes("pt2h") == 120  # case-insensitive
+
+
+def test_parse_duration_rejects_garbage():
+    assert parse_duration_minutes("PT") is None
+    assert parse_duration_minutes("1 hour") is None
+    assert parse_duration_minutes(None) is None
+    assert parse_duration_minutes(60) is None
+
+
+# --- resolve_search_timeslot (before_tool_callback, A4-c) ---------------------------------------
+
+
+def test_timeslot_ignores_other_tools():
+    ctx = _ctx_with_profile({})
+    args = {"timeSlot": {"startHour": 7, "startMinute": 30}}
+    assert resolve_search_timeslot(_Tool("find_hotel_by_name"), args, ctx) is None
+    assert args["timeSlot"] == {"startHour": 7, "startMinute": 30}
+
+
+def test_timeslot_sub_hour_window_floors_and_ceils_for_mcp():
+    ctx = _ctx_with_profile({})
+    args = {"timeSlot": {"startHour": 7, "startMinute": 30, "endHour": 13, "endMinute": 30}}
+    resolve_search_timeslot(_Tool("search_offers"), args, ctx)
+    assert args["timeSlot"] == {"startHour": 7, "endHour": 14}
+    exact = ctx.state[STATE_EXACT_WINDOW_KEY]
+    assert exact == {"start_total": 7 * 60 + 30, "end_total": 13 * 60 + 30}
+
+
+def test_timeslot_whole_hour_window_unchanged_from_before():
+    ctx = _ctx_with_profile({})
+    args = {"timeSlot": {"startHour": 14, "endHour": 20}}
+    resolve_search_timeslot(_Tool("search_offers"), args, ctx)
+    assert args["timeSlot"] == {"startHour": 14, "endHour": 20}
+    assert ctx.state[STATE_EXACT_WINDOW_KEY] == {"start_total": 14 * 60, "end_total": 20 * 60}
+
+
+def test_timeslot_duration_with_fresh_start_computes_end():
+    ctx = _ctx_with_profile({})
+    args = {"timeSlot": {"startHour": 9}, "duration": "PT1H30M"}
+    resolve_search_timeslot(_Tool("search_offers"), args, ctx)
+    assert "duration" not in args
+    assert args["timeSlot"] == {"startHour": 9, "endHour": 11}  # 9:00 + 1h30 = 10:30 -> ceil 11
+    assert ctx.state[STATE_EXACT_WINDOW_KEY] == {"start_total": 9 * 60, "end_total": 10 * 60 + 30}
+
+
+def test_timeslot_duration_alone_invents_no_window():
+    # core-e2e-201: "for 1 hour" with NO start anywhere must never become an
+    # absolute window.
+    ctx = _ctx_with_profile({})
+    args = {"duration": "PT1H"}
+    resolve_search_timeslot(_Tool("search_offers"), args, ctx)
+    assert "timeSlot" not in args
+    assert "duration" not in args
+    assert STATE_EXACT_WINDOW_KEY not in ctx.state
+
+
+def test_timeslot_duration_combines_with_carried_over_start():
+    ctx = _ctx_with_profile({"timeslot_start": "09:00"})
+    args = {"duration": "PT1H"}
+    resolve_search_timeslot(_Tool("search_offers"), args, ctx)
+    assert args["timeSlot"] == {"startHour": 9, "endHour": 10}
+    assert ctx.state[STATE_EXACT_WINDOW_KEY] == {"start_total": 9 * 60, "end_total": 10 * 60}
+
+
+def test_timeslot_one_sided_start_only_kept_as_is():
+    ctx = _ctx_with_profile({})
+    args = {"timeSlot": {"startHour": 15, "startMinute": 15}}
+    resolve_search_timeslot(_Tool("search_offers"), args, ctx)
+    assert args["timeSlot"] == {"startHour": 15}
+    assert ctx.state[STATE_EXACT_WINDOW_KEY] == {"start_total": 15 * 60 + 15, "end_total": None}
+
+
+def test_timeslot_absent_entirely_stashes_nothing():
+    ctx = _ctx_with_profile({})
+    args = {}
+    resolve_search_timeslot(_Tool("search_offers"), args, ctx)
+    assert "timeSlot" not in args
+    assert STATE_EXACT_WINDOW_KEY not in ctx.state
+
+
+def test_timeslot_end_never_overflows_past_23():
+    ctx = _ctx_with_profile({})
+    args = {"timeSlot": {"startHour": 22, "endHour": 23, "endMinute": 45}}
+    resolve_search_timeslot(_Tool("search_offers"), args, ctx)
+    assert args["timeSlot"]["endHour"] == 23  # never 24

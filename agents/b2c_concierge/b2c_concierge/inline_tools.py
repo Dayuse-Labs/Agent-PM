@@ -180,6 +180,18 @@ def _flatten_amenities(raw_amenities: Any) -> list[str]:
     return names
 
 
+def _hhmm(hour: Any, minute: Any) -> str | None:
+    """S-G6: "HH:MM" from an offer's hour/minute pair, or None — mirrors
+    hotel_search_agent.response_bridge._hhmm (no cross-package import, B3:
+    each side owns its own tiny formatting helper)."""
+    if hour is None:
+        return None
+    try:
+        return f"{int(hour):02d}:{int(minute or 0):02d}"
+    except (TypeError, ValueError):
+        return None
+
+
 def _format_price_eur_cents(cents: Any) -> str | None:
     """P3 (AUDIT-REWORK-2026-07.md): `priceEuro` is EUR cents; devise du user
     si connue sinon EUR. This profile carries no user-currency signal today
@@ -364,8 +376,8 @@ async def _quote_fresh_offer(hotel_reference: str, profile: SessionProfile) -> d
                     "confirmed": False,
                     "hotel_name": hotel_name,
                     "date": offer["availabilityDate"],
-                    "start_hour": offer.get("startHour"),
-                    "end_hour": offer.get("endHour"),
+                    "start_time": _hhmm(offer.get("startHour"), offer.get("startMinute")),
+                    "end_time": _hhmm(offer.get("endHour"), offer.get("endMinute")),
                     "price": _format_price_eur_cents(offer.get("priceEuro")),
                 }
     except Exception as exc:  # noqa: BLE001

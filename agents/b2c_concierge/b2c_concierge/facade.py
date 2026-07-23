@@ -32,6 +32,7 @@ import os
 import re
 import uuid
 from typing import Any, AsyncGenerator, Literal
+from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
 from google.adk.runners import InMemoryRunner
 from google.genai import types as genai_types
@@ -337,7 +338,12 @@ def build_active_filters(profile: SessionProfile) -> dict[str, Any]:
 
     S-G2 (2026-07-23): `locale`/`domain`/`search_anchor` join the same
     pattern — the facade is now their producer (native-context intake), so
-    they follow `currency`/`zone`/etc. in being surfaced instead of omitted."""
+    they follow `currency`/`zone`/etc. in being surfaced instead of omitted.
+
+    S-G6 (2026-07-23): `date` (the resolved ISO date) joins `date_reference` —
+    previously ONLY `date_reference` was exposed, so a live/eval check reading
+    the resolved calendar date (`scripts/eval_hardening.py::check_date_reference`)
+    could never find it. `client_timezone` is surfaced too, same pattern."""
     return {
         "city": profile.city,
         "resolved_city": profile.city,
@@ -349,6 +355,7 @@ def build_active_filters(profile: SessionProfile) -> dict[str, Any]:
         "budget_max": profile.budget_max,
         "amenities": list(profile.amenities or []),
         "named_hotel": profile.named_hotel,
+        "date": profile.date,
         "date_reference": profile.date_reference,
         "zone": profile.zone,
         "currency": profile.currency,
@@ -356,6 +363,7 @@ def build_active_filters(profile: SessionProfile) -> dict[str, Any]:
         "locale": profile.locale,
         "domain": profile.domain,
         "search_anchor": profile.search_anchor,
+        "client_timezone": profile.client_timezone,
     }
 
 
@@ -505,11 +513,14 @@ async def _read_body(request: Request) -> dict[str, Any]:
 #   - `domain` is NOT actually sent in the body by this widget (baked server-side into an HTML
 #     `<meta>` tag, never echoed back) — parsed here defensively/for forward-compat, not
 #     exercised by the real traffic this probe captured.
-#   - `client_local_time`/`client_timezone` ARE sent (confirmed, `getClientTimeContext()`) but
-#     are deliberately NOT wired into the profile here: `client_local_time` is a per-request
-#     instant, never carryover-safe session state, and `client_timezone`'s correct home (a bare
-#     profile field vs nested in `date_reference.client_tz`) is a date-resolution design call
-#     that belongs to S-G6 — explicitly OUT of this phase.
+#   - `client_local_time`/`client_timezone` ARE sent (confirmed, `getClientTimeContext()`).
+#     S-G6 (2026-07-23) decided `client_timezone`'s home: a dedicated, carryover profile field
+#     (`SessionProfile.client_timezone`) — parsed/validated here exactly like locale/currency,
+#     so it reaches the leaf via `profile_in` from turn 1, before any date has ever been
+#     resolved. `client_local_time` (the raw per-request instant) stays deliberately UNUSED: a
+#     device clock can be wrong, and the server's own clock plus a validated IANA timezone is a
+#     safer, simpler "now" anchor for date-label resolution than trusting the client's literal
+#     reading — see hotel_search_agent.datetime_resolver.reference_today.
 _LOCALE_RE = re.compile(r"^[A-Za-z]{2,3}(-[A-Za-z0-9]{1,8})*$")
 _CURRENCY_RE = re.compile(r"^[A-Za-z]{3}$")
 _DOMAIN_RE = re.compile(
@@ -534,6 +545,22 @@ def _parse_domain(raw: Any) -> str | None:
     if isinstance(raw, str) and _DOMAIN_RE.fullmatch(raw.strip()):
         return raw.strip().lower()
     return None
+
+
+def _parse_client_timezone(raw: Any) -> str | None:
+    """A valid IANA timezone name (e.g. "Europe/Paris"), else None — an
+    invalid/garbage value is dropped silently (absent from the delta =
+    carryover), never persisted as a broken anchor for date resolution."""
+    if not isinstance(raw, str):
+        return None
+    candidate = raw.strip()
+    if not candidate:
+        return None
+    try:
+        ZoneInfo(candidate)
+    except (ZoneInfoNotFoundError, ValueError):
+        return None
+    return candidate
 
 
 def _locale_response_language(locale: str | None) -> str | None:
@@ -598,6 +625,9 @@ def _native_context_delta(body: dict[str, Any], turn_index: int) -> dict[str, An
     anchor = _parse_gps_anchor(body, turn_index)
     if anchor is not None:
         delta["search_anchor"] = anchor
+    client_timezone = _parse_client_timezone(body.get("client_timezone"))
+    if client_timezone is not None:
+        delta["client_timezone"] = client_timezone
     return delta
 
 

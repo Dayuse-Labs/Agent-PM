@@ -58,25 +58,28 @@ def inline_unresolved_response(target: str, language: str) -> str:
     return _pick(language, _INLINE_UNRESOLVED_FR[target], _INLINE_UNRESOLVED_EN[target])
 
 
-def _format_time_slot(start_hour: int | None, end_hour: int | None) -> str | None:
-    if start_hour is None or end_hour is None:
+def _format_time_slot(start_time: str | None, end_time: str | None) -> str | None:
+    """S-G6: `start_time`/`end_time` are already-formatted "HH:MM" strings
+    (the offer's real minutes, e.g. offer.startMinute/endMinute) — no longer
+    forces ":00" on every offer regardless of its actual minutes."""
+    if not start_time or not end_time:
         return None
-    return f"{start_hour:02d}:00–{end_hour:02d}:00"
+    return f"{start_time}–{end_time}"
 
 
 def booking_offer_summary_response(
     *,
     hotel_name: str,
     date: str,
-    start_hour: int | None,
-    end_hour: int | None,
+    start_time: str | None,
+    end_time: str | None,
     price: str | None,
     language: str,
 ) -> str:
     """R9 (guard #12), step 1: presents the offer and asks for explicit
     confirmation — deterministic, zero LLM (a booking confirmation is
     security-sensitive: it must never depend on an LLM's phrasing)."""
-    slot = _format_time_slot(start_hour, end_hour)
+    slot = _format_time_slot(start_time, end_time)
     if language == "fr":
         details = f"le {date}" + (f", créneau {slot}" if slot else "") + (f", {price}" if price else "")
         return (

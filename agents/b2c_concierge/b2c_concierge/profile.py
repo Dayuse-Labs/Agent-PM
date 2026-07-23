@@ -158,6 +158,17 @@ class SessionProfile:
     distance_origin: str | None = None
     shown_hotel_ids: list[Any] = field(default_factory=list)
     search_cursor: int = 0
+    # S-G6 (2026-07-23): the client's own IANA timezone (facade native-context
+    # intake, `getClientTimeContext()` — S-G2 confirmed it is sent every
+    # request but punted its "home" to this session). A dedicated, carryover
+    # field rather than nesting solely under `date_reference.client_tz`: a
+    # date can only be resolved AFTER a label is extracted, but the timezone
+    # is needed for the FIRST resolution too, so it must be readable from
+    # turn 1 independent of whether any date has been mentioned yet. Also
+    # copied into `date_reference.client_tz` at the moment a date IS resolved
+    # (the leaf, `datetime_resolver.resolve_search_date`), so a specific
+    # resolution's provenance stays self-contained.
+    client_timezone: str | None = None
 
     def to_dict(self) -> dict[str, Any]:
         return {
@@ -194,6 +205,7 @@ class SessionProfile:
             "distance_origin": self.distance_origin,
             "shown_hotel_ids": list(self.shown_hotel_ids),
             "search_cursor": self.search_cursor,
+            "client_timezone": self.client_timezone,
             "schema_version": PROFILE_SCHEMA_VERSION,
         }
 
@@ -509,6 +521,8 @@ def apply_profile_delta(
         profile.shown_hotel_ids = list(values["shown_hotel_ids"] or [])[-MAX_SHOWN_HOTEL_IDS:]
     if "search_cursor" in values:
         profile.search_cursor = int(values["search_cursor"])
+    if "client_timezone" in values:
+        profile.client_timezone = values["client_timezone"]
 
     # Explicit clears (A3-a: an auditable per-slot clear, never a silent
     # omission) — each slot resets to its OWN dataclass default. Applied last

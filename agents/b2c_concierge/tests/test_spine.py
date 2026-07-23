@@ -647,8 +647,8 @@ class TestBookingGuardR9:
                 "confirmed": False,
                 "hotel_name": "Sonesta Carmel",
                 "date": "2026-07-20",
-                "start_hour": 17,
-                "end_hour": 23,
+                "start_time": "17:00",
+                "end_time": "23:00",
                 "price": "€54.00",
             }
         )
@@ -718,8 +718,8 @@ class TestBookingGuardR9:
                 "confirmed": False,
                 "hotel_name": "Sonesta Carmel",
                 "date": "2026-07-20",
-                "start_hour": 17,
-                "end_hour": 23,
+                "start_time": "17:00",
+                "end_time": "23:00",
                 "price": "€54.00",
             }
         )

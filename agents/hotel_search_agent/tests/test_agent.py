@@ -131,17 +131,23 @@ class TestMetricsWiring:
             mcp_circuit_on_error,
         )
 
+        from hotel_search_agent.datetime_resolver import (
+            resolve_search_date,
+            resolve_search_timeslot,
+        )
         from hotel_search_agent.equipment_ids import enforce_equipment_filters
         from hotel_search_agent.geocode_tool import inject_profile_geo_context
         from hotel_search_agent.response_bridge import inject_pagination_offset
 
         before = self._as_list(root_agent.before_tool_callback)
         # timing FIRST (budget short-circuits the rest of the list), budget
-        # second, the MCP circuit guard (S4) third, then the 3 args-mutating
-        # bridges LAST (S-G5) — each only runs when the call proceeds, order
-        # among the 3 is immaterial (disjoint tool names/keys).
+        # second, the MCP circuit guard (S4) third, then the 5 args-mutating
+        # bridges LAST (S-G5/S-G6) — each only runs when the call proceeds,
+        # order among them is immaterial (disjoint tool names/keys).
         assert before[0] is tool_timing_before
-        assert len(before) == 6
+        assert len(before) == 8
+        assert resolve_search_date in before
+        assert resolve_search_timeslot in before
         assert before[2] is mcp_circuit_before_tool
         assert before[3] is enforce_equipment_filters
         assert before[4] is inject_profile_geo_context
