@@ -110,7 +110,7 @@ from .profile import (
 )
 from .profile_store import get_profile_store
 from .routing import LEAF_FAQ, LEAF_HOTEL_SEARCH, ROUTES, bearer_token, card_url
-from .triage import SERVICE, classify, guess_language, is_social_ack
+from .triage import SERVICE, classify, is_social_ack, template_language
 
 logger = logging.getLogger(__name__)
 metrics_logger = logging.getLogger("b2c_concierge.metrics")
@@ -772,7 +772,12 @@ class _B2cConcierge(BaseAgent):
             and not is_booking_confirmation_signal(message, profile)
         ):
             self._emit_turn_metric("ack", "template:ack", budget, t_start, "ok", inv)
-            yield self._final(ctx, templates.ack_response(guess_language(message)))
+            # S-CX2 (audit F5): a bare "ok" carries no language signal — the
+            # conversation's established language / client locale beat the guess.
+            yield self._final(
+                ctx,
+                templates.ack_response(template_language(profile.language, profile.locale, message)),
+            )
             return
 
         # 2. Triage (ONE economy LLM + regex fallback). Off the session/stream.
@@ -800,7 +805,10 @@ class _B2cConcierge(BaseAgent):
         if route.kind == "template":
             # The LLM classified ack where the regex fast-path didn't match.
             self._emit_turn_metric(family, "template:ack", budget, t_start, "ok", inv)
-            yield self._final(ctx, templates.ack_response(triage.language))
+            yield self._final(
+                ctx,
+                templates.ack_response(template_language(profile.language, profile.locale, message)),
+            )
             return
 
         if route.kind == "inline":
@@ -874,6 +882,21 @@ class _B2cConcierge(BaseAgent):
         delta = response.get("profile_delta") or {}
         if delta:
             apply_profile_delta(profile, delta, message)
+        # S-CX2 (audit CX F2): the leaf reports the search TOOLS never ran this
+        # turn (MCP unreachable / circuit open / budget spent before the
+        # search). Serve the honest degraded template — never synthesize, or
+        # the turn reads as a legitimate "no offers in <city>" (false scarcity,
+        # a silently lost sale). The geocode delta above is still kept (the
+        # destination WAS understood), and this is deliberately NOT recorded as
+        # an empty search: no consecutive_empty_searches streak, no auto-widen,
+        # no recovery chips — the inventory was never actually consulted.
+        if route.target == LEAF_HOTEL_SEARCH and response.get("status") == "search_unavailable":
+            await store.set(ctx.session.id, profile)
+            self._emit_turn_metric(family, f"leaf:{route.target}", budget, t_start, "degraded", inv)
+            yield self._final(
+                ctx, templates.leaf_degraded_response(family, triage.language, profile.city)
+            )
+            return
         if route.target == LEAF_HOTEL_SEARCH and "results" in response:
             results_count = len(response["results"])
             record_search_outcome(profile, results_count=results_count, language=triage.language)

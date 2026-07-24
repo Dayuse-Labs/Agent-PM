@@ -112,6 +112,13 @@ _STATE_TURN_T0_KEY = "temp:hotel_search_turn_t0"
 # deterministic `requires_clarification` DataPart flag so the orchestrator's
 # facade can report the clarification honestly (it used to be hardcoded False).
 _STATE_CLARIFY_QUESTION_KEY = "temp:hotel_search_clarify_question"
+# S-CX2 (audit CX 2026-07-24, F2): the MCP search tools were unavailable THIS
+# turn (circuit open observed on a call). Together with the anchor-without-
+# results signal in emit_search_datapart, this drives the deterministic
+# `status=search_unavailable` DataPart — the orchestrator then answers with
+# its honest degraded template instead of synthesizing a FALSE "no offers in
+# <city>" from a turn where the search never actually ran.
+_STATE_SEARCH_UNAVAILABLE_KEY = "temp:hotel_search_search_unavailable"
 
 # The leaf ALWAYS reports a non-explicit provenance for a captured budget/
 # time-slot: the concierge's budget-integrity guard (P1) owns the upgrade to
@@ -600,6 +607,13 @@ def capture_after_tool(
 
     if name not in _TARGET_TOOLS or not isinstance(tool_response, dict):
         return None
+    if tool_response.get("error") == "mcp_circuit_open":
+        # S-CX2: the breaker short-circuited an MCP search call — remember it so
+        # emit_search_datapart / skip_final_generation degrade deterministically
+        # (the model still sees the neutral diagnostic, but its prose no longer
+        # decides what the customer reads on this failure).
+        tool_context.state[_STATE_SEARCH_UNAVAILABLE_KEY] = True
+        return None
     if tool_response.get("isError") or tool_response.get("ok") is False:
         return None  # a real failure — leave it untouched for the model to relay
 
@@ -724,19 +738,44 @@ def _op_set(value: Any) -> dict[str, Any]:
     return {"op": "set", "value": value}
 
 
-def _outcome_text(results: list[dict[str, Any]], timeslot_fallback: bool = False) -> str:
+def _profile_language(context: Any) -> str:
+    """The conversation's fr/en (profile_in.language, triage-owned) — "en" when
+    absent. S-CX2 (audit CX F3): the leaf's code-built texts are normally
+    rewritten by the orchestrator's synthesis, but on a synthesis failure they
+    are served VERBATIM — a French customer was receiving raw English."""
+    language = read_profile_in(context).get("language")
+    return language if language in ("fr", "en") else "en"
+
+
+def _outcome_text(
+    results: list[dict[str, Any]], timeslot_fallback: bool = False, language: str = "en"
+) -> str:
     """A short, code-built (zero-LLM) grounded outcome line. This becomes the
     orchestrator's `leaf_text` — it re-synthesizes the user-facing answer in the
     user's language from this + the structured results' ground-truth block, so
-    this text only needs to be a faithful, compact summary (never invented).
+    this text only needs to be a faithful, compact summary (never invented) —
+    localized fr/en (S-CX2) because it IS shown verbatim when synthesis fails.
 
     S-G6 (A4-c): `timeslot_fallback` — set when the exact-minute window would
     have emptied the results entirely and the leaf fell back to the coarser
     hour-rounded set instead of a silent 0 — appends an honest disclosure so
     the synthesis never implies these hotels cover the exact time asked."""
+    fr = language == "fr"
     if not results:
-        return "No day-use offers found for this search."
+        return (
+            "Aucune offre de jour trouvée pour cette recherche."
+            if fr
+            else "No day-use offers found for this search."
+        )
     names = ", ".join(str(r.get("name")) for r in results if r.get("name"))
+    if fr:
+        text = f"{len(results)} offre(s) de jour trouvée(s) : {names}."
+        if timeslot_fallback:
+            text += (
+                " Aucune offre ne couvre exactement le créneau demandé ; "
+                "voici les options les plus proches."
+            )
+        return text
     text = f"{len(results)} day-use offer(s) found: {names}."
     if timeslot_fallback:
         text += (
@@ -744,6 +783,24 @@ def _outcome_text(results: list[dict[str, Any]], timeslot_fallback: bool = False
             "closest matches instead."
         )
     return text
+
+
+def _search_unavailable_text(language: str) -> str:
+    """Deterministic honest line for a turn where the search TOOLS could not
+    run (S-CX2, audit F2) — replaces the model's prose, which on this path
+    used to claim "no offers in <city>" (false scarcity) when the backend was
+    simply unreachable. The orchestrator serves its own degraded template on
+    the `search_unavailable` status; this text is the fallback for direct A2A
+    consumers and for the synthesis-failure verbatim path."""
+    if language == "fr":
+        return (
+            "La recherche d'hôtels est momentanément indisponible — je préfère ne rien "
+            "inventer. Pouvez-vous réessayer dans un instant ?"
+        )
+    return (
+        "The hotel search is temporarily unavailable — I'd rather not make anything up. "
+        "Could you try again in a moment?"
+    )
 
 
 def stamp_turn_start(callback_context: Any) -> None:
@@ -840,6 +897,19 @@ def emit_search_datapart(callback_context: Any) -> genai_types.Content | None:
 
     clarify_question = state.get(_STATE_CLARIFY_QUESTION_KEY)
     clarify_turn = results is None and isinstance(clarify_question, str)
+    # S-CX2 (audit F2 — false scarcity): the search tools did not produce ANY
+    # response this turn, yet the pipeline meant to search: either the breaker
+    # short-circuited an MCP call (explicit flag), or the geocode SUCCEEDED
+    # (anchor stashed — the instruction then mandates a search) and no search
+    # response ever came back (MCP toolset unreachable, call failed, or tool
+    # budget spent before the search). Without this, the model's prose stands
+    # and reads as a legitimate "no offers in <city>". A clarify turn and a
+    # geocode-fail turn (no anchor) keep their honest model text as before.
+    search_unavailable = (
+        results is None
+        and not clarify_turn
+        and bool(state.get(_STATE_SEARCH_UNAVAILABLE_KEY) or state.get(_STATE_ANCHOR_KEY))
+    )
 
     payload: dict[str, Any] = {}
     if results is not None:  # a search ran (even 0 results is a real outcome)
@@ -852,18 +922,25 @@ def emit_search_datapart(callback_context: Any) -> genai_types.Content | None:
         # `requires_clarification` honestly (it used to be hardcoded False and
         # safe clarifying questions scored as hard failures).
         payload["requires_clarification"] = True
+    if search_unavailable:
+        payload["status"] = "search_unavailable"
     if not payload:
         return None
 
+    language = _profile_language(callback_context)
     parts: list[genai_types.Part] = []
     if results is not None:
         timeslot_fallback = bool(state.get(_STATE_TIMESLOT_FALLBACK_KEY))
-        parts.append(genai_types.Part(text=_outcome_text(results, timeslot_fallback)))
+        parts.append(genai_types.Part(text=_outcome_text(results, timeslot_fallback, language)))
     elif clarify_turn:
         # This event replaces the model's own final text (last non-partial
         # wins), so the deterministic clarify question must ride here or the
         # question would be lost — the orchestrator's synthesis re-localizes it.
         parts.append(genai_types.Part(text=clarify_question))
+    elif search_unavailable:
+        # Same replace-the-model's-text mechanics as the clarify path: the
+        # deterministic honest line wins over whatever the model improvised.
+        parts.append(genai_types.Part(text=_search_unavailable_text(language)))
     parts.append(encode_datapart(payload))
     return genai_types.Content(role="model", parts=parts)
 
@@ -893,12 +970,34 @@ def skip_final_generation(callback_context: Any, llm_request: Any) -> LlmRespons
     `after_model_callback` runs, so `llm_timing_after` never fires — placing this
     first means `llm_timing_before` never stamps an orphaned timer for a call that
     won't happen."""
+    if callback_context.state.get(_STATE_SEARCH_UNAVAILABLE_KEY):
+        # S-CX2: the breaker already short-circuited an MCP search call this
+        # turn — a final prose pass could only echo the failure diagnostic (or
+        # worse, improvise a false "no offers"). Skip it with the same
+        # deterministic line emit_search_datapart will emit anyway.
+        return LlmResponse(
+            content=genai_types.Content(
+                role="model",
+                parts=[
+                    genai_types.Part(
+                        text=_search_unavailable_text(_profile_language(callback_context))
+                    )
+                ],
+            )
+        )
     results = callback_context.state.get(_STATE_RESULTS_KEY)
     if results is None:  # no search this turn → let the model speak (honest diagnostic / clarify)
         return None
     timeslot_fallback = bool(callback_context.state.get(_STATE_TIMESLOT_FALLBACK_KEY))
     return LlmResponse(
         content=genai_types.Content(
-            role="model", parts=[genai_types.Part(text=_outcome_text(results, timeslot_fallback))]
+            role="model",
+            parts=[
+                genai_types.Part(
+                    text=_outcome_text(
+                        results, timeslot_fallback, _profile_language(callback_context)
+                    )
+                )
+            ],
         )
     )

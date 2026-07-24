@@ -223,6 +223,18 @@ def test_clarify_question_lists_the_country_context():
     assert "British Columbia" in res.question and "Texas" in res.question
 
 
+def test_clarify_question_is_localized_fr():
+    # S-CX2 (audit F5): the clarify question can reach the customer verbatim —
+    # a French conversation gets a French question, options unchanged.
+    bc = cand("Victoria", "CA", "British Columbia", lat=48.43, rank=0)
+    tx = cand("Victoria", "US", "Texas", lat=28.80, rank=1)
+    inv = FakeInventory({48.43: 20, 28.80: 15})
+    res = geo_resolver.resolve([bc, tx], inventory=inv, language="fr")
+    assert res.decision == "clarify"
+    assert "lequel vouliez-vous dire" in res.question
+    assert "British Columbia" in res.question and "Texas" in res.question
+
+
 def test_adjacent_near_duplicate_is_not_asked_about():
     # "New York" vs "West New York, NJ" (~8 km): a suburb sharing the same search
     # area is not a genuine alternative — select the top, never ask.

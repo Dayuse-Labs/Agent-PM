@@ -48,6 +48,7 @@ from .inline_tools import _format_price_eur_cents
 from .profile import SessionProfile, apply_profile_delta
 from .profile_store import get_profile_store
 from .triage import SERVICE, guess_language
+from .triage import locale_response_language as _locale_response_language
 
 logger = logging.getLogger(__name__)
 
@@ -572,18 +573,9 @@ def _parse_client_timezone(raw: Any) -> str | None:
     return candidate
 
 
-def _locale_response_language(locale: str | None) -> str | None:
-    """The 2-letter response-language hint carried by `locale` (e.g. "fr-FR"
-    -> "fr"), restricted to the spine's actual fr/en scope: an unsupported
-    primary tag (e.g. "es") is None rather than a language the synthesis
-    cannot actually produce — this facade does not control generation
-    language, so reporting one here would desync `response_language` from
-    the real text (this module's `language` fallback keeps a message's own
-    detected language ahead of this, for the same reason)."""
-    if not locale:
-        return None
-    primary = locale.split("-")[0].lower()
-    return primary if primary in ("fr", "en") else None
+# `_locale_response_language` moved to triage.locale_response_language (S-CX2:
+# the spine's template paths need the same locale→fr/en mapping as this facade)
+# — imported under its historical local name above.
 
 
 def _parse_gps_anchor(body: dict[str, Any], turn_index: int) -> dict[str, Any] | None:
