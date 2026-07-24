@@ -49,6 +49,7 @@ from google.adk.a2a.converters.part_converter import (
 from google.adk.models.llm_response import LlmResponse
 from google.genai import types as genai_types
 
+from b2c_common import build_hotel_page_url
 from hotel_search_agent.inventory import haversine_km
 
 # The concierge reports AT MOST 5 (ground-truth cap) — match it so the model
@@ -432,6 +433,16 @@ def normalize_hotel(
     country_code = _iso_alpha2(hotel.get("countryCode"))
     if country_code:
         card["country_code"] = country_code
+    # S-G12: the hotel-page link, built ONLY from the server's own ES `slug`
+    # (sent per hotel, probed live 2026-07-23) + the destination market table
+    # (b2c_common) — never slugified from the display name (the prod defect:
+    # LLM-invented "a-roport"/"eurohotel" slugs on the wrong domain). None →
+    # the card honestly has no link.
+    url = build_hotel_page_url(
+        hotel.get("slug"), hotel.get("countryCode"), hotel.get("countryName") or hotel.get("country")
+    )
+    if url:
+        card["url"] = url
     # S-G7: the hotel's own local currency (display-only, see `_iso_currency`) —
     # `search_offers` sends this directly per hotel (probed live 2026-07-23),
     # unlike country_code above which it never sends.

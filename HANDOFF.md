@@ -2,6 +2,25 @@
 
 État du chantier pour reprise en session fraîche. **Lire en entier avant d'agir ; ne pas reconstruire ce qui existe.** Mettre à jour en fin de CHAQUE session (bloc daté en tête).
 
+## ⏱ Addendum 2026-07-24 (branche `sg12-hotel-page-urls`, base `main` post-#31) — S-G12 : URLs de page hôtel depuis le slug ES + guard n°13 anti-liens fabriqués
+
+**Bug prod repéré par Fabien** : à la demande de liens, la synthèse INVENTAIT les URLs en slugifiant le nom affiché — `dayuse.com/hotels/france/ibis-rungis-a-roport-paris-orly` (mauvais domaine, « é » → tiret) au lieu de `dayuse.fr/.../ibis-rungis-aeroport-paris-orly`, et `eurohotel-...` au lieu de `euro-hotel-...`. Root cause : AUCUN code ne construisait d'URL de page hôtel ; le `slug` ES (envoyé par hotel dans le payload MCP, probé 2026-07-23) était jeté par `normalize_hotel`, et le prompt de synthèse (règle 1 « never invent a link ») n'avait aucun guard déterministe derrière.
+
+**Fait (5 pièces, toutes petites)** :
+1. **`libs/b2c_common/b2c_common/hotel_urls.py` (neuf, exporté)** — `build_hotel_page_url(slug, country_code, country_name)` : slug ES verbatim (validation stricte, jamais « réparé »), tables marché portées de la référence prod agent-usa `src/application/shared/hotel_urls.py` (host par pays DESTINATION : FR→dayuse.fr, IT→dayuse-hotels.it, BR→dayuse.net.br… ; path-slug pays : US→`usa`) + mapping countryName anglais→ISO (search_offers n'envoie pas de countryCode). Non mappable → `None`, la carte n'a honnêtement pas de lien. Lib partagée EXPRÈS (leçon agent-usa 2026-07-06 : 2 tables tenues à la main ont divergé → 404 sur 4 jours).
+2. **Feuille `response_bridge.py::normalize_hotel`** : `card["url"]` depuis le slug ES. **Concierge `inline_tools.py::_normalize_hotel_for_display`** : idem, défensif (shape `get_hotel_details` non re-probée pour `slug`).
+3. **`ground_truth.py`** : ligne hôtel `— url: <...>` + règle header LINKS « copy EXACTLY the url listed... NEVER construct » ; un hôtel sans url listé = pas de lien à donner.
+4. **`link_guard.py` (neuf — guard n°13)** : `enforce_hotel_link_truthfulness(text, hotels)` — toute URL `*dayuse*/hotels/...` de la synthèse absente du set exact des urls de la shortlist est retirée en code (markdown → label conservé, URL nue → excisée avec ses espaces de tête, la ponctuation de phrase survit — pas de rewrite global qui casserait l'espace-deux-points français). Tunnel booking / pages help ne matchent pas `/hotels/` → intouchés. Câblé en fin de `_synthesize_with_guards` (la synthèse est bufferisée, jamais streamée depuis litellm — le guard voit le texte entier), tourne MÊME à shortlist vide. Métrique count-only `link_guard stripped=N` (RGPD).
+5. **Tests (+29)** : les 2 repros prod de Fabien verrouillés en régression nommée (b2c_common), guard (12 cas dont ponctuation française et fabrication markdown), ground-truth, cartes feuille + inline.
+
+**DoD** : 921 passed (+29, même unique échec préexistant `test_llm_meter_usage`, untracked hors zone) ; ruff OK ; mypy 40 fichiers OK ; guardrails OK. **Vérifié** : seam in-process payload MCP → carte → bloc ground-truth → guard (repro exact nettoyé) ; les 2 URLs construites répondent **HTTP 200 live** (et un slug bidon 404 — le schéma de path est bien signifiant). NON vérifié en e2e LLM live (stack locale down) — à faire au prochain run smoke.
+
+**Pièges découverts** :
+- `search_offers` envoie `countryName` (jamais `countryCode`) → le mapping nom→ISO ne couvre que les noms ANGLAIS des 22 marchés d'agent-usa ; un countryName localisé ou un nouveau marché → pas d'URL (honnête). Si MCP_B2C expose un jour `countryCode`, il gagne déjà (préférence câblée).
+- Le host varie par marché de DESTINATION (pas par origine widget) — même politique que le rewrite prod d'agent-usa (export Amplitude 2026-07-06).
+
+**Merge** : PR à ouvrir depuis `sg12-hotel-page-urls` — review humaine de Fabien = le gate.
+
 ## ⏱ Addendum 2026-07-23 (branche `sg10-geo-fixes`, stackée sur `sg9-gate-rerun`) — S-G10 : audit indépendant des findings S-G9 + les fixes P0/P1 — Budapest→HU **PASS live**, La Défense plus jamais AE, Gate 7 (ranking) débloqué
 
 **Contexte** : audit sceptique des findings du rapport S-G9 (demandé par Fabien), puis, sur son GO explicite, les fixes. Deux phases dans la même session : (1) audit lecture de code + ~15 replays live ciblés (JAMAIS les 81×3), (2) 6 fixes petits et localisés, 14 tests neufs, re-vérification live. `DAYUSE_MODEL=gpt-5.2` pour tous les replays (mêmes conditions que S-G9, vérifié par `ps eww` ciblé sur la variable exacte).

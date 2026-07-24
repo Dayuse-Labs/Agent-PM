@@ -38,6 +38,7 @@ from contextlib import asynccontextmanager
 from typing import Any, AsyncIterator
 
 import httpx
+from b2c_common import build_hotel_page_url
 from mcp import ClientSession
 from mcp.client.streamable_http import streamable_http_client
 
@@ -252,6 +253,15 @@ def _normalize_hotel_for_display(hotel: dict[str, Any], best_offer: dict[str, An
     currency_code = _iso_currency(hotel.get("currencyCode"))
     if currency_code:
         normalized["currency_code"] = currency_code
+    # S-G12: hotel-page link from the server's own ES `slug` + market table
+    # (b2c_common, same builder as the search leaf's cards). Defensive: the
+    # get_hotel_details payload shape was not re-probed for `slug` — absent
+    # fields simply mean no link on the card, never a name-slugified guess.
+    url = build_hotel_page_url(
+        hotel.get("slug"), hotel.get("countryCode"), hotel.get("countryName") or hotel.get("country")
+    )
+    if url:
+        normalized["url"] = url
     if best_offer:
         normalized["price"] = _format_price_eur_cents(best_offer.get("priceEuro"))
     return normalized

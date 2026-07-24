@@ -73,6 +73,28 @@ class TestShortlistRendering:
         )
         assert "rating 4.6/5" in block
 
+    def test_url_rendered_verbatim_with_the_copy_exactly_rule(self):
+        # S-G12: the model may only ever quote the ES-slug url it was shown.
+        block = shortlist_ground_truth_block(
+            {
+                "results": [
+                    {
+                        "name": "Ibis Rungis",
+                        "url": "https://www.dayuse.fr/hotels/france/ibis-rungis-aeroport-paris-orly",
+                    }
+                ]
+            },
+            _profile(),
+        )
+        assert "url: https://www.dayuse.fr/hotels/france/ibis-rungis-aeroport-paris-orly" in block
+        assert "copy EXACTLY" in block
+
+    def test_no_url_line_when_the_card_has_none(self):
+        block = shortlist_ground_truth_block(
+            {"results": [{"name": "Hotel Alameda", "url": "not-https"}]}, _profile()
+        )
+        assert "url:" not in block
+
     def test_fresh_results_never_show_the_empty_screen_note(self):
         block = shortlist_ground_truth_block(
             {"results": [{"name": "Hotel Alameda"}]},

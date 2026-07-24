@@ -137,6 +137,22 @@ class TestGetHotelDetails:
         result = _run(inline_tools.get_hotel_details("Villa Paris Orly", profile))
         assert "image_urls" not in result["hotel"]
 
+    def test_builds_page_url_from_es_slug_never_from_the_name(self, monkeypatch):
+        # S-G12: url only when the server sends its ES slug — the display
+        # name ("Villa Paris Orly") must never be slugified into one.
+        _install(monkeypatch, {"get_hotel_details": FakeResult(HOTEL_DETAILS_RESPONSE)})
+        profile = SessionProfile(last_results=SHORTLIST)
+        result = _run(inline_tools.get_hotel_details("Villa Paris Orly", profile))
+        assert "url" not in result["hotel"]  # fixture has no slug
+
+        response = {
+            **HOTEL_DETAILS_RESPONSE,
+            "hotel": {**HOTEL_DETAILS_RESPONSE["hotel"], "slug": "villa-paris-orly-rungis"},
+        }
+        _install(monkeypatch, {"get_hotel_details": FakeResult(response)})
+        result = _run(inline_tools.get_hotel_details("Villa Paris Orly", profile))
+        assert result["hotel"]["url"] == "https://www.dayuse.fr/hotels/france/villa-paris-orly-rungis"
+
     def test_stamps_currency_code_when_mcp_sends_it(self, monkeypatch):
         # S-G7: live-probed 2026-07-23 — get_hotel_details returns a per-hotel
         # currencyCode; display-only, priceEuro is unaffected (no conversion).
