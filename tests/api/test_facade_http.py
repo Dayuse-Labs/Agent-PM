@@ -238,6 +238,20 @@ def test_shield_message_is_localized_from_locale(monkeypatch, client):
     assert r.json()["response_language"] == "fr"
 
 
+def test_shield_unsupported_locale_answers_english(monkeypatch, client):
+    """Customers span many languages but templates exist in fr/en only: a
+    DECLARED locale we can't serve answers in English — even when the message
+    text would trip guess_language's French hints (es/it/pt share them)."""
+    async def crash(session_id, user_id, message):
+        raise RuntimeError("boom")
+        yield  # pragma: no cover
+
+    monkeypatch.setattr(facade_module, "_drive", crash)
+    r = client.post("/v3/chat", json={"message": "hôtel à Paris", "locale": "es-ES"})
+    assert r.json()["message"] == templates.service_degraded_response("en")
+    assert r.json()["response_language"] == "en"
+
+
 def test_sse_midstream_crash_still_ends_with_done(monkeypatch, client):
     """Once the 200 + event-stream headers are committed, a degraded `done` is
     the only terminal signal the widget can act on — the stream must never just

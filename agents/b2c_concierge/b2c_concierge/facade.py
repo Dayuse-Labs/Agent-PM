@@ -683,9 +683,16 @@ def _shield_payload(
         "facade_shield", service=SERVICE, invocation_id=session_id,
         path=path, error_type=type(exc).__name__,
     )
-    language = _locale_response_language(_parse_locale(body.get("locale"))) or guess_language(
-        message
-    )
+    # Customers span many countries/languages; templates exist in fr/en only.
+    # A DECLARED locale we have no translation for answers in ENGLISH (Fabien,
+    # PR #34 review) — never via guess_language, whose French hints can misfire
+    # on other Romance languages (es/it/pt). The message-language guess remains
+    # only for requests that carry no locale at all.
+    locale = _parse_locale(body.get("locale"))
+    if locale:
+        language = _locale_response_language(locale) or "en"
+    else:
+        language = guess_language(message)
     return build_chat_payload(
         session_id=session_id,
         final_text=templates.service_degraded_response(language),
