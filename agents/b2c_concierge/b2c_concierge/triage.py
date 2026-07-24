@@ -107,10 +107,17 @@ def locale_response_language(locale: str | None) -> str | None:
 
 def template_language(profile_language: str | None, locale: str | None, message: str) -> str:
     """fr/en for a deterministic template answer: the conversation's already-
-    established language first, then the client locale's primary tag, then the
-    message's own detected language as the last resort."""
+    established language first, then the client locale. A DECLARED locale we
+    have no translation for (not fr/en — es/pt/de/…) answers in ENGLISH
+    (Fabien, PR #34 review) — never via guess_language, whose French hints can
+    misfire on other Romance languages; the message-language guess is only the
+    last resort when no locale was declared at all."""
     valid = profile_language if profile_language in ("fr", "en") else None
-    return valid or locale_response_language(locale) or guess_language(message)
+    if valid:
+        return valid
+    if locale:
+        return locale_response_language(locale) or "en"
+    return guess_language(message)
 
 
 def fallback_family(message: str) -> str:

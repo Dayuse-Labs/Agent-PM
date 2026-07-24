@@ -74,8 +74,13 @@ class TestTemplateLanguage:
     def test_locale_beats_the_guess_on_a_bare_ok(self):
         assert triage_module.template_language(None, "fr-FR", "ok") == "fr"
 
-    def test_unsupported_locale_falls_back_to_the_guess(self):
-        assert triage_module.template_language(None, "es-ES", "je cherche un hôtel") == "fr"
+    def test_unsupported_locale_answers_english(self):
+        # Fabien (PR #34 review): no translation for the declared language →
+        # English, even when the message text would trip the French-hints guess.
+        assert triage_module.template_language(None, "es-ES", "je cherche un hôtel") == "en"
+
+    def test_no_locale_falls_back_to_the_message_guess(self):
+        assert triage_module.template_language(None, None, "je cherche un hôtel") == "fr"
 
     def test_no_signal_defaults_to_english(self):
         assert triage_module.template_language(None, None, "ok") == "en"
