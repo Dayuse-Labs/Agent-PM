@@ -2,6 +2,23 @@
 
 État du chantier pour reprise en session fraîche. **Lire en entier avant d'agir ; ne pas reconstruire ce qui existe.** Mettre à jour en fin de CHAQUE session (bloc daté en tête).
 
+## ⏱ Addendum 2026-07-24 (branche `scx1-facade-shield`, stackée sur `audit-cx-2026-07-24`) — S-CX1 : bouclier façade + frame SSE terminale garantie (fix F1/P0 de l'audit CX, GO Fabien)
+
+**Contexte** : GO explicite de Fabien sur S-CX1+S-CX2 de la roadmap de l'audit CX (`reports/AUDIT-CX-2026-07-24.md`). Cette branche = S-CX1 seul (F1). Décision de contrat prise : **pas de frame `error` nouvelle — un `done` dégradé** (zéro changement widget ; documenté dans la docstring de `chat_stream`).
+
+**Fait (3 pièces, petites)** :
+1. **`templates.py::service_degraded_response`** (neuf) — message générique honnête fr/en (la façade ne sait pas quelle étape a lâché ; ne dit pas « recherche d'hôtels » à tort sur un tour FAQ).
+2. **`facade.py::_shield_payload`** (neuf) — payload iso-contrat complet construit sur entrées PURES uniquement (`SessionProfile()` frais, `build_chat_payload` pur, zéro Redis/DB/ADK — n'importe lequel peut être CE qui vient de planter) ; langue best-effort `locale` body → `guess_language`. Métrique count-only `concierge_metric=facade_shield path=… error_type=…` + `enqueue_metric_event` (jamais de contenu de message — RGPD) + `logger.exception` pour l'ops.
+3. **`facade.py` handlers** : `chat()` → try/except de dernier recours autour de session/native-context/drive/`_finalize` → payload bouclier en 200 (jamais un 500 nu hors contrat). `chat_stream()` → (a) échec de SETUP avant l'ouverture du stream → mini-générateur `progress`+`done` dégradé (un EventSource ne parse pas un body 500) ; (b) échec MID-STREAM → except dans `_body()`, le `yield done` est APRÈS le try/except → **le stream se termine TOUJOURS par `done`**. Helper `_sse_response` factorisé (headers + cookie).
+
+**DoD verte** : 926 passed (+5 : `tests/api/test_facade_http.py` section « last-resort shield » — crash JSON → contrat 200, localisation fr via locale, crash mid-stream → `done` terminal, crash setup SSE → `progress`+`done`, panne Redis dans `_finalize` → bouclier tient) ; même unique échec préexistant `test_llm_meter_usage` ; ruff OK ; mypy 40 fichiers OK ; guardrails OK. **Vérifié par la repro EXACTE de l'audit** (probe in-process `_drive` patché) : JSON = 200 + contrat complet + message fr honnête + cookie (avant : `500 Internal Server Error` texte brut) ; SSE = `['progress','token','done']` (avant : flux mort sans `done`).
+
+**Pièges** :
+- Le `yield _sse("done", payload)` doit être HORS du try/except (après), sinon un crash pendant la construction du payload dégradé lui-même tuerait encore le stream — le payload bouclier est pur précisément pour ça.
+- `_apply_native_context` ne touche Redis QUE si le body porte un champ natif — un test « Redis down » doit passer par `_finalize` (ou fournir une locale) pour exercer le chemin.
+
+**Merge** : PR depuis `scx1-facade-shield`, base `audit-cx-2026-07-24` (stack — merger top-down, leçon #28/#29). Review Fabien = gate.
+
 ## ⏱ Addendum 2026-07-24 (branche `audit-cx-2026-07-24`, base `main`) — Audit CX complet avant exposition client : rapport seul, AUCUN fix appliqué
 
 **Contexte** : audit demandé par Fabien (exposition prochaine aux clients : zéro fuite d'erreur + agent plus interactif/proactif, notamment propositions autour du budget). Cadrage tranché par Fabien en session : livrable = rapport seul (fixes en sessions dédiées après GO), « prix plancher » = **pondération scoring hôtel × proximité du prix au budget client** pour la mise en avant, passe live incluse.

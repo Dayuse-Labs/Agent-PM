@@ -11,6 +11,8 @@ from __future__ import annotations
 import json
 
 import b2c_concierge.agent as agent_module
+import b2c_concierge.facade as facade_module
+from b2c_concierge import templates
 from b2c_concierge.facade import CONTRACT_KEYS
 from b2c_concierge.triage import Triage
 
@@ -203,6 +205,92 @@ def test_sse_search_streams_progress_hotels_tokens_done(monkeypatch, client):
     # reassembled token stream == the final message
     streamed = "".join(d["text"] for e, d in events if e == "token")
     assert streamed.strip() == done_payload["message"].strip()
+
+
+# --- last-resort shield (S-CX1) ---------------------------------------------------------------
+# An unexpected exception escaping the spine's inner nets must NEVER surface as
+# a bare Starlette 500 (JSON) or a dead stream with no terminal frame (SSE) —
+# the widget always gets the iso-contract shape with an honest degraded message.
+def test_unexpected_crash_returns_contract_payload_not_500(monkeypatch, client):
+    async def crash(session_id, user_id, message):
+        raise RuntimeError("boom")
+        yield  # pragma: no cover — async-generator shape
+
+    monkeypatch.setattr(facade_module, "_drive", crash)
+    r = client.post("/v3/chat", json={"message": "hotel in Paris please"})
+    assert r.status_code == 200
+    data = r.json()
+    assert set(data.keys()) == set(CONTRACT_KEYS)
+    assert data["message"] == templates.service_degraded_response("en")
+    assert data["hotels"] is None
+    assert data["ready_to_search"] is False
+    assert "du_chat_sid=" in r.headers.get("set-cookie", "")
+
+
+def test_shield_message_is_localized_from_locale(monkeypatch, client):
+    async def crash(session_id, user_id, message):
+        raise RuntimeError("boom")
+        yield  # pragma: no cover
+
+    monkeypatch.setattr(facade_module, "_drive", crash)
+    r = client.post("/v3/chat", json={"message": "hotel", "locale": "fr-FR"})
+    assert r.json()["message"] == templates.service_degraded_response("fr")
+    assert r.json()["response_language"] == "fr"
+
+
+def test_sse_midstream_crash_still_ends_with_done(monkeypatch, client):
+    """Once the 200 + event-stream headers are committed, a degraded `done` is
+    the only terminal signal the widget can act on — the stream must never just
+    die (pre-S-CX1 behavior: truncated stream, no `done`, no `error` frame)."""
+    async def crash_mid(session_id, user_id, message):
+        yield "progress", {}
+        yield "token", "Je regarde ce qui est dispo"
+        raise RuntimeError("boom mid-stream")
+
+    monkeypatch.setattr(facade_module, "_drive", crash_mid)
+    r = client.post("/v3/chat/stream", json={"message": "un hôtel à Paris", "locale": "fr-FR"})
+    assert r.status_code == 200
+    events = _parse_sse(r.text)
+    kinds = [e for e, _ in events]
+    assert kinds[0] == "progress"
+    assert kinds[-1] == "done"
+    done = events[-1][1]
+    assert set(done.keys()) == set(CONTRACT_KEYS)
+    assert done["message"] == templates.service_degraded_response("fr")
+    assert done["hotels"] is None
+
+
+def test_sse_setup_crash_still_streams_progress_and_done(monkeypatch, client):
+    """A failure BEFORE the stream opens (session backend down) must still
+    serve an event-stream ending in `done`, not a 500 body an EventSource
+    can't parse."""
+    async def broken_session(session_id, user_id):
+        raise RuntimeError("session backend down")
+
+    monkeypatch.setattr(facade_module, "_get_or_create_session", broken_session)
+    r = client.post("/v3/chat/stream", json={"message": "hello"})
+    assert r.status_code == 200
+    assert r.headers["content-type"].startswith("text/event-stream")
+    events = _parse_sse(r.text)
+    assert [e for e, _ in events] == ["progress", "done"]
+    assert set(events[-1][1].keys()) == set(CONTRACT_KEYS)
+
+
+def test_shield_survives_profile_store_failure(monkeypatch, client):
+    """The shield payload is built from PURE inputs — it must hold even when
+    Redis itself is what crashed the turn (here: _finalize's profile read)."""
+    async def ok_drive(session_id, user_id, message):
+        yield "final", "tout va bien"
+
+    class _BrokenStore:
+        async def get(self, session_id):
+            raise ConnectionError("redis down hard")
+
+    monkeypatch.setattr(facade_module, "_drive", ok_drive)
+    monkeypatch.setattr(facade_module, "get_profile_store", lambda: _BrokenStore())
+    r = client.post("/v3/chat", json={"message": "hello"})
+    assert r.status_code == 200
+    assert r.json()["message"] == templates.service_degraded_response("en")
 
 
 def test_json_and_stream_agree_on_the_same_turn(monkeypatch, client):

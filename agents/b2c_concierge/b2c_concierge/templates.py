@@ -180,6 +180,19 @@ def search_exhausted_response(
     )
 
 
+def service_degraded_response(language: str) -> str:
+    """Last-resort facade shield (S-CX1): an unexpected error escaped every
+    inner degradation net, so the step that failed is unknown — generic
+    honest wording, invents nothing, never a raw 500/dead stream."""
+    return _pick(
+        language,
+        "Un souci technique m'empêche de répondre pour le moment, et je préfère "
+        "ne rien inventer. Pouvez-vous réessayer dans un instant ?",
+        "A technical issue is stopping me from answering right now, and I'd "
+        "rather not make anything up. Could you try again in a moment?",
+    )
+
+
 def leaf_degraded_response(family: str, language: str, city: str | None = None) -> str:
     """Honest degradation when a leaf leg timed out or failed: say it — naming the
     destination when known so the user sees what was attempted — invent nothing,
