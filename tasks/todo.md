@@ -1,3 +1,43 @@
+# S-G12 — hotel page URLs depuis le slug ES (branche `sg12-hotel-page-urls`, 2026-07-24)
+
+Root cause (diagnostiqué avec Fabien) : AUCUN code ne construit d'URL de page
+hôtel — le LLM de synthèse les invente en slugifiant le nom affiché (mauvais
+domaine `.com`, « aéroport » → `a-roport`, « Eurohotel » sans tiret). Le vrai
+slug ES arrive dans le payload MCP (`slug`, probé live 2026-07-23) et est jeté
+par `normalize_hotel`.
+
+- [x] 1. `libs/b2c_common/b2c_common/hotel_urls.py` — `build_hotel_page_url(slug, country_code, country_name)` :
+      tables marché (host par pays destination + country path-slug) portées
+      d'agent-usa `hotel_urls.py`, mapping countryName→ISO, validation stricte
+      du slug, `None` si non mappable (omission honnête, jamais d'URL devinée)
+- [x] 2. Feuille `normalize_hotel` (`response_bridge.py`) : garder `url`
+      construite depuis le slug ES sur la carte
+- [x] 3. Concierge `_normalize_hotel_for_display` (`inline_tools.py`) : idem,
+      défensif (shape `get_hotel_details`/`find_hotel_by_name` non re-probée)
+- [x] 4. `ground_truth.py` : `url` sur chaque ligne hôtel + règle header
+      « copy EXACTLY the url listed, never construct »
+- [x] 5. Guard n°13 `link_guard.py` (déterministe, 0 retry) : toute URL
+      `dayuse*/hotels/...` de la synthèse absente du set autorisé est retirée
+      (lien markdown → label conservé) ; câblé en fin de
+      `_synthesize_with_guards` ; métrique count-only (RGPD)
+- [x] 6. Tests : builder b2c_common (repros prod verrouillés), `url`
+      response_bridge, ligne ground_truth, link_guard (12 cas), display inline
+- [x] 7. ruff + mypy + pytest verts ; HANDOFF.md ; commit + MR (review Fabien)
+
+## Review S-G12
+
+5 changements, tous localisés : 1 module partagé neuf (`hotel_urls.py`, ~120
+lignes dont ~60 de tables), 2 insertions de 8 lignes (carte feuille + carte
+inline), 2 lignes ground_truth + règle header, 1 guard neuf (~85 lignes) câblé
+en 12 lignes dans `agent.py`. +29 tests (921 passed). Évidence : seam
+in-process payload→carte→ground-truth→guard OK ; les 2 URLs des repros de
+Fabien répondent HTTP 200 live, un slug bidon 404. Piège documenté : pas de
+`countryCode` dans search_offers → mapping countryName anglais→ISO, marché non
+mappé = pas d'URL. E2E LLM live non couru (stack down) — à vérifier au
+prochain smoke.
+
+---
+
 # S-G10 — fixes issus de l'audit S-G9 (branche `sg10-geo-fixes`, 2026-07-23)
 
 Périmètre approuvé par Fabien : 4 fixes + tests + re-vérification live.

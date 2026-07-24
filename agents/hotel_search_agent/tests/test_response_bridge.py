@@ -164,6 +164,27 @@ def test_normalize_hotel_omits_lat_lon_on_garbage():
     assert "latitude" not in card and "longitude" not in card
 
 
+# --- hotel-page url from the ES slug (S-G12 — never slugified from the name) -----------------
+def test_normalize_hotel_builds_url_from_es_slug_and_market():
+    hotel = _hotel(1, 5000)  # countryName "France" in the fixture
+    hotel["slug"] = "ibis-rungis-aeroport-paris-orly"
+    card = normalize_hotel(hotel)
+    assert card["url"] == "https://www.dayuse.fr/hotels/france/ibis-rungis-aeroport-paris-orly"
+
+
+def test_normalize_hotel_omits_url_without_slug_even_with_a_name():
+    hotel = _hotel(1, 5000)
+    hotel["name"] = "Ibis Rungis Aéroport Paris Orly"  # tempting, but NOT a slug source
+    assert "url" not in normalize_hotel(hotel)
+
+
+def test_normalize_hotel_omits_url_on_unmapped_market():
+    hotel = _hotel(1, 5000)
+    hotel["slug"] = "some-hotel"
+    hotel["countryName"] = "Atlantis"
+    assert "url" not in normalize_hotel(hotel)
+
+
 def test_capture_geocode_stashes_the_resolved_anchor():
     ctx = _Ctx()
     resp = {"ok": True, "latitude": 48.8566, "longitude": 2.3522,

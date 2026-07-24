@@ -43,6 +43,10 @@ _HEADER = (
     "does NOT replace tool calls. If the user changes any constraint or "
     "asks to see options again, a fresh search is still required; describing "
     "these hotels from memory instead of running a new search is a failure.\n"
+    "LINKS: when giving a link to a hotel, copy EXACTLY the url listed for "
+    "it below — NEVER construct, guess, translate, or edit a URL yourself "
+    "(the real slug and domain are not derivable from the hotel name). A "
+    "hotel with no url listed has no link to give: say so.\n"
 )
 
 
@@ -61,6 +65,9 @@ def _hotel_line(hotel: dict[str, Any]) -> str:
     rating = hotel.get("rating")
     if isinstance(rating, (int, float)):
         line += f" — rating {float(rating):.1f}/5"
+    url = hotel.get("url")
+    if isinstance(url, str) and url.startswith("https://"):
+        line += f" — url: {url}"
     return line
 
 

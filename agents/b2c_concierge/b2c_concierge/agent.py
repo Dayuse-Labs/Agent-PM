@@ -90,6 +90,7 @@ from .a2a_datapart import encode_datapart, find_datapart
 from .amenity_guard import apply_amenity_truthfulness
 from .budget import TurnBudget
 from .ground_truth import shortlist_ground_truth_block, shortlist_hotels
+from .link_guard import enforce_hotel_link_truthfulness
 from .profile import (
     BUDGET_SOURCE_EXPLICIT,
     SessionProfile,
@@ -631,6 +632,19 @@ class _B2cConcierge(BaseAgent):
                     candidate, hotels, language, profile.amenity_claim_corrections
                 )
                 profile.amenity_claim_corrections = corrections or None
+            # S-G12 (guard #13): a Dayuse hotel-page URL the model was not
+            # grounded in is a fabrication (wrong domain/slug in prod) —
+            # stripped in code, never retried. Runs even with an empty
+            # shortlist: with nothing on screen, NO hotel link is honest.
+            candidate, stripped_links = enforce_hotel_link_truthfulness(candidate, hotels)
+            if stripped_links:
+                metrics_logger.info(
+                    "concierge_metric=link_guard stripped=%d", stripped_links
+                )
+                enqueue_metric_event(
+                    "link_guard", service=SERVICE, invocation_id=invocation_id,
+                    stripped=stripped_links,
+                )
         return candidate or None
 
     # --- Inline tools (S07) ---------------------------------------------------------------------
