@@ -2,6 +2,22 @@
 
 État du chantier pour reprise en session fraîche. **Lire en entier avant d'agir ; ne pas reconstruire ce qui existe.** Mettre à jour en fin de CHAQUE session (bloc daté en tête).
 
+## ⏱ Addendum 2026-07-24 (branche `scx3-research-prix-plancher`, stackée sur `scx2`) — S-CX3 deep dive : état de l'art « prix plancher / optimisation panier » — rapport seul, AUCUN code
+
+**Contexte** : demande Fabien — « recherches pour savoir s'il existe déjà des méthodo, l'objectif étant d'optimiser le panier du client ». 4 recherches web parallèles (littérature ranking price-aware ; pratiques OTA + réglementaire UE ; budget comme point de référence ; effets d'ordre). **Livrable : `reports/RESEARCH-SCX3-PRIX-PLANCHER-2026-07-24.md`** (tout sourcé, chiffres avec niveau de confiance, folklore débusqué — la citation menu-engineering « Parsa & Njite +6,8 % » n'existe pas dans Crossref).
+
+**Convergences clés** : (1) re-ranker par valeur SEULEMENT parmi les bons hôtels — quality floor (Jannach : ~50 % du gain revenu à coût de pertinence quasi nul, optimum intérieur) ; (2) ne jamais forcer le prix dans le ranking (Airbnb KDD 2020 : 2 tentatives, 2 reverts, −1,5 % bookings) ; (3) budget déclaré = prix de référence explicite → contrainte SOUPLE, kernel asymétrique (λ≈1,3-2), relaxation minimale EXPLIQUÉE (pattern Airbnb Flexible Matching) ; (4) ordre prix décroissant parmi les éligibles (+~4 % plafond, Suk JMR 2012, moins cher visible en position de bord) ; (5) bande hors budget +10-15 % = convention triangulée, PAS un chiffre primaire — à calibrer ; (6) lignes rouges UE (jamais masquer le moins cher, prix tout compris, pas de fausse rareté, pas de decoy).
+
+**Formule v1 recommandée (§2 du rapport)** : `score = Q^β × proximity(r)^γ` (Q = rating shrinké dominant, kernel asymétrique σ_under=0.5/σ_over=0.25/τ=0.15, plancher 0.35 sous budget) + quality floor relatif (Q ≥ Q_max−δ) + cap de déplacement 2 positions + tri décroissant des éligibles ; fallback hors budget = re-probe sans cap → 1-3 offres triées par écart croissant, écart affiché sur prix all-in + ce qu'il achète, additif jamais substitutif.
+
+**⚠️ Point technique critique (§3)** : la vérité terrain d'`eval_ranking.py` est la DISTANCE — le blend la fera mécaniquement baisser. Plan de mesure : NDCG@5-distance en GARDE + valeur panier simulée du top-3 en SÉLECTION (extension du script), puis A/B canary conversion+panier co-primaires (leçon Booking.com : l'offline ne prédit pas le business).
+
+**Découpage implémentation proposé (§5)** : S-CX3a donnée (cents numériques sur carte) → S-CX3b re-ranker feuille (flag env, code-owned) ∥ S-CX3c fallback hors budget → S-CX3d mesure. Chaque étape mergeable indépendamment. **Rien n'est lancé — GO Fabien requis sur la formule et le découpage.**
+
+**Piège découvert** : un agent de recherche a heurté la limite de dépense mensuelle de l'org en cours de route — ses 2 sous-agents avaient déjà livré ; synthèse faite sans relance. Vérifier `/usage-credits` avant les prochaines sessions à agents multiples.
+
+**Merge** : PR depuis `scx3-research-prix-plancher`, base `scx2-mcp-truth-localized-fallbacks` (stack #33 ← #34 ← #35 ← celle-ci, merger top-down). Review Fabien = gate.
+
 ## ⏱ Addendum 2026-07-24 (branche `scx2-mcp-truth-localized-fallbacks`, stackée sur `scx1-facade-shield`) — S-CX2 : vérité MCP-down (fin de la fausse rareté) + jargon neutralisé + fallbacks localisés (fixes F2/F3/F5 de l'audit CX, GO Fabien)
 
 **Contexte** : 2e branche du GO Fabien post-audit CX. Fixe F2 (MCP injoignable → « il n'y a pas d'offres à Marseille », mensonge reproduit 4/4), F3 (texte feuille anglais verbatim sur synthèse morte + jargon `mcp_guard` dans le contexte modèle) et F5 (localisation des textes de secours, ack anglais sur « ok » d'un client fr).
