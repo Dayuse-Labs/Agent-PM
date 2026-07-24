@@ -39,13 +39,15 @@ from google.genai import types as genai_types
 from starlette.requests import Request
 from starlette.responses import JSONResponse, Response, StreamingResponse
 
+from dayuse_agent_common import enqueue_metric_event
+
 from . import conversation_log, templates
-from .agent import _US, root_agent
+from .agent import _US, metrics_logger, root_agent
 from .conversation_log import build_conversation_log_row, detect_is_synthetic
 from .inline_tools import _format_price_eur_cents
 from .profile import SessionProfile, apply_profile_delta
 from .profile_store import get_profile_store
-from .triage import guess_language
+from .triage import SERVICE, guess_language
 
 logger = logging.getLogger(__name__)
 
@@ -662,6 +664,43 @@ def _empty_ack_text(message: str, locale: str | None = None) -> str:
     return templates.ack_response(_locale_response_language(locale) or guess_language(message))
 
 
+# --- last-resort shield (S-CX1) --------------------------------------------------------------
+def _shield_payload(
+    session_id: str, body: dict[str, Any], message: str, path: str, exc: Exception
+) -> dict[str, Any]:
+    """An unexpected exception escaped every inner degradation net (spine legs
+    each catch their own failures — this is the seam around them). Build a full
+    iso-contract payload from PURE inputs only: fresh profile, no Redis/DB/ADK
+    round-trip — any of those may be exactly what just failed. The widget always
+    receives the shape it parses, with an honest localized message instead of a
+    bare 500 or a dead SSE stream. Metric is count-only (error type, never
+    message content — RGPD)."""
+    logger.exception("b2c_concierge: facade shield caught an unhandled error on %s", path)
+    metrics_logger.info(
+        "concierge_metric=facade_shield path=%s error_type=%s", path, type(exc).__name__
+    )
+    enqueue_metric_event(
+        "facade_shield", service=SERVICE, invocation_id=session_id,
+        path=path, error_type=type(exc).__name__,
+    )
+    # Customers span many countries/languages; templates exist in fr/en only.
+    # A DECLARED locale we have no translation for answers in ENGLISH (Fabien,
+    # PR #34 review) — never via guess_language, whose French hints can misfire
+    # on other Romance languages (es/it/pt). The message-language guess remains
+    # only for requests that carry no locale at all.
+    locale = _parse_locale(body.get("locale"))
+    if locale:
+        language = _locale_response_language(locale) or "en"
+    else:
+        language = guess_language(message)
+    return build_chat_payload(
+        session_id=session_id,
+        final_text=templates.service_degraded_response(language),
+        hotels=None, profile=SessionProfile(), language=language,
+        turn_id=uuid.uuid4().hex,
+    )
+
+
 # --- handlers -------------------------------------------------------------------------------
 async def chat(request: Request) -> Response:
     """POST /v3/chat — the non-streamed iso-contract JSON response."""
@@ -675,30 +714,33 @@ async def chat(request: Request) -> Response:
         return JSONResponse({"error": "Invalid session_id"}, status_code=400)
 
     message = str(body.get("message") or "").strip()
-    user_id = _user_id(session_id)
-    session = await _get_or_create_session(session_id, user_id)
-    turn_index = _count_user_turns(session)
-    is_synthetic = detect_is_synthetic(request.headers)
-    await _apply_native_context(session_id, body, turn_index)
+    try:
+        user_id = _user_id(session_id)
+        session = await _get_or_create_session(session_id, user_id)
+        turn_index = _count_user_turns(session)
+        is_synthetic = detect_is_synthetic(request.headers)
+        await _apply_native_context(session_id, body, turn_index)
 
-    hotels: list | None = None
-    requires_clarification = False
-    final_text = ""
-    if not message:
-        final_text = _empty_ack_text(message, _parse_locale(body.get("locale")))
-    else:
-        async for kind, data in _drive(session_id, user_id, message):
-            if kind == "hotels":
-                hotels = data.get("hotels") or None
-                requires_clarification = bool(data.get("requires_clarification"))
-            elif kind == "final":
-                final_text = data
+        hotels: list | None = None
+        requires_clarification = False
+        final_text = ""
+        if not message:
+            final_text = _empty_ack_text(message, _parse_locale(body.get("locale")))
+        else:
+            async for kind, data in _drive(session_id, user_id, message):
+                if kind == "hotels":
+                    hotels = data.get("hotels") or None
+                    requires_clarification = bool(data.get("requires_clarification"))
+                elif kind == "final":
+                    final_text = data
 
-    payload = await _finalize(
-        session_id=session_id, message=message, final_text=final_text,
-        hotels=hotels, is_synthetic=is_synthetic, turn_index=turn_index,
-        requires_clarification=requires_clarification,
-    )
+        payload = await _finalize(
+            session_id=session_id, message=message, final_text=final_text,
+            hotels=hotels, is_synthetic=is_synthetic, turn_index=turn_index,
+            requires_clarification=requires_clarification,
+        )
+    except Exception as exc:  # noqa: BLE001 — last-resort shield: contract payload, never a bare 500
+        payload = _shield_payload(session_id, body, message, "json", exc)
     response = JSONResponse(payload)
     _set_session_cookie(response, session_id)
     return response
@@ -708,10 +750,22 @@ def _sse(event: str, data: dict[str, Any]) -> bytes:
     return f"event: {event}\ndata: {json.dumps(data, ensure_ascii=False)}\n\n".encode()
 
 
+def _sse_response(body: AsyncGenerator[bytes, None], session_id: str) -> StreamingResponse:
+    response = StreamingResponse(body, media_type="text/event-stream")
+    response.headers["Cache-Control"] = "no-cache"
+    response.headers["X-Accel-Buffering"] = "no"  # let SSE flush past reverse proxies
+    _set_session_cookie(response, session_id)
+    return response
+
+
 async def chat_stream(request: Request) -> Response:
     """POST /v3/chat/stream — SSE: `progress` (immediate, the TTFT marker) →
     `hotels` → token chunks → `done` (the full iso-contract payload). The
-    non-streamed /v3/chat above serves the exact same payload in one shot."""
+    non-streamed /v3/chat above serves the exact same payload in one shot.
+    The stream ALWAYS ends with a `done` frame (S-CX1): once the 200 +
+    event-stream headers are committed, a mid-stream failure can no longer
+    change the status — a degraded `done` is the only honest terminal signal
+    the widget can act on (no separate `error` frame: zero widget change)."""
     auth = _api_key_error(request)
     if auth is not None:
         return auth
@@ -722,43 +776,51 @@ async def chat_stream(request: Request) -> Response:
         return JSONResponse({"error": "Invalid session_id"}, status_code=400)
 
     message = str(body.get("message") or "").strip()
-    user_id = _user_id(session_id)
-    session = await _get_or_create_session(session_id, user_id)
-    turn_index = _count_user_turns(session)
-    is_synthetic = detect_is_synthetic(request.headers)
-    await _apply_native_context(session_id, body, turn_index)
+    try:
+        user_id = _user_id(session_id)
+        session = await _get_or_create_session(session_id, user_id)
+        turn_index = _count_user_turns(session)
+        is_synthetic = detect_is_synthetic(request.headers)
+        await _apply_native_context(session_id, body, turn_index)
+    except Exception as exc:  # noqa: BLE001 — setup failed before the stream opened: still stream a terminal done
+        crash_payload = _shield_payload(session_id, body, message, "sse_setup", exc)
+
+        async def _crash_body() -> AsyncGenerator[bytes, None]:
+            yield _sse("progress", {})
+            yield _sse("done", crash_payload)
+
+        return _sse_response(_crash_body(), session_id)
 
     async def _body() -> AsyncGenerator[bytes, None]:
         hotels: list | None = None
         requires_clarification = False
         final_text = ""
-        if not message:
-            yield _sse("progress", {})
-            final_text = _empty_ack_text(message, _parse_locale(body.get("locale")))
-        else:
-            async for kind, data in _drive(session_id, user_id, message):
-                if kind == "progress":
-                    yield _sse("progress", {})
-                elif kind == "hotels":
-                    hotels = data.get("hotels") or None
-                    requires_clarification = bool(data.get("requires_clarification"))
-                    yield _sse("hotels", {"hotels": normalize_hotels(hotels) if hotels else []})
-                elif kind == "token":
-                    yield _sse("token", {"text": data})
-                elif kind == "final":
-                    final_text = data
-        payload = await _finalize(
-            session_id=session_id, message=message, final_text=final_text,
-            hotels=hotels, is_synthetic=is_synthetic, turn_index=turn_index,
-            requires_clarification=requires_clarification,
-        )
+        try:
+            if not message:
+                yield _sse("progress", {})
+                final_text = _empty_ack_text(message, _parse_locale(body.get("locale")))
+            else:
+                async for kind, data in _drive(session_id, user_id, message):
+                    if kind == "progress":
+                        yield _sse("progress", {})
+                    elif kind == "hotels":
+                        hotels = data.get("hotels") or None
+                        requires_clarification = bool(data.get("requires_clarification"))
+                        yield _sse("hotels", {"hotels": normalize_hotels(hotels) if hotels else []})
+                    elif kind == "token":
+                        yield _sse("token", {"text": data})
+                    elif kind == "final":
+                        final_text = data
+            payload = await _finalize(
+                session_id=session_id, message=message, final_text=final_text,
+                hotels=hotels, is_synthetic=is_synthetic, turn_index=turn_index,
+                requires_clarification=requires_clarification,
+            )
+        except Exception as exc:  # noqa: BLE001 — mid-stream shield: status is committed, only `done` can signal
+            payload = _shield_payload(session_id, body, message, "sse_stream", exc)
         yield _sse("done", payload)
 
-    response = StreamingResponse(_body(), media_type="text/event-stream")
-    response.headers["Cache-Control"] = "no-cache"
-    response.headers["X-Accel-Buffering"] = "no"  # let SSE flush past reverse proxies
-    _set_session_cookie(response, session_id)
-    return response
+    return _sse_response(_body(), session_id)
 
 
 async def session_reset(request: Request) -> Response:
