@@ -2,6 +2,30 @@
 
 État du chantier pour reprise en session fraîche. **Lire en entier avant d'agir ; ne pas reconstruire ce qui existe.** Mettre à jour en fin de CHAQUE session (bloc daté en tête).
 
+## ⏱ Addendum 2026-07-24 (branche `audit-cx-2026-07-24`, base `main`) — Audit CX complet avant exposition client : rapport seul, AUCUN fix appliqué
+
+**Contexte** : audit demandé par Fabien (exposition prochaine aux clients : zéro fuite d'erreur + agent plus interactif/proactif, notamment propositions autour du budget). Cadrage tranché par Fabien en session : livrable = rapport seul (fixes en sessions dédiées après GO), « prix plancher » = **pondération scoring hôtel × proximité du prix au budget client** pour la mise en avant, passe live incluse.
+
+**Fait** : `reports/AUDIT-CX-2026-07-24.md` — lecture de code exhaustive des surfaces client (3 agents Explore) + **passe live adversariale** (stack locale + MCP staging : 10 sondes + 4 scénarios destructifs — feuille tuée, MCP coupé, synthèse cassée, crash injecté in-process sur l'app ASGI réelle). Chaque constat tagué [LIVE]/[CODE]/[HYPOTHÈSE]. `git diff --stat` vide sur les fichiers trackés : zéro changement `agents/**`/`libs/**`/`tests/**`.
+
+**Les 3 P0 (tous reproduits, détails et repros exacts dans le rapport)** :
+1. **F1** — façade sans bouclier d'exception : crash inattendu → `500 Internal Server Error` texte brut hors contrat (JSON) ; SSE → flux mort **sans `done` ni frame `error`** (aucun event `error` n'existe). Prouvé in-process (`_drive` patché pour lever).
+2. **F2** — MCP injoignable → **fausse rareté** 4/4 : « il n'y a pas d'offres de jour à Marseille » alors que le backend est mort. Root cause : l'échec d'**énumération du toolset MCP** (`TaskGroup` errors, `search_offers` jamais appelé) est invisible pour le circuit-breaker (`mcp_guard` ne voit que les échecs d'APPEL) ; le modèle feuille improvise « pas d'offres ». Perte de vente silencieuse + métriques polluées.
+3. **F3** — synthèse en échec → `leaf_text` verbatim : client fr reçoit `"5 day-use offer(s) found: …"` anglais avec `response_language: "fr"` (prouvé live : concierge relancé avec `DAYUSE_MODEL` invalide — la feuille, process séparé, garde son modèle sain, le triage retombe sur la regex). Le jargon `mcp_guard` (« MCP_B2C unavailable — circuit open ») peut passer par ce même chemin sur double panne.
+
+**Aussi dans le rapport** : P1 = pas de cap taille message (300 Ko accepté, 18,8 s, tokens facturés) ni rate limiting ; localisation incohérente des fallbacks ; gaps de tests façade (les 400 de /stream et /reset sont corrects live mais non testés). Axe interactivité : l'agent est honnête mais passif — dead-end budget sans proposition (« max 10 € » → conseil générique, jamais « la moins chère est à 54 € ») ; 3 blocages structurels pour la demande de Fabien (filtre prix dur MCP = hôtels hors budget jamais renvoyés ; `priceEuro` numérique perdu sur la carte, seul `"€X.XX"` survit ; aucun re-ranking cross-hôtels). Nuance live : la qualification VILLE existe déjà de facto (LLM feuille demande « quelle ville ? ») mais `requires_clarification` reste false (signal non structuré).
+
+**Roadmap proposée (rien lancé, GO Fabien requis)** : S-CX1 bouclier façade + frame SSE terminale (R1) ; S-CX2 vérité MCP-down + jargon + localisation (R2, R3) ; S-CX3 chaîne prix plancher — cents numériques sur carte → fallback sans cap prix sur budget explicite → **blend rating × proximité budget** → template de proposition (R4) ; S-CX4 qualification structurée + chips contextuelles + caps (R5, R6). S-CX1/S-CX2 bloquantes avant exposition réelle.
+
+**DoD verte** : 921 passed (même unique échec préexistant `test_llm_meter_usage`, untracked hors zone) ; ruff OK ; mypy 40 fichiers OK ; guardrails OK ; smoke e2e final PASS, stack arrêtée proprement.
+
+**Pièges découverts** :
+- Un serveur MCP **injoignable** ne produit PAS le dict `mcp_circuit_open` : l'échec se joue à l'énumération du toolset (avant tout appel), le breaker ne compte rien — tester les deux modes de panne (serveur up + tool qui échoue ≠ serveur down) pour tout fix R2.
+- Technique de repro « synthèse seule cassée » : relancer UNIQUEMENT le concierge avec `DAYUSE_MODEL` invalide — le triage retombe sur la regex (le tour route quand même) et la feuille garde son propre env sain. Repro du chemin verbatim en 1 requête.
+- Crash mid-stream non déclenchable à la demande en live : preuve honnête = in-process sur `serve.app` réel (pattern `tests/api/conftest.py` : fakeredis + `reset_runner` + `_drive` patché), `raise_server_exceptions=False`.
+
+**Merge** : PR à ouvrir depuis `audit-cx-2026-07-24` (rapport + ce bloc HANDOFF uniquement) — review humaine de Fabien = le gate.
+
 ## ⏱ Addendum 2026-07-24 (branche `sg12-hotel-page-urls`, base `main` post-#31) — S-G12 : URLs de page hôtel depuis le slug ES + guard n°13 anti-liens fabriqués
 
 **Bug prod repéré par Fabien** : à la demande de liens, la synthèse INVENTAIT les URLs en slugifiant le nom affiché — `dayuse.com/hotels/france/ibis-rungis-a-roport-paris-orly` (mauvais domaine, « é » → tiret) au lieu de `dayuse.fr/.../ibis-rungis-aeroport-paris-orly`, et `eurohotel-...` au lieu de `euro-hotel-...`. Root cause : AUCUN code ne construisait d'URL de page hôtel ; le `slug` ES (envoyé par hotel dans le payload MCP, probé 2026-07-23) était jeté par `normalize_hotel`, et le prompt de synthèse (règle 1 « never invent a link ») n'avait aucun guard déterministe derrière.
