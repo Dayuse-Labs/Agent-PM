@@ -253,6 +253,18 @@ class TestBudget:
         assert leaf_calls == []
         assert _turn_metric(caplog)["llm_calls"] == "0"
 
+    def test_first_turn_bare_ok_with_fr_locale_gets_the_french_ack(
+        self, scripted, fake_profile_store
+    ):
+        # S-CX2 (audit F5): a bare "ok" has no language signal for
+        # guess_language — the client locale (applied to the profile by the
+        # facade before the spine runs, S-G2) must beat the English default.
+        scripted()  # zero-LLM path: any call fails the test
+        runner, session = _new_session()
+        asyncio.run(fake_profile_store.set(session.id, SessionProfile(locale="fr-FR")))
+        events = _drive_in(runner, session.id, "ok")
+        assert _answer(events) == templates.ack_response("fr")
+
     def test_inline_lookup_turn_degrades_on_triage_only_when_unresolved(self, scripted, caplog, monkeypatch):
         # No shortlist, no MCP reachable in tests — degrades honestly BEFORE
         # any synthesis call (mirrors the leaf-degradation budget shape).
@@ -338,6 +350,46 @@ class TestHonestDegradation:
             answer = _drive(USER_MESSAGE_SEARCH)
         assert answer == "GROUNDED LEAF TEXT"
         assert _turn_metric(caplog)["status"] == "synthesis_fallback"
+
+    def test_search_unavailable_status_degrades_honestly_without_synthesis(
+        self, scripted, caplog
+    ):
+        # S-CX2 (audit CX F2 — false scarcity): the leaf reports the search
+        # TOOLS never ran (MCP unreachable / circuit open). The spine must
+        # serve the honest degraded template — synthesizing here produced a
+        # false "no offers in Marseille" while the backend was simply down.
+        llm, _ = scripted(
+            '{"family": "search", "language": "fr"}',
+            leaf_text="La recherche d'hôtels est momentanément indisponible.",
+            response={
+                "status": "search_unavailable",
+                "profile_delta": {"city": "Marseille"},
+            },
+        )
+        with caplog.at_level(logging.INFO, logger="b2c_concierge.metrics"):
+            answer = _drive(USER_MESSAGE_SEARCH)
+        # The geocode delta is kept (the destination WAS understood) and names
+        # the city in the degraded template.
+        assert answer == templates.leaf_degraded_response("search", "fr", "Marseille")
+        assert len(llm.calls) == 1  # triage only: never synthesize a fake zero
+        assert _turn_metric(caplog)["status"] == "degraded"
+
+    def test_search_unavailable_is_not_recorded_as_an_empty_search(
+        self, scripted, fake_profile_store
+    ):
+        # The inventory was never consulted: no empty-streak, no auto-widen,
+        # no recovery chips — a retry must start from a clean slate.
+        runner, session = _new_session()
+        scripted(
+            '{"family": "search", "language": "fr"}',
+            leaf_text="indisponible",
+            response={"status": "search_unavailable", "profile_delta": {"city": "Marseille"}},
+        )
+        _drive_in(runner, session.id, USER_MESSAGE_SEARCH)
+        profile = asyncio.run(fake_profile_store.get(session.id))
+        assert profile.city == "Marseille"  # the delta still landed
+        assert profile.consecutive_empty_searches == 0
+        assert not profile.last_suggestions
 
     def test_textless_leaf_with_datapart_synthesizes_instead_of_degrading(
         self, scripted, caplog, monkeypatch

@@ -2,6 +2,23 @@
 
 État du chantier pour reprise en session fraîche. **Lire en entier avant d'agir ; ne pas reconstruire ce qui existe.** Mettre à jour en fin de CHAQUE session (bloc daté en tête).
 
+## ⏱ Addendum 2026-07-24 (branche `scx2-mcp-truth-localized-fallbacks`, stackée sur `scx1-facade-shield`) — S-CX2 : vérité MCP-down (fin de la fausse rareté) + jargon neutralisé + fallbacks localisés (fixes F2/F3/F5 de l'audit CX, GO Fabien)
+
+**Contexte** : 2e branche du GO Fabien post-audit CX. Fixe F2 (MCP injoignable → « il n'y a pas d'offres à Marseille », mensonge reproduit 4/4), F3 (texte feuille anglais verbatim sur synthèse morte + jargon `mcp_guard` dans le contexte modèle) et F5 (localisation des textes de secours, ack anglais sur « ok » d'un client fr).
+
+**Fait** :
+1. **Vérité MCP-down, chaîne bout-en-bout (F2)** — signal déterministe côté feuille dans `emit_search_datapart` : tour SANS réponse search capturée ET (breaker déclenché ce tour [nouveau flag `_STATE_SEARCH_UNAVAILABLE_KEY`, posé par `capture_after_tool` sur `error=mcp_circuit_open`] OU anchor geocode stashé [geocode ok ⇒ l'instruction impose une recherche]) ET pas un tour clarify → DataPart `status="search_unavailable"` + texte honnête déterministe qui REMPLACE la prose du modèle (même mécanique que le clarify D3). Couvre : toolset MCP inénumérable (le cas Marseille — le breaker ne voyait RIEN passer), circuit ouvert, échec d'appel, budget tools épuisé avant la recherche. `skip_final_generation` court-circuite aussi la passe finale du modèle quand le flag est posé (zéro echo de jargon possible). **Concierge** (`agent.py`) : `status=search_unavailable` → template `leaf_degraded_response` (jamais de synthèse), le delta geocode est GARDÉ (la destination est nommée dans le template), et le tour n'est PAS compté comme recherche vide (pas de streak/auto-widen/chips — l'inventaire n'a jamais été consulté).
+2. **Jargon neutralisé (F3)** — `mcp_guard._degraded_response` : reason sans « MCP_B2C »/« circuit » ; les 2 tests qui verrouillaient l'ancienne string verrouillent maintenant l'ABSENCE de jargon.
+3. **Localisation des textes de secours (F3/F5)** — `_outcome_text` fr/en (+ helper `_profile_language` depuis `profile_in.language`) ; question de clarify géo fr/en (`geo_resolver.resolve(language=...)` ← le hint 2 lettres que Mapbox recevait déjà) ; nouveau `triage.template_language` (langue établie → locale client → guess) utilisé par les 2 sites d'ack du spine ; `_locale_response_language` DÉPLACÉ de facade.py vers `triage.locale_response_language` (facade l'importe sous son ancien nom local — aucun contrat changé).
+
+**DoD verte** : 945 passed (+19 : 10 bridge feuille, 1 geo_resolver, 5 triage, 3 spine dont « pas compté comme recherche vide » ; même unique échec préexistant `test_llm_meter_usage`) ; ruff OK ; mypy 40 fichiers OK ; guardrails OK.
+
+**Vérifié LIVE (repro EXACTE de l'audit : feuille relancée avec `MCP_B2C_URL` mort, 2 appels)** : « je cherche un hôtel à Marseille demain » → **« Je n'arrive pas à joindre la recherche d'hôtels à Marseille pour le moment, et je préfère ne rien inventer. Pouvez-vous réessayer dans un instant ? »** 2/2, `suggestions: []` (avant : « il n'y a pas d'offres de jour à Marseille » 4/4). Feuille restaurée → smoke e2e PASS (le nominal ne régresse pas).
+
+**Limite documentée (assumée, YAGNI)** : le cas `find_hotel_by_name` avec MCP inénumérable ET breaker pas encore ouvert n'a pas de signal déterministe (pas de geocode sur ce chemin) — la prose du modèle reste ; après 3 échecs le breaker le couvre. Résiduel F3 : le chemin verbatim sur échec geocode (prose modèle « geocode_no_match ») reste LLM-authored — jargon possible seulement sur double panne geocode+synthèse, non traité (rare, et la prose du modèle paraphrase en pratique).
+
+**Merge** : PR depuis `scx2-mcp-truth-localized-fallbacks`, base `scx1-facade-shield` (stack #33 ← #34 ← celle-ci — merger top-down). Review Fabien = gate.
+
 ## ⏱ Addendum 2026-07-24 (branche `scx1-facade-shield`, stackée sur `audit-cx-2026-07-24`) — S-CX1 : bouclier façade + frame SSE terminale garantie (fix F1/P0 de l'audit CX, GO Fabien)
 
 **Contexte** : GO explicite de Fabien sur S-CX1+S-CX2 de la roadmap de l'audit CX (`reports/AUDIT-CX-2026-07-24.md`). Cette branche = S-CX1 seul (F1). Décision de contrat prise : **pas de frame `error` nouvelle — un `done` dégradé** (zéro changement widget ; documenté dans la docstring de `chat_stream`).

@@ -276,6 +276,9 @@ def geocode_location(
         locale_country=_locale_country(locale),
         proximity=proximity_tuple,
         requested_name=effective_city or effective_metro,
+        # S-CX2: the clarify question can reach the customer verbatim — ask it
+        # in the conversation language (same 2-letter hint Mapbox already got).
+        language=lang,
     )
 
     echo_city = effective_city or effective_metro

@@ -92,6 +92,27 @@ def guess_language(message: str) -> str:
     return "fr" if _FR_HINTS.search(message or "") else "en"
 
 
+def locale_response_language(locale: str | None) -> str | None:
+    """The 2-letter response-language hint carried by a client locale (e.g.
+    "fr-FR" → "fr"), restricted to the spine's actual fr/en scope: an
+    unsupported primary tag (e.g. "es") is None rather than a language the
+    synthesis cannot actually produce. Shared by the facade (S-G2) and the
+    spine's template paths (S-CX2: a first-turn "ok" from a fr-FR client used
+    to get the English ack — guess_language has no signal on a bare "ok")."""
+    if not locale:
+        return None
+    primary = locale.split("-")[0].lower()
+    return primary if primary in ("fr", "en") else None
+
+
+def template_language(profile_language: str | None, locale: str | None, message: str) -> str:
+    """fr/en for a deterministic template answer: the conversation's already-
+    established language first, then the client locale's primary tag, then the
+    message's own detected language as the last resort."""
+    valid = profile_language if profile_language in ("fr", "en") else None
+    return valid or locale_response_language(locale) or guess_language(message)
+
+
 def fallback_family(message: str) -> str:
     """Deterministic family when the LLM classify failed. Best-effort keywords."""
     if is_social_ack(message):

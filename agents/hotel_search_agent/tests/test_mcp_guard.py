@@ -77,14 +77,16 @@ class TestBeforeTool:
 
         result = mcp_circuit_before_tool(SEARCH_TOOL, {}, None)
 
-        assert result == {
-            "ok": False,
-            "error": "mcp_circuit_open",
-            "diagnostics": {
-                "tool": "search_offers",
-                "reason": "MCP_B2C unavailable — circuit open after repeated failures",
-            },
-        }
+        assert result is not None
+        assert result["ok"] is False
+        assert result["error"] == "mcp_circuit_open"
+        assert result["diagnostics"]["tool"] == "search_offers"
+        # S-CX2 (audit F3): the reason enters the model context and can be
+        # echoed to the customer — it must stay customer-neutral, jargon-free.
+        reason = result["diagnostics"]["reason"]
+        assert "unavailable" in reason
+        for jargon in ("MCP", "circuit"):
+            assert jargon.lower() not in reason.lower()
 
 
 class TestAfterToolClassification:
@@ -127,14 +129,15 @@ class TestAfterToolClassification:
 class TestOnErrorSwallowsExceptions:
     def test_returns_clean_diagnostic_instead_of_reraising(self):
         result = mcp_circuit_on_error(NAMED_LOOKUP_TOOL, {}, None, ConnectionError("MCP down"))
-        assert result == {
-            "ok": False,
-            "error": "mcp_circuit_open",
-            "diagnostics": {
-                "tool": "find_hotel_by_name",
-                "reason": "MCP_B2C unavailable — circuit open after repeated failures",
-            },
-        }
+        assert result is not None
+        assert result["ok"] is False
+        assert result["error"] == "mcp_circuit_open"
+        assert result["diagnostics"]["tool"] == "find_hotel_by_name"
+        # S-CX2 (audit F3): customer-neutral reason, jargon-free (see above).
+        reason = result["diagnostics"]["reason"]
+        assert "unavailable" in reason
+        for jargon in ("MCP", "circuit"):
+            assert jargon.lower() not in reason.lower()
 
     def test_repeated_raised_errors_open_the_breaker(self, fresh_breaker):
         for _ in range(3):
