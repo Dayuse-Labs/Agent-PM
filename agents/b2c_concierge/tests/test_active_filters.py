@@ -5,7 +5,12 @@ inner dict now surfaces real profile values instead of hardcoded nulls, and
 that CONTRACT_KEYS itself is untouched by this change."""
 from __future__ import annotations
 
-from b2c_concierge.facade import CONTRACT_KEYS, build_active_filters
+from b2c_concierge.facade import (
+    CONTRACT_KEYS,
+    build_active_filters,
+    build_chat_payload,
+    build_hotel_picks,
+)
 from b2c_concierge.profile import SessionProfile
 
 
@@ -64,5 +69,64 @@ class TestContractKeysUntouched:
                 "ready_to_search", "requires_clarification", "profile_status",
                 "active_filters", "market", "market_country",
                 "entry_market_country", "search_country", "turn_id",
+                # S-CX5 (2026-07-27): the pick buttons and the offer card.
+                # `booking_card` is the key agent-usa already emits and the
+                # vendored widget already renders — adopting its name is what
+                # makes the card work with zero frontend change.
+                "hotel_picks", "booking_card",
             }
         )
+
+
+class TestHotelPicks:
+    """S-CX5: the pick buttons. Both product rules live in the backend — WHEN
+    they may appear (the request must be qualified enough) and IN WHICH ORDER
+    (cheapest first) — so the widget renders a list, not a policy."""
+
+    SHOWN = [
+        {"hotel_id": 1, "name": "Mercure La Défense", "price": "€87.00", "price_eur_cents": 8700},
+        {"hotel_id": 2, "name": "Drawing House", "price": "€81.00", "price_eur_cents": 8100},
+        {"hotel_id": 3, "name": "Pullman Bercy", "price": "€112.00", "price_eur_cents": 11200},
+    ]
+
+    def test_sorted_cheapest_first(self):
+        profile = SessionProfile(city="Paris", date="2026-07-28", last_results=self.SHOWN)
+        picks = build_hotel_picks(profile)
+        assert [p["name"] for p in picks] == [
+            "Drawing House", "Mercure La Défense", "Pullman Bercy",
+        ]
+        assert picks[0]["price"] == "€81.00"
+
+    def test_no_picks_before_the_request_is_qualified(self):
+        """A shortlist with no resolved date cannot be booked — offering a pick
+        would promise something the next turn can't deliver."""
+        assert build_hotel_picks(SessionProfile(city="Paris", last_results=self.SHOWN)) == []
+        assert build_hotel_picks(SessionProfile(date="2026-07-28", last_results=self.SHOWN)) == []
+
+    def test_no_picks_without_a_shortlist(self):
+        assert build_hotel_picks(SessionProfile(city="Paris", date="2026-07-28")) == []
+
+    def test_unpriced_entries_sort_last_but_stay_pickable(self):
+        shown = [{"hotel_id": 9, "name": "No price"}, *self.SHOWN]
+        picks = build_hotel_picks(
+            SessionProfile(city="Paris", date="2026-07-28", last_results=shown)
+        )
+        assert [p["name"] for p in picks][-1] == "No price"
+        assert len(picks) == 4
+
+    def test_the_payload_carries_picks_and_a_null_card_by_default(self):
+        profile = SessionProfile(city="Paris", date="2026-07-28", last_results=self.SHOWN)
+        payload = build_chat_payload(
+            session_id="s", final_text="hi", hotels=None, profile=profile,
+            language="fr", turn_id="t",
+        )
+        assert [p["hotel_id"] for p in payload["hotel_picks"]] == [2, 1, 3]
+        assert payload["booking_card"] is None
+
+    def test_the_payload_carries_the_booking_card_when_one_was_authorized(self):
+        card = {"hotel_id": 2, "hotel_name": "Drawing House", "url": "https://dayuse.fr/tunnel/x"}
+        payload = build_chat_payload(
+            session_id="s", final_text="hi", hotels=None, profile=SessionProfile(),
+            language="fr", turn_id="t", booking_card=card,
+        )
+        assert payload["booking_card"] == card

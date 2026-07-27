@@ -23,6 +23,7 @@ import { nextImage, prevImage, handleImageScroll, goToImage } from './hotels/ima
 // Filters
 import {
     applyChip,
+    pickHotel,
     chipsInlineHtml,
     suggestionsInlineHtml,
     renderClarify,
@@ -393,6 +394,7 @@ window.chatApp = {
 
     // Filters
     applyChip,
+    pickHotel,
     handleFollowUp,
     runSearchWithFilters,
     seeMore,

@@ -8,10 +8,13 @@ import b2c_concierge.triage as triage_module
 from b2c_concierge.budget import TurnBudget
 from b2c_concierge.triage import (
     FALLBACK_FAMILY,
+    FALLBACK_PICK,
     FAMILIES,
+    PICKS,
     Triage,
     classify,
     fallback_family,
+    fallback_pick,
     guess_language,
     is_social_ack,
 )
@@ -156,3 +159,74 @@ class TestLlmClassify:
         from b2c_concierge.routing import ROUTES
 
         assert set(FAMILIES) == set(ROUTES)
+
+
+class TestPickClassification:
+    """S-CX5. WHICH hotel a message points at, when it points at one by a
+    property rather than by name. Understanding the phrasing is the LLM's job
+    (Fabien, 2026-07-20: don't push determinism into comprehension); this file
+    only checks the contract around it — closed enum, validated, with the same
+    regex recovery path every other triage field already has."""
+
+    def _with_llm(self, monkeypatch, payload: str):
+        async def fake_acompletion(**kwargs):
+            return _llm_response(payload)
+
+        monkeypatch.setattr(triage_module.litellm, "acompletion", fake_acompletion)
+
+    def test_the_llm_pick_is_carried_through(self, monkeypatch):
+        self._with_llm(monkeypatch, '{"family": "booking", "language": "fr", "pick": "cheapest"}')
+        result = _classify("ok je veux booké le moins cher")
+        assert result == Triage("booking", "fr", used_llm=True, pick="cheapest")
+
+    def test_pick_is_independent_of_family(self, monkeypatch):
+        """"montre-moi le moins cher" is a search-family message that still
+        points at one hotel on screen."""
+        self._with_llm(monkeypatch, '{"family": "search", "language": "fr", "pick": "cheapest"}')
+        assert _classify("montre-moi le moins cher").pick == "cheapest"
+
+    def test_an_absent_pick_key_is_none(self, monkeypatch):
+        """Older/looser model output must never be read as a pick."""
+        self._with_llm(monkeypatch, '{"family": "search", "language": "fr"}')
+        assert _classify("un hôtel à Paris").pick == FALLBACK_PICK
+
+    def test_a_value_outside_the_enum_is_rejected(self, monkeypatch):
+        self._with_llm(
+            monkeypatch, '{"family": "search", "language": "fr", "pick": "most_luxurious"}'
+        )
+        assert _classify("le plus luxueux").pick == FALLBACK_PICK
+
+    def test_the_prompt_teaches_the_superlative_vs_comparative_split(self):
+        """The distinction the whole fix rests on has to be IN the prompt, not
+        only in a test's expectations."""
+        instruction = triage_module._TRIAGE_INSTRUCTION
+        assert '"pick"' in instruction
+        for value in PICKS:
+            assert value in instruction
+        assert "cheaper" in instruction and "moins cher" in instruction
+
+    def test_regex_recovery_only_when_the_llm_is_down(self, monkeypatch):
+        async def fake_acompletion(**kwargs):
+            raise TimeoutError("triage timeout")
+
+        monkeypatch.setattr(triage_module.litellm, "acompletion", fake_acompletion)
+        assert _classify("ok je veux booké le moins cher").pick == "cheapest"
+        assert _classify("tu as quelque chose de moins cher ?").pick == FALLBACK_PICK
+
+    @pytest.mark.parametrize(
+        "message,expected",
+        [
+            ("ok je veux booké le moins cher", "cheapest"),
+            ("je prends la moins chère", "cheapest"),
+            ("les moins chers", "cheapest"),
+            ("book the cheapest", "cheapest"),
+            ("le meilleur prix", "cheapest"),
+            # Comparative: a new, lower-budget search — never a pick.
+            ("tu as quelque chose de moins cher ?", FALLBACK_PICK),
+            ("un hôtel moins cher", FALLBACK_PICK),
+            ("cheaper please", FALLBACK_PICK),
+            ("c'est trop cher", FALLBACK_PICK),
+        ],
+    )
+    def test_fallback_pick_separates_superlative_from_comparative(self, message, expected):
+        assert fallback_pick(message) == expected

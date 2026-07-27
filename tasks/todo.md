@@ -1,3 +1,126 @@
+# S-CX5 — panier & remise du lien (session live de Fabien, 2026-07-27) — 10/12 FAIT
+
+Trois symptômes rapportés (2 screenshots, session Paris/fr). Diagnostic par lecture
+de code + contrat MCP_B2C (repo sœur). Design du point 3 : artefact publié
+(3 propositions de carte + comparaison de flow + décisions).
+
+## Constat 1 — « le moins cher » remonte des hôtels PLUS chers
+
+Écran 1 : €54 / €58 / €70. Message « ok je veux booké le moins cher ».
+Écran 2 : €81 / €87 / €112, texte « La moins chère est : ». Trois causes
+indépendantes, chacune suffisante :
+
+- **RC1 — l'exclusion de pagination s'applique à TOUTES les recherches.**
+  `response_bridge.capture_after_tool` passe `shown_hotel_ids` en `exclude_ids`
+  dès qu'il est non vide (L614-620), alors que sa propre docstring le décrit
+  comme le filet de sécurité du « other options ». Les 5 hôtels les moins chers
+  venaient d'être affichés → retirés de la 2e recherche → l'utilisateur reçoit
+  les rangs 6-10 du même classement, mécaniquement plus chers.
+- **RC2 — aucun tri prix n'existe.** `search_offers` n'a aucun paramètre de tri
+  et le classement serveur est `availability .30 / quality .25 / commission .20 /
+  rpmV2 .15 / tier .10` (`relevance-scorer.ts`) — le prix n'y entre pas. « Le moins
+  cher » n'est pas une capacité aujourd'hui, juste une recherche de plus.
+- **RC3 — rien ne vérifie le superlatif.** La synthèse écrit « la moins chère est »
+  sans qu'aucun guard ne confronte l'affirmation aux prix des cartes du tour
+  (contrairement à `amenity_guard` et `link_guard`).
+
+- [x] 1. `capture_after_tool` : n'exclure `shown_hotel_ids` **que** sur un tour de
+      pagination (`search_cursor > 0`) + `reset_search_cursor` sur toute
+      recherche non-pagination (le curseur ne se remettait à 0 que sur un
+      changement de ville). Le test qui verrouillait le comportement bogué a été
+      corrigé, 2 tests de non-régression ajoutés.
+- [x] 2. Intention prix : **le triage LLM comprend** (champ `pick`, enum fermée
+      validée en code, 0 appel LLM en plus — le triage tourne déjà), **le code
+      décide** (`select_cheapest_hotel`, ne lit jamais le message). Regex
+      reléguée en `fallback_pick` (chemin LLM-down uniquement, comme
+      `fallback_family`). Correction d'une récidive — cf. `lessons.md`.
+      Vérifié live : LLM 8/8 sur des formulations où la regex se trompait 4 fois.
+- [ ] 3. **NON FAIT (reste)** — vraie recherche « les moins chers » SANS shortlist
+      (1er tour) : trier la page par prix côté code avant la coupe top-5, avec
+      une formulation honnête (« les moins chers parmi les N trouvés », jamais
+      « le moins cher de Paris » — le pool est une fenêtre de pertinence, pas le
+      marché). `size` : re-probe live obligatoire (falaise à 16, scx3c).
+- [ ] 4. **NON FAIT (reste)** — guard n°14 (prix) : un superlatif prix dans la
+      synthèse vérifié contre les cartes du tour. Risque réduit maintenant que
+      l'ordre est correct, mais pas nul : le modèle peut encore dire « le moins
+      cher de Paris » là où la vérité est « le moins cher des 5 trouvés ».
+
+## Constat 2 — le lien réserve la MAUVAISE offre (P0, non signalé par Fabien)
+
+Carte affichée : €87, 11:00–19:00, **demain**. Lien généré : €90, 17:00–23:00,
+`checkinDate=2026-07-27` (**aujourd'hui**). Cause : `inline_tools._quote_fresh_offer`
+appelle `get_hotel_details` **sans la date de session** (le paramètre `date` existe
+pourtant, cf. `get-hotel-details-tool.ts`) puis prend `offers[0]` — pas l'offre vue.
+
+- [x] 5. Passer `profile.date` à `get_hotel_details` dans le chemin booking
+      (branche `scx5-booking-offer-identity`). **Vérifié live** : `date=` scope
+      bien au jour demandé (3 offres au lieu de 94 sur 32 jours).
+- [x] 6. Identité de l'offre sur la carte (`offer_id` = `ratePlanUuid`,
+      `offer_date`) côté feuille ET inline, portée par `record_search_shortlist`
+      avec prix + créneau affichés. Le devis réutilise l'offre vue **sans
+      round-trip** ; fallback (hôtel hors shortlist) = lookup daté + offre la
+      moins chère **du jour** (jamais le minimum global : un `get_hotel_details`
+      non scopé renvoie ~90 offres sur un mois, probé live).
+- [x] 7. Seam test bout-en-bout `tests/test_leaf_concierge_seam.py` : carte
+      affichée == arguments du lien. **Vérifié qu'il échoue sans le fix**
+      (`2026-07-27 != 2026-07-28`).
+
+## Constat 3 — flow de réservation trop long + lien brut
+
+4 tours pour un hôtel déjà désigné, puis une URL de 250 caractères en texte.
+
+- [x] 8. Ordinal dans une phrase : c'est le triage qui comprend
+      (`pick: "position"` + `pick_position`), le code qui résout
+      (`select_hotel_by_position`). « ok pour la première » ne dead-end plus.
+- [x] 9. `booking_card` émis dans `/v3/chat` (+ frame SSE `booking_card`),
+      construit depuis l'offre dont le lien est issu (carte et lien ne peuvent
+      pas diverger). Nouvelle clé `hotel_picks` pour les boutons.
+- [x] 10. Carte récap (design B) : renderer + CSS dans
+      `web/vendor/static/js/chat`, strings dans les 7 locales `i18n.js`.
+      **Seul endroit d'où part un lien tunnel** côté widget.
+- [x] 11. **Boutons de choix d'hôtel** (remplace l'ancien design C, écarté par
+      Fabien : pas de deep link tunnel depuis le carrousel, cartes de résultat
+      INCHANGÉES). Pills famille `.chip` avec traitement renforcé (13px/700,
+      bordure 1,5px, prix en pastille tabulaire), copie = **nom + prix**,
+      triées du moins cher au plus cher. Affichées quand **ville + date résolues
+      OU intention de réservation** détectée. Layout **L1 choisi par Fabien**.
+      Clic → label en message + `hotel_id` dans le body (résolution par id,
+      jamais par le texte).
+- [x] 12. Tap sur un bouton → **directement la carte B**, aucun tour
+      « vous confirmez ? » (décidé). R9 conservé : le clic sur le CTA de la
+      carte EST la confirmation explicite. Résolution par `hotel_id`, jamais
+      par parsing du label envoyé dans la conversation.
+
+## Vérification (non négociable)
+
+- Probe live AVANT/APRÈS sur le même marché pour tout changement d'argument envoyé
+  à MCP (leçon scx3c : un test offline ne voit pas le serveur renvoyer une autre page).
+- Rejouer la session exacte de Fabien (Paris, demain, « le moins cher »,
+  « ok pour la première ») et comparer.
+- `pytest -q` + ruff + mypy + guardrails verts, smoke e2e.
+
+## Décisions prises par Fabien (2026-07-27)
+
+1. Le clic vaut la confirmation R9 → **oui**, plus de tour « vous confirmez ? ».
+2. Directement la carte B (pas d'étape A).
+3. Layout **L1** (boutons de choix d'abord, chips d'affinage en dessous, muets).
+4. Copie des boutons = **nom + prix**, triés du moins cher au plus cher, **sans
+   badge « le moins cher »** (ce serait une affirmation, donc un guard à écrire).
+5. Déclencheur des boutons = ville + date résolues **OU** intention de réservation.
+6. Clic → message = le label, résolution = `hotel_id`.
+
+## À REVOIR en review (changement d'invariant)
+
+**R9 / guard #12 redéfini** : un lien exige toujours un flag de confirmation
+explicite et code-owned dans l'état du tour, mais ce flag a maintenant 2 formes :
+(a) devis en attente + « oui » (inchangé), (b) une SÉLECTION résolue sur un tour
+classé booking. Rien n'est réservé dans les deux cas — le lien ouvre le tunnel,
+le paiement s'y fait. Docstrings + tests mis à jour ; si tu veux restreindre (b)
+aux seuls clics de bouton (et pas au texte « réserve le moins cher »), c'est une
+condition d'une ligne.
+
+---
+
 # S-G12 — hotel page URLs depuis le slug ES (branche `sg12-hotel-page-urls`, 2026-07-24)
 
 Root cause (diagnostiqué avec Fabien) : AUCUN code ne construit d'URL de page

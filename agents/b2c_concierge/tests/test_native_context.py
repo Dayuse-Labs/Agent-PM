@@ -10,6 +10,7 @@ blob, no defined shape in this repo).
 """
 from __future__ import annotations
 
+from b2c_concierge.facade import _parse_picked_hotel_id  # noqa: F401
 from b2c_concierge.facade import (
     _locale_response_language,
     _native_context_delta,
@@ -189,3 +190,16 @@ class TestNativeContextDelta:
         # any shape (string, list, deeply nested dict) must never raise.
         for value in ("opaque-string", [1, 2, 3], {"anything": {"nested": True}}, None, 42):
             assert _native_context_delta({"native_context": value}, turn_index=0) == {}
+
+
+class TestPickedHotelIntake:
+    """S-CX5: `hotel_id` in the request body — a pick button was clicked."""
+
+    def test_a_body_hotel_id_reaches_the_profile(self):
+        assert _parse_picked_hotel_id({"hotel_id": 22293}) == 22293
+        assert _parse_picked_hotel_id({"hotel_id": "22293"}) == 22293
+
+    def test_garbage_is_ignored_like_every_other_optional_field(self):
+        for bad in ({}, {"hotel_id": None}, {"hotel_id": "abc"}, {"hotel_id": True},
+                    {"hotel_id": [1]}):
+            assert _parse_picked_hotel_id(bad) is None

@@ -64,6 +64,11 @@ export const state = {
     isProcessing: false,
     totalSlides: 0,
     previousResults: [],
+    // S-CX5: the hotel-pick buttons the API offered for the CURRENT screen
+    // (already sorted cheapest-first server-side — never re-sorted here).
+    hotelPicks: [],
+    // The hotel id of a pick button awaiting its request (one-shot).
+    pendingPickHotelId: null,
     activeHotelIds: [],
     selectedFilters: {},
     selectedPlace: null,

@@ -169,6 +169,13 @@ class SessionProfile:
     # (the leaf, `datetime_resolver.resolve_search_date`), so a specific
     # resolution's provenance stays self-contained.
     client_timezone: str | None = None
+    # S-CX5: a hotel the USER clicked (a pick button carries its id in the
+    # request body). One-shot turn state, not a preference: the spine reads it
+    # and clears it within the same turn. It lives on the profile because that
+    # is the only channel between the facade's intake and the spine — and
+    # resolving a click BY ID is the point: the label the button also sends is
+    # for the transcript, never for matching.
+    picked_hotel_id: int | None = None
 
     def to_dict(self) -> dict[str, Any]:
         return {
@@ -206,6 +213,7 @@ class SessionProfile:
             "shown_hotel_ids": list(self.shown_hotel_ids),
             "search_cursor": self.search_cursor,
             "client_timezone": self.client_timezone,
+            "picked_hotel_id": self.picked_hotel_id,
             "schema_version": PROFILE_SCHEMA_VERSION,
         }
 
@@ -783,7 +791,16 @@ def record_search_shortlist(profile: SessionProfile, results: list[dict[str, Any
     S-G1: also accumulates every shown hotel id into `shown_hotel_ids` (the
     pagination exclusion set — schema only here; wiring it into
     `search_offers` args is S-G5). Unlike `last_results`, this NEVER resets on
-    an empty search — only an actual city change does (`apply_profile_delta`)."""
+    an empty search — only an actual city change does (`apply_profile_delta`).
+
+    S-CX5: each entry also keeps the identity of the offer the card was priced
+    on (`offer_id` = the tunnel's `offerId`, `offer_date`, plus the price and
+    slot as displayed) when the card carries them. That is what lets a later
+    booking turn quote the offer the user actually saw instead of re-deriving
+    one from a fresh lookup (prod defect 2026-07-27: a card at €87 /
+    11:00-19:00 / tomorrow produced a link for €90 / 17:00-23:00 / today).
+    Only-when-present, so a card without an offer degrades to today's
+    behaviour rather than storing a null that reads as data."""
     if not results:
         return
     shortlist: list[dict[str, Any]] = []
@@ -794,7 +811,20 @@ def record_search_shortlist(profile: SessionProfile, results: list[dict[str, Any
         if not name:
             continue
         hotel_id = hotel.get("hotel_id", hotel.get("hotelId", hotel.get("id")))
-        shortlist.append({"hotel_id": hotel_id, "name": name})
+        entry: dict[str, Any] = {"hotel_id": hotel_id, "name": name}
+        # The offer identity, plus what a booking card has to STATE about the
+        # hotel (S-CX5) — all of it already on the card the user is looking at,
+        # so the recap can be built later without a second lookup.
+        for key in (
+            "offer_id", "offer_date", "price", "price_eur_cents",
+            "image_urls", "url", "city", "rating", "rating_count", "stars",
+        ):
+            if hotel.get(key) is not None:
+                entry[key] = hotel[key]
+        slot = (hotel.get("timeslots") or [None])[0]
+        if isinstance(slot, dict) and slot.get("start") and slot.get("end"):
+            entry["start_time"], entry["end_time"] = slot["start"], slot["end"]
+        shortlist.append(entry)
     if shortlist:
         profile.last_results = shortlist[:MAX_SHORTLIST]
         _accumulate_shown_hotel_ids(profile, [entry["hotel_id"] for entry in shortlist])
@@ -821,6 +851,21 @@ def advance_search_cursor(profile: SessionProfile) -> None:
     Detecting the "other options" signal and wiring this into a leaf call is
     S-G5 — this function is the deterministic step it will call."""
     profile.search_cursor += 1
+
+
+def reset_search_cursor(profile: SessionProfile) -> None:
+    """Any search that is NOT "show me more of the same" starts at page 1.
+
+    S-CX5: the cursor used to survive every later turn (only a city change
+    cleared it), and the leaf excludes already-shown hotels whenever it is
+    non-zero — so one "other options" turn permanently hid the hotels the user
+    had already seen, including from a REFINED search. That is how "book the
+    cheapest" answered with pricier hotels: the five cheapest had just been
+    displayed, so they were filtered out of the very search meant to rank
+    them (prod session 2026-07-27). A new constraint means a new result set;
+    `shown_hotel_ids` keeps accumulating for the pagination safety net, it is
+    simply not consulted at page 1."""
+    profile.search_cursor = 0
 
 
 def resolve_hotel_reference(
@@ -917,6 +962,54 @@ def resolve_shortlist_ordinal(
     if position is None or not 1 <= position <= len(last_results):
         return None
     return last_results[position - 1]
+
+
+def select_hotel_by_position(
+    last_results: list[dict[str, Any]] | None, position: int | None
+) -> dict[str, Any] | None:
+    """The 1-based `position`-th entry of the on-screen shortlist, or None when
+    it is out of range.
+
+    S-CX5, the decision half of a positional pick. `resolve_shortlist_ordinal`
+    stays for the LLM-down path (and for a bare "2" typed into the composer);
+    this one takes the number triage already extracted, so "ok pour la
+    première" — a sentence the bare-ordinal matcher rejects, which dead-ended
+    into "Quel hôtel ?" in the prod session — resolves like any other pick."""
+    if position is None or not last_results:
+        return None
+    if not 1 <= position <= len(last_results):
+        return None
+    return last_results[position - 1]
+
+
+def select_cheapest_hotel(
+    last_results: list[dict[str, Any]] | None,
+) -> dict[str, Any] | None:
+    """The cheapest entry of the on-screen shortlist, or None when nothing on
+    screen carries a price.
+
+    S-CX5 — the DECISION half of "le moins cher": triage's `pick` field carries
+    whether the user asked for it (a comprehension step, owned by the LLM that
+    already runs every turn — Fabien, 2026-07-20: don't push determinism into
+    language understanding); WHICH hotel that is stays pure code over the
+    prices the user is actually looking at. This function never reads the
+    message.
+
+    It has to exist because MCP has no price ordering to delegate to:
+    `search_offers` takes no sort parameter and the server ranks on
+    availability/quality/commission/rpm/tier. Prod session 2026-07-27: "ok je
+    veux booké le moins cher" ran another relevance search instead, and
+    answered with hotels pricier than the ones already on screen.
+
+    Entries without a numeric price are skipped rather than guessed at."""
+    priced = [
+        hotel
+        for hotel in last_results or []
+        if isinstance(hotel, dict) and isinstance(hotel.get("price_eur_cents"), (int, float))
+    ]
+    if not priced:
+        return None
+    return min(priced, key=lambda hotel: hotel["price_eur_cents"])
 
 
 # --- Booking confirmation (R9, guard #12) -----------------------------------

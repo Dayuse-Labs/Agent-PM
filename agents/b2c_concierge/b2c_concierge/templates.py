@@ -94,8 +94,15 @@ def booking_offer_summary_response(
 
 
 def booking_link_response(*, hotel_name: str, url: str | None, language: str) -> str:
-    """R9 (guard #12), step 2: the tracked link, only ever reached after an
-    explicit confirmation turn set `pending_booking` and matched it."""
+    """R9 (guard #12), the authorized-link turn.
+
+    S-CX5 considered dropping the URL from the text whenever a `booking_card`
+    ships alongside it, and REVERTED that: the card rides an internal marker
+    the facade turns into a payload key, so an A2A consumer (the eval harness,
+    smoke_e2e) only ever sees this text — stripping the URL there made the
+    answer useless off the widget path. It costs nothing to keep: the widget
+    already removes raw URLs from the prose when a card is present
+    (handlers/send.js), so the button is the only link the user sees."""
     if not url:
         return booking_needs_selection_response(None, None, language)
     if language == "fr":

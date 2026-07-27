@@ -211,6 +211,20 @@ def _format_price_eur_cents(cents: Any) -> str | None:
         return None
 
 
+def _price_eur_cents(cents: Any) -> int | None:
+    """S-CX3a: the same `priceEuro`, kept NUMERIC on the card — mirrors
+    hotel_search_agent.response_bridge._price_eur_cents (no cross-package
+    import, B3: each side owns its own tiny formatting helper). Until now the
+    `€X.XX` display string was the only survivor of normalization, so nothing
+    downstream could compare a price to the client's budget."""
+    if cents is None:
+        return None
+    try:
+        return round(float(cents))
+    except (TypeError, ValueError):
+        return None
+
+
 def _iso_currency(value: Any) -> str | None:
     """ISO 4217 alpha-3 currency code or None — mirrors
     hotel_search_agent.response_bridge._iso_currency (no cross-package
@@ -244,6 +258,11 @@ def _normalize_hotel_for_display(hotel: dict[str, Any], best_offer: dict[str, An
         "city": hotel.get("cityName") or hotel.get("city"),
         "country": hotel.get("countryName") or hotel.get("country"),
         "rating": hotel.get("globalAverageRating"),
+        # S-CX3a: `totalReview` rides the shared MCP identity block, so the
+        # details/compare path carries the review count too (see the leaf's
+        # normalize_hotel) — a card must not describe quality the same way
+        # whether the average rests on 2 reviews or 400.
+        "rating_count": hotel.get("totalReview"),
         "stars": hotel.get("starRating"),
         "amenities": _flatten_amenities(hotel.get("amenities")),
     }
@@ -264,22 +283,39 @@ def _normalize_hotel_for_display(hotel: dict[str, Any], best_offer: dict[str, An
         normalized["url"] = url
     if best_offer:
         normalized["price"] = _format_price_eur_cents(best_offer.get("priceEuro"))
+        normalized["price_eur_cents"] = _price_eur_cents(best_offer.get("priceEuro"))
+        # S-CX5: the offer's identity travels with its price (same rule and
+        # same keys as the search leaf's `normalize_hotel`) so the booking step
+        # can reuse THIS offer rather than re-deriving one.
+        offer_id = best_offer.get("ratePlanUuid")
+        if isinstance(offer_id, str) and offer_id.strip():
+            normalized["offer_id"] = offer_id.strip()
+        offer_date = best_offer.get("availabilityDate")
+        if isinstance(offer_date, str) and offer_date.strip():
+            normalized["offer_date"] = offer_date.strip()
     return normalized
 
 
 # --- Public inline tools ------------------------------------------------------------------------
 
 
-async def get_hotel_details(hotel_reference: str, profile: SessionProfile) -> dict[str, Any]:
+async def get_hotel_details(
+    hotel_reference: str, profile: SessionProfile, picked_hotel_id: int | None = None
+) -> dict[str, Any]:
     """Real MCP_B2C `get_hotel_details`, hotel resolved via the named-hotel
-    lookup guard. Returns `{"ok": True, "hotel": {...normalized...}}` or
-    `{"ok": False, "error": ...}` — never raises, never invents."""
-    if not (hotel_reference or "").strip():
+    lookup guard — or taken straight from `picked_hotel_id` when the spine
+    already resolved WHICH hotel (S-CX5: "montre-moi le moins cher" points at
+    one of the cards on screen, and no amount of name matching would find a
+    hotel from those words). Returns `{"ok": True, "hotel": {...normalized...}}`
+    or `{"ok": False, "error": ...}` — never raises, never invents."""
+    if picked_hotel_id is None and not (hotel_reference or "").strip():
         return {"ok": False, "error": "no hotel reference in the message"}
     try:
         async with asyncio.timeout(_INLINE_MCP_TIMEOUT):
             async with _mcp_session() as session:
-                hotel_id, _ = await _resolve_hotel_id(session, hotel_reference, profile)
+                hotel_id: int | None = picked_hotel_id
+                if hotel_id is None:
+                    hotel_id, _ = await _resolve_hotel_id(session, hotel_reference, profile)
                 if hotel_id is None:
                     return {"ok": False, "error": "hotel not found"}
                 result = await _call_tool(session, "get_hotel_details", {"hotelId": hotel_id})
@@ -355,35 +391,172 @@ async def _confirm_pending_offer(pending: dict[str, Any]) -> dict[str, Any]:
                 if not result["ok"]:
                     return result
                 link = result["data"].get("link") or {}
-                return {"ok": True, "confirmed": True, "url": link.get("url"), "hotel_name": pending.get("hotel_name")}
+                # S-CX5: the offer's own facts ride along so the caller can
+                # build a card that STATES what the link books (date, slot,
+                # price) instead of pasting a bare URL.
+                return {
+                    "ok": True,
+                    "confirmed": True,
+                    "url": link.get("url"),
+                    "hotel_id": pending.get("hotel_id"),
+                    "hotel_name": pending.get("hotel_name"),
+                    "date": pending.get("date"),
+                    "start_time": pending.get("start_time"),
+                    "end_time": pending.get("end_time"),
+                    "price": pending.get("price"),
+                    "image_url": pending.get("image_url"),
+                    "hotel_url": pending.get("hotel_url"),
+                    "city": pending.get("city"),
+                    "rating": pending.get("rating"),
+                    "rating_count": pending.get("rating_count"),
+                    "stars": pending.get("stars"),
+                }
     except Exception as exc:  # noqa: BLE001
         return {"ok": False, "error": f"generate_booking_link failed: {type(exc).__name__}"}
 
 
-async def _quote_fresh_offer(hotel_reference: str, profile: SessionProfile) -> dict[str, Any]:
+def _best_offer(offers: list[Any], date: str | None = None) -> dict[str, Any] | None:
+    """The cheapest priced offer ON ONE DAY — the session's `date` when known,
+    otherwise the soonest day this hotel is bookable.
+
+    Two live-probed facts shape this (MCP_B2C staging, 2026-07-27):
+      - `get_hotel_details` without a date returns EVERY upcoming offer (94 of
+        them across 32 days for hotel 22293), so a plain global minimum would
+        cheerfully quote a cheaper day three weeks out that nobody asked for —
+        hence the one-day restriction, always;
+      - taking `offers[0]` instead, as this did before, quotes the SOONEST
+        bookable day whatever day the user asked for: probing a Paris search
+        for J+3, all 5 hotels' `offers[0]` were J+1 offers, and one of them was
+        also a different rate plan, slot and price (€80 17:00-22:00 vs the
+        card's €70 10:00-18:00). That is the prod defect of 2026-07-27.
+    Within a day, "cheapest" is the same rule the card itself applies
+    (`response_bridge._best_offer`), mirrored rather than imported (B3: each
+    side owns its tiny helpers, like `_hhmm` above)."""
+    pool = [o for o in offers if isinstance(o, dict)]
+    if not pool:
+        return None
+    target = date or min(
+        (o["availabilityDate"] for o in pool if o.get("availabilityDate")), default=None
+    )
+    if target:
+        pool = [o for o in pool if o.get("availabilityDate") == target] or pool
+    priced = [o for o in pool if o.get("priceEuro") is not None]
+    return min(priced, key=lambda o: o["priceEuro"]) if priced else pool[0]
+
+
+def _shortlist_entry(hotel_id: int, profile: SessionProfile) -> dict[str, Any] | None:
+    """The on-screen shortlist entry for `hotel_id`, or None when that hotel
+    isn't on screen."""
+    for entry in profile.last_results or []:
+        if not isinstance(entry, dict):
+            continue
+        try:
+            if int(entry.get("hotel_id")) == hotel_id:  # type: ignore[arg-type]
+                return entry
+        except (TypeError, ValueError):
+            continue  # an id we can't compare is not a match, never a crash
+    return None
+
+
+def _shortlist_offer(hotel_id: int, profile: SessionProfile) -> dict[str, Any] | None:
+    """The stored offer identity for `hotel_id` if the on-screen shortlist
+    carries one (`record_search_shortlist`, S-CX5) — the offer the user is
+    actually looking at. None when the hotel isn't on screen or its card had
+    no offer, which sends the caller to a fresh, date-scoped lookup."""
+    entry = _shortlist_entry(hotel_id, profile)
+    if entry and entry.get("offer_id") and entry.get("offer_date"):
+        return entry
+    return None
+
+
+async def _quote_fresh_offer(
+    hotel_reference: str,
+    profile: SessionProfile,
+    picked_hotel_id: int | None = None,
+    authorize_link: bool = False,
+) -> dict[str, Any]:
     """The confirmed=false branch: resolves the hotel from `hotel_reference`
     (named-hotel lookup guard, item 4) and ALWAYS quotes confirmed=false,
     recording the offer identity in `profile.pending_booking` for a later
-    confirmation turn to reuse verbatim."""
-    if not (hotel_reference or "").strip():
+    confirmation turn to reuse verbatim.
+
+    `picked_hotel_id` short-circuits that resolution: the spine already knows
+    WHICH hotel (S-CX5 — triage understood "le moins cher", `agent.py` picked
+    the cheapest of the shortlist in code) and hands the id over rather than a
+    phrase to re-interpret. Feeding "le moins cher" to `find_hotel_by_name`
+    would fuzzy-match a hotel actually named after those words, or nothing.
+
+    S-CX5 — WHICH offer gets quoted, in order:
+      1. the one the shortlist card was priced on (`_shortlist_offer`), reused
+         verbatim with no extra MCP round-trip: what the user saw is what they
+         book, by construction;
+      2. otherwise a fresh `get_hotel_details` **scoped to the session's date**
+         (`profile.date`), taking the cheapest offer — the same choice the card
+         itself makes.
+    Before this, the lookup was unscoped and took `offers[0]`: a card priced
+    €87 for 11:00-19:00 tomorrow quoted €90 for 17:00-23:00 today, and the
+    tunnel link carried that wrong date (prod session 2026-07-27)."""
+    if picked_hotel_id is None and not (hotel_reference or "").strip():
         return {"ok": False, "error": "no hotel reference in the message"}
     try:
         async with asyncio.timeout(_INLINE_MCP_TIMEOUT):
             async with _mcp_session() as session:
-                hotel_id, hotel_name = await _resolve_hotel_id(session, hotel_reference, profile)
+                hotel_id: int | None
+                hotel_name: str | None
+                if picked_hotel_id is not None:
+                    hotel_id = picked_hotel_id
+                    entry = _shortlist_entry(picked_hotel_id, profile)
+                    hotel_name = str(entry.get("name")) if entry else None
+                else:
+                    hotel_id, hotel_name = await _resolve_hotel_id(
+                        session, hotel_reference, profile
+                    )
                 if hotel_id is None:
                     return {"ok": False, "error": "hotel not found"}
-                details = await _call_tool(session, "get_hotel_details", {"hotelId": hotel_id})
-                if not details["ok"]:
-                    return details
-                offers = details["data"].get("offers") or []
-                if not offers:
-                    return {"ok": False, "error": "no bookable offer for this hotel"}
-                offer = offers[0]
+                shown = _shortlist_offer(hotel_id, profile)
+                if shown is not None:
+                    offer = {
+                        "ratePlanUuid": shown["offer_id"],
+                        "availabilityDate": shown["offer_date"],
+                    }
+                    quoted_price = shown.get("price")
+                    start_time, end_time = shown.get("start_time"), shown.get("end_time")
+                else:
+                    args_details: dict[str, Any] = {"hotelId": hotel_id}
+                    if profile.date:
+                        args_details["date"] = profile.date
+                    details = await _call_tool(session, "get_hotel_details", args_details)
+                    if not details["ok"]:
+                        return details
+                    offers = details["data"].get("offers") or []
+                    best = _best_offer(offers, profile.date)
+                    if best is None:
+                        return {"ok": False, "error": "no bookable offer for this hotel"}
+                    offer = best
+                    quoted_price = _format_price_eur_cents(best.get("priceEuro"))
+                    start_time = _hhmm(best.get("startHour"), best.get("startMinute"))
+                    end_time = _hhmm(best.get("endHour"), best.get("endMinute"))
+                entry = _shortlist_entry(hotel_id, profile) or {}
+                identity = {
+                    "hotel_id": hotel_id,
+                    "hotel_name": hotel_name,
+                    "date": offer["availabilityDate"],
+                    "rate_plan_uuid": offer.get("ratePlanUuid"),
+                    "rate_plan_id": offer.get("ratePlanId"),
+                    "start_time": start_time,
+                    "end_time": end_time,
+                    "price": quoted_price,
+                    "image_url": (entry.get("image_urls") or [None])[0],
+                    "hotel_url": entry.get("url"),
+                    "city": entry.get("city"),
+                    "rating": entry.get("rating"),
+                    "rating_count": entry.get("rating_count"),
+                    "stars": entry.get("stars"),
+                }
                 args: dict[str, Any] = {
                     "hotelId": hotel_id,
                     "date": offer["availabilityDate"],
-                    "confirmed": False,
+                    "confirmed": authorize_link,
                 }
                 if offer.get("ratePlanUuid"):
                     args["ratePlanUuid"] = offer["ratePlanUuid"]
@@ -392,48 +565,59 @@ async def _quote_fresh_offer(hotel_reference: str, profile: SessionProfile) -> d
                 result = await _call_tool(session, "generate_booking_link", args)
                 if not result["ok"]:
                     return result
-                profile.pending_booking = {
-                    "hotel_id": hotel_id,
-                    "hotel_name": hotel_name,
-                    "date": offer["availabilityDate"],
-                    "rate_plan_uuid": offer.get("ratePlanUuid"),
-                    "rate_plan_id": offer.get("ratePlanId"),
-                }
-                return {
-                    "ok": True,
-                    "confirmed": False,
-                    "hotel_name": hotel_name,
-                    "date": offer["availabilityDate"],
-                    "start_time": _hhmm(offer.get("startHour"), offer.get("startMinute")),
-                    "end_time": _hhmm(offer.get("endHour"), offer.get("endMinute")),
-                    "price": _format_price_eur_cents(offer.get("priceEuro")),
-                }
+                if authorize_link:
+                    # Nothing left to confirm in a later turn: the card the
+                    # caller is about to show carries the link itself.
+                    profile.pending_booking = None
+                    link = result["data"].get("link") or {}
+                    return {**identity, "ok": True, "confirmed": True, "url": link.get("url")}
+                profile.pending_booking = identity
+                return {**identity, "ok": True, "confirmed": False}
     except Exception as exc:  # noqa: BLE001
         return {"ok": False, "error": f"generate_booking_link failed: {type(exc).__name__}"}
 
 
 async def generate_booking_link(
-    hotel_reference: str, profile: SessionProfile, user_confirmed: bool
+    hotel_reference: str,
+    profile: SessionProfile,
+    user_confirmed: bool,
+    picked_hotel_id: int | None = None,
 ) -> dict[str, Any]:
     """R9 / guard #12. `generate_booking_link` is stateless server-side (a
     bare `confirmed=true` call returns a real link with no memory of any
-    prior round-trip — verified against MCP_B2C staging) so the confirmation
-    guarantee lives entirely HERE: MCP is only ever called with
-    `confirmed=true` when `profile.pending_booking` is already set — never
-    from whatever `user_confirmed` alone asserts.
+    prior round-trip — verified against MCP_B2C staging) so the authorization
+    lives entirely HERE, in code. It is NEVER derived from what the caller
+    asserts, and never from an LLM's judgment.
+
+    S-CX5 — what authorizes a link, decided with Fabien (2026-07-27). The
+    invariant is unchanged: a link needs an explicit, code-owned confirmation
+    flag in the turn state. What SATISFIES it now has two forms:
+      a. `profile.pending_booking` + `user_confirmed` — the original flow: a
+         quote was shown last turn and this turn is a bare "yes".
+      b. `picked_hotel_id` — the spine resolved WHICH hotel from an explicit
+         user selection (a pick button, or a message triage read as pointing
+         at one hotel on screen) on a turn already classified as booking. The
+         reply is a card STATING the hotel, day, slot and price next to the
+         button that opens the tunnel, so the user still sees exactly what
+         they are about to book — strictly more than a typed "yes" under a
+         sentence showed them. This removes the "do you confirm?" turn.
+      Nothing is booked by either: the link opens the Dayuse tunnel, where
+      payment still happens.
 
     Flow:
-      1. No pending offer (or `user_confirmed` False) -> ALWAYS quotes
+      1. `picked_hotel_id` set -> resolve the offer and return it WITH the
+         link (`authorize_link=True`), leaving no pending booking behind.
+      2. No pending offer (or `user_confirmed` False) -> quotes
          confirmed=false (`_quote_fresh_offer`), resolving the hotel from
-         `hotel_reference` — a fresh request. Records the offer identity in
-         `profile.pending_booking` so a later bare "yes" can confirm THIS
-         exact offer without re-resolving anything from that "yes" itself.
-      2. A pending offer exists AND `user_confirmed` -> confirms it
+         `hotel_reference`. Records the offer identity in
+         `profile.pending_booking` so a later bare "yes" confirms THAT exact
+         offer without re-resolving anything from the "yes" itself.
+      3. A pending offer exists AND `user_confirmed` -> confirms it
          (`_confirm_pending_offer`), reusing the stored identity verbatim —
-         UNLESS `hotel_reference` itself names a DIFFERENT hotel already on
-         the shortlist (defense in depth: a caller asserting confirmed=true
-         while explicitly naming another hotel must not confirm the stale
-         one — it re-quotes the newly named hotel instead, confirmed=false).
+         UNLESS `hotel_reference` names, or `picked_hotel_id` is, a DIFFERENT
+         hotel (defense in depth: a caller asserting confirmed=true while
+         pointing at another hotel must not confirm the stale one — it
+         re-resolves the newly named one instead).
     """
     pending = profile.pending_booking
     if user_confirmed and pending is not None:
@@ -442,7 +626,7 @@ async def generate_booking_link(
             named_hit is not None
             and named_hit.get("hotel_id") is not None
             and int(named_hit["hotel_id"]) != pending.get("hotel_id")
-        )
+        ) or (picked_hotel_id is not None and picked_hotel_id != pending.get("hotel_id"))
         if not mismatch:
             profile.pending_booking = None
             result = await _confirm_pending_offer(pending)
@@ -450,4 +634,6 @@ async def generate_booking_link(
                 profile.pending_booking = pending  # confirmation failed: keep the offer quotable
             return result
 
-    return await _quote_fresh_offer(hotel_reference, profile)
+    return await _quote_fresh_offer(
+        hotel_reference, profile, picked_hotel_id, authorize_link=picked_hotel_id is not None
+    )

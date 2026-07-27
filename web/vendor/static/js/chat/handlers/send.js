@@ -323,6 +323,14 @@ async function makeApiCall(isFollowUp, message, turnId) {
             if (state.selectedPlace) {
                 requestBody.selected_place = state.selectedPlace;
             }
+            // S-CX5: a hotel-pick BUTTON was clicked. The message carries its
+            // label so the transcript reads naturally; this id is what the
+            // backend actually resolves the hotel from (two hotels of the same
+            // chain in one shortlist would make label matching a coin flip).
+            // One-shot: cleared as soon as it has been sent.
+            if (state.pendingPickHotelId) {
+                requestBody.hotel_id = state.pendingPickHotelId;
+            }
             // Forward the app's logged-in context (recent bookings, favourites,
             // geolocation) so the backend can personalize ranking + defaults.
             const nativeCtx = getNativeContext();
@@ -498,6 +506,11 @@ export async function sendMessage() {
         loadingMessage.remove();
 
         const rawData = await response.json();
+        // S-CX5: this turn's pick buttons, already sorted cheapest-first by the
+        // backend (empty until the request is qualified enough to book). Read
+        // BEFORE any renderer runs, since addFollowUpMessage draws from it.
+        state.hotelPicks = Array.isArray(rawData.hotel_picks) ? rawData.hotel_picks : [];
+        state.pendingPickHotelId = null;  // consumed by the request just answered
         // Normalize v3/chat response to expected format
         const data = normalizeV3Response(rawData);
         applyMarketFromResponse(data);

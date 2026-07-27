@@ -37,6 +37,7 @@ from __future__ import annotations
 
 import json
 import logging
+import math
 import time
 from typing import Any
 
@@ -141,6 +142,16 @@ def _coord(value: Any) -> float | None:
     except (TypeError, ValueError):
         return None
     return f if -180.0 <= f <= 180.0 else None
+
+
+def _finite_float(value: Any) -> float | None:
+    """A finite float, else None — deliberately NOT `_coord` (whose ±180 clamp
+    is a coordinate invariant, and would silently swallow a legitimate score)."""
+    try:
+        f = float(value)
+    except (TypeError, ValueError):
+        return None
+    return f if math.isfinite(f) else None
 
 
 def _iso_alpha2(value: Any) -> str | None:
@@ -261,6 +272,20 @@ def _format_price_eur_cents(cents: Any) -> str | None:
         return None
     try:
         return f"€{float(cents) / 100:.2f}"
+    except (TypeError, ValueError):
+        return None
+
+
+def _price_eur_cents(cents: Any) -> int | None:
+    """S-CX3a: the same `priceEuro`, kept NUMERIC on the card. Until now the
+    `€X.XX` display string was the ONLY survivor of normalization (audit CX
+    2026-07-24, gap G-b2), so nothing downstream could compare a price to the
+    client's budget — which every step of the price-floor chain needs
+    (budget-proximity re-rank S-CX3b, over-budget gap S-CX3c)."""
+    if cents is None:
+        return None
+    try:
+        return round(float(cents))
     except (TypeError, ValueError):
         return None
 
@@ -421,8 +446,28 @@ def normalize_hotel(
         "country": hotel.get("countryName") or hotel.get("country"),
         "stars": hotel.get("starRating"),
         "rating": hotel.get("globalAverageRating"),
+        # S-CX3a: the review count behind that average — MCP_B2C sends it as
+        # `totalReview` on the identity block every tool output shares
+        # (`HotelIdentityDto`, so search_offers AND get_hotel_details carry it).
+        # Needed to shrink a 5.0-from-2-reviews toward the market prior before
+        # any quality floor trusts it (S-CX3b); raw pass-through like `rating`.
+        "rating_count": hotel.get("totalReview"),
         "amenities": _flatten_amenities(hotel.get("amenities")),
     }
+    # S-CX3a: `score` — MCP_B2C's OWN composite relevance score, the order
+    # `results` already arrives in (server-side `rankHotels`, same weighting as
+    # the ES function_score). Probed live 2026-07-27: present on every
+    # search_offers hotel, absent from get_hotel_details (search-only).
+    # It is NOT a pure quality signal — SCORING_WEIGHTS is availability .30 /
+    # quality .25 / commission .20 / rpmV2 .15 / tier .10, so 35 % is already
+    # commercial. Kept because any re-rank (S-CX3b) must be expressed as a
+    # bounded modifier OF this baseline rather than a rival ranking invented
+    # from a 2-10-review average; a consumer of it owes the double-counting
+    # question (a budget-proximity term multiplied onto a score that already
+    # contains commission monetizes the same click twice).
+    score = _finite_float(hotel.get("score"))
+    if score is not None:
+        card["relevance_score"] = score
     # Coordinates the MCP returns per hotel (probed live 2026-07-23: `lat`/`lon`).
     # Kept on the card so the shortlist becomes verifiable (A8-a) — distance_km is
     # stamped from the search anchor in capture_after_tool.
@@ -467,11 +512,29 @@ def normalize_hotel(
         price = _format_price_eur_cents(best.get("priceEuro"))
         if price:
             card["price"] = price
+        cents = _price_eur_cents(best.get("priceEuro"))
+        if cents is not None:
+            card["price_eur_cents"] = cents
         start, end = _hhmm(best.get("startHour"), best.get("startMinute")), _hhmm(
             best.get("endHour"), best.get("endMinute")
         )
         if start and end:
             card["timeslots"] = [{"start": start, "end": end}]
+        # S-CX5: the IDENTITY of the offer this card prices — `ratePlanUuid` is
+        # the booking tunnel's own `offerId` (MCP_B2C generate_booking_link
+        # schema) and `availabilityDate` the day it is bookable on. Both come
+        # from the SAME `best` dict as the price and the time slot above, so a
+        # later booking step can reuse this exact offer instead of re-deriving
+        # one from a fresh lookup — the prod defect of 2026-07-27, where a card
+        # priced at €87 for 11:00-19:00 tomorrow produced a link for €90 /
+        # 17:00-23:00 / today. Only-when-present: a card without them honestly
+        # has no reusable offer, and the booking path falls back to a lookup.
+        offer_id = best.get("ratePlanUuid")
+        if isinstance(offer_id, str) and offer_id.strip():
+            card["offer_id"] = offer_id.strip()
+        offer_date = best.get("availabilityDate")
+        if isinstance(offer_date, str) and offer_date.strip():
+            card["offer_date"] = offer_date.strip()
     return card
 
 
@@ -546,7 +609,7 @@ def inject_pagination_offset(tool: Any, args: dict[str, Any], tool_context: Any)
     message to extract; whether this is page 2 lives entirely in
     `profile_in.search_cursor`, S-G1's `advance_search_cursor`). Live-probed
     2026-07-23 against MCP_B2C staging: `search_offers` accepts `from`
-    (offset, default 0) / `size` (page size, default 10, max 50) and an
+    (offset, default 0) / `size` (page size, default 10) and an
     offset advanced by a full page returns genuinely disjoint hotel ids —
     real server-side pagination, no `excludeHotelIds`-style param exists
     (confirmed: an unrecognized key is a hard schema-validation error). So the
@@ -554,7 +617,16 @@ def inject_pagination_offset(tool: Any, args: dict[str, Any], tool_context: Any)
     (normalize_search_results, above) stays a client-side safety net for
     misaligned page boundaries. Any `from` the model itself supplied is
     unconditionally overwritten — same doctrine as `hotelEquipmentIds`: the
-    LLM never owns a filter/paging value."""
+    LLM never owns a filter/paging value.
+
+    ⚠️ `size` is NOT safely raisable (re-probed live 2026-07-27, correcting the
+    "max 50" this docstring used to claim): `size` ≥ 16 comes back as an EMPTY
+    structuredContent — no `results`, no `total`, and NO `isError`. A caller
+    that raised the page size would therefore read a silent ZERO and report
+    "no offers" on a market with 521 of them: the false-scarcity failure mode
+    of audit CX F2, from a different cause. Nothing sets `size` today (server
+    default 10, which is 2× MAX_RESULTS) — keep it that way unless the cliff
+    is fixed server-side."""
     if getattr(tool, "name", "") != "search_offers":
         return None
     profile_in = read_profile_in(tool_context)
@@ -629,8 +701,22 @@ def capture_after_tool(
         # S-G5 pagination safety net: hotels already shown across earlier turns
         # (accumulated at the profile, S-G1) are filtered out before the top-5
         # cut. A named lookup (find_hotel_by_name) never excludes — see below.
-        shown = read_profile_in(tool_context).get("shown_hotel_ids")
-        if isinstance(shown, list) and shown:
+        #
+        # S-CX5: ONLY on a pagination turn (`search_cursor > 0`). This filter
+        # exists to stop page 2 repeating page 1 — applying it to every search
+        # made a refined search hide the hotels the user had just been shown,
+        # which is how "book the cheapest" answered with pricier hotels: the
+        # five cheapest were on screen, so the search meant to rank them
+        # excluded them and returned ranks 6-10 (prod session 2026-07-27).
+        # The concierge resets the cursor on any non-pagination search
+        # (`profile.reset_search_cursor`), so page 1 always sees the full pool.
+        profile_in = read_profile_in(tool_context)
+        shown = profile_in.get("shown_hotel_ids")
+        try:
+            paginating = int(profile_in.get("search_cursor") or 0) > 0
+        except (TypeError, ValueError):
+            paginating = False
+        if paginating and isinstance(shown, list) and shown:
             exclude_ids = set(shown)
         # S-G6 (A4-c): a genuine two-sided exact window (stashed by
         # datetime_resolver.resolve_search_timeslot before MCP only got the

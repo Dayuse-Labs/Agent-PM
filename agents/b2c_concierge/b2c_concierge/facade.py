@@ -67,6 +67,8 @@ CONTRACT_KEYS: frozenset[str] = frozenset(
         "response",
         "context",
         "hotels",
+        "hotel_picks",
+        "booking_card",
         "suggestions",
         "session_id",
         "conversation_id",
@@ -276,6 +278,8 @@ def _parse_event(event: Any) -> tuple[str, Any] | None:
             return None
         if payload.get("event") == "hotels":
             return ("hotels", payload)
+        if payload.get("event") == "booking":
+            return ("booking", payload)
         return ("progress", None)
     if event.partial:
         return ("token", text)
@@ -419,6 +423,37 @@ def _json_safe(payload: dict[str, Any]) -> dict[str, Any]:
     )
 
 
+def build_hotel_picks(profile: SessionProfile) -> list[dict[str, Any]]:
+    """The hotel-pick buttons (S-CX5, Fabien 2026-07-27): one entry per hotel on
+    screen the user can choose, CHEAPEST FIRST.
+
+    Why the backend owns this rather than the widget deriving it from `hotels`:
+    both product rules live here, where the session state is. WHEN they may
+    appear — the request must be qualified enough for a pick to mean something,
+    i.e. a destination AND a date are resolved (a shortlist with no date can't
+    be booked). And in WHICH ORDER — sorted by price, so "the cheapest" is
+    answerable by eye and the first button is always it. Deliberately NO
+    "cheapest" badge: that would be a claim, and claims need a guard.
+
+    Empty list when nothing qualifies — the widget then renders no pick row at
+    all rather than an empty one. Entries without a price sort last (they are
+    still pickable; they just can't be compared)."""
+    if not (profile.city and profile.date):
+        return []
+    picks = [
+        {
+            "hotel_id": hotel.get("hotel_id"),
+            "name": hotel.get("name"),
+            "price": hotel.get("price"),
+            "price_eur_cents": hotel.get("price_eur_cents"),
+        }
+        for hotel in profile.last_results or []
+        if isinstance(hotel, dict) and hotel.get("hotel_id") is not None and hotel.get("name")
+    ]
+    picks.sort(key=lambda p: (p["price_eur_cents"] is None, p["price_eur_cents"] or 0))
+    return picks
+
+
 def build_chat_payload(
     *,
     session_id: str,
@@ -428,6 +463,7 @@ def build_chat_payload(
     language: str,
     turn_id: str,
     requires_clarification: bool = False,
+    booking_card: dict | None = None,
 ) -> dict[str, Any]:
     """Assemble the iso-contract v3 payload (pure). Mapping notes:
     - message/response/context: the same synthesized text (response/context are
@@ -452,6 +488,11 @@ def build_chat_payload(
         "response": final_text,
         "context": final_text,
         "hotels": hotels_norm,
+        # S-CX5: the pick buttons (cheapest first) and, on the turn a hotel was
+        # chosen, the offer card carrying the tunnel link. Both absent-by-empty
+        # rather than absent-by-key: the contract shape stays stable.
+        "hotel_picks": build_hotel_picks(profile),
+        "booking_card": booking_card,
         "suggestions": list(profile.last_suggestions or []),
         "session_id": session_id,
         "conversation_id": session_id,
@@ -474,6 +515,7 @@ def build_chat_payload(
 async def _finalize(
     *, session_id: str, message: str, final_text: str, hotels: list | None,
     is_synthetic: bool, turn_index: int, requires_clarification: bool = False,
+    booking_card: dict | None = None,
 ) -> dict[str, Any]:
     """Build the payload from the post-turn profile and persist the conversation
     log (best-effort). Returns the payload."""
@@ -484,7 +526,7 @@ async def _finalize(
     payload = build_chat_payload(
         session_id=session_id, final_text=final_text, hotels=hotels,
         profile=profile, language=language, turn_id=uuid.uuid4().hex,
-        requires_clarification=requires_clarification,
+        requires_clarification=requires_clarification, booking_card=booking_card,
     )
     row = build_conversation_log_row(
         session_id=session_id, turn_index=turn_index, user_message=message,
@@ -494,6 +536,22 @@ async def _finalize(
     )
     await conversation_log.persist_conversation_log(row)
     return payload
+
+
+def _parse_picked_hotel_id(body: dict[str, Any]) -> int | None:
+    """S-CX5: `hotel_id` in the request body — a pick BUTTON was clicked. The
+    button also sends its label as the user's message (so the transcript reads
+    naturally), but the hotel is resolved from THIS id, never by matching that
+    text: two hotels of the same chain in one shortlist would otherwise be a
+    coin flip. Anything unparsable is ignored, exactly like the other
+    native-context fields."""
+    raw = body.get("hotel_id")
+    if isinstance(raw, bool) or raw is None:
+        return None
+    try:
+        return int(raw)
+    except (TypeError, ValueError):
+        return None
 
 
 async def _read_body(request: Request) -> dict[str, Any]:
@@ -640,11 +698,16 @@ async def _apply_native_context(session_id: str, body: dict[str, Any], turn_inde
     S-G7; this only makes the signal reach the profile). Zero Redis round-
     trip when the request carries none of these optional fields."""
     delta = _native_context_delta(body, turn_index)
-    if not delta:
+    picked = _parse_picked_hotel_id(body)
+    if not delta and picked is None:
         return
     store = get_profile_store()
     profile = await store.get(session_id)
-    apply_profile_delta(profile, delta, "")
+    if delta:
+        apply_profile_delta(profile, delta, "")
+    # S-CX5: NOT part of the delta reducer — this is one-shot turn state the
+    # spine consumes and clears, not a carryover slot.
+    profile.picked_hotel_id = picked
     await store.set(session_id, profile)
 
 
@@ -714,6 +777,7 @@ async def chat(request: Request) -> Response:
         await _apply_native_context(session_id, body, turn_index)
 
         hotels: list | None = None
+        booking_card: dict | None = None
         requires_clarification = False
         final_text = ""
         if not message:
@@ -723,13 +787,15 @@ async def chat(request: Request) -> Response:
                 if kind == "hotels":
                     hotels = data.get("hotels") or None
                     requires_clarification = bool(data.get("requires_clarification"))
+                elif kind == "booking":
+                    booking_card = data.get("booking_card") or None
                 elif kind == "final":
                     final_text = data
 
         payload = await _finalize(
             session_id=session_id, message=message, final_text=final_text,
             hotels=hotels, is_synthetic=is_synthetic, turn_index=turn_index,
-            requires_clarification=requires_clarification,
+            requires_clarification=requires_clarification, booking_card=booking_card,
         )
     except Exception as exc:  # noqa: BLE001 — last-resort shield: contract payload, never a bare 500
         payload = _shield_payload(session_id, body, message, "json", exc)
@@ -785,6 +851,7 @@ async def chat_stream(request: Request) -> Response:
 
     async def _body() -> AsyncGenerator[bytes, None]:
         hotels: list | None = None
+        booking_card: dict | None = None
         requires_clarification = False
         final_text = ""
         try:
@@ -799,6 +866,9 @@ async def chat_stream(request: Request) -> Response:
                         hotels = data.get("hotels") or None
                         requires_clarification = bool(data.get("requires_clarification"))
                         yield _sse("hotels", {"hotels": normalize_hotels(hotels) if hotels else []})
+                    elif kind == "booking":
+                        booking_card = data.get("booking_card") or None
+                        yield _sse("booking_card", {"booking_card": booking_card})
                     elif kind == "token":
                         yield _sse("token", {"text": data})
                     elif kind == "final":
@@ -806,7 +876,7 @@ async def chat_stream(request: Request) -> Response:
             payload = await _finalize(
                 session_id=session_id, message=message, final_text=final_text,
                 hotels=hotels, is_synthetic=is_synthetic, turn_index=turn_index,
-                requires_clarification=requires_clarification,
+                requires_clarification=requires_clarification, booking_card=booking_card,
             )
         except Exception as exc:  # noqa: BLE001 — mid-stream shield: status is committed, only `done` can signal
             payload = _shield_payload(session_id, body, message, "sse_stream", exc)
