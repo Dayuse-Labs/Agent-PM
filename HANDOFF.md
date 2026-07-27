@@ -30,7 +30,13 @@
 
 **Reste** : point 3 du plan (tri prix sur une recherche SANS shortlist — 1er tour) et point 4 (guard n°14 sur les superlatifs prix). Voir `tasks/todo.md`.
 
-**Merge** : PR à ouvrir depuis `scx5-booking-offer-identity` — **stackée** : #36 (scx3-research) → #37 (scx3a) → celle-ci. Review humaine de Fabien = le gate.
+**Merge + déploiement (2026-07-27, sur instruction explicite de Fabien)** : tout est sur `main` (`69aa145`) et **déployé** sur le démo Railway. #36 mergée (portait scx1 + scx2, qui n'avaient aucune PR propre), #38 mergée (portait scx3a + scx5). **#37 fermée par accident** — supprimer la head de #36 a supprimé la base de #37, et GitHub refuse de rouvrir une PR dont la base n'existe plus ; ses commits sont bien dans `main` via #38 (vérifié par `merge-base --is-ancestor`), commentaire laissé sur la PR. #19 (s-d-judge-ab, 22/07, CONFLICTING) **non touchée**.
+
+**Déployé et vérifié LIVE sur https://widget-production-3f56.up.railway.app** : 5 boutons de choix triés €54 < €58 < €60 < €70 < €72 ; clic → carte (Villa Paris Orly, 2026-07-28, 10:00-17:00, €54.00, photo) avec lien tunnel à la bonne date ; réponse **en français** sur une session française. Services redéployés : `concierge`, `hotel-search`, `widget` (`faq` inchangé, zéro diff).
+
+**⚠️ SÉCURITÉ — à traiter** : le build Railway **imprime `FLEET_READ_TOKEN` (PAT GitHub) en clair** dans les logs (préfixe `github_pat_11BQDMTMY0hpq…`). Conséquence inhérente du build ARG (le builder Metal refuse `--mount=type=secret`, cf. addendum 2026-07-22) : Railway echo chaque ligne `RUN`. **Le PAT doit être révoqué et réémis**, et chaque build le re-fuite tant que le build ARG existe — vraie correction : vendorer `dayuse-agent-common` ou le publier sur un index privé.
+
+**Corrigé après coup (2 erreurs de process, cf. `tasks/lessons.md`)** : mon 1er commit avait embarqué via `git add -A` 5 fichiers untracked d'une session S-B (dont le test llm-meter cassé) → `main` rouge ; `git rm --cached` les a détrackés sans les toucher sur disque (suite `main` = **1009 passed** vue d'un clone frais). Et un bug de langue trouvé sur le démo (session fr → réponse booking en anglais, parce que `profile.language` n'était jamais alimenté par le triage et qu'un clic de bouton envoie un LABEL sans marqueur de langue) corrigé + déployé.
 
 ## ⏱ Addendum 2026-07-27 (branche `scx3a-price-cents`, stackée sur `scx3-research-prix-plancher`) — S-CX3a : les signaux numériques survivent à la carte + **2 découvertes live qui changent le design de S-CX3b**
 

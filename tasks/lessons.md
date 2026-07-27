@@ -1,5 +1,22 @@
 # Lessons — corrections de Fabien à réappliquer
 
+## 2026-07-27 — erreurs de PROCESS (auto-constatées, merge + deploy)
+
+1. **Ne jamais supprimer une branche de base tant qu'une PR pointe dessus.**
+   `gh pr merge #36 --delete-branch` a supprimé `scx3-research`, qui était la
+   base de #37 → GitHub a **fermé #37 automatiquement**, et refuse de rouvrir
+   une PR dont la base n'existe plus. Ordre correct pour une stack :
+   retargeter la PR dépendante sur `main` **d'abord**, la merger, **puis**
+   supprimer. (Précise la note « merge stacked PRs top-down » du #28/#29.)
+2. **Ne jamais rediriger la sortie d'une commande d'écriture vers /dev/null.**
+   J'ai fait `gh pr edit 37 --base main >/dev/null` : le retarget a échoué et
+   je ne l'ai pas vu, ce qui a masqué la cause pendant deux commandes.
+3. **`git add -A` ramasse le WIP des autres.** Mon 1er commit a embarqué 5
+   fichiers untracked d'une session S-B (dont le test llm-meter cassé connu),
+   rendant la suite ROUGE sur `main` pour tout le monde. Avant le 1er commit
+   d'une session : lire `git status` et **ajouter explicitement** les fichiers
+   du scope, ou vérifier que chaque untracked ramassé est bien à moi.
+
 ## 2026-07-27 — scx5 (RÉCIDIVE de la leçon du 2026-07-20)
 
 1. **Compréhension du langage = LLM en place ; décision = code. Je l'ai encore
