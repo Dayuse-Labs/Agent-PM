@@ -1,3 +1,86 @@
+# S-CX6 — « aucun résultat » l'après-midi = cutoff de réservation du jour (2026-07-27)
+
+**Symptôme Fabien** : « aucun résultat qui remonte alors que je devrais en avoir »
+(screenshot Gare de Lyon → 0 offre, chips budget/zone/filtre).
+
+**Diagnostic mesuré (live, MCP staging + démo Railway déployée)** : ce n'est PAS un
+bug de plomberie. Chaque offre porte un `cutoffDeadlineUtc` **le jour du séjour**
+lui-même : sur 63 offres D+1 Gare de Lyon, cutoffs 05h(3) 06h(7) 08h(16) 09h(18)
+10h(1) 12h(2) 14h(8) 15h(7) 16h(1) Paris — **le plus tardif = 16h**. Fabien testait
+à 17h20 → `date = today` (le défaut quand l'utilisateur ne dit pas de date) est
+structurellement mort. Vérifié en marchant les **11 pages** du pool de 518 hôtels à
+17h50 : `n=0` sur chaque page jusqu'à `has_more=False`. Contre-épreuve même seconde :
+New York 3 résultats, Los Angeles 5, Paris 0 (ils sont encore le matin).
+Rejoué sur le démo déployé, une session : « today » → 0 hôtel ; « et demain ? » →
+**5 hôtels, 54 € → 72 €**, mêmes coordonnées.
+
+**3 défauts réels** : (1) la réponse ne nomme JAMAIS la date cherchée ; (2) les chips
+de récupération sont en dur (`profile.py:100`) et aucune ne traite la cause ;
+(3) `total=518, results=[]` est la signature lisible « pool existant, tout passé
+cutoff » (vs `total=0` = zéro inventaire, cf. Tokyo) et la feuille ne lit que
+`results`, jamais `total`.
+
+**Décision Fabien (AskUserQuestion)** : sonder J+1 sur un 0 réel + réponse datée.
+Le landmark « gare de lyon » non résolu (La Garde / Gary / Rueil) = **session à part**.
+
+- [x] 1. Feuille — `probe_next_day_after_tool`, nouveau `after_tool_callback`
+      **async** placé AVANT `capture_after_tool` (jamais une modif de ce dernier :
+      ~40 tests l'appellent en synchrone, et un retour truthy casse la chaîne).
+      Blocker du HANDOFF levé : ADK `functions.py:625` fait
+      `if inspect.isawaitable(...): await ...` sur une liste mixte — vérifié sur
+      l'ADK installé. Ne tire QUE sur la signature exacte (same-day + `total>0` +
+      `results` vide) ; `tool.run_async` ne re-déclenche pas les callbacks (zéro
+      récursion) ; try/except total (un probe ne casse jamais un tour).
+- [x] 2. Feuille — `capture_after_tool` consomme le payload J+1 stashé quand sa
+      propre normalisation donne 0, et bascule la date portée (provenance
+      `cutoff_fallback`) pour qu'un tour suivant ne re-meure pas sur aujourd'hui.
+- [x] 3. Feuille — `search_date` sur le DataPart (`date` / `same_day` /
+      `cutoff_fallback_from`) : c'est ce qui permet de NOMMER la date, de choisir
+      les chips et de rendre la divulgation obligatoire. Texte d'outcome + 
+      `skip_final_generation` alignés (même ligne code-owned).
+- [x] 4. Concierge — bloc ground-truth : divulgation OBLIGATOIRE « ces offres sont
+      pour <date>, PAS aujourd'hui » ; note écran-vide qui nomme la date.
+- [x] 5. Concierge — chips date-first sur un dead-end same-day
+      (`voir demain` / `après-demain` / `élargir la zone`). Les labels retombent
+      sur `_DATE_MENTION_RE` déjà en place → un clic relance la recherche datée,
+      zéro plomberie neuve.
+- [x] 6. Tests — probe (tire / ne tire pas), consommation, texte, DataPart, chips,
+      ground-truth + un test de soudure feuille→DataPart→façade.
+- [x] 7. Vérif LIVE sur la stack locale (il est >16h Paris : la condition du
+      dead-end est réunie pour de vrai) + `smoke_e2e`.
+
+## Review S-CX6 (fin de session)
+
+**7/7 fait.** Vérifié LIVE sur la stack locale à 18h20 Paris (la condition du
+dead-end était réunie pour de vrai, pas simulée) :
+
+| tour | avant | après |
+|---|---|---|
+| « hotel à la gare de lyon à Paris » | 0 hôtel, chips budget/zone/filtre | **5 hôtels 54→72 €**, « Les réservations pour aujourd'hui (2026-07-27) sont closes, voici les offres pour demain » |
+| « le moins cher, je veux réserver » | — | carte + lien `checkinDate=2026-07-28` avec l'`offerId` de l'offre vue |
+| « un hôtel à Paris le 5 août » | 5 hôtels | **inchangé** (5 hôtels, provenance `absolute`, aucun probe) |
+
+Coût mesuré : `cutoff_fallback_probe status=ok ms=569 found=1` — UN appel MCP en
+plus, uniquement sur le dead-end ; tour feuille total 6,2 s (budget orchestrateur
+10 s). `smoke_e2e` défaut / `--contract` / `--booking` : **PASS**.
+
+**Défaut d'honnêteté attrapé en cours de route (avant commit)** : la première
+version déduisait « les réservations d'aujourd'hui sont closes » de `same_day`
+seul. Or un 0 same-day sur un pool VIDE (Tokyo, `total=0`) n'est pas une fenêtre
+fermée, c'est un marché sans inventaire — le message aurait affirmé une cause que
+la donnée n'établit pas. La feuille ne pose donc `cutoff_closed` que quand des
+hôtels ont matché ET qu'aucun n'était réservable ; sinon la récupération générique
+reste en place. Verrouillé par 2 tests (feuille + bloc ground-truth).
+
+**Non couvert en live, couvert par tests seulement** : le cas « aujourd'hui fermé
+ET demain vide aussi » (→ chips date). Paris a de l'inventaire demain, donc le cas
+n'était pas reproductible live sans fabriquer un marché.
+
+**Reste (hors scope, décidé avec Fabien)** : « gare de lyon » n'est pas résolu
+comme landmark parisien — sur mon replay du démo déployé, le tour 1 a proposé
+*La Garde (Lyon)* / *Gary (Illinois)* / *Gare (Rueil-Malmaison)* au lieu de Paris.
+Session à part (famille du bug inventory-tier du resolver).
+
 # S-CX5 — panier & remise du lien (session live de Fabien, 2026-07-27) — 10/12 FAIT
 
 Trois symptômes rapportés (2 screenshots, session Paris/fr). Diagnostic par lecture

@@ -33,6 +33,58 @@ _EMPTY_SCREEN_NOTE = (
     "concrete next step: change the date, widen the area, or adjust the budget.\n"
 )
 
+# S-CX6: same-day dead end. Every day-use offer's booking cutoff falls on the
+# stay date itself (measured: 05h→16h local, latest 16h), so an afternoon search
+# dated today returns zero for an entire market that has hundreds of hotels.
+# The generic note above sent users off widening a zone that was never the
+# problem; this one names the cause and points at the only thing that fixes it.
+_SAME_DAY_CLOSED_NOTE = (
+    "CAUSE (authoritative, state it): the search ran for TODAY ({date}) and "
+    "same-day day-use bookings are already CLOSED for this market — each offer "
+    "stops being bookable during the stay day itself (latest around 16:00 "
+    "local). This is NOT an empty city, NOT a budget problem, NOT a zone "
+    "problem: hotels exist there, today's booking window has simply passed. "
+    "Say that plainly, then offer ANOTHER DAY (tomorrow first) as the next "
+    "step. Do NOT suggest widening the area, raising the budget or removing a "
+    "filter — none of them can reopen a closed day.\n"
+)
+
+# S-CX6: the probe found a bookable next day and those cards ARE on screen —
+# they are simply not for the day the user implicitly asked for. Presenting
+# them as today's would be worse than the dead end this replaced.
+_DATE_FALLBACK_NOTE = (
+    "MANDATORY DISCLOSURE: the hotels listed below are for {offered}, NOT for "
+    "today ({searched}). Same-day bookings were already closed, so the search "
+    "was re-run for the next day. Your FIRST sentence must say that today is "
+    "closed and that these offers are for {offered}. Never imply they are "
+    "available today.\n"
+)
+
+
+def date_context_block(response: dict[str, Any] | None) -> str:
+    """S-CX6: the date-truth prelude to the shortlist/empty block. Driven by the
+    leaf's `search_date` DataPart key (`date` / `same_day` /
+    `cutoff_fallback_from`) — the concierge cannot derive any of it: a
+    carried-over or defaulted date is deliberately never persisted to the
+    profile, which is exactly why the old dead-end answer never named the day
+    it had searched."""
+    search_date = (response or {}).get("search_date")
+    if not isinstance(search_date, dict):
+        return ""
+    offered = search_date.get("date")
+    if not isinstance(offered, str) or not offered:
+        return ""
+    searched = search_date.get("cutoff_fallback_from")
+    if isinstance(searched, str) and searched:
+        return _DATE_FALLBACK_NOTE.format(offered=offered, searched=searched)
+    # `cutoff_closed` — NOT `same_day` alone: the leaf only sets it when hotels
+    # matched and none was bookable. A same-day zero over an empty pool is a
+    # market without day-use inventory, and blaming a closed booking window
+    # there would be an invented cause (the generic note handles it).
+    if search_date.get("cutoff_closed") and not shortlist_hotels(response):
+        return _SAME_DAY_CLOSED_NOTE.format(date=offered)
+    return f"SEARCH DATE: these results are for {offered}. State that date.\n"
+
 _HEADER = (
     "A live Dayuse search ALREADY ran this turn and returned the hotels "
     "below. Never claim that no search has been run. Any detail you state "
@@ -86,9 +138,13 @@ def shortlist_ground_truth_block(response: dict[str, Any] | None, profile: Sessi
     outcome. Empty string when there is nothing to ground (no leaf results and
     no empty-search streak yet) — never adds an empty section to the prompt."""
     hotels = shortlist_hotels(response)
+    date_block = date_context_block(response)
     if not hotels:
         if profile.consecutive_empty_searches > 0:
-            return "\n\n## CURRENT RESULTS (GROUND TRUTH)\n" + _EMPTY_SCREEN_NOTE
+            # Date block LAST on this path: it is the authoritative cause and
+            # must override the generic note's "widen the area / adjust the
+            # budget" menu when the real reason is a closed same-day window.
+            return "\n\n## CURRENT RESULTS (GROUND TRUTH)\n" + _EMPTY_SCREEN_NOTE + date_block
         return ""
     lines = [_hotel_line(hotel) for hotel in hotels]
-    return "\n\n## CURRENT SHORTLIST (GROUND TRUTH)\n" + _HEADER + "\n".join(lines)
+    return "\n\n## CURRENT SHORTLIST (GROUND TRUTH)\n" + date_block + _HEADER + "\n".join(lines)

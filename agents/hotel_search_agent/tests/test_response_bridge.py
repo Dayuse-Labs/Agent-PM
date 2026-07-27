@@ -18,8 +18,11 @@ from google.genai import types as genai_types
 from hotel_search_agent.response_bridge import (
     MAX_RESULTS,
     STATE_APPLIED_AMENITIES_KEY,
+    STATE_DATE_FALLBACK_KEY,
     STATE_EXACT_WINDOW_KEY,
     STATE_RESOLVED_DATE_KEY,
+    STATE_SEARCH_DATE_KEY,
+    _outcome_text,
     _photo_url,
     _price_eur_cents,
     capture_after_tool,
@@ -1379,3 +1382,114 @@ def test_outcome_text_is_localized_fr():
     )
     content = emit_search_datapart(ctx)
     assert "Aucune offre de jour" in content.parts[0].text
+
+
+# --- S-CX6: the same-day cutoff swap (capture side) ---------------------------------------------
+def _closed_day(total: int = 518) -> dict:
+    return {"structuredContent": {"resolvedDate": "2026-07-27", "total": total, "results": []},
+            "isError": False}
+
+
+def _stashed_next_day(n: int = 3) -> dict:
+    payload = _search_offers_structured(n)
+    payload["resolvedDate"] = "2026-07-28"
+    return {"searched_date": "2026-07-27", "offered_date": "2026-07-28", "payload": payload}
+
+
+def test_capture_serves_the_probed_next_day_instead_of_a_dead_end():
+    ctx = _Ctx({STATE_DATE_FALLBACK_KEY: _stashed_next_day()})
+    returned = capture_after_tool(_Tool("search_offers"), {}, ctx, _closed_day())
+    assert len(ctx.state["temp:hotel_search_results"]) == 3
+    # The model's compact view must describe the day it is actually looking at.
+    assert returned["resolvedDate"] == "2026-07-28"
+    assert [h["name"] for h in returned["hotels"]] == ["Hotel 0", "Hotel 1", "Hotel 2"]
+
+
+def test_capture_marks_the_swapped_day_so_the_answer_must_disclose_it():
+    ctx = _Ctx({STATE_DATE_FALLBACK_KEY: _stashed_next_day()})
+    capture_after_tool(_Tool("search_offers"), {}, ctx, _closed_day())
+    assert ctx.state[STATE_SEARCH_DATE_KEY] == {
+        "date": "2026-07-28", "same_day": False, "cutoff_fallback_from": "2026-07-27",
+    }
+
+
+def test_capture_carries_the_fallback_date_forward_to_the_profile():
+    # Without this the NEXT turn ("cheaper", "with a pool") re-searches today
+    # and dies on the very same cutoff.
+    ctx = _Ctx({STATE_DATE_FALLBACK_KEY: _stashed_next_day()})
+    capture_after_tool(_Tool("search_offers"), {}, ctx, _closed_day())
+    assert ctx.state[STATE_RESOLVED_DATE_KEY] == {
+        "date": "2026-07-28", "date_reference": {"resolved_from": "cutoff_fallback"},
+    }
+
+
+def test_capture_stamps_the_swapped_cards_like_any_other_card():
+    # Why the swap sits BEFORE the stamping block: cards served from the probe
+    # still need their country / applied-amenity truth.
+    stashed = _stashed_next_day(2)
+    for hotel in stashed["payload"]["results"]:
+        hotel["lat"], hotel["lon"] = 48.86, 2.35
+    ctx = _Ctx({
+        STATE_DATE_FALLBACK_KEY: stashed,
+        "temp:hotel_search_country_code": "FR",
+        STATE_APPLIED_AMENITIES_KEY: ["pool"],
+    })
+    capture_after_tool(_Tool("search_offers"), {"lat": 48.84, "lon": 2.37}, ctx, _closed_day())
+    cards = ctx.state["temp:hotel_search_results"]
+    assert cards and all(c["country_code"] == "FR" for c in cards)
+    assert all("pool" in c["amenities"] for c in cards)
+    assert all(isinstance(c.get("distance_km"), float) for c in cards)
+
+
+def test_capture_without_a_probe_payload_still_reports_the_honest_zero():
+    ctx = _Ctx()
+    returned = capture_after_tool(_Tool("search_offers"), {}, ctx, _closed_day())
+    assert ctx.state["temp:hotel_search_results"] == []
+    assert returned["hotels"] == [] and returned["total"] == 518
+    assert STATE_SEARCH_DATE_KEY not in ctx.state
+
+
+def test_capture_never_swaps_over_real_same_day_results():
+    ctx = _Ctx({STATE_DATE_FALLBACK_KEY: _stashed_next_day()})
+    resp = {"structuredContent": _search_offers_structured(2), "isError": False}
+    capture_after_tool(_Tool("search_offers"), {}, ctx, resp)
+    assert len(ctx.state["temp:hotel_search_results"]) == 2
+    assert STATE_SEARCH_DATE_KEY not in ctx.state  # nothing was swapped
+
+
+def test_datapart_carries_the_search_date():
+    ctx = _Ctx({
+        "temp:hotel_search_results": normalize_search_results(_search_offers_structured(2)),
+        STATE_SEARCH_DATE_KEY: {
+            "date": "2026-07-28", "same_day": False, "cutoff_fallback_from": "2026-07-27",
+        },
+    })
+    payload = find_datapart(emit_search_datapart(ctx).parts)
+    assert payload["search_date"]["cutoff_fallback_from"] == "2026-07-27"
+
+
+def test_outcome_text_discloses_the_swapped_day_in_both_languages():
+    results = normalize_search_results(_search_offers_structured(2))
+    search_date = {"date": "2026-07-28", "same_day": False, "cutoff_fallback_from": "2026-07-27"}
+    fr = _outcome_text(results, False, "fr", search_date)
+    assert "closes" in fr and "2026-07-28" in fr and "2026-07-27" in fr
+    en = _outcome_text(results, False, "en", search_date)
+    assert "closed" in en and "2026-07-28" in en
+
+
+def test_outcome_text_names_the_closed_day_on_a_dead_end():
+    # The defect Fabien hit: a 0-result answer that never said WHICH day it
+    # searched reads as a display bug.
+    text = _outcome_text([], False, "fr", {"date": "2026-07-27", "same_day": True})
+    assert "2026-07-27" in text and "closes" in text
+
+
+def test_skip_final_generation_carries_the_same_disclosure():
+    ctx = _Ctx({
+        "temp:hotel_search_results": normalize_search_results(_search_offers_structured(1)),
+        STATE_SEARCH_DATE_KEY: {
+            "date": "2026-07-28", "same_day": False, "cutoff_fallback_from": "2026-07-27",
+        },
+    })
+    text = skip_final_generation(ctx, None).content.parts[0].text
+    assert "2026-07-28" in text

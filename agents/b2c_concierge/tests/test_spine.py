@@ -391,6 +391,42 @@ class TestHonestDegradation:
         assert profile.consecutive_empty_searches == 0
         assert not profile.last_suggestions
 
+    def test_same_day_dead_end_swaps_in_the_date_chips(self, scripted, fake_profile_store):
+        # S-CX6 wiring: the leaf says the empty search was for TODAY, so the
+        # recovery chips must offer other days — budget/zone/filter cannot
+        # reopen a closed booking window (Fabien's 17h20 session, 2026-07-27).
+        runner, session = _new_session()
+        scripted(
+            '{"family": "search", "language": "fr"}',
+            "Aucune offre pour aujourd'hui.",
+            leaf_text="Aucune offre.",
+            response={
+                "results": [],
+                "search_date": {
+                    "date": "2026-07-27", "same_day": True, "cutoff_closed": True,
+                },
+            },
+        )
+        _drive_in(runner, session.id, USER_MESSAGE_SEARCH)
+        profile = asyncio.run(fake_profile_store.get(session.id))
+        assert profile.last_suggestions == ["voir demain", "après-demain", "élargir la zone"]
+
+    def test_a_future_date_dead_end_keeps_the_budget_zone_filter_chips(
+        self, scripted, fake_profile_store
+    ):
+        runner, session = _new_session()
+        scripted(
+            '{"family": "search", "language": "fr"}',
+            "Aucune offre le 9 septembre.",
+            leaf_text="Aucune offre.",
+            response={"results": [], "search_date": {"date": "2026-09-09", "same_day": False}},
+        )
+        _drive_in(runner, session.id, USER_MESSAGE_SEARCH)
+        profile = asyncio.run(fake_profile_store.get(session.id))
+        assert profile.last_suggestions == [
+            "augmenter le budget", "élargir la zone", "retirer un filtre",
+        ]
+
     def test_textless_leaf_with_datapart_synthesizes_instead_of_degrading(
         self, scripted, caplog, monkeypatch
     ):

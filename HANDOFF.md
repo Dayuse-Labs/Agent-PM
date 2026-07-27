@@ -2,6 +2,31 @@
 
 État du chantier pour reprise en session fraîche. **Lire en entier avant d'agir ; ne pas reconstruire ce qui existe.** Mettre à jour en fin de CHAQUE session (bloc daté en tête).
 
+## ⏱ Addendum 2026-07-27 (branche `scx6-same-day-cutoff-fallback`, sur `main`) — S-CX6 : « aucun résultat » l'après-midi = **cutoff de réservation du jour**, pas un bug de plomberie
+
+**Contexte** : Fabien remonte un screenshot (Gare de Lyon → 0 offre, chips budget/zone/filtre) — « j'ai aucun résultat qui remonte alors que je devrais en avoir ».
+
+**Diagnostic (mesuré, pas déduit)** : chaque offre day-use porte un `cutoffDeadlineUtc` **le jour du séjour lui-même**. Sur 63 offres D+1 Gare de Lyon : cutoffs 05h(3) 06h(7) 08h(16) 09h(18) 10h(1) 12h(2) 14h(8) 15h(7) 16h(1) Paris — **le plus tardif = 16h**. Fabien testait à 17h20, et la date par défaut est **aujourd'hui** → dead-end structurel. Vérifié en marchant les **11 pages** du pool de 518 hôtels à 17h50 : `n=0` partout jusqu'à `has_more=False`. Contre-épreuve à la même seconde : **New York 3, Los Angeles 5, Paris 0** (ils sont encore le matin). Rejoué sur le **démo déployé** : « today » → 0 hôtel ; « et demain ? » → **5 hôtels 54→72 €**, mêmes coordonnées. La réponse de l'agent était donc FACTUELLEMENT juste — c'est la réponse elle-même qui était mauvaise.
+
+**3 défauts réels corrigés** : (1) la réponse ne nommait JAMAIS la date cherchée ; (2) les chips de récupération étaient en dur et aucune ne traitait la cause ; (3) `total=518, results=[]` est la signature lisible « pool existant, tout passé cutoff » (vs `total=0` = zéro inventaire, cf. Tokyo) et la feuille ne lisait que `results`.
+
+**Fait** :
+- **Feuille — `datetime_resolver.probe_next_day_after_tool`**, nouveau `after_tool_callback` **async** placé AVANT `capture_after_tool`. **Le blocker que le HANDOFF du 27/07 laissait ouvert est levé** : ADK `functions.py:625` fait `if inspect.isawaitable(...): await ...` sur une liste mixte (vérifié sur l'ADK installé) — donc le probe plancher de S-CX3c peut suivre le même patron. Ne tire que sur la signature exacte (same-day + `total>0` + `results` vide), garde les filtres mais **drope `from`** (un autre jour est page 1), `tool.run_async` ne re-déclenche aucun callback (zéro récursion), retourne TOUJOURS None (un retour truthy casserait la chaîne after-tool), try/except total.
+- **Feuille — `capture_after_tool`** consomme le payload J+1 quand sa propre normalisation donne 0, **avant** le bloc de stamping (les cartes échangées reçoivent distance/pays/aménités comme les autres) et rebinde `structured` pour que la vue compacte du modèle décrive le bon jour. Porte la date en avant (`resolved_from: "cutoff_fallback"`) sinon le tour suivant re-meurt sur aujourd'hui.
+- **Feuille — clé `search_date` sur le DataPart** (`date` / `same_day` / `cutoff_closed` / `cutoff_fallback_from`), écrite sur CHAQUE recherche (le chemin carry-over/défaut ne persistait rien : c'est pourquoi rien en aval ne pouvait nommer la date).
+- **Concierge — `ground_truth.date_context_block`** : divulgation OBLIGATOIRE « ces offres sont pour <date>, PAS aujourd'hui » (placée AVANT la liste), note « journée fermée » placée APRÈS la note générique pour écraser son menu « élargir la zone / augmenter le budget ».
+- **Concierge — chips date-first** (`voir demain` / `après-demain` / `élargir la zone`), libellés choisis pour retomber sur `_DATE_MENTION_RE` : un clic relance une recherche datée par le chemin de raffinement existant, zéro plomberie neuve (verrouillé par test).
+
+**⚠️ Défaut d'honnêteté attrapé avant commit (à ne pas re-introduire)** : la 1re version déduisait « les réservations d'aujourd'hui sont closes » de `same_day` seul. Un 0 same-day sur un pool **vide** (Tokyo, `total=0`) est un marché sans inventaire, pas une fenêtre fermée — le message aurait affirmé une cause que la donnée n'établit pas. La feuille ne pose `cutoff_closed` que quand des hôtels ont matché ET qu'aucun n'était réservable.
+
+**Vérifié LIVE** (stack locale, 18h20 Paris — la condition du dead-end était réelle) : requête exacte de Fabien → **5 hôtels 54→72 €** + « Les réservations pour aujourd'hui (2026-07-27) sont closes, voici les offres pour demain » ; « le moins cher, je veux réserver » → carte + lien `checkinDate=2026-07-28` avec l'`offerId` de l'offre vue ; « un hôtel à Paris le 5 août » → **inchangé**, aucun probe. Coût : `cutoff_fallback_probe status=ok ms=569 found=1` — **1 seul appel MCP en plus**, sur le dead-end uniquement ; tour feuille 6,2 s (budget orchestrateur 10 s). `smoke_e2e` défaut / `--contract` / `--booking` : **PASS**.
+
+**DoD** : `pytest -q` → **1050 passed** (+37 ; même unique échec préexistant `test_llm_meter_usage`, **reconfirmé rouge sur un arbre stashé** — noter que ce fichier est bien TRACKÉ aujourd'hui, contrairement à ce que disaient les addenda précédents) ; ruff OK ; mypy 40 fichiers OK ; guardrails OK. Les 3 tests de non-régression clés ont été vérifiés **en échec sans leur fix** (désactivation ciblée puis restauration).
+
+**Non couvert en live** : le cas « aujourd'hui fermé ET demain vide aussi » (→ chips date) — Paris a de l'inventaire demain, donc non reproductible live sans fabriquer un marché. Couvert par tests.
+
+**Reste — session à part (décidé avec Fabien)** : « gare de lyon » n'est pas résolu comme landmark parisien. Sur le replay du démo déployé, le tour 1 a proposé *La Garde (Lyon)* / *Gary (Illinois)* / *Gare (Rueil-Malmaison)* au lieu de Paris (Fabien, lui, était tombé sur Paris — le chemin n'est pas déterministe). Même famille que le bug inventory-tier du resolver.
+
 ## ⏱ Addendum 2026-07-27 (branche `scx5b-widget-card-fixes`, sur `main`) — S-CX5b : 3 défauts UI de S-CX5 remontés par Fabien sur le démo déployé
 
 **Contexte** : Fabien teste le démo Railway après le merge de S-CX5 (3 screenshots) et remonte (1) le bouton de la carte de réservation est **rogné**, et il veut une carte à **taille fixe** comme l'artefact ; note hôtel affichée `4.666666666666667/5` ; (2) sur les cartes du carrousel, le bouton dit « Réserver » alors qu'il ouvre la **fiche hôtel**, pas le tunnel ; (3) un clic sur un chip de créneau **fait disparaître les boutons de choix d'hôtel**, donc la route en 1 clic vers la carte de réservation.

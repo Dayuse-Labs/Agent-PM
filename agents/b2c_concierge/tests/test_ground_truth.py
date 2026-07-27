@@ -127,3 +127,79 @@ class TestCaps:
             {"results": ["not-a-dict", {"name": "Hotel Alameda"}]}, _profile()
         )
         assert "Hotel Alameda" in block
+
+
+class TestSameDayCutoff:
+    """S-CX6: an empty SAME-DAY search is a closed booking window, not an empty
+    market (measured: cutoffs 05h→16h local, 518-hotel Paris pool dry at 17h50).
+    The generic note's "widen the area / raise the budget" menu is wrong there."""
+
+    _CLOSED = {
+        "results": [],
+        "search_date": {"date": "2026-07-27", "same_day": True, "cutoff_closed": True},
+    }
+
+    def test_same_day_dead_end_names_the_day_and_the_cause(self):
+        block = shortlist_ground_truth_block(self._CLOSED, _profile(consecutive_empty_searches=1))
+        assert "2026-07-27" in block
+        assert "CLOSED" in block
+
+    def test_same_day_dead_end_forbids_the_irrelevant_remedies(self):
+        block = shortlist_ground_truth_block(self._CLOSED, _profile(consecutive_empty_searches=1))
+        # The authoritative note must come AFTER the generic one, or the generic
+        # "widen the area, adjust the budget" menu wins the prompt.
+        assert block.index("Do NOT suggest widening") > block.index("concrete next step")
+
+    def test_an_empty_market_is_never_blamed_on_a_closed_window(self):
+        # Same-day zero with NO cutoff_closed flag = the pool itself was
+        # empty (probed: Tokyo, total=0). Claiming "bookings are closed"
+        # there would be an invented cause.
+        block = shortlist_ground_truth_block(
+            {"results": [], "search_date": {"date": "2026-07-27", "same_day": True}},
+            _profile(consecutive_empty_searches=1),
+        )
+        assert "CLOSED" not in block and "ZERO results" in block
+
+    def test_a_future_date_dead_end_keeps_the_generic_note_only(self):
+        block = shortlist_ground_truth_block(
+            {"results": [], "search_date": {"date": "2026-09-09", "same_day": False}},
+            _profile(consecutive_empty_searches=1),
+        )
+        assert "CLOSED" not in block and "ZERO results" in block
+
+    def test_swapped_day_disclosure_is_mandatory_and_names_both_dates(self):
+        block = shortlist_ground_truth_block(
+            {
+                "results": [{"name": "Villa Paris Orly", "price": "€54.00"}],
+                "search_date": {
+                    "date": "2026-07-28",
+                    "same_day": False,
+                    "cutoff_fallback_from": "2026-07-27",
+                },
+            },
+            _profile(),
+        )
+        assert "MANDATORY DISCLOSURE" in block
+        assert "2026-07-28" in block and "2026-07-27" in block
+        # Disclosure first: the answer's FIRST sentence has to carry it.
+        assert block.index("MANDATORY DISCLOSURE") < block.index("Villa Paris Orly")
+
+    def test_a_normal_search_just_states_its_date(self):
+        block = shortlist_ground_truth_block(
+            {
+                "results": [{"name": "Villa Paris Orly"}],
+                "search_date": {"date": "2026-07-28", "same_day": False},
+            },
+            _profile(),
+        )
+        assert "SEARCH DATE: these results are for 2026-07-28" in block
+
+    def test_a_leaf_without_the_key_changes_nothing(self):
+        # Contract safety: an older leaf (or a find_hotel_by_name turn) sends no
+        # search_date at all — the block must be byte-identical to before.
+        assert shortlist_ground_truth_block(
+            {"results": [{"name": "Villa"}]}, _profile()
+        ) == shortlist_ground_truth_block({"results": [{"name": "Villa"}]}, _profile())
+        assert "SEARCH DATE" not in shortlist_ground_truth_block(
+            {"results": [{"name": "Villa"}]}, _profile()
+        )

@@ -40,16 +40,24 @@ Same split of responsibility as `equipment_ids.py` (the proven template):
 from __future__ import annotations
 
 import copy
+import logging
 import re
+import time
 from datetime import date, datetime, timedelta
 from typing import Any
 from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
 from hotel_search_agent.response_bridge import (
+    STATE_DATE_FALLBACK_KEY,
     STATE_EXACT_WINDOW_KEY,
     STATE_RESOLVED_DATE_KEY,
+    STATE_SEARCH_DATE_KEY,
     read_profile_in,
+    read_structured_payload,
 )
+
+# Same stdout metrics logger as equipment_ids.py / response_bridge.py.
+_metrics_logger = logging.getLogger("dayuse.metrics")
 
 # --- model-facing schema widening -------------------------------------------------------------
 
@@ -261,11 +269,124 @@ def resolve_search_date(tool: Any, args: dict[str, Any], tool_context: Any) -> N
                 "date": resolved_date.isoformat(),
                 "date_reference": date_reference,
             }
+            _stash_search_date(tool_context, args["date"], today)
             return None
     # No fresh, resolvable label this turn — carry over rather than re-derive.
     carried = profile_in.get("date")
     args["date"] = carried if isinstance(carried, str) and carried else today.isoformat()
+    _stash_search_date(tool_context, args["date"], today)
     return None
+
+
+def _stash_search_date(tool_context: Any, iso_date: str, today: date) -> None:
+    """S-CX6: record the date the search is ACTUALLY running on, on every
+    search — including the carry-over/default path that persists nothing to the
+    profile. `same_day` is the flag the next-day probe fires on and the flag
+    the concierge needs to offer dates instead of a wider zone: a closed day
+    cannot be fixed by budget, area or filters."""
+    tool_context.state[STATE_SEARCH_DATE_KEY] = {
+        "date": iso_date,
+        "same_day": iso_date == today.isoformat(),
+    }
+
+
+async def probe_next_day_after_tool(
+    tool: Any, args: dict[str, Any], tool_context: Any, tool_response: Any
+) -> None:
+    """`after_tool_callback` — the same-day cutoff rescue (S-CX6).
+
+    Every day-use offer's `cutoffDeadlineUtc` falls on the STAY date itself:
+    measured live 2026-07-27 over 63 Paris offers, cutoffs run 05h→16h local,
+    the latest at 16h. So from mid-afternoon on, a search dated today returns
+    ZERO for the whole market — 11 pages of a 518-hotel pool walked at 17h50,
+    empty on every one — while the same coordinates one day later return
+    offers from 54 €. That dead end is what a user reads as "no results alors
+    que je devrais en avoir" (Fabien's session, 2026-07-27).
+
+    Fires ONLY on the exact signature of a closed day, so a normal empty search
+    is never charged a second call:
+      - the search ran on the session's OWN today (`same_day`), and
+      - the pool is NOT empty (`total` > 0 — MCP counts matches BEFORE the
+        bookability check, so `total` > 0 with `results` == [] means "hotels
+        exist, every offer is past cutoff", whereas `total` == 0 is a market
+        with no inventory at all and a D+1 probe would be pure waste).
+
+    Placed BEFORE `capture_after_tool` in the chain and ALWAYS returns None:
+    a truthy return breaks the after-tool chain (ADK `functions.py`, first
+    non-None wins), which would cost the compact-payload rewrite and the
+    profile hand-off. ADK awaits an awaitable callback mixed among sync ones
+    (`inspect.isawaitable` there), so this being the only async callback in the
+    list is fine. `tool.run_async` re-enters neither the before- nor the
+    after-tool callbacks, so there is no recursion to guard against — and no
+    `from` offset either: a fallback day always starts at page 1.
+
+    Budget: one extra MCP call (leaf-owned 5 s timeout) on a dead-end turn
+    only, measured ~600 ms, inside the orchestrator's 10 s leaf budget. Any
+    failure is swallowed — a rescue probe must never turn an honest empty
+    answer into a broken turn."""
+    if getattr(tool, "name", "") != "search_offers":
+        return None
+    if not isinstance(tool_response, dict) or tool_response.get("isError"):
+        return None
+    if tool_response.get("ok") is False or tool_response.get("error"):
+        return None
+    search_date = tool_context.state.get(STATE_SEARCH_DATE_KEY)
+    if not isinstance(search_date, dict) or not search_date.get("same_day"):
+        return None
+    structured = read_structured_payload(tool_response)
+    if not isinstance(structured, dict) or structured.get("results"):
+        return None
+    try:
+        pool_total = int(structured.get("total") or 0)
+    except (TypeError, ValueError):
+        pool_total = 0
+    if pool_total <= 0:
+        return None  # genuinely no inventory here — another day will not help
+
+    # The cause is now established, and it is the ONLY thing that licenses
+    # saying "today's bookings are closed": hotels match the search, none is
+    # bookable. A same-day zero over an EMPTY pool (probed: Tokyo, total=0) is a
+    # market with no day-use inventory — claiming a closed window there would be
+    # a fabricated cause, so the flag stays off and the generic recovery holds.
+    tool_context.state[STATE_SEARCH_DATE_KEY] = {**search_date, "cutoff_closed": True}
+
+    searched = str(search_date.get("date") or "")
+    try:
+        offered = (date.fromisoformat(searched) + timedelta(days=1)).isoformat()
+    except ValueError:
+        return None
+
+    probe_args = {k: v for k, v in args.items() if k != "from"}
+    probe_args["date"] = offered
+    started = time.monotonic()
+    try:
+        probe_response = await tool.run_async(args=probe_args, tool_context=tool_context)
+    except Exception:  # noqa: BLE001 — a rescue probe never breaks the turn
+        _log_probe("error", started, found=0)
+        return None
+    payload = read_structured_payload(probe_response)
+    found = payload.get("results") if isinstance(payload, dict) else None
+    if not found:
+        _log_probe("empty", started, found=0)
+        return None
+    tool_context.state[STATE_DATE_FALLBACK_KEY] = {
+        "searched_date": searched,
+        "offered_date": offered,
+        "payload": payload,
+    }
+    _log_probe("ok", started, found=1)
+    return None
+
+
+def _log_probe(status: str, started: float, found: int) -> None:
+    """Content-free metric (RGPD): status/ms/found flag only — never the date or
+    the place, same rule as the budget/time-slot presence flags."""
+    _metrics_logger.info(
+        "dayuse_metric=cutoff_fallback_probe agent=b2c_hotel_search status=%s ms=%d found=%d",
+        status,
+        int((time.monotonic() - started) * 1000),
+        found,
+    )
 
 
 # --- duration + sub-hour timeSlot ---------------------------------------------------------------

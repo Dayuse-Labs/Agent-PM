@@ -100,6 +100,16 @@ _metrics_logger = logging.getLogger("b2c_concierge.metrics")
 _RECOVERY_SUGGESTIONS_FR = ["augmenter le budget", "élargir la zone", "retirer un filtre"]
 _RECOVERY_SUGGESTIONS_EN = ["increase the budget", "try a nearby area", "remove a filter"]
 
+# S-CX6: a SAME-DAY dead end has exactly one cure, and it is not in the trio
+# above — day-use booking cutoffs land on the stay date itself (latest ~16h
+# local, measured), so from mid-afternoon "today" is closed market-wide and
+# budget/zone/filter chips send the user chasing a problem that isn't there.
+# These labels are deliberately worded so `_DATE_MENTION_RE` matches them when
+# they come back as a message: a click then relaunches a dated search through
+# the refinement path that already exists, with no new plumbing.
+_DATE_SUGGESTIONS_FR = ["voir demain", "après-demain", "élargir la zone"]
+_DATE_SUGGESTIONS_EN = ["see tomorrow", "the day after tomorrow", "try a nearby area"]
+
 # A bare affirmative — narrower than triage.is_social_ack (which also matches
 # greetings/thanks/farewells): only THESE words, alone, signal "yes, do that"
 # and must be reinterpreted as a search refinement when the screen is empty.
@@ -550,12 +560,22 @@ def apply_profile_delta(
     return profile
 
 
-def record_search_outcome(profile: SessionProfile, results_count: int, language: str = "en") -> None:
+def record_search_outcome(
+    profile: SessionProfile,
+    results_count: int,
+    language: str = "en",
+    same_day_dead_end: bool = False,
+) -> None:
     """Tracks the empty-search streak that feeds `maybe_auto_widen` — called
     once per search turn with the leaf's returned result count. A zero-result
     outcome also sets the code-owned recovery suggestions (P2) so a later
     bare "ok"/"sure" can be matched deterministically; fresh results clear
-    them (a stale offer must never be replayed after the screen changes)."""
+    them (a stale offer must never be replayed after the screen changes).
+
+    `same_day_dead_end` (S-CX6, from the leaf's `search_date` DataPart key)
+    swaps in the date-first suggestions: the searched day is today and today's
+    booking window has closed, so no budget/zone/filter change can produce a
+    single offer."""
     profile.consecutive_empty_searches = (
         0 if results_count > 0 else profile.consecutive_empty_searches + 1
     )
@@ -563,6 +583,10 @@ def record_search_outcome(profile: SessionProfile, results_count: int, language:
         profile.last_suggestions = None
         profile.widen_attempt_count = 0
         profile.search_exhausted = False
+    elif same_day_dead_end:
+        profile.last_suggestions = list(
+            _DATE_SUGGESTIONS_FR if language == "fr" else _DATE_SUGGESTIONS_EN
+        )
     else:
         profile.last_suggestions = list(
             _RECOVERY_SUGGESTIONS_FR if language == "fr" else _RECOVERY_SUGGESTIONS_EN
