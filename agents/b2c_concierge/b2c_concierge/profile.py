@@ -804,7 +804,13 @@ def record_search_shortlist(profile: SessionProfile, results: list[dict[str, Any
             continue
         hotel_id = hotel.get("hotel_id", hotel.get("hotelId", hotel.get("id")))
         entry: dict[str, Any] = {"hotel_id": hotel_id, "name": name}
-        for key in ("offer_id", "offer_date", "price", "price_eur_cents"):
+        # The offer identity, plus what a booking card has to STATE about the
+        # hotel (S-CX5) — all of it already on the card the user is looking at,
+        # so the recap can be built later without a second lookup.
+        for key in (
+            "offer_id", "offer_date", "price", "price_eur_cents",
+            "image_urls", "url", "city", "rating", "rating_count", "stars",
+        ):
             if hotel.get(key) is not None:
                 entry[key] = hotel[key]
         slot = (hotel.get("timeslots") or [None])[0]
@@ -946,6 +952,24 @@ def resolve_shortlist_ordinal(
         word = re.sub(r"^(?:the|le|la)\s+", "", stripped.lower()).strip()
         position = _ORDINAL_WORDS.get(word)
     if position is None or not 1 <= position <= len(last_results):
+        return None
+    return last_results[position - 1]
+
+
+def select_hotel_by_position(
+    last_results: list[dict[str, Any]] | None, position: int | None
+) -> dict[str, Any] | None:
+    """The 1-based `position`-th entry of the on-screen shortlist, or None when
+    it is out of range.
+
+    S-CX5, the decision half of a positional pick. `resolve_shortlist_ordinal`
+    stays for the LLM-down path (and for a bare "2" typed into the composer);
+    this one takes the number triage already extracted, so "ok pour la
+    première" — a sentence the bare-ordinal matcher rejects, which dead-ended
+    into "Quel hôtel ?" in the prod session — resolves like any other pick."""
+    if position is None or not last_results:
+        return None
+    if not 1 <= position <= len(last_results):
         return None
     return last_results[position - 1]
 

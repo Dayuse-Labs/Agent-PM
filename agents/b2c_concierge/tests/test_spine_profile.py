@@ -619,14 +619,12 @@ class TestCheapestPickThroughTheSpine:
             "results": self.SEARCH_RESULTS,
             "profile_delta": {"city": "Paris", "date": "2026-07-28"},
         }
-        # Turn 2: triage UNDERSTOOD the superlative (pick=cheapest) while
-        # still classifying the family as "search" — the code-owned pick must
-        # beat that family, or we are back to the prod behaviour.
+        # Turn 2: triage read both a booking intent AND the superlative.
         _scripted_llm(
             monkeypatch,
             '{"family": "search", "language": "fr", "pick": "none"}',
             "Pour demain à Paris, voici 3 offres.",
-            '{"family": "search", "language": "fr", "pick": "cheapest"}',
+            '{"family": "booking", "language": "fr", "pick": "cheapest"}',
         )
         runner = InMemoryRunner(root_agent)
         session = _new_session(runner)
@@ -643,7 +641,9 @@ class TestCheapestPickThroughTheSpine:
         assert link_call[1]["hotelId"] == 101
         assert link_call[1]["ratePlanUuid"] == "offer-villa"
         assert link_call[1]["date"] == "2026-07-28"
-        assert link_call[1]["confirmed"] is False
+        # S-CX5: an explicit pick on a booking turn IS the confirmation — the
+        # link comes back on this turn, no "vous confirmez ?" round-trip.
+        assert link_call[1]["confirmed"] is True
         # And resolving it took no MCP lookup either — the shortlist knew.
         assert "find_hotel_by_name" not in {c[0] for c in mcp_calls}
         assert "get_hotel_details" not in {c[0] for c in mcp_calls}
@@ -701,3 +701,55 @@ class TestCheapestPickThroughTheSpine:
         assert stored.search_cursor == 0
         # The exclusion set survives for the NEXT real pagination turn.
         assert stored.shown_hotel_ids == [101, 102, 103]
+
+
+class TestPickWithoutBookingIntent:
+    """S-CX5 safety line: understanding that a message POINTS AT a hotel is not
+    the same as being asked to book it. "montre-moi le moins cher" must answer
+    ABOUT that hotel — never mint a tunnel link nobody asked for, and never
+    fall back to a search that would re-rank the named hotel away."""
+
+    def test_a_display_pick_goes_to_details_not_to_a_link(self, monkeypatch, fake_leg):
+        from contextlib import asynccontextmanager
+
+        calls: list[tuple[str, dict]] = []
+
+        class _Session:
+            async def call_tool(self, name, arguments):
+                calls.append((name, dict(arguments)))
+                return SimpleNamespace(
+                    isError=False,
+                    content=[],
+                    structuredContent={
+                        "hotel": {"hotelId": 101, "name": "Villa Paris Orly"},
+                        "offers": [{"priceEuro": 5400, "availabilityDate": "2026-07-28"}],
+                    },
+                )
+
+        @asynccontextmanager
+        async def _session():
+            yield _Session()
+
+        monkeypatch.setattr(agent_module.inline_tools, "_mcp_session", _session)
+        fake_leg.response_payload = {
+            "results": TestCheapestPickThroughTheSpine.SEARCH_RESULTS,
+            "profile_delta": {"city": "Paris", "date": "2026-07-28"},
+        }
+        _scripted_llm(
+            monkeypatch,
+            '{"family": "search", "language": "fr", "pick": "none"}',
+            "Pour demain à Paris, voici 3 offres.",
+            '{"family": "search", "language": "fr", "pick": "cheapest"}',
+            "La moins chère est la Villa Paris Orly à 54 €.",
+        )
+        runner = InMemoryRunner(root_agent)
+        session = _new_session(runner)
+
+        _run_turn(runner, session.id, "je veux un hôtel à Paris pour demain")
+        _run_turn(runner, session.id, "montre-moi le moins cher")
+
+        tools = {c[0] for c in calls}
+        assert "generate_booking_link" not in tools  # no unrequested link
+        assert "get_hotel_details" in tools
+        assert calls[0][1]["hotelId"] == 101  # and it IS the cheapest one
+        assert fake_leg.call_count == 1  # no re-search either

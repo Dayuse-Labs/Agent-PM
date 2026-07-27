@@ -827,8 +827,16 @@ class TestBookingGuardR9:
 
         events = _drive_in(runner, session.id, "yes")
         answer = _answer(events)
-        assert "https://www.dayuse.fr/tunnel/booking?offerId=abc" in answer
         assert fake.calls[0][0][2] is True
+        # S-CX5: the link now rides a `booking_card` marker, and the prose no
+        # longer pastes 250 characters of tracked URL next to it.
+        card = next(
+            m["booking_card"] for m in _marker_payloads(events) if m.get("event") == "booking"
+        )
+        assert card["url"] == "https://www.dayuse.fr/tunnel/booking?offerId=abc"
+        assert card["hotel_name"] == "Sonesta Carmel"
+        assert "https://" not in answer
+        assert "Sonesta Carmel" in answer
 
     def test_bypass_attempt_on_a_fresh_session_never_produces_a_link(
         self, scripted, caplog, monkeypatch
@@ -881,7 +889,7 @@ class TestNamedHotelLookupThroughTheSpine:
         # hotel — the resolver must find it via the shortlist, never MCP.
         recorded: list[str] = []
 
-        async def _fake_get_hotel_details(hotel_reference, profile_arg):
+        async def _fake_get_hotel_details(hotel_reference, profile_arg, picked_hotel_id=None):
             recorded.append(hotel_reference)
             assert profile_arg.last_results[0]["hotel_id"] == 4242
             return {"ok": True, "hotel": {"id": 4242, "name": "Kimpton - Hotel Palomar South Beach"}}

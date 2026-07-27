@@ -299,16 +299,23 @@ def _normalize_hotel_for_display(hotel: dict[str, Any], best_offer: dict[str, An
 # --- Public inline tools ------------------------------------------------------------------------
 
 
-async def get_hotel_details(hotel_reference: str, profile: SessionProfile) -> dict[str, Any]:
+async def get_hotel_details(
+    hotel_reference: str, profile: SessionProfile, picked_hotel_id: int | None = None
+) -> dict[str, Any]:
     """Real MCP_B2C `get_hotel_details`, hotel resolved via the named-hotel
-    lookup guard. Returns `{"ok": True, "hotel": {...normalized...}}` or
-    `{"ok": False, "error": ...}` — never raises, never invents."""
-    if not (hotel_reference or "").strip():
+    lookup guard — or taken straight from `picked_hotel_id` when the spine
+    already resolved WHICH hotel (S-CX5: "montre-moi le moins cher" points at
+    one of the cards on screen, and no amount of name matching would find a
+    hotel from those words). Returns `{"ok": True, "hotel": {...normalized...}}`
+    or `{"ok": False, "error": ...}` — never raises, never invents."""
+    if picked_hotel_id is None and not (hotel_reference or "").strip():
         return {"ok": False, "error": "no hotel reference in the message"}
     try:
         async with asyncio.timeout(_INLINE_MCP_TIMEOUT):
             async with _mcp_session() as session:
-                hotel_id, _ = await _resolve_hotel_id(session, hotel_reference, profile)
+                hotel_id: int | None = picked_hotel_id
+                if hotel_id is None:
+                    hotel_id, _ = await _resolve_hotel_id(session, hotel_reference, profile)
                 if hotel_id is None:
                     return {"ok": False, "error": "hotel not found"}
                 result = await _call_tool(session, "get_hotel_details", {"hotelId": hotel_id})
@@ -384,7 +391,26 @@ async def _confirm_pending_offer(pending: dict[str, Any]) -> dict[str, Any]:
                 if not result["ok"]:
                     return result
                 link = result["data"].get("link") or {}
-                return {"ok": True, "confirmed": True, "url": link.get("url"), "hotel_name": pending.get("hotel_name")}
+                # S-CX5: the offer's own facts ride along so the caller can
+                # build a card that STATES what the link books (date, slot,
+                # price) instead of pasting a bare URL.
+                return {
+                    "ok": True,
+                    "confirmed": True,
+                    "url": link.get("url"),
+                    "hotel_id": pending.get("hotel_id"),
+                    "hotel_name": pending.get("hotel_name"),
+                    "date": pending.get("date"),
+                    "start_time": pending.get("start_time"),
+                    "end_time": pending.get("end_time"),
+                    "price": pending.get("price"),
+                    "image_url": pending.get("image_url"),
+                    "hotel_url": pending.get("hotel_url"),
+                    "city": pending.get("city"),
+                    "rating": pending.get("rating"),
+                    "rating_count": pending.get("rating_count"),
+                    "stars": pending.get("stars"),
+                }
     except Exception as exc:  # noqa: BLE001
         return {"ok": False, "error": f"generate_booking_link failed: {type(exc).__name__}"}
 
@@ -444,7 +470,10 @@ def _shortlist_offer(hotel_id: int, profile: SessionProfile) -> dict[str, Any] |
 
 
 async def _quote_fresh_offer(
-    hotel_reference: str, profile: SessionProfile, picked_hotel_id: int | None = None
+    hotel_reference: str,
+    profile: SessionProfile,
+    picked_hotel_id: int | None = None,
+    authorize_link: bool = False,
 ) -> dict[str, Any]:
     """The confirmed=false branch: resolves the hotel from `hotel_reference`
     (named-hotel lookup guard, item 4) and ALWAYS quotes confirmed=false,
@@ -507,10 +536,27 @@ async def _quote_fresh_offer(
                     quoted_price = _format_price_eur_cents(best.get("priceEuro"))
                     start_time = _hhmm(best.get("startHour"), best.get("startMinute"))
                     end_time = _hhmm(best.get("endHour"), best.get("endMinute"))
+                entry = _shortlist_entry(hotel_id, profile) or {}
+                identity = {
+                    "hotel_id": hotel_id,
+                    "hotel_name": hotel_name,
+                    "date": offer["availabilityDate"],
+                    "rate_plan_uuid": offer.get("ratePlanUuid"),
+                    "rate_plan_id": offer.get("ratePlanId"),
+                    "start_time": start_time,
+                    "end_time": end_time,
+                    "price": quoted_price,
+                    "image_url": (entry.get("image_urls") or [None])[0],
+                    "hotel_url": entry.get("url"),
+                    "city": entry.get("city"),
+                    "rating": entry.get("rating"),
+                    "rating_count": entry.get("rating_count"),
+                    "stars": entry.get("stars"),
+                }
                 args: dict[str, Any] = {
                     "hotelId": hotel_id,
                     "date": offer["availabilityDate"],
-                    "confirmed": False,
+                    "confirmed": authorize_link,
                 }
                 if offer.get("ratePlanUuid"):
                     args["ratePlanUuid"] = offer["ratePlanUuid"]
@@ -519,22 +565,14 @@ async def _quote_fresh_offer(
                 result = await _call_tool(session, "generate_booking_link", args)
                 if not result["ok"]:
                     return result
-                profile.pending_booking = {
-                    "hotel_id": hotel_id,
-                    "hotel_name": hotel_name,
-                    "date": offer["availabilityDate"],
-                    "rate_plan_uuid": offer.get("ratePlanUuid"),
-                    "rate_plan_id": offer.get("ratePlanId"),
-                }
-                return {
-                    "ok": True,
-                    "confirmed": False,
-                    "hotel_name": hotel_name,
-                    "date": offer["availabilityDate"],
-                    "start_time": start_time,
-                    "end_time": end_time,
-                    "price": quoted_price,
-                }
+                if authorize_link:
+                    # Nothing left to confirm in a later turn: the card the
+                    # caller is about to show carries the link itself.
+                    profile.pending_booking = None
+                    link = result["data"].get("link") or {}
+                    return {**identity, "ok": True, "confirmed": True, "url": link.get("url")}
+                profile.pending_booking = identity
+                return {**identity, "ok": True, "confirmed": False}
     except Exception as exc:  # noqa: BLE001
         return {"ok": False, "error": f"generate_booking_link failed: {type(exc).__name__}"}
 
@@ -547,23 +585,39 @@ async def generate_booking_link(
 ) -> dict[str, Any]:
     """R9 / guard #12. `generate_booking_link` is stateless server-side (a
     bare `confirmed=true` call returns a real link with no memory of any
-    prior round-trip — verified against MCP_B2C staging) so the confirmation
-    guarantee lives entirely HERE: MCP is only ever called with
-    `confirmed=true` when `profile.pending_booking` is already set — never
-    from whatever `user_confirmed` alone asserts.
+    prior round-trip — verified against MCP_B2C staging) so the authorization
+    lives entirely HERE, in code. It is NEVER derived from what the caller
+    asserts, and never from an LLM's judgment.
+
+    S-CX5 — what authorizes a link, decided with Fabien (2026-07-27). The
+    invariant is unchanged: a link needs an explicit, code-owned confirmation
+    flag in the turn state. What SATISFIES it now has two forms:
+      a. `profile.pending_booking` + `user_confirmed` — the original flow: a
+         quote was shown last turn and this turn is a bare "yes".
+      b. `picked_hotel_id` — the spine resolved WHICH hotel from an explicit
+         user selection (a pick button, or a message triage read as pointing
+         at one hotel on screen) on a turn already classified as booking. The
+         reply is a card STATING the hotel, day, slot and price next to the
+         button that opens the tunnel, so the user still sees exactly what
+         they are about to book — strictly more than a typed "yes" under a
+         sentence showed them. This removes the "do you confirm?" turn.
+      Nothing is booked by either: the link opens the Dayuse tunnel, where
+      payment still happens.
 
     Flow:
-      1. No pending offer (or `user_confirmed` False) -> ALWAYS quotes
+      1. `picked_hotel_id` set -> resolve the offer and return it WITH the
+         link (`authorize_link=True`), leaving no pending booking behind.
+      2. No pending offer (or `user_confirmed` False) -> quotes
          confirmed=false (`_quote_fresh_offer`), resolving the hotel from
-         `hotel_reference` — a fresh request. Records the offer identity in
-         `profile.pending_booking` so a later bare "yes" can confirm THIS
-         exact offer without re-resolving anything from that "yes" itself.
-      2. A pending offer exists AND `user_confirmed` -> confirms it
+         `hotel_reference`. Records the offer identity in
+         `profile.pending_booking` so a later bare "yes" confirms THAT exact
+         offer without re-resolving anything from the "yes" itself.
+      3. A pending offer exists AND `user_confirmed` -> confirms it
          (`_confirm_pending_offer`), reusing the stored identity verbatim —
-         UNLESS `hotel_reference` itself names a DIFFERENT hotel already on
-         the shortlist (defense in depth: a caller asserting confirmed=true
-         while explicitly naming another hotel must not confirm the stale
-         one — it re-quotes the newly named hotel instead, confirmed=false).
+         UNLESS `hotel_reference` names, or `picked_hotel_id` is, a DIFFERENT
+         hotel (defense in depth: a caller asserting confirmed=true while
+         pointing at another hotel must not confirm the stale one — it
+         re-resolves the newly named one instead).
     """
     pending = profile.pending_booking
     if user_confirmed and pending is not None:
@@ -580,4 +634,6 @@ async def generate_booking_link(
                 profile.pending_booking = pending  # confirmation failed: keep the offer quotable
             return result
 
-    return await _quote_fresh_offer(hotel_reference, profile, picked_hotel_id)
+    return await _quote_fresh_offer(
+        hotel_reference, profile, picked_hotel_id, authorize_link=picked_hotel_id is not None
+    )

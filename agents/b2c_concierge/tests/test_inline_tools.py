@@ -795,3 +795,107 @@ class TestQuotesTheOfferTheUserSaw:
         _run(inline_tools.generate_booking_link("Villa Paris Orly", profile, user_confirmed=False))
         details_call = next(c for c in session.calls if c[0] == "get_hotel_details")
         assert details_call[1] == {"hotelId": 22293}
+
+
+class TestExplicitPickAuthorizesTheLink:
+    """S-CX5 / R9 redefined (decided with Fabien 2026-07-27): what authorizes a
+    booking link is still an explicit, code-owned flag in the turn state — but
+    a resolved user SELECTION now satisfies it as well as a prior quote + yes.
+    The reply carries a card stating hotel/day/slot/price next to the button,
+    so the user sees what they are about to book. Nothing is booked either way:
+    the link opens the tunnel, payment happens there."""
+
+    SHOWN = [
+        {
+            "hotel_id": 22293,
+            "name": "Villa Paris Orly",
+            "offer_id": "offer-villa",
+            "offer_date": "2026-07-28",
+            "price": "€54.00",
+            "price_eur_cents": 5400,
+            "start_time": "10:00",
+            "end_time": "17:00",
+            "image_urls": ["https://static.dayuse.com/villa.jpg"],
+            "url": "https://www.dayuse.fr/hotels/france/villa-paris-orly",
+        }
+    ]
+
+    def _mcp(self, monkeypatch):
+        return _install(
+            monkeypatch,
+            {
+                "generate_booking_link": lambda args: FakeResult(
+                    {"link": {"url": "https://www.dayuse.fr/tunnel/booking?offerId=offer-villa"}}
+                    if args.get("confirmed")
+                    else {"confirmationRequired": True, "hotel": {}, "offer": {}}
+                )
+            },
+        )
+
+    def test_a_picked_hotel_returns_the_link_in_one_turn(self, monkeypatch):
+        session = self._mcp(monkeypatch)
+        profile = SessionProfile(last_results=self.SHOWN, date="2026-07-28")
+        result = _run(
+            inline_tools.generate_booking_link(
+                "le moins cher", profile, user_confirmed=False, picked_hotel_id=22293
+            )
+        )
+        assert result["confirmed"] is True
+        assert result["url"].endswith("offerId=offer-villa")
+        link_call = next(c for c in session.calls if c[0] == "generate_booking_link")
+        assert link_call[1]["confirmed"] is True
+        # Everything the card needs, all from the offer the link was built on.
+        assert result["date"] == "2026-07-28"
+        assert (result["start_time"], result["end_time"]) == ("10:00", "17:00")
+        assert result["price"] == "€54.00"
+        assert result["image_url"] == "https://static.dayuse.com/villa.jpg"
+        # Nothing left dangling for a later "yes" to re-confirm.
+        assert profile.pending_booking is None
+
+    def test_without_a_pick_the_original_two_step_is_untouched(self, monkeypatch):
+        """The typed path with no resolved selection still quotes first."""
+        session = self._mcp(monkeypatch)
+        profile = SessionProfile(last_results=self.SHOWN, date="2026-07-28")
+        result = _run(
+            inline_tools.generate_booking_link("Villa Paris Orly", profile, user_confirmed=False)
+        )
+        assert result["confirmed"] is False
+        assert "url" not in result
+        assert next(c for c in session.calls if c[0] == "generate_booking_link")[1]["confirmed"] is False
+        assert profile.pending_booking["hotel_id"] == 22293
+
+    def test_asserting_confirmation_without_a_pick_or_a_pending_offer_still_cannot_link(
+        self, monkeypatch
+    ):
+        """The bypass attempt R9 exists for: a caller claiming confirmation on a
+        session that never quoted anything, and naming no picked hotel."""
+        session = self._mcp(monkeypatch)
+        profile = SessionProfile(last_results=self.SHOWN, date="2026-07-28")
+        result = _run(
+            inline_tools.generate_booking_link("Villa Paris Orly", profile, user_confirmed=True)
+        )
+        assert result["confirmed"] is False
+        assert next(c for c in session.calls if c[0] == "generate_booking_link")[1]["confirmed"] is False
+
+    def test_a_pick_naming_another_hotel_never_confirms_the_pending_one(self, monkeypatch):
+        """Defense in depth, mirroring the named-hotel mismatch rule."""
+        self._mcp(monkeypatch)
+        profile = SessionProfile(
+            last_results=self.SHOWN,
+            date="2026-07-28",
+            pending_booking={
+                "hotel_id": 999999,
+                "hotel_name": "Another Hotel",
+                "date": "2026-07-28",
+                "rate_plan_uuid": "stale",
+                "rate_plan_id": None,
+            },
+        )
+        result = _run(
+            inline_tools.generate_booking_link(
+                "yes", profile, user_confirmed=True, picked_hotel_id=22293
+            )
+        )
+        # It resolved the PICKED hotel, never the stale pending one.
+        assert result["url"].endswith("offerId=offer-villa")
+        assert result["hotel_name"] == "Villa Paris Orly"
