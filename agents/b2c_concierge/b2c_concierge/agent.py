@@ -861,6 +861,16 @@ class _B2cConcierge(BaseAgent):
         elif picked is None and triage.pick == "position":
             picked = select_hotel_by_position(profile.last_results, triage.pick_position)
 
+        # S-CX5: remember the language the user actually WRITES in. Until now
+        # `profile.language` only ever arrived through a leaf's profile_delta,
+        # so every deterministic template had to re-guess from the current
+        # message — and a pick-button click sends a LABEL ("Villa Paris Orly
+        # €54.00"), which carries no language at all, so a French session got
+        # its booking answer in English. A click never overwrites it: the label
+        # is not the user's prose.
+        if clicked_id is None and triage.language in ("fr", "en"):
+            profile.language = triage.language
+
         if is_booking_confirmation_signal(message, profile):
             family, route = "booking", ROUTES["booking"]
         elif picked is not None:
@@ -901,7 +911,8 @@ class _B2cConcierge(BaseAgent):
                 # never delegated to an LLM's judgment.
                 user_confirmed = is_booking_confirmation_signal(message, profile)
                 async for event in self._run_booking(
-                    ctx, profile, store, message, family, triage.language,
+                    ctx, profile, store, message, family,
+                    template_language(profile.language, profile.locale, message),
                     user_confirmed, budget, t_start, inv,
                     picked_hotel_id=picked.get("hotel_id") if picked else None,
                 ):

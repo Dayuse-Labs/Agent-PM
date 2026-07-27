@@ -842,3 +842,87 @@ class TestClickedPickButton:
         _scripted_llm(monkeypatch, '{"family": "search", "language": "fr", "pick": "none"}')
         _run_turn(runner, session.id, "ibis Paris Bercy €70.00")
         assert asyncio.run(fake_profile_store.get(session.id)).picked_hotel_id is None
+
+
+class TestBookingAnswersInTheConversationLanguage:
+    """Found on the deployed demo, 2026-07-27: a French session got
+    "Confirmed — here is your booking link" in English. A pick button sends its
+    LABEL as the message ("Villa Paris Orly €54.00") — no French words in it —
+    and the booking templates were keyed on that turn's guessed language."""
+
+    SHOWN = [
+        {"hotel_id": 101, "name": "Villa Paris Orly", "price": "€54.00",
+         "price_eur_cents": 5400, "offer_id": "offer-a", "offer_date": "2026-07-28"},
+    ]
+
+    def _fake_mcp(self, monkeypatch):
+        from contextlib import asynccontextmanager
+
+        @asynccontextmanager
+        async def _session():
+            class _S:
+                async def call_tool(self, name, arguments):
+                    return SimpleNamespace(
+                        isError=False, content=[],
+                        structuredContent={"link": {"url": "https://www.dayuse.fr/tunnel/booking?x"}},
+                    )
+
+            yield _S()
+
+        monkeypatch.setattr(agent_module.inline_tools, "_mcp_session", _session)
+
+    def test_a_click_after_a_french_turn_answers_in_french(
+        self, monkeypatch, fake_leg, fake_profile_store
+    ):
+        self._fake_mcp(monkeypatch)
+        fake_leg.response_payload = {
+            "results": self.SHOWN, "profile_delta": {"city": "Paris", "date": "2026-07-28"},
+        }
+        _scripted_llm(
+            monkeypatch,
+            '{"family": "search", "language": "fr", "pick": "none"}',
+            "Voici 1 offre à Paris.",
+            # The label has no French marker — triage honestly reads it as en.
+            '{"family": "search", "language": "en", "pick": "none"}',
+        )
+        runner = InMemoryRunner(root_agent)
+        session = _new_session(runner)
+
+        _run_turn(runner, session.id, "je veux un hôtel à Paris pour demain")
+        assert asyncio.run(fake_profile_store.get(session.id)).language == "fr"
+
+        # The facade's intake put the clicked id on the profile.
+        profile = asyncio.run(fake_profile_store.get(session.id))
+        profile.picked_hotel_id = 101
+        asyncio.run(fake_profile_store.set(session.id, profile))
+
+        answer = _run_turn(runner, session.id, "Villa Paris Orly €54.00")
+
+        assert "réservation" in answer.lower()
+        assert "here is your booking link" not in answer.lower()
+
+    def test_a_click_never_overwrites_the_conversation_language(
+        self, monkeypatch, fake_leg, fake_profile_store
+    ):
+        """The label is not the user's prose — a click must not flip a French
+        session to English for every later template."""
+        self._fake_mcp(monkeypatch)
+        fake_leg.response_payload = {
+            "results": self.SHOWN, "profile_delta": {"city": "Paris", "date": "2026-07-28"},
+        }
+        _scripted_llm(
+            monkeypatch,
+            '{"family": "search", "language": "fr", "pick": "none"}',
+            "Voici 1 offre à Paris.",
+            '{"family": "search", "language": "en", "pick": "none"}',
+        )
+        runner = InMemoryRunner(root_agent)
+        session = _new_session(runner)
+        _run_turn(runner, session.id, "je veux un hôtel à Paris pour demain")
+        profile = asyncio.run(fake_profile_store.get(session.id))
+        profile.picked_hotel_id = 101
+        asyncio.run(fake_profile_store.set(session.id, profile))
+
+        _run_turn(runner, session.id, "Villa Paris Orly €54.00")
+
+        assert asyncio.run(fake_profile_store.get(session.id)).language == "fr"
