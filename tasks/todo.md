@@ -1,4 +1,4 @@
-# S-CX5 — panier & remise du lien (session live de Fabien, 2026-07-27) — PLAN, rien implémenté
+# S-CX5 — panier & remise du lien (session live de Fabien, 2026-07-27) — 10/12 FAIT
 
 Trois symptômes rapportés (2 screenshots, session Paris/fr). Diagnostic par lecture
 de code + contrat MCP_B2C (repo sœur). Design du point 3 : artefact publié
@@ -35,14 +35,15 @@ indépendantes, chacune suffisante :
       reléguée en `fallback_pick` (chemin LLM-down uniquement, comme
       `fallback_family`). Correction d'une récidive — cf. `lessons.md`.
       Vérifié live : LLM 8/8 sur des formulations où la regex se trompait 4 fois.
-- [ ] 3. Vraie recherche « les moins chers » (pas de shortlist) : tri par prix
-      côté code sur la page avant la coupe top-5, formulation honnête (« les
-      moins chers parmi les N trouvés », jamais « le moins cher de Paris »).
-      `size` : re-probe live obligatoire — la falaise à 16 est documentée (scx3c)
-      et le commentaire « max 50 » de `inject_pagination_offset` est faux.
-- [ ] 4. Guard n°14 (prix) : un superlatif prix dans la synthèse est vérifié
-      contre les cartes du tour, sinon corrigé en code — même patron déterministe
-      que les guards 12/13, jamais un 2e appel LLM.
+- [ ] 3. **NON FAIT (reste)** — vraie recherche « les moins chers » SANS shortlist
+      (1er tour) : trier la page par prix côté code avant la coupe top-5, avec
+      une formulation honnête (« les moins chers parmi les N trouvés », jamais
+      « le moins cher de Paris » — le pool est une fenêtre de pertinence, pas le
+      marché). `size` : re-probe live obligatoire (falaise à 16, scx3c).
+- [ ] 4. **NON FAIT (reste)** — guard n°14 (prix) : un superlatif prix dans la
+      synthèse vérifié contre les cartes du tour. Risque réduit maintenant que
+      l'ordre est correct, mais pas nul : le modèle peut encore dire « le moins
+      cher de Paris » là où la vérité est « le moins cher des 5 trouvés ».
 
 ## Constat 2 — le lien réserve la MAUVAISE offre (P0, non signalé par Fabien)
 
@@ -68,22 +69,24 @@ pourtant, cf. `get-hotel-details-tool.ts`) puis prend `offers[0]` — pas l'offr
 
 4 tours pour un hôtel déjà désigné, puis une URL de 250 caractères en texte.
 
-- [ ] 8. `resolve_shortlist_ordinal` : accepter un ordinal **dans une phrase**
-      (« ok pour la première » dead-end aujourd'hui, seul « 1 »/« la première »
-      nu résout).
-- [ ] 9. Émettre `booking_card` dans le payload `/v3/chat` (clé volontairement
-      absente de `CONTRACT_KEYS`) — le widget vendored sait déjà la rendre.
-- [ ] 10. Carte récap (design B, validé par Fabien) : renderer + CSS dans
-      `web/vendor/static/js/chat`, strings via `i18n.js`. **Seul endroit d'où
-      part un lien tunnel.**
-- [ ] 11. **Boutons de choix d'hôtel** (remplace l'ancien design C, écarté par
+- [x] 8. Ordinal dans une phrase : c'est le triage qui comprend
+      (`pick: "position"` + `pick_position`), le code qui résout
+      (`select_hotel_by_position`). « ok pour la première » ne dead-end plus.
+- [x] 9. `booking_card` émis dans `/v3/chat` (+ frame SSE `booking_card`),
+      construit depuis l'offre dont le lien est issu (carte et lien ne peuvent
+      pas diverger). Nouvelle clé `hotel_picks` pour les boutons.
+- [x] 10. Carte récap (design B) : renderer + CSS dans
+      `web/vendor/static/js/chat`, strings dans les 7 locales `i18n.js`.
+      **Seul endroit d'où part un lien tunnel** côté widget.
+- [x] 11. **Boutons de choix d'hôtel** (remplace l'ancien design C, écarté par
       Fabien : pas de deep link tunnel depuis le carrousel, cartes de résultat
       INCHANGÉES). Pills famille `.chip` avec traitement renforcé (13px/700,
       bordure 1,5px, prix en pastille tabulaire), copie = **nom + prix**,
       triées du moins cher au plus cher. Affichées quand **ville + date résolues
-      OU intention de réservation** détectée. Layout L1/L2/L3 → choix de Fabien
-      en attente (artefact).
-- [ ] 12. Tap sur un bouton → **directement la carte B**, aucun tour
+      OU intention de réservation** détectée. Layout **L1 choisi par Fabien**.
+      Clic → label en message + `hotel_id` dans le body (résolution par id,
+      jamais par le texte).
+- [x] 12. Tap sur un bouton → **directement la carte B**, aucun tour
       « vous confirmez ? » (décidé). R9 conservé : le clic sur le CTA de la
       carte EST la confirmation explicite. Résolution par `hotel_id`, jamais
       par parsing du label envoyé dans la conversation.
@@ -96,12 +99,25 @@ pourtant, cf. `get-hotel-details-tool.ts`) puis prend `offers[0]` — pas l'offr
   « ok pour la première ») et comparer.
 - `pytest -q` + ruff + mypy + guardrails verts, smoke e2e.
 
-## Décisions à trancher avant implémentation
+## Décisions prises par Fabien (2026-07-27)
 
-1. Le clic sur la carte vaut-il la confirmation explicite de R9 ? (reco : oui)
-2. Carte A (backend seul) ou directement B (backend + widget) ? (reco : B)
-3. Point 11 dans le même lot que 6, ou plus tard ? (reco : même lot)
-4. Ordre des lots : Constat 2 (P0) d'abord, puis 1, puis 3 ?
+1. Le clic vaut la confirmation R9 → **oui**, plus de tour « vous confirmez ? ».
+2. Directement la carte B (pas d'étape A).
+3. Layout **L1** (boutons de choix d'abord, chips d'affinage en dessous, muets).
+4. Copie des boutons = **nom + prix**, triés du moins cher au plus cher, **sans
+   badge « le moins cher »** (ce serait une affirmation, donc un guard à écrire).
+5. Déclencheur des boutons = ville + date résolues **OU** intention de réservation.
+6. Clic → message = le label, résolution = `hotel_id`.
+
+## À REVOIR en review (changement d'invariant)
+
+**R9 / guard #12 redéfini** : un lien exige toujours un flag de confirmation
+explicite et code-owned dans l'état du tour, mais ce flag a maintenant 2 formes :
+(a) devis en attente + « oui » (inchangé), (b) une SÉLECTION résolue sur un tour
+classé booking. Rien n'est réservé dans les deux cas — le lien ouvre le tunnel,
+le paiement s'y fait. Docstrings + tests mis à jour ; si tu veux restreindre (b)
+aux seuls clics de bouton (et pas au texte « réserve le moins cher »), c'est une
+condition d'une ligne.
 
 ---
 

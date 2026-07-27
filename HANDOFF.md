@@ -2,6 +2,36 @@
 
 État du chantier pour reprise en session fraîche. **Lire en entier avant d'agir ; ne pas reconstruire ce qui existe.** Mettre à jour en fin de CHAQUE session (bloc daté en tête).
 
+## ⏱ Addendum 2026-07-27 (branche `scx5-booking-offer-identity`, **stackée sur `scx3a-price-cents` / PR #37**) — S-CX5 : 3 symptômes remontés par Fabien en session live + 1 P0 trouvé en creusant
+
+**Contexte** : Fabien teste l'agent (2 screenshots, session Paris/fr) et remonte (1) « le moins cher » renvoie des hôtels PLUS chers, (2) le flow de réservation est trop long, (3) le lien brut au lieu d'une carte avec bouton. Design du (3) tranché par artefact + AskUserQuestion : cartes de résultat **INCHANGÉES** (pas de deep link tunnel depuis le carrousel — refus explicite de Fabien), choix par **boutons** façon chips, layout **L1**, copie **nom + prix**, tap → **directement la carte**.
+
+**P0 trouvé en creusant, non signalé par Fabien** : la carte affichait €87 / 11:00-19:00 / **demain**, le lien réservait €90 / 17:00-23:00 / **aujourd'hui**. `_quote_fresh_offer` appelait `get_hotel_details` **sans la date de session** puis prenait `offers[0]`. **Probe live** (Paris J+3, 5 hôtels) : la date était fausse sur **5/5**, l'offre entière (prix + créneau + rate plan) sur **1/5**.
+
+**Fait (4 commits)** :
+1. **Identité de l'offre bout-en-bout** — `offer_id` (= `ratePlanUuid`, l'`offerId` du tunnel) + `offer_date` sur la carte (feuille ET inline), portés par `record_search_shortlist` avec prix/créneau/photo/rating. Le devis réutilise l'offre VUE sans round-trip MCP ; fallback (hôtel hors shortlist) = lookup **daté** + offre la moins chère **du jour** (jamais le minimum global : un `get_hotel_details` non scopé renvoie ~90 offres sur 32 jours, probé live).
+2. **« le moins cher »** — 2 causes : (a) `capture_after_tool` excluait `shown_hotel_ids` sur TOUTE recherche alors que le curseur ne se réinitialisait que sur un changement de ville → la recherche censée classer par prix cachait les 5 moins chers ; (b) aucun tri prix n'existe côté MCP (`search_offers` n'a pas de param de tri ; le serveur classe availability .30/quality .25/**commission .20**/rpm .15/tier .10).
+3. **Boutons de choix + carte récap** — 2 clés de contrat neuves (`hotel_picks`, `booking_card`) + frame SSE, renderer et CSS dans le widget vendored, strings dans les 7 locales.
+4. **Widget** — pick buttons L1, clic → label en message + `hotel_id` dans le body.
+
+**⚠️ Changement d'invariant à revoir : R9 / guard #12 REDÉFINI.** Un lien exige toujours un flag de confirmation explicite **code-owned** dans l'état du tour ; ce flag a maintenant 2 formes : (a) devis en attente + « oui » (inchangé), (b) une **sélection résolue** sur un tour classé booking. Rien n'est réservé dans les deux cas (le lien ouvre le tunnel, le paiement s'y fait) et la carte affiche hôtel/jour/créneau/prix à côté du bouton. Décision produit de Fabien ; restreindre (b) aux seuls clics de bouton = une condition d'une ligne.
+
+**Correction de Fabien en cours de session (RÉCIDIVE)** : j'avais détecté « le moins cher » par **regex**. Or sa leçon du 2026-07-20 dit : le LLM déjà en place fait la COMPRÉHENSION, le code garde la DÉCISION. Refactor : le triage (1 appel LLM déjà fait chaque tour → **0 coût**) émet `pick` (enum fermée validée en code) ; `select_cheapest_hotel(last_results)` ne lit jamais le message (test verrouillant sa signature). Regex reléguée en `fallback_pick`, chemin LLM-down uniquement. **Mesuré** : sur 8 formulations, LLM 8/8, regex fausse sur 4.
+
+**Vérifié LIVE** (stack locale, gpt-4o-mini, MCP staging) :
+- Session de Fabien rejouée : tour 2 devise Villa Paris Orly €54 (la moins chère) **sans nouvelle recherche**, tour 3 lien `checkinDate=2026-07-28` + `offerId` de la carte. Avant : €90 / 17:00-23:00 / aujourd'hui.
+- `hotel_picks` : 5 boutons du moins cher au plus cher ; clic sur le bouton **2** (ni le moins cher ni la position 1, avec 2 hôtels homonymes) → carte de CE hôtel.
+- Un tour : « je veux réserver le moins cher » → carte complète (photo réelle, date, créneau, prix, lien tunnel), zéro « vous confirmez ? ».
+- `smoke_e2e` défaut / `--contract` / `--booking` : **PASS**.
+
+**Piège découvert (attrapé par le smoke, pas par les tests)** : j'avais retiré l'URL du texte quand une carte est émise. La carte voyage sur un **marker interne** que seule la façade lit — un consommateur **A2A** (harness d'éval, `smoke_e2e`) ne voit que le texte, et se retrouvait sans lien. Gardé dans le texte : le widget strippe déjà les URLs brutes quand une carte est présente (`handlers/send.js`).
+
+**DoD** : **1011 passed** (+42 ; même unique échec préexistant `test_llm_meter_usage`, untracked, hors zone) ; ruff OK ; mypy 40 fichiers OK ; guardrails OK ; tout le JS touché passe `node --check`. Les 3 tests de non-régression clés ont été **vérifiés en échec sans leur fix** (un test vert des deux côtés ne prouve rien).
+
+**Reste** : point 3 du plan (tri prix sur une recherche SANS shortlist — 1er tour) et point 4 (guard n°14 sur les superlatifs prix). Voir `tasks/todo.md`.
+
+**Merge** : PR à ouvrir depuis `scx5-booking-offer-identity` — **stackée** : #36 (scx3-research) → #37 (scx3a) → celle-ci. Review humaine de Fabien = le gate.
+
 ## ⏱ Addendum 2026-07-27 (branche `scx3a-price-cents`, stackée sur `scx3-research-prix-plancher`) — S-CX3a : les signaux numériques survivent à la carte + **2 découvertes live qui changent le design de S-CX3b**
 
 **Scope** : l'étape §8 du brief `phases/SCX3-prix-plancher-panier.md` qui ne dépend d'AUCUNE décision produit ouverte (les décisions §9 gouvernent 3b/3c, pas 3a). Aucun re-ranking, aucun changement de comportement client : uniquement des champs préservés sur la carte.
