@@ -24,16 +24,17 @@ indépendantes, chacune suffisante :
   sans qu'aucun guard ne confronte l'affirmation aux prix des cartes du tour
   (contrairement à `amenity_guard` et `link_guard`).
 
-- [ ] 1. `capture_after_tool` : n'exclure `shown_hotel_ids` **que** sur un tour de
-      pagination (`search_cursor > 0`). Test de régression nommé : un tour de
-      raffinement peut re-montrer un hôtel déjà vu.
-- [ ] 2. Intention prix **code-owned, sans nouvelle recherche** : superlatif prix
-      + shortlist existante + aucune nouvelle contrainte → tri déterministe de
-      `last_results` par prix, réponse « la moins chère des N que je t'ai
-      montrés ». Zéro MCP, zéro LLM supplémentaire.
-      Prérequis : `price_cents` numérique sur la carte (déjà fait sur
-      `scx3a-price-cents`) **et** porté dans `record_search_shortlist`, qui ne
-      garde aujourd'hui que `{hotel_id, name}`.
+- [x] 1. `capture_after_tool` : n'exclure `shown_hotel_ids` **que** sur un tour de
+      pagination (`search_cursor > 0`) + `reset_search_cursor` sur toute
+      recherche non-pagination (le curseur ne se remettait à 0 que sur un
+      changement de ville). Le test qui verrouillait le comportement bogué a été
+      corrigé, 2 tests de non-régression ajoutés.
+- [x] 2. Intention prix : **le triage LLM comprend** (champ `pick`, enum fermée
+      validée en code, 0 appel LLM en plus — le triage tourne déjà), **le code
+      décide** (`select_cheapest_hotel`, ne lit jamais le message). Regex
+      reléguée en `fallback_pick` (chemin LLM-down uniquement, comme
+      `fallback_family`). Correction d'une récidive — cf. `lessons.md`.
+      Vérifié live : LLM 8/8 sur des formulations où la regex se trompait 4 fois.
 - [ ] 3. Vraie recherche « les moins chers » (pas de shortlist) : tri par prix
       côté code sur la page avant la coupe top-5, formulation honnête (« les
       moins chers parmi les N trouvés », jamais « le moins cher de Paris »).

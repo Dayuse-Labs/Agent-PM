@@ -553,12 +553,37 @@ def test_read_profile_in_defaults_to_empty_dict():
 
 
 # --- shown_hotel_ids exclusion wired end-to-end through capture_after_tool (S-G5) --------------
-def test_capture_search_offers_excludes_shown_hotel_ids_from_profile_in():
-    ctx = _Ctx(user_content=_user_content_with_profile_in({"shown_hotel_ids": [0, 1]}))
+def test_capture_search_offers_excludes_shown_hotel_ids_while_paginating():
+    ctx = _Ctx(
+        user_content=_user_content_with_profile_in({"shown_hotel_ids": [0, 1], "search_cursor": 1})
+    )
     resp = {"structuredContent": _search_offers_structured(3), "isError": False}  # ids 0,1,2
     returned = capture_after_tool(_Tool("search_offers"), {}, ctx, resp)
     assert [h["hotel_id"] for h in ctx.state["temp:hotel_search_results"]] == [2]
     assert [h["hotel_id"] for h in returned["hotels"]] == [2]
+
+
+def test_capture_search_offers_shows_everything_again_on_page_one():
+    """S-CX5 REGRESSION (prod 2026-07-27): this filter exists so page 2 doesn't
+    repeat page 1. Applied to EVERY search — as it was — it made a refined
+    search hide the hotels just displayed, so "book the cheapest" answered with
+    ranks 6-10 while the five cheapest were still on screen. At cursor 0 the
+    full pool must come back, already-shown hotels included."""
+    ctx = _Ctx(
+        user_content=_user_content_with_profile_in({"shown_hotel_ids": [0, 1], "search_cursor": 0})
+    )
+    resp = {"structuredContent": _search_offers_structured(3), "isError": False}
+    returned = capture_after_tool(_Tool("search_offers"), {}, ctx, resp)
+    assert [h["hotel_id"] for h in returned["hotels"]] == [0, 1, 2]
+
+
+def test_capture_search_offers_treats_a_missing_cursor_as_page_one():
+    """An older profile (or a leaf called without the key) must not silently
+    fall back to hiding results."""
+    ctx = _Ctx(user_content=_user_content_with_profile_in({"shown_hotel_ids": [0, 1]}))
+    resp = {"structuredContent": _search_offers_structured(3), "isError": False}
+    returned = capture_after_tool(_Tool("search_offers"), {}, ctx, resp)
+    assert [h["hotel_id"] for h in returned["hotels"]] == [0, 1, 2]
 
 
 def test_capture_find_hotel_by_name_is_never_excluded():

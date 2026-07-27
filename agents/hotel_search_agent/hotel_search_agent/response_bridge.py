@@ -701,8 +701,22 @@ def capture_after_tool(
         # S-G5 pagination safety net: hotels already shown across earlier turns
         # (accumulated at the profile, S-G1) are filtered out before the top-5
         # cut. A named lookup (find_hotel_by_name) never excludes — see below.
-        shown = read_profile_in(tool_context).get("shown_hotel_ids")
-        if isinstance(shown, list) and shown:
+        #
+        # S-CX5: ONLY on a pagination turn (`search_cursor > 0`). This filter
+        # exists to stop page 2 repeating page 1 — applying it to every search
+        # made a refined search hide the hotels the user had just been shown,
+        # which is how "book the cheapest" answered with pricier hotels: the
+        # five cheapest were on screen, so the search meant to rank them
+        # excluded them and returned ranks 6-10 (prod session 2026-07-27).
+        # The concierge resets the cursor on any non-pagination search
+        # (`profile.reset_search_cursor`), so page 1 always sees the full pool.
+        profile_in = read_profile_in(tool_context)
+        shown = profile_in.get("shown_hotel_ids")
+        try:
+            paginating = int(profile_in.get("search_cursor") or 0) > 0
+        except (TypeError, ValueError):
+            paginating = False
+        if paginating and isinstance(shown, list) and shown:
             exclude_ids = set(shown)
         # S-G6 (A4-c): a genuine two-sided exact window (stashed by
         # datetime_resolver.resolve_search_timeslot before MCP only got the

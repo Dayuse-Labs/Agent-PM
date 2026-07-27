@@ -105,7 +105,9 @@ from .profile import (
     questions_equivalent,
     record_search_outcome,
     record_search_shortlist,
+    reset_search_cursor,
     resolve_shortlist_ordinal,
+    select_cheapest_hotel,
     search_context_line,
 )
 from .profile_store import get_profile_store
@@ -697,6 +699,7 @@ class _B2cConcierge(BaseAgent):
     async def _run_booking(
         self, ctx: InvocationContext, profile: SessionProfile, store: Any, message: str,
         family: str, language: str, user_confirmed: bool, budget: TurnBudget, t_start: float, inv: str,
+        picked_hotel_id: int | None = None,
     ) -> AsyncGenerator[Event, None]:
         """R9 / guard #12: fully deterministic, ZERO extra LLM call — a
         booking confirmation is security-sensitive control flow and must
@@ -709,7 +712,9 @@ class _B2cConcierge(BaseAgent):
         itself, so this signal alone can never authorize a link — see that
         function's docstring for the full guarantee, including the bypass
         case."""
-        result = await inline_tools.generate_booking_link(message, profile, user_confirmed)
+        result = await inline_tools.generate_booking_link(
+            message, profile, user_confirmed, picked_hotel_id=picked_hotel_id
+        )
         await store.set(ctx.session.id, profile)  # persists pending_booking either way
 
         if not result.get("ok"):
@@ -790,7 +795,20 @@ class _B2cConcierge(BaseAgent):
         # often mis-triages as booking/details and would otherwise dead-end. FAQ
         # is left untouched (a policy question that happens to carry a date is not
         # a re-search).
+        # S-CX5: the triage LLM read the message and said it points at the
+        # cheapest hotel ALREADY on screen (`pick`, a closed enum it validates);
+        # the code decides what that resolves to, from the prices in the
+        # session's own shortlist. A pick, not a new search — resolved BEFORE
+        # the refinement branch below, which matches the bare comparative
+        # ("moins cher") and used to swallow the superlative into another
+        # relevance search (prod 2026-07-27). Nothing on screen with a price →
+        # picked stays None and the turn routes exactly as it did before.
+        picked = (
+            select_cheapest_hotel(profile.last_results) if triage.pick == "cheapest" else None
+        )
         if is_booking_confirmation_signal(message, profile):
+            family, route = "booking", ROUTES["booking"]
+        elif picked is not None:
             family, route = "booking", ROUTES["booking"]
         elif resolve_shortlist_ordinal(message, profile.last_results) is not None:
             # A bare list position ("2") replying to the numbered shortlist is a
@@ -820,6 +838,7 @@ class _B2cConcierge(BaseAgent):
                 async for event in self._run_booking(
                     ctx, profile, store, message, family, triage.language,
                     user_confirmed, budget, t_start, inv,
+                    picked_hotel_id=picked.get("hotel_id") if picked else None,
                 ):
                     yield event
                 return
@@ -856,6 +875,14 @@ class _B2cConcierge(BaseAgent):
         more_options = route.target == LEAF_HOTEL_SEARCH and is_more_options_signal(message)
         if more_options:
             advance_search_cursor(profile)
+        elif route.target == LEAF_HOTEL_SEARCH:
+            # S-CX5: every other search restarts at page 1. The cursor is what
+            # tells the leaf to hide already-shown hotels, and it used to
+            # survive every turn until a city change — so a single "other
+            # options" made a later REFINED search silently skip the hotels
+            # the user had just seen (prod 2026-07-27: "book the cheapest"
+            # returned pricier ones because the cheap five were on screen).
+            reset_search_cursor(profile)
 
         # Leaf leg (search / faq): charge the leaf's 0-1 internal LLM slot, then
         # ONE call, per-family budget (_leaf_timeout), no retry. Session profile

@@ -1,5 +1,29 @@
 # Lessons — corrections de Fabien à réappliquer
 
+## 2026-07-27 — scx5 (RÉCIDIVE de la leçon du 2026-07-20)
+
+1. **Compréhension du langage = LLM en place ; décision = code. Je l'ai encore
+   raté.** Pour « le moins cher » j'avais écrit une regex de détection
+   d'intention (`_PRICE_SUPERLATIVE_RE`) — exactement ce que la leçon
+   s10-amenity-filters interdit, et je l'avais lue en début de session. Le bon
+   découpage : le triage (1 appel LLM DÉJÀ fait chaque tour, donc coût nul)
+   émet un champ `pick` en **liste fermée validée en code**, et le code décide
+   quel hôtel c'est (`select_cheapest_hotel`, qui ne lit jamais le message).
+   La regex ne survit que comme `fallback_pick`, au même statut que
+   `fallback_family` (chemin LLM-down, documenté comme tel).
+   **Preuve mesurée** : sur 8 formulations probées en live (gpt-4o-mini),
+   le LLM 8/8 ; la regex se serait trompée sur 4 (« je prends celui qui coûte
+   le moins », « vas-y pour le plus abordable », « whichever costs the least »,
+   « celui à 54 euros, le plus bas »).
+   **Test anti-récidive** : `test_it_never_reads_the_message` verrouille la
+   signature du resolver (`last_results` seul) — une regex réintroduite casse.
+   Règle générale : avant d'écrire une regex, demander « est-ce que je détecte
+   une INTENTION ou est-ce que j'applique une DÉCISION ? ». Intention → prompt
+   système + enum fermée. Décision → code.
+2. **Un test qui passe avant ET après le fix ne prouve rien.** Systématiquement
+   désactiver le fix et vérifier que le test échoue (fait ici pour le seam
+   test carte↔lien et pour le routing du pick).
+
 ## 2026-07-27 — scx3a/scx3c (auto-correction, design 3c réfuté en live)
 
 1. **Un test offline ne peut pas valider un changement d'ARGUMENT envoyé à MCP.**

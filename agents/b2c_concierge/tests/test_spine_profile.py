@@ -561,3 +561,143 @@ class TestProfileStoreOutageDegradesHonestly:
         answer = _run_turn(runner, session.id, "a hotel in Nice")
 
         assert answer == "A hotel in Nice."
+
+
+class TestCheapestPickThroughTheSpine:
+    """S-CX5, prod session 2026-07-27 replayed over the real spine.
+
+    Fabien searched Paris (5 hotels, cheapest €54), then typed "ok je veux
+    booké le moins cher". The turn re-ran a SEARCH — the message matched the
+    refinement keywords — and that search excluded every hotel already shown,
+    so it answered with ranks 6-10 (€81/€87/€112) under the sentence "La moins
+    chère est". Two defects in one turn: the pick became a search, and the
+    search hid the very hotels it was meant to rank."""
+
+    SEARCH_RESULTS = [
+        {
+            "hotel_id": 101, "name": "Villa Paris Orly", "price": "€54.00",
+            "price_eur_cents": 5400, "offer_id": "offer-villa", "offer_date": "2026-07-28",
+            "timeslots": [{"start": "10:00", "end": "17:00"}],
+        },
+        {
+            "hotel_id": 102, "name": "OKKO Hotels Paris Rueil", "price": "€70.00",
+            "price_eur_cents": 7000, "offer_id": "offer-okko", "offer_date": "2026-07-28",
+        },
+        {
+            "hotel_id": 103, "name": "Eurohotel Créteil", "price": "€58.00",
+            "price_eur_cents": 5800, "offer_id": "offer-euro", "offer_date": "2026-07-28",
+        },
+    ]
+
+    def _fake_mcp(self, monkeypatch):
+        from contextlib import asynccontextmanager
+
+        calls: list[tuple[str, dict]] = []
+
+        class _Res:
+            isError = False
+            structuredContent = {"confirmationRequired": True, "hotel": {}, "offer": {}}
+            content: list = []
+
+        class _Session:
+            async def call_tool(self, name, arguments):
+                calls.append((name, dict(arguments)))
+                return _Res()
+
+        @asynccontextmanager
+        async def _session():
+            yield _Session()
+
+        monkeypatch.setattr(agent_module.inline_tools, "_mcp_session", _session)
+        return calls
+
+    def test_the_cheapest_is_picked_from_the_screen_never_re_searched(
+        self, monkeypatch, fake_leg
+    ):
+        mcp_calls = self._fake_mcp(monkeypatch)
+        fake_leg.response_payload = {
+            "results": self.SEARCH_RESULTS,
+            "profile_delta": {"city": "Paris", "date": "2026-07-28"},
+        }
+        # Turn 2: triage UNDERSTOOD the superlative (pick=cheapest) while
+        # still classifying the family as "search" — the code-owned pick must
+        # beat that family, or we are back to the prod behaviour.
+        _scripted_llm(
+            monkeypatch,
+            '{"family": "search", "language": "fr", "pick": "none"}',
+            "Pour demain à Paris, voici 3 offres.",
+            '{"family": "search", "language": "fr", "pick": "cheapest"}',
+        )
+        runner = InMemoryRunner(root_agent)
+        session = _new_session(runner)
+
+        _run_turn(runner, session.id, "je veux un hôtel à Paris pour demain")
+        assert fake_leg.call_count == 1
+
+        _run_turn(runner, session.id, "ok je veux booké le moins cher")
+
+        # No second search at all: the answer was already on screen.
+        assert fake_leg.call_count == 1
+        link_call = next(c for c in mcp_calls if c[0] == "generate_booking_link")
+        # €54.00 — the cheapest — not the first, not a relevance-ranked pick.
+        assert link_call[1]["hotelId"] == 101
+        assert link_call[1]["ratePlanUuid"] == "offer-villa"
+        assert link_call[1]["date"] == "2026-07-28"
+        assert link_call[1]["confirmed"] is False
+        # And resolving it took no MCP lookup either — the shortlist knew.
+        assert "find_hotel_by_name" not in {c[0] for c in mcp_calls}
+        assert "get_hotel_details" not in {c[0] for c in mcp_calls}
+
+    def test_a_bare_comparative_still_runs_a_fresh_search(self, monkeypatch, fake_leg):
+        """The mirror case: "quelque chose de moins cher" is a real refinement
+        and must still reach the leaf, or this fix would break re-searching."""
+        self._fake_mcp(monkeypatch)
+        fake_leg.response_payload = {
+            "results": self.SEARCH_RESULTS,
+            "profile_delta": {"city": "Paris", "date": "2026-07-28"},
+        }
+        # Triage reads the comparative correctly: pick=none -> a real search.
+        _scripted_llm(
+            monkeypatch,
+            '{"family": "search", "language": "fr", "pick": "none"}',
+            "Pour demain à Paris, voici 3 offres.",
+            '{"family": "search", "language": "fr", "pick": "none"}',
+            "Voici des options moins chères.",
+        )
+        runner = InMemoryRunner(root_agent)
+        session = _new_session(runner)
+
+        _run_turn(runner, session.id, "je veux un hôtel à Paris pour demain")
+        _run_turn(runner, session.id, "tu as quelque chose de moins cher ?")
+
+        assert fake_leg.call_count == 2
+
+    def test_a_refined_search_stops_hiding_the_hotels_already_shown(
+        self, monkeypatch, fake_leg, fake_profile_store
+    ):
+        """The pagination cursor used to survive every later turn, so the leaf
+        kept excluding already-shown hotels from searches that were not
+        pagination at all. A refined search must go back to page 1."""
+        fake_leg.response_payload = {
+            "results": self.SEARCH_RESULTS,
+            "profile_delta": {"city": "Paris"},
+        }
+        _scripted_llm(
+            monkeypatch,
+            '{"family": "search", "language": "fr"}', "3 offres.",
+            '{"family": "search", "language": "fr"}', "3 autres offres.",
+            '{"family": "search", "language": "fr"}', "avec piscine.",
+        )
+        runner = InMemoryRunner(root_agent)
+        session = _new_session(runner)
+
+        _run_turn(runner, session.id, "un hôtel à Paris")
+        _run_turn(runner, session.id, "montre-moi d'autres options")
+        assert asyncio.run(fake_profile_store.get(session.id)).search_cursor == 1
+
+        _run_turn(runner, session.id, "avec une piscine")
+
+        stored = asyncio.run(fake_profile_store.get(session.id))
+        assert stored.search_cursor == 0
+        # The exclusion set survives for the NEXT real pagination turn.
+        assert stored.shown_hotel_ids == [101, 102, 103]

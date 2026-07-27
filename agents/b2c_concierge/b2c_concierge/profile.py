@@ -839,6 +839,21 @@ def advance_search_cursor(profile: SessionProfile) -> None:
     profile.search_cursor += 1
 
 
+def reset_search_cursor(profile: SessionProfile) -> None:
+    """Any search that is NOT "show me more of the same" starts at page 1.
+
+    S-CX5: the cursor used to survive every later turn (only a city change
+    cleared it), and the leaf excludes already-shown hotels whenever it is
+    non-zero — so one "other options" turn permanently hid the hotels the user
+    had already seen, including from a REFINED search. That is how "book the
+    cheapest" answered with pricier hotels: the five cheapest had just been
+    displayed, so they were filtered out of the very search meant to rank
+    them (prod session 2026-07-27). A new constraint means a new result set;
+    `shown_hotel_ids` keeps accumulating for the pagination safety net, it is
+    simply not consulted at page 1."""
+    profile.search_cursor = 0
+
+
 def resolve_hotel_reference(
     text: str, last_results: list[dict[str, Any]] | None
 ) -> dict[str, Any] | None:
@@ -933,6 +948,36 @@ def resolve_shortlist_ordinal(
     if position is None or not 1 <= position <= len(last_results):
         return None
     return last_results[position - 1]
+
+
+def select_cheapest_hotel(
+    last_results: list[dict[str, Any]] | None,
+) -> dict[str, Any] | None:
+    """The cheapest entry of the on-screen shortlist, or None when nothing on
+    screen carries a price.
+
+    S-CX5 — the DECISION half of "le moins cher": triage's `pick` field carries
+    whether the user asked for it (a comprehension step, owned by the LLM that
+    already runs every turn — Fabien, 2026-07-20: don't push determinism into
+    language understanding); WHICH hotel that is stays pure code over the
+    prices the user is actually looking at. This function never reads the
+    message.
+
+    It has to exist because MCP has no price ordering to delegate to:
+    `search_offers` takes no sort parameter and the server ranks on
+    availability/quality/commission/rpm/tier. Prod session 2026-07-27: "ok je
+    veux booké le moins cher" ran another relevance search instead, and
+    answered with hotels pricier than the ones already on screen.
+
+    Entries without a numeric price are skipped rather than guessed at."""
+    priced = [
+        hotel
+        for hotel in last_results or []
+        if isinstance(hotel, dict) and isinstance(hotel.get("price_eur_cents"), (int, float))
+    ]
+    if not priced:
+        return None
+    return min(priced, key=lambda hotel: hotel["price_eur_cents"])
 
 
 # --- Booking confirmation (R9, guard #12) -----------------------------------

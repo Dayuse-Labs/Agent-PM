@@ -418,31 +418,44 @@ def _best_offer(offers: list[Any], date: str | None = None) -> dict[str, Any] | 
     return min(priced, key=lambda o: o["priceEuro"]) if priced else pool[0]
 
 
+def _shortlist_entry(hotel_id: int, profile: SessionProfile) -> dict[str, Any] | None:
+    """The on-screen shortlist entry for `hotel_id`, or None when that hotel
+    isn't on screen."""
+    for entry in profile.last_results or []:
+        if not isinstance(entry, dict):
+            continue
+        try:
+            if int(entry.get("hotel_id")) == hotel_id:  # type: ignore[arg-type]
+                return entry
+        except (TypeError, ValueError):
+            continue  # an id we can't compare is not a match, never a crash
+    return None
+
+
 def _shortlist_offer(hotel_id: int, profile: SessionProfile) -> dict[str, Any] | None:
     """The stored offer identity for `hotel_id` if the on-screen shortlist
     carries one (`record_search_shortlist`, S-CX5) — the offer the user is
     actually looking at. None when the hotel isn't on screen or its card had
     no offer, which sends the caller to a fresh, date-scoped lookup."""
-    for entry in profile.last_results or []:
-        if not isinstance(entry, dict):
-            continue
-        try:
-            same_hotel = int(entry.get("hotel_id")) == hotel_id  # type: ignore[arg-type]
-        except (TypeError, ValueError):
-            continue  # an id we can't compare is not a match, never a crash
-        if not same_hotel:
-            continue
-        if entry.get("offer_id") and entry.get("offer_date"):
-            return entry
-        return None
+    entry = _shortlist_entry(hotel_id, profile)
+    if entry and entry.get("offer_id") and entry.get("offer_date"):
+        return entry
     return None
 
 
-async def _quote_fresh_offer(hotel_reference: str, profile: SessionProfile) -> dict[str, Any]:
+async def _quote_fresh_offer(
+    hotel_reference: str, profile: SessionProfile, picked_hotel_id: int | None = None
+) -> dict[str, Any]:
     """The confirmed=false branch: resolves the hotel from `hotel_reference`
     (named-hotel lookup guard, item 4) and ALWAYS quotes confirmed=false,
     recording the offer identity in `profile.pending_booking` for a later
     confirmation turn to reuse verbatim.
+
+    `picked_hotel_id` short-circuits that resolution: the spine already knows
+    WHICH hotel (S-CX5 — triage understood "le moins cher", `agent.py` picked
+    the cheapest of the shortlist in code) and hands the id over rather than a
+    phrase to re-interpret. Feeding "le moins cher" to `find_hotel_by_name`
+    would fuzzy-match a hotel actually named after those words, or nothing.
 
     S-CX5 — WHICH offer gets quoted, in order:
       1. the one the shortlist card was priced on (`_shortlist_offer`), reused
@@ -454,12 +467,21 @@ async def _quote_fresh_offer(hotel_reference: str, profile: SessionProfile) -> d
     Before this, the lookup was unscoped and took `offers[0]`: a card priced
     €87 for 11:00-19:00 tomorrow quoted €90 for 17:00-23:00 today, and the
     tunnel link carried that wrong date (prod session 2026-07-27)."""
-    if not (hotel_reference or "").strip():
+    if picked_hotel_id is None and not (hotel_reference or "").strip():
         return {"ok": False, "error": "no hotel reference in the message"}
     try:
         async with asyncio.timeout(_INLINE_MCP_TIMEOUT):
             async with _mcp_session() as session:
-                hotel_id, hotel_name = await _resolve_hotel_id(session, hotel_reference, profile)
+                hotel_id: int | None
+                hotel_name: str | None
+                if picked_hotel_id is not None:
+                    hotel_id = picked_hotel_id
+                    entry = _shortlist_entry(picked_hotel_id, profile)
+                    hotel_name = str(entry.get("name")) if entry else None
+                else:
+                    hotel_id, hotel_name = await _resolve_hotel_id(
+                        session, hotel_reference, profile
+                    )
                 if hotel_id is None:
                     return {"ok": False, "error": "hotel not found"}
                 shown = _shortlist_offer(hotel_id, profile)
@@ -518,7 +540,10 @@ async def _quote_fresh_offer(hotel_reference: str, profile: SessionProfile) -> d
 
 
 async def generate_booking_link(
-    hotel_reference: str, profile: SessionProfile, user_confirmed: bool
+    hotel_reference: str,
+    profile: SessionProfile,
+    user_confirmed: bool,
+    picked_hotel_id: int | None = None,
 ) -> dict[str, Any]:
     """R9 / guard #12. `generate_booking_link` is stateless server-side (a
     bare `confirmed=true` call returns a real link with no memory of any
@@ -547,7 +572,7 @@ async def generate_booking_link(
             named_hit is not None
             and named_hit.get("hotel_id") is not None
             and int(named_hit["hotel_id"]) != pending.get("hotel_id")
-        )
+        ) or (picked_hotel_id is not None and picked_hotel_id != pending.get("hotel_id"))
         if not mismatch:
             profile.pending_booking = None
             result = await _confirm_pending_offer(pending)
@@ -555,4 +580,4 @@ async def generate_booking_link(
                 profile.pending_booking = pending  # confirmation failed: keep the offer quotable
             return result
 
-    return await _quote_fresh_offer(hotel_reference, profile)
+    return await _quote_fresh_offer(hotel_reference, profile, picked_hotel_id)

@@ -39,11 +39,13 @@ from b2c_concierge.profile import (
     questions_equivalent,
     record_search_outcome,
     record_search_shortlist,
+    reset_search_cursor,
     resolve_hotel_reference,
     resolve_hotel_reference_strict,
     resolve_hotel_references,
     resolve_shortlist_ordinal,
     search_context_line,
+    select_cheapest_hotel,
 )
 
 
@@ -652,6 +654,64 @@ class TestRecordSearchShortlist:
         profile = SessionProfile()
         record_search_shortlist(profile, [{"hotel_id": 1, "name": "Hotel A", "offer_id": None}])
         assert profile.last_results == [{"hotel_id": 1, "name": "Hotel A"}]
+
+
+class TestSelectCheapestHotel:
+    """S-CX5, the DECISION half: triage's `pick` field says the user asked for
+    the cheapest (comprehension, LLM); this picks WHICH one, from the prices on
+    screen. MCP has no price ordering to delegate to."""
+
+    SHOWN = [
+        {"hotel_id": 1, "name": "Mercure La Défense", "price_eur_cents": 8700},
+        {"hotel_id": 2, "name": "Drawing House", "price_eur_cents": 8100},
+        {"hotel_id": 3, "name": "Pullman Bercy", "price_eur_cents": 11200},
+    ]
+
+    def test_picks_the_cheapest_of_the_shortlist(self):
+        hit = select_cheapest_hotel(self.SHOWN)
+        assert hit is not None and hit["hotel_id"] == 2  # €81, not the first shown
+
+    def test_nothing_on_screen_resolves_nothing(self):
+        assert select_cheapest_hotel(None) is None
+        assert select_cheapest_hotel([]) is None
+
+    def test_a_shortlist_without_prices_resolves_nothing(self):
+        """Cards predating the numeric price (or a source that carries none)
+        must not be ranked on a guess — the turn falls through to its normal
+        routing instead."""
+        assert select_cheapest_hotel([{"hotel_id": 1, "name": "Mercure"}]) is None
+
+    def test_entries_without_a_price_are_skipped_not_guessed(self):
+        mixed = [{"hotel_id": 9, "name": "Unknown price"}, *self.SHOWN]
+        hit = select_cheapest_hotel(mixed)
+        assert hit is not None and hit["hotel_id"] == 2
+
+    def test_it_never_reads_the_message(self):
+        """The signature is the guarantee: understanding lives in triage, this
+        only decides. A regression that re-adds text parsing breaks here."""
+        import inspect
+
+        assert list(inspect.signature(select_cheapest_hotel).parameters) == ["last_results"]
+
+
+class TestSearchCursorLifecycle:
+    def test_a_refined_search_restarts_at_page_one(self):
+        """S-CX5: the cursor only ever reset on a city change, so one "other
+        options" turn kept the already-shown hotels hidden from every later
+        search in that city — including the one meant to rank them by price."""
+        profile = SessionProfile(city="Paris")
+        advance_search_cursor(profile)
+        advance_search_cursor(profile)
+        assert profile.search_cursor == 2
+        reset_search_cursor(profile)
+        assert profile.search_cursor == 0
+
+    def test_resetting_keeps_the_shown_ids_for_later_pagination(self):
+        """The exclusion set stays accumulated — it is simply not consulted at
+        page 1. Clearing it would break the next real "other options" turn."""
+        profile = SessionProfile(city="Paris", shown_hotel_ids=[1, 2, 3], search_cursor=1)
+        reset_search_cursor(profile)
+        assert profile.shown_hotel_ids == [1, 2, 3]
 
 
 class TestResolveHotelReference:
