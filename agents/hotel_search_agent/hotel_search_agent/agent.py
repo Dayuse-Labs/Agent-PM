@@ -45,6 +45,7 @@ from google.adk.tools.mcp_tool import McpToolset, StreamableHTTPConnectionParams
 
 from hotel_search_agent.datetime_resolver import (
     inject_datetime_declaration,
+    probe_next_day_after_tool,
     resolve_search_date,
     resolve_search_timeslot,
 )
@@ -291,7 +292,17 @@ root_agent = Agent(
     # observes the real tool outcome. It stashes normalized results + the geocode
     # profile_delta and shrinks the ~24k-token search_offers payload the model
     # ingests (response_bridge.py).
-    after_tool_callback=[tool_timing_after, mcp_circuit_after_tool, capture_after_tool],
+    # probe_next_day_after_tool sits between them (S-CX6): it must see the real
+    # outcome (so after the breaker's observer) and run BEFORE capture_after_tool,
+    # which is what consumes the D+1 payload it stashes. It is the only async
+    # callback here — ADK awaits an awaitable one mixed among sync ones — and it
+    # always returns None, so it never breaks the chain.
+    after_tool_callback=[
+        tool_timing_after,
+        mcp_circuit_after_tool,
+        probe_next_day_after_tool,
+        capture_after_tool,
+    ],
     on_tool_error_callback=[tool_error_metric, mcp_circuit_on_error],
     # Emits the structured {results, profile_delta} A2A DataPart the orchestrator
     # decodes — the leaf's prose answer alone left `hotels` empty (S4/S5/S6 gap).

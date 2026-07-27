@@ -1095,7 +1095,24 @@ class _B2cConcierge(BaseAgent):
             return
         if route.target == LEAF_HOTEL_SEARCH and "results" in response:
             results_count = len(response["results"])
-            record_search_outcome(profile, results_count=results_count, language=triage.language)
+            # S-CX6: today's booking window closed on a market that DOES have
+            # matching hotels (leaf-owned `cutoff_closed`; it already probed the
+            # next day and found nothing usable either). The chips must then
+            # offer dates — budget/zone/filter cannot reopen a day. A same-day
+            # zero over an empty pool is a different thing entirely and keeps
+            # the generic recovery.
+            search_date = response.get("search_date")
+            same_day_dead_end = (
+                results_count == 0
+                and isinstance(search_date, dict)
+                and bool(search_date.get("cutoff_closed"))
+            )
+            record_search_outcome(
+                profile,
+                results_count=results_count,
+                language=triage.language,
+                same_day_dead_end=same_day_dead_end,
+            )
             record_search_shortlist(profile, response["results"])  # S07: named-hotel lookup guard
             if more_options and results_count == 0:
                 # S-G5: pagination pool exhausted for the CURRENT filters (the

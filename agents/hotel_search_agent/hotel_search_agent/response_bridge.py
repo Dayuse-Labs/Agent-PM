@@ -101,6 +101,20 @@ STATE_EXACT_WINDOW_KEY = "temp:hotel_search_exact_window"
 # set entirely — the leaf then falls back to the coarser (hour-rounded)
 # results instead of a silent 0, and the outcome text discloses the fallback.
 _STATE_TIMESLOT_FALLBACK_KEY = "temp:hotel_search_timeslot_fallback"
+# S-CX6: the date this turn's search actually ran on + whether that date is the
+# session's own "today" — written by datetime_resolver.resolve_search_date on
+# EVERY search (unlike STATE_RESOLVED_DATE_KEY, which only persists a fresh
+# label). Public, same cross-callback `temp:` hand-off. Three consumers: the
+# next-day probe's firing condition, the outcome text (a dead-end that never
+# names the date it searched is what made "no results" look like a display bug,
+# Fabien's session 2026-07-27), and the DataPart the concierge reads.
+STATE_SEARCH_DATE_KEY = "temp:hotel_search_search_date"
+# S-CX6: the D+1 payload stashed by datetime_resolver.probe_next_day_after_tool
+# when a SAME-DAY search came back empty over a non-empty pool (`total` > 0 with
+# `results` == [] — every day-use offer's `cutoffDeadlineUtc` falls on the stay
+# date itself, latest 16h Paris measured over 63 offers, so after that hour
+# "today" is dead pool-wide). capture_after_tool consumes it below.
+STATE_DATE_FALLBACK_KEY = "temp:hotel_search_date_fallback"
 # S-G4 per-phase instrumentation: dayuse_agent_common's tool_timing_before/after
 # already emit a `dayuse_metric=tool_call tool=geocode_location` / `tool=search_offers`
 # row (geocode ms / MCP ms) and llm_timing_before/after a `dayuse_metric=llm_call`
@@ -619,6 +633,19 @@ def _parse_content_text(tool_response: dict[str, Any]) -> dict[str, Any] | None:
     return None
 
 
+def read_structured_payload(tool_response: Any) -> dict[str, Any] | None:
+    """An MCP tool result's payload: `structuredContent`, else the text mirror.
+    Public (S-CX6) so the next-day probe in datetime_resolver reads a tool
+    result EXACTLY the way capture_after_tool does — the two must never
+    disagree about what "this response is empty" means."""
+    if not isinstance(tool_response, dict):
+        return None
+    structured = tool_response.get("structuredContent")
+    if isinstance(structured, dict):
+        return structured
+    return _parse_content_text(tool_response)
+
+
 # --- callbacks ------------------------------------------------------------------------------
 def inject_pagination_offset(tool: Any, args: dict[str, Any], tool_context: Any) -> None:
     """`before_tool_callback` (S-G5, A7): the ONLY writer of search_offers'
@@ -654,6 +681,36 @@ def inject_pagination_offset(tool: Any, args: dict[str, Any], tool_context: Any)
         cursor = 0
     args["from"] = max(cursor, 0) * MAX_RESULTS
     return None
+
+
+def _apply_date_fallback(tool_context: Any, stashed: dict[str, Any]) -> None:
+    """Book-keeping once the D+1 swap is decided (S-CX6).
+
+    Two writes, both required. The turn's search date becomes the day actually
+    on screen — keeping `cutoff_fallback_from` so the answer is FORCED to say
+    which day it is showing (offers presented as today's when they are
+    tomorrow's would be worse than the dead end it replaces). And the resolved
+    date is persisted with a `cutoff_fallback` provenance, so the profile
+    carries the new day forward: without it the next turn ("cheaper", "with a
+    pool") would re-search today and die on the very same cutoff."""
+    searched = stashed.get("searched_date")
+    offered = stashed.get("offered_date")
+    if not isinstance(offered, str) or not offered:
+        return
+    search_date: dict[str, Any] = {"date": offered, "same_day": False}
+    if isinstance(searched, str) and searched:
+        search_date["cutoff_fallback_from"] = searched
+    tool_context.state[STATE_SEARCH_DATE_KEY] = search_date
+    date_reference: dict[str, Any] = {"resolved_from": "cutoff_fallback"}
+    previous = tool_context.state.get(STATE_RESOLVED_DATE_KEY)
+    if isinstance(previous, dict):
+        client_tz = (previous.get("date_reference") or {}).get("client_tz")
+        if isinstance(client_tz, str) and client_tz:
+            date_reference["client_tz"] = client_tz
+    tool_context.state[STATE_RESOLVED_DATE_KEY] = {
+        "date": offered,
+        "date_reference": date_reference,
+    }
 
 
 def capture_after_tool(
@@ -706,9 +763,7 @@ def capture_after_tool(
     if tool_response.get("isError") or tool_response.get("ok") is False:
         return None  # a real failure — leave it untouched for the model to relay
 
-    structured = tool_response.get("structuredContent")
-    if not isinstance(structured, dict):
-        structured = _parse_content_text(tool_response)
+    structured = read_structured_payload(tool_response)
     if not isinstance(structured, dict):
         return None
 
@@ -755,6 +810,24 @@ def capture_after_tool(
         if fallback_results:
             results = fallback_results
             timeslot_fallback = True
+    # S-CX6: still empty, and the probe found a bookable D+1 next door → serve
+    # THAT day instead of a dead end. Placed BEFORE the search_offers block
+    # below on purpose: the swapped-in cards must get the same distance /
+    # country / applied-amenity stamping as any other card, and the compact
+    # payload the model ingests must describe the day it is actually looking at
+    # (`structured` is rebound, so resolvedDate/total below follow the swap).
+    if name == "search_offers" and not results:
+        stashed = tool_context.state.get(STATE_DATE_FALLBACK_KEY)
+        payload = stashed.get("payload") if isinstance(stashed, dict) else None
+        if isinstance(payload, dict):
+            swapped = normalize_search_results(payload, exclude_ids, strict_window)
+            if not swapped and strict_window is not None:
+                swapped = normalize_search_results(payload, exclude_ids, None)
+                timeslot_fallback = bool(swapped)
+            if swapped:
+                results = swapped
+                structured = payload
+                _apply_date_fallback(tool_context, stashed)
     if timeslot_fallback:
         tool_context.state[_STATE_TIMESLOT_FALLBACK_KEY] = True
     if name == "search_offers":
@@ -850,8 +923,46 @@ def _profile_language(context: Any) -> str:
     return language if language in ("fr", "en") else "en"
 
 
+def _date_fallback_line(search_date: Any, language: str) -> str:
+    """The honest same-day-cutoff disclosure (S-CX6), or "" when this turn is a
+    normal one. Two shapes: the swap happened (offers for another day are on
+    screen — say WHICH day and why), or a same-day search stayed empty (say
+    that today's bookings are what closed, not that the city has no hotels —
+    the old text sent users off widening a zone that had 518 hotels in it)."""
+    if not isinstance(search_date, dict):
+        return ""
+    fr = language == "fr"
+    offered, fell_back_from = search_date.get("date"), search_date.get("cutoff_fallback_from")
+    if isinstance(fell_back_from, str) and isinstance(offered, str):
+        return (
+            f" Les réservations pour aujourd'hui ({fell_back_from}) sont closes — "
+            f"ces offres sont celles du {offered}."
+            if fr
+            else (
+                f" Same-day bookings for today ({fell_back_from}) are closed — "
+                f"these offers are for {offered}."
+            )
+        )
+    if search_date.get("same_day") and isinstance(offered, str):
+        return (
+            f" Recherche effectuée pour aujourd'hui ({offered}) : les réservations "
+            "du jour sont déjà closes."
+            if fr
+            else (
+                f" This search was for today ({offered}): same-day bookings are "
+                "already closed."
+            )
+        )
+    if isinstance(offered, str):
+        return f" Recherche effectuée pour le {offered}." if fr else f" Searched for {offered}."
+    return ""
+
+
 def _outcome_text(
-    results: list[dict[str, Any]], timeslot_fallback: bool = False, language: str = "en"
+    results: list[dict[str, Any]],
+    timeslot_fallback: bool = False,
+    language: str = "en",
+    search_date: Any = None,
 ) -> str:
     """A short, code-built (zero-LLM) grounded outcome line. This becomes the
     orchestrator's `leaf_text` — it re-synthesizes the user-facing answer in the
@@ -864,22 +975,23 @@ def _outcome_text(
     hour-rounded set instead of a silent 0 — appends an honest disclosure so
     the synthesis never implies these hotels cover the exact time asked."""
     fr = language == "fr"
+    date_line = _date_fallback_line(search_date, language)
     if not results:
         return (
-            "Aucune offre de jour trouvée pour cette recherche."
+            "Aucune offre de jour trouvée pour cette recherche." + date_line
             if fr
-            else "No day-use offers found for this search."
+            else "No day-use offers found for this search." + date_line
         )
     names = ", ".join(str(r.get("name")) for r in results if r.get("name"))
     if fr:
-        text = f"{len(results)} offre(s) de jour trouvée(s) : {names}."
+        text = f"{len(results)} offre(s) de jour trouvée(s) : {names}." + date_line
         if timeslot_fallback:
             text += (
                 " Aucune offre ne couvre exactement le créneau demandé ; "
                 "voici les options les plus proches."
             )
         return text
-    text = f"{len(results)} day-use offer(s) found: {names}."
+    text = f"{len(results)} day-use offer(s) found: {names}." + date_line
     if timeslot_fallback:
         text += (
             " No offer covers the exact requested time window; showing the "
@@ -1017,6 +1129,15 @@ def emit_search_datapart(callback_context: Any) -> genai_types.Content | None:
     payload: dict[str, Any] = {}
     if results is not None:  # a search ran (even 0 results is a real outcome)
         payload["results"] = results
+        # S-CX6: WHICH day these results (or this dead end) are about, and
+        # whether that day is the session's today. The concierge cannot derive
+        # it — a carried-over/default date is deliberately never persisted to
+        # the profile — and it needs it for two decisions: the mandatory
+        # disclosure in the ground-truth block, and date-first recovery chips
+        # instead of the budget/zone/filter trio that cannot fix a closed day.
+        search_date = state.get(STATE_SEARCH_DATE_KEY)
+        if isinstance(search_date, dict) and search_date.get("date"):
+            payload["search_date"] = search_date
     if profile_delta:
         payload["profile_delta"] = profile_delta
     if clarify_turn:
@@ -1034,7 +1155,13 @@ def emit_search_datapart(callback_context: Any) -> genai_types.Content | None:
     parts: list[genai_types.Part] = []
     if results is not None:
         timeslot_fallback = bool(state.get(_STATE_TIMESLOT_FALLBACK_KEY))
-        parts.append(genai_types.Part(text=_outcome_text(results, timeslot_fallback, language)))
+        parts.append(
+            genai_types.Part(
+                text=_outcome_text(
+                    results, timeslot_fallback, language, state.get(STATE_SEARCH_DATE_KEY)
+                )
+            )
+        )
     elif clarify_turn:
         # This event replaces the model's own final text (last non-partial
         # wins), so the deterministic clarify question must ride here or the
@@ -1098,7 +1225,10 @@ def skip_final_generation(callback_context: Any, llm_request: Any) -> LlmRespons
             parts=[
                 genai_types.Part(
                     text=_outcome_text(
-                        results, timeslot_fallback, _profile_language(callback_context)
+                        results,
+                        timeslot_fallback,
+                        _profile_language(callback_context),
+                        callback_context.state.get(STATE_SEARCH_DATE_KEY),
                     )
                 )
             ],
