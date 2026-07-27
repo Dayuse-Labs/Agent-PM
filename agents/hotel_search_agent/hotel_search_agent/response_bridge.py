@@ -594,7 +594,7 @@ def inject_pagination_offset(tool: Any, args: dict[str, Any], tool_context: Any)
     message to extract; whether this is page 2 lives entirely in
     `profile_in.search_cursor`, S-G1's `advance_search_cursor`). Live-probed
     2026-07-23 against MCP_B2C staging: `search_offers` accepts `from`
-    (offset, default 0) / `size` (page size, default 10, max 50) and an
+    (offset, default 0) / `size` (page size, default 10) and an
     offset advanced by a full page returns genuinely disjoint hotel ids —
     real server-side pagination, no `excludeHotelIds`-style param exists
     (confirmed: an unrecognized key is a hard schema-validation error). So the
@@ -602,7 +602,16 @@ def inject_pagination_offset(tool: Any, args: dict[str, Any], tool_context: Any)
     (normalize_search_results, above) stays a client-side safety net for
     misaligned page boundaries. Any `from` the model itself supplied is
     unconditionally overwritten — same doctrine as `hotelEquipmentIds`: the
-    LLM never owns a filter/paging value."""
+    LLM never owns a filter/paging value.
+
+    ⚠️ `size` is NOT safely raisable (re-probed live 2026-07-27, correcting the
+    "max 50" this docstring used to claim): `size` ≥ 16 comes back as an EMPTY
+    structuredContent — no `results`, no `total`, and NO `isError`. A caller
+    that raised the page size would therefore read a silent ZERO and report
+    "no offers" on a market with 521 of them: the false-scarcity failure mode
+    of audit CX F2, from a different cause. Nothing sets `size` today (server
+    default 10, which is 2× MAX_RESULTS) — keep it that way unless the cliff
+    is fixed server-side."""
     if getattr(tool, "name", "") != "search_offers":
         return None
     profile_in = read_profile_in(tool_context)
