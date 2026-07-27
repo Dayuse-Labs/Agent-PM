@@ -158,13 +158,21 @@ def _differs_by_place(a: GeocodeCandidate, b: GeocodeCandidate) -> bool:
     return a.region.strip().lower() != b.region.strip().lower()
 
 
-def _clarify_question(options: list[GeocodeCandidate]) -> str:
+def _clarify_question(options: list[GeocodeCandidate], language: str | None = None) -> str:
     """Deterministic template — the options are differentiated by their
-    `place_formatted` context (country/region), exactly what a homonym needs."""
+    `place_formatted` context (country/region), exactly what a homonym needs.
+    Localized fr/en (S-CX2, audit F3/F5): this question can reach the customer
+    verbatim (the emit event replaces the model's text, and the synthesis
+    fallback serves leaf text as-is), so it must speak the user's language."""
     labels = []
     for c in options:
         ctx = c.place_formatted or c.country_code or ""
         labels.append(f"{c.name} ({ctx})" if ctx else c.name)
+    if language == "fr":
+        if len(labels) == 1:
+            return f"Vouliez-vous dire {labels[0]} ?"
+        joined = ", ".join(labels[:-1]) + f" ou {labels[-1]}"
+        return f"Plusieurs endroits portent ce nom — lequel vouliez-vous dire : {joined} ?"
     if len(labels) == 1:
         return f"Did you mean {labels[0]}?"
     joined = ", ".join(labels[:-1]) + f", or {labels[-1]}"
@@ -181,6 +189,7 @@ def resolve(
     proximity: tuple[float, float] | None = None,
     radius_km: float = DEFAULT_RADIUS_KM,
     requested_name: str | None = None,
+    language: str | None = None,
 ) -> Resolution:
     """Re-rank `candidates` and decide select / clarify / none. Pure and
     deterministic given the injected `inventory` provider.
@@ -271,6 +280,6 @@ def resolve(
     return Resolution(
         decision="clarify",
         options=options,
-        question=_clarify_question(options),
+        question=_clarify_question(options, language),
         scored=scored,
     )

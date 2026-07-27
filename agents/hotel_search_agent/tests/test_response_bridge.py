@@ -1169,3 +1169,96 @@ def test_emit_omits_date_when_no_fresh_label_was_resolved():
     data = _decode(emit_search_datapart(ctx))
     assert "date" not in data.get("profile_delta", {})
     assert "date_reference" not in data.get("profile_delta", {})
+
+
+# --- S-CX2: search-unavailable truthfulness (audit CX 2026-07-24, F2/F3) ----------------------
+# When the MCP search tools could not run this turn, the leaf must say so
+# deterministically — never let the model's prose read as a legitimate
+# "no offers in <city>" (false scarcity) when the backend was simply down.
+_SEARCH_UNAVAILABLE_KEY = "temp:hotel_search_search_unavailable"
+_CLARIFY_KEY = "temp:hotel_search_clarify_question"
+
+
+def test_circuit_open_search_response_sets_the_unavailable_flag():
+    ctx = _Ctx()
+    out = capture_after_tool(
+        _Tool("search_offers"), {}, ctx,
+        {"ok": False, "error": "mcp_circuit_open", "diagnostics": {"tool": "search_offers"}},
+    )
+    assert out is None  # the model still sees the neutral diagnostic untouched
+    assert ctx.state[_SEARCH_UNAVAILABLE_KEY] is True
+
+
+def test_generic_tool_failure_does_not_set_the_flag():
+    # A non-breaker failure keeps the pre-S-CX2 behavior: the model relays it;
+    # the anchor-without-results signal in emit still catches a broken search.
+    ctx = _Ctx()
+    capture_after_tool(_Tool("search_offers"), {}, ctx, {"isError": True})
+    assert _SEARCH_UNAVAILABLE_KEY not in ctx.state
+
+
+def test_emit_reports_search_unavailable_when_breaker_tripped():
+    ctx = _Ctx({_SEARCH_UNAVAILABLE_KEY: True})
+    content = emit_search_datapart(ctx)
+    data = _decode(content)
+    assert data["status"] == "search_unavailable"
+    assert "results" not in data
+    assert "temporarily unavailable" in content.parts[0].text
+
+
+def test_emit_reports_search_unavailable_on_anchor_without_results():
+    # The Marseille repro (audit F2): geocode succeeded (anchor stashed — the
+    # instruction then mandates a search) but no search response ever came
+    # back (MCP toolset unreachable / call failed / tool budget spent first).
+    ctx = _Ctx(
+        {_ANCHOR_KEY: {"latitude": 43.29, "longitude": 5.37, "label": "Marseille", "type": "city_centroid"}}
+    )
+    data = _decode(emit_search_datapart(ctx))
+    assert data["status"] == "search_unavailable"
+
+
+def test_search_unavailable_text_is_localized_fr():
+    ctx = _Ctx(
+        {_SEARCH_UNAVAILABLE_KEY: True},
+        user_content=_user_content_with_profile_in({"language": "fr"}),
+    )
+    content = emit_search_datapart(ctx)
+    assert "momentanément indisponible" in content.parts[0].text
+
+
+def test_clarify_turn_is_not_flagged_search_unavailable():
+    ctx = _Ctx({_CLARIFY_KEY: "Did you mean Victoria (British Columbia, Canada)?"})
+    data = _decode(emit_search_datapart(ctx))
+    assert data["requires_clarification"] is True
+    assert "status" not in data
+
+
+def test_geocode_fail_turn_keeps_the_model_text():
+    # No anchor, no breaker flag, no results: a geocode ok=False turn — the
+    # model's honest diagnostic stands, emit stays silent (pre-S-CX2 behavior).
+    assert emit_search_datapart(_Ctx()) is None
+
+
+def test_successful_search_carries_no_status():
+    ctx = _Ctx({_RESULTS_KEY: [{"id": 1, "name": "Hotel A"}]})
+    data = _decode(emit_search_datapart(ctx))
+    assert "status" not in data
+
+
+def test_skip_final_generation_short_circuits_when_search_unavailable():
+    ctx = _Ctx(
+        {_SEARCH_UNAVAILABLE_KEY: True},
+        user_content=_user_content_with_profile_in({"language": "fr"}),
+    )
+    resp = skip_final_generation(ctx, None)
+    assert resp is not None  # no wasted final prose call that could echo jargon
+    assert "momentanément indisponible" in resp.content.parts[0].text
+
+
+def test_outcome_text_is_localized_fr():
+    ctx = _Ctx(
+        {_RESULTS_KEY: []},
+        user_content=_user_content_with_profile_in({"language": "fr"}),
+    )
+    content = emit_search_datapart(ctx)
+    assert "Aucune offre de jour" in content.parts[0].text

@@ -2,6 +2,56 @@
 
 État du chantier pour reprise en session fraîche. **Lire en entier avant d'agir ; ne pas reconstruire ce qui existe.** Mettre à jour en fin de CHAQUE session (bloc daté en tête).
 
+## ⏱ Addendum 2026-07-24 (branche `scx3-research-prix-plancher`, stackée sur `scx2`) — S-CX3 deep dive : état de l'art « prix plancher / optimisation panier » — rapport seul, AUCUN code
+
+**Contexte** : demande Fabien — « recherches pour savoir s'il existe déjà des méthodo, l'objectif étant d'optimiser le panier du client ». 4 recherches web parallèles (littérature ranking price-aware ; pratiques OTA + réglementaire UE ; budget comme point de référence ; effets d'ordre). **Livrables : `reports/RESEARCH-SCX3-PRIX-PLANCHER-2026-07-24.md`** (recherche complète sourcée, chiffres avec niveau de confiance, folklore débusqué — la citation menu-engineering « Parsa & Njite +6,8 % » n'existe pas dans Crossref) **+ `phases/SCX3-prix-plancher-panier.md`** (topo de cadrage autoporteur demandé par Fabien pour la session d'implémentation : conclusions, formule v1, pistes alternatives évaluées, ancres code, découpage S-CX3a..d, décisions ouvertes §9).
+
+**Convergences clés** : (1) re-ranker par valeur SEULEMENT parmi les bons hôtels — quality floor (Jannach : ~50 % du gain revenu à coût de pertinence quasi nul, optimum intérieur) ; (2) ne jamais forcer le prix dans le ranking (Airbnb KDD 2020 : 2 tentatives, 2 reverts, −1,5 % bookings) ; (3) budget déclaré = prix de référence explicite → contrainte SOUPLE, kernel asymétrique (λ≈1,3-2), relaxation minimale EXPLIQUÉE (pattern Airbnb Flexible Matching) ; (4) ordre prix décroissant parmi les éligibles (+~4 % plafond, Suk JMR 2012, moins cher visible en position de bord) ; (5) bande hors budget +10-15 % = convention triangulée, PAS un chiffre primaire — à calibrer ; (6) lignes rouges UE (jamais masquer le moins cher, prix tout compris, pas de fausse rareté, pas de decoy).
+
+**Formule v1 recommandée (§2 du rapport)** : `score = Q^β × proximity(r)^γ` (Q = rating shrinké dominant, kernel asymétrique σ_under=0.5/σ_over=0.25/τ=0.15, plancher 0.35 sous budget) + quality floor relatif (Q ≥ Q_max−δ) + cap de déplacement 2 positions + tri décroissant des éligibles ; fallback hors budget = re-probe sans cap → 1-3 offres triées par écart croissant, écart affiché sur prix all-in + ce qu'il achète, additif jamais substitutif.
+
+**⚠️ Point technique critique (§3)** : la vérité terrain d'`eval_ranking.py` est la DISTANCE — le blend la fera mécaniquement baisser. Plan de mesure : NDCG@5-distance en GARDE + valeur panier simulée du top-3 en SÉLECTION (extension du script), puis A/B canary conversion+panier co-primaires (leçon Booking.com : l'offline ne prédit pas le business).
+
+**Découpage implémentation proposé (§5)** : S-CX3a donnée (cents numériques sur carte) → S-CX3b re-ranker feuille (flag env, code-owned) ∥ S-CX3c fallback hors budget → S-CX3d mesure. Chaque étape mergeable indépendamment. **Rien n'est lancé — GO Fabien requis sur la formule et le découpage.**
+
+**Piège découvert** : un agent de recherche a heurté la limite de dépense mensuelle de l'org en cours de route — ses 2 sous-agents avaient déjà livré ; synthèse faite sans relance. Vérifier `/usage-credits` avant les prochaines sessions à agents multiples.
+
+**Merge** : PR depuis `scx3-research-prix-plancher`, base `scx2-mcp-truth-localized-fallbacks` (stack #33 ← #34 ← #35 ← celle-ci, merger top-down). Review Fabien = gate.
+
+## ⏱ Addendum 2026-07-24 (branche `scx2-mcp-truth-localized-fallbacks`, stackée sur `scx1-facade-shield`) — S-CX2 : vérité MCP-down (fin de la fausse rareté) + jargon neutralisé + fallbacks localisés (fixes F2/F3/F5 de l'audit CX, GO Fabien)
+
+**Contexte** : 2e branche du GO Fabien post-audit CX. Fixe F2 (MCP injoignable → « il n'y a pas d'offres à Marseille », mensonge reproduit 4/4), F3 (texte feuille anglais verbatim sur synthèse morte + jargon `mcp_guard` dans le contexte modèle) et F5 (localisation des textes de secours, ack anglais sur « ok » d'un client fr).
+
+**Fait** :
+1. **Vérité MCP-down, chaîne bout-en-bout (F2)** — signal déterministe côté feuille dans `emit_search_datapart` : tour SANS réponse search capturée ET (breaker déclenché ce tour [nouveau flag `_STATE_SEARCH_UNAVAILABLE_KEY`, posé par `capture_after_tool` sur `error=mcp_circuit_open`] OU anchor geocode stashé [geocode ok ⇒ l'instruction impose une recherche]) ET pas un tour clarify → DataPart `status="search_unavailable"` + texte honnête déterministe qui REMPLACE la prose du modèle (même mécanique que le clarify D3). Couvre : toolset MCP inénumérable (le cas Marseille — le breaker ne voyait RIEN passer), circuit ouvert, échec d'appel, budget tools épuisé avant la recherche. `skip_final_generation` court-circuite aussi la passe finale du modèle quand le flag est posé (zéro echo de jargon possible). **Concierge** (`agent.py`) : `status=search_unavailable` → template `leaf_degraded_response` (jamais de synthèse), le delta geocode est GARDÉ (la destination est nommée dans le template), et le tour n'est PAS compté comme recherche vide (pas de streak/auto-widen/chips — l'inventaire n'a jamais été consulté).
+2. **Jargon neutralisé (F3)** — `mcp_guard._degraded_response` : reason sans « MCP_B2C »/« circuit » ; les 2 tests qui verrouillaient l'ancienne string verrouillent maintenant l'ABSENCE de jargon.
+3. **Localisation des textes de secours (F3/F5)** — `_outcome_text` fr/en (+ helper `_profile_language` depuis `profile_in.language`) ; question de clarify géo fr/en (`geo_resolver.resolve(language=...)` ← le hint 2 lettres que Mapbox recevait déjà) ; nouveau `triage.template_language` (langue établie → locale client → guess) utilisé par les 2 sites d'ack du spine ; `_locale_response_language` DÉPLACÉ de facade.py vers `triage.locale_response_language` (facade l'importe sous son ancien nom local — aucun contrat changé). **Règle Fabien (review PR #34), appliquée ici aussi** : une locale DÉCLARÉE non traduite (ni fr ni en) → ANGLAIS, jamais le guess (hints français piégés par es/it/pt) ; le guess ne sert que sans locale.
+
+**DoD verte** : 945 passed (+19 : 10 bridge feuille, 1 geo_resolver, 5 triage, 3 spine dont « pas compté comme recherche vide » ; même unique échec préexistant `test_llm_meter_usage`) ; ruff OK ; mypy 40 fichiers OK ; guardrails OK.
+
+**Vérifié LIVE (repro EXACTE de l'audit : feuille relancée avec `MCP_B2C_URL` mort, 2 appels)** : « je cherche un hôtel à Marseille demain » → **« Je n'arrive pas à joindre la recherche d'hôtels à Marseille pour le moment, et je préfère ne rien inventer. Pouvez-vous réessayer dans un instant ? »** 2/2, `suggestions: []` (avant : « il n'y a pas d'offres de jour à Marseille » 4/4). Feuille restaurée → smoke e2e PASS (le nominal ne régresse pas).
+
+**Limite documentée (assumée, YAGNI)** : le cas `find_hotel_by_name` avec MCP inénumérable ET breaker pas encore ouvert n'a pas de signal déterministe (pas de geocode sur ce chemin) — la prose du modèle reste ; après 3 échecs le breaker le couvre. Résiduel F3 : le chemin verbatim sur échec geocode (prose modèle « geocode_no_match ») reste LLM-authored — jargon possible seulement sur double panne geocode+synthèse, non traité (rare, et la prose du modèle paraphrase en pratique).
+
+**Merge** : PR depuis `scx2-mcp-truth-localized-fallbacks`, base `scx1-facade-shield` (stack #33 ← #34 ← celle-ci — merger top-down). Review Fabien = gate.
+
+## ⏱ Addendum 2026-07-24 (branche `scx1-facade-shield`, stackée sur `audit-cx-2026-07-24`) — S-CX1 : bouclier façade + frame SSE terminale garantie (fix F1/P0 de l'audit CX, GO Fabien)
+
+**Contexte** : GO explicite de Fabien sur S-CX1+S-CX2 de la roadmap de l'audit CX (`reports/AUDIT-CX-2026-07-24.md`). Cette branche = S-CX1 seul (F1). Décision de contrat prise : **pas de frame `error` nouvelle — un `done` dégradé** (zéro changement widget ; documenté dans la docstring de `chat_stream`).
+
+**Fait (3 pièces, petites)** :
+1. **`templates.py::service_degraded_response`** (neuf) — message générique honnête fr/en (la façade ne sait pas quelle étape a lâché ; ne dit pas « recherche d'hôtels » à tort sur un tour FAQ).
+2. **`facade.py::_shield_payload`** (neuf) — payload iso-contrat complet construit sur entrées PURES uniquement (`SessionProfile()` frais, `build_chat_payload` pur, zéro Redis/DB/ADK — n'importe lequel peut être CE qui vient de planter). **Langue (règle Fabien, review PR #34)** : une locale DÉCLARÉE mais non traduite (ni fr ni en — es/pt/de/…) → réponse en ANGLAIS, jamais via `guess_language` (ses hints français peuvent se déclencher sur de l'espagnol/italien) ; le guess sur le message ne sert que sans locale. Métrique count-only `concierge_metric=facade_shield path=… error_type=…` + `enqueue_metric_event` (jamais de contenu de message — RGPD) + `logger.exception` pour l'ops.
+3. **`facade.py` handlers** : `chat()` → try/except de dernier recours autour de session/native-context/drive/`_finalize` → payload bouclier en 200 (jamais un 500 nu hors contrat). `chat_stream()` → (a) échec de SETUP avant l'ouverture du stream → mini-générateur `progress`+`done` dégradé (un EventSource ne parse pas un body 500) ; (b) échec MID-STREAM → except dans `_body()`, le `yield done` est APRÈS le try/except → **le stream se termine TOUJOURS par `done`**. Helper `_sse_response` factorisé (headers + cookie).
+
+**DoD verte** : 926 passed (+5 : `tests/api/test_facade_http.py` section « last-resort shield » — crash JSON → contrat 200, localisation fr via locale, crash mid-stream → `done` terminal, crash setup SSE → `progress`+`done`, panne Redis dans `_finalize` → bouclier tient) ; même unique échec préexistant `test_llm_meter_usage` ; ruff OK ; mypy 40 fichiers OK ; guardrails OK. **Vérifié par la repro EXACTE de l'audit** (probe in-process `_drive` patché) : JSON = 200 + contrat complet + message fr honnête + cookie (avant : `500 Internal Server Error` texte brut) ; SSE = `['progress','token','done']` (avant : flux mort sans `done`).
+
+**Pièges** :
+- Le `yield _sse("done", payload)` doit être HORS du try/except (après), sinon un crash pendant la construction du payload dégradé lui-même tuerait encore le stream — le payload bouclier est pur précisément pour ça.
+- `_apply_native_context` ne touche Redis QUE si le body porte un champ natif — un test « Redis down » doit passer par `_finalize` (ou fournir une locale) pour exercer le chemin.
+
+**Merge** : PR depuis `scx1-facade-shield`, base `audit-cx-2026-07-24` (stack — merger top-down, leçon #28/#29). Review Fabien = gate.
+
 ## ⏱ Addendum 2026-07-24 (branche `audit-cx-2026-07-24`, base `main`) — Audit CX complet avant exposition client : rapport seul, AUCUN fix appliqué
 
 **Contexte** : audit demandé par Fabien (exposition prochaine aux clients : zéro fuite d'erreur + agent plus interactif/proactif, notamment propositions autour du budget). Cadrage tranché par Fabien en session : livrable = rapport seul (fixes en sessions dédiées après GO), « prix plancher » = **pondération scoring hôtel × proximité du prix au budget client** pour la mise en avant, passe live incluse.

@@ -64,6 +64,34 @@ class TestLanguageGuess:
         assert guess_language("any day-use room in London?") == "en"
 
 
+class TestTemplateLanguage:
+    """S-CX2: fr/en for a template answer — established conversation language,
+    then client locale, then the message's own detected language."""
+
+    def test_profile_language_wins(self):
+        assert triage_module.template_language("fr", "en-GB", "hello") == "fr"
+
+    def test_locale_beats_the_guess_on_a_bare_ok(self):
+        assert triage_module.template_language(None, "fr-FR", "ok") == "fr"
+
+    def test_unsupported_locale_answers_english(self):
+        # Fabien (PR #34 review): no translation for the declared language →
+        # English, even when the message text would trip the French-hints guess.
+        assert triage_module.template_language(None, "es-ES", "je cherche un hôtel") == "en"
+
+    def test_no_locale_falls_back_to_the_message_guess(self):
+        assert triage_module.template_language(None, None, "je cherche un hôtel") == "fr"
+
+    def test_no_signal_defaults_to_english(self):
+        assert triage_module.template_language(None, None, "ok") == "en"
+
+    def test_locale_response_language_maps_primary_tag(self):
+        assert triage_module.locale_response_language("fr-FR") == "fr"
+        assert triage_module.locale_response_language("en") == "en"
+        assert triage_module.locale_response_language("pt-PT") is None
+        assert triage_module.locale_response_language(None) is None
+
+
 class TestFallbackFamily:
     @pytest.mark.parametrize(
         ("message", "family"),

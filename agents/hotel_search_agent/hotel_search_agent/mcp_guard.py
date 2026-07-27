@@ -24,12 +24,16 @@ breaker = CircuitBreaker(failure_threshold=3, cooldown_seconds=30.0)
 
 
 def _degraded_response(tool_name: str) -> dict:
+    # The `reason` enters the MODEL's context and can be echoed to the customer
+    # on a degraded turn (audit CX 2026-07-24, F3) — customer-neutral wording
+    # only, never internal jargon (no "MCP_B2C", no "circuit").
     return {
         "ok": False,
         "error": "mcp_circuit_open",
         "diagnostics": {
             "tool": tool_name,
-            "reason": "MCP_B2C unavailable — circuit open after repeated failures",
+            "reason": "the hotel search backend is temporarily unavailable — tell the user "
+            "honestly that the search cannot run right now and to retry in a moment",
         },
     }
 
