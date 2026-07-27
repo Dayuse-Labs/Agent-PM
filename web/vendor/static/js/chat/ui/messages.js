@@ -321,6 +321,17 @@ function setupActionHandlers(messageContent) {
             if (!action) return;
 
             switch (action) {
+                case 'pick-hotel': {
+                    // S-CX5: the label goes into the transcript as the user's
+                    // own message; the id rides the next request so the
+                    // backend resolves the hotel without matching that text.
+                    event.preventDefault();
+                    const hotelId = String(element.dataset.hotelId || '');
+                    const label = String(element.dataset.pickLabel || '');
+                    emitTrackEvent('hotel_pick_click', { hotel_id: hotelId });
+                    window.chatApp?.pickHotel?.(hotelId, label);
+                    return;
+                }
                 case 'book-hotel': {
                     event.preventDefault();
                     const hotelName = String(element.dataset.hotelName || '');
@@ -434,14 +445,49 @@ function sanitizeTrustedHtml(rawHtml) {
 export function createBookingCard(card) {
     const name = escapeHtml(card.hotel_name || 'Hotel');
     const imageUrl = sanitizeImageUrl(card.image_url || '') || 'https://images.dayuse.com/hotels/default/default.jpg';
-    const ctaText = t('book_now');
     const url = sanitizeDayuseUrl(card.url || '') || '#';
     const safeUrlAttr = escapeAttr(url);
     const safeHotelNameAttr = escapeAttr(card.hotel_name || 'Hotel');
     const safeHotelIdAttr = escapeAttr(String(card.hotel_id || ''));
-    const currencyPrefix = escapeHtml(card.currency || '$');
-    const priceDisplay = card.price
-        ? `<div class="booking-card__price">${currencyPrefix}${Math.round(card.price)}</div>`
+
+    // S-CX5 — every row is DROPPED when the offer doesn't carry it, never
+    // defaulted: the whole point of this card is that it states what the link
+    // books, so a placeholder would be worse than an absence.
+    const subtitleBits = [
+        card.city ? escapeHtml(String(card.city)) : '',
+        card.stars ? `${escapeHtml(String(card.stars))}★` : '',
+        card.rating ? `${escapeHtml(String(card.rating))}/5${
+            card.rating_count ? ` (${escapeHtml(String(card.rating_count))})` : ''
+        }` : '',
+    ].filter(Boolean).join(' · ');
+
+    const slot = [card.start_time, card.end_time].every(Boolean)
+        ? `${escapeHtml(String(card.start_time))} – ${escapeHtml(String(card.end_time))}`
+        : '';
+    const facts = [
+        card.date ? { k: t('card_date'), v: escapeHtml(formatCardDate(card.date)) } : null,
+        slot ? { k: t('card_slot'), v: slot } : null,
+    ].filter(Boolean);
+    const factsHtml = facts.length
+        ? `<div class="booking-card__facts">${facts.map(f => `
+            <div class="booking-card__fact">
+                <span class="booking-card__fact-k">${escapeHtml(f.k)}</span>
+                <span class="booking-card__fact-v">${f.v}</span>
+            </div>`).join('')}</div>`
+        : '';
+
+    const priceHtml = card.price
+        ? `<div class="booking-card__pricerow">
+               <span class="booking-card__price">${escapeHtml(String(card.price))}</span>
+               <span class="booking-card__pricenote">${escapeHtml(t('card_price_note'))}</span>
+           </div>`
+        : '';
+
+    const hotelUrl = sanitizeDayuseUrl(card.hotel_url || '');
+    const secondaryHtml = hotelUrl
+        ? `<div class="booking-card__secondary">
+               <a href="${escapeAttr(hotelUrl)}" target="_blank" rel="noopener">${escapeHtml(t('card_see_hotel'))}</a>
+           </div>`
         : '';
 
     return `
@@ -449,25 +495,44 @@ export function createBookingCard(card) {
             <img
                 class="booking-card__image"
                 src="${imageUrl}"
-                alt="${escapeAttr(card.hotel_name || 'Hotel')}"
+                alt="${safeHotelNameAttr}"
                 data-fallback-src="https://images.dayuse.com/hotels/default/default.jpg"
             >
             <div class="booking-card__body">
-                <div class="booking-card__name">${name}</div>
-                ${priceDisplay}
+                <div class="booking-card__title">
+                    <div class="booking-card__name">${name}</div>
+                    ${subtitleBits ? `<div class="booking-card__place">${subtitleBits}</div>` : ''}
+                </div>
+                ${factsHtml}
+                ${priceHtml}
                 <a href="${safeUrlAttr}" target="_blank" rel="noopener" class="booking-card__cta"
                    data-track-booking-card-click="1"
                    data-hotel-name="${safeHotelNameAttr}"
                    data-hotel-id="${safeHotelIdAttr}"
                    data-booking-url="${safeUrlAttr}">
-                    ${ctaText}
+                    ${escapeHtml(t('card_book_cta'))}
                     <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5">
                         <path d="M7 17L17 7M17 7H7M17 7V17"/>
                     </svg>
                 </a>
+                ${secondaryHtml}
             </div>
         </div>
     `;
+}
+
+/** "2026-07-28" -> a short local date; anything unparsable passes through. */
+function formatCardDate(value) {
+    const raw = String(value || '');
+    const parsed = new Date(`${raw}T12:00:00`);
+    if (Number.isNaN(parsed.getTime())) return raw;
+    try {
+        return parsed.toLocaleDateString(undefined, {
+            weekday: 'short', day: 'numeric', month: 'short',
+        });
+    } catch (_) {
+        return raw;
+    }
 }
 
 /**

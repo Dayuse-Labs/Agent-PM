@@ -538,6 +538,22 @@ async def _finalize(
     return payload
 
 
+def _parse_picked_hotel_id(body: dict[str, Any]) -> int | None:
+    """S-CX5: `hotel_id` in the request body — a pick BUTTON was clicked. The
+    button also sends its label as the user's message (so the transcript reads
+    naturally), but the hotel is resolved from THIS id, never by matching that
+    text: two hotels of the same chain in one shortlist would otherwise be a
+    coin flip. Anything unparsable is ignored, exactly like the other
+    native-context fields."""
+    raw = body.get("hotel_id")
+    if isinstance(raw, bool) or raw is None:
+        return None
+    try:
+        return int(raw)
+    except (TypeError, ValueError):
+        return None
+
+
 async def _read_body(request: Request) -> dict[str, Any]:
     try:
         body = await request.json()
@@ -682,11 +698,16 @@ async def _apply_native_context(session_id: str, body: dict[str, Any], turn_inde
     S-G7; this only makes the signal reach the profile). Zero Redis round-
     trip when the request carries none of these optional fields."""
     delta = _native_context_delta(body, turn_index)
-    if not delta:
+    picked = _parse_picked_hotel_id(body)
+    if not delta and picked is None:
         return
     store = get_profile_store()
     profile = await store.get(session_id)
-    apply_profile_delta(profile, delta, "")
+    if delta:
+        apply_profile_delta(profile, delta, "")
+    # S-CX5: NOT part of the delta reducer — this is one-shot turn state the
+    # spine consumes and clears, not a carryover slot.
+    profile.picked_hotel_id = picked
     await store.set(session_id, profile)
 
 

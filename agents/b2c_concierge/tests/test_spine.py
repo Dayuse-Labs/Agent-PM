@@ -835,8 +835,9 @@ class TestBookingGuardR9:
         )
         assert card["url"] == "https://www.dayuse.fr/tunnel/booking?offerId=abc"
         assert card["hotel_name"] == "Sonesta Carmel"
-        assert "https://" not in answer
-        assert "Sonesta Carmel" in answer
+        # The text KEEPS the URL: an A2A consumer never sees the card marker,
+        # and the widget strips raw URLs itself when a card is present.
+        assert "https://www.dayuse.fr/tunnel/booking?offerId=abc" in answer
 
     def test_bypass_attempt_on_a_fresh_session_never_produces_a_link(
         self, scripted, caplog, monkeypatch

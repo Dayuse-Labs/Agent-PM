@@ -93,22 +93,18 @@ def booking_offer_summary_response(
     )
 
 
-def booking_link_response(
-    *, hotel_name: str, url: str | None, language: str, with_card: bool = False
-) -> str:
+def booking_link_response(*, hotel_name: str, url: str | None, language: str) -> str:
     """R9 (guard #12), the authorized-link turn.
 
-    S-CX5: when the answer ships a `booking_card` (the payload key the widget
-    renders as a real card with a CTA), the text must NOT also paste the URL —
-    250 characters of tracking parameters read as noise next to the button, and
-    the widget strips raw URLs from the text anyway when a card is present. The
-    URL stays in the text only when there is no card to carry it."""
+    S-CX5 considered dropping the URL from the text whenever a `booking_card`
+    ships alongside it, and REVERTED that: the card rides an internal marker
+    the facade turns into a payload key, so an A2A consumer (the eval harness,
+    smoke_e2e) only ever sees this text — stripping the URL there made the
+    answer useless off the widget path. It costs nothing to keep: the widget
+    already removes raw URLs from the prose when a card is present
+    (handlers/send.js), so the button is the only link the user sees."""
     if not url:
         return booking_needs_selection_response(None, None, language)
-    if with_card:
-        if language == "fr":
-            return f"Voici votre offre pour {hotel_name} — vérifiez et réservez sur Dayuse :"
-        return f"Here is your offer for {hotel_name} — check it and book on Dayuse:"
     if language == "fr":
         return f"C'est confirmé — voici votre lien de réservation pour {hotel_name} : {url}"
     return f"Confirmed — here is your booking link for {hotel_name}: {url}"

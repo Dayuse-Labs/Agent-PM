@@ -168,3 +168,20 @@ export function applyClarifyOption(button) {
     }
     window.chatApp.runSearchWithFilters();
 }
+
+
+/**
+ * S-CX5 — a hotel-pick button was clicked.
+ *
+ * Sends the button's label as the user's own message (Fabien, 2026-07-27: the
+ * transcript should read like the conversation it is, so scrolling back shows
+ * what was chosen) while stashing the hotel id for the request that follows.
+ * The backend resolves the hotel from that id and never from the label.
+ */
+export function pickHotel(hotelId, label) {
+    const input = document.getElementById('user-input');
+    if (!input || !hotelId) return;
+    state.pendingPickHotelId = String(hotelId);
+    input.value = String(label || '').trim();
+    window.chatApp.sendMessage();
+}

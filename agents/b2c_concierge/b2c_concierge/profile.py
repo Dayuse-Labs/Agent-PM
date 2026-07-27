@@ -169,6 +169,13 @@ class SessionProfile:
     # (the leaf, `datetime_resolver.resolve_search_date`), so a specific
     # resolution's provenance stays self-contained.
     client_timezone: str | None = None
+    # S-CX5: a hotel the USER clicked (a pick button carries its id in the
+    # request body). One-shot turn state, not a preference: the spine reads it
+    # and clears it within the same turn. It lives on the profile because that
+    # is the only channel between the facade's intake and the spine — and
+    # resolving a click BY ID is the point: the label the button also sends is
+    # for the transcript, never for matching.
+    picked_hotel_id: int | None = None
 
     def to_dict(self) -> dict[str, Any]:
         return {
@@ -206,6 +213,7 @@ class SessionProfile:
             "shown_hotel_ids": list(self.shown_hotel_ids),
             "search_cursor": self.search_cursor,
             "client_timezone": self.client_timezone,
+            "picked_hotel_id": self.picked_hotel_id,
             "schema_version": PROFILE_SCHEMA_VERSION,
         }
 

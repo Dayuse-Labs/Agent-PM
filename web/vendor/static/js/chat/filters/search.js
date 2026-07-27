@@ -221,6 +221,43 @@ export async function runSearchWithFilters() {
     }
 }
 
+
+/**
+ * S-CX5 — hotel-pick buttons (layout L1: picking first, refining below).
+ *
+ * The backend owns both product rules and sends the result ready to render:
+ * WHEN a pick is offered at all (`hotel_picks` is empty until a destination
+ * AND a date are resolved) and IN WHICH ORDER (cheapest first). This function
+ * only draws them — no filtering, no re-sorting, no "cheapest" badge.
+ *
+ * A click sends the button's own label as the user's message, so the
+ * transcript reads like the conversation it is; the hotel itself is resolved
+ * server-side from `data-hotel-id`, never from that text.
+ */
+function pickButtonsHtml() {
+    const picks = Array.isArray(state.hotelPicks) ? state.hotelPicks : [];
+    if (!picks.length) return '';
+    const buttons = picks.map(pick => {
+        const id = String(pick?.hotel_id ?? '').trim();
+        const name = String(pick?.name || '').trim();
+        if (!id || !name) return '';
+        const price = String(pick?.price || '').trim();
+        const label = price ? `${name} ${price}` : name;
+        return `<button class="pick-button" data-action="pick-hotel"
+            data-hotel-id="${escapeAttr(id)}"
+            data-pick-label="${escapeAttr(label)}">${escapeHtml(name)}${
+            price ? `<span class="pick-button__price">${escapeHtml(price)}</span>` : ''
+        }</button>`;
+    }).filter(Boolean).join('');
+    if (!buttons) return '';
+    return `
+        <div class="pick-row">
+            <p class="pick-row__label">${escapeHtml(t('pick_prompt'))}</p>
+            <div class="pick-row__buttons">${buttons}</div>
+        </div>
+    `;
+}
+
 /**
  * Add follow-up message after results
  */
@@ -228,6 +265,7 @@ export function addFollowUpMessage(skipTimeslotChips = false) {
     if (skipTimeslotChips || state.selectedFilters.timeslot) {
         const followUpHtml = `
             <div class="follow-up-box">
+                ${pickButtonsHtml()}
                 <p>${t('followup_questions')}</p>
             </div>
         `;
@@ -238,7 +276,8 @@ export function addFollowUpMessage(skipTimeslotChips = false) {
 
     const followUpHtml = `
         <div class="follow-up-box">
-            <p>${t('followup_refine')}</p>
+            ${pickButtonsHtml()}
+            <p class="follow-up-box__refine">${t('followup_refine')}</p>
             <div class="follow-up-chips">
                 <button class="chip" data-action="follow-up" data-follow-up="early">${t('chip_early')}</button>
                 <button class="chip" data-action="follow-up" data-follow-up="day">${t('chip_day')}</button>

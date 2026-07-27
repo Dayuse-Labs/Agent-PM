@@ -773,7 +773,7 @@ class _B2cConcierge(BaseAgent):
                 ctx,
                 templates.booking_link_response(
                     hotel_name=result.get("hotel_name") or "", url=result.get("url"),
-                    language=language, with_card=bool(card),
+                    language=language,
                 ),
             )
         else:
@@ -843,9 +843,22 @@ class _B2cConcierge(BaseAgent):
         # into another relevance search (prod 2026-07-27). Nothing resolvable →
         # `picked` stays None and the turn routes exactly as it did before.
         picked: dict[str, Any] | None = None
-        if triage.pick == "cheapest":
+        # A CLICKED pick button (its hotel id rode the request body, facade
+        # intake) outranks anything read from the text: the user pointed at one
+        # card, there is nothing left to interpret. One-shot — cleared here so
+        # it can never leak into a later turn.
+        clicked_id, profile.picked_hotel_id = profile.picked_hotel_id, None
+        if clicked_id is not None:
+            picked = next(
+                (
+                    h for h in profile.last_results or []
+                    if isinstance(h, dict) and h.get("hotel_id") == clicked_id
+                ),
+                None,
+            )
+        if picked is None and triage.pick == "cheapest":
             picked = select_cheapest_hotel(profile.last_results)
-        elif triage.pick == "position":
+        elif picked is None and triage.pick == "position":
             picked = select_hotel_by_position(profile.last_results, triage.pick_position)
 
         if is_booking_confirmation_signal(message, profile):
@@ -855,10 +868,11 @@ class _B2cConcierge(BaseAgent):
             # a pick with any other intent ("montre-moi le moins cher") is a
             # question ABOUT that hotel — routed to the details lookup, never
             # to a booking link the user did not ask for, and never back to a
-            # search that would re-rank away the hotel they just named.
+            # search that would re-rank away the hotel they just named. A
+            # CLICKED button is always a booking intent — that is what it says.
             family, route = (
                 ("booking", ROUTES["booking"])
-                if family == "booking"
+                if family == "booking" or clicked_id is not None
                 else ("details", ROUTES["details"])
             )
         elif resolve_shortlist_ordinal(message, profile.last_results) is not None:

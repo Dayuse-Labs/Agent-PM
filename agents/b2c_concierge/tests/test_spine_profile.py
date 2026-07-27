@@ -18,7 +18,11 @@ from google.genai import types as genai_types
 import b2c_concierge.agent as agent_module
 from b2c_concierge.a2a_datapart import encode_datapart, find_datapart
 from b2c_concierge.agent import root_agent
-from b2c_concierge.profile import BUDGET_SOURCE_EXPLICIT, BUDGET_SOURCE_FLEXIBLE_DEFAULT
+from b2c_concierge.profile import (
+    BUDGET_SOURCE_EXPLICIT,
+    BUDGET_SOURCE_FLEXIBLE_DEFAULT,
+    SessionProfile,
+)
 
 
 def _llm_response(text: str):
@@ -753,3 +757,88 @@ class TestPickWithoutBookingIntent:
         assert "get_hotel_details" in tools
         assert calls[0][1]["hotelId"] == 101  # and it IS the cheapest one
         assert fake_leg.call_count == 1  # no re-search either
+
+
+class TestClickedPickButton:
+    """S-CX5: a pick BUTTON click. The widget sends the button's label as the
+    user's message (readable transcript) and the hotel id in the request body;
+    the hotel must be resolved from the ID — two hotels of the same chain in
+    one shortlist would make label matching a coin flip."""
+
+    SHOWN = [
+        {"hotel_id": 101, "name": "ibis Paris Bercy", "price": "€54.00",
+         "price_eur_cents": 5400, "offer_id": "offer-a", "offer_date": "2026-07-28"},
+        {"hotel_id": 102, "name": "ibis Paris Bercy", "price": "€70.00",
+         "price_eur_cents": 7000, "offer_id": "offer-b", "offer_date": "2026-07-28"},
+    ]
+
+    def test_the_clicked_id_wins_over_the_ambiguous_label(self, monkeypatch, fake_profile_store):
+        from contextlib import asynccontextmanager
+
+        calls: list[tuple[str, dict]] = []
+
+        class _Session:
+            async def call_tool(self, name, arguments):
+                calls.append((name, dict(arguments)))
+                return SimpleNamespace(
+                    isError=False, content=[],
+                    structuredContent={"link": {"url": "https://www.dayuse.fr/tunnel/booking?x"}},
+                )
+
+        @asynccontextmanager
+        async def _session():
+            yield _Session()
+
+        monkeypatch.setattr(agent_module.inline_tools, "_mcp_session", _session)
+        runner = InMemoryRunner(root_agent)
+        session = _new_session(runner)
+        # The facade's intake already ran: shortlist on screen, id from the body.
+        asyncio.run(
+            fake_profile_store.set(
+                session.id,
+                SessionProfile(
+                    city="Paris", date="2026-07-28",
+                    last_results=self.SHOWN, picked_hotel_id=102,
+                ),
+            )
+        )
+        # Triage sees only the ambiguous label — no pick, no booking family.
+        _scripted_llm(monkeypatch, '{"family": "search", "language": "fr", "pick": "none"}')
+
+        _run_turn(runner, session.id, "ibis Paris Bercy €70.00")
+
+        link_call = next(c for c in calls if c[0] == "generate_booking_link")
+        assert link_call[1]["hotelId"] == 102  # the SECOND ibis, as clicked
+        assert link_call[1]["ratePlanUuid"] == "offer-b"
+        assert link_call[1]["confirmed"] is True
+
+    def test_the_click_is_one_shot(self, monkeypatch, fake_profile_store):
+        """It must never leak into a later turn and re-book on its own."""
+        from contextlib import asynccontextmanager
+
+        @asynccontextmanager
+        async def _session():
+            class _S:
+                async def call_tool(self, name, arguments):
+                    return SimpleNamespace(
+                        isError=False, content=[],
+                        structuredContent={"link": {"url": "https://www.dayuse.fr/tunnel/booking?x"}},
+                    )
+
+            yield _S()
+
+        monkeypatch.setattr(agent_module.inline_tools, "_mcp_session", _session)
+        runner = InMemoryRunner(root_agent)
+        session = _new_session(runner)
+        asyncio.run(
+            fake_profile_store.set(
+                session.id,
+                SessionProfile(
+                    city="Paris", date="2026-07-28",
+                    last_results=self.SHOWN, picked_hotel_id=102,
+                ),
+            )
+        )
+        _scripted_llm(monkeypatch, '{"family": "search", "language": "fr", "pick": "none"}')
+        _run_turn(runner, session.id, "ibis Paris Bercy €70.00")
+        assert asyncio.run(fake_profile_store.get(session.id)).picked_hotel_id is None
