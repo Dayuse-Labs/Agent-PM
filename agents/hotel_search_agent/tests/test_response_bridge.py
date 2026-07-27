@@ -21,6 +21,7 @@ from hotel_search_agent.response_bridge import (
     STATE_EXACT_WINDOW_KEY,
     STATE_RESOLVED_DATE_KEY,
     _photo_url,
+    _price_eur_cents,
     capture_after_tool,
     decode_datapart,
     emit_search_datapart,
@@ -106,6 +107,58 @@ def test_normalize_maps_camelcase_and_caps_at_five():
     assert first["rating"] == 4.5
     assert first["price"] == "€50.00"  # priceEuro 5000 cents → €50.00 (S07-consistent)
     assert first["timeslots"] == [{"start": "10:00", "end": "17:00"}]
+
+
+# --- numeric price + review count on the card (S-CX3a) ---------------------------------------
+def test_normalize_hotel_keeps_the_numeric_price_next_to_the_display_string():
+    """The display string alone made every price-vs-budget decision impossible
+    (audit CX gap G-b2) — both now travel, and they describe the SAME offer."""
+    card = normalize_hotel(_hotel(1, 5432))
+    assert card["price"] == "€54.32"
+    assert card["price_eur_cents"] == 5432
+    assert isinstance(card["price_eur_cents"], int)
+
+
+def test_normalize_hotel_carries_rating_count_from_total_review():
+    hotel = _hotel(1, 5000) | {"totalReview": 412}
+    assert normalize_hotel(hotel)["rating_count"] == 412
+
+
+def test_normalize_hotel_rating_count_is_none_when_mcp_omits_total_review():
+    """`totalReview` is optional in the MCP payload — absent means unknown,
+    never 0 (a 0 would read as "no reviews" and shrink a real rating away)."""
+    assert normalize_hotel(_hotel(1, 5000))["rating_count"] is None
+
+
+def test_normalize_hotel_omits_both_price_forms_when_no_offer_fits():
+    """price and price_eur_cents must never disagree: same offer, same filter."""
+    hotel = _hotel_with_offers(1, [_offer(7, 0, 13, 0)])  # 07:00-13:00
+    card = normalize_hotel(hotel, exact_window=(7 * 60 + 30, 13 * 60 + 30))  # 07:30-13:30 asked
+    assert "price" not in card and "price_eur_cents" not in card
+
+
+def test_normalize_hotel_keeps_the_servers_own_relevance_score():
+    """Probed live 2026-07-27: search_offers sends `score` per hotel (the order
+    `results` already arrives in). Kept as `relevance_score` so a re-rank can
+    modify the server's baseline instead of inventing a rival ranking."""
+    card = normalize_hotel(_hotel(1, 5000) | {"score": 0.8123})
+    assert card["relevance_score"] == 0.8123
+
+
+def test_normalize_hotel_omits_relevance_score_when_absent_or_garbage():
+    """get_hotel_details carries no `score` (search-only) — absent, not faked;
+    and a score is not a coordinate: 200.0 is kept, "high" is not."""
+    assert "relevance_score" not in normalize_hotel(_hotel(1, 5000))
+    for bad in ("high", None, [0.5]):
+        assert "relevance_score" not in normalize_hotel(_hotel(1, 5000) | {"score": bad})
+    assert normalize_hotel(_hotel(1, 5000) | {"score": 200.0})["relevance_score"] == 200.0
+
+
+def test_price_eur_cents_rounds_and_rejects_garbage():
+    assert _price_eur_cents(5000) == 5000
+    assert _price_eur_cents(4999.6) == 5000
+    for bad in (None, "", "abc", [5000], {}):
+        assert _price_eur_cents(bad) is None
 
 
 # --- hotel photo URL (mainPhotoNormal -> static.dayuse.com) ----------------------------------

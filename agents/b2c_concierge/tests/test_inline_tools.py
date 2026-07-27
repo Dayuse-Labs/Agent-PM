@@ -121,6 +121,26 @@ class TestGetHotelDetails:
         assert hotel["price"] == "€54.00"
         assert [c[0] for c in session.calls] == ["get_hotel_details"]
 
+    def test_keeps_the_numeric_price_and_review_count_on_the_card(self, monkeypatch):
+        # S-CX3a: the details card mirrors the search leaf's — `price_eur_cents`
+        # next to the display string, `rating_count` from MCP's `totalReview`.
+        response = {
+            **HOTEL_DETAILS_RESPONSE,
+            "hotel": {**HOTEL_DETAILS_RESPONSE["hotel"], "totalReview": 412},
+        }
+        _install(monkeypatch, {"get_hotel_details": FakeResult(response)})
+        profile = SessionProfile(last_results=SHORTLIST)
+        hotel = _run(inline_tools.get_hotel_details("Villa Paris Orly", profile))["hotel"]
+        assert hotel["price"] == "€54.00"
+        assert hotel["price_eur_cents"] == 5400
+        assert hotel["rating_count"] == 412
+
+    def test_rating_count_is_none_when_mcp_omits_total_review(self, monkeypatch):
+        _install(monkeypatch, {"get_hotel_details": FakeResult(HOTEL_DETAILS_RESPONSE)})
+        profile = SessionProfile(last_results=SHORTLIST)
+        result = _run(inline_tools.get_hotel_details("Villa Paris Orly", profile))
+        assert result["hotel"]["rating_count"] is None
+
     def test_resolves_the_real_photo_url_from_main_photo_normal(self, monkeypatch):
         response = {
             **HOTEL_DETAILS_RESPONSE,

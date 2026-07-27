@@ -211,6 +211,20 @@ def _format_price_eur_cents(cents: Any) -> str | None:
         return None
 
 
+def _price_eur_cents(cents: Any) -> int | None:
+    """S-CX3a: the same `priceEuro`, kept NUMERIC on the card — mirrors
+    hotel_search_agent.response_bridge._price_eur_cents (no cross-package
+    import, B3: each side owns its own tiny formatting helper). Until now the
+    `€X.XX` display string was the only survivor of normalization, so nothing
+    downstream could compare a price to the client's budget."""
+    if cents is None:
+        return None
+    try:
+        return round(float(cents))
+    except (TypeError, ValueError):
+        return None
+
+
 def _iso_currency(value: Any) -> str | None:
     """ISO 4217 alpha-3 currency code or None — mirrors
     hotel_search_agent.response_bridge._iso_currency (no cross-package
@@ -244,6 +258,11 @@ def _normalize_hotel_for_display(hotel: dict[str, Any], best_offer: dict[str, An
         "city": hotel.get("cityName") or hotel.get("city"),
         "country": hotel.get("countryName") or hotel.get("country"),
         "rating": hotel.get("globalAverageRating"),
+        # S-CX3a: `totalReview` rides the shared MCP identity block, so the
+        # details/compare path carries the review count too (see the leaf's
+        # normalize_hotel) — a card must not describe quality the same way
+        # whether the average rests on 2 reviews or 400.
+        "rating_count": hotel.get("totalReview"),
         "stars": hotel.get("starRating"),
         "amenities": _flatten_amenities(hotel.get("amenities")),
     }
@@ -264,6 +283,7 @@ def _normalize_hotel_for_display(hotel: dict[str, Any], best_offer: dict[str, An
         normalized["url"] = url
     if best_offer:
         normalized["price"] = _format_price_eur_cents(best_offer.get("priceEuro"))
+        normalized["price_eur_cents"] = _price_eur_cents(best_offer.get("priceEuro"))
     return normalized
 
 
