@@ -611,9 +611,15 @@
     color: #6b4a00;
 }
 
-/* ===== BOOKING CARD (inline CTA) ===== */
+/* ===== BOOKING CARD (inline CTA) =====
+   Fixed 400px so the card reads the same in every thread, shrinking only when
+   the column is narrower than that (mobile). border-box everywhere inside:
+   this stylesheet has no global reset, and a content-box child with
+   `width: 100%` + padding overflows a card that clips (see __cta below). */
 .booking-card {
-    max-width: 400px;
+    box-sizing: border-box;
+    width: 400px;
+    max-width: 100%;
     margin: 12px 0;
     background: #fff;
     border-radius: 20px;
@@ -631,6 +637,7 @@
 }
 
 .booking-card__body {
+    box-sizing: border-box;
     padding: 16px;
     display: flex;
     flex-direction: column;
@@ -711,7 +718,12 @@
     line-height: 1.35;
 }
 
+/* border-box is NOT optional here: this CTA is an <a>, so it doesn't get the
+   UA's button box-sizing that saves .book-button. Without it, width:100% +
+   22px padding rendered 412px inside a 368px content box and the card's
+   `overflow: hidden` cropped the label (prod, 2026-07-27). */
 .booking-card__cta {
+    box-sizing: border-box;
     display: inline-flex;
     align-items: center;
     justify-content: center;

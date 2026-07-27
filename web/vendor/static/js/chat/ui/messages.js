@@ -146,7 +146,7 @@ export function addMessage(content, isUser = false, isHotelResults = false, skip
                                 data-hotel-name="${safeNameAttr}"
                                 data-hotel-id="${safeHotelId}"
                                 data-hotel-price="${safeHotelPrice}">
-                                ${t('book_now')}
+                                ${t('card_see_hotel')}
                             </button>
                         </div>
                     </div>
@@ -456,7 +456,7 @@ export function createBookingCard(card) {
     const subtitleBits = [
         card.city ? escapeHtml(String(card.city)) : '',
         card.stars ? `${escapeHtml(String(card.stars))}★` : '',
-        card.rating ? `${escapeHtml(String(card.rating))}/5${
+        card.rating ? `${escapeHtml(formatRating(card.rating))}/5${
             card.rating_count ? ` (${escapeHtml(String(card.rating_count))})` : ''
         }` : '',
     ].filter(Boolean).join(' · ');
@@ -519,6 +519,20 @@ export function createBookingCard(card) {
             </div>
         </div>
     `;
+}
+
+/** ES hands the raw average through (4.666666666666667) — one decimal, in the
+ *  reader's locale ("4,7" in fr). Non-numeric ratings pass through untouched. */
+function formatRating(value) {
+    const num = Number(value);
+    if (!Number.isFinite(num)) return String(value);
+    try {
+        return num.toLocaleString(undefined, {
+            minimumFractionDigits: 1, maximumFractionDigits: 1,
+        });
+    } catch (_) {
+        return num.toFixed(1);
+    }
 }
 
 /** "2026-07-28" -> a short local date; anything unparsable passes through. */

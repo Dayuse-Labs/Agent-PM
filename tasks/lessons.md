@@ -1,5 +1,28 @@
 # Lessons — corrections de Fabien à réappliquer
 
+## 2026-07-27 — scx5b : 3 défauts UI livrés parce que je n'ai jamais RENDU la page
+
+1. **Une carte/CSS livrée sans capture navigateur n'est pas livrée.** J'ai écrit
+   la CSS de `booking-card` en S-CX5, vérifié `node --check` + les tests, et
+   expédié un CTA **rogné de 44 px**. Aucun test Python ni typecheck ne voit un
+   pixel. Le harnais qui l'a prouvé coûte 5 minutes : page statique + la vraie
+   CSS + `Chrome --headless --screenshot`, et `--dump-dom` pour lire des
+   mesures calculées (`getBoundingClientRect`, `getComputedStyle`). Le faire
+   AVANT de dire « fait » sur tout ce qui se voit.
+2. **Cette feuille de style n'a PAS de reset `box-sizing`.** Les `<button>` s'en
+   sortent (feuille UA), les `<a>` et les `<div>` non : `width: 100%` + padding
+   en content-box déborde, et un parent `overflow: hidden` **coupe en silence**.
+   Tout nouvel élément full-width dans `web/vendor/**` : `box-sizing:
+   border-box` explicite.
+3. **Un chemin client-side qui `return` tôt saute la fin du rendu.** Le filtre
+   par créneau ne fait aucun tour serveur et sortait avant `addFollowUpMessage()`
+   → les pick buttons disparaissaient. Quand une branche court-circuite le
+   chemin nominal, lister ce que le chemin nominal dessine APRÈS le point de
+   sortie, et le redessiner (ici en le restreignant à ce qui reste à l'écran).
+4. **Le label d'un bouton doit décrire sa destination réelle.** « Réserver » sur
+   un `href` qui ouvre la fiche hôtel promet un tunnel qu'il n'atteint pas.
+   Vérifier label ↔ `href` à chaque fois que l'un des deux change.
+
 ## 2026-07-27 — erreurs de PROCESS (auto-constatées, merge + deploy)
 
 1. **Ne jamais supprimer une branche de base tant qu'une PR pointe dessus.**
