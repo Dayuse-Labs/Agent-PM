@@ -2,6 +2,39 @@
 
 État du chantier pour reprise en session fraîche. **Lire en entier avant d'agir ; ne pas reconstruire ce qui existe.** Mettre à jour en fin de CHAQUE session (bloc daté en tête).
 
+## ⏱ Addendum 2026-07-27 (branche `scx5b-widget-card-fixes`, sur `main`) — S-CX5b : 3 défauts UI de S-CX5 remontés par Fabien sur le démo déployé
+
+**Contexte** : Fabien teste le démo Railway après le merge de S-CX5 (3 screenshots) et remonte (1) le bouton de la carte de réservation est **rogné**, et il veut une carte à **taille fixe** comme l'artefact ; note hôtel affichée `4.666666666666667/5` ; (2) sur les cartes du carrousel, le bouton dit « Réserver » alors qu'il ouvre la **fiche hôtel**, pas le tunnel ; (3) un clic sur un chip de créneau **fait disparaître les boutons de choix d'hôtel**, donc la route en 1 clic vers la carte de réservation.
+
+**Tout est dans le widget vendored (`web/vendor/**`) — zéro changement backend.**
+
+**Causes racines (mesurées, pas devinées)** :
+1. **Bouton rogné** — `.booking-card__cta` est un `<a>`, donc il n'hérite PAS du `box-sizing: border-box` que la feuille UA donne aux `<button>` (c'est pourquoi `.book-button`, lui, n'a jamais eu le bug). Cette CSS n'a **aucun reset global** : `width: 100%` + `padding: 12px 22px` en content-box → CTA **412 px dans une boîte de contenu de 368 px**, et l'`overflow: hidden` de la carte coupait le label. Mesuré avant fix : `boxSizing: "content-box"`, `overflowPx: 44`.
+2. **Label trompeur** — le `href` du bouton de carte de résultat est `hotel.url` (fiche hôtel). Seul le CTA de la carte de réservation part vers le tunnel. Même défaut sur la carte inline `[CARTE:]` de `messages.js`.
+3. **Chips de choix disparus** — la branche « filtre par créneau » de `runSearchWithFilters` filtre `state.previousResults` **dans le navigateur** (aucun tour serveur) et faisait `return` **avant** `addFollowUpMessage()`. Les pick buttons partaient avec.
+
+**Fait (4 fichiers)** :
+- `hotels.css` — `box-sizing: border-box` sur `.booking-card` / `__body` / `__cta` ; `max-width: 400px` → `width: 400px; max-width: 100%` (taille fixe en desktop, rétrécit en mobile). Commentaire en place pour que le prochain ne re-tombe pas dans le piège du reset absent.
+- `messages.js` — `formatRating()` : une décimale dans la locale du lecteur (`4,7` en fr). ES fait transiter la moyenne brute (`globalAverageRating`), c'est une correction d'AFFICHAGE, la valeur reste intacte en amont.
+- `card.js` + `messages.js` — les 3 boutons qui ouvrent la fiche hôtel utilisent `card_see_hotel` (« Voir la fiche de l'hôtel »), déjà traduit dans les 7 locales. Clé `see_details` désormais inutilisée, laissée en place.
+- `search.js` — la branche client-side dessine à nouveau la ligne de suivi, avec les picks **restreints aux hôtels encore à l'écran** (`pickButtonsHtml(allowedHotelIds)`) : un bouton pour un hôtel filtré hors carrousel réserverait quelque chose d'invisible. Les picks serveur restent valides — la shortlist en session n'est pas touchée par un filtre navigateur, donc `pickHotel(id)` résout toujours.
+
+**Vérifié en NAVIGATEUR (Chrome headless, CSS réelle + vrais modules ES servis en HTTP, avant/après sur le même harnais)** :
+
+| | avant | après |
+|---|---|---|
+| débord du CTA | **44 px** (rogné) | **0 px** |
+| largeur carte | 402 px | **400 px** |
+| note | `4.666666666666667/5` | `4,7/5` |
+| pick buttons après chip créneau | **0** | **1** (`data-action="pick-hotel"`, restreint à l'hôtel 1/1 filtré) |
+| label bouton carte | `Réserver` | `Voir la fiche de l'hôtel` |
+
+Cas mobile vérifié aussi (colonne 330 px → carte 280,5 px, débord 0).
+
+**DoD** : `pytest -q` → **1013 passed** (même unique échec préexistant `test_llm_meter_usage`, **confirmé rouge sur un arbre stashé** — hors zone, aucun code Python touché) ; guardrails OK ; les 3 JS touchés passent `node --check`.
+
+**Pas fait, délibérément** : l'artefact montrait aussi un badge « Annulation gratuite » et un avis « Réservable jusqu'à 15:00 aujourd'hui ». Ces champs n'existent pas dans le payload `booking_card` (le dict d'identité de `inline_tools.py` est construit depuis l'offre, sans politique d'annulation ni heure limite) — c'est un changement backend + une demande de champ à MCP_B2C, hors scope de ce fix visuel.
+
 ## ⏱ Addendum 2026-07-27 (branche `scx5-booking-offer-identity`, **stackée sur `scx3a-price-cents` / PR #37**) — S-CX5 : 3 symptômes remontés par Fabien en session live + 1 P0 trouvé en creusant
 
 **Contexte** : Fabien teste l'agent (2 screenshots, session Paris/fr) et remonte (1) « le moins cher » renvoie des hôtels PLUS chers, (2) le flow de réservation est trop long, (3) le lien brut au lieu d'une carte avec bouton. Design du (3) tranché par artefact + AskUserQuestion : cartes de résultat **INCHANGÉES** (pas de deep link tunnel depuis le carrousel — refus explicite de Fabien), choix par **boutons** façon chips, layout **L1**, copie **nom + prix**, tap → **directement la carte**.

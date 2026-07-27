@@ -669,6 +669,9 @@ function renderTimeslots(hotel) {
     `;
 }
 
+// The shortlist card's button opens the hotel PAGE (`hotel.url`), not the
+// booking tunnel — only the booking-card CTA does that, after a pick. So it
+// says so: "Réserver" here promised a checkout it never reached.
 function renderFooter(priceInfo, discount, originalPrice, hotelUrl, hotelName, hotelId) {
     const safeHotelUrl = sanitizeDayuseUrl(hotelUrl || '') || '#';
     const safeHotelUrlAttr = escapeAttr(safeHotelUrl);
@@ -685,7 +688,7 @@ function renderFooter(priceInfo, discount, originalPrice, hotelUrl, hotelName, h
                    data-hotel-id="${safeHotelIdAttr}"
                    data-hotel-price="${safeHotelPriceAttr}"
                    data-hotel-url="${safeHotelUrlAttr}">
-                    <button class="book-button">${t('see_details')}</button>
+                    <button class="book-button">${t('card_see_hotel')}</button>
                 </a>
             </div>
         `;
@@ -720,7 +723,7 @@ function renderFooter(priceInfo, discount, originalPrice, hotelUrl, hotelName, h
                data-hotel-id="${safeHotelIdAttr}"
                data-hotel-price="${safeHotelPriceAttr}"
                data-hotel-url="${safeHotelUrlAttr}">
-                <button class="book-button">${t('book_now')}</button>
+                <button class="book-button">${t('card_see_hotel')}</button>
             </a>
         </div>
     `;

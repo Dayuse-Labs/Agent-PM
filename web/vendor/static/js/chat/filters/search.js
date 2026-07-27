@@ -89,6 +89,17 @@ export async function runSearchWithFilters() {
             const hotelsToShow = filtered.slice(0, 6);
             const hotelsHtml = createHotelCarousel(hotelsToShow);
             addMessage(hotelsHtml, false, true);
+
+            // This branch filters `previousResults` in the browser and never
+            // reaches the server, so it used to `return` before the follow-up
+            // row was drawn — the pick buttons vanished the moment a timeslot
+            // chip was clicked, and with them the one-click path to a booking
+            // card. The server-side picks stay valid (the shortlist in the
+            // session is untouched); they're just narrowed to what's on screen.
+            const shownIds = new Set(
+                hotelsToShow.map(h => String(h.id ?? h.hotel_id ?? '')).filter(Boolean)
+            );
+            addFollowUpMessage(true, shownIds);
         } else {
             addMessage(t('no_hotels_for_timeslot', { timeslot }));
         }
@@ -234,13 +245,17 @@ export async function runSearchWithFilters() {
  * transcript reads like the conversation it is; the hotel itself is resolved
  * server-side from `data-hotel-id`, never from that text.
  */
-function pickButtonsHtml() {
+function pickButtonsHtml(allowedHotelIds = null) {
     const picks = Array.isArray(state.hotelPicks) ? state.hotelPicks : [];
     if (!picks.length) return '';
     const buttons = picks.map(pick => {
         const id = String(pick?.hotel_id ?? '').trim();
         const name = String(pick?.name || '').trim();
         if (!id || !name) return '';
+        // A client-side filter narrows what's on screen without a server turn,
+        // so the picks are scoped to it: a button for a hotel the carousel no
+        // longer shows would book something the user can't see.
+        if (allowedHotelIds && !allowedHotelIds.has(id)) return '';
         const price = String(pick?.price || '').trim();
         const label = price ? `${name} ${price}` : name;
         return `<button class="pick-button" data-action="pick-hotel"
@@ -261,11 +276,11 @@ function pickButtonsHtml() {
 /**
  * Add follow-up message after results
  */
-export function addFollowUpMessage(skipTimeslotChips = false) {
+export function addFollowUpMessage(skipTimeslotChips = false, allowedHotelIds = null) {
     if (skipTimeslotChips || state.selectedFilters.timeslot) {
         const followUpHtml = `
             <div class="follow-up-box">
-                ${pickButtonsHtml()}
+                ${pickButtonsHtml(allowedHotelIds)}
                 <p>${t('followup_questions')}</p>
             </div>
         `;
