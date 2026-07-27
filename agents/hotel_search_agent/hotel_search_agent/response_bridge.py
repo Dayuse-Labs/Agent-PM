@@ -520,6 +520,21 @@ def normalize_hotel(
         )
         if start and end:
             card["timeslots"] = [{"start": start, "end": end}]
+        # S-CX5: the IDENTITY of the offer this card prices — `ratePlanUuid` is
+        # the booking tunnel's own `offerId` (MCP_B2C generate_booking_link
+        # schema) and `availabilityDate` the day it is bookable on. Both come
+        # from the SAME `best` dict as the price and the time slot above, so a
+        # later booking step can reuse this exact offer instead of re-deriving
+        # one from a fresh lookup — the prod defect of 2026-07-27, where a card
+        # priced at €87 for 11:00-19:00 tomorrow produced a link for €90 /
+        # 17:00-23:00 / today. Only-when-present: a card without them honestly
+        # has no reusable offer, and the booking path falls back to a lookup.
+        offer_id = best.get("ratePlanUuid")
+        if isinstance(offer_id, str) and offer_id.strip():
+            card["offer_id"] = offer_id.strip()
+        offer_date = best.get("availabilityDate")
+        if isinstance(offer_date, str) and offer_date.strip():
+            card["offer_date"] = offer_date.strip()
     return card
 
 

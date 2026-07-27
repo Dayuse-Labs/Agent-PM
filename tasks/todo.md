@@ -1,3 +1,109 @@
+# S-CX5 — panier & remise du lien (session live de Fabien, 2026-07-27) — PLAN, rien implémenté
+
+Trois symptômes rapportés (2 screenshots, session Paris/fr). Diagnostic par lecture
+de code + contrat MCP_B2C (repo sœur). Design du point 3 : artefact publié
+(3 propositions de carte + comparaison de flow + décisions).
+
+## Constat 1 — « le moins cher » remonte des hôtels PLUS chers
+
+Écran 1 : €54 / €58 / €70. Message « ok je veux booké le moins cher ».
+Écran 2 : €81 / €87 / €112, texte « La moins chère est : ». Trois causes
+indépendantes, chacune suffisante :
+
+- **RC1 — l'exclusion de pagination s'applique à TOUTES les recherches.**
+  `response_bridge.capture_after_tool` passe `shown_hotel_ids` en `exclude_ids`
+  dès qu'il est non vide (L614-620), alors que sa propre docstring le décrit
+  comme le filet de sécurité du « other options ». Les 5 hôtels les moins chers
+  venaient d'être affichés → retirés de la 2e recherche → l'utilisateur reçoit
+  les rangs 6-10 du même classement, mécaniquement plus chers.
+- **RC2 — aucun tri prix n'existe.** `search_offers` n'a aucun paramètre de tri
+  et le classement serveur est `availability .30 / quality .25 / commission .20 /
+  rpmV2 .15 / tier .10` (`relevance-scorer.ts`) — le prix n'y entre pas. « Le moins
+  cher » n'est pas une capacité aujourd'hui, juste une recherche de plus.
+- **RC3 — rien ne vérifie le superlatif.** La synthèse écrit « la moins chère est »
+  sans qu'aucun guard ne confronte l'affirmation aux prix des cartes du tour
+  (contrairement à `amenity_guard` et `link_guard`).
+
+- [ ] 1. `capture_after_tool` : n'exclure `shown_hotel_ids` **que** sur un tour de
+      pagination (`search_cursor > 0`). Test de régression nommé : un tour de
+      raffinement peut re-montrer un hôtel déjà vu.
+- [ ] 2. Intention prix **code-owned, sans nouvelle recherche** : superlatif prix
+      + shortlist existante + aucune nouvelle contrainte → tri déterministe de
+      `last_results` par prix, réponse « la moins chère des N que je t'ai
+      montrés ». Zéro MCP, zéro LLM supplémentaire.
+      Prérequis : `price_cents` numérique sur la carte (déjà fait sur
+      `scx3a-price-cents`) **et** porté dans `record_search_shortlist`, qui ne
+      garde aujourd'hui que `{hotel_id, name}`.
+- [ ] 3. Vraie recherche « les moins chers » (pas de shortlist) : tri par prix
+      côté code sur la page avant la coupe top-5, formulation honnête (« les
+      moins chers parmi les N trouvés », jamais « le moins cher de Paris »).
+      `size` : re-probe live obligatoire — la falaise à 16 est documentée (scx3c)
+      et le commentaire « max 50 » de `inject_pagination_offset` est faux.
+- [ ] 4. Guard n°14 (prix) : un superlatif prix dans la synthèse est vérifié
+      contre les cartes du tour, sinon corrigé en code — même patron déterministe
+      que les guards 12/13, jamais un 2e appel LLM.
+
+## Constat 2 — le lien réserve la MAUVAISE offre (P0, non signalé par Fabien)
+
+Carte affichée : €87, 11:00–19:00, **demain**. Lien généré : €90, 17:00–23:00,
+`checkinDate=2026-07-27` (**aujourd'hui**). Cause : `inline_tools._quote_fresh_offer`
+appelle `get_hotel_details` **sans la date de session** (le paramètre `date` existe
+pourtant, cf. `get-hotel-details-tool.ts`) puis prend `offers[0]` — pas l'offre vue.
+
+- [x] 5. Passer `profile.date` à `get_hotel_details` dans le chemin booking
+      (branche `scx5-booking-offer-identity`). **Vérifié live** : `date=` scope
+      bien au jour demandé (3 offres au lieu de 94 sur 32 jours).
+- [x] 6. Identité de l'offre sur la carte (`offer_id` = `ratePlanUuid`,
+      `offer_date`) côté feuille ET inline, portée par `record_search_shortlist`
+      avec prix + créneau affichés. Le devis réutilise l'offre vue **sans
+      round-trip** ; fallback (hôtel hors shortlist) = lookup daté + offre la
+      moins chère **du jour** (jamais le minimum global : un `get_hotel_details`
+      non scopé renvoie ~90 offres sur un mois, probé live).
+- [x] 7. Seam test bout-en-bout `tests/test_leaf_concierge_seam.py` : carte
+      affichée == arguments du lien. **Vérifié qu'il échoue sans le fix**
+      (`2026-07-27 != 2026-07-28`).
+
+## Constat 3 — flow de réservation trop long + lien brut
+
+4 tours pour un hôtel déjà désigné, puis une URL de 250 caractères en texte.
+
+- [ ] 8. `resolve_shortlist_ordinal` : accepter un ordinal **dans une phrase**
+      (« ok pour la première » dead-end aujourd'hui, seul « 1 »/« la première »
+      nu résout).
+- [ ] 9. Émettre `booking_card` dans le payload `/v3/chat` (clé volontairement
+      absente de `CONTRACT_KEYS`) — le widget vendored sait déjà la rendre.
+- [ ] 10. Carte récap (design B, validé par Fabien) : renderer + CSS dans
+      `web/vendor/static/js/chat`, strings via `i18n.js`. **Seul endroit d'où
+      part un lien tunnel.**
+- [ ] 11. **Boutons de choix d'hôtel** (remplace l'ancien design C, écarté par
+      Fabien : pas de deep link tunnel depuis le carrousel, cartes de résultat
+      INCHANGÉES). Pills famille `.chip` avec traitement renforcé (13px/700,
+      bordure 1,5px, prix en pastille tabulaire), copie = **nom + prix**,
+      triées du moins cher au plus cher. Affichées quand **ville + date résolues
+      OU intention de réservation** détectée. Layout L1/L2/L3 → choix de Fabien
+      en attente (artefact).
+- [ ] 12. Tap sur un bouton → **directement la carte B**, aucun tour
+      « vous confirmez ? » (décidé). R9 conservé : le clic sur le CTA de la
+      carte EST la confirmation explicite. Résolution par `hotel_id`, jamais
+      par parsing du label envoyé dans la conversation.
+
+## Vérification (non négociable)
+
+- Probe live AVANT/APRÈS sur le même marché pour tout changement d'argument envoyé
+  à MCP (leçon scx3c : un test offline ne voit pas le serveur renvoyer une autre page).
+- Rejouer la session exacte de Fabien (Paris, demain, « le moins cher »,
+  « ok pour la première ») et comparer.
+- `pytest -q` + ruff + mypy + guardrails verts, smoke e2e.
+
+## Décisions à trancher avant implémentation
+
+1. Le clic sur la carte vaut-il la confirmation explicite de R9 ? (reco : oui)
+2. Carte A (backend seul) ou directement B (backend + widget) ? (reco : B)
+3. Point 11 dans le même lot que 6, ou plus tard ? (reco : même lot)
+4. Ordre des lots : Constat 2 (P0) d'abord, puis 1, puis 3 ?
+
+---
+
 # S-G12 — hotel page URLs depuis le slug ES (branche `sg12-hotel-page-urls`, 2026-07-24)
 
 Root cause (diagnostiqué avec Fabien) : AUCUN code ne construit d'URL de page

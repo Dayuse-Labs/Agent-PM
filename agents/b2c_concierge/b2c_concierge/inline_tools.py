@@ -284,6 +284,15 @@ def _normalize_hotel_for_display(hotel: dict[str, Any], best_offer: dict[str, An
     if best_offer:
         normalized["price"] = _format_price_eur_cents(best_offer.get("priceEuro"))
         normalized["price_eur_cents"] = _price_eur_cents(best_offer.get("priceEuro"))
+        # S-CX5: the offer's identity travels with its price (same rule and
+        # same keys as the search leaf's `normalize_hotel`) so the booking step
+        # can reuse THIS offer rather than re-deriving one.
+        offer_id = best_offer.get("ratePlanUuid")
+        if isinstance(offer_id, str) and offer_id.strip():
+            normalized["offer_id"] = offer_id.strip()
+        offer_date = best_offer.get("availabilityDate")
+        if isinstance(offer_date, str) and offer_date.strip():
+            normalized["offer_date"] = offer_date.strip()
     return normalized
 
 
@@ -380,11 +389,71 @@ async def _confirm_pending_offer(pending: dict[str, Any]) -> dict[str, Any]:
         return {"ok": False, "error": f"generate_booking_link failed: {type(exc).__name__}"}
 
 
+def _best_offer(offers: list[Any], date: str | None = None) -> dict[str, Any] | None:
+    """The cheapest priced offer ON ONE DAY — the session's `date` when known,
+    otherwise the soonest day this hotel is bookable.
+
+    Two live-probed facts shape this (MCP_B2C staging, 2026-07-27):
+      - `get_hotel_details` without a date returns EVERY upcoming offer (94 of
+        them across 32 days for hotel 22293), so a plain global minimum would
+        cheerfully quote a cheaper day three weeks out that nobody asked for —
+        hence the one-day restriction, always;
+      - taking `offers[0]` instead, as this did before, quotes the SOONEST
+        bookable day whatever day the user asked for: probing a Paris search
+        for J+3, all 5 hotels' `offers[0]` were J+1 offers, and one of them was
+        also a different rate plan, slot and price (€80 17:00-22:00 vs the
+        card's €70 10:00-18:00). That is the prod defect of 2026-07-27.
+    Within a day, "cheapest" is the same rule the card itself applies
+    (`response_bridge._best_offer`), mirrored rather than imported (B3: each
+    side owns its tiny helpers, like `_hhmm` above)."""
+    pool = [o for o in offers if isinstance(o, dict)]
+    if not pool:
+        return None
+    target = date or min(
+        (o["availabilityDate"] for o in pool if o.get("availabilityDate")), default=None
+    )
+    if target:
+        pool = [o for o in pool if o.get("availabilityDate") == target] or pool
+    priced = [o for o in pool if o.get("priceEuro") is not None]
+    return min(priced, key=lambda o: o["priceEuro"]) if priced else pool[0]
+
+
+def _shortlist_offer(hotel_id: int, profile: SessionProfile) -> dict[str, Any] | None:
+    """The stored offer identity for `hotel_id` if the on-screen shortlist
+    carries one (`record_search_shortlist`, S-CX5) — the offer the user is
+    actually looking at. None when the hotel isn't on screen or its card had
+    no offer, which sends the caller to a fresh, date-scoped lookup."""
+    for entry in profile.last_results or []:
+        if not isinstance(entry, dict):
+            continue
+        try:
+            same_hotel = int(entry.get("hotel_id")) == hotel_id  # type: ignore[arg-type]
+        except (TypeError, ValueError):
+            continue  # an id we can't compare is not a match, never a crash
+        if not same_hotel:
+            continue
+        if entry.get("offer_id") and entry.get("offer_date"):
+            return entry
+        return None
+    return None
+
+
 async def _quote_fresh_offer(hotel_reference: str, profile: SessionProfile) -> dict[str, Any]:
     """The confirmed=false branch: resolves the hotel from `hotel_reference`
     (named-hotel lookup guard, item 4) and ALWAYS quotes confirmed=false,
     recording the offer identity in `profile.pending_booking` for a later
-    confirmation turn to reuse verbatim."""
+    confirmation turn to reuse verbatim.
+
+    S-CX5 — WHICH offer gets quoted, in order:
+      1. the one the shortlist card was priced on (`_shortlist_offer`), reused
+         verbatim with no extra MCP round-trip: what the user saw is what they
+         book, by construction;
+      2. otherwise a fresh `get_hotel_details` **scoped to the session's date**
+         (`profile.date`), taking the cheapest offer — the same choice the card
+         itself makes.
+    Before this, the lookup was unscoped and took `offers[0]`: a card priced
+    €87 for 11:00-19:00 tomorrow quoted €90 for 17:00-23:00 today, and the
+    tunnel link carried that wrong date (prod session 2026-07-27)."""
     if not (hotel_reference or "").strip():
         return {"ok": False, "error": "no hotel reference in the message"}
     try:
@@ -393,13 +462,29 @@ async def _quote_fresh_offer(hotel_reference: str, profile: SessionProfile) -> d
                 hotel_id, hotel_name = await _resolve_hotel_id(session, hotel_reference, profile)
                 if hotel_id is None:
                     return {"ok": False, "error": "hotel not found"}
-                details = await _call_tool(session, "get_hotel_details", {"hotelId": hotel_id})
-                if not details["ok"]:
-                    return details
-                offers = details["data"].get("offers") or []
-                if not offers:
-                    return {"ok": False, "error": "no bookable offer for this hotel"}
-                offer = offers[0]
+                shown = _shortlist_offer(hotel_id, profile)
+                if shown is not None:
+                    offer = {
+                        "ratePlanUuid": shown["offer_id"],
+                        "availabilityDate": shown["offer_date"],
+                    }
+                    quoted_price = shown.get("price")
+                    start_time, end_time = shown.get("start_time"), shown.get("end_time")
+                else:
+                    args_details: dict[str, Any] = {"hotelId": hotel_id}
+                    if profile.date:
+                        args_details["date"] = profile.date
+                    details = await _call_tool(session, "get_hotel_details", args_details)
+                    if not details["ok"]:
+                        return details
+                    offers = details["data"].get("offers") or []
+                    best = _best_offer(offers, profile.date)
+                    if best is None:
+                        return {"ok": False, "error": "no bookable offer for this hotel"}
+                    offer = best
+                    quoted_price = _format_price_eur_cents(best.get("priceEuro"))
+                    start_time = _hhmm(best.get("startHour"), best.get("startMinute"))
+                    end_time = _hhmm(best.get("endHour"), best.get("endMinute"))
                 args: dict[str, Any] = {
                     "hotelId": hotel_id,
                     "date": offer["availabilityDate"],
@@ -424,9 +509,9 @@ async def _quote_fresh_offer(hotel_reference: str, profile: SessionProfile) -> d
                     "confirmed": False,
                     "hotel_name": hotel_name,
                     "date": offer["availabilityDate"],
-                    "start_time": _hhmm(offer.get("startHour"), offer.get("startMinute")),
-                    "end_time": _hhmm(offer.get("endHour"), offer.get("endMinute")),
-                    "price": _format_price_eur_cents(offer.get("priceEuro")),
+                    "start_time": start_time,
+                    "end_time": end_time,
+                    "price": quoted_price,
                 }
     except Exception as exc:  # noqa: BLE001
         return {"ok": False, "error": f"generate_booking_link failed: {type(exc).__name__}"}

@@ -154,6 +154,45 @@ def test_normalize_hotel_omits_relevance_score_when_absent_or_garbage():
     assert normalize_hotel(_hotel(1, 5000) | {"score": 200.0})["relevance_score"] == 200.0
 
 
+# --- offer identity on the card (S-CX5) -------------------------------------------------------
+def test_normalize_hotel_carries_the_identity_of_the_offer_it_priced():
+    """The card's offer_id/offer_date must describe the SAME offer as its
+    price — that pair is what lets the booking step reuse this exact offer."""
+    hotel = _hotel(1, 5432)
+    hotel["offers"][0]["ratePlanUuid"] = "019d2b0c-4f34-7110-882d-d5709ca05b6f"
+    card = normalize_hotel(hotel)
+    assert card["offer_id"] == "019d2b0c-4f34-7110-882d-d5709ca05b6f"
+    assert card["offer_date"] == "2026-07-21"
+    assert card["price_eur_cents"] == 5432
+
+
+def test_normalize_hotel_takes_the_identity_of_the_CHEAPEST_offer_not_the_first():
+    """`_best_offer` prices the cheapest; the identity must follow it, or the
+    card would quote one offer and book another."""
+    cheap = _offer(11, 0, 19, 0, price=8700) | {"ratePlanUuid": "cheap-uuid"}
+    pricey = _offer(17, 0, 23, 0, price=9000) | {"ratePlanUuid": "pricey-uuid"}
+    card = normalize_hotel(_hotel_with_offers(1, [pricey, cheap]))  # pricey listed FIRST
+    assert card["price"] == "€87.00"
+    assert card["offer_id"] == "cheap-uuid"
+    assert card["timeslots"] == [{"start": "11:00", "end": "19:00"}]
+
+
+def test_normalize_hotel_omits_offer_identity_when_mcp_sends_no_uuid():
+    """No uuid = no reusable offer. The card says so by omission; the booking
+    path then falls back to a fresh, date-scoped lookup."""
+    card = normalize_hotel(_hotel(1, 5000))  # fixture carries ratePlanId only
+    assert "offer_id" not in card
+    assert card["offer_date"] == "2026-07-21"
+
+
+def test_normalize_hotel_drops_offer_identity_with_the_offer_it_belonged_to():
+    """The exact-window filter removed every offer — identity must go with it,
+    never survive as a stale pointer to an offer the card no longer shows."""
+    offer = _offer(7, 0, 13, 0) | {"ratePlanUuid": "filtered-out"}
+    card = normalize_hotel(_hotel_with_offers(1, [offer]), exact_window=(7 * 60 + 30, 13 * 60 + 30))
+    assert "offer_id" not in card and "offer_date" not in card
+
+
 def test_price_eur_cents_rounds_and_rejects_garbage():
     assert _price_eur_cents(5000) == 5000
     assert _price_eur_cents(4999.6) == 5000

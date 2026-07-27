@@ -783,7 +783,16 @@ def record_search_shortlist(profile: SessionProfile, results: list[dict[str, Any
     S-G1: also accumulates every shown hotel id into `shown_hotel_ids` (the
     pagination exclusion set — schema only here; wiring it into
     `search_offers` args is S-G5). Unlike `last_results`, this NEVER resets on
-    an empty search — only an actual city change does (`apply_profile_delta`)."""
+    an empty search — only an actual city change does (`apply_profile_delta`).
+
+    S-CX5: each entry also keeps the identity of the offer the card was priced
+    on (`offer_id` = the tunnel's `offerId`, `offer_date`, plus the price and
+    slot as displayed) when the card carries them. That is what lets a later
+    booking turn quote the offer the user actually saw instead of re-deriving
+    one from a fresh lookup (prod defect 2026-07-27: a card at €87 /
+    11:00-19:00 / tomorrow produced a link for €90 / 17:00-23:00 / today).
+    Only-when-present, so a card without an offer degrades to today's
+    behaviour rather than storing a null that reads as data."""
     if not results:
         return
     shortlist: list[dict[str, Any]] = []
@@ -794,7 +803,14 @@ def record_search_shortlist(profile: SessionProfile, results: list[dict[str, Any
         if not name:
             continue
         hotel_id = hotel.get("hotel_id", hotel.get("hotelId", hotel.get("id")))
-        shortlist.append({"hotel_id": hotel_id, "name": name})
+        entry: dict[str, Any] = {"hotel_id": hotel_id, "name": name}
+        for key in ("offer_id", "offer_date", "price", "price_eur_cents"):
+            if hotel.get(key) is not None:
+                entry[key] = hotel[key]
+        slot = (hotel.get("timeslots") or [None])[0]
+        if isinstance(slot, dict) and slot.get("start") and slot.get("end"):
+            entry["start_time"], entry["end_time"] = slot["start"], slot["end"]
+        shortlist.append(entry)
     if shortlist:
         profile.last_results = shortlist[:MAX_SHORTLIST]
         _accumulate_shown_hotel_ids(profile, [entry["hotel_id"] for entry in shortlist])

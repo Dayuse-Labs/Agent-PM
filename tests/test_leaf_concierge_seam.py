@@ -69,3 +69,103 @@ def test_numeric_price_and_review_count_survive_the_whole_card_path():
     assert out["price"] == "€54.32"  # the display string still ships
     assert out["price_eur_cents"] == 5432 and isinstance(out["price_eur_cents"], int)
     assert out["rating_count"] == 412
+
+
+def test_the_link_books_the_offer_the_card_showed(monkeypatch):
+    """S-CX5, the whole point of the lot: walk the real path from an MCP
+    `search_offers` hotel to the arguments `generate_booking_link` is called
+    with — leaf normalize → emit → DataPart → record_search_shortlist →
+    _quote_fresh_offer — and assert the link describes the SAME offer the card
+    displayed.
+
+    Prod session 2026-07-27: the card said €87 / 11:00-19:00 / tomorrow and the
+    link carried €90 / 17:00-23:00 / today. Each side's own tests passed around
+    it, exactly like `distance_origin` above — the quote step never saw the
+    card, so only a seam test can hold this."""
+    import asyncio
+    from contextlib import asynccontextmanager
+    from types import SimpleNamespace
+
+    from b2c_concierge import inline_tools
+    from b2c_concierge.profile import record_search_shortlist
+
+    asked_date, today = "2026-07-28", "2026-07-27"
+    # One hotel as search_offers really sends it: several offers for the asked
+    # day, the cheapest NOT listed first.
+    card = normalize_hotel(
+        {
+            "hotelId": 22293,
+            "name": "Hôtel Mercure Paris La Défense",
+            "cityName": "courbevoie",
+            "offers": [
+                {
+                    "ratePlanUuid": "evening-plan",
+                    "availabilityDate": asked_date,
+                    "startHour": 17,
+                    "endHour": 23,
+                    "priceEuro": 9000,
+                },
+                {
+                    "ratePlanUuid": "day-plan",
+                    "availabilityDate": asked_date,
+                    "startHour": 11,
+                    "endHour": 19,
+                    "priceEuro": 8700,
+                },
+            ],
+        }
+    )
+    assert card["price"] == "€87.00" and card["timeslots"] == [{"start": "11:00", "end": "19:00"}]
+
+    content = emit_search_datapart(_Ctx({_RESULTS_KEY: [card]}))
+    payload = next(d for d in (decode_datapart(p) for p in content.parts) if d is not None)
+
+    profile = SessionProfile(date=asked_date)
+    record_search_shortlist(profile, payload["results"])
+
+    calls: list[tuple[str, dict]] = []
+
+    class _Result:
+        isError = False
+        structuredContent = {"confirmationRequired": True, "hotel": {}, "offer": {}}
+        content: list = []
+
+    class _Session:
+        async def call_tool(self, name, arguments):
+            calls.append((name, dict(arguments)))
+            # A lookup here would be the old bug: it answers with TODAY's offer.
+            if name == "get_hotel_details":
+                return SimpleNamespace(
+                    isError=False,
+                    content=[],
+                    structuredContent={
+                        "hotel": {"hotelId": 22293},
+                        "offers": [
+                            {
+                                "ratePlanUuid": "todays-plan",
+                                "availabilityDate": today,
+                                "startHour": 17,
+                                "endHour": 23,
+                                "priceEuro": 9000,
+                            }
+                        ],
+                    },
+                )
+            return _Result()
+
+    @asynccontextmanager
+    async def _fake_session():
+        yield _Session()
+
+    monkeypatch.setattr(inline_tools, "_mcp_session", _fake_session)
+    quote = asyncio.run(
+        inline_tools.generate_booking_link(
+            "Hôtel Mercure Paris La Défense", profile, user_confirmed=False
+        )
+    )
+
+    link_args = next(args for name, args in calls if name == "generate_booking_link")
+    assert link_args["date"] == asked_date
+    assert link_args["ratePlanUuid"] == "day-plan"
+    assert link_args["confirmed"] is False
+    assert (quote["price"], quote["start_time"], quote["end_time"]) == ("€87.00", "11:00", "19:00")

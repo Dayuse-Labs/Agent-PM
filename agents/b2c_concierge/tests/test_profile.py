@@ -614,6 +614,45 @@ class TestRecordSearchShortlist:
         record_search_shortlist(profile, [{"hotel_id": 1}, {"hotel_id": 2, "name": "Hotel B"}])
         assert profile.last_results == [{"hotel_id": 2, "name": "Hotel B"}]
 
+    def test_keeps_the_offer_identity_the_card_was_priced_on(self):
+        """S-CX5: without this, a booking turn can only re-derive an offer from
+        a fresh lookup — which is how a €87/11:00-19:00/tomorrow card produced
+        a €90/17:00-23:00/today link (prod session 2026-07-27)."""
+        profile = SessionProfile()
+        record_search_shortlist(
+            profile,
+            [
+                {
+                    "hotel_id": 22293,
+                    "name": "Hôtel Mercure Paris La Défense",
+                    "offer_id": "1836debf-aaee-11ee-99ec-0272db9e0c27",
+                    "offer_date": "2026-07-28",
+                    "price": "€87.00",
+                    "price_eur_cents": 8700,
+                    "timeslots": [{"start": "11:00", "end": "19:00"}],
+                }
+            ],
+        )
+        assert profile.last_results == [
+            {
+                "hotel_id": 22293,
+                "name": "Hôtel Mercure Paris La Défense",
+                "offer_id": "1836debf-aaee-11ee-99ec-0272db9e0c27",
+                "offer_date": "2026-07-28",
+                "price": "€87.00",
+                "price_eur_cents": 8700,
+                "start_time": "11:00",
+                "end_time": "19:00",
+            }
+        ]
+
+    def test_a_card_without_an_offer_stores_no_null_offer_keys(self):
+        """Absent means absent: a None `offer_id` would read as data downstream
+        and send the booking step to an offer that doesn't exist."""
+        profile = SessionProfile()
+        record_search_shortlist(profile, [{"hotel_id": 1, "name": "Hotel A", "offer_id": None}])
+        assert profile.last_results == [{"hotel_id": 1, "name": "Hotel A"}]
+
 
 class TestResolveHotelReference:
     def test_short_reference_matches_the_full_shortlist_name(self):

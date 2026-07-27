@@ -593,3 +593,205 @@ class TestGenerateBookingLinkR9:
             inline_tools.generate_booking_link("Villa Paris Orly", profile, user_confirmed=False)
         )
         assert result == {"ok": False, "error": "no bookable offer for this hotel"}
+
+
+class TestQuotesTheOfferTheUserSaw:
+    """S-CX5 — prod session 2026-07-27: the card on screen said €87,
+    11:00-19:00, TOMORROW; the link booked €90, 17:00-23:00, TODAY. The quote
+    re-fetched the hotel with no date and took `offers[0]` instead of the offer
+    the card was priced on."""
+
+    # The shortlist as record_search_shortlist now stores it, from that session.
+    SHOWN = [
+        {
+            "hotel_id": 22293,
+            "name": "Hôtel Mercure Paris La Défense",
+            "offer_id": "1836debf-aaee-11ee-99ec-0272db9e0c27",
+            "offer_date": "2026-07-28",
+            "price": "€87.00",
+            "price_eur_cents": 8700,
+            "start_time": "11:00",
+            "end_time": "19:00",
+        }
+    ]
+
+    def test_regression_the_quote_is_the_card_not_todays_first_offer(self, monkeypatch):
+        session = _install(
+            monkeypatch,
+            {
+                # If this were reached, it would answer with the WRONG offer —
+                # today's 17:00-23:00 at €90, exactly the prod defect.
+                "get_hotel_details": FakeResult(
+                    {
+                        "hotel": {"hotelId": 22293, "name": "Hôtel Mercure Paris La Défense"},
+                        "offers": [
+                            {
+                                "ratePlanUuid": "todays-wrong-offer",
+                                "availabilityDate": "2026-07-27",
+                                "startHour": 17,
+                                "endHour": 23,
+                                "priceEuro": 9000,
+                            }
+                        ],
+                    }
+                ),
+                "generate_booking_link": lambda args: FakeResult(
+                    {"confirmationRequired": True, "hotel": {}, "offer": {}}
+                ),
+            },
+        )
+        profile = SessionProfile(last_results=self.SHOWN, date="2026-07-28")
+        result = _run(
+            inline_tools.generate_booking_link(
+                "Hôtel Mercure Paris La Défense", profile, user_confirmed=False
+            )
+        )
+        assert result["date"] == "2026-07-28"
+        assert (result["start_time"], result["end_time"]) == ("11:00", "19:00")
+        assert result["price"] == "€87.00"
+        link_call = next(c for c in session.calls if c[0] == "generate_booking_link")
+        assert link_call[1]["ratePlanUuid"] == "1836debf-aaee-11ee-99ec-0272db9e0c27"
+        assert link_call[1]["date"] == "2026-07-28"
+        # And the offer the user saw needs no second lookup at all.
+        assert "get_hotel_details" not in {c[0] for c in session.calls}
+        assert profile.pending_booking["date"] == "2026-07-28"
+        assert profile.pending_booking["rate_plan_uuid"] == "1836debf-aaee-11ee-99ec-0272db9e0c27"
+
+    def test_hotel_off_the_shortlist_looks_up_the_SESSION_date(self, monkeypatch):
+        """A hotel named but never shown has no stored offer — the fallback
+        lookup must still be scoped to the date the user asked for, not
+        "today onward"."""
+        session = _install(
+            monkeypatch,
+            {
+                "find_hotel_by_name": FakeResult({"hotel": {"hotelId": 99001, "name": "Moxy"}}),
+                "get_hotel_details": FakeResult(
+                    {
+                        "hotel": {"hotelId": 99001, "name": "Moxy"},
+                        "offers": [
+                            {
+                                "ratePlanUuid": "moxy-offer",
+                                "availabilityDate": "2026-07-28",
+                                "startHour": 10,
+                                "endHour": 18,
+                                "priceEuro": 7500,
+                            }
+                        ],
+                    }
+                ),
+                "generate_booking_link": lambda args: FakeResult(
+                    {"confirmationRequired": True, "hotel": {}, "offer": {}}
+                ),
+            },
+        )
+        profile = SessionProfile(last_results=self.SHOWN, date="2026-07-28")
+        result = _run(inline_tools.generate_booking_link("Moxy", profile, user_confirmed=False))
+        assert result["ok"] is True
+        details_call = next(c for c in session.calls if c[0] == "get_hotel_details")
+        assert details_call[1] == {"hotelId": 99001, "date": "2026-07-28"}
+
+    def test_fallback_lookup_takes_the_cheapest_offer_not_the_first(self, monkeypatch):
+        """Same rule as the card (`response_bridge._best_offer`) — otherwise
+        the fallback path re-introduces the very mismatch this class covers."""
+        _install(
+            monkeypatch,
+            {
+                "get_hotel_details": FakeResult(
+                    {
+                        "hotel": {"hotelId": 22293, "name": "Villa Paris Orly"},
+                        "offers": [
+                            {
+                                "ratePlanUuid": "pricey",
+                                "availabilityDate": "2026-07-28",
+                                "startHour": 17,
+                                "endHour": 23,
+                                "priceEuro": 9000,
+                            },
+                            {
+                                "ratePlanUuid": "cheapest",
+                                "availabilityDate": "2026-07-28",
+                                "startHour": 11,
+                                "endHour": 19,
+                                "priceEuro": 8700,
+                            },
+                        ],
+                    }
+                ),
+                "generate_booking_link": lambda args: FakeResult(
+                    {"confirmationRequired": True, "hotel": {}, "offer": {}}
+                ),
+            },
+        )
+        # SHORTLIST (module-level) has no stored offer -> the fallback path.
+        profile = SessionProfile(last_results=SHORTLIST, date="2026-07-28")
+        result = _run(
+            inline_tools.generate_booking_link("Villa Paris Orly", profile, user_confirmed=False)
+        )
+        assert result["price"] == "€87.00"
+        assert profile.pending_booking["rate_plan_uuid"] == "cheapest"
+
+    def test_no_session_date_quotes_the_soonest_day_not_the_cheapest_week(self, monkeypatch):
+        """Probed live: an unscoped get_hotel_details returns ~90 offers over a
+        month. Picking the global minimum would quote a cheaper day weeks out
+        that the user never asked for — the day is pinned to the soonest
+        bookable one first, and only then is the cheapest offer chosen ON it."""
+        _install(
+            monkeypatch,
+            {
+                "get_hotel_details": FakeResult(
+                    {
+                        "hotel": {"hotelId": 22293, "name": "Villa Paris Orly"},
+                        "offers": [
+                            {
+                                "ratePlanUuid": "soon-pricey",
+                                "availabilityDate": "2026-07-28",
+                                "startHour": 17,
+                                "endHour": 23,
+                                "priceEuro": 9000,
+                            },
+                            {
+                                "ratePlanUuid": "soon-cheaper",
+                                "availabilityDate": "2026-07-28",
+                                "startHour": 10,
+                                "endHour": 17,
+                                "priceEuro": 8700,
+                            },
+                            {
+                                "ratePlanUuid": "three-weeks-out-bargain",
+                                "availabilityDate": "2026-08-20",
+                                "startHour": 10,
+                                "endHour": 17,
+                                "priceEuro": 3900,
+                            },
+                        ],
+                    }
+                ),
+                "generate_booking_link": lambda args: FakeResult(
+                    {"confirmationRequired": True, "hotel": {}, "offer": {}}
+                ),
+            },
+        )
+        profile = SessionProfile(last_results=SHORTLIST)  # no date at all
+        result = _run(
+            inline_tools.generate_booking_link("Villa Paris Orly", profile, user_confirmed=False)
+        )
+        assert result["date"] == "2026-07-28"
+        assert result["price"] == "€87.00"
+        assert profile.pending_booking["rate_plan_uuid"] == "soon-cheaper"
+
+    def test_without_a_session_date_the_lookup_stays_unscoped(self, monkeypatch):
+        """No date in the profile = nothing to scope to. The call must stay as
+        it was rather than invent one."""
+        session = _install(
+            monkeypatch,
+            {
+                "get_hotel_details": FakeResult(HOTEL_DETAILS_RESPONSE),
+                "generate_booking_link": lambda args: FakeResult(
+                    {"confirmationRequired": True, "hotel": {}, "offer": {}}
+                ),
+            },
+        )
+        profile = SessionProfile(last_results=SHORTLIST)  # date is None
+        _run(inline_tools.generate_booking_link("Villa Paris Orly", profile, user_confirmed=False))
+        details_call = next(c for c in session.calls if c[0] == "get_hotel_details")
+        assert details_call[1] == {"hotelId": 22293}
