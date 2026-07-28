@@ -1,6 +1,21 @@
 # Lessons — corrections de Fabien à réappliquer
 
-## 2026-07-27 — scx5b : 3 défauts UI livrés parce que je n'ai jamais RENDU la page
+## 2026-07-28 — sperf (auto-constatée, attrapée en live post-deploy)
+
+1. **Un probe pré-rollout doit envoyer le SHAPE D'APPEL EXACT du code, pas juste
+   le paramètre nouveau.** J'ai probé `reasoning_effort=low` sur gpt-5.2 sans
+   `temperature` — 200. Le code, lui, envoie `temperature=0.2` : litellm rejette
+   la COMBINAISON (`UnsupportedParamsError`, chaque param seul passe), et en
+   prod **chaque synthèse tombait en fallback leaf-verbatim silencieux**.
+   Règle : construire le probe à partir des kwargs du call site (copier le
+   dict), pas de mémoire — ou mieux, probe à travers la vraie fonction
+   (`_generate_once`), comme l'a fait la contre-preuve du fix.
+2. **Après tout rollout de modèle/params : lire les logs du service AVANT de
+   déclarer les chiffres.** Le tour à 3,4 s « rapide » était en partie de la
+   fausse vitesse (synthèse absente). Le signal existait déjà :
+   `concierge_metric=turn … status=synthesis_fallback` — greper `status=` sur
+   quelques tours réels fait partie de la vérification de déploiement, au même
+   titre que le smoke.
 
 1. **Une carte/CSS livrée sans capture navigateur n'est pas livrée.** J'ai écrit
    la CSS de `booking-card` en S-CX5, vérifié `node --check` + les tests, et

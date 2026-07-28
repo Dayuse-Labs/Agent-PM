@@ -121,6 +121,7 @@ class TestGenerateOnceUsesTheRouter:
         # default change; the reasoning cap stays absent while env is unset.
         assert calls[0]["max_tokens"] == 1000
         assert "reasoning_effort" not in calls[0]
+        assert calls[0]["temperature"] == 0.2  # unchanged from pre-audit behaviour
 
     def test_per_role_model_and_reasoning_cap(self, monkeypatch):
         """DAYUSE_MODEL_SYNTHESIS wins over DAYUSE_MODEL, and the reasoning cap
@@ -155,3 +156,6 @@ class TestGenerateOnceUsesTheRouter:
         assert result == "hi"
         assert calls[0]["model"] == "gpt-5.2"
         assert calls[0]["reasoning_effort"] == "low"
+        # The collision live-caught 2026-07-28 (UnsupportedParamsError →
+        # silent leaf-verbatim fallback): temperature yields to the cap.
+        assert "temperature" not in calls[0]

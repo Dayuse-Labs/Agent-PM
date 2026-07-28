@@ -230,6 +230,7 @@ class TestPerRoleLlmParams:
         assert captured["model"] == "gpt-4o-mini"
         assert "reasoning_effort" not in captured
         assert "extra_body" not in captured
+        assert captured["temperature"] == 0.0  # unchanged from pre-audit behaviour
         # The default cap is the one deliberate change: bounded triage output.
         assert captured["max_tokens"] == 200
 
@@ -247,6 +248,9 @@ class TestPerRoleLlmParams:
         captured = self._capture(monkeypatch)
         _classify("un hôtel à Paris")
         assert captured["reasoning_effort"] == "low"
+        # The collision live-caught 2026-07-28: temperature + effort≠none on
+        # gpt-5* = UnsupportedParamsError → temperature must yield to the cap.
+        assert "temperature" not in captured
 
     def test_reasoning_cap_never_leaks_to_a_non_reasoning_model(self, monkeypatch):
         monkeypatch.setenv("DAYUSE_MODEL", "gpt-5.2")
