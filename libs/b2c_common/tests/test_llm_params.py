@@ -62,12 +62,18 @@ class TestReasoningKwargsProviderAware:
         # Provider-prefixed slugs match on the bare model name.
         assert reasoning_kwargs_for("azure/gpt-5.2") == {"reasoning_effort": "low"}
 
-    def test_disable_spellings_map_to_minimal_on_openai(self, monkeypatch):
-        # OpenAI reasoning models cannot turn reasoning OFF — the closest
-        # honest cap is the smallest effort, never a silently dropped intent.
+    def test_disable_spellings_map_to_none_on_openai(self, monkeypatch):
+        # Live-probed on gpt-5.2 (2026-07-28): accepted set is
+        # {none, low, medium, high, xhigh} — "minimal" is a 400.
         for spelling in ("none", "off", "false", "0", "disabled"):
             monkeypatch.setenv("DAYUSE_REASONING_EFFORT", spelling)
-            assert reasoning_kwargs_for("gpt-5.2") == {"reasoning_effort": "minimal"}
+            assert reasoning_kwargs_for("gpt-5.2") == {"reasoning_effort": "none"}
+
+    def test_other_efforts_pass_through_verbatim(self, monkeypatch):
+        # An operator mismatch (e.g. "minimal" on gpt-5.2) must fail LOUDLY at
+        # the provider, never be silently rewritten here.
+        monkeypatch.setenv("DAYUSE_REASONING_EFFORT", "xhigh")
+        assert reasoning_kwargs_for("gpt-5.2") == {"reasoning_effort": "xhigh"}
 
     def test_openrouter_slugs_delegate_to_the_fleet_shape(self, monkeypatch):
         monkeypatch.setenv("DAYUSE_REASONING_EFFORT", "low")

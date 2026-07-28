@@ -33,9 +33,11 @@ from dayuse_agent_common import reasoning_kwargs as _openrouter_reasoning_kwargs
 
 _DEFAULT_MODEL = "gpt-4o-mini"
 
-# Effort values the OpenAI reasoning families accept. The fleet's "disable"
-# spellings map to "minimal": OpenAI models cannot turn reasoning off, so the
-# closest honest cap is the smallest one (never silently drop the intent).
+# The fleet's "disable" spellings all map to "none" — live-probed on gpt-5.2
+# (2026-07-28): its accepted set is {none, low, medium, high, xhigh}; "minimal"
+# (the older gpt-5.0 floor) is a 400. Other effort values pass through
+# verbatim, so an operator mismatch fails LOUDLY at the provider rather than
+# being silently rewritten here.
 _DISABLE_SPELLINGS = {"none", "off", "false", "0", "disabled", "disable"}
 
 # Model families that take LiteLLM's unified `reasoning_effort` param on the
@@ -66,7 +68,7 @@ def reasoning_kwargs_for(model_slug: str) -> dict:
     - unset/empty         → {} (bit-identical requests — the safe default)
     - `openrouter/…`      → the fleet's validated OpenRouter shape (delegated)
     - OpenAI reasoning families (gpt-5*, o1/o3/o4*) → {"reasoning_effort": …},
-      with the disable spellings mapped to "minimal"
+      with the disable spellings mapped to "none" (probed on gpt-5.2)
     - anything else (gpt-4o-mini, …) → {} — never send an unsupported param
     """
     effort = (os.environ.get("DAYUSE_REASONING_EFFORT") or "").strip().lower()
@@ -76,7 +78,7 @@ def reasoning_kwargs_for(model_slug: str) -> dict:
         return _openrouter_reasoning_kwargs()
     bare = model_slug.rsplit("/", 1)[-1]
     if bare.startswith(_OPENAI_REASONING_PREFIXES):
-        return {"reasoning_effort": "minimal" if effort in _DISABLE_SPELLINGS else effort}
+        return {"reasoning_effort": "none" if effort in _DISABLE_SPELLINGS else effort}
     return {}
 
 
