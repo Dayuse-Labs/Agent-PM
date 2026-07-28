@@ -2,6 +2,25 @@
 
 État du chantier pour reprise en session fraîche. **Lire en entier avant d'agir ; ne pas reconstruire ce qui existe.** Mettre à jour en fin de CHAQUE session (bloc daté en tête).
 
+## 🎫 Addendum 2026-07-28 (soir, PR #47 mergée + déployée) — SCX6 : la confirmation ÉCRITE atteint la gate R9
+
+**Repro Fabien post-rollout OBS1** : « oui je confirme » répondu par le template d'accueil — le lien
+jamais généré. Cause (pas une régression du deploy) : `is_booking_confirmation_signal` n'acceptait
+qu'un affirmatif NU ; toute phrase explicite (« je confirme », « yes I confirm ») partait au triage
+→ template. Fix : `_CONFIRMATION_RE` (verbes confirm/valide/réserve/book/vas-y) consulté SEULEMENT
+sous `pending_booking`, gardes négation+question (un faux positif générerait le lien).
+`_AFFIRMATIVE_RE`/`is_bare_affirmative` inchangés. **Vérifié en prod** (widget proxy, tours
+synthétiques) : confirmation tapée → booking_card + lien ; refus → pas de lien.
+
+**Décision produit OUVERTE** : `build_hotel_picks` (facade.py, règle S-CX5 du 27/07) n'offre les
+boutons de pick que si destination ET date sont résolues — une recherche SANS date affiche le
+carrousel mais zéro bouton (c'était l'autre moitié du « la feature a disparu »). Afficher les picks
+quand la date est défautée à aujourd'hui = 1 ligne, à trancher par Fabien.
+
+**Rollout OBS1 fait le même jour** : 3 services déployés (main c0a8fdc puis fcf6f96), variables
+LANGFUSE posées par Fabien (env=production), tracing vérifié en prod (session `obs1-deploy-check-01`,
+zéro erreur d'export). Piège CLI : `railway variables` (pluriel) — le singulier sort du vide silencieux.
+
 ## 🔭 Addendum 2026-07-28 (branche `obs1-langfuse-tracing`) — OBS1 : Langfuse (monitoring + audit des conversations)
 
 **Contexte** : zéro canal d'observabilité actif en prod (pas de `DATABASE_URL` → `llm_metric_events`/
