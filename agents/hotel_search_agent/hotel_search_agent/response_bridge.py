@@ -221,14 +221,19 @@ def find_datapart(parts: list[genai_types.Part] | None) -> dict[str, Any] | None
     `a2a_datapart.find_datapart`).
 
     S-G5 root-cause fix, live-verified 2026-07-23: `tool_context.user_content
-    .parts` on THIS side accumulates every turn's inbound DataPart across the
-    WHOLE A2A session (n_parts grows turn over turn — the leaf's own ADK
-    session keeps the full history, unlike the concierge's per-event decode
-    loop in `_run_leaf` which naturally lands on the latest by construction).
-    Returning the FIRST match — the old behavior — silently pinned every
-    profile-driven bridge (amenities, geo context, pagination) to turn 1's
-    stale snapshot forever; only `search_cursor` (monotonically advancing,
-    never coincidentally equal to turn 1's value) made the bug visible."""
+    .parts` on THIS side could carry SEVERAL DataParts — at the time, the
+    inbound A2A message replayed the whole conversation (every prior turn's
+    snapshot; n_parts grew turn over turn). Returning the FIRST match — the
+    old behavior — silently pinned every profile-driven bridge (amenities,
+    geo context, pagination) to turn 1's stale snapshot forever; only
+    `search_cursor` (monotonically advancing, never coincidentally equal to
+    turn 1's value) made the bug visible.
+
+    Latency audit 2026-07-28: the concierge's `StatelessLeafLeg` now sends
+    ONLY the current turn's user event (one snapshot), and the leaf itself
+    runs `include_contents='none'`. Most-recent-wins stays: it is correct on
+    one part, and it keeps this side safe against any OTHER A2A caller that
+    still replays history."""
     found: dict[str, Any] | None = None
     for part in parts or []:
         decoded = decode_datapart(part)

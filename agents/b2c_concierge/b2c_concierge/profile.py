@@ -223,6 +223,49 @@ class SessionProfile:
         return cls(**known)
 
 
+# Profile slots the LEAVES never read (verified against every `profile_in`
+# consumer in the leaf packages, 2026-07-28: geocode_tool, datetime_resolver,
+# equipment_ids, response_bridge; the faq leaf reads nothing at all). They are
+# concierge-internal turn state — and the whole profile_in lands VERBATIM in
+# the leaf's LLM prompt (DataPart text/*), so every extra byte here is prompt
+# tokens paid on both leaf LLM calls, every turn. `last_clarifying_question` /
+# `last_suggestions` also carry message-derived content that has no business
+# shipping to the leaf (GDPR: data minimization).
+_CONCIERGE_ONLY_KEYS = (
+    "pending_booking",
+    "last_suggestions",
+    "last_clarifying_question",
+    "amenity_claim_corrections",
+    "auto_widen_disclosure",
+    "named_hotel",
+    "distance_origin",
+    "picked_hotel_id",
+)
+
+
+def leaf_profile_view(profile: SessionProfile) -> dict[str, Any]:
+    """The A2A copy of the profile — NOT the profile. Redis, the booking card,
+    the picks and the ground-truth block all keep reading the full
+    `profile.last_results` (offer identity, price, photo, rating, S-CX5);
+    only what travels to the leaf is slimmed.
+
+    `last_results` shrinks to `{hotel_id, name}` per entry: the leaf uses the
+    shortlist solely as model-visible context for name references — the offer
+    identity the booking path needs never leaves the concierge. Measured
+    before this view existed (S-CX5 shortlist, 5 hotels): ~+535 prompt tokens
+    per leaf LLM call, ×2 calls per turn, growing with every prior turn still
+    replayed."""
+    view = profile.to_dict()
+    for key in _CONCIERGE_ONLY_KEYS:
+        view.pop(key, None)
+    view["last_results"] = [
+        {"hotel_id": entry.get("hotel_id"), "name": entry.get("name")}
+        for entry in (profile.last_results or [])
+        if isinstance(entry, dict)
+    ] or None  # keep the slot's no-shortlist shape (None, not [])
+    return view
+
+
 def _slot_default(name: str) -> Any:
     """The dataclass-declared zero-value for `name` — what an explicit
     `{"op": "clear"}` resets a slot to (its own natural "nothing here" value,

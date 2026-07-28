@@ -88,6 +88,11 @@ class TestModel:
         # to distinguish B2C rows from fleet rows in the shared Postgres (S3).
         assert root_agent.name == "b2c_faq"
 
+    def test_the_leaf_model_sees_only_the_current_turn(self):
+        # Stateless invariant, enforced (latency audit 2026-07-28) — same
+        # rationale as b2c_hotel_search's include_contents test.
+        assert root_agent.include_contents == "none"
+
     def test_model_defaults_to_gpt_4o_mini(self, monkeypatch, reload_agent):
         monkeypatch.delenv("DAYUSE_MODEL", raising=False)
         assert reload_agent().root_agent.model.model == "gpt-4o-mini"

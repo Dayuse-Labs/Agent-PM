@@ -35,6 +35,7 @@ from b2c_concierge.profile import (
     is_booking_confirmation_signal,
     is_more_options_signal,
     is_search_refinement_signal,
+    leaf_profile_view,
     maybe_auto_widen,
     questions_equivalent,
     record_search_outcome,
@@ -1127,3 +1128,82 @@ class TestProfileOpsRgpdMetric:
             apply_profile_delta(profile, {}, "hello")
         lines = [r.getMessage() for r in caplog.records if "profile_ops" in r.getMessage()]
         assert lines == []
+
+
+class TestLeafProfileView:
+    """Latency audit 2026-07-28 — the A2A copy of the profile is slimmed: the
+    whole profile_in lands verbatim in the leaf's LLM prompt, so display-only
+    shortlist fields and concierge-internal turn state are pure prompt-token
+    cost (measured ~+535 tokens per leaf call for a 5-hotel S-CX5 shortlist).
+    The full profile (Redis, booking card, picks) is NOT touched."""
+
+    def _fat_profile(self) -> SessionProfile:
+        profile = SessionProfile()
+        record_search_shortlist(
+            profile,
+            [
+                {
+                    "hotel_id": 42,
+                    "name": "Villa Paris Orly",
+                    "price": "€54.00",
+                    "price_eur_cents": 5400,
+                    "offer_id": "uuid-1",
+                    "offer_date": "2026-07-29",
+                    "image_urls": ["https://cdn.example/photo-42.jpg"],
+                    "url": "https://www.dayuse.fr/hotels/france/villa-paris-orly",
+                    "city": "Paris",
+                    "rating": 4.7,
+                    "rating_count": 12,
+                    "stars": 4,
+                    "timeslots": [{"start": "10:00", "end": "17:00"}],
+                }
+            ],
+        )
+        profile.pending_booking = {"hotel_id": 42, "offer_id": "uuid-1"}
+        profile.last_clarifying_question = "Quelle ville ?"
+        profile.last_suggestions = ["Paris", "Lyon"]
+        profile.city = "Paris"
+        profile.budget_max = 150.0
+        profile.search_cursor = 5
+        profile.shown_hotel_ids = [42, 43]
+        return profile
+
+    def test_shortlist_shrinks_to_identity_only(self):
+        view = leaf_profile_view(self._fat_profile())
+        assert view["last_results"] == [{"hotel_id": 42, "name": "Villa Paris Orly"}]
+
+    def test_concierge_only_keys_never_travel(self):
+        view = leaf_profile_view(self._fat_profile())
+        for key in (
+            "pending_booking",
+            "last_suggestions",
+            "last_clarifying_question",
+            "amenity_claim_corrections",
+            "auto_widen_disclosure",
+            "named_hotel",
+            "distance_origin",
+            "picked_hotel_id",
+        ):
+            assert key not in view
+
+    def test_every_leaf_consumed_slot_is_kept(self):
+        # The definitive read set of the leaf packages (geocode_tool,
+        # datetime_resolver, equipment_ids, response_bridge), 2026-07-28.
+        view = leaf_profile_view(self._fat_profile())
+        for key in (
+            "city", "zone", "metro", "state_anchor", "country_anchor",
+            "search_anchor", "locale", "language", "client_timezone", "date",
+            "timeslot_start", "amenities", "search_cursor", "shown_hotel_ids",
+            "budget_max", "timeslot_end", "timeslot", "schema_version",
+        ):
+            assert key in view, f"leaf-consumed or model-visible slot {key!r} missing"
+        assert view["search_cursor"] == 5
+        assert view["shown_hotel_ids"] == [42, 43]
+
+    def test_the_profile_itself_keeps_the_full_shortlist(self):
+        profile = self._fat_profile()
+        leaf_profile_view(profile)
+        # The view is a copy: the booking card's offer identity must survive.
+        assert profile.last_results[0]["offer_id"] == "uuid-1"
+        assert profile.last_results[0]["image_urls"] == ["https://cdn.example/photo-42.jpg"]
+        assert profile.pending_booking == {"hotel_id": 42, "offer_id": "uuid-1"}

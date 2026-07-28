@@ -130,6 +130,48 @@ class TestOutgoingProfileEnvelope:
         assert decoded["profile_in"]["budget_max"] is None
         assert decoded["profile_in"]["city"] is None
 
+    def test_the_leaf_gets_the_slim_view_while_the_store_keeps_the_full_shortlist(
+        self, monkeypatch, fake_leg, fake_profile_store
+    ):
+        """Latency audit 2026-07-28: profile_in lands verbatim in the leaf's
+        prompt — the S-CX5 display fields (photos, URLs, ratings) and the
+        concierge-only turn state must not travel; the booking card keeps
+        reading them from the STORED profile."""
+        from b2c_concierge.profile import SessionProfile, record_search_shortlist
+
+        seeded = SessionProfile()
+        record_search_shortlist(
+            seeded,
+            [{
+                "hotel_id": 42, "name": "Villa Paris Orly", "price": "€54.00",
+                "price_eur_cents": 5400, "offer_id": "uuid-1", "offer_date": "2026-07-29",
+                "image_urls": ["https://cdn.example/p.jpg"], "url": "https://www.dayuse.fr/h",
+                "city": "Paris", "rating": 4.7, "rating_count": 12, "stars": 4,
+                "timeslots": [{"start": "10:00", "end": "17:00"}],
+            }],
+        )
+        seeded.last_clarifying_question = "Quelle ville ?"
+
+        fake_leg.response_payload = {"results": [], "profile_delta": {}}
+        _scripted_llm(monkeypatch, '{"family": "search", "language": "en"}', "reply")
+        runner = InMemoryRunner(root_agent)
+        session = _new_session(runner)
+        asyncio.run(fake_profile_store.set(session.id, seeded))
+
+        _run_turn(runner, session.id, "another hotel like those")
+
+        decoded = find_datapart(fake_leg.seen_outgoing_parts)
+        assert decoded is not None
+        sent = decoded["profile_in"]
+        assert sent["last_results"] == [{"hotel_id": 42, "name": "Villa Paris Orly"}]
+        assert "last_clarifying_question" not in sent
+        assert "pending_booking" not in sent
+        # The stored profile is untouched: full offer identity still there
+        # (empty search results leave the previous shortlist in place).
+        stored = asyncio.run(fake_profile_store.get(session.id))
+        assert stored.last_results[0]["offer_id"] == "uuid-1"
+        assert stored.last_results[0]["image_urls"] == ["https://cdn.example/p.jpg"]
+
 
 class TestProfileDeltaAppliedAndPersisted:
     def test_budget_delta_is_persisted_after_the_turn(self, monkeypatch, fake_leg, fake_profile_store):
