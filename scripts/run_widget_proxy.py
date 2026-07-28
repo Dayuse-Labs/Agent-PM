@@ -153,8 +153,16 @@ class WidgetProxyHandler(BaseHTTPRequestHandler):
                 self.send_header(key, value)
         self.send_header("Connection", "close")
         self.end_headers()
+        # read1, NOT read: on a chunked upstream, read(4096) BLOCKS until it
+        # has accumulated the full 4096 bytes — which held the ~20-byte SSE
+        # `progress` frame hostage until the synthesis flooded the buffer, so
+        # every frame of a turn arrived in ONE burst at the end (measured
+        # 2026-07-28, local and through Railway: progress=hotels=done to the
+        # millisecond). read1 returns as soon as ANY data is available — the
+        # whole point of the facade's frame-by-frame stream.
+        read_available = getattr(resp, "read1", resp.read)
         while True:
-            chunk = resp.read(4096)
+            chunk = read_available(4096)
             if not chunk:
                 break
             try:
