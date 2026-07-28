@@ -38,15 +38,26 @@ l'occasion (redeploy web+worker, le tag `:3` flotte).
   (contenu → Langfuse EU self-hosted = canal d'audit sanctionné, miroir de conversation_logs ;
   métriques/logs `b2c_concierge.*` toujours sans contenu). Tag `synthetic` via X-Dayuse-Synthetic.
 
-**Reste (bloqué sur Fabien)** : créer le projet + clés API dans l'UI Langfuse (UN projet pour les
-3 services) → smoke local (`run_local.sh` + un tour /v3/chat/stream, vérifier trace + generations
-+ Sessions groupées + coût) → poser `LANGFUSE_PUBLIC_KEY`/`SECRET_KEY`/`LANGFUSE_BASE_URL`/
+**Smoke local VALIDÉ avec les vraies clés (2026-07-28, revue Fabien)** — 3 corrections attrapées :
+traces feuilles nommées + input (le span racine ADK `invocation` est sans attributs → stamps
+`langfuse.trace.*` posés depuis le callback feuille) ; sessions complètes aussi en pilotage A2A
+(smoke/batterie : `stamp_langfuse_turn_session` sur le spine, idempotent avec la façade) ; **usage
+compté 3x corrigé → 1x** (`ADK_TELEMETRY_SCHEMA_VERSION_OPT_IN=2` retire `call_llm` ;
+`instrument_litellm=False` dans les feuilles où `generate_content` est LA génération). Vérifié :
+`smoke_e2e.py` (A2A) + `smoke_e2e.py --contract` (/v3), zéro erreur d'export.
+
+**Reste** : poser `LANGFUSE_PUBLIC_KEY`/`SECRET_KEY`/`LANGFUSE_BASE_URL`/
 `LANGFUSE_TRACING_ENVIRONMENT=production` sur les 3 services Railway → redeploy → vérifier un tour
 réel. Sans les clés, le code déployé est inerte (aucun risque).
 
 **Pièges découverts** : (1) `to_a2a` annote `lifespan` comme `-> AsyncIterator` mais le consomme en
 `async with lifespan(app)` — il FAUT `@asynccontextmanager` + `type: ignore[arg-type]` (la docstring
-ADK elle-même utilise le décorateur). (2) **Pré-existant sur main** : `tests/test_llm_meter_usage.py::
+ADK elle-même utilise le décorateur). (2) **litellm fait `load_dotenv()` à l'import** : tout secret
+du `.env` racine entre dans CHAQUE process python du repo, pytest compris — avec de vraies clés la
+suite exportait pour de vrai et gelait (double shutdown du client langfuse via les lifespans
+TestClient). Verrou : `conftest.py` racine neutralise les clés (chaîne vide, `load_dotenv` n'écrase
+pas l'existant) + les lifespans font `flush()` jamais `shutdown()` (le client langfuse possède son
+shutdown atexit). (3) **Pré-existant sur main** : `tests/test_llm_meter_usage.py::
 test_usage_record_extracts_tokens_and_model` échoue (round(432.15,1)=432.1 en IEEE754 vs 432.2
 attendu) — WIP llm-meter balayé par erreur (cf. commit d157323) ; hors scope OBS1, à corriger ou
 supprimer dans sa propre session.
