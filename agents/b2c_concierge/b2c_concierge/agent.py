@@ -79,6 +79,7 @@ from typing import Any, AsyncGenerator
 import httpx
 import litellm
 from b2c_common import max_tokens_for, reasoning_kwargs_for, role_model, temperature_kwargs_for
+from b2c_common.observability import stamp_langfuse_turn_session
 from dayuse_agent_common import (
     cost_from_tokens,
     enqueue_metric_event,
@@ -1076,4 +1077,7 @@ root_agent = _B2cConcierge(
         "hotel-search or FAQ A2A leaf, inline tools, or templates — one economy triage "
         "and at most one synthesis LLM call per turn."
     ),
+    # OBS1: session/user on the Langfuse trace for A2A-driven turns too (peers,
+    # battery, smoke) — the /v3 facade sets the same values, idempotently.
+    before_agent_callback=[stamp_langfuse_turn_session],
 )

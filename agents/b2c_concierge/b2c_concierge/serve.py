@@ -24,7 +24,7 @@ from contextlib import asynccontextmanager
 
 from a2a.types import AgentCapabilities, HTTPAuthSecurityScheme, SecurityScheme
 from b2c_common import BearerAuthMiddleware, require_bearer_token
-from b2c_common.observability import setup_langfuse, shutdown_langfuse
+from b2c_common.observability import flush_langfuse, setup_langfuse
 from google.adk.a2a.utils.agent_card_builder import AgentCardBuilder
 from google.adk.a2a.utils.agent_to_a2a import to_a2a
 from starlette.applications import Starlette
@@ -67,7 +67,7 @@ _agent_card.security = [{"bearer-interim": []}]
 @asynccontextmanager
 async def _lifespan(app: Starlette) -> AsyncIterator[None]:
     yield
-    shutdown_langfuse()  # flush pending Langfuse batches on shutdown
+    flush_langfuse()  # flush only — the langfuse client owns its atexit shutdown
 
 
 # The ADK A2A Starlette app. Mount the public /v3 facade routes on it BEFORE

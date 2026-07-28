@@ -19,15 +19,16 @@ from contextlib import asynccontextmanager
 
 from a2a.types import AgentCapabilities, HTTPAuthSecurityScheme, SecurityScheme
 from b2c_common import BearerAuthMiddleware, require_bearer_token
-from b2c_common.observability import setup_langfuse, shutdown_langfuse
+from b2c_common.observability import flush_langfuse, setup_langfuse
 from google.adk.a2a.utils.agent_card_builder import AgentCardBuilder
 from google.adk.a2a.utils.agent_to_a2a import to_a2a
 from starlette.applications import Starlette
 
-# BEFORE the agent import: ADK's lite_llm binds `from litellm import acompletion`
-# at import time — the litellm instrumentation must patch the module first, or
-# the leaf's generations fall back to ADK call_llm spans only.
-setup_langfuse("faq-agent")
+# Before the agent import (uniform with the concierge; also future-proofs the
+# litellm patch order if instrument_litellm ever flips). instrument_litellm=False:
+# ADK's own `generate_content` span already carries model/usage/content in the
+# leaves — a second generation span per call would double-count tokens and cost.
+setup_langfuse("faq-agent", instrument_litellm=False)
 
 from faq_agent.agent import root_agent  # noqa: E402
 
@@ -64,7 +65,7 @@ _agent_card.security = [{"bearer-interim": []}]
 @asynccontextmanager
 async def _lifespan(app: Starlette) -> AsyncIterator[None]:
     yield
-    shutdown_langfuse()  # flush pending Langfuse batches on shutdown
+    flush_langfuse()  # flush only — the langfuse client owns its atexit shutdown
 
 
 # type-ignore: to_a2a annotates lifespan as `-> AsyncIterator` but consumes it as

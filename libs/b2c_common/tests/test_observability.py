@@ -44,8 +44,16 @@ class TestSetupDisabledByDefault:
         monkeypatch.setattr(observability, "_client", sentinel)
         assert observability.setup_langfuse("test-service") is sentinel
 
-    def test_shutdown_is_a_noop_when_disabled(self):
-        observability.shutdown_langfuse()  # must not raise
+    def test_flush_is_a_noop_when_disabled(self):
+        observability.flush_langfuse()  # must not raise
+
+    def test_empty_string_keys_stay_disabled(self, monkeypatch):
+        """The root conftest neutralizes leaked .env keys with EMPTY strings
+        (litellm's load_dotenv can't override an existing var) — empty must
+        read as disabled."""
+        monkeypatch.setenv("LANGFUSE_PUBLIC_KEY", "")
+        monkeypatch.setenv("LANGFUSE_SECRET_KEY", "")
+        assert observability.setup_langfuse("test-service") is None
 
 
 class TestTurnObservationDisabled:
@@ -78,7 +86,7 @@ class TestStampLangfuseSession:
         ):
             assert observability.stamp_langfuse_session(ctx) is None
 
-    def test_stamps_session_attribute_from_a2a_metadata(self, monkeypatch):
+    def test_stamps_session_name_and_input_from_the_inbound_request(self, monkeypatch):
         monkeypatch.setattr(observability, "_client", object())
         recorded: dict = {}
 
@@ -89,7 +97,52 @@ class TestStampLangfuseSession:
         ctx = SimpleNamespace(
             run_config=SimpleNamespace(
                 custom_metadata={"a2a_metadata": {"dayuse_trace_id": "sess-42"}}
-            )
+            ),
+            agent_name="b2c_faq",
+            user_content=SimpleNamespace(
+                parts=[SimpleNamespace(text="conditions d'annulation ?"), SimpleNamespace(text=None)]
+            ),
         )
         assert observability.stamp_langfuse_session(ctx) is None
-        assert recorded == {"langfuse.session.id": "sess-42"}
+        assert recorded == {
+            "langfuse.session.id": "sess-42",
+            "langfuse.trace.name": "b2c_faq",
+            "langfuse.trace.input": "conditions d'annulation ?",
+        }
+
+    def test_falls_back_to_own_session_without_a2a_metadata(self, monkeypatch):
+        monkeypatch.setattr(observability, "_client", object())
+        recorded: dict = {}
+
+        span = SimpleNamespace(set_attribute=lambda k, v: recorded.__setitem__(k, v))
+        import opentelemetry.trace
+
+        monkeypatch.setattr(opentelemetry.trace, "get_current_span", lambda: span)
+        ctx = SimpleNamespace(run_config=None, session=SimpleNamespace(id="own-session"))
+        observability.stamp_langfuse_session(ctx)
+        assert recorded["langfuse.session.id"] == "own-session"
+
+
+class TestStampLangfuseTurnSession:
+    def test_noop_when_disabled(self):
+        assert observability.stamp_langfuse_turn_session(object()) is None
+
+    def test_never_raises_on_junk_contexts_when_enabled(self, monkeypatch):
+        monkeypatch.setattr(observability, "_client", object())
+        for ctx in (object(), SimpleNamespace(session=None)):
+            assert observability.stamp_langfuse_turn_session(ctx) is None
+
+    def test_stamps_session_and_user_from_the_adk_session(self, monkeypatch):
+        monkeypatch.setattr(observability, "_client", object())
+        recorded: dict = {}
+
+        span = SimpleNamespace(set_attribute=lambda k, v: recorded.__setitem__(k, v))
+        import opentelemetry.trace
+
+        monkeypatch.setattr(opentelemetry.trace, "get_current_span", lambda: span)
+        ctx = SimpleNamespace(session=SimpleNamespace(id="sess-9", user_id="v3_sess-9"))
+        assert observability.stamp_langfuse_turn_session(ctx) is None
+        assert recorded == {
+            "langfuse.session.id": "sess-9",
+            "langfuse.user.id": "v3_sess-9",
+        }
