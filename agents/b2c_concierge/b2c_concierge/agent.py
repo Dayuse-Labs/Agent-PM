@@ -428,7 +428,9 @@ class _B2cConcierge(BaseAgent):
     def _progress_event(self, ctx: InvocationContext) -> Event:
         return self._marker_event(ctx, {"event": "progress"})
 
-    def _hotels_event(self, ctx: InvocationContext, response: dict[str, Any]) -> Event:
+    def _hotels_event(
+        self, ctx: InvocationContext, response: dict[str, Any], language: str
+    ) -> Event:
         return self._marker_event(
             ctx,
             {
@@ -437,6 +439,12 @@ class _B2cConcierge(BaseAgent):
                 # S-G10 (D3): the leaf's deterministic geocode-clarify flag —
                 # rides the marker so the facade can report it (never blocks).
                 "requires_clarification": bool(response.get("requires_clarification")),
+                # S-PERF4: the turn's language, decided by triage BEFORE this
+                # marker. A client that renders the shortlist on this frame has
+                # no other way to localize the cards — it would otherwise paint
+                # them in the page's boot language and only correct itself on
+                # the final payload (mixed-language render on 6 of 7 locales).
+                "response_language": language,
             },
         )
 
@@ -705,7 +713,7 @@ class _B2cConcierge(BaseAgent):
             return
 
         response = {"results": hotels}
-        yield self._hotels_event(ctx, response)
+        yield self._hotels_event(ctx, response, language)
 
         synth = await self._synthesize_with_guards(
             message=message, language=language, leaf_text=leaf_text, response=response,
@@ -1003,7 +1011,7 @@ class _B2cConcierge(BaseAgent):
         leaf_text = leaf_text or ""
 
         # `hotels` marker — as soon as the leaf returns (S06).
-        yield self._hotels_event(ctx, response)
+        yield self._hotels_event(ctx, response, triage.language)
 
         delta = response.get("profile_delta") or {}
         if delta:

@@ -865,7 +865,17 @@ async def chat_stream(request: Request) -> Response:
                     elif kind == "hotels":
                         hotels = data.get("hotels") or None
                         requires_clarification = bool(data.get("requires_clarification"))
-                        yield _sse("hotels", {"hotels": normalize_hotels(hotels) if hotels else []})
+                        # `requires_clarification` and `response_language` ride the
+                        # frame (additive) so a hotels-first client decides whether
+                        # to paint the shortlist — and in WHICH language — from the
+                        # same inputs the `done` payload will carry. Without them a
+                        # streaming widget would show a shortlist a clarifying turn
+                        # withholds, in the page's boot language.
+                        yield _sse("hotels", {
+                            "hotels": normalize_hotels(hotels) if hotels else [],
+                            "requires_clarification": requires_clarification,
+                            "response_language": data.get("response_language") or "",
+                        })
                     elif kind == "booking":
                         booking_card = data.get("booking_card") or None
                         yield _sse("booking_card", {"booking_card": booking_card})

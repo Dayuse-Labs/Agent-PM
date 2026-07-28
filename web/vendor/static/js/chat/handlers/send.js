@@ -11,7 +11,8 @@ import { addMessage, showTypingIndicator, hideTypingIndicator, createBookingCard
 import { createThinkingSteps, hideThinkingAnimation } from '../ui/thinking.js';
 import { createHotelCarousel } from '../hotels/carousel.js';
 import { addFollowUpMessage } from '../filters/search.js';
-import { getChatEndpoint, getChatHeaders } from '../api.js';
+import { getChatEndpoint, getChatHeaders, getChatTransport, getStreamEndpoint } from '../api.js';
+import { openChatStream, readSseFrames } from '../stream.js';
 import { setLanguage, t } from '../i18n.js';
 import { escapeAttr, escapeHtml, sanitizeDayuseUrl } from '../security.js';
 
@@ -50,7 +51,9 @@ import {
     handleRefinementResponse,
     handleNewSearchResponse,
     handleTextResponse,
-    handleResultsResponse
+    handleResultsResponse,
+    buildResultsBlock,
+    updateMarketFromResults
 } from './responses.js';
 
 function setChatViewportLock(isActive) {
@@ -144,6 +147,43 @@ document.addEventListener('focusin', (event) => {
 });
 
 /**
+ * Map v3 hotel cards to the shape the renderers expect.
+ *
+ * Shared by normalizeV3Response (the `done` / blocking-POST payload) and the
+ * SSE `hotels` frame, which carries the very same cards — the early carousel
+ * must be built from exactly the same fields as the late one.
+ */
+function mapV3Hotels(hotels) {
+    return (Array.isArray(hotels) ? hotels : []).map(h => ({
+        id: h.id || h.hotel_id,
+        name: h.name,
+        stars: h.stars,
+        rating: h.rating,
+        price: h.price,
+        metro: h.metro,
+        zone: h.zone,
+        city: h.city,
+        country_code: h.country_code,
+        url: h.url,
+        amenities: h.amenities || [],
+        highlights: h.highlights || [],
+        image_urls: h.image_urls || h.images || [],
+        photos_with_tags: h.photos_with_tags || [],
+        timeslots: h.timeslots || [],
+        matched_timeslots: h.matched_timeslots || [],
+        timeslot_match_level: h.timeslot_match_level || null,
+        selling_points: h.selling_points || [],
+        match_reasons: h.match_reasons || [],
+        mismatch_warnings: h.mismatch_warnings || [],
+        match_explanation: h.match_explanation || null,
+        ai_recommendation: h.ai_recommendation || null,
+        has_pool: h.has_pool,
+        has_spa: h.has_spa,
+        score: h.score || h.relevance_score
+    }));
+}
+
+/**
  * Normalize v3/chat response to expected format
  * Converts new API format to match existing handler expectations
  */
@@ -186,33 +226,7 @@ function normalizeV3Response(data) {
             // Show clean intro text (not the full markdown list)
             context: introText,
             response: introText,
-            results: data.hotels.map(h => ({
-                id: h.id || h.hotel_id,
-                name: h.name,
-                stars: h.stars,
-                rating: h.rating,
-                price: h.price,
-                metro: h.metro,
-                zone: h.zone,
-                city: h.city,
-                country_code: h.country_code,
-                url: h.url,
-                amenities: h.amenities || [],
-                highlights: h.highlights || [],
-                image_urls: h.image_urls || h.images || [],
-                photos_with_tags: h.photos_with_tags || [],
-                timeslots: h.timeslots || [],
-                matched_timeslots: h.matched_timeslots || [],
-                timeslot_match_level: h.timeslot_match_level || null,
-                selling_points: h.selling_points || [],
-                match_reasons: h.match_reasons || [],
-                mismatch_warnings: h.mismatch_warnings || [],
-                match_explanation: h.match_explanation || null,
-                ai_recommendation: h.ai_recommendation || null,
-                has_pool: h.has_pool,
-                has_spa: h.has_spa,
-                score: h.score || h.relevance_score
-            })),
+            results: mapV3Hotels(data.hotels),
             suggestions: data.suggestions,
             active_filters: data.active_filters || null,
             market: data.market || null,
@@ -292,78 +306,83 @@ async function getBrowserGeoContext(message) {
 }
 
 /**
+ * Build the v3/chat request body for this turn. Transport-agnostic: the
+ * blocking POST and the SSE stream send the exact same payload.
+ */
+function buildRequestBody(isFollowUp, message, turnId, clientGeoContext) {
+    const requestBody = {
+        message: message,
+        session_id: state.currentConversationId || state.clientSessionId || null,
+        locale: state.marketContext?.language || state.responseLanguage || null,
+        currency: state.marketContext?.currency || null,
+        entry_market_country: state.marketContext?.country_code || null,
+        turn_id: turnId,
+        request_id: turnId
+    };
+    Object.assign(requestBody, getClientTimeContext());
+    if (state.entrySource) {
+        requestBody.source = state.entrySource;
+    }
+    if (clientGeoContext) {
+        requestBody.client_geo_context = clientGeoContext;
+    }
+    if (state.selectedPlace) {
+        requestBody.selected_place = state.selectedPlace;
+    }
+    // S-CX5: a hotel-pick BUTTON was clicked. The message carries its
+    // label so the transcript reads naturally; this id is what the
+    // backend actually resolves the hotel from (two hotels of the same
+    // chain in one shortlist would make label matching a coin flip).
+    // One-shot: cleared as soon as it has been sent.
+    if (state.pendingPickHotelId) {
+        requestBody.hotel_id = state.pendingPickHotelId;
+    }
+    // Forward the app's logged-in context (recent bookings, favourites,
+    // geolocation) so the backend can personalize ranking + defaults.
+    const nativeCtx = getNativeContext();
+    if (nativeCtx) {
+        requestBody.native_context = nativeCtx;
+    }
+
+    // Add filters if set
+    if (state.selectedFilters.timeslot) {
+        const apiTimeslot = toApiTimeslot(state.selectedFilters.timeslot);
+        if (apiTimeslot) {
+            requestBody.timeslot = apiTimeslot;
+        }
+    }
+    if (state.selectedFilters.city) {
+        requestBody.city = state.selectedFilters.city;
+    }
+    if (state.selectedFilters.amenities && state.selectedFilters.amenities.length > 0) {
+        requestBody.amenities = state.selectedFilters.amenities;
+    }
+    if (state.selectedFilters.requested_start_hour != null) {
+        requestBody.timeslot_start = `${String(state.selectedFilters.requested_start_hour).padStart(2, '0')}:00`;
+    }
+    if (state.selectedFilters.requested_end_hour != null) {
+        requestBody.timeslot_end = `${String(state.selectedFilters.requested_end_hour).padStart(2, '0')}:00`;
+    }
+
+    // For follow-up, add context
+    if (isFollowUp) {
+        requestBody.previous_hotel_ids = state.activeHotelIds || [];
+    }
+
+    return requestBody;
+}
+
+/**
  * Make API call with retry logic
  * Now uses /v3/chat for all requests (natural language understanding)
  */
-async function makeApiCall(isFollowUp, message, turnId) {
-    let response;
+async function makeApiCall(requestBody) {
     let retryCount = 0;
     const maxRetries = 3;
-    const clientGeoContext = await getBrowserGeoContext(message);
 
     while (retryCount < maxRetries) {
         try {
-            // Build request body for v3/chat
-            const requestBody = {
-                message: message,
-                session_id: state.currentConversationId || state.clientSessionId || null,
-                locale: state.marketContext?.language || state.responseLanguage || null,
-                currency: state.marketContext?.currency || null,
-                entry_market_country: state.marketContext?.country_code || null,
-                turn_id: turnId,
-                request_id: turnId
-            };
-            Object.assign(requestBody, getClientTimeContext());
-            if (state.entrySource) {
-                requestBody.source = state.entrySource;
-            }
-            if (clientGeoContext) {
-                requestBody.client_geo_context = clientGeoContext;
-            }
-            if (state.selectedPlace) {
-                requestBody.selected_place = state.selectedPlace;
-            }
-            // S-CX5: a hotel-pick BUTTON was clicked. The message carries its
-            // label so the transcript reads naturally; this id is what the
-            // backend actually resolves the hotel from (two hotels of the same
-            // chain in one shortlist would make label matching a coin flip).
-            // One-shot: cleared as soon as it has been sent.
-            if (state.pendingPickHotelId) {
-                requestBody.hotel_id = state.pendingPickHotelId;
-            }
-            // Forward the app's logged-in context (recent bookings, favourites,
-            // geolocation) so the backend can personalize ranking + defaults.
-            const nativeCtx = getNativeContext();
-            if (nativeCtx) {
-                requestBody.native_context = nativeCtx;
-            }
-
-            // Add filters if set
-            if (state.selectedFilters.timeslot) {
-                const apiTimeslot = toApiTimeslot(state.selectedFilters.timeslot);
-                if (apiTimeslot) {
-                    requestBody.timeslot = apiTimeslot;
-                }
-            }
-            if (state.selectedFilters.city) {
-                requestBody.city = state.selectedFilters.city;
-            }
-            if (state.selectedFilters.amenities && state.selectedFilters.amenities.length > 0) {
-                requestBody.amenities = state.selectedFilters.amenities;
-            }
-            if (state.selectedFilters.requested_start_hour != null) {
-                requestBody.timeslot_start = `${String(state.selectedFilters.requested_start_hour).padStart(2, '0')}:00`;
-            }
-            if (state.selectedFilters.requested_end_hour != null) {
-                requestBody.timeslot_end = `${String(state.selectedFilters.requested_end_hour).padStart(2, '0')}:00`;
-            }
-
-            // For follow-up, add context
-            if (isFollowUp) {
-                requestBody.previous_hotel_ids = state.activeHotelIds || [];
-            }
-
-            response = await fetch(getChatEndpoint(), {
+            const response = await fetch(getChatEndpoint(), {
                 method: 'POST',
                 headers: getChatHeaders(),
                 body: JSON.stringify(requestBody)
@@ -380,6 +399,98 @@ async function makeApiCall(isFollowUp, message, turnId) {
             }
             await new Promise(resolve => setTimeout(resolve, 1000));
         }
+    }
+}
+
+/**
+ * Render the shortlist the moment the SSE `hotels` frame lands — measured ~4 s
+ * into a search turn, 4-6 s before the synthesis text. Returns true when a
+ * carousel was actually drawn, which is what makes the `done` payload skip its
+ * own (no doubled carousel).
+ *
+ * Draws nothing on an empty frame (no inventory) or a clarifying turn — the
+ * blocking-POST path answers the question without a shortlist, so streaming
+ * must not paint one either. Those turns render entirely from `done`, as today.
+ */
+function renderHotelsEarly(frame, thinking) {
+    if (frame.requires_clarification) return false;
+    const results = mapV3Hotels(frame.hotels);
+    if (results.length === 0) return false;
+
+    // Localize BEFORE rendering: the card labels and the "N hotels selected for
+    // you" line go through t(), and the turn's language is only known from the
+    // backend. Without this the cards would paint in the page's boot language
+    // and the text below them would arrive in another one.
+    if (frame.response_language) {
+        state.responseLanguage = frame.response_language;
+        setLanguage(frame.response_language);
+        applyRuntimeLanguageLabels();
+        thinking.relocalize();
+    }
+
+    updateMarketFromResults(results);
+    state.previousResults = results;
+    state.activeHotelIds = results.map(h => h.id).filter(id => id);
+
+    const hotelsHtml = createHotelCarousel(results.slice(0, 6));
+    // No intro text yet — it is still being written upstream.
+    addMessage(buildResultsBlock('', results.length, hotelsHtml), false, true, false, true);
+
+    // Move the thinking bubble BELOW the cards instead of removing it: the
+    // synthesis is still running, and this widget's #typing-indicator element
+    // does not exist (showTypingIndicator is a no-op here), so the stepping
+    // thinking message is the only honest "still working" signal we have.
+    const messagesDiv = document.getElementById('chat-messages');
+    if (messagesDiv && thinking.loadingMessage) {
+        messagesDiv.appendChild(thinking.loadingMessage);
+    }
+    return true;
+}
+
+/**
+ * Run one turn over SSE, rendering hotels-first.
+ *
+ * Returns the `done` payload plus per-frame timings, or null when the stream
+ * could not be opened AT ALL — the caller then falls back to the blocking POST
+ * for this turn. Once a single frame has been consumed there is no fallback:
+ * re-sending would run the turn twice server-side.
+ */
+async function runStreamedTurn(requestBody, thinking, requestStartMs) {
+    let framesSeen = 0;
+    let ttftMs = null;
+    let hotelsMs = null;
+    let skipCarousel = false;
+    let bookingCard = null;
+
+    try {
+        const response = await openChatStream(getStreamEndpoint(), getChatHeaders(), requestBody);
+        for await (const { event, data } of readSseFrames(response)) {
+            framesSeen += 1;
+            if (event === 'progress') {
+                if (ttftMs === null) ttftMs = Math.round(nowMs() - requestStartMs);
+            } else if (event === 'hotels') {
+                if (hotelsMs === null) hotelsMs = Math.round(nowMs() - requestStartMs);
+                skipCarousel = renderHotelsEarly(data, thinking) || skipCarousel;
+            } else if (event === 'booking_card') {
+                // Kept only as a safety net: the `done` payload carries the card
+                // too, and a degraded `done` would otherwise lose a link that
+                // the backend already generated.
+                bookingCard = data.booking_card || null;
+            } else if (event === 'done') {
+                const rawData = data || {};
+                if (!rawData.booking_card && bookingCard) {
+                    rawData.booking_card = bookingCard;
+                }
+                return { rawData, transport: 'sse', ttftMs, hotelsMs, skipCarousel };
+            }
+            // `token` frames arrive in a burst just before `done` and the full
+            // text is in the `done` payload — nothing to render from them.
+        }
+        throw new Error('stream ended without a done frame');
+    } catch (error) {
+        if (framesSeen > 0) throw error;
+        console.warn('[CHAT] SSE unavailable, falling back to blocking POST:', error?.message || error);
+        return null;
     }
 }
 
@@ -496,16 +607,34 @@ export async function sendMessage() {
         });
 
         // Create thinking animation
-        const { loadingMessage, interval } = createThinkingSteps(isFollowUp);
-        thinkingInterval = interval;
+        const thinking = createThinkingSteps(isFollowUp);
+        thinkingInterval = thinking.interval;
 
-        // Make API call
-        const response = await makeApiCall(isFollowUp, message, turnId);
+        const clientGeoContext = await getBrowserGeoContext(message);
+        const requestBody = buildRequestBody(isFollowUp, message, turnId, clientGeoContext);
+
+        // Streamed turn when the transport meta says so: the hotel cards land on
+        // the `hotels` frame, seconds before the synthesis text. Failing to OPEN
+        // the stream degrades to the blocking POST for this turn.
+        let turn = getChatTransport() === 'sse'
+            ? await runStreamedTurn(requestBody, thinking, requestStartMs)
+            : null;
+        if (!turn) {
+            const transport = getChatTransport() === 'sse' ? 'json_fallback' : 'json';
+            const response = await makeApiCall(requestBody);
+            turn = {
+                rawData: await response.json(),
+                transport,
+                ttftMs: null,
+                hotelsMs: null,
+                skipCarousel: false,
+            };
+        }
 
         clearInterval(thinkingInterval);
-        loadingMessage.remove();
+        thinking.loadingMessage.remove();
 
-        const rawData = await response.json();
+        const rawData = turn.rawData;
         // S-CX5: this turn's pick buttons, already sorted cheapest-first by the
         // backend (empty until the request is qualified enough to book). Read
         // BEFORE any renderer runs, since addFollowUpMessage draws from it.
@@ -518,7 +647,13 @@ export async function sendMessage() {
         const mktCtxResp = state.marketContext || {};
         const hasEffectiveTimeslotFilter = hasEffectiveTimeslot(data);
         trackEvent('chat_response_received', {
+            // Unchanged semantics: time-to-done, so the existing dashboards stay
+            // comparable across transports. ttft_ms / hotels_ms are ADDITIVE and
+            // null on the blocking POST, which has no intermediate signal.
             latency_ms: Math.round(nowMs() - requestStartMs),
+            transport: turn.transport,
+            ttft_ms: turn.ttftMs,
+            hotels_ms: turn.hotelsMs,
             response_type: String(data.type || (resultsCount > 0 ? 'results' : 'text')),
             results_count: resultsCount,
             has_booking_card: Boolean(rawData.booking_card && rawData.booking_card.url),
@@ -671,7 +806,7 @@ export async function sendMessage() {
         }
 
         // Handle results response
-        handleResultsResponse(data, hasTimeslotRequest);
+        handleResultsResponse(data, hasTimeslotRequest, turn.skipCarousel);
 
     } catch (error) {
         if (thinkingInterval) {
@@ -682,6 +817,7 @@ export async function sendMessage() {
         console.error('Error:', error);
         trackEvent('chat_request_failed', {
             latency_ms: Math.round(nowMs() - requestStartMs),
+            transport: getChatTransport(),
             error_message: String(error?.message || 'unknown').slice(0, 120),
         });
         addMessage(t('generic_error'));

@@ -197,14 +197,54 @@ def test_sse_search_streams_progress_hotels_tokens_done(monkeypatch, client):
     hotels_event = next(d for e, d in events if e == "hotels")
     assert hotels_event["hotels"][0]["name"] == "Pool Hotel Paris"
     assert hotels_event["hotels"][0]["price"] == "€80.00"  # priceEuro cents → €X.XX (S07)
+    # S-PERF4: the flag AND the language ride the frame, so a hotels-first client
+    # decides whether to paint the shortlist — and in which language — from the
+    # SAME inputs the `done` payload will carry.
+    assert hotels_event["requires_clarification"] is False
+    assert hotels_event["response_language"] == "fr"
 
     done_payload = events[-1][1]
+    # The early frame and the final payload must never disagree on the language.
+    assert done_payload["response_language"] == hotels_event["response_language"]
     assert done_payload["hotels"][0]["name"] == "Pool Hotel Paris"
     assert done_payload["ready_to_search"] is True
     assert done_payload["active_filters"]["city"] == "Paris"
     # reassembled token stream == the final message
     streamed = "".join(d["text"] for e, d in events if e == "token")
     assert streamed.strip() == done_payload["message"].strip()
+
+
+def test_sse_hotels_frame_carries_the_clarify_flag(monkeypatch, client):
+    """A clarifying turn must be recognisable ON THE FRAME, not only in `done`:
+    the widget renders the shortlist as soon as the frame lands, and the
+    blocking-POST path answers a clarifying turn WITHOUT a carousel. Without
+    this flag the two transports would disagree on that turn."""
+    async def fake_classify(message, budget, invocation_id=""):
+        budget.charge("triage")
+        return Triage("search", "fr", used_llm=False)
+
+    async def fake_run_leaf(leaf, ctx, profile_in):
+        return (
+            "De quelle ville parlez-vous ?",
+            {
+                "results": [{"id": 7, "name": "Ambiguous Hotel", "country_code": "FR"}],
+                "requires_clarification": True,
+            },
+        )
+
+    async def fake_generate_once(self, **kwargs):
+        return "De quelle ville parlez-vous ?"
+
+    monkeypatch.setattr(agent_module, "classify", fake_classify)
+    monkeypatch.setattr(agent_module, "_run_leaf", fake_run_leaf)
+    monkeypatch.setattr(agent_module._B2cConcierge, "_generate_once", fake_generate_once)
+
+    r = client.post("/v3/chat/stream", json={"message": "un hôtel dans le centre"})
+    assert r.status_code == 200
+    events = _parse_sse(r.text)
+    hotels_event = next(d for e, d in events if e == "hotels")
+    assert hotels_event["requires_clarification"] is True
+    assert events[-1][1]["requires_clarification"] is True
 
 
 # --- last-resort shield (S-CX1) ---------------------------------------------------------------

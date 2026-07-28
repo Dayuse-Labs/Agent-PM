@@ -35,24 +35,39 @@ export function showThinkingAnimation(isFollowUp = false) {
 
 /**
  * Create dynamic thinking steps animation
- * Returns both the loading message element and the interval for cleanup
+ *
+ * Returns the loading message element, the interval for cleanup, and
+ * `relocalize()`: the turn's language is only known from the backend, and a
+ * hotels-first render switches it WHILE this bubble is still on screen, so the
+ * steps must be able to re-read t() after the fact.
  */
 export function createThinkingSteps(isFollowUp = false) {
-    const cityHint = state.selectedFilters.city || state.selectedFilters.metro || '';
-    const searchStep = cityHint
-        ? t('thinking_searching_city', { city: cityHint })
-        : t('thinking_searching');
+    const buildSteps = () => {
+        const cityHint = state.selectedFilters.city || state.selectedFilters.metro || '';
+        const searchStep = cityHint
+            ? t('thinking_searching_city', { city: cityHint })
+            : t('thinking_searching');
+        return isFollowUp ? [
+            t('thinking_analyzing'),
+            t('thinking_refining'),
+            t('thinking_finding_matches'),
+        ] : [
+            t('thinking_understanding'),
+            searchStep,
+            t('thinking_matching'),
+            t('thinking_finding_options'),
+        ];
+    };
 
-    const steps = isFollowUp ? [
-        t('thinking_analyzing'),
-        t('thinking_refining'),
-        t('thinking_finding_matches'),
-    ] : [
-        t('thinking_understanding'),
-        searchStep,
-        t('thinking_matching'),
-        t('thinking_finding_options'),
-    ];
+    let steps = buildSteps();
+    let stepIndex = 0;
+
+    const applyCurrentStep = () => {
+        const loadingText = document.getElementById('loading-text');
+        if (loadingText) {
+            loadingText.textContent = steps[Math.min(stepIndex, steps.length - 1)];
+        }
+    };
 
     // Create loading message element
     const loadingMessage = document.createElement('div');
@@ -62,18 +77,19 @@ export function createThinkingSteps(isFollowUp = false) {
     document.getElementById('chat-messages').appendChild(loadingMessage);
 
     // Start stepping through messages
-    let stepIndex = 0;
     const interval = setInterval(() => {
         stepIndex++;
         if (stepIndex < steps.length) {
-            const loadingText = document.getElementById('loading-text');
-            if (loadingText) {
-                loadingText.textContent = steps[stepIndex];
-            }
+            applyCurrentStep();
         }
     }, 1500);
 
-    return { loadingMessage, interval };
+    const relocalize = () => {
+        steps = buildSteps();
+        applyCurrentStep();
+    };
+
+    return { loadingMessage, interval, relocalize };
 }
 
 /**

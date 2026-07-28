@@ -19,6 +19,22 @@ export function getWelcomeEndpoint() {
     return getChatEndpoint().replace('/v3/chat', '/v3/chat/welcome');
 }
 
+// SSE endpoint, derived the same way (/v3/chat → /v3/chat/stream).
+export function getStreamEndpoint() {
+    return getChatEndpoint().replace('/v3/chat', '/v3/chat/stream');
+}
+
+/**
+ * Transport for a chat turn. 'sse' streams /v3/chat/stream so the hotel cards
+ * render on the `hotels` frame — seconds before the synthesis text — while
+ * anything else keeps the blocking POST /v3/chat. Server-substituted meta
+ * (WIDGET_CHAT_TRANSPORT in the widget proxy) so flipping it is an env change,
+ * not a JS redeploy. Defaults to the blocking POST.
+ */
+export function getChatTransport() {
+    return readMeta('du-chat-transport').toLowerCase() === 'sse' ? 'sse' : 'json';
+}
+
 export function getChatHeaders() {
     const headers = {
         'Content-Type': 'application/json',

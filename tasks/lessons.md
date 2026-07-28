@@ -1,5 +1,28 @@
 # Lessons — corrections de Fabien à réappliquer
 
+## 2026-07-28 — sperf4 (auto-constatées, attrapées par la capture navigateur)
+
+1. **Rendre une donnée PLUS TÔT casse tout ce que le rendu tardif tenait pour
+   acquis.** En affichant le carrousel dès la frame `hotels`, j'ai rendu les
+   cartes AVANT `setLanguage(response_language)` (qui ne tournait qu'à `done`) :
+   cartes en anglais, texte en français juste dessous. Aucun test ne le voit,
+   seule la capture l'a montré. Règle : quand on avance un rendu dans le temps,
+   lister ce que le chemin nominal exécute AVANT lui (langue, marché, state) et
+   se demander pour CHAQUE élément d'où il viendra maintenant — souvent la
+   réponse est « il faut que le serveur me l'envoie plus tôt aussi ».
+2. **Un événement intermédiaire doit porter TOUS les flags qui décident du
+   rendu, pas seulement la donnée.** La frame SSE `hotels` ne portait que
+   `hotels` : impossible de savoir si le tour était une clarification (que le
+   POST bloquant rend SANS carrousel) ni dans quelle langue peindre. 3 lignes
+   côté spine + facade suppriment la divergence entre les deux transports —
+   beaucoup moins cher que de la documenter comme un « cas rare ».
+3. **Piloter le vrai widget vaut mieux qu'une page statique.** Le driver CDP
+   (`websockets` + `Page.captureScreenshot`, deep-link `?q=` qui auto-envoie,
+   clics par `Runtime.evaluate`) permet des captures MULTI-TOURS et des états
+   mi-stream (cartes visibles pendant la synthèse), impossibles avec
+   `--screenshot`. Compter les éléments en DELTA DOM par tour (pas en absolu) :
+   sinon le carrousel du tour précédent fait passer un test « pas de doublon ».
+
 ## 2026-07-28 — sperf (auto-constatée, attrapée en live post-deploy)
 
 1. **Un probe pré-rollout doit envoyer le SHAPE D'APPEL EXACT du code, pas juste

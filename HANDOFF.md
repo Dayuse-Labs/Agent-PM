@@ -2,6 +2,77 @@
 
 État du chantier pour reprise en session fraîche. **Lire en entier avant d'agir ; ne pas reconstruire ce qui existe.** Mettre à jour en fin de CHAQUE session (bloc daté en tête).
 
+## 🖥 Addendum 2026-07-28 (branche `sperf4-widget-sse`) — S-PERF4 : widget en SSE, rendu hotels-first (chantier #1 de la roadmap latence)
+
+**Objectif atteint** : le widget ne fait plus un POST bloquant de 8-11 s. En transport `sse` il lit
+`/v3/chat/stream` et **rend le carrousel dès la frame `hotels`**, le texte à `done`.
+Mesuré au facade (`measure_latency_e2e.py`, 3 runs, stack locale 4o-mini) :
+search `hotels=3776 ms` vs `done=8649 ms` → **4,9 s d'avance** ; refine 3266 vs 7244 → **4,0 s**.
+Mesuré DANS le navigateur (Chrome headless piloté en CDP) : cartes visibles 2,3-3,8 s avant que le
+tour se termine, `progress` à 1-8 ms.
+
+**Fait**
+- **`web/vendor/static/js/chat/stream.js`** (NOUVEAU, ~80 l) — transport SEUL : `openChatStream()`
+  (fetch POST — EventSource ne POST pas) + `readSseFrames()` (générateur async, `getReader()` +
+  `TextDecoder`, split sur ligne vide, frame illisible ignorée sans tuer le tour). Aucun rendu ici.
+- **`handlers/send.js`** — `buildRequestBody()` extrait (même payload pour les 2 transports),
+  `makeApiCall(requestBody)` (retry ×3 inchangé), `mapV3Hotels()` extrait de `normalizeV3Response`
+  (source unique du mapping hôtel→carte, utilisée par la frame ET par `done`), `renderHotelsEarly()`
+  + `runStreamedTurn()`. À `done` le payload repart dans le pipeline EXISTANT (`normalizeV3Response`
+  → handlers) avec le seul flag `skipCarousel`.
+- **`handlers/responses.js`** — `buildResultsBlock` / `updateMarketFromResults` exportés ;
+  `handleResultsResponse(data, hasTimeslotRequest, skipCarousel=false)` : en `skipCarousel` seul le
+  texte d'intro est ajouté (pas de 2e carrousel, pas de `scrollIntoView` qui remonterait les cartes
+  hors écran). **Zéro changement de comportement pour le chemin JSON** (défaut `false`).
+- **Flag** : meta `du-chat-transport` (`chat_clean.html`, défaut **`json`** = comportement actuel),
+  substituée par `run_widget_proxy.py` via **`WIDGET_CHAT_TRANSPORT=sse`** (lu par requête → flip
+  sans redeploy JS). Endpoint dérivé comme `getWelcomeEndpoint` : `/v3/chat` → `/v3/chat/stream`.
+- **Fallback** : échec d'OUVERTURE du stream → POST bloquant pour CE tour. **Jamais de re-send si
+  une frame a déjà été consommée** (`framesSeen > 0` → l'erreur remonte, pas de double tour).
+- **Tracking ADDITIF** : `latency_ms` garde sa sémantique time-to-done ; ajout de `ttft_ms`
+  (frame `progress`), `hotels_ms`, `transport` (`sse` | `json` | `json_fallback` — le fallback est
+  visible sans nouvel event Amplitude). `chat_request_failed` porte aussi `transport`.
+- **2 divergences réelles trouvées et corrigées (Python, additif)** — la frame `hotels` ne portait
+  que `hotels`, donc un client hotels-first devait deviner :
+  1. `requires_clarification` — sans ça un tour de clarification AVEC shortlist aurait peint des
+     cartes que le POST bloquant retient (il `return` avant le switch). Verrouillé par test.
+  2. `response_language` — **bug visuel constaté en capture** : les cartes se peignaient en anglais
+     (langue de boot de la page) puis le texte arrivait en français. `setLanguage` ne tournait qu'à
+     `done`. Le spine met maintenant la langue du tour sur son marqueur (`_hotels_event(ctx,
+     response, language)`), le facade la relaie, le widget localise AVANT de rendre. Vérifié en
+     capture avant/après.
+- **`ui/thinking.js`** — `createThinkingSteps` renvoie en plus `relocalize()` : la bulle « thinking »
+  reste à l'écran SOUS les cartes pendant la synthèse (ce widget n'a **pas** d'élément
+  `#typing-indicator` — `showTypingIndicator()` y est un no-op, vérifié), donc son texte doit
+  pouvoir se re-localiser après le switch de langue. Aucune string user-facing nouvelle (7 locales).
+
+**Vérification (captures navigateur, leçon scx5b)** — pas d'infra de test JS : driver CDP
+(`websockets` + `Page.captureScreenshot`, deep-link `?q=` qui auto-envoie, clics via
+`Runtime.evaluate`), matrice **{ack, search, refine, pick→booking card, clarification, faq, empty} ×
+{sse, json, json_fallback}** + 2 flux SSE scriptés (`done` dégradé mi-stream, stream tronqué sans
+`done`). Résultats : exactement **1 carrousel par tour** dans les deux transports (compté en delta
+DOM), chips/pick buttons/follow-up intacts, `done` dégradé après cartes ⇒ cartes conservées + message
+honnête dessous, stream tronqué ⇒ `generic_error` + **aucun re-send**. 4 captures clés commitées dans
+`reports/latency/widget-sse-2026-07-28/`. Tests/ruff/mypy/guardrails verts (seul rouge :
+`test_llm_meter_usage`, **préexistant sur main**, bug d'arrondi du test).
+
+**Choix assumés (à trancher en review)**
+- **Le texte de synthèse arrive SOUS les cartes** en mode `sse` (JSON = intro au-dessus, inchangé).
+  Séquence chat : cartes → bulle thinking → texte. Alternative écartée : injecter l'intro dans le
+  message des cartes à `done` (DOM final identique au JSON) — ça déplace la vue pendant la lecture.
+- Les frames `token` sont **ignorées** (pas accumulées) : rien à rendre, le texte complet est dans
+  `done`. Le streaming token réel reste le chantier #9, déféré.
+
+**Reste / pièges**
+- **Déploiement (Fabien)** : après merge, poser `WIDGET_CHAT_TRANSPORT=sse` sur le service `widget`
+  + redeploy. Le pré-requis `read1` est déjà en prod (probé). Rollback = retirer la var.
+- **Si un jour le widget est servi par l'app Dayuse** avec un endpoint `/v3/chat/public`, le stream
+  devient `/v3/chat/stream/public` : cette route doit exister côté hôte (le facade AgentB2C n'expose
+  que `/v3/chat/stream`). Sur la démo Railway le proxy force `/v3/chat` → non concerné.
+- Le worktree local a été installé **sans `google-adk[eval]`** (résolution uv impossible :
+  `google-cloud-aiplatform[evaluation]` veut `litellm<1.83.7`, le repo pin `1.90.2`). Tests/lint/
+  typecheck/run OK ; `adk eval` non lancé cette session.
+
 ## ⏱ Addendum 2026-07-28 (soir, branche `sperf3-temp-reasoning-collision`) — rollout S-PERF déployé + collision temperature×reasoning attrapée en live (mitigée, fix en PR)
 
 **Rollout exécuté (GO Fabien)** : PRs #41/#42/#43 mergées, env posées (concierge
