@@ -233,6 +233,12 @@ root_agent = Agent(
         "read-only MCP_B2C server; stateless — profile in/out through the A2A DataPart."
     ),
     instruction=INSTRUCTION,
+    # Stateless leaf, enforced (latency audit 2026-07-28): the model sees ONLY
+    # the current turn — its user text + profile DataPart + this turn's tool
+    # calls (ADK 'none' = _get_current_turn_contents, verified). All cross-turn
+    # state travels in profile_in by contract; without this, any A2A caller
+    # reusing a contextId regrows the prompt with the whole session history.
+    include_contents="none",
     tools=[build_mcp_toolset(), geocode_location],
     # S-G4: stamps t0 for the turn's total-ms counter (emit_search_datapart logs
     # it) — runs before anything else so it covers every path, not just search.

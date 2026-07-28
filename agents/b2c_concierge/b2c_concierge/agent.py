@@ -90,6 +90,7 @@ from .a2a_datapart import encode_datapart, find_datapart
 from .amenity_guard import apply_amenity_truthfulness
 from .budget import TurnBudget
 from .ground_truth import shortlist_ground_truth_block, shortlist_hotels
+from .leg import StatelessLeafLeg
 from .link_guard import enforce_hotel_link_truthfulness
 from .profile import (
     BUDGET_SOURCE_EXPLICIT,
@@ -101,6 +102,7 @@ from .profile import (
     is_booking_confirmation_signal,
     is_more_options_signal,
     is_search_refinement_signal,
+    leaf_profile_view,
     maybe_auto_widen,
     questions_equivalent,
     record_search_outcome,
@@ -254,7 +256,7 @@ _legs: dict[str, RemoteA2aAgent] = {}
 def _get_leg(leaf: str) -> RemoteA2aAgent:
     if leaf not in _legs:
         token = bearer_token(leaf)
-        _legs[leaf] = RemoteA2aAgent(
+        _legs[leaf] = StatelessLeafLeg(
             name=f"{leaf}_leg",
             agent_card=card_url(leaf),
             httpx_client=httpx.AsyncClient(
@@ -966,7 +968,7 @@ class _B2cConcierge(BaseAgent):
         # (Redis, orchestrator-only — decision B3) travels OUT as profile_in and
         # comes back as profile_delta.
         budget.charge("leaf_llm")
-        leaf_text, response = await _run_leaf(route.target, ctx, profile.to_dict())
+        leaf_text, response = await _run_leaf(route.target, ctx, leaf_profile_view(profile))
         if leaf_text is None and not response:
             self._emit_turn_metric(family, f"leaf:{route.target}", budget, t_start, "degraded", inv)
             yield self._final(ctx, templates.leaf_degraded_response(family, triage.language, profile.city))

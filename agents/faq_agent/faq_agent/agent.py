@@ -121,6 +121,9 @@ root_agent = Agent(
         "via the read-only MCP_B2C server; stateless — profile in/out through the A2A DataPart."
     ),
     instruction=INSTRUCTION,
+    # Stateless leaf, enforced (latency audit 2026-07-28): current turn only —
+    # same rationale and verification as b2c_hotel_search's include_contents.
+    include_contents="none",
     tools=[build_mcp_toolset()],
     before_model_callback=[llm_timing_before],
     after_model_callback=[llm_timing_after],
