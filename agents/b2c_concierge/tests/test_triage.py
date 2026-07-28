@@ -205,6 +205,64 @@ class TestPickClassification:
             assert value in instruction
         assert "cheaper" in instruction and "moins cher" in instruction
 
+
+class TestPerRoleLlmParams:
+    """Latency audit 2026-07-28 — the triage call takes its model from
+    DAYUSE_MODEL_TRIAGE (falling back to DAYUSE_MODEL), a bounded max_tokens,
+    and a provider-aware reasoning cap. The no-op lock matters most: with none
+    of the new env vars set, the request must stay bit-identical to before."""
+
+    def _capture(self, monkeypatch) -> dict:
+        captured: dict = {}
+
+        async def fake_acompletion(**kwargs):
+            captured.update(kwargs)
+            return _llm_response('{"family": "search", "language": "fr"}')
+
+        monkeypatch.setattr(triage_module.litellm, "acompletion", fake_acompletion)
+        return captured
+
+    def test_no_new_kwargs_when_env_is_unset(self, monkeypatch):
+        for var in ("DAYUSE_MODEL", "DAYUSE_MODEL_TRIAGE", "DAYUSE_REASONING_EFFORT"):
+            monkeypatch.delenv(var, raising=False)
+        captured = self._capture(monkeypatch)
+        _classify("un hôtel à Paris")
+        assert captured["model"] == "gpt-4o-mini"
+        assert "reasoning_effort" not in captured
+        assert "extra_body" not in captured
+        # The default cap is the one deliberate change: bounded triage output.
+        assert captured["max_tokens"] == 200
+
+    def test_role_model_beats_the_shared_slug(self, monkeypatch):
+        monkeypatch.setenv("DAYUSE_MODEL", "gpt-5.2")
+        monkeypatch.setenv("DAYUSE_MODEL_TRIAGE", "gpt-4o-mini")
+        captured = self._capture(monkeypatch)
+        _classify("un hôtel à Paris")
+        assert captured["model"] == "gpt-4o-mini"
+
+    def test_reasoning_cap_reaches_a_reasoning_model(self, monkeypatch):
+        monkeypatch.setenv("DAYUSE_MODEL", "gpt-5.2")
+        monkeypatch.delenv("DAYUSE_MODEL_TRIAGE", raising=False)
+        monkeypatch.setenv("DAYUSE_REASONING_EFFORT", "low")
+        captured = self._capture(monkeypatch)
+        _classify("un hôtel à Paris")
+        assert captured["reasoning_effort"] == "low"
+
+    def test_reasoning_cap_never_leaks_to_a_non_reasoning_model(self, monkeypatch):
+        monkeypatch.setenv("DAYUSE_MODEL", "gpt-5.2")
+        monkeypatch.setenv("DAYUSE_MODEL_TRIAGE", "gpt-4o-mini")
+        monkeypatch.setenv("DAYUSE_REASONING_EFFORT", "low")
+        captured = self._capture(monkeypatch)
+        _classify("un hôtel à Paris")
+        assert "reasoning_effort" not in captured
+        assert "extra_body" not in captured
+
+    def test_max_tokens_zero_disables_the_cap(self, monkeypatch):
+        monkeypatch.setenv("DAYUSE_MAX_TOKENS_TRIAGE", "0")
+        captured = self._capture(monkeypatch)
+        _classify("un hôtel à Paris")
+        assert "max_tokens" not in captured
+
     def test_regex_recovery_only_when_the_llm_is_down(self, monkeypatch):
         async def fake_acompletion(**kwargs):
             raise TimeoutError("triage timeout")

@@ -117,3 +117,41 @@ class TestGenerateOnceUsesTheRouter:
         assert result == "hi"
         assert len(calls) == 1
         assert calls[0]["model"] == "gpt-4o-mini"  # the real slug, not the Router alias
+        # Latency audit 2026-07-28 — bounded synthesis is the one deliberate
+        # default change; the reasoning cap stays absent while env is unset.
+        assert calls[0]["max_tokens"] == 1000
+        assert "reasoning_effort" not in calls[0]
+
+    def test_per_role_model_and_reasoning_cap(self, monkeypatch):
+        """DAYUSE_MODEL_SYNTHESIS wins over DAYUSE_MODEL, and the reasoning cap
+        reaches the call for a reasoning slug (provider-aware, llm_params)."""
+        calls: list[dict] = []
+
+        async def fake_acompletion(**kwargs):
+            calls.append(kwargs)
+            return litellm.ModelResponse(
+                choices=[
+                    {"message": {"role": "assistant", "content": "hi"}, "index": 0, "finish_reason": "stop"}
+                ]
+            )
+
+        monkeypatch.setattr(agent_module.litellm, "acompletion", fake_acompletion)
+        monkeypatch.setenv("DAYUSE_MODEL", "gpt-4o-mini")
+        monkeypatch.setenv("DAYUSE_MODEL_SYNTHESIS", "gpt-5.2")
+        monkeypatch.setenv("DAYUSE_REASONING_EFFORT", "low")
+
+        import asyncio
+
+        result = asyncio.run(
+            agent_module.root_agent._generate_once(
+                message="bonjour",
+                language="fr",
+                leaf_text="2 offers found",
+                ground_truth_block="",
+                widen_note=None,
+                invocation_id="test-inv",
+            )
+        )
+        assert result == "hi"
+        assert calls[0]["model"] == "gpt-5.2"
+        assert calls[0]["reasoning_effort"] == "low"
