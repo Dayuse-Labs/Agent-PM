@@ -24,6 +24,26 @@ Merger la PR #50 est ce qui rend l'état de la prod reproductible.
   Invariants vérifiés en prod : **un seul plan sélectionné**, **prix carte == prix du plan
   sélectionné**, **url carte == url du plan sélectionné**.
 - Widget : 16 marqueurs S-CX8 dans le `messages.js` servi en prod.
+- **Logs prod (`railway logs --service concierge`)** : `POST /v3/chat` → **200 OK** sur tous les
+  tours, zéro exception, zéro `status=degraded`. Seul bruit : les UserWarning ADK expérimentaux
+  (préexistants).
+
+**Le coût du lookup ajouté est mesuré, pas supposé.** En amendant
+`test_the_cheapest_is_picked_from_the_screen_never_re_searched` j'avais acté qu'un pick coûte
+désormais un `get_hotel_details` + N `generate_booking_link` parallèles, sans chiffre. Les logs prod
+donnent la réponse : `concierge_metric=turn family=booking route=inline:generate_booking_link
+llm_calls=1 phases=triage ms=1383 status=ok` → **1,4 s pour le tour de pick entier, 1 seul appel LLM**
+(le triage ; le chemin booking reste 100 % déterministe). Le compromis est donc bon marché.
+
+**Observation de latence, expliquée — SANS lien avec S-CX8, et sans anomalie** : les tours `search`
+mesurent **9,3 à 10,0 s** dans ces logs, alors que le bloc S-PERF plus bas enregistre un p50 ramené à
+**~3,4 s**. Ce n'est pas une régression : les variables prod du concierge portent
+**`DAYUSE_MODEL_SYNTHESIS=gpt-5.2`** (+ `DAYUSE_MODEL=gpt-5.2`, `DAYUSE_MODEL_TRIAGE=gpt-4o-mini`,
+`DAYUSE_REASONING_EFFORT=low`) — la mitigation `gpt-4o-mini` sur la synthèse **a été levée**, et les
+~3,4 s avaient précisément été mesurés AVEC cette mitigation. Le surcoût est donc le prix assumé
+d'une synthèse 5.2. Et la synthèse fonctionne bien : les tours sortent en `status=ok`, **pas** en
+`status=synthesis_fallback` — le fix de la collision `temperature × reasoning_effort` tient en prod.
+Arbitrage qualité de prose ↔ latence à trancher par Fabien, pas un incident.
 
 **E2E local exécuté AVANT le déploiement** (le trou de vérification signalé dans le bloc précédent
 est comblé) : `run_local.sh` redémarré sur le nouveau code, `smoke_e2e.py` **PASS** (ack 18 ms /
