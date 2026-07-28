@@ -41,6 +41,11 @@ def setup_langfuse(service_name: str) -> Any:
     # Registers on the global provider Langfuse just set up, so the litellm
     # generations nest under the active ADK/facade spans.
     LiteLLMInstrumentor().instrument()
+    # Own handler (metrics_logger precedent): the root logger defaults to
+    # WARNING, and this one boot line is the ops proof that tracing is ON.
+    if not logger.handlers:
+        logger.addHandler(logging.StreamHandler())
+        logger.setLevel(logging.INFO)
     logger.info("langfuse tracing enabled service=%s", service_name)
     return _client
 
