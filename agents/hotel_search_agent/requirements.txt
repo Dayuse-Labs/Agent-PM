@@ -19,3 +19,6 @@ httpx==0.28.1
 # transitively (phonetic name matching we don't use) — not zero-dependency, still tiny/pure.
 us==3.2.0            # unitedstates/python-us (CC0) — 50 US states, excludes DC/territories by default
 anyascii==0.3.3       # Unicode->ASCII transliteration (ISC license), successor to Unidecode
+langfuse==4.14.1  # OBS1: conversation tracing/audit -> self-hosted EU Langfuse; opt-in via LANGFUSE_* keys
+opentelemetry-exporter-otlp-proto-http==1.42.1  # keep on the otel line google-adk caps at <=1.42.1
+openinference-instrumentation-litellm==0.1.34  # litellm generations (module-attr patch; litellm stays 1.90.2)

@@ -8,3 +8,6 @@ uvicorn==0.51.0
 redis==5.3.1  # session profile store (S5) — orchestrator-only, the leaves never depend on this
 mcp==1.28.1  # S07: inline tools (get_hotel_details/compare_hotels/generate_booking_link) call
              # MCP_B2C directly (own session per call, see inline_tools.py) — same pin as the leaves
+langfuse==4.14.1  # OBS1: conversation tracing/audit -> self-hosted EU Langfuse; opt-in via LANGFUSE_* keys
+opentelemetry-exporter-otlp-proto-http==1.42.1  # keep on the otel line google-adk caps at <=1.42.1
+openinference-instrumentation-litellm==0.1.34  # litellm generations (module-attr patch; litellm stays 1.90.2)

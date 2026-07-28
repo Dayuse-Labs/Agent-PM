@@ -269,6 +269,10 @@ def _get_leg(leaf: str) -> RemoteA2aAgent:
                 timeout=_leaf_timeout(leaf),
                 headers={"Authorization": f"Bearer {token}"} if token else {},
             ),
+            # Fleet correlation id (dayuse_agent_common.metrics reads it, and the
+            # leaves mirror it as the Langfuse session id): the facade session_id
+            # IS ctx.session.id, so concierge + leaf traces group per conversation.
+            a2a_request_meta_provider=lambda ctx, msg: {"dayuse_trace_id": ctx.session.id},
         )
     return _legs[leaf]
 

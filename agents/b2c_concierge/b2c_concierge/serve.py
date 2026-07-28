@@ -19,14 +19,20 @@ written into the served card's url.
 """
 import asyncio
 import os
+from collections.abc import AsyncIterator
+from contextlib import asynccontextmanager
 
 from a2a.types import AgentCapabilities, HTTPAuthSecurityScheme, SecurityScheme
 from b2c_common import BearerAuthMiddleware, require_bearer_token
+from b2c_common.observability import setup_langfuse, shutdown_langfuse
 from google.adk.a2a.utils.agent_card_builder import AgentCardBuilder
 from google.adk.a2a.utils.agent_to_a2a import to_a2a
+from starlette.applications import Starlette
 
-from b2c_concierge.agent import root_agent
-from b2c_concierge.facade import register_v3_routes
+setup_langfuse("b2c-concierge")
+
+from b2c_concierge.agent import root_agent  # noqa: E402
+from b2c_concierge.facade import register_v3_routes  # noqa: E402
 
 _HOST = os.environ.get("A2A_HOST", "localhost")
 _PORT = int(os.environ.get("PORT", "8100"))
@@ -58,9 +64,20 @@ _agent_card.security_schemes = {
 _agent_card.security = [{"bearer-interim": []}]
 
 
+@asynccontextmanager
+async def _lifespan(app: Starlette) -> AsyncIterator[None]:
+    yield
+    shutdown_langfuse()  # flush pending Langfuse batches on shutdown
+
+
 # The ADK A2A Starlette app. Mount the public /v3 facade routes on it BEFORE
 # wrapping, so both surfaces share one app (one lifespan, one process).
-_a2a_app = to_a2a(root_agent, host=_HOST, port=_PORT, agent_card=_agent_card)
+# type-ignore: to_a2a annotates lifespan as `-> AsyncIterator` but consumes it as
+# `async with lifespan(app)` — its own docstring example uses @asynccontextmanager.
+_a2a_app = to_a2a(
+    root_agent, host=_HOST, port=_PORT, agent_card=_agent_card,
+    lifespan=_lifespan,  # type: ignore[arg-type]
+)
 register_v3_routes(_a2a_app)
 
 # D7 gate wraps the whole app; the dispatcher below sends /v3/* to the RAW app

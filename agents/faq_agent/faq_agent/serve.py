@@ -14,13 +14,22 @@ Interim identity (D7), same regime as hotel_search_agent — consolidated in b2c
 """
 import asyncio
 import os
+from collections.abc import AsyncIterator
+from contextlib import asynccontextmanager
 
 from a2a.types import AgentCapabilities, HTTPAuthSecurityScheme, SecurityScheme
 from b2c_common import BearerAuthMiddleware, require_bearer_token
+from b2c_common.observability import setup_langfuse, shutdown_langfuse
 from google.adk.a2a.utils.agent_card_builder import AgentCardBuilder
 from google.adk.a2a.utils.agent_to_a2a import to_a2a
+from starlette.applications import Starlette
 
-from faq_agent.agent import root_agent
+# BEFORE the agent import: ADK's lite_llm binds `from litellm import acompletion`
+# at import time — the litellm instrumentation must patch the module first, or
+# the leaf's generations fall back to ADK call_llm spans only.
+setup_langfuse("faq-agent")
+
+from faq_agent.agent import root_agent  # noqa: E402
 
 _HOST = os.environ.get("A2A_HOST", "localhost")
 _PORT = int(os.environ.get("PORT", "8102"))
@@ -52,5 +61,16 @@ _agent_card.security_schemes = {
 _agent_card.security = [{"bearer-interim": []}]
 
 
-app = to_a2a(root_agent, host=_HOST, port=_PORT, agent_card=_agent_card)
+@asynccontextmanager
+async def _lifespan(app: Starlette) -> AsyncIterator[None]:
+    yield
+    shutdown_langfuse()  # flush pending Langfuse batches on shutdown
+
+
+# type-ignore: to_a2a annotates lifespan as `-> AsyncIterator` but consumes it as
+# `async with lifespan(app)` — its own docstring example uses @asynccontextmanager.
+app = to_a2a(
+    root_agent, host=_HOST, port=_PORT, agent_card=_agent_card,
+    lifespan=_lifespan,  # type: ignore[arg-type]
+)
 app.add_middleware(BearerAuthMiddleware, token=_BEARER_TOKEN)

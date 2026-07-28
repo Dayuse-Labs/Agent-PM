@@ -2,6 +2,55 @@
 
 État du chantier pour reprise en session fraîche. **Lire en entier avant d'agir ; ne pas reconstruire ce qui existe.** Mettre à jour en fin de CHAQUE session (bloc daté en tête).
 
+## 🔭 Addendum 2026-07-28 (branche `obs1-langfuse-tracing`) — OBS1 : Langfuse (monitoring + audit des conversations)
+
+**Contexte** : zéro canal d'observabilité actif en prod (pas de `DATABASE_URL` → `llm_metric_events`/
+`conversation_logs` no-ops). Fabien veut auditer les échanges users via son Langfuse self-hosted
+Railway. **Gate version vérifié AVANT d'implémenter : aucune mise à jour serveur requise** —
+l'instance (projet Railway `Langfuse`) tourne en **v3.205.1, région europe-west4 (EU ✅ RGPD)**,
+URL `https://langfuse-web-production-272b.up.railway.app` ; le SDK Python v4 exige serveur ≥ 3.63.0
+et l'ingestion OTel existe depuis 3.22.0. Langfuse serveur v4 n'existe qu'en RC (4.0.0-rc.3) —
+migration à faire dans une session dédiée quand la stable sortira (ClickHouse 24 → ≥ 25.12 requis,
+instance partagée avec d'autres producers Dayuse, ~½ journée). Refresh mineur v3.224.2 possible à
+l'occasion (redeploy web+worker, le tag `:3` flotte).
+
+**Fait (offline — gates verts : pytest/mypy/ruff/guardrails)** :
+- **`libs/b2c_common/b2c_common/observability.py`** (la seule couture) : `setup_langfuse(service)`
+  — opt-in sur `LANGFUSE_PUBLIC_KEY`+`SECRET_KEY`, **inerte sans les clés** (aucun import langfuse,
+  aucun réseau — la suite offline entière verrouille ce chemin) ; `turn_observation(...)` (span
+  racine de tour, input=message user, output=texte final, session/user/tags propagés) ;
+  `stamp_langfuse_session` (callback feuille : `dayuse_trace_id` A2A → `langfuse.session.id`) ;
+  `shutdown_langfuse` (flush via lifespan `to_a2a`).
+- Choix vérifiés dans le code installé : SDK **langfuse==4.14.1** (provider OTel GLOBAL → les spans
+  ADK `gcp.vertex.agent` s'activent, filtre `should_export_span` élargi sinon le span `invocation`
+  sans attributs serait droppé) + **openinference-instrumentation-litellm==0.1.34** (patch d'attribut
+  module : couvre triage `litellm.acompletion`, synthèse Router ET le LiteLlm des feuilles ; le
+  callback natif litellm `langfuse_otel` REJETÉ — écrase le span parent + 2e pipeline privé en
+  1.90.2) + `opentelemetry-exporter-otlp-proto-http==1.42.1` (cap google-adk ≤ 1.42.1, pas de
+  conflit pip). litellm reste pinné 1.90.2.
+- Branchements : `serve.py` ×3 (init + lifespan flush ; **feuilles : init AVANT l'import agent** —
+  lite_llm bind `acompletion` à l'import) ; `facade.py` chat + chat_stream (span racine par tour,
+  TTFT intact : export batch en arrière-plan, vérifié par smoke enabled offline) ; `_get_leg`
+  envoie `a2a_request_meta_provider={"dayuse_trace_id": ctx.session.id}` (bonus : remplit le
+  trace_id des métriques fleet) ; callbacks feuilles + READMEs + `.env.example`.
+- Tests neufs : `libs/b2c_common/tests/test_observability.py`, concierge
+  `test_facade_langfuse.py`, cas leg dans `test_leaf_timeout_budgets.py`. Locks RGPD S3 inchangés
+  (contenu → Langfuse EU self-hosted = canal d'audit sanctionné, miroir de conversation_logs ;
+  métriques/logs `b2c_concierge.*` toujours sans contenu). Tag `synthetic` via X-Dayuse-Synthetic.
+
+**Reste (bloqué sur Fabien)** : créer le projet + clés API dans l'UI Langfuse (UN projet pour les
+3 services) → smoke local (`run_local.sh` + un tour /v3/chat/stream, vérifier trace + generations
++ Sessions groupées + coût) → poser `LANGFUSE_PUBLIC_KEY`/`SECRET_KEY`/`LANGFUSE_BASE_URL`/
+`LANGFUSE_TRACING_ENVIRONMENT=production` sur les 3 services Railway → redeploy → vérifier un tour
+réel. Sans les clés, le code déployé est inerte (aucun risque).
+
+**Pièges découverts** : (1) `to_a2a` annote `lifespan` comme `-> AsyncIterator` mais le consomme en
+`async with lifespan(app)` — il FAUT `@asynccontextmanager` + `type: ignore[arg-type]` (la docstring
+ADK elle-même utilise le décorateur). (2) **Pré-existant sur main** : `tests/test_llm_meter_usage.py::
+test_usage_record_extracts_tokens_and_model` échoue (round(432.15,1)=432.1 en IEEE754 vs 432.2
+attendu) — WIP llm-meter balayé par erreur (cf. commit d157323) ; hors scope OBS1, à corriger ou
+supprimer dans sa propre session.
+
 ## ⏱ Addendum 2026-07-28 (soir, branche `sperf3-temp-reasoning-collision`) — rollout S-PERF déployé + collision temperature×reasoning attrapée en live (mitigée, fix en PR)
 
 **Rollout exécuté (GO Fabien)** : PRs #41/#42/#43 mergées, env posées (concierge

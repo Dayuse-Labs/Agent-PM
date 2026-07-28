@@ -29,6 +29,7 @@ import os
 from datetime import date
 from typing import Any
 
+from b2c_common.observability import stamp_langfuse_session
 from dayuse_agent_common import (
     build_model,
     llm_error_metric,
@@ -242,7 +243,9 @@ root_agent = Agent(
     tools=[build_mcp_toolset(), geocode_location],
     # S-G4: stamps t0 for the turn's total-ms counter (emit_search_datapart logs
     # it) — runs before anything else so it covers every path, not just search.
-    before_agent_callback=[stamp_turn_start],
+    # stamp_langfuse_session mirrors the inbound A2A dayuse_trace_id as the
+    # Langfuse session id (no-op unless tracing is enabled in serve.py).
+    before_agent_callback=[stamp_turn_start, stamp_langfuse_session],
     # skip_final_generation is FIRST: once the search tool has run, it short-circuits
     # the model's wasted final-prose call (emit_search_datapart overwrites that prose
     # and the orchestrator re-synthesizes anyway) — 3 → 2 internal LLM calls. Being

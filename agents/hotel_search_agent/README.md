@@ -52,6 +52,7 @@ bash scripts/dayuse_guardrails.sh .
 | `A2A_HOST` | `localhost` | Hôte joignable par les pairs — écrit dans l'URL de la carte servie |
 | `PORT` | `8101` | Port d'écoute (plage AgentB2C : 8100 concierge / 8101 search / 8102 faq) |
 | `A2A_BEARER_TOKEN` | — **(obligatoire)** | Bearer entrant D7, vérifié par `serve.py` — fail-closed au boot si absent/vide |
+| `LANGFUSE_PUBLIC_KEY` / `LANGFUSE_SECRET_KEY` / `LANGFUSE_BASE_URL` | (vides) | OBS1 : traces vers le Langfuse self-hosted EU — les deux clés absentes ⇒ inerte (voir le README du concierge pour le détail) |
 
 ## ⚠️ Exception d'identité intérimaire (D7) — avec échéance
 
