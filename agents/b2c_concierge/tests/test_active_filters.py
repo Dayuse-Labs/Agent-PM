@@ -97,10 +97,16 @@ class TestHotelPicks:
         ]
         assert picks[0]["price"] == "€81.00"
 
-    def test_no_picks_before_the_request_is_qualified(self):
-        """A shortlist with no resolved date cannot be booked — offering a pick
-        would promise something the next turn can't deliver."""
-        assert build_hotel_picks(SessionProfile(city="Paris", last_results=self.SHOWN)) == []
+    def test_picks_appear_without_a_date_once_the_destination_is_resolved(self):
+        """Fabien 2026-07-28: the date defaults to today at search AND at the
+        booking quote, so a date-less shortlist is bookable — the pick row
+        must not wait for an explicit date."""
+        picks = build_hotel_picks(SessionProfile(city="Paris", last_results=self.SHOWN))
+        assert [p["name"] for p in picks] == [
+            "Drawing House", "Mercure La Défense", "Pullman Bercy",
+        ]
+
+    def test_no_picks_without_a_destination(self):
         assert build_hotel_picks(SessionProfile(date="2026-07-28", last_results=self.SHOWN)) == []
 
     def test_no_picks_without_a_shortlist(self):

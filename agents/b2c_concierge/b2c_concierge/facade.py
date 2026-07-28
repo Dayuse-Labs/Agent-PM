@@ -430,16 +430,18 @@ def build_hotel_picks(profile: SessionProfile) -> list[dict[str, Any]]:
 
     Why the backend owns this rather than the widget deriving it from `hotels`:
     both product rules live here, where the session state is. WHEN they may
-    appear — the request must be qualified enough for a pick to mean something,
-    i.e. a destination AND a date are resolved (a shortlist with no date can't
-    be booked). And in WHICH ORDER — sorted by price, so "the cheapest" is
-    answerable by eye and the first button is always it. Deliberately NO
-    "cheapest" badge: that would be a claim, and claims need a guard.
+    appear — a destination must be resolved. A date is NOT required (Fabien
+    2026-07-28): the search and the booking quote both default the date to
+    today, so a date-less shortlist IS bookable — requiring the date dead-ended
+    the pick row for every "hôtel à Paris" search. And in WHICH ORDER — sorted
+    by price, so "the cheapest" is answerable by eye and the first button is
+    always it. Deliberately NO "cheapest" badge: that would be a claim, and
+    claims need a guard.
 
     Empty list when nothing qualifies — the widget then renders no pick row at
     all rather than an empty one. Entries without a price sort last (they are
     still pickable; they just can't be compared)."""
-    if not (profile.city and profile.date):
+    if not profile.city:
         return []
     picks = [
         {

@@ -238,8 +238,9 @@ export async function runSearchWithFilters() {
  *
  * The backend owns both product rules and sends the result ready to render:
  * WHEN a pick is offered at all (`hotel_picks` is empty until a destination
- * AND a date are resolved) and IN WHICH ORDER (cheapest first). This function
- * only draws them — no filtering, no re-sorting, no "cheapest" badge.
+ * is resolved — the date defaults to today, Fabien 2026-07-28) and IN WHICH
+ * ORDER (cheapest first). This function only draws them — no filtering, no
+ * re-sorting, no "cheapest" badge.
  *
  * A click sends the button's own label as the user's message, so the
  * transcript reads like the conversation it is; the hotel itself is resolved
