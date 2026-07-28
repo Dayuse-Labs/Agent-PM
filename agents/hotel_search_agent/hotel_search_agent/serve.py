@@ -14,13 +14,23 @@ in b2c_common.auth (S3) so the oidc-mtls switch happens in one place:
 """
 import asyncio
 import os
+from collections.abc import AsyncIterator
+from contextlib import asynccontextmanager
 
 from a2a.types import AgentCapabilities, HTTPAuthSecurityScheme, SecurityScheme
 from b2c_common import BearerAuthMiddleware, require_bearer_token
+from b2c_common.observability import flush_langfuse, setup_langfuse
 from google.adk.a2a.utils.agent_card_builder import AgentCardBuilder
 from google.adk.a2a.utils.agent_to_a2a import to_a2a
+from starlette.applications import Starlette
 
-from hotel_search_agent.agent import root_agent
+# Before the agent import (uniform with the concierge; also future-proofs the
+# litellm patch order if instrument_litellm ever flips). instrument_litellm=False:
+# ADK's own `generate_content` span already carries model/usage/content in the
+# leaves — a second generation span per call would double-count tokens and cost.
+setup_langfuse("hotel-search-agent", instrument_litellm=False)
+
+from hotel_search_agent.agent import root_agent  # noqa: E402
 
 _HOST = os.environ.get("A2A_HOST", "localhost")
 _PORT = int(os.environ.get("PORT", "8101"))
@@ -52,5 +62,16 @@ _agent_card.security_schemes = {
 _agent_card.security = [{"bearer-interim": []}]
 
 
-app = to_a2a(root_agent, host=_HOST, port=_PORT, agent_card=_agent_card)
+@asynccontextmanager
+async def _lifespan(app: Starlette) -> AsyncIterator[None]:
+    yield
+    flush_langfuse()  # flush only — the langfuse client owns its atexit shutdown
+
+
+# type-ignore: to_a2a annotates lifespan as `-> AsyncIterator` but consumes it as
+# `async with lifespan(app)` — its own docstring example uses @asynccontextmanager.
+app = to_a2a(
+    root_agent, host=_HOST, port=_PORT, agent_card=_agent_card,
+    lifespan=_lifespan,  # type: ignore[arg-type]
+)
 app.add_middleware(BearerAuthMiddleware, token=_BEARER_TOKEN)

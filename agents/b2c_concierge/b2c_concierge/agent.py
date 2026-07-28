@@ -79,6 +79,7 @@ from typing import Any, AsyncGenerator
 import httpx
 import litellm
 from b2c_common import max_tokens_for, reasoning_kwargs_for, role_model, temperature_kwargs_for
+from b2c_common.observability import stamp_langfuse_turn_session
 from dayuse_agent_common import (
     cost_from_tokens,
     enqueue_metric_event,
@@ -269,6 +270,10 @@ def _get_leg(leaf: str) -> RemoteA2aAgent:
                 timeout=_leaf_timeout(leaf),
                 headers={"Authorization": f"Bearer {token}"} if token else {},
             ),
+            # Fleet correlation id (dayuse_agent_common.metrics reads it, and the
+            # leaves mirror it as the Langfuse session id): the facade session_id
+            # IS ctx.session.id, so concierge + leaf traces group per conversation.
+            a2a_request_meta_provider=lambda ctx, msg: {"dayuse_trace_id": ctx.session.id},
         )
     return _legs[leaf]
 
@@ -1072,4 +1077,7 @@ root_agent = _B2cConcierge(
         "hotel-search or FAQ A2A leaf, inline tools, or templates — one economy triage "
         "and at most one synthesis LLM call per turn."
     ),
+    # OBS1: session/user on the Langfuse trace for A2A-driven turns too (peers,
+    # battery, smoke) — the /v3 facade sets the same values, idempotently.
+    before_agent_callback=[stamp_langfuse_turn_session],
 )
