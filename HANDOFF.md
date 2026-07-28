@@ -2,6 +2,44 @@
 
 État du chantier pour reprise en session fraîche. **Lire en entier avant d'agir ; ne pas reconstruire ce qui existe.** Mettre à jour en fin de CHAQUE session (bloc daté en tête).
 
+## 🚀 Addendum 2026-07-28 (soir) — S-CX8 DÉPLOYÉ EN PROD depuis la branche (main NON mergée)
+
+**Déployé sur Railway (projet `AgentB2C`, env production) : `hotel-search`, `concierge`, `widget`.**
+`faq` non touché par le diff, non redéployé. Les 3 déploiements en `SUCCESS`,
+`deploymentStopped=false`.
+
+⚠️ **Déployé depuis la branche `scx8-rateplan-selector`, PAS depuis main.** `railway up` envoie le
+répertoire de travail, donc la prod tourne du code que **la PR #50 n'a pas encore fait entrer dans
+main** (règle CLAUDE.md : la review humaine de Fabien est le gate, je ne merge jamais moi-même).
+**Conséquence à connaître : le prochain `railway up` fait depuis main FERA DISPARAÎTRE la feature.**
+Merger la PR #50 est ce qui rend l'état de la prod reproductible.
+
+**Vérifié EN PROD** (widget proxy `POST /v3/chat`, tours réels) :
+- **Le badge de remise s'affiche enfin** — `-66 %` sur H4 Wyndham Paris Pleyel (€95 vs €280 nuit) ;
+  **5/5 hôtels** portent un tarif nuit à Paris, Lyon (Pullman −33 %) et Marseille (Ibis Centre −33 %).
+  C'est le correctif de la feuille (`response_bridge` → `slot.original_price` en euros) qui rend
+  vivant `computeNightDiscount`, mort en prod depuis toujours.
+- **Sélecteur de formules** : pick de Villa Paris Orly → `rate_plans: 3` (dayuse.day / early /
+  late_break), 3 liens tunnel `https://`, remise −37 % sur chacun, `bedding`/`capacity` présents.
+  Invariants vérifiés en prod : **un seul plan sélectionné**, **prix carte == prix du plan
+  sélectionné**, **url carte == url du plan sélectionné**.
+- Widget : 16 marqueurs S-CX8 dans le `messages.js` servi en prod.
+
+**E2E local exécuté AVANT le déploiement** (le trou de vérification signalé dans le bloc précédent
+est comblé) : `run_local.sh` redémarré sur le nouveau code, `smoke_e2e.py` **PASS** (ack 18 ms /
+search 9,5 s / faq 12,9 s), plus un scénario `search → pick` maison qui inspecte la `booking_card`
+réelle : 3 formules, liens réels, invariants OK.
+
+**Faux positif à ne pas rechercher** : `GET /` sur `concierge-production-aaa2.up.railway.app`
+renvoie **502** — le service ne route pas la racine, ce n'est pas une panne. Le chemin réel est le
+proxy du widget (`widget-production-3f56.up.railway.app/v3/chat`), qui répond 200. `railway status
+--json` n'a pas de clé `latestDeployment` à la racine : elle est sous
+`services.edges[].node.serviceInstances.edges[].node.latestDeployment.status`.
+
+**RGPD OK** : `.railwayignore` (déjà en place) exclut `baseline/` — Railway **n'honore pas**
+`.gitignore`, donc c'est ce fichier qui protège les messages utilisateurs bruts lors d'un
+`railway up`.
+
 ## ✅ Addendum 2026-07-28 (suite S-CX8, même branche) — la nouvelle version de MCP est déployée, les 3 champs sont branchés
 
 **Fabien : « la nouvelle version du mcp est déployé »** → re-probe immédiat. Les deux champs demandés
