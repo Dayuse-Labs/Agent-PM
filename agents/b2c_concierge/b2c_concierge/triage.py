@@ -31,7 +31,13 @@ import time
 from dataclasses import dataclass
 
 import litellm
-from dayuse_agent_common import cost_from_tokens, enqueue_metric_event, provider_cost_usd
+from b2c_common import max_tokens_for, reasoning_kwargs_for, role_model
+from dayuse_agent_common import (
+    cost_from_tokens,
+    enqueue_metric_event,
+    provider_cost_usd,
+    reasoning_effort_label,
+)
 
 from .budget import TurnBudget
 
@@ -244,7 +250,15 @@ async def classify(message: str, budget: TurnBudget, invocation_id: str = "") ->
     a retry, never a hard fail. Emits one llm_call metric row (phase=triage,
     counters only — never the message, GDPR)."""
     budget.charge("triage")
-    model_slug = os.environ.get("DAYUSE_MODEL", "gpt-4o-mini")
+    model_slug = role_model("TRIAGE")
+    # Bounded completion + provider-aware reasoning cap (llm_params). A
+    # truncated triage is a failed parse → the regex fallback, by design; an
+    # UNBOUNDED one on a reasoning model is unbounded latency. Both kwargs are
+    # strict no-ops with the env unset.
+    extra_params: dict = dict(reasoning_kwargs_for(model_slug))
+    max_tokens = max_tokens_for("TRIAGE")
+    if max_tokens is not None:
+        extra_params["max_tokens"] = max_tokens
     t0 = time.monotonic()
     try:
         resp = await litellm.acompletion(
@@ -255,6 +269,7 @@ async def classify(message: str, budget: TurnBudget, invocation_id: str = "") ->
             ],
             temperature=0.0,
             timeout=_TRIAGE_TIMEOUT,
+            **extra_params,
         )
     except Exception as exc:  # noqa: BLE001 — triage must never hard-fail; fall back to regex
         logger.warning("b2c_concierge: triage LLM failed, using regex fallback: %s", type(exc).__name__)
@@ -268,6 +283,7 @@ async def classify(message: str, budget: TurnBudget, invocation_id: str = "") ->
             status="error",
             error_type=type(exc).__name__,
             phase="triage",
+            reasoning_effort=reasoning_effort_label(),
         )
         return Triage(
             fallback_family(message),
@@ -291,6 +307,7 @@ async def classify(message: str, budget: TurnBudget, invocation_id: str = "") ->
         completion_tokens=completion_tokens,
         cost_usd=provider_cost_usd(resp) or cost_from_tokens(model_slug, prompt_tokens, completion_tokens),
         phase="triage",
+        reasoning_effort=reasoning_effort_label(),
     )
     data = _parse_triage_json(resp.choices[0].message.content or "") or {}
     family = data.get("family")

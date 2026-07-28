@@ -78,7 +78,13 @@ from typing import Any, AsyncGenerator
 
 import httpx
 import litellm
-from dayuse_agent_common import cost_from_tokens, enqueue_metric_event, provider_cost_usd
+from b2c_common import max_tokens_for, reasoning_kwargs_for, role_model
+from dayuse_agent_common import (
+    cost_from_tokens,
+    enqueue_metric_event,
+    provider_cost_usd,
+    reasoning_effort_label,
+)
 from google.adk.agents import BaseAgent
 from google.adk.agents.invocation_context import InvocationContext
 from google.adk.agents.remote_a2a_agent import RemoteA2aAgent
@@ -477,7 +483,14 @@ class _B2cConcierge(BaseAgent):
         protection it doesn't provide. The <300 ms TTFT SLO is protected
         structurally instead: the `progress` marker event fires BEFORE any
         LLM work at all (see the module docstring's step 0)."""
-        model_slug = os.environ.get("DAYUSE_MODEL", "gpt-4o-mini")
+        model_slug = role_model("SYNTHESIS")
+        # Bounded completion + provider-aware reasoning cap (llm_params): on a
+        # reasoning model, thinking tokens count against max_tokens — unbounded
+        # is unbounded latency. Both are strict no-ops with the env unset.
+        extra_params: dict[str, Any] = dict(reasoning_kwargs_for(model_slug))
+        max_tokens = max_tokens_for("SYNTHESIS")
+        if max_tokens is not None:
+            extra_params["max_tokens"] = max_tokens
         system = _SYNTHESIS_INSTRUCTION + extra_instruction
         user = (
             f"LANG: {language}\n\n"
@@ -503,6 +516,7 @@ class _B2cConcierge(BaseAgent):
                 ],
                 temperature=0.2,  # faithful to the grounded outcome > creativity
                 timeout=_SYNTHESIS_TIMEOUT,
+                **extra_params,
             )
         except Exception as exc:  # noqa: BLE001 — synthesis failure must not lose the leaf answer
             logger.warning(
@@ -512,6 +526,7 @@ class _B2cConcierge(BaseAgent):
                 "llm_call", service=SERVICE, invocation_id=invocation_id, agent=SERVICE,
                 model=model_slug, ms=int((time.monotonic() - t0) * 1000),
                 status="error", error_type=type(exc).__name__, phase="synthesis",
+                reasoning_effort=reasoning_effort_label(),
             )
             return None
         usage = getattr(resp, "usage", None)
@@ -523,6 +538,7 @@ class _B2cConcierge(BaseAgent):
             prompt_tokens=prompt_tokens, completion_tokens=completion_tokens,
             cost_usd=provider_cost_usd(resp) or cost_from_tokens(model_slug, prompt_tokens, completion_tokens),
             phase="synthesis",
+            reasoning_effort=reasoning_effort_label(),
         )
         return (resp.choices[0].message.content or "").strip() or None
 
