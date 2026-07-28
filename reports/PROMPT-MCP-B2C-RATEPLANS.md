@@ -1,108 +1,139 @@
 # Prompt à injecter dans une session Claude Code sur le repo MCP_B2C
 
-> Copier/coller tout ce qui suit (à partir de la ligne `---`) dans une session fraîche ouverte sur
-> le repo MCP_B2C. Rédigé le 2026-07-28 depuis AgentB2C, **après probes live** contre MCP_B2C et
-> contre un snapshot catalogue de production (8 701 hôtels / 22 177 rate plans).
+> Copier/coller tout ce qui suit (à partir de la ligne `---`). Rédigé le 2026-07-28 depuis
+> AgentB2C, **après probes live** : 4 300 offres réelles sur 51 hôtels via `get_hotel_details`,
+> plus un snapshot catalogue de production (8 701 hôtels / 22 177 rate plans).
 
 ---
 
 ## Contexte
 
-Je travaille sur **AgentB2C** (orchestrateur conversationnel day-use, ADK Python), qui consomme
-tes tools MCP en lecture seule. Je viens de livrer un **sélecteur de rateplan** : quand
-l'utilisateur choisit un hôtel, la carte de réservation liste toutes les formules du jour et
-chaque ligne renvoie au tunnel avec son `ratePlanUuid`.
+Je développe **AgentB2C** (orchestrateur conversationnel day-use, ADK Python), consommateur de tes
+tools MCP en lecture seule. Je viens de livrer un **sélecteur de rateplan** : quand l'utilisateur
+choisit un hôtel, la carte de réservation liste toutes les formules du jour et chaque ligne renvoie
+au tunnel avec son `ratePlanUuid`.
 
-**C'est déjà fonctionnel avec ce que tu exposes aujourd'hui.** Je ne viens pas demander un
-déblocage : je viens demander **un seul champ** qui manque, et te signaler deux champs qu'il ne
-faut surtout pas que je te demande (j'ai vérifié, ils sont vides).
+**C'est déjà en PR et fonctionnel avec ce que tu exposes aujourd'hui** — je ne suis pas bloqué. Je
+viens chercher **deux champs**, dont un qui débloque l'argument commercial central du day-use.
 
-## Ce que j'ai vérifié moi-même avant de t'écrire
+J'ai fait mes devoirs avant d'écrire : tout ce qui suit est mesuré, pas supposé.
 
-**Probe live `get_hotel_details`** (hôtel 22293, 4 596 offres sur 51 hôtels multi-formules) — les
-offres portent déjà :
+## Le contrat que j'observe aujourd'hui
+
+Probe live `get_hotel_details`, **4 300 offres sur 51 hôtels multi-formules**. Le schéma d'une
+offre fait **exactement 18 clés, présentes sur 100 % des offres** :
 
 ```
 availabilityDate, ratePlanId, ratePlanUuid, ratePlanPolicyUuid,
 startHour, startMinute, endHour, endMinute,
 priceEuro, priceEuroWithBookingFees,
 offerType, commercialType, bedding, capacity, childrenCapacity,
-isOvernight, offerType, cutoffDeadlineUtc, minutesRemainingUntilCutoff
+isOvernight, cutoffDeadlineUtc, minutesRemainingUntilCutoff
 ```
 
-Deux découvertes qui ont **changé ma conception**, et pour lesquelles je te remercie sans le
-savoir :
+Deux de ces champs m'ont fait changer ma conception, et méritent des remerciements :
 
-1. **`offerType` est exactement ce qu'il me fallait.** Enum fermé, 5 valeurs sur mon échantillon :
-   `dayuse.day` (72 %), `dayuse.late_break` (13 %), `dayuse.early` (11 %), `dayuse.dayuse_pm`
-   (3 %), `dayuse.dayuse_am` (0,7 %). Je le traduis côté widget en « Journée / Soirée / Matinée /
-   Après-midi » dans 7 langues. **C'est le seul champ qui distingue deux formules d'un même
-   hôtel** — voir pourquoi au point suivant.
-2. **`bedding` + `capacity` sont peuplés** (`double`, `double_king`, `double_queen`, `twin_*`,
-   `single` ; capacity = 2 sur 92 %). Ils me servent de descripteur de chambre.
+- **`offerType`** — enum fermé, 5 valeurs sur mon échantillon : `dayuse.day` (72 %),
+  `dayuse.late_break` (13 %), `dayuse.early` (11 %), `dayuse.dayuse_pm` (3 %), `dayuse.dayuse_am`
+  (0,7 %). Je le traduis côté widget en « Journée / Soirée / Matinée / Après-midi » dans 7 langues.
+  **C'est le seul champ qui distingue deux formules d'un même hôtel** — sans lui je n'avais pas de
+  feature.
+- **`bedding` + `capacity`** — peuplés sur 100 % des offres (`double`, `double_king`,
+  `double_queen`, `twin_*`, `single` ; capacity = 2 sur 92 %). Ils me servent de descripteur de
+  chambre.
 
-**Question ouverte n° 1 (petite)** : mon échantillon fait 51 hôtels. **L'enum `offerType`
-comporte-t-il d'autres valeurs** que ces 5 ? Je dégrade proprement (une valeur inconnue affiche le
-créneau horaire), mais si tu me donnes la liste exhaustive je la traduis proprement. Même question
-pour `bedding`.
+## Demande n° 1 — `originalPriceEuro` (la vraie demande)
 
-## Ce que je NE te demande pas (vérifié vide — n'y passe pas de temps)
+| | |
+|---|---|
+| **Champ** | `originalPriceEuro`, centimes EUR, **même convention que `priceEuro`** |
+| **Colonne Postgres** | `rate_plans.original_price` |
+| **Remplissage en base** | **21 912 / 22 177 = 98,8 %** |
+| **Envoyé par MCP aujourd'hui** | **jamais** (0 / 4 300 offres, testé aussi en `originalPrice`, `original_price`, `priceEuroBeforeDiscount`) |
 
-Snapshot catalogue de production, table `rate_plans`, 22 177 lignes :
+C'est le tarif nuit que le prix day-use casse — **l'argument de vente central du produit**
+(« €219 barré, −60 % »). Aucune de nos surfaces ne peut l'afficher aujourd'hui parce que le champ
+ne sort pas de MCP. Mon rendu est déjà écrit, testé et mergeable ; il attend la donnée.
 
-| Colonne | Remplissage réel | Conclusion |
+Un champ, présent sur 98,8 % du parc. Si tu n'en fais qu'un, fais celui-là.
+
+## Demande n° 2 — `ratePlanName` (bonus 2-en-1, moins urgent)
+
+| | |
+|---|---|
+| **Champ** | `ratePlanName`, string |
+| **Colonne Postgres** | `rate_plans.rate_plan_name` |
+| **Remplissage** | rempli, mais **texte libre saisi par le partenaire, en langue locale** |
+| **Envoyé par MCP aujourd'hui** | **jamais** (0 / 4 300) |
+
+**Attention à l'usage que j'en fais** — pas un titre. Deux mesures :
+
+1. C'est le nom de la **CHAMBRE**, pas de la formule (« Standard Double Room », « Chambre Double
+   Standard », « Camera doppia standard », « Standard-Doppelzimmer »).
+2. **2 829 des 5 591 hôtels multi-formules donnent le MÊME nom à toutes leurs formules** → l'utiliser
+   comme titre afficherait trois lignes identiques. `offerType` fait ce travail.
+
+**Pourquoi je le veux quand même** : il **encode souvent la prestation incluse**. Exemples réels du
+snapshot — hôtel 20235 : `rate_plan_name = "Standard Double Room With Meal"` avec
+`addons_included = ['Meal']` ; hôtel 22463 : `"Habitat Room with F&B credit"` avec
+`addons_included = ['F&B credit']`. Donc **un seul champ me donne le descriptif de chambre ET
+l'indice de prestation**, là où `addons_included` seul ne couvrirait que 4,6 % du parc.
+
+Je l'affiche en sous-titre de ligne, tel quel, sans traduction (c'est du texte partenaire — je ne
+prétendrai pas l'avoir traduit).
+
+## Ce que je NE demande PAS — n'y passe pas de temps
+
+Vérifié sur les 22 177 lignes du snapshot de production :
+
+| Colonne | Réalité mesurée | Conclusion |
 |---|---|---|
-| `room_type` | **0 / 22 177** — NULL partout | Inutile à exposer. J'utilise `bedding`/`capacity`. |
-| `addons_included` | **1 020 / 22 177 (4,6 %)** — et casse incohérente (« Fitness Access » vs « Fitness access ») | Trop creux pour porter l'UI. À exposer un jour, sans urgence, normalisé. |
-| `rate_plan_name` | rempli, mais c'est le nom de la **CHAMBRE**, pas de la formule (« Standard Double Room », « Chambre Double Standard », « Camera doppia standard ») — et **2 829 des 5 591 hôtels multi-formules donnent le MÊME nom à toutes leurs formules** | Inutilisable comme titre de ligne : ça afficherait trois lignes identiques. `offerType` fait le travail. |
+| `room_type` | **NULL sur 22 177 / 22 177** | Colonne vide. Inutile à exposer — j'utilise `bedding`/`capacity`. |
+| `addons_included` | **1 020 / 22 177 = 4,6 %**, casse incohérente (« Fitness Access » vs « Fitness access ») | Trop creux pour porter l'UI, et `ratePlanName` (demande n° 2) en donne l'essentiel. À exposer un jour, normalisé, sans urgence. |
 
-C'est aussi la réponse à la question que j'allais te poser sur la fiabilité du nommage hôtelier :
-il est effectivement libre et multilingue. Tant mieux que `offerType` existe.
+## Contraintes non négociables
 
-## La demande : UN champ
-
-| Champ souhaité | Colonne Postgres | Remplissage en base | Pourquoi |
-|---|---|---|---|
-| **`originalPriceEuro`** (centimes EUR, même convention que `priceEuro`) | `rate_plans.original_price` | **21 912 / 22 177 = 98,8 %** | Le tarif nuit que le prix day-use casse. C'est **l'argument de vente central du day-use** et aucune de nos surfaces ne peut l'afficher : le champ ne sort pas de MCP. J'ai déjà le rendu (« €219 barré, −60 % ») écrit et testé, il attend la donnée. |
-
-Un seul champ, présent sur 98,8 % du parc, qui débloque l'argument commercial le plus fort du
-produit. C'est tout ce que je demande.
-
-## Contraintes non négociables sur l'implémentation
-
-- **Purement additif.** Ne renomme, ne supprime, ne réordonne aucun champ existant : trois
+- **Purement additif.** Ne renomme, ne supprime, ne réordonne aucun des 18 champs existants. Trois
   consommateurs dépendent du contrat actuel, dont un guard AgentB2C qui vérifie que la carte
   affichée et le lien du tunnel décrivent la même réservation.
-- **Absent plutôt que deviné.** Si `original_price` est NULL pour un rate plan, **omets la clé** —
-  pas `0`, pas `null`, pas une estimation. Côté widget, pas de clé = pas de badge de remise, ce
-  qui est le comportement correct : une remise est une **affirmation**, et une affirmation fausse
-  sur un prix nous expose.
-- **Même unité que `priceEuro`** (centimes EUR). Si tu choisis une autre unité ou un autre nom,
-  dis-le explicitement — je code contre ta description, une imprécision me coûte un aller-retour.
-- **Priorité `get_hotel_details`.** C'est le tool du tour de sélection. `search_offers` en bonus
-  (j'y afficherais un « à partir de » avec la remise), mais si tu n'en fais qu'un, fais
-  `get_hotel_details`.
+- **Absent plutôt que deviné.** Colonne NULL → **omets la clé**. Pas `0`, pas `null`, pas de
+  valeur par défaut. Côté widget, clé absente = pas de badge de remise, ce qui est le comportement
+  correct : une remise est une **affirmation**, et une affirmation fausse sur un prix nous expose
+  juridiquement.
+- **Unité identique à `priceEuro`** (centimes EUR). Si tu choisis autre chose, dis-le
+  explicitement : je code contre ta description, une imprécision de nom ou d'unité me coûte un
+  aller-retour complet.
+- **Priorité `get_hotel_details`** — c'est le tool du tour de sélection, là où les formules
+  s'affichent. `search_offers` en bonus (« à partir de » enrichi d'une remise). Si tu n'en fais
+  qu'un, fais `get_hotel_details`.
 - **Lecture seule**, aucune régression de latence sur les chemins existants.
 
-## Ce que j'attends comme réponse
+## Méthode attendue
 
-1. **Un probe live d'abord**, et dis-moi ce que tu trouves avant d'implémenter : `original_price`
-   est-il dans l'index ES ? Trois issues très différentes en coût :
-   - **(a)** dans l'index mais pas projeté dans la réponse → simple ajout de projection ;
-   - **(b)** absent de l'index → changement de mapping + réindexation, donc une demande en amont
-     sur le pipeline d'indexation (repo dayuse.com), **pas chez toi** — dis-le moi et je porte la
-     demande ailleurs ;
-   - **(c)** présent mais incohérent avec `priceEuro` (ex. tarif nuit inférieur au tarif jour sur
-     une partie du parc) → donne-moi le taux d'anomalie. Je filtre déjà les cas
-     `original ≤ price`, mais je veux savoir si c'est 0,1 % ou 20 %.
-2. **Le contrat exact en sortie** : nom, type, unité, tools concernés, taux de remplissage
-   constaté en ES (pas en Postgres — c'est ES qui me répond).
-3. **Une preuve live**, pas un test sur mock : un appel réel montrant le champ dans une réponse
-   réelle. Un test unitaire vert ne prouve pas que l'index porte la donnée.
+1. **Probe d'abord, code ensuite. Dis-moi ce que tu trouves AVANT d'implémenter.** Trois issues
+   très différentes en coût :
+   - **(a)** le champ est dans l'index ES mais pas projeté dans la réponse du tool → simple ajout
+     de projection, meilleure nouvelle ;
+   - **(b)** absent de l'index ES → changement de mapping + réindexation, donc une demande en
+     amont sur le pipeline d'indexation (repo dayuse.com) et **pas chez toi** : dis-le moi et je
+     porte la demande ailleurs, sans te faire perdre de temps ;
+   - **(c)** présent mais incohérent (ex. tarif nuit ≤ tarif jour sur une partie du parc) →
+     donne-moi **le taux d'anomalie**. Je filtre déjà `original ≤ price`, mais je dois savoir si
+     c'est 0,1 % ou 20 % : ça change ce que je promets au produit.
+2. **Le contrat exact en sortie** : nom, type, unité, tools concernés, et **taux de remplissage
+   constaté dans ES** — pas dans Postgres, c'est ES qui me répond.
+3. **Une preuve live, pas un mock.** Un appel réel montrant le champ dans une réponse réelle. Un
+   test unitaire vert ne prouve pas que l'index porte la donnée — c'est exactement l'erreur qui
+   m'aurait fait concevoir cette feature autour de `rate_plan_name`.
 
-## Note de courtoisie
+## Note de franchise
 
-Si `originalPriceEuro` est un chantier d'indexation lourd, dis-le franchement : mon sélecteur est
-déjà en production sans lui, et je préfère une réponse « c'est (b), voici qui contacter » en deux
-heures qu'un chantier surprise d'une semaine. Le seul scénario qui me coûte cher, c'est un champ
-livré sous un nom ou une unité que je n'attends pas.
+Si `originalPriceEuro` est un chantier d'indexation lourd, dis-le tout de suite. Mon sélecteur part
+en prod sans lui, et je préfère « c'est (b), voici qui contacter » en deux heures qu'un chantier
+surprise d'une semaine. Le seul scénario qui me coûte cher, c'est un champ livré sous un nom ou une
+unité que je n'attendais pas.
+
+Question annexe, si c'est gratuit pour toi : **l'enum `offerType` a-t-il d'autres valeurs** que mes
+5 ? Mon échantillon fait 51 hôtels. Je dégrade proprement (valeur inconnue → j'affiche le créneau
+horaire), mais avec la liste exhaustive je traduis proprement les 7 langues. Même question pour
+`bedding`.
