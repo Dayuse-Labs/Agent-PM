@@ -2,6 +2,60 @@
 
 État du chantier pour reprise en session fraîche. **Lire en entier avant d'agir ; ne pas reconstruire ce qui existe.** Mettre à jour en fin de CHAQUE session (bloc daté en tête).
 
+## ✅ Addendum 2026-07-28 (suite S-CX8, même branche) — la nouvelle version de MCP est déployée, les 3 champs sont branchés
+
+**Fabien : « la nouvelle version du mcp est déployé »** → re-probe immédiat. Les deux champs demandés
+sont là, **plus un troisième sous un nom différent de celui que j'avais demandé** :
+
+| Champ | Remplissage mesuré | Statut |
+|---|---|---|
+| `originalPriceEuro` | **2 084 / 2 114 = 98,6 %** | branché (nom exact déjà lu par le code) |
+| `ratePlanName` | **2 114 / 2 114 = 100 %** | branché |
+| `includedAmenities` | **1 674 / 2 114 = 79,2 %** | branché **au niveau CARTE**, pas par ligne (voir ci-dessous) |
+
+**`originalPriceEuro` validé sur 760 paires réelles** : 0 % d'anomalie, ratio nuit/jour médian 1,64
+(min 1,03, max 3,75), unité centimes EUR confirmée. **Le badge de remise s'affiche pour la première
+fois en production** — sur les DEUX surfaces :
+- booking card, par formule (`_rate_plan_view`, déjà écrit, la donnée est arrivée) ;
+- **carrousel** : `response_bridge` pose désormais `slot.original_price` **en euros** — la forme que
+  `computeNightDiscount` lisait depuis toujours sans que rien ne la remplisse. Vérifié en live :
+  Ibis La Ciotat → `original_price: 76.7` sur un prix de €69 → −10 %.
+
+**`includedAmenities` n'est PAS une prestation de formule — piège évité de justesse.** Probé sur
+**227 journées multi-formules** : identique sur toutes les formules **128 fois**, différent **0
+fois**, et seulement **4 valeurs distinctes** (Free parking, Outdoor pool, Indoor pool, Fitness
+room). C'est un équipement d'hôtel. L'afficher par ligne aurait répété la même mention en
+prétendant différencier. → `hotel_amenities` sur la CARTE, une seule fois (`_day_hotel_amenities`),
+table i18n fermée × 7 langues, valeur non mappée **ignorée** (jamais d'anglais brut dans une carte
+française). Le rendu par-ligne des « prestations » a été **supprimé** : la donnée n'existe pas à ce
+niveau.
+
+**Défaut de conception attrapé par les données réelles** : le titre de ligne ne peut pas être choisi
+par ligne. Deux cas live du 2026-07-29 :
+- **Ibis La Ciotat** — 3 formules toutes `dayuse.day`, **même créneau 10:00-15:00**, seule la
+  chambre diffère (« …with Sea view », « …with balcony ») → un titre par type donnerait « Journée /
+  Journée / Journée » ;
+- **Mercure Lyon Saxe** — 3 formules toutes nommées « Standard King Room », seuls les créneaux
+  diffèrent → un titre par nom donnerait trois lignes identiques.
+
+→ La décision est désormais **au niveau de la CARTE** (`renderRatePlans`) : le nom de chambre prend
+le titre uniquement si les libellés de type NE séparent PAS les lignes et que les noms LE font ;
+sinon le type titre et la pastille de créneau (toujours affichée) porte la distinction. Le CTA
+reçoit le titre retenu depuis le renderer (plus de recalcul divergent) et retombe sur le libellé
+générique au-delà de 22 caractères — « Standard Double Room with Sea view » ne tient pas dans le
+bouton.
+
+**Vérifié** : chemin de pick live sur 3 hôtels réels (Ibis 7720, Mercure 9075, Villa 22293) →
+`ok=True`, formules + liens + remises réelles (−10 % à −37 %) ; normalizer de la feuille en live ;
+composant rendu et screenshoté (**27 assertions** + **11 assertions** dédiées aux deux formes
+réelles, dont clics). Gates : **pytest 1 097 ok**, ruff, mypy, guardrails.
+
+**Piège** : MCP renvoie **429 Too Many Requests** si on enchaîne les `get_hotel_details` sans pause
+— tout probe d'échantillon doit espacer les appels (~1,5 s) et ouvrir une session par hôtel.
+
+**Reste** : e2e via les 3 services jamais relancé ; format horaire AM/PM du carrousel toujours
+ouvert ; enum `offerType` non exhaustif (échantillon 51 hôtels, valeur inconnue → créneau).
+
 ## 🧾 Addendum 2026-07-28 (branche `scx8-rateplan-selector`) — S-CX8 : sélecteur de rateplan + « à partir de »
 
 **Demande Fabien** : (1) la carte résultat doit dire « à partir de » sur son prix (c'est le

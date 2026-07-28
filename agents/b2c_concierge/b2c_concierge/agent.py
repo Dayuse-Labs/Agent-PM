@@ -756,6 +756,10 @@ class _B2cConcierge(BaseAgent):
             # multi-plan lookup degraded — the widget then renders exactly the
             # card it rendered before this key existed.
             "rate_plans": result.get("rate_plans"),
+            # Hotel-level perks (MCP `includedAmenities`), stated ONCE: probed
+            # over 227 multi-formula days they never differed between formulas,
+            # so per-row they would imply a distinction that does not exist.
+            "hotel_amenities": result.get("hotel_amenities"),
             "cta_text": "book_now",  # i18n key, resolved by the widget's own table
         }
         return {k: v for k, v in card.items() if v is not None}

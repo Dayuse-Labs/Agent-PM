@@ -335,7 +335,10 @@ function selectRatePlan(row) {
     const title = String(row.dataset.planTitle || '');
     const ctaLabel = cta && cta.querySelector('[data-plan-cta-label="1"]');
     if (ctaLabel) {
-        ctaLabel.textContent = row.dataset.planNamed === '1' && title
+        // Same cap as the initial render, or the button's label would fit on
+        // first paint and clip after a click on a long-named formula.
+        ctaLabel.textContent = row.dataset.planNamed === '1'
+            && title && title.length <= CTA_PLAN_NAME_MAX
             ? t('card_book_plan', { plan: title })
             : t('card_book_cta');
     }
@@ -513,6 +516,25 @@ const BEDDING_KEYS = {
     twin_two_queens: 'bed_twin_two_queens',
 };
 
+// MCP `includedAmenities` — hotel-level perks. Only 4 distinct values across the
+// probed sample, so a closed table again. An unmapped value is SKIPPED rather
+// than shown raw: these arrive in English, and "Free parking" inside a French
+// card is a worse answer than one line fewer.
+const AMENITY_KEYS = {
+    'Free parking': 'amenity_free_parking',
+    'Outdoor pool': 'amenity_outdoor_pool',
+    'Indoor pool': 'amenity_indoor_pool',
+    'Fitness room': 'amenity_fitness_room',
+};
+
+function amenityLabels(amenities) {
+    if (!Array.isArray(amenities)) return [];
+    return amenities
+        .map(a => AMENITY_KEYS[String(a || '')])
+        .filter(Boolean)
+        .map(key => t(key));
+}
+
 function planTypeLabel(offerType) {
     const key = PLAN_TYPE_KEYS[String(offerType || '')];
     return key ? t(key) : '';
@@ -538,13 +560,38 @@ function capacityLabel(capacity) {
  * DROPPED rather than rendered unbookable — same rule the backend applies to a
  * plan whose link generation failed.
  *
- * Returns '' when there is nothing to choose between, which is what makes this
- * additive: a payload without `rate_plans` renders exactly the card that
- * shipped before this existed.
+ * Returns `{html: '', selectedTitle: ''}` when there is nothing to choose
+ * between, which is what makes this additive: a payload without `rate_plans`
+ * renders exactly the card that shipped before this existed. `selectedTitle` is
+ * handed back so the CTA can name the same thing the highlighted row does.
  */
-function renderRatePlans(plans) {
-    if (!Array.isArray(plans) || plans.length < 2) return '';
+const NO_PLANS = { html: '', selectedTitle: '' };
 
+// Longest formula title that still fits the CTA next to "Book — " and the arrow
+// glyph at the card's 400px width. Past it the CTA keeps its plain label.
+const CTA_PLAN_NAME_MAX = 22;
+
+function renderRatePlans(plans) {
+    if (!Array.isArray(plans) || plans.length < 2) return NO_PLANS;
+
+    // WHICH field titles the rows is a per-CARD decision, because neither field
+    // is reliably distinctive on its own — both real failures were observed live
+    // on 2026-07-29 inventory:
+    //   Ibis La Ciotat — 3 formulas, all `dayuse.day`, all 10:00-15:00, differing
+    //     only by room ("…with Sea view", "…with balcony"). Type-led titles give
+    //     "Journée / Journée / Journée".
+    //   Mercure Lyon Saxe — 3 formulas, all named "Standard King Room", differing
+    //     by slot. Name-led titles give three identical rows.
+    // So: the room name leads only when the type labels do NOT separate the rows
+    // and the names DO. Otherwise the type leads and the always-present slot
+    // pill carries the distinction.
+    const typeLabels = plans.map(p => planTypeLabel(p && p.offer_type));
+    const names = plans.map(p => (p && p.name) || '');
+    const allDistinct = (values) =>
+        values.every(Boolean) && new Set(values).size === values.length;
+    const nameLeads = !allDistinct(typeLabels) && allDistinct(names);
+
+    let selectedTitle = '';
     const rows = plans.map(plan => {
         const url = sanitizeDayuseUrl(plan.url || '');
         if (!url) return '';
@@ -552,17 +599,20 @@ function renderRatePlans(plans) {
         const slot = [plan.start_time, plan.end_time].every(Boolean)
             ? `${plan.start_time} – ${plan.end_time}`
             : '';
-        // Title cascade, best differentiator first: the formula KIND (a closed
-        // MCP enum, localized here), then the room name, then the slot. The
-        // enum leads because `name` is the ROOM's name and is identical across
-        // every plan in 51% of multi-plan hotels — three rows called "Standard
-        // Double Room" is not a choice. Details in inline_tools._rate_plan_view.
-        const title = planTypeLabel(plan.offer_type) || plan.name || slot || t('card_slot');
-        const subtitle = [
+        const typeLabel = planTypeLabel(plan.offer_type);
+        // The room name is the partner's own wording, shown untranslated on
+        // purpose: pretending to have translated it would be worse. The
+        // bedding/capacity enums (which we DO own) stand in when it is absent.
+        const bedLabel = [
             beddingLabel(plan.bedding),
             plan.capacity ? capacityLabel(plan.capacity) : '',
         ].filter(Boolean).join(' · ');
-        const addons = Array.isArray(plan.addons) ? plan.addons : [];
+        const title = (nameLeads ? plan.name : typeLabel)
+            || plan.name || typeLabel || slot || t('card_slot');
+        const subtitle = title === plan.name
+            ? (typeLabel ? [typeLabel, bedLabel].filter(Boolean).join(' · ') : bedLabel)
+            : (plan.name || bedLabel);
+        if (plan.selected) selectedTitle = String(title);
 
         return `
             <button type="button" class="booking-card__plan${plan.selected ? ' is-selected' : ''}"
@@ -581,10 +631,6 @@ function renderRatePlans(plans) {
                         <span class="booking-card__plan-meta">
                             <span class="booking-card__plan-slot">${CLOCK_SVG} ${escapeHtml(slot)}</span>
                         </span>` : ''}
-                    ${addons.length ? `
-                        <span class="booking-card__plan-addons">
-                            ${addons.map(a => `<span class="booking-card__plan-addon">${CHECK_SVG} ${escapeHtml(String(a))}</span>`).join('')}
-                        </span>` : ''}
                 </span>
                 <span class="booking-card__plan-prices">
                     ${plan.price ? `<span class="booking-card__plan-amount">${escapeHtml(String(plan.price))}</span>` : ''}
@@ -595,13 +641,16 @@ function renderRatePlans(plans) {
     }).filter(Boolean);
 
     // One survivor is not a choice — fall back to the plain card.
-    if (rows.length < 2) return '';
+    if (rows.length < 2) return NO_PLANS;
 
-    return `
+    return {
+        html: `
         <div class="booking-card__plans">
             <span class="booking-card__plans-label">${escapeHtml(t('card_choose_plan'))}</span>
             ${rows.join('')}
-        </div>`;
+        </div>`,
+        selectedTitle,
+    };
 }
 
 const CLOCK_SVG = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" aria-hidden="true"><circle cx="12" cy="12" r="9"/><path d="M12 7v5l3 2"/></svg>';
@@ -656,23 +705,28 @@ export function createBookingCard(card) {
             </div>`).join('')}</div>`
         : '';
 
-    const plansHtml = renderRatePlans(card.rate_plans);
-    // The CTA names the formula it books, but only once there IS a choice to be
-    // ambiguous about — and only when the formula has a name rather than just a
-    // time slot ("Book — 10:00 – 16:00" reads worse than the plain label).
-    const selectedPlan = plansHtml
-        ? (card.rate_plans || []).find(p => p && p.selected)
-        : null;
-    const selectedTitle = selectedPlan
-        ? planTypeLabel(selectedPlan.offer_type) || selectedPlan.name || ''
-        : '';
-    const ctaLabel = selectedTitle
+    const { html: plansHtml, selectedTitle } = renderRatePlans(card.rate_plans);
+    // The CTA names the SAME thing the highlighted row does (hence the title
+    // coming back from the renderer, not recomputed here) — but only when it is
+    // short enough to sit in a button. Real room names run long ("Standard
+    // Double Room with Sea view", 33 chars) and would wrap or clip the label, so
+    // past the cap the plain CTA is the better answer: the selection is already
+    // unambiguous from the highlighted row, the facts grid and the price.
+    const ctaLabel = selectedTitle && selectedTitle.length <= CTA_PLAN_NAME_MAX
         ? t('card_book_plan', { plan: selectedTitle })
         : t('card_book_cta');
     // Product promise, not offer data — so it is copy, shown whenever a card is
     // (there is no per-plan cancellation field to contradict it).
+    // Hotel-level perks, stated ONCE above the reassurance line — never per
+    // formula, where they would imply a distinction the data does not support
+    // (identical on every formula across 227 probed days, different on 0).
+    const amenities = amenityLabels(card.hotel_amenities);
     const reassuranceHtml = `
         <div class="booking-card__trust">
+            ${amenities.length ? `
+                <span class="booking-card__trust-item booking-card__trust-item--neutral">
+                    ${CHECK_SVG} ${escapeHtml(amenities.join(' · '))}
+                </span>` : ''}
             <span class="booking-card__trust-item">${SHIELD_SVG} ${escapeHtml(t('card_free_cancel'))}</span>
         </div>`;
 

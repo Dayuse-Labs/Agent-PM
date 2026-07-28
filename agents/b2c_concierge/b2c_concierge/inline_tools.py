@@ -522,13 +522,16 @@ def _rate_plan_view(offer: dict[str, Any]) -> dict[str, Any] | None:
     room_type = offer.get("roomType")
     if isinstance(room_type, str) and room_type.strip():
         plan["room_type"] = room_type.strip()
-    addons = [
-        item.strip()
-        for item in (offer.get("addonsIncluded") or [])
-        if isinstance(item, str) and item.strip()
-    ]
-    if addons:
-        plan["addons"] = addons
+    # NOTE — there is deliberately no per-plan "included services" here.
+    # MCP's `includedAmenities` (added 2026-07-28) looks like the candidate but
+    # is HOTEL-level: probed over 227 multi-formula days it was identical across
+    # every formula of the day 128 times and different 0 times, with only 4
+    # distinct values ever seen (Free parking, Outdoor pool, Indoor pool,
+    # Fitness room). Repeating one line on every row while implying it
+    # distinguishes them would be a false differentiation, so it rides the CARD
+    # instead (`hotel_amenities`, see _day_hotel_amenities).
+    # What genuinely varies per formula travels in `ratePlanName` ("Standard
+    # Double Room With Meal", "Habitat Room with F&B credit").
     # The night rate this day-use price undercuts. `discount_pct` is computed
     # HERE rather than in the widget so the "-53 %" claim is covered by a test:
     # a discount is a claim, and claims need a guard. Both keys stay absent
@@ -541,6 +544,19 @@ def _rate_plan_view(offer: dict[str, Any]) -> dict[str, Any] | None:
     return plan
 
 
+def _offers_for_day(offers: list[Any], date: str | None) -> list[dict[str, Any]]:
+    """The offers of ONE day — the session's `date` when known, else the soonest
+    day this hotel is bookable. Shared by the plan list and the card's amenity
+    line so the two cannot end up describing different days."""
+    pool = [o for o in offers if isinstance(o, dict)]
+    target = date or min(
+        (o["availabilityDate"] for o in pool if o.get("availabilityDate")), default=None
+    )
+    if target:
+        pool = [o for o in pool if o.get("availabilityDate") == target] or pool
+    return pool
+
+
 def _day_rate_plans(offers: list[Any], date: str | None) -> list[dict[str, Any]]:
     """S-CX8: every bookable formula ON ONE DAY, cheapest first, deduped by
     offer id, capped at `_MAX_RATE_PLANS`.
@@ -550,15 +566,9 @@ def _day_rate_plans(offers: list[Any], date: str | None) -> list[dict[str, Any]]
     across 32 days for hotel 22293), so an unscoped list would mix next
     Tuesday's formulas into today's choices. Plans without a price sort last
     (still bookable, just not comparable)."""
-    pool = [o for o in offers if isinstance(o, dict)]
-    target = date or min(
-        (o["availabilityDate"] for o in pool if o.get("availabilityDate")), default=None
-    )
-    if target:
-        pool = [o for o in pool if o.get("availabilityDate") == target] or pool
     plans: list[dict[str, Any]] = []
     seen: set[str] = set()
-    for offer in pool:
+    for offer in _offers_for_day(offers, date):
         plan = _rate_plan_view(offer)
         if plan is None or plan["offer_id"] in seen:
             continue
@@ -566,6 +576,22 @@ def _day_rate_plans(offers: list[Any], date: str | None) -> list[dict[str, Any]]
         plans.append(plan)
     plans.sort(key=lambda p: (p.get("price_eur_cents") is None, p.get("price_eur_cents") or 0))
     return plans[:_MAX_RATE_PLANS]
+
+
+def _day_hotel_amenities(offers: list[dict[str, Any]]) -> list[str]:
+    """The hotel-level perks MCP attaches to a day's offers (`includedAmenities`,
+    exposed 2026-07-28), deduped, order preserved.
+
+    Card-level and not per-plan on evidence: across 227 probed multi-formula days
+    the list was identical on every formula 128 times and different 0 times. It
+    answers "what comes with a stay here", not "what distinguishes these
+    formulas" — so the card states it once."""
+    seen: list[str] = []
+    for offer in offers:
+        for item in offer.get("includedAmenities") or []:
+            if isinstance(item, str) and item.strip() and item.strip() not in seen:
+                seen.append(item.strip())
+    return seen
 
 
 def _hotel_facts(entry: dict[str, Any] | None) -> dict[str, Any]:
@@ -741,9 +767,11 @@ async def _quote_picked_rate_plans(hotel_id: int, profile: SessionProfile) -> di
                 details = await _call_tool(session, "get_hotel_details", args_details)
                 if not details["ok"]:
                     return details
-                plans = _day_rate_plans(details["data"].get("offers") or [], profile.date)
+                offers = details["data"].get("offers") or []
+                plans = _day_rate_plans(offers, profile.date)
                 if not plans:
                     return {"ok": False, "error": "no bookable offer for this hotel"}
+                amenities = _day_hotel_amenities(_offers_for_day(offers, profile.date))
 
                 shown = _shortlist_offer(hotel_id, profile)
                 shown_id = shown.get("offer_id") if shown else None
@@ -799,6 +827,8 @@ async def _quote_picked_rate_plans(hotel_id: int, profile: SessionProfile) -> di
                     "price": selected_bookable.get("price"),
                     **_hotel_facts(entry),
                 }
+                if amenities:
+                    identity["hotel_amenities"] = amenities
                 # One formula is not a choice: the card stays exactly today's.
                 if len(bookable) > 1:
                     identity["rate_plans"] = [

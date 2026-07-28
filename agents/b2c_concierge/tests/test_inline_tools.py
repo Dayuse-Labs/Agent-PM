@@ -943,8 +943,8 @@ class TestRatePlanSelector:
             "capacity": 2,
             "ratePlanName": "Day Room + Spa",
             "roomType": "Chambre Deluxe",
-            "addonsIncluded": ["Accès spa & piscine", "Peignoirs & chaussons"],
             "originalPriceEuro": 21900,
+            "includedAmenities": ["Outdoor pool", "Free parking"],
         },
         {
             "ratePlanUuid": "rp-day",
@@ -960,6 +960,7 @@ class TestRatePlanSelector:
             "capacity": 2,
             "ratePlanName": "Day Room",
             "roomType": "Chambre Classique",
+            "includedAmenities": ["Outdoor pool", "Free parking"],
         },
         {
             "ratePlanUuid": "rp-suite",
@@ -1079,12 +1080,14 @@ class TestRatePlanSelector:
         # rp-suite carries none of them -> keys absent, never guessed.
         assert "offer_type" not in plans["rp-suite"]
         assert "bedding" not in plans["rp-suite"]
-        assert plans["rp-spa"]["addons"] == ["Accès spa & piscine", "Peignoirs & chaussons"]
         # Half-hour starts survive (S-G6): 10:30, not 10:00.
         assert plans["rp-day"]["start_time"] == "10:30"
         # Absent stays ABSENT — never a "Chambre standard" placeholder.
-        assert "addons" not in plans["rp-day"]
         assert "room_type" not in plans["rp-suite"]
+        # No per-plan "included services": MCP's includedAmenities is HOTEL-level
+        # (identical on every formula across 227 probed days, different on 0), so
+        # it must never masquerade as something that tells formulas apart.
+        assert all("addons" not in p for p in plans.values())
 
     def test_the_night_rate_discount_is_computed_only_when_it_is_real(self, monkeypatch):
         """A discount is a claim, so it is computed here where a test covers it
@@ -1225,3 +1228,128 @@ class TestRatePlanSelector:
         )
         assert result["ok"] is True and "rate_plans" not in result
         assert "get_hotel_details" not in {c[0] for c in session.calls}
+
+
+class TestHotelAmenitiesAreCardLevel:
+    """S-CX8 / MCP 2026-07-28: `includedAmenities` arrived with the deploy. It is
+    NOT a per-formula inclusion — probed over 227 multi-formula days it was
+    identical on every formula 128 times and different 0 times, with 4 distinct
+    values ever seen. So it belongs to the CARD, stated once."""
+
+    def test_the_day_s_amenities_are_deduped_onto_the_card(self, monkeypatch):
+        _install(
+            monkeypatch,
+            {
+                "get_hotel_details": FakeResult(
+                    {
+                        "hotel": {"hotelId": 22293},
+                        "offers": [
+                            {
+                                "ratePlanUuid": "a", "availabilityDate": "2026-07-28",
+                                "startHour": 10, "endHour": 16, "priceEuro": 5400,
+                                "includedAmenities": ["Outdoor pool", "Free parking"],
+                            },
+                            {
+                                "ratePlanUuid": "b", "availabilityDate": "2026-07-28",
+                                "startHour": 17, "endHour": 23, "priceEuro": 6000,
+                                "includedAmenities": ["Free parking", "Fitness room"],
+                            },
+                            # Another day must not contribute its perks.
+                            {
+                                "ratePlanUuid": "c", "availabilityDate": "2026-08-04",
+                                "startHour": 10, "endHour": 16, "priceEuro": 3900,
+                                "includedAmenities": ["Indoor pool"],
+                            },
+                        ],
+                    }
+                ),
+                "generate_booking_link": lambda args: FakeResult(
+                    {"link": {"url": f"https://www.dayuse.fr/t?o={args['ratePlanUuid']}"}}
+                ),
+            },
+        )
+        profile = SessionProfile(
+            last_results=[{"hotel_id": 22293, "name": "V"}], date="2026-07-28"
+        )
+        result = _run(
+            inline_tools.generate_booking_link(
+                "pick", profile, user_confirmed=False, picked_hotel_id=22293
+            )
+        )
+        # Union across the DAY's formulas, first-seen order, no duplicates.
+        assert result["hotel_amenities"] == ["Outdoor pool", "Free parking", "Fitness room"]
+        assert "Indoor pool" not in result["hotel_amenities"]
+        # And never copied onto the rows.
+        assert all("addons" not in p for p in result["rate_plans"])
+
+    def test_no_amenities_means_no_key(self, monkeypatch):
+        _install(
+            monkeypatch,
+            {
+                "get_hotel_details": FakeResult(
+                    {
+                        "hotel": {"hotelId": 22293},
+                        "offers": [
+                            {"ratePlanUuid": "a", "availabilityDate": "2026-07-28",
+                             "startHour": 10, "endHour": 16, "priceEuro": 5400},
+                            {"ratePlanUuid": "b", "availabilityDate": "2026-07-28",
+                             "startHour": 17, "endHour": 23, "priceEuro": 6000},
+                        ],
+                    }
+                ),
+                "generate_booking_link": lambda args: FakeResult(
+                    {"link": {"url": f"https://www.dayuse.fr/t?o={args['ratePlanUuid']}"}}
+                ),
+            },
+        )
+        profile = SessionProfile(
+            last_results=[{"hotel_id": 22293, "name": "V"}], date="2026-07-28"
+        )
+        result = _run(
+            inline_tools.generate_booking_link(
+                "pick", profile, user_confirmed=False, picked_hotel_id=22293
+            )
+        )
+        assert "hotel_amenities" not in result
+
+    def test_the_night_rate_unit_matches_priceEuro(self, monkeypatch):
+        """Live-probed 2026-07-28 over 760 real price pairs: originalPriceEuro is
+        EUR cents like priceEuro, night/day ratio median 1.64, and ZERO offers
+        had a night rate at or below the day rate."""
+        _install(
+            monkeypatch,
+            {
+                "get_hotel_details": FakeResult(
+                    {
+                        "hotel": {"hotelId": 22293},
+                        "offers": [
+                            {"ratePlanUuid": "a", "availabilityDate": "2026-07-28",
+                             "startHour": 10, "endHour": 16, "priceEuro": 8900,
+                             "originalPriceEuro": 11570},
+                            {"ratePlanUuid": "b", "availabilityDate": "2026-07-28",
+                             "startHour": 17, "endHour": 23, "priceEuro": 6900,
+                             "originalPriceEuro": 7670},
+                        ],
+                    }
+                ),
+                "generate_booking_link": lambda args: FakeResult(
+                    {"link": {"url": f"https://www.dayuse.fr/t?o={args['ratePlanUuid']}"}}
+                ),
+            },
+        )
+        profile = SessionProfile(
+            last_results=[{"hotel_id": 22293, "name": "V"}], date="2026-07-28"
+        )
+        plans = {
+            p["offer_id"]: p
+            for p in _run(
+                inline_tools.generate_booking_link(
+                    "pick", profile, user_confirmed=False, picked_hotel_id=22293
+                )
+            )["rate_plans"]
+        }
+        assert plans["b"]["price"] == "€69.00"
+        assert plans["b"]["original_price"] == "€76.70"
+        assert plans["b"]["discount_pct"] == 10  # (7670-6900)/7670 = 10.04%
+        assert plans["a"]["original_price"] == "€115.70"
+        assert plans["a"]["discount_pct"] == 23

@@ -1379,3 +1379,48 @@ def test_outcome_text_is_localized_fr():
     )
     content = emit_search_datapart(ctx)
     assert "Aucune offre de jour" in content.parts[0].text
+
+
+class TestNightRateReachesTheCarousel:
+    """S-CX8: `computeNightDiscount` in the widget reads `slot.original_price`
+    (EUROS) and nothing had ever filled it, so the carousel's discount badge was
+    dead code in prod. MCP exposed `originalPriceEuro` (EUR cents) on
+    2026-07-28."""
+
+    @staticmethod
+    def _hotel(**offer_extra):
+        return {
+            "results": [
+                {
+                    "hotelId": 7720,
+                    "name": "Ibis La Ciotat",
+                    "offers": [
+                        {
+                            "ratePlanUuid": "rp-1",
+                            "availabilityDate": "2026-07-29",
+                            "startHour": 10,
+                            "endHour": 15,
+                            "priceEuro": 6900,
+                            **offer_extra,
+                        }
+                    ],
+                }
+            ]
+        }
+
+    def test_the_night_rate_lands_on_the_slot_in_euros(self):
+        cards = normalize_search_results(self._hotel(originalPriceEuro=7670))
+        # Euros with cents, not the raw 7670: the widget compares it against a
+        # price it parsed as 69, so cents here would read as a €7 670 night.
+        assert cards[0]["timeslots"] == [
+            {"start": "10:00", "end": "15:00", "original_price": 76.70}
+        ]
+
+    def test_no_night_rate_leaves_the_slot_untouched(self):
+        cards = normalize_search_results(self._hotel())
+        assert cards[0]["timeslots"] == [{"start": "10:00", "end": "15:00"}]
+
+    def test_a_night_rate_not_above_the_day_rate_makes_no_claim(self):
+        for value in (6900, 6000):
+            cards = normalize_search_results(self._hotel(originalPriceEuro=value))
+            assert "original_price" not in cards[0]["timeslots"][0]

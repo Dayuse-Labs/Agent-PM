@@ -1054,3 +1054,13 @@
     transform: translateY(-2px);
     box-shadow: 0 4px 12px rgba(33, 150, 243, 0.3);
 }
+
+/* Hotel-level perks (S-CX8): informational, so neutral ink rather than the
+   teal reserved for the cancellation promise — one is a fact about the hotel,
+   the other is a commitment we make to the guest. */
+.booking-card__trust-item--neutral {
+    color: var(--fg-muted);
+    font-weight: var(--fw-medium);
+}
+
+.booking-card__trust-item--neutral svg { color: var(--dy-success); }
