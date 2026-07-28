@@ -165,6 +165,16 @@
     gap: var(--space-2);
 }
 
+/* S-CX8: "from" above the price. Deliberately small and muted — it qualifies
+   the number without competing with it, so the price keeps its hierarchy. */
+.price-from-label {
+    font-size: var(--fs-xs);
+    font-weight: var(--fw-semi);
+    color: var(--fg-muted);
+    line-height: 1.2;
+    margin-bottom: 1px;
+}
+
 .current-price {
     font-family: var(--font-display);
     font-size: var(--fs-2xl);
@@ -694,6 +704,198 @@
     font-weight: 600;
     color: #292935;
     font-variant-numeric: tabular-nums;
+}
+
+/* ===== RATE PLAN SELECTOR (S-CX8) =====
+   The formulas of the chosen day, between the hotel title and the facts grid.
+   Rows stay OUTLINED and the selected one warms up — the gradient remains
+   reserved for the single CTA that leaves for the booking tunnel, so the card
+   never shows two things competing to look like the departure. */
+.booking-card__plans {
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+}
+
+.booking-card__plans-label {
+    font-size: 10px;
+    letter-spacing: 0.08em;
+    text-transform: uppercase;
+    color: #8e8e93;
+}
+
+.booking-card__plan {
+    box-sizing: border-box;
+    display: flex;
+    align-items: flex-start;
+    gap: 10px;
+    width: 100%;
+    text-align: left;
+    background: #fff;
+    border: 1.5px solid #eaeaeb;
+    border-radius: 14px;
+    padding: 11px 12px;
+    cursor: pointer;
+    font-family: inherit;
+    transition: border-color var(--dur-fast, 120ms) var(--ease-out, ease),
+                background var(--dur-fast, 120ms) var(--ease-out, ease);
+}
+
+.booking-card__plan:hover { border-color: #d4d4d7; }
+
+.booking-card__plan.is-selected {
+    border-color: #FFAF36;
+    background: #fffaec;
+}
+
+.booking-card__plan:focus-visible {
+    outline: 2px solid #120223;
+    outline-offset: 2px;
+}
+
+/* Radio affordance drawn in CSS: it must read as "one of these" before the
+   copy is read, and an <input> would need a name/id scheme per card. */
+.booking-card__plan-radio {
+    flex-shrink: 0;
+    width: 16px;
+    height: 16px;
+    margin-top: 2px;
+    border: 1.5px solid #b9b3c4;
+    border-radius: 50%;
+    background: #fff;
+    position: relative;
+}
+
+.booking-card__plan.is-selected .booking-card__plan-radio { border-color: #f59e0b; }
+
+.booking-card__plan.is-selected .booking-card__plan-radio::after {
+    content: '';
+    position: absolute;
+    inset: 3px;
+    border-radius: 50%;
+    background: linear-gradient(62deg, #FFAF36 0%, #FFC536 100%);
+}
+
+.booking-card__plan-main {
+    flex: 1;
+    min-width: 0;
+    display: flex;
+    flex-direction: column;
+    gap: 5px;
+}
+
+.booking-card__plan-name {
+    font-size: 13.5px;
+    font-weight: 700;
+    color: #292935;
+    line-height: 1.25;
+}
+
+.booking-card__plan-room {
+    font-size: 11.5px;
+    color: #8e8e93;
+    margin-top: -3px;
+}
+
+.booking-card__plan-meta {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 5px;
+    align-items: center;
+}
+
+.booking-card__plan-slot {
+    display: inline-flex;
+    align-items: center;
+    gap: 4px;
+    padding: 3px 8px;
+    border: 1px solid #BFE0F0;
+    border-radius: var(--radius-full);
+    background: #EAF5FA;
+    color: var(--dy-blue-sky);
+    font-size: 11px;
+    font-weight: 600;
+    white-space: nowrap;
+    font-variant-numeric: tabular-nums;
+}
+
+.booking-card__plan-slot svg { width: 10px; height: 10px; }
+
+.booking-card__plan-addons {
+    display: flex;
+    flex-direction: column;
+    gap: 2px;
+}
+
+.booking-card__plan-addon {
+    display: flex;
+    align-items: center;
+    gap: 5px;
+    font-size: 11.5px;
+    font-weight: 500;
+    color: #292935;
+}
+
+.booking-card__plan-addon svg {
+    width: 11px;
+    height: 11px;
+    flex-shrink: 0;
+    color: #2F8F8F;
+}
+
+.booking-card__plan-prices {
+    flex-shrink: 0;
+    display: flex;
+    flex-direction: column;
+    align-items: flex-end;
+    gap: 2px;
+}
+
+.booking-card__plan-amount {
+    font-family: var(--font-display);
+    font-size: 15px;
+    font-weight: var(--fw-black);
+    color: var(--fg-brand);
+    font-variant-numeric: tabular-nums;
+    white-space: nowrap;
+}
+
+.booking-card__plan-orig {
+    font-size: 10.5px;
+    color: #8e8e93;
+    text-decoration: line-through;
+    white-space: nowrap;
+}
+
+.booking-card__plan-disc {
+    background: var(--dy-evening-blue);
+    color: var(--fg-inverse);
+    font-size: 9.5px;
+    font-weight: var(--fw-bold);
+    padding: 2px 6px;
+    border-radius: var(--radius-full);
+}
+
+/* ===== REASSURANCE (product promise, not offer data) ===== */
+.booking-card__trust {
+    display: flex;
+    flex-direction: column;
+    gap: 6px;
+}
+
+.booking-card__trust-item {
+    display: flex;
+    align-items: center;
+    gap: 7px;
+    font-size: 12px;
+    font-weight: 600;
+    color: #2F8F8F;
+}
+
+.booking-card__trust-item svg {
+    width: 14px;
+    height: 14px;
+    flex-shrink: 0;
 }
 
 .booking-card__pricerow {

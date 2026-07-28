@@ -444,6 +444,146 @@ def _best_offer(offers: list[Any], date: str | None = None) -> dict[str, Any] | 
     return min(priced, key=lambda o: o["priceEuro"]) if priced else pool[0]
 
 
+# S-CX8: how many formulas one booking card may offer. A cap, not a page size:
+# each plan costs its own `generate_booking_link` round-trip (they run
+# concurrently, but they share the ONE `_INLINE_MCP_TIMEOUT` budget), and a list
+# past ~6 rows stops being a choice and becomes a catalogue. Plans are sorted
+# cheapest-first before the cut, so what falls off the end is always the
+# priciest — never the offer the user was shown.
+_MAX_RATE_PLANS = 6
+
+
+def _rate_plan_view(offer: dict[str, Any]) -> dict[str, Any] | None:
+    """S-CX8: one MCP offer as a display plan (no link yet — that costs a
+    round-trip, added later only for the plans that survive the cut).
+
+    `offer_id` and `date` are REQUIRED — together they are exactly what
+    `generate_booking_link` books, so an offer missing either cannot be offered
+    as a choice at all. Everything else is only-when-present: the three
+    descriptive fields (`ratePlanName`, `roomType`, `addonsIncluded`) are
+    REQUESTED from MCP_B2C but not exposed yet (see
+    reports/PROMPT-MCP-B2C-RATEPLANS.md), so this must produce a usable row
+    from price + slot alone, and gain the labels the day they appear rather
+    than needing a second implementation."""
+    offer_id = offer.get("ratePlanUuid")
+    offer_date = offer.get("availabilityDate")
+    if not (isinstance(offer_id, str) and offer_id.strip()):
+        return None
+    if not (isinstance(offer_date, str) and offer_date.strip()):
+        return None
+    # `date` rides on each plan so building its tunnel link needs no outside
+    # context. All plans on one card share it by construction
+    # (`_day_rate_plans` filters to a single day); the card's own top-level
+    # `date` is the selected plan's.
+    plan: dict[str, Any] = {"offer_id": offer_id.strip(), "date": offer_date.strip()}
+    start = _hhmm(offer.get("startHour"), offer.get("startMinute"))
+    end = _hhmm(offer.get("endHour"), offer.get("endMinute"))
+    if start and end:
+        plan["start_time"] = start
+        plan["end_time"] = end
+    price = _format_price_eur_cents(offer.get("priceEuro"))
+    if price:
+        plan["price"] = price
+    cents = _price_eur_cents(offer.get("priceEuro"))
+    if cents is not None:
+        plan["price_eur_cents"] = cents
+    # `offerType` is the formula's KIND, and the field that actually tells two
+    # plans of one hotel apart. Live-probed 2026-07-28 over 4 596 real offers
+    # (51 multi-plan hotels): a closed 5-value enum — dayuse.day 72 %,
+    # dayuse.late_break 13 %, dayuse.early 11 %, dayuse.dayuse_pm 3 %,
+    # dayuse.dayuse_am 0.7 % — passed through RAW for the widget's own localized
+    # table (7 languages), never rendered as-is.
+    #
+    # It is preferred over `ratePlanName` on evidence, not taste: in the prod
+    # catalogue snapshot, 2 829 of 5 591 multi-plan hotels (51 %) give EVERY
+    # plan the same `rate_plan_name`, so titling rows with it would show three
+    # rows all called "Standard Double Room" — and those names are free text in
+    # whatever language the hotelier typed ("Camera doppia standard",
+    # "Standard-Doppelzimmer").
+    offer_type = offer.get("offerType")
+    if isinstance(offer_type, str) and offer_type.strip():
+        plan["offer_type"] = offer_type.strip()
+    # `ratePlanName` is the ROOM's name, not the formula's (see above). Kept for
+    # the widget's last-resort title cascade, never as the primary label.
+    name = offer.get("ratePlanName")
+    if isinstance(name, str) and name.strip():
+        plan["name"] = name.strip()
+    # `bedding`/`capacity` are the honest stand-in for "room type": `room_type`
+    # is NULL on all 22 177 rows of the prod snapshot, while these two are
+    # populated on every probed offer (bedding: double / double_king /
+    # double_queen / twin_* / single; capacity: 2 on 92 %). Raw enum again —
+    # the widget owns the wording.
+    bedding = offer.get("bedding")
+    if isinstance(bedding, str) and bedding.strip():
+        plan["bedding"] = bedding.strip()
+    capacity = offer.get("capacity")
+    if isinstance(capacity, int) and capacity > 0:
+        plan["capacity"] = capacity
+    room_type = offer.get("roomType")
+    if isinstance(room_type, str) and room_type.strip():
+        plan["room_type"] = room_type.strip()
+    addons = [
+        item.strip()
+        for item in (offer.get("addonsIncluded") or [])
+        if isinstance(item, str) and item.strip()
+    ]
+    if addons:
+        plan["addons"] = addons
+    # The night rate this day-use price undercuts. `discount_pct` is computed
+    # HERE rather than in the widget so the "-53 %" claim is covered by a test:
+    # a discount is a claim, and claims need a guard. Both keys stay absent
+    # unless the night rate is a real, strictly higher price than the day rate —
+    # a "-0 %" or negative badge would be worse than none.
+    original_cents = _price_eur_cents(offer.get("originalPriceEuro"))
+    if original_cents is not None and cents is not None and original_cents > cents > 0:
+        plan["original_price"] = _format_price_eur_cents(original_cents)
+        plan["discount_pct"] = round((original_cents - cents) / original_cents * 100)
+    return plan
+
+
+def _day_rate_plans(offers: list[Any], date: str | None) -> list[dict[str, Any]]:
+    """S-CX8: every bookable formula ON ONE DAY, cheapest first, deduped by
+    offer id, capped at `_MAX_RATE_PLANS`.
+
+    Same one-day restriction as `_best_offer`, and for the same live-probed
+    reason: `get_hotel_details` without a date returns EVERY upcoming offer (94
+    across 32 days for hotel 22293), so an unscoped list would mix next
+    Tuesday's formulas into today's choices. Plans without a price sort last
+    (still bookable, just not comparable)."""
+    pool = [o for o in offers if isinstance(o, dict)]
+    target = date or min(
+        (o["availabilityDate"] for o in pool if o.get("availabilityDate")), default=None
+    )
+    if target:
+        pool = [o for o in pool if o.get("availabilityDate") == target] or pool
+    plans: list[dict[str, Any]] = []
+    seen: set[str] = set()
+    for offer in pool:
+        plan = _rate_plan_view(offer)
+        if plan is None or plan["offer_id"] in seen:
+            continue
+        seen.add(plan["offer_id"])
+        plans.append(plan)
+    plans.sort(key=lambda p: (p.get("price_eur_cents") is None, p.get("price_eur_cents") or 0))
+    return plans[:_MAX_RATE_PLANS]
+
+
+def _hotel_facts(entry: dict[str, Any] | None) -> dict[str, Any]:
+    """The hotel's own display facts, read off its on-screen shortlist entry —
+    the photo, page link, city, rating and stars a booking card shows around
+    the offer. Never a lookup: a hotel that isn't on screen simply has fewer
+    facts (all None), and `_booking_card` drops the empty rows."""
+    entry = entry or {}
+    return {
+        "image_url": (entry.get("image_urls") or [None])[0],
+        "hotel_url": entry.get("url"),
+        "city": entry.get("city"),
+        "rating": entry.get("rating"),
+        "rating_count": entry.get("rating_count"),
+        "stars": entry.get("stars"),
+    }
+
+
 def _shortlist_entry(hotel_id: int, profile: SessionProfile) -> dict[str, Any] | None:
     """The on-screen shortlist entry for `hotel_id`, or None when that hotel
     isn't on screen."""
@@ -536,7 +676,6 @@ async def _quote_fresh_offer(
                     quoted_price = _format_price_eur_cents(best.get("priceEuro"))
                     start_time = _hhmm(best.get("startHour"), best.get("startMinute"))
                     end_time = _hhmm(best.get("endHour"), best.get("endMinute"))
-                entry = _shortlist_entry(hotel_id, profile) or {}
                 identity = {
                     "hotel_id": hotel_id,
                     "hotel_name": hotel_name,
@@ -546,12 +685,7 @@ async def _quote_fresh_offer(
                     "start_time": start_time,
                     "end_time": end_time,
                     "price": quoted_price,
-                    "image_url": (entry.get("image_urls") or [None])[0],
-                    "hotel_url": entry.get("url"),
-                    "city": entry.get("city"),
-                    "rating": entry.get("rating"),
-                    "rating_count": entry.get("rating_count"),
-                    "stars": entry.get("stars"),
+                    **_hotel_facts(_shortlist_entry(hotel_id, profile)),
                 }
                 args: dict[str, Any] = {
                     "hotelId": hotel_id,
@@ -575,6 +709,106 @@ async def _quote_fresh_offer(
                 return {**identity, "ok": True, "confirmed": False}
     except Exception as exc:  # noqa: BLE001
         return {"ok": False, "error": f"generate_booking_link failed: {type(exc).__name__}"}
+
+
+async def _quote_picked_rate_plans(hotel_id: int, profile: SessionProfile) -> dict[str, Any]:
+    """S-CX8: the pick turn's card, offering EVERY formula of the chosen day
+    instead of only the cheapest one.
+
+    Why this only exists on the pick path: a pick is the one moment the user has
+    named a hotel but not yet an offer, so it is the only turn where showing
+    siblings is a choice rather than a change of subject. The typed-confirmation
+    path (`_confirm_pending_offer`) confirms an offer already quoted and must
+    keep reusing it verbatim.
+
+    Which plan is SELECTED by default — the one the shortlist card was priced
+    on, NOT the cheapest of the day. The card and the carousel must agree: a
+    user who clicked a €87 card and landed on a €70 selection would read it as a
+    bait, even though €70 is the better deal. The cheapest is only the fallback
+    when the shortlist carries no offer identity (`_day_rate_plans` already
+    sorted cheapest-first, so that is `plans[0]`).
+
+    Returns `{"ok": False, ...}` to mean "fall back to the single-offer path" —
+    every degradation (details call down, no priced offer, the selected plan's
+    own link failing) lands there, so this can only ever ADD a choice, never
+    replace the working card with a broken one."""
+    try:
+        async with asyncio.timeout(_INLINE_MCP_TIMEOUT):
+            async with _mcp_session() as session:
+                args_details: dict[str, Any] = {"hotelId": hotel_id}
+                if profile.date:
+                    args_details["date"] = profile.date
+                details = await _call_tool(session, "get_hotel_details", args_details)
+                if not details["ok"]:
+                    return details
+                plans = _day_rate_plans(details["data"].get("offers") or [], profile.date)
+                if not plans:
+                    return {"ok": False, "error": "no bookable offer for this hotel"}
+
+                shown = _shortlist_offer(hotel_id, profile)
+                shown_id = shown.get("offer_id") if shown else None
+                selected = next((p for p in plans if p["offer_id"] == shown_id), plans[0])
+
+                # Concurrent on ONE session on purpose: the plans share a single
+                # `_INLINE_MCP_TIMEOUT` budget, so N sequential link calls would
+                # spend it N times over. Safe by construction — the MCP SDK's
+                # `BaseSession.send_request` stamps each request with a
+                # monotonic id and awaits its own response stream
+                # (`_response_streams[request_id]`), so responses cannot be
+                # crossed; the id is assigned with no await in between.
+                links = await asyncio.gather(
+                    *(
+                        _call_tool(
+                            session,
+                            "generate_booking_link",
+                            {
+                                "hotelId": hotel_id,
+                                "date": plan["date"],
+                                "ratePlanUuid": plan["offer_id"],
+                                "confirmed": True,
+                            },
+                        )
+                        for plan in plans
+                    )
+                )
+                # A plan whose link failed is DROPPED: a row the user can select
+                # but not book is worse than a row that was never offered.
+                bookable: list[dict[str, Any]] = []
+                for plan, link_result in zip(plans, links, strict=True):
+                    if not link_result["ok"]:
+                        continue
+                    url = ((link_result["data"] or {}).get("link") or {}).get("url")
+                    if url:
+                        bookable.append({**plan, "url": url})
+                selected_bookable = next(
+                    (p for p in bookable if p["offer_id"] == selected["offer_id"]), None
+                )
+                if selected_bookable is None:
+                    return {"ok": False, "error": "selected offer has no bookable link"}
+
+                entry = _shortlist_entry(hotel_id, profile)
+                identity: dict[str, Any] = {
+                    "ok": True,
+                    "confirmed": True,
+                    "hotel_id": hotel_id,
+                    "hotel_name": str(entry.get("name")) if entry else None,
+                    "url": selected_bookable["url"],
+                    "date": selected_bookable["date"],
+                    "start_time": selected_bookable.get("start_time"),
+                    "end_time": selected_bookable.get("end_time"),
+                    "price": selected_bookable.get("price"),
+                    **_hotel_facts(entry),
+                }
+                # One formula is not a choice: the card stays exactly today's.
+                if len(bookable) > 1:
+                    identity["rate_plans"] = [
+                        {**p, "selected": p["offer_id"] == selected_bookable["offer_id"]}
+                        for p in bookable
+                    ]
+                profile.pending_booking = None  # the card carries its own links
+                return identity
+    except Exception as exc:  # noqa: BLE001 — degrade to the single-offer path
+        return {"ok": False, "error": f"rate plan quote failed: {type(exc).__name__}"}
 
 
 async def generate_booking_link(
@@ -607,6 +841,10 @@ async def generate_booking_link(
     Flow:
       1. `picked_hotel_id` set -> resolve the offer and return it WITH the
          link (`authorize_link=True`), leaving no pending booking behind.
+         S-CX8: tried FIRST as a multi-formula card (`_quote_picked_rate_plans`
+         — every rate plan of that day, each with its own link, the shortlist's
+         offer pre-selected); any degradation falls through to the single-offer
+         path below, which is unchanged.
       2. No pending offer (or `user_confirmed` False) -> quotes
          confirmed=false (`_quote_fresh_offer`), resolving the hotel from
          `hotel_reference`. Records the offer identity in
@@ -633,6 +871,14 @@ async def generate_booking_link(
             if not result["ok"]:
                 profile.pending_booking = pending  # confirmation failed: keep the offer quotable
             return result
+
+    if picked_hotel_id is not None:
+        # S-CX8: the pick turn earns the formula selector. Not-ok here means
+        # "degrade", never "fail the turn" — the single-offer path below is the
+        # same code that has always served this case.
+        multi = await _quote_picked_rate_plans(picked_hotel_id, profile)
+        if multi.get("ok"):
+            return multi
 
     return await _quote_fresh_offer(
         hotel_reference, profile, picked_hotel_id, authorize_link=picked_hotel_id is not None

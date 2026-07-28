@@ -2,6 +2,79 @@
 
 État du chantier pour reprise en session fraîche. **Lire en entier avant d'agir ; ne pas reconstruire ce qui existe.** Mettre à jour en fin de CHAQUE session (bloc daté en tête).
 
+## 🧾 Addendum 2026-07-28 (branche `scx8-rateplan-selector`) — S-CX8 : sélecteur de rateplan + « à partir de »
+
+**Demande Fabien** : (1) la carte résultat doit dire « à partir de » sur son prix (c'est le
+rateplan le moins cher, présenté comme LE prix) ; (2) après un pick, présenter les différentes
+formules avec prestations/prix et un lien tunnel par formule. Artefact de 3 propositions publié
+(`claude.ai/code/artifact/cf5457e0-5da8-4bba-a774-df30e19c58a0`) → **option A retenue** (sélecteur
+intégré à la booking card), 4 points client cochés : prestations, type de chambre, remise vs nuit,
+annulation gratuite.
+
+**Fait (gates verts : pytest 1091 ok / ruff / mypy / guardrails)** :
+- **`inline_tools.py`** : `_rate_plan_view` + `_day_rate_plans` (toutes les formules d'UN jour,
+  dédupées, prix croissant, cap `_MAX_RATE_PLANS = 6`) et `_quote_picked_rate_plans` — appelé
+  UNIQUEMENT sur le tour de pick, **liens générés en parallèle** (`asyncio.gather` sur une seule
+  session MCP : le SDK multiplexe par `request_id`, vérifié dans `BaseSession.send_request`).
+  `_hotel_facts` extrait (partagé avec `_quote_fresh_offer`).
+- **Règle centrale** : le plan **présélectionné est celui que la carte du carrousel affichait**
+  (`offer_id` de `last_results`), pas le moins cher du jour — sinon le prix saute entre carrousel
+  et carte, ce qui se lit comme un appât même quand c'est moins cher.
+- **Dégradations, toutes vers le chemin mono-offre existant** : `get_hotel_details` en échec, aucun
+  plan, ou lien du plan sélectionné en échec → `{"ok": False}` → `_quote_fresh_offer` inchangé. Un
+  plan dont le lien échoue est **retiré** de la liste (une ligne sélectionnable non réservable est
+  pire qu'une ligne absente). ≤ 1 plan → pas de clé `rate_plans` du tout.
+- **Widget** : `renderRatePlans` dans `messages.js` (lignes radio, sélection 100 % client-side —
+  les liens sont déjà générés, donc zéro tour de chat), CSS `.booking-card__plan*` dans
+  `hotels.css` (lignes outlined ; le gradient warm reste réservé à l'unique CTA du tunnel),
+  « à partir de » sur la carte résultat + « dès €X » sur les pastilles de pick, 20 clés i18n × 7
+  langues.
+
+**⚠️ Ce que les probes live ont changé dans la conception** (probes : `get_hotel_details` sur
+4 596 offres réelles / 51 hôtels + snapshot catalogue prod 22 177 rate plans) :
+- **`offerType` est le seul vrai différenciateur** — enum fermé (`dayuse.day` 72 %,
+  `late_break` 13 %, `early` 11 %, `dayuse_pm` 3 %, `dayuse_am` 0,7 %), traduit côté widget
+  (« Journée / Soirée / Matinée… »). **Le sélecteur fonctionne donc dès maintenant, sans MCP.**
+- **`rate_plan_name` NE PEUT PAS titrer les lignes** : c'est le nom de la CHAMBRE, en langue libre
+  du partenaire, et **2 829 / 5 591 hôtels multi-formules donnent le même nom à toutes leurs
+  formules** (« Standard Double Room » ×3). Gardé dans le contrat, jamais en titre.
+- **`room_type` est NULL sur 22 177 / 22 177 lignes** → retiré de la demande MCP ; remplacé par
+  `bedding` + `capacity`, peuplés (« Lit double · 2 personnes »).
+- **`addons_included` : 4,6 % de remplissage** → prestations rares. Rendu prêt, aucune dépendance.
+- **`original_price` : 98,8 % en base, absent de MCP** → **seule demande du prompt MCP**
+  (`reports/PROMPT-MCP-B2C-RATEPLANS.md`, réécrit après probes). Corollaire :
+  `computeNightDiscount` (`card.js`) est **du code mort en prod depuis toujours** — aucun chemin
+  AgentB2C ne remplit `original_price`.
+- **64 % des hôtels ont 2+ formules** → concerne la majorité du parc.
+
+**Vérifié** : chemin de pick complet **en live contre le vrai MCP** (hôtel 22293 → `ok: True`,
+3 formules, 3 liens tunnel réels générés en parallèle). Composant rendu **hors navigateur puis
+screenshoté** en headless Chrome, 23 assertions dont un clic réel simulé (sélection → href, label
+CTA, créneau, prix, `data-booking-url`) et le passage par le sanitizer `sanitizeTrustedHtml`.
+**Non vérifié** : tour e2e via les 3 services (`smoke_e2e.py` non relancé — services locaux de
+Fabien laissés en place, pas redémarrés).
+
+**Un test amendé, délibérément** : `test_spine_profile.py::test_the_cheapest_is_picked_from_the_
+screen_never_re_searched` exigeait l'ABSENCE de `get_hotel_details` sur un pick (S-CX5 : réutiliser
+l'offre du carrousel, zéro aller-retour). Les formules sœurs n'existent nulle part en état de
+session → un lookup devient inévitable. Ce que la décision achetait est toujours asserté : aucune
+2e recherche, et l'offre réservée reste celle de la carte. Alternative écartée (porter tous les
+rate plans dans le payload de recherche) : taxe le tour search critique en TTFT pour une donnée
+que seul un pick consomme, et le filtre de fenêtre de la feuille afficherait une liste tronquée.
+
+**Corrigé au passage** (exposé par le rendu réel) : `formatCardDate`/`formatRating` passaient
+`undefined` en locale → **locale de l'OS et non langue du chat** : carte fr affichant « Wed, Jul
+29 » et « 4.6/5 ». Corrigé en `getLanguage()` (le commentaire de `formatRating` promettait déjà
+« 4,7 in fr »).
+
+**Trouvé, NON corrigé** : `renderTimeslots` (`card.js`) affiche les créneaux en **AM/PM dans les 7
+langues** (« 10:30am – 4pm » sur une carte fr, alors que la booking card montre « 10:30 – 16:00 »).
+Faux pour fr/es/it/de/nl. Correction = décision produit + touche tout le carrousel → session dédiée.
+
+**Reste** : lancer le prompt MCP (`originalPriceEuro`) ; décider du format horaire ; e2e via les 3
+services ; éventuellement exposer l'enum `offerType` exhaustif (mon échantillon = 51 hôtels, une
+valeur inconnue dégrade vers le créneau).
+
 ## 🎫 Addendum 2026-07-28 (soir, PR #47 mergée + déployée) — SCX6 : la confirmation ÉCRITE atteint la gate R9
 
 **Repro Fabien post-rollout OBS1** : « oui je confirme » répondu par le template d'accueil — le lien

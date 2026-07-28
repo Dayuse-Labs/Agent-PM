@@ -899,3 +899,329 @@ class TestExplicitPickAuthorizesTheLink:
         # It resolved the PICKED hotel, never the stale pending one.
         assert result["url"].endswith("offerId=offer-villa")
         assert result["hotel_name"] == "Villa Paris Orly"
+
+
+class TestRatePlanSelector:
+    """S-CX8 (decided with Fabien 2026-07-28, option A of the proposal
+    artefact): on the turn a hotel is PICKED, the card offers every formula of
+    that day — each with its own tunnel link — instead of only the cheapest.
+
+    The invariant it must not break is S-CX5's: what the user saw is what they
+    book. Here that means the DEFAULT selection is the offer the shortlist card
+    was priced on, never "whatever is cheapest today".
+    """
+
+    # €87 is what the carousel showed — deliberately NOT the cheapest formula
+    # of the day, so a selector that defaulted to the cheapest would be caught.
+    SHOWN = [
+        {
+            "hotel_id": 22293,
+            "name": "Villa Paris Orly",
+            "offer_id": "rp-spa",
+            "offer_date": "2026-07-28",
+            "price": "€87.00",
+            "price_eur_cents": 8700,
+            "start_time": "11:00",
+            "end_time": "19:00",
+            "image_urls": ["https://static.dayuse.com/villa.jpg"],
+            "url": "https://www.dayuse.fr/hotels/france/villa-paris-orly",
+        }
+    ]
+
+    OFFERS = [
+        {
+            "ratePlanUuid": "rp-spa",
+            "ratePlanId": 2,
+            "availabilityDate": "2026-07-28",
+            "startHour": 11,
+            "startMinute": 0,
+            "endHour": 19,
+            "endMinute": 0,
+            "priceEuro": 8700,
+            "offerType": "dayuse.day",
+            "bedding": "double_king",
+            "capacity": 2,
+            "ratePlanName": "Day Room + Spa",
+            "roomType": "Chambre Deluxe",
+            "addonsIncluded": ["Accès spa & piscine", "Peignoirs & chaussons"],
+            "originalPriceEuro": 21900,
+        },
+        {
+            "ratePlanUuid": "rp-day",
+            "ratePlanId": 1,
+            "availabilityDate": "2026-07-28",
+            "startHour": 10,
+            "startMinute": 30,
+            "endHour": 16,
+            "endMinute": 0,
+            "priceEuro": 5400,
+            "offerType": "dayuse.early",
+            "bedding": "double",
+            "capacity": 2,
+            "ratePlanName": "Day Room",
+            "roomType": "Chambre Classique",
+        },
+        {
+            "ratePlanUuid": "rp-suite",
+            "ratePlanId": 3,
+            "availabilityDate": "2026-07-28",
+            "startHour": 11,
+            "endHour": 19,
+            "priceEuro": 18900,
+            "ratePlanName": "Suite Évasion",
+        },
+        # Another day entirely: get_hotel_details returns every upcoming offer,
+        # and mixing next week's formulas into today's choices is the bug this
+        # guards (same live-probed reason as _best_offer's one-day rule).
+        {
+            "ratePlanUuid": "rp-nextweek",
+            "ratePlanId": 4,
+            "availabilityDate": "2026-08-04",
+            "startHour": 10,
+            "endHour": 16,
+            "priceEuro": 3900,
+            "ratePlanName": "Promo Août",
+        },
+    ]
+
+    def _mcp(self, monkeypatch, offers=None, link=None):
+        return _install(
+            monkeypatch,
+            {
+                "get_hotel_details": FakeResult(
+                    {"hotel": {"hotelId": 22293}, "offers": self.OFFERS if offers is None else offers}
+                ),
+                "generate_booking_link": link
+                or (
+                    lambda args: FakeResult(
+                        {"link": {"url": f"https://www.dayuse.fr/tunnel?offerId={args['ratePlanUuid']}"}}
+                    )
+                ),
+            },
+        )
+
+    def _pick(self, profile):
+        return _run(
+            inline_tools.generate_booking_link(
+                "le moins cher", profile, user_confirmed=False, picked_hotel_id=22293
+            )
+        )
+
+    def test_the_day_s_formulas_come_back_cheapest_first_each_with_its_link(self, monkeypatch):
+        self._mcp(monkeypatch)
+        profile = SessionProfile(last_results=self.SHOWN, date="2026-07-28")
+        result = self._pick(profile)
+
+        assert result["ok"] is True and result["confirmed"] is True
+        plans = result["rate_plans"]
+        assert [p["offer_id"] for p in plans] == ["rp-day", "rp-spa", "rp-suite"]
+        assert [p["price"] for p in plans] == ["€54.00", "€87.00", "€189.00"]
+        # Each row books ITS OWN formula — the whole point of the selector.
+        assert [p["url"] for p in plans] == [
+            "https://www.dayuse.fr/tunnel?offerId=rp-day",
+            "https://www.dayuse.fr/tunnel?offerId=rp-spa",
+            "https://www.dayuse.fr/tunnel?offerId=rp-suite",
+        ]
+        assert all(p["date"] == "2026-07-28" for p in plans)
+        # Nothing left dangling for a later "yes" to re-confirm.
+        assert profile.pending_booking is None
+
+    def test_the_default_selection_is_the_offer_the_carousel_showed(self, monkeypatch):
+        """NOT the cheapest: a user who clicked a €87 card must not land on a
+        €54 selection — the better deal still reads as a bait-and-switch."""
+        self._mcp(monkeypatch)
+        profile = SessionProfile(last_results=self.SHOWN, date="2026-07-28")
+        result = self._pick(profile)
+
+        selected = [p for p in result["rate_plans"] if p["selected"]]
+        assert [p["offer_id"] for p in selected] == ["rp-spa"]
+        # And the card's own top-level facts describe that same formula, so a
+        # widget ignoring `rate_plans` still shows what the link books.
+        assert result["price"] == "€87.00"
+        assert (result["start_time"], result["end_time"]) == ("11:00", "19:00")
+        assert result["url"].endswith("offerId=rp-spa")
+
+    def test_without_a_shown_offer_the_cheapest_is_selected(self, monkeypatch):
+        """A hotel picked off a card that carried no offer identity has nothing
+        to stay faithful to, so the cheapest formula is the honest default."""
+        self._mcp(monkeypatch)
+        profile = SessionProfile(
+            last_results=[{"hotel_id": 22293, "name": "Villa Paris Orly"}], date="2026-07-28"
+        )
+        result = self._pick(profile)
+
+        selected = next(p for p in result["rate_plans"] if p["selected"])
+        assert selected["offer_id"] == "rp-day"
+        assert result["price"] == "€54.00"
+
+    def test_another_day_s_formulas_are_never_offered(self, monkeypatch):
+        self._mcp(monkeypatch)
+        profile = SessionProfile(last_results=self.SHOWN, date="2026-07-28")
+        result = self._pick(profile)
+        assert "rp-nextweek" not in {p["offer_id"] for p in result["rate_plans"]}
+
+    def test_the_descriptive_fields_ride_through_when_mcp_sends_them(self, monkeypatch):
+        """`ratePlanName`/`roomType`/`addonsIncluded` are REQUESTED from MCP_B2C
+        and not exposed yet (reports/PROMPT-MCP-B2C-RATEPLANS.md) — this pins
+        the mapping so the day they appear, no second implementation is needed."""
+        self._mcp(monkeypatch)
+        profile = SessionProfile(last_results=self.SHOWN, date="2026-07-28")
+        plans = {p["offer_id"]: p for p in self._pick(profile)["rate_plans"]}
+
+        assert plans["rp-spa"]["name"] == "Day Room + Spa"
+        assert plans["rp-spa"]["room_type"] == "Chambre Deluxe"
+        # The fields that actually differentiate formulas today (live-probed):
+        # offerType is a closed enum, bedding/capacity stand in for the NULL
+        # room_type column. Passed through RAW — the widget owns the wording.
+        assert plans["rp-spa"]["offer_type"] == "dayuse.day"
+        assert plans["rp-day"]["offer_type"] == "dayuse.early"
+        assert (plans["rp-spa"]["bedding"], plans["rp-spa"]["capacity"]) == ("double_king", 2)
+        # rp-suite carries none of them -> keys absent, never guessed.
+        assert "offer_type" not in plans["rp-suite"]
+        assert "bedding" not in plans["rp-suite"]
+        assert plans["rp-spa"]["addons"] == ["Accès spa & piscine", "Peignoirs & chaussons"]
+        # Half-hour starts survive (S-G6): 10:30, not 10:00.
+        assert plans["rp-day"]["start_time"] == "10:30"
+        # Absent stays ABSENT — never a "Chambre standard" placeholder.
+        assert "addons" not in plans["rp-day"]
+        assert "room_type" not in plans["rp-suite"]
+
+    def test_the_night_rate_discount_is_computed_only_when_it_is_real(self, monkeypatch):
+        """A discount is a claim, so it is computed here where a test covers it
+        — and both keys stay absent unless the night rate really is higher."""
+        self._mcp(monkeypatch)
+        profile = SessionProfile(last_results=self.SHOWN, date="2026-07-28")
+        plans = {p["offer_id"]: p for p in self._pick(profile)["rate_plans"]}
+
+        assert plans["rp-spa"]["original_price"] == "€219.00"
+        assert plans["rp-spa"]["discount_pct"] == 60  # (21900-8700)/21900
+        # No originalPriceEuro at all -> no claim.
+        assert "discount_pct" not in plans["rp-day"]
+
+    def test_a_night_rate_below_the_day_rate_makes_no_badge(self, monkeypatch):
+        self._mcp(
+            monkeypatch,
+            offers=[
+                {**self.OFFERS[0], "originalPriceEuro": 8000},
+                self.OFFERS[1],
+            ],
+        )
+        profile = SessionProfile(last_results=self.SHOWN, date="2026-07-28")
+        plans = {p["offer_id"]: p for p in self._pick(profile)["rate_plans"]}
+        assert "discount_pct" not in plans["rp-spa"]
+        assert "original_price" not in plans["rp-spa"]
+
+    def test_a_formula_whose_link_fails_is_dropped_not_shown_unbookable(self, monkeypatch):
+        self._mcp(
+            monkeypatch,
+            link=lambda args: (
+                FakeResult(None, is_error=True)
+                if args["ratePlanUuid"] == "rp-suite"
+                else FakeResult({"link": {"url": f"https://x/?o={args['ratePlanUuid']}"}})
+            ),
+        )
+        profile = SessionProfile(last_results=self.SHOWN, date="2026-07-28")
+        result = self._pick(profile)
+        assert [p["offer_id"] for p in result["rate_plans"]] == ["rp-day", "rp-spa"]
+
+    def test_when_the_selected_formula_has_no_link_the_whole_card_degrades(self, monkeypatch):
+        """Rather than silently re-pointing the card at another formula: the
+        single-offer path is what has always served this case."""
+        session = self._mcp(
+            monkeypatch,
+            link=lambda args: (
+                FakeResult(None, is_error=True)
+                if args["ratePlanUuid"] == "rp-spa" and args.get("confirmed")
+                else FakeResult({"link": {"url": f"https://x/?o={args['ratePlanUuid']}"}})
+            ),
+        )
+        profile = SessionProfile(last_results=self.SHOWN, date="2026-07-28")
+        result = self._pick(profile)
+        # Degraded to the pre-S-CX8 behaviour: no selector, and it still failed
+        # honestly on the same offer rather than booking a different one.
+        assert "rate_plans" not in result
+        assert result["ok"] is False
+        assert "rp-day" not in str(session.calls[-1])
+
+    def test_a_single_formula_leaves_the_card_exactly_as_it_was(self, monkeypatch):
+        """One formula is not a choice — no selector, no empty list, no key."""
+        self._mcp(monkeypatch, offers=[self.OFFERS[0]])
+        profile = SessionProfile(last_results=self.SHOWN, date="2026-07-28")
+        result = self._pick(profile)
+        assert result["ok"] is True and "rate_plans" not in result
+        assert result["url"].endswith("offerId=rp-spa")
+        assert result["price"] == "€87.00"
+
+    def test_more_formulas_than_the_cap_keeps_the_cheapest_ones(self, monkeypatch):
+        many = [
+            {
+                "ratePlanUuid": f"rp-{i}",
+                "availabilityDate": "2026-07-28",
+                "startHour": 10,
+                "endHour": 16,
+                "priceEuro": 1000 * (10 - i),  # rp-0 dearest, rp-9 cheapest
+            }
+            for i in range(10)
+        ]
+        self._mcp(monkeypatch, offers=many)
+        profile = SessionProfile(last_results=[{"hotel_id": 22293, "name": "V"}], date="2026-07-28")
+        plans = self._pick(profile)["rate_plans"]
+        assert len(plans) == inline_tools._MAX_RATE_PLANS
+        assert [p["offer_id"] for p in plans] == ["rp-9", "rp-8", "rp-7", "rp-6", "rp-5", "rp-4"]
+
+    def test_an_offer_without_an_id_or_a_date_is_not_offerable(self, monkeypatch):
+        """Both are exactly what generate_booking_link books."""
+        self._mcp(
+            monkeypatch,
+            offers=[
+                self.OFFERS[0],
+                self.OFFERS[1],
+                {"availabilityDate": "2026-07-28", "priceEuro": 100},  # no uuid
+                {"ratePlanUuid": "rp-nodate", "priceEuro": 100},  # no date
+            ],
+        )
+        profile = SessionProfile(last_results=self.SHOWN, date="2026-07-28")
+        ids = {p["offer_id"] for p in self._pick(profile)["rate_plans"]}
+        assert ids == {"rp-day", "rp-spa"}
+
+    def test_a_details_failure_still_produces_the_single_offer_card(self, monkeypatch):
+        """The degradation that matters most: MCP details down must not cost the
+        user their booking link, only the choice of formula."""
+        _install(
+            monkeypatch,
+            {
+                "get_hotel_details": FakeResult(None, is_error=True),
+                "generate_booking_link": lambda args: FakeResult(
+                    {"link": {"url": f"https://www.dayuse.fr/tunnel?offerId={args['ratePlanUuid']}"}}
+                ),
+            },
+        )
+        profile = SessionProfile(last_results=self.SHOWN, date="2026-07-28")
+        result = self._pick(profile)
+        assert result["ok"] is True and result["confirmed"] is True
+        assert "rate_plans" not in result
+        # The shortlist's own offer, reused verbatim (S-CX5 fallback intact).
+        assert result["url"].endswith("offerId=rp-spa")
+        assert result["price"] == "€87.00"
+
+    def test_the_typed_confirmation_path_never_grows_a_selector(self, monkeypatch):
+        """A "yes" confirms an offer already quoted; re-opening the choice there
+        would re-litigate a decision the user already made."""
+        session = self._mcp(monkeypatch)
+        profile = SessionProfile(
+            last_results=self.SHOWN,
+            date="2026-07-28",
+            pending_booking={
+                "hotel_id": 22293,
+                "hotel_name": "Villa Paris Orly",
+                "date": "2026-07-28",
+                "rate_plan_uuid": "rp-spa",
+                "rate_plan_id": 2,
+                "price": "€87.00",
+            },
+        )
+        result = _run(
+            inline_tools.generate_booking_link("oui je confirme", profile, user_confirmed=True)
+        )
+        assert result["ok"] is True and "rate_plans" not in result
+        assert "get_hotel_details" not in {c[0] for c in session.calls}

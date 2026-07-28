@@ -259,10 +259,17 @@ function pickButtonsHtml(allowedHotelIds = null) {
         if (allowedHotelIds && !allowedHotelIds.has(id)) return '';
         const price = String(pick?.price || '').trim();
         const label = price ? `${name} ${price}` : name;
+        // S-CX8: the pastille says "from €54" — this is the cheapest of the
+        // hotel's formulas, and the booking card will offer pricier ones. The
+        // `label` deliberately keeps the bare price: it becomes the user's own
+        // message in the transcript, which should read like something a person
+        // typed, not like a price tag.
         return `<button class="pick-button" data-action="pick-hotel"
             data-hotel-id="${escapeAttr(id)}"
             data-pick-label="${escapeAttr(label)}">${escapeHtml(name)}${
-            price ? `<span class="pick-button__price">${escapeHtml(price)}</span>` : ''
+            price
+                ? `<span class="pick-button__price">${escapeHtml(t('pick_from_prefix', { price }))}</span>`
+                : ''
         }</button>`;
     }).filter(Boolean).join('');
     if (!buttons) return '';

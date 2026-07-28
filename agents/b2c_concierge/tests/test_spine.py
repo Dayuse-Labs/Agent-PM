@@ -839,6 +839,76 @@ class TestBookingGuardR9:
         # and the widget strips raw URLs itself when a card is present.
         assert "https://www.dayuse.fr/tunnel/booking?offerId=abc" in answer
 
+    def test_the_rate_plans_reach_the_widget_marker(self, scripted, monkeypatch):
+        """S-CX8: the formula selector is only real if the plans survive the
+        whole way out — inline tool -> `_booking_card` -> the `booking` marker
+        the widget reads. Nothing here re-derives them; they ride the same dict
+        the link came from, so card and links cannot disagree."""
+        runner, session = _new_session()
+        scripted('{"family": "booking", "language": "fr"}')
+        plans = [
+            {
+                "offer_id": "rp-day", "url": "https://www.dayuse.fr/tunnel?offerId=rp-day",
+                "date": "2026-07-29", "name": "Day Room", "price": "€54.00",
+                "start_time": "10:30", "end_time": "16:00", "selected": False,
+            },
+            {
+                "offer_id": "rp-spa", "url": "https://www.dayuse.fr/tunnel?offerId=rp-spa",
+                "date": "2026-07-29", "name": "Day Room + Spa", "price": "€87.00",
+                "start_time": "11:00", "end_time": "19:00", "selected": True,
+                "addons": ["Accès spa & piscine"], "original_price": "€219.00",
+                "discount_pct": 60,
+            },
+        ]
+        monkeypatch.setattr(
+            agent_module.inline_tools,
+            "generate_booking_link",
+            _recording_async_result(
+                {
+                    "ok": True, "confirmed": True, "hotel_id": 22293,
+                    "hotel_name": "Villa Paris Orly", "date": "2026-07-29",
+                    "start_time": "11:00", "end_time": "19:00", "price": "€87.00",
+                    "url": "https://www.dayuse.fr/tunnel?offerId=rp-spa",
+                    "rate_plans": plans,
+                }
+            ),
+        )
+
+        events = _drive_in(runner, session.id, "je prends Villa Paris Orly")
+        card = next(
+            m["booking_card"] for m in _marker_payloads(events) if m.get("event") == "booking"
+        )
+        assert card["rate_plans"] == plans
+        # The card's headline facts describe the SELECTED plan, so a widget that
+        # ignores `rate_plans` still states what its single button books.
+        selected = next(p for p in card["rate_plans"] if p["selected"])
+        assert (card["price"], card["url"]) == (selected["price"], selected["url"])
+        assert (card["start_time"], card["end_time"]) == (
+            selected["start_time"], selected["end_time"],
+        )
+
+    def test_a_single_formula_card_carries_no_rate_plans_key(self, scripted, monkeypatch):
+        """Absent, not empty: the widget branches on the key's presence, and an
+        empty list would render a selector label above nothing."""
+        runner, session = _new_session()
+        scripted('{"family": "booking", "language": "fr"}')
+        monkeypatch.setattr(
+            agent_module.inline_tools,
+            "generate_booking_link",
+            _recording_async_result(
+                {
+                    "ok": True, "confirmed": True, "hotel_name": "Villa Paris Orly",
+                    "url": "https://www.dayuse.fr/tunnel?offerId=rp-spa", "price": "€87.00",
+                }
+            ),
+        )
+
+        events = _drive_in(runner, session.id, "je prends Villa Paris Orly")
+        card = next(
+            m["booking_card"] for m in _marker_payloads(events) if m.get("event") == "booking"
+        )
+        assert "rate_plans" not in card
+
     def test_bypass_attempt_on_a_fresh_session_never_produces_a_link(
         self, scripted, caplog, monkeypatch
     ):

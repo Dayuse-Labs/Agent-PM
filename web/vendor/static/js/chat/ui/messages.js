@@ -4,7 +4,7 @@
  */
 
 import { state } from '../state.js';
-import { t } from '../i18n.js';
+import { getLanguage, t } from '../i18n.js';
 import { escapeAttr, escapeHtml, sanitizeDayuseUrl, sanitizeImageUrl } from '../security.js';
 import { parsePrice } from '../hotels/card.js';
 
@@ -306,6 +306,56 @@ function setupCtaTrackingLinks(messageContent) {
     });
 }
 
+/**
+ * S-CX8 — move the card's selection to `row` and re-point everything the choice
+ * governs: the tunnel link, its label, the slot fact and the headline price.
+ *
+ * Scoped to the row's OWN card (`closest('.booking-card')`): a thread can hold
+ * several booking cards, and a global query would repaint all of them.
+ */
+function selectRatePlan(row) {
+    const card = row.closest('.booking-card');
+    if (!card || row.classList.contains('is-selected')) return;
+
+    card.querySelectorAll('.booking-card__plan').forEach(other => {
+        const isTarget = other === row;
+        other.classList.toggle('is-selected', isTarget);
+        other.setAttribute('aria-pressed', isTarget ? 'true' : 'false');
+    });
+
+    // Re-sanitized rather than trusted from the DOM: the attribute passed the
+    // allowlist at render time, but this is the value about to become an href.
+    const url = sanitizeDayuseUrl(String(row.dataset.planUrl || ''));
+    const cta = card.querySelector('.booking-card__cta');
+    if (cta && url) {
+        cta.setAttribute('href', url);
+        cta.dataset.bookingUrl = url;
+    }
+
+    const title = String(row.dataset.planTitle || '');
+    const ctaLabel = cta && cta.querySelector('[data-plan-cta-label="1"]');
+    if (ctaLabel) {
+        ctaLabel.textContent = row.dataset.planNamed === '1' && title
+            ? t('card_book_plan', { plan: title })
+            : t('card_book_cta');
+    }
+
+    const slotTarget = card.querySelector('[data-plan-slot-target="1"]');
+    const slot = String(row.dataset.planSlot || '');
+    if (slotTarget && slot) slotTarget.textContent = slot;
+
+    const priceTarget = card.querySelector('[data-plan-price-target="1"]');
+    const price = String(row.dataset.planPrice || '');
+    if (priceTarget && price) priceTarget.textContent = price;
+
+    emitTrackEvent('rate_plan_select', {
+        hotel_id: String(cta?.dataset.hotelId || ''),
+        plan: title.slice(0, 80),
+        price,
+        url,
+    });
+}
+
 function emitTrackEvent(eventName, payload = {}) {
     const trackEvent = window.chatApp?.trackEvent;
     if (typeof trackEvent !== 'function') return;
@@ -330,6 +380,13 @@ function setupActionHandlers(messageContent) {
                     const label = String(element.dataset.pickLabel || '');
                     emitTrackEvent('hotel_pick_click', { hotel_id: hotelId });
                     window.chatApp?.pickHotel?.(hotelId, label);
+                    return;
+                }
+                case 'select-rate-plan': {
+                    // S-CX8: picking a formula only re-points the card at a link
+                    // the backend already generated for it — no request, no turn.
+                    event.preventDefault();
+                    selectRatePlan(element);
                     return;
                 }
                 case 'book-hotel': {
@@ -431,6 +488,126 @@ function sanitizeTrustedHtml(rawHtml) {
     return root.innerHTML;
 }
 
+// S-CX8 — MCP_B2C's own closed enums, translated here rather than server-side:
+// the backend passes the raw value through, so a new enum member shows up as a
+// missing label (and the row falls back to its time slot) instead of as a raw
+// `dayuse.late_break` in front of a customer.
+// Both were live-probed 2026-07-28 across 4 596 real offers; see
+// inline_tools._rate_plan_view for the distribution and why offerType leads.
+const PLAN_TYPE_KEYS = {
+    'dayuse.day': 'plan_type_day',
+    'dayuse.early': 'plan_type_early',
+    'dayuse.late_break': 'plan_type_late_break',
+    'dayuse.dayuse_am': 'plan_type_dayuse_am',
+    'dayuse.dayuse_pm': 'plan_type_dayuse_pm',
+};
+
+const BEDDING_KEYS = {
+    double: 'bed_double',
+    double_king: 'bed_double_king',
+    double_queen: 'bed_double_queen',
+    single: 'bed_single',
+    twin_double: 'bed_twin_double',
+    twin_singles: 'bed_twin_singles',
+    twin_doubles: 'bed_twin_doubles',
+    twin_two_queens: 'bed_twin_two_queens',
+};
+
+function planTypeLabel(offerType) {
+    const key = PLAN_TYPE_KEYS[String(offerType || '')];
+    return key ? t(key) : '';
+}
+
+function beddingLabel(bedding) {
+    const key = BEDDING_KEYS[String(bedding || '')];
+    return key ? t(key) : '';
+}
+
+function capacityLabel(capacity) {
+    const count = Number(capacity);
+    if (!Number.isFinite(count) || count < 1) return '';
+    return count === 1 ? t('plan_capacity_one') : t('plan_capacity', { count });
+}
+
+/**
+ * S-CX8 — the day's rate plans as selectable rows.
+ *
+ * Every row is a real, already-generated tunnel link (the backend generated one
+ * per plan on the pick turn), so selecting a formula is pure client-side state:
+ * no round-trip, no chat turn. A plan whose URL fails the host allowlist is
+ * DROPPED rather than rendered unbookable — same rule the backend applies to a
+ * plan whose link generation failed.
+ *
+ * Returns '' when there is nothing to choose between, which is what makes this
+ * additive: a payload without `rate_plans` renders exactly the card that
+ * shipped before this existed.
+ */
+function renderRatePlans(plans) {
+    if (!Array.isArray(plans) || plans.length < 2) return '';
+
+    const rows = plans.map(plan => {
+        const url = sanitizeDayuseUrl(plan.url || '');
+        if (!url) return '';
+
+        const slot = [plan.start_time, plan.end_time].every(Boolean)
+            ? `${plan.start_time} – ${plan.end_time}`
+            : '';
+        // Title cascade, best differentiator first: the formula KIND (a closed
+        // MCP enum, localized here), then the room name, then the slot. The
+        // enum leads because `name` is the ROOM's name and is identical across
+        // every plan in 51% of multi-plan hotels — three rows called "Standard
+        // Double Room" is not a choice. Details in inline_tools._rate_plan_view.
+        const title = planTypeLabel(plan.offer_type) || plan.name || slot || t('card_slot');
+        const subtitle = [
+            beddingLabel(plan.bedding),
+            plan.capacity ? capacityLabel(plan.capacity) : '',
+        ].filter(Boolean).join(' · ');
+        const addons = Array.isArray(plan.addons) ? plan.addons : [];
+
+        return `
+            <button type="button" class="booking-card__plan${plan.selected ? ' is-selected' : ''}"
+                    data-action="select-rate-plan"
+                    aria-pressed="${plan.selected ? 'true' : 'false'}"
+                    data-plan-url="${escapeAttr(url)}"
+                    data-plan-title="${escapeAttr(String(title))}"
+                    data-plan-named="${title === slot ? '0' : '1'}"
+                    data-plan-slot="${escapeAttr(slot)}"
+                    data-plan-price="${escapeAttr(String(plan.price || ''))}">
+                <span class="booking-card__plan-radio" aria-hidden="true"></span>
+                <span class="booking-card__plan-main">
+                    <span class="booking-card__plan-name">${escapeHtml(String(title))}</span>
+                    ${subtitle ? `<span class="booking-card__plan-room">${escapeHtml(subtitle)}</span>` : ''}
+                    ${slot && title !== slot ? `
+                        <span class="booking-card__plan-meta">
+                            <span class="booking-card__plan-slot">${CLOCK_SVG} ${escapeHtml(slot)}</span>
+                        </span>` : ''}
+                    ${addons.length ? `
+                        <span class="booking-card__plan-addons">
+                            ${addons.map(a => `<span class="booking-card__plan-addon">${CHECK_SVG} ${escapeHtml(String(a))}</span>`).join('')}
+                        </span>` : ''}
+                </span>
+                <span class="booking-card__plan-prices">
+                    ${plan.price ? `<span class="booking-card__plan-amount">${escapeHtml(String(plan.price))}</span>` : ''}
+                    ${plan.original_price ? `<span class="booking-card__plan-orig">${escapeHtml(String(plan.original_price))}${escapeHtml(t('night_suffix'))}</span>` : ''}
+                    ${plan.discount_pct ? `<span class="booking-card__plan-disc">-${escapeHtml(String(plan.discount_pct))}%</span>` : ''}
+                </span>
+            </button>`;
+    }).filter(Boolean);
+
+    // One survivor is not a choice — fall back to the plain card.
+    if (rows.length < 2) return '';
+
+    return `
+        <div class="booking-card__plans">
+            <span class="booking-card__plans-label">${escapeHtml(t('card_choose_plan'))}</span>
+            ${rows.join('')}
+        </div>`;
+}
+
+const CLOCK_SVG = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" aria-hidden="true"><circle cx="12" cy="12" r="9"/><path d="M12 7v5l3 2"/></svg>';
+const CHECK_SVG = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M5 13l4 4L19 7"/></svg>';
+const SHIELD_SVG = '<svg viewBox="0 0 14 14" fill="none" aria-hidden="true"><path d="M12.25 6.52V4.83c0-.96 0-1.44-.24-1.75-.23-.31-.77-.46-1.83-.76-.73-.21-1.37-.46-1.88-.69C7.6 1.32 7.25 1.17 7 1.17c-.25 0-.6.15-1.3.46-.51.23-1.15.48-1.88.69-1.07.3-1.6.45-1.84.76-.23.31-.23.79-.23 1.75v1.69c0 3.28 2.95 5.25 4.43 6.03.35.19.53.28.82.28.29 0 .47-.09.82-.28 1.48-.78 4.43-2.75 4.43-6.03Z" stroke="currentColor" stroke-width="1.1"/><path d="M5.25 7l1.17 1.17L8.75 5.83" stroke="currentColor" stroke-width="1.1" stroke-linecap="round" stroke-linejoin="round"/></svg>';
+
 /**
  * Create a simplified booking card HTML for a hotel CTA.
  * @param {Object} card - booking_card payload from the API
@@ -440,6 +617,9 @@ function sanitizeTrustedHtml(rawHtml) {
  * @param {number|null} card.price
  * @param {string} card.currency
  * @param {string} card.cta_text
+ * @param {Array|undefined} card.rate_plans - S-CX8: the day's formulas, one
+ *        `selected`, each with its own already-generated tunnel `url`. Absent
+ *        when the hotel has a single formula or the lookup degraded.
  * @returns {string} HTML string
  */
 export function createBookingCard(card) {
@@ -472,13 +652,33 @@ export function createBookingCard(card) {
         ? `<div class="booking-card__facts">${facts.map(f => `
             <div class="booking-card__fact">
                 <span class="booking-card__fact-k">${escapeHtml(f.k)}</span>
-                <span class="booking-card__fact-v">${f.v}</span>
+                <span class="booking-card__fact-v"${f.k === t('card_slot') ? ' data-plan-slot-target="1"' : ''}>${f.v}</span>
             </div>`).join('')}</div>`
         : '';
 
+    const plansHtml = renderRatePlans(card.rate_plans);
+    // The CTA names the formula it books, but only once there IS a choice to be
+    // ambiguous about — and only when the formula has a name rather than just a
+    // time slot ("Book — 10:00 – 16:00" reads worse than the plain label).
+    const selectedPlan = plansHtml
+        ? (card.rate_plans || []).find(p => p && p.selected)
+        : null;
+    const selectedTitle = selectedPlan
+        ? planTypeLabel(selectedPlan.offer_type) || selectedPlan.name || ''
+        : '';
+    const ctaLabel = selectedTitle
+        ? t('card_book_plan', { plan: selectedTitle })
+        : t('card_book_cta');
+    // Product promise, not offer data — so it is copy, shown whenever a card is
+    // (there is no per-plan cancellation field to contradict it).
+    const reassuranceHtml = `
+        <div class="booking-card__trust">
+            <span class="booking-card__trust-item">${SHIELD_SVG} ${escapeHtml(t('card_free_cancel'))}</span>
+        </div>`;
+
     const priceHtml = card.price
         ? `<div class="booking-card__pricerow">
-               <span class="booking-card__price">${escapeHtml(String(card.price))}</span>
+               <span class="booking-card__price" data-plan-price-target="1">${escapeHtml(String(card.price))}</span>
                <span class="booking-card__pricenote">${escapeHtml(t('card_price_note'))}</span>
            </div>`
         : '';
@@ -503,14 +703,16 @@ export function createBookingCard(card) {
                     <div class="booking-card__name">${name}</div>
                     ${subtitleBits ? `<div class="booking-card__place">${subtitleBits}</div>` : ''}
                 </div>
+                ${plansHtml}
                 ${factsHtml}
+                ${reassuranceHtml}
                 ${priceHtml}
                 <a href="${safeUrlAttr}" target="_blank" rel="noopener" class="booking-card__cta"
                    data-track-booking-card-click="1"
                    data-hotel-name="${safeHotelNameAttr}"
                    data-hotel-id="${safeHotelIdAttr}"
                    data-booking-url="${safeUrlAttr}">
-                    ${escapeHtml(t('card_book_cta'))}
+                    <span data-plan-cta-label="1">${escapeHtml(ctaLabel)}</span>
                     <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5">
                         <path d="M7 17L17 7M17 7H7M17 7V17"/>
                     </svg>
@@ -522,12 +724,16 @@ export function createBookingCard(card) {
 }
 
 /** ES hands the raw average through (4.666666666666667) — one decimal, in the
- *  reader's locale ("4,7" in fr). Non-numeric ratings pass through untouched. */
+ *  reader's locale ("4,7" in fr). Non-numeric ratings pass through untouched.
+ *
+ *  Formatted against the CHAT language, not `undefined`: `undefined` means the
+ *  OS locale, so a French card on an English-locale device rendered "4.6" —
+ *  caught by rendering the card outside the browser (S-CX8). */
 function formatRating(value) {
     const num = Number(value);
     if (!Number.isFinite(num)) return String(value);
     try {
-        return num.toLocaleString(undefined, {
+        return num.toLocaleString(getLanguage(), {
             minimumFractionDigits: 1, maximumFractionDigits: 1,
         });
     } catch (_) {
@@ -535,13 +741,16 @@ function formatRating(value) {
     }
 }
 
-/** "2026-07-28" -> a short local date; anything unparsable passes through. */
+/** "2026-07-28" -> a short date in the CHAT language; anything unparsable
+ *  passes through. Not `undefined` (the OS locale): the date is the one fact on
+ *  this card a user checks twice before paying, and "Wed, Jul 29" inside an
+ *  otherwise French card reads as someone else's booking. */
 function formatCardDate(value) {
     const raw = String(value || '');
     const parsed = new Date(`${raw}T12:00:00`);
     if (Number.isNaN(parsed.getTime())) return raw;
     try {
-        return parsed.toLocaleDateString(undefined, {
+        return parsed.toLocaleDateString(getLanguage(), {
             weekday: 'short', day: 'numeric', month: 'short',
         });
     } catch (_) {
