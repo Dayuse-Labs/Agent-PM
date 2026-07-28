@@ -2,6 +2,68 @@
 
 État du chantier pour reprise en session fraîche. **Lire en entier avant d'agir ; ne pas reconstruire ce qui existe.** Mettre à jour en fin de CHAQUE session (bloc daté en tête).
 
+## ⏱ Addendum 2026-07-28 (branches `sperf0-latency-audit` / `sperf1-model-roles` / `sperf2-a2a-diet`) — S-PERF : audit latence complet + 3 quick wins (« l'agent est devenu plus lent »)
+
+**Contexte** : ressenti Fabien post-merges S-CX. Audit demandé (archi async, thinking mode, toute
+piste). Décisions Fabien (AskUserQuestion) : mix modèle par rôle ; bascule SSE widget incluse au
+chantier (roadmap) ; livrable = quick wins + rapport. **Rapport complet :
+`reports/AUDIT-LATENCE-2026-07-28.md`** (sur sperf0) — causes, mesures, roadmap 9 chantiers.
+
+**Diagnostic (tout mesuré)** : (1) **Railway tourne en gpt-5.2 sur les 3 services** (confirmé
+`railway variables`), zéro cap de reasoning, zéro max_tokens — search p50 10,6 s, faq 21-36 s ;
+(2) **latence perçue = tour entier** : widget en POST bloquant ET le widget-proxy bufferisait le SSE
+en un burst (read(4096) sur upstream chunké — progress=hotels=done à la ms près) alors que le facade
+streame à 2-6 ms ; (3) **prompt feuille croissant par tour** : RemoteA2aAgent rejoue toute la session
+(condition d'arrêt jamais satisfaite) + DataPart profil persisté dans l'event muté + shortlist S-CX5
+passé à 14 clés → 4 353 → 5 813 tokens entre tour 2 et 3 ; (4) prompt triage +65 % (27/07), prompts
+fixes feuille ~4,3k tokens ×2/tour.
+
+**Fait** :
+- **sperf0** : `scripts/measure_latency_e2e.py` (5 tours scriptés sur /v3/chat/stream, p50/max par
+  frame, JSONL) ; **fix P0 : widget-proxy `read` → `read1`** (vérifié avant/après : progress
+  9 581 ms → 2 ms) ; baselines Railway gpt-5.2 + locale 4o-mini dans `reports/latency/` ; rapport.
+- **sperf1** : `b2c_common.llm_params` — `role_model` (`DAYUSE_MODEL_{ROLE}` > `DAYUSE_MODEL` >
+  4o-mini), `reasoning_kwargs_for` **provider-aware** (le `reasoning_kwargs` de la fleet est shape
+  OpenRouter → 400 sur slug OpenAI-direct ; **probé live sur gpt-5.2 : `low` 200, `none` 200,
+  `minimal` 400** — le floor a changé depuis gpt-5.0), `max_tokens_for` (triage 200, synthèse 1000,
+  0=off) ; branché sur les 2 seuls appels LLM du concierge (triage.py, `_generate_once`) + label
+  `reasoning_effort=` sur les métriques. **No-op strict env non posées (verrouillé par test).**
+  Feuilles : zéro code (services Railway séparés → `DAYUSE_MODEL` par service suffit au mix).
+- **sperf2** : `leg.py::StatelessLeafLeg` (message A2A = SEUL l'event user du tour courant ;
+  contre-preuve : 10 parts → 2 sur une session de 3 tours ; pin-guard sur la méthode privée ADK) ;
+  `profile.py::leaf_profile_view` (la COPIE A2A : last_results → {hotel_id, name}, 8 clés
+  concierge-only droppées dont `last_clarifying_question`/`last_suggestions` — minimisation RGPD ;
+  Redis/carte/picks intouchés, verrouillé) ; `include_contents="none"` sur les 2 feuilles (sémantique
+  ADK vérifiée : tour courant + paires tool call/réponse).
+
+**Vérifié LIVE (stack locale, gpt-4o-mini, MCP staging)** : smoke défaut / `--conversation` /
+`--contract` / `--booking` **PASS ×4** (lien tracké réel au confirm — R9 intact) ; **prompt_tokens
+feuille PLAT** (tour refine 5 813 → 4 347, croissance supprimée) ; battery 32 scénarios ancien vs
+nouveau : moyenne main 2,19 vs sperf2 **2,28** (6 scénarios en hausse, 1 flip négatif isolé = variance juge ; score absolu bas PRÉEXISTANT, juge strict — hors scope), budget ≤3 LLM/tour : 0 dépassement des deux côtés.
+
+**DoD** : pytest **1027 passed** (+ le seul rouge préexistant `test_llm_meter_usage`, bug d'arrondi
+du test, hors zone) ; ruff OK ; mypy 41 fichiers OK ; guardrails OK. Tests clés vérifiés en échec
+sans leur fix (leg parent vs subclass ; to_dict vs leaf_profile_view).
+
+**Rollout env Railway proposé (après merge, GO Fabien)** : concierge
+`DAYUSE_MODEL_TRIAGE=gpt-4o-mini` + `DAYUSE_REASONING_EFFORT=low` ; hotel-search + faq
+`DAYUSE_MODEL=gpt-4o-mini` ; redéployer `widget` (fix read1). Levier sans code si besoin :
+`DAYUSE_MODEL_SYNTHESIS`. Attendu : search ~10,6 → ~6-7 s, faq 21-36 → ~13 s. Re-mesurer avec le
+script (baselines = l'étalon).
+
+**Pièges découverts** :
+- `HTTPResponse.read(amt)` sur un upstream chunké BLOQUE jusqu'à amt octets — tout proxy de SSE doit
+  lire en `read1`. Le passthrough de l'edge Railway reste à re-vérifier après redéploiement du widget.
+- Le plugin mypy pydantic synthétise un `__init__` fields-only pour un subclass d'agent ADK sans
+  `__init__` explicite → passthrough `*args/**kwargs` requis (leg.py).
+- `reasoning_effort` : le vocabulaire OpenAI a changé entre générations (minimal → none/xhigh) — ne
+  jamais mapper sans probe, passer verbatim pour échouer bruyamment.
+- La battery juge à 2/5 un « quelle ville ? » sur « près de moi » SANS geo_context — calibrage juge à
+  revoir (hors scope latence).
+
+**Merge** : 3 PRs indépendantes (sperf0/sperf1/sperf2), review Fabien = gate. Rollout env = action
+dashboard Fabien (ou GO explicite).
+
 ## ⏱ Addendum 2026-07-27 (branche `scx5b-widget-card-fixes`, sur `main`) — S-CX5b : 3 défauts UI de S-CX5 remontés par Fabien sur le démo déployé
 
 **Contexte** : Fabien teste le démo Railway après le merge de S-CX5 (3 screenshots) et remonte (1) le bouton de la carte de réservation est **rogné**, et il veut une carte à **taille fixe** comme l'artefact ; note hôtel affichée `4.666666666666667/5` ; (2) sur les cartes du carrousel, le bouton dit « Réserver » alors qu'il ouvre la **fiche hôtel**, pas le tunnel ; (3) un clic sur un chip de créneau **fait disparaître les boutons de choix d'hôtel**, donc la route en 1 clic vers la carte de réservation.
