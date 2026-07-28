@@ -2,6 +2,39 @@
 
 État du chantier pour reprise en session fraîche. **Lire en entier avant d'agir ; ne pas reconstruire ce qui existe.** Mettre à jour en fin de CHAQUE session (bloc daté en tête).
 
+## ⏱ Addendum 2026-07-28 (soir, branche `sperf3-temp-reasoning-collision`) — rollout S-PERF déployé + collision temperature×reasoning attrapée en live (mitigée, fix en PR)
+
+**Rollout exécuté (GO Fabien)** : PRs #41/#42/#43 mergées, env posées (concierge
+`DAYUSE_MODEL_TRIAGE=gpt-4o-mini` + `DAYUSE_REASONING_EFFORT=low`, feuilles `DAYUSE_MODEL=gpt-4o-mini`),
+4 services redéployés. **Le fix read1 du proxy est vérifié EN PROD** : frames SSE séparées à travers
+l'edge Railway (probe chunk-par-chunk : progress 149 ms, hotels 3,7 s en chunk propre, done ensuite).
+
+**⚠️ Attrapé en live juste après le déploiement** : la réponse d'un tour search était le texte
+OUTCOME de la feuille, pas de la prose — `railway logs` : **chaque synthèse échouait en
+`UnsupportedParamsError` → fallback leaf-verbatim silencieux** (`status=synthesis_fallback` sur tous
+les tours search/faq). Cause reproduite localement : litellm côté CLIENT rejette
+**`temperature` + `reasoning_effort≠none` ENSEMBLE sur gpt-5*** (« Only temperature=1 is supported…
+temperature is supported when reasoning_effort='none' ») — chaque param seul passe, et
+temp+effort='none' passe. Mon probe pré-rollout n'envoyait PAS temperature → il a validé un shape
+d'appel qui n'était pas celui du code (leçon ajoutée à tasks/lessons.md).
+
+**Mitigation appliquée immédiatement (env, réversible)** : `DAYUSE_MODEL_SYNTHESIS=gpt-4o-mini` sur
+concierge + redeploy — le levier prévu par le rapport. Vérifié live : vraie prose de synthèse de
+retour (« J'ai trouvé 5 offres d'hôtels en journée à Paris pour demain : … »).
+
+**Fix code (cette branche)** : `b2c_common.llm_params.temperature_kwargs_for` — temperature cède au
+cap de reasoning UNIQUEMENT sur la combinaison illégale (gpt-5* + effort≠none), conservée partout
+ailleurs (probé : 4o-mini, openrouter, effort='none'). Branché sur les 2 call sites ; no-op env non
+posées verrouillé (temperature 0.0/0.2 inchangées). Contre-preuve live : `_generate_once` via Router
+sur gpt-5.2+low → texte réel (le code déployé → None). Une fois mergé, `DAYUSE_MODEL_SYNTHESIS`
+peut être retiré pour re-tester la synthèse 5.2 cappée.
+
+**Chiffres POST-rollout mesurés (démo Railway, config mitigée, 5 runs — étalon
+`reports/latency/baseline-railway-gpt52.jsonl`)** : voir bloc résultats dans la conversation de
+session ; ordre de grandeur : search p50 10,6 s → ~3,4 s, faq 24,9 s → ~8,4 s, progress ~60-90 ms
+sur tous les tours (les runs 1 post-deploy portent le cold start). À re-mesurer après merge du fix
+si Fabien re-bascule la synthèse sur 5.2+low.
+
 ## ⏱ Addendum 2026-07-28 (branches `sperf0-latency-audit` / `sperf1-model-roles` / `sperf2-a2a-diet`) — S-PERF : audit latence complet + 3 quick wins (« l'agent est devenu plus lent »)
 
 **Contexte** : ressenti Fabien post-merges S-CX. Audit demandé (archi async, thinking mode, toute

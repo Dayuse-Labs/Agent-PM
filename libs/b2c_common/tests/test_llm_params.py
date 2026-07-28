@@ -8,7 +8,7 @@ from __future__ import annotations
 
 import pytest
 
-from b2c_common import max_tokens_for, reasoning_kwargs_for, role_model
+from b2c_common import max_tokens_for, reasoning_kwargs_for, role_model, temperature_kwargs_for
 
 
 @pytest.fixture(autouse=True)
@@ -86,6 +86,36 @@ class TestReasoningKwargsProviderAware:
         monkeypatch.setenv("DAYUSE_REASONING_EFFORT", "low")
         assert reasoning_kwargs_for("gpt-4o-mini") == {}
         assert reasoning_kwargs_for("mistral/mistral-small") == {}
+
+
+class TestTemperatureYieldsToTheReasoningCap:
+    """Live-caught on the Railway demo (2026-07-28): temperature + a non-none
+    reasoning_effort together on gpt-5* raise litellm's UnsupportedParamsError
+    — every synthesis silently fell back to leaf-text-verbatim. Probed: each
+    param alone is fine; temperature + effort='none' is fine."""
+
+    def test_temperature_kept_when_no_reasoning_cap(self):
+        assert temperature_kwargs_for("gpt-5.2", 0.2) == {"temperature": 0.2}
+        assert temperature_kwargs_for("gpt-4o-mini", 0.0) == {"temperature": 0.0}
+
+    def test_temperature_dropped_on_the_illegal_combination(self, monkeypatch):
+        monkeypatch.setenv("DAYUSE_REASONING_EFFORT", "low")
+        assert temperature_kwargs_for("gpt-5.2", 0.2) == {}
+
+    def test_temperature_kept_with_effort_none(self, monkeypatch):
+        # Probed on gpt-5.2: temperature IS supported when effort='none'.
+        monkeypatch.setenv("DAYUSE_REASONING_EFFORT", "off")
+        assert temperature_kwargs_for("gpt-5.2", 0.2) == {"temperature": 0.2}
+
+    def test_non_reasoning_models_keep_temperature_even_with_effort_set(self, monkeypatch):
+        # gpt-4o-mini gets no reasoning param at all → no collision to avoid.
+        monkeypatch.setenv("DAYUSE_REASONING_EFFORT", "low")
+        assert temperature_kwargs_for("gpt-4o-mini", 0.0) == {"temperature": 0.0}
+
+    def test_openrouter_slugs_keep_temperature(self, monkeypatch):
+        # The OpenRouter reasoning shape (extra_body) coexists with temperature.
+        monkeypatch.setenv("DAYUSE_REASONING_EFFORT", "low")
+        assert temperature_kwargs_for("openrouter/z-ai/glm-5.2", 0.2) == {"temperature": 0.2}
 
 
 class TestMaxTokens:

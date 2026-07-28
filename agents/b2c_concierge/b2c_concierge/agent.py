@@ -78,7 +78,7 @@ from typing import Any, AsyncGenerator
 
 import httpx
 import litellm
-from b2c_common import max_tokens_for, reasoning_kwargs_for, role_model
+from b2c_common import max_tokens_for, reasoning_kwargs_for, role_model, temperature_kwargs_for
 from dayuse_agent_common import (
     cost_from_tokens,
     enqueue_metric_event,
@@ -488,8 +488,13 @@ class _B2cConcierge(BaseAgent):
         model_slug = role_model("SYNTHESIS")
         # Bounded completion + provider-aware reasoning cap (llm_params): on a
         # reasoning model, thinking tokens count against max_tokens — unbounded
-        # is unbounded latency. Both are strict no-ops with the env unset.
+        # is unbounded latency. Strict no-ops with the env unset (temperature
+        # 0.2 included, faithful-to-outcome > creativity); temperature yields
+        # to the reasoning cap when the combination is illegal (gpt-5* +
+        # effort ≠ none — live-caught 2026-07-28, every synthesis was silently
+        # falling back to leaf text; see temperature_kwargs_for).
         extra_params: dict[str, Any] = dict(reasoning_kwargs_for(model_slug))
+        extra_params.update(temperature_kwargs_for(model_slug, 0.2))
         max_tokens = max_tokens_for("SYNTHESIS")
         if max_tokens is not None:
             extra_params["max_tokens"] = max_tokens
@@ -516,7 +521,6 @@ class _B2cConcierge(BaseAgent):
                     {"role": "system", "content": system},
                     {"role": "user", "content": user},
                 ],
-                temperature=0.2,  # faithful to the grounded outcome > creativity
                 timeout=_SYNTHESIS_TIMEOUT,
                 **extra_params,
             )

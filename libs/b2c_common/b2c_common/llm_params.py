@@ -82,6 +82,23 @@ def reasoning_kwargs_for(model_slug: str) -> dict:
     return {}
 
 
+def temperature_kwargs_for(model_slug: str, temperature: float) -> dict:
+    """`{"temperature": …}` — unless the reasoning cap makes it illegal.
+
+    Live-caught on the Railway demo (2026-07-28): sending `temperature` and a
+    non-"none" `reasoning_effort` TOGETHER to a gpt-5* slug raises litellm's
+    client-side UnsupportedParamsError ("Only temperature=1 is supported…
+    temperature is supported when reasoning_effort='none'") — every synthesis
+    silently fell back to leaf-text-verbatim. Probed: each param alone is
+    fine, and temperature + effort="none" is fine. So temperature is dropped
+    ONLY in the one combination that rejects it; the reasoning cap wins (it is
+    the latency lever; temperature is a nice-to-have)."""
+    effort = reasoning_kwargs_for(model_slug).get("reasoning_effort")
+    if effort is not None and effort != "none":
+        return {}
+    return {"temperature": temperature}
+
+
 def max_tokens_for(role: str) -> int | None:
     """Completion ceiling for a role, or None (uncapped).
 

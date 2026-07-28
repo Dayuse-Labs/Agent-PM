@@ -31,7 +31,7 @@ import time
 from dataclasses import dataclass
 
 import litellm
-from b2c_common import max_tokens_for, reasoning_kwargs_for, role_model
+from b2c_common import max_tokens_for, reasoning_kwargs_for, role_model, temperature_kwargs_for
 from dayuse_agent_common import (
     cost_from_tokens,
     enqueue_metric_event,
@@ -253,9 +253,12 @@ async def classify(message: str, budget: TurnBudget, invocation_id: str = "") ->
     model_slug = role_model("TRIAGE")
     # Bounded completion + provider-aware reasoning cap (llm_params). A
     # truncated triage is a failed parse → the regex fallback, by design; an
-    # UNBOUNDED one on a reasoning model is unbounded latency. Both kwargs are
-    # strict no-ops with the env unset.
+    # UNBOUNDED one on a reasoning model is unbounded latency. All kwargs are
+    # strict no-ops with the env unset (temperature 0.0 included as before);
+    # temperature yields to the reasoning cap when the combination is illegal
+    # (gpt-5* + effort ≠ none — see temperature_kwargs_for).
     extra_params: dict = dict(reasoning_kwargs_for(model_slug))
+    extra_params.update(temperature_kwargs_for(model_slug, 0.0))
     max_tokens = max_tokens_for("TRIAGE")
     if max_tokens is not None:
         extra_params["max_tokens"] = max_tokens
@@ -267,7 +270,6 @@ async def classify(message: str, budget: TurnBudget, invocation_id: str = "") ->
                 {"role": "system", "content": _TRIAGE_INSTRUCTION},
                 {"role": "user", "content": f"MESSAGE:\n<<<\n{message}\n>>>"},
             ],
-            temperature=0.0,
             timeout=_TRIAGE_TIMEOUT,
             **extra_params,
         )
