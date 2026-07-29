@@ -38,6 +38,25 @@ def _degraded_response(tool_name: str) -> dict:
     }
 
 
+def _business_error_envelope(tool_response: dict) -> dict | None:
+    """MCP_B2C's typed error envelope, when the response carries one.
+
+    Since 2026-07-29 every MCP_B2C error answers with
+    `structuredContent.error = {kind, message, retryable, ...}`. `retryable:
+    False` means the server ANSWERED correctly and the request is what needs
+    refining (`HotelNotFoundError`, `AmbiguousHotelError`,
+    `MissingMandatoryCriterionError`, ...). An older server sends no envelope →
+    None, and the caller keeps its previous conservative behaviour.
+    """
+    payload = tool_response.get("structuredContent")
+    if not isinstance(payload, dict):
+        return None
+    envelope = payload.get("error")
+    if isinstance(envelope, dict) and envelope.get("retryable") is False:
+        return envelope
+    return None
+
+
 def _is_tool_failure(tool_response: Any) -> bool:
     """Classify a completed (non-raising) MCP tool response as success/failure.
 
@@ -45,12 +64,19 @@ def _is_tool_failure(tool_response: Any) -> bool:
     exceptions into error dicts rather than raising, so this is the PRIMARY
     failure detector — `mcp_circuit_on_error` is belt-and-suspenders for a
     genuinely raised exception.
+
+    A typed BUSINESS error is not a dependency failure: three "no hotel by that
+    name" answers in a row used to open the breaker, and every search for the
+    next 30 s was then short-circuited with "the backend is unavailable" — a
+    fake outage caused by a healthy backend answering correctly.
     """
     if not isinstance(tool_response, dict):
         return False
     error_text = str(tool_response.get("error", "") or "")
     if error_text.startswith("TOOL BUDGET"):
         return False  # control flow (tool_budget stop), not an MCP failure
+    if _business_error_envelope(tool_response) is not None:
+        return False
     if tool_response.get("isError"):
         return True
     if error_text:

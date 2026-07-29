@@ -58,6 +58,102 @@ l'autre n'est une disponibilité ; ne jamais paginer sur `has_more` seul.
 pour Fabien. **Reste** : mergeer #57 et l'un de #40/#58 (conflit léger sur `datetime_resolver.py` +
 `HANDOFF.md` pour celle qui atterrit en second) ; trancher C (multi-rateplans sur la carte).
 
+## 🩹 Addendum 2026-07-29 (soir, branche `fix/leaf-tool-budget-starves-search`) — la fausse panne « je n'arrive pas à joindre la recherche d'hôtels à Singapore »
+
+**Déclencheur** : Fabien voit la dégradation honnête sur une recherche Singapour, alors que MCP_B2C
+répond en 0,7 s. Diagnostic mené sur le déployé (repro widget 2 tours + logs des services), pas par
+lecture de code — et **la cause n'était ni le MCP, ni un timeout, ni le geocode** :
+
+```
+tool=geocode_location ms=78 status=error error_type=tool_returned_error
+tool=geocode_location ms=57 status=ok
+tool=search_offers    ms=0  status=ok  budget_stopped=true      <-- jamais exécuté
+```
+
+**A — le budget d'outils était PLAT (2 appels, tous outils confondus).** Or un tour nominal en dépense
+déjà exactement deux (`geocode_location` + `search_offers`) : **un seul geocode en échec consommait
+tout le budget** et la recherche MCP était court-circuitée avant de partir. La feuille ne renvoyait
+alors aucun résultat → le concierge servait `leaf_degraded_response("search")`, une panne qui n'a
+jamais eu lieu. Ça frappe les destinations dont la 1re résolution échoue (« SG », « Singapour »)
+bien plus que « Paris » — d'où l'apparence d'un bug propre à Singapour. Correctif :
+`hotel_search_agent/tool_budget_guard.py` (nouveau) compte **par nom d'outil**
+(`PER_TOOL_CALL_LIMITS` : geocode 2, MCP 2, défaut = `HOTEL_SEARCH_MAX_TOOL_CALLS`), donc un retry de
+geocode ne peut plus affamer la recherche, et chaque outil reste borné (invariant « 1 retry borné »).
+Le message de stop garde le préfixe `TOOL BUDGET` — c'est ce que `dayuse_agent_common.metrics`
+matche pour `budget_stopped`, la métrique ne change pas. Nouveaux env optionnels :
+`HOTEL_SEARCH_MAX_GEOCODE_CALLS`, `HOTEL_SEARCH_MAX_MCP_CALLS` (défaut 2 chacun).
+
+**B — le circuit breaker comptait les erreurs MÉTIER comme des pannes.** `_is_tool_failure` traitait
+tout `isError` MCP comme un échec de dépendance : **trois « aucun hôtel de ce nom » d'affilée
+ouvraient le breaker** et toutes les recherches dégradaient pendant 30 s. MCP_B2C expose désormais
+(2026-07-29, côté serveur) une enveloppe typée `structuredContent.error = {kind, message, retryable,
+…}` ; le breaker ignore maintenant les erreurs `retryable: False` (`HotelNotFoundError`,
+`AmbiguousHotelError`, `MissingMandatoryCriterionError`…) et ne compte que les vraies pannes.
+Serveur sans enveloppe → comportement conservateur inchangé.
+
+**Vérifié** : 7 tests neufs (`tests/test_leaf_tool_budget.py`) verrouillent la garantie « geocode ×2
+puis search passe quand même » et les deux classifications du breaker ; suite complète 1133 tests,
+ruff + mypy + guardrails verts. ⚠️ `tests/test_llm_meter_usage.py::test_usage_record_extracts_tokens_and_model`
+**échoue déjà sur `main`** (vérifié par stash, antérieur à cette branche) — à traiter à part.
+
+**Reste** : `inline_tools._call_tool` (concierge) fusionne encore transport / `isError` métier /
+payload illisible dans un même `{ok: False}`. Aucun effet utilisateur constaté aujourd'hui (le
+chemin inline sert déjà un message métier via `inline_unresolved_response`), mais l'enveloppe typée
+est maintenant disponible pour l'exploiter — et `POI_INDEX=poi_staging_5` côté service MCP pointe un
+alias inexistant (inerte tant que la résolution POI n'est pas câblée).
+
+## 🚢 Addendum 2026-07-29 (14h55) — S-PERF4 + S-PERF5 MERGÉS, DÉPLOYÉS DEPUIS MAIN, mesurés en prod
+
+**PR #45 et #54 mergées par Fabien**, `main` = `e893a83`. Déploiement fait **depuis le checkout de
+`main`** (pas depuis une branche) : la prod est de nouveau **reproductible depuis main** — le warning
+du bloc « déployé depuis la branche » est levé. `concierge` puis `widget` (`railway up --service X
+--ci`), les 2 en `Deploy complete`. `hotel-search` / `faq` non redéployés : aucun diff sur leurs
+dossiers. `WIDGET_CHAT_TRANSPORT=sse` toujours en place sur `widget`.
+
+### ⚠️ CORRECTION D'UN CHIFFRE que j'avais annoncé — le gain de S-PERF5 est plus petit en prod
+
+J'avais annoncé **−65 %** sur la synthèse. C'était mesuré sur la **stack locale**, dont le `.env`
+n'a pas les mêmes modèles que la prod : **le chiffre local n'était pas comparable au chiffre prod**.
+Comparaison honnête, même environnement, avant/après sur le déployé (3 runs chacun) :
+
+| | prod avant | prod après |
+|---|---|---|
+| synthèse (frame `hotels` → 1er token) | 4,25 / 4,60 / 4,56 s (moy. **4,47 s**) | 2,62 / 2,23 / 3,33 s (moy. **2,73 s**) |
+| longueur de la réponse | 889 / 924 / 983 car. (moy. **932**) | 299 / 292 / 318 car. (moy. **303**) |
+| tour complet | moy. **8,06 s** | moy. **6,64 s** |
+
+→ synthèse **−39 %** (pas −65), longueur **−67 %**, tour complet **−18 %**.
+
+**Pourquoi l'écart** : la sortie a bien fondu de 67 %, mais le **coût fixe** de `gpt-5.2` (tokens de
+reasoning + TTFT) ne diminue pas avec la longueur. Il reste donc un plancher ≈ 2 s que raccourcir le
+texte ne peut plus attaquer. **Conséquence pour la suite : le levier dominant restant n'est plus le
+prompt, c'est `DAYUSE_MODEL_SYNTHESIS`** (aujourd'hui `gpt-5.2`) — à prober seul, avec le piège
+`temperature × reasoning_effort` de S-PERF3 en tête.
+
+### Vérifié en prod
+
+- Assets servis : `tRotate` présent dans `i18n.js`, **14 clés de variantes** `followup_*_2/_3`,
+  2 sites d'appel `tRotate(` dans `search.js`, meta `du-chat-transport="sse"`.
+- **Texte, tour 1** : « Pour demain autour de Paris, vous avez 5 offres de day-use, avec un gros bon
+  plan : le H4 Hotel Wyndham Paris Pleyel Resort affiche une remise d'environ 66 % vs le tarif nuit.
+  Dites-moi plutôt votre quartier idéal (centre, La Défense, Orly…) et votre heure d'arrivée
+  souhaitée, et je resserre la sélection. » → angle `discount`, aucune liste, aucun prix recopié,
+  aucune narration d'interface, étape suivante conversationnelle.
+- **Texte, tour 2** (même session, « plutôt avec une piscine ») : « Pour Paris, j'ai bien filtré des
+  offres avec piscine : les 5 options affichées correspondent à ce critère. Si vous me dites le
+  quartier souhaité (centre, Bercy, 14e, etc.) et votre horaire idéal, je vous affine la sélection. »
+  → **la remise de 66 % n'est PAS répétée** : l'anti-répétition (`profile.last_synthesis_angle`)
+  fonctionne sur le déployé, pas seulement en test.
+- **Relance rotée en prod** : variante 2 au tour 1, variante 3 au tour 2.
+- 5 puis 10 cartes / 5 puis 10 CTA, **2 carrousels pour 2 tours** (pas de doublon) — le CTA S-CX9 et
+  les notes avec compte d'avis tiennent toujours après S-PERF5.
+
+### Rollback
+
+- Texte long / ancien comportement : `git revert` de `3bae233` puis redeploy `concierge` (le prompt
+  et l'angle sont côté concierge ; `tRotate` côté widget est indépendant et inoffensif seul).
+- Transport bloquant : `WIDGET_CHAT_TRANSPORT=json` (ou supprimer la variable) + redeploy `widget`.
+
 ## 💬 Addendum 2026-07-29 (après-midi, branche `sperf5-synthesis-value-add`) — S-PERF5 : la synthèse arrête de recopier les cartes (−65 % de latence, réponse enfin variable)
 
 **Déclencheur** : le rendu hotels-first de S-PERF4 a rendu visible un défaut qui existait depuis
