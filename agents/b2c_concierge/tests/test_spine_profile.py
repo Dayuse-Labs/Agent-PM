@@ -979,3 +979,107 @@ class TestBookingAnswersInTheConversationLanguage:
         _run_turn(runner, session.id, "Villa Paris Orly €54.00")
 
         assert asyncio.run(fake_profile_store.get(session.id)).language == "fr"
+
+
+class TestSynthesisAnglePlumbing:
+    """S-PERF5: the code-chosen angle must actually reach the synthesis prompt —
+    a pure function nobody wires in is the classic half-shipped feature."""
+
+    def test_angle_reaches_the_prompt_when_the_data_warrants_one(
+        self, monkeypatch, fake_leg, fake_profile_store
+    ):
+        # Two hotels, both far out: the distance angle fires.
+        fake_leg.response_payload = {
+            "results": [
+                {"id": 1, "name": "Hotel A", "price_eur_cents": 9000, "distance_km": 9.0},
+                {"id": 2, "name": "Hotel B", "price_eur_cents": 9100, "distance_km": 14.0},
+            ],
+            "profile_delta": {"city": "Paris"},
+        }
+        llm = _scripted_llm(
+            monkeypatch, '{"family": "search", "language": "fr"}', "Tout est en périphérie."
+        )
+        runner = InMemoryRunner(root_agent)
+        session = _new_session(runner)
+
+        _run_turn(runner, session.id, "un hotel a paris")
+
+        user_prompt = llm.calls[-1]["messages"][1]["content"]
+        assert "ANGLE (lead on this, in your own words):" in user_prompt
+        assert "outside the centre" in user_prompt
+
+    def test_no_angle_block_when_the_shortlist_is_unremarkable(
+        self, monkeypatch, fake_leg, fake_profile_store
+    ):
+        fake_leg.response_payload = {
+            "results": [
+                {"id": 1, "name": "Hotel A", "price_eur_cents": 9000, "distance_km": 1.1,
+                 "rating": 4.5, "rating_count": 40},
+                {"id": 2, "name": "Hotel B", "price_eur_cents": 8900, "distance_km": 3.8,
+                 "rating": 4.6, "rating_count": 30},
+            ],
+            "profile_delta": {"city": "Lyon"},
+        }
+        llm = _scripted_llm(
+            monkeypatch, '{"family": "search", "language": "fr"}', "Voici ma sélection."
+        )
+        runner = InMemoryRunner(root_agent)
+        session = _new_session(runner)
+
+        _run_turn(runner, session.id, "un hotel a lyon")
+
+        assert "ANGLE" not in llm.calls[-1]["messages"][1]["content"]
+
+    def test_system_prompt_forbids_re_listing_the_cards(
+        self, monkeypatch, fake_leg, fake_profile_store
+    ):
+        """The prod defect this fixes: 930 characters restating the five cards
+        already on screen. The instruction has to be IN the system prompt."""
+        fake_leg.response_payload = {
+            "results": [{"id": 1, "name": "Hotel A", "price_eur_cents": 9000}],
+            "profile_delta": {"city": "Paris"},
+        }
+        llm = _scripted_llm(monkeypatch, '{"family": "search", "language": "fr"}', "Ok.")
+        runner = InMemoryRunner(root_agent)
+        session = _new_session(runner)
+
+        _run_turn(runner, session.id, "un hotel a paris")
+
+        system_prompt = llm.calls[-1]["messages"][0]["content"]
+        assert "NEVER list or enumerate the hotels" in system_prompt
+        assert "40 words maximum" in system_prompt
+
+    def test_two_turns_of_one_session_do_not_repeat_the_same_angle(
+        self, monkeypatch, fake_leg, fake_profile_store
+    ):
+        """The browser-found defect: the same top hotel two turns running gave
+        the same opening sentence twice. The angle key is persisted, so turn 2
+        must fall through to a different fact."""
+        # Same shortlist both turns: deep discount AND a wide price spread.
+        fake_leg.response_payload = {
+            "results": [
+                {"id": 1, "name": "Deal Palace", "price_eur_cents": 5000,
+                 "timeslots": [{"original_price": 150.0}], "distance_km": 1.0},
+                {"id": 2, "name": "Hotel B", "price_eur_cents": 15000,
+                 "timeslots": [{"original_price": 160.0}], "distance_km": 2.0},
+            ],
+            "profile_delta": {"city": "Paris"},
+        }
+        llm = _scripted_llm(
+            monkeypatch,
+            '{"family": "search", "language": "fr"}', "Première réponse.",
+            '{"family": "search", "language": "fr"}', "Deuxième réponse.",
+        )
+        runner = InMemoryRunner(root_agent)
+        session = _new_session(runner)
+
+        _run_turn(runner, session.id, "un hotel a paris")
+        first_prompt = llm.calls[-1]["messages"][1]["content"]
+        _run_turn(runner, session.id, "et avec une piscine ?")
+        second_prompt = llm.calls[-1]["messages"][1]["content"]
+
+        assert "below its night rate" in first_prompt      # discount angle
+        assert "below its night rate" not in second_prompt  # NOT repeated
+        assert "Wide price spread" in second_prompt         # fell through
+        stored = asyncio.run(fake_profile_store.get(session.id))
+        assert stored.last_synthesis_angle == "spread"

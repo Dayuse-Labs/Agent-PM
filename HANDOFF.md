@@ -2,6 +2,73 @@
 
 État du chantier pour reprise en session fraîche. **Lire en entier avant d'agir ; ne pas reconstruire ce qui existe.** Mettre à jour en fin de CHAQUE session (bloc daté en tête).
 
+## 💬 Addendum 2026-07-29 (après-midi, branche `sperf5-synthesis-value-add`) — S-PERF5 : la synthèse arrête de recopier les cartes (−65 % de latence, réponse enfin variable)
+
+**Déclencheur** : le rendu hotels-first de S-PERF4 a rendu visible un défaut qui existait depuis
+toujours. Fabien : « pourquoi la génération est si longue ? la réponse a l'air toujours la même ».
+**Mesuré en prod avant de toucher quoi que ce soit** (3 runs, `scripts/` ad-hoc, cf. `reports/`) :
+`progress` 0,10 s → frame `hotels` 3,3-4,0 s → **premier token 7,5-8,5 s** → `done` +0,01 s.
+La synthèse coûtait **4,25-4,60 s = 56 % du tour**, pour **889-983 caractères** qui **re-listaient les
+5 cartes déjà à l'écran** (nom, ville, prix, note, URL) + une phrase de remplissage « Je n'ai pas
+d'infos ici sur les équipements ». Et **les 114 frames `token` arrivaient toutes dans le même
+instant** (burst 0,00 s) : ce ne sont pas des tokens streamés, c'est un REPLAY de texte déjà fini
+(`_chunk_text` — buffering délibéré pour que les guards puissent corriger avant affichage).
+
+**A — la synthèse ne recopie plus les cartes.** Bloc `THE CLIENT ALREADY SHOWS THE HOTELS` dans
+`_SYNTHESIS_INSTRUCTION` : jamais de liste ni d'énumération, jamais de prix/note/district/URL
+répétés, 2 phrases / 40 mots max, au plus 2 hôtels nommés et seulement pour dire ce que la carte ne
+dit pas. Plus une règle **anti-narration d'interface** (« cliquez sur le bouton », « via le lien » —
+les boutons se nomment eux-mêmes ; l'étape suivante doit être quelque chose à demander à l'agent).
+`ground_truth._HEADER` amendé : ne PLUS volontairement signaler qu'un détail manque si personne ne
+l'a demandé (c'est ça qui produisait la phrase sur les équipements).
+
+**B — la variété vient de la DATA, décidée en code** (`ground_truth.synthesis_angle`, pure, testée) :
+`(key, directive)`, un seul angle par tour, par ordre de « ce qui change la décision » —
+`single` (1 seul hôtel) > `distance` (TOUS à ≥ 6 km : l'info la plus utile, que les cartes
+enterrent en petit) > `discount` (≥ 40 % sous le tarif nuit, hôtel nommé) > `spread` (le moins cher
+≤ 70 % du plus cher) > `thin_ratings` (toutes les notes sur 1-2 avis) > rien. Aucun angle n'invente :
+il **recadre** des faits déjà sur les cartes, donc les guards n'ont rien de neuf à rattraper.
+**⚠️ Défaut trouvé par MA propre vérification navigateur, puis corrigé** : deux recherches d'affilée
+qui gardent le même hôtel en tête donnaient deux fois le même angle, quasi mot pour mot (« économie
+impressionnante… 66 % ») — la feature censée créer de la variété devenait un nouveau template. D'où
+`profile.last_synthesis_angle` (champ concierge-only, jamais envoyé aux feuilles) et l'argument
+`exclude` : le tour suivant tombe sur l'angle d'après, ou sur aucun. Verrouillé par un test 2 tours.
+
+**D — la relance n'est plus une constante.** `followup_refine` / `followup_questions` étaient UNE
+string figée, servie à chaque recherche depuis toujours (c'était une bonne part du « toujours pareil »
+— et ce n'était même pas le LLM). Nouveau `tRotate(key, seq)` dans `i18n.js` : rotation sur
+`key`/`key_2`/`key_3` selon `state.turnSequence` (déterministe, pas aléatoire → rejouable, pas de
+scintillement au re-render), résolue **uniquement dans la locale active** (jamais le fallback anglais
+de `t()`). 3 variantes × 2 clés × **7 locales** = 28 strings ajoutées, diacritiques inclus.
+
+**Résultat mesuré (stack locale réelle, MCP live, mêmes requêtes)**
+| | avant | après |
+|---|---|---|
+| synthèse | 4,25-4,60 s | **1,12-1,74 s** (−65 %) |
+| longueur | 889-983 car. | **159-260 car.** (−72 %) |
+| contenu | liste des 5 cartes | 2-3 phrases de jugement |
+
+3 angles distincts observés en live : Paris → *« tarif réduit d'environ 66 % »* (discount) ;
+Lyon → *« il n'y a qu'un seul hôtel disponible avec piscine »* (single) ; Bordeaux → *« tous les
+hôtels proposés se trouvent en périphérie, à 7-10 km du centre »* (distance).
+**Navigateur, 2 tours** : angles différents (discount → fall-through), relance variante 2 → 3,
+5 puis 10 cartes / 5 puis 10 CTA, **2 carrousels pour 2 tours** (pas de doublon).
+`tRotate` vérifié en node sur les 7 locales : **60 assertions**, dont « aucune fuite d'anglais en fr ».
+
+**DoD** : `pytest` **1119 passed** (+20), 1 rouge = `test_llm_meter_usage` (**rouge sur main aussi**,
+arrondi du test, hors zone) ; ruff / mypy 43 fichiers / guardrails OK ; `node --check` sur les 2 JS.
+
+**Reste / non fait (explicitement hors périmètre A+B+D)**
+- **C non implémenté** : la phrase de devise mandatée par la règle 9 (« prix affichés en EUR, sans
+  conversion depuis l'USD » — visible sur la capture de Fabien) est TOUJOURS là, comme la
+  restatement obligatoire de la règle 7. Les rendre conditionnelles = chantier C.
+- **Streaming réel du texte (Q3) non fait** : les tokens restent un replay. Option retenue si on y
+  va : streaming **phrase par phrase** avec les guards déterministes appliqués par phrase (ils sont
+  regex/lookup, pas LLM), l'anti-boucle restant en fin de texte. À rediscuter maintenant que la
+  réponse tient en 2 phrases — le streaming a beaucoup moins d'intérêt sur 200 caractères.
+- `DAYUSE_MODEL_SYNTHESIS=gpt-5.2` inchangé : levier orthogonal, à probé séparément (piège
+  temperature × reasoning_effort de S-PERF3).
+
 ## 🚢 Addendum 2026-07-29 (12h50) — S-PERF4 DÉPLOYÉ SUR RAILWAY DEPUIS LA BRANCHE (pas mergé)
 
 **GO explicite de Fabien (« mets cette version sur sa branche et déploie-la sur Railway que je puisse

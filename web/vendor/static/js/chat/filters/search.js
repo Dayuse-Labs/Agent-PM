@@ -11,7 +11,7 @@ import { parsePrice } from '../hotels/card.js';
 import { renderClarify } from './chips.js';
 import { getChatEndpoint, getChatHeaders } from '../api.js';
 import { getNativeContext, getClientTimeContext } from '../utils.js';
-import { setLanguage, t } from '../i18n.js';
+import { setLanguage, t, tRotate } from '../i18n.js';
 import { escapeAttr, escapeHtml } from '../security.js';
 import { getMarketFallbackLink, renderSuggestionsRow } from '../handlers/responses.js';
 
@@ -242,7 +242,7 @@ export function addFollowUpMessage(skipTimeslotChips = false) {
     if (skipTimeslotChips || state.selectedFilters.timeslot) {
         const followUpHtml = `
             <div class="follow-up-box">
-                <p>${t('followup_questions')}</p>
+                <p>${tRotate('followup_questions', state.turnSequence)}</p>
             </div>
         `;
         const msg = addMessage(followUpHtml, false, false, false, true);
@@ -252,7 +252,7 @@ export function addFollowUpMessage(skipTimeslotChips = false) {
 
     const followUpHtml = `
         <div class="follow-up-box">
-            <p class="follow-up-box__refine">${t('followup_refine')}</p>
+            <p class="follow-up-box__refine">${tRotate('followup_refine', state.turnSequence)}</p>
             <div class="follow-up-chips">
                 <button class="chip" data-action="follow-up" data-follow-up="early">${t('chip_early')}</button>
                 <button class="chip" data-action="follow-up" data-follow-up="day">${t('chip_day')}</button>
