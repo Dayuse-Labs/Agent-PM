@@ -25,7 +25,11 @@ Same split of responsibility as `equipment_ids.py` (the proven template):
     server clock, documented fallback), and writes the real ISO string MCP
     requires. A turn with NO fresh label reuses the profile's own carried-over
     `date` (never re-derives "today" over a real prior date — the audit's
-    "date lost on a later turn" bug in reverse).
+    "date lost on a later turn" bug in reverse). One invariant across every
+    path: **a date strictly before the reference "today" is never sent to
+    MCP** — whether the model invented a past year or the session carried a
+    pre-midnight date, the search would come back empty and that empty reads
+    to the customer as "no offers in <city>" (prod 2026-07-29).
   - `resolve_search_timeslot` (before_tool, LAST group) pops the virtual
     `duration`/`startMinute`/`endMinute`, computes the EXACT requested window
     in minutes-of-day, floors/ceils it to the whole hours MCP actually accepts
@@ -185,28 +189,66 @@ def _resolve_relative(value: Any, today: date) -> date | None:
     return None
 
 
+def _next_occurrence(month: int, day: int, today: date) -> date | None:
+    """`month`/`day` as its next occurrence at or after `today`, rolling the
+    year when it has already passed. None when the pair is not a real calendar
+    date in either year (e.g. 02-30)."""
+    try:
+        candidate = date(today.year, month, day)
+    except ValueError:
+        return None
+    if candidate < today:
+        try:
+            return date(today.year + 1, month, day)
+        except ValueError:
+            return None
+    return candidate
+
+
 def _resolve_absolute(value: Any, today: date) -> date | None:
     v = str(value or "").strip()
     match = _ISO_DATE_RE.match(v)
     if match:
+        year, month, day = (int(match.group(i)) for i in (1, 2, 3))
         try:
-            return date(int(match.group(1)), int(match.group(2)), int(match.group(3)))
+            candidate = date(year, month, day)
         except ValueError:
             return None
+        if candidate >= today:
+            return candidate
+        # A year in the PAST is proof the model invented one. Its instruction is
+        # explicit — "YYYY-MM-DD if they gave a year, else MM-DD; NEVER add or
+        # guess a year yourself" — and prod 2026-07-29 caught gpt-4o-mini
+        # labelling "6 aout" as "2023-08-06": a search three years back, 0
+        # results served as "no offers in Melun", then persisted to
+        # profile.date and replayed on every later turn (it reads exactly like
+        # broken multi-turn state). Nobody books a day-use in the past, so the
+        # month/day it DID extract is the only trustworthy part: roll it forward
+        # under the same rule the year-less branch below has always used.
+        return _next_occurrence(month, day, today)
     match = _MONTH_DAY_RE.match(v)
     if match:
-        month, day = int(match.group(1)), int(match.group(2))
-        try:
-            candidate = date(today.year, month, day)
-        except ValueError:
-            return None
-        if candidate < today:
-            try:
-                candidate = date(today.year + 1, month, day)
-            except ValueError:
-                return None
-        return candidate
+        return _next_occurrence(int(match.group(1)), int(match.group(2)), today)
     return None
+
+
+def _usable_carried_date(value: Any, today: date) -> str | None:
+    """The carried `profile_in.date` when it is still searchable — else None,
+    so the caller falls back to today.
+
+    Rejects a date strictly BEFORE today for the same reason as the guard
+    above: it can only ever come back empty, and that empty reads to the
+    customer as "no offers here". Reachable without any model mistake — the
+    profile TTL is a 30-min sliding window, so a session that straddles
+    midnight carries yesterday's resolved date into today. Also rejects a
+    non-ISO value, which MCP would only reject at schema level anyway."""
+    if not isinstance(value, str) or not value:
+        return None
+    try:
+        carried = date.fromisoformat(value)
+    except ValueError:
+        return None
+    return value if carried >= today else None
 
 
 def resolve_date_label(label: Any, today: date) -> tuple[date, str, str | None]:
@@ -262,9 +304,9 @@ def resolve_search_date(tool: Any, args: dict[str, Any], tool_context: Any) -> N
                 "date_reference": date_reference,
             }
             return None
-    # No fresh, resolvable label this turn — carry over rather than re-derive.
-    carried = profile_in.get("date")
-    args["date"] = carried if isinstance(carried, str) and carried else today.isoformat()
+    # No fresh, resolvable label this turn — carry over rather than re-derive,
+    # unless the carried date is no longer searchable (`_usable_carried_date`).
+    args["date"] = _usable_carried_date(profile_in.get("date"), today) or today.isoformat()
     return None
 
 

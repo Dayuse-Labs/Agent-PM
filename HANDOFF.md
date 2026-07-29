@@ -2,6 +2,62 @@
 
 État du chantier pour reprise en session fraîche. **Lire en entier avant d'agir ; ne pas reconstruire ce qui existe.** Mettre à jour en fin de CHAQUE session (bloc daté en tête).
 
+## 🗓 Addendum 2026-07-29 (soir, branche `fix/absolute-date-hallucinated-year`, PR #57) — « pas de résultat sur Paris » : DEUX causes, aucune n'était le multi-turn
+
+**Déclencheur** : Fabien remonte une capture (Melun piscine → 0, puis « ok bon bah cherche à PAris alors » → 0)
+avec deux hypothèses : un bug multi-turn, et un filtre cutoff/rateplan qui ne regarderait que le
+plan le moins cher. **Les deux hypothèses sont fausses**, et le diagnostic n'a pas été fait par
+relecture de code mais en lisant les **arguments réels de `search_offers` dans Langfuse**
+(session `3702055d-5076-4322-b4f1-721117c609a7`) — réflexe à garder : *la trace d'abord, la `date`
+envoyée d'abord*.
+
+| UTC | message | `date` envoyée | total | hôtels |
+|---|---|---|---|---|
+| 12:57:59 | …piscine à melun **pour 6 aout** | `2023-08-06` ⚠️ | 0 | 0 |
+| 12:58:18 | Ok, cherche à paris alors | `2023-08-06` ⚠️ | 0 | 0 |
+| 12:58:50 | …paris piscine **pour le 6 aoout** | `2026-08-06` | 38 | **5** |
+| 13:03:59 | ok bon bah cherche à PAris alors *(la capture)* | `2026-07-29` | **38** | **0** |
+| 13:08:04 | paris avec piscine **demain** | `2026-07-30` | 38 | **5** |
+
+**A — l'année hallucinée (corrigée ici, PR #57).** `gpt-4o-mini` (modèle d'extraction en prod ; la
+synthèse tourne en gpt-5.2) **ajoute une année** alors que sa consigne l'interdit, et prend celle de
+son entraînement. `_resolve_absolute` roulait déjà une date passée sur l'année suivante dans la
+branche MM-DD, mais **la branche ISO complète renvoyait l'année telle quelle**. Pire : la date
+résolue est persistée dans `profile.date`, renvoyée au tour suivant dans `profile_in`, recopiée par
+le modèle → **une seule mauvaise inférence contamine tous les tours suivants**, ce qui imite
+exactement un multi-turn cassé. Nouvel invariant unique : *une date antérieure au « today » de
+référence ne part jamais chez MCP* (`_next_occurrence` + `_usable_carried_date`, qui plafonne aussi
+le carryover — TTL glissant 30 min ⇒ une session peut enjamber minuit et porter la date d'hier,
+fausse pénurie sans aucune erreur de modèle). Reproductibilité mesurée : **1 session neuve sur 5**
+(aléa d'échantillonnage, pas de formulation). Vérifié hors ligne au niveau de la couture avec le
+payload verbatim de la trace ; **on ne peut pas faire réhalluciner le modèle à la demande**.
+
+**B — le cutoff du jour, servi comme une pénurie : DÉJÀ CORRIGÉ DANS LA PR #40, JAMAIS MERGÉE.**
+Le tour de la capture n'a rien à voir avec l'année : `total=38, hotels=[]` = 38 hôtels avec piscine
+existent, **tous passés leur cutoff**. Ne pas réécrire ce correctif : #40 est ouverte depuis le
+27/07. Elle avait 39 commits de retard → rebasée à contenu identique dans **PR #58** (4 conflits,
+tous tests/docs, aucun dans le source ; suite 1156 passed). Mesure ajoutée aujourd'hui, qui
+généralise le diagnostic du 27/07 : sur 221 offres parisiennes, **48 % mortes après 08h, 98 % après
+15h, 100 % après 16h** — donc *chaque jour à partir de 16h, 100 % des recherches « aujourd'hui » sur
+Paris sont un dead-end*. `total=612, results=0` sur 7 offsets ⇒ pas un artefact de pagination.
+
+**C — l'hypothèse rateplan est infirmée côté MCP, vraie côté nous.** Le filtre cutoff/dispo est
+**par offre** : un hôtel reste dans `results` sur ses plans survivants même quand le moins cher
+meurt (Miami 17907 : 1 plan à 113,03 € à 10h40 local vs 4 plans dès 96,38 € le lendemain ; LA 10041 :
+5 vs 11). Un hôtel ne disparaît que si **tous** ses plans sont morts. Mais `normalize_hotel`
+réduit les 2-12 plans vivants au seul `_best_offer` (le moins cher) → **1 plan sur 11 atteint le
+client** pour LA 10041, et comme les plans pas chers ont les cutoffs les plus tôt, **le prix visible
+monte au fil de la journée sans aucun changement de tarif**. Décision produit, pas un bug : non
+traité ici.
+
+**Aussi noté (doc, PR #57)** : `total` et `has_more` sont calculés **avant** le contrôle de
+réservabilité — LA annonce `total=110, has_more=true` à `from=80` pour ~22 hôtels réels. Ni l'un ni
+l'autre n'est une disponibilité ; ne jamais paginer sur `has_more` seul.
+
+**Rapport complet** (chiffres, méthode, réserves) : artefact « Why Paris returned nothing », publié
+pour Fabien. **Reste** : mergeer #57 et l'un de #40/#58 (conflit léger sur `datetime_resolver.py` +
+`HANDOFF.md` pour celle qui atterrit en second) ; trancher C (multi-rateplans sur la carte).
+
 ## 🩹 Addendum 2026-07-29 (soir, branche `fix/leaf-tool-budget-starves-search`) — la fausse panne « je n'arrive pas à joindre la recherche d'hôtels à Singapore »
 
 **Déclencheur** : Fabien voit la dégradation honnête sur une recherche Singapour, alors que MCP_B2C

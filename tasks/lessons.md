@@ -196,3 +196,13 @@
 4. **Piège gpt-4o-mini vérifié live** : une consigne de négation (« sans piscine ») peut
    être INVERSÉE par le modèle (il a émis les 8 autres clés → AND → 0 résultat). Toujours
    tester la formulation négative en live après un changement de prompt d'extraction.
+5. **Un « 0 résultat » n'est jamais auto-diagnostiquable depuis le code** : le 2026-07-29,
+   la même capture d'écran contenait DEUX causes distinctes (année 2023 hallucinée par
+   le modèle, et cutoff du jour dépassé) qui produisent le même écran vide. Les deux ont
+   été séparées en lisant les ARGUMENTS RÉELS de `search_offers` dans Langfuse
+   (`traces/{id}` → observations), pas en relisant le code. Réflexe : trace d'abord,
+   `date` envoyée d'abord — le multi-turn était sain.
+6. **Un test qui code en dur une date proche pourrit en silence.** Deux tests de
+   carryover asseraient `"2026-07-28"` : ils sont devenus des tests de date PASSÉE le
+   2026-07-29 et ont cassé sur un guard légitime. Toute date de test comparée à
+   `date.today()` doit être calculée (`date.today() + timedelta(...)`), jamais littérale.
