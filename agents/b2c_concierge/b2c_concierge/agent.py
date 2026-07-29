@@ -750,6 +750,16 @@ class _B2cConcierge(BaseAgent):
             "rating": result.get("rating"),
             "rating_count": result.get("rating_count"),
             "stars": result.get("stars"),
+            # S-CX8: every formula of the chosen day, each carrying its own
+            # tunnel link, the one this card is priced on flagged `selected`.
+            # Absent whenever the hotel has a single bookable formula or the
+            # multi-plan lookup degraded — the widget then renders exactly the
+            # card it rendered before this key existed.
+            "rate_plans": result.get("rate_plans"),
+            # Hotel-level perks (MCP `includedAmenities`), stated ONCE: probed
+            # over 227 multi-formula days they never differed between formulas,
+            # so per-row they would imply a distinction that does not exist.
+            "hotel_amenities": result.get("hotel_amenities"),
             "cta_text": "book_now",  # i18n key, resolved by the widget's own table
         }
         return {k: v for k, v in card.items() if v is not None}

@@ -704,10 +704,15 @@ function renderFooter(priceInfo, discount, originalPrice, hotelUrl, hotelName, h
     const formattedDiscount = hasDiscount ? Math.round(discount) : null;
     const formattedOriginalPrice = hasDiscount ? Math.round(originalPrice).toString() : null;
 
+    // S-CX8: this price is the cheapest of the hotel's formulas for the day, and
+    // now says so. Unlabelled, it read as THE price — so a user who picked the
+    // hotel and met a pricier formula in the booking card had been misled by a
+    // number that was accurate but not the whole offer.
     return `
         <div class="hotel-card-footer">
             <div class="hotel-details">
                 <div class="price-section">
+                    <div class="price-from-label">${t('card_from_label')}</div>
                     <div class="current-price">${currencyPrefix}${priceInfo.display}</div>
                     ${hasDiscount ? `
                         <div class="discount-row">

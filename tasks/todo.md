@@ -1,3 +1,96 @@
+# S-CX8 — Sélecteur de rateplan sur la booking card (option A) — 2026-07-28
+
+Décision Fabien (artefact `claude.ai/code/artifact/cf5457e0`) : **option A** (sélecteur intégré
+à la booking card existante) avec 4 points client retenus — **prestations incluses, type de
+chambre, remise vs prix de nuit, annulation gratuite**. Écartés : durée sur place, prix frais
+inclus, cutoff « réservable jusqu'à ».
+
+## Design verrouillé
+
+### Contrat (additif, dégradation par absence)
+
+`booking_card.rate_plans[]`, chaque entrée :
+
+| clé | source | absent si |
+|---|---|---|
+| `offer_id` | `ratePlanUuid` | jamais (identité obligatoire) |
+| `url` | `generate_booking_link` pour CETTE offre | jamais (une ligne sans lien est droppée) |
+| `name` | `ratePlanName` (MCP, demandé) | champ MCP absent → ligne titrée par son créneau |
+| `room_type` | `roomType` (MCP, demandé) | idem |
+| `addons` | `addonsIncluded` (MCP, demandé) | idem |
+| `start_time` / `end_time` | `startHour/Minute`, `endHour/Minute` | offre sans horaires |
+| `price` / `price_eur_cents` | `priceEuro` | offre sans prix |
+| `original_price` / `discount_pct` | `originalPriceEuro` (MCP, demandé) | champ absent |
+| `selected` | calculé (voir règle 1) | jamais (exactement une entrée à `true`) |
+
+Les champs top-level de `booking_card` (`price`, `start_time`, `end_time`, `url`) restent ceux du
+plan **sélectionné** → un widget qui ignore `rate_plans` affiche exactement la carte actuelle.
+
+### Règles
+
+1. **Le plan sélectionné par défaut est celui que la carte shortlist affichait** (`offer_id` de
+   `profile.last_results`), pas le moins cher de la journée — sinon le prix saute entre le
+   carrousel et la carte de réservation. À défaut, le moins cher.
+2. **Un lien par plan, généré en parallèle** sur le tour du pick (le pick EST la confirmation R9,
+   règle S-CX5 b). Cap `_MAX_RATE_PLANS = 6`, tri prix croissant.
+3. **Un plan dont le lien échoue est retiré de la liste** (une ligne sélectionnable non
+   réservable est pire que pas de ligne). Si le plan sélectionné échoue → dégradation complète
+   vers le chemin mono-offre actuel.
+4. **Dégradation** : `get_hotel_details` en échec, ou ≤ 1 plan → `rate_plans` absent,
+   comportement d'aujourd'hui à l'identique.
+5. **Annulation gratuite** = règle produit, copy widget pure (aucune donnée backend).
+
+## Tâches
+
+- [x] Prompt MCP_B2C rédigé (`reports/PROMPT-MCP-B2C-RATEPLANS.md`)
+- [x] `inline_tools.py` : `_day_rate_plans()` + chemin pick multi-plans + fallback
+- [x] `agent.py` : `_booking_card` passe `rate_plans`
+- [x] Tests backend : sélection par défaut, tri, cap, dégradations, R9 intact
+- [x] Widget `messages.js` : rendu des lignes + sélection client-side
+- [x] Widget `hotels.css` : styles `.booking-card__rp*`
+- [x] Widget `i18n.js` : nouvelles clés × 7 langues
+- [x] Widget `card.js` : « à partir de » sur la carte résultat
+- [x] Widget `filters/search.js` : « dès » sur les pastilles de pick
+- [x] Gates : pytest / mypy / ruff / guardrails
+- [ ] HANDOFF.md + PR
+
+## Découvertes des probes live (2026-07-28) — ont changé la conception
+
+Probes : MCP_B2C `get_hotel_details` (4 596 offres réelles, 51 hôtels multi-formules) + snapshot
+catalogue prod (8 701 hôtels / 22 177 rate plans).
+
+1. **`offerType` est le VRAI différenciateur** — enum fermé 5 valeurs (`dayuse.day` 72 %,
+   `late_break` 13 %, `early` 11 %, `dayuse_pm` 3 %, `dayuse_am` 0,7 %). Traduit côté widget
+   (« Journée / Soirée / Matinée / Après-midi », 7 langues). **Le sélecteur marche donc AUJOURD'HUI,
+   sans changement MCP.**
+2. **`rate_plan_name` est inutilisable comme titre** : c'est le nom de la CHAMBRE, en langue libre
+   du partenaire, et **2 829 / 5 591 hôtels multi-formules donnent le même nom à toutes leurs
+   formules** → trois lignes « Standard Double Room ». Gardé dans le contrat, jamais en titre.
+3. **`room_type` est NULL sur 22 177 / 22 177 lignes** → retiré de la demande MCP. Remplacé par
+   `bedding` + `capacity` (peuplés : `double`/`double_king`/`twin_*`, capacity 2 sur 92 %), qui
+   servent le point « type de chambre » choisi par Fabien.
+4. **`addons_included` : 4,6 % de remplissage** (et casse incohérente) → les prestations
+   s'afficheront rarement. Rendu prêt, aucune dépendance UI.
+5. **`original_price` : 98,8 % de remplissage en base** mais absent de MCP → **c'est la seule
+   demande du prompt MCP** (réécrit en conséquence). `computeNightDiscount` (`card.js`) était du
+   **code mort en prod** faute de cette donnée.
+6. **64 % des hôtels ont 2+ formules** → le sélecteur concerne la majorité du parc.
+
+## Trouvé et corrigé au passage (exposé par le rendu réel du composant)
+
+`formatCardDate`/`formatRating` passaient `undefined` en locale → **locale de l'OS, pas la langue
+du chat** : une carte française affichait « Wed, Jul 29 » et « 4.6/5 ». Corrigé en
+`getLanguage()`. Le commentaire de `formatRating` promettait déjà « 4,7 in fr » sans le livrer.
+
+## Trouvé, NON corrigé (hors périmètre, à trancher)
+
+`renderTimeslots` (`card.js`) affiche les créneaux en AM/PM via `formatTimeAMPM` dans **toutes**
+les langues : une carte fr montre « 10:30am – 4pm » alors que la booking card montre « 10:30 –
+16:00 ». Incohérent pour fr/es/it/de/nl (locales 24 h). Correction = décision produit + touche
+tout le carrousel → sa propre session.
+
+---
+
 # S-CX5 — panier & remise du lien (session live de Fabien, 2026-07-27) — 10/12 FAIT
 
 Trois symptômes rapportés (2 screenshots, session Paris/fr). Diagnostic par lecture

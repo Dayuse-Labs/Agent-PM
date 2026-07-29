@@ -524,7 +524,19 @@ def normalize_hotel(
             best.get("endHour"), best.get("endMinute")
         )
         if start and end:
-            card["timeslots"] = [{"start": start, "end": end}]
+            slot: dict[str, Any] = {"start": start, "end": end}
+            # S-CX8: the night rate this day-use price undercuts, in EUROS on the
+            # slot — the exact shape the widget's `computeNightDiscount` has
+            # always read (`slot.original_price`, compared against the parsed
+            # euro price). Nothing ever filled it, so the carousel's "-33%" badge
+            # was dead code in production; MCP exposed `originalPriceEuro`
+            # (EUR cents, 98.6% of offers) on 2026-07-28 and it finally can be.
+            # Only when the night rate is really higher: a "-0%" badge would be
+            # a claim we cannot make.
+            original_cents = _price_eur_cents(best.get("originalPriceEuro"))
+            if original_cents is not None and cents is not None and original_cents > cents > 0:
+                slot["original_price"] = round(original_cents / 100, 2)
+            card["timeslots"] = [slot]
         # S-CX5: the IDENTITY of the offer this card prices — `ratePlanUuid` is
         # the booking tunnel's own `offerId` (MCP_B2C generate_booking_link
         # schema) and `availabilityDate` the day it is bookable on. Both come

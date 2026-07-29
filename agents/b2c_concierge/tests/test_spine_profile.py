@@ -690,9 +690,20 @@ class TestCheapestPickThroughTheSpine:
         # S-CX5: an explicit pick on a booking turn IS the confirmation — the
         # link comes back on this turn, no "vous confirmez ?" round-trip.
         assert link_call[1]["confirmed"] is True
-        # And resolving it took no MCP lookup either — the shortlist knew.
+        # And resolving WHICH hotel took no name lookup — the shortlist knew.
         assert "find_hotel_by_name" not in {c[0] for c in mcp_calls}
-        assert "get_hotel_details" not in {c[0] for c in mcp_calls}
+        # S-CX8 amends what this test used to assert here. It required
+        # `get_hotel_details` to be absent: the pick reused the shortlist's
+        # offer verbatim, zero extra round-trip. The formula selector needs the
+        # SIBLING rate plans of that day, and they exist nowhere in session
+        # state — only the chosen offer does — so one details lookup is now
+        # unavoidable on a pick turn. What that decision bought is asserted
+        # above and unchanged: no second SEARCH, and the offer actually booked
+        # is still the one the card was priced on. The alternative (carrying
+        # every hotel's rate plans in the search payload) was rejected: it taxes
+        # the TTFT-critical search turn for data only a pick consumes, and the
+        # leaf's exact-window filter would show a TRUNCATED list of formulas.
+        assert "get_hotel_details" in {c[0] for c in mcp_calls}
 
     def test_a_bare_comparative_still_runs_a_fresh_search(self, monkeypatch, fake_leg):
         """The mirror case: "quelque chose de moins cher" is a real refinement
