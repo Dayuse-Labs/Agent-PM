@@ -894,6 +894,46 @@ def record_search_shortlist(profile: SessionProfile, results: list[dict[str, Any
         _accumulate_shown_hotel_ids(profile, [entry["hotel_id"] for entry in shortlist])
 
 
+def build_hotel_picks(profile: SessionProfile) -> list[dict[str, Any]]:
+    """The hotel-pick buttons (S-CX5, Fabien 2026-07-27): one entry per hotel on
+    screen the user can choose, CHEAPEST FIRST.
+
+    Why the backend owns this rather than the widget deriving it from `hotels`:
+    both product rules live here, where the session state is. WHEN they may
+    appear — a destination must be resolved. A date is NOT required (Fabien
+    2026-07-28): the search and the booking quote both default the date to
+    today, so a date-less shortlist IS bookable — requiring the date dead-ended
+    the pick row for every "hôtel à Paris" search. And in WHICH ORDER — sorted
+    by price, so "the cheapest" is answerable by eye and the first button is
+    always it. Deliberately NO "cheapest" badge: that would be a claim, and
+    claims need a guard.
+
+    Empty list when nothing qualifies — the widget then renders no pick row at
+    all rather than an empty one. Entries without a price sort last (they are
+    still pickable; they just can't be compared).
+
+    Lives HERE rather than in the facade (S-PERF4) because the spine has to
+    call it too: a hotels-first client paints the cards on the `hotels` frame,
+    long before the `done` payload exists, and S-CX9 gates the card's booking
+    CTA on these picks. Both callers running the SAME function over the SAME
+    profile is what makes the frame's picks and the payload's picks equal by
+    construction rather than by review."""
+    if not profile.city:
+        return []
+    picks = [
+        {
+            "hotel_id": hotel.get("hotel_id"),
+            "name": hotel.get("name"),
+            "price": hotel.get("price"),
+            "price_eur_cents": hotel.get("price_eur_cents"),
+        }
+        for hotel in profile.last_results or []
+        if isinstance(hotel, dict) and hotel.get("hotel_id") is not None and hotel.get("name")
+    ]
+    picks.sort(key=lambda p: (p["price_eur_cents"] is None, p["price_eur_cents"] or 0))
+    return picks
+
+
 def _accumulate_shown_hotel_ids(profile: SessionProfile, hotel_ids: list[Any]) -> None:
     """Moves each id in `hotel_ids` to the end of `shown_hotel_ids` (deduped —
     a re-shown hotel is now the MOST recently shown, not a stale entry),

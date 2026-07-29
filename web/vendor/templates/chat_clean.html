@@ -5,6 +5,7 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover">
     <title>DayuseAI - Find Your Perfect Daytime Hotel</title>
     <meta name="du-chat-endpoint" content="{{ chat_endpoint | default('/v3/chat') }}">
+    <meta name="du-chat-transport" content="{{ chat_transport | default('json') }}">
     <meta name="du-chat-public-token-header" content="{{ chat_public_token_header | default('X-Chat-Public-Token') }}">
     <meta name="du-chat-public-token" content="{{ chat_public_token | default('') }}">
     <meta name="du-chat-language" content="{{ market_language | default('en') }}">

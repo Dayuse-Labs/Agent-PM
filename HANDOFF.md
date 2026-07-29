@@ -2,6 +2,125 @@
 
 État du chantier pour reprise en session fraîche. **Lire en entier avant d'agir ; ne pas reconstruire ce qui existe.** Mettre à jour en fin de CHAQUE session (bloc daté en tête).
 
+## 🚢 Addendum 2026-07-29 (12h50) — S-PERF4 DÉPLOYÉ SUR RAILWAY DEPUIS LA BRANCHE (pas mergé)
+
+**GO explicite de Fabien (« mets cette version sur sa branche et déploie-la sur Railway que je puisse
+voir »). La PR #45 n'est PAS mergée** — le gate humain reste à exercer. La démo tourne donc du code
+de branche : `main` et le déployé ont divergé, à re-synchroniser après review.
+
+**Déployé** : `concierge` **puis** `widget` — dans cet ordre, parce que le fix des picks est
+côté serveur : widget-en-SSE avant concierge aurait affiché exactement le bug corrigé (cartes sans
+CTA). `hotel-search` et `faq` **non redéployés** (`git diff origin/main` vide sur leurs dossiers).
+`WIDGET_CHAT_TRANSPORT=sse` posée sur le service `widget` (elle n'existait pas → le défaut `json`
+était actif).
+
+**Vérifié EN PROD sur https://widget-production-3f56.up.railway.app**
+- Assets : meta `du-chat-transport="sse"`, `stream.js` **200**, et dans `send.js` servi :
+  `mapV3Hotels` ×3, `rating_count` ×2, `state.hotelPicks = Array.isArray(frame.hotel_picks)` ×1.
+- Probe SSE brute : la frame porte `hotel_picks` **identique à `done`** (3 picks, €89 → €90 → €95),
+  `response_language: fr`, `rating_count` 4 / 1 / 0.
+- **Navigateur (CDP)** : cartes à **4,9-5,1 s**, fin de tour à **8,2-9,3 s** → **3,3-4,2 s d'avance**.
+  À l'instant des cartes : 3 cartes, **3 `.pick-cta`**, notes `4,9/5 (4)` et `5,0/5 (1)`, rien sur le
+  `rating: 0`, badges `-33/-34 %`, `dès €90 €135/nuit`, bulle thinking en dessous (`thinking: true`
+  relevé dans le DOM = le tour n'était PAS fini).
+  → `reports/latency/widget-sse-2026-07-29/prod-cards-midstream-with-cta.png`
+- **Clic réel du CTA de la carte #2** (`hotel_id=20152`) → carte de réservation du bon hôtel
+  (€89,00, 15:00-22:00, mer. 29 juil.) + lien tunnel `offerId`/`ratePlanPolicyUuid`/`checkinDate`,
+  en **1,43 s**. → `prod-pick-booking-card.png`
+
+**Rollback** (2 niveaux, indépendants)
+1. Revenir au transport bloquant sans toucher au code : `railway variables --service widget --set
+   "WIDGET_CHAT_TRANSPORT=json"` (ou supprimer la variable) + redeploy du widget.
+2. Revenir au code de `main` : `railway up --service concierge --ci` puis `--service widget --ci`
+   **depuis un checkout de `main`** (`railway up` envoie le répertoire de travail, pas le git).
+
+**Toujours pas démontré** : le sélecteur MULTI-formules de S-CX8 (l'inventaire de l'après-midi ne
+renvoyait qu'une formule — même limite de cutoff que la veille). `card.js` est **identique à main** et
+la booking card n'a pas changé, donc le risque est structurellement nul, mais la preuve visuelle
+manque. À reprendre tôt le matin.
+
+## 🖥 Addendum 2026-07-29 (après-midi, branche `sperf4-widget-sse`, PR #45) — S-PERF4 rebasé sur main : le CTA S-CX9 survit au rendu hotels-first
+
+**La PR #45 était complète et vérifiée depuis le 28/07 — mais jamais mergée, et `main` a bougé
+dessous** (S-CX7 #49, S-CX8 #50, S-CX9 #51/#52, tous déployés). Le merge de `main` dans la branche
+n'a levé que **4 conflits textuels** (`HANDOFF.md`, `tasks/lessons.md` = append-only ;
+`facade.py` = wrapper OBS1 `turn_observation` à réindenter autour du `yield` de la frame ;
+`send.js` = `mapV3Hotels()` extrait de `normalizeV3Response` **vs** `rating_count` ajouté par #52).
+
+**Le vrai défaut n'était dans AUCUN conflit** : le CTA de réservation de S-CX9 (`.pick-cta` sur la
+carte) est gaté sur `state.hotelPicks`, que le widget ne remplissait **que depuis le corps JSON
+bloquant** (`send.js`, à `done`). La frame SSE `hotels` ne portait pas `hotel_picks` → en transport
+`sse` **toutes les cartes se peignaient sans leur CTA principal**, et `skipCarousel` interdisant tout
+redessin à `done`, le CTA n'apparaissait jamais. Pire : `state.hotelPicks` gardait les picks du tour
+PRÉCÉDENT, donc un `hotel_id` commun affichait un CTA issu d'un état périmé. Et comme #49 a retiré
+l'exigence de date de `build_hotel_picks`, les picks sont non-vides sur **quasi toute** recherche —
+donc le défaut touchait tous les tours de recherche, pas un cas limite.
+
+**Fait (côté serveur)**
+- **`build_hotel_picks` déménage de `facade.py` vers `profile.py`** — `facade.py` importe `.agent`,
+  donc `agent.py` ne peut pas importer le facade (cycle). Les deux appelants exécutent désormais **la
+  même fonction sur le même profil** : la frame et le payload sont égaux **par construction**, pas
+  par revue. `facade.py` la ré-importe (aucun changement d'API pour `build_chat_payload`).
+- **`_hotels_event(ctx, response, language, picks)`** porte `hotel_picks` ; le facade le relaie sur
+  la frame SSE (additif, à côté de `requires_clarification` / `response_language`).
+- **Le `yield` de la frame passe APRÈS `apply_profile_delta` + `record_search_shortlist`** (juste
+  avant la synthèse — le gain S06 est intact, tout ce qui précède est du dict en mémoire). Émis
+  avant, il calculait les picks sur la ville et la shortlist du tour PRÉCÉDENT. **Vérifié en
+  remettant le `yield` à sa place d'origine → le test tombe** (`[] != [101]`).
+  Effet de bord assumé : les 2 sorties anticipées (`search_unavailable`, pagination épuisée)
+  n'émettent plus de frame du tout — c'étaient des tours à `hotels: []`, rien à peindre, et le
+  payload donne `hotels: None` dans les deux cas.
+- **Chemin inline** (`details`/`compare`) : mêmes picks que le payload (ces routes ne touchent pas
+  `last_results` — parité avec le POST bloquant, pas une amélioration).
+
+**Fait (côté widget)**
+- `renderHotelsEarly` pose `state.hotelPicks` depuis la frame, **inconditionnellement** (absent ⇒
+  `[]`) et **avant** `createHotelCarousel` — sinon les picks du tour précédent gatent les cartes du
+  tour courant.
+- `mapV3Hotels` récupère **`rating_count`** : sans ça le merge annulait silencieusement le fix #52.
+
+**Tests** : `pytest -q` → **1099 passed**, 1 failed = `test_llm_meter_usage` (**rouge sur `main`
+aussi**, bug d'arrondi du test, hors zone). ruff / mypy (43 fichiers) / guardrails **OK** ;
+`node --check` sur les 5 JS touchés. 2 tests neufs, **tous deux vérifiés en échec sans leur fix** :
+parité picks frame↔`done` non vide, et « les picks de la frame sont ceux de CE tour, pas du
+précédent » (2 tours, 2 villes).
+
+**Vérification navigateur (Chrome headless, CDP, stack locale réelle + MCP live)**
+- **À l'instant où les cartes apparaissent** (4,53 s, soit **2,87 s avant la fin du tour** à 7,40 s) :
+  3 cartes, **3 `.pick-cta`** (`ids 9075 / 20152 / 7851`), libellés **« Choisir cet hôtel »** en
+  français, notes **`4,9/5 (4)`** et **`5,0/5 (1)`**, aucune note sur le 3e (`rating: 0`), badges
+  `-33 % / -34 %`, prix `dès €90 €135/nuit`, bulle « thinking » SOUS les cartes.
+  → `reports/latency/widget-sse-2026-07-29/sse-cards-instant-with-cta.png`
+- **Contrôle JSON** (proxy `:8091`, transport `json`) : cartes à **7,37 s** (lead 0,09 s), et **DOM
+  final identique** (3 cartes, 3 CTA, 1 carrousel, mêmes notes, mêmes ids).
+- **Clic réel du CTA de la carte #2** (pas la 1re, `hotel_id=20152`) → carte de réservation du **bon
+  hôtel** (Courtyard by Marriott Lyon Eurexpo, €89,00, 15:00-22:00, mer. 29 juil.) avec lien tunnel
+  portant `offerId` + `ratePlanPolicyUuid` + `checkinDate`. 1 seul carrousel, chips d'affinage
+  intactes. → `sse-pick-booking-card.png`
+- **Probe SSE brute** sur `:8100` : `hotel_picks` de la frame == celui de `done` (3 picks, tri
+  €89 → €90 → €95), `response_language: fr`.
+
+**⚠️ PIÈGE DE VÉRIFICATION (m'a fait mesurer le mauvais code pendant 10 min)** :
+`scripts/run_local.sh` ne tue que les pids de **son propre** `.run-logs/`. Un stack lancé depuis un
+AUTRE checkout tient les ports 8100-8102 → mes 3 services meurent en `[Errno 48] address already in
+use`, **puis la sonde de readiness trouve l'ancien stack et annonce « ready »**. Ma première probe
+lisait donc le code de `main` (`hotel_picks: []`, `response_language: None` — j'ai failli conclure à
+un bug de mon fix). **Toujours vérifier quel checkout sert le port** :
+`ps -p $(cat .run-logs/b2c_concierge.pid) -o command=`. Les ports sont codés en dur dans le script
+(pas de surcharge par env).
+
+**Reste / à trancher**
+- **Décision produit ouverte (inchangée depuis le 28/07, jamais revue)** : en `sse` le texte de
+  synthèse arrive **SOUS les cartes** (en `json` l'intro reste au-dessus). Visible sur
+  `sse-pick-booking-card.png` (« J'ai trouvé 3 hôtels à Lyon… » sous le carrousel). Alternative
+  écartée : injecter l'intro dans le message des cartes à `done` (DOM final identique au JSON) — ça
+  déplace la vue pendant que l'utilisateur lit les cartes.
+- **Déploiement (Fabien)** : merger #45, puis `WIDGET_CHAT_TRANSPORT=sse` sur le service `widget` +
+  redeploy. Rollback = retirer la variable (le défaut `json` est le comportement actuel).
+- Si le widget est un jour servi par l'app Dayuse via `/v3/chat/public`, le stream devient
+  `/v3/chat/stream/public` et cette route doit exister côté hôte. Non concerné sur la démo Railway.
+- `adk eval` non relancé (worktree installé sans `google-adk[eval]`, cf. bloc du 28/07).
+
 ## 🚀 Addendum 2026-07-29 (11h50) — S-CX8 + S-CX9 MERGÉS DANS MAIN, widget DÉPLOYÉ depuis main
 
 **Fabien a donné le go explicite de merger (« merge le PR dans l'ordre et lance un déploiement ») —
@@ -395,6 +514,77 @@ shutdown atexit). (3) **Pré-existant sur main** : `tests/test_llm_meter_usage.p
 test_usage_record_extracts_tokens_and_model` échoue (round(432.15,1)=432.1 en IEEE754 vs 432.2
 attendu) — WIP llm-meter balayé par erreur (cf. commit d157323) ; hors scope OBS1, à corriger ou
 supprimer dans sa propre session.
+
+## 🖥 Addendum 2026-07-28 (branche `sperf4-widget-sse`) — S-PERF4 : widget en SSE, rendu hotels-first (chantier #1 de la roadmap latence)
+
+**Objectif atteint** : le widget ne fait plus un POST bloquant de 8-11 s. En transport `sse` il lit
+`/v3/chat/stream` et **rend le carrousel dès la frame `hotels`**, le texte à `done`.
+Mesuré au facade (`measure_latency_e2e.py`, 3 runs, stack locale 4o-mini) :
+search `hotels=3776 ms` vs `done=8649 ms` → **4,9 s d'avance** ; refine 3266 vs 7244 → **4,0 s**.
+Mesuré DANS le navigateur (Chrome headless piloté en CDP) : cartes visibles 2,3-3,8 s avant que le
+tour se termine, `progress` à 1-8 ms.
+
+**Fait**
+- **`web/vendor/static/js/chat/stream.js`** (NOUVEAU, ~80 l) — transport SEUL : `openChatStream()`
+  (fetch POST — EventSource ne POST pas) + `readSseFrames()` (générateur async, `getReader()` +
+  `TextDecoder`, split sur ligne vide, frame illisible ignorée sans tuer le tour). Aucun rendu ici.
+- **`handlers/send.js`** — `buildRequestBody()` extrait (même payload pour les 2 transports),
+  `makeApiCall(requestBody)` (retry ×3 inchangé), `mapV3Hotels()` extrait de `normalizeV3Response`
+  (source unique du mapping hôtel→carte, utilisée par la frame ET par `done`), `renderHotelsEarly()`
+  + `runStreamedTurn()`. À `done` le payload repart dans le pipeline EXISTANT (`normalizeV3Response`
+  → handlers) avec le seul flag `skipCarousel`.
+- **`handlers/responses.js`** — `buildResultsBlock` / `updateMarketFromResults` exportés ;
+  `handleResultsResponse(data, hasTimeslotRequest, skipCarousel=false)` : en `skipCarousel` seul le
+  texte d'intro est ajouté (pas de 2e carrousel, pas de `scrollIntoView` qui remonterait les cartes
+  hors écran). **Zéro changement de comportement pour le chemin JSON** (défaut `false`).
+- **Flag** : meta `du-chat-transport` (`chat_clean.html`, défaut **`json`** = comportement actuel),
+  substituée par `run_widget_proxy.py` via **`WIDGET_CHAT_TRANSPORT=sse`** (lu par requête → flip
+  sans redeploy JS). Endpoint dérivé comme `getWelcomeEndpoint` : `/v3/chat` → `/v3/chat/stream`.
+- **Fallback** : échec d'OUVERTURE du stream → POST bloquant pour CE tour. **Jamais de re-send si
+  une frame a déjà été consommée** (`framesSeen > 0` → l'erreur remonte, pas de double tour).
+- **Tracking ADDITIF** : `latency_ms` garde sa sémantique time-to-done ; ajout de `ttft_ms`
+  (frame `progress`), `hotels_ms`, `transport` (`sse` | `json` | `json_fallback` — le fallback est
+  visible sans nouvel event Amplitude). `chat_request_failed` porte aussi `transport`.
+- **2 divergences réelles trouvées et corrigées (Python, additif)** — la frame `hotels` ne portait
+  que `hotels`, donc un client hotels-first devait deviner :
+  1. `requires_clarification` — sans ça un tour de clarification AVEC shortlist aurait peint des
+     cartes que le POST bloquant retient (il `return` avant le switch). Verrouillé par test.
+  2. `response_language` — **bug visuel constaté en capture** : les cartes se peignaient en anglais
+     (langue de boot de la page) puis le texte arrivait en français. `setLanguage` ne tournait qu'à
+     `done`. Le spine met maintenant la langue du tour sur son marqueur (`_hotels_event(ctx,
+     response, language)`), le facade la relaie, le widget localise AVANT de rendre. Vérifié en
+     capture avant/après.
+- **`ui/thinking.js`** — `createThinkingSteps` renvoie en plus `relocalize()` : la bulle « thinking »
+  reste à l'écran SOUS les cartes pendant la synthèse (ce widget n'a **pas** d'élément
+  `#typing-indicator` — `showTypingIndicator()` y est un no-op, vérifié), donc son texte doit
+  pouvoir se re-localiser après le switch de langue. Aucune string user-facing nouvelle (7 locales).
+
+**Vérification (captures navigateur, leçon scx5b)** — pas d'infra de test JS : driver CDP
+(`websockets` + `Page.captureScreenshot`, deep-link `?q=` qui auto-envoie, clics via
+`Runtime.evaluate`), matrice **{ack, search, refine, pick→booking card, clarification, faq, empty} ×
+{sse, json, json_fallback}** + 2 flux SSE scriptés (`done` dégradé mi-stream, stream tronqué sans
+`done`). Résultats : exactement **1 carrousel par tour** dans les deux transports (compté en delta
+DOM), chips/pick buttons/follow-up intacts, `done` dégradé après cartes ⇒ cartes conservées + message
+honnête dessous, stream tronqué ⇒ `generic_error` + **aucun re-send**. 4 captures clés commitées dans
+`reports/latency/widget-sse-2026-07-28/`. Tests/ruff/mypy/guardrails verts (seul rouge :
+`test_llm_meter_usage`, **préexistant sur main**, bug d'arrondi du test).
+
+**Choix assumés (à trancher en review)**
+- **Le texte de synthèse arrive SOUS les cartes** en mode `sse` (JSON = intro au-dessus, inchangé).
+  Séquence chat : cartes → bulle thinking → texte. Alternative écartée : injecter l'intro dans le
+  message des cartes à `done` (DOM final identique au JSON) — ça déplace la vue pendant la lecture.
+- Les frames `token` sont **ignorées** (pas accumulées) : rien à rendre, le texte complet est dans
+  `done`. Le streaming token réel reste le chantier #9, déféré.
+
+**Reste / pièges**
+- **Déploiement (Fabien)** : après merge, poser `WIDGET_CHAT_TRANSPORT=sse` sur le service `widget`
+  + redeploy. Le pré-requis `read1` est déjà en prod (probé). Rollback = retirer la var.
+- **Si un jour le widget est servi par l'app Dayuse** avec un endpoint `/v3/chat/public`, le stream
+  devient `/v3/chat/stream/public` : cette route doit exister côté hôte (le facade AgentB2C n'expose
+  que `/v3/chat/stream`). Sur la démo Railway le proxy force `/v3/chat` → non concerné.
+- Le worktree local a été installé **sans `google-adk[eval]`** (résolution uv impossible :
+  `google-cloud-aiplatform[evaluation]` veut `litellm<1.83.7`, le repo pin `1.90.2`). Tests/lint/
+  typecheck/run OK ; `adk eval` non lancé cette session.
 
 ## ⏱ Addendum 2026-07-28 (soir, branche `sperf3-temp-reasoning-collision`) — rollout S-PERF déployé + collision temperature×reasoning attrapée en live (mitigée, fix en PR)
 

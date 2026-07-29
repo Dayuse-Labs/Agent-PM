@@ -46,7 +46,7 @@ from . import conversation_log, templates
 from .agent import _US, metrics_logger, root_agent
 from .conversation_log import build_conversation_log_row, detect_is_synthetic
 from .inline_tools import _format_price_eur_cents
-from .profile import SessionProfile, apply_profile_delta
+from .profile import SessionProfile, apply_profile_delta, build_hotel_picks
 from .profile_store import get_profile_store
 from .triage import SERVICE, guess_language
 from .triage import locale_response_language as _locale_response_language
@@ -422,39 +422,6 @@ def _json_safe(payload: dict[str, Any]) -> dict[str, Any]:
     return json.loads(
         json.dumps(payload, ensure_ascii=False, default=conversation_log._json_default)
     )
-
-
-def build_hotel_picks(profile: SessionProfile) -> list[dict[str, Any]]:
-    """The hotel-pick buttons (S-CX5, Fabien 2026-07-27): one entry per hotel on
-    screen the user can choose, CHEAPEST FIRST.
-
-    Why the backend owns this rather than the widget deriving it from `hotels`:
-    both product rules live here, where the session state is. WHEN they may
-    appear — a destination must be resolved. A date is NOT required (Fabien
-    2026-07-28): the search and the booking quote both default the date to
-    today, so a date-less shortlist IS bookable — requiring the date dead-ended
-    the pick row for every "hôtel à Paris" search. And in WHICH ORDER — sorted
-    by price, so "the cheapest" is answerable by eye and the first button is
-    always it. Deliberately NO "cheapest" badge: that would be a claim, and
-    claims need a guard.
-
-    Empty list when nothing qualifies — the widget then renders no pick row at
-    all rather than an empty one. Entries without a price sort last (they are
-    still pickable; they just can't be compared)."""
-    if not profile.city:
-        return []
-    picks = [
-        {
-            "hotel_id": hotel.get("hotel_id"),
-            "name": hotel.get("name"),
-            "price": hotel.get("price"),
-            "price_eur_cents": hotel.get("price_eur_cents"),
-        }
-        for hotel in profile.last_results or []
-        if isinstance(hotel, dict) and hotel.get("hotel_id") is not None and hotel.get("name")
-    ]
-    picks.sort(key=lambda p: (p["price_eur_cents"] is None, p["price_eur_cents"] or 0))
-    return picks
 
 
 def build_chat_payload(
@@ -888,7 +855,22 @@ async def chat_stream(request: Request) -> Response:
                         elif kind == "hotels":
                             hotels = data.get("hotels") or None
                             requires_clarification = bool(data.get("requires_clarification"))
-                            yield _sse("hotels", {"hotels": normalize_hotels(hotels) if hotels else []})
+                            # `requires_clarification`, `response_language` and
+                            # `hotel_picks` ride the frame (additive) so a
+                            # hotels-first client decides whether to paint the
+                            # shortlist — in WHICH language, and with WHICH cards
+                            # bookable — from the same inputs the `done` payload
+                            # carries. Without them a streaming widget shows a
+                            # shortlist a clarifying turn withholds, in the page's
+                            # boot language, with no booking CTA (S-CX9 gates that
+                            # CTA on `hotel_picks`, which used to reach the widget
+                            # only in the blocking JSON body).
+                            yield _sse("hotels", {
+                                "hotels": normalize_hotels(hotels) if hotels else [],
+                                "requires_clarification": requires_clarification,
+                                "response_language": data.get("response_language") or "",
+                                "hotel_picks": data.get("hotel_picks") or [],
+                            })
                         elif kind == "booking":
                             booking_card = data.get("booking_card") or None
                             yield _sse("booking_card", {"booking_card": booking_card})

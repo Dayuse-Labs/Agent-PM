@@ -1,5 +1,47 @@
 # Lessons — corrections de Fabien à réappliquer
 
+## 2026-07-29 — sperf4 rebasé (auto-constatée en reprenant une branche vieille d'un jour)
+
+1. **Une branche vérifiée n'est vérifiée que contre le `main` de l'époque.** La PR
+   #45 était complète, mesurée et screenshotée — puis S-CX7/8/9 ont réécrit le
+   MÊME chemin de rendu de carte. Le merge ne signalait que 4 conflits textuels,
+   aucun sur le vrai défaut : le CTA de réservation (`state.hotelPicks`, rempli
+   uniquement depuis le corps JSON bloquant) disparaissait de toutes les cartes en
+   mode SSE, `skipCarousel` empêchant tout redessin à `done`. Règle : avant de
+   merger une branche qui a dormi, lister les features livrées entre-temps qui
+   touchent la même surface et se demander **d'où chacune tire sa donnée** dans le
+   nouveau chemin — le diff ne le dira pas.
+2. **Deux chemins qui doivent produire la même chose doivent appeler la MÊME
+   fonction, pas deux copies d'accord.** `build_hotel_picks` a déménagé de
+   `facade.py` vers `profile.py` pour que la frame et le payload l'appellent tous
+   les deux sur le même profil : égalité par construction, pas par revue. Corollaire
+   d'ordonnancement : la frame doit être émise APRÈS `apply_profile_delta` +
+   `record_search_shortlist`, sinon les picks décrivent le tour PRÉCÉDENT (vérifié
+   en remettant le `yield` à sa place d'origine → le test tombe).
+
+## 2026-07-28 — sperf4 (auto-constatées, attrapées par la capture navigateur)
+
+1. **Rendre une donnée PLUS TÔT casse tout ce que le rendu tardif tenait pour
+   acquis.** En affichant le carrousel dès la frame `hotels`, j'ai rendu les
+   cartes AVANT `setLanguage(response_language)` (qui ne tournait qu'à `done`) :
+   cartes en anglais, texte en français juste dessous. Aucun test ne le voit,
+   seule la capture l'a montré. Règle : quand on avance un rendu dans le temps,
+   lister ce que le chemin nominal exécute AVANT lui (langue, marché, state) et
+   se demander pour CHAQUE élément d'où il viendra maintenant — souvent la
+   réponse est « il faut que le serveur me l'envoie plus tôt aussi ».
+2. **Un événement intermédiaire doit porter TOUS les flags qui décident du
+   rendu, pas seulement la donnée.** La frame SSE `hotels` ne portait que
+   `hotels` : impossible de savoir si le tour était une clarification (que le
+   POST bloquant rend SANS carrousel) ni dans quelle langue peindre. 3 lignes
+   côté spine + facade suppriment la divergence entre les deux transports —
+   beaucoup moins cher que de la documenter comme un « cas rare ».
+3. **Piloter le vrai widget vaut mieux qu'une page statique.** Le driver CDP
+   (`websockets` + `Page.captureScreenshot`, deep-link `?q=` qui auto-envoie,
+   clics par `Runtime.evaluate`) permet des captures MULTI-TOURS et des états
+   mi-stream (cartes visibles pendant la synthèse), impossibles avec
+   `--screenshot`. Compter les éléments en DELTA DOM par tour (pas en absolu) :
+   sinon le carrousel du tour précédent fait passer un test « pas de doublon ».
+
 ## 2026-07-29 — S-CX9 (auto-constatée, attrapée par la capture navigateur post-deploy)
 
 1. **Un test de rendu qui appelle le renderer EN DIRECT ne teste pas ce que

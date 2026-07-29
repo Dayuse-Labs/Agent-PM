@@ -538,7 +538,16 @@ class TestInternalEvents:
         events = _drive_events(USER_MESSAGE_SEARCH)
         hotels_payloads = [p for p in _marker_payloads(events) if p["event"] == "hotels"]
         assert hotels_payloads == [
-            {"event": "hotels", "hotels": [{"name": "Hotel Alameda"}], "requires_clarification": False}
+            {
+                "event": "hotels",
+                "hotels": [{"name": "Hotel Alameda"}],
+                "requires_clarification": False,
+                # S-PERF4: a hotels-first client localizes the cards from this.
+                "response_language": "fr",
+                # S-PERF4 + S-CX9: no pick for this result — it carries no
+                # hotel_id, so it never was bookable and its card gets no CTA.
+                "hotel_picks": [],
+            }
         ]
         assert _marker_index(events, "hotels") < _final_index(events)
 
@@ -560,7 +569,15 @@ class TestInternalEvents:
         events = _drive_events("quels équipements a le Hotel A ?")
         hotels_payloads = [p for p in _marker_payloads(events) if p["event"] == "hotels"]
         assert hotels_payloads == [
-            {"event": "hotels", "hotels": [{"id": 1, "name": "Hotel A"}], "requires_clarification": False}
+            {
+                "event": "hotels",
+                "hotels": [{"id": 1, "name": "Hotel A"}],
+                "requires_clarification": False,
+                "response_language": "fr",
+                # details/compare never touch `last_results`, and no search ran
+                # in this session — same empty list `build_chat_payload` returns.
+                "hotel_picks": [],
+            }
         ]
 
     def test_synthesis_streams_multiple_chunks_that_join_into_the_final_text(self, scripted):

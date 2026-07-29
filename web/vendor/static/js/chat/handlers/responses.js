@@ -19,7 +19,7 @@ import {
     normalizeCountryCode,
 } from '../markets.js';
 
-function updateMarketFromResults(results, explicitMarket = null) {
+export function updateMarketFromResults(results, explicitMarket = null) {
     const inferredMarket = normalizeCountryCode(explicitMarket)
         || inferCountryCodeFromHotel(Array.isArray(results) ? results[0] : null);
     if (inferredMarket) {
@@ -45,8 +45,11 @@ export function renderSuggestionsRow(data) {
 /**
  * Build a combined "intro + meta + carousel" HTML block so a single bot message
  * (and a single AI avatar) is rendered for a results response. Returns trusted HTML.
+ *
+ * An empty `introText` yields "meta + carousel" only — what the SSE `hotels`
+ * frame renders, since the synthesis text does not exist yet at that point.
  */
-function buildResultsBlock(introText, count, hotelsHtml) {
+export function buildResultsBlock(introText, count, hotelsHtml) {
     const intro = String(introText || '').trim();
     const introHtml = intro ? `<div class="results-intro">${escapeHtml(intro)}</div>` : '';
     const seeAll = getMarketFallbackLink();
@@ -317,9 +320,13 @@ export function getMarketFallbackLink() {
 }
 
 /**
- * Handle search results response
+ * Handle search results response.
+ *
+ * `skipCarousel` is the SSE hotels-first path: the carousel already landed on
+ * the `hotels` frame seconds ago, so this payload only contributes the
+ * synthesis text (plus follow-up, suggestions and tracking, unchanged).
  */
-export function handleResultsResponse(data, hasTimeslotRequest) {
+export function handleResultsResponse(data, hasTimeslotRequest, skipCarousel = false) {
     const results = data.results || data.hotels_data || state.previousResults;
 
     // Update state if not already done by context_update
@@ -337,10 +344,12 @@ export function handleResultsResponse(data, hasTimeslotRequest) {
         // Single bot message: intro text + meta count line + carousel under one avatar.
         const introText = data.context || t('found_options_intro', { count: results.length });
         const hotelsToShow = results.slice(0, 6);
-        const hotelsHtml = createHotelCarousel(hotelsToShow);
-        const combined = buildResultsBlock(introText, results.length, hotelsHtml);
-        const carouselMessage = addMessage(combined, false, true, false, true);
-        const contextMsg = carouselMessage; // for downstream scrollIntoView
+        const contextMsg = skipCarousel
+            ? addMessage(introText)
+            : addMessage(
+                buildResultsBlock(introText, results.length, createHotelCarousel(hotelsToShow)),
+                false, true, false, true
+            );
         const firstHotel = hotelsToShow[0] || {};
         const matchLevelCounts = hotelsToShow.reduce((acc, hotel) => {
             const level = String(hotel.timeslot_match_level || 'unknown').toLowerCase();
@@ -368,10 +377,14 @@ export function handleResultsResponse(data, hasTimeslotRequest) {
             timeslot_match_close_count: matchLevelCounts.close,
         });
 
-        // Scroll to intro message (not carousel) so user sees the context first
-        setTimeout(() => {
-            contextMsg.scrollIntoView({ behavior: 'smooth', block: 'start' });
-        }, 150);
+        // Scroll to intro message (not carousel) so user sees the context first.
+        // Skipped on the hotels-first path: the cards are already in view and
+        // pinning this later text block to the top would scroll them away.
+        if (!skipCarousel) {
+            setTimeout(() => {
+                contextMsg.scrollIntoView({ behavior: 'smooth', block: 'start' });
+            }, 150);
+        }
 
         if (data.soft_nudge) {
             addMessage(data.soft_nudge, false, false, true);

@@ -9,11 +9,12 @@ connect-src issue, no cross-origin cookie problem. `/api/track` (Amplitude
 beacon) is swallowed locally (204) — AgentB2C doesn't implement it and it's
 fire-and-forget analytics.
 
-chat_clean.html has exactly 8 Jinja `{{ var | default('...') }}` meta tags
+chat_clean.html has exactly 9 Jinja `{{ var | default('...') }}` meta tags
 (no loops/conditionals) — substituted here with a tiny regex, no Jinja2
-dependency needed. Only `chat_endpoint` is overridden (kept at '/v3/chat',
-same-origin relative — the facade's own auth is CHAT_API_KEY-based, unset
-locally, so agent-usa's public-token/cookie dance is irrelevant here).
+dependency needed. Only `chat_endpoint` (kept at '/v3/chat', same-origin
+relative — the facade's own auth is CHAT_API_KEY-based, unset locally, so
+agent-usa's public-token/cookie dance is irrelevant here) and `chat_transport`
+(see `_meta_overrides`) are overridden.
 
 The widget assets are VENDORED into this repo at `web/vendor/` (templates/ +
 static/ mirror agent-usa's layout) so the proxy is self-contained — no sibling
@@ -21,10 +22,12 @@ repo needed, and the container image can COPY them in. `AGENT_USA_DIR` (or
 `--agent-usa-dir`) still overrides, e.g. to test against a live agent-usa tree.
 
 Container/deploy knobs (Railway): `PORT` and `HOST` env are honored (bind `::`
-for the IPv6 private network), `WIDGET_BACKEND` sets the upstream facade.
+for the IPv6 private network), `WIDGET_BACKEND` sets the upstream facade,
+`WIDGET_CHAT_TRANSPORT=sse` switches the widget to the streamed turn.
 
 Usage:
     python3 scripts/run_widget_proxy.py                    # :8090 -> :8100, vendored widget
+    WIDGET_CHAT_TRANSPORT=sse python3 scripts/run_widget_proxy.py   # streamed turns
     python3 scripts/run_widget_proxy.py --port 8090 --backend http://127.0.0.1:8100
     AGENT_USA_DIR=/path/to/agent-usa python3 scripts/run_widget_proxy.py   # live agent-usa tree
     HOST=:: PORT=8090 WIDGET_BACKEND=http://concierge.railway.internal:8100 python3 scripts/run_widget_proxy.py
@@ -55,10 +58,23 @@ else:
 
 _JINJA_VAR_RE = re.compile(r"\{\{\s*(\w+)\s*(?:\|\s*default\(\s*'([^']*)'\s*\)\s*)?\}\}")
 
-# Only override what matters for wiring the widget to a different backend —
-# everything else keeps the template's own default (cosmetic, overwritten by
-# the first real /v3/chat response anyway via applyMarketFromResponse).
-_META_OVERRIDES = {"chat_endpoint": "/v3/chat"}
+
+def _meta_overrides() -> dict[str, str]:
+    """Only override what matters for wiring the widget to a different backend —
+    everything else keeps the template's own default (cosmetic, overwritten by
+    the first real /v3/chat response anyway via applyMarketFromResponse).
+
+    `chat_transport` is the exception: `WIDGET_CHAT_TRANSPORT=sse` switches the
+    widget to `POST /v3/chat/stream` (hotel cards render on the `hotels` frame,
+    seconds before the synthesis). Read per request, so flipping the transport
+    is an env change + reload, never a JS redeploy. Unset keeps the template's
+    `json` default — the blocking POST.
+    """
+    overrides = {"chat_endpoint": "/v3/chat"}
+    transport = os.environ.get("WIDGET_CHAT_TRANSPORT", "").strip().lower()
+    if transport:
+        overrides["chat_transport"] = transport
+    return overrides
 
 _HOP_BY_HOP_REQUEST_HEADERS = {"host", "content-length", "connection", "accept-encoding"}
 _HOP_BY_HOP_RESPONSE_HEADERS = {"transfer-encoding", "connection", "content-length"}
@@ -66,10 +82,11 @@ _HOP_BY_HOP_RESPONSE_HEADERS = {"transfer-encoding", "connection", "content-leng
 
 def render_index(agent_usa_dir: Path) -> bytes:
     html = (agent_usa_dir / "templates" / "chat_clean.html").read_text(encoding="utf-8")
+    overrides = _meta_overrides()
 
     def repl(match: "re.Match[str]") -> str:
         name, default = match.group(1), match.group(2) or ""
-        return _META_OVERRIDES.get(name, default)
+        return overrides.get(name, default)
 
     return _JINJA_VAR_RE.sub(repl, html).encode("utf-8")
 

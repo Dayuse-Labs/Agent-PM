@@ -104,6 +104,7 @@ from .profile import (
     SessionProfile,
     advance_search_cursor,
     apply_profile_delta,
+    build_hotel_picks,
     extract_final_question,
     is_bare_affirmative,
     is_booking_confirmation_signal,
@@ -433,7 +434,13 @@ class _B2cConcierge(BaseAgent):
     def _progress_event(self, ctx: InvocationContext) -> Event:
         return self._marker_event(ctx, {"event": "progress"})
 
-    def _hotels_event(self, ctx: InvocationContext, response: dict[str, Any]) -> Event:
+    def _hotels_event(
+        self,
+        ctx: InvocationContext,
+        response: dict[str, Any],
+        language: str,
+        picks: list[dict[str, Any]] | None = None,
+    ) -> Event:
         return self._marker_event(
             ctx,
             {
@@ -442,6 +449,19 @@ class _B2cConcierge(BaseAgent):
                 # S-G10 (D3): the leaf's deterministic geocode-clarify flag —
                 # rides the marker so the facade can report it (never blocks).
                 "requires_clarification": bool(response.get("requires_clarification")),
+                # S-PERF4: the turn's language, decided by triage BEFORE this
+                # marker. A client that renders the shortlist on this frame has
+                # no other way to localize the cards — it would otherwise paint
+                # them in the page's boot language and only correct itself on
+                # the final payload (mixed-language render on 6 of 7 locales).
+                "response_language": language,
+                # S-PERF4 + S-CX9: which of these cards are bookable. The card's
+                # booking CTA is gated on this list, so a client that paints the
+                # shortlist HERE would otherwise render every card without its
+                # primary CTA — the feature would silently vanish in streaming
+                # mode. Same `build_hotel_picks(profile)` the `done` payload
+                # calls, over the same profile: equal by construction.
+                "hotel_picks": picks or [],
             },
         )
 
@@ -710,7 +730,11 @@ class _B2cConcierge(BaseAgent):
             return
 
         response = {"results": hotels}
-        yield self._hotels_event(ctx, response)
+        # Same picks the `done` payload will carry: details/compare do NOT touch
+        # `last_results`, so this reads the shortlist a previous search left —
+        # exactly what `build_chat_payload` does a moment later. Parity with the
+        # blocking path is the goal here, not a better answer.
+        yield self._hotels_event(ctx, response, language, build_hotel_picks(profile))
 
         synth = await self._synthesize_with_guards(
             message=message, language=language, leaf_text=leaf_text, response=response,
@@ -1017,9 +1041,6 @@ class _B2cConcierge(BaseAgent):
         # truly-empty case above degrades.
         leaf_text = leaf_text or ""
 
-        # `hotels` marker — as soon as the leaf returns (S06).
-        yield self._hotels_event(ctx, response)
-
         delta = response.get("profile_delta") or {}
         if delta:
             apply_profile_delta(profile, delta, message)
@@ -1059,6 +1080,20 @@ class _B2cConcierge(BaseAgent):
                 )
                 return
             maybe_auto_widen(profile)
+
+        # `hotels` marker — still before the synthesis, which is the whole point
+        # (S06): the shortlist reaches a streaming client ~4-5 s before the text.
+        # It sits AFTER the profile updates above, not before them, because the
+        # marker now carries `hotel_picks` and those come from the profile —
+        # emitting earlier would compute them from the PREVIOUS turn's city and
+        # shortlist, i.e. paint this turn's cards with last turn's booking CTAs.
+        # Everything between the leaf's return and here is in-memory dict work
+        # (microseconds), so nothing measurable is given back. The two early
+        # returns above deliberately emit no marker at all: both are empty-hotel
+        # turns (`search_unavailable`, pagination exhausted) where the frame
+        # carried `hotels: []` — nothing to paint — and the payload's `hotels`
+        # is None either way (`normalize_hotels(x) if x else None`).
+        yield self._hotels_event(ctx, response, triage.language, build_hotel_picks(profile))
 
         synth = await self._synthesize_with_guards(
             message=message, language=triage.language, leaf_text=leaf_text, response=response,
