@@ -64,8 +64,13 @@ export const state = {
     isProcessing: false,
     totalSlides: 0,
     previousResults: [],
-    // S-CX5: the hotel-pick buttons the API offered for the CURRENT screen
-    // (already sorted cheapest-first server-side — never re-sorted here).
+    // S-CX5: the hotel picks the API offered for the CURRENT screen (already
+    // sorted cheapest-first server-side — never re-sorted here).
+    // S-CX9: no longer drawn as its own chip row. It is now read as a PERMISSION
+    // by `hotels/card.js` — an empty list means the backend judges the request
+    // too vague to book (no destination resolved yet), so no card shows a pick
+    // CTA. Losing that gate would put a booking button on a shortlist the
+    // backend never qualified.
     hotelPicks: [],
     // The hotel id of a pick button awaiting its request (one-shot).
     pendingPickHotelId: null,

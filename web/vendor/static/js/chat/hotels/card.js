@@ -5,7 +5,7 @@
 
 import { state, carousels } from '../state.js';
 import { appendAmplitudeIdToUrl, trackEvent } from '../tracking.js';
-import { formatTimeAMPM } from '../utils.js';
+import { formatRating, formatTimeAMPM } from '../utils.js';
 import { selectBestImage } from './images.js';
 import { getLanguage, t } from '../i18n.js';
 import { escapeAttr, escapeHtml, sanitizeDayuseUrl, sanitizeImageUrl } from '../security.js';
@@ -190,20 +190,23 @@ export function createHotelCard(hotel) {
         totalImages: images.length
     });
 
+    // S-CX9: the concierge line moved BELOW the time slot. It is the softest
+    // datum on the card (often a generic "solid day room setup") and it was the
+    // tallest block, pushing price and slot down; the offer now reads first.
     return `
         <div class="hotel-card">
-            ${renderImageCarousel(imageCarouselId, images, hotel)}
+            ${renderImageCarousel(imageCarouselId, images, hotel, discount)}
             <div class="hotel-content">
                 ${renderHotelHeader(hotel, safeStars)}
-                ${renderAIRecommendation(hotel)}
                 ${renderTimeslots(hotel)}
-                ${renderFooter(priceInfo, discount, originalPrice, hotelUrl, hotel.name, hotelNumericId)}
+                ${renderAIRecommendation(hotel)}
+                ${renderFooter(priceInfo, originalPrice, hotelUrl, hotel.name, hotelNumericId)}
             </div>
         </div>
     `;
 }
 
-function renderImageCarousel(hotelId, images, hotel) {
+function renderImageCarousel(hotelId, images, hotel, discount) {
     const safeHotelId = escapeAttr(hotelId);
     const safeAlt = escapeAttr(hotel.name || 'Hotel');
     const fallbackImage = 'https://images.dayuse.com/hotels/default/default.jpg';
@@ -220,6 +223,7 @@ function renderImageCarousel(hotelId, images, hotel) {
                 `).join('')}
             </div>
             ${hotel.has_pool ? `<div class="pool-badge">${t('pool_access_included')}</div>` : ''}
+            ${discount && discount > 0 ? `<div class="deal-badge">-${Math.round(discount)}%</div>` : ''}
             ${images.length > 1 ? `
                 <div class="carousel-dots">
                     ${images.map((_, index) => `
@@ -239,6 +243,18 @@ function renderHotelHeader(hotel, safeStars) {
     // Determine location: prefer zone, then city, then extract from name
     const location = hotel.zone || hotel.city || extractLocationFromName(hotel.name) || '';
 
+    // S-CX9: the guest rating, on the one row of the card that had spare width.
+    // `rating`/`rating_count` have been on the search payload since S-CX3a
+    // (response_bridge.normalize_hotel) and were only ever read by the booking
+    // card — the shortlist was asking for a decision while withholding the
+    // trust signal the user was going to be shown one click later.
+    const rating = Number(hotel.rating);
+    const ratingHtml = Number.isFinite(rating) && rating > 0
+        ? `<span class="hotel-rating">${escapeHtml(formatRating(rating))}/5${
+            hotel.rating_count ? ` <span class="hotel-rating__count">(${escapeHtml(String(hotel.rating_count))})</span>` : ''
+        }</span>`
+        : '';
+
     return `
         <div class="hotel-header">
             <div class="hotel-head-row">
@@ -246,6 +262,7 @@ function renderHotelHeader(hotel, safeStars) {
                     ${Array(safeStars).fill('<img src="/static/icon/star.svg" alt="">').join('')}
                 </div>
                 ${location ? `<span class="hotel-neighborhood">${escapeHtml(location)}</span>` : ''}
+                ${ratingHtml}
             </div>
             <div class="hotel-name">${escapeHtml(hotel.name || 'Hotel')}</div>
             ${renderBadges(hotel)}
@@ -593,6 +610,21 @@ function getTimeslotMatchLevel(hotel) {
     return hasExactTimeslotMatch(hotel) ? 'exact' : 'close';
 }
 
+/**
+ * S-CX9 — the label next to the slot pill, DROPPED when it makes no claim.
+ *
+ * "Available time slots" restates what a clock pill already says, and it was
+ * taking the row's spare width from the pill. The other three levels are not
+ * decoration: they are the S-G6 guard telling the user this slot is not the one
+ * they asked for ("closest match", "near your window"). Those stay — a card that
+ * silently shows 07:00-13:00 for a 07:30 ask is the defect that guard exists to
+ * prevent.
+ */
+function renderTimeslotLabel(matchLevel, label, labelClass) {
+    if (matchLevel === 'not_requested') return '';
+    return `<div class="timeslot-label ${labelClass}">${label}</div>`;
+}
+
 function renderTimeslots(hotel) {
     if (!hotel.timeslots || hotel.timeslots.length === 0) return '';
 
@@ -621,7 +653,7 @@ function renderTimeslots(hotel) {
 
         return `
             <div class="timeslot-section">
-                <div class="timeslot-label ${labelClass}">${label}</div>
+                ${renderTimeslotLabel(matchLevel, label, labelClass)}
                 <div class="timeslot-pills">
                     <span class="timeslot-pill ${pillClass}">${clockSvg} ${startAMPM} – ${endAMPM}</span>
                 </div>
@@ -661,7 +693,11 @@ function renderTimeslots(hotel) {
 
     return `
         <div class="timeslot-section">
-            <div class="timeslot-label timeslot-label--default">${hasRequestedWindow ? t('closest_matching_timeslots') : t('available_timeslots')}</div>
+            ${renderTimeslotLabel(
+                hasRequestedWindow ? 'none' : 'not_requested',
+                hasRequestedWindow ? t('closest_matching_timeslots') : t('available_timeslots'),
+                'timeslot-label--default',
+            )}
             <div class="timeslot-pills">
                 <span class="timeslot-pill timeslot-pill--default">${clockSvg} ${startAMPM} – ${endAMPM}</span>
             </div>
@@ -669,67 +705,113 @@ function renderTimeslots(hotel) {
     `;
 }
 
-// The shortlist card's button opens the hotel PAGE (`hotel.url`), not the
-// booking tunnel — only the booking-card CTA does that, after a pick. So it
-// says so: "Réserver" here promised a checkout it never reached.
-function renderFooter(priceInfo, discount, originalPrice, hotelUrl, hotelName, hotelId) {
+/**
+ * S-CX9 — is this hotel pickable on the CURRENT screen?
+ *
+ * The card's primary CTA is gated on `state.hotelPicks`, which is the backend's
+ * authority on WHEN a pick may be offered at all (empty until a destination is
+ * resolved — the date otherwise defaults to today, Fabien 2026-07-28). Putting an
+ * ungated button on every card would have silently repealed that rule: the chips
+ * it replaces could only ever exist when the backend had sent picks.
+ *
+ * `handlers/send.js` fills `state.hotelPicks` before any renderer runs, so this
+ * is never read early.
+ */
+function pickableHotelIds() {
+    const picks = Array.isArray(state.hotelPicks) ? state.hotelPicks : [];
+    return new Set(
+        picks
+            .map(pick => String(pick?.hotel_id ?? '').trim())
+            .filter(Boolean)
+    );
+}
+
+/**
+ * S-CX9 — the card's own actions.
+ *
+ * Two of them, and the hierarchy is the point:
+ *   - "Choisir cet hôtel" ADVANCES THE CONVERSATION. It reuses the `pick-hotel`
+ *     handler the deleted chip row used, so the booking card (with its rate-plan
+ *     selector) is what answers. Solid evening-blue.
+ *   - "Voir la fiche de l'hôtel" LEAVES for dayuse.com. Demoted to a text link.
+ *
+ * Colour is a contract here, not taste. `hotels.css` already wrote the rule for
+ * S-CX5 — "the warm gradient is reserved for the one CTA that actually leaves for
+ * the booking tunnel" — and this card's yellow button was the thing violating it,
+ * spending the strongest signal in the widget on a detour to a hotel page. After
+ * this change exactly one yellow button exists per thread: the one that takes the
+ * money (`.booking-card__cta`).
+ *
+ * The label deliberately does NOT say "Réserver": it opens a booking card, not a
+ * checkout. That promise is the defect the previous wording was written to avoid.
+ */
+function renderFooter(priceInfo, originalPrice, hotelUrl, hotelName, hotelId) {
     const safeHotelUrl = sanitizeDayuseUrl(hotelUrl || '') || '#';
     const safeHotelUrlAttr = escapeAttr(safeHotelUrl);
     const safeHotelNameAttr = escapeAttr(String(hotelName || ''));
     const safeHotelIdAttr = escapeAttr(String(hotelId || ''));
     const safeHotelPriceAttr = escapeAttr(String(priceInfo.value ? Math.round(priceInfo.value) : ''));
-    // Don't show pricing section if price is 0 or missing
-    if (!priceInfo.value || priceInfo.value <= 0) {
-        return `
-            <div class="hotel-card-footer">
-                <a href="${safeHotelUrlAttr}" target="_blank" rel="noopener noreferrer" class="book-button-link"
-                   data-track-hotel-click="1"
-                   data-hotel-name="${safeHotelNameAttr}"
-                   data-hotel-id="${safeHotelIdAttr}"
-                   data-hotel-price="${safeHotelPriceAttr}"
-                   data-hotel-url="${safeHotelUrlAttr}">
-                    <button class="book-button">${t('card_see_hotel')}</button>
-                </a>
-            </div>
-        `;
-    }
 
     // Currency spacing is already baked into the display symbol (glyphs hug the
     // number — "€139"; ISO codes carry a trailing space — "CHF 139") by
     // CURRENCY_SYMBOLS / detectCurrencySymbol, so render it as-is.
     const currencyPrefix = priceInfo.currency;
-
-    // Only show discount if we have real data
-    const hasDiscount = discount && discount > 0 && originalPrice && originalPrice > 0;
-    const formattedDiscount = hasDiscount ? Math.round(discount) : null;
-    const formattedOriginalPrice = hasDiscount ? Math.round(originalPrice).toString() : null;
+    const hasPrice = Boolean(priceInfo.value && priceInfo.value > 0);
+    // The night rate this day-use price undercuts. The percentage itself now
+    // lives on the photo (`deal-badge`) where it is scannable; the struck-through
+    // rate stays next to the price, which is the only place it means anything.
+    const hasNightRate = hasPrice && originalPrice && originalPrice > 0;
 
     // S-CX8: this price is the cheapest of the hotel's formulas for the day, and
-    // now says so. Unlabelled, it read as THE price — so a user who picked the
-    // hotel and met a pricier formula in the booking card had been misled by a
-    // number that was accurate but not the whole offer.
-    return `
-        <div class="hotel-card-footer">
-            <div class="hotel-details">
-                <div class="price-section">
-                    <div class="price-from-label">${t('card_from_label')}</div>
-                    <div class="current-price">${currencyPrefix}${priceInfo.display}</div>
-                    ${hasDiscount ? `
-                        <div class="discount-row">
-                            <span class="discount-badge">-${formattedDiscount}%</span>
-                            <span class="original-price">${currencyPrefix}${formattedOriginalPrice}${t('night_suffix')}</span>
-                        </div>
-                    ` : ''}
-                </div>
-            </div>
-            <a href="${safeHotelUrlAttr}" target="_blank" rel="noopener noreferrer" class="book-button-link"
+    // says so. Unlabelled, it read as THE price — so a user who picked the hotel
+    // and met a pricier formula in the booking card had been misled by a number
+    // that was accurate but not the whole offer. S-CX9 only puts the qualifier on
+    // the price's own baseline instead of on a line of its own.
+    const priceHtml = hasPrice
+        ? `<div class="price-section">
+               <span class="price-from-label">${t('card_from_label')}</span>
+               <span class="current-price">${currencyPrefix}${priceInfo.display}</span>
+               ${hasNightRate ? `<span class="original-price">${currencyPrefix}${Math.round(originalPrice)}${t('night_suffix')}</span>` : ''}
+           </div>`
+        : '';
+
+    const canPick = pickableHotelIds().has(String(hotelId || ''));
+    // The message this click sends. Same shape the chips sent — the name plus the
+    // bare price — because it becomes the user's own line in the transcript and
+    // should read like something a person typed. The hotel itself is resolved
+    // server-side from `data-hotel-id`, never from this text.
+    const pickLabel = hasPrice
+        ? `${String(hotelName || '')} ${currencyPrefix}${priceInfo.display}`
+        : String(hotelName || '');
+    const pickHtml = canPick
+        ? `<button class="pick-cta" data-action="pick-hotel"
+                   data-hotel-id="${safeHotelIdAttr}"
+                   data-pick-label="${escapeAttr(pickLabel)}">${t('card_pick_cta')}</button>`
+        : '';
+
+    // `data-track-hotel-click` + these four attributes are what tracking.js reads
+    // off the hotel-page link; both shapes below carry them identically so the
+    // event doesn't change meaning with the card's layout.
+    const hotelLinkAttrs = `href="${safeHotelUrlAttr}" target="_blank" rel="noopener noreferrer"
                data-track-hotel-click="1"
                data-hotel-name="${safeHotelNameAttr}"
                data-hotel-id="${safeHotelIdAttr}"
                data-hotel-price="${safeHotelPriceAttr}"
-               data-hotel-url="${safeHotelUrlAttr}">
-                <button class="book-button">${t('card_see_hotel')}</button>
-            </a>
+               data-hotel-url="${safeHotelUrlAttr}"`;
+
+    // No pick on offer → the hotel page is the only thing this card can do, so it
+    // keeps the button it has always had rather than degrading to a bare link.
+    const seeHotelHtml = canPick
+        ? `<a ${hotelLinkAttrs} class="see-hotel-link">${t('card_see_hotel')}</a>`
+        : `<a ${hotelLinkAttrs} class="book-button-link">
+               <button class="book-button">${t('card_see_hotel')}</button>
+           </a>`;
+
+    return `
+        <div class="hotel-card-footer">
+            ${priceHtml}
+            ${pickHtml}
+            ${seeHotelHtml}
         </div>
     `;
 }

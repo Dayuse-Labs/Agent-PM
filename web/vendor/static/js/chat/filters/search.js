@@ -91,15 +91,11 @@ export async function runSearchWithFilters() {
             addMessage(hotelsHtml, false, true);
 
             // This branch filters `previousResults` in the browser and never
-            // reaches the server, so it used to `return` before the follow-up
-            // row was drawn — the pick buttons vanished the moment a timeslot
-            // chip was clicked, and with them the one-click path to a booking
-            // card. The server-side picks stay valid (the shortlist in the
-            // session is untouched); they're just narrowed to what's on screen.
-            const shownIds = new Set(
-                hotelsToShow.map(h => String(h.id ?? h.hotel_id ?? '')).filter(Boolean)
-            );
-            addFollowUpMessage(true, shownIds);
+            // reaches the server. It used to hand the follow-up row the ids still
+            // on screen, so the pick chips could be narrowed to them; S-CX9 moved
+            // the pick CTA onto the card, and a card that this filter didn't
+            // render can no longer offer a button for a hotel the user can't see.
+            addFollowUpMessage(true);
         } else {
             addMessage(t('no_hotels_for_timeslot', { timeslot }));
         }
@@ -234,61 +230,18 @@ export async function runSearchWithFilters() {
 
 
 /**
- * S-CX5 — hotel-pick buttons (layout L1: picking first, refining below).
+ * Add follow-up message after results.
  *
- * The backend owns both product rules and sends the result ready to render:
- * WHEN a pick is offered at all (`hotel_picks` is empty until a destination
- * is resolved — the date defaults to today, Fabien 2026-07-28) and IN WHICH
- * ORDER (cheapest first). This function only draws them — no filtering, no
- * re-sorting, no "cheapest" badge.
- *
- * A click sends the button's own label as the user's message, so the
- * transcript reads like the conversation it is; the hotel itself is resolved
- * server-side from `data-hotel-id`, never from that text.
+ * S-CX9 — the hotel-pick chip row that used to open this box is gone: the pick
+ * CTA now lives on each result card (`hotels/card.js`, `renderFooter`), next to
+ * the photo and price that earned the click. `state.hotelPicks` is still the
+ * backend's authority on whether a pick may be offered at all; the card reads it
+ * directly. What is left here is only the refine/ask affordance.
  */
-function pickButtonsHtml(allowedHotelIds = null) {
-    const picks = Array.isArray(state.hotelPicks) ? state.hotelPicks : [];
-    if (!picks.length) return '';
-    const buttons = picks.map(pick => {
-        const id = String(pick?.hotel_id ?? '').trim();
-        const name = String(pick?.name || '').trim();
-        if (!id || !name) return '';
-        // A client-side filter narrows what's on screen without a server turn,
-        // so the picks are scoped to it: a button for a hotel the carousel no
-        // longer shows would book something the user can't see.
-        if (allowedHotelIds && !allowedHotelIds.has(id)) return '';
-        const price = String(pick?.price || '').trim();
-        const label = price ? `${name} ${price}` : name;
-        // S-CX8: the pastille says "from €54" — this is the cheapest of the
-        // hotel's formulas, and the booking card will offer pricier ones. The
-        // `label` deliberately keeps the bare price: it becomes the user's own
-        // message in the transcript, which should read like something a person
-        // typed, not like a price tag.
-        return `<button class="pick-button" data-action="pick-hotel"
-            data-hotel-id="${escapeAttr(id)}"
-            data-pick-label="${escapeAttr(label)}">${escapeHtml(name)}${
-            price
-                ? `<span class="pick-button__price">${escapeHtml(t('pick_from_prefix', { price }))}</span>`
-                : ''
-        }</button>`;
-    }).filter(Boolean).join('');
-    if (!buttons) return '';
-    return `
-        <div class="pick-row">
-            <p class="pick-row__label">${escapeHtml(t('pick_prompt'))}</p>
-            <div class="pick-row__buttons">${buttons}</div>
-        </div>
-    `;
-}
-
-/**
- * Add follow-up message after results
- */
-export function addFollowUpMessage(skipTimeslotChips = false, allowedHotelIds = null) {
+export function addFollowUpMessage(skipTimeslotChips = false) {
     if (skipTimeslotChips || state.selectedFilters.timeslot) {
         const followUpHtml = `
             <div class="follow-up-box">
-                ${pickButtonsHtml(allowedHotelIds)}
                 <p>${t('followup_questions')}</p>
             </div>
         `;
@@ -299,7 +252,6 @@ export function addFollowUpMessage(skipTimeslotChips = false, allowedHotelIds = 
 
     const followUpHtml = `
         <div class="follow-up-box">
-            ${pickButtonsHtml()}
             <p class="follow-up-box__refine">${t('followup_refine')}</p>
             <div class="follow-up-chips">
                 <button class="chip" data-action="follow-up" data-follow-up="early">${t('chip_early')}</button>

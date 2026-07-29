@@ -2,6 +2,83 @@
 
 État du chantier pour reprise en session fraîche. **Lire en entier avant d'agir ; ne pas reconstruire ce qui existe.** Mettre à jour en fin de CHAQUE session (bloc daté en tête).
 
+## ⏱ Addendum 2026-07-29 — S-CX9 : le CTA de réservation passe sur la carte de résultat (branche `scx9-card-pick-cta`, EMPILÉE sur `scx8-rateplan-selector`)
+
+**Contexte** : Fabien n'était pas convaincu par la rangée de chips sous le carousel pour choisir
+l'hôtel. Artefact de 5 propositions produit (`claude.ai/code/artifact/f887ae71`) ; décision =
+**proposition A + la repasse des cartes**. Détail des écarts assumés dans `tasks/todo.md`.
+
+**100 % widget vendored (`web/vendor/**`), zéro changement backend** — même périmètre que S-CX5b.
+
+**Fait** :
+1. **La rangée de chips `pick-row` est supprimée** (`pickButtonsHtml` + le paramètre
+   `allowedHotelIds` d'`addFollowUpMessage`, et les règles CSS `.pick-row`/`.pick-button`).
+   Le CTA vit maintenant sur chaque carte : `.pick-cta` → `data-action="pick-hotel"`, **le handler
+   de `ui/messages.js:377` est inchangé** (il lit `data-hotel-id`/`data-pick-label` sur n'importe
+   quel élément). Le tour, le message envoyé et la booking card sont identiques à avant.
+2. **`state.hotelPicks` devient une PERMISSION, pas un rendu.** Point le plus important de la
+   session : la liste vide signifie « le backend juge la demande trop vague pour réserver » (pas de
+   destination résolue). La carte la lit pour décider si elle affiche le CTA ; un bouton non gaté
+   aurait abrogé cette règle produit en silence. Sans pick offert, la carte garde exactement le
+   bouton jaune « Voir la fiche » d'aujourd'hui.
+3. **Hiérarchie de couleur enfin cohérente** : `hotels.css` avait déjà écrit la règle en S-CX5
+   (« le dégradé chaud est réservé au CTA qui part vers le tunnel ») et **c'est le bouton de la
+   carte qui la violait** — jaune, mais il partait sur dayuse.com. Désormais : **jaune = partir
+   réserver (`.booking-card__cta` seul), bleu nuit plein = avancer dans la conversation
+   (`.pick-cta`), lien texte souligné = aller consulter (`.see-hotel-link`)**. Un seul bouton jaune
+   par thread, celui qui prend l'argent. Le libellé ne dit **pas** « Réserver » (`card_pick_cta`) :
+   il ouvre une carte, pas un checkout — c'est le défaut que l'ancien wording évitait déjà.
+4. **Repasse de la carte** : badge `-X%` promu sur la photo (`.deal-badge`, coin gauche —
+   `.pool-badge` tient le droit) ; note `4,7/5 (128)` dans la ligne étoiles/quartier (`rating` était
+   sur le payload depuis S-CX3a et n'était lu que par la booking card) ; prix sur **une** baseline
+   (`dès €54  €98/nuit` au lieu de 3 lignes empilées) ; ligne concierge passée **sous** le créneau et
+   clampée à 2 lignes (elle était le bloc le plus haut pour la donnée la plus molle) ; hairline au-
+   dessus du footer.
+5. **Le libellé de créneau ne disparaît QUE quand il ne revendique rien** (`available_timeslots`).
+   Les niveaux `exact`/`close`/`none` sont l'information du guard S-G6 (« créneau proche », « les
+   plus proches ») et restent affichés — les supprimer aurait rendu muet le garde-fou qui empêche
+   une carte de montrer 07:00-13:00 pour une demande à 07:30.
+6. **`formatRating` déplacé dans `utils.js`** (il était privé dans `ui/messages.js`) : la carte et la
+   booking card affichent la même note sur le même écran, deux formateurs = deux occasions de ne pas
+   s'accorder sur le séparateur décimal.
+7. **`static/icon/star.svg` AJOUTÉ** — défaut préexistant trouvé en rendant la carte : le fichier
+   manquait au manifeste vendorisé (S9), donc **toutes les étoiles de toutes les cartes étaient des
+   images cassées dans la démo déployée**. 7 locales touchées pour l'i18n (`card_pick_cta` ajouté,
+   `pick_prompt`/`pick_from_prefix` supprimés, `card_from_label` raccourci en `dès`/`da` sur fr/it).
+
+**Vérifié** (pas de suite de tests JS dans le repo — deux harnais jetables dans le scratchpad de
+session) :
+- **25/25 assertions sur le vrai `createHotelCard` sous jsdom** : CTA présent/absent selon
+  `hotelPicks` (y compris un pick pour un AUTRE hôtel → pas de CTA), `data-action`/`data-hotel-id`/
+  `data-pick-label` corrects, note formatée `4,7/5 (128)` en fr, badge remise sur la photo et non
+  dans le footer, prix+qualificatif+tarif nuit sur une seule ligne, ordre créneau→concierge, libellé
+  de créneau dropé sans revendication mais **conservé** en `close`, repli sans pick, carte sans prix,
+  et un nom d'hôtel hostile (`"><img onerror=…`) correctement échappé.
+- **Rendu réel en Chrome headless** avec le CSS servi (`index.css` complet), 3 cartes côte à côte à
+  320 px : hiérarchie, baseline du prix, clamp 2 lignes, pastille ambre du créneau proche, étoiles
+  jaunes. ⚠️ **La zone photo n'est pas vérifiable dans cet environnement** (pas de réseau sortant :
+  `static.dayuse.com` ne résout pas) — à regarder sur le démo déployé.
+- `ruff` + `mypy` OK, guardrails `OK`, `pytest` **1097 passed / 1 failed**.
+
+**⚠️ Rouge PRÉEXISTANT, non lié** : `tests/test_llm_meter_usage.py::test_usage_record_extracts_tokens_and_model`
+échoue à HEAD aussi (vérifié par `git stash`) — `round(432.15, 1)` vaut `432.1` en flottant, le test
+attend `432.2`. Zéro fichier Python touché par S-CX9. Laissé tel quel : décider si c'est le test ou
+`meter.usage_record` qui a tort appartient au chantier OBS1, pas à celui-ci.
+
+**Reste à faire** :
+- Faire tourner l'œil sur le démo déployé (zone photo + carousel réel), puis `railway up` si OK.
+  **Attention : PR #50 toujours ouverte** → cette branche est EMPILÉE dessus. Piège déjà rencontré
+  (cf. addendum CI) : **retargeter la PR enfant sur main AVANT de supprimer la branche de base**,
+  sinon GitHub ferme la PR enfant et ne la réouvre pas.
+- Instrumentation à regarder avant d'aller plus loin dans la roadmap CX : `hotel_pick_click` **par
+  rang de shortlist** dans Amplitude. Si les rangs 4→10 ne convertissent pas, la rangée de chips ne
+  portait rien et A suffit ; sinon la proposition D (liste compacte sous le carousel) est le
+  remplaçant à construire.
+- Propositions C et E de l'artefact (formules sur la carte / créneaux cliquables) sont **bloquées sur
+  un changement de contrat MCP_B2C** : le payload de recherche ne porte pas les formules du jour
+  (`normalize_hotel` ne garde que `_best_offer`). C'est le seul verrou qui empêche la carte
+  d'afficher les vrais prix du jour au lieu d'un « dès ».
+
 ## 🚀 Addendum 2026-07-28 (soir) — S-CX8 DÉPLOYÉ EN PROD depuis la branche (main NON mergée)
 
 **Déployé sur Railway (projet `AgentB2C`, env production) : `hotel-search`, `concierge`, `widget`.**
