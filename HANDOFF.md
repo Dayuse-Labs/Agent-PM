@@ -46,6 +46,58 @@ chemin inline sert déjà un message métier via `inline_unresolved_response`), 
 est maintenant disponible pour l'exploiter — et `POI_INDEX=poi_staging_5` côté service MCP pointe un
 alias inexistant (inerte tant que la résolution POI n'est pas câblée).
 
+## 🚢 Addendum 2026-07-29 (14h55) — S-PERF4 + S-PERF5 MERGÉS, DÉPLOYÉS DEPUIS MAIN, mesurés en prod
+
+**PR #45 et #54 mergées par Fabien**, `main` = `e893a83`. Déploiement fait **depuis le checkout de
+`main`** (pas depuis une branche) : la prod est de nouveau **reproductible depuis main** — le warning
+du bloc « déployé depuis la branche » est levé. `concierge` puis `widget` (`railway up --service X
+--ci`), les 2 en `Deploy complete`. `hotel-search` / `faq` non redéployés : aucun diff sur leurs
+dossiers. `WIDGET_CHAT_TRANSPORT=sse` toujours en place sur `widget`.
+
+### ⚠️ CORRECTION D'UN CHIFFRE que j'avais annoncé — le gain de S-PERF5 est plus petit en prod
+
+J'avais annoncé **−65 %** sur la synthèse. C'était mesuré sur la **stack locale**, dont le `.env`
+n'a pas les mêmes modèles que la prod : **le chiffre local n'était pas comparable au chiffre prod**.
+Comparaison honnête, même environnement, avant/après sur le déployé (3 runs chacun) :
+
+| | prod avant | prod après |
+|---|---|---|
+| synthèse (frame `hotels` → 1er token) | 4,25 / 4,60 / 4,56 s (moy. **4,47 s**) | 2,62 / 2,23 / 3,33 s (moy. **2,73 s**) |
+| longueur de la réponse | 889 / 924 / 983 car. (moy. **932**) | 299 / 292 / 318 car. (moy. **303**) |
+| tour complet | moy. **8,06 s** | moy. **6,64 s** |
+
+→ synthèse **−39 %** (pas −65), longueur **−67 %**, tour complet **−18 %**.
+
+**Pourquoi l'écart** : la sortie a bien fondu de 67 %, mais le **coût fixe** de `gpt-5.2` (tokens de
+reasoning + TTFT) ne diminue pas avec la longueur. Il reste donc un plancher ≈ 2 s que raccourcir le
+texte ne peut plus attaquer. **Conséquence pour la suite : le levier dominant restant n'est plus le
+prompt, c'est `DAYUSE_MODEL_SYNTHESIS`** (aujourd'hui `gpt-5.2`) — à prober seul, avec le piège
+`temperature × reasoning_effort` de S-PERF3 en tête.
+
+### Vérifié en prod
+
+- Assets servis : `tRotate` présent dans `i18n.js`, **14 clés de variantes** `followup_*_2/_3`,
+  2 sites d'appel `tRotate(` dans `search.js`, meta `du-chat-transport="sse"`.
+- **Texte, tour 1** : « Pour demain autour de Paris, vous avez 5 offres de day-use, avec un gros bon
+  plan : le H4 Hotel Wyndham Paris Pleyel Resort affiche une remise d'environ 66 % vs le tarif nuit.
+  Dites-moi plutôt votre quartier idéal (centre, La Défense, Orly…) et votre heure d'arrivée
+  souhaitée, et je resserre la sélection. » → angle `discount`, aucune liste, aucun prix recopié,
+  aucune narration d'interface, étape suivante conversationnelle.
+- **Texte, tour 2** (même session, « plutôt avec une piscine ») : « Pour Paris, j'ai bien filtré des
+  offres avec piscine : les 5 options affichées correspondent à ce critère. Si vous me dites le
+  quartier souhaité (centre, Bercy, 14e, etc.) et votre horaire idéal, je vous affine la sélection. »
+  → **la remise de 66 % n'est PAS répétée** : l'anti-répétition (`profile.last_synthesis_angle`)
+  fonctionne sur le déployé, pas seulement en test.
+- **Relance rotée en prod** : variante 2 au tour 1, variante 3 au tour 2.
+- 5 puis 10 cartes / 5 puis 10 CTA, **2 carrousels pour 2 tours** (pas de doublon) — le CTA S-CX9 et
+  les notes avec compte d'avis tiennent toujours après S-PERF5.
+
+### Rollback
+
+- Texte long / ancien comportement : `git revert` de `3bae233` puis redeploy `concierge` (le prompt
+  et l'angle sont côté concierge ; `tRotate` côté widget est indépendant et inoffensif seul).
+- Transport bloquant : `WIDGET_CHAT_TRANSPORT=json` (ou supprimer la variable) + redeploy `widget`.
+
 ## 💬 Addendum 2026-07-29 (après-midi, branche `sperf5-synthesis-value-add`) — S-PERF5 : la synthèse arrête de recopier les cartes (−65 % de latence, réponse enfin variable)
 
 **Déclencheur** : le rendu hotels-first de S-PERF4 a rendu visible un défaut qui existait depuis
