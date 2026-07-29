@@ -206,6 +206,14 @@ def test_sse_search_streams_progress_hotels_tokens_done(monkeypatch, client):
     done_payload = events[-1][1]
     # The early frame and the final payload must never disagree on the language.
     assert done_payload["response_language"] == hotels_event["response_language"]
+    # …nor on WHICH cards are bookable. S-CX9 gates the card's booking CTA on
+    # `hotel_picks`; a client painting the shortlist on this frame renders every
+    # card with no CTA unless the picks ride it too. Non-empty is the point of the
+    # assertion — an equality between two empty lists would prove nothing.
+    assert hotels_event["hotel_picks"] == [
+        {"hotel_id": 101, "name": "Pool Hotel Paris", "price": None, "price_eur_cents": None}
+    ]
+    assert hotels_event["hotel_picks"] == done_payload["hotel_picks"]
     assert done_payload["hotels"][0]["name"] == "Pool Hotel Paris"
     assert done_payload["ready_to_search"] is True
     assert done_payload["active_filters"]["city"] == "Paris"
@@ -245,6 +253,50 @@ def test_sse_hotels_frame_carries_the_clarify_flag(monkeypatch, client):
     hotels_event = next(d for e, d in events if e == "hotels")
     assert hotels_event["requires_clarification"] is True
     assert events[-1][1]["requires_clarification"] is True
+
+
+def test_sse_hotels_frame_picks_are_this_turns_not_the_previous_turns(monkeypatch, client):
+    """The picks on the frame are built from the session profile, so WHEN the
+    frame is emitted decides which turn's shortlist they describe. Emitted before
+    the turn's `profile_delta` and `record_search_shortlist` are applied, they
+    would carry the PREVIOUS turn's hotels — i.e. this turn's cards would get
+    booking CTAs pointing at the hotels of the search before it. Two turns, two
+    cities: the second frame must know nothing about the first."""
+    turns = iter([
+        ("Paris", {"id": 101, "name": "Hotel Paris", "country_code": "FR"}),
+        ("Lyon", {"id": 202, "name": "Hotel Lyon", "country_code": "FR"}),
+    ])
+    seen: list[dict] = []
+
+    async def fake_classify(message, budget, invocation_id=""):
+        budget.charge("triage")
+        return Triage("search", "fr", used_llm=False)
+
+    async def fake_run_leaf(leaf, ctx, profile_in):
+        city, hotel = next(turns)
+        return (f"Des hôtels à {city}.", {"results": [hotel], "profile_delta": {"city": city}})
+
+    async def fake_generate_once(self, **kwargs):
+        return "Voici."
+
+    monkeypatch.setattr(agent_module, "classify", fake_classify)
+    monkeypatch.setattr(agent_module, "_run_leaf", fake_run_leaf)
+    monkeypatch.setattr(agent_module._B2cConcierge, "_generate_once", fake_generate_once)
+
+    for message in ("un hôtel à Paris", "et à Lyon ?"):
+        r = client.post("/v3/chat/stream", json={"message": message})
+        assert r.status_code == 200
+        events = _parse_sse(r.text)
+        seen.append({
+            "frame": next(d for e, d in events if e == "hotels")["hotel_picks"],
+            "done": events[-1][1]["hotel_picks"],
+        })
+
+    assert [p["hotel_id"] for p in seen[0]["frame"]] == [101]
+    assert [p["hotel_id"] for p in seen[1]["frame"]] == [202]  # NOT 101
+    # And each frame still agrees with its own turn's payload.
+    assert seen[0]["frame"] == seen[0]["done"]
+    assert seen[1]["frame"] == seen[1]["done"]
 
 
 # --- last-resort shield (S-CX1) ---------------------------------------------------------------

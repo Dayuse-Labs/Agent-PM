@@ -2,6 +2,482 @@
 
 État du chantier pour reprise en session fraîche. **Lire en entier avant d'agir ; ne pas reconstruire ce qui existe.** Mettre à jour en fin de CHAQUE session (bloc daté en tête).
 
+## 🖥 Addendum 2026-07-29 (après-midi, branche `sperf4-widget-sse`, PR #45) — S-PERF4 rebasé sur main : le CTA S-CX9 survit au rendu hotels-first
+
+**La PR #45 était complète et vérifiée depuis le 28/07 — mais jamais mergée, et `main` a bougé
+dessous** (S-CX7 #49, S-CX8 #50, S-CX9 #51/#52, tous déployés). Le merge de `main` dans la branche
+n'a levé que **4 conflits textuels** (`HANDOFF.md`, `tasks/lessons.md` = append-only ;
+`facade.py` = wrapper OBS1 `turn_observation` à réindenter autour du `yield` de la frame ;
+`send.js` = `mapV3Hotels()` extrait de `normalizeV3Response` **vs** `rating_count` ajouté par #52).
+
+**Le vrai défaut n'était dans AUCUN conflit** : le CTA de réservation de S-CX9 (`.pick-cta` sur la
+carte) est gaté sur `state.hotelPicks`, que le widget ne remplissait **que depuis le corps JSON
+bloquant** (`send.js`, à `done`). La frame SSE `hotels` ne portait pas `hotel_picks` → en transport
+`sse` **toutes les cartes se peignaient sans leur CTA principal**, et `skipCarousel` interdisant tout
+redessin à `done`, le CTA n'apparaissait jamais. Pire : `state.hotelPicks` gardait les picks du tour
+PRÉCÉDENT, donc un `hotel_id` commun affichait un CTA issu d'un état périmé. Et comme #49 a retiré
+l'exigence de date de `build_hotel_picks`, les picks sont non-vides sur **quasi toute** recherche —
+donc le défaut touchait tous les tours de recherche, pas un cas limite.
+
+**Fait (côté serveur)**
+- **`build_hotel_picks` déménage de `facade.py` vers `profile.py`** — `facade.py` importe `.agent`,
+  donc `agent.py` ne peut pas importer le facade (cycle). Les deux appelants exécutent désormais **la
+  même fonction sur le même profil** : la frame et le payload sont égaux **par construction**, pas
+  par revue. `facade.py` la ré-importe (aucun changement d'API pour `build_chat_payload`).
+- **`_hotels_event(ctx, response, language, picks)`** porte `hotel_picks` ; le facade le relaie sur
+  la frame SSE (additif, à côté de `requires_clarification` / `response_language`).
+- **Le `yield` de la frame passe APRÈS `apply_profile_delta` + `record_search_shortlist`** (juste
+  avant la synthèse — le gain S06 est intact, tout ce qui précède est du dict en mémoire). Émis
+  avant, il calculait les picks sur la ville et la shortlist du tour PRÉCÉDENT. **Vérifié en
+  remettant le `yield` à sa place d'origine → le test tombe** (`[] != [101]`).
+  Effet de bord assumé : les 2 sorties anticipées (`search_unavailable`, pagination épuisée)
+  n'émettent plus de frame du tout — c'étaient des tours à `hotels: []`, rien à peindre, et le
+  payload donne `hotels: None` dans les deux cas.
+- **Chemin inline** (`details`/`compare`) : mêmes picks que le payload (ces routes ne touchent pas
+  `last_results` — parité avec le POST bloquant, pas une amélioration).
+
+**Fait (côté widget)**
+- `renderHotelsEarly` pose `state.hotelPicks` depuis la frame, **inconditionnellement** (absent ⇒
+  `[]`) et **avant** `createHotelCarousel` — sinon les picks du tour précédent gatent les cartes du
+  tour courant.
+- `mapV3Hotels` récupère **`rating_count`** : sans ça le merge annulait silencieusement le fix #52.
+
+**Tests** : `pytest -q` → **1099 passed**, 1 failed = `test_llm_meter_usage` (**rouge sur `main`
+aussi**, bug d'arrondi du test, hors zone). ruff / mypy (43 fichiers) / guardrails **OK** ;
+`node --check` sur les 5 JS touchés. 2 tests neufs, **tous deux vérifiés en échec sans leur fix** :
+parité picks frame↔`done` non vide, et « les picks de la frame sont ceux de CE tour, pas du
+précédent » (2 tours, 2 villes).
+
+**Vérification navigateur (Chrome headless, CDP, stack locale réelle + MCP live)**
+- **À l'instant où les cartes apparaissent** (4,53 s, soit **2,87 s avant la fin du tour** à 7,40 s) :
+  3 cartes, **3 `.pick-cta`** (`ids 9075 / 20152 / 7851`), libellés **« Choisir cet hôtel »** en
+  français, notes **`4,9/5 (4)`** et **`5,0/5 (1)`**, aucune note sur le 3e (`rating: 0`), badges
+  `-33 % / -34 %`, prix `dès €90 €135/nuit`, bulle « thinking » SOUS les cartes.
+  → `reports/latency/widget-sse-2026-07-29/sse-cards-instant-with-cta.png`
+- **Contrôle JSON** (proxy `:8091`, transport `json`) : cartes à **7,37 s** (lead 0,09 s), et **DOM
+  final identique** (3 cartes, 3 CTA, 1 carrousel, mêmes notes, mêmes ids).
+- **Clic réel du CTA de la carte #2** (pas la 1re, `hotel_id=20152`) → carte de réservation du **bon
+  hôtel** (Courtyard by Marriott Lyon Eurexpo, €89,00, 15:00-22:00, mer. 29 juil.) avec lien tunnel
+  portant `offerId` + `ratePlanPolicyUuid` + `checkinDate`. 1 seul carrousel, chips d'affinage
+  intactes. → `sse-pick-booking-card.png`
+- **Probe SSE brute** sur `:8100` : `hotel_picks` de la frame == celui de `done` (3 picks, tri
+  €89 → €90 → €95), `response_language: fr`.
+
+**⚠️ PIÈGE DE VÉRIFICATION (m'a fait mesurer le mauvais code pendant 10 min)** :
+`scripts/run_local.sh` ne tue que les pids de **son propre** `.run-logs/`. Un stack lancé depuis un
+AUTRE checkout tient les ports 8100-8102 → mes 3 services meurent en `[Errno 48] address already in
+use`, **puis la sonde de readiness trouve l'ancien stack et annonce « ready »**. Ma première probe
+lisait donc le code de `main` (`hotel_picks: []`, `response_language: None` — j'ai failli conclure à
+un bug de mon fix). **Toujours vérifier quel checkout sert le port** :
+`ps -p $(cat .run-logs/b2c_concierge.pid) -o command=`. Les ports sont codés en dur dans le script
+(pas de surcharge par env).
+
+**Reste / à trancher**
+- **Décision produit ouverte (inchangée depuis le 28/07, jamais revue)** : en `sse` le texte de
+  synthèse arrive **SOUS les cartes** (en `json` l'intro reste au-dessus). Visible sur
+  `sse-pick-booking-card.png` (« J'ai trouvé 3 hôtels à Lyon… » sous le carrousel). Alternative
+  écartée : injecter l'intro dans le message des cartes à `done` (DOM final identique au JSON) — ça
+  déplace la vue pendant que l'utilisateur lit les cartes.
+- **Déploiement (Fabien)** : merger #45, puis `WIDGET_CHAT_TRANSPORT=sse` sur le service `widget` +
+  redeploy. Rollback = retirer la variable (le défaut `json` est le comportement actuel).
+- Si le widget est un jour servi par l'app Dayuse via `/v3/chat/public`, le stream devient
+  `/v3/chat/stream/public` et cette route doit exister côté hôte. Non concerné sur la démo Railway.
+- `adk eval` non relancé (worktree installé sans `google-adk[eval]`, cf. bloc du 28/07).
+
+## 🚀 Addendum 2026-07-29 (11h50) — S-CX8 + S-CX9 MERGÉS DANS MAIN, widget DÉPLOYÉ depuis main
+
+**Fabien a donné le go explicite de merger (« merge le PR dans l'ordre et lance un déploiement ») —
+le gate humain de CLAUDE.md a été exercé, pas contourné.**
+
+**Ordre suivi** : PR #50 (S-CX8 → main), puis **retarget de #51 sur main AVANT toute suppression de
+branche** (le piège consigné : supprimer la base ferme la PR enfant sans la réouvrir), puis #51, puis
+#52 (le correctif ci-dessous). **Les branches ne sont PAS supprimées** — hygiène laissée à Fabien.
+`main` = `5f1446d`. La prod est enfin reproductible depuis main : le warning de l'addendum précédent
+(« le prochain `railway up` depuis main FERA DISPARAÎTRE la feature ») est **levé**.
+
+**Déployé** : service `widget` seul (`railway up --service widget`), 2 déploiements en `SUCCESS`
+(`4f979041…` puis `650bdcec…` pour le correctif). `concierge` / `hotel-search` **non redéployés** :
+ils tournaient déjà le code de la branche S-CX8, désormais identique à main — aucun diff fonctionnel.
+
+**Vérifié EN PROD sur https://widget-production-3f56.up.railway.app** :
+- Assets servis : 6 marqueurs S-CX9 dans `card.js`, `class="pick-cta" data-action="pick-hotel"`
+  présent, **0 occurrence de `pickButtonsHtml`** (la rangée de chips a bien disparu), `star.svg` 200,
+  5 règles `.pick-cta` dans le CSS.
+- **Capture navigateur, vraie recherche** (`?q=un hotel avec piscine a Lyon cet apres-midi`) : 3
+  cartes, badges `-33 % / -34 % / -33 %` sur les photos, étoiles jaunes (elles étaient cassées avant
+  ce déploiement), notes `4,9/5 (4)` et `5,0/5 (1)`, **aucune note sur le 3e hôtel (`rating: 0`)** —
+  le garde-fou fait exactement son travail —, prix `dès €90  €135/nuit` sur une baseline, CTA bleu
+  nuit + lien texte. Plus aucune chip de choix, seules restent les 3 chips d'affinage.
+- **Le CTA produit bien la carte de réservation** : pick de Mercure Lyon Saxe (`hotel_id: 9075`) →
+  carte au bon hôtel/date/créneau (16:00-21:00, €90) avec lien tunnel `https://` ; idem Villa Paris
+  Orly et Drawing House. `hotel_picks` = 5/5 hôtels sur Paris, 3/3 sur Lyon → CTA sur toutes les
+  cartes montrées.
+- **Dégradation honnête observée en vrai** : une requête Orly a renvoyé `hotel_picks: []` +
+  « je n'arrive pas à joindre la recherche » (hoquet MCP) → **aucun CTA nulle part**, ce qui est le
+  comportement voulu du gate.
+
+**⚠️ Non re-démontré aujourd'hui : le sélecteur MULTI-formules.** Les 3 hôtels piqués ce matin
+renvoient `rate_plans` absent, et l'agent confirme lui-même « une offre » pour Drawing House → **une
+seule formule bookable aujourd'hui**, ce qui EST la dégradation documentée (« une formule n'est pas un
+choix »). Cohérent avec le cutoff same-day (`cutoffDeadlineUtc` Paris 05h-16h) : à 11h50 une partie
+des formules du jour est déjà passée. **Zéro ligne backend ni booking-card touchée par S-CX9**, et le
+chemin `rate_plans: 3` était vérifié en prod la veille (addendum S-CX8). À re-regarder tôt le matin
+pour une preuve visuelle du sélecteur sous le nouveau CTA.
+
+## 🐛 Défaut TROUVÉ ET CORRIGÉ post-deploy (PR #52) — le compte d'avis n'atteignait pas la carte
+
+La capture navigateur a montré « **5,0/5** » sur le Courtyard Eurexpo, noté par **une** personne. Le
+payload prod portait bien `rating_count: 1` : c'est **`normalizeV3Response` (`handlers/send.js`) qui
+whiteliste les champs hôtel** — `rating` y était, `rating_count` non.
+
+**Piège à ne jamais reconstruire** : mes 25 assertions jsdom passaient parce qu'elles donnaient le
+dict hôtel **directement** à `createHotelCard`, contournant le mapping qui cassait tout. Le harnais
+exerce maintenant le vrai chemin (payload v3 → `normalizeV3Response` → carte), d'où l'`export` de la
+fonction ; **30/30**. Règle consignée dans `tasks/lessons.md` : **tout champ nouvellement lu par un
+renderer doit être asserté À TRAVERS le mapping de payload réel.** Recorrigé et redéployé, vérifié à
+l'écran : `4,9/5 (4)` et `5,0/5 (1)`.
+
+## ⏱ Addendum 2026-07-29 — S-CX9 : le CTA de réservation passe sur la carte de résultat (branche `scx9-card-pick-cta`, mergée dans main par PR #51)
+
+**Contexte** : Fabien n'était pas convaincu par la rangée de chips sous le carousel pour choisir
+l'hôtel. Artefact de 5 propositions produit (`claude.ai/code/artifact/f887ae71`) ; décision =
+**proposition A + la repasse des cartes**. Détail des écarts assumés dans `tasks/todo.md`.
+
+**100 % widget vendored (`web/vendor/**`), zéro changement backend** — même périmètre que S-CX5b.
+
+**Fait** :
+1. **La rangée de chips `pick-row` est supprimée** (`pickButtonsHtml` + le paramètre
+   `allowedHotelIds` d'`addFollowUpMessage`, et les règles CSS `.pick-row`/`.pick-button`).
+   Le CTA vit maintenant sur chaque carte : `.pick-cta` → `data-action="pick-hotel"`, **le handler
+   de `ui/messages.js:377` est inchangé** (il lit `data-hotel-id`/`data-pick-label` sur n'importe
+   quel élément). Le tour, le message envoyé et la booking card sont identiques à avant.
+2. **`state.hotelPicks` devient une PERMISSION, pas un rendu.** Point le plus important de la
+   session : la liste vide signifie « le backend juge la demande trop vague pour réserver » (pas de
+   destination résolue). La carte la lit pour décider si elle affiche le CTA ; un bouton non gaté
+   aurait abrogé cette règle produit en silence. Sans pick offert, la carte garde exactement le
+   bouton jaune « Voir la fiche » d'aujourd'hui.
+3. **Hiérarchie de couleur enfin cohérente** : `hotels.css` avait déjà écrit la règle en S-CX5
+   (« le dégradé chaud est réservé au CTA qui part vers le tunnel ») et **c'est le bouton de la
+   carte qui la violait** — jaune, mais il partait sur dayuse.com. Désormais : **jaune = partir
+   réserver (`.booking-card__cta` seul), bleu nuit plein = avancer dans la conversation
+   (`.pick-cta`), lien texte souligné = aller consulter (`.see-hotel-link`)**. Un seul bouton jaune
+   par thread, celui qui prend l'argent. Le libellé ne dit **pas** « Réserver » (`card_pick_cta`) :
+   il ouvre une carte, pas un checkout — c'est le défaut que l'ancien wording évitait déjà.
+4. **Repasse de la carte** : badge `-X%` promu sur la photo (`.deal-badge`, coin gauche —
+   `.pool-badge` tient le droit) ; note `4,7/5 (128)` dans la ligne étoiles/quartier (`rating` était
+   sur le payload depuis S-CX3a et n'était lu que par la booking card) ; prix sur **une** baseline
+   (`dès €54  €98/nuit` au lieu de 3 lignes empilées) ; ligne concierge passée **sous** le créneau et
+   clampée à 2 lignes (elle était le bloc le plus haut pour la donnée la plus molle) ; hairline au-
+   dessus du footer.
+5. **Le libellé de créneau ne disparaît QUE quand il ne revendique rien** (`available_timeslots`).
+   Les niveaux `exact`/`close`/`none` sont l'information du guard S-G6 (« créneau proche », « les
+   plus proches ») et restent affichés — les supprimer aurait rendu muet le garde-fou qui empêche
+   une carte de montrer 07:00-13:00 pour une demande à 07:30.
+6. **`formatRating` déplacé dans `utils.js`** (il était privé dans `ui/messages.js`) : la carte et la
+   booking card affichent la même note sur le même écran, deux formateurs = deux occasions de ne pas
+   s'accorder sur le séparateur décimal.
+7. **`static/icon/star.svg` AJOUTÉ** — défaut préexistant trouvé en rendant la carte : le fichier
+   manquait au manifeste vendorisé (S9), donc **toutes les étoiles de toutes les cartes étaient des
+   images cassées dans la démo déployée**. 7 locales touchées pour l'i18n (`card_pick_cta` ajouté,
+   `pick_prompt`/`pick_from_prefix` supprimés, `card_from_label` raccourci en `dès`/`da` sur fr/it).
+
+**Vérifié** (pas de suite de tests JS dans le repo — deux harnais jetables dans le scratchpad de
+session) :
+- **25/25 assertions sur le vrai `createHotelCard` sous jsdom** : CTA présent/absent selon
+  `hotelPicks` (y compris un pick pour un AUTRE hôtel → pas de CTA), `data-action`/`data-hotel-id`/
+  `data-pick-label` corrects, note formatée `4,7/5 (128)` en fr, badge remise sur la photo et non
+  dans le footer, prix+qualificatif+tarif nuit sur une seule ligne, ordre créneau→concierge, libellé
+  de créneau dropé sans revendication mais **conservé** en `close`, repli sans pick, carte sans prix,
+  et un nom d'hôtel hostile (`"><img onerror=…`) correctement échappé.
+- **Rendu réel en Chrome headless** avec le CSS servi (`index.css` complet), 3 cartes côte à côte à
+  320 px : hiérarchie, baseline du prix, clamp 2 lignes, pastille ambre du créneau proche, étoiles
+  jaunes. ⚠️ **La zone photo n'est pas vérifiable dans cet environnement** (pas de réseau sortant :
+  `static.dayuse.com` ne résout pas) — à regarder sur le démo déployé.
+- `ruff` + `mypy` OK, guardrails `OK`, `pytest` **1097 passed / 1 failed**.
+
+**⚠️ Rouge PRÉEXISTANT, non lié** : `tests/test_llm_meter_usage.py::test_usage_record_extracts_tokens_and_model`
+échoue à HEAD aussi (vérifié par `git stash`) — `round(432.15, 1)` vaut `432.1` en flottant, le test
+attend `432.2`. Zéro fichier Python touché par S-CX9. Laissé tel quel : décider si c'est le test ou
+`meter.usage_record` qui a tort appartient au chantier OBS1, pas à celui-ci.
+
+**Reste à faire** :
+- Faire tourner l'œil sur le démo déployé (zone photo + carousel réel), puis `railway up` si OK.
+  **Attention : PR #50 toujours ouverte** → cette branche est EMPILÉE dessus. Piège déjà rencontré
+  (cf. addendum CI) : **retargeter la PR enfant sur main AVANT de supprimer la branche de base**,
+  sinon GitHub ferme la PR enfant et ne la réouvre pas.
+- Instrumentation à regarder avant d'aller plus loin dans la roadmap CX : `hotel_pick_click` **par
+  rang de shortlist** dans Amplitude. Si les rangs 4→10 ne convertissent pas, la rangée de chips ne
+  portait rien et A suffit ; sinon la proposition D (liste compacte sous le carousel) est le
+  remplaçant à construire.
+- Propositions C et E de l'artefact (formules sur la carte / créneaux cliquables) sont **bloquées sur
+  un changement de contrat MCP_B2C** : le payload de recherche ne porte pas les formules du jour
+  (`normalize_hotel` ne garde que `_best_offer`). C'est le seul verrou qui empêche la carte
+  d'afficher les vrais prix du jour au lieu d'un « dès ».
+
+## 🚀 Addendum 2026-07-28 (soir) — S-CX8 DÉPLOYÉ EN PROD depuis la branche (main NON mergée)
+
+**Déployé sur Railway (projet `AgentB2C`, env production) : `hotel-search`, `concierge`, `widget`.**
+`faq` non touché par le diff, non redéployé. Les 3 déploiements en `SUCCESS`,
+`deploymentStopped=false`.
+
+⚠️ **Déployé depuis la branche `scx8-rateplan-selector`, PAS depuis main.** `railway up` envoie le
+répertoire de travail, donc la prod tourne du code que **la PR #50 n'a pas encore fait entrer dans
+main** (règle CLAUDE.md : la review humaine de Fabien est le gate, je ne merge jamais moi-même).
+**Conséquence à connaître : le prochain `railway up` fait depuis main FERA DISPARAÎTRE la feature.**
+Merger la PR #50 est ce qui rend l'état de la prod reproductible.
+
+**Vérifié EN PROD** (widget proxy `POST /v3/chat`, tours réels) :
+- **Le badge de remise s'affiche enfin** — `-66 %` sur H4 Wyndham Paris Pleyel (€95 vs €280 nuit) ;
+  **5/5 hôtels** portent un tarif nuit à Paris, Lyon (Pullman −33 %) et Marseille (Ibis Centre −33 %).
+  C'est le correctif de la feuille (`response_bridge` → `slot.original_price` en euros) qui rend
+  vivant `computeNightDiscount`, mort en prod depuis toujours.
+- **Sélecteur de formules** : pick de Villa Paris Orly → `rate_plans: 3` (dayuse.day / early /
+  late_break), 3 liens tunnel `https://`, remise −37 % sur chacun, `bedding`/`capacity` présents.
+  Invariants vérifiés en prod : **un seul plan sélectionné**, **prix carte == prix du plan
+  sélectionné**, **url carte == url du plan sélectionné**.
+- Widget : 16 marqueurs S-CX8 dans le `messages.js` servi en prod.
+- **Logs prod (`railway logs --service concierge`)** : `POST /v3/chat` → **200 OK** sur tous les
+  tours, zéro exception, zéro `status=degraded`. Seul bruit : les UserWarning ADK expérimentaux
+  (préexistants).
+
+**Le coût du lookup ajouté est mesuré, pas supposé.** En amendant
+`test_the_cheapest_is_picked_from_the_screen_never_re_searched` j'avais acté qu'un pick coûte
+désormais un `get_hotel_details` + N `generate_booking_link` parallèles, sans chiffre. Les logs prod
+donnent la réponse : `concierge_metric=turn family=booking route=inline:generate_booking_link
+llm_calls=1 phases=triage ms=1383 status=ok` → **1,4 s pour le tour de pick entier, 1 seul appel LLM**
+(le triage ; le chemin booking reste 100 % déterministe). Le compromis est donc bon marché.
+
+**Observation de latence, expliquée — SANS lien avec S-CX8, et sans anomalie** : les tours `search`
+mesurent **9,3 à 10,0 s** dans ces logs, alors que le bloc S-PERF plus bas enregistre un p50 ramené à
+**~3,4 s**. Ce n'est pas une régression : les variables prod du concierge portent
+**`DAYUSE_MODEL_SYNTHESIS=gpt-5.2`** (+ `DAYUSE_MODEL=gpt-5.2`, `DAYUSE_MODEL_TRIAGE=gpt-4o-mini`,
+`DAYUSE_REASONING_EFFORT=low`) — la mitigation `gpt-4o-mini` sur la synthèse **a été levée**, et les
+~3,4 s avaient précisément été mesurés AVEC cette mitigation. Le surcoût est donc le prix assumé
+d'une synthèse 5.2. Et la synthèse fonctionne bien : les tours sortent en `status=ok`, **pas** en
+`status=synthesis_fallback` — le fix de la collision `temperature × reasoning_effort` tient en prod.
+Arbitrage qualité de prose ↔ latence à trancher par Fabien, pas un incident.
+
+**E2E local exécuté AVANT le déploiement** (le trou de vérification signalé dans le bloc précédent
+est comblé) : `run_local.sh` redémarré sur le nouveau code, `smoke_e2e.py` **PASS** (ack 18 ms /
+search 9,5 s / faq 12,9 s), plus un scénario `search → pick` maison qui inspecte la `booking_card`
+réelle : 3 formules, liens réels, invariants OK.
+
+**Faux positif à ne pas rechercher** : `GET /` sur `concierge-production-aaa2.up.railway.app`
+renvoie **502** — le service ne route pas la racine, ce n'est pas une panne. Le chemin réel est le
+proxy du widget (`widget-production-3f56.up.railway.app/v3/chat`), qui répond 200. `railway status
+--json` n'a pas de clé `latestDeployment` à la racine : elle est sous
+`services.edges[].node.serviceInstances.edges[].node.latestDeployment.status`.
+
+**RGPD OK** : `.railwayignore` (déjà en place) exclut `baseline/` — Railway **n'honore pas**
+`.gitignore`, donc c'est ce fichier qui protège les messages utilisateurs bruts lors d'un
+`railway up`.
+
+## ✅ Addendum 2026-07-28 (suite S-CX8, même branche) — la nouvelle version de MCP est déployée, les 3 champs sont branchés
+
+**Fabien : « la nouvelle version du mcp est déployé »** → re-probe immédiat. Les deux champs demandés
+sont là, **plus un troisième sous un nom différent de celui que j'avais demandé** :
+
+| Champ | Remplissage mesuré | Statut |
+|---|---|---|
+| `originalPriceEuro` | **2 084 / 2 114 = 98,6 %** | branché (nom exact déjà lu par le code) |
+| `ratePlanName` | **2 114 / 2 114 = 100 %** | branché |
+| `includedAmenities` | **1 674 / 2 114 = 79,2 %** | branché **au niveau CARTE**, pas par ligne (voir ci-dessous) |
+
+**`originalPriceEuro` validé sur 760 paires réelles** : 0 % d'anomalie, ratio nuit/jour médian 1,64
+(min 1,03, max 3,75), unité centimes EUR confirmée. **Le badge de remise s'affiche pour la première
+fois en production** — sur les DEUX surfaces :
+- booking card, par formule (`_rate_plan_view`, déjà écrit, la donnée est arrivée) ;
+- **carrousel** : `response_bridge` pose désormais `slot.original_price` **en euros** — la forme que
+  `computeNightDiscount` lisait depuis toujours sans que rien ne la remplisse. Vérifié en live :
+  Ibis La Ciotat → `original_price: 76.7` sur un prix de €69 → −10 %.
+
+**`includedAmenities` n'est PAS une prestation de formule — piège évité de justesse.** Probé sur
+**227 journées multi-formules** : identique sur toutes les formules **128 fois**, différent **0
+fois**, et seulement **4 valeurs distinctes** (Free parking, Outdoor pool, Indoor pool, Fitness
+room). C'est un équipement d'hôtel. L'afficher par ligne aurait répété la même mention en
+prétendant différencier. → `hotel_amenities` sur la CARTE, une seule fois (`_day_hotel_amenities`),
+table i18n fermée × 7 langues, valeur non mappée **ignorée** (jamais d'anglais brut dans une carte
+française). Le rendu par-ligne des « prestations » a été **supprimé** : la donnée n'existe pas à ce
+niveau.
+
+**Défaut de conception attrapé par les données réelles** : le titre de ligne ne peut pas être choisi
+par ligne. Deux cas live du 2026-07-29 :
+- **Ibis La Ciotat** — 3 formules toutes `dayuse.day`, **même créneau 10:00-15:00**, seule la
+  chambre diffère (« …with Sea view », « …with balcony ») → un titre par type donnerait « Journée /
+  Journée / Journée » ;
+- **Mercure Lyon Saxe** — 3 formules toutes nommées « Standard King Room », seuls les créneaux
+  diffèrent → un titre par nom donnerait trois lignes identiques.
+
+→ La décision est désormais **au niveau de la CARTE** (`renderRatePlans`) : le nom de chambre prend
+le titre uniquement si les libellés de type NE séparent PAS les lignes et que les noms LE font ;
+sinon le type titre et la pastille de créneau (toujours affichée) porte la distinction. Le CTA
+reçoit le titre retenu depuis le renderer (plus de recalcul divergent) et retombe sur le libellé
+générique au-delà de 22 caractères — « Standard Double Room with Sea view » ne tient pas dans le
+bouton.
+
+**Vérifié** : chemin de pick live sur 3 hôtels réels (Ibis 7720, Mercure 9075, Villa 22293) →
+`ok=True`, formules + liens + remises réelles (−10 % à −37 %) ; normalizer de la feuille en live ;
+composant rendu et screenshoté (**27 assertions** + **11 assertions** dédiées aux deux formes
+réelles, dont clics). Gates : **pytest 1 097 ok**, ruff, mypy, guardrails.
+
+**Piège** : MCP renvoie **429 Too Many Requests** si on enchaîne les `get_hotel_details` sans pause
+— tout probe d'échantillon doit espacer les appels (~1,5 s) et ouvrir une session par hôtel.
+
+**Reste** : e2e via les 3 services jamais relancé ; format horaire AM/PM du carrousel toujours
+ouvert ; enum `offerType` non exhaustif (échantillon 51 hôtels, valeur inconnue → créneau).
+
+## 🧾 Addendum 2026-07-28 (branche `scx8-rateplan-selector`) — S-CX8 : sélecteur de rateplan + « à partir de »
+
+**Demande Fabien** : (1) la carte résultat doit dire « à partir de » sur son prix (c'est le
+rateplan le moins cher, présenté comme LE prix) ; (2) après un pick, présenter les différentes
+formules avec prestations/prix et un lien tunnel par formule. Artefact de 3 propositions publié
+(`claude.ai/code/artifact/cf5457e0-5da8-4bba-a774-df30e19c58a0`) → **option A retenue** (sélecteur
+intégré à la booking card), 4 points client cochés : prestations, type de chambre, remise vs nuit,
+annulation gratuite.
+
+**Fait (gates verts : pytest 1091 ok / ruff / mypy / guardrails)** :
+- **`inline_tools.py`** : `_rate_plan_view` + `_day_rate_plans` (toutes les formules d'UN jour,
+  dédupées, prix croissant, cap `_MAX_RATE_PLANS = 6`) et `_quote_picked_rate_plans` — appelé
+  UNIQUEMENT sur le tour de pick, **liens générés en parallèle** (`asyncio.gather` sur une seule
+  session MCP : le SDK multiplexe par `request_id`, vérifié dans `BaseSession.send_request`).
+  `_hotel_facts` extrait (partagé avec `_quote_fresh_offer`).
+- **Règle centrale** : le plan **présélectionné est celui que la carte du carrousel affichait**
+  (`offer_id` de `last_results`), pas le moins cher du jour — sinon le prix saute entre carrousel
+  et carte, ce qui se lit comme un appât même quand c'est moins cher.
+- **Dégradations, toutes vers le chemin mono-offre existant** : `get_hotel_details` en échec, aucun
+  plan, ou lien du plan sélectionné en échec → `{"ok": False}` → `_quote_fresh_offer` inchangé. Un
+  plan dont le lien échoue est **retiré** de la liste (une ligne sélectionnable non réservable est
+  pire qu'une ligne absente). ≤ 1 plan → pas de clé `rate_plans` du tout.
+- **Widget** : `renderRatePlans` dans `messages.js` (lignes radio, sélection 100 % client-side —
+  les liens sont déjà générés, donc zéro tour de chat), CSS `.booking-card__plan*` dans
+  `hotels.css` (lignes outlined ; le gradient warm reste réservé à l'unique CTA du tunnel),
+  « à partir de » sur la carte résultat + « dès €X » sur les pastilles de pick, 20 clés i18n × 7
+  langues.
+
+**⚠️ Ce que les probes live ont changé dans la conception** (probes : `get_hotel_details` sur
+4 596 offres réelles / 51 hôtels + snapshot catalogue prod 22 177 rate plans) :
+- **`offerType` est le seul vrai différenciateur** — enum fermé (`dayuse.day` 72 %,
+  `late_break` 13 %, `early` 11 %, `dayuse_pm` 3 %, `dayuse_am` 0,7 %), traduit côté widget
+  (« Journée / Soirée / Matinée… »). **Le sélecteur fonctionne donc dès maintenant, sans MCP.**
+- **`rate_plan_name` NE PEUT PAS titrer les lignes** : c'est le nom de la CHAMBRE, en langue libre
+  du partenaire, et **2 829 / 5 591 hôtels multi-formules donnent le même nom à toutes leurs
+  formules** (« Standard Double Room » ×3). Gardé dans le contrat, jamais en titre.
+- **`room_type` est NULL sur 22 177 / 22 177 lignes** → retiré de la demande MCP ; remplacé par
+  `bedding` + `capacity`, peuplés (« Lit double · 2 personnes »).
+- **`addons_included` : 4,6 % de remplissage** → prestations rares. Rendu prêt, aucune dépendance.
+- **`original_price` : 98,8 % en base, absent de MCP** → **seule demande du prompt MCP**
+  (`reports/PROMPT-MCP-B2C-RATEPLANS.md`, réécrit après probes). Corollaire :
+  `computeNightDiscount` (`card.js`) est **du code mort en prod depuis toujours** — aucun chemin
+  AgentB2C ne remplit `original_price`.
+- **64 % des hôtels ont 2+ formules** → concerne la majorité du parc.
+
+**Vérifié** : chemin de pick complet **en live contre le vrai MCP** (hôtel 22293 → `ok: True`,
+3 formules, 3 liens tunnel réels générés en parallèle). Composant rendu **hors navigateur puis
+screenshoté** en headless Chrome, 23 assertions dont un clic réel simulé (sélection → href, label
+CTA, créneau, prix, `data-booking-url`) et le passage par le sanitizer `sanitizeTrustedHtml`.
+**Non vérifié** : tour e2e via les 3 services (`smoke_e2e.py` non relancé — services locaux de
+Fabien laissés en place, pas redémarrés).
+
+**Un test amendé, délibérément** : `test_spine_profile.py::test_the_cheapest_is_picked_from_the_
+screen_never_re_searched` exigeait l'ABSENCE de `get_hotel_details` sur un pick (S-CX5 : réutiliser
+l'offre du carrousel, zéro aller-retour). Les formules sœurs n'existent nulle part en état de
+session → un lookup devient inévitable. Ce que la décision achetait est toujours asserté : aucune
+2e recherche, et l'offre réservée reste celle de la carte. Alternative écartée (porter tous les
+rate plans dans le payload de recherche) : taxe le tour search critique en TTFT pour une donnée
+que seul un pick consomme, et le filtre de fenêtre de la feuille afficherait une liste tronquée.
+
+**Corrigé au passage** (exposé par le rendu réel) : `formatCardDate`/`formatRating` passaient
+`undefined` en locale → **locale de l'OS et non langue du chat** : carte fr affichant « Wed, Jul
+29 » et « 4.6/5 ». Corrigé en `getLanguage()` (le commentaire de `formatRating` promettait déjà
+« 4,7 in fr »).
+
+**Trouvé, NON corrigé** : `renderTimeslots` (`card.js`) affiche les créneaux en **AM/PM dans les 7
+langues** (« 10:30am – 4pm » sur une carte fr, alors que la booking card montre « 10:30 – 16:00 »).
+Faux pour fr/es/it/de/nl. Correction = décision produit + touche tout le carrousel → session dédiée.
+
+**Reste** : lancer le prompt MCP (`originalPriceEuro`) ; décider du format horaire ; e2e via les 3
+services ; éventuellement exposer l'enum `offerType` exhaustif (mon échantillon = 51 hôtels, une
+valeur inconnue dégrade vers le créneau).
+
+## 🎫 Addendum 2026-07-28 (soir, PR #47 mergée + déployée) — SCX6 : la confirmation ÉCRITE atteint la gate R9
+
+**Repro Fabien post-rollout OBS1** : « oui je confirme » répondu par le template d'accueil — le lien
+jamais généré. Cause (pas une régression du deploy) : `is_booking_confirmation_signal` n'acceptait
+qu'un affirmatif NU ; toute phrase explicite (« je confirme », « yes I confirm ») partait au triage
+→ template. Fix : `_CONFIRMATION_RE` (verbes confirm/valide/réserve/book/vas-y) consulté SEULEMENT
+sous `pending_booking`, gardes négation+question (un faux positif générerait le lien).
+`_AFFIRMATIVE_RE`/`is_bare_affirmative` inchangés. **Vérifié en prod** (widget proxy, tours
+synthétiques) : confirmation tapée → booking_card + lien ; refus → pas de lien.
+
+**Décision produit OUVERTE** : `build_hotel_picks` (facade.py, règle S-CX5 du 27/07) n'offre les
+boutons de pick que si destination ET date sont résolues — une recherche SANS date affiche le
+carrousel mais zéro bouton (c'était l'autre moitié du « la feature a disparu »). Afficher les picks
+quand la date est défautée à aujourd'hui = 1 ligne, à trancher par Fabien.
+
+**Rollout OBS1 fait le même jour** : 3 services déployés (main c0a8fdc puis fcf6f96), variables
+LANGFUSE posées par Fabien (env=production), tracing vérifié en prod (session `obs1-deploy-check-01`,
+zéro erreur d'export). Piège CLI : `railway variables` (pluriel) — le singulier sort du vide silencieux.
+
+## 🔭 Addendum 2026-07-28 (branche `obs1-langfuse-tracing`) — OBS1 : Langfuse (monitoring + audit des conversations)
+
+**Contexte** : zéro canal d'observabilité actif en prod (pas de `DATABASE_URL` → `llm_metric_events`/
+`conversation_logs` no-ops). Fabien veut auditer les échanges users via son Langfuse self-hosted
+Railway. **Gate version vérifié AVANT d'implémenter : aucune mise à jour serveur requise** —
+l'instance (projet Railway `Langfuse`) tourne en **v3.205.1, région europe-west4 (EU ✅ RGPD)**,
+URL `https://langfuse-web-production-272b.up.railway.app` ; le SDK Python v4 exige serveur ≥ 3.63.0
+et l'ingestion OTel existe depuis 3.22.0. Langfuse serveur v4 n'existe qu'en RC (4.0.0-rc.3) —
+migration à faire dans une session dédiée quand la stable sortira (ClickHouse 24 → ≥ 25.12 requis,
+instance partagée avec d'autres producers Dayuse, ~½ journée). Refresh mineur v3.224.2 possible à
+l'occasion (redeploy web+worker, le tag `:3` flotte).
+
+**Fait (offline — gates verts : pytest/mypy/ruff/guardrails)** :
+- **`libs/b2c_common/b2c_common/observability.py`** (la seule couture) : `setup_langfuse(service)`
+  — opt-in sur `LANGFUSE_PUBLIC_KEY`+`SECRET_KEY`, **inerte sans les clés** (aucun import langfuse,
+  aucun réseau — la suite offline entière verrouille ce chemin) ; `turn_observation(...)` (span
+  racine de tour, input=message user, output=texte final, session/user/tags propagés) ;
+  `stamp_langfuse_session` (callback feuille : `dayuse_trace_id` A2A → `langfuse.session.id`) ;
+  `shutdown_langfuse` (flush via lifespan `to_a2a`).
+- Choix vérifiés dans le code installé : SDK **langfuse==4.14.1** (provider OTel GLOBAL → les spans
+  ADK `gcp.vertex.agent` s'activent, filtre `should_export_span` élargi sinon le span `invocation`
+  sans attributs serait droppé) + **openinference-instrumentation-litellm==0.1.34** (patch d'attribut
+  module : couvre triage `litellm.acompletion`, synthèse Router ET le LiteLlm des feuilles ; le
+  callback natif litellm `langfuse_otel` REJETÉ — écrase le span parent + 2e pipeline privé en
+  1.90.2) + `opentelemetry-exporter-otlp-proto-http==1.42.1` (cap google-adk ≤ 1.42.1, pas de
+  conflit pip). litellm reste pinné 1.90.2.
+- Branchements : `serve.py` ×3 (init + lifespan flush ; **feuilles : init AVANT l'import agent** —
+  lite_llm bind `acompletion` à l'import) ; `facade.py` chat + chat_stream (span racine par tour,
+  TTFT intact : export batch en arrière-plan, vérifié par smoke enabled offline) ; `_get_leg`
+  envoie `a2a_request_meta_provider={"dayuse_trace_id": ctx.session.id}` (bonus : remplit le
+  trace_id des métriques fleet) ; callbacks feuilles + READMEs + `.env.example`.
+- Tests neufs : `libs/b2c_common/tests/test_observability.py`, concierge
+  `test_facade_langfuse.py`, cas leg dans `test_leaf_timeout_budgets.py`. Locks RGPD S3 inchangés
+  (contenu → Langfuse EU self-hosted = canal d'audit sanctionné, miroir de conversation_logs ;
+  métriques/logs `b2c_concierge.*` toujours sans contenu). Tag `synthetic` via X-Dayuse-Synthetic.
+
+**Smoke local VALIDÉ avec les vraies clés (2026-07-28, revue Fabien)** — 3 corrections attrapées :
+traces feuilles nommées + input (le span racine ADK `invocation` est sans attributs → stamps
+`langfuse.trace.*` posés depuis le callback feuille) ; sessions complètes aussi en pilotage A2A
+(smoke/batterie : `stamp_langfuse_turn_session` sur le spine, idempotent avec la façade) ; **usage
+compté 3x corrigé → 1x** (`ADK_TELEMETRY_SCHEMA_VERSION_OPT_IN=2` retire `call_llm` ;
+`instrument_litellm=False` dans les feuilles où `generate_content` est LA génération). Vérifié :
+`smoke_e2e.py` (A2A) + `smoke_e2e.py --contract` (/v3), zéro erreur d'export.
+
+**Reste** : poser `LANGFUSE_PUBLIC_KEY`/`SECRET_KEY`/`LANGFUSE_BASE_URL`/
+`LANGFUSE_TRACING_ENVIRONMENT=production` sur les 3 services Railway → redeploy → vérifier un tour
+réel. Sans les clés, le code déployé est inerte (aucun risque).
+
+**Pièges découverts** : (1) `to_a2a` annote `lifespan` comme `-> AsyncIterator` mais le consomme en
+`async with lifespan(app)` — il FAUT `@asynccontextmanager` + `type: ignore[arg-type]` (la docstring
+ADK elle-même utilise le décorateur). (2) **litellm fait `load_dotenv()` à l'import** : tout secret
+du `.env` racine entre dans CHAQUE process python du repo, pytest compris — avec de vraies clés la
+suite exportait pour de vrai et gelait (double shutdown du client langfuse via les lifespans
+TestClient). Verrou : `conftest.py` racine neutralise les clés (chaîne vide, `load_dotenv` n'écrase
+pas l'existant) + les lifespans font `flush()` jamais `shutdown()` (le client langfuse possède son
+shutdown atexit). (3) **Pré-existant sur main** : `tests/test_llm_meter_usage.py::
+test_usage_record_extracts_tokens_and_model` échoue (round(432.15,1)=432.1 en IEEE754 vs 432.2
+attendu) — WIP llm-meter balayé par erreur (cf. commit d157323) ; hors scope OBS1, à corriger ou
+supprimer dans sa propre session.
+
 ## 🖥 Addendum 2026-07-28 (branche `sperf4-widget-sse`) — S-PERF4 : widget en SSE, rendu hotels-first (chantier #1 de la roadmap latence)
 
 **Objectif atteint** : le widget ne fait plus un POST bloquant de 8-11 s. En transport `sse` il lit

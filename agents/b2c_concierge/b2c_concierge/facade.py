@@ -34,6 +34,7 @@ import uuid
 from typing import Any, AsyncGenerator, Literal
 from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
+from b2c_common.observability import turn_observation
 from google.adk.runners import InMemoryRunner
 from google.genai import types as genai_types
 from starlette.requests import Request
@@ -45,7 +46,7 @@ from . import conversation_log, templates
 from .agent import _US, metrics_logger, root_agent
 from .conversation_log import build_conversation_log_row, detect_is_synthetic
 from .inline_tools import _format_price_eur_cents
-from .profile import SessionProfile, apply_profile_delta
+from .profile import SessionProfile, apply_profile_delta, build_hotel_picks
 from .profile_store import get_profile_store
 from .triage import SERVICE, guess_language
 from .triage import locale_response_language as _locale_response_language
@@ -423,37 +424,6 @@ def _json_safe(payload: dict[str, Any]) -> dict[str, Any]:
     )
 
 
-def build_hotel_picks(profile: SessionProfile) -> list[dict[str, Any]]:
-    """The hotel-pick buttons (S-CX5, Fabien 2026-07-27): one entry per hotel on
-    screen the user can choose, CHEAPEST FIRST.
-
-    Why the backend owns this rather than the widget deriving it from `hotels`:
-    both product rules live here, where the session state is. WHEN they may
-    appear — the request must be qualified enough for a pick to mean something,
-    i.e. a destination AND a date are resolved (a shortlist with no date can't
-    be booked). And in WHICH ORDER — sorted by price, so "the cheapest" is
-    answerable by eye and the first button is always it. Deliberately NO
-    "cheapest" badge: that would be a claim, and claims need a guard.
-
-    Empty list when nothing qualifies — the widget then renders no pick row at
-    all rather than an empty one. Entries without a price sort last (they are
-    still pickable; they just can't be compared)."""
-    if not (profile.city and profile.date):
-        return []
-    picks = [
-        {
-            "hotel_id": hotel.get("hotel_id"),
-            "name": hotel.get("name"),
-            "price": hotel.get("price"),
-            "price_eur_cents": hotel.get("price_eur_cents"),
-        }
-        for hotel in profile.last_results or []
-        if isinstance(hotel, dict) and hotel.get("hotel_id") is not None and hotel.get("name")
-    ]
-    picks.sort(key=lambda p: (p["price_eur_cents"] is None, p["price_eur_cents"] or 0))
-    return picks
-
-
 def build_chat_payload(
     *,
     session_id: str,
@@ -776,27 +746,38 @@ async def chat(request: Request) -> Response:
         is_synthetic = detect_is_synthetic(request.headers)
         await _apply_native_context(session_id, body, turn_index)
 
-        hotels: list | None = None
-        booking_card: dict | None = None
-        requires_clarification = False
-        final_text = ""
-        if not message:
-            final_text = _empty_ack_text(message, _parse_locale(body.get("locale")))
-        else:
-            async for kind, data in _drive(session_id, user_id, message):
-                if kind == "hotels":
-                    hotels = data.get("hotels") or None
-                    requires_clarification = bool(data.get("requires_clarification"))
-                elif kind == "booking":
-                    booking_card = data.get("booking_card") or None
-                elif kind == "final":
-                    final_text = data
+        # Langfuse audit trace for the turn (no-op without LANGFUSE_* keys).
+        # Content goes ONLY to the self-hosted EU Langfuse — the metric events
+        # and b2c_concierge.* logs below stay content-free (GDPR locks).
+        with turn_observation(
+            name="v3.chat", session_id=session_id, user_id=user_id, message=message,
+            is_synthetic=is_synthetic,
+            metadata={"turn_index": turn_index, "locale": body.get("locale"),
+                      "currency": body.get("currency"), "domain": body.get("domain")},
+        ) as lf_span:
+            hotels: list | None = None
+            booking_card: dict | None = None
+            requires_clarification = False
+            final_text = ""
+            if not message:
+                final_text = _empty_ack_text(message, _parse_locale(body.get("locale")))
+            else:
+                async for kind, data in _drive(session_id, user_id, message):
+                    if kind == "hotels":
+                        hotels = data.get("hotels") or None
+                        requires_clarification = bool(data.get("requires_clarification"))
+                    elif kind == "booking":
+                        booking_card = data.get("booking_card") or None
+                    elif kind == "final":
+                        final_text = data
 
-        payload = await _finalize(
-            session_id=session_id, message=message, final_text=final_text,
-            hotels=hotels, is_synthetic=is_synthetic, turn_index=turn_index,
-            requires_clarification=requires_clarification, booking_card=booking_card,
-        )
+            payload = await _finalize(
+                session_id=session_id, message=message, final_text=final_text,
+                hotels=hotels, is_synthetic=is_synthetic, turn_index=turn_index,
+                requires_clarification=requires_clarification, booking_card=booking_card,
+            )
+            if lf_span is not None:
+                lf_span.update(output=final_text)
     except Exception as exc:  # noqa: BLE001 — last-resort shield: contract payload, never a bare 500
         payload = _shield_payload(session_id, body, message, "json", exc)
     response = JSONResponse(payload)
@@ -855,39 +836,55 @@ async def chat_stream(request: Request) -> Response:
         requires_clarification = False
         final_text = ""
         try:
-            if not message:
-                yield _sse("progress", {})
-                final_text = _empty_ack_text(message, _parse_locale(body.get("locale")))
-            else:
-                async for kind, data in _drive(session_id, user_id, message):
-                    if kind == "progress":
-                        yield _sse("progress", {})
-                    elif kind == "hotels":
-                        hotels = data.get("hotels") or None
-                        requires_clarification = bool(data.get("requires_clarification"))
-                        # `requires_clarification` and `response_language` ride the
-                        # frame (additive) so a hotels-first client decides whether
-                        # to paint the shortlist — and in WHICH language — from the
-                        # same inputs the `done` payload will carry. Without them a
-                        # streaming widget would show a shortlist a clarifying turn
-                        # withholds, in the page's boot language.
-                        yield _sse("hotels", {
-                            "hotels": normalize_hotels(hotels) if hotels else [],
-                            "requires_clarification": requires_clarification,
-                            "response_language": data.get("response_language") or "",
-                        })
-                    elif kind == "booking":
-                        booking_card = data.get("booking_card") or None
-                        yield _sse("booking_card", {"booking_card": booking_card})
-                    elif kind == "token":
-                        yield _sse("token", {"text": data})
-                    elif kind == "final":
-                        final_text = data
-            payload = await _finalize(
-                session_id=session_id, message=message, final_text=final_text,
-                hotels=hotels, is_synthetic=is_synthetic, turn_index=turn_index,
-                requires_clarification=requires_clarification, booking_card=booking_card,
-            )
+            # Langfuse audit trace for the turn (no-op without LANGFUSE_* keys):
+            # span open + updates are local, export is a background batch — the
+            # `progress` frame (TTFT marker) still fires before any LLM work.
+            with turn_observation(
+                name="v3.chat_stream", session_id=session_id, user_id=user_id, message=message,
+                is_synthetic=is_synthetic,
+                metadata={"turn_index": turn_index, "locale": body.get("locale"),
+                          "currency": body.get("currency"), "domain": body.get("domain")},
+            ) as lf_span:
+                if not message:
+                    yield _sse("progress", {})
+                    final_text = _empty_ack_text(message, _parse_locale(body.get("locale")))
+                else:
+                    async for kind, data in _drive(session_id, user_id, message):
+                        if kind == "progress":
+                            yield _sse("progress", {})
+                        elif kind == "hotels":
+                            hotels = data.get("hotels") or None
+                            requires_clarification = bool(data.get("requires_clarification"))
+                            # `requires_clarification`, `response_language` and
+                            # `hotel_picks` ride the frame (additive) so a
+                            # hotels-first client decides whether to paint the
+                            # shortlist — in WHICH language, and with WHICH cards
+                            # bookable — from the same inputs the `done` payload
+                            # carries. Without them a streaming widget shows a
+                            # shortlist a clarifying turn withholds, in the page's
+                            # boot language, with no booking CTA (S-CX9 gates that
+                            # CTA on `hotel_picks`, which used to reach the widget
+                            # only in the blocking JSON body).
+                            yield _sse("hotels", {
+                                "hotels": normalize_hotels(hotels) if hotels else [],
+                                "requires_clarification": requires_clarification,
+                                "response_language": data.get("response_language") or "",
+                                "hotel_picks": data.get("hotel_picks") or [],
+                            })
+                        elif kind == "booking":
+                            booking_card = data.get("booking_card") or None
+                            yield _sse("booking_card", {"booking_card": booking_card})
+                        elif kind == "token":
+                            yield _sse("token", {"text": data})
+                        elif kind == "final":
+                            final_text = data
+                payload = await _finalize(
+                    session_id=session_id, message=message, final_text=final_text,
+                    hotels=hotels, is_synthetic=is_synthetic, turn_index=turn_index,
+                    requires_clarification=requires_clarification, booking_card=booking_card,
+                )
+                if lf_span is not None:
+                    lf_span.update(output=final_text)
         except Exception as exc:  # noqa: BLE001 — mid-stream shield: status is committed, only `done` can signal
             payload = _shield_payload(session_id, body, message, "sse_stream", exc)
         yield _sse("done", payload)

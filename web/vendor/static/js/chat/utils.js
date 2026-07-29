@@ -7,6 +7,7 @@ import { state } from './state.js';
 import { appendAmplitudeIdToUrl } from './tracking.js';
 import { sanitizeDayuseUrl } from './security.js';
 import { buildHotelFallbackUrl, normalizeCountryCode } from './markets.js';
+import { getLanguage } from './i18n.js';
 
 /**
  * The mobile app injects `window.__DAYUSE_NATIVE__` into this page (loaded in
@@ -53,6 +54,28 @@ export function formatTimeAMPM(time24) {
     else if (hour > 12) hour -= 12;
 
     return minute > 0 ? `${hour}:${minuteStr}${period}` : `${hour}${period}`;
+}
+
+/** ES hands the raw average through (4.666666666666667) — one decimal, in the
+ *  reader's language. Non-numeric ratings pass through untouched.
+ *
+ *  Formatted against the CHAT language, not `undefined`: `undefined` means the
+ *  OS locale, so a French card on an English-locale device rendered "4.6" —
+ *  caught by rendering the card outside the browser (S-CX8).
+ *
+ *  S-CX9: lives here rather than in `ui/messages.js` because the shortlist card
+ *  now shows the same rating as the booking card. Two formatters would be two
+ *  chances to disagree about the decimal separator on the same screen. */
+export function formatRating(value) {
+    const num = Number(value);
+    if (!Number.isFinite(num)) return String(value);
+    try {
+        return num.toLocaleString(getLanguage(), {
+            minimumFractionDigits: 1, maximumFractionDigits: 1,
+        });
+    } catch (_) {
+        return num.toFixed(1);
+    }
 }
 
 /**

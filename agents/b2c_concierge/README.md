@@ -103,6 +103,11 @@ bash scripts/dayuse_guardrails.sh .
 | `CONCIERGE_SESSION_COOKIE_SECURE` | `true` | `Secure` sur le cookie (mettre `false` en dev http local) |
 | `CONCIERGE_SESSION_COOKIE_SAMESITE` | `lax` | Attribut `SameSite` du cookie |
 | `DATABASE_URL` | (vide) | Postgres partagé : `conversation_logs` (S9) + `llm_metric_events` (S3) ; **write no-op sans cette variable** |
+| `LANGFUSE_PUBLIC_KEY` | (vide) | OBS1 : traces d'audit vers le Langfuse self-hosted EU — **interrupteur** : les DEUX clés absentes ⇒ observabilité totalement inerte (aucun import, aucun réseau) |
+| `LANGFUSE_SECRET_KEY` | (vide) | Deuxième moitié de l'interrupteur OBS1 |
+| `LANGFUSE_BASE_URL` | `https://cloud.langfuse.com` (défaut SDK) | URL de l'instance self-hosted (nom SDK v4 — PAS `LANGFUSE_HOST`) |
+| `LANGFUSE_TRACING_ENVIRONMENT` | `default` | Dimension environnement dans l'UI Langfuse (`development` local / `production` Railway) |
+| `LANGFUSE_SAMPLE_RATE` | `1.0` | Échantillonnage des traces (le span racine de la façade décide pour tout le tour) |
 
 Un token sortant vide n'est pas fatal au boot : la feuille fail-closed répond 401 et le tour dégrade honnêtement (jamais d'auth contournée). `scripts/run_local.sh` partage un même token local pour les 3 services.
 

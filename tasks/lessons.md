@@ -1,5 +1,24 @@
 # Lessons — corrections de Fabien à réappliquer
 
+## 2026-07-29 — sperf4 rebasé (auto-constatée en reprenant une branche vieille d'un jour)
+
+1. **Une branche vérifiée n'est vérifiée que contre le `main` de l'époque.** La PR
+   #45 était complète, mesurée et screenshotée — puis S-CX7/8/9 ont réécrit le
+   MÊME chemin de rendu de carte. Le merge ne signalait que 4 conflits textuels,
+   aucun sur le vrai défaut : le CTA de réservation (`state.hotelPicks`, rempli
+   uniquement depuis le corps JSON bloquant) disparaissait de toutes les cartes en
+   mode SSE, `skipCarousel` empêchant tout redessin à `done`. Règle : avant de
+   merger une branche qui a dormi, lister les features livrées entre-temps qui
+   touchent la même surface et se demander **d'où chacune tire sa donnée** dans le
+   nouveau chemin — le diff ne le dira pas.
+2. **Deux chemins qui doivent produire la même chose doivent appeler la MÊME
+   fonction, pas deux copies d'accord.** `build_hotel_picks` a déménagé de
+   `facade.py` vers `profile.py` pour que la frame et le payload l'appellent tous
+   les deux sur le même profil : égalité par construction, pas par revue. Corollaire
+   d'ordonnancement : la frame doit être émise APRÈS `apply_profile_delta` +
+   `record_search_shortlist`, sinon les picks décrivent le tour PRÉCÉDENT (vérifié
+   en remettant le `yield` à sa place d'origine → le test tombe).
+
 ## 2026-07-28 — sperf4 (auto-constatées, attrapées par la capture navigateur)
 
 1. **Rendre une donnée PLUS TÔT casse tout ce que le rendu tardif tenait pour
@@ -22,6 +41,28 @@
    mi-stream (cartes visibles pendant la synthèse), impossibles avec
    `--screenshot`. Compter les éléments en DELTA DOM par tour (pas en absolu) :
    sinon le carrousel du tour précédent fait passer un test « pas de doublon ».
+
+## 2026-07-29 — S-CX9 (auto-constatée, attrapée par la capture navigateur post-deploy)
+
+1. **Un test de rendu qui appelle le renderer EN DIRECT ne teste pas ce que
+   l'utilisateur voit.** Mes 25 assertions jsdom passaient en donnant le dict hôtel
+   à `createHotelCard`. Mais le widget fait passer le payload par
+   `normalizeV3Response`, **qui whiteliste les champs** : `rating` y était,
+   `rating_count` non. Résultat en prod : la carte affichait « 5,0/5 » pour un
+   hôtel noté par UNE personne — l'unique façon dont cette ligne peut tromper — et
+   toutes mes assertions étaient vertes. Règle : **tout champ nouvellement lu par
+   un renderer doit être asserté À TRAVERS le mapping de payload réel**, pas à
+   côté. Corollaire : quand on ajoute la lecture d'un champ backend côté widget,
+   vérifier d'abord qu'il traverse `normalizeV3Response` (whitelist explicite).
+2. **La capture navigateur sur le déployé n'est pas une formalité de fin.** C'est
+   elle, et rien d'autre, qui a montré le compte d'avis manquant : jsdom vert,
+   payload prod correct (`rating_count: 1` bien présent dans la réponse HTTP), et
+   pourtant faux à l'écran. Le trou était entre les deux.
+3. **Chercher la règle de design déjà ÉCRITE dans le CSS avant d'en proposer une.**
+   L'artefact proposait un CTA jaune ; `hotels.css` avait déjà consigné en S-CX5
+   que le dégradé chaud est réservé au CTA qui part vers le tunnel. La bonne
+   réponse était de faire respecter la règle existante (bleu nuit pour le CTA
+   conversationnel), pas d'en inventer une nouvelle.
 
 ## 2026-07-28 — sperf (auto-constatée, attrapée en live post-deploy)
 

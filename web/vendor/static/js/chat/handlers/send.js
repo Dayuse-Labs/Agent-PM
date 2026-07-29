@@ -159,6 +159,11 @@ function mapV3Hotels(hotels) {
         name: h.name,
         stars: h.stars,
         rating: h.rating,
+        // S-CX9: the review count BEHIND that average. This whitelist is what
+        // the card actually receives, and `rating` alone made the card render
+        // "5,0/5" for a single 5-star review — the average without the count is
+        // the one way this row can mislead.
+        rating_count: h.rating_count ?? null,
         price: h.price,
         metro: h.metro,
         zone: h.zone,
@@ -187,7 +192,10 @@ function mapV3Hotels(hotels) {
  * Normalize v3/chat response to expected format
  * Converts new API format to match existing handler expectations
  */
-function normalizeV3Response(data) {
+// Exported for S-CX9's render harness: this whitelist is the real contract
+// between the API payload and the card, so a card field has to be asserted
+// THROUGH it. Asserting around it is what let a dropped `rating_count` ship.
+export function normalizeV3Response(data) {
     // If it's already in old format with results, return as-is
     if (data.results) {
         return data;
@@ -431,6 +439,14 @@ function renderHotelsEarly(frame, thinking) {
     updateMarketFromResults(results);
     state.previousResults = results;
     state.activeHotelIds = results.map(h => h.id).filter(id => id);
+    // S-CX9's booking CTA on each card is gated on `state.hotelPicks`, which the
+    // blocking path fills from the `done` body. Rendering cards here without
+    // this line paints every card WITHOUT its primary CTA — the whole feature
+    // silently disappears in streaming mode. Assigned UNCONDITIONALLY (absent
+    // ⇒ []) and BEFORE createHotelCarousel: leaving the previous turn's picks
+    // in place would gate this turn's cards on last turn's shortlist, so an
+    // overlapping hotel id would show a CTA sourced from stale state.
+    state.hotelPicks = Array.isArray(frame.hotel_picks) ? frame.hotel_picks : [];
 
     const hotelsHtml = createHotelCarousel(results.slice(0, 6));
     // No intro text yet — it is still being written upstream.

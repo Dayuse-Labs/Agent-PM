@@ -796,6 +796,44 @@ class TestIsBookingConfirmationSignal:
         profile = SessionProfile(pending_booking={"hotel_id": 1})
         assert not is_booking_confirmation_signal("what about a different hotel?", profile)
 
+    def test_explicit_confirmation_phrases_are_signals(self):
+        """Prod 2026-07-28: R9 asks « Confirmez-vous cette réservation ? » and
+        the natural echoes fell through to triage → the greeting template —
+        the confirmation could never be typed, only clicked."""
+        profile = SessionProfile(pending_booking={"hotel_id": 1})
+        for message in (
+            "oui je confirme",
+            "je confirme",
+            "Je confirme la réservation",
+            "c'est confirmé",
+            "je valide",
+            "yes I confirm",
+            "confirmed",
+            "oui je veux réserver",
+            "vas-y",
+        ):
+            assert is_booking_confirmation_signal(message, profile), message
+
+    def test_refusals_and_questions_never_signal_even_with_confirm_verbs(self):
+        """A false positive here would GENERATE THE LINK (user_confirmed feeds
+        the R9 gate) — negations and questions must always lose."""
+        profile = SessionProfile(pending_booking={"hotel_id": 1})
+        for message in (
+            "non je ne confirme pas",
+            "je ne confirme pas",
+            "non",
+            "annule la réservation",
+            "cancel the booking",
+            "attends, pas encore",
+            "plutôt un autre hôtel",
+            "et si je confirme ?",
+            "je confirme quoi ?",
+        ):
+            assert not is_booking_confirmation_signal(message, profile), message
+
+    def test_explicit_confirmation_without_pending_booking_is_not_a_signal(self):
+        assert not is_booking_confirmation_signal("je confirme", SessionProfile())
+
 
 # ── S-G1 (2026-07-23): profile v2 schema + typed-ops reducer ────────────────
 

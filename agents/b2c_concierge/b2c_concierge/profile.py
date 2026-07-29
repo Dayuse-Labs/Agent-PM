@@ -117,6 +117,27 @@ def is_bare_affirmative(message: str) -> bool:
     return bool(_AFFIRMATIVE_RE.match((message or "").strip()))
 
 
+# Explicit confirmation phrasing — ONLY consulted while `pending_booking` is
+# set (is_booking_confirmation_signal). The R9 prompt literally asks
+# « Confirmez-vous cette réservation ? », so users echo a confirmation VERB
+# ("oui je confirme", "je valide", "yes I confirm") — which the bare-affirmative
+# regex above rejects by design, and prod 2026-07-28 answered with the greeting
+# template instead of the link. Kept verb-anchored (confirm/valide/réserve/
+# book/vas-y), never a lone "oui" inside a sentence.
+_CONFIRMATION_RE = re.compile(
+    r"\b(?:confirm\w*|valide[rsz]?|r[ée]serve[rz]?|book(?:\s+it)?|vas[- ]?y|allons[- ]?y|go)\b",
+    re.IGNORECASE,
+)
+# Refusals/changes of mind that may still contain a confirmation verb
+# (« non je ne confirme pas », "cancel the booking") — these must NEVER route
+# to the confirmation gate: a false positive would generate the link.
+_CONFIRMATION_NEGATION_RE = re.compile(
+    r"\b(?:non|ne|n'|pas|plus|jamais|annul\w*|cancel\w*|attend\w*|wait|stop|autre|chang\w*|plut[oô]t)\b"
+    r"|n'",
+    re.IGNORECASE,
+)
+
+
 @dataclass
 class SessionProfile:
     """One session's accumulated search context — the orchestrator's only
@@ -873,6 +894,46 @@ def record_search_shortlist(profile: SessionProfile, results: list[dict[str, Any
         _accumulate_shown_hotel_ids(profile, [entry["hotel_id"] for entry in shortlist])
 
 
+def build_hotel_picks(profile: SessionProfile) -> list[dict[str, Any]]:
+    """The hotel-pick buttons (S-CX5, Fabien 2026-07-27): one entry per hotel on
+    screen the user can choose, CHEAPEST FIRST.
+
+    Why the backend owns this rather than the widget deriving it from `hotels`:
+    both product rules live here, where the session state is. WHEN they may
+    appear — a destination must be resolved. A date is NOT required (Fabien
+    2026-07-28): the search and the booking quote both default the date to
+    today, so a date-less shortlist IS bookable — requiring the date dead-ended
+    the pick row for every "hôtel à Paris" search. And in WHICH ORDER — sorted
+    by price, so "the cheapest" is answerable by eye and the first button is
+    always it. Deliberately NO "cheapest" badge: that would be a claim, and
+    claims need a guard.
+
+    Empty list when nothing qualifies — the widget then renders no pick row at
+    all rather than an empty one. Entries without a price sort last (they are
+    still pickable; they just can't be compared).
+
+    Lives HERE rather than in the facade (S-PERF4) because the spine has to
+    call it too: a hotels-first client paints the cards on the `hotels` frame,
+    long before the `done` payload exists, and S-CX9 gates the card's booking
+    CTA on these picks. Both callers running the SAME function over the SAME
+    profile is what makes the frame's picks and the payload's picks equal by
+    construction rather than by review."""
+    if not profile.city:
+        return []
+    picks = [
+        {
+            "hotel_id": hotel.get("hotel_id"),
+            "name": hotel.get("name"),
+            "price": hotel.get("price"),
+            "price_eur_cents": hotel.get("price_eur_cents"),
+        }
+        for hotel in profile.last_results or []
+        if isinstance(hotel, dict) and hotel.get("hotel_id") is not None and hotel.get("name")
+    ]
+    picks.sort(key=lambda p: (p["price_eur_cents"] is None, p["price_eur_cents"] or 0))
+    return picks
+
+
 def _accumulate_shown_hotel_ids(profile: SessionProfile, hotel_ids: list[Any]) -> None:
     """Moves each id in `hotel_ids` to the end of `shown_hotel_ids` (deduped —
     a re-shown hotel is now the MOST recently shown, not a stale entry),
@@ -1067,8 +1128,21 @@ def is_booking_confirmation_signal(message: str, profile: SessionProfile) -> boo
     This function only routes the turn; it never decides the confirmed flag
     itself — that decision is re-derived from `pending_booking` at the call
     site, so this signal alone can never be the thing that authorizes a link.
+
+    Matches a bare affirmative ("oui") OR an explicit confirmation verb
+    ("oui je confirme", "je valide", "yes I confirm" — prod 2026-07-28: these
+    fell through to triage and the greeting template, dead-ending R9's own
+    confirmation question). Any negation/change-of-mind marker wins over a
+    confirmation verb (« non je ne confirme pas » must never confirm), and a
+    question is never a confirmation.
     """
     if not profile.pending_booking:
         return False
     stripped = (message or "").strip()
-    return bool(stripped) and bool(_AFFIRMATIVE_RE.match(stripped))
+    if not stripped:
+        return False
+    if _AFFIRMATIVE_RE.match(stripped):
+        return True
+    if "?" in stripped or _CONFIRMATION_NEGATION_RE.search(stripped):
+        return False
+    return bool(_CONFIRMATION_RE.search(stripped))

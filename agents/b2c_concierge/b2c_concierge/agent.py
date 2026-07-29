@@ -79,6 +79,7 @@ from typing import Any, AsyncGenerator
 import httpx
 import litellm
 from b2c_common import max_tokens_for, reasoning_kwargs_for, role_model, temperature_kwargs_for
+from b2c_common.observability import stamp_langfuse_turn_session
 from dayuse_agent_common import (
     cost_from_tokens,
     enqueue_metric_event,
@@ -103,6 +104,7 @@ from .profile import (
     SessionProfile,
     advance_search_cursor,
     apply_profile_delta,
+    build_hotel_picks,
     extract_final_question,
     is_bare_affirmative,
     is_booking_confirmation_signal,
@@ -269,6 +271,10 @@ def _get_leg(leaf: str) -> RemoteA2aAgent:
                 timeout=_leaf_timeout(leaf),
                 headers={"Authorization": f"Bearer {token}"} if token else {},
             ),
+            # Fleet correlation id (dayuse_agent_common.metrics reads it, and the
+            # leaves mirror it as the Langfuse session id): the facade session_id
+            # IS ctx.session.id, so concierge + leaf traces group per conversation.
+            a2a_request_meta_provider=lambda ctx, msg: {"dayuse_trace_id": ctx.session.id},
         )
     return _legs[leaf]
 
@@ -429,7 +435,11 @@ class _B2cConcierge(BaseAgent):
         return self._marker_event(ctx, {"event": "progress"})
 
     def _hotels_event(
-        self, ctx: InvocationContext, response: dict[str, Any], language: str
+        self,
+        ctx: InvocationContext,
+        response: dict[str, Any],
+        language: str,
+        picks: list[dict[str, Any]] | None = None,
     ) -> Event:
         return self._marker_event(
             ctx,
@@ -445,6 +455,13 @@ class _B2cConcierge(BaseAgent):
                 # them in the page's boot language and only correct itself on
                 # the final payload (mixed-language render on 6 of 7 locales).
                 "response_language": language,
+                # S-PERF4 + S-CX9: which of these cards are bookable. The card's
+                # booking CTA is gated on this list, so a client that paints the
+                # shortlist HERE would otherwise render every card without its
+                # primary CTA — the feature would silently vanish in streaming
+                # mode. Same `build_hotel_picks(profile)` the `done` payload
+                # calls, over the same profile: equal by construction.
+                "hotel_picks": picks or [],
             },
         )
 
@@ -713,7 +730,11 @@ class _B2cConcierge(BaseAgent):
             return
 
         response = {"results": hotels}
-        yield self._hotels_event(ctx, response, language)
+        # Same picks the `done` payload will carry: details/compare do NOT touch
+        # `last_results`, so this reads the shortlist a previous search left —
+        # exactly what `build_chat_payload` does a moment later. Parity with the
+        # blocking path is the goal here, not a better answer.
+        yield self._hotels_event(ctx, response, language, build_hotel_picks(profile))
 
         synth = await self._synthesize_with_guards(
             message=message, language=language, leaf_text=leaf_text, response=response,
@@ -753,6 +774,16 @@ class _B2cConcierge(BaseAgent):
             "rating": result.get("rating"),
             "rating_count": result.get("rating_count"),
             "stars": result.get("stars"),
+            # S-CX8: every formula of the chosen day, each carrying its own
+            # tunnel link, the one this card is priced on flagged `selected`.
+            # Absent whenever the hotel has a single bookable formula or the
+            # multi-plan lookup degraded — the widget then renders exactly the
+            # card it rendered before this key existed.
+            "rate_plans": result.get("rate_plans"),
+            # Hotel-level perks (MCP `includedAmenities`), stated ONCE: probed
+            # over 227 multi-formula days they never differed between formulas,
+            # so per-row they would imply a distinction that does not exist.
+            "hotel_amenities": result.get("hotel_amenities"),
             "cta_text": "book_now",  # i18n key, resolved by the widget's own table
         }
         return {k: v for k, v in card.items() if v is not None}
@@ -1010,9 +1041,6 @@ class _B2cConcierge(BaseAgent):
         # truly-empty case above degrades.
         leaf_text = leaf_text or ""
 
-        # `hotels` marker — as soon as the leaf returns (S06).
-        yield self._hotels_event(ctx, response, triage.language)
-
         delta = response.get("profile_delta") or {}
         if delta:
             apply_profile_delta(profile, delta, message)
@@ -1053,6 +1081,20 @@ class _B2cConcierge(BaseAgent):
                 return
             maybe_auto_widen(profile)
 
+        # `hotels` marker — still before the synthesis, which is the whole point
+        # (S06): the shortlist reaches a streaming client ~4-5 s before the text.
+        # It sits AFTER the profile updates above, not before them, because the
+        # marker now carries `hotel_picks` and those come from the profile —
+        # emitting earlier would compute them from the PREVIOUS turn's city and
+        # shortlist, i.e. paint this turn's cards with last turn's booking CTAs.
+        # Everything between the leaf's return and here is in-memory dict work
+        # (microseconds), so nothing measurable is given back. The two early
+        # returns above deliberately emit no marker at all: both are empty-hotel
+        # turns (`search_unavailable`, pagination exhausted) where the frame
+        # carried `hotels: []` — nothing to paint — and the payload's `hotels`
+        # is None either way (`normalize_hotels(x) if x else None`).
+        yield self._hotels_event(ctx, response, triage.language, build_hotel_picks(profile))
+
         synth = await self._synthesize_with_guards(
             message=message, language=triage.language, leaf_text=leaf_text, response=response,
             profile=profile, budget=budget, invocation_id=inv,
@@ -1080,4 +1122,7 @@ root_agent = _B2cConcierge(
         "hotel-search or FAQ A2A leaf, inline tools, or templates — one economy triage "
         "and at most one synthesis LLM call per turn."
     ),
+    # OBS1: session/user on the Langfuse trace for A2A-driven turns too (peers,
+    # battery, smoke) — the /v3 facade sets the same values, idempotently.
+    before_agent_callback=[stamp_langfuse_turn_session],
 )

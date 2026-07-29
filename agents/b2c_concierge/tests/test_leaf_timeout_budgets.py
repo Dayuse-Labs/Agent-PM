@@ -8,6 +8,8 @@ of the shared `root_agent` singleton other test modules import by reference.
 """
 from __future__ import annotations
 
+from types import SimpleNamespace
+
 from b2c_concierge.agent import _get_leg, _leaf_timeout, _reset_legs
 from b2c_concierge.routing import LEAF_FAQ, LEAF_HOTEL_SEARCH
 
@@ -71,3 +73,15 @@ class TestLegWiring:
             assert faq_leg._httpx_client.timeout.connect == 20.0
         finally:
             _reset_legs()  # never leak a leg cached with test-only timeouts
+
+    def test_get_leg_sends_the_session_id_as_dayuse_trace_id(self):
+        """OBS1: the A2A request metadata carries the facade session id — the
+        fleet metrics' trace_id AND the leaves' Langfuse session correlation."""
+        _reset_legs()
+        try:
+            leg = _get_leg(LEAF_HOTEL_SEARCH)
+            ctx = SimpleNamespace(session=SimpleNamespace(id="sess-77"))
+            assert leg._a2a_request_meta_provider is not None
+            assert leg._a2a_request_meta_provider(ctx, None) == {"dayuse_trace_id": "sess-77"}
+        finally:
+            _reset_legs()
