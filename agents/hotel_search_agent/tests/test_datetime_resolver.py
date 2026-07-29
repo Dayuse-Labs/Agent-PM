@@ -333,6 +333,21 @@ def test_resolve_date_carried_over_past_date_falls_back_to_today():
     assert STATE_RESOLVED_DATE_KEY not in ctx.state  # a floor is not a new fact
 
 
+def test_a_floored_stale_carried_date_is_stashed_as_the_same_day_it_became():
+    """Merge seam between the past-date floor (PR #57) and S-CX6's stash: the
+    floor runs FIRST, so `same_day` describes the search that actually ran. Get
+    the order wrong and a session carrying yesterday's date lands on today with
+    `same_day=False` — the closed-day probe then never fires on the one turn
+    that needs it, and the user gets "no offers" for a day that is simply over."""
+    ctx = _ctx_with_profile({"date": (date.today() - timedelta(days=1)).isoformat()})
+    args = {}
+    resolve_search_date(_Tool("search_offers"), args, ctx)
+    assert ctx.state[STATE_SEARCH_DATE_KEY] == {
+        "date": date.today().isoformat(),
+        "same_day": True,
+    }
+
+
 def test_resolve_date_carried_over_today_is_kept():
     ctx = _ctx_with_profile({"date": date.today().isoformat()})
     args = {}
