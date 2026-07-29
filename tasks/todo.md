@@ -1,3 +1,68 @@
+# S-CX9 — bouton de réservation sur la carte de résultat + repasse de la carte — 2026-07-29
+
+Décision Fabien (artefact `claude.ai/code/artifact/f887ae71`, 5 propositions) : **proposition A +
+la repasse**. Les chips `pick-row` disparaissent, le CTA de choix passe sur la carte de résultat.
+Zéro changement backend.
+
+## Contexte figé (vérifié dans le code AVANT d'écrire)
+
+- `pickButtonsHtml()` (`filters/search.js:249`) dessine la rangée de chips sous le carousel.
+- Le handler `pick-hotel` (`ui/messages.js:377`) lit `data-hotel-id` + `data-pick-label` sur
+  **n'importe quel** élément — chip ou carte : il ne change pas.
+- `state.hotelPicks` (rempli `handlers/send.js:512`, **avant** tout renderer) porte une règle
+  produit backend : *pas de pick offert tant que la destination n'est pas résolue*. Le CTA de la
+  carte doit rester gated dessus, sinon la règle casse silencieusement.
+- `rating` / `rating_count` sont **déjà** sur la carte de recherche (`response_bridge.py:453/459` ;
+  `normalize_hotels` passe le dict entier) → la note s'affiche sans changement backend.
+- `slot.original_price` est rempli depuis S-CX8 → le badge `-X%` a de vraies données.
+- Le **nombre de formules n'est PAS disponible** (`normalize_hotel` ne garde que `_best_offer`).
+
+## Tâches
+
+- [x] 1. `utils.js` : y déplacer `formatRating` (privé dans `ui/messages.js`) pour que la carte et
+      la booking card formatent la note identiquement (langue du chat, pas locale OS).
+- [x] 2. `hotels/card.js` — repasse + CTA :
+      - [x] badge remise `-X%` en overlay sur la photo (données de `computeNightDiscount`)
+      - [x] note `4,7/5 (128)` dans la ligne étoiles/quartier
+      - [x] libellé de créneau supprimé quand il ne porte aucune revendication
+            (`available_timeslots`) ; conservé pour exact/close/none (info du guard S-G6)
+      - [x] ligne concierge sous le créneau, clampée à 2 lignes
+      - [x] prix sur une seule baseline : `dès €54` + `€98/nuit` barré
+      - [x] CTA primaire `Choisir cet hôtel` (`data-action="pick-hotel"`), **gated sur
+            `state.hotelPicks`** ; `Voir la fiche de l'hôtel` devient un lien texte
+- [x] 3. `filters/search.js` : supprimer `pickButtonsHtml` + le paramètre `allowedHotelIds`
+      d'`addFollowUpMessage` et de ses appelants.
+- [x] 4. `hotels.css` : styles du nouveau footer, badge photo, lien secondaire, clamp ; supprimer
+      les règles `.pick-row` / `.pick-button` devenues mortes.
+- [x] 5. `i18n.js` (7 locales en/fr/es/it/pt/de/nl) : ajouter `card_pick_cta`, raccourcir
+      `card_from_label` en forme inline, supprimer `pick_prompt` / `pick_from_prefix`.
+- [x] 6. Vérification : rendu réel de `createHotelCard` sous jsdom (CTA présent/absent selon
+      `hotelPicks`, attributs de pick corrects) + capture headless Chrome.
+- [x] 7. `pytest` + `ruff` + `mypy` + guardrails verts, HANDOFF.md daté, branche + MR.
+
+## Écarts assumés vs l'artefact des propositions
+
+1. **Pas de « · 3 formules » dans la pastille de créneau.** Le payload de recherche ne porte pas le
+   nombre de formules du jour ; l'afficher voudrait dire soit une 2e requête MCP par hôtel (429 en
+   chaîne), soit un compte qui peut contredire la booking card quand un lien échoue — exactement le
+   mensonge que S-CX8 a supprimé.
+2. **Le CTA primaire n'est PAS le dégradé jaune.** `hotels.css:556` avait déjà écrit la règle : le
+   dégradé chaud est réservé au CTA qui part vers le tunnel. Le bouton actuel de la carte la viole
+   (jaune, et il part sur dayuse.com). Règle appliquée : **jaune = partir réserver (tunnel), bleu
+   nuit plein = avancer dans la conversation, lien texte = aller consulter**. Un seul bouton jaune
+   par thread : celui qui prend l'argent.
+3. **Format d'heure inchangé.** L'artefact suggérait le 24 h ; `formatTimeAMPM` est un choix de
+   marché (7 locales servies), pas de la cosmétique de carte. Hors scope.
+
+## Revue (fin de session)
+
+- 25/25 assertions jsdom sur le vrai `createHotelCard` + rendu Chrome headless à 320 px.
+- `ruff`/`mypy`/guardrails verts ; `pytest` 1097 passed, **1 rouge préexistant** hors périmètre
+  (`test_llm_meter_usage`, arrondi flottant, échoue aussi à HEAD — zéro Python touché ici).
+- Trouvé en chemin : `static/icon/star.svg` **manquait** au widget vendorisé → toutes les étoiles
+  étaient cassées dans la démo. Fichier ajouté.
+- Zone photo non vérifiable (pas de réseau sortant dans l'environnement) → à regarder sur le démo.
+
 # S-CX8 — Sélecteur de rateplan sur la booking card (option A) — 2026-07-28
 
 Décision Fabien (artefact `claude.ai/code/artifact/cf5457e0`) : **option A** (sélecteur intégré

@@ -7,6 +7,7 @@ import { state } from '../state.js';
 import { getLanguage, t } from '../i18n.js';
 import { escapeAttr, escapeHtml, sanitizeDayuseUrl, sanitizeImageUrl } from '../security.js';
 import { parsePrice } from '../hotels/card.js';
+import { formatRating } from '../utils.js';
 
 function renderInlineText(rawText) {
     const text = String(rawText ?? '');
@@ -775,24 +776,6 @@ export function createBookingCard(card) {
             </div>
         </div>
     `;
-}
-
-/** ES hands the raw average through (4.666666666666667) — one decimal, in the
- *  reader's locale ("4,7" in fr). Non-numeric ratings pass through untouched.
- *
- *  Formatted against the CHAT language, not `undefined`: `undefined` means the
- *  OS locale, so a French card on an English-locale device rendered "4.6" —
- *  caught by rendering the card outside the browser (S-CX8). */
-function formatRating(value) {
-    const num = Number(value);
-    if (!Number.isFinite(num)) return String(value);
-    try {
-        return num.toLocaleString(getLanguage(), {
-            minimumFractionDigits: 1, maximumFractionDigits: 1,
-        });
-    } catch (_) {
-        return num.toFixed(1);
-    }
 }
 
 /** "2026-07-28" -> a short date in the CHAT language; anything unparsable
