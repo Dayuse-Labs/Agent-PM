@@ -8,7 +8,7 @@ a2a->genai part converter (same pattern as test_response_bridge.py).
 from __future__ import annotations
 
 import copy
-from datetime import date
+from datetime import date, timedelta
 
 from a2a import types as a2a_types
 from google.adk.a2a.converters.part_converter import convert_a2a_part_to_genai_part
@@ -221,6 +221,36 @@ def test_resolve_absolute_invalid_calendar_date_defaults():
     assert resolve_date_label({"type": "absolute", "value": "02-30"}, _TODAY)[1] == "default"
 
 
+def test_resolve_absolute_iso_with_hallucinated_past_year_rolls_forward():
+    """Prod 2026-07-29: gpt-4o-mini labelled "6 aout" as "2023-08-06" (it was
+    told never to add a year), the leaf searched three years back and the empty
+    result was served as "no offers in Melun". The month/day it extracted is
+    still good — keep it, drop its year."""
+    resolved, resolved_from, expression = resolve_date_label(
+        {"type": "absolute", "value": "2023-08-06", "expression": "6 aout"}, _TODAY
+    )
+    assert resolved == date(2026, 8, 6)  # _TODAY is 2026-07-23
+    assert resolved_from == "absolute"
+    assert expression == "6 aout"
+
+
+def test_resolve_absolute_iso_past_year_whose_month_day_already_passed_rolls_a_year():
+    # Same rule as the year-less branch: 01-01 is next year's, never last year's.
+    resolved, _, _ = resolve_date_label({"type": "absolute", "value": "2023-01-01"}, _TODAY)
+    assert resolved == date(2027, 1, 1)
+
+
+def test_resolve_absolute_iso_past_year_with_impossible_month_day_defaults():
+    assert resolve_date_label({"type": "absolute", "value": "2023-02-30"}, _TODAY)[1] == "default"
+
+
+def test_resolve_absolute_iso_today_itself_is_kept():
+    resolved, _, _ = resolve_date_label(
+        {"type": "absolute", "value": _TODAY.isoformat()}, _TODAY
+    )
+    assert resolved == _TODAY  # >= today, so never rolled forward
+
+
 # --- resolve_search_date (before_tool_callback) -----------------------------------------------
 
 
@@ -261,11 +291,53 @@ def test_resolve_date_includes_client_tz_in_date_reference_when_present():
 
 
 def test_resolve_date_no_label_carries_over_profile_date_and_stashes_nothing():
-    ctx = _ctx_with_profile({"date": "2026-07-28"})
+    # Computed from the real clock, not hardcoded: `reference_today` reads it
+    # when no client_timezone is given, so a literal date would silently turn
+    # this carry-over test into a past-date test the day it went by.
+    future = (date.today() + timedelta(days=7)).isoformat()
+    ctx = _ctx_with_profile({"date": future})
     args = {}
     resolve_search_date(_Tool("search_offers"), args, ctx)
-    assert args["date"] == "2026-07-28"
+    assert args["date"] == future
     assert STATE_RESOLVED_DATE_KEY not in ctx.state  # nothing new to persist
+
+
+def test_resolve_date_hallucinated_past_year_never_reaches_mcp_nor_the_profile():
+    """The verbatim payload from prod trace 1ee2b59c (2026-07-29 12:57 UTC),
+    driven through the real callback: MCP must never receive the past date, and
+    the profile must never persist it (that persistence is what made turn 2 fail
+    too — the model read it back out of profile_in and re-sent it)."""
+    ctx = _ctx_with_profile({})
+    args = {"date": {"type": "absolute", "value": "2023-08-06", "expression": "6 aout"}}
+    resolve_search_date(_Tool("search_offers"), args, ctx)
+    assert args["date"] >= date.today().isoformat()
+    assert args["date"].endswith("-08-06")  # the month/day the user really gave
+    assert ctx.state[STATE_RESOLVED_DATE_KEY]["date"] == args["date"]
+
+
+def test_resolve_date_carried_over_past_date_falls_back_to_today():
+    """A session straddling midnight carries yesterday's resolved date (30-min
+    sliding TTL). Searching it is a guaranteed empty result, and empty reads as
+    "no offers here" — so the floor applies to the carry-over path too."""
+    ctx = _ctx_with_profile({"date": (date.today() - timedelta(days=1)).isoformat()})
+    args = {}
+    resolve_search_date(_Tool("search_offers"), args, ctx)
+    assert args["date"] == date.today().isoformat()
+    assert STATE_RESOLVED_DATE_KEY not in ctx.state  # a floor is not a new fact
+
+
+def test_resolve_date_carried_over_today_is_kept():
+    ctx = _ctx_with_profile({"date": date.today().isoformat()})
+    args = {}
+    resolve_search_date(_Tool("search_offers"), args, ctx)
+    assert args["date"] == date.today().isoformat()
+
+
+def test_resolve_date_carried_over_non_iso_value_falls_back_to_today():
+    ctx = _ctx_with_profile({"date": "next tuesday"})
+    args = {}
+    resolve_search_date(_Tool("search_offers"), args, ctx)
+    assert args["date"] == date.today().isoformat()
 
 
 def test_resolve_date_no_label_no_profile_date_falls_back_to_today():
@@ -277,10 +349,11 @@ def test_resolve_date_no_label_no_profile_date_falls_back_to_today():
 
 
 def test_resolve_date_malformed_label_behaves_like_no_label():
-    ctx = _ctx_with_profile({"date": "2026-07-28"})
+    future = (date.today() + timedelta(days=7)).isoformat()  # clock-relative, see above
+    ctx = _ctx_with_profile({"date": future})
     args = {"date": {"type": "relative", "value": "gibberish"}}
     resolve_search_date(_Tool("search_offers"), args, ctx)
-    assert args["date"] == "2026-07-28"  # carryover wins, "gibberish" never persisted
+    assert args["date"] == future  # carryover wins, "gibberish" never persisted
     assert STATE_RESOLVED_DATE_KEY not in ctx.state
 
 
