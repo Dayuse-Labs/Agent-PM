@@ -12,7 +12,11 @@ the actual seam: leaf emit → decoded DataPart → `apply_profile_delta` →
 from __future__ import annotations
 
 from b2c_concierge.facade import build_active_filters, normalize_hotels
-from b2c_concierge.profile import SessionProfile, apply_profile_delta
+from b2c_concierge.ground_truth import shortlist_ground_truth_block
+from b2c_concierge.profile import SessionProfile, apply_profile_delta, record_search_outcome
+from hotel_search_agent.response_bridge import (
+    STATE_SEARCH_DATE_KEY as _SEARCH_DATE_KEY,
+)
 from hotel_search_agent.response_bridge import (
     decode_datapart,
     emit_search_datapart,
@@ -169,3 +173,49 @@ def test_the_link_books_the_offer_the_card_showed(monkeypatch):
     assert link_args["ratePlanUuid"] == "day-plan"
     assert link_args["confirmed"] is False
     assert (quote["price"], quote["start_time"], quote["end_time"]) == ("€87.00", "11:00", "19:00")
+
+
+def test_search_date_travels_from_leaf_emit_to_the_concierge_decisions():
+    """S-CX6: the same-day cutoff signal is useless if it dies on the wire — and
+    it drives BOTH concierge decisions (the mandatory disclosure and the chips),
+    so a placement regression here would silently restore the old dead end.
+    Walks emit → JSON DataPart → decode → ground-truth block + chip selection.
+    """
+    search_date = {
+        "date": "2026-07-28",
+        "same_day": False,
+        "cutoff_fallback_from": "2026-07-27",
+    }
+    content = emit_search_datapart(
+        _Ctx({
+            _RESULTS_KEY: [{"id": 1, "name": "Villa Paris Orly", "price": "€54.00"}],
+            _SEARCH_DATE_KEY: search_date,
+        })
+    )
+    payload = next(d for d in (decode_datapart(p) for p in content.parts) if d is not None)
+    assert payload["search_date"] == search_date  # survived the JSON round-trip
+
+    block = shortlist_ground_truth_block(payload, SessionProfile())
+    assert "MANDATORY DISCLOSURE" in block and "2026-07-28" in block
+
+
+def test_same_day_dead_end_travels_to_the_date_chips():
+    content = emit_search_datapart(
+        _Ctx({
+            _RESULTS_KEY: [],
+            _SEARCH_DATE_KEY: {
+                "date": "2026-07-27", "same_day": True, "cutoff_closed": True,
+            },
+        })
+    )
+    payload = next(d for d in (decode_datapart(p) for p in content.parts) if d is not None)
+
+    profile = SessionProfile()
+    wire_search_date = payload["search_date"]
+    record_search_outcome(
+        profile,
+        results_count=len(payload["results"]),
+        language="fr",
+        same_day_dead_end=bool(wire_search_date.get("cutoff_closed")),
+    )
+    assert profile.last_suggestions == ["voir demain", "après-demain", "élargir la zone"]

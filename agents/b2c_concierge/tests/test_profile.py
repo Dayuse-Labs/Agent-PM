@@ -423,6 +423,34 @@ class TestRecoverySuggestionsLifecycle:
         record_search_outcome(profile, results_count=3, language="en")
         assert profile.last_suggestions is None
 
+    def test_same_day_dead_end_offers_dates_not_budget_zone_filter(self):
+        # S-CX6: today's booking window is closed (cutoffs land on the stay day
+        # itself, latest ~16h) — no budget, zone or filter change can reopen it.
+        for language, expected in (
+            ("fr", ["voir demain", "après-demain", "élargir la zone"]),
+            ("en", ["see tomorrow", "the day after tomorrow", "try a nearby area"]),
+        ):
+            profile = SessionProfile()
+            record_search_outcome(
+                profile, results_count=0, language=language, same_day_dead_end=True
+            )
+            assert profile.last_suggestions == expected
+
+    def test_date_chips_are_worded_so_a_click_relaunches_a_dated_search(self):
+        # A chip click comes back as its LABEL: it must hit the date-refinement
+        # detector, or the click would be read as a bare ack and change nothing.
+        for label in ("voir demain", "après-demain", "see tomorrow", "the day after tomorrow"):
+            assert is_search_refinement_signal(label, SessionProfile(consecutive_empty_searches=1))
+
+    def test_a_future_date_dead_end_keeps_the_original_chips(self):
+        profile = SessionProfile()
+        record_search_outcome(
+            profile, results_count=0, language="fr", same_day_dead_end=False
+        )
+        assert profile.last_suggestions == [
+            "augmenter le budget", "élargir la zone", "retirer un filtre",
+        ]
+
 
 class TestRecoveryAckSignal:
     def test_bare_ok_after_empty_streak_is_a_refinement_signal(self):

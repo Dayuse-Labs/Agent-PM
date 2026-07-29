@@ -206,3 +206,20 @@
    carryover asseraient `"2026-07-28"` : ils sont devenus des tests de date PASSÉE le
    2026-07-29 et ont cassé sur un guard légitime. Toute date de test comparée à
    `date.today()` doit être calculée (`date.today() + timedelta(...)`), jamais littérale.
+## 2026-07-27 — s-cx6 (cutoff same-day) — auto-attrapé avant commit
+
+1. **« Aucun résultat » peut être une VÉRITÉ de donnée : vérifier la couche amont
+   avant de toucher au code.** Le symptôme de Fabien ressemblait à un bug de
+   plomberie ; un probe MCP direct (11 pages du pool, puis la même requête dans 3
+   fuseaux) a montré que le backend n'avait réellement rien pour aujourd'hui. Le
+   bug était dans la RÉPONSE (cause non nommée, remèdes hors-sujet), pas dans le
+   transport. Contre-épreuve la moins chère pour un soupçon « c'est cassé » :
+   rejouer la même requête dans un fuseau horaire différent.
+2. **Ne jamais affirmer une cause que la donnée n'établit pas.** J'ai d'abord
+   déduit « les réservations du jour sont closes » de `same_day` seul — faux pour
+   un marché sans inventaire (`total=0`). Un flag de cause doit être posé par le
+   composant qui OBSERVE la cause (ici la feuille, qui voit `total>0` +
+   `results=[]`), jamais reconstitué en aval à partir d'un proxy.
+3. **Un test unitaire qui partitionne une page ne prouve rien sur le serveur**
+   (rappel S-CX3c, revérifié utile ici) : la signature `total=518 / results=[]`
+   n'était visible qu'en live, et c'est elle qui distingue les deux causes.
