@@ -2,6 +2,50 @@
 
 État du chantier pour reprise en session fraîche. **Lire en entier avant d'agir ; ne pas reconstruire ce qui existe.** Mettre à jour en fin de CHAQUE session (bloc daté en tête).
 
+## 🩹 Addendum 2026-07-29 (soir, branche `fix/leaf-tool-budget-starves-search`) — la fausse panne « je n'arrive pas à joindre la recherche d'hôtels à Singapore »
+
+**Déclencheur** : Fabien voit la dégradation honnête sur une recherche Singapour, alors que MCP_B2C
+répond en 0,7 s. Diagnostic mené sur le déployé (repro widget 2 tours + logs des services), pas par
+lecture de code — et **la cause n'était ni le MCP, ni un timeout, ni le geocode** :
+
+```
+tool=geocode_location ms=78 status=error error_type=tool_returned_error
+tool=geocode_location ms=57 status=ok
+tool=search_offers    ms=0  status=ok  budget_stopped=true      <-- jamais exécuté
+```
+
+**A — le budget d'outils était PLAT (2 appels, tous outils confondus).** Or un tour nominal en dépense
+déjà exactement deux (`geocode_location` + `search_offers`) : **un seul geocode en échec consommait
+tout le budget** et la recherche MCP était court-circuitée avant de partir. La feuille ne renvoyait
+alors aucun résultat → le concierge servait `leaf_degraded_response("search")`, une panne qui n'a
+jamais eu lieu. Ça frappe les destinations dont la 1re résolution échoue (« SG », « Singapour »)
+bien plus que « Paris » — d'où l'apparence d'un bug propre à Singapour. Correctif :
+`hotel_search_agent/tool_budget_guard.py` (nouveau) compte **par nom d'outil**
+(`PER_TOOL_CALL_LIMITS` : geocode 2, MCP 2, défaut = `HOTEL_SEARCH_MAX_TOOL_CALLS`), donc un retry de
+geocode ne peut plus affamer la recherche, et chaque outil reste borné (invariant « 1 retry borné »).
+Le message de stop garde le préfixe `TOOL BUDGET` — c'est ce que `dayuse_agent_common.metrics`
+matche pour `budget_stopped`, la métrique ne change pas. Nouveaux env optionnels :
+`HOTEL_SEARCH_MAX_GEOCODE_CALLS`, `HOTEL_SEARCH_MAX_MCP_CALLS` (défaut 2 chacun).
+
+**B — le circuit breaker comptait les erreurs MÉTIER comme des pannes.** `_is_tool_failure` traitait
+tout `isError` MCP comme un échec de dépendance : **trois « aucun hôtel de ce nom » d'affilée
+ouvraient le breaker** et toutes les recherches dégradaient pendant 30 s. MCP_B2C expose désormais
+(2026-07-29, côté serveur) une enveloppe typée `structuredContent.error = {kind, message, retryable,
+…}` ; le breaker ignore maintenant les erreurs `retryable: False` (`HotelNotFoundError`,
+`AmbiguousHotelError`, `MissingMandatoryCriterionError`…) et ne compte que les vraies pannes.
+Serveur sans enveloppe → comportement conservateur inchangé.
+
+**Vérifié** : 7 tests neufs (`tests/test_leaf_tool_budget.py`) verrouillent la garantie « geocode ×2
+puis search passe quand même » et les deux classifications du breaker ; suite complète 1133 tests,
+ruff + mypy + guardrails verts. ⚠️ `tests/test_llm_meter_usage.py::test_usage_record_extracts_tokens_and_model`
+**échoue déjà sur `main`** (vérifié par stash, antérieur à cette branche) — à traiter à part.
+
+**Reste** : `inline_tools._call_tool` (concierge) fusionne encore transport / `isError` métier /
+payload illisible dans un même `{ok: False}`. Aucun effet utilisateur constaté aujourd'hui (le
+chemin inline sert déjà un message métier via `inline_unresolved_response`), mais l'enveloppe typée
+est maintenant disponible pour l'exploiter — et `POI_INDEX=poi_staging_5` côté service MCP pointe un
+alias inexistant (inerte tant que la résolution POI n'est pas câblée).
+
 ## 💬 Addendum 2026-07-29 (après-midi, branche `sperf5-synthesis-value-add`) — S-PERF5 : la synthèse arrête de recopier les cartes (−65 % de latence, réponse enfin variable)
 
 **Déclencheur** : le rendu hotels-first de S-PERF4 a rendu visible un défaut qui existait depuis
