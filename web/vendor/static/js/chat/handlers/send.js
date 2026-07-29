@@ -147,7 +147,10 @@ document.addEventListener('focusin', (event) => {
  * Normalize v3/chat response to expected format
  * Converts new API format to match existing handler expectations
  */
-function normalizeV3Response(data) {
+// Exported for S-CX9's render harness: this whitelist is the real contract
+// between the API payload and the card, so a card field has to be asserted
+// THROUGH it. Asserting around it is what let a dropped `rating_count` ship.
+export function normalizeV3Response(data) {
     // If it's already in old format with results, return as-is
     if (data.results) {
         return data;
@@ -191,6 +194,11 @@ function normalizeV3Response(data) {
                 name: h.name,
                 stars: h.stars,
                 rating: h.rating,
+                // S-CX9: the review count BEHIND that average. This whitelist is
+                // what the card actually receives, and `rating` alone made the
+                // card render "5,0/5" for a single 5-star review — the average
+                // without the count is the one way this row can mislead.
+                rating_count: h.rating_count ?? null,
                 price: h.price,
                 metro: h.metro,
                 zone: h.zone,

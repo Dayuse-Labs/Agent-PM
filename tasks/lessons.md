@@ -1,5 +1,27 @@
 # Lessons — corrections de Fabien à réappliquer
 
+## 2026-07-29 — S-CX9 (auto-constatée, attrapée par la capture navigateur post-deploy)
+
+1. **Un test de rendu qui appelle le renderer EN DIRECT ne teste pas ce que
+   l'utilisateur voit.** Mes 25 assertions jsdom passaient en donnant le dict hôtel
+   à `createHotelCard`. Mais le widget fait passer le payload par
+   `normalizeV3Response`, **qui whiteliste les champs** : `rating` y était,
+   `rating_count` non. Résultat en prod : la carte affichait « 5,0/5 » pour un
+   hôtel noté par UNE personne — l'unique façon dont cette ligne peut tromper — et
+   toutes mes assertions étaient vertes. Règle : **tout champ nouvellement lu par
+   un renderer doit être asserté À TRAVERS le mapping de payload réel**, pas à
+   côté. Corollaire : quand on ajoute la lecture d'un champ backend côté widget,
+   vérifier d'abord qu'il traverse `normalizeV3Response` (whitelist explicite).
+2. **La capture navigateur sur le déployé n'est pas une formalité de fin.** C'est
+   elle, et rien d'autre, qui a montré le compte d'avis manquant : jsdom vert,
+   payload prod correct (`rating_count: 1` bien présent dans la réponse HTTP), et
+   pourtant faux à l'écran. Le trou était entre les deux.
+3. **Chercher la règle de design déjà ÉCRITE dans le CSS avant d'en proposer une.**
+   L'artefact proposait un CTA jaune ; `hotels.css` avait déjà consigné en S-CX5
+   que le dégradé chaud est réservé au CTA qui part vers le tunnel. La bonne
+   réponse était de faire respecter la règle existante (bleu nuit pour le CTA
+   conversationnel), pas d'en inventer une nouvelle.
+
 ## 2026-07-28 — sperf (auto-constatée, attrapée en live post-deploy)
 
 1. **Un probe pré-rollout doit envoyer le SHAPE D'APPEL EXACT du code, pas juste
