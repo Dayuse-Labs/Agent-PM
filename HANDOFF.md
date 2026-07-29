@@ -2,7 +2,60 @@
 
 État du chantier pour reprise en session fraîche. **Lire en entier avant d'agir ; ne pas reconstruire ce qui existe.** Mettre à jour en fin de CHAQUE session (bloc daté en tête).
 
-## ⏱ Addendum 2026-07-29 — S-CX9 : le CTA de réservation passe sur la carte de résultat (branche `scx9-card-pick-cta`, EMPILÉE sur `scx8-rateplan-selector`)
+## 🚀 Addendum 2026-07-29 (11h50) — S-CX8 + S-CX9 MERGÉS DANS MAIN, widget DÉPLOYÉ depuis main
+
+**Fabien a donné le go explicite de merger (« merge le PR dans l'ordre et lance un déploiement ») —
+le gate humain de CLAUDE.md a été exercé, pas contourné.**
+
+**Ordre suivi** : PR #50 (S-CX8 → main), puis **retarget de #51 sur main AVANT toute suppression de
+branche** (le piège consigné : supprimer la base ferme la PR enfant sans la réouvrir), puis #51, puis
+#52 (le correctif ci-dessous). **Les branches ne sont PAS supprimées** — hygiène laissée à Fabien.
+`main` = `5f1446d`. La prod est enfin reproductible depuis main : le warning de l'addendum précédent
+(« le prochain `railway up` depuis main FERA DISPARAÎTRE la feature ») est **levé**.
+
+**Déployé** : service `widget` seul (`railway up --service widget`), 2 déploiements en `SUCCESS`
+(`4f979041…` puis `650bdcec…` pour le correctif). `concierge` / `hotel-search` **non redéployés** :
+ils tournaient déjà le code de la branche S-CX8, désormais identique à main — aucun diff fonctionnel.
+
+**Vérifié EN PROD sur https://widget-production-3f56.up.railway.app** :
+- Assets servis : 6 marqueurs S-CX9 dans `card.js`, `class="pick-cta" data-action="pick-hotel"`
+  présent, **0 occurrence de `pickButtonsHtml`** (la rangée de chips a bien disparu), `star.svg` 200,
+  5 règles `.pick-cta` dans le CSS.
+- **Capture navigateur, vraie recherche** (`?q=un hotel avec piscine a Lyon cet apres-midi`) : 3
+  cartes, badges `-33 % / -34 % / -33 %` sur les photos, étoiles jaunes (elles étaient cassées avant
+  ce déploiement), notes `4,9/5 (4)` et `5,0/5 (1)`, **aucune note sur le 3e hôtel (`rating: 0`)** —
+  le garde-fou fait exactement son travail —, prix `dès €90  €135/nuit` sur une baseline, CTA bleu
+  nuit + lien texte. Plus aucune chip de choix, seules restent les 3 chips d'affinage.
+- **Le CTA produit bien la carte de réservation** : pick de Mercure Lyon Saxe (`hotel_id: 9075`) →
+  carte au bon hôtel/date/créneau (16:00-21:00, €90) avec lien tunnel `https://` ; idem Villa Paris
+  Orly et Drawing House. `hotel_picks` = 5/5 hôtels sur Paris, 3/3 sur Lyon → CTA sur toutes les
+  cartes montrées.
+- **Dégradation honnête observée en vrai** : une requête Orly a renvoyé `hotel_picks: []` +
+  « je n'arrive pas à joindre la recherche » (hoquet MCP) → **aucun CTA nulle part**, ce qui est le
+  comportement voulu du gate.
+
+**⚠️ Non re-démontré aujourd'hui : le sélecteur MULTI-formules.** Les 3 hôtels piqués ce matin
+renvoient `rate_plans` absent, et l'agent confirme lui-même « une offre » pour Drawing House → **une
+seule formule bookable aujourd'hui**, ce qui EST la dégradation documentée (« une formule n'est pas un
+choix »). Cohérent avec le cutoff same-day (`cutoffDeadlineUtc` Paris 05h-16h) : à 11h50 une partie
+des formules du jour est déjà passée. **Zéro ligne backend ni booking-card touchée par S-CX9**, et le
+chemin `rate_plans: 3` était vérifié en prod la veille (addendum S-CX8). À re-regarder tôt le matin
+pour une preuve visuelle du sélecteur sous le nouveau CTA.
+
+## 🐛 Défaut TROUVÉ ET CORRIGÉ post-deploy (PR #52) — le compte d'avis n'atteignait pas la carte
+
+La capture navigateur a montré « **5,0/5** » sur le Courtyard Eurexpo, noté par **une** personne. Le
+payload prod portait bien `rating_count: 1` : c'est **`normalizeV3Response` (`handlers/send.js`) qui
+whiteliste les champs hôtel** — `rating` y était, `rating_count` non.
+
+**Piège à ne jamais reconstruire** : mes 25 assertions jsdom passaient parce qu'elles donnaient le
+dict hôtel **directement** à `createHotelCard`, contournant le mapping qui cassait tout. Le harnais
+exerce maintenant le vrai chemin (payload v3 → `normalizeV3Response` → carte), d'où l'`export` de la
+fonction ; **30/30**. Règle consignée dans `tasks/lessons.md` : **tout champ nouvellement lu par un
+renderer doit être asserté À TRAVERS le mapping de payload réel.** Recorrigé et redéployé, vérifié à
+l'écran : `4,9/5 (4)` et `5,0/5 (1)`.
+
+## ⏱ Addendum 2026-07-29 — S-CX9 : le CTA de réservation passe sur la carte de résultat (branche `scx9-card-pick-cta`, mergée dans main par PR #51)
 
 **Contexte** : Fabien n'était pas convaincu par la rangée de chips sous le carousel pour choisir
 l'hôtel. Artefact de 5 propositions produit (`claude.ai/code/artifact/f887ae71`) ; décision =
