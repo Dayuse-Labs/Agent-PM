@@ -35,7 +35,6 @@ from dayuse_agent_common import (
     llm_error_metric,
     llm_timing_after,
     llm_timing_before,
-    make_tool_budget_callback,
     tool_error_metric,
     tool_timing_after,
     tool_timing_before,
@@ -43,6 +42,7 @@ from dayuse_agent_common import (
 from google.adk.agents import Agent
 from google.adk.tools.mcp_tool import McpToolset, StreamableHTTPConnectionParams
 
+from hotel_search_agent.tool_budget_guard import make_per_tool_budget_callback
 from hotel_search_agent.datetime_resolver import (
     inject_datetime_declaration,
     probe_next_day_after_tool,
@@ -85,6 +85,18 @@ MODEL = build_model(os.environ.get("DAYUSE_MODEL", "gpt-4o-mini"))
 # covers the named-hotel edge in 1). Beyond it the call is short-circuited
 # deterministically — never a loop.
 MAX_TOOL_CALLS = int(os.environ.get("HOTEL_SEARCH_MAX_TOOL_CALLS", "2"))
+
+# The cap is PER TOOL, not a flat total (prod 2026-07-29 — see tool_budget_guard):
+# a nominal turn already spends geocode_location + search_offers, so with a flat
+# budget of 2 one failed geocode starved the search and the concierge reported a
+# backend outage that never happened. Each tool keeps its own bounded retry.
+MAX_GEOCODE_CALLS = int(os.environ.get("HOTEL_SEARCH_MAX_GEOCODE_CALLS", "2"))
+MAX_MCP_CALLS = int(os.environ.get("HOTEL_SEARCH_MAX_MCP_CALLS", "2"))
+PER_TOOL_CALL_LIMITS = {
+    "geocode_location": MAX_GEOCODE_CALLS,
+    "search_offers": MAX_MCP_CALLS,
+    "find_hotel_by_name": MAX_MCP_CALLS,
+}
 
 
 def build_connection_params() -> StreamableHTTPConnectionParams:
@@ -269,7 +281,8 @@ root_agent = Agent(
     after_model_callback=[llm_timing_after],
     on_model_error_callback=llm_error_metric,
     # Order matters: timing stamps t0 first; the budget callback short-circuits
-    # beyond MAX_TOOL_CALLS; the MCP circuit guard short-circuits the 2 MCP
+    # a tool beyond ITS own cap (PER_TOOL_CALL_LIMITS); the MCP circuit guard
+    # short-circuits the 2 MCP
     # tools while the breaker is open. First non-None wins (ADK semantics).
     # enforce_equipment_filters / inject_profile_geo_context / inject_pagination_offset /
     # resolve_search_date / resolve_search_timeslot are LAST: each mutates args
@@ -279,7 +292,7 @@ root_agent = Agent(
     # matter, they touch disjoint tool names/keys.
     before_tool_callback=[
         tool_timing_before,
-        make_tool_budget_callback(MAX_TOOL_CALLS),
+        make_per_tool_budget_callback(PER_TOOL_CALL_LIMITS, MAX_TOOL_CALLS),
         mcp_circuit_before_tool,
         enforce_equipment_filters,
         inject_profile_geo_context,

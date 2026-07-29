@@ -663,6 +663,13 @@ def inject_pagination_offset(tool: Any, args: dict[str, Any], tool_context: Any)
     unconditionally overwritten — same doctrine as `hotelEquipmentIds`: the
     LLM never owns a filter/paging value.
 
+    ⚠️ `total` and `has_more` are computed BEFORE the bookability check, so
+    neither is a count of what a customer can actually book (re-probed live
+    2026-07-29: Los Angeles `total=110, has_more=true` at `from=80` while the
+    real surviving pool was ~22 hotels and `from=160` came back empty; Paris
+    `total=612, results=[]` on every offset once the day's cutoffs passed).
+    Never paginate on `has_more` alone, and never report `total` as availability.
+
     ⚠️ `size` is NOT safely raisable (re-probed live 2026-07-27, correcting the
     "max 50" this docstring used to claim): `size` ≥ 16 comes back as an EMPTY
     structuredContent — no `results`, no `total`, and NO `isError`. A caller
