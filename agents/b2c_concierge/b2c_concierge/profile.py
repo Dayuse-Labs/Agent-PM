@@ -164,6 +164,10 @@ class SessionProfile:
     last_results: list[dict[str, Any]] | None = None
     pending_booking: dict[str, Any] | None = None
     amenity_claim_corrections: dict[str, list[str]] | None = None
+    # S-PERF5: the angle key the synthesis led on last turn, so the next one
+    # picks a different fact instead of repeating it near-verbatim when the
+    # shortlist barely moved (ground_truth.synthesis_angle).
+    last_synthesis_angle: str | None = None
     # S-G1 (2026-07-23): audit-identified missing slots — all optional, all
     # absent-tolerant, so a leaf that hasn't migrated yet (S-G5/S-G6) never
     # breaks by omitting them.
@@ -221,6 +225,7 @@ class SessionProfile:
             "last_results": self.last_results,
             "pending_booking": self.pending_booking,
             "amenity_claim_corrections": self.amenity_claim_corrections,
+            "last_synthesis_angle": self.last_synthesis_angle,
             "named_hotel": self.named_hotel,
             "zone": self.zone,
             "metro": self.metro,
@@ -257,6 +262,7 @@ _CONCIERGE_ONLY_KEYS = (
     "last_suggestions",
     "last_clarifying_question",
     "amenity_claim_corrections",
+    "last_synthesis_angle",
     "auto_widen_disclosure",
     "named_hotel",
     "distance_origin",

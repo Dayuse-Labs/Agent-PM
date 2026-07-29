@@ -37,8 +37,10 @@ _HEADER = (
     "A live Dayuse search ALREADY ran this turn and returned the hotels "
     "below. Never claim that no search has been run. Any detail you state "
     "about these hotels (amenities, price, location) MUST come from this "
-    "list — if something is not listed here, say it is not listed instead "
-    "of asserting or inventing it.\n"
+    "list — if something is not listed here, do NOT assert or invent it. "
+    "Only SAY that a detail is missing when the user actually asked about "
+    "it: volunteering \"the amenities are not listed\" on a turn where "
+    "nobody asked is filler that reads as a malfunction (prod 2026-07-29).\n"
     "IMPORTANT: this block is reference data for truthfulness only — it "
     "does NOT replace tool calls. If the user changes any constraint or "
     "asks to see options again, a fresh search is still required; describing "
@@ -69,6 +71,113 @@ def _hotel_line(hotel: dict[str, Any]) -> str:
     if isinstance(url, str) and url.startswith("https://"):
         line += f" — url: {url}"
     return line
+
+
+def _price_cents(hotel: dict[str, Any]) -> int | None:
+    value = hotel.get("price_eur_cents")
+    return value if isinstance(value, int) and value > 0 else None
+
+
+def _first_slot(hotel: dict[str, Any]) -> dict[str, Any]:
+    slot = (hotel.get("timeslots") or [None])[0]
+    return slot if isinstance(slot, dict) else {}
+
+
+def synthesis_angle(response: dict[str, Any] | None, exclude: str = "") -> tuple[str, str]:
+    """`(key, directive)` — the ONE fact worth leading this turn's reply on,
+    picked in CODE from the shortlist. `("", "")` when the data says nothing
+    notable, and the model then just writes short.
+
+    `exclude` is the key used on the PREVIOUS turn of this session, and it is
+    skipped. Without it the feature defeats itself: two consecutive searches
+    that keep the same top hotel produce the same angle, so the reply reads
+    almost verbatim twice (observed in the browser 2026-07-29 — "économie
+    impressionnante … 66 %" twice in a row). Falling through to the next
+    candidate — or to no angle at all — is what makes consecutive turns differ.
+
+    Why code and not the model: asked for a "warm, concise" reply over the same
+    fields every turn, an LLM produces the same reply every turn (prod
+    2026-07-29: a 930-char list of the exact cards already on screen, opener
+    included). Variety has to come from the DATA, not from temperature — a
+    turn where the cheapest option is half the price of the others genuinely
+    warrants a different sentence than one where every hotel is 12 km out.
+    Deterministic by construction: same shortlist in, same angle out, so it is
+    testable and can never become a random-tone generator.
+
+    Ordered by how much the fact changes the user's decision, first match wins.
+    Every angle names only what the cards ALREADY show, so it can add no claim
+    the guards would have to catch — it re-frames, it never introduces."""
+    hotels = shortlist_hotels(response)
+    if not hotels:
+        return ("", "")
+
+    candidates: list[tuple[str, str]] = []
+
+    if len(hotels) == 1:
+        candidates.append((
+            "single",
+            "Only ONE hotel matches this request. Say so plainly (it is not a "
+            "shortlist) and offer one concrete way to widen the search.",
+        ))
+
+    # Out-of-centre: the single most useful thing the cards bury — each card
+    # shows its own district in small type, so "all five are in the suburbs"
+    # is invisible until you read all five.
+    distances = [h["distance_km"] for h in hotels
+                 if isinstance(h.get("distance_km"), (int, float))]
+    if len(distances) >= 2 and min(distances) >= 6:
+        candidates.append((
+            "distance",
+            f"EVERY option is outside the centre ({min(distances):.0f}-"
+            f"{max(distances):.0f} km out). Lead with that honestly — the user "
+            "asked for the city, not its outskirts — and offer to search closer in.",
+        ))
+
+    # Deep discount: commercially the strongest line, and the badge on the card
+    # states the percentage without saying which hotel carries the best one.
+    discounts = []
+    for hotel in hotels:
+        now, was = _price_cents(hotel), _first_slot(hotel).get("original_price")
+        if now and isinstance(was, (int, float)) and was > 0:
+            pct = round(100 - (now / 100.0) / float(was) * 100)
+            if pct > 0:
+                discounts.append((pct, str(hotel.get("name") or "")))
+    if discounts:
+        best_pct, best_name = max(discounts)
+        if best_pct >= 40:
+            candidates.append((
+                "discount",
+                f"The standout is the saving: {best_name} is about {best_pct}% "
+                "below its night rate. Lead with that, naming the hotel.",
+            ))
+
+    # Price spread: "the cheapest" is answerable by eye on the cards, but how
+    # much cheaper is not.
+    prices = [p for p in (_price_cents(h) for h in hotels) if p]
+    if len(prices) >= 2 and min(prices) <= 0.7 * max(prices):
+        candidates.append((
+            "spread",
+            f"Wide price spread: {min(prices) // 100}-{max(prices) // 100} € "
+            "across the shortlist. Lead on what the extra buys, so the cheapest "
+            "does not just look like the only sensible pick.",
+        ))
+
+    # Thin review base: an honesty caveat, and the one the card cannot make.
+    rated = [h for h in hotels if isinstance(h.get("rating"), (int, float)) and h["rating"] > 0]
+    if rated and all(
+        isinstance(h.get("rating_count"), int) and h["rating_count"] <= 2 for h in rated
+    ):
+        candidates.append((
+            "thin_ratings",
+            "Every score here rests on 1-2 reviews. Mention plainly that the "
+            "ratings are too thin to rank on, and suggest judging on location "
+            "or price instead.",
+        ))
+
+    for key, directive in candidates:
+        if key != exclude:
+            return (key, directive)
+    return ("", "")
 
 
 def shortlist_hotels(response: dict[str, Any] | None) -> list[dict[str, Any]]:

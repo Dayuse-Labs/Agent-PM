@@ -4,7 +4,12 @@ SearchResponse.results shape (contract.py) and SessionProfile (profile.py).
 """
 from __future__ import annotations
 
-from b2c_concierge.ground_truth import MAX_AMENITIES, MAX_HOTELS, shortlist_ground_truth_block
+from b2c_concierge.ground_truth import (
+    MAX_AMENITIES,
+    MAX_HOTELS,
+    shortlist_ground_truth_block,
+    synthesis_angle,
+)
 from b2c_concierge.profile import SessionProfile
 
 
@@ -127,3 +132,145 @@ class TestCaps:
             {"results": ["not-a-dict", {"name": "Hotel Alameda"}]}, _profile()
         )
         assert "Hotel Alameda" in block
+
+
+class TestSynthesisAngle:
+    """S-PERF5: the reply's variety comes from the DATA, in code. These lock the
+    PRECEDENCE (the most decision-changing fact wins) and, above all, that a
+    shortlist with nothing notable yields NO angle — an always-on angle would
+    just be a new template, which is the defect being fixed."""
+
+    @staticmethod
+    def _hotel(**kwargs):
+        base = {"name": "H", "price_eur_cents": 9000, "rating": 4.5, "rating_count": 40}
+        base.update(kwargs)
+        return base
+
+    def test_unremarkable_shortlist_gets_no_angle(self):
+        hotels = [
+            self._hotel(name="A", price_eur_cents=9000, distance_km=1.1),
+            self._hotel(name="B", price_eur_cents=8900, distance_km=3.8),
+        ]
+        assert synthesis_angle({"results": hotels})[1] == ""
+
+    def test_no_results_gets_no_angle(self):
+        assert synthesis_angle({"results": []})[1] == ""
+        assert synthesis_angle(None)[1] == ""
+
+    def test_single_result_is_called_out_as_not_a_shortlist(self):
+        angle = synthesis_angle({"results": [self._hotel()]})[1]
+        assert "Only ONE hotel" in angle
+
+    def test_all_options_out_of_centre_wins_over_price_signals(self):
+        # Also carries a wide price spread — distance must take precedence.
+        hotels = [
+            self._hotel(name="A", price_eur_cents=6000, distance_km=9.0),
+            self._hotel(name="B", price_eur_cents=15000, distance_km=14.0),
+        ]
+        angle = synthesis_angle({"results": hotels})[1]
+        assert "outside the centre" in angle
+        assert "9-14 km" in angle
+
+    def test_one_central_option_defeats_the_distance_angle(self):
+        hotels = [
+            self._hotel(name="A", price_eur_cents=9000, distance_km=1.0),
+            self._hotel(name="B", price_eur_cents=9100, distance_km=14.0),
+        ]
+        assert "outside the centre" not in synthesis_angle({"results": hotels})[1]
+
+    def test_deep_discount_is_named_with_its_hotel(self):
+        hotels = [
+            self._hotel(name="Cheap Palace", price_eur_cents=5000,
+                        timeslots=[{"original_price": 150.0}]),
+            self._hotel(name="B", price_eur_cents=5200, timeslots=[{"original_price": 60.0}]),
+        ]
+        angle = synthesis_angle({"results": hotels})[1]
+        assert "Cheap Palace" in angle
+        assert "67%" in angle  # 50 € off a 150 € night rate
+
+    def test_a_shallow_discount_does_not_trigger_the_saving_angle(self):
+        hotels = [
+            self._hotel(name="A", price_eur_cents=9000, timeslots=[{"original_price": 135.0}]),
+            self._hotel(name="B", price_eur_cents=8900, timeslots=[{"original_price": 135.0}]),
+        ]
+        assert "below its night rate" not in synthesis_angle({"results": hotels})[1]
+
+    def test_wide_price_spread_reports_the_range_in_euros(self):
+        hotels = [
+            self._hotel(name="A", price_eur_cents=6000),
+            self._hotel(name="B", price_eur_cents=15000),
+        ]
+        angle = synthesis_angle({"results": hotels})[1]
+        assert "60-150 €" in angle
+
+    def test_thin_review_base_is_flagged_when_every_score_is_thin(self):
+        hotels = [
+            self._hotel(name="A", price_eur_cents=9000, rating=5, rating_count=1),
+            self._hotel(name="B", price_eur_cents=9100, rating=4.8, rating_count=2),
+        ]
+        assert "1-2 reviews" in synthesis_angle({"results": hotels})[1]
+
+    def test_one_well_reviewed_hotel_defeats_the_thin_rating_angle(self):
+        hotels = [
+            self._hotel(name="A", price_eur_cents=9000, rating=5, rating_count=1),
+            self._hotel(name="B", price_eur_cents=9100, rating=4.8, rating_count=40),
+        ]
+        assert synthesis_angle({"results": hotels})[1] == ""
+
+    def test_unrated_hotels_are_ignored_by_the_thin_rating_angle(self):
+        # rating 0 = "no score shown on the card" (S-CX9 guard), not a thin score.
+        hotels = [
+            self._hotel(name="A", price_eur_cents=9000, rating=0, rating_count=0),
+            self._hotel(name="B", price_eur_cents=9100, rating=0, rating_count=0),
+        ]
+        assert synthesis_angle({"results": hotels})[1] == ""
+
+    def test_angle_is_deterministic_for_the_same_shortlist(self):
+        hotels = [
+            self._hotel(name="A", price_eur_cents=6000),
+            self._hotel(name="B", price_eur_cents=15000),
+        ]
+        first = synthesis_angle({"results": hotels})
+        assert first == synthesis_angle({"results": hotels})
+        assert first[1] != ""
+
+
+class TestSynthesisAngleAntiRepeat:
+    """The defect this exists for, seen in the browser 2026-07-29: two searches
+    in a row kept the same top hotel, so both replies opened on "économie
+    impressionnante … 66 %" — the feature meant to create variety produced a new
+    template instead. Excluding LAST turn's key is what breaks the tie."""
+
+    @staticmethod
+    def _hotels():
+        return [
+            {"name": "Deal Palace", "price_eur_cents": 5000, "rating": 4.5, "rating_count": 40,
+             "timeslots": [{"original_price": 150.0}], "distance_km": 1.0},
+            {"name": "B", "price_eur_cents": 15000, "rating": 4.6, "rating_count": 30,
+             "timeslots": [{"original_price": 160.0}], "distance_km": 2.0},
+        ]
+
+    def test_first_turn_takes_the_top_ranked_angle(self):
+        key, directive = synthesis_angle({"results": self._hotels()})
+        assert key == "discount"
+        assert "Deal Palace" in directive
+
+    def test_excluding_last_turns_key_falls_through_to_the_next_angle(self):
+        key, directive = synthesis_angle({"results": self._hotels()}, exclude="discount")
+        assert key == "spread"          # same data, DIFFERENT angle
+        assert "50-150 €" in directive
+
+    def test_falls_all_the_way_through_to_no_angle(self):
+        # Only one candidate qualifies; excluding it must yield no angle at all
+        # rather than repeating it.
+        hotels = [
+            {"name": "A", "price_eur_cents": 9000, "rating": 4.5, "rating_count": 40,
+             "distance_km": 9.0},
+            {"name": "B", "price_eur_cents": 9100, "rating": 4.6, "rating_count": 30,
+             "distance_km": 14.0},
+        ]
+        assert synthesis_angle({"results": hotels})[0] == "distance"
+        assert synthesis_angle({"results": hotels}, exclude="distance") == ("", "")
+
+    def test_an_unrelated_exclusion_changes_nothing(self):
+        assert synthesis_angle({"results": self._hotels()}, exclude="thin_ratings")[0] == "discount"

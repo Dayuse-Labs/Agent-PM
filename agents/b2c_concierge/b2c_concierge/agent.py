@@ -96,7 +96,7 @@ from . import inline_tools, templates
 from .a2a_datapart import encode_datapart, find_datapart
 from .amenity_guard import apply_amenity_truthfulness
 from .budget import TurnBudget
-from .ground_truth import shortlist_ground_truth_block, shortlist_hotels
+from .ground_truth import shortlist_ground_truth_block, shortlist_hotels, synthesis_angle
 from .leg import StatelessLeafLeg
 from .link_guard import enforce_hotel_link_truthfulness
 from .profile import (
@@ -366,6 +366,28 @@ language — that is irrelevant to your output language.
 Write ONE reply to the user in the LANGUAGE given by the LANG marker (fr or en),
 even when the OUTCOME text is in a different language (e.g. English).
 
+THE CLIENT ALREADY SHOWS THE HOTELS. Your reply is displayed UNDER a carousel
+of cards that each already give: photo, hotel name, district, star rating,
+review score with its count, the price WITH the crossed-out night rate and the
+discount badge, the day-use time slot, and a booking button. Since S-PERF4 those
+cards appear SECONDS BEFORE your text — the user has already read them.
+Therefore:
+- NEVER list or enumerate the hotels. No bullet list of names, no numbering.
+- NEVER repeat prices, ratings, districts or URLs. They are on the card, and
+  repeating them is the single most common defect of this step (prod
+  2026-07-29: 930 characters restating the five cards on screen).
+- Name at most TWO hotels, and only to say something about them the card
+  does not already show.
+- Aim for 2 short sentences, 40 words maximum: what this shortlist means for
+  THIS request, then ONE concrete next step. Brevity is not curtness here —
+  the cards carry the detail, you carry the judgement.
+- Do NOT narrate the interface: never "click the button", "use the link",
+  "select a card". The buttons label themselves. A next step is something the
+  user can ask YOU for — a different time, a closer district, a lower price.
+- When an ANGLE block is present, it is the fact to lead on. Write it in your
+  own words; never quote it back.
+A long reply is a defect even when every word in it is true.
+
 ABSOLUTE RULES — a violation is a defect:
 1. Ground everything ONLY in the OUTCOME below (and the GROUND TRUTH block when
    present). NEVER introduce a hotel, price, availability, amount, date, policy,
@@ -496,6 +518,7 @@ class _B2cConcierge(BaseAgent):
         self, *, message: str, language: str, leaf_text: str, ground_truth_block: str,
         widen_note: str | None, invocation_id: str, extra_instruction: str = "",
         search_context: str = "", provenance_note: str = "", currency_note: str = "",
+        angle: str = "",
     ) -> str | None:
         """ONE litellm call producing a candidate synthesis text, or None on
         failure. The system prompt's STATIC prefix never changes (cache); only
@@ -538,6 +561,8 @@ class _B2cConcierge(BaseAgent):
             user += f"\n\nCURRENCY: {currency_note}"
         if search_context:
             user += f"\n\nSEARCH CONTEXT (what you understood — restate briefly): {search_context}"
+        if angle:
+            user += f"\n\nANGLE (lead on this, in your own words): {angle}"
         t0 = time.monotonic()
         try:
             resp = await _get_synthesis_router(model_slug).acompletion(
@@ -597,6 +622,14 @@ class _B2cConcierge(BaseAgent):
         """
         budget.charge("synthesis")
         ground_truth_block = shortlist_ground_truth_block(response, profile)
+        # The one fact worth leading on, decided in CODE from this turn's data
+        # (ground_truth.synthesis_angle): the variety the reply was missing has
+        # to come from the shortlist, not from temperature. Empty when the data
+        # says nothing notable — then the model just writes short. Last turn's
+        # angle is excluded, so two searches that keep the same top hotel don't
+        # produce the same sentence twice (seen in the browser 2026-07-29).
+        angle_key, angle = synthesis_angle(response, profile.last_synthesis_angle or "")
+        profile.last_synthesis_angle = angle_key or None
         widen_note = None
         if profile.auto_widen_disclosure:
             d = profile.auto_widen_disclosure
@@ -650,6 +683,7 @@ class _B2cConcierge(BaseAgent):
             ground_truth_block=ground_truth_block, widen_note=widen_note,
             invocation_id=invocation_id, search_context=search_context,
             provenance_note=provenance_note, currency_note=currency_note,
+            angle=angle,
         )
         if candidate is None:
             return None
@@ -662,7 +696,7 @@ class _B2cConcierge(BaseAgent):
                 ground_truth_block=ground_truth_block, widen_note=widen_note,
                 invocation_id=invocation_id, extra_instruction=directive,
                 search_context=search_context, provenance_note=provenance_note,
-                currency_note=currency_note,
+                currency_note=currency_note, angle=angle,
             )
             if retry is not None:
                 candidate = retry

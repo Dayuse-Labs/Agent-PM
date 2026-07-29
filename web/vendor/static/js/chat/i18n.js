@@ -107,7 +107,11 @@ const STRINGS = {
         timeslot_late_results: 'Here are the hotels with late slots (from 5pm) from my selection:',
         no_hotels_for_timeslot: 'Sorry, none of the hotels in my selection have {timeslot} slots available. Would you like me to search for other options?',
         followup_questions: 'What do you think of my selection? Do you have any questions about these hotels?',
+        followup_questions_2: 'Anything you\'d like to know about these hotels?',
+        followup_questions_3: 'Happy to dig into any of these — just ask.',
         followup_refine: 'What do you think of my selection? I can help you refine your search:',
+        followup_refine_2: 'Would another time of day suit you better? I can filter by slot:',
+        followup_refine_3: 'Tell me what would work better and I\'ll narrow it down:',
         chip_early: 'Early (from 7am)',
         chip_day: 'Day (10am-5pm)',
         chip_late: 'Late (from 5pm)',
@@ -207,7 +211,11 @@ const STRINGS = {
         timeslot_late_results: 'Voici les hôtels avec des créneaux tardifs (dès 17h) dans ma sélection :',
         no_hotels_for_timeslot: "Désolé, aucun hôtel de ma sélection n'a de créneau {timeslot}. Voulez-vous que je cherche d'autres options ?",
         followup_questions: 'Que pensez-vous de ma sélection ? Vous avez des questions sur ces hôtels ?',
+        followup_questions_2: 'Une question sur l\'un de ces hôtels ?',
+        followup_questions_3: 'Je peux vous en dire plus sur n\'importe lequel — demandez.',
         followup_refine: 'Que pensez-vous de ma sélection ? Je peux affiner la recherche :',
+        followup_refine_2: 'Un autre moment de la journée vous conviendrait mieux ? Je peux filtrer :',
+        followup_refine_3: 'Dites-moi ce qui vous irait mieux et j\'affine :',
         chip_early: 'Matin (dès 7h)',
         chip_day: 'Journée (10h-17h)',
         chip_late: 'Soir (dès 17h)',
@@ -307,7 +315,11 @@ const STRINGS = {
         timeslot_late_results: 'Aquí tienes hoteles con franjas tardías (desde las 5pm) de mi selección:',
         no_hotels_for_timeslot: 'Lo siento, ninguno de los hoteles de mi selección tiene franjas {timeslot}. ¿Quieres que busque otras opciones?',
         followup_questions: '¿Qué te parece mi selección? ¿Tienes preguntas sobre estos hoteles?',
+        followup_questions_2: '¿Alguna duda sobre estos hoteles?',
+        followup_questions_3: 'Puedo contarte más sobre cualquiera de ellos, solo pregunta.',
         followup_refine: '¿Qué te parece mi selección? Puedo ayudarte a refinar la búsqueda:',
+        followup_refine_2: '¿Prefieres otro momento del día? Puedo filtrar por franja horaria:',
+        followup_refine_3: 'Dime qué te encajaría mejor y ajusto la búsqueda:',
         chip_early: 'Temprano (desde las 7am)',
         chip_day: 'Día (10am-5pm)',
         chip_late: 'Tarde (desde las 5pm)',
@@ -407,7 +419,11 @@ const STRINGS = {
         timeslot_late_results: 'Ecco gli hotel con fasce serali (dalle 17) della mia selezione:',
         no_hotels_for_timeslot: 'Spiacente, nessun hotel della mia selezione ha fasce {timeslot}. Vuoi che cerchi altre opzioni?',
         followup_questions: 'Cosa ne pensi della mia selezione? Hai domande su questi hotel?',
+        followup_questions_2: 'Qualche domanda su questi hotel?',
+        followup_questions_3: 'Posso dirti di più su uno qualsiasi: chiedi.',
         followup_refine: 'Cosa ne pensi della mia selezione? Posso aiutarti ad affinare la ricerca:',
+        followup_refine_2: 'Preferisci un altro momento della giornata? Posso filtrare per fascia oraria:',
+        followup_refine_3: 'Dimmi cosa ti andrebbe meglio e restringo la ricerca:',
         chip_early: 'Mattina (dalle 7)',
         chip_day: 'Giorno (10-17)',
         chip_late: 'Sera (dalle 17)',
@@ -507,7 +523,11 @@ const STRINGS = {
         timeslot_late_results: 'Aqui estão os hotéis com horários tardios (a partir das 17h) da minha seleção:',
         no_hotels_for_timeslot: 'Desculpe, nenhum hotel da minha seleção tem horários {timeslot}. Quer que procure outras opções?',
         followup_questions: 'O que acha da minha seleção? Tem perguntas sobre estes hotéis?',
+        followup_questions_2: 'Alguma dúvida sobre estes hotéis?',
+        followup_questions_3: 'Posso dar mais detalhes sobre qualquer um deles — basta perguntar.',
         followup_refine: 'O que acha da minha seleção? Posso ajudar a refinar a pesquisa:',
+        followup_refine_2: 'Prefere outro momento do dia? Posso filtrar por faixa horária:',
+        followup_refine_3: 'Diga-me o que lhe daria mais jeito e eu ajusto a pesquisa:',
         chip_early: 'Manhã (a partir das 7h)',
         chip_day: 'Dia (10h-17h)',
         chip_late: 'Noite (a partir das 17h)',
@@ -607,7 +627,11 @@ const STRINGS = {
         timeslot_late_results: 'Hier sind die Hotels mit späten Zeitfenstern (ab 17 Uhr) aus meiner Auswahl:',
         no_hotels_for_timeslot: 'Leider hat kein Hotel aus meiner Auswahl {timeslot}-Zeitfenster. Soll ich nach anderen Optionen suchen?',
         followup_questions: 'Was hältst du von meiner Auswahl? Hast du Fragen zu diesen Hotels?',
+        followup_questions_2: 'Fragen zu einem dieser Hotels?',
+        followup_questions_3: 'Zu jedem davon kann ich mehr sagen — frag einfach.',
         followup_refine: 'Was hältst du von meiner Auswahl? Ich kann die Suche verfeinern:',
+        followup_refine_2: 'Passt dir eine andere Tageszeit besser? Ich kann nach Zeitfenster filtern:',
+        followup_refine_3: 'Sag mir, was besser passen würde, und ich schränke die Suche ein:',
         chip_early: 'Früh (ab 7 Uhr)',
         chip_day: 'Tag (10-17 Uhr)',
         chip_late: 'Spät (ab 17 Uhr)',
@@ -707,7 +731,11 @@ const STRINGS = {
         timeslot_late_results: 'Hier zijn de hotels met late tijdslots (vanaf 17 uur) uit mijn selectie:',
         no_hotels_for_timeslot: 'Sorry, geen enkel hotel uit mijn selectie heeft {timeslot}-tijdslots. Wil je dat ik andere opties zoek?',
         followup_questions: 'Wat vind je van mijn selectie? Heb je vragen over deze hotels?',
+        followup_questions_2: 'Vragen over een van deze hotels?',
+        followup_questions_3: 'Over elk van deze hotels kan ik meer vertellen — vraag maar.',
         followup_refine: 'Wat vind je van mijn selectie? Ik kan de zoekopdracht verfijnen:',
+        followup_refine_2: 'Past een ander moment van de dag beter? Ik kan op tijdslot filteren:',
+        followup_refine_3: 'Zeg me wat je beter uitkomt en ik verfijn de zoekopdracht:',
         chip_early: 'Vroeg (vanaf 7 uur)',
         chip_day: 'Dag (10-17 uur)',
         chip_late: 'Laat (vanaf 17 uur)',
@@ -757,4 +785,28 @@ export function t(key, params = {}) {
         template = template.replaceAll(`{${param}}`, String(value));
     });
     return template;
+}
+
+/**
+ * `t()`, rotated over the `key`, `key_2`, `key_3`… variants the CURRENT locale
+ * defines — so a line the user reads on every single search stops sounding like
+ * a constant. It was one: the follow-up prompt was the same sentence forever,
+ * which is a good part of why the assistant "always answers the same".
+ *
+ * `seq` is `state.turnSequence`, so the pick is deterministic per turn rather
+ * than random: a conversation replays identically (testable), and the copy
+ * cannot flicker if a turn re-renders.
+ *
+ * Variants are resolved ONLY against the active locale, never through `t()`'s
+ * English fallback: a locale that translated the base but not the variants must
+ * keep speaking its own language instead of drifting into English.
+ */
+export function tRotate(key, seq = 0, params = {}) {
+    const table = STRINGS[currentLanguage] || STRINGS.en;
+    const variants = [key];
+    for (let n = 2; table[`${key}_${n}`]; n += 1) {
+        variants.push(`${key}_${n}`);
+    }
+    const step = Number.isFinite(seq) && seq > 0 ? Math.floor(seq) : 0;
+    return t(variants[step % variants.length], params);
 }
