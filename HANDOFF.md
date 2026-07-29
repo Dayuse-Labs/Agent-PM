@@ -2,6 +2,43 @@
 
 État du chantier pour reprise en session fraîche. **Lire en entier avant d'agir ; ne pas reconstruire ce qui existe.** Mettre à jour en fin de CHAQUE session (bloc daté en tête).
 
+## 🚢 Addendum 2026-07-29 (12h50) — S-PERF4 DÉPLOYÉ SUR RAILWAY DEPUIS LA BRANCHE (pas mergé)
+
+**GO explicite de Fabien (« mets cette version sur sa branche et déploie-la sur Railway que je puisse
+voir »). La PR #45 n'est PAS mergée** — le gate humain reste à exercer. La démo tourne donc du code
+de branche : `main` et le déployé ont divergé, à re-synchroniser après review.
+
+**Déployé** : `concierge` **puis** `widget` — dans cet ordre, parce que le fix des picks est
+côté serveur : widget-en-SSE avant concierge aurait affiché exactement le bug corrigé (cartes sans
+CTA). `hotel-search` et `faq` **non redéployés** (`git diff origin/main` vide sur leurs dossiers).
+`WIDGET_CHAT_TRANSPORT=sse` posée sur le service `widget` (elle n'existait pas → le défaut `json`
+était actif).
+
+**Vérifié EN PROD sur https://widget-production-3f56.up.railway.app**
+- Assets : meta `du-chat-transport="sse"`, `stream.js` **200**, et dans `send.js` servi :
+  `mapV3Hotels` ×3, `rating_count` ×2, `state.hotelPicks = Array.isArray(frame.hotel_picks)` ×1.
+- Probe SSE brute : la frame porte `hotel_picks` **identique à `done`** (3 picks, €89 → €90 → €95),
+  `response_language: fr`, `rating_count` 4 / 1 / 0.
+- **Navigateur (CDP)** : cartes à **4,9-5,1 s**, fin de tour à **8,2-9,3 s** → **3,3-4,2 s d'avance**.
+  À l'instant des cartes : 3 cartes, **3 `.pick-cta`**, notes `4,9/5 (4)` et `5,0/5 (1)`, rien sur le
+  `rating: 0`, badges `-33/-34 %`, `dès €90 €135/nuit`, bulle thinking en dessous (`thinking: true`
+  relevé dans le DOM = le tour n'était PAS fini).
+  → `reports/latency/widget-sse-2026-07-29/prod-cards-midstream-with-cta.png`
+- **Clic réel du CTA de la carte #2** (`hotel_id=20152`) → carte de réservation du bon hôtel
+  (€89,00, 15:00-22:00, mer. 29 juil.) + lien tunnel `offerId`/`ratePlanPolicyUuid`/`checkinDate`,
+  en **1,43 s**. → `prod-pick-booking-card.png`
+
+**Rollback** (2 niveaux, indépendants)
+1. Revenir au transport bloquant sans toucher au code : `railway variables --service widget --set
+   "WIDGET_CHAT_TRANSPORT=json"` (ou supprimer la variable) + redeploy du widget.
+2. Revenir au code de `main` : `railway up --service concierge --ci` puis `--service widget --ci`
+   **depuis un checkout de `main`** (`railway up` envoie le répertoire de travail, pas le git).
+
+**Toujours pas démontré** : le sélecteur MULTI-formules de S-CX8 (l'inventaire de l'après-midi ne
+renvoyait qu'une formule — même limite de cutoff que la veille). `card.js` est **identique à main** et
+la booking card n'a pas changé, donc le risque est structurellement nul, mais la preuve visuelle
+manque. À reprendre tôt le matin.
+
 ## 🖥 Addendum 2026-07-29 (après-midi, branche `sperf4-widget-sse`, PR #45) — S-PERF4 rebasé sur main : le CTA S-CX9 survit au rendu hotels-first
 
 **La PR #45 était complète et vérifiée depuis le 28/07 — mais jamais mergée, et `main` a bougé
