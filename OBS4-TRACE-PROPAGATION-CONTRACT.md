@@ -238,12 +238,21 @@ apparaîtrait dans le sélecteur d'environnement.
 | `LANGFUSE_TRACING_ENVIRONMENT` | `production` | seule valeur juste pour le trafic réel. Contrainte SDK : minuscules alphanumériques + `-`/`_`, ≤ 40 car., ne doit pas commencer par `langfuse`. Rien de posé = `default` (ce qu'on observe). |
 | `LANGFUSE_TRACING_RELEASE` | sha git | optionnel, pour comparer un avant/après déploiement. **Nom différent du nôtre** : les SDK Python lisent `LANGFUSE_RELEASE` (nos 3 services : `8726160`), le SDK JS lit `LANGFUSE_TRACING_RELEASE`. |
 
+✅ **Posées et vérifiées après redeploy** (2026-07-30, session `obs4-check-09-live`) : les spans de
+MCP_B2C arrivent maintenant en `service.name='mcp-b2c'` et `environment='production'`. Donc le SDK
+Node du serveur **honore bien `OTEL_SERVICE_NAME`** (aucune ligne de code nécessaire, le doute du
+tableau ci-dessus est levé). La trace reste correcte par ailleurs : `v3.chat` racine unique, 34
+observations, chaîne ES intacte.
+
 ⚠️ **Une valeur statique mislabellise forcément un appelant** : le MÊME déploiement MCP
 (`mcp-server-production-bcbe`) sert le prod (`LANGFUSE_TRACING_ENVIRONMENT=production` sur les 3
 services Railway) **et** le dev local (`development` dans `.env`) — vérifié dans les variables
 Railway. Avec `production` posé, les 3 spans MCP d'un tour de dev s'afficheront en `production` dans
 une trace `development`. La vraie correction est un déploiement MCP séparé pour le dev (CLAUDE.md dit
 déjà que le dev doit taper le MCP_B2C de staging) : c'est de l'infra, pas du code.
+**Constaté en vrai** sur `obs4-check-09-live` : trace `development` (dev local) dont les 3 spans MCP
+affichent `production`. Conséquence pratique à connaître en lisant un dashboard : un filtre par
+environnement au niveau OBSERVATION classera les requêtes ES d'un tour de dev avec celles du prod.
 
 **La voie « propager l'environnement de l'appelant dans le baggage » ne marche pas — testée, pas
 supposée.** `propagate_attributes(environment=…, as_baggage=True)` émet bien

@@ -76,6 +76,11 @@ Fix : `_should_export_span` élargi au scope `a2a-python-sdk` **sauf le préfixe
   **une valeur statique mislabellise forcément un appelant**, le même déploiement MCP sert le prod
   ET le dev local (vérifié dans les variables Railway) — la vraie correction serait un déploiement MCP
   séparé pour le dev.
+- ✅ **Les 2 variables sont posées et vérifiées après redeploy** (session `obs4-check-09-live`) :
+  spans MCP en `service.name='mcp-b2c'` + `environment='production'`. Le SDK Node du serveur honore
+  donc `OTEL_SERVICE_NAME` sans changement de code. Le mislabel annoncé est bien visible : cette
+  trace de dev (`development`) porte 3 spans MCP en `production` — à savoir en lisant un dashboard
+  filtré par environnement au niveau observation.
 - **Voie fermée, testée et pas supposée** : propager l'environnement de l'appelant dans le baggage ne
   marche pas. On émet bien `langfuse_environment` dans l'en-tête (inspecté en process), et les spans
   MCP restent en `default` alors que `session.id`/`user.id` du MÊME baggage arrivent. Patch d'essai
