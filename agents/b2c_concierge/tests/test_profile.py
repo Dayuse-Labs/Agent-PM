@@ -335,6 +335,81 @@ class TestTimeslotSanitization:
         assert profile.timeslot_mode == "range"
 
 
+class TestObs3FiredTracking:
+    """OBS3: `apply_profile_delta`'s optional `fired` set gains
+    "budget_integrity"/"timeslot_sanitization" exactly when that guard
+    actually did something this turn (an override or a rejection) — never on
+    a plain, unguarded pass-through. Every pre-existing call in this file
+    omits the 4th arg on purpose (backward compat); these tests are the only
+    ones that pass it."""
+
+    def test_budget_integrity_fires_on_bare_number_override(self):
+        profile = SessionProfile()
+        fired: set[str] = set()
+        apply_profile_delta(profile, {"city": "New York", "budget_max": 180}, "180", fired)
+        assert fired == {"budget_integrity"}
+
+    def test_budget_integrity_fires_on_time_derived_rejection(self):
+        profile = SessionProfile()
+        fired: set[str] = set()
+        apply_profile_delta(
+            profile,
+            {"city": "Hillsborough", "budget_max": 20, "budget_request_source": "llm_extraction"},
+            "Less than 20 minutes away",
+            fired,
+        )
+        assert fired == {"budget_integrity"}
+
+    def test_budget_integrity_does_not_fire_on_a_plain_pass_through(self):
+        profile = SessionProfile()
+        fired: set[str] = set()
+        apply_profile_delta(
+            profile,
+            {"city": "New York", "budget_max": 150, "budget_request_source": BUDGET_SOURCE_FLEXIBLE_DEFAULT},
+            "find me something under 150 please",
+            fired,
+        )
+        assert fired == set()
+
+    def test_timeslot_sanitization_fires_on_salvage(self):
+        profile = SessionProfile()
+        fired: set[str] = set()
+        apply_profile_delta(
+            profile, {"city": "New York", "timeslot": "15:00-"}, "3p check in queens bk", fired,
+        )
+        assert fired == {"timeslot_sanitization"}
+
+    def test_timeslot_sanitization_fires_on_anti_inversion_rejection(self):
+        profile = SessionProfile(
+            city="Cincinnati",
+            timeslot_end="09:00",
+            timeslot_request_source=BUDGET_SOURCE_EXPLICIT,
+            timeslot_mode="end_only",
+        )
+        fired: set[str] = set()
+        apply_profile_delta(
+            profile,
+            {"city": "Cincinnati", "timeslot_start": "09:00"},
+            "Just find me a hotel that allows that early of check in",
+            fired,
+        )
+        assert fired == {"timeslot_sanitization"}
+
+    def test_timeslot_sanitization_does_not_fire_on_a_fresh_range(self):
+        profile = SessionProfile()
+        fired: set[str] = set()
+        apply_profile_delta(
+            profile, {"timeslot_start": "10:00", "timeslot_end": "14:00"}, "10am to 2pm", fired,
+        )
+        assert fired == set()
+
+    def test_fired_defaults_to_none_and_is_never_required(self):
+        profile = SessionProfile()
+        # No 4th arg at all — every other test in this module relies on this.
+        apply_profile_delta(profile, {"city": "Paris", "budget_max": 90}, "90")
+        assert profile.budget_max == 90.0
+
+
 class TestGeoAnchors:
     def test_state_anchor_persists_across_turns_without_city_change(self):
         profile = SessionProfile(city="Florence", state_anchor="KY")

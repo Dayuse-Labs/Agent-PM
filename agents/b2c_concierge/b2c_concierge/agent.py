@@ -78,7 +78,15 @@ from typing import Any, AsyncGenerator
 
 import httpx
 import litellm
-from b2c_common import max_tokens_for, reasoning_kwargs_for, role_model, temperature_kwargs_for
+from b2c_common import (
+    max_tokens_for,
+    reasoning_kwargs_for,
+    role_model,
+    score_degraded,
+    score_guards,
+    score_turn,
+    temperature_kwargs_for,
+)
 from b2c_common.observability import mark_level, mark_metadata, observation, stamp_langfuse_turn_session
 from dayuse_agent_common import (
     cost_from_tokens,
@@ -345,6 +353,7 @@ async def _run_leaf(
         )
         logger.warning("b2c_concierge: %s leg failed: %s", leaf, exc)
         mark_level("ERROR", status_message="leaf_call_failed")
+        score_degraded("leaf_call_failed")
         return None, {}
     ms = int((time.monotonic() - t0) * 1000)
     metrics_logger.info("concierge_metric=leaf_call leaf=%s ms=%d status=ok", leaf, ms)
@@ -499,10 +508,15 @@ class _B2cConcierge(BaseAgent):
 
     def _emit_turn_metric(
         self, family: str, route: str, budget: TurnBudget, t_start: float, status: str,
-        invocation_id: str = "",
+        invocation_id: str = "", hotels_returned: int = 0,
     ) -> None:
-        """One log line + one llm_metric_events row per turn — counters only,
-        NO message content (GDPR, locked by test)."""
+        """One log line + one llm_metric_events row + the OBS3 score set per
+        turn — counters only, NO message content (GDPR, locked by test). The
+        single hook every exit path of a turn already goes through, on both
+        the /v3 facade path (inside `turn_observation`'s span) and the direct
+        A2A path (peers/battery/smoke) — `score_current_trace` scores
+        whichever trace is ambient, so no separate wiring is needed there
+        (same precedent as `stamp_langfuse_turn_session`)."""
         ms = int((time.monotonic() - t_start) * 1000)
         metrics_logger.info(
             "concierge_metric=turn family=%s route=%s llm_calls=%d phases=%s ms=%d status=%s",
@@ -518,6 +532,10 @@ class _B2cConcierge(BaseAgent):
             family=family, route=route, llm_calls=budget.llm_calls,
             phases=",".join(budget.phases) or "-",
         )
+        # OBS3: the 12+1 guard series + hotels_returned/empty_shortlist/llm_calls
+        # — a full 0/1 snapshot every turn, not just when something fired.
+        score_guards(budget.fired)
+        score_turn(hotels_returned=hotels_returned, llm_calls=budget.llm_calls)
 
     # --- Synthesis (guarded) ----------------------------------------------------------------
     async def _generate_once(
@@ -698,6 +716,7 @@ class _B2cConcierge(BaseAgent):
         if question and questions_equivalent(question, profile.last_clarifying_question):
             with observation(as_type="guardrail", name="retry-clarification-loop"):
                 mark_level("WARNING", status_message="anti_clarification_loop")
+                budget.fired.add("anti_clarification_loop")
                 directive = _DO_NOT_ASK_DIRECTIVE.format(question=profile.last_clarifying_question)
                 retry = await self._generate_once(
                     message=message, language=language, leaf_text=leaf_text,
@@ -726,6 +745,7 @@ class _B2cConcierge(BaseAgent):
                     )
                     if corrections:
                         mark_level("WARNING", status_message="amenity_truthfulness")
+                        budget.fired.add("amenity_truthfulness")
                 profile.amenity_claim_corrections = corrections or None
             # S-G12 (guard #13): a Dayuse hotel-page URL the model was not
             # grounded in is a fabrication (wrong domain/slug in prod) —
@@ -735,6 +755,7 @@ class _B2cConcierge(BaseAgent):
                 candidate, stripped_links = enforce_hotel_link_truthfulness(candidate, hotels)
                 if stripped_links:
                     mark_level("WARNING", status_message="hotel_link_truthfulness")
+                    budget.fired.add("hotel_link_truthfulness")
             if stripped_links:
                 metrics_logger.info(
                     "concierge_metric=link_guard stripped=%d", stripped_links
@@ -771,9 +792,13 @@ class _B2cConcierge(BaseAgent):
             hotels = result.get("hotels") or [] if result.get("ok") else []
             names = ", ".join(str(h.get("name")) for h in hotels)
             leaf_text = f"Comparison retrieved for: {names}." if hotels else ""
+        budget.fired.update(result.get("guards_fired") or [])
 
         if not result.get("ok") or not hotels:
-            self._emit_turn_metric(family, f"inline:{route.target}", budget, t_start, "degraded", inv)
+            self._emit_turn_metric(
+                family, f"inline:{route.target}", budget, t_start, "degraded", inv,
+                hotels_returned=len(hotels),
+            )
             yield self._final(ctx, templates.inline_unresolved_response(route.target, language))
             return
 
@@ -792,7 +817,7 @@ class _B2cConcierge(BaseAgent):
 
         self._emit_turn_metric(
             family, f"inline:{route.target}", budget, t_start,
-            "ok" if synth else "synthesis_fallback", inv,
+            "ok" if synth else "synthesis_fallback", inv, hotels_returned=len(hotels),
         )
         final_text = synth or templates.inline_unresolved_response(route.target, language)
         for chunk in _chunk_text(final_text):
@@ -852,9 +877,11 @@ class _B2cConcierge(BaseAgent):
         itself, so this signal alone can never authorize a link — see that
         function's docstring for the full guarantee, including the bypass
         case."""
+        budget.fired.add("booking_confirmation")
         result = await inline_tools.generate_booking_link(
             message, profile, user_confirmed, picked_hotel_id=picked_hotel_id
         )
+        budget.fired.update(result.get("guards_fired") or [])
         await store.set(ctx.session.id, profile)  # persists pending_booking either way
 
         if not result.get("ok"):
@@ -914,16 +941,22 @@ class _B2cConcierge(BaseAgent):
         store = get_profile_store()
         profile = await store.get(ctx.session.id)
 
+        # OBS3: computed once — message/profile don't change across the call
+        # sites below (ack fast-path, routing overrides, booking dispatch).
+        # `refinement_signal` true IS the recovery-ack guard (P2) catching a
+        # bare "ok"/refinement; `booking_signal` true is the R9 gate
+        # recognizing a pending-offer confirmation.
+        refinement_signal = is_search_refinement_signal(message, profile)
+        booking_signal = is_booking_confirmation_signal(message, profile)
+        if refinement_signal:
+            budget.fired.add("recovery_ack")
+
         # 1. Ack fast-path: zero LLM, template only — UNLESS the profile
         # signals a search refinement (a bare "ok" after an empty search must
         # re-run the search, never celebrate a stale/empty shortlist) OR a
         # pending booking confirmation (R9: a bare "yes" must reach the
         # code-owned confirmation gate, never the ack template).
-        if (
-            is_social_ack(message)
-            and not is_search_refinement_signal(message, profile)
-            and not is_booking_confirmation_signal(message, profile)
-        ):
+        if is_social_ack(message) and not refinement_signal and not booking_signal:
             self._emit_turn_metric("ack", "template:ack", budget, t_start, "ok", inv)
             # S-CX2 (audit F5): a bare "ok" carries no language signal — the
             # conversation's established language / client locale beat the guess.
@@ -980,7 +1013,7 @@ class _B2cConcierge(BaseAgent):
         if clicked_id is None and triage.language in ("fr", "en"):
             profile.language = triage.language
 
-        if is_booking_confirmation_signal(message, profile):
+        if booking_signal:
             family, route = "booking", ROUTES["booking"]
         elif picked is not None:
             # A pick with a BOOKING intent hands off (a link, guarded below);
@@ -1000,7 +1033,7 @@ class _B2cConcierge(BaseAgent):
             # resolves it from the shortlist. Without this, a lone digit
             # mis-triages as search and dead-ends ("I can't reach hotel search").
             family, route = "booking", ROUTES["booking"]
-        elif family != "faq" and is_search_refinement_signal(message, profile):
+        elif family != "faq" and refinement_signal:
             family, route = "search", ROUTES["search"]
 
         # 3-5. Code-owned routing.
@@ -1018,7 +1051,7 @@ class _B2cConcierge(BaseAgent):
                 # R9 (guard #12): fully deterministic, ZERO extra LLM — see
                 # _run_booking's docstring for why a booking confirmation is
                 # never delegated to an LLM's judgment.
-                user_confirmed = is_booking_confirmation_signal(message, profile)
+                user_confirmed = booking_signal
                 async for event in self._run_booking(
                     ctx, profile, store, message, family,
                     template_language(profile.language, profile.locale, message),
@@ -1091,7 +1124,7 @@ class _B2cConcierge(BaseAgent):
 
         delta = response.get("profile_delta") or {}
         if delta:
-            apply_profile_delta(profile, delta, message)
+            apply_profile_delta(profile, delta, message, budget.fired)
         # S-CX2 (audit CX F2): the leaf reports the search TOOLS never ran this
         # turn (MCP unreachable / circuit open / budget spent before the
         # search). Serve the honest degraded template — never synthesize, or
@@ -1169,6 +1202,7 @@ class _B2cConcierge(BaseAgent):
         self._emit_turn_metric(
             family, f"leaf:{route.target}", budget, t_start,
             "ok" if synth else "synthesis_fallback", inv,
+            hotels_returned=len(response.get("results") or []),
         )
         # Double failure only (text-less leaf AND failed synthesis): honest
         # degraded template rather than an empty message.

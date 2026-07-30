@@ -24,10 +24,16 @@ class LlmBudgetExceededError(RuntimeError):
 
 @dataclass
 class TurnBudget:
-    """Counts the LLM-call slots spent on ONE turn; created fresh each turn."""
+    """Counts the LLM-call slots spent on ONE turn; created fresh each turn.
+
+    `fired` (OBS3): the set of `GUARD_SCORE_NAMES` entries whose trigger
+    condition was met THIS turn — accumulated at each guard's own call site
+    (agent.py, profile.py, inline_tools.py) and read once, at the turn's
+    single emission point (`_emit_turn_metric`), into `score_guards`."""
 
     llm_calls: int = 0
     phases: list[str] = field(default_factory=list)
+    fired: set[str] = field(default_factory=set)
 
     def charge(self, phase: str) -> None:
         if self.llm_calls >= MAX_LLM_CALLS_PER_TURN:

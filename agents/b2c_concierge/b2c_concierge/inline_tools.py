@@ -332,18 +332,20 @@ async def get_hotel_details(
         async with asyncio.timeout(_INLINE_MCP_TIMEOUT):
             async with _mcp_session() as session:
                 hotel_id: int | None = picked_hotel_id
+                guards_fired: list[str] = []
                 if hotel_id is None:
                     hotel_id, _ = await _resolve_hotel_id(session, hotel_reference, profile)
+                    guards_fired.append("named_hotel_lookup")
                 if hotel_id is None:
-                    return {"ok": False, "error": "hotel not found"}
+                    return {"ok": False, "error": "hotel not found", "guards_fired": guards_fired}
                 result = await _call_tool(session, "get_hotel_details", {"hotelId": hotel_id})
                 if not result["ok"]:
-                    return result
+                    return {**result, "guards_fired": guards_fired}
                 data = result["data"]
                 hotel = data.get("hotel") or {}
                 offers = data.get("offers") or []
                 normalized = _normalize_hotel_for_display(hotel, offers[0] if offers else None)
-                return {"ok": True, "hotel": normalized}
+                return {"ok": True, "hotel": normalized, "guards_fired": guards_fired}
     except Exception as exc:  # noqa: BLE001 — degrade honestly, never crash the turn
         return {"ok": False, "error": f"get_hotel_details failed: {type(exc).__name__}"}
 
@@ -687,6 +689,7 @@ async def _quote_fresh_offer(
             async with _mcp_session() as session:
                 hotel_id: int | None
                 hotel_name: str | None
+                guards_fired: list[str] = []
                 if picked_hotel_id is not None:
                     hotel_id = picked_hotel_id
                     entry = _shortlist_entry(picked_hotel_id, profile)
@@ -695,8 +698,9 @@ async def _quote_fresh_offer(
                     hotel_id, hotel_name = await _resolve_hotel_id(
                         session, hotel_reference, profile
                     )
+                    guards_fired.append("named_hotel_lookup")
                 if hotel_id is None:
-                    return {"ok": False, "error": "hotel not found"}
+                    return {"ok": False, "error": "hotel not found", "guards_fired": guards_fired}
                 shown = _shortlist_offer(hotel_id, profile)
                 if shown is not None:
                     offer = {
@@ -711,11 +715,14 @@ async def _quote_fresh_offer(
                         args_details["date"] = profile.date
                     details = await _call_tool(session, "get_hotel_details", args_details)
                     if not details["ok"]:
-                        return details
+                        return {**details, "guards_fired": guards_fired}
                     offers = details["data"].get("offers") or []
                     best = _best_offer(offers, profile.date)
                     if best is None:
-                        return {"ok": False, "error": "no bookable offer for this hotel"}
+                        return {
+                            "ok": False, "error": "no bookable offer for this hotel",
+                            "guards_fired": guards_fired,
+                        }
                     offer = best
                     quoted_price = _format_price_eur_cents(best.get("priceEuro"))
                     start_time = _hhmm(best.get("startHour"), best.get("startMinute"))
@@ -742,15 +749,18 @@ async def _quote_fresh_offer(
                     args["ratePlanId"] = offer["ratePlanId"]
                 result = await _call_tool(session, "generate_booking_link", args)
                 if not result["ok"]:
-                    return result
+                    return {**result, "guards_fired": guards_fired}
                 if authorize_link:
                     # Nothing left to confirm in a later turn: the card the
                     # caller is about to show carries the link itself.
                     profile.pending_booking = None
                     link = result["data"].get("link") or {}
-                    return {**identity, "ok": True, "confirmed": True, "url": link.get("url")}
+                    return {
+                        **identity, "ok": True, "confirmed": True, "url": link.get("url"),
+                        "guards_fired": guards_fired,
+                    }
                 profile.pending_booking = identity
-                return {**identity, "ok": True, "confirmed": False}
+                return {**identity, "ok": True, "confirmed": False, "guards_fired": guards_fired}
     except Exception as exc:  # noqa: BLE001
         return {"ok": False, "error": f"generate_booking_link failed: {type(exc).__name__}"}
 

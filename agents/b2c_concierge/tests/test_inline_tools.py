@@ -209,7 +209,9 @@ class TestGetHotelDetails:
         _install(monkeypatch, {"find_hotel_by_name": FakeResult(is_error=True)})
         profile = SessionProfile()
         result = _run(inline_tools.get_hotel_details("nonexistent", profile))
-        assert result == {"ok": False, "error": "hotel not found"}
+        assert result == {
+            "ok": False, "error": "hotel not found", "guards_fired": ["named_hotel_lookup"],
+        }
 
     def test_find_by_name_response_wrapped_under_hotel_key_is_unwrapped(self, monkeypatch):
         # Verified live against MCP_B2C: find_hotel_by_name wraps the
@@ -531,7 +533,9 @@ class TestGenerateBookingLinkR9:
         result = _run(
             inline_tools.generate_booking_link("nonexistent", SessionProfile(), user_confirmed=False)
         )
-        assert result == {"ok": False, "error": "hotel not found"}
+        assert result == {
+            "ok": False, "error": "hotel not found", "guards_fired": ["named_hotel_lookup"],
+        }
 
     def test_bare_yes_confirmation_needs_no_hotel_name_at_all(self, monkeypatch):
         # REGRESSION (found live against MCP_B2C during S07): a real
@@ -592,7 +596,10 @@ class TestGenerateBookingLinkR9:
         result = _run(
             inline_tools.generate_booking_link("Villa Paris Orly", profile, user_confirmed=False)
         )
-        assert result == {"ok": False, "error": "no bookable offer for this hotel"}
+        assert result == {
+            "ok": False, "error": "no bookable offer for this hotel",
+            "guards_fired": ["named_hotel_lookup"],
+        }
 
 
 class TestQuotesTheOfferTheUserSaw:

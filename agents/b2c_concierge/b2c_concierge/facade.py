@@ -36,6 +36,7 @@ from typing import Any, AsyncGenerator, Literal
 from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
 from b2c_common.observability import mark_level, mark_metadata, turn_observation
+from b2c_common.scores import score_degraded, score_ttft
 from google.adk.runners import InMemoryRunner
 from google.genai import types as genai_types
 from starlette.requests import Request
@@ -785,6 +786,7 @@ async def chat(request: Request) -> Response:
                 # the outer except (below) runs, `with turn_observation` has
                 # already exited and closed it.
                 mark_level("ERROR", status_message="facade_shield")
+                score_degraded("facade_shield")
                 raise
     except Exception as exc:  # noqa: BLE001 — last-resort shield: contract payload, never a bare 500
         payload = _shield_payload(session_id, body, message, "json", exc)
@@ -858,18 +860,18 @@ async def chat_stream(request: Request) -> Response:
                     if not message:
                         yield _sse("progress", {})
                         # OBS2: TTFT measurement point (CLAUDE.md SLO: progress < 300 ms).
-                        # No score yet (OBS3 wires the score mechanism) — metadata for now.
-                        mark_metadata(
-                            {"ttft_ms": round((time.monotonic() - t_request_start) * 1000, 1)}
-                        )
+                        # OBS3: scored (metadata stays too — filterable per-trace copy).
+                        ttft_ms = round((time.monotonic() - t_request_start) * 1000, 1)
+                        mark_metadata({"ttft_ms": ttft_ms})
+                        score_ttft(ttft_ms)
                         final_text = _empty_ack_text(message, _parse_locale(body.get("locale")))
                     else:
                         async for kind, data in _drive(session_id, user_id, message):
                             if kind == "progress":
                                 yield _sse("progress", {})
-                                mark_metadata(
-                                    {"ttft_ms": round((time.monotonic() - t_request_start) * 1000, 1)}
-                                )
+                                ttft_ms = round((time.monotonic() - t_request_start) * 1000, 1)
+                                mark_metadata({"ttft_ms": ttft_ms})
+                                score_ttft(ttft_ms)
                             elif kind == "hotels":
                                 hotels = data.get("hotels") or None
                                 requires_clarification = bool(data.get("requires_clarification"))

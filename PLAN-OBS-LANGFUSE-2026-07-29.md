@@ -111,7 +111,7 @@ Statuts : ⬜ à faire · 🟡 en cours · ✅ mergée · ⏸ bloquée (raison) 
 |---|---|---|---|---|---|---|
 | OBS0 | Bump serveur 3.224.2 + checklist UI | ✅ | `obs0-bump-serveur-langfuse` | 2026-07-30 | | Bumpé à **3.224.3** (tag `:3` avait déjà bougé, approuvé par Fabien) au lieu de 3.224.2 — diff = deps/pricing only. Backups PG+CH pris et lockés avant redeploy. Checklist §11 répondue (cf. HANDOFF) — découverte notable : Monitors semblent actifs sur v3 (contredit l'hypothèse D-OBS-7) |
 | OBS2 | Typage observations + level + release + TTFT | ✅ | `obs2-typage-observations` | 2026-07-30 | | Découverte majeure : ADK 2.4.0 type déjà `agent`/`tool` nativement (Agent Graph déjà visible avant OBS2) — le typage réel posé se limite aux 3 tools inline + 5 guards concierge (`guardrail`) + `level`/`status_message` sur les dégradations existantes. Bug trouvé ET corrigé en session : `mark_level`/`mark_metadata` dégradaient `agent`→`span` via `update_current_span` (fixé en attributs OTel bruts, cf. HANDOFF). Découverte non corrigée (hors périmètre) : usage compté 2× sur les feuilles ADK (hotel_search_agent/faq_agent), `call_llm`+`generate_content` — dashboards de coût feuille surestimés dès aujourd'hui. `LANGFUSE_RELEASE` documentée (zéro code), pose Railway en attente d'un GO Fabien |
-| OBS3 | Scores déterministes + dashboard | ⬜ | `obs3-scores-deterministes` | | | |
+| OBS3 | Scores déterministes + dashboard | 🟡 (non mergée) | `obs3-scores-deterministes` | 2026-07-30 | | 13 guards (11 portés + R9 + S-G12/hotel_link_truthfulness, recompté contre le code réel — CLAUDE.md était encore à 12) ; 8 émis (concierge), 5 réservés (geo/date, hors zone leaf) ; 16 score configs + dashboard créés sur l'instance réelle ; détail HANDOFF |
 | OBS4 | Trace distribuée A2A | ⬜ | `obs4-trace-distribuee-a2a` | | | |
 | OBS6 | Datasets + experiments + gate CI | 🟡 (non mergée) | `obs6-datasets-experiments` | 2026-07-30 | | 4 datasets hébergés (48+6 items), 2 runs comparés, CI non bloquant ; attend le merge d'OBS2 puis rebase — détail HANDOFF |
 | OBS7 | Judges online + annotation queue | ⬜ | `obs7-judges-online` | | | |
@@ -127,9 +127,9 @@ Statuts : ⬜ à faire · 🟡 en cours · ✅ mergée · ⏸ bloquée (raison) 
 | Agent Graph visible sur un tour réel | non | **déjà oui, nativement (ADK 2.4.0) — découverte OBS2, pas un livrable OBS2** | OBS2 |
 | Tours filtrables par `level:ERROR` | non | oui (vérifié : timeout simulé retrouvé, type non dégradé) | OBS2 |
 | p95 TTFT mesuré en continu | non (smoke seulement) | mesure posée en metadata (`ttft_ms`) ; le score/p95 agrégé arrive avec OBS3 | OBS2 |
-| Taux de tours à shortlist vide (prod, 7 j) | inconnu | | OBS3 |
-| Fréquence de déclenchement par guard (12 séries) | inconnue | | OBS3 |
-| Tours dépassant 3 appels LLM | inconnu | | OBS3 |
+| Taux de tours à shortlist vide (prod, 7 j) | inconnu | mesure posée ; 3/4 sur le smoke réel (échantillon trivial : ack+booking×2 sans shortlist, 1 search avec 5 hôtels) — pas un chiffre prod, 7 j à attendre | OBS3 |
+| Fréquence de déclenchement par guard (13 séries) | inconnue | mesure posée pour 8/13 (concierge) ; `guard_booking_confirmation` vérifié à 1 sur le smoke `--booking` (2/2 tours), les 7 autres concierge à 0 sur cet échantillon (rien pour les décider) ; 5/13 (geo/date, feuille) encore non émis | OBS3 |
+| Tours dépassant 3 appels LLM | inconnu | mesure posée (`llm_calls` NUMERIC, sans max) ; 0/4 sur le smoke | OBS3 |
 | 1 trace = 1 tour bout en bout (concierge + feuilles) | non (traces séparées) | | OBS4 |
 | Non-régression conversationnelle mesurée en CI | non (`adk eval` seul) | oui, non bloquant (job `langfuse-experiments`) — seuil pas encore fixé | OBS6 |
 | Frustration utilisateur / hors-périmètre détectés | non | | OBS7 |
