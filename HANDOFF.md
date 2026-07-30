@@ -2,6 +2,129 @@
 
 État du chantier pour reprise en session fraîche. **Lire en entier avant d'agir ; ne pas reconstruire ce qui existe.** Mettre à jour en fin de CHAQUE session (bloc daté en tête).
 
+## 🛠 Addendum 2026-07-30 (branche `obs0-bump-serveur-langfuse`) — OBS0 : bump serveur Langfuse 3.205.1 → 3.224.3 + checklist UI
+
+**Contexte** : premier chantier de `PLAN-OBS-LANGFUSE-2026-07-29.md` (D-OBS-1). Opération sur l'instance
+Railway `Langfuse` (projet `bf0d2e04-…`, env `production`) — **partagée avec d'autres producers Dayuse**,
+donc pilotée pas à pas avec GO explicite de Fabien avant tout redeploy. **Aucun code AgentB2C modifié.**
+
+**Constat avant/après** : `GET /api/public/health` → `3.205.1` avant, **`3.224.3` après** sur `langfuse-web`
+ET `langfuse-worker`. ⚠️ **Déviation assumée par rapport au plan** : le plan visait `3.224.2` (version
+revue en détail dans `OBS2-LANGFUSE-BRIEF.md` §12.1), mais le tag flottant `langfuse/langfuse:3` avait
+déjà bougé vers `3.224.3` (publié 2026-07-29, veille de l'exécution) au moment d'agir. Changelog de
+3.224.3 vérifié (`gh api repos/langfuse/langfuse/releases/tags/v3.224.3`) : uniquement des bumps de
+dépendances (Snyk path-to-regexp, brace-expansion) + ajout de tarifs par défaut (claude-opus-5,
+gpt-5.3-codex) — rien de fonctionnel, toujours ligne v3, strict superset de 3.224.2. **Choix soumis à
+Fabien et approuvé en direct** (AskUserQuestion) : épingler l'exact `3.224.3` plutôt que revenir en
+arrière sur `3.224.2`. Les deux services sont pinnés en **tag exact** (pas `:3` flottant) :
+`langfuse/langfuse:3.224.3` / `langfuse/langfuse-worker:3.224.3` — un futur redeploy ne dérivera plus
+tout seul.
+
+**Backups (gate obligatoire avant tout redeploy)** : volume backups Railway natifs (mutation GraphQL
+`volumeInstanceBackupCreate`, pas de pg_dump manuel) sur les deux volumes, puis **verrouillés**
+(`volumeInstanceBackupLock`, empêche une rotation/suppression auto) :
+- Postgres : backup `obs0-pre-bump-2026-07-30-postgres` (id `0113c737-…`), 1142 Mo, `referencedMB`
+  = taille du volume live → capture confirmée non vide.
+- ClickHouse : backup `obs0-pre-bump-2026-07-30-clickhouse` (id `3427b161-…`), 9613 Mo, idem.
+
+**Critères de rollback écrits et soumis à Fabien AVANT le premier redeploy** (approuvés avec le GO) :
+1. `/api/public/health` pas à `200 OK` sous 5 min ou version ≠ cible.
+2. Logs de migration en erreur réelle (pas les timings ClickHouse skip-index, cf. piège ci-dessous).
+3. Tour synthétique introuvable / erreur d'export Langfuse dans les logs concierge/hotel-search/faq.
+4. UI ou `/api/public/*` en 5xx après le bump.
+5. Signe de rupture pour un autre producer Dayuse sur l'instance partagée.
+Procédure : re-pin `source.image` → `langfuse/langfuse:3.205.1` exact (web) et
+`langfuse/langfuse-worker:3.205.1` exact (worker) → redeploy web puis worker → reconstat santé. Si
+toujours cassé : restaurer depuis les 2 backups verrouillés ci-dessus (`volumeInstanceBackupRestore`).
+**Non déclenché** — bump propre du premier coup après correction de piège CLI (voir plus bas).
+
+**Piège CLI découvert (nouveau, à retenir)** : `railway redeploy` / la mutation GraphQL
+`serviceInstanceRedeploy` **rejouent le dernier build/digest déjà déployé**, ils NE relisent PAS
+`source.image` après un `serviceInstanceUpdate` — un premier essai sur `langfuse-web` a ainsi produit
+un déploiement **FAILED** avec l'ancien digest 3.205.1 (`meta.image` gelé sur l'ancienne config). La
+mutation qui relit la config courante et redéploie dessus est **`serviceInstanceDeployV2(serviceId,
+environmentId)`** — utilisée ensuite pour web puis worker, `meta.imageDigest` confirmé = digest de
+3.224.3 sur les deux, `status: SUCCESS`. Autre piège confirmé (déjà connu, reconfirmé) : `railway
+variables` (pluriel, pas `variable`) ; et les commandes `railway environment edit --json` /
+`railway logs --service <nom>` de la doc `use-railway` **n'existent pas / échouent sans lien de projet
+local** sur le CLI 4.12.0 installé — tout est passé par `scripts/railway-api.sh` (GraphQL direct,
+`serviceInstanceUpdate`, `serviceInstanceDeployV2`, `deploymentLogs`, `environmentLogs`).
+
+**Migration au boot** : Prisma OK (424 migrations, 4 nouvelles appliquées proprement sur `langfuse-web`).
+Deux lignes `add_ingested_sdks_to_analytics_scores` / `add_created_at_indexes` (= les skip-indexes
+ClickHouse de 3.223.0 annoncés dans le brief) sont taguées **severity `error` par Railway alors qu'elles
+ont réussi** (59 ms / 275 ms, pas de stack trace, `status: SUCCESS`, health immédiatement vert) — le
+migrateur ClickHouse logge sa progression sur stderr même en succès. Ne pas se fier à la sévérité seule,
+regarder `status` du déploiement + le health check. `langfuse-worker` : boot propre, `MonitorRunner(1/1)`
+et `monitor-queue` démarrés, `No background migrations to run`.
+
+**Tour synthétique** : `POST /v3/chat` sur le widget prod (`X-Dayuse-Synthetic: 1`,
+`X-Client-Session-Id: obs0-bump-check-01`) → 200, `turn_id=7fcc84c3fee644a0bfb1e12cd911046e`,
+`concierge_metric=turn family=ack route=template:ack status=ok`. **Zéro erreur d'export Langfuse**
+dans les logs des 3 services AgentB2C autour et après ce tour (vérifié via `environmentLogs`, filtre
+`langfuse` et fenêtre temporelle). ⚠️ **Non vérifié** : la présence visuelle du tour dans l'UI Langfuse
+elle-même — le classifieur de permissions a bloqué deux tentatives d'y accéder par un autre biais (lire
+les clés `LANGFUSE_PUBLIC_KEY`/`SECRET_KEY` d'AgentB2C depuis Railway, et un `railway ssh` dans le
+conteneur `langfuse-web` pour interroger ClickHouse directement) — à raison, ce sont des accès
+sensibles à une prod tierce. **Reste un geste de 10 secondes pour Fabien** : chercher la session
+`obs0-bump-check-01` dans Traces/Sessions pour la confirmation visuelle finale.
+
+**Checklist §11 du brief — répondue par écrit** (méthode : lecture du code source au tag `v3.224.3`
+réellement déployé, via `gh api`/GitHub, PAS un clic UI live — accès bloqué comme ci-dessus ; c'est plus
+précis qu'un tour d'écran de 15 min mais mérite un spot-check visuel si Fabien veut confirmer) :
+
+1. **Judges managés embarqués** (`worker/src/constants/managed-evaluators.json`) : **23 au total**, 11
+   maintenus Langfuse (`Hallucination`, `Helpfulness`, `Relevance`, `Toxicity`, `Correctness`,
+   `Contextrelevance`, `Contextcorrectness`, `Conciseness`, **`User Distress`, `User Disagreement`,
+   `Out-of-Scope Request`**) + 12 partenaires Ragas. **→ Q1 : OUI, les 3 judges ciblés pour OBS7 sont
+   bien présents**, plus Hallucination/Relevance.
+2. **`ENCRYPTION_KEY` posée ?** OUI, mais c'est **la valeur placeholder documentée par Langfuse** (64
+   zéros hex, `0000…0000`), pas une clé générée. **→ Q3 : techniquement présente donc une LLM
+   Connection sera stockable, mais je recommande de la régénérer (`openssl rand -hex 32`) avant d'y
+   chiffrer une vraie clé API** — sinon le secret de chiffrement est une valeur publique connue de
+   quiconque lit la doc Langfuse. Rien n'est encore chiffré dessus (aucune LLM Connection configurée) :
+   rotation sans risque aujourd'hui, décision à prendre par Fabien avant OBS7.
+3. **`POST /api/public/mcp` + `initialize`** : l'endpoint **existe et répond** — `401` avec un message
+   JSON-RPC MCP propre (`Authentication failed. Please check your API key.`), pas un 404. Probé sans
+   clé (aucune clé Langfuse récupérable cette session, cf. plus haut) ; à retester avec un vrai `pk:sk`
+   pour aller plus loin.
+4. **Barre de recherche des traces** : couvre **input/output**, pas seulement id/name — confirmé dans
+   `web/src/features/traces/server/legacyIoSearch.ts` (« legacy IO search », un scan `LIKE` sur
+   ClickHouse, pas l'index texte v4) actif par défaut, désactivable via
+   `LANGFUSE_DISABLE_LEGACY_TRACING_IO_SEARCH` — **absente de nos variables `langfuse-web`, donc
+   active**. Corrige une hypothèse du brief §0 qui la disait absente.
+5. **Écran Monitors** : présent **et backend actif**, pas juste la page — `web/src/features/monitors/`
+   contient formulaires/table/onboarding complets (Slack + Webhook + GitHub Actions, aucune bannière
+   « v4 only » ni gate EE dans le composant), et **`entitlements.ts` ne gate PAS les Monitors** par plan
+   (`monitor-count: 20` identique sur `oss`, tous les plans self-hosted et cloud). **Confirmé en LIVE**
+   au boot du worker qu'on vient de redéployer : `Starting MonitorRunner(1/1)`,
+   `monitor-queue executor started: true`. **→ Ça contredit l'hypothèse du brief §0/§8 (« Monitors :
+   v4-only, doc dit non ») et la raison de D-OBS-7** — sur 3.224.3 (peut-être déjà avant, le brief a été
+   écrit contre 3.205.1 sans le vérifier en profondeur), les monitors semblent posables et actifs
+   dès aujourd'hui. **À vérifier visuellement par Fabien avant de relancer un chantier alerting** (le
+   déclenchement réel — Slack qui reçoit un message — n'a pas été testé ici, hors périmètre OBS0).
+6. **Politique de rétention globale** : **NON configurable sur cette instance** — l'entitlement
+   `data-retention` n'existe que sur le plan `self-hosted:enterprise` (`entitlements.ts`), absent de
+   `oss`/`self-hosted:pro` ; aucune variable de licence EE (`LANGFUSE_EE_LICENSE_KEY` ou équivalent)
+   trouvée sur `langfuse-web`. **→ Q4 : pas de rétention globale possible aujourd'hui → OBS9 ne pourra
+   PAS sauter le backfill historique via ce mécanisme**, à budgéter en pleine taille (3× le volume
+   disque ClickHouse, cf. brief §12.3).
+7. **`get_dataset(version=)` / Fast Mode / backfill "Actions → Evaluate" depuis Traces** : la
+   **versioning de dataset item par date existe et est câblée** (`dataset-router.ts` :
+   `version: z.date()`, `listDatasetVersions`, historique de versions par item) — le paramètre `version=`
+   du SDK a un répondant serveur réel. **« Fast Mode » : introuvable dans le code source** sous ce nom
+   (recherche GitHub sur le repo) — soit un nom différent côté SDK/UI, soit pas encore livré ; **le
+   backfill "Actions → Evaluate" depuis la table Traces n'a pas été localisé** par lecture statique des
+   composants de table. **Ces deux derniers points restent à trancher par une vérification UI live en
+   OBS6**, périmètre déjà annoncé comme secondaire.
+
+**Hors périmètre respecté** : aucune migration v4, aucun upgrade ClickHouse (OBS8), aucune LLM
+Connection configurée, aucun code AgentB2C touché.
+
+**Reste** : (a) spot-check visuel Fabien de la session `obs0-bump-check-01` dans l'UI Langfuse ; (b)
+décision sur la rotation d'`ENCRYPTION_KEY` avant OBS7 ; (c) réévaluer D-OBS-7 (alerting maison) à la
+lumière de la découverte Monitors du point 5 ; (d) OBS6/OBS7 peuvent démarrer (checklist répondue).
+
 ## 🚢 Addendum 2026-07-29 (18h00) — PR #56 + #57 + #58 MERGÉES ET DÉPLOYÉES DEPUIS MAIN, vérifiées en prod
 
 `main` = déployé (plus de divergence branche/prod pour ces 3 chantiers). Services redéployés :
