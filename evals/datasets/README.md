@@ -11,6 +11,7 @@ session OBS6 (qui possède les experiments, les évaluateurs et le gate CI), pas
 | `b2c-geo-poi.jsonl` | `b2c/geo-poi` | 21 |
 | `b2c-occupancy.jsonl` | `b2c/occupancy` | 14 |
 | `b2c-language-robustness.jsonl` | `b2c/language-robustness` | 13 |
+| `b2c-prod-regressions.jsonl` | `b2c/prod-regressions` | 6 — **importé** (`source_trace_id`), pas semé — voir OBS6 §5 |
 
 Import (crée les datasets hébergés + upsert des items, idempotent — les `id` sont déterministes) :
 
@@ -89,9 +90,24 @@ def geo_within_km(*, output: dict, expected_output: dict, **_) -> Evaluation:
 Même gabarit pour `min_hotels`/`active_filters_include`/`offers_*` ; les assertions `trace.*` lisent
 la trace du run (`langfuse.api`) au lieu d'`output`. Un item ne score que les clés qu'il déclare.
 
+## `b2c-prod-regressions.jsonl` — importé, pas semé
+
+Ce 4e fichier n'a pas de `input.messages` : chaque ligne ne porte que `id`, `source_trace_id`,
+`expected_output`, `metadata`. `scripts/langfuse_import_dataset.py` vérifie que la trace existe
+encore (jamais d'import silencieux d'une référence morte) et lit le VRAI texte du tour depuis la
+trace elle-même — jamais une retranscription à la main qui pourrait diverger. Les 6 cas sont des
+tours de prod déjà documentés dans `HANDOFF.md` (garde de l'année hallucinée PR #57, fallback de
+cutoff même-jour PR #40/#58) : `metadata.status="regression_guard"` partout, ils doivent rester
+verts pour toujours.
+
+```bash
+.venv/bin/python scripts/langfuse_import_dataset.py             # vérifie + upsert
+.venv/bin/python scripts/langfuse_import_dataset.py --dry-run   # vérifie seulement
+```
+
 ## Boucle de vie
 
-1. Baseline : run experiment sur les 3 datasets AVANT les fixes P0 (audit §4) — les `target` sont rouges.
+1. Baseline : run experiment sur les 4 datasets AVANT les fixes P0 (audit §4) — les `target` sont rouges.
 2. Chaque fix (P0-1 occupancy, P0-2 géo, P1-1 triage) : re-run, comparaison des `DatasetRun` dans l'UI.
 3. Les échecs prod futurs s'ajoutent en items `source_trace_id` (script OBS6 `langfuse_import_dataset.py`),
    jamais en modifiant les items existants (un id = un cas figé).

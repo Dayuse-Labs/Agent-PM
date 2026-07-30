@@ -2,6 +2,125 @@
 
 État du chantier pour reprise en session fraîche. **Lire en entier avant d'agir ; ne pas reconstruire ce qui existe.** Mettre à jour en fin de CHAQUE session (bloc daté en tête).
 
+## 🧪 Addendum 2026-07-30 (session OBS6, branche `obs6-datasets-experiments`, non mergée) — datasets + experiments Langfuse, gate CI non bloquant
+
+**Périmètre exact** : `evals/**` + `scripts/**` + `.github/**` (+ `evalset/**` en lecture). Zéro touche à
+`agents/**`/`libs/**` (zone OBS2, worktree parallèle). Worktree dédié, stack locale sur **8110-8112**
+(voir plus bas) pendant qu'OBS2 tient 8100-8102.
+
+**Contention de ports réglée en premier item** : `scripts/run_local.sh` prend maintenant un
+`PORT_OFFSET` (défaut `0`, comportement inchangé sans la variable) — `PORT_OFFSET=10` décale les 3
+services sur 8110/8111/8112, pidfiles/logs sous `.run-logs/offset-10/`. Piège corrigé au passage :
+sans plus, le concierge continuait à composer les leaves sur les ports **par défaut** 8101/8102 (donc
+sur la stack de l'AUTRE worktree) — `run_local.sh` exporte désormais `HOTEL_SEARCH_CARD_URL` /
+`FAQ_AGENT_CARD_URL` décalés automatiquement quand `PORT_OFFSET != 0`.
+
+**4 datasets hébergés peuplés** (`input_schema` posé, `/` = dossier dans l'UI) :
+
+| Dataset | Items | Source |
+|---|---|---|
+| `b2c/geo-poi` | 21 | `evals/datasets/b2c-geo-poi.jsonl`, semé (`scripts/langfuse_seed_datasets.py`) |
+| `b2c/occupancy` | 14 | idem |
+| `b2c/language-robustness` | 13 | idem |
+| `b2c/prod-regressions` | 6 | **importé** avec `source_trace_id` réel (`scripts/langfuse_import_dataset.py`) |
+
+Les 3 premiers fichiers + le script de seed sont ceux de l'audit du même jour (bloc 🔍 ci-dessous,
+`AUDIT-AGENTIQUE-2026-07-30.md`) : copiés ici tels quels, jamais modifiés. Le 4e (`b2c/prod-regressions`)
+est nouveau cette session : 6 tours de PROD réels déjà documentés dans ce fichier (garde de l'année
+hallucinée PR #57 — sessions `yr-postdeploy-1..4` — et fallback de cutoff même-jour PR #40/#58 —
+`lat-dead-0`/`lat-nom-0`), le script vérifie que chaque trace existe encore et lit son VRAI texte
+(jamais une retranscription à la main). `metadata.status="regression_guard"` partout : doivent
+rester verts pour toujours.
+
+**Évaluateurs Python déterministes** (D-OBS-3, zéro judge LLM ici) — `evals/langfuse_evaluators.py`,
+14 tests offline (`evals/tests/test_langfuse_evaluators.py`). Convention : une clé absente
+d'`expected_output` ne score rien (pas de sur-couverture) ; une clé déclarée mais dont la donnée est
+indisponible (trace introuvable, champ pas encore sur le contrat) score `CATEGORICAL "skipped"` — **jamais
+`value=None`** : confirmé en direct que `ScoreBody` du serveur rejette un score `None` (le sketch du
+README de l'audit ne survit pas à un vrai `run_experiment`, corrigé ici). Tout le niveau réponse est
+couvert (`min_hotels`/`max_hotels`/`hotels_within_km`/`resolved_country_code`/`clarify_*`/
+`active_filters_include`/`offers_*_capacity_gte`/`party_total`/`message_must_(not_)contain_any`).
+
+**Niveau trace, entièrement câblé** (le README de l'audit l'annonçait "à brancher en évaluateur
+second temps (OBS6/OBS7)" — fait cette session, pas déféré) :
+- `search_offers_args_include`/`_absent` : lit l'observation **déjà typée `TOOL`, nommée
+  `search_offers`** dans la trace de la feuille — confirmé en direct (probe 2026-07-30) que ce
+  typage existe SANS attendre OBS2 (Langfuse infère le type depuis les conventions sémantiques
+  OTel qu'ADK 2.4.0 émet déjà — la découverte qu'OBS2 documente en détail dans son propre bloc
+  ci-dessous). Aucune heuristique de sniffing de dict nécessaire.
+- `expected_pick` : lit l'output JSON de la génération de triage (`{"family", "pick",
+  "pick_position"}`) dans la trace du concierge.
+- `expected_route` : mapping déterministe, **code-owned**, PAS un scraping du log stdout
+  (`concierge_metric=turn ... route=leaf:hotel_search` utilise une 3e nomenclature, et un
+  scraping de fichier ne marcherait que contre un process tourné en local) : `family="booking"` →
+  `booking_confirmed`/`not_booking_confirmed` selon la présence de `booking_card` dans la réponse
+  (le gate R9) ; `family="search"` → `search_refinement` ; sinon passthrough.
+- ⚠️ **Un tour produit DEUX traces séparées** (concierge `v3.chat` + feuille `b2c_hotel_search`,
+  OBS4/trace-distribuée pas encore là) exportées de façon indépendante. Piège trouvé et corrigé en
+  direct : s'arrêter au premier essai de poll où la session a AU MOINS une trace fait parfois
+  attraper seulement la trace concierge et jamais voir `search_offers` — le retry doit continuer
+  jusqu'à trouver le fait recherché, pas jusqu'au premier résultat non vide.
+
+**Runner** `evals/langfuse_experiment.py` — attaque l'agent par `/v3/chat` (contrat stable, pas de
+dépendance à OBS2). Pattern N+1 : primes le profil directement dans **Redis**, même clé/encodage que
+`profile_store.py` (`b2c_concierge:profile:{session_id}`, réutilise `SessionProfile.from_dict/to_dict`
+en import read-only — même pattern que `evals/battery.py`), puis un seul POST du dernier tour. Piège
+API découvert : `dataset.run_experiment(name=...)` seul fait ajouter un **timestamp ISO au nom du
+run** par le SDK — il faut aussi passer `run_name=` explicitement pour un nom exact et comparable.
+
+**Deux runs réels comparés dans l'UI**, mêmes 4 datasets, seule variable : `DAYUSE_MODEL`
+(gpt-4o-mini défaut → gpt-4o) :
+
+| Dataset | `baseline` | `after-gpt4o` | Lien |
+|---|---|---|---|
+| `b2c/geo-poi` (21) | `hotels_within_km` 3/17 (18%), `resolved_country_code` 14/18 (78%) | 4/17 (24%), 13/18 (72%) | `.../datasets/cms7b2txx000ilu028njtr7a2/runs/9469c30a-…` vs `.../328dcdde-…` |
+| `b2c/occupancy` (14) | `search_offers_args_include` 7/9 (78%) | 6/8 (75%) | `.../datasets/cms7alk4d0001lu028f7extb4/runs/1468fe3c-…` vs `.../5a8a7150-…` |
+| `b2c/language-robustness` (13) | `expected_route` 2/7 (29%) | 2/7 (29%) | `.../datasets/cms7b2wi50016lu02daki52my/runs/2aa52321-…` vs `.../21ffc2c1-…` |
+| `b2c/prod-regressions` (6) | 100% partout | 100% partout | `.../datasets/cms7b304j0023lu02zu7lnxcz/runs/b0322223-…` vs `.../3e52dc68-…` |
+
+Host : `https://langfuse-web-production-272b.up.railway.app/project/cms4gd0d20002nz029tuly62e`.
+**gpt-4o n'est pas uniformément meilleur** (mieux sur le landmark radius, moins bon sur
+`resolved_country_code`/`min_hotels`) — signal réel, pas un artefact. ⚠️ Ces deux runs ont été
+exécutés AVANT le fix double-comptage d'usage du bloc 🩹 ci-dessous — les coûts affichés sur ces runs
+spécifiques (pas les scores, indépendants) seraient ~2× surestimés côté feuilles si on les relit.
+
+**Deux corrections aux hypothèses de l'audit du jour, mesurées, pas supposées** :
+1. `search_offers_args_include` (adults/children) est déjà à **75-78 %** sur un seul tour — le
+   `gpt-4o-mini` actuel émet DÉJÀ spontanément `adults`/`children` (le schéma MCP `search_offers`
+   documente ces champs par leur description propre : *"minimum adult/children capacity..."*),
+   contrairement à l'hypothèse de l'audit ("le modèle ne les émet pas spontanément, faute de
+   description par champ"). Ce qui manque réellement (confirmé à 0 % ici) : la **restitution**
+   (`active_filters.adults/children`, `capacity`/`children_capacity` sur la carte) et la
+   **persistance multi-tours** (pas de champ `adults`/`children` dans `SessionProfile` → carryover
+   perdu) — P0-1 reste nécessaire, mais pour un problème plus étroit que documenté.
+2. `hotels_within_km` sur `b2c/geo-poi` confirme empiriquement M1-M4 de l'audit : **18-24 %**
+   seulement des hôtels rendus sont dans le rayon du landmark demandé (le reste retombe sur un
+   rayon ville de 20 km par défaut) — la mesure existe maintenant, avant tout fix P0-2.
+
+**Job CI ajouté** (`langfuse-experiments`, `.github/workflows/ci.yml`) : `needs: checks`,
+`continue-on-error: true`, service `redis:7`, sauté si `LANGFUSE_PUBLIC_KEY`/`SECRET_KEY` ou
+`OPENAI_API_KEY` absents (mêmes secrets que le job `eval`, + 3 secrets Langfuse à ajouter côté repo
+GitHub). Voie choisie parmi les deux du brief : **pytest + assert**, pas `langfuse/experiment-action`
+(plus simple, cohérent avec nos gates, zéro action tierce). Seuil **non appliqué ce tour-ci** —
+`evals/tests/test_langfuse_experiment_gate.py` double-gate (`RUN_LANGFUSE_EXPERIMENT_GATE=1` ET les
+clés) pour ne JAMAIS s'exécuter dans le `pytest -q` offline par défaut ; l'assert de seuil est écrite
+en commentaire avec la méthode (fixer après 2-3 runs de référence sur `main`).
+
+**DoD** : `pytest -q` **1186 passed** (+14 nouveaux tests), 1 rouge = `test_llm_meter_usage`
+(**antérieur, documenté rouge sur `main`**, hors zone) ; ruff / mypy (44 fichiers) / guardrails **OK**.
+Rebasée sur `main` fraîche (`8726160`, post OBS2 PR #61 + fix double-comptage PR #62) après leur merge
+— conflits limités à `HANDOFF.md` (ce bloc, réordonné en tête) et `evals/datasets/README.md` (ma
+version, superset de celle déjà sur `main`, gardée).
+
+**Reste**
+- Seuils CI à fixer après quelques runs de référence sur `main`.
+- `clarify_options_include_country` / `must_ask_city` sont des heuristiques texte faibles (comme
+  documenté) — pas un chantier bloquant, juste à garder en tête en lisant leurs scores.
+- Nuance d'évaluateur à connaître : `hotels_within_km`/`offers_*_capacity_gte` sont **vacuously true**
+  quand 0 hôtel est rendu (rien à violer) — toujours lire ces taux CÔTE À CÔTE avec `min_hotels`.
+- MR à ouvrir depuis cette branche rebasée — jamais de merge par la session.
+- Le pack `dayuse_eval_pack/` : non touché (vérifié, byte-identique).
+
 ## 🩹 Addendum 2026-07-30 (branche `fix/adk-call-llm-usage-doublecount`) — le double comptage d'usage sur les feuilles ADK est corrigé (2× → 1×)
 
 **Contexte** : suite de la session OBS2 (`obs2-typage-observations`, PR #61) — celle-ci avait **trouvé et documenté** (pas corrigé, hors périmètre du typage) que `hotel_search_agent`/`faq_agent` comptaient l'usage LLM 2× dans Langfuse (`call_llm` + `generate_content` portaient le même usage). Fabien a donné le GO pour corriger ici, dans une branche dédiée basée sur `main` (indépendante de la PR #61, non mergée).

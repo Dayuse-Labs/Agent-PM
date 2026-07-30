@@ -7,11 +7,20 @@
 #
 #   bash scripts/run_local.sh          # start the 3 services (idempotent: stops leftovers first)
 #   bash scripts/run_local.sh stop     # stop them
+#
+# PORT_OFFSET (default 0, so default behavior is unchanged): shifts all 3
+# ports by this amount, e.g. PORT_OFFSET=10 -> 8110/8111/8112. For running a
+# second stack side-by-side (a parallel worktree already holding 8100-8102) —
+# pidfiles/logs also move under .run-logs/, one per offset, so two stacks
+# started from different worktrees never collide on files either.
 set -euo pipefail
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 cd "$ROOT"
 
+PORT_OFFSET="${PORT_OFFSET:-0}"
+
 RUN_DIR="$ROOT/.run-logs"
+[ "$PORT_OFFSET" != "0" ] && RUN_DIR="$RUN_DIR/offset-$PORT_OFFSET"
 mkdir -p "$RUN_DIR"
 
 if [ -f .env ]; then
@@ -27,9 +36,18 @@ export A2A_BEARER_TOKEN="${A2A_BEARER_TOKEN:-local-dev-token}"
 export HOTEL_SEARCH_A2A_TOKEN="${HOTEL_SEARCH_A2A_TOKEN:-$A2A_BEARER_TOKEN}"
 export FAQ_AGENT_A2A_TOKEN="${FAQ_AGENT_A2A_TOKEN:-$A2A_BEARER_TOKEN}"
 
+# The concierge finds each leaf's agent card via *_CARD_URL, defaulting to the
+# un-offset local-dev port (routing.py) — with PORT_OFFSET it must be told the
+# shifted port explicitly, or it would keep dialing the other worktree's 8101/8102.
+if [ "$PORT_OFFSET" != "0" ]; then
+  export HOTEL_SEARCH_CARD_URL="${HOTEL_SEARCH_CARD_URL:-http://localhost:$((8101 + PORT_OFFSET))/.well-known/agent-card.json}"
+  export FAQ_AGENT_CARD_URL="${FAQ_AGENT_CARD_URL:-http://localhost:$((8102 + PORT_OFFSET))/.well-known/agent-card.json}"
+fi
+
 UVICORN="$ROOT/.venv/bin/uvicorn"
 [ -x "$UVICORN" ] || UVICORN="uvicorn"
 
+# Base ports (PORT_OFFSET applied when actually binding/probing below).
 SERVICES=(
   "hotel_search_agent:hotel_search_agent.serve:8101"
   "faq_agent:faq_agent.serve:8102"
@@ -68,7 +86,7 @@ for spec in "${SERVICES[@]}"; do
   name="${spec%%:*}"
   rest="${spec#*:}"
   module="${rest%:*}"
-  port="${rest##*:}"
+  port="$((${rest##*:} + PORT_OFFSET))"
   logfile="$RUN_DIR/$name.log"
   (
     cd "$ROOT/agents/$name"
@@ -81,7 +99,7 @@ done
 # The agent card is the readiness probe (served without bearer by design).
 for spec in "${SERVICES[@]}"; do
   name="${spec%%:*}"
-  port="${spec##*:}"
+  port="$((${spec##*:} + PORT_OFFSET))"
   ready=""
   for _ in $(seq 1 40); do
     if curl -sf "http://localhost:$port/.well-known/agent-card.json" >/dev/null 2>&1; then
