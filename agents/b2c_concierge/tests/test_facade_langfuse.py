@@ -43,6 +43,19 @@ class _RecordingClient:
         yield self.span
 
 
+class _AmbientSpan:
+    """Stands in for `opentelemetry.trace.get_current_span()` — OBS2's
+    `mark_level`/`mark_metadata` write RAW attributes here (never through
+    the langfuse client's `update_current_span`, which would mis-type an
+    ADK-native span — see observability.py's docstring)."""
+
+    def __init__(self) -> None:
+        self.attributes: dict[str, object] = {}
+
+    def set_attribute(self, key: str, value: object) -> None:
+        self.attributes[key] = value
+
+
 def _make_request(headers: dict[str, str] | None = None) -> Request:
     body = json.dumps({"message": _MESSAGE, "locale": "fr"}).encode()
     all_headers = {"X-Client-Session-Id": _SESSION_ID, **(headers or {})}
@@ -77,6 +90,11 @@ def recording(monkeypatch):
 
     monkeypatch.setattr(langfuse, "propagate_attributes", _propagate)
 
+    ambient_span = _AmbientSpan()
+    import opentelemetry.trace
+
+    monkeypatch.setattr(opentelemetry.trace, "get_current_span", lambda: ambient_span)
+
     async def _session(session_id, user_id):
         return SimpleNamespace(events=[])
 
@@ -94,12 +112,12 @@ def recording(monkeypatch):
     monkeypatch.setattr(facade, "_apply_native_context", _native)
     monkeypatch.setattr(facade, "_drive", _drive)
     monkeypatch.setattr(facade, "_finalize", _finalize)
-    return client, propagated
+    return client, propagated, ambient_span
 
 
 class TestChatTurnObservation:
     def test_root_observation_carries_input_output_and_attributes(self, recording):
-        client, propagated = recording
+        client, propagated, _ambient_span = recording
         response = asyncio.run(facade.chat(_make_request()))
         assert response.status_code == 200
 
@@ -119,12 +137,12 @@ class TestChatTurnObservation:
         assert attrs["metadata"]["turn_index"] == "0"
 
     def test_synthetic_header_becomes_the_synthetic_tag(self, recording):
-        client, propagated = recording
+        client, propagated, _ambient_span = recording
         asyncio.run(facade.chat(_make_request({"X-Dayuse-Synthetic": "true"})))
         assert propagated[0]["tags"] == ["synthetic"]
 
     def test_chat_stream_sets_output_before_the_done_frame(self, recording):
-        client, propagated = recording
+        client, propagated, _ambient_span = recording
 
         async def _consume() -> bytes:
             response = await facade.chat_stream(_make_request())
@@ -138,3 +156,39 @@ class TestChatTurnObservation:
         assert client.observations[0]["name"] == "v3.chat_stream"
         assert client.observations[0]["input"] == _MESSAGE
         assert client.span.updates == [{"output": _FINAL}]
+
+    def test_progress_frame_records_a_ttft_metadata_point(self, recording):
+        """OBS2: the `progress` frame is the TTFT marker (CLAUDE.md SLO) — the
+        measurement point is positioned here as RAW ambient-span metadata
+        (never through the langfuse client, which would mis-type an
+        ADK-native span — see observability.mark_metadata's docstring). The
+        score itself (OBS3) doesn't exist yet."""
+        _client, _propagated, ambient_span = recording
+
+        async def _consume() -> None:
+            response = await facade.chat_stream(_make_request())
+            async for _ in response.body_iterator:
+                pass
+
+        asyncio.run(_consume())
+        assert "langfuse.observation.metadata.ttft_ms" in ambient_span.attributes
+        assert float(ambient_span.attributes["langfuse.observation.metadata.ttft_ms"]) >= 0
+
+
+class TestFacadeShieldMarksError:
+    def test_marks_error_on_the_span_before_it_closes(self, recording, monkeypatch):
+        """OBS2: the shield fires OUTSIDE the `with turn_observation` block —
+        by then the span is already closed, so the ERROR must be recorded
+        from INSIDE the block, on the RAW ambient span, before the exception
+        unwinds it (never through the langfuse client — see
+        observability.mark_level's docstring)."""
+        _client, _propagated, ambient_span = recording
+
+        async def _boom(**_kwargs):
+            raise RuntimeError("synthesis exploded")
+
+        monkeypatch.setattr(facade, "_finalize", _boom)
+        response = asyncio.run(facade.chat(_make_request()))
+        assert response.status_code == 200  # the shield still returns a contract payload
+        assert ambient_span.attributes["langfuse.observation.level"] == "ERROR"
+        assert ambient_span.attributes["langfuse.observation.status_message"] == "facade_shield"

@@ -24,6 +24,7 @@ from dataclasses import dataclass
 from typing import Any
 
 import httpx
+from b2c_common.observability import mark_level
 
 GEOCODE_URL = "https://api.mapbox.com/search/geocode/v6/forward"
 
@@ -196,6 +197,7 @@ class MapboxClient:
                 response.raise_for_status()
             except httpx.HTTPError:
                 if attempt == attempts - 1:
+                    mark_level("ERROR", status_message="mapbox_retry_exhausted")
                     return None
                 continue
             return response.json()

@@ -79,7 +79,7 @@ from typing import Any, AsyncGenerator
 import httpx
 import litellm
 from b2c_common import max_tokens_for, reasoning_kwargs_for, role_model, temperature_kwargs_for
-from b2c_common.observability import stamp_langfuse_turn_session
+from b2c_common.observability import mark_level, mark_metadata, observation, stamp_langfuse_turn_session
 from dayuse_agent_common import (
     cost_from_tokens,
     enqueue_metric_event,
@@ -344,6 +344,7 @@ async def _run_leaf(
             ms=ms, status="error", error_type=type(exc).__name__, leaf=leaf,
         )
         logger.warning("b2c_concierge: %s leg failed: %s", leaf, exc)
+        mark_level("ERROR", status_message="leaf_call_failed")
         return None, {}
     ms = int((time.monotonic() - t0) * 1000)
     metrics_logger.info("concierge_metric=leaf_call leaf=%s ms=%d status=ok", leaf, ms)
@@ -507,6 +508,11 @@ class _B2cConcierge(BaseAgent):
             "concierge_metric=turn family=%s route=%s llm_calls=%d phases=%s ms=%d status=%s",
             family, route, budget.llm_calls, ",".join(budget.phases) or "-", ms, status,
         )
+        # OBS2: filterable trace metadata — route/feeder + budget + outcome.
+        # Set on whatever observation is ambient here (the ADK `invoke_agent
+        # b2c_concierge` span) — first-level keys only (Langfuse filters on
+        # those), counters/enums only, never message content.
+        mark_metadata({"route": route, "family": family, "llm_calls": budget.llm_calls, "status": status})
         enqueue_metric_event(
             "turn", service=SERVICE, invocation_id=invocation_id, ms=ms, status=status,
             family=family, route=route, llm_calls=budget.llm_calls,
@@ -690,37 +696,45 @@ class _B2cConcierge(BaseAgent):
 
         question = extract_final_question(candidate)
         if question and questions_equivalent(question, profile.last_clarifying_question):
-            directive = _DO_NOT_ASK_DIRECTIVE.format(question=profile.last_clarifying_question)
-            retry = await self._generate_once(
-                message=message, language=language, leaf_text=leaf_text,
-                ground_truth_block=ground_truth_block, widen_note=widen_note,
-                invocation_id=invocation_id, extra_instruction=directive,
-                search_context=search_context, provenance_note=provenance_note,
-                currency_note=currency_note, angle=angle,
-            )
-            if retry is not None:
-                candidate = retry
-                question = extract_final_question(candidate)
-                if question and questions_equivalent(question, profile.last_clarifying_question):
-                    # Still looping: strip the repeated trailing question in
-                    # code — never a 3rd LLM attempt (architecture invariant).
-                    idx = candidate.rfind(question)
-                    candidate = candidate[:idx].rstrip() if idx != -1 else candidate
+            with observation(as_type="guardrail", name="retry-clarification-loop"):
+                mark_level("WARNING", status_message="anti_clarification_loop")
+                directive = _DO_NOT_ASK_DIRECTIVE.format(question=profile.last_clarifying_question)
+                retry = await self._generate_once(
+                    message=message, language=language, leaf_text=leaf_text,
+                    ground_truth_block=ground_truth_block, widen_note=widen_note,
+                    invocation_id=invocation_id, extra_instruction=directive,
+                    search_context=search_context, provenance_note=provenance_note,
+                    currency_note=currency_note, angle=angle,
+                )
+                if retry is not None:
+                    candidate = retry
                     question = extract_final_question(candidate)
+                    if question and questions_equivalent(question, profile.last_clarifying_question):
+                        # Still looping: strip the repeated trailing question in
+                        # code — never a 3rd LLM attempt (architecture invariant).
+                        idx = candidate.rfind(question)
+                        candidate = candidate[:idx].rstrip() if idx != -1 else candidate
+                        question = extract_final_question(candidate)
 
         profile.last_clarifying_question = question
         if candidate:
             hotels = shortlist_hotels(response)
             if hotels:
-                candidate, corrections = apply_amenity_truthfulness(
-                    candidate, hotels, language, profile.amenity_claim_corrections
-                )
+                with observation(as_type="guardrail", name="verify-amenity-claims"):
+                    candidate, corrections = apply_amenity_truthfulness(
+                        candidate, hotels, language, profile.amenity_claim_corrections
+                    )
+                    if corrections:
+                        mark_level("WARNING", status_message="amenity_truthfulness")
                 profile.amenity_claim_corrections = corrections or None
             # S-G12 (guard #13): a Dayuse hotel-page URL the model was not
             # grounded in is a fabrication (wrong domain/slug in prod) —
             # stripped in code, never retried. Runs even with an empty
             # shortlist: with nothing on screen, NO hotel link is honest.
-            candidate, stripped_links = enforce_hotel_link_truthfulness(candidate, hotels)
+            with observation(as_type="guardrail", name="enforce-hotel-link-truthfulness"):
+                candidate, stripped_links = enforce_hotel_link_truthfulness(candidate, hotels)
+                if stripped_links:
+                    mark_level("WARNING", status_message="hotel_link_truthfulness")
             if stripped_links:
                 metrics_logger.info(
                     "concierge_metric=link_guard stripped=%d", stripped_links

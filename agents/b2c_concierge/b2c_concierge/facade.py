@@ -30,11 +30,12 @@ import logging
 import math
 import os
 import re
+import time
 import uuid
 from typing import Any, AsyncGenerator, Literal
 from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
-from b2c_common.observability import turn_observation
+from b2c_common.observability import mark_level, mark_metadata, turn_observation
 from google.adk.runners import InMemoryRunner
 from google.genai import types as genai_types
 from starlette.requests import Request
@@ -759,25 +760,32 @@ async def chat(request: Request) -> Response:
             booking_card: dict | None = None
             requires_clarification = False
             final_text = ""
-            if not message:
-                final_text = _empty_ack_text(message, _parse_locale(body.get("locale")))
-            else:
-                async for kind, data in _drive(session_id, user_id, message):
-                    if kind == "hotels":
-                        hotels = data.get("hotels") or None
-                        requires_clarification = bool(data.get("requires_clarification"))
-                    elif kind == "booking":
-                        booking_card = data.get("booking_card") or None
-                    elif kind == "final":
-                        final_text = data
+            try:
+                if not message:
+                    final_text = _empty_ack_text(message, _parse_locale(body.get("locale")))
+                else:
+                    async for kind, data in _drive(session_id, user_id, message):
+                        if kind == "hotels":
+                            hotels = data.get("hotels") or None
+                            requires_clarification = bool(data.get("requires_clarification"))
+                        elif kind == "booking":
+                            booking_card = data.get("booking_card") or None
+                        elif kind == "final":
+                            final_text = data
 
-            payload = await _finalize(
-                session_id=session_id, message=message, final_text=final_text,
-                hotels=hotels, is_synthetic=is_synthetic, turn_index=turn_index,
-                requires_clarification=requires_clarification, booking_card=booking_card,
-            )
-            if lf_span is not None:
-                lf_span.update(output=final_text)
+                payload = await _finalize(
+                    session_id=session_id, message=message, final_text=final_text,
+                    hotels=hotels, is_synthetic=is_synthetic, turn_index=turn_index,
+                    requires_clarification=requires_clarification, booking_card=booking_card,
+                )
+                if lf_span is not None:
+                    lf_span.update(output=final_text)
+            except Exception:
+                # OBS2: mark ERROR while the span is still open — by the time
+                # the outer except (below) runs, `with turn_observation` has
+                # already exited and closed it.
+                mark_level("ERROR", status_message="facade_shield")
+                raise
     except Exception as exc:  # noqa: BLE001 — last-resort shield: contract payload, never a bare 500
         payload = _shield_payload(session_id, body, message, "json", exc)
     response = JSONResponse(payload)
@@ -805,6 +813,7 @@ async def chat_stream(request: Request) -> Response:
     event-stream headers are committed, a mid-stream failure can no longer
     change the status — a degraded `done` is the only honest terminal signal
     the widget can act on (no separate `error` frame: zero widget change)."""
+    t_request_start = time.monotonic()
     auth = _api_key_error(request)
     if auth is not None:
         return auth
@@ -845,46 +854,61 @@ async def chat_stream(request: Request) -> Response:
                 metadata={"turn_index": turn_index, "locale": body.get("locale"),
                           "currency": body.get("currency"), "domain": body.get("domain")},
             ) as lf_span:
-                if not message:
-                    yield _sse("progress", {})
-                    final_text = _empty_ack_text(message, _parse_locale(body.get("locale")))
-                else:
-                    async for kind, data in _drive(session_id, user_id, message):
-                        if kind == "progress":
-                            yield _sse("progress", {})
-                        elif kind == "hotels":
-                            hotels = data.get("hotels") or None
-                            requires_clarification = bool(data.get("requires_clarification"))
-                            # `requires_clarification`, `response_language` and
-                            # `hotel_picks` ride the frame (additive) so a
-                            # hotels-first client decides whether to paint the
-                            # shortlist — in WHICH language, and with WHICH cards
-                            # bookable — from the same inputs the `done` payload
-                            # carries. Without them a streaming widget shows a
-                            # shortlist a clarifying turn withholds, in the page's
-                            # boot language, with no booking CTA (S-CX9 gates that
-                            # CTA on `hotel_picks`, which used to reach the widget
-                            # only in the blocking JSON body).
-                            yield _sse("hotels", {
-                                "hotels": normalize_hotels(hotels) if hotels else [],
-                                "requires_clarification": requires_clarification,
-                                "response_language": data.get("response_language") or "",
-                                "hotel_picks": data.get("hotel_picks") or [],
-                            })
-                        elif kind == "booking":
-                            booking_card = data.get("booking_card") or None
-                            yield _sse("booking_card", {"booking_card": booking_card})
-                        elif kind == "token":
-                            yield _sse("token", {"text": data})
-                        elif kind == "final":
-                            final_text = data
-                payload = await _finalize(
-                    session_id=session_id, message=message, final_text=final_text,
-                    hotels=hotels, is_synthetic=is_synthetic, turn_index=turn_index,
-                    requires_clarification=requires_clarification, booking_card=booking_card,
-                )
-                if lf_span is not None:
-                    lf_span.update(output=final_text)
+                try:
+                    if not message:
+                        yield _sse("progress", {})
+                        # OBS2: TTFT measurement point (CLAUDE.md SLO: progress < 300 ms).
+                        # No score yet (OBS3 wires the score mechanism) — metadata for now.
+                        mark_metadata(
+                            {"ttft_ms": round((time.monotonic() - t_request_start) * 1000, 1)}
+                        )
+                        final_text = _empty_ack_text(message, _parse_locale(body.get("locale")))
+                    else:
+                        async for kind, data in _drive(session_id, user_id, message):
+                            if kind == "progress":
+                                yield _sse("progress", {})
+                                mark_metadata(
+                                    {"ttft_ms": round((time.monotonic() - t_request_start) * 1000, 1)}
+                                )
+                            elif kind == "hotels":
+                                hotels = data.get("hotels") or None
+                                requires_clarification = bool(data.get("requires_clarification"))
+                                # `requires_clarification`, `response_language` and
+                                # `hotel_picks` ride the frame (additive) so a
+                                # hotels-first client decides whether to paint the
+                                # shortlist — in WHICH language, and with WHICH cards
+                                # bookable — from the same inputs the `done` payload
+                                # carries. Without them a streaming widget shows a
+                                # shortlist a clarifying turn withholds, in the page's
+                                # boot language, with no booking CTA (S-CX9 gates that
+                                # CTA on `hotel_picks`, which used to reach the widget
+                                # only in the blocking JSON body).
+                                yield _sse("hotels", {
+                                    "hotels": normalize_hotels(hotels) if hotels else [],
+                                    "requires_clarification": requires_clarification,
+                                    "response_language": data.get("response_language") or "",
+                                    "hotel_picks": data.get("hotel_picks") or [],
+                                })
+                            elif kind == "booking":
+                                booking_card = data.get("booking_card") or None
+                                yield _sse("booking_card", {"booking_card": booking_card})
+                            elif kind == "token":
+                                yield _sse("token", {"text": data})
+                            elif kind == "final":
+                                final_text = data
+                    payload = await _finalize(
+                        session_id=session_id, message=message, final_text=final_text,
+                        hotels=hotels, is_synthetic=is_synthetic, turn_index=turn_index,
+                        requires_clarification=requires_clarification, booking_card=booking_card,
+                    )
+                    if lf_span is not None:
+                        lf_span.update(output=final_text)
+                except Exception:
+                    # OBS2: mark ERROR while the span is still open — by the time
+                    # the outer except (below) runs, `with turn_observation` has
+                    # already exited and closed it.
+                    mark_level("ERROR", status_message="facade_shield")
+                    raise
         except Exception as exc:  # noqa: BLE001 — mid-stream shield: status is committed, only `done` can signal
             payload = _shield_payload(session_id, body, message, "sse_stream", exc)
         yield _sse("done", payload)

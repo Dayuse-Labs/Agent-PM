@@ -15,6 +15,7 @@ from __future__ import annotations
 
 import logging
 import os
+import sys
 from collections.abc import Iterator
 from contextlib import contextmanager
 from typing import Any
@@ -122,6 +123,88 @@ def turn_observation(
             metadata={k: str(v) for k, v in metadata.items() if v not in (None, "")},
         ):
             yield span
+
+
+@contextmanager
+def observation(*, as_type: str, name: str, **kwargs: Any) -> Iterator[Any]:
+    """A nested Langfuse observation of a given type (OBS2) — `agent`/`tool`/
+    `chain`/`guardrail`/... No-op (yields None) when disabled. Entering the
+    span never raises: a broken SDK must degrade to "no span", never break
+    the guard/tool logic it wraps. Once entered, exceptions from the CALLER's
+    own block propagate normally (observability never swallows a real turn
+    error) — only the SDK's own enter machinery is guarded.
+
+    Deliberately NOT used for `agent`/`tool` on ADK-driven code: ADK's own
+    OTel instrumentation already emits `invoke_agent`/`execute_tool` spans
+    that Langfuse recognizes as `agent`/`tool` types (verified live, OBS2
+    inventory) — adding our own here would be the exact double-span mistake
+    OBS1 already paid for. This helper is for the genuinely untyped gap:
+    our own pure-Python guard/tool call sites that ADK never wraps."""
+    if _client is None:
+        yield None
+        return
+    try:
+        cm = _client.start_as_current_observation(as_type=as_type, name=name, **kwargs)
+        obs = cm.__enter__()
+    except Exception:  # noqa: BLE001 — observability must never break a turn
+        logger.debug("observation(%s) failed to start", name, exc_info=True)
+        yield None
+        return
+    try:
+        yield obs
+    except BaseException:
+        cm.__exit__(*sys.exc_info())
+        raise
+    else:
+        cm.__exit__(None, None, None)
+
+
+def mark_level(level: str, status_message: str) -> None:
+    """Marks the CURRENT observation (ours, ADK's, or litellm's — whichever is
+    ambient) with a level/status_message. `status_message` is a stable rule
+    name ONLY — never user content (RGPD). No-op when disabled; never raises,
+    regardless of what (if anything) is currently active.
+
+    Raw OTel attribute writes (like `stamp_langfuse_session`), NOT
+    `Langfuse.update_current_span()`: that convenience method reconstructs a
+    span wrapper via a type lookup that only recognizes a PRE-EXISTING
+    `langfuse.observation.type` attribute and defaults to "span" otherwise —
+    then bakes that guess back onto the span. An ADK-native `agent`/`tool`
+    span carries no such attribute (the backend infers its type from
+    `gen_ai.operation.name` at ingestion instead), so calling the convenience
+    method on it silently downgrades a correctly-typed observation to a
+    plain `span` — caught live in OBS2 verification (the concierge's own
+    `invoke_agent` span lost its `agent` type this way)."""
+    if _client is None:
+        return
+    try:
+        from opentelemetry import trace
+
+        span = trace.get_current_span()
+        span.set_attribute("langfuse.observation.level", level)
+        span.set_attribute("langfuse.observation.status_message", status_message)
+    except Exception:  # noqa: BLE001 — observability must never break a turn
+        logger.debug("mark_level(%s) skipped", level, exc_info=True)
+
+
+def mark_metadata(metadata: dict[str, Any]) -> None:
+    """Adds filterable, first-level metadata keys to the CURRENT observation
+    (e.g. route, feeder leaf, llm_calls, turn status). No-op when disabled;
+    never raises. Never message content — counters/enums only (RGPD).
+
+    Raw OTel attribute writes — see `mark_level`'s docstring for why."""
+    if _client is None:
+        return
+    try:
+        from opentelemetry import trace
+
+        span = trace.get_current_span()
+        for key, value in metadata.items():
+            if value in (None, ""):
+                continue
+            span.set_attribute(f"langfuse.observation.metadata.{key}", str(value))
+    except Exception:  # noqa: BLE001 — observability must never break a turn
+        logger.debug("mark_metadata skipped", exc_info=True)
 
 
 def stamp_langfuse_session(callback_context: Any) -> None:

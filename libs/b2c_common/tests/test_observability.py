@@ -8,6 +8,7 @@ and the enrichment helpers' never-raise contract.
 from __future__ import annotations
 
 import sys
+from contextlib import contextmanager
 from types import SimpleNamespace
 
 import pytest
@@ -146,3 +147,139 @@ class TestStampLangfuseTurnSession:
             "langfuse.session.id": "sess-9",
             "langfuse.user.id": "v3_sess-9",
         }
+
+
+class _RecordingObservation:
+    def __init__(self) -> None:
+        self.updates: list[dict] = []
+
+    def update(self, **kwargs) -> None:
+        self.updates.append(kwargs)
+
+
+class _RecordingClient:
+    """Duck-typed stand-in for langfuse.Langfuse — OBS2 helpers."""
+
+    def __init__(self) -> None:
+        self.observations: list[dict] = []
+        self.updates: list[dict] = []
+
+    @contextmanager
+    def start_as_current_observation(self, **kwargs):
+        self.observations.append(kwargs)
+        yield _RecordingObservation()
+
+    def update_current_span(self, **kwargs) -> None:
+        self.updates.append(kwargs)
+
+
+class TestObservationDisabled:
+    def test_yields_none_and_runs_the_block(self):
+        ran = False
+        with observability.observation(as_type="guardrail", name="check-x") as obs:
+            ran = True
+            assert obs is None
+        assert ran
+
+
+class TestObservationEnabled:
+    def test_enters_with_as_type_and_name(self, monkeypatch):
+        client = _RecordingClient()
+        monkeypatch.setattr(observability, "_client", client)
+        with observability.observation(as_type="tool", name="mcp-thing") as obs:
+            assert obs is not None
+        assert client.observations == [{"as_type": "tool", "name": "mcp-thing"}]
+
+    def test_propagates_the_callers_own_exception(self, monkeypatch):
+        client = _RecordingClient()
+        monkeypatch.setattr(observability, "_client", client)
+        with pytest.raises(ValueError, match="real bug"):
+            with observability.observation(as_type="guardrail", name="check-x"):
+                raise ValueError("real bug")
+
+    def test_never_raises_when_the_sdk_fails_to_start(self, monkeypatch):
+        class _BrokenClient:
+            def start_as_current_observation(self, **kwargs):
+                raise RuntimeError("sdk broke")
+
+        monkeypatch.setattr(observability, "_client", _BrokenClient())
+        ran = False
+        with observability.observation(as_type="guardrail", name="check-x") as obs:
+            ran = True
+            assert obs is None
+        assert ran
+
+
+class TestMarkLevel:
+    """Raw OTel attribute writes on the ambient span — NOT
+    `Langfuse.update_current_span()`. That convenience method reconstructs a
+    span wrapper from a type it can only read off a PRE-EXISTING
+    `langfuse.observation.type` attribute (defaulting to "span" otherwise),
+    then bakes that guess back onto the span — silently downgrading an
+    ADK-native `agent`/`tool` span (typed by the backend from
+    `gen_ai.operation.name`, never via that attribute) to a plain `span`.
+    Caught live in OBS2 verification; see observability.mark_level."""
+
+    def test_noop_when_disabled(self):
+        observability.mark_level("ERROR", "whatever")  # must not raise
+
+    def test_sets_raw_attributes_on_the_current_span_when_enabled(self, monkeypatch):
+        monkeypatch.setattr(observability, "_client", object())
+        recorded: dict = {}
+        span = SimpleNamespace(set_attribute=lambda k, v: recorded.__setitem__(k, v))
+        import opentelemetry.trace
+
+        monkeypatch.setattr(opentelemetry.trace, "get_current_span", lambda: span)
+        observability.mark_level("WARNING", "some_guard")
+        assert recorded == {
+            "langfuse.observation.level": "WARNING",
+            "langfuse.observation.status_message": "some_guard",
+        }
+
+    def test_never_raises_when_the_span_raises(self, monkeypatch):
+        monkeypatch.setattr(observability, "_client", object())
+        import opentelemetry.trace
+
+        def _broken_span():
+            raise RuntimeError("boom")
+
+        monkeypatch.setattr(opentelemetry.trace, "get_current_span", _broken_span)
+        observability.mark_level("ERROR", "some_guard")  # must not raise
+
+
+class TestMarkMetadata:
+    def test_noop_when_disabled(self):
+        observability.mark_metadata({"a": 1})  # must not raise
+
+    def test_sets_raw_per_key_attributes_and_drops_empty_values(self, monkeypatch):
+        monkeypatch.setattr(observability, "_client", object())
+        recorded: dict = {}
+        span = SimpleNamespace(set_attribute=lambda k, v: recorded.__setitem__(k, v))
+        import opentelemetry.trace
+
+        monkeypatch.setattr(opentelemetry.trace, "get_current_span", lambda: span)
+        observability.mark_metadata(
+            {"llm_calls": 2, "route": "leaf:hotel_search", "empty": None, "blank": ""}
+        )
+        assert recorded == {
+            "langfuse.observation.metadata.llm_calls": "2",
+            "langfuse.observation.metadata.route": "leaf:hotel_search",
+        }
+
+    def test_never_raises_when_the_span_raises(self, monkeypatch):
+        monkeypatch.setattr(observability, "_client", object())
+        import opentelemetry.trace
+
+        def _broken_span():
+            raise RuntimeError("boom")
+
+        monkeypatch.setattr(opentelemetry.trace, "get_current_span", _broken_span)
+        observability.mark_metadata({"a": 1})  # must not raise
+
+    def test_never_raises_when_the_client_raises(self, monkeypatch):
+        class _BrokenClient:
+            def update_current_span(self, **kwargs):
+                raise RuntimeError("boom")
+
+        monkeypatch.setattr(observability, "_client", _BrokenClient())
+        observability.mark_metadata({"a": 1})  # must not raise
