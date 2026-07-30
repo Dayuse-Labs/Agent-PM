@@ -70,7 +70,16 @@ Fix : `_should_export_span` élargi au scope `a2a-python-sdk` **sauf le préfixe
   environnement vient de la racine), mais en prod nos 3 services seront en `production` pendant que
   les spans ES resteront en `default` : **tout filtre ou dashboard au niveau OBSERVATION les
   omettrait silencieusement**, et un bucket `default` parasite apparaîtrait dans le sélecteur. Deux
-  variables d'environnement sur le service MCP, cf. contrat §3.4.
+  variables d'environnement sur le service MCP (`OTEL_SERVICE_NAME=mcp-b2c`,
+  `LANGFUSE_TRACING_ENVIRONMENT=production` ; `LANGFUSE_TRACING_RELEASE` en option — nom JS, différent
+  du `LANGFUSE_RELEASE` de nos 3 services Python), tableau complet dans le contrat §3.4. Nuance :
+  **une valeur statique mislabellise forcément un appelant**, le même déploiement MCP sert le prod
+  ET le dev local (vérifié dans les variables Railway) — la vraie correction serait un déploiement MCP
+  séparé pour le dev.
+- **Voie fermée, testée et pas supposée** : propager l'environnement de l'appelant dans le baggage ne
+  marche pas. On émet bien `langfuse_environment` dans l'en-tête (inspecté en process), et les spans
+  MCP restent en `default` alors que `session.id`/`user.id` du MÊME baggage arrivent. Patch d'essai
+  non committé — ne pas re-tenter depuis AgentB2C, ce serait du code mort.
 
 ## 📊 Addendum 2026-07-30 (session OBS3, branche `obs3-scores-deterministes`, **PR #65 MERGÉE**) — scores déterministes, 12→13 guards, score configs + dashboard créés en vrai
 

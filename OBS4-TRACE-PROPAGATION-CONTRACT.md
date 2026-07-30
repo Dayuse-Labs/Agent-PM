@@ -230,6 +230,29 @@ signalé, pas corrigé) : ses spans arrivent avec `environment='default'` (pas d
 dashboard au niveau OBSERVATION les omettrait silencieusement, et un bucket `default` parasite
 apparaîtrait dans le sélecteur d'environnement.
 
+**Ce qu'il faut poser sur le service MCP_B2C** (Railway, repo séparé) :
+
+| Variable | Valeur | Pourquoi |
+|---|---|---|
+| `OTEL_SERVICE_NAME` | `mcp-b2c` | remplace `unknown_service:node`. Même style que nos 3 services (`b2c-concierge`, `hotel-search-agent`, `faq-agent`). Variable OTel standard : honorée si le service utilise le détecteur de ressources d'environnement du SDK Node ; s'il construit sa `Resource` à la main, il faut une ligne de code. |
+| `LANGFUSE_TRACING_ENVIRONMENT` | `production` | seule valeur juste pour le trafic réel. Contrainte SDK : minuscules alphanumériques + `-`/`_`, ≤ 40 car., ne doit pas commencer par `langfuse`. Rien de posé = `default` (ce qu'on observe). |
+| `LANGFUSE_TRACING_RELEASE` | sha git | optionnel, pour comparer un avant/après déploiement. **Nom différent du nôtre** : les SDK Python lisent `LANGFUSE_RELEASE` (nos 3 services : `8726160`), le SDK JS lit `LANGFUSE_TRACING_RELEASE`. |
+
+⚠️ **Une valeur statique mislabellise forcément un appelant** : le MÊME déploiement MCP
+(`mcp-server-production-bcbe`) sert le prod (`LANGFUSE_TRACING_ENVIRONMENT=production` sur les 3
+services Railway) **et** le dev local (`development` dans `.env`) — vérifié dans les variables
+Railway. Avec `production` posé, les 3 spans MCP d'un tour de dev s'afficheront en `production` dans
+une trace `development`. La vraie correction est un déploiement MCP séparé pour le dev (CLAUDE.md dit
+déjà que le dev doit taper le MCP_B2C de staging) : c'est de l'infra, pas du code.
+
+**La voie « propager l'environnement de l'appelant dans le baggage » ne marche pas — testée, pas
+supposée.** `propagate_attributes(environment=…, as_baggage=True)` émet bien
+`baggage: …,langfuse_environment=development` (vérifié en process, en-tête inspecté), et les spans de
+MCP_B2C restent quand même en `default` — alors que `session.id`/`user.id` du **même** baggage, eux,
+arrivent. Donc soit le SDK JS ne lit pas cette entrée de baggage, soit l'init du serveur fixe
+`environment` explicitement (ce qui a priorité). Ne pas re-tenter ce chemin depuis AgentB2C : le code
+serait mort. (Le patch d'essai n'a pas été committé.)
+
 ---
 
 ## 4. Ce qui n'a pas changé, et pourquoi
