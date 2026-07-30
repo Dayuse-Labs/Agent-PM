@@ -39,7 +39,7 @@ from typing import Any, AsyncIterator
 
 import httpx
 from b2c_common import build_hotel_page_url
-from b2c_common.observability import mark_level, observation
+from b2c_common.observability import mark_level, observation, trace_context_carrier
 from mcp import ClientSession
 from mcp.client.streamable_http import streamable_http_client
 
@@ -79,10 +79,17 @@ async def _call_tool(session: ClientSession, name: str, arguments: dict[str, Any
 
     OBS2: typed `tool` (unlike the leaves' MCP calls, this one runs entirely
     OUTSIDE ADK's own tool-calling machinery — a plain client-session call
-    the concierge makes itself — so nothing else ever types it)."""
+    the concierge makes itself — so nothing else ever types it).
+
+    OBS4: `meta` = the W3C trace context in the MCP `_meta` field, so MCP_B2C
+    can put its ES queries in this turn's trace (OBS10 owns the server side;
+    the wire format is OBS4-TRACE-PROPAGATION-CONTRACT.md §3). Being outside
+    ADK is exactly why it has to be passed here: ADK's own McpToolset already
+    injects the same carrier for the leaves' MCP calls. `_meta` is a
+    spec-sanctioned passthrough — a server that ignores it is unaffected."""
     with observation(as_type="tool", name=f"mcp-{name}"):
         try:
-            result = await session.call_tool(name, arguments)
+            result = await session.call_tool(name, arguments, meta=trace_context_carrier() or None)
         except Exception as exc:  # noqa: BLE001 — an MCP failure degrades, never crashes
             mark_level("ERROR", status_message="inline_mcp_call_failed")
             return {"ok": False, "error": f"{name} failed: {type(exc).__name__}"}

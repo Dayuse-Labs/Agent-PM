@@ -128,18 +128,53 @@ class TestChatTurnObservation:
         assert obs["input"] == _MESSAGE
         assert client.span.updates == [{"output": _FINAL}]
 
-        assert len(propagated) == 1
-        attrs = propagated[0]
-        assert attrs["session_id"] == _SESSION_ID
-        assert attrs["user_id"] == f"v3_{_SESSION_ID}"
-        assert attrs["tags"] == []
-        assert attrs["metadata"]["locale"] == "fr"
-        assert attrs["metadata"]["turn_index"] == "0"
+        # OBS4: two nested calls, because `as_baggage` is per-CALL, not
+        # per-field — see the next test class for what that buys.
+        assert len(propagated) == 2
+        identity, local = propagated
+        assert identity["session_id"] == _SESSION_ID
+        assert identity["user_id"] == f"v3_{_SESSION_ID}"
+        assert local["tags"] == []
+        assert local["metadata"]["locale"] == "fr"
+        assert local["metadata"]["turn_index"] == "0"
 
     def test_synthetic_header_becomes_the_synthetic_tag(self, recording):
         client, propagated, _ambient_span = recording
         asyncio.run(facade.chat(_make_request({"X-Dayuse-Synthetic": "true"})))
-        assert propagated[0]["tags"] == ["synthetic"]
+        assert propagated[1]["tags"] == ["synthetic"]
+
+
+class TestObs4BaggageCarriesOpaqueIdentifiersOnly:
+    """OBS4 security lock. `as_baggage=True` puts values in the HTTP headers of
+    every outgoing request made inside the context, so ONLY opaque identifiers
+    may ride it (session id, `v3_<session id>`). The turn's tags and metadata —
+    locale, currency, domain, turn_index — must stay in-process, which is why
+    `turn_observation` nests a SECOND `propagate_attributes` without baggage."""
+
+    def test_only_session_and_user_travel_in_baggage(self, recording):
+        _client, propagated, _ambient_span = recording
+        asyncio.run(facade.chat(_make_request({"X-Dayuse-Synthetic": "true"})))
+
+        on_the_wire = [attrs for attrs in propagated if attrs.get("as_baggage")]
+        assert len(on_the_wire) == 1
+        assert set(on_the_wire[0]) == {"session_id", "user_id", "as_baggage"}
+
+        stays_local = [attrs for attrs in propagated if not attrs.get("as_baggage")]
+        assert len(stays_local) == 1
+        assert set(stays_local[0]) == {"tags", "metadata"}
+
+    def test_the_message_never_reaches_the_baggage_call(self, recording):
+        """The GDPR line: message content goes to the trace (sanctioned audit
+        channel), never into a header a third party could ever see."""
+        _client, propagated, _ambient_span = recording
+        asyncio.run(facade.chat(_make_request()))
+        wire_values = [
+            str(value)
+            for attrs in propagated
+            if attrs.get("as_baggage")
+            for value in attrs.values()
+        ]
+        assert all(_MESSAGE not in value for value in wire_values)
 
     def test_chat_stream_sets_output_before_the_done_frame(self, recording):
         client, propagated, _ambient_span = recording

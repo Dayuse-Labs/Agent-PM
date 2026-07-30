@@ -19,7 +19,7 @@ from contextlib import asynccontextmanager
 
 from a2a.types import AgentCapabilities, HTTPAuthSecurityScheme, SecurityScheme
 from b2c_common import BearerAuthMiddleware, require_bearer_token
-from b2c_common.observability import flush_langfuse, setup_langfuse
+from b2c_common.observability import A2aTurnObservation, flush_langfuse, setup_langfuse
 from google.adk.a2a.utils.agent_card_builder import AgentCardBuilder
 from google.adk.a2a.utils.agent_to_a2a import to_a2a
 from starlette.applications import Starlette
@@ -74,4 +74,9 @@ app = to_a2a(
     root_agent, host=_HOST, port=_PORT, agent_card=_agent_card,
     lifespan=_lifespan,  # type: ignore[arg-type]
 )
+# OBS4: joins the caller's trace (W3C headers) and opens the leaf's root
+# observation. Added BEFORE the D7 gate on purpose — add_middleware puts the
+# LAST added outermost, so the bearer check rejects an unauthenticated call
+# before any trace is opened for it. No-op without LANGFUSE_* keys.
+app.add_middleware(A2aTurnObservation, name=root_agent.name)
 app.add_middleware(BearerAuthMiddleware, token=_BEARER_TOKEN)

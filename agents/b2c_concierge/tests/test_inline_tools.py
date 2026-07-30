@@ -80,9 +80,13 @@ class FakeSession:
     def __init__(self, script: dict):
         self.script = script
         self.calls: list[tuple[str, dict]] = []
+        self.metas: list[dict | None] = []
 
-    async def call_tool(self, name, arguments):
+    async def call_tool(self, name, arguments, *, meta=None):
+        # `meta` = OBS4's W3C trace context in the MCP `_meta` field (keyword-only,
+        # mcp==1.28.1) — None whenever tracing is off, which is the whole suite.
         self.calls.append((name, dict(arguments)))
+        self.metas.append(meta)
         outcome = self.script.get(name)
         if callable(outcome) and not isinstance(outcome, FakeResult):
             outcome = outcome(arguments)
@@ -1360,3 +1364,40 @@ class TestHotelAmenitiesAreCardLevel:
         assert plans["b"]["discount_pct"] == 10  # (7670-6900)/7670 = 10.04%
         assert plans["a"]["original_price"] == "€115.70"
         assert plans["a"]["discount_pct"] == 23
+
+
+class TestObs4McpTraceContext:
+    """OBS4: the inline MCP calls carry the W3C trace context in the MCP
+    `_meta` field, so MCP_B2C can attach its ES queries to this turn's trace
+    (server side = OBS10). Wire format: OBS4-TRACE-PROPAGATION-CONTRACT.md §3.
+    ADK's own McpToolset already does this for the leaves' MCP calls — this is
+    the concierge catching up, since its inline tools bypass ADK entirely."""
+
+    def test_meta_is_none_when_tracing_is_disabled(self, monkeypatch):
+        session = _install(
+            monkeypatch, {"get_hotel_details": FakeResult(HOTEL_DETAILS_RESPONSE)}
+        )
+        profile = SessionProfile(last_results=SHORTLIST)
+        _run(inline_tools.get_hotel_details("Villa Paris Orly", profile))
+        assert session.metas == [None]  # never an empty dict on the wire
+
+    def test_meta_carries_the_traceparent_of_the_tool_span(self, monkeypatch):
+        from b2c_common import observability
+        from opentelemetry.sdk.trace import TracerProvider
+        from opentelemetry.trace import format_trace_id
+
+        tracer = TracerProvider().get_tracer("b2c-test")
+        monkeypatch.setattr(observability, "_client", object())
+        session = _install(
+            monkeypatch, {"get_hotel_details": FakeResult(HOTEL_DETAILS_RESPONSE)}
+        )
+        profile = SessionProfile(last_results=SHORTLIST)
+        with tracer.start_as_current_span("turn") as span:
+            _run(inline_tools.get_hotel_details("Villa Paris Orly", profile))
+            trace_id = format_trace_id(span.get_span_context().trace_id)
+
+        assert len(session.metas) == 1
+        meta = session.metas[0]
+        assert meta is not None
+        assert meta["traceparent"].split("-")[1] == trace_id
+        assert f"langfuse_trace_id={trace_id}" in meta["baggage"]

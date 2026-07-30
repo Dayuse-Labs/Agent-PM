@@ -78,6 +78,18 @@ class TestBearerGate:
         response = client.post("/", json={}, headers={"Authorization": TOKEN})
         assert response.status_code == 401
 
+    def test_trace_middleware_sits_INSIDE_the_bearer_gate(self, serve):
+        """OBS4 ordering lock: `add_middleware` puts the last added outermost,
+        so the D7 gate must be added last — an unauthenticated POST has to be
+        rejected before `A2aTurnObservation` opens a trace for it."""
+        from b2c_common import BearerAuthMiddleware
+        from b2c_common.observability import A2aTurnObservation
+
+        assert [middleware.cls for middleware in serve.app.user_middleware] == [
+            BearerAuthMiddleware,  # index 0 = outermost
+            A2aTurnObservation,
+        ]
+
     def test_good_token_passes_the_gate(self, client):
         # The empty body is not a valid A2A JSON-RPC call — whatever the handler
         # answers, the D7 gate must NOT be the thing rejecting it.

@@ -2,6 +2,59 @@
 
 État du chantier pour reprise en session fraîche. **Lire en entier avant d'agir ; ne pas reconstruire ce qui existe.** Mettre à jour en fin de CHAQUE session (bloc daté en tête).
 
+## 🧵 Addendum 2026-07-30 (session OBS4, branche `obs4-trace-distribuee-a2a`, non mergée) — UNE trace par tour de bout en bout à travers l'A2A, dette v4 soldée
+
+**Contexte** : 4e chantier de `PLAN-OBS-LANGFUSE-2026-07-29.md`, implémente **D-OBS-5**. Périmètre exact de `phases/OBS4-trace-distribuee-a2a.md` : `libs/b2c_common/**` + `agents/**`. Tourne en parallèle d'**OBS10** (autre repo, MCP_B2C) : cette session produit le contrat d'injection qu'OBS10 consomme, et sa MR passe avant. Zéro appel LLM ajouté, zéro appel réseau ajouté (la propagation est un en-tête).
+
+### Décision documentée AVANT le code, avec des preuves de code source — `OBS4-TRACE-PROPAGATION-CONTRACT.md`
+
+Le fichier est le livrable de décision **et** le contrat pour OBS10. Les 3 preuves qui ont tranché :
+
+1. **La voie « trace_id explicite dans la metadata A2A » est structurellement impossible**, pas juste moins jolie. Le point de lecture le plus précoce de cette metadata est un `before_agent_callback` ADK — à cet instant les spans racines d'ADK existent déjà et leur `trace_id` est immuable. On aurait eu **3 traces au lieu de 2** (l'observation rattachée dans la trace du concierge, tout le sous-arbre ADK de la feuille dans une autre). Retenu : **contexte W3C dans les en-têtes HTTP, extrait au bord ASGI** — le seul point d'interception qui précède la création des spans ADK.
+2. **Les deux moitiés du saut A2A manquaient** : `grep propagate|inject|traceparent` sur `remote_a2a_agent.py`, les transports `a2a-sdk` client ET l'app A2A serveur d'ADK → **0 occurrence**. Donc aucun risque de double injection.
+3. **Le baggage n'est pas un bonus « attributs », il est requis pour la correction de l'arbre.** `span_processor.py::_mark_app_root_candidate` : dans la feuille, `parent_expected_exported` est FAUX (le parent est distant, absent de la table locale) — sans l'entrée de baggage `langfuse_trace_id`, la feuille **revendiquerait une 2e racine applicative sur la même trace**. `suppressed_by_parent_claim` est exactement le mécanisme cross-service du SDK. Le SDK pose cette entrée seul dès qu'un de SES spans est actif (chemin façade) ; on la pose explicitement en plus pour couvrir le chemin A2A (spans ADK uniquement).
+
+### Ce qui a été construit
+
+- **`trace_context_carrier()`** (`b2c_common/observability.py`) : LE format de fil, un seul endroit — `{"traceparent", "baggage"}` du span actif + l'anti-double-racine. Consommé par la jambe A2A **et** par `_meta` MCP.
+- **`_inject_trace_context`** : `event_hooks={"request": …}` sur le client httpx de chaque jambe. **Délibérément pas d'instrumentation httpx globale** : avec seulement 2 points d'injection nommés, Mapbox et tout futur tiers ne reçoivent **rien** de notre baggage. C'est la raison technique de la règle de sécurité, pas une préférence.
+- **`A2aTurnObservation`** : middleware **ASGI pur** (précédent `BearerAuthMiddleware`) — `extract()`+`attach()` puis ouvre l'observation racine `a2a.<agent_name>`. POST seulement (le GET de l'agent card n'ouvre pas de trace), toujours **sous** le gate D7 (un appel non authentifié n'ouvre pas de trace — verrouillé par test). Monté sur toute l'app des 2 feuilles ET sur la **seule surface A2A** du concierge (`/v3/*` garde `v3.chat` comme racine ; un 2e wrapper au-dessus lui volerait nom et input).
+- **`stamp_a2a_turn` remplace `stamp_langfuse_session`** (supprimé, tests remplacés) : input sur l'observation racine + `langfuse.session.id`. **Plus aucun `langfuse.trace.input`/`.name` dans `agents/**` ni `libs/**`** — verrouillé pour de bon par `libs/b2c_common/tests/test_no_deprecated_trace_attributes.py` (scan statique, précédent `test_no_dev_insecure.py`). **Dette v4 soldée.**
+- **`stamp_langfuse_turn_session` CONSERVÉ** (décision, pas un oubli) : c'est la seule chose qui pose session+user sur un tour concierge piloté en A2A, où il n'y a pas de `turn_observation`. Aucun attribut déprécié dedans.
+- **`mark_a2a_turn_output`** appelée depuis `agent.py::_final` (l'entonnoir unique des 12 événements terminaux) : le chemin A2A a maintenant un **output de trace**, qu'il n'avait jamais eu.
+- **`turn_observation` : `as_baggage=True` sur session/user SEULEMENT.** `as_baggage` est un drapeau par appel, pas par champ → 2 `propagate_attributes` imbriqués, l'externe (identifiants opaques) part sur le fil, l'interne (tags + metadata `turn_index`/`locale`/`currency`/`domain`) reste en process. Verrou RGPD dédié dans `test_facade_langfuse.py`.
+- **Moitié client du contrat MCP** : `inline_tools._call_tool` passe `meta=trace_context_carrier() or None`. **Découverte importante : ADK 2.4.0 injecte DÉJÀ le même carrier dans `_meta`** pour les tools MCP des feuilles (`mcp_tool.py:408-426`, `get_global_textmap().inject()` → `call_tool(meta=…)`) — le contrat d'OBS10 n'est donc pas inventé par nous, c'est déjà ce qui arrive sur MCP_B2C aujourd'hui ; le concierge (hors ADK) rattrape juste son retard.
+
+### Le piège trouvé EN VÉRIFIANT en live : une trace ≠ un arbre
+
+Premier tour réel : **1 seule trace** ✅ mais **3 observations racines** (`v3.chat`, `invoke_workflow b2c_hotel_search`, `a2a.b2c_hotel_search` côte à côte) → pas d'arête concierge→feuille dans l'Agent Graph. Cause : le `a2a-sdk` décore ses transports/handlers avec `@trace_class` (scope `a2a-python-sdk`) et ces spans sont **exactement entre** le span de jambe et les spans ADK de la feuille, **des deux côtés du saut** ; le filtre d'export les jetait, et Langfuse remonte les orphelins au premier niveau. Les vrais parents (`JsonRpcTransport._send_request`, `DefaultRequestHandler._run_event_stream`) ne sont atteignables depuis aucun code à nous.
+
+Fix : `_should_export_span` élargi au scope `a2a-python-sdk` **sauf le préfixe `a2a.server.events.`**. Mesuré : tout le scope = **76 observations/tour** (la boucle `EventQueue.enqueue/dequeue/task_done` tire des dizaines de fois) ; avec l'exclusion = **31 observations, un seul arbre, une seule racine**. Exclusion par préfixe de module plutôt que liste blanche des noms du chemin : ça échoue **ouvert** (renommage a2a-sdk → quelques spans bruyants) plutôt que **fermé** (un trou dans l'arbre, ce qu'on venait de réparer), et `a2a-sdk==0.3.26` est pinné justement parce que 0.3.x bouge. Bénéfice : le coût du saut réseau A2A est désormais visible dans la trace (utile au chantier latence).
+
+### Vérifié en live (sessions `obs4-check-05*`, clés réelles, MCP + LLM réels, `dev-obs4`)
+
+| Chemin | Tours | Traces | Nom | Racines | Obs. | in/out | Générations avec usage |
+|---|---|---|---|---|---|---|---|
+| Façade `/v3/chat` | 1 | **1** | `v3.chat` | **1** | 31 | ✅/✅ | 4 (2 concierge + 2 feuille) |
+| Pilotage A2A | 2 | **2** | `a2a.b2c_concierge` | **1** chacune | 37/40 | ✅/✅ | 4 chacune |
+
+- Arbre unique : `v3.chat` → `invoke_agent b2c_concierge` → `invoke_agent hotel_search_leg` → transport A2A → `a2a.b2c_hotel_search` → handler A2A → `invoke_workflow b2c_hotel_search` → `invoke_agent b2c_hotel_search` → `generate_content` → `search_offers` (TOOL).
+- **Usage compté 1×** : les 3 `call_llm` restent `SPAN` à usage nul (le masque de la PR #62 tient), seules les 2 `acompletion` + 2 `generate_content` portent l'usage ; `total_cost` ≈ 0,00106 $/tour de recherche.
+- **Vue Sessions peuplée sur les deux chemins**. **OBS2/OBS3 non régressés** : `AGENT`×3/`TOOL`/`GUARDRAIL`/`GENERATION`×4 et **16 scores par trace avec `configId` non nul** (vérifié via `listScores` — le `scores_v3.get_many_v3` du SDK ne renvoie PAS le champ config, ne pas conclure à une régression en le lisant par là).
+- `smoke_e2e.py` et `--contract` **PASS**, premier frame SSE `progress` à **3 ms** (SLO < 300 ms), `llm_calls=3`.
+
+### Gates
+
+`pytest -q` → **1263 passed, 1 skipped** (le skip est antérieur, hors zone ; +26 tests) · `ruff check .` clean · `mypy agents libs` clean (45 fichiers) · `dayuse_guardrails.sh` OK.
+
+### Reste
+
+- **OBS6 n'a rien à changer** (vérifié en lisant le code, pas supposé) : `evals/langfuse_experiment.py::_lookup_trace_facts` balaie **toutes** les traces de la session et s'arrête quand il a trouvé les faits — avec une trace unique il les trouve dans celle-là. Le commentaire du fichier qui dit « un tour produit DEUX traces » est maintenant périmé mais inoffensif (`evals/**` est hors zone OBS4).
+- **Pas d'`output` sur l'observation racine de FEUILLE** (le concierge en a un) : aucun seam public ne l'expose — la chaîne `after_agent_callback` d'ADK s'arrête au premier retour non-`None` (`base_agent.py:552`) et sur la feuille search c'est `emit_search_datapart`. Les stamps supprimés ne posaient de toute façon que nom+input : zéro régression.
+- **Les 5 guards géo/date de la feuille** (le « Reste » d'OBS3) sont maintenant débloqués : la feuille écrit sur la MÊME trace que le concierge, donc `score_current_trace` depuis la feuille y atterrira. Chantier séparé, zone `agents/hotel_search_agent/**`.
+- **`langfuse_trace_id` est une clé de baggage privée du SDK** : pinnée par un test contre `langfuse._client.propagation.LANGFUSE_TRACE_ID_BAGGAGE_KEY`, donc un bump langfuse échoue bruyamment au lieu de rouvrir silencieusement le trou de la 2e racine.
+- MR à ouvrir depuis cette branche — jamais de merge par la session. **Avant celle d'OBS10.**
+
 ## 📊 Addendum 2026-07-30 (session OBS3, branche `obs3-scores-deterministes`, non mergée) — scores déterministes, 12→13 guards, score configs + dashboard créés en vrai
 
 **Contexte** : 3e chantier de `PLAN-OBS-LANGFUSE-2026-07-29.md`. Périmètre exact de `phases/OBS3-scores-deterministes.md` : `libs/b2c_common/**` + `agents/b2c_concierge/**` + `observability/langfuse/**` (nouveau dossier) — **zéro fichier touché dans `agents/hotel_search_agent/**`**, décision assumée (voir "Reste"). Référence : `OBS2-LANGFUSE-BRIEF.md` §2 et §8. Zéro appel LLM ajouté.

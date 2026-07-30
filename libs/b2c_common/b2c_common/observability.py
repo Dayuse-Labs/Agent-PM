@@ -18,11 +18,17 @@ import os
 import sys
 from collections.abc import Iterator
 from contextlib import contextmanager
+from contextvars import ContextVar
 from typing import Any
 
 logger = logging.getLogger(__name__)
 
 _client: Any = None  # langfuse.Langfuse | None — Any keeps the import lazy
+
+#: The leaf's root observation for the A2A request being served, so an ADK
+#: callback (which runs deep inside it) can still set its input. Set by
+#: `A2aTurnObservation`, read by `stamp_a2a_turn`.
+_a2a_root_observation: ContextVar[Any] = ContextVar("b2c_a2a_root_observation", default=None)
 
 
 def setup_langfuse(service_name: str, *, instrument_litellm: bool = True) -> Any:
@@ -81,14 +87,39 @@ def setup_langfuse(service_name: str, *, instrument_litellm: bool = True) -> Any
     return _client
 
 
+#: Instrumentation scopes Langfuse's default filter drops but we need:
+#: - `gcp.vertex.agent`: ADK's attribute-less `invoke_workflow` root span, whose
+#:   loss would orphan the whole agent subtree (OBS1).
+#: - `a2a-python-sdk`: the a2a-sdk decorates its transports and handlers with
+#:   `@trace_class` (a2a/utils/telemetry.py), and those spans sit BETWEEN the
+#:   concierge's leg span and the leaf's ADK spans, on BOTH sides of the A2A
+#:   hop. Dropping them punched two holes in the joined trace: the leaf subtree
+#:   and our own leaf root observation surfaced as extra TOP-LEVEL nodes instead
+#:   of nesting under the concierge — one trace, but not one TREE, so no Agent
+#:   Graph edge either (measured on a real turn, OBS4). Keeping them also puts
+#:   the A2A network hop's own timing in the trace, which the latency work wants.
+_EXTRA_EXPORT_SCOPES = ("gcp.vertex.agent", "a2a-python-sdk")
+
+#: ...but NOT the a2a event plumbing: `@trace_class` also wraps EventQueue /
+#: EventConsumer / InMemoryQueueManager, whose per-event methods
+#: (enqueue/dequeue/task_done) fire dozens of times per turn — measured: 76
+#: observations instead of ~31 on one search turn, all of it churn carrying no
+#: information about the turn. Excluded by MODULE prefix rather than by an
+#: allowlist of the path's method names on purpose: this fails OPEN (a2a-sdk
+#: renames something → a few noisy spans) instead of failing CLOSED (a hole in
+#: the tree, which is what we just fixed), and `a2a-sdk==0.3.26` is pinned
+#: precisely because 0.3.x moves.
+_A2A_NOISY_SPAN_PREFIX = "a2a.server.events."
+
+
 def _should_export_span(span: Any) -> bool:
-    # Langfuse's default filter drops ADK's attribute-less legacy `invocation`
-    # root span (scope gcp.vertex.agent), which would orphan the agent subtree.
     from langfuse.span_filter import is_default_export_span
 
     scope = getattr(span, "instrumentation_scope", None)
+    if scope is not None and scope.name == "a2a-python-sdk":
+        return not getattr(span, "name", "").startswith(_A2A_NOISY_SPAN_PREFIX)
     return bool(is_default_export_span(span)) or (
-        scope is not None and scope.name == "gcp.vertex.agent"
+        scope is not None and scope.name in _EXTRA_EXPORT_SCOPES
     )
 
 
@@ -163,6 +194,13 @@ def turn_observation(
     Yields the span handle (None when disabled) so the caller can set the
     output once the final text is known. Input/output of the root observation
     become the trace input/output — the audit surface.
+
+    OBS4: session + user also travel to the leaves in OTel baggage, so the leaf
+    observations that join this trace carry them too (aggregations only count
+    observations that have the attribute set). `as_baggage` is a per-CALL flag,
+    not per-field, hence the nested pair: everything in the outer call leaves
+    the process in plain HTTP headers, so only opaque identifiers go there
+    (see `trace_context_carrier`); the turn's tags and metadata stay local.
     """
     if _client is None:
         yield None
@@ -170,13 +208,12 @@ def turn_observation(
     from langfuse import propagate_attributes
 
     with _client.start_as_current_observation(as_type="span", name=name, input=message) as span:
-        with propagate_attributes(
-            user_id=user_id,
-            session_id=session_id,
-            tags=["synthetic"] if is_synthetic else [],
-            metadata={k: str(v) for k, v in metadata.items() if v not in (None, "")},
-        ):
-            yield span
+        with propagate_attributes(user_id=user_id, session_id=session_id, as_baggage=True):
+            with propagate_attributes(
+                tags=["synthetic"] if is_synthetic else [],
+                metadata={k: str(v) for k, v in metadata.items() if v not in (None, "")},
+            ):
+                yield span
 
 
 @contextmanager
@@ -219,7 +256,7 @@ def mark_level(level: str, status_message: str) -> None:
     name ONLY — never user content (RGPD). No-op when disabled; never raises,
     regardless of what (if anything) is currently active.
 
-    Raw OTel attribute writes (like `stamp_langfuse_session`), NOT
+    Raw OTel attribute writes (like `stamp_langfuse_turn_session`), NOT
     `Langfuse.update_current_span()`: that convenience method reconstructs a
     span wrapper via a type lookup that only recognizes a PRE-EXISTING
     `langfuse.observation.type` attribute and defaults to "span" otherwise —
@@ -261,14 +298,186 @@ def mark_metadata(metadata: dict[str, Any]) -> None:
         logger.debug("mark_metadata skipped", exc_info=True)
 
 
-def stamp_langfuse_session(callback_context: Any) -> None:
-    """Leaf before_agent_callback: enrich the leaf trace so it reads well in
-    the Langfuse UI — session id from the inbound A2A dayuse_trace_id (the
-    Sessions view then groups the leaf trace with the concierge turn), the
-    agent name as the trace name, and the inbound request text as the trace
-    input. The langfuse.trace.* attributes are trace-level: they apply from
-    any span of the trace (ADK's root `invocation` span carries no attributes,
-    which is why the trace would otherwise show as unnamed with no input).
+#: Langfuse's own baggage entry for "this trace already has an application root
+#: upstream". The receiving SDK compares it to the trace id of every span it
+#: starts and skips its own app-root claim when they match
+#: (`_client/span_processor.py::_mark_app_root_candidate`,
+#: `suppressed_by_parent_claim`) — without it a joined leaf would open a SECOND
+#: root observation on the same trace. Pinned against the SDK constant by
+#: test_observability.py so a langfuse bump fails loudly here.
+_LANGFUSE_TRACE_ID_BAGGAGE_KEY = "langfuse_trace_id"
+
+_TRACEPARENT_HEADER = b"traceparent"
+
+
+def trace_context_carrier() -> dict[str, str]:
+    """W3C trace context of the ACTIVE span, as a flat carrier dict — THE wire
+    format for every cross-process hop we own (OBS4, see
+    OBS4-TRACE-PROPAGATION-CONTRACT.md).
+
+    Two call sites, both explicit: the A2A leg's outgoing HTTP headers, and the
+    `_meta` field of an inline MCP `tools/call` (ADK's own McpToolset already
+    does exactly this for the leaves' MCP calls — mcp_tool.py, `inject(carrier)`
+    → `call_tool(meta=...)`, so this mirrors an existing wire format instead of
+    inventing one). Deliberately NOT a global httpx instrumentation: baggage
+    would then reach every third party (Mapbox) instead of only our own peers.
+
+    Keys come from the global OTel propagator (`traceparent`, `tracestate` when
+    an upstream set one, `baggage`), plus the Langfuse app-root claim (see
+    `_LANGFUSE_TRACE_ID_BAGGAGE_KEY`). The SDK adds that claim itself whenever
+    one of its own spans is active (the /v3 facade path); setting it here also
+    covers the A2A-driven path, where only ADK spans exist.
+
+    GDPR/security: this travels in plain HTTP headers, so it carries opaque
+    identifiers ONLY — trace/span ids, the conversation's session id,
+    `v3_<session id>`. Never message content, never a secret.
+
+    Empty dict when tracing is disabled or no span is active; never raises."""
+    if _client is None:
+        return {}
+    try:
+        from opentelemetry import baggage, propagate, trace
+
+        span_context = trace.get_current_span().get_span_context()
+        if not span_context.is_valid:
+            return {}
+        context = baggage.set_baggage(
+            _LANGFUSE_TRACE_ID_BAGGAGE_KEY, trace.format_trace_id(span_context.trace_id)
+        )
+        carrier: dict[str, str] = {}
+        propagate.inject(carrier, context=context)
+        return carrier
+    except Exception:  # noqa: BLE001 — observability must never break a turn
+        logger.debug("trace_context_carrier skipped", exc_info=True)
+        return {}
+
+
+class A2aTurnObservation:
+    """Pure-ASGI wrapper for an A2A-served turn (BearerAuthMiddleware
+    precedent): joins the caller's trace and opens the service's ROOT
+    observation. Mounted on the two leaves' whole app, and on the concierge's
+    A2A surface only (`/v3/*` has its own root, `turn_observation`).
+
+    Why ASGI and not a before_agent_callback: the OTel context must be active
+    BEFORE ADK creates its invocation span, or the served subtree already lives
+    in a trace of its own and an observation opened with an explicit
+    `trace_context=` would sit in a DIFFERENT trace than the ADK spans around
+    it (3 traces per turn instead of 1). The A2A metadata channel that carries
+    `dayuse_trace_id` is only readable at callback time — structurally too
+    late; the W3C headers are readable here. Full reasoning and the proofs:
+    OBS4-TRACE-PROPAGATION-CONTRACT.md §1.
+
+    Called with NO upstream context (peer agent, eval battery, isolated smoke),
+    nothing is attached and this observation is simply the root of a new trace:
+    `stamp_a2a_turn` gives it the inbound request as input, so the trace stays
+    named and readable instead of anonymous.
+
+    Typed `span`, not `agent`: ADK 2.4.0 already types `invoke_agent <name>` as
+    AGENT natively (OBS2 finding), and the concierge's own `v3.chat` root has
+    the same shape — a second agent-typed node would just duplicate the node
+    for that service in the Agent Graph.
+
+    POSTs only: the agent-card GET must never open a trace."""
+
+    def __init__(self, app: Any, *, name: str) -> None:
+        self._app = app
+        self._name = f"a2a.{name}"
+
+    async def __call__(self, scope: Any, receive: Any, send: Any) -> None:
+        if _client is None or scope["type"] != "http" or scope.get("method") != "POST":
+            await self._app(scope, receive, send)
+            return
+        token = _attach_upstream_trace_context(scope.get("headers") or [])
+        try:
+            with observation(as_type="span", name=self._name) as obs:
+                reset = _a2a_root_observation.set(obs)
+                try:
+                    await self._app(scope, receive, send)
+                finally:
+                    _a2a_root_observation.reset(reset)
+        finally:
+            _detach_trace_context(token)
+
+
+def _attach_upstream_trace_context(headers: Any) -> Any:
+    """Makes the caller's W3C context (traceparent + baggage) current for this
+    request; returns the detach token, None when there was nothing to attach.
+
+    No traceparent → attach NOTHING rather than an empty extracted context:
+    `propagate.extract` with no context builds a fresh one, and attaching that
+    would wipe whatever is ambient instead of simply starting a new trace."""
+    try:
+        if not any(key == _TRACEPARENT_HEADER for key, _ in headers):
+            return None
+        from opentelemetry import context as otel_context
+        from opentelemetry import propagate
+
+        carrier = {key.decode("latin-1"): value.decode("latin-1") for key, value in headers}
+        return otel_context.attach(propagate.extract(carrier))
+    except Exception:  # noqa: BLE001 — observability must never break a turn
+        logger.debug("upstream trace context not attached", exc_info=True)
+        return None
+
+
+def _detach_trace_context(token: Any) -> None:
+    if token is None:
+        return
+    try:
+        from opentelemetry import context as otel_context
+
+        otel_context.detach(token)
+    except Exception:  # noqa: BLE001 — observability must never break a turn
+        logger.debug("trace context detach skipped", exc_info=True)
+
+
+def mark_a2a_turn_output(text: str) -> None:
+    """Sets the A2A root observation's OUTPUT — the turn's final answer, which
+    is what becomes the trace output on the A2A-driven path (peer agents, eval
+    battery, smoke). OBS1 left that path with no output at all.
+
+    No-op, by design, on the /v3 facade path: `A2aTurnObservation` is not
+    mounted there, so there is no A2A root observation and `facade.py` owns
+    `v3.chat`'s own output. No-op when tracing is off; never raises."""
+    if _client is None or not text:
+        return
+    try:
+        root = _a2a_root_observation.get()
+        if root is not None:
+            root.update(output=text)
+    except Exception:  # noqa: BLE001 — observability must never break a turn
+        logger.debug("mark_a2a_turn_output skipped", exc_info=True)
+
+
+def _stamp_root_observation_input(callback_context: Any) -> None:
+    """Feeds the A2A root observation (opened by `A2aTurnObservation`) the
+    inbound request text. No-op when there is none — which is exactly the /v3
+    facade path, where `turn_observation` already set the input from the HTTP
+    body and must stay the trace's input."""
+    root = _a2a_root_observation.get()
+    if root is None:
+        return
+    request_text = _content_text(getattr(callback_context, "user_content", None))
+    if request_text:
+        root.update(input=request_text)
+
+
+def stamp_a2a_turn(callback_context: Any) -> None:
+    """Leaf before_agent_callback — replaces OBS1's `stamp_langfuse_session`.
+
+    Gives the leaf's root observation (opened by `A2aTurnObservation`) the
+    inbound request as its INPUT: the root observation's input/output is what
+    becomes the trace's input/output, which is what let the two trace-level
+    enrichment attributes OBS1 stamped here (trace input, trace name) go — both
+    are deprecated in Langfuse v4 (brief §12.4), and they were this codebase's
+    only deprecated surface. `test_no_deprecated_trace_attributes.py` keeps them
+    out for good; the name now comes from the root observation itself.
+
+    `langfuse.session.id` from the inbound A2A `dayuse_trace_id`: on a joined
+    trace the concierge already propagated the same value in baggage (idempotent
+    write), and on a direct call it is what keeps the leaf's own trace in the
+    Sessions view — falling back to the leaf's own ADK session id when the
+    caller sends no fleet metadata.
+
     Enrichment only: never raises, always returns None so the ADK callback
     chain continues."""
     if _client is None:
@@ -276,23 +485,17 @@ def stamp_langfuse_session(callback_context: Any) -> None:
     try:
         from opentelemetry import trace
 
-        span = trace.get_current_span()
         run_config = getattr(callback_context, "run_config", None)
         meta = (getattr(run_config, "custom_metadata", None) or {}).get("a2a_metadata") or {}
-        trace_id = meta.get("dayuse_trace_id")
-        if not (isinstance(trace_id, str) and trace_id):
+        session_id = meta.get("dayuse_trace_id")
+        if not (isinstance(session_id, str) and session_id):
             # Direct A2A caller without fleet metadata: group by own session.
-            trace_id = getattr(getattr(callback_context, "session", None), "id", None)
-        if isinstance(trace_id, str) and trace_id:
-            span.set_attribute("langfuse.session.id", trace_id)
-        agent_name = getattr(callback_context, "agent_name", None)
-        if isinstance(agent_name, str) and agent_name:
-            span.set_attribute("langfuse.trace.name", agent_name)
-        request_text = _content_text(getattr(callback_context, "user_content", None))
-        if request_text:
-            span.set_attribute("langfuse.trace.input", request_text)
+            session_id = getattr(getattr(callback_context, "session", None), "id", None)
+        if isinstance(session_id, str) and session_id:
+            trace.get_current_span().set_attribute("langfuse.session.id", session_id)
+        _stamp_root_observation_input(callback_context)
     except Exception:  # noqa: BLE001 — observability must never break a turn
-        logger.debug("stamp_langfuse_session skipped", exc_info=True)
+        logger.debug("stamp_a2a_turn skipped", exc_info=True)
     return None
 
 
@@ -301,8 +504,17 @@ def stamp_langfuse_turn_session(callback_context: Any) -> None:
     A2A-driven turns (peer agents, eval battery, smoke) land in the Sessions
     view too. The /v3 facade path sets the same values via turn_observation —
     same session id (the ADK session id IS the facade session id), so the
-    double write is idempotent. Deliberately does NOT set the trace name or
-    input: on the facade path those belong to the v3.chat root span."""
+    double write is idempotent.
+
+    KEPT by OBS4 (which removed its leaf sibling `stamp_langfuse_session`): this
+    is still the only thing that puts session + user on an A2A-driven concierge
+    turn, where there is no `turn_observation`. It writes no deprecated
+    attribute — session/user are first-class in v4.
+
+    It also feeds the A2A root observation its input, which on that path is the
+    ONLY input the trace gets (OBS1 deliberately left it empty). No-op on the
+    facade path: `A2aTurnObservation` is mounted on the concierge's A2A surface
+    only, so `/v3/*` keeps `v3.chat`'s own input."""
     if _client is None:
         return None
     try:
@@ -316,6 +528,7 @@ def stamp_langfuse_turn_session(callback_context: Any) -> None:
         user_id = getattr(session, "user_id", None)
         if isinstance(user_id, str) and user_id:
             span.set_attribute("langfuse.user.id", user_id)
+        _stamp_root_observation_input(callback_context)
     except Exception:  # noqa: BLE001 — observability must never break a turn
         logger.debug("stamp_langfuse_turn_session skipped", exc_info=True)
     return None

@@ -24,7 +24,7 @@ from contextlib import asynccontextmanager
 
 from a2a.types import AgentCapabilities, HTTPAuthSecurityScheme, SecurityScheme
 from b2c_common import BearerAuthMiddleware, require_bearer_token
-from b2c_common.observability import flush_langfuse, setup_langfuse
+from b2c_common.observability import A2aTurnObservation, flush_langfuse, setup_langfuse
 from google.adk.a2a.utils.agent_card_builder import AgentCardBuilder
 from google.adk.a2a.utils.agent_to_a2a import to_a2a
 from starlette.applications import Starlette
@@ -80,10 +80,18 @@ _a2a_app = to_a2a(
 )
 register_v3_routes(_a2a_app)
 
+# OBS4: the A2A surface gets a root observation of its own, so an A2A-driven
+# turn (peer agent, eval battery, smoke) has a NAMED trace carrying the inbound
+# request as input. Wrapped here rather than via add_middleware because it must
+# NOT cover /v3/*: there `turn_observation` is already the root, and a second
+# wrapper above it would steal the trace's name and input from `v3.chat`.
+# Inside the D7 gate: an unauthenticated call must not open a trace.
+_traced_a2a = A2aTurnObservation(_a2a_app, name=root_agent.name)
+
 # D7 gate wraps the whole app; the dispatcher below sends /v3/* to the RAW app
 # instead (facade owns its own internal-API-key auth), and everything else —
 # A2A calls, the card, lifespan/websocket scopes — through the D7 gate.
-_guarded = BearerAuthMiddleware(_a2a_app, token=_BEARER_TOKEN)
+_guarded = BearerAuthMiddleware(_traced_a2a, token=_BEARER_TOKEN)
 
 _V3_PREFIX = "/v3"
 

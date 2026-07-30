@@ -226,3 +226,25 @@
 3. **Un test unitaire qui partitionne une page ne prouve rien sur le serveur**
    (rappel S-CX3c, revérifié utile ici) : la signature `total=518 / results=[]`
    n'était visible qu'en live, et c'est elle qui distingue les deux causes.
+
+## 2026-07-30 — OBS4 (trace distribuée A2A) — auto-attrapé en vérifiant live
+
+1. **« Une seule trace » ne veut pas dire « un seul arbre ».** Le premier tour réel donnait bien
+   1 trace, et j'aurais pu m'arrêter là : elle contenait 3 observations RACINES côte à côte, donc
+   aucune arête concierge→feuille. Le trou venait de spans d'une lib tierce (`@trace_class` du
+   `a2a-sdk`) que notre filtre d'export jetait, exactement AU MILIEU du saut. Vérifier un objectif de
+   trace, c'est vérifier `parent_observation_id` de chaque observation, pas compter les traces.
+2. **Un filtre d'export doit échouer OUVERT.** Pour reconnecter l'arbre, une liste blanche des noms de
+   méthodes du chemin aurait été plus propre (6 spans au lieu de 13) mais échouerait FERMÉ : un
+   renommage dans la lib rouvre silencieusement le trou. Préférer l'exclusion par préfixe de module :
+   le pire cas devient « quelques spans bruyants », visible, jamais un trou invisible.
+3. **Élargir un filtre d'export se mesure avant de se garder.** Exporter tout le scope tiers = 76
+   observations/tour (une boucle d'events tirait des dizaines de fois) ; avec l'exclusion, 31. Le
+   chiffre était à un tour réel de distance — ne pas raisonner sur « ça doit être quelques spans ».
+4. **Ne pas conclure à une régression depuis un endpoint de lecture incomplet.** `configId` des scores
+   remontait `null` partout : le champ n'existe simplement pas dans le modèle de réponse de
+   `scores_v3.get_many_v3`. Le bon endpoint (`listScores`) le montrait non nul. Avant d'accuser son
+   propre diff : vérifier que le champ lu existe dans la réponse (et `git diff` du fichier soupçonné).
+5. **Chercher le hook avant de l'écrire.** ADK 2.4.0 injectait DÉJÀ le traceparent W3C dans `_meta`
+   des appels MCP (`mcp_tool.py`) : le « contrat à définir » pour l'autre repo était déjà sur le fil.
+   Lire le code de la lib installée AVANT d'inventer un format.

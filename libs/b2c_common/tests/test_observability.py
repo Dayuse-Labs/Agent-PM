@@ -70,10 +70,15 @@ class TestTurnObservationDisabled:
         assert ran
 
 
-class TestStampLangfuseSession:
+class TestStampLeafTurn:
+    """OBS4 replacement for `stamp_langfuse_session`: same session-id
+    behaviour, but the inbound request text now goes on the leaf's ROOT
+    observation (its input IS the trace input) instead of the deprecated
+    trace-level attributes."""
+
     def test_noop_when_disabled(self):
         # Junk context on the disabled path: no attribute access should matter.
-        assert observability.stamp_langfuse_session(object()) is None
+        assert observability.stamp_a2a_turn(object()) is None
 
     def test_never_raises_on_junk_contexts_when_enabled(self, monkeypatch):
         monkeypatch.setattr(observability, "_client", object())
@@ -86,31 +91,38 @@ class TestStampLangfuseSession:
                 custom_metadata={"a2a_metadata": {"dayuse_trace_id": 123}}  # non-str
             )),
         ):
-            assert observability.stamp_langfuse_session(ctx) is None
+            assert observability.stamp_a2a_turn(ctx) is None
 
-    def test_stamps_session_name_and_input_from_the_inbound_request(self, monkeypatch):
+    def test_stamps_session_and_feeds_the_root_observation_input(self, monkeypatch):
         monkeypatch.setattr(observability, "_client", object())
         recorded: dict = {}
+        updates: list[dict] = []
 
         span = SimpleNamespace(set_attribute=lambda k, v: recorded.__setitem__(k, v))
         import opentelemetry.trace
 
         monkeypatch.setattr(opentelemetry.trace, "get_current_span", lambda: span)
-        ctx = SimpleNamespace(
-            run_config=SimpleNamespace(
-                custom_metadata={"a2a_metadata": {"dayuse_trace_id": "sess-42"}}
-            ),
-            agent_name="b2c_faq",
-            user_content=SimpleNamespace(
-                parts=[SimpleNamespace(text="conditions d'annulation ?"), SimpleNamespace(text=None)]
-            ),
-        )
-        assert observability.stamp_langfuse_session(ctx) is None
-        assert recorded == {
-            "langfuse.session.id": "sess-42",
-            "langfuse.trace.name": "b2c_faq",
-            "langfuse.trace.input": "conditions d'annulation ?",
-        }
+        root = SimpleNamespace(update=lambda **kwargs: updates.append(kwargs))
+        token = observability._a2a_root_observation.set(root)
+        try:
+            ctx = SimpleNamespace(
+                run_config=SimpleNamespace(
+                    custom_metadata={"a2a_metadata": {"dayuse_trace_id": "sess-42"}}
+                ),
+                agent_name="b2c_faq",
+                user_content=SimpleNamespace(
+                    parts=[
+                        SimpleNamespace(text="conditions d'annulation ?"),
+                        SimpleNamespace(text=None),
+                    ]
+                ),
+            )
+            assert observability.stamp_a2a_turn(ctx) is None
+        finally:
+            observability._a2a_root_observation.reset(token)
+        # No trace-level name/input any more: the root observation carries both.
+        assert recorded == {"langfuse.session.id": "sess-42"}
+        assert updates == [{"input": "conditions d'annulation ?"}]
 
     def test_falls_back_to_own_session_without_a2a_metadata(self, monkeypatch):
         monkeypatch.setattr(observability, "_client", object())
@@ -121,8 +133,54 @@ class TestStampLangfuseSession:
 
         monkeypatch.setattr(opentelemetry.trace, "get_current_span", lambda: span)
         ctx = SimpleNamespace(run_config=None, session=SimpleNamespace(id="own-session"))
-        observability.stamp_langfuse_session(ctx)
+        observability.stamp_a2a_turn(ctx)
         assert recorded["langfuse.session.id"] == "own-session"
+
+    def test_output_goes_on_the_a2a_root_observation(self, monkeypatch):
+        monkeypatch.setattr(observability, "_client", object())
+        updates: list[dict] = []
+        root = SimpleNamespace(update=lambda **kwargs: updates.append(kwargs))
+        token = observability._a2a_root_observation.set(root)
+        try:
+            observability.mark_a2a_turn_output("Voici trois hôtels à Lyon.")
+        finally:
+            observability._a2a_root_observation.reset(token)
+        assert updates == [{"output": "Voici trois hôtels à Lyon."}]
+
+    def test_output_is_a_noop_on_the_facade_path(self, monkeypatch):
+        """No A2A root observation = the /v3 path, where `turn_observation`
+        owns `v3.chat`'s output. Must not raise, must not write anywhere."""
+        monkeypatch.setattr(observability, "_client", object())
+        observability.mark_a2a_turn_output("anything")  # no contextvar set
+
+    def test_output_is_a_noop_when_disabled_or_empty(self, monkeypatch):
+        observability.mark_a2a_turn_output("anything")  # _client is None
+        monkeypatch.setattr(observability, "_client", object())
+        updates: list[dict] = []
+        root = SimpleNamespace(update=lambda **kwargs: updates.append(kwargs))
+        token = observability._a2a_root_observation.set(root)
+        try:
+            observability.mark_a2a_turn_output("")
+        finally:
+            observability._a2a_root_observation.reset(token)
+        assert updates == []
+
+    def test_no_root_observation_still_stamps_the_session(self, monkeypatch):
+        """A leaf reached outside `A2aTurnObservation` (a future non-A2A entry
+        point) must still land in the Sessions view, not crash."""
+        monkeypatch.setattr(observability, "_client", object())
+        recorded: dict = {}
+        span = SimpleNamespace(set_attribute=lambda k, v: recorded.__setitem__(k, v))
+        import opentelemetry.trace
+
+        monkeypatch.setattr(opentelemetry.trace, "get_current_span", lambda: span)
+        ctx = SimpleNamespace(
+            run_config=None,
+            session=SimpleNamespace(id="own-session"),
+            user_content=SimpleNamespace(parts=[SimpleNamespace(text="hello")]),
+        )
+        assert observability.stamp_a2a_turn(ctx) is None
+        assert recorded == {"langfuse.session.id": "own-session"}
 
 
 class TestStampLangfuseTurnSession:
@@ -148,6 +206,156 @@ class TestStampLangfuseTurnSession:
             "langfuse.session.id": "sess-9",
             "langfuse.user.id": "v3_sess-9",
         }
+
+
+class _FakeLangfuseClient:
+    """Minimal stand-in for the Langfuse client: `observation()` only needs a
+    `start_as_current_observation` context manager. Backed by a REAL — but
+    process-local and exporter-less — TracerProvider, because the OBS4
+    mechanism under test IS the OpenTelemetry context, and faking that would
+    test nothing. Deliberately not the global provider: setting one is a
+    one-shot, process-wide side effect."""
+
+    def __init__(self) -> None:
+        from opentelemetry.sdk.trace import TracerProvider
+
+        self.tracer = TracerProvider().get_tracer("b2c-test")
+        self.observations: list[tuple[str, str]] = []
+        self.updates: list[dict] = []
+
+    @contextmanager
+    def start_as_current_observation(self, *, as_type: str, name: str, **kwargs: Any) -> Any:
+        self.observations.append((as_type, name))
+        with self.tracer.start_as_current_span(name):
+            yield SimpleNamespace(update=lambda **kw: self.updates.append(kw))
+
+
+def _hex_ids(span_context: Any) -> tuple[str, str]:
+    from opentelemetry.trace import format_span_id, format_trace_id
+
+    return format_trace_id(span_context.trace_id), format_span_id(span_context.span_id)
+
+
+class TestTraceContextCarrier:
+    """OBS4: the ONE wire format for every cross-process hop we own — the A2A
+    leg's HTTP headers and the MCP `_meta` field."""
+
+    def test_empty_when_disabled(self):
+        assert observability.trace_context_carrier() == {}
+
+    def test_empty_without_an_active_span(self, monkeypatch):
+        monkeypatch.setattr(observability, "_client", object())
+        assert observability.trace_context_carrier() == {}
+
+    def test_carries_the_active_span_and_the_app_root_claim(self, monkeypatch):
+        client = _FakeLangfuseClient()
+        monkeypatch.setattr(observability, "_client", client)
+        with client.tracer.start_as_current_span("outbound") as span:
+            carrier = observability.trace_context_carrier()
+            trace_id, span_id = _hex_ids(span.get_span_context())
+        version, carried_trace, carried_span, _flags = carrier["traceparent"].split("-")
+        assert (version, carried_trace, carried_span) == ("00", trace_id, span_id)
+        # The app-root claim is what stops the receiving SDK from opening a
+        # SECOND root observation on this trace (see the constant's docstring).
+        assert f"langfuse_trace_id={trace_id}" in carrier["baggage"]
+
+    def test_baggage_key_matches_the_langfuse_sdk_constant(self):
+        """Pin-guard (test_stateless_leg.py precedent): the key is Langfuse's,
+        not ours — an SDK bump that renames it must fail here, loudly, instead
+        of silently letting joined leaves claim a second trace root."""
+        from langfuse._client.propagation import LANGFUSE_TRACE_ID_BAGGAGE_KEY
+
+        assert observability._LANGFUSE_TRACE_ID_BAGGAGE_KEY == LANGFUSE_TRACE_ID_BAGGAGE_KEY
+
+
+class TestA2aTurnObservation:
+    """OBS4: the leaf's ASGI edge is the ONLY interception point early enough
+    to reparent ADK's spans — proven here by asserting on the trace id of a
+    span the wrapped app creates."""
+
+    @staticmethod
+    def _app(tracer: Any, seen: list) -> Any:
+        async def app(scope: Any, receive: Any, send: Any) -> None:
+            span = tracer.start_span("inner")  # implicit parent = ambient context
+            seen.append(span.get_span_context())
+            span.end()
+
+        return app
+
+    @staticmethod
+    def _scope(*, method: str = "POST", headers: list | None = None) -> dict:
+        return {"type": "http", "method": method, "path": "/", "headers": headers or []}
+
+    def _run(self, middleware: Any, scope: dict) -> None:
+        import asyncio
+
+        asyncio.run(middleware(scope, None, None))
+
+    def test_passthrough_when_disabled(self):
+        from opentelemetry.sdk.trace import TracerProvider
+
+        tracer = TracerProvider().get_tracer("b2c-test")
+        seen: list = []
+        middleware = observability.A2aTurnObservation(
+            self._app(tracer, seen), name="b2c_hotel_search"
+        )
+        self._run(middleware, self._scope())
+        assert len(seen) == 1  # the app ran, nothing was traced around it
+
+    def test_joins_the_callers_trace(self, monkeypatch):
+        client = _FakeLangfuseClient()
+        monkeypatch.setattr(observability, "_client", client)
+        seen: list = []
+        middleware = observability.A2aTurnObservation(
+            self._app(client.tracer, seen), name="b2c_hotel_search"
+        )
+        with client.tracer.start_as_current_span("caller") as caller:
+            carrier = observability.trace_context_carrier()
+            caller_trace_id, _ = _hex_ids(caller.get_span_context())
+        headers = [(key.encode(), value.encode()) for key, value in carrier.items()]
+
+        self._run(middleware, self._scope(headers=headers))
+
+        assert _hex_ids(seen[0])[0] == caller_trace_id
+        assert client.observations == [("span", "a2a.b2c_hotel_search")]
+
+    def test_starts_its_own_trace_without_upstream_context(self, monkeypatch):
+        """Peer agent, eval battery, isolated smoke: readable, not anonymous —
+        its own trace, named, and `stamp_a2a_turn` gives it an input."""
+        client = _FakeLangfuseClient()
+        monkeypatch.setattr(observability, "_client", client)
+        seen: list = []
+        middleware = observability.A2aTurnObservation(
+            self._app(client.tracer, seen), name="b2c_faq"
+        )
+        with client.tracer.start_as_current_span("unrelated") as unrelated:
+            unrelated_trace_id, _ = _hex_ids(unrelated.get_span_context())
+
+        self._run(middleware, self._scope(headers=[(b"authorization", b"Bearer x")]))
+
+        assert _hex_ids(seen[0])[0] != unrelated_trace_id
+        assert client.observations == [("span", "a2a.b2c_faq")]
+
+    def test_agent_card_get_is_not_traced(self, monkeypatch):
+        client = _FakeLangfuseClient()
+        monkeypatch.setattr(observability, "_client", client)
+        seen: list = []
+        middleware = observability.A2aTurnObservation(
+            self._app(client.tracer, seen), name="b2c_faq"
+        )
+        self._run(middleware, self._scope(method="GET"))
+        assert client.observations == []  # discovery must never open a trace
+        assert len(seen) == 1
+
+    def test_non_http_scope_passes_through(self, monkeypatch):
+        client = _FakeLangfuseClient()
+        monkeypatch.setattr(observability, "_client", client)
+        seen: list = []
+        middleware = observability.A2aTurnObservation(
+            self._app(client.tracer, seen), name="b2c_faq"
+        )
+        self._run(middleware, {"type": "lifespan"})
+        assert client.observations == []
 
 
 def _otel_span(name: str, span_id: str, attributes: dict) -> Any:
