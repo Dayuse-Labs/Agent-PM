@@ -46,7 +46,7 @@ Décision : utiliser le serveur MCP `langfuse` (déjà connecté à ce projet) p
 - Chiffres mesurés = un échantillon de smoke (4 tours), pas 7 jours de prod (tableau "Résultats attendus" du plan mis à jour avec cette réserve explicite).
 - MR à ouvrir depuis cette branche — jamais de merge par la session.
 
-## 🧪 Addendum 2026-07-30 (session OBS6, branche `obs6-datasets-experiments`, non mergée) — datasets + experiments Langfuse, gate CI non bloquant
+## 🧪 Addendum 2026-07-30 (session OBS6, branche `obs6-datasets-experiments`, PR #63 MERGÉE) — datasets + experiments Langfuse, gate CI non bloquant
 
 **Périmètre exact** : `evals/**` + `scripts/**` + `.github/**` (+ `evalset/**` en lecture). Zéro touche à
 `agents/**`/`libs/**` (zone OBS2, worktree parallèle). Worktree dédié, stack locale sur **8110-8112**
@@ -162,7 +162,7 @@ version, superset de celle déjà sur `main`, gardée).
   documenté) — pas un chantier bloquant, juste à garder en tête en lisant leurs scores.
 - Nuance d'évaluateur à connaître : `hotels_within_km`/`offers_*_capacity_gte` sont **vacuously true**
   quand 0 hôtel est rendu (rien à violer) — toujours lire ces taux CÔTE À CÔTE avec `min_hotels`.
-- MR à ouvrir depuis cette branche rebasée — jamais de merge par la session.
+- ✅ PR #63 ouverte, review + merge faits par Fabien (`1e44aea`) — jamais mergée par la session.
 - Le pack `dayuse_eval_pack/` : non touché (vérifié, byte-identique).
 
 ## 🩹 Addendum 2026-07-30 (branche `fix/adk-call-llm-usage-doublecount`) — le double comptage d'usage sur les feuilles ADK est corrigé (2× → 1×)
