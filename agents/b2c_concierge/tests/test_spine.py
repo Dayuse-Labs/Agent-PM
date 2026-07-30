@@ -1023,3 +1023,117 @@ class TestNamedHotelLookupThroughTheSpine:
         events = _drive_in(runner, session.id, "tell me more about the Kimpton")
         assert _answer(events) == "Here are the details."
         assert recorded == ["tell me more about the Kimpton"]
+
+
+class TestObs3GuardScores:
+    """OBS3: `score_guards(budget.fired)` / `score_turn(...)` fire once per
+    turn from `_emit_turn_metric` — the single hook every exit path already
+    goes through. Patches the score_* names IN agent_module's own namespace
+    (imported there via `from b2c_common import ...`, same pattern the suite
+    already uses to patch `agent_module.litellm`) to capture what a real
+    turn accumulates, with no real Langfuse client involved."""
+
+    def test_recovery_ack_fires_and_hotels_returned_is_counted(
+        self, scripted, fake_profile_store, monkeypatch
+    ):
+        runner, session = _new_session()
+        asyncio.run(
+            fake_profile_store.set(session.id, SessionProfile(consecutive_empty_searches=1))
+        )
+        scripted(
+            '{"family": "ack", "language": "en"}',
+            "Sure, widening the search now.",
+            leaf_text="results: hotel A",
+            response={"results": [{"name": "H", "hotel_id": 1}]},
+        )
+        guard_calls: list[set] = []
+        turn_calls: list[dict] = []
+        monkeypatch.setattr(agent_module, "score_guards", lambda fired: guard_calls.append(set(fired)))
+        monkeypatch.setattr(agent_module, "score_turn", lambda **kw: turn_calls.append(kw))
+        _drive_in(runner, session.id, "ok")
+        assert "recovery_ack" in guard_calls[-1]
+        assert turn_calls[-1] == {"hotels_returned": 1, "llm_calls": 3}
+
+    def test_anti_clarification_loop_guard_is_scored(self, scripted, fake_profile_store, monkeypatch):
+        question = "Which airport area exactly should I prioritize?"
+        runner, session = _new_session()
+        asyncio.run(
+            fake_profile_store.set(session.id, SessionProfile(last_clarifying_question=question))
+        )
+        scripted(
+            '{"family": "search", "language": "en"}',
+            f"Happy to help! {question}",
+            "Here are the Queens options.",
+            leaf_text="results: hotel A",
+        )
+        guard_calls: list[set] = []
+        monkeypatch.setattr(agent_module, "score_guards", lambda fired: guard_calls.append(set(fired)))
+        monkeypatch.setattr(agent_module, "score_turn", lambda **kw: None)
+        _drive_in(runner, session.id, "let's do nova")
+        assert "anti_clarification_loop" in guard_calls[-1]
+
+    def test_booking_confirmation_and_named_hotel_lookup_are_scored(self, scripted, monkeypatch):
+        scripted('{"family": "booking", "language": "en"}')
+        fake = _recording_async_result(
+            {
+                "ok": True, "confirmed": False, "hotel_name": "Sonesta Carmel",
+                "date": "2026-07-20", "start_time": "17:00", "end_time": "23:00",
+                "price": "€54.00", "guards_fired": ["named_hotel_lookup"],
+            }
+        )
+        monkeypatch.setattr(agent_module.inline_tools, "generate_booking_link", fake)
+        guard_calls: list[set] = []
+        monkeypatch.setattr(agent_module, "score_guards", lambda fired: guard_calls.append(set(fired)))
+        monkeypatch.setattr(agent_module, "score_turn", lambda **kw: None)
+        _drive("book the Sonesta Carmel for me")
+        assert guard_calls[-1] >= {"booking_confirmation", "named_hotel_lookup"}
+
+    def test_scored_names_are_always_within_the_frozen_contract(self, scripted, monkeypatch):
+        from b2c_common.scores import GUARD_SCORE_NAMES
+
+        scripted(
+            '{"family": "search", "language": "fr"}',
+            "Réponse synthétisée.",
+            leaf_text="results: hotel A",
+        )
+        guard_calls: list[set] = []
+        monkeypatch.setattr(agent_module, "score_guards", lambda fired: guard_calls.append(set(fired)))
+        monkeypatch.setattr(agent_module, "score_turn", lambda **kw: None)
+        _drive(USER_MESSAGE_SEARCH)
+        assert guard_calls[-1] <= set(GUARD_SCORE_NAMES)
+
+
+class TestObs3ScoresNeverContainMessageContent:
+    """GDPR lock: exercises the REAL score_guards/score_turn code path (not
+    just agent.py's call sites) by enabling a fake Langfuse client and
+    capturing every `score_current_trace` call over a real scripted turn —
+    none of it may ever carry the user's own message text (same invariant as
+    TestGdprMetricEvents/TestGdprLogs, extended to the OBS3 scores channel)."""
+
+    def test_no_score_value_or_comment_contains_the_message(self, scripted, monkeypatch):
+        from b2c_common import observability
+
+        class _RecordingScoreClient:
+            def __init__(self) -> None:
+                self.calls: list[dict] = []
+
+            def score_current_trace(self, **kwargs):
+                self.calls.append(kwargs)
+
+        client = _RecordingScoreClient()
+        monkeypatch.setattr(observability, "_client", client)
+        scripted(
+            '{"family": "search", "language": "fr"}',
+            "Réponse synthétisée.",
+            leaf_text="results: hotel A",
+        )
+        _drive(USER_MESSAGE_SEARCH)
+        assert client.calls, "the OBS3 scores must actually fire when a client is present"
+        blob = json.dumps(client.calls, ensure_ascii=False, default=str)
+        assert "Paris" not in blob
+        assert USER_MESSAGE_SEARCH not in blob
+        for call in client.calls:
+            assert "comment" not in call
+            if call.get("data_type") == "BOOLEAN":
+                # Langfuse BOOLEAN scores are 0/1, never Python True/False.
+                assert call["value"] in (0.0, 1.0)

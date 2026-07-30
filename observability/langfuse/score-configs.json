@@ -1,0 +1,115 @@
+{
+  "$comment": "OBS3 — Langfuse score configs for AgentB2C, versioned in git so they're re-creatable on any instance (score configs are project-scoped, no bulk-import API — this file is the source of truth, POST /api/public/score-configs per entry to restore). Mirrors the 16 configs actually created on the project's Langfuse instance on 2026-07-30 (project cms4gd0d20002nz029tuly62e). The contract for the `guard_*` names is GUARD_SCORE_NAMES in libs/b2c_common/b2c_common/scores.py — never rename an entry once it has real data.",
+  "project_id": "cms4gd0d20002nz029tuly62e",
+  "known_gaps": [
+    {
+      "name": "guard_date_hallucinated_year_rolled_forward",
+      "reason": "43 chars — exceeds Langfuse's score config name limit (createScoreConfig: maxLength 35). No config exists for this guard; the score itself (b2c_common.scores.score_guards) still emits fine without one — config_id is optional, it only adds UI-side min/max/category validation. Not yet wired for emission either way (hotel_search_agent is out of OBS3's zone)."
+    },
+    {
+      "name": "degraded",
+      "reason": "CATEGORICAL score config creation via the langfuse MCP server's createScoreConfig tool rejected every categoricalCategories payload tried (array of {label, value} objects, string values, numeric values, even a 2-entry throwaway test) with the same generic 'Category must be an array of objects with label value pairs, where labels and values are unique' error — looks like a bug in that MCP tool's request serialization, not a payload issue. No config exists for `degraded`; b2c_common.scores.score_degraded emits it fine without one (config_id optional, closed set enforced in code already). Retry creating this one config via the Langfuse UI directly (Project Settings -> Scores) next time someone is in there — trivial once the tool bug is understood or the UI is used instead of the MCP tool."
+    }
+  ],
+  "configs": [
+    {
+      "id": "544fbf28-27a0-44e9-a73a-4e9a1851f507",
+      "name": "guard_geocode_echo_back",
+      "dataType": "BOOLEAN",
+      "description": "Geo guard 1 (ported agent-usa audit): geocode echo-back match rejected (incl. state hints + ZIP anchor) — hotel_search_agent/geo_guards.py. Not yet wired for emission (OBS3 zone excludes agents/hotel_search_agent/**); reserved name."
+    },
+    {
+      "id": "82c3932a-6815-4390-9343-9f152e1713c9",
+      "name": "guard_generic_location_demotion",
+      "dataType": "BOOLEAN",
+      "description": "Geo guard 2 (ported agent-usa audit): a generic place word demoted before geocoding — hotel_search_agent/geo_guards.py. Not yet wired for emission (leaf out of OBS3 zone); reserved name."
+    },
+    {
+      "id": "cd2a03b3-e943-48b5-b422-39c747ee5026",
+      "name": "guard_state_anchoring",
+      "dataType": "BOOLEAN",
+      "description": "Geo guard 3 (ported agent-usa audit): US state anchor carried/resolved across turns — hotel_search_agent/geo_guards.py. Not yet wired for emission (leaf out of OBS3 zone); reserved name."
+    },
+    {
+      "id": "c8779d65-cd76-47e6-bb03-936376b7ad2e",
+      "name": "guard_date_carryover_stale_floored",
+      "dataType": "BOOLEAN",
+      "description": "PR#57 date guard: a stale carried-over date floored to reference \"today\" instead of trusting a pre-midnight value — hotel_search_agent/datetime_resolver.py. Not yet wired for emission (leaf out of OBS3 zone); reserved name."
+    },
+    {
+      "id": "6eb7b23e-7e1a-4dde-ac32-f5229cb93e3c",
+      "name": "guard_budget_integrity",
+      "dataType": "BOOLEAN",
+      "description": "P1 (ported agent-usa audit): a bare-number reply forced explicit, or a time/distance-derived pseudo-budget rejected — b2c_concierge/profile.py::apply_profile_delta."
+    },
+    {
+      "id": "fe0733fc-5199-49d3-9960-fceb1fbc0cf4",
+      "name": "guard_timeslot_sanitization",
+      "dataType": "BOOLEAN",
+      "description": "P6 (ported agent-usa audit): a one-sided clock label salvaged, or an anchored bound protected from timeless-turn inversion — b2c_concierge/profile.py::apply_profile_delta."
+    },
+    {
+      "id": "8bd7574b-2b67-4236-ab44-84731d41066a",
+      "name": "guard_recovery_ack",
+      "dataType": "BOOLEAN",
+      "description": "P2 (ported agent-usa audit): a bare \"ok\"/refinement recognized after an empty search, overriding the zero-LLM ack fast-path — b2c_concierge/agent.py::_run_async_impl."
+    },
+    {
+      "id": "e202146e-050a-467a-b3b7-4a39f6d7a2af",
+      "name": "guard_anti_clarification_loop",
+      "dataType": "BOOLEAN",
+      "description": "P10 (ported agent-usa audit): a synthesized reply repeated the previous turn's trailing question — 1 bounded retry, then a deterministic strip — b2c_concierge/agent.py::_synthesize_with_guards."
+    },
+    {
+      "id": "871219e0-affd-4fcd-999a-5c3907daa031",
+      "name": "guard_amenity_truthfulness",
+      "dataType": "BOOLEAN",
+      "description": "Ported agent-usa audit (post-LLM claim verifier): the synthesis text asserted an amenity the ground-truth hotels don't back — hedged in place — b2c_concierge/amenity_guard.py."
+    },
+    {
+      "id": "a615105a-2f7d-492f-a749-052eda8a02bf",
+      "name": "guard_named_hotel_lookup",
+      "dataType": "BOOLEAN",
+      "description": "Item 4 (ported agent-usa audit, prod session 34d216e3): a hotel reference resolved via the on-screen shortlist / MCP find_hotel_by_name fallback — b2c_concierge/inline_tools.py."
+    },
+    {
+      "id": "20abf459-1e56-4c48-bd9c-e464ac9b0de1",
+      "name": "guard_booking_confirmation",
+      "dataType": "BOOLEAN",
+      "description": "R9 / guard #12 (AgentB2C-specific, beyond the ported spec): generate_booking_link's confirmed flag re-derived from profile.pending_booking, never trusted from the caller — b2c_concierge/agent.py::_run_booking."
+    },
+    {
+      "id": "f474dd88-aac9-490d-99a3-e4e41060df35",
+      "name": "guard_hotel_link_truthfulness",
+      "dataType": "BOOLEAN",
+      "description": "S-G12 / guard #13 (AgentB2C-specific, 2026-07-24): a fabricated Dayuse hotel-page URL stripped from the synthesis text — b2c_concierge/link_guard.py."
+    },
+    {
+      "id": "1bd1f4bb-483b-4c17-bffc-4724b338d7c5",
+      "name": "hotels_returned",
+      "dataType": "NUMERIC",
+      "minValue": 0,
+      "description": "OBS3: number of hotel cards actually rendered this turn (0 when none) — b2c_concierge/agent.py::_emit_turn_metric."
+    },
+    {
+      "id": "e4f02fd6-63c1-424a-989f-db337f1fd8c3",
+      "name": "empty_shortlist",
+      "dataType": "BOOLEAN",
+      "description": "OBS3: 1 iff hotels_returned == 0 this turn — b2c_concierge/agent.py::_emit_turn_metric."
+    },
+    {
+      "id": "db37879d-1a74-4d53-8ce8-51fb8e88c361",
+      "name": "llm_calls",
+      "dataType": "NUMERIC",
+      "minValue": 0,
+      "description": "OBS3: LLM calls spent this turn (structural budget <= 3, CLAUDE.md) — b2c_concierge/budget.py::TurnBudget, mirrored via agent.py::_emit_turn_metric. No max set on purpose: a budget breach must stay visible, never silently clipped."
+    },
+    {
+      "id": "b0b1e82e-7987-43bd-83b2-0159208ad505",
+      "name": "ttft_ms",
+      "dataType": "NUMERIC",
+      "minValue": 0,
+      "description": "OBS3: time-to-first-token, the `progress` SSE frame (CLAUDE.md SLO < 300 ms) — b2c_concierge/facade.py::chat_stream."
+    }
+  ]
+}

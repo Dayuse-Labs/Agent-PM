@@ -479,12 +479,21 @@ def _log_profile_ops(set_slots: set[str], clear_slots: set[str]) -> None:
 
 
 def apply_profile_delta(
-    profile: SessionProfile, delta: dict[str, Any], user_message: str
+    profile: SessionProfile,
+    delta: dict[str, Any],
+    user_message: str,
+    fired: set[str] | None = None,
 ) -> SessionProfile:
     """Merge a leaf-returned `profile_delta` into the stored profile, with the
     budget-integrity and timeslot-sanitization guards applied in-place.
     Mutates and returns `profile`. `delta` is untrusted wire data — read-only,
     never mutated.
+
+    `fired` (OBS3, optional — omitted by every pre-existing caller): when
+    given, "budget_integrity"/"timeslot_sanitization" are added to it exactly
+    when that guard actually did something this turn (rejected a bogus value
+    or corrected a mis-derived one) — the per-turn accumulator score_guards
+    reads from (see agent.py's `TurnBudget.fired`).
 
     S-G1: each slot may arrive as a typed op (`{"op": "set"|"clear", "value":
     ...}`) or today's flat value — `_normalize_delta` resolves both into a
@@ -520,11 +529,16 @@ def apply_profile_delta(
     # all (S12 audit 2026-07-20) — profile.budget_max is simply left as-is.
     if values.get("budget_max") is not None:
         new_budget = float(values["budget_max"])
-        if not _looks_like_time_derived_budget(user_message, new_budget):
+        if _looks_like_time_derived_budget(user_message, new_budget):
+            if fired is not None:
+                fired.add("budget_integrity")
+        else:
             profile.budget_max = new_budget
             source = values.get("budget_request_source")
             if _bare_number_value(user_message) == new_budget:
                 source = BUDGET_SOURCE_EXPLICIT
+                if fired is not None:
+                    fired.add("budget_integrity")
             if source is not None:
                 profile.budget_request_source = source
 
@@ -539,6 +553,8 @@ def apply_profile_delta(
                 values.setdefault("timeslot_start", start)
             if end:
                 values.setdefault("timeslot_end", end)
+            if (start or end) and fired is not None:
+                fired.add("timeslot_sanitization")
         else:
             profile.timeslot = normalized
 
@@ -556,6 +572,8 @@ def apply_profile_delta(
         and profile.timeslot_start == end_candidate
         and not _mentions_explicit_time(user_message)
     )
+    if (reject_start or reject_end) and fired is not None:
+        fired.add("timeslot_sanitization")
     if start_candidate and not reject_start:
         profile.timeslot_start = start_candidate
     if end_candidate and not reject_end:

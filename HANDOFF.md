@@ -2,6 +2,50 @@
 
 État du chantier pour reprise en session fraîche. **Lire en entier avant d'agir ; ne pas reconstruire ce qui existe.** Mettre à jour en fin de CHAQUE session (bloc daté en tête).
 
+## 📊 Addendum 2026-07-30 (session OBS3, branche `obs3-scores-deterministes`, non mergée) — scores déterministes, 12→13 guards, score configs + dashboard créés en vrai
+
+**Contexte** : 3e chantier de `PLAN-OBS-LANGFUSE-2026-07-29.md`. Périmètre exact de `phases/OBS3-scores-deterministes.md` : `libs/b2c_common/**` + `agents/b2c_concierge/**` + `observability/langfuse/**` (nouveau dossier) — **zéro fichier touché dans `agents/hotel_search_agent/**`**, décision assumée (voir "Reste"). Référence : `OBS2-LANGFUSE-BRIEF.md` §2 et §8. Zéro appel LLM ajouté.
+
+### Le compte de guards était faux dans les 3 sources à la fois — tranché avec Fabien avant tout code
+
+Avant d'écrire `GUARD_SCORE_NAMES`, inventaire du code réel (docstrings + call sites, pas de supposition) : `link_guard.py` (S-G12, ajouté 2026-07-24) s'auto-désigne littéralement **"the 13th guard"**, et R9/`inline_tools.py`/`profile.py` désignent la confirmation de booking comme **"guard #12"**. Trois sources, trois chiffres : `AUDIT-REWORK-2026-07.md` dit 11 (le portage agent-usa d'origine, avant R9 et S-G12) ; `CLAUDE.md` disait 12 (11 + R9, jamais resynchronisé après l'ajout de S-G12) ; le code réel en a 13. Question posée explicitement à Fabien (le risque : figer un contrat permanent — "jamais renommé ensuite" — sur un chiffre déjà faux serait cher à corriger après coup) → **réponse : 13, et corriger `CLAUDE.md`** (fait, section "Architecture cible").
+
+**`GUARD_SCORE_NAMES` (13, gelé)** dans `libs/b2c_common/b2c_common/scores.py` — 11 portés de l'audit agent-usa 2026-06 (`geocode_echo_back`, `generic_location_demotion`, `state_anchoring`, `date_hallucinated_year_rolled_forward`, `date_carryover_stale_floored`, `budget_integrity`, `timeslot_sanitization`, `recovery_ack`, `anti_clarification_loop`, `amenity_truthfulness`, `named_hotel_lookup`) + 2 ajouts AgentB2C (`booking_confirmation` = R9/guard#12, `hotel_link_truthfulness` = S-G12/guard#13). **8 sont émis dans cette session** (tous côté concierge) ; **5 restent réservés, non émis** (`geocode_echo_back`, `generic_location_demotion`, `state_anchoring`, les 2 guards date) — leur code vit entièrement dans `hotel_search_agent`, hors zone de cette phase ; câbler leur émission est un chantier séparé (voir "Reste").
+
+### Mécanisme d'émission
+
+- **`b2c_common/scores.py`** (nouveau) : `score_guards(fired)` (13 BOOLEAN, 0.0/1.0 jamais `True`/`False`), `score_turn(hotels_returned, llm_calls)` (+ `empty_shortlist` dérivé), `score_degraded(reason)` (CATEGORICAL, ensemble fermé `{leaf_call_failed, facade_shield}` — RGPD : jamais de texte libre), `score_ttft(ttft_ms)`. Toutes no-op sans clés, jamais levantes (même contrat que `observability.py`).
+- **`TurnBudget.fired: set[str]`** (`budget.py`) — l'accumulateur par tour, déjà threadé partout où `budget` circule (`_run_async_impl`, `_synthesize_with_guards`, `_run_inline_lookup`, `_run_booking`).
+- **UN seul point d'émission** : `_emit_turn_metric` (agent.py), appelé à CHAQUE sortie de tour — couvre à la fois la façade `/v3/chat` (à l'intérieur du `with turn_observation`) et le chemin A2A direct (battery/smoke/peers), sans code séparé, même précédent que `stamp_langfuse_turn_session`.
+- **Points de déclenchement exacts** : `recovery_ack`/`booking_confirmation` = les signaux `is_search_refinement_signal`/`is_booking_confirmation_signal` mémorisés une fois en tête de `_run_async_impl` (au passage, supprime 2-3 appels redondants aux mêmes fonctions pures) ; `anti_clarification_loop`/`amenity_truthfulness`/`hotel_link_truthfulness` = les 3 blocs `mark_level(...)` existants d'OBS2 dans `_synthesize_with_guards`, un `budget.fired.add(...)` ajouté juste à côté ; `budget_integrity`/`timeslot_sanitization` = nouveau paramètre optionnel `fired: set[str] | None = None` sur `profile.apply_profile_delta` (rétro-compatible, tous les appels existants l'omettent), posé aux 2 points de décision réels (rejet/override) ; `named_hotel_lookup` = nouvelle clé `"guards_fired"` dans les dicts retournés par `inline_tools.get_hotel_details`/`generate_booking_link` (posée chaque fois que `_resolve_hotel_id` est réellement invoqué), fusionnée dans `budget.fired` côté agent.py.
+- **`degraded`** : seulement les 2 raisons que le CONCIERGE peut observer lui-même pré-OBS4 (`leaf_call_failed` dans `_run_leaf`, `facade_shield` dans `facade.py` ×2) — `mcp_circuit_open`/`mapbox_retry_exhausted` vivent dans la feuille, sur une trace séparée, donc hors de portée honnête ici.
+- **`ttft_ms`** : posé dans `facade.py::chat_stream` (les 2 points où `mark_metadata({"ttft_ms": ...})` existait déjà depuis OBS2) — jamais sur `/v3/chat` JSON (pas de notion de TTFT là), jamais sur le chemin A2A direct (pas de frame `progress` hors façade).
+
+### Score configs + dashboard créés EN VRAI sur l'instance (pas juste committés)
+
+Décision : utiliser le serveur MCP `langfuse` (déjà connecté à ce projet) plutôt que seulement écrire du JSON — **16 score configs créés** via `createScoreConfig` (12 `guard_*` BOOLEAN + `hotels_returned`/`llm_calls`/`ttft_ms` NUMERIC + `empty_shortlist` BOOLEAN), **7 widgets + 1 dashboard** créés via `createDashboardWidget`/`createDashboard`/`addDashboardPlacement`, puis `getDashboard` pour exporter le JSON réel (pas une supposition) dans `observability/langfuse/{score-configs.json,dashboard-b2c.json}`.
+
+**2 lacunes rencontrées, documentées dans les fichiers eux-mêmes (`known_gaps`)** :
+1. `guard_date_hallucinated_year_rolled_forward` fait 43 caractères — dépasse la limite Langfuse de 35 caractères pour un nom de score CONFIG (`createScoreConfig`). Pas de config pour ce guard (il n'est de toute façon pas encore émis, cf. ci-dessus) ; le score lui-même n'a pas cette limite, seul le config en a une.
+2. Le config CATEGORICAL `degraded` a été rejeté systématiquement par l'outil MCP `createScoreConfig` (`categoricalCategories`) — testé avec values string, values numériques, un payload minimal jetable à 2 catégories, toujours la même erreur générique "Category must be an array of objects with label value pairs, where labels and values are unique". Ressemble à un bug de sérialisation de CET outil MCP précis, pas un problème de payload — à refaire depuis l'UI Langfuse (Project Settings → Scores) une prochaine fois. Le score `degraded` s'émet quand même sans config (vérifié dans les tests).
+
+**Piège trouvé EN VÉRIFIANT en live, pas en écrivant le code** : les 16 configs créés n'étaient reliés à AUCUN score — `scores.py` ne passait jamais `config_id` à `score_current_trace`. Les tests offline ne pouvaient pas l'attraper (ils ne connaissent pas les IDs réels d'un projet Langfuse précis). Trouvé en relisant les scores fraîchement émis via `listScores` (`configId: null` partout), corrigé (`_SCORE_CONFIG_IDS: dict[str,str]` codé en dur — ce projet a UNE seule instance Langfuse partagée par tous les environnements, donc ce n'est pas une fuite d'environnement), re-testé (offline : 4 tests ajustés + 1 nouveau ; en vrai : `configId` non-null confirmé sur un tour rejoué après redémarrage du service).
+
+### Vérifié en live (gates + smoke réel, clés réelles)
+
+- `.venv/bin/pytest -q` → **1237 passed, 1 skipped** (le skip est antérieur, hors zone) ; `ruff check .` → clean ; `mypy agents libs` → clean (45 fichiers) ; `dayuse_guardrails.sh` → OK.
+- `run_local.sh` + `smoke_e2e.py --booking` (2 tours, contextId partagé) : **`guard_booking_confirmation` passe à `1` sur les 2 tours**, les 12 autres `guard_*` à `0`, `hotels_returned=0`/`empty_shortlist=1` (cohérent, pas de shortlist en booking), `llm_calls=1` — les 16 scores visibles sur UNE trace réelle via `listScores(traceId=...)`, `config_id` correctement attaché après le fix.
+- `smoke_e2e.py --contract` (ack + search réel) : trace de recherche avec `hotels_returned=5`, `empty_shortlist=0`, `llm_calls=3` ; trace SSE avec `ttft_ms=1.1`.
+- 32 tests neufs : `libs/b2c_common/tests/test_scores.py` (21, contrat des 13 noms + no-op/never-raise + wiring config_id) + `agents/b2c_concierge/tests/test_spine.py::TestObs3GuardScores`/`TestObs3ScoresNeverContainMessageContent` (5) + `agents/b2c_concierge/tests/test_profile.py::TestObs3FiredTracking` (7) — dont le verrou RGPD (tour scripté réel + faux client Langfuse enregistreur, aucune valeur/comment de score ne contient le message utilisateur).
+
+### Reste
+
+- **5 guards géo/date non émis** (`geocode_echo_back`, `generic_location_demotion`, `state_anchoring`, `date_hallucinated_year_rolled_forward`, `date_carryover_stale_floored`) — leur code vit dans `agents/hotel_search_agent/**`, explicitement hors zone de cette phase. Câblage naturel avec OBS4 (trace distribuée) : une fois que la feuille rejoint la trace du concierge, `score_current_trace` depuis la feuille écrira sur la MÊME trace — jusque-là, les émettre depuis la feuille seule créerait une 2e trace non jointe, cohérent mais pas ce que cette phase visait. Les noms sont déjà gelés dans `GUARD_SCORE_NAMES`, rien à renommer quand ce chantier arrivera.
+- **`degraded` sans score config** (bug outil MCP, voir ci-dessus) — à refaire depuis l'UI Langfuse.
+- **`llm_metric_events`/logs restent la source `route`/`family` détaillée** — les scores OBS3 sont volontairement plus pauvres (juste des compteurs/booléens), pas une duplication du canal de métriques existant.
+- Chiffres mesurés = un échantillon de smoke (4 tours), pas 7 jours de prod (tableau "Résultats attendus" du plan mis à jour avec cette réserve explicite).
+- MR à ouvrir depuis cette branche — jamais de merge par la session.
+
 ## 🧪 Addendum 2026-07-30 (session OBS6, branche `obs6-datasets-experiments`, PR #63 MERGÉE) — datasets + experiments Langfuse, gate CI non bloquant
 
 **Périmètre exact** : `evals/**` + `scripts/**` + `.github/**` (+ `evalset/**` en lecture). Zéro touche à

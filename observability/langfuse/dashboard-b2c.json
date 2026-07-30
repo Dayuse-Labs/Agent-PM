@@ -1,0 +1,95 @@
+{
+  "$comment": "OBS3 — b2c-concierge dashboard, versioned in git for portability across Langfuse projects/instances (Best Practices: dashboards/widgets export as JSON, {\"$langfuseWidget\": true, ...}). Each widget entry below carries its FULL chart definition (view/dimensions/metrics/filters/chartType) so it is re-creatable from scratch via createDashboardWidget + createDashboard + addDashboardPlacement even on a fresh project — the widgetId/dashboardId fields are this project's live IDs, kept only as a reference, not required to re-import. Built live on 2026-07-30 against project cms4gd0d20002nz029tuly62e via the langfuse MCP server (createDashboardWidget/createDashboard/addDashboardPlacement) — this file mirrors getDashboard's real output, it is not a hand-written guess.",
+  "dashboard": {
+    "id": "cms7eu5rj003dlu0289c6zu41",
+    "name": "b2c-concierge — OBS3 deterministic scores",
+    "description": "TTFT, latency, degradation levels, empty-shortlist rate, the 13 guard_* series, LLM-budget breaches, cost by model.",
+    "url": "https://langfuse-web-production-272b.up.railway.app/project/cms4gd0d20002nz029tuly62e/dashboards/cms7eu5rj003dlu0289c6zu41"
+  },
+  "widgets": [
+    {
+      "placement": {"x": 0, "y": 0, "width": 4, "height": 3},
+      "widgetId": "cms7etlg5002slu025npjqg31",
+      "name": "TTFT p95 (ms)",
+      "description": "OBS3: time-to-first-token, p95 across turns — CLAUDE.md SLO is progress < 300 ms.",
+      "view": "scores-numeric",
+      "dimensions": [],
+      "metrics": [{"measure": "value", "agg": "p95"}],
+      "filters": [{"column": "name", "operator": "=", "value": "ttft_ms", "type": "string"}],
+      "chartType": "NUMBER"
+    },
+    {
+      "placement": {"x": 4, "y": 0, "width": 4, "height": 3},
+      "widgetId": "cms7etvxp0031lu0287lq144i",
+      "name": "Empty shortlist rate",
+      "description": "OBS3: share of turns where hotels_returned == 0 — the audit's \"recherche vide\" gisement, now measured continuously.",
+      "view": "scores-boolean",
+      "dimensions": [],
+      "metrics": [{"measure": "value", "agg": "avg"}],
+      "filters": [{"column": "name", "operator": "=", "value": "empty_shortlist", "type": "string"}],
+      "chartType": "NUMBER"
+    },
+    {
+      "placement": {"x": 8, "y": 0, "width": 4, "height": 3},
+      "widgetId": "cms7etzg00037lu02u0xh6s3z",
+      "name": "Turns exceeding the 3-call LLM budget",
+      "description": "CLAUDE.md structural invariant (<= 3 LLM calls/turn) — count of turns where llm_calls > 3, should stay at zero.",
+      "view": "scores-numeric",
+      "dimensions": [],
+      "metrics": [{"measure": "value", "agg": "count"}],
+      "filters": [
+        {"column": "name", "operator": "=", "value": "llm_calls", "type": "string"},
+        {"column": "value", "operator": ">", "value": 3, "type": "number"}
+      ],
+      "chartType": "NUMBER"
+    },
+    {
+      "placement": {"x": 0, "y": 3, "width": 12, "height": 6},
+      "widgetId": "cms7etxky0034lu02fjp6062h",
+      "name": "Guard firing rate (13 series)",
+      "description": "OBS3 §2: one bar per guard_* score name — the fréquence de déclenchement par guard the 2026-06 audit couldn't answer.",
+      "view": "scores-boolean",
+      "dimensions": [{"field": "name"}],
+      "metrics": [{"measure": "value", "agg": "avg"}],
+      "filters": [{"column": "name", "operator": "contains", "value": "guard_", "type": "string"}],
+      "chartType": "HORIZONTAL_BAR"
+    },
+    {
+      "placement": {"x": 0, "y": 9, "width": 6, "height": 6},
+      "widgetId": "cms7etrs2002vlu029bjoqnyb",
+      "name": "Latency p95 by observation name",
+      "description": "OBS3 §8: p95 latency broken down by observation name (guards/tools/generations) — the debug-priority list.",
+      "view": "observations",
+      "dimensions": [{"field": "name"}],
+      "metrics": [{"measure": "latency", "agg": "p95"}],
+      "filters": [],
+      "chartType": "HORIZONTAL_BAR"
+    },
+    {
+      "placement": {"x": 6, "y": 9, "width": 6, "height": 6},
+      "widgetId": "cms7ettd5002ylu02gfymdiug",
+      "name": "Observation count by level",
+      "description": "OBS2: the daily debug queue — a level:ERROR/WARNING count is the guard/degradation frequency at the observation grain.",
+      "view": "observations",
+      "dimensions": [{"field": "level"}],
+      "metrics": [{"measure": "count", "agg": "count"}],
+      "filters": [],
+      "chartType": "VERTICAL_BAR"
+    },
+    {
+      "placement": {"x": 0, "y": 15, "width": 12, "height": 6},
+      "widgetId": "cms7eu0vg003alu02gidugvgd",
+      "name": "Cost by model",
+      "description": "OBS2 addendum: totalCost per model, post the call_llm double-count fix (2x -> 1x) — the number this dashboard now shows should be the real one.",
+      "view": "observations",
+      "dimensions": [{"field": "providedModelName"}],
+      "metrics": [{"measure": "totalCost", "agg": "sum"}],
+      "filters": [],
+      "chartType": "PIE"
+    }
+  ],
+  "known_gaps": [
+    "The `degraded` CATEGORICAL score has no widget yet — its score config creation is blocked by an MCP tool bug (see score-configs.json known_gaps); revisit once that's created.",
+    "The guard firing rate widget only shows data for the 8 guards the concierge actually emits today (recovery_ack, anti_clarification_loop, amenity_truthfulness, named_hotel_lookup, booking_confirmation, hotel_link_truthfulness, budget_integrity, timeslot_sanitization) — the 5 geo/date guards live in hotel_search_agent, out of OBS3's zone, and are not wired for emission yet."
+  ]
+}
