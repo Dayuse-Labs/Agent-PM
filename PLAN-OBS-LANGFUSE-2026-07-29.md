@@ -113,7 +113,7 @@ Statuts : ⬜ à faire · 🟡 en cours · ✅ mergée · ⏸ bloquée (raison) 
 | OBS2 | Typage observations + level + release + TTFT | ✅ | `obs2-typage-observations` | 2026-07-30 | | Découverte majeure : ADK 2.4.0 type déjà `agent`/`tool` nativement (Agent Graph déjà visible avant OBS2) — le typage réel posé se limite aux 3 tools inline + 5 guards concierge (`guardrail`) + `level`/`status_message` sur les dégradations existantes. Bug trouvé ET corrigé en session : `mark_level`/`mark_metadata` dégradaient `agent`→`span` via `update_current_span` (fixé en attributs OTel bruts, cf. HANDOFF). Découverte non corrigée (hors périmètre) : usage compté 2× sur les feuilles ADK (hotel_search_agent/faq_agent), `call_llm`+`generate_content` — dashboards de coût feuille surestimés dès aujourd'hui. `LANGFUSE_RELEASE` documentée (zéro code), pose Railway en attente d'un GO Fabien |
 | OBS3 | Scores déterministes + dashboard | ⬜ | `obs3-scores-deterministes` | | | |
 | OBS4 | Trace distribuée A2A | ⬜ | `obs4-trace-distribuee-a2a` | | | |
-| OBS6 | Datasets + experiments + gate CI | ⬜ | `obs6-datasets-experiments` | | | |
+| OBS6 | Datasets + experiments + gate CI | 🟡 (non mergée) | `obs6-datasets-experiments` | 2026-07-30 | | 4 datasets hébergés (48+6 items), 2 runs comparés, CI non bloquant ; attend le merge d'OBS2 puis rebase — détail HANDOFF |
 | OBS7 | Judges online + annotation queue | ⬜ | `obs7-judges-online` | | | |
 | OBS5 | Feedback 👍/👎 | ⬜ | `obs5-user-feedback` | | | phase à écrire |
 | OBS8 | ClickHouse ≥ 25.12 | ⬜ | — (ops) | | | coordination Dayuse |
@@ -131,7 +131,7 @@ Statuts : ⬜ à faire · 🟡 en cours · ✅ mergée · ⏸ bloquée (raison) 
 | Fréquence de déclenchement par guard (12 séries) | inconnue | | OBS3 |
 | Tours dépassant 3 appels LLM | inconnu | | OBS3 |
 | 1 trace = 1 tour bout en bout (concierge + feuilles) | non (traces séparées) | | OBS4 |
-| Non-régression conversationnelle mesurée en CI | non (`adk eval` seul) | | OBS6 |
+| Non-régression conversationnelle mesurée en CI | non (`adk eval` seul) | oui, non bloquant (job `langfuse-experiments`) — seuil pas encore fixé | OBS6 |
 | Frustration utilisateur / hors-périmètre détectés | non | | OBS7 |
 
 ### Questions ouvertes
