@@ -201,7 +201,66 @@ devient `params._meta` (`mcp/types.py`, `RequestParams.meta = Field(alias="_meta
    `_meta`.
 5. `_meta` absent → trace autonome, jamais d'erreur (§3.1).
 
-**Ordre de merge : la MR OBS4 passe avant celle d'OBS10.**
+**Ordre de merge : la MR OBS4 passe avant celle d'OBS10.** ✅ Fait (#66 puis OBS10 déployée).
+
+### 3.4 Le contrat est vérifié de bout en bout (2026-07-30, session `obs4-check-06-mcp`)
+
+OBS10 déployée, un tour de recherche réel via `/v3/chat` contre le MCP_B2C **déployé** : **4 services,
+UNE trace, UNE racine**, 34 observations.
+
+```
+[TOOL] search_offers                  ← feuille AgentB2C (client ADK)
+  [SPAN] search_offers                ← MCP_B2C (scope dayuse-mcp-server)
+    [SPAN] elasticsearch.search       ← db.system=elasticsearch, db.operation=search,
+      [SPAN] search                     db.elasticsearch.index=hotel_staging_5
+```
+
+Et la preuve la plus forte du §1.4 : les spans de MCP_B2C portent
+`session.id=obs4-check-06-mcp` / `user.id=v3_obs4-check-06-mcp` — **notre baggage, arrivé deux sauts
+plus loin et à travers une frontière de langage** (SDK Python → SDK TypeScript), appliqué
+automatiquement par le span processor côté serveur. Identifiants opaques uniquement, comme spécifié.
+Aucun usage/coût parasite (usage 0, cost 0 sur les 3 spans MCP) et **une seule racine applicative**,
+donc la règle anti-double-racine du §3.3 tient aussi côté TS.
+
+⚠️ **Deux variables d'environnement manquent sur le service MCP_B2C** (repo séparé, hors zone OBS4 —
+signalé, pas corrigé) : ses spans arrivent avec `environment='default'` (pas de
+`LANGFUSE_TRACING_ENVIRONMENT`) et `service.name='unknown_service:node'` (pas de
+`OTEL_SERVICE_NAME`). La trace reste correcte (son environnement vient de la racine), mais en prod nos
+3 services seront en `production` alors que les spans ES resteront en `default` : tout filtre ou
+dashboard au niveau OBSERVATION les omettrait silencieusement, et un bucket `default` parasite
+apparaîtrait dans le sélecteur d'environnement.
+
+**Ce qu'il faut poser sur le service MCP_B2C** (Railway, repo séparé) :
+
+| Variable | Valeur | Pourquoi |
+|---|---|---|
+| `OTEL_SERVICE_NAME` | `mcp-b2c` | remplace `unknown_service:node`. Même style que nos 3 services (`b2c-concierge`, `hotel-search-agent`, `faq-agent`). Variable OTel standard : honorée si le service utilise le détecteur de ressources d'environnement du SDK Node ; s'il construit sa `Resource` à la main, il faut une ligne de code. |
+| `LANGFUSE_TRACING_ENVIRONMENT` | `production` | seule valeur juste pour le trafic réel. Contrainte SDK : minuscules alphanumériques + `-`/`_`, ≤ 40 car., ne doit pas commencer par `langfuse`. Rien de posé = `default` (ce qu'on observe). |
+| `LANGFUSE_TRACING_RELEASE` | sha git | optionnel, pour comparer un avant/après déploiement. **Nom différent du nôtre** : les SDK Python lisent `LANGFUSE_RELEASE` (nos 3 services : `8726160`), le SDK JS lit `LANGFUSE_TRACING_RELEASE`. |
+
+✅ **Posées et vérifiées après redeploy** (2026-07-30, session `obs4-check-09-live`) : les spans de
+MCP_B2C arrivent maintenant en `service.name='mcp-b2c'` et `environment='production'`. Donc le SDK
+Node du serveur **honore bien `OTEL_SERVICE_NAME`** (aucune ligne de code nécessaire, le doute du
+tableau ci-dessus est levé). La trace reste correcte par ailleurs : `v3.chat` racine unique, 34
+observations, chaîne ES intacte.
+
+⚠️ **Une valeur statique mislabellise forcément un appelant** : le MÊME déploiement MCP
+(`mcp-server-production-bcbe`) sert le prod (`LANGFUSE_TRACING_ENVIRONMENT=production` sur les 3
+services Railway) **et** le dev local (`development` dans `.env`) — vérifié dans les variables
+Railway. Avec `production` posé, les 3 spans MCP d'un tour de dev s'afficheront en `production` dans
+une trace `development`. La vraie correction est un déploiement MCP séparé pour le dev (CLAUDE.md dit
+déjà que le dev doit taper le MCP_B2C de staging) : c'est de l'infra, pas du code.
+**Constaté en vrai** sur `obs4-check-09-live` : trace `development` (dev local) dont les 3 spans MCP
+affichent `production`. Conséquence pratique à connaître en lisant un dashboard : un filtre par
+environnement au niveau OBSERVATION classera les requêtes ES d'un tour de dev avec celles du prod.
+
+**La voie « propager l'environnement de l'appelant dans le baggage » ne marche pas — testée, pas
+supposée.** `propagate_attributes(environment=…, as_baggage=True)` émet bien
+`baggage: …,langfuse_environment=development` (vérifié en process, en-tête inspecté), et les spans de
+MCP_B2C restent quand même en `default` — alors que `session.id`/`user.id` du **même** baggage, eux,
+arrivent. Donc soit le SDK JS ne lit pas cette entrée de baggage, soit l'init du serveur fixe
+`environment` explicitement (ce qui a priorité). Ne pas re-tenter ce chemin depuis AgentB2C : le code
+serait mort. (Le patch d'essai n'a pas été committé.)
 
 ---
 

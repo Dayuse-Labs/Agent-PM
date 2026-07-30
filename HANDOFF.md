@@ -2,7 +2,7 @@
 
 État du chantier pour reprise en session fraîche. **Lire en entier avant d'agir ; ne pas reconstruire ce qui existe.** Mettre à jour en fin de CHAQUE session (bloc daté en tête).
 
-## 🧵 Addendum 2026-07-30 (session OBS4, branche `obs4-trace-distribuee-a2a`, non mergée) — UNE trace par tour de bout en bout à travers l'A2A, dette v4 soldée
+## 🧵 Addendum 2026-07-30 (session OBS4, branche `obs4-trace-distribuee-a2a`, **PR #66 MERGÉE**) — UNE trace par tour de bout en bout à travers l'A2A, dette v4 soldée
 
 **Contexte** : 4e chantier de `PLAN-OBS-LANGFUSE-2026-07-29.md`, implémente **D-OBS-5**. Périmètre exact de `phases/OBS4-trace-distribuee-a2a.md` : `libs/b2c_common/**` + `agents/**`. Tourne en parallèle d'**OBS10** (autre repo, MCP_B2C) : cette session produit le contrat d'injection qu'OBS10 consomme, et sa MR passe avant. Zéro appel LLM ajouté, zéro appel réseau ajouté (la propagation est un en-tête).
 
@@ -53,9 +53,40 @@ Fix : `_should_export_span` élargi au scope `a2a-python-sdk` **sauf le préfixe
 - **Pas d'`output` sur l'observation racine de FEUILLE** (le concierge en a un) : aucun seam public ne l'expose — la chaîne `after_agent_callback` d'ADK s'arrête au premier retour non-`None` (`base_agent.py:552`) et sur la feuille search c'est `emit_search_datapart`. Les stamps supprimés ne posaient de toute façon que nom+input : zéro régression.
 - **Les 5 guards géo/date de la feuille** (le « Reste » d'OBS3) sont maintenant débloqués : la feuille écrit sur la MÊME trace que le concierge, donc `score_current_trace` depuis la feuille y atterrira. Chantier séparé, zone `agents/hotel_search_agent/**`.
 - **`langfuse_trace_id` est une clé de baggage privée du SDK** : pinnée par un test contre `langfuse._client.propagation.LANGFUSE_TRACE_ID_BAGGAGE_KEY`, donc un bump langfuse échoue bruyamment au lieu de rouvrir silencieusement le trou de la 2e racine.
-- MR à ouvrir depuis cette branche — jamais de merge par la session. **Avant celle d'OBS10.**
+- ✅ PR #66 ouverte, review + merge faits par Fabien (`3b1bb61`) — jamais mergée par la session.
+- ✅ **OBS10 livrée ET déployée** (Fabien), et le joint OBS4+OBS10 est **vérifié en vrai** depuis
+  AgentB2C (session `obs4-check-06-mcp`, MCP_B2C déployé) : **4 services, UNE trace, UNE racine**,
+  34 observations — `[TOOL] search_offers` (feuille) → `[SPAN] search_offers` (MCP_B2C) →
+  `elasticsearch.search` (`db.system=elasticsearch`, `db.operation=search`,
+  `db.elasticsearch.index=hotel_staging_5`) → `search`. Aucun usage/coût parasite (0/0 sur les 3
+  spans MCP), le coût de la trace est inchangé.
+- **Preuve la plus forte que le baggage marche** : les spans de MCP_B2C portent
+  `session.id`/`user.id` = les nôtres — notre baggage a franchi **deux sauts et une frontière de
+  langage** (SDK Python → SDK TypeScript), appliqué automatiquement par le span processor côté
+  serveur. Identifiants opaques uniquement, la règle de sécurité tient.
+- ⚠️ **À faire côté MCP_B2C (repo séparé, hors zone — signalé, pas corrigé)** : ses spans arrivent en
+  `environment='default'` (pas de `LANGFUSE_TRACING_ENVIRONMENT`) et
+  `service.name='unknown_service:node'` (pas de `OTEL_SERVICE_NAME`). La trace reste juste (son
+  environnement vient de la racine), mais en prod nos 3 services seront en `production` pendant que
+  les spans ES resteront en `default` : **tout filtre ou dashboard au niveau OBSERVATION les
+  omettrait silencieusement**, et un bucket `default` parasite apparaîtrait dans le sélecteur. Deux
+  variables d'environnement sur le service MCP (`OTEL_SERVICE_NAME=mcp-b2c`,
+  `LANGFUSE_TRACING_ENVIRONMENT=production` ; `LANGFUSE_TRACING_RELEASE` en option — nom JS, différent
+  du `LANGFUSE_RELEASE` de nos 3 services Python), tableau complet dans le contrat §3.4. Nuance :
+  **une valeur statique mislabellise forcément un appelant**, le même déploiement MCP sert le prod
+  ET le dev local (vérifié dans les variables Railway) — la vraie correction serait un déploiement MCP
+  séparé pour le dev.
+- ✅ **Les 2 variables sont posées et vérifiées après redeploy** (session `obs4-check-09-live`) :
+  spans MCP en `service.name='mcp-b2c'` + `environment='production'`. Le SDK Node du serveur honore
+  donc `OTEL_SERVICE_NAME` sans changement de code. Le mislabel annoncé est bien visible : cette
+  trace de dev (`development`) porte 3 spans MCP en `production` — à savoir en lisant un dashboard
+  filtré par environnement au niveau observation.
+- **Voie fermée, testée et pas supposée** : propager l'environnement de l'appelant dans le baggage ne
+  marche pas. On émet bien `langfuse_environment` dans l'en-tête (inspecté en process), et les spans
+  MCP restent en `default` alors que `session.id`/`user.id` du MÊME baggage arrivent. Patch d'essai
+  non committé — ne pas re-tenter depuis AgentB2C, ce serait du code mort.
 
-## 📊 Addendum 2026-07-30 (session OBS3, branche `obs3-scores-deterministes`, non mergée) — scores déterministes, 12→13 guards, score configs + dashboard créés en vrai
+## 📊 Addendum 2026-07-30 (session OBS3, branche `obs3-scores-deterministes`, **PR #65 MERGÉE**) — scores déterministes, 12→13 guards, score configs + dashboard créés en vrai
 
 **Contexte** : 3e chantier de `PLAN-OBS-LANGFUSE-2026-07-29.md`. Périmètre exact de `phases/OBS3-scores-deterministes.md` : `libs/b2c_common/**` + `agents/b2c_concierge/**` + `observability/langfuse/**` (nouveau dossier) — **zéro fichier touché dans `agents/hotel_search_agent/**`**, décision assumée (voir "Reste"). Référence : `OBS2-LANGFUSE-BRIEF.md` §2 et §8. Zéro appel LLM ajouté.
 
@@ -97,7 +128,7 @@ Décision : utiliser le serveur MCP `langfuse` (déjà connecté à ce projet) p
 - **`degraded` sans score config** (bug outil MCP, voir ci-dessus) — à refaire depuis l'UI Langfuse.
 - **`llm_metric_events`/logs restent la source `route`/`family` détaillée** — les scores OBS3 sont volontairement plus pauvres (juste des compteurs/booléens), pas une duplication du canal de métriques existant.
 - Chiffres mesurés = un échantillon de smoke (4 tours), pas 7 jours de prod (tableau "Résultats attendus" du plan mis à jour avec cette réserve explicite).
-- MR à ouvrir depuis cette branche — jamais de merge par la session.
+- ✅ PR #65 ouverte, review + merge faits par Fabien (`00e5b16`) — jamais mergée par la session.
 
 ## 🧪 Addendum 2026-07-30 (session OBS6, branche `obs6-datasets-experiments`, PR #63 MERGÉE) — datasets + experiments Langfuse, gate CI non bloquant
 
