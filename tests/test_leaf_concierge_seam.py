@@ -135,7 +135,7 @@ def test_the_link_books_the_offer_the_card_showed(monkeypatch):
         content: list = []
 
     class _Session:
-        async def call_tool(self, name, arguments):
+        async def call_tool(self, name, arguments, *, meta=None):
             calls.append((name, dict(arguments)))
             # A lookup here would be the old bug: it answers with TODAY's offer.
             if name == "get_hotel_details":

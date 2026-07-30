@@ -85,3 +85,23 @@ class TestBearerGate:
             "/", json={}, headers={"Authorization": f"Bearer {TOKEN}"}
         )
         assert response.status_code != 401
+
+
+class TestObs4A2aSurfaceOnlyTracing:
+    """OBS4: the A2A root observation wraps the A2A surface ONLY. On `/v3/*`,
+    `turn_observation` is already the root — a second wrapper above it would
+    steal the trace's name and input from `v3.chat`, which is the audit surface
+    the facade path is judged on."""
+
+    def test_the_a2a_wrapper_is_inside_the_d7_gate(self, serve):
+        from b2c_common.auth import BearerAuthMiddleware
+        from b2c_common.observability import A2aTurnObservation
+
+        assert isinstance(serve._guarded, BearerAuthMiddleware)
+        # `._app` is BearerAuthMiddleware's own wrapped-app attribute.
+        assert isinstance(serve._guarded._app, A2aTurnObservation)
+
+    def test_v3_bypasses_both_the_gate_and_the_a2a_wrapper(self, serve):
+        # The dispatcher hands /v3/* the RAW ADK app: no D7 bearer (the facade
+        # has its own API key) and no second root observation.
+        assert serve._traced_a2a._app is serve._a2a_app

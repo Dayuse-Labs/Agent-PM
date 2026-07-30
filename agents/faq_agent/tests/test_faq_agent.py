@@ -132,3 +132,11 @@ class TestMetricsWiring:
         from dayuse_agent_common import switch_model_callback
 
         assert switch_model_callback not in self._as_list(root_agent.before_model_callback)
+
+    def test_langfuse_leaf_turn_stamp_wired(self):
+        # OBS4: feeds the leaf's root observation (opened by
+        # A2aTurnObservation in serve.py) its input, and the session id that
+        # keeps a directly-called leaf in the Langfuse Sessions view.
+        from b2c_common.observability import stamp_a2a_turn
+
+        assert stamp_a2a_turn in self._as_list(root_agent.before_agent_callback)

@@ -1,3 +1,50 @@
+# OBS4 — une trace par tour à travers l'A2A (branche `obs4-trace-distribuee-a2a`, 2026-07-30)
+
+Décision + preuves + contrat OBS10 : **`OBS4-TRACE-PROPAGATION-CONTRACT.md`** (écrit AVANT le code,
+comme demandé). Résumé : contexte W3C (`traceparent` + `baggage`) dans les en-têtes HTTP, extrait au
+bord ASGI de la feuille. La voie « `trace_id` explicite dans la metadata A2A » est **structurellement
+impossible** (lisible seulement dans un callback ADK, donc après la création des spans racines d'ADK
+→ 3 traces au lieu de 1). Le baggage n'est pas un bonus : `langfuse_trace_id` est ce qui empêche la
+feuille de revendiquer une 2e racine applicative sur la même trace.
+
+## Tâches
+
+- [x] Inventaire SDK/ADK/a2a-sdk contre le code source installé (pas la doc) — les 6 preuves du §1
+- [x] Écrire la décision + le contrat `_meta` pour OBS10 avant de coder
+- [x] `b2c_common.observability` : `trace_context_carrier()` (la forme du contrat, un seul endroit)
+- [x] `b2c_common.observability` : `A2aTurnObservation` (ASGI pur) + `stamp_a2a_turn`
+- [x] Supprimer `stamp_langfuse_session` (+ ses tests) — garder `stamp_langfuse_turn_session`
+- [x] `turn_observation` : `as_baggage=True` sur session/user SEULEMENT (tags/metadata restent locaux)
+- [x] Concierge : `event_hooks` d'injection sur le client httpx des jambes A2A
+- [x] Concierge : `meta=` sur `inline_tools._call_tool` (moitié client du contrat MCP)
+- [x] 2 `serve.py` de feuille : monter le middleware SOUS le gate D7 + `stamp_a2a_turn`
+- [x] **Non prévu, trouvé en live** : 1 trace ≠ 1 arbre — les spans `@trace_class` du `a2a-sdk`
+      trouaient l'arbre des 2 côtés du saut ; filtre d'export élargi sauf `a2a.server.events.`
+      (76 → 31 observations par tour)
+- [x] **Non prévu** : middleware aussi sur la surface A2A du concierge (sinon son nom de trace
+      devenait un nom de méthode de handler a2a) + `mark_a2a_turn_output` depuis `_final`
+- [x] Tests : rattachement, repli sans amont, no-op sans clés, injection A2A/MCP, lock statique
+      « plus aucun `langfuse.trace.input`/`.name` », pin du nom de clé de baggage du SDK
+- [x] Gates : `pytest -q` (1263 passed), `ruff`, `mypy agents libs`, `dayuse_guardrails.sh`
+- [x] Vérif réelle : `run_local.sh` + smoke A2A + `--contract` + sessions `obs4-check-0*` → UNE trace
+      par tour sur les deux chemins, usage 1×, vue Sessions peuplée, scores OBS3 intacts
+- [x] HANDOFF (bloc daté) + suivi du plan OBS + commit branche (jamais de merge)
+
+## Revue
+
+Livré dans le périmètre exact (`libs/b2c_common/**` + `agents/**`, zéro fichier `evals/`/`scripts/`/
+`.github/`). Deux écarts assumés au fichier de phase, chacun avec sa raison :
+
+1. **L'observation racine de feuille est typée `span`, pas `agent`.** ADK 2.4.0 type déjà
+   `invoke_agent <leaf>` en AGENT nativement (découverte OBS2, dans ce repo) : un wrapper `agent`
+   dupliquerait le nœud de la feuille dans l'Agent Graph. Le concierge a exactement cette forme
+   depuis OBS1 (`v3.chat` = `span`, le type `agent` vient d'ADK). La condition d'affichage de l'Agent
+   Graph reste remplie par les types natifs.
+2. **`stamp_langfuse_turn_session` conservé.** La phase demandait de ne le retirer que si un test
+   prouvait la vue Sessions intacte sans lui : c'est le contraire qui est vrai — c'est la seule
+   source de session+user sur le chemin concierge piloté en A2A (pas de `turn_observation` là), et il
+   n'écrit aucun attribut déprécié.
+
 # S-CX9 — bouton de réservation sur la carte de résultat + repasse de la carte — 2026-07-29
 
 Décision Fabien (artefact `claude.ai/code/artifact/f887ae71`, 5 propositions) : **proposition A +

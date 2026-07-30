@@ -646,7 +646,7 @@ class TestCheapestPickThroughTheSpine:
             content: list = []
 
         class _Session:
-            async def call_tool(self, name, arguments):
+            async def call_tool(self, name, arguments, *, meta=None):
                 calls.append((name, dict(arguments)))
                 return _Res()
 
@@ -772,7 +772,7 @@ class TestPickWithoutBookingIntent:
         calls: list[tuple[str, dict]] = []
 
         class _Session:
-            async def call_tool(self, name, arguments):
+            async def call_tool(self, name, arguments, *, meta=None):
                 calls.append((name, dict(arguments)))
                 return SimpleNamespace(
                     isError=False,
@@ -831,7 +831,7 @@ class TestClickedPickButton:
         calls: list[tuple[str, dict]] = []
 
         class _Session:
-            async def call_tool(self, name, arguments):
+            async def call_tool(self, name, arguments, *, meta=None):
                 calls.append((name, dict(arguments)))
                 return SimpleNamespace(
                     isError=False, content=[],
@@ -872,7 +872,7 @@ class TestClickedPickButton:
         @asynccontextmanager
         async def _session():
             class _S:
-                async def call_tool(self, name, arguments):
+                async def call_tool(self, name, arguments, *, meta=None):
                     return SimpleNamespace(
                         isError=False, content=[],
                         structuredContent={"link": {"url": "https://www.dayuse.fr/tunnel/booking?x"}},
@@ -914,7 +914,7 @@ class TestBookingAnswersInTheConversationLanguage:
         @asynccontextmanager
         async def _session():
             class _S:
-                async def call_tool(self, name, arguments):
+                async def call_tool(self, name, arguments, *, meta=None):
                     return SimpleNamespace(
                         isError=False, content=[],
                         structuredContent={"link": {"url": "https://www.dayuse.fr/tunnel/booking?x"}},

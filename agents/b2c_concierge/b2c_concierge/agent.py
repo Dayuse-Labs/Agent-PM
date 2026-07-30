@@ -87,7 +87,14 @@ from b2c_common import (
     score_turn,
     temperature_kwargs_for,
 )
-from b2c_common.observability import mark_level, mark_metadata, observation, stamp_langfuse_turn_session
+from b2c_common.observability import (
+    mark_a2a_turn_output,
+    mark_level,
+    mark_metadata,
+    observation,
+    stamp_langfuse_turn_session,
+    trace_context_carrier,
+)
 from dayuse_agent_common import (
     cost_from_tokens,
     enqueue_metric_event,
@@ -269,6 +276,18 @@ def _chunk_text(text: str) -> list[str]:
 _legs: dict[str, RemoteA2aAgent] = {}
 
 
+async def _inject_trace_context(request: httpx.Request) -> None:
+    """OBS4: hands the leaf the W3C trace context of the span this call runs
+    under, so its whole subtree joins THIS turn's trace instead of opening one
+    of its own (`A2aTurnObservation` extracts it at the leaf's ASGI edge).
+
+    An httpx request hook, deliberately not a global httpx instrumentation:
+    with only this call site and the inline MCP client injecting, our baggage
+    never reaches a third party (Mapbox). Never raises — the carrier is `{}`
+    when tracing is off, and `headers.update({})` is a no-op."""
+    request.headers.update(trace_context_carrier())
+
+
 def _get_leg(leaf: str) -> RemoteA2aAgent:
     if leaf not in _legs:
         token = bearer_token(leaf)
@@ -278,6 +297,7 @@ def _get_leg(leaf: str) -> RemoteA2aAgent:
             httpx_client=httpx.AsyncClient(
                 timeout=_leaf_timeout(leaf),
                 headers={"Authorization": f"Bearer {token}"} if token else {},
+                event_hooks={"request": [_inject_trace_context]},
             ),
             # Fleet correlation id (dayuse_agent_common.metrics reads it, and the
             # leaves mirror it as the Langfuse session id): the facade session_id
@@ -442,6 +462,11 @@ class _B2cConcierge(BaseAgent):
 
     # --- Event builders ---------------------------------------------------------------------
     def _final(self, ctx: InvocationContext, text: str) -> Event:
+        # OBS4: every terminal event funnels through here, so this is the one
+        # place that can give an A2A-driven turn its trace output. No-op on the
+        # /v3 facade path (no A2A root observation there — facade.py sets the
+        # output on `v3.chat` itself).
+        mark_a2a_turn_output(text)
         return Event(
             author=self.name,
             invocation_id=ctx.invocation_id,

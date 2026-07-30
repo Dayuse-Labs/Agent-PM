@@ -178,6 +178,14 @@ class TestMetricsWiring:
         assert stamp_turn_start in self._as_list(root_agent.before_agent_callback)
         assert emit_search_datapart in self._as_list(root_agent.after_agent_callback)
 
+    def test_langfuse_leaf_turn_stamp_wired(self):
+        # OBS4: feeds the leaf's root observation (opened by
+        # A2aTurnObservation in serve.py) its input, and the session id that
+        # keeps a directly-called leaf in the Langfuse Sessions view.
+        from b2c_common.observability import stamp_a2a_turn
+
+        assert stamp_a2a_turn in self._as_list(root_agent.before_agent_callback)
+
 
 class TestAmenityInstruction:
     """The closed key list the INSTRUCTION offers the model must be exactly the

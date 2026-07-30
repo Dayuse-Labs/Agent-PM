@@ -26,7 +26,7 @@ from __future__ import annotations
 
 import os
 
-from b2c_common.observability import stamp_langfuse_session
+from b2c_common.observability import stamp_a2a_turn
 from dayuse_agent_common import (
     build_model,
     llm_error_metric,
@@ -126,9 +126,11 @@ root_agent = Agent(
     # same rationale and verification as b2c_hotel_search's include_contents.
     include_contents="none",
     tools=[build_mcp_toolset()],
-    # stamp_langfuse_session mirrors the inbound A2A dayuse_trace_id as the
-    # Langfuse session id (no-op unless tracing is enabled in serve.py).
-    before_agent_callback=[stamp_langfuse_session],
+    # stamp_a2a_turn gives the leaf's root observation (opened by
+    # A2aTurnObservation in serve.py) the inbound request as its input, and
+    # mirrors the inbound A2A dayuse_trace_id as the Langfuse session id
+    # (no-op unless tracing is enabled in serve.py).
+    before_agent_callback=[stamp_a2a_turn],
     before_model_callback=[llm_timing_before],
     after_model_callback=[llm_timing_after],
     on_model_error_callback=llm_error_metric,
