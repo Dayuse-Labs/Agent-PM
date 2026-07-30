@@ -118,7 +118,7 @@ Statuts : ⬜ à faire · 🟡 en cours · ✅ mergée · ⏸ bloquée (raison) 
 | OBS5 | Feedback 👍/👎 | ⬜ | `obs5-user-feedback` | | | phase à écrire |
 | OBS8 | ClickHouse ≥ 25.12 | ⬜ | — (ops) | | | coordination Dayuse |
 | OBS9 | Migration v4 | ⏸ | — | | | **attend la GA stable** (RC au 2026-07-29) |
-| OBS10 | Traceparent `_meta` MCP | ⬜ | (repo MCP_B2C) | | | **Débloquée** : contrat d'injection sur `main` (`OBS4-TRACE-PROPAGATION-CONTRACT.md` §3), ADK injecte déjà le carrier dans `_meta` côté feuilles — reste l'extraction serveur TS |
+| OBS10 | Traceparent `_meta` MCP | ✅ | (repo MCP_B2C) | 2026-07-30 | (repo MCP_B2C) | **Livrée et déployée** (Fabien). Joint OBS4+OBS10 vérifié côté AgentB2C : 4 services / 1 trace / 1 racine, `elasticsearch.search` sous le `search_offers` de la feuille, et notre baggage (`session.id`/`user.id`) reconnu par le SDK TS. Reste 2 variables d'env sur le service MCP (`LANGFUSE_TRACING_ENVIRONMENT`, `OTEL_SERVICE_NAME`) — cf. contrat §3.4 |
 
 ### Résultats attendus, mesurables (à remplir à la fin de chaque session)
 
@@ -132,6 +132,7 @@ Statuts : ⬜ à faire · 🟡 en cours · ✅ mergée · ⏸ bloquée (raison) 
 | Tours dépassant 3 appels LLM | inconnu | mesure posée (`llm_calls` NUMERIC, sans max) ; 0/4 sur le smoke | OBS3 |
 | 1 trace = 1 tour bout en bout (concierge + feuilles) | non (traces séparées) | **oui, vérifié sur les 2 chemins** — façade `/v3` : 1 tour → 1 trace `v3.chat`, 31 obs, 1 seule racine ; pilotage A2A : 2 tours → 2 traces `a2a.b2c_concierge`, 1 racine chacune. Usage toujours 1×, Sessions peuplée, 16 scores OBS3/trace intacts | OBS4 |
 | Non-régression conversationnelle mesurée en CI | non (`adk eval` seul) | oui, non bloquant (job `langfuse-experiments`) — seuil pas encore fixé | OBS6 |
+| Requêtes ES de MCP_B2C dans la trace du tour | non | **oui** — `elasticsearch.search` (`db.system`/`db.operation`/`db.elasticsearch.index`) sous le `search_offers` de la feuille, 4 services dans une trace | OBS4+OBS10 |
 | Frustration utilisateur / hors-périmètre détectés | non | | OBS7 |
 
 ### Questions ouvertes

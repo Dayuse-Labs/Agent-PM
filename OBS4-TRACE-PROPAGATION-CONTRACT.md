@@ -201,7 +201,34 @@ devient `params._meta` (`mcp/types.py`, `RequestParams.meta = Field(alias="_meta
    `_meta`.
 5. `_meta` absent → trace autonome, jamais d'erreur (§3.1).
 
-**Ordre de merge : la MR OBS4 passe avant celle d'OBS10.**
+**Ordre de merge : la MR OBS4 passe avant celle d'OBS10.** ✅ Fait (#66 puis OBS10 déployée).
+
+### 3.4 Le contrat est vérifié de bout en bout (2026-07-30, session `obs4-check-06-mcp`)
+
+OBS10 déployée, un tour de recherche réel via `/v3/chat` contre le MCP_B2C **déployé** : **4 services,
+UNE trace, UNE racine**, 34 observations.
+
+```
+[TOOL] search_offers                  ← feuille AgentB2C (client ADK)
+  [SPAN] search_offers                ← MCP_B2C (scope dayuse-mcp-server)
+    [SPAN] elasticsearch.search       ← db.system=elasticsearch, db.operation=search,
+      [SPAN] search                     db.elasticsearch.index=hotel_staging_5
+```
+
+Et la preuve la plus forte du §1.4 : les spans de MCP_B2C portent
+`session.id=obs4-check-06-mcp` / `user.id=v3_obs4-check-06-mcp` — **notre baggage, arrivé deux sauts
+plus loin et à travers une frontière de langage** (SDK Python → SDK TypeScript), appliqué
+automatiquement par le span processor côté serveur. Identifiants opaques uniquement, comme spécifié.
+Aucun usage/coût parasite (usage 0, cost 0 sur les 3 spans MCP) et **une seule racine applicative**,
+donc la règle anti-double-racine du §3.3 tient aussi côté TS.
+
+⚠️ **Deux variables d'environnement manquent sur le service MCP_B2C** (repo séparé, hors zone OBS4 —
+signalé, pas corrigé) : ses spans arrivent avec `environment='default'` (pas de
+`LANGFUSE_TRACING_ENVIRONMENT`) et `service.name='unknown_service:node'` (pas de
+`OTEL_SERVICE_NAME`). La trace reste correcte (son environnement vient de la racine), mais en prod nos
+3 services seront en `production` alors que les spans ES resteront en `default` : tout filtre ou
+dashboard au niveau OBSERVATION les omettrait silencieusement, et un bucket `default` parasite
+apparaîtrait dans le sélecteur d'environnement.
 
 ---
 

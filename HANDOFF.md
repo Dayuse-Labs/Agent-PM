@@ -54,8 +54,23 @@ Fix : `_should_export_span` élargi au scope `a2a-python-sdk` **sauf le préfixe
 - **Les 5 guards géo/date de la feuille** (le « Reste » d'OBS3) sont maintenant débloqués : la feuille écrit sur la MÊME trace que le concierge, donc `score_current_trace` depuis la feuille y atterrira. Chantier séparé, zone `agents/hotel_search_agent/**`.
 - **`langfuse_trace_id` est une clé de baggage privée du SDK** : pinnée par un test contre `langfuse._client.propagation.LANGFUSE_TRACE_ID_BAGGAGE_KEY`, donc un bump langfuse échoue bruyamment au lieu de rouvrir silencieusement le trou de la 2e racine.
 - ✅ PR #66 ouverte, review + merge faits par Fabien (`3b1bb61`) — jamais mergée par la session.
-- **OBS10 est débloquée** : le contrat `OBS4-TRACE-PROPAGATION-CONTRACT.md` §3 est sur `main`, et
-  l'ordre de merge annoncé (OBS4 avant OBS10) est respecté.
+- ✅ **OBS10 livrée ET déployée** (Fabien), et le joint OBS4+OBS10 est **vérifié en vrai** depuis
+  AgentB2C (session `obs4-check-06-mcp`, MCP_B2C déployé) : **4 services, UNE trace, UNE racine**,
+  34 observations — `[TOOL] search_offers` (feuille) → `[SPAN] search_offers` (MCP_B2C) →
+  `elasticsearch.search` (`db.system=elasticsearch`, `db.operation=search`,
+  `db.elasticsearch.index=hotel_staging_5`) → `search`. Aucun usage/coût parasite (0/0 sur les 3
+  spans MCP), le coût de la trace est inchangé.
+- **Preuve la plus forte que le baggage marche** : les spans de MCP_B2C portent
+  `session.id`/`user.id` = les nôtres — notre baggage a franchi **deux sauts et une frontière de
+  langage** (SDK Python → SDK TypeScript), appliqué automatiquement par le span processor côté
+  serveur. Identifiants opaques uniquement, la règle de sécurité tient.
+- ⚠️ **À faire côté MCP_B2C (repo séparé, hors zone — signalé, pas corrigé)** : ses spans arrivent en
+  `environment='default'` (pas de `LANGFUSE_TRACING_ENVIRONMENT`) et
+  `service.name='unknown_service:node'` (pas de `OTEL_SERVICE_NAME`). La trace reste juste (son
+  environnement vient de la racine), mais en prod nos 3 services seront en `production` pendant que
+  les spans ES resteront en `default` : **tout filtre ou dashboard au niveau OBSERVATION les
+  omettrait silencieusement**, et un bucket `default` parasite apparaîtrait dans le sélecteur. Deux
+  variables d'environnement sur le service MCP, cf. contrat §3.4.
 
 ## 📊 Addendum 2026-07-30 (session OBS3, branche `obs3-scores-deterministes`, **PR #65 MERGÉE**) — scores déterministes, 12→13 guards, score configs + dashboard créés en vrai
 
