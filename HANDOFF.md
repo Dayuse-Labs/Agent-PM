@@ -2,6 +2,22 @@
 
 État du chantier pour reprise en session fraîche. **Lire en entier avant d'agir ; ne pas reconstruire ce qui existe.** Mettre à jour en fin de CHAQUE session (bloc daté en tête).
 
+## 🩹 Addendum 2026-07-30 (branche `fix/adk-call-llm-usage-doublecount`) — le double comptage d'usage sur les feuilles ADK est corrigé (2× → 1×)
+
+**Contexte** : suite de la session OBS2 (`obs2-typage-observations`, PR #61) — celle-ci avait **trouvé et documenté** (pas corrigé, hors périmètre du typage) que `hotel_search_agent`/`faq_agent` comptaient l'usage LLM 2× dans Langfuse (`call_llm` + `generate_content` portaient le même usage). Fabien a donné le GO pour corriger ici, dans une branche dédiée basée sur `main` (indépendante de la PR #61, non mergée).
+
+**Root cause, rappel** : `google/adk/flows/llm_flows/base_llm_flow.py:1342` crée sans condition un span `call_llm` et lui pose (`trace_call_llm`, `telemetry/tracing.py:314`) les mêmes attributs `gen_ai.*` (modèle, contenu, **usage**) que son enfant `generate_content {model}`. `ADK_TELEMETRY_SCHEMA_VERSION_OPT_IN=2` ne retire PAS `call_llm` malgré le commentaire qui l'affirmait — c'est un item de la roadmap de migration d'ADK (`telemetry/_schema_version.py`) pas encore livré dans `google-adk==2.4.0`. Le comment fautif dans `observability.py` est corrigé.
+
+**Correctif : `mask_otel_spans` (hook d'export Langfuse, doc §"Bonus" du brief OBS2 §1.6)** — `_mask_call_llm_usage` dans `observability.py`, câblé sur `Langfuse(mask_otel_spans=...)`. **Piège découvert en vérifiant en live** : un strip qui ne retire QUE `gen_ai.usage.*` ne suffit PAS — Langfuse retombe sur une **estimation** d'usage à partir du contenu (`gcp.vertex.agent.llm_request`/`llm_response`) + du modèle encore présents (`gen_ai.request.model`), et affiche un nombre différent mais toujours non nul (ex. mesuré : 4810 au lieu de 4484 tokens réels). Le correctif final retire **tous** les attributs `gen_ai.*` ET les deux clés de contenu dupliqué `gcp.vertex.agent.llm_request`/`llm_response` du span `call_llm` — les ids de corrélation (`invocation_id`/`session_id`/`event_id`) restent. `call_llm` redevient un simple span de timing, `generate_content` reste l'unique source d'usage/coût/contenu.
+
+**Vérifié en live (avant/après, mêmes deux feuilles)** :
+- `hotel_search_agent` (tour recherche Paris/piscine) : les 3 `call_llm` du tour repassent en type `SPAN`, usage `0/0/0` — les 2 `generate_content` restent seuls porteurs d'usage (4611 + 4485 tokens). `trace.totalCost = 0.00074895` = exactement la somme des deux `generate_content`, plus aucune contribution de `call_llm`.
+- `faq_agent` (tour FAQ) : même résultat — les 2 `call_llm` à `0/0/0`, seuls les 2 `generate_content` (6154 + 1081 tokens) portent le coût.
+
+**Tests** : `TestMaskCallLlmUsage` (4 cas — strip complet et ciblé, span sans rien à retirer laissé intact, jamais lève sur des params malformés) dans `libs/b2c_common/tests/test_observability.py`. Suite complète **1176 passed** (1 rouge pré-existant, `test_llm_meter_usage`, sans rapport, présent sur `main`), ruff/mypy/guardrails verts.
+
+**Reste** : rien côté code. Si les dashboards de coût par feuille avaient déjà été consultés/exportés avant cette correction, les chiffres antérieurs à ce déploiement restent ~2× surestimés (historique non rétroactivement corrigé — Langfuse ne recalcule pas les observations déjà ingérées).
+
 ## 🛠 Addendum 2026-07-30 (branche `obs0-bump-serveur-langfuse`) — OBS0 : bump serveur Langfuse 3.205.1 → 3.224.3 + checklist UI
 
 **Contexte** : premier chantier de `PLAN-OBS-LANGFUSE-2026-07-29.md` (D-OBS-1). Opération sur l'instance

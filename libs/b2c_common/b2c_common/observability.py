@@ -40,18 +40,30 @@ def setup_langfuse(service_name: str, *, instrument_litellm: bool = True) -> Any
         return None
 
     os.environ.setdefault("OTEL_SERVICE_NAME", service_name)
-    # ADK schema v1 (default) emits BOTH the legacy `call_llm` span and the
-    # semconv `generate_content` span, each carrying gen_ai.usage.* — Langfuse
-    # sums usage per span, so a turn's tokens/cost were counted 3x (call_llm +
-    # generate_content + acompletion). Schema v2 drops call_llm (ADK's own
-    # documented migration knob).
+    # ADK emits BOTH the legacy `call_llm` span and the semconv
+    # `generate_content` span for every model call, each carrying identical
+    # gen_ai.usage.* attributes — Langfuse sums usage per GENERATION-typed
+    # observation, so a turn's tokens/cost were counted 2x on any agent that
+    # goes through ADK's own model layer (the leaves). `call_llm`'s creation
+    # (google/adk/flows/llm_flows/base_llm_flow.py, `_call_llm_async`) is
+    # UNCONDITIONAL — `ADK_TELEMETRY_SCHEMA_VERSION_OPT_IN=2` does NOT drop it
+    # despite ADK's own telemetry/_schema_version.py migration-plan comment
+    # listing "the call_llm span is removed" as a step; that step hasn't
+    # shipped in google-adk==2.4.0 (verified against a real trace, OBS2 +
+    # follow-up). The opt-in still matters for the OTHER schema-v2 change
+    # (the `invocation` root span becomes `invoke_workflow`), so it stays.
+    # `_mask_call_llm_usage` below is the actual fix for the usage double
+    # count: it strips gen_ai.usage.* from `call_llm` at export time, leaving
+    # `generate_content` as the sole source of usage/cost for that span.
     os.environ.setdefault("ADK_TELEMETRY_SCHEMA_VERSION_OPT_IN", "2")
     # Keep prompt/response content on the leaf generations (audit channel).
     os.environ.setdefault("OTEL_INSTRUMENTATION_GENAI_CAPTURE_MESSAGE_CONTENT", "true")
 
     from langfuse import Langfuse
 
-    _client = Langfuse(should_export_span=_should_export_span)
+    _client = Langfuse(
+        should_export_span=_should_export_span, mask_otel_spans=_mask_call_llm_usage
+    )
     if instrument_litellm:
         from openinference.instrumentation.litellm import LiteLLMInstrumentor
 
@@ -76,6 +88,47 @@ def _should_export_span(span: Any) -> bool:
     return bool(is_default_export_span(span)) or (
         scope is not None and scope.name == "gcp.vertex.agent"
     )
+
+
+#: Non-usage attributes `call_llm` also carries the full duplicate of, that
+#: make Langfuse treat it as a billable generation even with gen_ai.usage.*
+#: gone: without also stripping these, the backend falls back to estimating
+#: usage from the request/response content itself once it sees a known model
+#: name — verified live (OBS2 follow-up): a usage.* -only strip left `call_llm`
+#: reporting a DIFFERENT, tokenizer-estimated, still-nonzero usage, not zero.
+_CALL_LLM_CONTENT_KEYS = ("gcp.vertex.agent.llm_request", "gcp.vertex.agent.llm_response")
+
+
+def _mask_call_llm_usage(*, params: Any) -> Any:
+    """Export-stage fix for ADK's usage double count (see the comment in
+    `setup_langfuse`): ADK's `call_llm` span duplicates every `gen_ai.*`
+    attribute (usage, model, content) of its child `generate_content {model}`
+    span. Stripping `gen_ai.*` and the two `gcp.vertex.agent.llm_*` content
+    keys leaves `call_llm` a plain, contentless timing span — `generate_content`
+    is untouched and stays the sole source of usage/cost/content for that
+    model call. Langfuse has no attribute of its own that means "generation,
+    but don't count usage": there is no lighter-touch fix than removing every
+    signal that makes the backend treat the span as billable.
+
+    Never raises: `mask_otel_spans` drops the WHOLE export batch on an
+    exception (langfuse/_client/client.py docstring), so a bug here must
+    degrade to "no masking", never to "no export"."""
+    try:
+        from langfuse.types import MaskOtelSpansResult, OtelSpanPatch
+
+        patches = {}
+        for identifier, span in params.spans.items():
+            if span.name != "call_llm":
+                continue
+            drop = tuple(k for k in span.attributes if k.startswith("gen_ai.")) + tuple(
+                k for k in _CALL_LLM_CONTENT_KEYS if k in span.attributes
+            )
+            if drop:
+                patches[identifier] = OtelSpanPatch(delete_attributes=drop)
+        return MaskOtelSpansResult(span_patches=patches)
+    except Exception:  # noqa: BLE001 — observability must never break export
+        logger.debug("_mask_call_llm_usage failed, exporting batch unmasked", exc_info=True)
+        return None
 
 
 def get_langfuse() -> Any:

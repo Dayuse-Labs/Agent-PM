@@ -9,6 +9,7 @@ from __future__ import annotations
 
 import sys
 from types import SimpleNamespace
+from typing import Any
 
 import pytest
 
@@ -146,3 +147,107 @@ class TestStampLangfuseTurnSession:
             "langfuse.session.id": "sess-9",
             "langfuse.user.id": "v3_sess-9",
         }
+
+
+def _otel_span(name: str, span_id: str, attributes: dict) -> Any:
+    from langfuse.types import OtelSpanData
+
+    return OtelSpanData(
+        trace_id="t" * 32,
+        span_id=span_id,
+        parent_span_id=None,
+        name=name,
+        instrumentation_scope_name="gcp.vertex.agent",
+        instrumentation_scope_version="2.4.0",
+        attributes=attributes,
+        resource_attributes={},
+    )
+
+
+class TestMaskCallLlmUsage:
+    """ADK's `call_llm` span duplicates every gen_ai.* attribute (usage,
+    model, content) of its child `generate_content` span — Langfuse sums
+    usage per GENERATION-typed observation, so left unmasked this doubles
+    every leaf's token/cost. A usage-only strip is NOT enough: verified live
+    that Langfuse then falls back to estimating usage from the remaining
+    model+content attributes, landing on a different but still-nonzero
+    number. `_mask_call_llm_usage` strips every gen_ai.* key plus the two
+    content-duplicating gcp.vertex.agent.llm_* keys, leaving `call_llm` a
+    contentless timing span and `generate_content` the sole source of
+    usage/cost/content."""
+
+    def test_strips_all_gen_ai_and_content_keys_from_call_llm_only(self):
+        from langfuse.types import MaskOtelSpansParams, OtelSpanIdentifier
+
+        call_llm_id = OtelSpanIdentifier(trace_id="t" * 32, span_id="a" * 16)
+        gen_content_id = OtelSpanIdentifier(trace_id="t" * 32, span_id="b" * 16)
+        params = MaskOtelSpansParams(
+            spans={
+                call_llm_id: _otel_span(
+                    "call_llm",
+                    "a" * 16,
+                    {
+                        "gen_ai.usage.input_tokens": 4561,
+                        "gen_ai.usage.output_tokens": 48,
+                        "gen_ai.request.model": "gpt-4o-mini",
+                        "gen_ai.system": "gcp.vertex.agent",
+                        "gcp.vertex.agent.llm_request": "{...}",
+                        "gcp.vertex.agent.llm_response": "{...}",
+                        "gcp.vertex.agent.invocation_id": "inv-1",
+                        "gcp.vertex.agent.session_id": "sess-1",
+                    },
+                ),
+                gen_content_id: _otel_span(
+                    "generate_content gpt-4o-mini",
+                    "b" * 16,
+                    {"gen_ai.usage.input_tokens": 4561, "gen_ai.usage.output_tokens": 48},
+                ),
+            }
+        )
+        result = observability._mask_call_llm_usage(params=params)
+        assert set(result.span_patches.keys()) == {call_llm_id}
+        patch = result.span_patches[call_llm_id]
+        assert set(patch.delete_attributes) == {
+            "gen_ai.usage.input_tokens",
+            "gen_ai.usage.output_tokens",
+            "gen_ai.request.model",
+            "gen_ai.system",
+            "gcp.vertex.agent.llm_request",
+            "gcp.vertex.agent.llm_response",
+        }
+        # Correlation ids are not gen_ai.* / content keys — left alone.
+        assert "gcp.vertex.agent.invocation_id" not in patch.delete_attributes
+        assert "gcp.vertex.agent.session_id" not in patch.delete_attributes
+        assert patch.set_attributes == {}
+
+    def test_call_llm_with_nothing_to_strip_is_untouched(self):
+        """A `call_llm` SPAN with no gen_ai.*/content keys at all (e.g. one
+        already fully masked in an earlier batch) — nothing to patch, must
+        not invent an empty/no-op patch for it."""
+        from langfuse.types import MaskOtelSpansParams, OtelSpanIdentifier
+
+        span_id = OtelSpanIdentifier(trace_id="t" * 32, span_id="c" * 16)
+        params = MaskOtelSpansParams(
+            spans={span_id: _otel_span("call_llm", "c" * 16, {"gcp.vertex.agent.event_id": "e-1"})}
+        )
+        result = observability._mask_call_llm_usage(params=params)
+        assert result.span_patches == {}
+
+    def test_non_call_llm_spans_are_never_patched(self):
+        from langfuse.types import MaskOtelSpansParams, OtelSpanIdentifier
+
+        span_id = OtelSpanIdentifier(trace_id="t" * 32, span_id="d" * 16)
+        params = MaskOtelSpansParams(
+            spans={
+                span_id: _otel_span(
+                    "execute_tool search_offers",
+                    "d" * 16,
+                    {"gen_ai.usage.input_tokens": 100},
+                )
+            }
+        )
+        result = observability._mask_call_llm_usage(params=params)
+        assert result.span_patches == {}
+
+    def test_never_raises_on_malformed_params(self):
+        assert observability._mask_call_llm_usage(params=object()) is None
