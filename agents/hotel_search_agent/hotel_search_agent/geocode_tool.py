@@ -26,6 +26,7 @@ from __future__ import annotations
 
 import os
 
+from b2c_common.observability import mark_level
 from hotel_search_agent import geo_resolver
 from hotel_search_agent.geo_guards import (
     anchor_state_context,
@@ -196,6 +197,8 @@ def geocode_location(
     effective_city: str | None = demoted.get("city")
     effective_zone: str | None = demoted.get("zone")
     effective_metro: str | None = demoted.get("metro")
+    if effective_city != city or effective_metro != metro:
+        mark_level("WARNING", status_message="generic_location_demoted")
 
     if not effective_city and not effective_metro:
         # Pure "near me" (S-G10, D1 follow-up): no geocodable destination
@@ -285,6 +288,7 @@ def geocode_location(
 
     clarify_response: dict | None = None
     if resolution.decision == "clarify":
+        mark_level("WARNING", status_message="geocode_ambiguous")
         clarify_response = {
             "ok": False,
             "error": "geocode_ambiguous",
@@ -384,6 +388,7 @@ def geocode_location(
         # service outage for the user (S-G11, "geolocation service unavailable").
         return {"ok": False, "error": "geocode_no_match", "diagnostics": {"query": query}}
     resolved_place = resolution.chosen.place_name if resolution.chosen is not None else None
+    mark_level("WARNING", status_message="geocode_echo_mismatch")
     return {
         "ok": False,
         "error": "geocode_echo_mismatch",

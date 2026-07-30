@@ -38,9 +38,15 @@ Orchestrateur conversationnel B2C (ADK Python) remplaçant `agent-usa` (POC Flas
 uv venv --python 3.12 .venv
 uv pip install --python .venv/bin/python \
   -r agents/hotel_search_agent/requirements.txt -r agents/faq_agent/requirements.txt \
-  -r agents/b2c_concierge/requirements.txt -r requirements-dev.txt -e libs/b2c_common \
-  "google-adk[eval]==2.4.0"
+  -r agents/b2c_concierge/requirements.txt -r requirements-dev.txt -e libs/b2c_common
 git config core.hooksPath .githooks   # guardrails en pre-commit
+
+# ⚠️ NE PAS ajouter "google-adk[eval]==2.4.0" à la commande ci-dessus : l'extra tire
+# google-cloud-aiplatform[evaluation], qui exige litellm<1.86 alors qu'on pin litellm==1.90.2
+# -> résolution uv insatisfiable (les versions PyPI ont bougé depuis S3). google-adk[a2a] des
+# requirements suffit pour pytest, run_local.sh et smoke. L'extra eval n'est nécessaire QUE pour
+# `adk eval` : l'installer dans un venv jetable dédié (litellm y sera downgradé), comme le fait le
+# job CI `eval` séparé — jamais dans le venv de dev.
 
 # Run local — 3 services : concierge :8100, search :8101, faq :8102 (pids + logs dans .run-logs/ ;
 # source .env si présent ; aucun appel LLM/MCP au boot). Stop : bash scripts/run_local.sh stop

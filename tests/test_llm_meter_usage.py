@@ -21,7 +21,11 @@ def test_usage_record_extracts_tokens_and_model():
         "usage": {"prompt_tokens": 6500, "completion_tokens": 120, "total_tokens": 6620},
         "choices": [{"message": {"content": "SECRET USER CONTENT"}}],
     }
-    record = meter.usage_record("/v1/chat/completions", payload, 432.15)
+    # 432.16 et pas 432.15 : ce dernier n'est pas représentable exactement en binaire (il vaut
+    # 432.1499...), donc round(432.15, 1) == 432.1 — la fixture d'origine testait une égalité
+    # fausse, pas le comportement d'arrondi. On garde l'intention (arrondi à 0,1 ms) sur une
+    # valeur non ambiguë.
+    record = meter.usage_record("/v1/chat/completions", payload, 432.16)
     assert record["model"] == "gpt-4o-mini-2024-07-18"
     assert record["prompt_tokens"] == 6500
     assert record["completion_tokens"] == 120

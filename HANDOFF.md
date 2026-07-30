@@ -18,6 +18,70 @@
 
 **Reste** : rien côté code. Si les dashboards de coût par feuille avaient déjà été consultés/exportés avant cette correction, les chiffres antérieurs à ce déploiement restent ~2× surestimés (historique non rétroactivement corrigé — Langfuse ne recalcule pas les observations déjà ingérées).
 
+## 🏷 Addendum 2026-07-30 (branche `obs2-typage-observations`) — OBS2 : typage des observations, level/status_message, LANGFUSE_RELEASE, TTFT — et une découverte majeure sur ce qu'ADK type déjà tout seul
+
+**Contexte** : 2e chantier de `PLAN-OBS-LANGFUSE-2026-07-29.md`. Périmètre exact de `phases/OBS2-typage-observations.md` : typer les observations (`agent`/`tool`/`chain`/`guardrail`), poser `level`/`status_message` sur les dégradations, `LANGFUSE_RELEASE`, positionner la mesure TTFT. **Ne touche pas** `stamp_langfuse_session` (OBS4) ni les scores (OBS3). Aucun merge.
+
+### Étape 1 — inventaire AVANT tout code (leçon OBS1 : un span en double a triplé l'usage)
+
+Tour réel lancé (`scripts/smoke_e2e.py --contract` + `--booking`), traces lues via `langfuse-cli` (skill `langfuse`, endpoint `legacy-observations-v1s` — le v2 `/api/public/v2/observations` renvoie 404 "v4 write mode only" sur notre 3.224.3, cf. piège ci-dessous) contre l'instance réelle. **Résultat qui change le périmètre du chantier : ADK 2.4.0 type déjà `AGENT` et `TOOL` tout seul**, sans une ligne de notre code :
+
+```
+SPAN       v3.chat                                  (nous, turn_observation)
+  SPAN       invoke_workflow b2c_concierge           (ADK, natif)
+    AGENT      invoke_agent b2c_concierge            (ADK, natif — gen_ai.operation.name=invoke_agent)
+      GENERATION acompletion                         (litellm instrumentor, triage)
+      AGENT      invoke_agent hotel_search_leg       (ADK, natif — le leg A2A lui-même)
+      GENERATION acompletion                         (litellm instrumentor, synthèse)
+```
+Côté feuille (hotel_search_agent, faq_agent) : `invoke_agent b2c_hotel_search`/`b2c_faq` = **AGENT**, `geocode_location`/`search_offers`/`find_hotel_by_name`/`get_faq_conditions` = **TOOL** — tout ça déjà là, nativement, sur google-adk 2.4.0. Le brief §1.1 (« Langfuse ne voit que span/generation ») était donc **inexact pour cette version d'ADK** — vérifié UNIQUEMENT par la doc produit, jamais contre une trace réelle avant cette session. **Conséquence directe : la condition d'affichage de l'Agent Graph (≥ 1 observation non-span/event/generation) était déjà remplie avant OBS2**, sur n'importe quel tour avec une feuille. Ça réduit le travail réel de typage à deux trous génuinement non couverts :
+- **`tool` sur les 3 tools inline du concierge** (`get_hotel_details`/`compare_hotels`/`generate_booking_link`, plus `find_hotel_by_name` en fallback) : ceux-là passent par un `ClientSession` MCP appelé à la main (`inline_tools._call_tool`), **hors de la machinerie tool-calling d'ADK** — rien ne les type. Fait.
+- **`guardrail`** : n'existait nulle part (les guards sont de simples fonctions Python, jamais des spans). Fait sur les guards du concierge qui ont un vrai point d'appel : anti-boucle de clarification, vérification amenities, troncature des liens hôtel, résolution du hotel nommé (item 4), autorisation du lien de booking (R9/guard #12).
+- **`chain` (tool_loop)** : **rien à typer** — `tool_loop.py` reste non câblé en prod (décision explicite S07/S06, agent.py le documente lui-même). Documenté, pas inventé de chantier.
+- Côté feuilles (geocode/date/circuit-breaker/tool-budget) : ces guards tournent **à l'intérieur** d'un span déjà typé `TOOL` par ADK — pas de nouveau span (créerait exactement le doublon qu'OBS1 a payé), juste `level`+`status_message` posés sur ce span existant.
+
+**11 vs 12 guards (CLAUDE.md à resynchroniser, déjà noté dans `AUDIT-REWORK-2026-07.md:12`)** : non tranché ici, hors périmètre — les guards typés ci-dessous sont ceux qui ont un point d'appel réel dans CE repo, pas un comptage canonique face à agent-usa.
+
+### Étape 2 — un bug DÉCOUVERT et CORRIGÉ pendant l'implémentation : `mark_level`/`mark_metadata` dégradaient `agent`→`span`
+
+Premier jet : `mark_level`/`mark_metadata` appelaient `Langfuse.update_current_span(level=..., metadata=...)` (l'API documentée). **Vérifié en live, ça casse le typage ADK** : `update_current_span` reconstruit un wrapper de span via `_get_observation_type_from_otel_span` (`langfuse/_client/client.py:1258`), qui ne lit QUE l'attribut `langfuse.observation.type` **déjà présent** — absent sur un span natif ADK (qui ne porte que des attributs `gen_ai.*`) — et retombe sur `"span"` par défaut. Le `.update()` qui suit **réécrit cet attribut EXPLICITEMENT** (`langfuse/_client/attributes.py:104`, `create_span_attributes` inclut toujours `OBSERVATION_TYPE`), ce qui écrase — au niveau ingestion — la classification `agent`/`tool` que le backend aurait sinon déduite de `gen_ai.operation.name`. Repro observée : `invoke_agent b2c_concierge` passait de `AGENT` (trace de baseline, avant tout code OBS2) à `SPAN` (dès qu'un `_emit_turn_metric`/`mark_level` touchait la trace) — sur un tour sans feuille (ack), ça aurait fait **disparaître la seule condition d'Agent Graph** de la trace.
+
+**Correctif** : `mark_level`/`mark_metadata` posent maintenant des attributs OTel **bruts** (`opentelemetry.trace.get_current_span().set_attribute(...)`), exactement comme `stamp_langfuse_session` le fait déjà depuis OBS1 — jamais via le client Langfuse. Clés utilisées (lues dans `langfuse/_client/attributes.py`, cohérentes avec ce que le SDK écrirait lui-même) : `langfuse.observation.level`, `langfuse.observation.status_message`, `langfuse.observation.metadata.<clé>` (une clé par attribut, valeurs stringifiées — filtrables au premier niveau). **Reconfirmé en live après correctif** : `invoke_agent b2c_concierge` reste `AGENT` sur un tour trivial (ack, aucun guard) ET sur un tour avec guards/leaf ; `level:ERROR` retrouve bien le timeout simulé, avec le bon type. Piège à retenir pour OBS3+ : **toute mise à jour d'un span qu'on n'a pas créé nous-mêmes doit passer par l'attribut OTel brut, jamais par les méthodes de confort du SDK** (`update_current_span`/`update_current_generation`/`update_current_trace`) — ces méthodes assument implicitement qu'elles opèrent sur un span déjà typé par le SDK.
+
+### Étape 3 — ce qui a été posé
+
+**Helpers (`libs/b2c_common/b2c_common/observability.py`)** — 3, pas 2 (le 3e, `mark_metadata`, sert le point 8 du brief — route/feeder/llm_calls/status — explicitement demandé mais pas nommé dans la liste de helpers) :
+- `observation(as_type, name, **kwargs)` — context manager, no-op si désactivé, **n'avale jamais l'exception de l'appelant** (seul l'`__enter__` du SDK est protégé — sinon un guard qui plante silencieusement violerait l'invariant « l'observabilité ne casse jamais un tour » en sens inverse : elle masquerait un vrai bug).
+- `mark_level(level, status_message)` / `mark_metadata(dict)` — attributs OTel bruts, jamais lève, no-op si désactivé (détail ci-dessus).
+
+**Noms d'observations posés** (stables, jamais de valeur dynamique) :
+- `guardrail` (concierge, `agents/b2c_concierge/b2c_concierge/{agent,inline_tools}.py`) : `retry-clarification-loop`, `verify-amenity-claims`, `enforce-hotel-link-truthfulness`, `resolve-named-hotel`, `authorize-booking-link`.
+- `tool` (concierge, `inline_tools._call_tool`) : `mcp-get_hotel_details`, `mcp-compare_hotels`, `mcp-generate_booking_link`, `mcp-find_hotel_by_name`.
+- Vérifié en live (flux `--booking`) : `authorize-booking-link` imbrique correctement `mcp-generate_booking_link` + `mcp-get_hotel_details` + `resolve-named-hotel` → `mcp-find_hotel_by_name` — hiérarchie exacte du vrai call graph, zéro span orphelin.
+
+**`level`/`status_message`** (jamais de contenu utilisateur, nom de règle uniquement) :
+- ERROR : `leaf_call_failed` (`agent.py::_run_leaf`), `facade_shield` (`facade.py`, posé **avant** la fermeture du `with turn_observation` — voir piège plus bas), `mcp_circuit_open`/`mcp_dependency_failed` (`hotel_search_agent/mcp_guard.py`), `mapbox_retry_exhausted` (`mapbox_client.py::_request`).
+- WARNING : `anti_clarification_loop`, `amenity_truthfulness`, `hotel_link_truthfulness`, `booking_confirmation_mismatch` (côté concierge) ; `tool_budget_exhausted` (`tool_budget_guard.py`) ; `geocode_ambiguous`, `geocode_echo_mismatch`, `generic_location_demoted` (`geocode_tool.py`) ; `date_hallucinated_year_rolled_forward`, `date_carryover_stale_floored` (`datetime_resolver.py` — les 2 guards de la PR #57, jamais instrumentés jusqu'ici).
+- **Piège facade.py** : le `except Exception` qui construit `_shield_payload` est **hors** du `with turn_observation(...)`, donc le span est **déjà fermé** quand il s'exécute — `mark_level` y serait un no-op silencieux. Fix : un `try/except` interne, **à l'intérieur** du `with`, qui pose le niveau puis `raise` (l'except externe, inchangé, construit toujours le payload). Fait dans `chat()` ET `chat_stream._body()`.
+
+**`LANGFUSE_RELEASE`** : **zéro code** — `Langfuse.__init__` lit déjà `os.environ.get("LANGFUSE_RELEASE")` en fallback (`langfuse/_client/client.py:350`), exactement comme `LANGFUSE_TRACING_ENVIRONMENT`. Documenté dans `agents/hotel_search_agent/.env.example` (seul fichier `.env.example` du repo). **Reste** : poser la variable (sha git court) sur les 3 services Railway — une mutation de variable d'env déclenche un redeploy, **non fait ici**, à soumettre à Fabien comme les changements Railway d'OBS0.
+
+**TTFT** : la génération de synthèse n'est **jamais streamée** (`_generate_once`, buffered — voir son propre docstring), donc `completion_start_time` y serait un horodatage trompeur (= la fin, pas un premier token). Repli assumé, conforme au brief : mesure positionnée sur le frame SSE `progress` (`facade.py::chat_stream`, `t_request_start` capturé à l'entrée du handler), exposée en **metadata** `ttft_ms` sur l'observation courante — pas encore un score (OBS3). Vérifié en live : `ttft_ms: 1.2` (tour trivial, largement sous le SLO 300 ms).
+
+**Metadata additionnelle** (`agent.py::_emit_turn_metric`, un seul point d'appel pour toutes les sorties de tour) : `route`, `family`, `llm_calls`, `status`. « État du circuit-breaker » du brief §1.6 n'est **pas** exposé côté concierge (il n'a aucune visibilité sur l'état du breaker de la feuille — process et trace séparés avant OBS4) ; il est visible directement là où il est vrai : `level:ERROR status_message=mcp_circuit_open` sur la trace de la feuille elle-même.
+
+### Découverte non prévue par le brief, PAS corrigée ici (hors périmètre OBS2, à traiter à part)
+
+**Le double comptage d'usage n'est pas résolu à 1× sur les feuilles ADK (hotel_search_agent, faq_agent) — il est à 2×, pas 3×.** Confirmé en live sur les 2 feuilles : le span `call_llm` (créé sans condition dans `google/adk/flows/llm_flows/base_llm_flow.py:1342`, `tracer.start_as_current_span('call_llm')`) et son enfant `generate_content {model}` (`google/adk/telemetry/tracing.py:732/793`) portent chacun le **même** usage token-pour-token — `trace.totalCost` de la feuille est exactement 2× le coût réel. Le commentaire dans `observability.py` (« `ADK_TELEMETRY_SCHEMA_VERSION_OPT_IN=2` drops call_llm ») décrit une étape du plan de migration d'ADK **documentée mais pas encore livrée** dans google-adk==2.4.0 (`telemetry/_schema_version.py` : « 2. The `call_llm` span is removed » — un item de roadmap, lu dans le docstring, jamais vérifié contre le code réel avant cette session) : `call_llm` est créé **inconditionnellement**, l'opt-in ne change rien à ça. Le côté concierge (litellm direct, `instrument_litellm=True`) reste correct à 1×, seul le côté ADK LlmAgent est concerné. **Non corrigé ici** : la seule piste sûre (retirer `call_llm` du côté export via `_should_export_span`) touche exactement le mécanisme de filtrage qu'OBS1 a construit et que ce brief interdit de restreindre sans vérifier en profondeur — mérite sa propre session, pas un correctif improvisé en bout d'OBS2. **Impact budget/coût réel : les dashboards de coût par feuille sont ~2× surestimés dès aujourd'hui**, pas seulement après OBS3.
+
+### Vérifié (gates + manuel, clés réelles)
+
+- `.venv/bin/pytest -q` → **1186 passed**, `ruff check .` → clean, `mypy agents libs` → clean (44 fichiers), `dayuse_guardrails.sh` → OK.
+- Suite offline toujours inerte sans clés (les nouveaux tests couvrent explicitement ce chemin pour les 3 nouveaux helpers).
+- `run_local.sh` + `smoke_e2e.py --contract` + `--booking`, clés réelles : Agent Graph présent (déjà avant OBS2, confirmé ci-dessus), types `GUARDRAIL`/`TOOL` posés et bien imbriqués, `level:ERROR` retrouve un timeout simulé (`CONCIERGE_LEAF_TIMEOUT_SEARCH_SECONDS=0.05`) sur le bon type (`AGENT`, pas dégradé), `ttft_ms` présent, metadata `route`/`family`/`llm_calls`/`status` présente et correcte (`llm_calls=3` = triage + leaf_llm + synthesis, conforme au budget).
+
+**Reste** : (a) ✅ posé — `LANGFUSE_RELEASE` déployé sur les 3 services Railway le jour même (voir addendum au-dessus) ; (b) ✅ corrigé — le double comptage 2× sur les feuilles ADK, branche/PR dédiée le jour même (voir addendum au-dessus) ; (c) OBS3 peut démarrer (scores déterministes) — attention, OBS3 touche les mêmes fichiers qu'OBS2 (`observability.py`, `facade.py`, les call sites de guards), donc séquentiel après merge d'OBS2, pas en parallèle.
+
 ## 🛠 Addendum 2026-07-30 (branche `obs0-bump-serveur-langfuse`) — OBS0 : bump serveur Langfuse 3.205.1 → 3.224.3 + checklist UI
 
 **Contexte** : premier chantier de `PLAN-OBS-LANGFUSE-2026-07-29.md` (D-OBS-1). Opération sur l'instance
@@ -140,6 +204,28 @@ Connection configurée, aucun code AgentB2C touché.
 **Reste** : (a) spot-check visuel Fabien de la session `obs0-bump-check-01` dans l'UI Langfuse ; (b)
 décision sur la rotation d'`ENCRYPTION_KEY` avant OBS7 ; (c) réévaluer D-OBS-7 (alerting maison) à la
 lumière de la découverte Monitors du point 5 ; (d) OBS6/OBS7 peuvent démarrer (checklist répondue).
+
+## 🔍 Addendum 2026-07-30 (session Cowork audit, AUCUN changement de code) — audit agentique POI + occupancy, datasets Langfuse semés
+
+**Déclencheur Fabien** : « champs élysées » résout un autre point ; « 2 adultes et 1 enfant » ignoré.
+**Fait** (fichiers NEUFS uniquement — zone OBS2/OBS4 intouchée, aucun fichier tracké modifié sauf ce bloc) :
+- **`AUDIT-AGENTIQUE-2026-07-30.md`** — root causes des 2 bugs + inventaire regex 3 catégories + plan P0/P1/P2.
+  POI = 4 mécanismes : M1 v6 sans `poi` ; M2 **extraction zone-only → early-return AVANT le tier-2 Search Box**
+  (`geocode_tool.py:200-228`) ; M3 **Search Box non scopé** (ni proximity ni prior locale — un POI homonyme
+  mondial passe) ; M4 l'écho valide le NOM, pas le LIEU. Même famille que « gare de lyon » (addendum 2026-07-27).
+  Occupancy = **MCP prêt (probé live : `adults`/`children` filtrent correctement `capacity`/`childrenCapacity`),
+  chaîne agent vide de bout en bout** (profil sans champs, instruction muette, aucun carryover). Fix = triptyque
+  existant amenities/date, zéro regex.
+- **`evals/datasets/{b2c-geo-poi,b2c-occupancy,b2c-language-robustness}.jsonl`** (21+14+13 items, format OBS6 §2,
+  N+1, ids déterministes, `status: target|regression_guard`) + **`scripts/langfuse_seed_datasets.py`**
+  (`--dry-run` validé : 48 items ; upsert idempotent, `flush()`) + **`evals/datasets/README.md`** (vocabulaire
+  d'assertions niveau réponse vs niveau trace, esquisse d'évaluateurs pour OBS6).
+**Reste** : (1) exécuter les fixes P0-1 (occupancy end-to-end) et P0-2 (zone-only→tier-2, scoper Search Box,
+`country_guess` soft LLM) — sessions de code à part, zone `agents/**` donc APRÈS/AVEC OBS2-OBS4 ; (2) seeder les
+datasets quand l'instance Langfuse est prête (OBS0 en cours en parallèle) et prendre la baseline AVANT P0 ;
+(3) P2 : demande cross-repo `resolve_location` sur l'index `poi` à verser dans `reports/MCP-B2C-REQUESTS.md`.
+**Pièges découverts** : les items `occ-persistence-*` présupposent les champs profil P0-1 (échec attendu avant) ;
+`create_dataset(input_schema=)` peut être absent en serveur 3.224.x (le script a un fallback sans schema).
 
 ## 🚢 Addendum 2026-07-29 (18h00) — PR #56 + #57 + #58 MERGÉES ET DÉPLOYÉES DEPUIS MAIN, vérifiées en prod
 
