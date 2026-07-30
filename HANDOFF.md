@@ -2,6 +2,38 @@
 
 État du chantier pour reprise en session fraîche. **Lire en entier avant d'agir ; ne pas reconstruire ce qui existe.** Mettre à jour en fin de CHAQUE session (bloc daté en tête).
 
+## 🚢 Addendum 2026-07-29 (18h00) — PR #56 + #57 + #58 MERGÉES ET DÉPLOYÉES DEPUIS MAIN, vérifiées en prod
+
+`main` = déployé (plus de divergence branche/prod pour ces 3 chantiers). Services redéployés :
+**`hotel-search`** et **`concierge`** (`railway up --service <nom> --ci`) ; `faq` et `widget` inchangés,
+zéro diff. `main` vert avant déploiement : **1172 passed** (seul rouge `test_llm_meter_usage`,
+antérieur), ruff / mypy 44 fichiers / guardrails OK.
+
+**Vérifié EN PROD sur https://widget-production-3f56.up.railway.app, dans les conditions exactes du
+défaut** (17h57 Paris : 100 % des offres parisiennes du jour sont passées cutoff — c'était le cas le
+plus défavorable possible, et c'est ce qui le rend démonstratif) :
+
+| requête (session neuve) | avant, à 16h37 | après, à 17h57 |
+|---|---|---|
+| « je cherche un hotel à melun avec piscine » | 0 hôtel | **5 hôtels** + « Les réservations pour aujourd'hui (29/07) sont closes : ces offres sont donc pour le 30/07 » |
+| « ok bon bah cherche à Paris alors » *(le tour de la capture)* | 0 hôtel | **5 hôtels**, date portée à 2026-07-30 |
+| « je cherche un hotel à Paris avec piscine » | 0 hôtel | **5 hôtels** + divulgation, `date_reference.resolved_from = "cutoff_fallback"` |
+
+**La preuve que le garde de date TIRE en prod** (ce que la PR #57 ne pouvait pas montrer — on ne fait
+pas réhalluciner un modèle à la demande) : trace Langfuse `cc60b85b30ed613e84fa885f1c54ebca`, le
+modèle a **re-produit `"2023-08-06"`** sur « pour le 6 aoout »… et MCP a reçu **`date="2026-08-06"`** →
+5 hôtels. Le chemin nominal est vérifié dans la même passe (trace `704c8b9b`, modèle correct →
+inchangé). 5 formulations de date sur 5 rendent maintenant des résultats, contre 4/5 avant.
+
+**Latences chaudes mesurées** (3 + 2 tours) : chemin dead-end **avec** le probe J+1 **7,4-11,1 s**,
+chemin nominal sans probe **12,0-12,7 s** — le probe n'est pas le terme dominant, et les deux
+restent sous le budget feuille de 30 s du concierge. ⚠️ Le PREMIER tour après déploiement a coûté
+**23,2 s** (démarrage à froid des conteneurs), pas représentatif mais à savoir avant de mesurer.
+
+**Reste** : la PR #40 est toujours OPEN et son contenu est désormais dans `main` via #58 — à fermer.
+Et la décision produit non tranchée : la carte ne montre qu'un plan tarifaire (le moins cher) sur les
+2-12 vivants que MCP renvoie, donc le prix visible monte au fil de la journée (cf. bloc précédent, C).
+
 ## 🗓 Addendum 2026-07-29 (soir, branche `fix/absolute-date-hallucinated-year`, PR #57) — « pas de résultat sur Paris » : DEUX causes, aucune n'était le multi-turn
 
 **Déclencheur** : Fabien remonte une capture (Melun piscine → 0, puis « ok bon bah cherche à PAris alors » → 0)
