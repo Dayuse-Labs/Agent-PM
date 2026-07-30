@@ -13,6 +13,7 @@ from __future__ import annotations
 
 from typing import Any
 
+from b2c_common.observability import mark_level
 from hotel_search_agent.resilience import CircuitBreaker
 
 # The 2 tools this breaker owns — the same allowlist as ALLOWED_MCP_TOOLS in
@@ -92,6 +93,7 @@ def mcp_circuit_before_tool(tool: Any, args: dict, tool_context: Any) -> dict | 
     if tool.name not in MCP_TOOL_NAMES:
         return None
     if not breaker.allow():
+        mark_level("ERROR", status_message="mcp_circuit_open")
         return _degraded_response(tool.name)
     return None
 
@@ -122,4 +124,5 @@ def mcp_circuit_on_error(
     if tool.name not in MCP_TOOL_NAMES:
         return None
     breaker.record_failure()
+    mark_level("ERROR", status_message="mcp_dependency_failed")
     return _degraded_response(tool.name)

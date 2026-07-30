@@ -29,6 +29,8 @@ from __future__ import annotations
 
 from typing import Any, Callable, Mapping, Optional
 
+from b2c_common.observability import mark_level
+
 # Same "TOOL BUDGET" prefix as the fleet's directive — `metrics.tool_metric_after`
 # flags `budget_stopped` on exactly that prefix. Wording names the ONE tool that
 # is capped, so the model retries a DIFFERENT step instead of giving up entirely.
@@ -64,6 +66,7 @@ def make_per_tool_budget_callback(
         counts[name] = counts.get(name, 0) + 1
         state[_COUNTS_KEY] = counts
         if counts[name] > limits.get(name, default_limit):
+            mark_level("WARNING", status_message="tool_budget_exhausted")
             return {"ok": False, "error": stop_message}
         return None
 

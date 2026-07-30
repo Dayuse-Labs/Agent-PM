@@ -51,6 +51,7 @@ from datetime import date, datetime, timedelta
 from typing import Any
 from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
+from b2c_common.observability import mark_level
 from hotel_search_agent.response_bridge import (
     STATE_DATE_FALLBACK_KEY,
     STATE_EXACT_WINDOW_KEY,
@@ -224,6 +225,7 @@ def _resolve_absolute(value: Any, today: date) -> date | None:
             return None
         if candidate >= today:
             return candidate
+        mark_level("WARNING", status_message="date_hallucinated_year_rolled_forward")
         # A year in the PAST is proof the model invented one. Its instruction is
         # explicit — "YYYY-MM-DD if they gave a year, else MM-DD; NEVER add or
         # guess a year yourself" — and prod 2026-07-29 caught gpt-4o-mini
@@ -256,7 +258,10 @@ def _usable_carried_date(value: Any, today: date) -> str | None:
         carried = date.fromisoformat(value)
     except ValueError:
         return None
-    return value if carried >= today else None
+    if carried < today:
+        mark_level("WARNING", status_message="date_carryover_stale_floored")
+        return None
+    return value
 
 
 def resolve_date_label(label: Any, today: date) -> tuple[date, str, str | None]:

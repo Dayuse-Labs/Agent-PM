@@ -110,7 +110,7 @@ Statuts : ⬜ à faire · 🟡 en cours · ✅ mergée · ⏸ bloquée (raison) 
 | # | Session | Statut | Branche | Date | MR | Note / blocage |
 |---|---|---|---|---|---|---|
 | OBS0 | Bump serveur 3.224.2 + checklist UI | ✅ | `obs0-bump-serveur-langfuse` | 2026-07-30 | | Bumpé à **3.224.3** (tag `:3` avait déjà bougé, approuvé par Fabien) au lieu de 3.224.2 — diff = deps/pricing only. Backups PG+CH pris et lockés avant redeploy. Checklist §11 répondue (cf. HANDOFF) — découverte notable : Monitors semblent actifs sur v3 (contredit l'hypothèse D-OBS-7) |
-| OBS2 | Typage observations + level + release + TTFT | ⬜ | `obs2-typage-observations` | | | |
+| OBS2 | Typage observations + level + release + TTFT | ✅ | `obs2-typage-observations` | 2026-07-30 | | Découverte majeure : ADK 2.4.0 type déjà `agent`/`tool` nativement (Agent Graph déjà visible avant OBS2) — le typage réel posé se limite aux 3 tools inline + 5 guards concierge (`guardrail`) + `level`/`status_message` sur les dégradations existantes. Bug trouvé ET corrigé en session : `mark_level`/`mark_metadata` dégradaient `agent`→`span` via `update_current_span` (fixé en attributs OTel bruts, cf. HANDOFF). Découverte non corrigée (hors périmètre) : usage compté 2× sur les feuilles ADK (hotel_search_agent/faq_agent), `call_llm`+`generate_content` — dashboards de coût feuille surestimés dès aujourd'hui. `LANGFUSE_RELEASE` documentée (zéro code), pose Railway en attente d'un GO Fabien |
 | OBS3 | Scores déterministes + dashboard | ⬜ | `obs3-scores-deterministes` | | | |
 | OBS4 | Trace distribuée A2A | ⬜ | `obs4-trace-distribuee-a2a` | | | |
 | OBS6 | Datasets + experiments + gate CI | ⬜ | `obs6-datasets-experiments` | | | |
@@ -124,9 +124,9 @@ Statuts : ⬜ à faire · 🟡 en cours · ✅ mergée · ⏸ bloquée (raison) 
 
 | Indicateur | Avant | Après | Session |
 |---|---|---|---|
-| Agent Graph visible sur un tour réel | non | | OBS2 |
-| Tours filtrables par `level:ERROR` | non | | OBS2 |
-| p95 TTFT mesuré en continu | non (smoke seulement) | | OBS2 |
+| Agent Graph visible sur un tour réel | non | **déjà oui, nativement (ADK 2.4.0) — découverte OBS2, pas un livrable OBS2** | OBS2 |
+| Tours filtrables par `level:ERROR` | non | oui (vérifié : timeout simulé retrouvé, type non dégradé) | OBS2 |
+| p95 TTFT mesuré en continu | non (smoke seulement) | mesure posée en metadata (`ttft_ms`) ; le score/p95 agrégé arrive avec OBS3 | OBS2 |
 | Taux de tours à shortlist vide (prod, 7 j) | inconnu | | OBS3 |
 | Fréquence de déclenchement par guard (12 séries) | inconnue | | OBS3 |
 | Tours dépassant 3 appels LLM | inconnu | | OBS3 |

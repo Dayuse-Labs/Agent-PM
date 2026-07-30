@@ -39,6 +39,7 @@ from typing import Any, AsyncIterator
 
 import httpx
 from b2c_common import build_hotel_page_url
+from b2c_common.observability import mark_level, observation
 from mcp import ClientSession
 from mcp.client.streamable_http import streamable_http_client
 
@@ -74,17 +75,27 @@ async def _call_tool(session: ClientSession, name: str, arguments: dict[str, Any
     """Calls one MCP_B2C tool; NEVER raises — a transport error, a tool-level
     error (`isError`), or an unparsable payload all become an honest
     `{"ok": False, "error": ...}` (same posture as `_run_leaf`'s degradation),
-    never an invented result."""
-    try:
-        result = await session.call_tool(name, arguments)
-    except Exception as exc:  # noqa: BLE001 — an MCP failure degrades, never crashes
-        return {"ok": False, "error": f"{name} failed: {type(exc).__name__}"}
-    if result.isError:
-        message = "".join(getattr(c, "text", "") for c in (result.content or [])) or f"{name}: tool error"
-        return {"ok": False, "error": message}
-    if result.structuredContent is not None:
-        return {"ok": True, "data": result.structuredContent}
-    return {"ok": False, "error": f"{name}: no structured response"}
+    never an invented result.
+
+    OBS2: typed `tool` (unlike the leaves' MCP calls, this one runs entirely
+    OUTSIDE ADK's own tool-calling machinery — a plain client-session call
+    the concierge makes itself — so nothing else ever types it)."""
+    with observation(as_type="tool", name=f"mcp-{name}"):
+        try:
+            result = await session.call_tool(name, arguments)
+        except Exception as exc:  # noqa: BLE001 — an MCP failure degrades, never crashes
+            mark_level("ERROR", status_message="inline_mcp_call_failed")
+            return {"ok": False, "error": f"{name} failed: {type(exc).__name__}"}
+        if result.isError:
+            message = (
+                "".join(getattr(c, "text", "") for c in (result.content or [])) or f"{name}: tool error"
+            )
+            mark_level("ERROR", status_message="inline_mcp_call_failed")
+            return {"ok": False, "error": message}
+        if result.structuredContent is not None:
+            return {"ok": True, "data": result.structuredContent}
+        mark_level("ERROR", status_message="inline_mcp_call_failed")
+        return {"ok": False, "error": f"{name}: no structured response"}
 
 
 
@@ -119,6 +130,13 @@ def _extract_hotel_name_candidate(text: str) -> str:
 
 
 async def _resolve_hotel_id(
+    session: ClientSession, reference: str, profile: SessionProfile
+) -> tuple[int | None, str | None]:
+    with observation(as_type="guardrail", name="resolve-named-hotel"):
+        return await _resolve_hotel_id_impl(session, reference, profile)
+
+
+async def _resolve_hotel_id_impl(
     session: ClientSession, reference: str, profile: SessionProfile
 ) -> tuple[int | None, str | None]:
     """Named-hotel lookup guard (item 4, hardened S12 audit 2026-07-20): a
@@ -847,6 +865,18 @@ async def generate_booking_link(
     user_confirmed: bool,
     picked_hotel_id: int | None = None,
 ) -> dict[str, Any]:
+    with observation(as_type="guardrail", name="authorize-booking-link"):
+        return await _generate_booking_link_impl(
+            hotel_reference, profile, user_confirmed, picked_hotel_id
+        )
+
+
+async def _generate_booking_link_impl(
+    hotel_reference: str,
+    profile: SessionProfile,
+    user_confirmed: bool,
+    picked_hotel_id: int | None = None,
+) -> dict[str, Any]:
     """R9 / guard #12. `generate_booking_link` is stateless server-side (a
     bare `confirmed=true` call returns a real link with no memory of any
     prior round-trip — verified against MCP_B2C staging) so the authorization
@@ -895,6 +925,8 @@ async def generate_booking_link(
             and named_hit.get("hotel_id") is not None
             and int(named_hit["hotel_id"]) != pending.get("hotel_id")
         ) or (picked_hotel_id is not None and picked_hotel_id != pending.get("hotel_id"))
+        if mismatch:
+            mark_level("WARNING", status_message="booking_confirmation_mismatch")
         if not mismatch:
             profile.pending_booking = None
             result = await _confirm_pending_offer(pending)
