@@ -21,6 +21,9 @@
 /* Hotel cards and pricing */
 @import url('./hotels.css');
 
+/* User feedback control (OBS5) */
+@import url('./feedback.css');
+
 /* Carousel components */
 @import url('./carousel.css');
 

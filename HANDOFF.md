@@ -2,6 +2,90 @@
 
 État du chantier pour reprise en session fraîche. **Lire en entier avant d'agir ; ne pas reconstruire ce qui existe.** Mettre à jour en fin de CHAQUE session (bloc daté en tête).
 
+## 💬 Addendum 2026-07-31 (session OBS5, branche `obs5-user-feedback`, MR à ouvrir) — feedback utilisateur 👍/👎 rattaché au tour, `trace_id` exposé côté SSE
+
+**Contexte** : 5e chantier de `PLAN-OBS-LANGFUSE-2026-07-29.md`, dépend d'OBS4 (mergée, PR #66). Zone
+annoncée `facade.py` + `web/**`. Phase écrite au lancement (`phases/OBS5-user-feedback.md`), **soumise
+et approuvée par Fabien avant tout code**, exactement comme demandé.
+
+### Écart assumé par rapport au prompt de lancement, avec preuves — navigateur→Langfuse direct rejeté
+
+Le prompt citait le pattern officiel Langfuse (`@langfuse/browser`, `LangfuseBrowserClient({publicKey})`,
+POST direct à `/api/public/ingestion`, `Authorization: Bearer <publicKey>` — vérifié dans le code
+source réel du package). **Rejeté après recherche, pas par préférence** :
+1. Aucun support CORS officiel/documenté côté self-hosted (discussion GitHub Langfuse officielle) — le
+   pattern marche sur Cloud, rien ne garantit qu'il marche sur notre instance 3.224.3.
+2. Notre widget porte déjà l'invariant inverse, écrit noir sur blanc dans
+   `scripts/run_widget_proxy.py` (*« The browser only ever talks to ONE origin »*), jusqu'à proxier
+   `/api/track` (Amplitude) pour cette même raison.
+
+**Retenu** : `POST /v3/feedback` sur le concierge (`facade.py::register_v3_routes`), joignable depuis
+le navigateur **sans toucher `run_widget_proxy.py`** (il proxie déjà tout `/v3/*` génériquement, par
+préfixe — zéro fichier touché hors zone). Le score est posé serveur→serveur via le client Langfuse déjà
+configuré (`get_langfuse()`, même client que les 16 scores OBS3). Le navigateur ne voit **aucune** clé
+Langfuse, publique ou secrète — juste son `trace_id` et le même `X-Internal-Api-Key`/`CHAT_API_KEY` qui
+protège déjà `/v3/chat`. L'invariant réel du prompt (jamais de secret key dans le navigateur) est
+satisfait — en fait renforcé.
+
+### Ce qui a été construit
+
+- **`trace_id` sur le frame `progress`** (`facade.py::chat_stream`), jamais sur `done` : `done` porte le
+  payload `_finalize()` qui EST `CONTRACT_KEYS`, verrouillé par un test d'égalité stricte
+  (`test_active_filters.py`) — y ajouter une clé casserait l'iso-contrat agent-usa. 3 points d'émission :
+  le chemin message vide, le chemin `kind == "progress"` de `_drive`, et `_crash_body()` (toujours
+  `None` là — le setup a échoué avant que `turn_observation` ouvre le span).
+- **`POST /v3/feedback`** (`facade.py`) : body `{trace_id, value, comment?}`, `_TRACE_ID_PATTERN` (32
+  hex, le format exact d'`opentelemetry.trace.format_trace_id()`), `value` restreint à `{0.0, 1.0}`,
+  même garde `_api_key_error` que `/v3/chat`. Score posé avec un `id` déterministe
+  `f"user-feedback-{trace_id}"` — un re-vote (👍→👎) écrase plutôt que duplique (vérifié en vrai, voir
+  plus bas). No-op silencieux si Langfuse désactivé ou si `create_score` lève — jamais casser le widget
+  pour une histoire d'observabilité.
+- **Front** (`web/vendor/static/js/chat/`) : `getFeedbackEndpoint()` (`api.js`, même dérivation que
+  `getStreamEndpoint`) ; `runStreamedTurn` (`send.js`) retourne le `trace_id` lu sur `progress`, capturé
+  dans `turnTraceId` (déclaré **hors** du `try` pour rester lisible même si une exception part avant que
+  `turn` résolve) et attaché en un seul point : le `finally` externe de `sendMessage`, le seul qui tourne
+  sur TOUTES les sorties de la fonction (les ~15 branches de retour anticipé — clarification, booking,
+  switch de routage par type — incluses), sans threader le trace_id dans chacune. `attachFeedbackControl`
+  (`ui/messages.js`) tague la DERNIÈRE bulle `.message.bot` du tour avec `data-trace-id` et y ajoute les
+  2 boutons — cohérent avec « une trace = un tour » : peu importe quelle bulle interne a été peinte en
+  dernier, c'est la réponse du tour dans son ensemble qui est notée. Nouveau module `feedback.js` (POST
+  fire-and-forget, même pattern que le beacon Amplitude de `tracking.js`). i18n : 4 clés neuves dans les
+  7 langues déjà supportées. `feedback.css` (nouveau) + import dans `index.css`.
+- **13 tests neufs** (`test_facade_langfuse.py`, offline, client Langfuse enregistreur) : trace_id sur
+  `progress`, absent de `done` (filet de sécurité en plus du lock `CONTRACT_KEYS` existant), crash-body
+  sans trace_id, création/validation/rejet du score, no-op désactivé, garde d'auth.
+
+### Vérifié en vrai (clés réelles, pas seulement les tests offline)
+
+- `run_local.sh` + `curl` SSE brut : `trace_id` réel (32 hex) sur `progress`, absent de `done`.
+- `POST /v3/feedback` avec ce trace_id → `listScores` (MCP `langfuse`) retrouve le score sur la BONNE
+  trace, aux côtés des 16 scores OBS3 (aucune régression OBS3/OBS4 constatée — une seule trace, un seul
+  arbre, comme avant).
+- **Idempotence vérifiée, pas supposée** : un 2e POST (👍→👎) sur le même trace_id → **un seul** score,
+  `value` mis à jour, `updatedAt` avancé, pas de doublon. Nuance notée : le `comment` du premier post est
+  resté visible après le 2e (sans comment) — correspond à la fenêtre de merge post-création que Langfuse
+  documente lui-même comme **dépréciée** (pas un bug de notre côté, qui envoie toujours l'objet complet
+  comme recommandé — si ce merge disparaît un jour, notre comportement ne change pas).
+- **Preuve navigateur réelle, pas juste l'API** : Chrome headless piloté par CDP (Node natif —
+  `WebSocket` global de Node 24, **zéro dépendance ajoutée**), widget servi par `run_widget_proxy.py`
+  (`WIDGET_CHAT_TRANSPORT=sse`) devant le concierge réel. Un vrai tour tapé + soumis via l'UI → contrôle
+  👍/👎 attaché avec le bon `trace_id`, libellé FR correct (`t()`), clic 👍 → libellé « Merci… », bouton
+  `is-selected` → score `user-feedback=true` confirmé sur CETTE trace via `listScores` (le POST est bien
+  parti du vrai clic dans le vrai navigateur, pas simulé côté serveur).
+- Gates : `pytest -q` → **1277 passed, 1 skipped** (skip antérieur, hors zone, +13 tests) ; `ruff check .`
+  clean ; `mypy agents libs` clean (45 fichiers) ; `dayuse_guardrails.sh` OK.
+
+### Reste
+
+- **Score config `user-feedback` non créé** (optionnel dans la phase, jamais tranché avec Fabien) — le
+  score s'ingère très bien sans (`configId: null`, comme `degraded` en OBS3) ; à faire via l'UI/MCP
+  `langfuse` si utile pour l'annotation queue d'OBS7.
+- Pas de commentaire libre côté UI (le paramètre `comment` existe côté route, jamais exposé dans le
+  widget) — hors périmètre exprès, cf. phase.
+- OBS7 (judges + annotation queue alimentée par `user-feedback=0`) : nom et convention 0.0/1.0 déjà
+  cohérents, rien à recaler.
+- MR pas encore ouverte — commit sur branche, review Fabien = gate.
+
 ## 🧵 Addendum 2026-07-30 (session OBS4, branche `obs4-trace-distribuee-a2a`, **PR #66 MERGÉE**) — UNE trace par tour de bout en bout à travers l'A2A, dette v4 soldée
 
 **Contexte** : 4e chantier de `PLAN-OBS-LANGFUSE-2026-07-29.md`, implémente **D-OBS-5**. Périmètre exact de `phases/OBS4-trace-distribuee-a2a.md` : `libs/b2c_common/**` + `agents/**`. Tourne en parallèle d'**OBS10** (autre repo, MCP_B2C) : cette session produit le contrat d'injection qu'OBS10 consomme, et sa MR passe avant. Zéro appel LLM ajouté, zéro appel réseau ajouté (la propagation est un en-tête).

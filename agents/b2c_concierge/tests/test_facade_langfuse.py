@@ -24,9 +24,15 @@ _MESSAGE = "je cherche un hôtel à Lyon"
 _FINAL = "Voici trois hôtels à Lyon."
 
 
+_TRACE_ID = "a" * 32
+
+
 class _RecordingSpan:
     def __init__(self) -> None:
         self.updates: list[dict] = []
+        # Real `LangfuseObservationWrapper.trace_id` — a 32 lower-hex-char
+        # `format_trace_id()` output (see facade._TRACE_ID_PATTERN).
+        self.trace_id = _TRACE_ID
 
     def update(self, **kwargs) -> None:
         self.updates.append(kwargs)
@@ -36,11 +42,15 @@ class _RecordingClient:
     def __init__(self) -> None:
         self.observations: list[dict] = []
         self.span = _RecordingSpan()
+        self.score_calls: list[dict] = []
 
     @contextmanager
     def start_as_current_observation(self, **kwargs):
         self.observations.append(kwargs)
         yield self.span
+
+    def create_score(self, **kwargs) -> None:
+        self.score_calls.append(kwargs)
 
 
 class _AmbientSpan:
@@ -71,6 +81,36 @@ def _make_request(headers: dict[str, str] | None = None) -> Request:
         return {"type": "http.request", "body": body, "more_body": False}
 
     return Request(scope, receive)
+
+
+def _make_feedback_request(payload: dict, headers: dict[str, str] | None = None) -> Request:
+    body = json.dumps(payload).encode()
+    scope = {
+        "type": "http",
+        "method": "POST",
+        "path": "/v3/feedback",
+        "headers": [(k.lower().encode(), v.encode()) for k, v in (headers or {}).items()],
+        "query_string": b"",
+    }
+
+    async def receive():
+        return {"type": "http.request", "body": body, "more_body": False}
+
+    return Request(scope, receive)
+
+
+async def _sse_body(response) -> bytes:
+    chunks = [chunk async for chunk in response.body_iterator]
+    return b"".join(c if isinstance(c, bytes) else c.encode() for c in chunks)
+
+
+def _frame_data(raw: bytes, event: str) -> dict:
+    """Pull the JSON `data:` payload of the first frame of the given `event`
+    out of a raw SSE byte stream (`event: <name>\\ndata: <json>\\n\\n`)."""
+    marker = f"event: {event}\ndata: ".encode()
+    start = raw.index(marker) + len(marker)
+    end = raw.index(b"\n\n", start)
+    return json.loads(raw[start:end])
 
 
 @pytest.fixture()
@@ -227,3 +267,118 @@ class TestFacadeShieldMarksError:
         assert response.status_code == 200  # the shield still returns a contract payload
         assert ambient_span.attributes["langfuse.observation.level"] == "ERROR"
         assert ambient_span.attributes["langfuse.observation.status_message"] == "facade_shield"
+
+
+class TestObs5TraceIdOnProgressFrame:
+    """OBS5: `trace_id` rides `progress`, never `done` — `done`'s payload IS
+    `CONTRACT_KEYS` (locked elsewhere by a strict-equality test), so a new key
+    there would silently break the agent-usa iso-contract."""
+
+    def test_progress_frame_carries_the_root_observation_trace_id(self, recording):
+        client, _propagated, _ambient_span = recording
+        response = asyncio.run(facade.chat_stream(_make_request()))
+        raw = asyncio.run(_sse_body(response))
+        assert _frame_data(raw, "progress")["trace_id"] == client.span.trace_id
+
+    def test_done_frame_never_gains_a_trace_id_key(self, recording):
+        """Extra safety net alongside test_active_filters.py's CONTRACT_KEYS
+        lock: even if that constant were ever extended, this pins the actual
+        emitted `done` payload, not just the frozenset it's built from."""
+        _client, _propagated, _ambient_span = recording
+        response = asyncio.run(facade.chat_stream(_make_request()))
+        raw = asyncio.run(_sse_body(response))
+        assert "trace_id" not in _frame_data(raw, "done")
+
+    def test_crash_body_progress_frame_has_no_trace_id(self, recording, monkeypatch):
+        """Setup fails before `turn_observation` ever opens (no span exists
+        yet) — honestly null, not a fabricated identifier."""
+
+        async def _boom(*_args, **_kwargs):
+            raise RuntimeError("native context blew up before the span opened")
+
+        monkeypatch.setattr(facade, "_apply_native_context", _boom)
+        response = asyncio.run(facade.chat_stream(_make_request()))
+        raw = asyncio.run(_sse_body(response))
+        assert _frame_data(raw, "progress")["trace_id"] is None
+
+
+class TestObs5FeedbackRoute:
+    """POST /v3/feedback — routed through the concierge rather than the
+    browser posting straight to Langfuse (see phases/OBS5-user-feedback.md):
+    the browser never holds any Langfuse key, only its own trace_id and the
+    same internal API key that already gates every other /v3/* route."""
+
+    def test_valid_feedback_creates_a_deterministic_score(self, recording):
+        client, _propagated, _ambient_span = recording
+        response = asyncio.run(
+            facade.feedback(_make_feedback_request({"trace_id": _TRACE_ID, "value": 1}))
+        )
+        assert response.status_code == 200
+        assert client.score_calls == [
+            {
+                "trace_id": _TRACE_ID,
+                "name": "user-feedback",
+                "value": 1.0,
+                "data_type": "BOOLEAN",
+                "comment": None,
+                "score_id": f"user-feedback-{_TRACE_ID}",
+            }
+        ]
+
+    def test_negative_feedback_with_comment(self, recording):
+        client, _propagated, _ambient_span = recording
+        response = asyncio.run(
+            facade.feedback(_make_feedback_request(
+                {"trace_id": _TRACE_ID, "value": 0, "comment": "  wrong hotel  "}
+            ))
+        )
+        assert response.status_code == 200
+        assert client.score_calls[0]["value"] == 0.0
+        assert client.score_calls[0]["comment"] == "wrong hotel"
+
+    @pytest.mark.parametrize(
+        "payload",
+        [
+            {"trace_id": "not-32-hex-chars", "value": 1},
+            {"trace_id": _TRACE_ID, "value": 2},
+            {"trace_id": _TRACE_ID, "value": "1"},
+            {"trace_id": _TRACE_ID, "value": True},
+            {"trace_id": "", "value": 1},
+            {"value": 1},
+            {"trace_id": _TRACE_ID},
+        ],
+    )
+    def test_invalid_payload_is_rejected_without_scoring(self, recording, payload):
+        client, _propagated, _ambient_span = recording
+        response = asyncio.run(facade.feedback(_make_feedback_request(payload)))
+        assert response.status_code == 400
+        assert client.score_calls == []
+
+    def test_disabled_langfuse_is_a_silent_no_op(self, monkeypatch):
+        """Suite-wide default (no LANGFUSE_* keys, observability._client is
+        None): the endpoint still answers 200 — feedback must never break the
+        widget just because Langfuse isn't configured."""
+        monkeypatch.setattr(observability, "_client", None)
+        response = asyncio.run(
+            facade.feedback(_make_feedback_request({"trace_id": _TRACE_ID, "value": 1}))
+        )
+        assert response.status_code == 200
+
+    def test_requires_the_internal_api_key_when_one_is_configured(self, recording, monkeypatch):
+        monkeypatch.setenv("CHAT_API_KEY", "secret123")
+        client, _propagated, _ambient_span = recording
+
+        unauthorized = asyncio.run(
+            facade.feedback(_make_feedback_request({"trace_id": _TRACE_ID, "value": 1}))
+        )
+        assert unauthorized.status_code == 401
+        assert client.score_calls == []
+
+        authorized = asyncio.run(
+            facade.feedback(_make_feedback_request(
+                {"trace_id": _TRACE_ID, "value": 1},
+                headers={"X-Internal-Api-Key": "secret123"},
+            ))
+        )
+        assert authorized.status_code == 200
+        assert len(client.score_calls) == 1

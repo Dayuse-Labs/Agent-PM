@@ -35,7 +35,7 @@ import uuid
 from typing import Any, AsyncGenerator, Literal
 from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
-from b2c_common.observability import mark_level, mark_metadata, turn_observation
+from b2c_common.observability import get_langfuse, mark_level, mark_metadata, turn_observation
 from b2c_common.scores import score_degraded, score_ttft
 from google.adk.runners import InMemoryRunner
 from google.genai import types as genai_types
@@ -58,6 +58,11 @@ logger = logging.getLogger(__name__)
 # session id shape — mirrors agent-usa's SESSION_ID_PATTERN so a cookie/legacy id
 # minted by either stack is mutually valid (invisible switch).
 SESSION_ID_PATTERN = re.compile(r"^[a-zA-Z0-9_-]{1,128}$")
+
+# OBS5: shape of the `trace_id` the `progress` SSE frame hands back to the
+# widget — exactly `opentelemetry.trace.format_trace_id()`'s output (32 lower
+# hex chars). A payload outside this shape is a caller bug, not a real trace.
+_TRACE_ID_PATTERN = re.compile(r"^[0-9a-f]{32}$")
 
 # The always-present response keys (the golden contract SHAPE captured from
 # agent-usa's response_data + its /v3 tests). Conditional keys agent-usa adds
@@ -836,7 +841,9 @@ async def chat_stream(request: Request) -> Response:
         crash_payload = _shield_payload(session_id, body, message, "sse_setup", exc)
 
         async def _crash_body() -> AsyncGenerator[bytes, None]:
-            yield _sse("progress", {})
+            # No turn_observation ever opened here (setup failed first) — no
+            # trace_id to give the widget's feedback control, honestly null.
+            yield _sse("progress", {"trace_id": None})
             yield _sse("done", crash_payload)
 
         return _sse_response(_crash_body(), session_id)
@@ -858,7 +865,12 @@ async def chat_stream(request: Request) -> Response:
             ) as lf_span:
                 try:
                     if not message:
-                        yield _sse("progress", {})
+                        # OBS5: trace_id rides `progress` (never `done` — that
+                        # payload IS the frozen CONTRACT_KEYS iso-contract, a
+                        # new key there would break the strict-equality lock).
+                        yield _sse("progress", {
+                            "trace_id": lf_span.trace_id if lf_span is not None else None,
+                        })
                         # OBS2: TTFT measurement point (CLAUDE.md SLO: progress < 300 ms).
                         # OBS3: scored (metadata stays too — filterable per-trace copy).
                         ttft_ms = round((time.monotonic() - t_request_start) * 1000, 1)
@@ -868,7 +880,9 @@ async def chat_stream(request: Request) -> Response:
                     else:
                         async for kind, data in _drive(session_id, user_id, message):
                             if kind == "progress":
-                                yield _sse("progress", {})
+                                yield _sse("progress", {
+                                    "trace_id": lf_span.trace_id if lf_span is not None else None,
+                                })
                                 ttft_ms = round((time.monotonic() - t_request_start) * 1000, 1)
                                 mark_metadata({"ttft_ms": ttft_ms})
                                 score_ttft(ttft_ms)
@@ -948,6 +962,59 @@ async def session_reset(request: Request) -> Response:
     return response
 
 
+#: Score values Langfuse BOOLEAN scores accept — 1 for positive, 0 for negative.
+_FEEDBACK_VALUES: frozenset[float] = frozenset({0.0, 1.0})
+
+
+async def feedback(request: Request) -> Response:
+    """POST /v3/feedback — OBS5: records a `user-feedback` BOOLEAN score on a
+    trace_id the widget already got from the `progress` SSE frame.
+
+    Routed through the concierge rather than the widget posting straight to
+    Langfuse with the public key (the OBS2-LANGFUSE-BRIEF §3 pattern):
+    self-hosted Langfuse has no documented/built-in CORS support on the
+    ingestion endpoint, while every /v3/* path here is already proxied
+    same-origin by the widget service (`scripts/run_widget_proxy.py`, out of
+    this phase's zone — unchanged). See phases/OBS5-user-feedback.md for the
+    full reasoning. Net effect: the browser never holds a Langfuse key at
+    all — only its own trace_id (not a secret) and the existing internal API
+    key that already gates every other /v3/* route.
+
+    Deterministic score id (`user-feedback-{trace_id}`): a correcting second
+    click (👍 → 👎) overwrites instead of piling up a duplicate score, since
+    Langfuse only replaces a score when id + name + timestamp-date all match.
+    No-op, never raises, when Langfuse is disabled or the trace_id doesn't
+    exist yet — same contract as every other observability call in this repo.
+    """
+    auth = _api_key_error(request)
+    if auth is not None:
+        return auth
+    body = await _read_body(request)
+    trace_id = str(body.get("trace_id") or "").strip()
+    value = body.get("value")
+    value_f = float(value) if isinstance(value, (int, float)) and not isinstance(value, bool) else None
+    if not _TRACE_ID_PATTERN.fullmatch(trace_id) or value_f not in _FEEDBACK_VALUES:
+        return JSONResponse({"error": "Invalid feedback payload"}, status_code=400)
+    comment = body.get("comment")
+    comment = comment.strip()[:500] if isinstance(comment, str) and comment.strip() else None
+
+    client = get_langfuse()
+    if client is not None:
+        try:
+            client.create_score(
+                trace_id=trace_id,
+                name="user-feedback",
+                value=value_f,
+                data_type="BOOLEAN",
+                comment=comment,
+                score_id=f"user-feedback-{trace_id}",
+            )
+        except Exception as exc:  # noqa: BLE001 — observability must never break the widget
+            logger.warning("b2c_concierge: feedback score skipped: %s", type(exc).__name__)
+
+    return JSONResponse({"ok": True})
+
+
 def register_v3_routes(app: Any) -> None:
     """Mount the /v3 facade routes onto the (already-built) Starlette app from
     to_a2a. Called by serve.py, which keeps these routes OUT of the D7 bearer
@@ -955,3 +1022,4 @@ def register_v3_routes(app: Any) -> None:
     app.add_route("/v3/chat", chat, methods=["POST"])
     app.add_route("/v3/chat/stream", chat_stream, methods=["POST"])
     app.add_route("/v3/chat/session/reset", session_reset, methods=["POST"])
+    app.add_route("/v3/feedback", feedback, methods=["POST"])
