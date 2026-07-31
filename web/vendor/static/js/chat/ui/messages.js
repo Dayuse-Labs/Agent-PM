@@ -8,6 +8,7 @@ import { getLanguage, t } from '../i18n.js';
 import { escapeAttr, escapeHtml, sanitizeDayuseUrl, sanitizeImageUrl } from '../security.js';
 import { parsePrice } from '../hotels/card.js';
 import { formatRating } from '../utils.js';
+import { submitFeedback } from '../feedback.js';
 
 function renderInlineText(rawText) {
     const text = String(rawText ?? '');
@@ -440,11 +441,73 @@ function setupActionHandlers(messageContent) {
                     event.stopPropagation();
                     window.chatApp?.nextImage?.(String(element.dataset.hotelId || ''));
                     return;
+                case 'feedback-up':
+                case 'feedback-down': {
+                    event.preventDefault();
+                    handleFeedbackClick(element, action === 'feedback-up' ? 1 : 0);
+                    return;
+                }
                 default:
                     return;
             }
         });
     });
+}
+
+/**
+ * OBS5 — one 👍/👎 vote for the turn this message bubble belongs to.
+ *
+ * Re-clicking (correcting 👍 → 👎 or back) re-submits: the backend's
+ * deterministic score id makes that an overwrite, not a duplicate, so no
+ * hard-disable here — only a visual "thanks" + which button is selected.
+ */
+function handleFeedbackClick(button, value) {
+    const control = button.closest('.feedback-control');
+    const messageDiv = button.closest('.message');
+    const traceId = String(messageDiv?.dataset.traceId || '');
+    if (!control || !traceId) return;
+
+    submitFeedback(traceId, value);
+    emitTrackEvent('user_feedback_submitted', { trace_id: traceId, value });
+
+    control.querySelectorAll('.feedback-control__btn').forEach(btn => {
+        btn.classList.toggle('is-selected', btn === button);
+    });
+    control.classList.add('is-submitted');
+    const label = control.querySelector('.feedback-control__label');
+    if (label) label.textContent = t('feedback_thanks');
+}
+
+/**
+ * OBS5 — attach a 👍/👎 control to the LAST bot bubble in the transcript.
+ *
+ * Called once per turn, after all of that turn's rendering is done (see
+ * send.js's outer `finally`) — deliberately not threaded through every
+ * individual response-type renderer (faq/booking/results/clarification/…):
+ * one trace_id already represents the whole turn, so tagging whichever bot
+ * bubble that turn produced last is the right granularity, not an
+ * approximation. No-op without a trace_id (Langfuse disabled, JSON
+ * transport, or a crashed turn) — never a dead button.
+ */
+export function attachFeedbackControl(traceId) {
+    if (!traceId) return;
+    const bubbles = document.querySelectorAll('#chat-messages .message.bot');
+    const target = bubbles[bubbles.length - 1];
+    const content = target?.querySelector('.message-content');
+    if (!target || !content || target.dataset.traceId) return;
+
+    target.dataset.traceId = traceId;
+    const feedback = document.createElement('div');
+    feedback.className = 'feedback-control';
+    feedback.innerHTML = `
+        <span class="feedback-control__label">${escapeHtml(t('feedback_prompt'))}</span>
+        <button type="button" class="feedback-control__btn" data-action="feedback-up"
+                aria-label="${escapeAttr(t('feedback_helpful'))}">👍</button>
+        <button type="button" class="feedback-control__btn" data-action="feedback-down"
+                aria-label="${escapeAttr(t('feedback_not_helpful'))}">👎</button>
+    `;
+    content.appendChild(feedback);
+    bindMessageContentInteractions(content);
 }
 
 function setupImageCarouselHandlers(messageContent) {

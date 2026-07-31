@@ -1,0 +1,47 @@
+/**
+ * OBS5 — user feedback control (👍/👎) under an assistant message.
+ */
+
+.feedback-control {
+    display: flex;
+    align-items: center;
+    gap: var(--space-2);
+    margin-top: var(--space-3);
+    padding-top: var(--space-2);
+    border-top: 1px solid var(--border-subtle);
+}
+
+.feedback-control__label {
+    font-size: var(--fs-xs);
+    color: var(--fg-subtle);
+}
+
+.feedback-control__btn {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    width: 28px;
+    height: 28px;
+    padding: 0;
+    border: 1px solid var(--border-default);
+    border-radius: var(--radius-full);
+    background: var(--bg-surface);
+    font-size: var(--fs-base);
+    line-height: 1;
+    cursor: pointer;
+    transition: background var(--dur-fast) var(--ease-out),
+                border-color var(--dur-fast) var(--ease-out);
+}
+
+.feedback-control__btn:hover {
+    background: var(--bg-muted);
+}
+
+.feedback-control__btn.is-selected {
+    border-color: var(--border-focus);
+    background: var(--bg-muted);
+}
+
+.feedback-control.is-submitted .feedback-control__label {
+    color: var(--fg-muted);
+}

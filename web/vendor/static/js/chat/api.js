@@ -24,6 +24,13 @@ export function getStreamEndpoint() {
     return getChatEndpoint().replace('/v3/chat', '/v3/chat/stream');
 }
 
+// OBS5: user-feedback endpoint, same derivation, same origin, same auth
+// headers as /v3/chat — the widget proxy already forwards any /v3/* path, so
+// this needs no server-side wiring beyond the concierge route itself.
+export function getFeedbackEndpoint() {
+    return getChatEndpoint().replace('/v3/chat', '/v3/feedback');
+}
+
 /**
  * Transport for a chat turn. 'sse' streams /v3/chat/stream so the hotel cards
  * render on the `hotels` frame — seconds before the synthesis text — while

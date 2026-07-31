@@ -7,7 +7,7 @@ import { state, resetState, applyMarketFromResponse } from '../state.js';
 import { appendAmplitudeIdToUrl, trackEvent } from '../tracking.js';
 import { getMarketFallbackLink } from './responses.js';
 import { replaceHotelIdTags, handleContextUpdate, hasEffectiveTimeslot, getNativeContext, getClientTimeContext } from '../utils.js';
-import { addMessage, showTypingIndicator, hideTypingIndicator, createBookingCard } from '../ui/messages.js';
+import { addMessage, showTypingIndicator, hideTypingIndicator, createBookingCard, attachFeedbackControl } from '../ui/messages.js';
 import { createThinkingSteps, hideThinkingAnimation } from '../ui/thinking.js';
 import { createHotelCarousel } from '../hotels/carousel.js';
 import { addFollowUpMessage } from '../filters/search.js';
@@ -477,6 +477,10 @@ async function runStreamedTurn(requestBody, thinking, requestStartMs) {
     let hotelsMs = null;
     let skipCarousel = false;
     let bookingCard = null;
+    // OBS5: the Langfuse trace_id for THIS turn, read off `progress` — null on
+    // the blocking-POST fallback and whenever Langfuse is disabled server-side
+    // (honest absence, never fabricated: the feedback UI simply stays hidden).
+    let traceId = null;
 
     try {
         const response = await openChatStream(getStreamEndpoint(), getChatHeaders(), requestBody);
@@ -484,6 +488,7 @@ async function runStreamedTurn(requestBody, thinking, requestStartMs) {
             framesSeen += 1;
             if (event === 'progress') {
                 if (ttftMs === null) ttftMs = Math.round(nowMs() - requestStartMs);
+                if (traceId === null) traceId = data?.trace_id || null;
             } else if (event === 'hotels') {
                 if (hotelsMs === null) hotelsMs = Math.round(nowMs() - requestStartMs);
                 skipCarousel = renderHotelsEarly(data, thinking) || skipCarousel;
@@ -497,7 +502,7 @@ async function runStreamedTurn(requestBody, thinking, requestStartMs) {
                 if (!rawData.booking_card && bookingCard) {
                     rawData.booking_card = bookingCard;
                 }
-                return { rawData, transport: 'sse', ttftMs, hotelsMs, skipCarousel };
+                return { rawData, transport: 'sse', ttftMs, hotelsMs, skipCarousel, traceId };
             }
             // `token` frames arrive in a burst just before `done` and the full
             // text is in the `done` payload — nothing to render from them.
@@ -597,6 +602,10 @@ export async function sendMessage() {
     showTypingIndicator();
 
     let thinkingInterval = null;
+    // OBS5: set once `turn` resolves (below), read in the outer `finally` —
+    // declared out here so it stays reachable even if an exception fires
+    // before `turn` does (a `let` inside the try would go out of scope).
+    let turnTraceId = null;
 
     try {
         const messageLower = message.toLowerCase();
@@ -644,6 +653,7 @@ export async function sendMessage() {
                 ttftMs: null,
                 hotelsMs: null,
                 skipCarousel: false,
+                traceId: null,  // OBS5: only the SSE path carries one (see facade.py)
             };
         }
 
@@ -651,6 +661,7 @@ export async function sendMessage() {
         thinking.loadingMessage.remove();
 
         const rawData = turn.rawData;
+        turnTraceId = turn.traceId || null;
         // S-CX5: this turn's pick buttons, already sorted cheapest-first by the
         // backend (empty until the request is qualified enough to book). Read
         // BEFORE any renderer runs, since addFollowUpMessage draws from it.
@@ -838,6 +849,14 @@ export async function sendMessage() {
         });
         addMessage(t('generic_error'));
     } finally {
+        // OBS5: runs on every exit path of this turn (early returns from the
+        // clarification/booking/route-dispatch branches above, the normal
+        // fallthrough, AND the catch above) — the one place that reliably
+        // fires once per turn regardless of which branch rendered the
+        // response. No-op when turnTraceId never got set (JSON transport,
+        // Langfuse disabled server-side, or the turn crashed before `turn`
+        // resolved) — the feedback control simply doesn't appear.
+        attachFeedbackControl(turnTraceId);
         state.isProcessing = false;
         const submitButton = document.getElementById('main-submit-button');
         if (submitButton) {
