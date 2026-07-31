@@ -2,7 +2,7 @@
 
 État du chantier pour reprise en session fraîche. **Lire en entier avant d'agir ; ne pas reconstruire ce qui existe.** Mettre à jour en fin de CHAQUE session (bloc daté en tête).
 
-## 💬 Addendum 2026-07-31 (session OBS5, branche `obs5-user-feedback`, MR à ouvrir) — feedback utilisateur 👍/👎 rattaché au tour, `trace_id` exposé côté SSE
+## 💬 Addendum 2026-07-31 (session OBS5, branche `obs5-user-feedback`, **PR #68 MERGÉE**) — feedback utilisateur 👍/👎 rattaché au tour, `trace_id` exposé côté SSE
 
 **Contexte** : 5e chantier de `PLAN-OBS-LANGFUSE-2026-07-29.md`, dépend d'OBS4 (mergée, PR #66). Zone
 annoncée `facade.py` + `web/**`. Phase écrite au lancement (`phases/OBS5-user-feedback.md`), **soumise
@@ -84,7 +84,7 @@ satisfait — en fait renforcé.
   widget) — hors périmètre exprès, cf. phase.
 - OBS7 (judges + annotation queue alimentée par `user-feedback=0`) : nom et convention 0.0/1.0 déjà
   cohérents, rien à recaler.
-- MR pas encore ouverte — commit sur branche, review Fabien = gate.
+- ✅ PR #68 ouverte, review + merge faits par Fabien (`fc05f69`) — jamais mergée par la session.
 
 ## 🧵 Addendum 2026-07-30 (session OBS4, branche `obs4-trace-distribuee-a2a`, **PR #66 MERGÉE**) — UNE trace par tour de bout en bout à travers l'A2A, dette v4 soldée
 
