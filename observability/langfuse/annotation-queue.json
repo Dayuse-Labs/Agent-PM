@@ -1,0 +1,26 @@
+{
+  "$comment": "OBS7 — annotation queue for judge/human calibration, versioned in git so it's re-creatable on any instance (POST /api/public/annotation-queues). Created 2026-07-31 on project cms4gd0d20002nz029tuly62e. Fed automatically by scripts/langfuse_feed_annotation_queue.py — see that script's docstring for the exact source scores, the synthetic exclusion, and the currently-known gap (empty_shortlist has zero occurrences in the `production` environment because the concierge's live Railway deploy predates the OBS3 merge that introduced it).",
+  "bug_found_and_fixed_2026_07_31": "First seeding queued items as objectType=TRACE (14 items). Fabien reported most items showed 'undefined' input/output and a confusing wall of a2a-sdk internal spans. Root cause: OBS4 removed langfuse.trace.input/.name — a trace object carries no input/output anymore, only its root OBSERVATION does. Worse, empty_shortlist fires on 3 different turn shapes: HTTP-facade (v3.chat/v3.chat_stream), A2A-piloted (a2a.b2c_concierge, real content), and direct-ADK/eval-harness replays (invoke_workflow b2c_concierge/b2c_faq, input=None — nothing to annotate). Of the original 14: 3 were v3.chat, 3 were a2a.b2c_concierge (both real, salvageable), 6 were invoke_workflow-rooted or a raw a2a-sdk-internal mess (unsalvageable, deleted), 2 had been deleted by Fabien himself before the fix. The 6 salvageable items were deleted and recreated as objectType=OBSERVATION pointing at their real root observation id (Fabien's 5 already-COMPLETED human_* scores on those traces were left untouched — scores live independently of the queue item's object pointer, so re-pointing didn't touch them). Topped up with 10 more real, non-synthetic `environment=production` v3.chat observations (checked one by one via trace.get().tags — several production v3.chat traces are themselves scripted post-deploy verification tours tagged synthetic, e.g. one literally says 'ceci est un tour synthetique de verification post-b...', so this check is not optional even in prod). Script fixed to queue by OBSERVATION and skip the no-root shape going forward (skipped_no_root counter). Final state: 16 items, all OBSERVATION-type with real content.",
+  "project_id": "cms4gd0d20002nz029tuly62e",
+  "queue": {
+    "id": "cms8msmlp000rni020ydjoijy",
+    "name": "obs7-judge-calibration",
+    "scoreConfigIds": [
+      "0009d0dd-5c0b-4a3b-8d6f-a77e25d14d13",
+      "183ebb2a-b64d-4a75-9cd7-dbd3383a4f7c",
+      "ea44f96f-44e4-4832-9bbf-314b18a63b39",
+      "e4f02fd6-63c1-424a-989f-db337f1fd8c3"
+    ],
+    "scoreConfigNames": [
+      "human_hallucination",
+      "human_relevance",
+      "human_user_distress",
+      "empty_shortlist"
+    ]
+  },
+  "feed_sources": {
+    "wired": ["empty_shortlist == 1 (any environment, excludes tag=synthetic, resolved to the real-turn root OBSERVATION — v3.chat/v3.chat_stream/a2a.b2c_concierge only)"],
+    "not_wired_yet": ["user-feedback == 0 — score does not exist until OBS5 ships"]
+  },
+  "state_2026_07_31_end_of_session": {"total_items": 16, "completed_by_fabien": 5, "pending": 11, "all_objectType": "OBSERVATION"}
+}
