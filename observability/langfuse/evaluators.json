@@ -1,0 +1,59 @@
+{
+  "$comment": "OBS7 — project-scoped LLM-as-a-judge evaluators for AgentB2C, versioned in git so they're re-creatable on any instance. These endpoints (POST/GET /api/public/unstable/evaluators) are explicitly marked `unstable` by Langfuse (the underlying evaluation data model is being redesigned) — this file is documentary/reproducible, never a CI-critical path. Created 2026-07-31 on project cms4gd0d20002nz029tuly62e via raw API (Basic auth pk:sk), because the `langfuse-cli`'s flag-flattening cannot express nested `outputDefinition.score`/`.reasoning` objects for this endpoint (files under scripts/ or curl -d @file are the reliable path, not the CLI's generated flags, for this one resource).",
+  "project_id": "cms4gd0d20002nz029tuly62e",
+  "design_note": "These are PROJECT-scope evaluators (scope=project), not references to the Langfuse-MANAGED templates of the same name (scope=managed) — prompt/outputDefinition text is copied verbatim from the managed template so the judge stays identical to Langfuse's maintained version, but scope=project lets each evaluator pin its own `modelConfig` (provider+model) via the API instead of depending on the project's UI-only \"default evaluation model\" setting. `evaluationRuleCount` and `variables` below are read back from the API at creation time, not hand-written.",
+  "known_gaps": [
+    {
+      "name": "User Disagreement",
+      "reason": "Managed template needs `conversation_history` (prior assistant turn) to judge whether the user disagrees with it. AgentB2C's root observation (`v3.chat`/`v3.chat_stream`, see turn_observation in libs/b2c_common/b2c_common/observability.py) only ever carries the CURRENT turn's plain-string input/output — no prior-turn context, because 1 trace = 1 tour (OBS4 design) and multi-turn history isn't propagated to any single trace. The template's own decision rule says 'If there is no prior assistant message in conversation_history, score false' — wiring it today would produce a permanently-false judge (deterministic noise, not signal), which is exactly the failure mode phases/OBS7-judges-online-annotation.md warns against ('un evaluator observation-level ne lit pas les enfants... produit du bruit qui décrédibilise tout le dispositif'). NOT created. Needs a code change (propagate last-assistant-turn text onto the root observation, or onto trace/session-level state readable by the evaluator) in agents/**/libs/b2c_common/** — out of this phase's zone (Langfuse UI + observability/langfuse/**)."
+    },
+    {
+      "name": "Out-of-Scope Request",
+      "reason": "Managed template needs `system_prompt`. Confirmed by code read (2026-07-31): the concierge's system instructions (_SYNTHESIS_INSTRUCTION in agent.py, _TRIAGE_INSTRUCTION in triage.py) are only ever passed into the LiteLLM `messages` array of the CHILD generation observation — never onto the root observation's input/metadata (grep for `.update(input=`/`.update(output=` across libs/b2c_common + agents/** returns exactly 4 sites, all plain end-user/assistant text, none carrying the system prompt). An observation-level evaluator on the root span cannot see a child observation's content. The template's own rule says 'If the system prompt is empty or too vague to determine scope confidently, score false' — same permanently-false-judge failure mode as above. NOT created. Needs the same class of code change (stamp system_prompt onto the root observation's metadata at the point agent.py/triage.py build it) — out of this phase's zone."
+    }
+  ],
+  "evaluators": [
+    {
+      "id": "cms8mom1h0006ni02041l91ff",
+      "name": "Hallucination",
+      "scope": "project",
+      "type": "llm_as_judge",
+      "variables": ["query", "generation"],
+      "outputDefinition": {
+        "dataType": "NUMERIC",
+        "reasoning": {"description": "One sentence reasoning for the score"},
+        "score": {"description": "Score between 0 and 1. Score 0 if false or negative and 1 if true or positive"}
+      },
+      "modelConfig": {"provider": "openai", "model": "gpt-4o-mini"},
+      "prompt_source": "verbatim copy of the Langfuse-managed 'Hallucination' template prompt, unmodified"
+    },
+    {
+      "id": "cms8momt60009ni02b69idn87",
+      "name": "Relevance",
+      "scope": "project",
+      "type": "llm_as_judge",
+      "variables": ["query", "generation"],
+      "outputDefinition": {
+        "dataType": "NUMERIC",
+        "reasoning": {"description": "One sentence reasoning for the score"},
+        "score": {"description": "Score between 0 and 1. Score 0 if false or negative and 1 if true or positive"}
+      },
+      "modelConfig": {"provider": "openai", "model": "gpt-4o-mini"},
+      "prompt_source": "verbatim copy of the Langfuse-managed 'Relevance' template prompt, unmodified"
+    },
+    {
+      "id": "cms8monnj000cni020g3bd4ws",
+      "name": "User Distress",
+      "scope": "project",
+      "type": "llm_as_judge",
+      "variables": ["conversation_history", "last_user_message"],
+      "outputDefinition": {
+        "dataType": "BOOLEAN",
+        "reasoning": {"description": "One concise explanation referencing the main distress signal or why it does not qualify."},
+        "score": {"description": "Return true if the last user message contains explicit profanity or strong frustration beyond mild annoyance; otherwise return false."}
+      },
+      "modelConfig": {"provider": "openai", "model": "gpt-4o-mini"},
+      "prompt_source": "verbatim copy of the Langfuse-managed 'User Distress' template prompt (incl. all 5 few-shot examples), unmodified. `conversation_history` is mapped to a non-existent metadata key by the paired evaluation rule (resolves empty) — the template's own decision rule explicitly degrades to judging `last_user_message` alone in that case, so this judge is fully functional despite the same instrumentation gap noted above for the two skipped judges."
+    }
+  ]
+}
