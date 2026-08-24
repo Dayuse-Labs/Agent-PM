@@ -47,7 +47,19 @@ L'en-tête est **propriété du proxy** : toujours retiré de ce que le navigate
 
 ### 🔓 L'edge public est maintenant DÉBLOQUÉ (mais toujours cassé)
 
-Le seul frein à la réparation de l'edge était que `/v3` était ouvert : réparer l'edge aurait exposé une façade non gatée. **Ce n'est plus le cas.** L'edge reste à 502 (rien touché), et le correctif reste le même : `targetPort: null` sur le domaine du service, il faut lui dire `8100`. Rappel : `railway domain --port` **ne sait que créer** un domaine, pas repointer un existant ; la mutation GraphQL `serviceDomainUpdate` exige de lire le token Railway, bloqué par le classifieur de permissions. → UI Railway (service → Settings → Networking) ou autoriser la lecture du token.
+Le seul frein à la réparation de l'edge était que `/v3` était ouvert : réparer l'edge aurait exposé une façade non gatée. **Ce n'est plus le cas.**
+
+### ❌ Cause du 502 : ce N'EST PAS le `targetPort` — hypothèse testée et RÉFUTÉE
+
+**Ne pas repartir sur cette piste.** `targetPort` a bien été posé à `8100` sur le domaine du concierge (2026-08-24, par Fabien via l'UI) : la valeur est confirmée par `railway status --json`, et **le 502 persiste sur tous les chemins**. Contre-exemple décisif dans le même projet : le service `widget` a `targetPort = None` et répond parfaitement en public. Le port n'a jamais été le problème.
+
+**Vraie cause : le concierge écoute en IPv6 SEULEMENT.** `uvicorn --host ::` (Dockerfile) ne donne PAS un socket dual-stack, contrairement à ce que dit le commentaire du Dockerfile : l'`asyncio` de CPython force explicitement `IPV6_V6ONLY = True` sur tout socket `AF_INET6` (`asyncio/base_events.py`, ~l.1558-1563 en 3.12 — fait exprès pour pouvoir binder v4 et v6 séparément sans `EADDRINUSE`). Le réseau privé Railway étant IPv6, les feuilles et le widget joignent le concierge sans problème ; l'edge public, lui, atteint le conteneur en **IPv4** → connexion refusée → « Application failed to respond ».
+
+**La preuve par le widget** : `scripts/run_widget_proxy.py` est le seul service joignable publiquement, et c'est précisément le seul qui **efface `IPV6_V6ONLY`** à la main (`_WidgetProxyServer.server_bind`, avec le commentaire qui documente ce piège exact). Le repo avait déjà résolu ce problème une fois.
+
+**Correctif si on décide de le faire** : pré-binder un socket dual-stack et le passer à uvicorn (`Server.run(sockets=[…])` ou `--fd`) — `--host 0.0.0.0` est EXCLU, ça casserait le réseau privé IPv6 dont dépendent les feuilles et le widget.
+
+**Mais recommandation : ne pas réparer, SUPPRIMER le domaine public du concierge.** Personne ne le consomme — le widget passe par `concierge.railway.internal:8100` (privé), et le seul usage réel du domaine public était le probing manuel, qui se fait très bien à travers le proxy widget. Ne pas exposer la façade est une meilleure posture que l'exposer en s'appuyant sur une clé. Ce 502 a servi de pare-feu gratuit pendant un mois.
 
 ### Score configs (PR #72, mergée et maintenant déployée)
 
@@ -66,7 +78,7 @@ Le seul frein à la réparation de l'edge était que `/v3` était ouvert : répa
 
 ### Reste
 
-- **Edge public** : poser `targetPort=8100` (cf. plus haut). Désormais sans risque de sécurité.
+- **Edge public** : décision à prendre — supprimer le domaine (recommandé, personne ne le consomme) ou binder dual-stack dans le concierge. **Le `targetPort` est déjà posé et n'était pas la cause** (cf. plus haut). Plus aucun risque de sécurité dans un sens ou l'autre, la façade étant gatée.
 - **Judges OBS7** : les 2 règles actives sont saines (`enabled:true`, jamais en erreur) mais avaient **0 score** — cause identifiée : 19 jours sans trafic prod (05/08 → 24/08), pas un bug. Il faut du trafic **organique** : les tours de vérification de la journée sont taggés `synthetic`, donc exclus de l'échantillonnage à 5 %.
 - **`obs7-user-distress-v3chat`** toujours désactivé (preflight qui timeout).
 - **Plafond de dépense OpenAI** (~20 $/mois) non vérifié posé.
