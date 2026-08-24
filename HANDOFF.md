@@ -2,6 +2,139 @@
 
 État du chantier pour reprise en session fraîche. **Lire en entier avant d'agir ; ne pas reconstruire ce qui existe.** Mettre à jour en fin de CHAQUE session (bloc daté en tête).
 
+## 🚀 Addendum 2026-08-24 (session « quel build tourne en prod ? », branche `fix/rotted-date-test`) — l'écart de déploiement OBS3/OBS4/OBS5 est confirmé PUIS comblé, prod redéployée sur `f49009c`
+
+**Point de départ** : l'item laissé par le HANDOFF du 07-31 — *« vérifier quel build le service concierge Railway fait réellement tourner »*. Réponse : le soupçon était **juste**.
+
+### Le build qui tournait : `8726160` (PR #62, `fix/adk-call-llm-usage-doublecount`, 2026-07-30 10:14 UTC)
+
+Prouvé **trois fois, indépendamment** — pas seulement par « le service répond » :
+
+1. **Estampille explicite sur le service** : `LANGFUSE_RELEASE=8726160`, la même valeur sur `concierge`, `hotel-search` **et** `faq` → les 3 services étaient partis ensemble. C'est la seule estampille disponible : `source.repo` est `null` sur tous les déploiements (poussés par `railway up`, donc **aucune métadonnée git côté Railway** — ne pas la chercher).
+2. **Horodatage du déploiement** : `2026-07-30T10:28:54Z`, soit **avant** les 3 merges concernés. `git log 8726160..main -- agents libs` renvoie exactement 3 commits, et rien d'autre :
+
+| Commit | Mergé (UTC) | Était en prod ? |
+|---|---|---|
+| `3b5a90c` **OBS3** scores déterministes + métriques de tour | 07-30 13:46 | ❌ |
+| `2b671a3` **OBS4** trace distribuée A2A | 07-30 15:07 | ❌ |
+| `c64507f` **OBS5** feedback utilisateur + `trace_id` SSE | 07-31 08:01 | ❌ |
+
+3. **Les données Langfuse concordaient** : `listScores` avec `environment=["production"]` sur tous les noms `guard_*` + `user-feedback` → **vide**. Tous ces scores n'existaient qu'en `environment=development`.
+
+**Corollaire à retenir : OBS6 et OBS7 ne touchent AUCUN code `agents/`/`libs/`** (config Langfuse pure). Ils n'ont jamais eu besoin d'un déploiement — seuls OBS3/OBS4/OBS5 en avaient besoin.
+
+### Découverte non prévue : la prod n'avait vu AUCUN trafic pendant 19 jours
+
+Dernier tour organique : **`2026-08-05T16:22:27Z`**. Plus rien jusqu'à cette session. Ça **explique un item ouvert d'OBS7** sans qu'il y ait de bug à chercher : les 2 judges actifs sont toujours `enabled:true` / `status:active` (ni en pause ni en erreur), mais `Hallucination`/`Relevance` avaient **0 score dans tous les environnements**. À 5 % d'échantillonnage et zéro trafic, il n'y a simplement jamais rien eu à juger. La surveillance 24 h et le point de calibration judge/humain n'étaient pas bloqués par un défaut : **ils étaient bloqués par l'absence de trafic**.
+
+### Correction d'une explication fausse dans ce HANDOFF (ligne ~1181, bloc 2026-07-28)
+
+Le bloc disait : *« `GET /` sur `concierge-production-aaa2.up.railway.app` renvoie 502 — le service ne route pas la racine »*. **La conclusion est bonne (ce n'est pas une panne, le vrai chemin est le proxy widget), l'explication est fausse.** `POST /v3/chat` sur le domaine public renvoie **aussi** 502, avec le corps de l'edge Railway (`{"status":"error","code":502,"message":"Application failed to respond","request_id":…}`) — ce n'est pas un 404 Starlette. **L'edge public de Railway n'atteint pas le conteneur du tout**, quel que soit le chemin. Le réseau privé, lui, fonctionne parfaitement.
+
+Détail qui compte : cet edge cassé est **la seule chose** qui garde la façade `/v3` hors de l'internet ouvert, puisque `CHAT_API_KEY` n'est pas posé sur le service (façade non gatée, cf. `_require_auth` dans `facade.py`). À ne pas « réparer » sans poser la clé d'abord.
+
+### Action : prod redéployée sur `f49009c` (main), les 3 services
+
+Décision de Fabien en session (l'item était explicitement réservé à lui). Déroulé :
+
+- `LANGFUSE_RELEASE=f49009c` posé sur les 3 services avec **`--skip-deploys`** (sinon la variable déclenche un redéploiement de l'ANCIEN code, build gaspillé).
+- `railway up --service … --detach` sur `hotel-search`, `faq`, `concierge`. **`--detach` volontaire : `--ci` streamerait les build logs, qui contiennent `FLEET_READ_TOKEN` en clair** (piège déjà connu).
+- Déployé depuis un `main` **propre** (`f49009c`) : le correctif de test de cette session a été committé sur une branche AVANT le déploiement, pour que la prod reçoive exactement du code relu et que l'estampille ne mente pas. Les 2 fichiers de doc non committés dans l'arbre de travail (`PROMPTS-OBS-LANGFUSE.md`, `phases/OBS8-clickhouse-upgrade.md`) sont sans effet : **aucun Dockerfile ne COPY la racine du repo**.
+- 3 déploiements `SUCCESS` (`2026-08-24T09:46:4x–5xZ`).
+
+### Vérifié APRÈS déploiement, sur du trafic réel (pas déclaratif)
+
+Tours envoyés via le proxy widget avec l'en-tête **`x-dayuse-synthetic: 1`** (le proxy relaie tous les en-têtes non hop-by-hop — utile à savoir) pour ne pas polluer l'échantillonnage des judges :
+
+- **OBS3 = LIVE en prod** ✅ — un tour search (« hotel a lyon avec piscine pour demain » → 5 hôtels, date résolue `2026-08-25`) a produit **les 13 scores `guard_*` + `empty_shortlist` + `llm_calls=3` + `hotels_returned=5`** en `environment=production`, tous sur une seule trace : `0b340d5b99088b0380abe2d210d3a1f8`.
+- **OBS5 = LIVE en prod** ✅ — sur `/v3/chat/stream`, la frame `progress` porte bien `trace_id` (`aca3cf99161da3e8c9783d1e892d4ed6`, 32 hex minuscules), et l'event `hotels` précède les tokens. **À ne pas confondre** : sur `/v3/chat` (non-SSE) `trace_id` est absent — c'est **voulu**, OBS5 ne l'expose que sur la frame `progress` (facade.py ~845-884). Ce n'est pas une régression.
+- **OBS4 = code déployé, jointure PAS re-vérifiée cette session** ⚠️ — honnêteté : `2b671a3` est dans l'arbre déployé (même `railway up` que les deux ci-dessus, dont l'un est prouvé live), donc le code EST en prod. Mais le serveur MCP Langfuse exposé ici **n'a aucun outil d'énumération d'observations** (`listObservations`/`getTrace` absents), donc je n'ai pas pu confirmer de mes yeux que les spans de la feuille rejoignent la trace du concierge. La jointure avait déjà été vérifiée en vrai au merge (« 4 services dans une trace », bloc OBS4). Contrôle visuel de 5 s si besoin : <https://langfuse-web-production-272b.up.railway.app/project/cms4gd0d20002nz029tuly62e/traces/0b340d5b99088b0380abe2d210d3a1f8>
+
+### Correctif de test : un test avait pourri avec le calendrier (branche `fix/rotted-date-test`)
+
+`pytest` était **rouge** au démarrage de session (1 échec) — pas une régression : `test_resolve_date_fresh_absolute_label_writes_iso_and_stashes_delta` codait en dur `2026-08-05` pour vérifier qu'un label absolu passe verbatim. Le 2026-08-06 cette date est devenue passée, et `date_hallucinated_year_rolled_forward` (PR #57) a commencé à la rouler vers `2027-08-05` — **le guard avait raison, le test avait tort**. Corrigé en calculant la date depuis l'horloge réelle, l'idiome que le test de carry-over deux blocs plus bas utilise déjà et documente dans son propre commentaire. Gates après correctif : **1277 passed, 1 skipped**, ruff clean, mypy clean, guardrails OK.
+
+⚠️ **Leçon générale** : ce repo a d'autres tests avec des dates littérales. Ceux qui passent `_TODAY` explicitement (ex. `test_resolve_absolute_iso_date`) sont immunisés ; ceux qui lisent l'horloge réelle pourriront de la même façon. Un `pytest` rouge après une longue absence : suspecter le calendrier avant de suspecter le code.
+
+### Reste
+
+- ⚠️ **Edge public toujours cassé, correctif BLOQUÉ** : le domaine du service a `targetPort: null` (Railway devine le port au lieu qu'on le lui dise = 8100). `railway domain --service concierge --port 8100` **ne peut pas** corriger : la CLI ne sait que *créer* un domaine, elle refuse d'en repointer un existant (« Domains already exist on the service »). La voie GraphQL (`serviceDomainUpdate`) exige de lire le token Railway, **ce que le classifieur de permissions a bloqué** (même garde-fou qu'OBS0/OBS7 sur `ENCRYPTION_KEY`) — pas contourné. Deux issues : (a) Fabien pose le port 8100 dans l'UI Railway (service → Settings → Networking → le domaine), (b) autoriser la lecture du token pour appeler la mutation. **Poser `CHAT_API_KEY` d'abord** (cf. plus haut), sinon réparer l'edge ouvre la façade.
+- **`guard_date_hallucinated_year_rolled_forward` a `configId: null`** alors que les 12 autres guards ont bien une score config rattachée. Trou de config OBS3 repéré en passant, pas corrigé (hors périmètre de cette session).
+- **Judges OBS7** : maintenant qu'il y a du trafic, la surveillance 24 h et le point de calibration redeviennent faisables. Attention : les tours de vérification de cette session sont taggés `synthetic`, donc **exclus** de l'échantillonnage — il faut du trafic organique (ou des tours non taggés) pour que les judges tirent.
+- ⬜ PR à ouvrir pour `fix/rotted-date-test` — la review de Fabien reste le gate, rien mergé de moi-même.
+
+## ⚖️ Addendum 2026-07-31 (session OBS7, branche `obs7-judges-online`, **PAS MERGÉE**) — judges LLM-as-a-judge online (2/3 actifs) + annotation queue, RGPD scope étendu à valider a posteriori
+
+**Contexte** : 7e chantier de `PLAN-OBS-LANGFUSE-2026-07-29.md`, implémente **D-OBS-4** (judges managés, LLM Connection stockée dans notre Langfuse). Périmètre exact de `phases/OBS7-judges-online-annotation.md` : Langfuse UI + `observability/langfuse/**` + `scripts/**`.
+
+### Prérequis vérifiés AVANT tout code (comme demandé, STOP si un manque)
+
+1. **OBS4 mergée** — ✅ confirmé (PR #66, `e5f6773`), vérifié en plus : une observation racine stable par tour (`v3.chat`/`v3.chat_stream`), condition nécessaire pour un evaluator observation-level.
+2. **Catalogue des judges managés** — ✅ reconfirmé **en LIVE** (pas juste la lecture de code d'OBS0) : `listEvaluators` sur l'instance réelle renvoie 22 templates dont les 5 ciblés (`User Distress`, `User Disagreement`, `Out-of-Scope Request`, `Hallucination`, `Relevance`).
+3. **`ENCRYPTION_KEY`** — ⚠️ trouvée encore à la valeur placeholder documentée par Langfuse (64 zéros hex), décision de rotation explicitement laissée à Fabien par OBS0 et jamais tranchée depuis. **STOP fait, question posée à Fabien** (le classifieur de permissions a d'ailleurs bloqué ma tentative de relire la valeur brute sur Railway — même garde-fou qu'OBS0). **Décision : rotation immédiate approuvée.** Nouvelle clé générée (`openssl rand -hex 32`), posée sur `langfuse-web` **et** `langfuse-worker` (les deux la lisent), redeploy des deux services vérifié `SUCCESS`, santé `GET /api/public/health` OK après coup. La valeur n'a jamais été affichée ni loggée ; le fichier temporaire local a été supprimé immédiatement après usage.
+
+### LLM Connection
+
+**Fabien a configuré lui-même** (UI-only, aucune API/MCP tool ne permet de poser une LLM Connection ni le "default eval model" avec les tools dont je dispose — confirmé via lecture du routeur tRPC source `llm-api-key/server/router.ts` et de la doc `/docs/administration/llm-connection` : `PUT /api/public/llm-connections` existe bien mais exige la clé en clair, que je ne dois ni détenir ni faire transiter par le chat) : provider `openai`, adaptateur `openai`. Vérifié après coup via `GET /api/public/llm-connections` (`displaySecretKey` masqué, `...E-wA`) — je n'ai jamais vu la clé complète.
+
+**Modèle retenu : `gpt-4o-mini`** (validé avec Fabien) — tool calling supporté (obligatoire, Langfuse force un tool `extract`), cohérent avec le modèle par défaut déjà utilisé ailleurs dans l'écosystème, coût bas pour du sampling à 5 %.
+
+**Plafond de dépense** : pas de mécanisme Langfuse pour ça — seul levier réel : une limite d'usage côté clé OpenAI (platform.openai.com). Recommandé à Fabien : ~20 $/mois pour démarrer. **Non vérifié posé côté OpenAI** — à confirmer par Fabien.
+
+### Judges construits : 3 évaluators **project-scope** (pas des références aux templates `managed`)
+
+Choix de conception : au lieu de référencer directement les templates `scope=managed` dans les règles (qui dépendent d'un "default evaluation model" UI-only, jamais garanti), j'ai créé 3 évaluateurs **`scope=project`** via `POST /api/public/unstable/evaluators`, avec le prompt **copié verbatim** du template managé correspondant + un `modelConfig={provider:"openai", model:"gpt-4o-mini"}` explicite. Auto-suffisant, ne dépend d'aucun réglage UI caché. Config complète : `observability/langfuse/evaluators.json`.
+
+**5 judges visés par le brief → 3 retenus, 2 explicitement écartés** (pas un oubli — un evaluator observation-level ne voit ni les enfants ni les sœurs, exactement le piège documenté dans la phase) :
+
+| Judge | Variables requises | Verdict | Raison |
+|---|---|---|---|
+| **Hallucination** | `query`, `generation` | ✅ actif | mappent directement sur `input`/`output` de la racine — confirmés chaînes de caractères simples (pas du JSON) par lecture de code **et** par inspection de 324 observations `v3.chat` réelles en `environment=production` |
+| **Relevance** | `query`, `generation` | ✅ actif | idem |
+| **User Distress** | `conversation_history`, `last_user_message` | 🟡 construit, **PAS actif** (bloqué, cf. plus bas) | le template dégrade proprement à "juger sur `last_user_message` seul" si l'historique est vide — fonctionnel malgré le trou d'instrumentation |
+| **User Disagreement** | `conversation_history`, `last_user_message` | ❌ non créé | le tour = 1 trace (OBS4), aucun historique multi-tour n'est disponible sur l'observation racine ; la règle de dégradation du template est "score false si pas d'historique" → un juge **structurellement toujours faux**, du bruit pur, pas un signal |
+| **Out-of-Scope Request** | `system_prompt`, `last_user_message` | ❌ non créé | vérifié par lecture de code (agent.py/triage.py) : le system prompt ne vit que sur l'observation `generation` **enfant**, jamais sur la racine — même symptôme, même décision |
+
+Pour ces 2 derniers : il faudrait propager le system prompt et/ou l'historique jusqu'à l'observation racine (`turn_observation`/`stamp_a2a_turn`), un changement dans `agents/**`/`libs/b2c_common/**` — **hors zone OBS7**. Chantier séparé à ouvrir si on veut les 5.
+
+### Règles d'évaluation — mapping validé sur données réelles, PAS juste sur le schéma
+
+Les 3 règles (`obs7-hallucination-v3chat`, `obs7-relevance-v3chat`, `obs7-user-distress-v3chat`) : `target=observation`, filtre `name` any-of `[v3.chat, v3.chat_stream]` + `tags` none-of `[synthetic]`, `sampling=0.05` (bas de la fourchette 5-10 % demandée). Avant d'activer quoi que ce soit, j'ai tiré 3 observations `v3.chat` réelles en `environment=production` (`legacy-observations-v1s`, l'API v2 est absente sur notre v3 comme prévu par le brief) — input/output confirmés être des chaînes simples et non vides, contenu organique (« quelles sont vos horaires de check-in ? », « je cherche un hotel a lyon avec piscine pour demain »…). C'est la vérification "preview live" demandée par la phase, faite par lecture directe de données plutôt que par l'UI (aucun outil de preview exposé côté API).
+
+**Découverte technique en activant** : `PATCH .../evaluation-rules/{id}` avec `enabled:true` déclenche un **preflight test réel contre le modèle** côté serveur Langfuse. Hallucination et Relevance activés en quelques secondes chacun. `obs7-user-distress-v3chat` échoue de façon reproductible : une fois avec un corps `422 evaluator_preflight_failed` / *"The operation was aborted due to timeout"*, deux fois en timeout client pur (100 s, aucune réponse). Arrêté après 2 relances infructueuses (règle CLAUDE.md : bloqué deux fois sur la même approche → stop, ne pas s'acharner). **Hypothèse non confirmée** : le prompt de ce judge (copié verbatim du template Langfuse) contient des exemples few-shot avec du langage grossier explicite, nécessaires pour enseigner ce qu'est de la détresse utilisateur — plausible que ça déclenche un chemin de modération/sécurité plus lent côté OpenAI, que les deux autres prompts (sans contenu choquant) ne déclenchent jamais. **Laissé désactivé** plutôt que forcé.
+
+### RGPD — extension du périmètre de traitement (demandé explicitement par la phase, à valider par Fabien)
+
+**La clé LLM du judge envoie du contenu réel de conversation (message utilisateur + réponse assistant) au provider (OpenAI)**, hors de notre instance Langfuse self-hosted EU. C'est une extension du périmètre de traitement RGPD au-delà de ce qui existait avant OBS7 (jusqu'ici tout le contenu restait dans notre Langfuse self-hosted). **Point posé explicitement à Fabien en session** (question dédiée, pas noyé dans le reste) : *"activer maintenant, sachant que ça envoie du contenu réel à OpenAI ?"* → **Fabien a approuvé l'activation immédiate** ("Yes, activate all 3 now"). Décision actée avec horodatage dans ce bloc ; 2/3 judges tournent effectivement sur du trafic de production réel depuis ce jour à 5 % de sampling.
+
+### Annotation queue
+
+Créée : `obs7-judge-calibration` (id `cms8msmlp000rni020ydjoijy`), 4 score configs rattachées — 3 **nouvelles** créées pour la calibration (`human_hallucination` NUMERIC 0-1, `human_relevance` NUMERIC 0-1, `human_user_distress` BOOLEAN, ajoutées à `observability/langfuse/score-configs.json`) + `empty_shortlist` (OBS3, pour le tri rapide). Objectif du design : l'humain score les **mêmes dimensions** que les judges → comparaison directe possible.
+
+**Alimentation automatique** : `scripts/langfuse_feed_annotation_queue.py` (idempotent, exclut le tag `synthetic` via un lookup `trace.get` par candidat). **Source câblée** : `empty_shortlist == 1`. **Source pas câblée** (pas un bug) : `user-feedback == 0` — ce score n'existe pas tant qu'OBS5 n'est pas livré.
+
+**Découverte non prévue, sans rapport avec le code OBS7 lui-même** : `empty_shortlist` (comme les 12 autres scores OBS3) a **zéro occurrence en `environment=production`** sur l'instance réelle — le dernier déploiement Railway réussi du concierge (`2026-07-30T10:28 UTC`) est **antérieur** aux merges d'OBS3 (13:46 UTC) et OBS4 (15:07 UTC). Le tracing lui-même (`v3.chat`, OBS2) tourne bien en prod ; seule la couche de scores OBS3 n'est pas encore déployée. Script donc **sans filtre d'environnement par défaut** (documenté dans son docstring). **Pas touché au déploiement Railway** (décision hors zone, à Fabien).
+
+**🐛 Bug trouvé (par Fabien, en annotant) ET corrigé en session** : la 1ère version seedait la queue avec `objectType=TRACE`. Résultat vu par Fabien : la majorité des items affichaient `input`/`output` **`undefined`**, et pour retrouver du contenu il fallait fouiller un arbre plein de spans internes `a2a-sdk` (« beaucoup d'appels a2a, je ne vois pas comment les évaluer »). Cause racine : OBS4 a supprimé `langfuse.trace.input`/`.name` — **une trace ne porte plus d'input/output du tout**, seule son observation racine en porte. Pire : `empty_shortlist` se déclenche sur **3 formes de tour différentes** : façade HTTP (`v3.chat`/`v3.chat_stream`, racine avec contenu), tour piloté A2A (`a2a.b2c_concierge`, racine avec contenu — sessions de vérification OBS4 par ex.), et **appel ADK direct sans aucun wrapper** (`invoke_workflow b2c_concierge`/`b2c_faq`, `input=None` — probablement des replays d'expérience OBS6/`adk eval`, rien à annoter). Sur les 14 items d'origine : 3 `v3.chat`, 3 `a2a.b2c_concierge` (récupérables), 6 racines `invoke_workflow`/spans internes a2a-sdk purs (irrécupérables, supprimés), 2 supprimés entre-temps par Fabien. Les 5 scores humains déjà **COMPLETED** par Fabien sur les traces récupérables ont été laissés intacts (un score vit indépendamment du pointeur de l'item de queue — repointer l'item n'efface rien). Correction : les 6 items récupérables recréés en `objectType=OBSERVATION` pointant la vraie observation racine ; queue complétée à **10 observations `v3.chat` de production réelles supplémentaires**, vérifiées non-synthétiques une par une (⚠️ certaines traces `v3.chat` en **prod** portent bien le tag `synthetic` — un tour de vérification post-déploiement scripté disait littéralement *« ceci est un tour synthetique de verification post-b... »* — donc ce filtre n'est PAS accessoire, même en prod). Script corrigé pour de bon : résout la racine du tour réel (`v3.chat`/`v3.chat_stream`/`a2a.b2c_concierge`) et **saute** la 3e forme (`skipped_no_root`) au lieu de la mettre en file vide. État final : **16 items, tous `OBSERVATION`, tous avec du contenu réel** — 5 déjà annotés (valides), 11 en attente.
+
+### Config versionnée
+
+`observability/langfuse/` : `evaluators.json` (3 judges + les 2 gaps documentés), `evaluation-rules.json` (3 règles + état réel enabled/disabled), `annotation-queue.json` (queue + sources de flux), `score-configs.json` (+3 configs humaines, total 19). Tous ces endpoints sont explicitement **`unstable`** côté Langfuse — usage documentaire/reproductible, jamais un chemin de CI.
+
+### Gates
+
+`pytest -q` → **1263 passed, 1 skipped** (baseline OBS4 inchangée) · `ruff check .` clean · `mypy agents libs` clean · `dayuse_guardrails.sh` OK. Aucun fichier dans `agents/**`/`libs/b2c_common/**` touché (zone respectée).
+
+### Reste
+
+- **Annotation humaine ≥ 10 traces (DoD)** — ✅ **fait et vérifié** : 15/15 items de la queue `obs7-judge-calibration` en statut `COMPLETED` (vérifié via `list_queue_items`, pas juste déclaratif). `https://langfuse-web-production-272b.up.railway.app/project/cms4gd0d20002nz029tuly62e/annotation-queues/cms8msmlp000rni020ydjoijy`.
+- **Point de calibration judge/humain PAS écrit — vérifié qu'il n'y a rien à comparer** : `scores.get_many(name=…)` pour `Hallucination`/`Relevance`/`User Distress` renvoie **0 résultat** au moment de clore la session — les règles viennent d'être activées (5 % de sampling), et le volume de trafic prod réel observé est faible (cf. les quelques observations `v3.chat` récentes). Rien à croiser tant qu'aucun judge n'a réellement tourné. **À faire dès qu'il y a des scores** : requêter `scores.get_many(name="Hallucination"|"Relevance"|"User Distress")`, croiser par `trace_id`/`observation_id` avec les 15 scores `human_*` déjà en base, écrire l'accord/désaccord ici.
+- **`obs7-user-distress-v3chat` reste désactivé** — preflight qui timeout côté serveur Langfuse, cause non confirmée (hypothèse : modération OpenAI sur les few-shot avec langage grossier). À reprendre : vérifier le dashboard usage/rate-limits OpenAI du projet, ou retenter l'activation depuis l'UI directement (comportement potentiellement différent de l'API).
+- **Plafond de dépense OpenAI (~20 $/mois recommandé) non vérifié posé** — à faire par Fabien sur platform.openai.com.
+- **Surveillance 24 h (DoD)** — pas commencée par construction (chantier lancé ce jour). Revenir vérifier : zéro règle en erreur, coût réel observé, **et** au moins un score judge produit (préalable au point de calibration ci-dessus), sur les 2 judges actifs.
+- **Écart de déploiement prod découvert** (sans rapport direct avec OBS7, signalé pas corrigé) : le concierge en prod tourne sur du code antérieur aux merges OBS3/OBS4 → les scores déterministes OBS3 et la trace distribuée A2A OBS4 ne sont **pas encore actifs en prod Railway**, seulement en dev/local. Décision de redéployer laissée à Fabien.
+- ⬜ Pas de PR ouverte, pas de merge — la review humaine de Fabien reste le gate.
+
 ## 💬 Addendum 2026-07-31 (session OBS5, branche `obs5-user-feedback`, **PR #68 MERGÉE**) — feedback utilisateur 👍/👎 rattaché au tour, `trace_id` exposé côté SSE
 
 **Contexte** : 5e chantier de `PLAN-OBS-LANGFUSE-2026-07-29.md`, dépend d'OBS4 (mergée, PR #66). Zone

@@ -281,12 +281,17 @@ def test_resolve_date_fresh_relative_label_writes_iso_and_stashes_delta():
 
 
 def test_resolve_date_fresh_absolute_label_writes_iso_and_stashes_delta():
+    # Computed from the real clock, like the carry-over test below: this asserts
+    # an absolute label passes through verbatim, so the date must stay in the
+    # FUTURE. Hardcoded, it silently became a past-date test on 2026-08-06 and
+    # then failed against the year-roll-forward guard doing its job.
+    future = (date.today() + timedelta(days=7)).isoformat()
     ctx = _ctx_with_profile({})
-    args = {"date": {"type": "absolute", "value": "2026-08-05", "expression": "August 5th"}}
+    args = {"date": {"type": "absolute", "value": future, "expression": future}}
     resolve_search_date(_Tool("search_offers"), args, ctx)
-    assert args["date"] == "2026-08-05"
+    assert args["date"] == future
     stashed = ctx.state[STATE_RESOLVED_DATE_KEY]
-    assert stashed["date"] == "2026-08-05"
+    assert stashed["date"] == future
     assert stashed["date_reference"]["resolved_from"] == "absolute"
 
 

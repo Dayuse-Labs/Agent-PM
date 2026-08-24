@@ -1,0 +1,61 @@
+{
+  "$comment": "OBS7 — observation-level evaluation rules for AgentB2C, versioned in git so they're re-creatable on any instance. `POST/GET/PATCH /api/public/unstable/evaluation-rules` are explicitly `unstable` per Langfuse — documentary/reproducible use only, never a CI-critical path. Companion of evaluators.json (each rule references one of those evaluator families by name+scope). Created 2026-07-31 on project cms4gd0d20002nz029tuly62e.",
+  "project_id": "cms4gd0d20002nz029tuly62e",
+  "design_notes": [
+    "target=observation, filtered to the root observation names of a real end-user turn: `v3.chat` (non-streamed) and `v3.chat_stream` (streamed) — both confirmed live in libs/b2c_common turn_observation()/agents/b2c_concierge/b2c_concierge/facade.py. Deliberately excludes the `a2a.b2c_concierge` root (A2A-piloted turns — ops/testing tooling, not real end-user traffic).",
+    "column=tags / operator='none of' / value=['synthetic'] excludes smoke/battery turns — the ONLY mechanism for this on the Langfuse side is the trace tag set by turn_observation() when X-Dayuse-Synthetic is truthy (libs/b2c_common/b2c_common/observability.py); there is no `is_synthetic` metadata key on Langfuse (that boolean only exists as a Postgres column in the separate RGPD audit-export table, conversation_logs).",
+    "sampling=0.05 (5%) — start of the 5-10% range mandated by phases/OBS7-judges-online-annotation.md, to measure real 24h cost before raising it. Sampling is drawn independently per rule/evaluator (3 separate 5% draws, not the same 5% of turns for all three) — see the brief §5 caveat; co-scoring the exact same turns across all 3 would require 100% + an application-side tag, not done here.",
+    "enabled=false on all 3 at creation time — the phase requires an explicit RGPD go-ahead before a judge's API key starts sending real user message content to the model provider (extension of the processing scope, see HANDOFF and phases/OBS7-judges-online-annotation.md 'Pièges'). Fabien gave that go-ahead on 2026-07-31; Hallucination and Relevance are now enabled=true/status=active (verified via GET after PATCH). obs7-user-distress-v3chat is still enabled=false: the PATCH-to-enable call reproducibly fails server-side with `422 evaluator_preflight_failed` / 'The operation was aborted due to timeout' (once with a body, twice as a client-side 100s timeout with no response at all) — Hallucination/Relevance activate in seconds, only this evaluator hangs. Working hypothesis, not confirmed: its few-shot examples contain explicit profanity (needed to teach the judge what distress looks like) and may hit a moderation/safety slow-path on the OpenAI side that the other two prompts never trigger. Left disabled rather than force it further after two failed retries — see HANDOFF 'Reste'. Whatever the live `enabled`/`status` value is on the instance at any later point supersedes what's recorded here — this file is the reproducible baseline at end-of-session, not a live mirror.",
+    "mapping sources are 'input'/'output' with NO jsonPath because the root observation's input/output are confirmed-live plain strings (not JSON), per direct inspection of 3 real production v3.chat observations on 2026-07-31 (legacy-observations-v1s API) — see the code-read citations in evaluators.json's known_gaps and HANDOFF."
+  ],
+  "rules": [
+    {
+      "id": "cms8mp3m1000fni02hngq61sp",
+      "name": "obs7-hallucination-v3chat",
+      "evaluator": {"name": "Hallucination", "scope": "project", "type": "llm_as_judge"},
+      "target": "observation",
+      "enabled": true,
+      "sampling": 0.05,
+      "filter": [
+        {"type": "stringOptions", "column": "name", "operator": "any of", "value": ["v3.chat", "v3.chat_stream"]},
+        {"type": "arrayOptions", "column": "tags", "operator": "none of", "value": ["synthetic"]}
+      ],
+      "mapping": [
+        {"variable": "query", "source": "input"},
+        {"variable": "generation", "source": "output"}
+      ]
+    },
+    {
+      "id": "cms8mpeqq000ini027szvletu",
+      "name": "obs7-relevance-v3chat",
+      "evaluator": {"name": "Relevance", "scope": "project", "type": "llm_as_judge"},
+      "target": "observation",
+      "enabled": true,
+      "sampling": 0.05,
+      "filter": [
+        {"type": "stringOptions", "column": "name", "operator": "any of", "value": ["v3.chat", "v3.chat_stream"]},
+        {"type": "arrayOptions", "column": "tags", "operator": "none of", "value": ["synthetic"]}
+      ],
+      "mapping": [
+        {"variable": "query", "source": "input"},
+        {"variable": "generation", "source": "output"}
+      ]
+    },
+    {
+      "id": "cms8mpexz000lni02rj2luatp",
+      "name": "obs7-user-distress-v3chat",
+      "evaluator": {"name": "User Distress", "scope": "project", "type": "llm_as_judge"},
+      "target": "observation",
+      "enabled": false,
+      "sampling": 0.05,
+      "filter": [
+        {"type": "stringOptions", "column": "name", "operator": "any of", "value": ["v3.chat", "v3.chat_stream"]},
+        {"type": "arrayOptions", "column": "tags", "operator": "none of", "value": ["synthetic"]}
+      ],
+      "mapping": [
+        {"variable": "last_user_message", "source": "input"},
+        {"variable": "conversation_history", "source": "metadata", "jsonPath": "$.conversation_history"}
+      ]
+    }
+  ]
+}

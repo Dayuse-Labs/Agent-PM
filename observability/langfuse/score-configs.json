@@ -1,5 +1,5 @@
 {
-  "$comment": "OBS3 — Langfuse score configs for AgentB2C, versioned in git so they're re-creatable on any instance (score configs are project-scoped, no bulk-import API — this file is the source of truth, POST /api/public/score-configs per entry to restore). Mirrors the 16 configs actually created on the project's Langfuse instance on 2026-07-30 (project cms4gd0d20002nz029tuly62e). The contract for the `guard_*` names is GUARD_SCORE_NAMES in libs/b2c_common/b2c_common/scores.py — never rename an entry once it has real data.",
+  "$comment": "OBS3 — Langfuse score configs for AgentB2C, versioned in git so they're re-creatable on any instance (score configs are project-scoped, no bulk-import API — this file is the source of truth, POST /api/public/score-configs per entry to restore). Mirrors the 16 configs actually created on the project's Langfuse instance on 2026-07-30 (project cms4gd0d20002nz029tuly62e), plus 3 `human_*` configs added 2026-07-31 by OBS7 for judge/human calibration (see observability/langfuse/evaluators.json and evaluation-rules.json). The contract for the `guard_*` names is GUARD_SCORE_NAMES in libs/b2c_common/b2c_common/scores.py — never rename an entry once it has real data.",
   "project_id": "cms4gd0d20002nz029tuly62e",
   "known_gaps": [
     {
@@ -110,6 +110,28 @@
       "dataType": "NUMERIC",
       "minValue": 0,
       "description": "OBS3: time-to-first-token, the `progress` SSE frame (CLAUDE.md SLO < 300 ms) — b2c_concierge/facade.py::chat_stream."
+    },
+    {
+      "id": "0009d0dd-5c0b-4a3b-8d6f-a77e25d14d13",
+      "name": "human_hallucination",
+      "dataType": "NUMERIC",
+      "minValue": 0,
+      "maxValue": 1,
+      "description": "OBS7: human annotator's own hallucination score (0-1, same scale as the 'Hallucination' judge) on an annotation-queue item — for judge/human calibration, not emitted by any code path."
+    },
+    {
+      "id": "183ebb2a-b64d-4a75-9cd7-dbd3383a4f7c",
+      "name": "human_relevance",
+      "dataType": "NUMERIC",
+      "minValue": 0,
+      "maxValue": 1,
+      "description": "OBS7: human annotator's own relevance score (0-1, same scale as the 'Relevance' judge) on an annotation-queue item — for judge/human calibration, not emitted by any code path."
+    },
+    {
+      "id": "ea44f96f-44e4-4832-9bbf-314b18a63b39",
+      "name": "human_user_distress",
+      "dataType": "BOOLEAN",
+      "description": "OBS7: human annotator's own true/false call on user distress on an annotation-queue item — for judge/human calibration against the 'User Distress' judge, not emitted by any code path."
     }
   ]
 }
