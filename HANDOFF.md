@@ -2,6 +2,87 @@
 
 État du chantier pour reprise en session fraîche. **Lire en entier avant d'agir ; ne pas reconstruire ce qui existe.** Mettre à jour en fin de CHAQUE session (bloc daté en tête).
 
+## 🔐 Addendum 2026-08-24 bis (suite de la même journée) — façade `/v3` GATÉE par `CHAT_API_KEY`, panne de 9 min causée par l'ordre des opérations, tout redéployé sur `08d215d`
+
+Suite directe du bloc ci-dessous. Trois choses : la façade est enfin gatée, une **panne réelle** a eu lieu au passage (à lire avant de refaire l'opération ailleurs), et les 4 services sont maintenant tous à jour.
+
+### État déployé — À JOUR au 2026-08-24 13:0x UTC
+
+| Service | Build déployé | `LANGFUSE_RELEASE` |
+|---|---|---|
+| `concierge` | `08d215d` (2026-08-24 12:58 UTC) | `08d215d` |
+| `hotel-search` | `08d215d` | `08d215d` |
+| `faq` | `08d215d` | `08d215d` |
+| `widget` | `08d215d` (12:55 UTC) | *(pas d'estampille sur ce service)* |
+
+**Plus aucun écart prod/main.** Si un futur `git log <release>..main -- agents libs` remonte quelque chose, c'est un vrai écart, pas un reliquat.
+
+### ⚠️ La panne : 401 pendant ~9 min, cause = ordre des opérations
+
+**Ce qui s'est passé** : les variables `CHAT_API_KEY` ont été posées sur `widget` **et** `concierge` **avant** que la PR #73 (injection côté proxy) ne soit déployée. Poser la variable **sans `--skip-deploys` déclenche un redéploiement automatique** : le concierge a redémarré (`12:46:58Z`, `reason=redeploy`) et s'est mis à exiger la clé, alors que le widget tournait encore l'ancien proxy, incapable de l'envoyer. Résultat : `POST /v3/chat` via le widget → **401**, démo morte.
+
+**Correction** : PR #73 mergée, puis `railway up --service widget` depuis `main` propre (`08d215d`, 12:55 UTC). Démo rétablie immédiatement.
+
+**La séquence correcte, si c'est à refaire** (l'ordre inverse garantit la panne) :
+1. Déployer d'abord le code d'injection sur `widget` — inerte tant que `CHAT_API_KEY` est absent.
+2. `CHAT_API_KEY` sur `widget` + redeploy → il envoie l'en-tête, personne ne vérifie encore.
+3. **La même valeur** sur `concierge` → il vérifie, le widget est déjà conforme. Aucune fenêtre de 401.
+
+Poser les deux variables d'un coup avec `--skip-deploys`, puis redéployer widget PUIS concierge, donne le même résultat sans fenêtre.
+
+### Comment le gating marche (PR #73)
+
+Le navigateur ne peut pas porter le secret (devtools). C'est le **proxy widget** (`scripts/run_widget_proxy.py`, le même fichier en prod via `web/Dockerfile`) qui l'injecte côté serveur, en lisant les **mêmes deux variables que la façade** (`CHAT_API_KEY`, `CHAT_API_KEY_HEADER`, défaut `X-Internal-Api-Key`) pour que les deux ne puissent pas diverger.
+
+L'en-tête est **propriété du proxy** : toujours retiré de ce que le navigateur a envoyé, puis ré-ajouté depuis notre env. Retiré **inconditionnellement**, même façade non gatée — sinon gater la façade plus tard serait contournable depuis la page.
+
+**Vérifié en prod sur du trafic réel** (tours taggés `x-dayuse-synthetic: 1`) :
+
+- ✅ chemin JSON `/v3/chat` → 200, 5 hôtels, date `demain` → `2026-08-25`
+- ✅ chemin **SSE** `/v3/chat/stream` (le vrai transport, `WIDGET_CHAT_TRANSPORT=sse`) → 200, frame `progress` avec `trace_id`, event `hotels` avant les tokens
+- ✅ clé **forgée** envoyée depuis la page → 200 : le proxy l'a bien remplacée par la vraie, la valeur de la page a été ignorée et non honorée
+- ✅ **la façade rejette vraiment** — prouvé par le 401 d'avant le déploiement du widget (pas de clé envoyée → refus). C'est la preuve que le verrou est réel, pas seulement que le chemin heureux marche.
+
+⚠️ **Conséquence** : tout appel direct à `/v3` en prod doit désormais porter l'en-tête `X-Internal-Api-Key`, y compris les tours de vérification manuels. `AUTH_BYPASS` doit rester **non posé** (s'il vaut `true`, la clé est ignorée — `_api_key_error` sort avant de la lire).
+
+### 🔓 L'edge public est maintenant DÉBLOQUÉ (mais toujours cassé)
+
+Le seul frein à la réparation de l'edge était que `/v3` était ouvert : réparer l'edge aurait exposé une façade non gatée. **Ce n'est plus le cas.**
+
+### ❌ Cause du 502 : ce N'EST PAS le `targetPort` — hypothèse testée et RÉFUTÉE
+
+**Ne pas repartir sur cette piste.** `targetPort` a bien été posé à `8100` sur le domaine du concierge (2026-08-24, par Fabien via l'UI) : la valeur est confirmée par `railway status --json`, et **le 502 persiste sur tous les chemins**. Contre-exemple décisif dans le même projet : le service `widget` a `targetPort = None` et répond parfaitement en public. Le port n'a jamais été le problème.
+
+**Vraie cause : le concierge écoute en IPv6 SEULEMENT.** `uvicorn --host ::` (Dockerfile) ne donne PAS un socket dual-stack, contrairement à ce que dit le commentaire du Dockerfile : l'`asyncio` de CPython force explicitement `IPV6_V6ONLY = True` sur tout socket `AF_INET6` (`asyncio/base_events.py`, ~l.1558-1563 en 3.12 — fait exprès pour pouvoir binder v4 et v6 séparément sans `EADDRINUSE`). Le réseau privé Railway étant IPv6, les feuilles et le widget joignent le concierge sans problème ; l'edge public, lui, atteint le conteneur en **IPv4** → connexion refusée → « Application failed to respond ».
+
+**La preuve par le widget** : `scripts/run_widget_proxy.py` est le seul service joignable publiquement, et c'est précisément le seul qui **efface `IPV6_V6ONLY`** à la main (`_WidgetProxyServer.server_bind`, avec le commentaire qui documente ce piège exact). Le repo avait déjà résolu ce problème une fois.
+
+**Correctif si on décide de le faire** : pré-binder un socket dual-stack et le passer à uvicorn (`Server.run(sockets=[…])` ou `--fd`) — `--host 0.0.0.0` est EXCLU, ça casserait le réseau privé IPv6 dont dépendent les feuilles et le widget.
+
+**Mais recommandation : ne pas réparer, SUPPRIMER le domaine public du concierge.** Personne ne le consomme — le widget passe par `concierge.railway.internal:8100` (privé), et le seul usage réel du domaine public était le probing manuel, qui se fait très bien à travers le proxy widget. Ne pas exposer la façade est une meilleure posture que l'exposer en s'appuyant sur une clé. Ce 502 a servi de pare-feu gratuit pendant un mois.
+
+### Score configs (PR #72, mergée et maintenant déployée)
+
+- ✅ **`degraded` créée** (`5499df51-d40d-43ca-ad99-f79247af1959`, CATEGORICAL, `leaf_call_failed`=0 / `facade_shield`=1) et câblée dans `_SCORE_CONFIG_IDS`. L'ancien gap accusait l'outil MCP `createScoreConfig` : **c'était juste**, le SDK Langfuse accepte le payload identique. Pour toute config CATEGORICAL, passer par le SDK ou l'UI, jamais par cet outil MCP.
+- 🚫 **`guard_date_hallucinated_year_rolled_forward` : gap PERMANENT, ne pas retenter.** 43 caractères, et Langfuse plafonne le `name` d'une score config à 35 — vérifié contre le **vrai serveur** (400 `{'code':'too_big','maximum':35,'path':['name']}`), pas juste déduit du schéma de l'outil MCP comme le disait l'ancienne note. Une config ne s'applique que si son nom **égale** le nom du score, et ce nom est gelé par le contrat `GUARD_SCORE_NAMES` **et** porte de la donnée de production. Aucun des deux côtés ne peut être raccourci. Confirmé live après redéploiement : ce score arrive bien avec `configId: null`, les 12 autres avec le leur.
+
+### Tests : un test avait pourri avec le calendrier (PR #71)
+
+`pytest` était rouge en début de journée, sans régression : un test codait en dur `2026-08-05` pour vérifier qu'un label de date absolu passe verbatim ; la date étant devenue passée, le guard `date_hallucinated_year_rolled_forward` la roulait (correctement) vers 2027. **Leçon générale** : après une longue absence, un `pytest` rouge dans ce repo → suspecter le calendrier avant le code. Immunisés = les tests qui passent un `_TODAY` explicite ; pourrissables = ceux qui lisent l'horloge réelle en comparant à un littéral.
+
+### Gates
+
+`1287 passed, 1 skipped` · `ruff` clean · `mypy` clean · `dayuse_guardrails.sh` OK. Scoring OBS3 revérifié après redéploiement : 13 guards + `hotels_returned`/`empty_shortlist`/`llm_calls` en `environment=production` sur les 2 tours de contrôle.
+
+⚠️ **CI GitHub Actions toujours rouge = facturation, pas le code** (0 step, échec en 2 s). Les merges du jour se sont appuyés sur les gates locaux.
+
+### Reste
+
+- **Edge public** : décision à prendre — supprimer le domaine (recommandé, personne ne le consomme) ou binder dual-stack dans le concierge. **Le `targetPort` est déjà posé et n'était pas la cause** (cf. plus haut). Plus aucun risque de sécurité dans un sens ou l'autre, la façade étant gatée.
+- **Judges OBS7** : les 2 règles actives sont saines (`enabled:true`, jamais en erreur) mais avaient **0 score** — cause identifiée : 19 jours sans trafic prod (05/08 → 24/08), pas un bug. Il faut du trafic **organique** : les tours de vérification de la journée sont taggés `synthetic`, donc exclus de l'échantillonnage à 5 %.
+- **`obs7-user-distress-v3chat`** toujours désactivé (preflight qui timeout).
+- **Plafond de dépense OpenAI** (~20 $/mois) non vérifié posé.
+
 ## 🚀 Addendum 2026-08-24 (session « quel build tourne en prod ? », branche `fix/rotted-date-test`) — l'écart de déploiement OBS3/OBS4/OBS5 est confirmé PUIS comblé, prod redéployée sur `f49009c`
 
 **Point de départ** : l'item laissé par le HANDOFF du 07-31 — *« vérifier quel build le service concierge Railway fait réellement tourner »*. Réponse : le soupçon était **juste**.
