@@ -56,8 +56,17 @@ _DEGRADED_REASONS: frozenset[str] = frozenset(("leaf_call_failed", "facade_shiel
 #: across environments, so hardcoding is correct, not an environment leak).
 #: `config_id` is what makes a score's min/max/category validation apply and
 #: what makes it usable in an annotation queue (OBS2-LANGFUSE-BRIEF.md §2) — a
-#: name absent here (the 43-char guard name, `degraded`) simply emits without
-#: one; the score still ingests fine, just without that UI-side validation.
+#: name absent here simply emits without one; the score still ingests fine,
+#: just without that UI-side validation.
+#:
+#: ONE name is permanently absent and cannot be fixed:
+#: `guard_date_hallucinated_year_rolled_forward` is 43 chars, and Langfuse
+#: hard-caps a score config `name` at 35 (verified 2026-08-24: the server
+#: itself returns 400 `too_big maximum:35`, not just the MCP tool's schema).
+#: A config is only applied when its name EQUALS the score name, and this
+#: score name is frozen by the GUARD_SCORE_NAMES contract above and already
+#: carries production data — so shortening either side is off the table.
+#: Nothing to retry here; the guard emits fine without a config.
 _SCORE_CONFIG_IDS: dict[str, str] = {
     "guard_geocode_echo_back": "544fbf28-27a0-44e9-a73a-4e9a1851f507",
     "guard_generic_location_demotion": "82c3932a-6815-4390-9343-9f152e1713c9",
@@ -75,6 +84,7 @@ _SCORE_CONFIG_IDS: dict[str, str] = {
     "empty_shortlist": "e4f02fd6-63c1-424a-989f-db337f1fd8c3",
     "llm_calls": "db37879d-1a74-4d53-8ce8-51fb8e88c361",
     "ttft_ms": "b0b1e82e-7987-43bd-83b2-0159208ad505",
+    "degraded": "5499df51-d40d-43ca-ad99-f79247af1959",
 }
 
 

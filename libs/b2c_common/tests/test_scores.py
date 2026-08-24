@@ -168,12 +168,13 @@ class TestScoreDegradedEnabled:
         client = _RecordingClient()
         monkeypatch.setattr(scores, "get_langfuse", lambda: client)
         scores.score_degraded("leaf_call_failed")
-        # No score config for "degraded" yet (known gap, score-configs.json) —
-        # config_id stays None, the score still emits.
+        # The "degraded" score config now exists (created 2026-08-24, closing the
+        # gap that score-configs.json used to record), so the score carries its
+        # config_id and Langfuse validates the value against the closed set.
         assert client.calls == [
             {
                 "name": "degraded", "value": "leaf_call_failed", "data_type": "CATEGORICAL",
-                "config_id": None,
+                "config_id": "5499df51-d40d-43ca-ad99-f79247af1959",
             }
         ]
 

@@ -1,14 +1,10 @@
 {
-  "$comment": "OBS3 — Langfuse score configs for AgentB2C, versioned in git so they're re-creatable on any instance (score configs are project-scoped, no bulk-import API — this file is the source of truth, POST /api/public/score-configs per entry to restore). Mirrors the 16 configs actually created on the project's Langfuse instance on 2026-07-30 (project cms4gd0d20002nz029tuly62e), plus 3 `human_*` configs added 2026-07-31 by OBS7 for judge/human calibration (see observability/langfuse/evaluators.json and evaluation-rules.json). The contract for the `guard_*` names is GUARD_SCORE_NAMES in libs/b2c_common/b2c_common/scores.py — never rename an entry once it has real data.",
+  "$comment": "OBS3 — Langfuse score configs for AgentB2C, versioned in git so they're re-creatable on any instance (score configs are project-scoped, no bulk-import API — this file is the source of truth, POST /api/public/score-configs per entry to restore). Mirrors the 16 configs actually created on the project's Langfuse instance on 2026-07-30 (project cms4gd0d20002nz029tuly62e), plus 3 `human_*` configs added 2026-07-31 by OBS7 for judge/human calibration (see observability/langfuse/evaluators.json and evaluation-rules.json), plus `degraded` added 2026-08-24 — 20 total. The contract for the `guard_*` names is GUARD_SCORE_NAMES in libs/b2c_common/b2c_common/scores.py — never rename an entry once it has real data. Exactly ONE name is permanently config-less, and known_gaps explains why it must not be retried.",
   "project_id": "cms4gd0d20002nz029tuly62e",
   "known_gaps": [
     {
       "name": "guard_date_hallucinated_year_rolled_forward",
-      "reason": "43 chars — exceeds Langfuse's score config name limit (createScoreConfig: maxLength 35). No config exists for this guard; the score itself (b2c_common.scores.score_guards) still emits fine without one — config_id is optional, it only adds UI-side min/max/category validation. Not yet wired for emission either way (hotel_search_agent is out of OBS3's zone)."
-    },
-    {
-      "name": "degraded",
-      "reason": "CATEGORICAL score config creation via the langfuse MCP server's createScoreConfig tool rejected every categoricalCategories payload tried (array of {label, value} objects, string values, numeric values, even a 2-entry throwaway test) with the same generic 'Category must be an array of objects with label value pairs, where labels and values are unique' error — looks like a bug in that MCP tool's request serialization, not a payload issue. No config exists for `degraded`; b2c_common.scores.score_degraded emits it fine without one (config_id optional, closed set enforced in code already). Retry creating this one config via the Langfuse UI directly (Project Settings -> Scores) next time someone is in there — trivial once the tool bug is understood or the UI is used instead of the MCP tool."
+      "reason": "PERMANENT — do not retry. 43 chars, and Langfuse hard-caps a score config `name` at 35. Verified 2026-08-24 against the real server (not just inferred from the MCP tool's schema, which was the earlier basis): POST /api/public/score-configs via the langfuse SDK returns 400 {'code':'too_big','maximum':35,'path':['name']}. A config only applies when its name EQUALS the score name, and this score name is frozen by the GUARD_SCORE_NAMES contract (libs/b2c_common/b2c_common/scores.py: 'never rename or remove one') AND now carries real production data (first emitted 2026-08-24T09:50:12Z) — so neither side can be shortened. The score emits fine without a config; config_id only adds UI-side validation. Only a Langfuse-side limit increase would change this."
     }
   ],
   "configs": [
@@ -132,6 +128,16 @@
       "name": "human_user_distress",
       "dataType": "BOOLEAN",
       "description": "OBS7: human annotator's own true/false call on user distress on an annotation-queue item — for judge/human calibration against the 'User Distress' judge, not emitted by any code path."
+    },
+    {
+      "id": "5499df51-d40d-43ca-ad99-f79247af1959",
+      "name": "degraded",
+      "dataType": "CATEGORICAL",
+      "categories": [
+        { "label": "leaf_call_failed", "value": 0 },
+        { "label": "facade_shield", "value": 1 }
+      ],
+      "description": "The one kind of dependency degradation the concierge process can itself observe. Closed set (RGPD: must never become free text) mirrors b2c_common.scores._DEGRADED_REASONS. Created 2026-08-24 via the langfuse SDK: the MCP server's createScoreConfig tool rejects every categoricalCategories payload with a generic 'label value pairs' error, but the SDK accepts that same shape — so that was a tool-side bug, not a payload problem. Use the SDK (or the UI) for CATEGORICAL configs."
     }
   ]
 }
