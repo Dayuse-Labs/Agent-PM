@@ -12,9 +12,9 @@ fire-and-forget analytics.
 chat_clean.html has exactly 9 Jinja `{{ var | default('...') }}` meta tags
 (no loops/conditionals) — substituted here with a tiny regex, no Jinja2
 dependency needed. Only `chat_endpoint` (kept at '/v3/chat', same-origin
-relative — the facade's own auth is CHAT_API_KEY-based, unset locally, so
-agent-usa's public-token/cookie dance is irrelevant here) and `chat_transport`
-(see `_meta_overrides`) are overridden.
+relative — the facade's own auth is CHAT_API_KEY-based and injected by this
+proxy, never by the page, so agent-usa's public-token/cookie dance is
+irrelevant here) and `chat_transport` (see `_meta_overrides`) are overridden.
 
 The widget assets are VENDORED into this repo at `web/vendor/` (templates/ +
 static/ mirror agent-usa's layout) so the proxy is self-contained — no sibling
@@ -23,7 +23,11 @@ repo needed, and the container image can COPY them in. `AGENT_USA_DIR` (or
 
 Container/deploy knobs (Railway): `PORT` and `HOST` env are honored (bind `::`
 for the IPv6 private network), `WIDGET_BACKEND` sets the upstream facade,
-`WIDGET_CHAT_TRANSPORT=sse` switches the widget to the streamed turn.
+`WIDGET_CHAT_TRANSPORT=sse` switches the widget to the streamed turn, and
+`CHAT_API_KEY` (+ optional `CHAT_API_KEY_HEADER`) is injected server-side into
+every forwarded /v3 request so a gated facade accepts us. Set that pair on THIS
+service before setting `CHAT_API_KEY` on the concierge — the concierge starts
+rejecting the instant it has the key, and the browser can never carry it.
 
 Usage:
     python3 scripts/run_widget_proxy.py                    # :8090 -> :8100, vendored widget
@@ -78,6 +82,22 @@ def _meta_overrides() -> dict[str, str]:
 
 _HOP_BY_HOP_REQUEST_HEADERS = {"host", "content-length", "connection", "accept-encoding"}
 _HOP_BY_HOP_RESPONSE_HEADERS = {"transfer-encoding", "connection", "content-length"}
+
+# Facade auth (b2c_concierge/facade.py::_api_key_error): when the concierge has
+# CHAT_API_KEY set, every /v3 request must carry it in CHAT_API_KEY_HEADER. The
+# browser can't hold that secret, so the PROXY injects it server-side — same two
+# env var names as the facade, so the pair can never drift apart. Unset here =
+# nothing injected, which is the correct no-op for local dev and for a facade
+# that isn't gated yet.
+_CHAT_API_KEY_HEADER_DEFAULT = "X-Internal-Api-Key"
+
+
+def _chat_api_key() -> str:
+    return os.environ.get("CHAT_API_KEY", "").strip()
+
+
+def _chat_api_key_header() -> str:
+    return os.environ.get("CHAT_API_KEY_HEADER", _CHAT_API_KEY_HEADER_DEFAULT)
 
 
 def render_index(agent_usa_dir: Path) -> bytes:
@@ -148,9 +168,19 @@ class WidgetProxyHandler(BaseHTTPRequestHandler):
         body = self.rfile.read(length) if length else None
         url = f"{self.backend}{self.path}"
         req = urllib.request.Request(url, data=body, method=method)
+        # The API-key header is PROXY-OWNED: always dropped from what the browser
+        # sent (a page must not be able to forge or probe it), then re-added below
+        # from our own env. Dropped unconditionally, so an un-gated facade doesn't
+        # start accepting a browser-supplied key either.
+        api_key_header = _chat_api_key_header().lower()
         for key, value in self.headers.items():
-            if key.lower() not in _HOP_BY_HOP_REQUEST_HEADERS:
-                req.add_header(key, value)
+            lowered = key.lower()
+            if lowered in _HOP_BY_HOP_REQUEST_HEADERS or lowered == api_key_header:
+                continue
+            req.add_header(key, value)
+        api_key = _chat_api_key()
+        if api_key:
+            req.add_header(_chat_api_key_header(), api_key)
 
         try:
             resp = urllib.request.urlopen(req, timeout=60)
