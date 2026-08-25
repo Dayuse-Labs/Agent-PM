@@ -2,6 +2,71 @@
 
 État du chantier pour reprise en session fraîche. **Lire en entier avant d'agir ; ne pas reconstruire ce qui existe.** Mettre à jour en fin de CHAQUE session (bloc daté en tête).
 
+## 🗺️ Addendum 2026-08-25 — bugs POI et occupancy CORRIGÉS et mesurés (PR #79, #80 mergées)
+
+Les deux P0 de `AUDIT-AGENTIQUE-2026-07-30.md` sont livrés. **Ne pas les reconstruire.**
+Gates sur `main` après merge : `1339 passed, 1 skipped` · ruff + mypy clean · guardrails OK.
+
+### Mesures, harnais OBS6 (avant → après, runs Langfuse liés dans les PR)
+
+| Dataset / assertion | Baseline 07-30 | Après |
+|---|---|---|
+| `b2c/geo-poi` · `hotels_within_km` | 3/17 (18 %) | **11/17 (65 %)** |
+| `b2c/geo-poi` · `resolved_country_code` | 14/18 (78 %) | **16/18 (89 %)** |
+| `b2c/geo-poi` · `min_hotels` | — | **19/20 (95 %)** |
+| `b2c/occupancy` · `search_offers_args_include` | 7/9 (78 %) | **9/9 (100 %)** |
+| `b2c/occupancy` · `offers_capacity_gte` | **0 %** | **3/3 (100 %)** |
+| `b2c/occupancy` · `offers_children_capacity_gte` | **0 %** | **3/3 (100 %)** |
+| `b2c/occupancy` · `active_filters_include` | **0 %** | **4/5 (80 %)** |
+
+### Deux hypothèses de l'audit corrigées PAR LA MESURE (ne pas re-litiger)
+
+1. **Occupancy : le modèle émettait DÉJÀ `adults`/`children` (78 %).** L'audit croyait qu'il ne
+   les émettait pas « faute de description par champ » et prescrivait un enrichissement de
+   déclaration — inutile, le schéma MCP les documente lui-même. Le vrai trou était en aval :
+   capture (`_budget_timeslot_from_args` ne mappait que budget/timeSlot), persistance (pas de slot
+   profil), restitution (`active_filters` + cartes muettes), carryover.
+2. **POI : l'audit a manqué le mécanisme décisif — `radiusKm`.** `search_offers` prend un rayon
+   (**défaut 20 km**), donc un ancrage landmark et un ancrage ville cherchaient le MÊME disque :
+   le géocodage pouvait résoudre l'avenue à 250 m près et les résultats revenaient de La Défense
+   (7 km) et d'Orly (13 km). Les 3 correctifs prescrits seuls : 18 % → **24 %**. Avec le rayon
+   (3 km sur ancrage POI) : **65 %**. `min_hotels` MONTE (95 %) — pas de fausse rareté.
+
+### 🪤 Trois pièges découverts, à ne pas repayer
+
+1. **`_STATE_DISTANCE_ORIGIN_KEY` n'est écrit que dans la branche SEARCH**, donc APRÈS
+   `search_offers` : le lire depuis un `before_tool_callback` type-checke parfaitement et ne
+   s'applique jamais. C'est **`_STATE_ANCHOR_KEY`** (branche GEOCODE) qu'il faut. Le compteur
+   `dayuse_metric=landmark_radius` existe pour rendre ça visible — il a révélé exactement ce bug.
+2. **Ne PAS dire au modèle de laisser `city` vide** pour un landmark : il vide `city` sans
+   toujours remplir `zone` → `missing_city` instantané (ms=0), tour mort. Les deux chemins de code
+   gèrent l'une ou l'autre forme ; l'instruction n'a pas à pousser.
+3. **`zone_is_landmark` (bonus de l'audit) est inutile** : `is_generic_location_token` tranche déjà
+   (« the airport » générique, « gare de lyon » non — appartenance EXACTE à l'ensemble). Un signal
+   que le code possède ne peut pas être halluciné.
+
+### Reste connu, mesuré
+
+- **~1 tour sur 6** (6 essais) le modèle n'émet NI `city` NI `zone` sur « autour des champs
+  élysées » → tour mort. C'est la **non-détermination d'extraction** = P1 de l'audit (étendre le
+  contrat JSON du triage), explicitement hors périmètre P0-2.
+- `clarify_expected` **19/19 → 18/19** : un homonyme que `country_guess` tranche au lieu de
+  demander. Contrepartie assumée d'un prior soft, à surveiller.
+- `active_filters_include` occupancy : 1/5 encore rouge (cas limite d'extraction).
+- Inchangés depuis la baseline, PAS des régressions : `clarify_options_include_country` 0/2,
+  `if_resolved_country_code` 0/1, `must_ask_city` 0/1.
+- P2 audit toujours ouvert : demande cross-repo `resolve_location` sur l'index `poi` MCP_B2C.
+
+### Comment revérifier (services + LLM réels requis)
+
+```bash
+docker run -d --rm --name agentb2c-redis -p 6379:6379 redis:7
+bash scripts/run_local.sh
+set -a; . ./.env; set +a
+.venv/bin/python -m evals.langfuse_experiment --datasets b2c/geo-poi,b2c/occupancy --run-name <nom>
+bash scripts/run_local.sh stop && docker rm -f agentb2c-redis
+```
+
 ## 🧊 Addendum 2026-08-24 ter (reprise de vacances) — GO écrit sur OBS8, v4 est GA, et le point de calibration OBS7 était structurellement impossible
 
 Session de reprise après 24 jours. Trois livrables : vérification des 2 items P1, **GO écrit sur OBS8**,
@@ -906,8 +971,8 @@ lumière de la découverte Monitors du point 5 ; (d) OBS6/OBS7 peuvent démarrer
   N+1, ids déterministes, `status: target|regression_guard`) + **`scripts/langfuse_seed_datasets.py`**
   (`--dry-run` validé : 48 items ; upsert idempotent, `flush()`) + **`evals/datasets/README.md`** (vocabulaire
   d'assertions niveau réponse vs niveau trace, esquisse d'évaluateurs pour OBS6).
-**Reste** : (1) exécuter les fixes P0-1 (occupancy end-to-end) et P0-2 (zone-only→tier-2, scoper Search Box,
-`country_guess` soft LLM) — sessions de code à part, zone `agents/**` donc APRÈS/AVEC OBS2-OBS4 ; (2) seeder les
+**Reste** : (1) ~~exécuter les fixes P0-1 et P0-2~~ ✅ **FAITS le 2026-08-25** (PR #79 et #80, mergées) —
+voir le bloc daté en tête pour les mesures et les 3 pièges ; (2) seeder les
 datasets quand l'instance Langfuse est prête (OBS0 en cours en parallèle) et prendre la baseline AVANT P0 ;
 (3) P2 : demande cross-repo `resolve_location` sur l'index `poi` à verser dans `reports/MCP-B2C-REQUESTS.md`.
 **Pièges découverts** : les items `occ-persistence-*` présupposent les champs profil P0-1 (échec attendu avant) ;
