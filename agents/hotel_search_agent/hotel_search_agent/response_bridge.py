@@ -710,6 +710,67 @@ def read_structured_payload(tool_response: Any) -> dict[str, Any] | None:
 
 
 # --- callbacks ------------------------------------------------------------------------------
+# P0-2 fix 4. "Around the Champs-Élysées" must not mean "anywhere in greater
+# Paris". MCP_B2C's `search_offers` takes `radiusKm` (default **20**), so until
+# now a landmark anchor and a city anchor searched an identical 20 km disc — the
+# geocode could resolve the avenue to within 250 m and the results would still
+# come back from La Défense (7 km) and Orly (13 km). That is why the audit
+# measured only 18-24 % of returned hotels inside the landmark radius while
+# `resolved_country_code` was already at 72-78 %: the two halves of the promise
+# fail independently, and fixing the geocode alone does not move this one.
+#
+# 3 km is the product intent already encoded in `evals/datasets/b2c-geo-poi.jsonl`:
+# 13 of its 17 `hotels_within_km` assertions use 3, the wider ones being
+# genuinely out-of-town anchors (Disneyland 10, JFK 10). A 3 km search satisfies
+# every one of them, and 3 km around an urban landmark is what a customer means
+# by "around".
+_POI_RADIUS_KM = 3.0
+
+
+def inject_landmark_radius(tool: Any, args: dict[str, Any], tool_context: Any) -> None:
+    """`before_tool_callback`: the ONLY writer of search_offers' `radiusKm`.
+
+    Tightens the search disc to `_POI_RADIUS_KM` when THIS turn's anchor is a
+    landmark/POI, and otherwise leaves the key absent so MCP applies its own
+    20 km city default. Same doctrine as `from` and `hotelEquipmentIds`: the
+    model is never taught this parameter and any value it invents is dropped —
+    a radius is a filter, and the LLM never owns a filter value.
+
+    Reads the anchor the geocode tool already stashed this turn
+    (`_STATE_ANCHOR_KEY`, written by `capture_after_tool`'s GEOCODE branch), so
+    it needs no new plumbing and cannot fire on a city search. It deliberately
+    does NOT read `_STATE_DISTANCE_ORIGIN_KEY`, which carries the same `type`
+    but is only written in the SEARCH branch — i.e. after `search_offers` has
+    already run, far too late for a before-tool callback. Reading that one is
+    silent no-op territory: everything type-checks and the radius is simply
+    never applied.
+    `gps` anchors are deliberately NOT tightened here: "near me" has its own
+    expectations and changing it is not part of the POI bug.
+
+    Scarcity note: a tighter disc can legitimately return nothing where the 20 km
+    one returned something. That is a HONEST empty, and the existing
+    empty-shortlist score plus the S-CX2 false-scarcity guard are what make it
+    visible — but if `min_hotels` drops on the geo dataset, this constant is the
+    first thing to revisit."""
+    if getattr(tool, "name", "") != "search_offers":
+        return None
+    args.pop("radiusKm", None)
+    origin = tool_context.state.get(_STATE_ANCHOR_KEY)
+    anchor_type = origin.get("type") if isinstance(origin, dict) else None
+    if anchor_type == "poi":
+        args["radiusKm"] = _POI_RADIUS_KM
+    # Content-free counter (flags only), and the audit's P0-3 ask: which geo tier
+    # a turn actually took is otherwise invisible. It is also what caught the
+    # first version of this callback reading the wrong state key — it logged
+    # anchor=none on every landmark turn while everything still type-checked.
+    _metrics_logger.info(
+        "dayuse_metric=landmark_radius agent=b2c_hotel_search anchor=%s applied=%d",
+        anchor_type or "none",
+        int("radiusKm" in args),
+    )
+    return None
+
+
 def inject_pagination_offset(tool: Any, args: dict[str, Any], tool_context: Any) -> None:
     """`before_tool_callback` (S-G5, A7): the ONLY writer of search_offers'
     `from` — the model is never taught pagination (there is nothing in the

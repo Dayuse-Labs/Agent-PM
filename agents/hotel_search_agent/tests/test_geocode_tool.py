@@ -313,9 +313,18 @@ class _FakeSearchBox:
     def __init__(self, result):
         self.result = result
         self.calls: list[tuple] = []
+        # P0-2: the tier-2 SCOPE (country + proximity) is the whole point of the
+        # M3 fix, so the fake has to record it — before this it swallowed both
+        # in **kwargs and the gap was untestable in either direction.
+        self.countries: list = []
+        self.proximities: list = []
+        self.langs: list = []
 
-    def forward(self, query, *, country=None, language=None, **kwargs):
+    def forward(self, query, *, country=None, language=None, proximity=None, **kwargs):
         self.calls.append((query, country))
+        self.countries.append(country)
+        self.proximities.append(proximity)
+        self.langs.append(language)
         return self.result
 
 
@@ -767,3 +776,230 @@ class TestInjectProfileGeoContext:
         ctx = _Ctx(user_content=_user_content_with_profile_in({"language": "fr"}))
         inject_profile_geo_context(_Tool("geocode_location"), args, ctx)
         assert args["language_hint"] == "fr"
+
+
+_CHAMPS = GeocodeResult(
+    latitude=48.8698,
+    longitude=2.3078,
+    place_name="Avenue des Champs-Élysées, 75008 Paris, France",
+    country_code="FR",
+    region="Île-de-France",
+)
+
+
+class TestZoneOnlyLandmarkReachesSearchBox:
+    """P0-2 fix 1 (audit §1 M2). A named landmark with no city used to return
+    `no_geocodable_location` BEFORE the Search-Box tier ran, so whether it
+    resolved depended on which field the model put the string in."""
+
+    def _box(self, monkeypatch, result):
+        box = _FakeSearchBox(result)
+        monkeypatch.setattr(geocode_tool, "get_searchbox_client", lambda: box)
+        return box
+
+    def test_bare_landmark_with_no_city_now_resolves(self, monkeypatch):
+        _patch_multi(monkeypatch, [], inventory={})
+        box = self._box(monkeypatch, _CHAMPS)
+
+        result = geocode_location(
+            city="", zone="champs élysées",
+            raw_user_message="je cherche un hôtel autour des champs élysées",
+            locale="fr-FR", country_guess="FR",
+        )
+
+        assert result["ok"] is True
+        assert result["latitude"] == 48.8698
+        assert result["distance_origin_type"] == "poi"
+        assert box.calls[0][0] == "champs élysées"
+
+    def test_a_generic_zone_is_still_refused_not_looked_up(self, monkeypatch):
+        # "the airport" is not a landmark: looking it up worldwide would return
+        # some airport on another continent. Deterministic discriminator.
+        _patch_multi(monkeypatch, [], inventory={})
+        box = self._box(monkeypatch, _CHAMPS)
+
+        result = geocode_location(
+            city="", zone="the airport", raw_user_message="near the airport"
+        )
+
+        assert result["ok"] is False
+        assert result["error"] == "no_geocodable_location"
+        assert box.calls == []  # never consulted
+
+    def test_gate_3_still_holds_a_landmark_is_not_replaced_by_gps(self, monkeypatch):
+        # The pinned invariant: with a GENERIC zone + GPS, the error stands and
+        # the user's own fix is NOT silently substituted.
+        _patch_multi(monkeypatch, [], inventory={})
+        self._box(monkeypatch, None)
+
+        result = geocode_location(
+            city="", zone="the airport", raw_user_message="near the airport",
+            proximity_lat=48.9385, proximity_lon=2.4906,
+        )
+
+        assert result["ok"] is False
+        assert result["error"] == "no_geocodable_location"
+
+    def test_a_landmark_that_search_box_misses_is_an_honest_failure(self, monkeypatch):
+        _patch_multi(monkeypatch, [], inventory={})
+        self._box(monkeypatch, None)
+
+        result = geocode_location(
+            city="", zone="zzz nonexistent landmark", raw_user_message="hotel there"
+        )
+
+        assert result["ok"] is False
+        assert result["error"] == "no_geocodable_location"
+
+    def test_an_echo_mismatch_is_not_accepted_even_scoped(self, monkeypatch):
+        # M4 still guards: a POI whose NAME does not echo the request is refused.
+        _patch_multi(monkeypatch, [], inventory={})
+        elsewhere = GeocodeResult(
+            latitude=5.35, longitude=-4.02,
+            place_name="Hôtel Ivoire, Abidjan, Côte d'Ivoire",
+            country_code="CI", region="Abidjan",
+        )
+        self._box(monkeypatch, elsewhere)
+
+        result = geocode_location(
+            city="", zone="champs élysées", raw_user_message="hotel champs élysées"
+        )
+
+        assert result["ok"] is False
+
+
+class TestSearchBoxIsScoped:
+    """P0-2 fix 2 (audit §1 M3). The tier-2 lookup was worldwide and blind: no
+    proximity (though the client accepts one) and a country that is only set
+    when the user NAMED one. A perfect name match in the wrong country sails
+    through the echo guard (M4), so the scope is the only separator."""
+
+    def _box(self, monkeypatch, result=_CHAMPS):
+        box = _FakeSearchBox(result)
+        monkeypatch.setattr(geocode_tool, "get_searchbox_client", lambda: box)
+        return box
+
+    def test_country_guess_scopes_the_lookup(self, monkeypatch):
+        _patch_multi(monkeypatch, [], inventory={})
+        box = self._box(monkeypatch)
+
+        geocode_location(
+            city="", zone="champs élysées", raw_user_message="hotel",
+            country_guess="FR",
+        )
+
+        assert box.countries == ["FR"]
+
+    def test_locale_prior_scopes_it_when_there_is_no_guess(self, monkeypatch):
+        _patch_multi(monkeypatch, [], inventory={})
+        box = self._box(monkeypatch)
+
+        geocode_location(city="", zone="champs élysées", raw_user_message="h", locale="fr-FR")
+
+        assert box.countries == ["FR"]
+
+    def test_a_named_country_outranks_the_guess(self, monkeypatch):
+        # country_code is the user's own words; the guess must never override it.
+        _patch_multi(monkeypatch, [], inventory={})
+        box = self._box(monkeypatch)
+
+        geocode_location(
+            city="", zone="champs élysées", raw_user_message="h",
+            country_code="BE", country_guess="FR", locale="fr-FR",
+        )
+
+        assert box.countries == ["BE"]
+
+    def test_gps_proximity_now_reaches_search_box(self, monkeypatch):
+        _patch_multi(monkeypatch, [], inventory={})
+        box = self._box(monkeypatch)
+
+        geocode_location(
+            city="", zone="champs élysées", raw_user_message="h",
+            proximity_lat=48.87, proximity_lon=2.31,
+        )
+
+        assert box.proximities == ["2.31,48.87"]  # Mapbox order: lon,lat
+
+    def test_tier_2_after_a_city_miss_is_scoped_too(self, monkeypatch):
+        # The pre-existing tier-2 path (city + zone, v6 junk) must get the same
+        # scope, not just the new zone-only path.
+        junk = _c("Al Ain", "AE", "Abu Dhabi", ftype="neighborhood", lat=24.2, rank=0)
+        _patch_multi(monkeypatch, [junk], inventory={24.2: 0})
+        box = self._box(monkeypatch)
+
+        geocode_location(
+            city="Paris", zone="champs élysées", raw_user_message="h",
+            country_guess="FR", proximity_lat=48.87, proximity_lon=2.31,
+        )
+
+        assert box.countries == ["FR"]
+        assert box.proximities == ["2.31,48.87"]
+
+    def test_a_malformed_guess_degrades_to_no_scope_never_a_wrong_one(self, monkeypatch):
+        _patch_multi(monkeypatch, [], inventory={})
+        box = self._box(monkeypatch)
+
+        geocode_location(
+            city="", zone="champs élysées", raw_user_message="h", country_guess="France"
+        )
+
+        assert box.countries == [None]
+
+
+class TestCountryGuessIsASoftPrior:
+    """P0-2 fix 3. The guess shares the locale prior's BOUNDED weight — a boost
+    among candidates, never a filter, so a wrong guess costs a rank and can
+    never erase the right answer."""
+
+    def test_the_guess_reorders_a_tie_toward_the_guessed_country(self, monkeypatch):
+        # Direct contrast with test_language_hint_never_feeds_the_country_prior:
+        # SAME two candidates, US at Mapbox rank 0. A `language_hint="fr"` must
+        # NOT move them (that test asserts options[0] is US); an explicit
+        # `country_guess="FR"` MUST — that is the whole point of the reversal.
+        # It stays a clarify: the boost is bounded, so it reorders the options
+        # rather than deciding for the user. A guess never silently picks.
+        us = _c("Clermont", "US", "Florida", lat=28.55, rank=0)
+        fr = _c("Clermont", "FR", "Auvergne", lat=45.78, rank=1)
+        _patch_multi(monkeypatch, [us, fr], inventory={28.55: 20, 45.78: 20})
+
+        result = geocode_location(
+            city="Clermont", raw_user_message="hotel in Clermont", country_guess="FR"
+        )
+
+        assert result["error"] == "geocode_ambiguous"
+        assert result["diagnostics"]["options"][0]["country_code"] == "FR"
+
+    def test_a_wrong_guess_cannot_filter_out_the_only_candidate(self, monkeypatch):
+        # The decisive property: a hard filter would have returned nothing here.
+        milan = _c("Milano", "IT", "Milan", lat=45.46, rank=0)
+        _patch_multi(monkeypatch, [milan], inventory={45.46: 40})
+
+        result = geocode_location(
+            city="Milano", raw_user_message="hotel a Milano", country_guess="JP"
+        )
+
+        assert result["ok"] is True
+        assert result["country_code"] == "IT"
+
+    def test_a_named_country_still_hard_filters(self, monkeypatch):
+        # country_code keeps its filter semantics; the guess did not soften it.
+        us = _c("Clermont", "US", "Florida", lat=28.55, rank=0)
+        _patch_multi(monkeypatch, [us], inventory={28.55: 20})
+
+        result = geocode_location(
+            city="Clermont", raw_user_message="hotel", country_code="FR", country_guess="US"
+        )
+
+        assert result["ok"] is False
+
+    def test_a_malformed_guess_is_ignored_by_the_prior(self, monkeypatch):
+        milan = _c("Milano", "IT", "Milan", lat=45.46, rank=0)
+        _patch_multi(monkeypatch, [milan], inventory={45.46: 40})
+
+        result = geocode_location(
+            city="Milano", raw_user_message="h", country_guess="not-a-code"
+        )
+
+        assert result["ok"] is True
+        assert result["country_code"] == "IT"

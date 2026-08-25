@@ -32,6 +32,7 @@ from hotel_search_agent.geo_guards import (
     anchor_state_context,
     demote_generic_city,
     geocode_echo_matches,
+    is_generic_location_token,
     resolve_state_hint,
     select_us_postal_anchor,
 )
@@ -89,6 +90,31 @@ def _locale_country(locale: str | None) -> str | None:
     return _LOCALE_COUNTRY.get(locale.strip().lower()[:2])
 
 
+def _iso2(value: str | None) -> str | None:
+    """A 2-letter ISO country code, uppercased, or None. Anything else from the
+    model (a country NAME, "FRA", noise) is discarded rather than guessed at —
+    a malformed hint must degrade to "no hint", never to a wrong scope."""
+    token = (value or "").strip().upper()
+    return token if len(token) == 2 and token.isalpha() else None
+
+
+def _soft_country(
+    named: str | None, guess: str | None, locale: str | None
+) -> str | None:
+    """The country to SCOPE the Search-Box fallback with, in confidence order:
+    a country the user named (already a hard filter upstream) > the model's
+    world-knowledge guess > the locale prior.
+
+    This is P0-2 fix 2 (audit §1 M3). Before it, the tier-2 POI lookup was sent
+    with `country=effective_country_code`, which is only populated when the user
+    NAMED a country or typed a US ZIP — so in the common case it was an
+    unscoped, worldwide, limit=1 lookup. That is what let a business called
+    "Champs Elysées" in another hemisphere win: the echo guard validates the
+    NAME, so a perfect name match in the wrong country sails through it (M4).
+    A country scope is the only signal that separates those two."""
+    return named or _iso2(guess) or _locale_country(locale)
+
+
 def _echoes(place_name: str, *, city: str | None, zone: str | None, state_hint: str | None) -> bool:
     return geocode_echo_matches(place_name, city=city, zone=zone, state_hint=state_hint)
 
@@ -135,6 +161,7 @@ def geocode_location(
     language_hint: str | None = None,
     proximity_lat: float | None = None,
     proximity_lon: float | None = None,
+    country_guess: str | None = None,
 ) -> dict:
     """Resolve a destination to coordinates for `search_offers`, guarded.
 
@@ -155,6 +182,22 @@ def geocode_location(
             ("Milford ct") and the state anchor.
         profile_state_context: The US state anchored on an earlier turn
             (from profile_in), if any.
+        country_guess: The ISO-3166-1 alpha-2 country this place is
+            world-famously in, from the model's own world knowledge, when it is
+            confident ("champs élysées" -> FR, "times square" -> US). A SOFT
+            prior only: it is scored with the same bounded weight as the locale
+            prior and scopes the Search-Box fallback, but it NEVER filters
+            candidates and never becomes coordinates. `country_code` above stays
+            the hard filter for a country the user actually NAMED.
+
+            This is the deliberate reversal of P0-2 (audit 2026-07-30 §1): the
+            anti-hallucination doctrine correctly forbids the model from
+            emitting COORDINATES, and had been over-extended to forbid it
+            emitting a verifiable HINT — so the pipeline threw away the one
+            signal that disambiguates a world-famous landmark, then tried to
+            rebuild it in code (exonym tables, inventory tiers, echo rules).
+            The model proposes, the code disposes: the echo guard and the
+            inventory tier remain the verifiers.
         profile_location_hint: The city/location profile_in last recorded,
             used both as a state-hint text source and to detect an explicit
             city switch that should clear a stale state anchor.
@@ -200,6 +243,29 @@ def geocode_location(
     if effective_city != city or effective_metro != metro:
         mark_level("WARNING", status_message="generic_location_demoted")
 
+    # Computed BEFORE the early return below, because the zone-only landmark
+    # path now needs both (P0-2 fix 1) — they depend only on the call's own
+    # arguments, so hoisting them changes nothing for the paths further down.
+    lang = (
+        (locale or "").strip().lower()[:2]
+        or (language_hint or "").strip().lower()[:2]
+        or None
+    )
+    # GPS proximity (S-G5): a Mapbox "lon,lat" bias string for the API call,
+    # and a (lat, lon) tuple for the resolver's own bounded scoring credit —
+    # both derived from the SAME two floats, present only when BOTH are given
+    # (a lone lat or lon is meaningless and ignored).
+    proximity_str: str | None = None
+    proximity_tuple: tuple[float, float] | None = None
+    if proximity_lat is not None and proximity_lon is not None:
+        proximity_str = f"{proximity_lon},{proximity_lat}"
+        proximity_tuple = (proximity_lat, proximity_lon)
+    # The model's world-knowledge hint, validated to a real ISO2 shape. Kept
+    # separate from `country_code` all the way down: one is a soft prior, the
+    # other a hard filter, and conflating them would turn a model guess into a
+    # candidate filter — exactly what the doctrine forbids.
+    guess_iso = _iso2(country_guess)
+
     if not effective_city and not effective_metro:
         # Pure "near me" (S-G10, D1 follow-up): no geocodable destination
         # anywhere in the request, but the profile carries a device GPS fix
@@ -221,6 +287,47 @@ def geocode_location(
                 profile_delta={},
                 distance_origin_type="gps",
             )
+        # P0-2 fix 1 (audit §1 M2): a NAMED LANDMARK with no city used to die
+        # right here, before the Search-Box tier ever ran — the only path that
+        # reached tier 2 was `city="champs élysées"` plus zero v6 candidates, so
+        # the outcome depended on which field the model happened to put the
+        # string in. That is the documented non-determinism (Fabien got Paris,
+        # the replay got La Garde).
+        #
+        # The discriminator is deterministic and already exists: a GENERIC zone
+        # word ("the airport", "la gare", "downtown") is not a landmark and must
+        # not be looked up — Search Box would happily return some airport on
+        # another continent. A specific name ("champs élysées", "gare de lyon")
+        # is. `is_generic_location_token` is the same helper `demote_generic_city`
+        # uses, and its exact-set membership is what makes "gare" generic while
+        # "gare de lyon" is not — precisely the case that was failing.
+        #
+        # Gate 3 is untouched: this runs AFTER the GPS branch above, so a named
+        # landmark still never gets silently replaced by the user's own fix.
+        # No `zone_is_landmark` model flag is needed (the audit listed one as a
+        # bonus): the code can tell, and a signal the code owns cannot be
+        # hallucinated.
+        if effective_zone and not is_generic_location_token(effective_zone):
+            landmark = get_searchbox_client().forward(
+                effective_zone,
+                # The raw `country_code` param, not `effective_country_code`:
+                # the US-ZIP anchor that derives the latter runs further down,
+                # after this early return. A bare landmark with no city and a US
+                # ZIP is not a real shape, so nothing is lost.
+                country=_soft_country(country_code, country_guess, locale),
+                language=lang,
+                proximity=proximity_str,
+            )
+            if landmark is not None and _echoes(
+                landmark.place_name, city=None, zone=effective_zone, state_hint=None
+            ):
+                return _ok(
+                    landmark,
+                    feature_type="poi",
+                    profile_delta={},
+                    distance_origin_type="poi",
+                    zone=effective_zone,
+                )
         return {
             "ok": False,
             "error": "no_geocodable_location",
@@ -253,20 +360,6 @@ def geocode_location(
     query = ", ".join(
         part for part in (effective_zone, effective_city or effective_metro, state_hint) if part
     )
-    lang = (
-        (locale or "").strip().lower()[:2]
-        or (language_hint or "").strip().lower()[:2]
-        or None
-    )
-    # GPS proximity (S-G5): a Mapbox "lon,lat" bias string for the API call,
-    # and a (lat, lon) tuple for the resolver's own bounded scoring credit —
-    # both derived from the SAME two floats, present only when BOTH are given
-    # (a lone lat or lon is meaningless and ignored).
-    proximity_str: str | None = None
-    proximity_tuple: tuple[float, float] | None = None
-    if proximity_lat is not None and proximity_lon is not None:
-        proximity_str = f"{proximity_lon},{proximity_lat}"
-        proximity_tuple = (proximity_lat, proximity_lon)
     candidates = get_mapbox_client().geocode_candidates(
         query, country=effective_country_code, language=lang, proximity=proximity_str
     )
@@ -276,7 +369,11 @@ def geocode_location(
         inventory=get_inventory(),
         country_hint=effective_country_code,
         region_hint=state_hint,
-        locale_country=_locale_country(locale),
+        # P0-2 fix 3: the model's world-knowledge guess enters here, sharing
+        # the locale prior's BOUNDED weight (_W_LOCALE) — a boost among
+        # candidates, never a filter, so a wrong guess costs a rank and cannot
+        # erase the right answer. A named country stays the hard filter above.
+        locale_country=guess_iso or _locale_country(locale),
         proximity=proximity_tuple,
         requested_name=effective_city or effective_metro,
         # S-CX2: the clarify question can reach the customer verbatim — ask it
@@ -352,7 +449,13 @@ def geocode_location(
         # businesses named after the landmark (probed: "La Défense, Paris" →
         # a hotel "Citadines La Défense"; bare "La Défense" → the district).
         poi = get_searchbox_client().forward(
-            searchbox_query, country=effective_country_code, language=lang
+            searchbox_query,
+            country=_soft_country(effective_country_code, country_guess, locale),
+            language=lang,
+            # P0-2 fix 2 (M3): the client has always accepted a proximity bias
+            # and tier 2 never passed one, so the POI lookup was blind to the
+            # device fix that tier 1 already used.
+            proximity=proximity_str,
         )
         if poi is not None and _echoes(
             poi.place_name, city=echo_city, zone=effective_zone, state_hint=state_hint

@@ -31,12 +31,63 @@ from hotel_search_agent.response_bridge import (
     encode_datapart,
     find_datapart,
     inject_pagination_offset,
+    inject_landmark_radius,
     normalize_hotel,
     normalize_search_results,
     read_profile_in,
     skip_final_generation,
     stamp_turn_start,
 )
+
+
+class TestLandmarkRadius:
+    """P0-2 fix 4. A landmark anchor and a city anchor used to search the same
+    20 km disc (MCP's `radiusKm` default), so a geocode precise to 250 m still
+    returned hotels 7-13 km away. That is why fixing the geocode alone left
+    `hotels_within_km` at 24%."""
+
+    def _ctx(self, origin):
+        # The GEOCODE-branch anchor, not the search-branch distance origin:
+        # the latter is only written after search_offers has run.
+        state = {} if origin is None else {"temp:hotel_search_anchor": origin}
+        return _Ctx(state=state)
+
+    def test_a_poi_anchor_tightens_the_disc(self):
+        args = {"lat": 48.8698, "lon": 2.3078}
+        inject_landmark_radius(_Tool("search_offers"), args, self._ctx({"type": "poi"}))
+        assert args["radiusKm"] == 3.0
+
+    def test_a_city_anchor_leaves_mcp_its_own_default(self):
+        # Absent key, NOT an explicit 20 — MCP owns the city default.
+        args = {"lat": 48.85, "lon": 2.35}
+        inject_landmark_radius(_Tool("search_offers"), args, self._ctx({"type": "city"}))
+        assert "radiusKm" not in args
+
+    def test_a_gps_anchor_is_deliberately_not_tightened(self):
+        args = {"lat": 48.85, "lon": 2.35}
+        inject_landmark_radius(_Tool("search_offers"), args, self._ctx({"type": "gps"}))
+        assert "radiusKm" not in args
+
+    def test_no_anchor_stashed_is_a_no_op(self):
+        args = {"lat": 48.85, "lon": 2.35}
+        inject_landmark_radius(_Tool("search_offers"), args, self._ctx(None))
+        assert "radiusKm" not in args
+
+    def test_a_radius_the_model_invented_is_dropped(self):
+        # Doctrine: a radius is a filter, and the LLM never owns a filter value.
+        args = {"lat": 48.85, "lon": 2.35, "radiusKm": 200}
+        inject_landmark_radius(_Tool("search_offers"), args, self._ctx({"type": "city"}))
+        assert "radiusKm" not in args
+
+    def test_a_model_radius_is_replaced_on_a_poi_anchor(self):
+        args = {"lat": 48.8698, "lon": 2.3078, "radiusKm": 200}
+        inject_landmark_radius(_Tool("search_offers"), args, self._ctx({"type": "poi"}))
+        assert args["radiusKm"] == 3.0
+
+    def test_other_tools_are_untouched(self):
+        args = {"name": "Hilton", "radiusKm": 9}
+        inject_landmark_radius(_Tool("find_hotel_by_name"), args, self._ctx({"type": "poi"}))
+        assert args == {"name": "Hilton", "radiusKm": 9}
 
 
 class TestCardOccupancyDisclosure:
