@@ -1401,3 +1401,55 @@ class TestObs4McpTraceContext:
         assert meta is not None
         assert meta["traceparent"].split("-")[1] == trace_id
         assert f"langfuse_trace_id={trace_id}" in meta["baggage"]
+
+
+class TestP1HotelNameSlot:
+    """P1-1: triage's `hotel_name` slot is the PRIMARY extraction for MCP
+    `find_hotel_by_name`; `_extract_hotel_name_candidate` stays the fallback.
+    Unlike the boolean slots this one is a VALUE, so it is LLM-primary rather
+    than additive — there is no "OR" to take between two strings."""
+
+    def _script(self, monkeypatch):
+        return _install(
+            monkeypatch,
+            {
+                "find_hotel_by_name": FakeResult({"hotel": FIND_BY_NAME_RESPONSE}),
+                "get_hotel_details": FakeResult(HOTEL_DETAILS_RESPONSE),
+            },
+        )
+
+    def test_the_slot_becomes_the_mcp_name_argument(self, monkeypatch):
+        session = self._script(monkeypatch)
+        profile = SessionProfile()  # empty shortlist → must go to MCP
+        result = _run(
+            inline_tools.get_hotel_details(
+                "peux-tu me sortir la fiche du Moxy NYC Chelsea s'il te plaît",
+                profile,
+                llm_hotel_name="Moxy NYC Chelsea",
+            )
+        )
+        assert result["ok"] is True
+        by_name = [args for name, args in session.calls if name == "find_hotel_by_name"]
+        assert by_name[0]["name"] == "Moxy NYC Chelsea"
+
+    def test_without_the_slot_the_phrase_stripper_still_runs(self, monkeypatch):
+        session = self._script(monkeypatch)
+        profile = SessionProfile()
+        _run(inline_tools.get_hotel_details("book the Moxy NYC Chelsea for me", profile))
+        by_name = [args for name, args in session.calls if name == "find_hotel_by_name"]
+        # The fr/en stripper removes "book the" and "for me" — which is exactly
+        # all it can do, and why the slot exists for every other phrasing.
+        assert by_name[0]["name"] == "Moxy NYC Chelsea"
+
+    def test_a_strong_shortlist_hit_never_reaches_mcp_even_with_the_slot(self, monkeypatch):
+        """The slot changes EXTRACTION, never MATCHING: a hotel already on
+        screen still resolves from the shortlist with zero MCP round-trip."""
+        session = _install(monkeypatch, {"get_hotel_details": FakeResult(HOTEL_DETAILS_RESPONSE)})
+        profile = SessionProfile(last_results=SHORTLIST)
+        result = _run(
+            inline_tools.get_hotel_details(
+                "Villa Paris Orly", profile, llm_hotel_name="Villa Paris Orly"
+            )
+        )
+        assert result["ok"] is True
+        assert [c[0] for c in session.calls] == ["get_hotel_details"]

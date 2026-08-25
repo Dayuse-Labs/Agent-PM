@@ -120,11 +120,24 @@ _AFFIRMATIVE_RE = re.compile(
 )
 
 
-def is_bare_affirmative(message: str) -> bool:
+def is_bare_affirmative(message: str, llm_affirmative: bool | None = None) -> bool:
     """True when `message` is ONLY an affirmative token, nothing else — the
     search-exhaustion gate's inverse of this decides whether a reply carries
-    a new constraint worth retrying the search for (S12 audit 2026-07-20)."""
-    return bool(_AFFIRMATIVE_RE.match((message or "").strip()))
+    a new constraint worth retrying the search for (S12 audit 2026-07-20).
+
+    P1-1: `llm_affirmative` is triage's `affirmative` slot (None when the
+    classify produced nothing usable). It is applied ADDITIVELY — it can only
+    turn a False into a True, never the reverse.
+
+    Additive rather than "LLM primary, regex fallback" on purpose. The regex is
+    anchored `^…$` over a closed word list, so on the cases it already matches
+    it is not merely a heuristic, it is exact — there is nothing for a model to
+    correct. What it cannot do is match "sí"/"sì"/"ja", and that is precisely
+    what the slot adds. Letting the model also VETO a match would put the ~150
+    guard tests at the mercy of one classify call for zero upside; this way they
+    stay green by construction and the new signal is pure coverage.
+    """
+    return bool(llm_affirmative) or bool(_AFFIRMATIVE_RE.match((message or "").strip()))
 
 
 # Explicit confirmation phrasing — ONLY consulted while `pending_booking` is
@@ -741,23 +754,36 @@ _MORE_OPTIONS_RE = re.compile(
 )
 
 
-def is_more_options_signal(message: str) -> bool:
+def is_more_options_signal(message: str, llm_wants_more: bool | None = None) -> bool:
     """True when `message` asks for MORE of the same search (audit multi-turn
     "other options" case) — no new constraint, just the next page. Distinct
     from `is_search_refinement_signal`'s other modifiers: this is the ONLY
     signal that should advance `profile.search_cursor` (S-G1's
-    `advance_search_cursor`, wired in agent.py)."""
-    return bool(_MORE_OPTIONS_RE.search((message or "").strip()))
+    `advance_search_cursor`, wired in agent.py).
+
+    P1-1: `llm_wants_more` is triage's `wants_more_options` slot, applied
+    additively for the same reason as `is_bare_affirmative` above — it adds
+    "otras opciones"/"altre opzioni"/"noch andere", it never vetoes a phrase
+    the regex already recognizes."""
+    return bool(llm_wants_more) or bool(_MORE_OPTIONS_RE.search((message or "").strip()))
 
 
-def _has_refinement_modifier(message: str) -> bool:
+def _has_refinement_modifier(message: str, llm_bare_budget: float | None = None) -> bool:
     """A follow-up that adjusts a prior search's parameters — a date, a budget/
-    price (keyword, symbol, or a bare number), a time-of-day, or a zone keyword."""
+    price (keyword, symbol, or a bare number), a time-of-day, or a zone keyword.
+
+    P1-1: `llm_bare_budget` is triage's `bare_budget_value` slot. Note this is
+    the ROUTING use of that slot; the budget-integrity guard in
+    `apply_profile_delta` keeps calling `_bare_number_value` directly and must
+    NOT be switched over — it exists to cross-check the leaf's claimed budget
+    against the literal user text, and sourcing both sides from the same model
+    would delete the independence that makes it a guard."""
     return bool(
         _DATE_MENTION_RE.search(message)
         or _REFINEMENT_KEYWORDS_RE.search(message)
         or _TIME_MENTION_RE.search(message)
         or _bare_number_value(message) is not None
+        or llm_bare_budget is not None
     )
 
 
@@ -765,7 +791,14 @@ def _has_prior_search_context(profile: SessionProfile) -> bool:
     return bool(profile.city) or bool(profile.last_results) or profile.consecutive_empty_searches > 0
 
 
-def is_search_refinement_signal(message: str, profile: SessionProfile) -> bool:
+def is_search_refinement_signal(
+    message: str,
+    profile: SessionProfile,
+    *,
+    llm_affirmative: bool | None = None,
+    llm_wants_more: bool | None = None,
+    llm_bare_budget: float | None = None,
+) -> bool:
     """True when `message` continues/refines a PRIOR search and must be routed to
     a fresh search rather than the ack template OR a mis-triaged booking/detail:
     - a bare affirmative ("ok"/"sure") while the last search came back empty;
@@ -781,16 +814,16 @@ def is_search_refinement_signal(message: str, profile: SessionProfile) -> bool:
     stripped = (message or "").strip()
     if not stripped:
         return False
-    if profile.consecutive_empty_searches > 0 and _AFFIRMATIVE_RE.match(stripped):
+    if profile.consecutive_empty_searches > 0 and is_bare_affirmative(stripped, llm_affirmative):
         return True
     suggestions = profile.last_suggestions or []
     if stripped.lower() in {s.strip().lower() for s in suggestions}:
         return True
-    if _has_prior_search_context(profile) and is_more_options_signal(stripped):
+    if _has_prior_search_context(profile) and is_more_options_signal(stripped, llm_wants_more):
         return True
     if (
         _has_prior_search_context(profile)
-        and _has_refinement_modifier(stripped)
+        and _has_refinement_modifier(stripped, llm_bare_budget)
         and resolve_hotel_reference(stripped, profile.last_results) is None
     ):
         return True
@@ -1189,7 +1222,12 @@ def select_cheapest_hotel(
 # --- Booking confirmation (R9, guard #12) -----------------------------------
 
 
-def is_booking_confirmation_signal(message: str, profile: SessionProfile) -> bool:
+def is_booking_confirmation_signal(
+    message: str,
+    profile: SessionProfile,
+    *,
+    llm_booking_confirmation: str | None = None,
+) -> bool:
     """True when `message` is a bare affirmative WHILE a booking offer is
     awaiting the user's explicit confirmation (`pending_booking` set) — the
     zero-LLM ack template and any other family must not swallow it, or the
@@ -1205,11 +1243,26 @@ def is_booking_confirmation_signal(message: str, profile: SessionProfile) -> boo
     confirmation question). Any negation/change-of-mind marker wins over a
     confirmation verb (« non je ne confirme pas » must never confirm), and a
     question is never a confirmation.
+
+    P1-1: `llm_booking_confirmation` is triage's `booking_confirmation` slot
+    ("confirm"/"refuse"/"change"/"none", or None when the classify produced
+    nothing usable). It is consulted BEFORE the regexes, but `"none"` falls
+    THROUGH to them rather than returning False — the model is told to judge the
+    message on its own, and it cannot see that a booking is pending, so a bare
+    "oui" may legitimately come back as `none`. Treating that as a refusal would
+    re-break the exact prod defect PR #47 fixed (a written confirmation
+    dead-ending on the greeting template). So the slot can only ADD coverage
+    ("sí, confírmalo") or ADD protection ("refuse"/"change"); it can never
+    remove a confirmation the regexes already recognize.
     """
     if not profile.pending_booking:
         return False
     stripped = (message or "").strip()
     if not stripped:
+        return False
+    if llm_booking_confirmation == "confirm":
+        return True
+    if llm_booking_confirmation in ("refuse", "change"):
         return False
     if _AFFIRMATIVE_RE.match(stripped):
         return True

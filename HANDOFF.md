@@ -2,6 +2,69 @@
 
 État du chantier pour reprise en session fraîche. **Lire en entier avant d'agir ; ne pas reconstruire ce qui existe.** Mettre à jour en fin de CHAQUE session (bloc daté en tête).
 
+## 🧠 Addendum 2026-08-25 quater — P1-1 + P1-2 : 5 slots sortent du regex, la reconnaissance de langue passe à 7. Et le harnais OBS6 mesurait la mauvaise couche.
+
+Chantier P1 de `AUDIT-AGENTIQUE-2026-07-30.md`. **Deux livrables, dont un non prévu** : le fix lui-même, et la correction d'un défaut du harnais découvert en essayant de le mesurer.
+
+### ⚠️ D'abord : « P1 de l'audit » ≠ le symptôme landmark
+
+Le brief de session disait « P1 de l'audit » mais décrivait le tour mort du landmark (~1/6). **Ce sont deux chantiers différents** — vérifié : `triage.py` ne classe que `family`/`language`/`pick`, il n'extrait **aucune** donnée géo. Le landmark vit dans `geocode_location` (feuille). Arbitré avec Fabien : ce bloc traite **P1-1 + P1-2 à la lettre**, le géo reste ouvert (et doit absorber le bug Toulon du bloc « ter »).
+
+### Ce qui est livré
+
+**P1-1 — 5 slots** dans le contrat JSON du triage, même pattern que `pick` (S-CX5) : enum/type fermé, validé dans `classify()`. `affirmative`, `booking_confirmation` (`none|confirm|refuse|change`), `wants_more_options`, `bare_budget_value`, `hotel_name`.
+
+**P1-2 — reconnaissance élargie** à `fr|en|es|it|de|pt|nl`, avec un **clamp** (`triage.response_language`) partout où la langue atteint un template ou le `LANG:` de la synthèse. Sans lui, la synthèse se serait mise à répondre en espagnol pendant que les templates restaient anglais — sortie mixte que personne n'a décidée. Répondre dans la langue de l'utilisateur = chantier séparé (`templates.py`, 215 lignes de `_pick(language, fr, en)`).
+
+### 3 décisions de conception à ne pas défaire
+
+1. **Les slots booléens sont ADDITIFS, pas « LLM primaire »**. `_AFFIRMATIVE_RE` est ancré `^…$` sur une liste fermée : là où il matche il est *exact*, il n'y a rien à corriger. Ce qu'il ne sait pas faire, c'est « sí »/« ja ». Laisser le modèle **vetoer** un match mettrait les ~150 tests de guards à la merci d'un appel de classify pour zéro gain. `hotel_name` est l'exception assumée : c'est une VALEUR, pas un booléen — LLM primaire, stripper en fallback.
+2. **`booking_confirmation: "none"` retombe sur les regex**, il ne nie pas. Le modèle juge le message seul et ne peut pas voir qu'une réservation est en attente : un « oui » nu peut légitimement revenir en `none`. Le lire comme un refus rouvrirait exactement le défaut prod de la PR #47.
+3. **`bare_budget_value` n'a basculé qu'à MOITIÉ**. Usage routage (`_has_refinement_modifier`) → slot. Usage **guard d'intégrité budget** (`apply_profile_delta`) → **reste en regex** : il croise la valeur revendiquée par la feuille avec le texte littéral, sourcer les deux côtés du même modèle détruirait l'indépendance qui en fait un guard.
+
+### 🪤 Le piège principal : le fast-path d'ack devait rester à ZÉRO appel
+
+`refinement_signal`/`booking_signal` étaient calculés **avant** `classify()` parce qu'ils gardent le fast-path. Premier jet : conditionner le fast-path sur l'état du profil. **Mauvaise idée** — ça faisait payer un triage à tout « bonjour » suivant une recherche vide, et un test existant ne le voyait pas (`classify` avale l'AssertionError du plan scripté et retombe sur le regex : le test passait en vert **en payant un appel**).
+
+**Vrai raisonnement** : `_ACK_WORDS` est lui-même **fr/en**. Un « sí » ne matche jamais `is_social_ack` et n'atteint donc **jamais** ce gate — il part au triage comme n'importe quel message. Pour l'ensemble exact des messages qui peuvent arriver là, les regex fr/en sont **complètes**. Le gate reste donc regex-only, et les deux signaux sont **recalculés après `classify()`** avec les slots. Zéro appel ajouté, zéro changement de comportement sur le chemin d'ack.
+
+*Trou résiduel, pré-existant* : `_ACK_WORDS` contient 2 tokens d'accord absents d'`_AFFIRMATIVE_RE` (« top », « génial ») — seuls après une recherche vide, ils atteignent encore le template. Pas une régression.
+
+### 🔴 Découverte : `expected_route` mesurait le CLASSIFIEUR, pas le ROUTEUR
+
+Le fix ne bougeait presque pas la métrique. Cause : `_derive_route()` lisait le `family` de la **génération de triage** — donc l'avis brut du LLM — alors que toute l'architecture repose sur des **overrides code-owned par-dessus** (« l'LLM ne route jamais »). La métrique était **structurellement aveugle** à recovery-ack, confirmation de booking et ordinal de shortlist.
+
+**Preuve** : sur la trace réelle du run, `lang-affirm-es` était noté ÉCHEC (`family=ack` côté génération) alors que la même trace porte `family=search`, `route=leaf:hotel_search` sur l'observation AGENT — le spine avait routé correctement.
+
+**Corrigé** (GO Fabien) : `_lookup_trace_facts` lit maintenant `metadata.family` posé par OBS2 sur l'observation AGENT et le préfère au `family` de la génération. Même fetch, zéro appel API en plus. `metadata.family` et non `metadata.route` : `route` parle un 3e vocabulaire (`leaf:hotel_search`) dont le docstring dit justement de se méfier.
+⚠️ **Ça change le SENS de la métrique** : avant le 2026-08-25 elle notait la classification, après elle note le routage réel. **Ne pas comparer aux runs du 07-30.**
+
+### Mesures (même journée, même Redis, dataset `b2c/language-robustness`)
+
+| | `expected_route` |
+|---|---|
+| main, harnais (2 runs) | **2/7** et **3/7** |
+| branche, harnais (2 runs) | **4/7** et **6/7** |
+| **replay local déterministe des 7 items — main** | **3/7** |
+| **replay local déterministe des 7 items — branche** | **6/7** |
+
+**6/7 est le plafond réel** : `lang-confirm-implicit` amorce un `pending_booking` **fabriqué** (`hotel_id: 123`, « Le Marais Hôtel »), donc MCP ne peut produire aucun lien et l'item ne peut structurellement pas passer. Défaut de dataset, pas d'agent.
+
+⚠️ **Le harnais a une vraie variance run-à-run** (2/7↔3/7, 4/7↔6/7) : `_lookup_trace_facts` est best-effort et un miss dégrade en échec ou en `skipped`. Le replay local, lui, est stable. **Lire un run isolé de ce dataset comme une vérité est une erreur** — en faire deux, ou rejouer en local.
+
+`b2c/prod-regressions` : `min_hotels` **2/6 sur main ET sur la branche** → environnemental (cutoff même-jour, run en fin d'après-midi), **pas une régression**. C'est le contrôle qui l'a établi — sans le run baseline du même jour, ce 2/6 se lisait comme une catastrophe.
+
+### Gates
+
+`1396 passed, 1 skipped` (+57 tests, baseline 1339) · ruff · mypy 46 fichiers · guardrails OK. **Les ~150 tests de guards sont restés verts sans modification** — un seul test a bougé, un `_fake_get_hotel_details` qui épinglait l'ancienne signature. C'est le signal recherché : on a changé l'extracteur, pas les gates.
+
+### Reste
+
+- **`lang-confirm-implicit` est impassable** : re-semer l'item avec un vrai `hotel_id` MCP, ou l'accepter comme plafond documenté.
+- **Variance du harnais** : `_lookup_trace_facts` mériterait un backoff plus long ou un échec explicite plutôt qu'un `skipped` silencieux. Non fait — hors périmètre.
+- **P1-2 s'arrête à la reconnaissance** : répondre dans la langue de l'utilisateur demande de traduire `templates.py`. Décision produit ouverte.
+- Le chantier géo (tour mort landmark + Toulon du bloc « ter ») reste entier.
+
 ## 🚢 Addendum 2026-08-25 ter — prod redéployée sur `11e23ed` : les fixes POI/occupancy sont ENFIN live. Occupancy vérifiée bonne, POI vérifié encore cassé sur un cas réel (Champs-Élysées → **Toulon**).
 
 Les PR #79/#80 étaient mergées depuis le matin mais **tournaient nulle part** : les 3 services étaient restés sur `08d215d` (2026-08-24 13:00Z). Le fil-piège posé par le bloc « 08-24 bis » (*« si un futur `git log <release>..main -- agents libs` remonte quelque chose, c'est un vrai écart »*) a fait exactement son travail.

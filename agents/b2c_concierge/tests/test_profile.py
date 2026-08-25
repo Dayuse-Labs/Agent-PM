@@ -1382,3 +1382,91 @@ class TestLeafProfileView:
         assert profile.last_results[0]["offer_id"] == "uuid-1"
         assert profile.last_results[0]["image_urls"] == ["https://cdn.example/photo-42.jpg"]
         assert profile.pending_booking == {"hotel_id": 42, "offer_id": "uuid-1"}
+
+
+class TestP1LlmSignalsAreAdditive:
+    """P1-1: triage's slots feed the three routing signals. The booleans are
+    applied ADDITIVELY on purpose — they add coverage the fr/en regexes cannot
+    have (a Spanish "sí", an Italian "altre opzioni"), and they can never VETO
+    a match the regex already makes. That is what keeps the ~150 guard tests
+    green by construction instead of at the mercy of one classify call."""
+
+    def test_a_non_fr_en_affirmative_is_recognized_via_the_slot(self):
+        assert is_bare_affirmative("sí", True)
+        assert is_bare_affirmative("ja", True)
+        # …and the regex alone still cannot see it. This is the whole defect.
+        assert not is_bare_affirmative("sí")
+
+    def test_the_slot_can_never_veto_a_regex_match(self):
+        assert is_bare_affirmative("ok", False)
+        assert is_bare_affirmative("d'accord", None)
+
+    def test_more_options_slot_adds_languages_without_vetoing(self):
+        assert is_more_options_signal("otras opciones", True)
+        assert not is_more_options_signal("otras opciones")
+        assert is_more_options_signal("d'autres options", False)
+
+    def test_a_foreign_affirmative_after_an_empty_search_refines(self):
+        # The exact b2c/language-robustness case: an empty shortlist plus "sí"
+        # must re-run the search, not celebrate it with the ack template.
+        profile = SessionProfile(consecutive_empty_searches=1)
+        assert not is_search_refinement_signal("sí", profile)
+        assert is_search_refinement_signal("sí", profile, llm_affirmative=True)
+
+    def test_a_bare_budget_from_the_slot_counts_as_a_refinement(self):
+        profile = SessionProfile(city="paris")
+        assert is_search_refinement_signal("80", profile)  # regex already sees it
+        assert is_search_refinement_signal("achtzig euro", profile, llm_bare_budget=80.0)
+
+
+class TestP1BookingConfirmationSlot:
+    """R9's routing signal. The slot may ADD a confirmation or ADD a refusal;
+    "none" must fall THROUGH to the regexes rather than deny, because the model
+    judges the message alone and cannot see that a booking is pending."""
+
+    def test_confirm_in_any_language(self):
+        profile = SessionProfile(pending_booking={"hotel_id": 1})
+        assert is_booking_confirmation_signal(
+            "sí, confírmalo", profile, llm_booking_confirmation="confirm"
+        )
+        # The regex alone misses it — no fr/en confirmation verb in there.
+        assert not is_booking_confirmation_signal("sí, confírmalo", profile)
+
+    def test_refuse_and_change_block_the_confirmation(self):
+        profile = SessionProfile(pending_booking={"hotel_id": 1})
+        for verdict in ("refuse", "change"):
+            assert not is_booking_confirmation_signal(
+                "oui je confirme", profile, llm_booking_confirmation=verdict
+            )
+
+    def test_none_falls_through_so_a_bare_yes_still_confirms(self):
+        # Regression lock for PR #47: a written confirmation must never
+        # dead-end on the greeting template. A model that answers "none"
+        # because it sees no booking context must not be able to cause that.
+        profile = SessionProfile(pending_booking={"hotel_id": 1})
+        assert is_booking_confirmation_signal("oui", profile, llm_booking_confirmation="none")
+        assert is_booking_confirmation_signal(
+            "oui je confirme", profile, llm_booking_confirmation="none"
+        )
+
+    def test_the_slot_never_confirms_without_a_pending_booking(self):
+        # The state gate comes first: no slot value can invent a pending offer.
+        profile = SessionProfile()
+        assert not is_booking_confirmation_signal(
+            "sí, confírmalo", profile, llm_booking_confirmation="confirm"
+        )
+
+
+class TestP1BudgetGuardStaysRegex:
+    """The budget-integrity guard must NOT move to the slot: it exists to
+    cross-check the leaf's claimed budget against the LITERAL user text, and
+    sourcing both sides from the same model would delete the independence that
+    makes it a guard (audit: "le gate reste en CODE")."""
+
+    def test_a_bare_number_reply_is_still_marked_explicit_from_the_raw_text(self):
+        profile = SessionProfile(budget_max=200.0)
+        fired: set[str] = set()
+        apply_profile_delta(profile, {"budget_max": 80}, user_message="80", fired=fired)
+        assert profile.budget_max == 80.0
+        assert profile.budget_request_source == BUDGET_SOURCE_EXPLICIT
+        assert "budget_integrity" in fired
