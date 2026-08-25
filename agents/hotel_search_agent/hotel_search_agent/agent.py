@@ -64,6 +64,7 @@ from hotel_search_agent.mcp_guard import (
 from hotel_search_agent.response_bridge import (
     capture_after_tool,
     emit_search_datapart,
+    inject_landmark_radius,
     inject_pagination_offset,
     skip_final_generation,
     stamp_turn_start,
@@ -150,6 +151,19 @@ How to act, frugally (at most ONE reasoning pass — no tool-call loops):
   locale automatically from profile_in — you never need to copy any of those
   yourself. A FOLLOW-UP with no new destination in THIS message → leave city
   blank ("").
+  Put a LANDMARK or a named district ("les champs élysées", "gare de lyon",
+  "times square", "la sagrada familia") in `zone` — a landmark is not a city,
+  and the tool has a dedicated lookup for it. When you also know the city it
+  sits in, pass that in `city` as well; the tool handles either shape, so never
+  leave BOTH blank when the user named a place.
+  ALSO pass `country_guess`: the ISO-3166-1 alpha-2 country you know that place
+  is world-famously in ("les champs élysées" → FR, "times square" → US, "la
+  sagrada familia" → ES). This is your world knowledge and it IS wanted here —
+  it is a soft hint the tool scores and verifies, never a coordinate and never
+  a filter, so a wrong guess costs nothing. OMIT it when you genuinely don't
+  know, and never use it for a country the user actually named (that goes in
+  `country_code`). This does not license guessing coordinates: latitude and
+  longitude still only ever come from the tool.
   If it returns ok=False with error "geocode_ambiguous", DO NOT search: ask the
   user the exact clarifying question in its diagnostics (the place is a homonym).
   For any other ok=False, DO NOT call search_offers: relay its diagnostics
@@ -314,6 +328,7 @@ root_agent = Agent(
         inject_profile_occupancy,
         inject_profile_geo_context,
         inject_pagination_offset,
+        inject_landmark_radius,
         resolve_search_date,
         resolve_search_timeslot,
     ],
