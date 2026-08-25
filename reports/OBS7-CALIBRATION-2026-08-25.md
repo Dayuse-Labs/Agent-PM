@@ -1,8 +1,76 @@
 # OBS7 — point de calibration judge/humain, état au 2026-08-25
 
-**Verdict : pas encore de point de calibration — mais le blocage n'est plus structurel.**
-Le mécanisme qui rendait la mesure *impossible par construction* est identifié et corrigé ; il reste
-3 observations à annoter à la main pour produire le premier chiffre.
+> **MISE À JOUR 2026-08-25 (après annotation par Fabien) — le premier point de calibration existe.
+> Il a trouvé un faux positif du juge dès le premier tir.** Résultats en §0 ; le reste du document
+> décrit le blocage structurel qui a été levé pour y arriver.
+
+**Verdict : le mécanisme fonctionne, le premier chiffre est tombé, et il est déjà instructif** — mais
+n=3, donc c'est un test de bout en bout, pas une mesure de qualité.
+
+---
+
+## 0. Le premier point de calibration (2026-08-25)
+
+Les 3 observations mises en queue ont été annotées. Appariement obtenu :
+
+| Observation | Dimension | Juge | Humain | Verdict |
+|---|---|---|---|---|
+| `95ad5d4d2c8dcc82` | Hallucination | **0,0** | **0,0** | ✅ accord exact |
+| `f1f5976125d6b931` | Hallucination | **0,7** | **0,0** | ❌ **désaccord — juge trop sévère** |
+| `f74ac766a6c848ff` | Relevance | **0,8** | **0,5** | ✅ accord (même côté de 0,5), écart 0,30 |
+
+| Dimension | appariées | accord | erreur absolue moyenne |
+|---|---|---|---|
+| Hallucination | 2 | **1/2 (50 %)** | **0,350** |
+| Relevance | 1 | **1/1 (100 %)** | **0,300** |
+| User Distress | 0 | — | — (juge désactivé) |
+
+### Le désaccord est un faux positif structurel, pas du bruit
+
+`f1f5976125d6b931` — le juge met **0,7** en expliquant :
+
+> *« provides a plausible link for hotel booking but lacks verification for whether it is an actual
+> offer or not, making it suspicious »*
+
+Fabien met **0,0** : pas d'hallucination. **C'est l'humain qui a raison**, et l'erreur du juge est
+structurelle : **un juge LLM ne peut pas vérifier une URL.** Il pénalise donc systématiquement tout
+lien de réservation, simplement parce qu'il ne peut pas le contrôler.
+
+Or **cette vérification est déjà faite, de façon déterministe, par le 13ᵉ guard**
+(`hotel_link_truthfulness`, S-G12 — aucun lien hôtel non vérifié contre le ground-truth du tour). Le
+juge duplique donc le travail d'un guard, et le fait moins bien.
+
+**Correctif identifié** : amender le prompt du juge Hallucination pour qu'il **ne note pas la
+vérifiabilité des liens** — ce périmètre appartient à un guard déterministe. Sans ça, chaque tour qui
+produit un lien de réservation générera un faux positif d'hallucination, et le score se dégradera
+d'autant plus que le produit marche bien (plus de liens = plus de faux positifs).
+
+### 🔴 Et ce correctif est bloqué par le bug de validation (§2)
+
+Amender un prompt de juge = une écriture d'evaluator = **le chemin qui part en timeout**. Donc :
+
+> **Le bug de validation ne bloque plus seulement `User Distress` : il bloque désormais l'itération de
+> prompt pilotée par la calibration.** C'est la boucle d'amélioration elle-même qui est gelée. Sa
+> priorité monte en conséquence.
+
+### Un signal que nous sommes aveugles à capter
+
+`f74ac766a6c848ff` porte `human_user_distress = 1` — **Fabien a détecté de la détresse utilisateur sur
+ce tour**. C'est la seule dimension où l'humain a relevé un positif dans l'échantillon… et c'est
+exactement celle dont le juge est **désactivé**. À n=3 ce n'est pas une statistique, mais c'est un
+argument concret de plus pour réparer la validation : la dimension aveugle est celle qui a produit le
+seul signal positif.
+
+### Ce que n=3 permet de conclure
+
+- ✅ **Le mécanisme d'appariement fonctionne** de bout en bout — c'était l'objectif.
+- ✅ **Un défaut réel et actionnable a été trouvé** au premier tir (faux positif sur les liens).
+- ❌ **Aucun chiffre d'accord n'est exploitable** : 50 % sur 2 observations n'a aucune valeur
+  statistique. Ne pas reporter « 50 % d'accord » comme un indicateur.
+- Le n croît seul avec le trafic organique (5 % × 2 juges actifs). Relancer le script
+  périodiquement ; il est idempotent.
+
+---
 
 Et **la cause documentée du blocage de `User Distress` était fausse.** La vraie est ci-dessous, elle est
 plus large, et elle bloque bien plus que ce judge.
@@ -173,23 +241,32 @@ et l'extrapolation est arithmétique, pas spéculative.
 | Coût réel OpenAI observé | ✅ | Mesuré : $8,22e-5/appel (§3). |
 | 3 à 5 judges actifs | ❌ **2/3** | Bloqué par la validation de model config, **pas** par la modération (§2). |
 | Surveillance sur 24 h | ⚠️ | Une fenêtre de 24 h à trafic dense n'a jamais existé. Trafic organique réel : 12 tours le 08-25. Les règles tirent à 5 % → ~0,6 appel attendu par règle. **1 observé. Statistiquement normal, pas un bug.** |
-| Premier point de calibration | ❌ | Mécanisme en place, **3 items en attente d'annotation humaine** (§1). |
+| Premier point de calibration | ✅ **atteint** | 3 observations appariées le 2026-08-25 (§0). Accord Hallucination 1/2, Relevance 1/1 — **n trop petit pour un chiffre**, mais un faux positif structurel du juge est identifié. |
 | Plafond de dépense écrit | ❌ | Action Fabien sur la console OpenAI (§3). |
 
 ---
 
 ## 5. Ce qui reste, par propriétaire
 
+**Fait le 2026-08-25 :** ~~annoter les 3 items~~ ✅ → premier point de calibration produit (§0).
+
 **Fabien :**
-1. Annoter les 3 items de `obs7-judge-calibration` → débloque le premier chiffre.
-2. Poser le plafond OpenAI (~20 $/mois suffit largement).
-3. Trancher : monter temporairement le `sampling` des 2 règles actives pour accélérer le n ? (modif de
+1. Poser le plafond OpenAI. ⚠️ **Le viser au niveau PROJET, pas organisation** : le concierge et la
+   synthèse consomment OpenAI eux aussi, donc un plafond dur au niveau org couperait le produit et pas
+   seulement les juges. Et un « Monthly spend limit » **seul n'est qu'une alerte** — il faut activer
+   « Enforce a hard limit » pour qu'il bloque.
+2. Trancher : monter temporairement le `sampling` des 2 règles actives pour accélérer le n ? (modif de
    config de production, non prise ici)
 
-**À instruire (chantier technique) :**
-4. Réparer la validation de model config côté Langfuse — commencer par les logs `langfuse-web` pendant
-   une tentative d'activation, et vérifier l'egress OpenAI de `langfuse-web` vs `langfuse-worker`.
-5. Une fois réparé : créer une version de `User Distress` sans `conversation_history`, puis activer.
+**À instruire (chantier technique) — priorité relevée :**
+3. **Réparer la validation de model config côté Langfuse.** Ce n'est plus seulement `User Distress` qui
+   est bloqué : le correctif du faux positif sur les liens (§0) est lui aussi une écriture d'evaluator,
+   donc **la boucle d'amélioration pilotée par la calibration est gelée**. Commencer par les logs
+   `langfuse-web` pendant une tentative d'activation, et comparer l'egress OpenAI de `langfuse-web` vs
+   `langfuse-worker`.
+4. Une fois réparé, deux écritures à faire : (a) amender le prompt Hallucination pour qu'il **cesse de
+   noter la vérifiabilité des liens** (périmètre du guard `hotel_link_truthfulness`), (b) créer une
+   version de `User Distress` sans `conversation_history`, puis l'activer.
 
 ---
 

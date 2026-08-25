@@ -104,10 +104,29 @@ juge, **0 observation commune**. Plus de trafic n'y aurait rien changé.
 compte : l'inverse est impossible (les règles ne s'appliquent qu'aux observations nouvellement ingérées,
 pas de backfill sur cette instance).
 
-**Fait le 2026-08-25** : 3 observations mises en queue (`95ad5d4d2c8dcc82`, `f1f5976125d6b931`,
-`f74ac766a6c848ff`), vérifié idempotent. **Action Fabien : les annoter dans `obs7-judge-calibration`,
-puis relancer le script sans `--queue-missing`.** n=3 sera un test du mécanisme, pas un chiffre
-exploitable — le n croît seul avec le trafic. Détail complet : `reports/OBS7-CALIBRATION-2026-08-25.md`.
+**Fait le 2026-08-25** : 3 observations mises en queue, **annotées par Fabien, premier point de
+calibration produit** :
+
+| Observation | Dimension | Juge | Humain | |
+|---|---|---|---|---|
+| `95ad5d4d2c8dcc82` | Hallucination | 0,0 | 0,0 | ✅ accord exact |
+| `f1f5976125d6b931` | Hallucination | **0,7** | **0,0** | ❌ **juge trop sévère** |
+| `f74ac766a6c848ff` | Relevance | 0,8 | 0,5 | ✅ accord, écart 0,30 |
+
+**Le désaccord est un faux positif structurel** : le juge met 0,7 parce que le lien de réservation
+« lacks verification ». Un juge LLM **ne peut pas vérifier une URL** — et cette vérification est déjà
+faite déterministement par le 13ᵉ guard (`hotel_link_truthfulness`, S-G12). Le juge duplique un guard et
+le fait moins bien. Non corrigé : **chaque tour produisant un lien génère un faux positif**, donc le
+score se dégrade d'autant plus que le produit marche.
+
+🔴 **Et le correctif est bloqué** : amender un prompt de juge est une écriture d'evaluator, donc le
+chemin qui part en timeout. **Le bug de validation gèle désormais la boucle d'amélioration elle-même,
+pas seulement `User Distress`** — sa priorité monte.
+
+Détail : `f74ac766a6c848ff` porte `human_user_distress = 1` — le seul positif relevé par l'humain est
+sur la dimension dont le juge est désactivé. ⚠️ **Ne pas reporter « 50 % d'accord » comme indicateur** :
+n=3, c'est un test du mécanisme. Le n croît seul avec le trafic ; le script est idempotent.
+Détail complet : `reports/OBS7-CALIBRATION-2026-08-25.md`.
 
 ⚠️ Non fait volontairement : **monter le `sampling` des 2 règles de production** pour accélérer le n.
 C'est une modif de config de production — décision de Fabien.
@@ -203,7 +222,7 @@ Le seul frein à la réparation de l'edge était que `/v3` était ouvert : répa
 - **Edge public** : décision à prendre — supprimer le domaine (recommandé, personne ne le consomme) ou binder dual-stack dans le concierge. **Le `targetPort` est déjà posé et n'était pas la cause** (cf. plus haut). Plus aucun risque de sécurité dans un sens ou l'autre, la façade étant gatée.
 - **Judges OBS7** : les 2 règles actives sont saines (`enabled:true`, jamais en erreur). ⚠️ **Corrigé le 2026-08-24 (bloc OBS8/OBS7 en tête) : elles n'ont plus 0 score — le juge `Hallucination` a tiré pour la première fois de son histoire à 12:24Z.** Elles avaient 0 score — cause identifiée : 19 jours sans trafic prod (05/08 → 24/08), pas un bug. Il faut du trafic **organique** : les tours de vérification de la journée sont taggés `synthetic`, donc exclus de l'échantillonnage à 5 %.
 - **`obs7-user-distress-v3chat`** toujours désactivé. ⚠️ **Cause corrigée le 2026-08-25 : ce n'est PAS la modération OpenAI** mais la validation de model config qui part en timeout (120 s, indépendant du contenu) — voir le bloc « ter » en tête. **Ne pas retenter depuis l'UI**, ça échouera pareil.
-- **Plafond de dépense OpenAI** (~20 $/mois) non vérifié posé. Coût désormais **mesuré** : $8,22e-5/appel de juge, soit ~$0,12/mois à 10k tours × 5 % × 3 juges — le plafond est du pur coussin.
+- **Plafond de dépense OpenAI** (~20 $/mois) non posé. Coût **mesuré** : $8,22e-5/appel de juge, soit ~$0,12/mois à 10k tours × 5 % × 3 juges — le plafond est du pur coussin. ⚠️ **Où le poser (2026-08-25)** : `platform.openai.com/settings/organization/limits` → section *Spend* → *Edit spend limit* ; au niveau **projet** via Settings → le projet → *Limits*. Piège : un « Monthly spend limit » **seul n'est qu'une alerte, le trafic continue** — il faut activer **« Enforce a hard limit »** pour bloquer (`429` + `project_spend_limit_exceeded`). **Viser le niveau PROJET** : le concierge et la synthèse consomment OpenAI aussi, un plafond dur au niveau org couperait le produit, pas seulement les juges.
 
 ## 🚀 Addendum 2026-08-24 (session « quel build tourne en prod ? », branche `fix/rotted-date-test`) — l'écart de déploiement OBS3/OBS4/OBS5 est confirmé PUIS comblé, prod redéployée sur `f49009c`
 
