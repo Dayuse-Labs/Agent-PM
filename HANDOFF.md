@@ -2,6 +2,55 @@
 
 État du chantier pour reprise en session fraîche. **Lire en entier avant d'agir ; ne pas reconstruire ce qui existe.** Mettre à jour en fin de CHAQUE session (bloc daté en tête).
 
+## 🔓 Addendum 2026-08-25 bis — le blocage de validation de model config est RÉSOLU : ce n'était ni le contenu, ni un défaut d'egress, mais un hang INTERMITTENT dans le process `langfuse-web`. Les 2 correctifs de juge sont livrés et actifs.
+
+Le blocage vieux de 25 jours est levé. **La cause au dossier était fausse deux fois** — corriger la mémoire, pas seulement l'état.
+
+### Ce que le dossier disait vs ce qui est vrai
+
+| Au dossier (07-31 puis 08-25 matin) | Vrai, mesuré cette session |
+|---|---|
+| « modération OpenAI sur les few-shot grossiers » | **Réfuté** (déjà réfuté le 08-25 matin, confirmé ici) |
+| « aucun evaluator ne peut être créé ni modifié, indépendant du contenu » | **À moitié faux** : indépendant du contenu ✅, mais **PAS permanent** — `upsertEvaluator` a réussi 3× d'affilée à 12:06–12:08, puis 5× en timeout de 12:09 à 12:18 |
+| « validation dans `langfuse-web` vs exécution dans `langfuse-worker`, un seul a l'egress OpenAI » | **Réfuté** : `langfuse-web` joint `api.openai.com` en **173 ms**, et le worker appelle **exactement le même** `generateLLMText` de `packages/shared` (`worker/src/features/evaluation/evalExecutionDeps.ts:241`). Aucune asymétrie d'egress, aucune asymétrie de code. |
+
+### La vraie cause
+
+Le préflight est `web/src/features/evals/server/evaluator-preflight.ts` → `testModelCall` → `generateLLMText`. Il **hang par intermittence à l'intérieur du process Next.js long-vécu de `langfuse-web`** :
+
+- `netstat` dans le conteneur pendant un hang : la socket vers OpenAI atteint **`ESTABLISHED`, `Recv-Q 0 / Send-Q 0`, et y reste les 120 s entières**. Connectée, rien ne circule.
+- CPU à **0,6 %** pendant tout le hang (échantillonné à la minute) — rien ne tourne en boucle.
+- Le **même appel depuis un process node neuf dans le MÊME conteneur est fiable à 100 %** : 20/20 en rafale (~150 ms), 17/17 espacés de 10 s avec un `Agent` partagé — dont pendant que le serveur, lui, timeoutait. Testé avec le dispatcher SSRF exact de Langfuse (`undici` Agent + `dns.lookup` enveloppé + `redirect: manual`) et avec **les 2 IP A de `api.openai.com` forcées une par une** (`172.66.0.243`, `162.159.140.245`) : les deux répondent.
+- **120 s n'est pas arbitraire** : c'est exactement le défaut de `LANGFUSE_FETCH_LLM_COMPLETION_TIMEOUT_MS` (`packages/shared/src/env.ts:472`), non posé sur aucun des 2 services.
+- L'état est **collant** : un hang semble en entraîner d'autres, et ça se draine après une période d'inactivité (tout échouait 09:12–09:21, tout marchait à 12:06). Le seul état long-vécu sur ce chemin est l'`Agent` undici mis en cache au niveau module (`packages/shared/src/server/outbound-url/connection.ts`). **Mécanisme exact non prouvé** — ce qui est prouvé, c'est que c'est dans le process, pas dans le réseau.
+
+### Le correctif : un flag amont, pas un contournement
+
+`LANGFUSE_SKIP_EVALUATOR_MODEL_CALL_VALIDATION=true` posé sur **`langfuse-web`** (variable + `serviceInstanceDeployV2`, déploiement `f96b2bec` `SUCCESS`, health `3.224.3` OK). C'est une échappatoire livrée par Langfuse dans le préflight lui-même : elle **garde** la validation de sélection de modèle et la compilation du schéma de sortie, et **ne supprime que l'appel live au provider** — appel dont on n'a aucun besoin ici, puisque le worker exécute ces mêmes juges contre la même connexion toute la journée.
+
+**Vérifié, pas déclaré** : `netstat` pendant 2 écritures d'evaluator post-flag → **zéro connexion sortante 443**. Le préflight ne touche plus OpenAI du tout. Ce n'est donc pas « on a eu de la chance après un restart ».
+
+⚠️ **Contrepartie assumée** : un nom de modèle réellement faux ne serait plus attrapé à l'écriture, seulement à l'exécution (la règle partirait en erreur). Réversible en retirant la variable.
+
+### Les 2 correctifs livrés
+
+1. **`Hallucination` v2** (`cmt8mfq1b006yni029xunepre`) — la règle active `obs7-hallucination-v3chat` a migré dessus toute seule. Section « Out of scope for this judge » ajoutée : (1) les **liens** ne sont jamais un signal d'hallucination — un juge LLM ne peut pas ouvrir une URL, et le 13e guard (`hotel_link_truthfulness`) les vérifie déjà caractère par caractère ; (2) la **donnée live** (prix, remises, dispo, dates, créneaux, capacité, nombre d'avis) n'est notée que si elle est fausse **en soi** (contredit la requête, se contredit, arithmétiquement impossible), jamais parce que le juge ne peut pas la confirmer. **La classe (2) est volontairement plus étroite que la (1)** : les liens ont un guard déterministe, les prix non — aveugler le juge sur les prix supprimerait du vrai signal. Élargissement au-delà de la demande initiale (qui ne visait que les liens), justifié par une 2e occurrence mesurée : 0,7 sur une remise de « 78 % » pour *« lacking verification against actual data »* (score `7e9dbb15`, 08-25 10:57Z). **Nom de règle inchangé** → le nom de score `obs7-hallucination-v3chat` reste stable, les séries avant/après restent comparables.
+2. **`User Distress (no history)`** (`cmt8moncv0071ni02mrjjra0p`) — `conversation_history` retiré du prompt ET de la liste de variables. La règle `obs7-user-distress-v3chat` est **recâblée dessus et ACTIVE** (`enabled:true`, `status:active`, mapping `last_user_message ← input` seul, sampling 0,05, filtres inchangés). **Les 3 règles sont maintenant actives.** L'ancien `User Distress` est laissé sur l'instance en `evaluationRuleCount: 0` (jamais activé, 0 score produit) pour garder l'historique lisible.
+
+### 🪤 Pièges découverts
+
+1. **`railway ssh` perd les premières lignes de sortie** et re-joint ses arguments dans un shell : `sh -c 'echo A; echo B'` n'affiche que `B`, et une boucle `for … do` part en `syntax error`. Recette qui marche : passer **un seul argument déjà quoté** (`railway ssh … -- "node -e 'JS'"`) et faire imprimer au script **5 lignes de padding** avant ce qui compte. Sans ça on conclut à tort que la commande n'a rien produit.
+2. **Le nom du score = le nom de la RÈGLE**, pas celui de l'evaluator (`obs7-hallucination-v3chat`, cf. `listScores`). Renommer une règle casse la continuité de la série ; changer d'evaluator dessous ne la casse pas. C'est pourquoi le juge distress a changé d'evaluator **sans** que la règle change de nom.
+3. **`upsertEvaluator` sur un nom existant crée une nouvelle version ET migre les règles qui le référencent** — l'id de l'evaluator change (v1 `cms8mom1h…` → v2 `cmt8mfq1b…`). Un `id` d'evaluator noté dans un doc devient donc périmé à chaque amendement de prompt ; se référencer par **nom + scope**.
+4. **Les écritures échouées sont atomiques** : les 5 timeouts n'ont laissé aucune trace (25 evaluators avant/après, règle inchangée). Rassurant, mais ça veut aussi dire qu'un timeout ne dit RIEN sur l'état — toujours relire avec `listEvaluationRules` après.
+
+### Reste
+
+- **Mécanisme exact du hang non identifié** (in-process, l'`Agent` undici module-level est le suspect). Sans conséquence tant que le flag est posé : le seul chemin qui l'empruntait était ce préflight. ⚠️ Il reviendrait si on utilisait le **Playground**, les filtres en langage naturel ou la recherche IA — toutes des features web-side qui appellent le LLM par le même chemin.
+- **Efficacité du prompt v2 non encore mesurée** : le juge tire à 5 % de sampling, il faut du trafic organique. À revérifier : un tour produisant un lien ne doit plus sortir 0,7 pour « lacks verification ». La comparaison se lit dans la même série `obs7-hallucination-v3chat`.
+- **Le juge distress n'a encore produit aucun score** (activé à 12:59Z). Vérifier sous 24 h qu'il n'est ni en erreur ni en pause, et que le 6e exemple few-shot fait bien scorer `false` un « Bonjour, je cherche un hôtel ».
+- Inchangé : plafond de dépense OpenAI toujours à poser (action Fabien), OBS8 attend une fenêtre, OBS9 à planifier avant fin janvier 2027.
+
 ## 🗺️ Addendum 2026-08-25 — bugs POI et occupancy CORRIGÉS et mesurés (PR #79, #80 mergées)
 
 Les deux P0 de `AUDIT-AGENTIQUE-2026-07-30.md` sont livrés. **Ne pas les reconstruire.**
@@ -128,6 +177,8 @@ trafic n'aurait rien changé — il fallait changer le dispositif, pas le volume
 
 ### 🔴 OBS7 — la cause documentée du blocage `User Distress` est FAUSSE
 
+> ⚠️ **PARTIELLEMENT PÉRIMÉ depuis le 2026-08-25 (bloc « bis » en tête) — le blocage est RÉSOLU.** Ce qui reste juste : l'échec est indépendant du contenu, la modération OpenAI n'y est pour rien. Ce qui est faux : l'échec n'est **pas permanent** (il est intermittent), et l'hypothèse « web valide / worker exécute, un seul a l'egress » est **réfutée** — les deux joignent OpenAI, et le worker appelle le même code. Conservé pour la trace du raisonnement.
+
 **Ne pas retenter l'activation depuis l'UI : ça échouera pareil.** L'hypothèse au dossier depuis le
 07-31 (modération OpenAI sur les exemples few-shot du prompt) est **réfutée par 4 tests** :
 
@@ -184,7 +235,7 @@ faite déterministement par le 13ᵉ guard (`hotel_link_truthfulness`, S-G12). L
 le fait moins bien. Non corrigé : **chaque tour produisant un lien génère un faux positif**, donc le
 score se dégrade d'autant plus que le produit marche.
 
-🔴 **Et le correctif est bloqué** : amender un prompt de juge est une écriture d'evaluator, donc le
+🔴 ~~**Et le correctif est bloqué**~~ **DÉBLOQUÉ le 2026-08-25** (bloc « bis » en tête) : `Hallucination` v2 est en prod avec la section « Out of scope ». À l'époque : amender un prompt de juge est une écriture d'evaluator, donc le
 chemin qui part en timeout. **Le bug de validation gèle désormais la boucle d'amélioration elle-même,
 pas seulement `User Distress`** — sa priorité monte.
 
@@ -286,7 +337,7 @@ Le seul frein à la réparation de l'edge était que `/v3` était ouvert : répa
 
 - **Edge public** : décision à prendre — supprimer le domaine (recommandé, personne ne le consomme) ou binder dual-stack dans le concierge. **Le `targetPort` est déjà posé et n'était pas la cause** (cf. plus haut). Plus aucun risque de sécurité dans un sens ou l'autre, la façade étant gatée.
 - **Judges OBS7** : les 2 règles actives sont saines (`enabled:true`, jamais en erreur). ⚠️ **Corrigé le 2026-08-24 (bloc OBS8/OBS7 en tête) : elles n'ont plus 0 score — le juge `Hallucination` a tiré pour la première fois de son histoire à 12:24Z.** Elles avaient 0 score — cause identifiée : 19 jours sans trafic prod (05/08 → 24/08), pas un bug. Il faut du trafic **organique** : les tours de vérification de la journée sont taggés `synthetic`, donc exclus de l'échantillonnage à 5 %.
-- **`obs7-user-distress-v3chat`** toujours désactivé. ⚠️ **Cause corrigée le 2026-08-25 : ce n'est PAS la modération OpenAI** mais la validation de model config qui part en timeout (120 s, indépendant du contenu) — voir le bloc « ter » en tête. **Ne pas retenter depuis l'UI**, ça échouera pareil.
+- ~~**`obs7-user-distress-v3chat`** toujours désactivé~~ → **ACTIF depuis le 2026-08-25 12:59Z**, recâblé sur `User Distress (no history)` (bloc « bis » en tête). ⚠️ **Cause corrigée le 2026-08-25 : ce n'est PAS la modération OpenAI** mais la validation de model config qui part en timeout (120 s, indépendant du contenu) — voir le bloc « ter » en tête. **Ne pas retenter depuis l'UI**, ça échouera pareil.
 - **Plafond de dépense OpenAI** (~20 $/mois) non posé. Coût **mesuré** : $8,22e-5/appel de juge, soit ~$0,12/mois à 10k tours × 5 % × 3 juges — le plafond est du pur coussin. ⚠️ **Où le poser (2026-08-25)** : `platform.openai.com/settings/organization/limits` → section *Spend* → *Edit spend limit* ; au niveau **projet** via Settings → le projet → *Limits*. Piège : un « Monthly spend limit » **seul n'est qu'une alerte, le trafic continue** — il faut activer **« Enforce a hard limit »** pour bloquer (`429` + `project_spend_limit_exceeded`). **Viser le niveau PROJET** : le concierge et la synthèse consomment OpenAI aussi, un plafond dur au niveau org couperait le produit, pas seulement les juges.
 
 ## 🚀 Addendum 2026-08-24 (session « quel build tourne en prod ? », branche `fix/rotted-date-test`) — l'écart de déploiement OBS3/OBS4/OBS5 est confirmé PUIS comblé, prod redéployée sur `f49009c`
