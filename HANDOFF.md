@@ -2,6 +2,56 @@
 
 État du chantier pour reprise en session fraîche. **Lire en entier avant d'agir ; ne pas reconstruire ce qui existe.** Mettre à jour en fin de CHAQUE session (bloc daté en tête).
 
+## 🚢 Addendum 2026-08-25 ter — prod redéployée sur `11e23ed` : les fixes POI/occupancy sont ENFIN live. Occupancy vérifiée bonne, POI vérifié encore cassé sur un cas réel (Champs-Élysées → **Toulon**).
+
+Les PR #79/#80 étaient mergées depuis le matin mais **tournaient nulle part** : les 3 services étaient restés sur `08d215d` (2026-08-24 13:00Z). Le fil-piège posé par le bloc « 08-24 bis » (*« si un futur `git log <release>..main -- agents libs` remonte quelque chose, c'est un vrai écart »*) a fait exactement son travail.
+
+### Déroulé
+
+- `LANGFUSE_RELEASE=11e23ed` posé sur `concierge` / `hotel-search` / `faq` via `variableUpsert` avec **`skipDeploys: true`** — vérifié : les 3 `last_deploy` sont restés au 08-24 après le stamp, donc aucun redéploiement de l'ANCIEN code.
+- `railway up --service <n> --environment production --detach`, **feuilles d'abord** (`hotel-search`, `faq`) puis `concierge` — pour que le concierge redémarre contre des feuilles déjà à jour. `--detach` volontaire : `--ci` streame les build logs, qui contiennent `FLEET_READ_TOKEN` en clair.
+- 3 déploiements **SUCCESS**. `widget` NON redéployé : `git log 08d215d..main -- web` est vide (et ce service n'a pas d'estampille).
+- `faq` redéployé alors que son code est inchangé (`agents/faq_agent` + `libs` = 0 commit) — délibéré, pour que l'estampille `11e23ed` ne mente pas sur ce service.
+
+### Vérifié en prod sur du trafic réel (3 tours `x-dayuse-synthetic: 1` via le proxy widget)
+
+| Tour | Résultat |
+|---|---|
+| « autour des champs elysees demain **pour 2 adultes et 1 enfant** » | `adults:2 children:1` dans `active_filters` ✅ · 0 hôtel · réponse honnête |
+| **Contrôle B** « à paris demain **pour 2 adultes et 1 enfant** » | **5 hôtels, tous `capacity ≥ 2` ET `children_capacity ≥ 1`** ✅ |
+| **Contrôle A** « autour des champs élysées demain » (sans occupancy) | **4 hôtels… à TOULON** ❌ |
+
+**Occupancy (P0-1) : confirmé bon de bout en bout en prod.** C'était le point de contrôle B, conçu exprès pour séparer « filtre trop restrictif » de « géo cassée ».
+
+**OBS3/OBS5 non régressés** : les 13 scores `guard_*` + `hotels_returned` + `empty_shortlist` + `llm_calls=3` arrivent en `environment=production` sur chaque trace, `configId` attaché partout sauf `guard_date_hallucinated_year_rolled_forward` (gap permanent des 35 caractères, connu). Budget LLM respecté.
+
+### ❌ Défaut LIVE trouvé à la vérification : « les champs élysées » résout sur un commerce toulonnais
+
+**Ce n'est PAS une régression du déploiement** — c'est un cas résiduel des 35 % que `hotels_within_km` laisse encore échouer après PR #79 (65 %, pas 100 %). Mais la magnitude est nouvelle : l'audit décrivait des ratés à 7-13 km (La Défense, Orly), là c'est **830 km**.
+
+Preuve directe, dans `active_filters.distance_origin` du tour :
+
+```
+label : "Champs Elysées, 32 Rue d'Alger, 83000 Toulon, France"
+type  : "poi"
+lat/lon : 43.12151572, 5.93218873
+```
+
+Mapbox Search Box a matché un **commerce littéralement nommé « Champs Elysées » à Toulon**. C'est le mécanisme **M3 de `AUDIT-AGENTIQUE-2026-07-30.md`** (*Search Box non scopé — ni proximity ni prior locale, un POI homonyme passe*), toujours vivant quand la requête ne porte **aucune ville** (`city: None`, `resolved_city: None` — seul `zone` est rempli).
+
+**Deux observations qui comptent pour la suite :**
+
+1. **Aucun guard géo n'a tiré** : `guard_geocode_echo_back = false` ET `guard_generic_location_demotion = false` sur cette trace. C'est exactement **M4 de l'audit** (*« l'écho valide le NOM, pas le LIEU »*) : l'écho Mapbox contient bien « Champs Elysées », donc le guard est satisfait — alors que le lieu est à 830 km. **Un guard vert ici est un faux négatif structurel, pas un oubli de câblage.**
+2. **La synthèse dégrade honnêtement** : *« la recherche a bien trouvé 4 offres… mais à Toulon, pas autour des Champs-Élysées ; dites-moi la ville exacte (Paris) »*. L'agent ne ment pas — mais il affiche quand même 4 cartes de Toulon.
+
+⚠️ **Sensible à la normalisation** : « champs elysees » (sans accents, tour 1) → 0 hôtel ; « champs élysées » (avec accents, contrôle A) → Toulon. Deux chemins de résolution différents pour la même intention.
+
+### Reste
+
+- **P1 audit (contrat JSON du triage) reste le prochain chantier** — et ce défaut lui donne une raison de plus : quand le modèle n'émet que `zone` sans `city`, le résolveur n'a aucun prior pour écarter un homonyme. Le vrai correctif est probablement double : contrat d'extraction **et** scoping du Search Box par la ville/le marché.
+- Piste de guard à instruire : comparer la résolution POI à l'ancre ville/marché du tour et **démoter** au-delà d'un seuil de distance, plutôt que de valider sur le nom (M4).
+- Reste inchangé : plafond OpenAI à poser, OBS8 attend une fenêtre, OBS9 avant fin janvier 2027, juges v2 à surveiller sous 24 h.
+
 ## 🔓 Addendum 2026-08-25 bis — le blocage de validation de model config est RÉSOLU : ce n'était ni le contenu, ni un défaut d'egress, mais un hang INTERMITTENT dans le process `langfuse-web`. Les 2 correctifs de juge sont livrés et actifs.
 
 Le blocage vieux de 25 jours est levé. **La cause au dossier était fausse deux fois** — corriger la mémoire, pas seulement l'état.
