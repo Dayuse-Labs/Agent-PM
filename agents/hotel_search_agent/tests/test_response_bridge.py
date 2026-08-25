@@ -39,6 +39,43 @@ from hotel_search_agent.response_bridge import (
 )
 
 
+class TestCardOccupancyDisclosure:
+    """P0-1: how many people the priced offer sleeps. From the SAME `best` dict
+    as the price and the time slot, so the numbers on one card always describe
+    ONE offer. Snake_case on the card; MCP sends `capacity`/`childrenCapacity`."""
+
+    def _hotel(self, **offer_extra):
+        offer = {
+            "priceEuro": 9000,
+            "startHour": 10,
+            "endHour": 18,
+            "ratePlanUuid": "rp-1",
+            "availabilityDate": "2026-08-26",
+        }
+        offer.update(offer_extra)
+        return {"hotelId": 1, "name": "H", "offers": [offer]}
+
+    def test_capacity_and_children_capacity_reach_the_card(self):
+        card = normalize_hotel(self._hotel(capacity=2, childrenCapacity=1))
+        assert card["capacity"] == 2
+        assert card["children_capacity"] == 1
+
+    def test_zero_children_capacity_is_reported_not_dropped(self):
+        # An adults-only offer is a fact a family needs to see.
+        card = normalize_hotel(self._hotel(capacity=2, childrenCapacity=0))
+        assert card["children_capacity"] == 0
+
+    def test_absent_capacity_yields_no_key_never_a_guess(self):
+        card = normalize_hotel(self._hotel())
+        assert "capacity" not in card
+        assert "children_capacity" not in card
+
+    def test_garbage_capacity_is_ignored(self):
+        card = normalize_hotel(self._hotel(capacity="deux", childrenCapacity=True))
+        assert "capacity" not in card
+        assert "children_capacity" not in card
+
+
 class _Ctx:
     """Minimal stand-in for ADK ToolContext/CallbackContext (dict-backed .state
     + optional user_content, mirroring test_equipment_ids.py's fixture)."""

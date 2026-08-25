@@ -405,6 +405,54 @@ def _budget_timeslot_from_args(args: dict[str, Any]) -> dict[str, Any]:
     return captured
 
 
+# P0-1 party-size limits. A count this large is a data-entry slip, not a
+# booking; refusing it here keeps a fat-fingered "200 adults" from coming back
+# as what looks like real empty inventory.
+_MAX_PARTY = 30
+
+
+def party_count(value: Any) -> int | None:
+    """A usable party count, or None. Accepts an int or a clean integral string
+    (the model sometimes sends `"2"`); rejects bools, fractional floats,
+    negatives and absurd sizes. 0 is returned as 0 — meaningful for `children`
+    ("adults only"), rejected for `adults` by the callers, since a search for
+    zero adults is not a search. Shared with `occupancy.py` so the carryover and
+    the capture can never disagree on what counts as a valid party size."""
+    if isinstance(value, bool):
+        return None
+    if isinstance(value, int):
+        count = value
+    elif isinstance(value, float):
+        if value != int(value):
+            return None
+        count = int(value)
+    elif isinstance(value, str):
+        try:
+            count = int(value.strip())
+        except (ValueError, AttributeError):
+            return None
+    else:
+        return None
+    if count < 0 or count > _MAX_PARTY:
+        return None
+    return count
+
+
+def occupancy_from_args(args: dict[str, Any]) -> dict[str, int]:
+    """The party size the model actually sent search_offers, in the
+    orchestrator's profile schema. Same only-when-present contract as
+    `_budget_timeslot_from_args`: an absent or garbage value yields no key,
+    never a wrong one. `adults=0` is dropped (not a search); `children=0` is
+    kept ("adults only" is a real statement, distinct from saying nothing)."""
+    captured: dict[str, int] = {}
+    for name in ("adults", "children"):
+        count = party_count(args.get(name))
+        if count is None or (name == "adults" and count == 0):
+            continue
+        captured[name] = count
+    return captured
+
+
 def _stamp_distances(
     results: list[dict[str, Any]], origin: dict[str, Any] | None
 ) -> None:
@@ -566,6 +614,21 @@ def normalize_hotel(
         offer_date = best.get("availabilityDate")
         if isinstance(offer_date, str) and offer_date.strip():
             card["offer_date"] = offer_date.strip()
+        # P0-1: how many people this priced offer actually sleeps. From the same
+        # `best` dict as the price above, so the numbers on a card always
+        # describe ONE offer. Snake_case on the card (`children_capacity`) —
+        # MCP sends `capacity`/`childrenCapacity`. Without these two the
+        # response disclosed nothing about occupancy even when MCP had filtered
+        # on it, so "for 2 adults and 1 child" was unverifiable from the outside.
+        for card_key, mcp_key in (
+            ("capacity", "capacity"),
+            ("children_capacity", "childrenCapacity"),
+        ):
+            value = best.get(mcp_key)
+            if isinstance(value, bool) or not isinstance(value, int):
+                continue
+            if value >= 0:
+                card[card_key] = value
     return card
 
 
@@ -889,6 +952,11 @@ def capture_after_tool(
                 budget_timeslot["timeslot_start"] = start_hhmm
             if end_hhmm:
                 budget_timeslot["timeslot_end"] = end_hhmm
+        # P0-1: same only-when-present contract, from the SAME real args. The
+        # model already emits adults/children ~78% of the turns they are stated;
+        # until this capture existed nothing read them, so they never reached
+        # the profile and could not survive to the next turn.
+        budget_timeslot.update(occupancy_from_args(args))
         if budget_timeslot:
             tool_context.state[_STATE_BUDGET_TIMESLOT_KEY] = budget_timeslot
         # Content-free counter (flags only): lets a live run confirm whether the
@@ -1108,6 +1176,14 @@ def emit_search_datapart(callback_context: Any) -> genai_types.Content | None:
         if budget_timeslot.get("timeslot_end"):
             profile_delta["timeslot_end"] = budget_timeslot["timeslot_end"]
         profile_delta["timeslot_request_source"] = _REQUEST_SOURCE_FLEXIBLE
+    # P0-1: party size → the orchestrator's slots. No request-source twin: an
+    # occupancy is never inferred or widened, so there is no flexible/explicit
+    # distinction to carry. `children` is sent when captured even at 0 ("adults
+    # only" is a statement); `adults` is only ever a positive count.
+    if budget_timeslot.get("adults") is not None:
+        profile_delta["adults"] = budget_timeslot["adults"]
+    if budget_timeslot.get("children") is not None:
+        profile_delta["children"] = budget_timeslot["children"]
 
     # Distance origin (A8-a) only when there are cards to attach distances to — a
     # 0-result search carries none. Nested INSIDE profile_delta: the concierge

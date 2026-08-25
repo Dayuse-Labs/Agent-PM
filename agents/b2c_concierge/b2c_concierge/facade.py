@@ -381,6 +381,12 @@ def build_active_filters(profile: SessionProfile) -> dict[str, Any]:
         "domain": profile.domain,
         "search_anchor": profile.search_anchor,
         "client_timezone": profile.client_timezone,
+        # P0-1: the party size the search actually filtered on. Measured at 0%
+        # before this — the leaf was emitting adults/children to MCP while the
+        # response disclosed nothing, so neither a user nor an eval could tell
+        # whether the occupancy had been honoured.
+        "adults": profile.adults,
+        "children": profile.children,
     }
 
 

@@ -268,6 +268,40 @@ class TestBudgetVsDurationGuard:
         assert profile.budget_max == 20.0
 
 
+class TestOccupancyPersistence:
+    """P0-1: the profile slot that was missing. Without it a captured party size
+    died with the turn (the leaf is stateless, include_contents="none"), so turn
+    2 ("moins cher") silently dropped it and offered rooms the family cannot
+    book. Measured at 0% before this change."""
+
+    def test_occupancy_survives_a_to_dict_from_dict_round_trip(self):
+        restored = SessionProfile.from_dict(SessionProfile(adults=2, children=1).to_dict())
+        assert (restored.adults, restored.children) == (2, 1)
+
+    def test_children_zero_round_trips_distinctly_from_none(self):
+        # "adults only" (0) and "nobody said" (None) are different facts.
+        restored = SessionProfile.from_dict(SessionProfile(adults=2, children=0).to_dict())
+        assert restored.children == 0
+        assert SessionProfile.from_dict(SessionProfile(adults=2).to_dict()).children is None
+
+    def test_a_leaf_delta_writes_the_occupancy_into_the_session(self):
+        profile = SessionProfile(city="Paris")
+        apply_profile_delta(profile, {"adults": 2, "children": 1}, "2 adultes et 1 enfant")
+        assert (profile.adults, profile.children) == (2, 1)
+
+    def test_a_delta_without_occupancy_never_wipes_a_known_one(self):
+        # Only-when-present: a refinement turn emits no occupancy and must leave
+        # the remembered party size alone.
+        profile = SessionProfile(city="Paris", adults=2, children=1)
+        apply_profile_delta(profile, {"city": "Paris"}, "moins cher")
+        assert (profile.adults, profile.children) == (2, 1)
+
+    def test_occupancy_reaches_the_leaf_view(self):
+        view = leaf_profile_view(SessionProfile(city="Paris", adults=2, children=1))
+        assert view["adults"] == 2
+        assert view["children"] == 1
+
+
 class TestTimeslotSanitization:
     def test_one_sided_clock_label_is_salvaged_as_start_bound(self):
         profile = SessionProfile()

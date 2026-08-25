@@ -55,6 +55,7 @@ from hotel_search_agent.equipment_ids import (
     inject_amenities_declaration,
 )
 from hotel_search_agent.geocode_tool import geocode_location, inject_profile_geo_context
+from hotel_search_agent.occupancy import inject_profile_occupancy
 from hotel_search_agent.mcp_guard import (
     mcp_circuit_after_tool,
     mcp_circuit_before_tool,
@@ -175,6 +176,19 @@ How to act, frugally (at most ONE reasoning pass — no tool-call loops):
   slot the user did not state, and do NOT turn a vague "cheaper"/"earlier"
   into a number — when none is mentioned, OMIT these arguments (an omitted
   argument means no budget or time-slot constraint).
+- Pass search_offers `adults` and/or `children` (whole numbers) ONLY when the
+  user states who is travelling ("2 adults and 1 child", "pour deux", "on est
+  4", "with my wife and our baby"). A CHILD'S AGE IS NOT A COUNT: "ma fille de
+  8 ans" is children=1, never children=8. A bare group size with no breakdown
+  ("on est 4") is adults=4. COUNT THE SPEAKER when they include themselves:
+  "avec ma femme"/"with my wife" is adults=2 (them plus one), "moi et mes deux
+  amis" is adults=3 — a named companion is an ADDITIONAL adult, never the only
+  one. A baby or an infant is children=1, never an adult.
+  NEVER invent a party size the user did not state —
+  when nobody is mentioned, OMIT both arguments: these are MINIMUM-capacity
+  filters, so a guessed `adults=1` silently hides offers the user never
+  excluded. You do not need to repeat a party size already established earlier
+  in the conversation — the system carries it forward automatically.
 - A DURATION ("for 1 hour", "for 30 minutes", "pour 2 heures") is NOT a clock
   time: pass it as `duration` (ISO-8601, e.g. "PT1H", "PT30M") — NEVER as
   `timeSlot` and NEVER converted into a start/end window yourself ("for 1
@@ -297,6 +311,7 @@ root_agent = Agent(
         make_per_tool_budget_callback(PER_TOOL_CALL_LIMITS, MAX_TOOL_CALLS),
         mcp_circuit_before_tool,
         enforce_equipment_filters,
+        inject_profile_occupancy,
         inject_profile_geo_context,
         inject_pagination_offset,
         resolve_search_date,
