@@ -58,6 +58,28 @@ class TestBuildActiveFiltersV2:
         assert filters["amenities"] == ["pool"]
 
 
+class TestOccupancyDisclosure:
+    """P0-1: the party size the search filtered on must be visible in the
+    response. Measured at 0% before this — the leaf was sending adults/children
+    to MCP while the response disclosed nothing, so neither a user nor an eval
+    could tell whether the occupancy had been honoured."""
+
+    def test_occupancy_is_surfaced_when_the_profile_has_it(self):
+        filters = build_active_filters(SessionProfile(city="Paris", adults=2, children=1))
+        assert filters["adults"] == 2
+        assert filters["children"] == 1
+
+    def test_children_zero_is_disclosed_not_hidden(self):
+        # "adults only" is a real filter; None and 0 must stay distinguishable.
+        filters = build_active_filters(SessionProfile(city="Paris", adults=2, children=0))
+        assert filters["children"] == 0
+
+    def test_unstated_occupancy_is_null_never_defaulted_to_one(self):
+        filters = build_active_filters(SessionProfile(city="Paris"))
+        assert filters["adults"] is None
+        assert filters["children"] is None
+
+
 class TestContractKeysUntouched:
     def test_contract_keys_shape_is_the_documented_frozenset(self):
         # Iso-contract invariant: active_filters growing internally must never

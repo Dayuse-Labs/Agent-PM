@@ -211,6 +211,16 @@ class SessionProfile:
     # resolving a click BY ID is the point: the label the button also sends is
     # for the transcript, never for matching.
     picked_hotel_id: int | None = None
+    # P0-1 (audit 2026-07-30 §2): party size, carried across turns. The leaf
+    # already emits adults/children to search_offers ~78% of the time on the
+    # turn they are stated (measured, OBS6 baseline) — what was missing is a
+    # slot to remember them in, so turn 2 ("moins cher") stopped filtering on
+    # capacity. Both stay None until the user states a party size: an unstated
+    # occupancy must never become adults=1, because search_offers reads these
+    # as MINIMUM-capacity filters and would silently drop valid inventory.
+    # `children = 0` is a real statement ("adults only"), distinct from None.
+    adults: int | None = None
+    children: int | None = None
 
     def to_dict(self) -> dict[str, Any]:
         return {
@@ -250,6 +260,8 @@ class SessionProfile:
             "search_cursor": self.search_cursor,
             "client_timezone": self.client_timezone,
             "picked_hotel_id": self.picked_hotel_id,
+            "adults": self.adults,
+            "children": self.children,
             "schema_version": PROFILE_SCHEMA_VERSION,
         }
 
@@ -629,6 +641,16 @@ def apply_profile_delta(
         profile.search_cursor = int(values["search_cursor"])
     if "client_timezone" in values:
         profile.client_timezone = values["client_timezone"]
+    # P0-1: party size. Coerced through int() like `search_cursor` — the value
+    # arrives from untrusted wire data, and the leaf's own `party_count`
+    # validator already refused anything non-integral, so anything odd reaching
+    # here is a contract break worth failing loudly rather than storing. A slot
+    # is only written when present: a refinement turn that mentions nobody must
+    # never wipe a party size stated three turns ago.
+    if values.get("adults") is not None:
+        profile.adults = int(values["adults"])
+    if values.get("children") is not None:
+        profile.children = int(values["children"])
 
     # Explicit clears (A3-a: an auditable per-slot clear, never a silent
     # omission) — each slot resets to its OWN dataclass default. Applied last
