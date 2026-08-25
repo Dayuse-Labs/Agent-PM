@@ -2,6 +2,77 @@
 
 État du chantier pour reprise en session fraîche. **Lire en entier avant d'agir ; ne pas reconstruire ce qui existe.** Mettre à jour en fin de CHAQUE session (bloc daté en tête).
 
+## 🧊 Addendum 2026-08-24 ter (reprise de vacances) — GO écrit sur OBS8, v4 est GA, et le point de calibration OBS7 était structurellement impossible
+
+Session de reprise après 24 jours. Trois livrables : vérification des 2 items P1, **GO écrit sur OBS8**,
+et déblocage d'OBS7. **Aucune mutation Railway/ClickHouse.**
+
+### Vérification des 2 items P1 laissés avant le départ
+
+| Item P1 | Verdict | Preuve |
+|---|---|---|
+| Redéployer le concierge depuis `main` | ✅ **FAIT** (2× le 2026-08-24) | Les 4 services sur `08d215d` ; `git log 08d215d..main -- agents libs web` **vide**. OBS3 live en prod : **325 scores `guard_*`** (25 par guard) depuis 09:50Z. OBS5 live aussi. |
+| Surveillance post-OBS7 + point de calibration | ❌ **PAS FAIT** — et ce n'était pas un défaut | Les 2 règles actives sont saines (`enabled:true`, `pausedReason:null`, **jamais en erreur** — DoD « zéro règle en erreur » ✅). Le blocage était l'absence de trafic, puis un problème de conception (ci-dessous). |
+
+### OBS8 — GO DONNÉ, exécution différée, plus aucun blocage
+
+Détail complet dans `phases/OBS8-clickhouse-upgrade.md`, bloc « GO — 2026-08-24 ». L'essentiel :
+
+- **Cible : `clickhouse/clickhouse-server:25.12.11.4`** — le pin de juillet, mais **revérifié**. Le tag git
+  `v25.12.12.1-stable` existe **sans image Docker** ⇒ nouveau piège : *un tag git ClickHouse n'implique
+  pas une image publiée*, toujours vérifier Docker Hub.
+- **26.x écarté avec preuves** : régression d'analyzer (CH PR #104268 en 26.5.1, corrigée en 26.7.1) qui
+  **mal-planifie la requête `scores.all` de Langfuse** ⇒ le rayon d'impact est exactement OBS3/OBS7.
+  Langfuse pin `25.12` dans son propre `docker-compose.yml` sur `main`, post-GA v4.
+- **Caveat assumé, absent du doc de juillet : 25.12 n'est PAS LTS** (ClickHouse ne patche que les 3
+  dernières stables ⇒ hors support depuis ~mars 2026). Donc **la vraie motivation d'OBS8 est de débloquer
+  v4, pas de rattraper des patchs de sécurité** — le doc a été corrigé pour cesser de prétendre l'inverse.
+- **Décision D (communication) FERMÉE** : Fabien a tranché — **AgentB2C est le seul producer** de cette
+  instance. Rien à annoncer, étapes 2 et 10 du runbook N/A. Par ricochet **décision C (fenêtre) devient
+  libre**. Le blocage de juillet ne pouvait pas être levé techniquement (le partage Langfuse est
+  applicatif, invisible depuis Railway) : il fallait une réponse humaine.
+- **Reste à faire** : Fabien pose une fenêtre, puis dérouler le runbook. Rappel : **porte à sens unique**
+  dès que la nouvelle version accepte du trafic, et **single-node sans HA**.
+
+### 🚨 Langfuse v4 est GA depuis le 2026-08-17 — `D-OBS-2` est SUPERSÉDÉE
+
+Découvert en revérifiant les prémisses de juillet. `D-OBS-2` disait « pas de v4, dernière = `4.0.0-rc.3`,
+attendre la stable ». **La GA est sortie pendant l'absence.** Ce qui reste vrai est devenu l'échéance :
+**v3 n'est patché que jusqu'à fin janvier 2027.**
+
+- `OBS9` passe de ⏸ « attend la GA stable » à ⬜ **à planifier**, avec cette date butoir.
+- La migration se fait en **3 étapes indépendantes** (serveur v4 en legacy/dual-write → SDK/API/evaluators/
+  exports → bascule `events_only`), chacune laissant le déploiement dans un état stable.
+- Rollback possible **avant** la bascule finale en rembobinant le schéma ClickHouse en v37 — **mais pas**
+  en redéployant une image v3 seule.
+- ⇒ OBS8 n'est plus une préparation spéculative : c'est l'étape 1, et l'amont dit de faire ClickHouse
+  **d'abord** puis d'attendre autant qu'on veut.
+
+### OBS7 — pourquoi le point de calibration était impossible (le vrai problème, non identifié avant)
+
+Ce n'était **pas** un manque de volume. **Les 3 règles tirent leur échantillon de 5 % indépendamment** :
+la probabilité qu'un juge et un humain notent la **même** observation est quasi nulle. État live constaté :
+**14 annotations humaines** (07-31) et **1 score de juge** (08-24), **zéro observation commune**. Ajouter du
+trafic n'aurait rien changé — il fallait changer le dispositif, pas le volume.
+
+**Coût des juges enfin MESURÉ** (et non estimé), depuis la trace d'exécution : `gpt-4o-mini`, 437 tokens,
+**$8.22e-5 par appel**. Dépense totale à ce jour : **$0.0000822** (1 run). Formule :
+`mensuel ≈ tours_organiques × sampling × n_juges × 8.2e-5`. À 10 000 tours/mois × 5 % × 3 juges ≈
+**$0.12/mois** ; même à 100 % de sampling ≈ **$2.47/mois**. **Le plafond de ~20 $/mois est du pur coussin**
+(≈243 000 appels) — l'item reste à poser sur la console OpenAI (action Fabien, hors CLI).
+
+### Corrections de lignes périmées (vérifiées contre le serveur live, pas déduites)
+
+- L'ancien « les 2 règles avaient **0 score** » : il y en a **1** depuis le 08-24 12:24Z.
+- L'ancien « scores OBS3 à **zéro occurrence en prod** » : **325 occurrences** depuis le 08-24 09:50Z.
+- Le titre d'addendum OBS7 « **PAS MERGÉE** » : mergée le 2026-07-31 (PR #70, `f49009c`).
+- **Serveur Langfuse = `3.224.3`**, pas `3.205.1` (`GET /api/public/health`).
+- ⚠️ **Recette API à connaître** : les evaluators et evaluation rules **ne sont pas sur l'API REST
+  publique** (`/api/public/eval/configs`, `/evaluators`, `/running-evaluators` renvoient tous la 404
+  Next.js). Ils sont accessibles **uniquement** via JSON-RPC sur `POST /api/public/mcp`
+  (`listEvaluators`, `getEvaluator`, `listEvaluationRules`, `getEvaluationRule`), ou via les outils MCP
+  Langfuse configurés dans ce projet.
+
 ## 🔐 Addendum 2026-08-24 bis (suite de la même journée) — façade `/v3` GATÉE par `CHAT_API_KEY`, panne de 9 min causée par l'ordre des opérations, tout redéployé sur `08d215d`
 
 Suite directe du bloc ci-dessous. Trois choses : la façade est enfin gatée, une **panne réelle** a eu lieu au passage (à lire avant de refaire l'opération ailleurs), et les 4 services sont maintenant tous à jour.
@@ -79,7 +150,7 @@ Le seul frein à la réparation de l'edge était que `/v3` était ouvert : répa
 ### Reste
 
 - **Edge public** : décision à prendre — supprimer le domaine (recommandé, personne ne le consomme) ou binder dual-stack dans le concierge. **Le `targetPort` est déjà posé et n'était pas la cause** (cf. plus haut). Plus aucun risque de sécurité dans un sens ou l'autre, la façade étant gatée.
-- **Judges OBS7** : les 2 règles actives sont saines (`enabled:true`, jamais en erreur) mais avaient **0 score** — cause identifiée : 19 jours sans trafic prod (05/08 → 24/08), pas un bug. Il faut du trafic **organique** : les tours de vérification de la journée sont taggés `synthetic`, donc exclus de l'échantillonnage à 5 %.
+- **Judges OBS7** : les 2 règles actives sont saines (`enabled:true`, jamais en erreur). ⚠️ **Corrigé le 2026-08-24 (bloc OBS8/OBS7 en tête) : elles n'ont plus 0 score — le juge `Hallucination` a tiré pour la première fois de son histoire à 12:24Z.** Elles avaient 0 score — cause identifiée : 19 jours sans trafic prod (05/08 → 24/08), pas un bug. Il faut du trafic **organique** : les tours de vérification de la journée sont taggés `synthetic`, donc exclus de l'échantillonnage à 5 %.
 - **`obs7-user-distress-v3chat`** toujours désactivé (preflight qui timeout).
 - **Plafond de dépense OpenAI** (~20 $/mois) non vérifié posé.
 
@@ -144,7 +215,7 @@ Tours envoyés via le proxy widget avec l'en-tête **`x-dayuse-synthetic: 1`** (
 - **Judges OBS7** : maintenant qu'il y a du trafic, la surveillance 24 h et le point de calibration redeviennent faisables. Attention : les tours de vérification de cette session sont taggés `synthetic`, donc **exclus** de l'échantillonnage — il faut du trafic organique (ou des tours non taggés) pour que les judges tirent.
 - ⬜ PR à ouvrir pour `fix/rotted-date-test` — la review de Fabien reste le gate, rien mergé de moi-même.
 
-## ⚖️ Addendum 2026-07-31 (session OBS7, branche `obs7-judges-online`, **PAS MERGÉE**) — judges LLM-as-a-judge online (2/3 actifs) + annotation queue, RGPD scope étendu à valider a posteriori
+## ⚖️ Addendum 2026-07-31 (session OBS7, branche `obs7-judges-online`, **mergée en PR #70 / `f49009c` le 2026-07-31 ~11:04 UTC** — ce titre disait « PAS MERGÉE », c'était l'état à la clôture de la session, le merge a suivi ~20 min plus tard) — judges LLM-as-a-judge online (2/3 actifs) + annotation queue, RGPD scope étendu à valider a posteriori
 
 **Contexte** : 7e chantier de `PLAN-OBS-LANGFUSE-2026-07-29.md`, implémente **D-OBS-4** (judges managés, LLM Connection stockée dans notre Langfuse). Périmètre exact de `phases/OBS7-judges-online-annotation.md` : Langfuse UI + `observability/langfuse/**` + `scripts/**`.
 
@@ -194,7 +265,7 @@ Créée : `obs7-judge-calibration` (id `cms8msmlp000rni020ydjoijy`), 4 score con
 
 **Alimentation automatique** : `scripts/langfuse_feed_annotation_queue.py` (idempotent, exclut le tag `synthetic` via un lookup `trace.get` par candidat). **Source câblée** : `empty_shortlist == 1`. **Source pas câblée** (pas un bug) : `user-feedback == 0` — ce score n'existe pas tant qu'OBS5 n'est pas livré.
 
-**Découverte non prévue, sans rapport avec le code OBS7 lui-même** : `empty_shortlist` (comme les 12 autres scores OBS3) a **zéro occurrence en `environment=production`** sur l'instance réelle — le dernier déploiement Railway réussi du concierge (`2026-07-30T10:28 UTC`) est **antérieur** aux merges d'OBS3 (13:46 UTC) et OBS4 (15:07 UTC). Le tracing lui-même (`v3.chat`, OBS2) tourne bien en prod ; seule la couche de scores OBS3 n'est pas encore déployée. Script donc **sans filtre d'environnement par défaut** (documenté dans son docstring). **Pas touché au déploiement Railway** (décision hors zone, à Fabien).
+**Découverte non prévue, sans rapport avec le code OBS7 lui-même** ⚠️ **PÉRIMÉ depuis le 2026-08-24 : les scores OBS3 sont live en prod (325 occurrences, 25 par guard, depuis 09:50Z) — l'écart de déploiement décrit ici a été comblé le même jour. Conservé pour la trace du raisonnement.** À l'époque : `empty_shortlist` (comme les 12 autres scores OBS3) avait **zéro occurrence en `environment=production`** sur l'instance réelle — le dernier déploiement Railway réussi du concierge (`2026-07-30T10:28 UTC`) est **antérieur** aux merges d'OBS3 (13:46 UTC) et OBS4 (15:07 UTC). Le tracing lui-même (`v3.chat`, OBS2) tourne bien en prod ; seule la couche de scores OBS3 n'est pas encore déployée. Script donc **sans filtre d'environnement par défaut** (documenté dans son docstring). **Pas touché au déploiement Railway** (décision hors zone, à Fabien).
 
 **🐛 Bug trouvé (par Fabien, en annotant) ET corrigé en session** : la 1ère version seedait la queue avec `objectType=TRACE`. Résultat vu par Fabien : la majorité des items affichaient `input`/`output` **`undefined`**, et pour retrouver du contenu il fallait fouiller un arbre plein de spans internes `a2a-sdk` (« beaucoup d'appels a2a, je ne vois pas comment les évaluer »). Cause racine : OBS4 a supprimé `langfuse.trace.input`/`.name` — **une trace ne porte plus d'input/output du tout**, seule son observation racine en porte. Pire : `empty_shortlist` se déclenche sur **3 formes de tour différentes** : façade HTTP (`v3.chat`/`v3.chat_stream`, racine avec contenu), tour piloté A2A (`a2a.b2c_concierge`, racine avec contenu — sessions de vérification OBS4 par ex.), et **appel ADK direct sans aucun wrapper** (`invoke_workflow b2c_concierge`/`b2c_faq`, `input=None` — probablement des replays d'expérience OBS6/`adk eval`, rien à annoter). Sur les 14 items d'origine : 3 `v3.chat`, 3 `a2a.b2c_concierge` (récupérables), 6 racines `invoke_workflow`/spans internes a2a-sdk purs (irrécupérables, supprimés), 2 supprimés entre-temps par Fabien. Les 5 scores humains déjà **COMPLETED** par Fabien sur les traces récupérables ont été laissés intacts (un score vit indépendamment du pointeur de l'item de queue — repointer l'item n'efface rien). Correction : les 6 items récupérables recréés en `objectType=OBSERVATION` pointant la vraie observation racine ; queue complétée à **10 observations `v3.chat` de production réelles supplémentaires**, vérifiées non-synthétiques une par une (⚠️ certaines traces `v3.chat` en **prod** portent bien le tag `synthetic` — un tour de vérification post-déploiement scripté disait littéralement *« ceci est un tour synthetique de verification post-b... »* — donc ce filtre n'est PAS accessoire, même en prod). Script corrigé pour de bon : résout la racine du tour réel (`v3.chat`/`v3.chat_stream`/`a2a.b2c_concierge`) et **saute** la 3e forme (`skipped_no_root`) au lieu de la mettre en file vide. État final : **16 items, tous `OBSERVATION`, tous avec du contenu réel** — 5 déjà annotés (valides), 11 en attente.
 
