@@ -5,7 +5,7 @@
     "target=observation, filtered to the root observation names of a real end-user turn: `v3.chat` (non-streamed) and `v3.chat_stream` (streamed) — both confirmed live in libs/b2c_common turn_observation()/agents/b2c_concierge/b2c_concierge/facade.py. Deliberately excludes the `a2a.b2c_concierge` root (A2A-piloted turns — ops/testing tooling, not real end-user traffic).",
     "column=tags / operator='none of' / value=['synthetic'] excludes smoke/battery turns — the ONLY mechanism for this on the Langfuse side is the trace tag set by turn_observation() when X-Dayuse-Synthetic is truthy (libs/b2c_common/b2c_common/observability.py); there is no `is_synthetic` metadata key on Langfuse (that boolean only exists as a Postgres column in the separate RGPD audit-export table, conversation_logs).",
     "sampling=0.05 (5%) — start of the 5-10% range mandated by phases/OBS7-judges-online-annotation.md, to measure real 24h cost before raising it. Sampling is drawn independently per rule/evaluator (3 separate 5% draws, not the same 5% of turns for all three) — see the brief §5 caveat; co-scoring the exact same turns across all 3 would require 100% + an application-side tag, not done here.",
-    "enabled=false on all 3 at creation time — the phase requires an explicit RGPD go-ahead before a judge's API key starts sending real user message content to the model provider (extension of the processing scope, see HANDOFF and phases/OBS7-judges-online-annotation.md 'Pièges'). Fabien gave that go-ahead on 2026-07-31; Hallucination and Relevance are now enabled=true/status=active (verified via GET after PATCH). obs7-user-distress-v3chat is still enabled=false: the PATCH-to-enable call reproducibly fails server-side with `422 evaluator_preflight_failed` / 'The operation was aborted due to timeout' (once with a body, twice as a client-side 100s timeout with no response at all) — Hallucination/Relevance activate in seconds, only this evaluator hangs. Working hypothesis, not confirmed: its few-shot examples contain explicit profanity (needed to teach the judge what distress looks like) and may hit a moderation/safety slow-path on the OpenAI side that the other two prompts never trigger. Left disabled rather than force it further after two failed retries — see HANDOFF 'Reste'. Whatever the live `enabled`/`status` value is on the instance at any later point supersedes what's recorded here — this file is the reproducible baseline at end-of-session, not a live mirror.",
+    "enabled=false on all 3 at creation time — the phase requires an explicit RGPD go-ahead before a judge's API key starts sending real user message content to the model provider (extension of the processing scope, see HANDOFF and phases/OBS7-judges-online-annotation.md 'Pièges'). Fabien gave that go-ahead on 2026-07-31; Hallucination and Relevance went enabled=true/status=active that day. obs7-user-distress-v3chat stayed disabled for 25 days because the PATCH-to-enable ran a server-side model-call preflight that timed out at 120 s. ROOT CAUSE FOUND 2026-08-25, and the old note here was wrong twice over: it is NOT the profanity in the few-shot examples (a 6-word control prompt fails just as reliably inside a bad window), and it is NOT specific to this evaluator (Hallucination writes fail too). The preflight (web/src/features/evals/server/evaluator-preflight.ts → testModelCall) hangs INTERMITTENTLY inside the long-lived langfuse-web Next.js process: the socket to api.openai.com reaches ESTABLISHED and then nothing flows for the full LANGFUSE_FETCH_LLM_COMPLETION_TIMEOUT_MS (default 120000, unset on both services). The same call from a fresh node process in the SAME container is 100% reliable. Fixed by setting LANGFUSE_SKIP_EVALUATOR_MODEL_CALL_VALIDATION=true on langfuse-web — an upstream escape hatch that keeps model-selection and output-schema validation and drops only the live provider call (proven unnecessary here: the worker executes these judges against the same connection all day). Verified by netstat: evaluator writes now open ZERO outbound connections. This rule was then rewired onto the history-free evaluator and enabled. Whatever the live `enabled`/`status` value is on the instance at any later point supersedes what's recorded here — this file is the reproducible baseline at end-of-session, not a live mirror.",
     "mapping sources are 'input'/'output' with NO jsonPath because the root observation's input/output are confirmed-live plain strings (not JSON), per direct inspection of 3 real production v3.chat observations on 2026-07-31 (legacy-observations-v1s API) — see the code-read citations in evaluators.json's known_gaps and HANDOFF."
   ],
   "rules": [
@@ -44,17 +44,16 @@
     {
       "id": "cms8mpexz000lni02rj2luatp",
       "name": "obs7-user-distress-v3chat",
-      "evaluator": {"name": "User Distress", "scope": "project", "type": "llm_as_judge"},
+      "evaluator": {"name": "User Distress (no history)", "scope": "project", "type": "llm_as_judge"},
       "target": "observation",
-      "enabled": false,
+      "enabled": true,
       "sampling": 0.05,
       "filter": [
         {"type": "stringOptions", "column": "name", "operator": "any of", "value": ["v3.chat", "v3.chat_stream"]},
         {"type": "arrayOptions", "column": "tags", "operator": "none of", "value": ["synthetic"]}
       ],
       "mapping": [
-        {"variable": "last_user_message", "source": "input"},
-        {"variable": "conversation_history", "source": "metadata", "jsonPath": "$.conversation_history"}
+        {"variable": "last_user_message", "source": "input"}
       ]
     }
   ]

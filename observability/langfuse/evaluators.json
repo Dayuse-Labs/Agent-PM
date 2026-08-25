@@ -1,7 +1,7 @@
 {
   "$comment": "OBS7 — project-scoped LLM-as-a-judge evaluators for AgentB2C, versioned in git so they're re-creatable on any instance. These endpoints (POST/GET /api/public/unstable/evaluators) are explicitly marked `unstable` by Langfuse (the underlying evaluation data model is being redesigned) — this file is documentary/reproducible, never a CI-critical path. Created 2026-07-31 on project cms4gd0d20002nz029tuly62e via raw API (Basic auth pk:sk), because the `langfuse-cli`'s flag-flattening cannot express nested `outputDefinition.score`/`.reasoning` objects for this endpoint (files under scripts/ or curl -d @file are the reliable path, not the CLI's generated flags, for this one resource).",
   "project_id": "cms4gd0d20002nz029tuly62e",
-  "design_note": "These are PROJECT-scope evaluators (scope=project), not references to the Langfuse-MANAGED templates of the same name (scope=managed) — prompt/outputDefinition text is copied verbatim from the managed template so the judge stays identical to Langfuse's maintained version, but scope=project lets each evaluator pin its own `modelConfig` (provider+model) via the API instead of depending on the project's UI-only \"default evaluation model\" setting. `evaluationRuleCount` and `variables` below are read back from the API at creation time, not hand-written.",
+  "design_note": "These are PROJECT-scope evaluators (scope=project), not references to the Langfuse-MANAGED templates of the same name (scope=managed) — prompt/outputDefinition text started as a verbatim copy of the managed template, but scope=project lets each evaluator pin its own `modelConfig` (provider+model) via the API instead of depending on the project's UI-only \"default evaluation model\" setting — and, since 2026-08-25, lets us DIVERGE from the managed prompt where calibration against human annotation proved the generic template wrong for this product (Hallucination v2; User Distress (no history) — each entry's prompt_source carries the evidence that justified the divergence). Verbatim-copy is no longer an invariant: per-evaluator prompt_source is the source of truth for what was changed and why. `evaluationRuleCount` and `variables` below are read back from the API at creation time, not hand-written.",
   "known_gaps": [
     {
       "name": "User Disagreement",
@@ -14,46 +14,104 @@
   ],
   "evaluators": [
     {
-      "id": "cms8mom1h0006ni02041l91ff",
+      "id": "cmt8mfq1b006yni029xunepre",
       "name": "Hallucination",
+      "version": 2,
       "scope": "project",
       "type": "llm_as_judge",
-      "variables": ["query", "generation"],
+      "variables": [
+        "query",
+        "generation"
+      ],
       "outputDefinition": {
         "dataType": "NUMERIC",
-        "reasoning": {"description": "One sentence reasoning for the score"},
-        "score": {"description": "Score between 0 and 1. Score 0 if false or negative and 1 if true or positive"}
+        "reasoning": {
+          "description": "One sentence reasoning for the score"
+        },
+        "score": {
+          "description": "Score between 0 and 1. Score 0 if false or negative and 1 if true or positive"
+        }
       },
-      "modelConfig": {"provider": "openai", "model": "gpt-4o-mini"},
-      "prompt_source": "verbatim copy of the Langfuse-managed 'Hallucination' template prompt, unmodified"
+      "modelConfig": {
+        "provider": "openai",
+        "model": "gpt-4o-mini"
+      },
+      "prompt_source": "v1 (id cms8mom1h0006ni02041l91ff) was a verbatim copy of the Langfuse-managed 'Hallucination' template. v2 (2026-08-25) keeps that text and appends an 'Out of scope for this judge' section, because the first judge/human calibration point (reports/OBS7-CALIBRATION-2026-08-25.md) exposed a STRUCTURAL false positive: the judge scored 0.7 on a correct answer because the booking link 'lacks verification'. An LLM judge cannot open a URL, and every link is already checked deterministically against the turn's ground truth by the 13th guard (hotel_link_truthfulness / S-G12). Left unfixed, the score degrades in proportion to how well the product works, since every successful search emits a link. The section covers two classes: (1) links — never a hallucination signal, full stop; (2) live retrieved data (prices, discounts, availability, dates, slots, capacity, review counts) — scored only when wrong on its own terms (contradicts the query, contradicts itself, arithmetically impossible), never merely because the judge cannot confirm the figure. Class (2) is deliberately narrower than class (1): links have a deterministic guard, prices do not, so blanket-blinding the judge to price claims would delete real signal. Same evidence: a 0.7 on a '78% discount' for 'lacking verification against actual data' (score 7e9dbb15, 2026-08-25 10:57Z). One worked example added showing a link+price answer scoring 0.0. The rule name — and therefore the score name obs7-hallucination-v3chat — is unchanged, so the pre/post series stay comparable in the same chart."
     },
     {
       "id": "cms8momt60009ni02b69idn87",
       "name": "Relevance",
+      "version": 1,
       "scope": "project",
       "type": "llm_as_judge",
-      "variables": ["query", "generation"],
+      "variables": [
+        "query",
+        "generation"
+      ],
       "outputDefinition": {
         "dataType": "NUMERIC",
-        "reasoning": {"description": "One sentence reasoning for the score"},
-        "score": {"description": "Score between 0 and 1. Score 0 if false or negative and 1 if true or positive"}
+        "reasoning": {
+          "description": "One sentence reasoning for the score"
+        },
+        "score": {
+          "description": "Score between 0 and 1. Score 0 if false or negative and 1 if true or positive"
+        }
       },
-      "modelConfig": {"provider": "openai", "model": "gpt-4o-mini"},
+      "modelConfig": {
+        "provider": "openai",
+        "model": "gpt-4o-mini"
+      },
       "prompt_source": "verbatim copy of the Langfuse-managed 'Relevance' template prompt, unmodified"
+    },
+    {
+      "id": "cmt8moncv0071ni02mrjjra0p",
+      "name": "User Distress (no history)",
+      "version": 1,
+      "scope": "project",
+      "type": "llm_as_judge",
+      "variables": [
+        "last_user_message"
+      ],
+      "outputDefinition": {
+        "dataType": "BOOLEAN",
+        "reasoning": {
+          "description": "One concise explanation referencing the main distress signal or why it does not qualify."
+        },
+        "score": {
+          "description": "Return true if the last user message contains explicit profanity or strong frustration beyond mild annoyance; otherwise return false."
+        }
+      },
+      "modelConfig": {
+        "provider": "openai",
+        "model": "gpt-4o-mini"
+      },
+      "prompt_source": "Created 2026-08-25. Derived from the Langfuse-managed 'User Distress' template with `conversation_history` REMOVED from both the prompt and the variable list, because that variable never had a source: the paired rule mapped it to metadata.$.conversation_history, a key that does not exist on our root observations (verified live — their metadata carries only resourceAttributes and scope, and the input is a plain string holding the current message). The old prompt degraded gracefully on an empty history, but declaring a variable that can never resolve is a trap for the next reader. Three deliberate edits beyond the deletion: (a) the constraint now says no prior turns are available and tells the judge not to adjust the score for missing context, instead of implying history is normally present; (b) a 6th few-shot example — a plain 'Bonjour, je cherche un hotel a Paris' — anchors the false side for a short neutral opener, which is what most of our first turns look like; (c) the expletives in the few-shot examples are censored (f***), with a trailing note telling the judge to treat an uncensored expletive identically. (c) is cosmetic, NOT a workaround: the 25-day activation blocker was never about profanity (see evaluation-rules.json), and a censored control prompt failed just as often as a literal one inside a bad window."
     },
     {
       "id": "cms8monnj000cni020g3bd4ws",
       "name": "User Distress",
+      "version": 1,
       "scope": "project",
       "type": "llm_as_judge",
-      "variables": ["conversation_history", "last_user_message"],
+      "status": "superseded",
+      "variables": [
+        "conversation_history",
+        "last_user_message"
+      ],
       "outputDefinition": {
         "dataType": "BOOLEAN",
-        "reasoning": {"description": "One concise explanation referencing the main distress signal or why it does not qualify."},
-        "score": {"description": "Return true if the last user message contains explicit profanity or strong frustration beyond mild annoyance; otherwise return false."}
+        "reasoning": {
+          "description": "One concise explanation referencing the main distress signal or why it does not qualify."
+        },
+        "score": {
+          "description": "Return true if the last user message contains explicit profanity or strong frustration beyond mild annoyance; otherwise return false."
+        }
       },
-      "modelConfig": {"provider": "openai", "model": "gpt-4o-mini"},
-      "prompt_source": "verbatim copy of the Langfuse-managed 'User Distress' template prompt (incl. all 5 few-shot examples), unmodified. `conversation_history` is mapped to a non-existent metadata key by the paired evaluation rule (resolves empty) — the template's own decision rule explicitly degrades to judging `last_user_message` alone in that case, so this judge is fully functional despite the same instrumentation gap noted above for the two skipped judges."
+      "modelConfig": {
+        "provider": "openai",
+        "model": "gpt-4o-mini"
+      },
+      "prompt_source": "verbatim copy of the Langfuse-managed 'User Distress' template prompt (incl. all 5 few-shot examples), unmodified. SUPERSEDED 2026-08-25 by 'User Distress (no history)' — never activated, 0 scores ever produced. Left on the instance (evaluationRuleCount 0) rather than deleted, so the 2026-07-31 → 2026-08-25 history stays legible; delete it freely if the evaluator list gets noisy."
     }
   ]
 }
