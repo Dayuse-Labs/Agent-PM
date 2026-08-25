@@ -61,6 +61,57 @@ trafic n'aurait rien changé — il fallait changer le dispositif, pas le volume
 **$0.12/mois** ; même à 100 % de sampling ≈ **$2.47/mois**. **Le plafond de ~20 $/mois est du pur coussin**
 (≈243 000 appels) — l'item reste à poser sur la console OpenAI (action Fabien, hors CLI).
 
+### 🔴 OBS7 — la cause documentée du blocage `User Distress` est FAUSSE
+
+**Ne pas retenter l'activation depuis l'UI : ça échouera pareil.** L'hypothèse au dossier depuis le
+07-31 (modération OpenAI sur les exemples few-shot du prompt) est **réfutée par 4 tests** :
+
+| Test | Résultat |
+|---|---|
+| `upsertEvaluator` profanité littérale | timeout 120 s |
+| idem, profanité **censurée**, nom neuf | timeout 120 s |
+| idem, prompt **anodin de 37 caractères** | **timeout 120 s** |
+| `updateEvaluationRule` `enabled:true` (aucune écriture d'evaluator) | timeout 120 s |
+
+Erreur réelle, identique : `Model configuration not valid for evaluator "<nom>". The operation was
+aborted due to timeout`. **Le 3ᵉ test est décisif : l'échec est indépendant du contenu.**
+
+**Vraie cause** : le chemin d'écriture d'un evaluator — et l'activation d'une règle — **valide la config
+du modèle en appelant le provider, et cet appel part en timeout à 120 s**. Indice le plus utile : les
+juges **fonctionnent** (`Hallucination` a scoré le 08-24, `Relevance` le 08-25) — donc la connexion LLM
+sert l'**exécution** mais pas la **validation**. Hypothèse à tester dans les logs `langfuse-web` :
+validation dans `langfuse-web` vs exécution dans `langfuse-worker`, un seul des deux ayant l'egress OpenAI.
+
+**Portée plus large que ce judge** : **aucun evaluator ne peut être créé ni modifié** sur l'instance
+aujourd'hui — ça bloque aussi `User Disagreement` et `Out-of-Scope Request`. Aucune écriture n'a fui
+(25 evaluators avant/après, la validation échoue avant l'écriture).
+
+**Défaut réel trouvé au passage** : la règle mappe `conversation_history` sur
+`metadata.$.conversation_history` — **ce champ n'existe pas**. Vérifié sur les observations racines
+réelles : la metadata ne porte que `resourceAttributes` et `scope`, et l'`input` est une chaîne simple
+(le dernier message). C'est la même raison qui avait fait renoncer aux 2 autres judges. Quand la
+validation sera réparée, créer une version du prompt **sans** `conversation_history`.
+
+### OBS7 — le point de calibration était impossible par construction (corrigé)
+
+Pas « en attente de trafic » : **impossible**. Les 3 règles tirent **5 % indépendamment**, et la queue
+humaine était alimentée depuis une **source différente** (`empty_shortlist == 1`). Juges et humains
+notaient des ensembles **disjoints**. Mesuré : 10 annotations humaines au niveau observation, 3 scores de
+juge, **0 observation commune**. Plus de trafic n'y aurait rien changé.
+
+**Correctif** : `scripts/langfuse_judge_calibration.py --queue-missing` alimente la queue depuis la
+**sortie des juges** — les observations déjà notées par un juge partent en annotation humaine. Le sens
+compte : l'inverse est impossible (les règles ne s'appliquent qu'aux observations nouvellement ingérées,
+pas de backfill sur cette instance).
+
+**Fait le 2026-08-25** : 3 observations mises en queue (`95ad5d4d2c8dcc82`, `f1f5976125d6b931`,
+`f74ac766a6c848ff`), vérifié idempotent. **Action Fabien : les annoter dans `obs7-judge-calibration`,
+puis relancer le script sans `--queue-missing`.** n=3 sera un test du mécanisme, pas un chiffre
+exploitable — le n croît seul avec le trafic. Détail complet : `reports/OBS7-CALIBRATION-2026-08-25.md`.
+
+⚠️ Non fait volontairement : **monter le `sampling` des 2 règles de production** pour accélérer le n.
+C'est une modif de config de production — décision de Fabien.
+
 ### Corrections de lignes périmées (vérifiées contre le serveur live, pas déduites)
 
 - L'ancien « les 2 règles avaient **0 score** » : il y en a **1** depuis le 08-24 12:24Z.
@@ -151,8 +202,8 @@ Le seul frein à la réparation de l'edge était que `/v3` était ouvert : répa
 
 - **Edge public** : décision à prendre — supprimer le domaine (recommandé, personne ne le consomme) ou binder dual-stack dans le concierge. **Le `targetPort` est déjà posé et n'était pas la cause** (cf. plus haut). Plus aucun risque de sécurité dans un sens ou l'autre, la façade étant gatée.
 - **Judges OBS7** : les 2 règles actives sont saines (`enabled:true`, jamais en erreur). ⚠️ **Corrigé le 2026-08-24 (bloc OBS8/OBS7 en tête) : elles n'ont plus 0 score — le juge `Hallucination` a tiré pour la première fois de son histoire à 12:24Z.** Elles avaient 0 score — cause identifiée : 19 jours sans trafic prod (05/08 → 24/08), pas un bug. Il faut du trafic **organique** : les tours de vérification de la journée sont taggés `synthetic`, donc exclus de l'échantillonnage à 5 %.
-- **`obs7-user-distress-v3chat`** toujours désactivé (preflight qui timeout).
-- **Plafond de dépense OpenAI** (~20 $/mois) non vérifié posé.
+- **`obs7-user-distress-v3chat`** toujours désactivé. ⚠️ **Cause corrigée le 2026-08-25 : ce n'est PAS la modération OpenAI** mais la validation de model config qui part en timeout (120 s, indépendant du contenu) — voir le bloc « ter » en tête. **Ne pas retenter depuis l'UI**, ça échouera pareil.
+- **Plafond de dépense OpenAI** (~20 $/mois) non vérifié posé. Coût désormais **mesuré** : $8,22e-5/appel de juge, soit ~$0,12/mois à 10k tours × 5 % × 3 juges — le plafond est du pur coussin.
 
 ## 🚀 Addendum 2026-08-24 (session « quel build tourne en prod ? », branche `fix/rotted-date-test`) — l'écart de déploiement OBS3/OBS4/OBS5 est confirmé PUIS comblé, prod redéployée sur `f49009c`
 
