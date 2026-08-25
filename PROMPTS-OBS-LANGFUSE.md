@@ -232,6 +232,47 @@ versionnée dans observability/langfuse/ + HANDOFF à jour + commit branche. Jam
 
 ---
 
+## Setup d'un worktree — la séquence complète
+
+Valable pour tout worktree de la série (OBS6, OBS5). Exemple avec OBS5 ; adapter le nom et la branche.
+
+```bash
+# 0. partir d'une main à jour (fenêtre 4 = après le merge d'OBS4)
+cd ~/Projects/AgentB2C && git checkout main && git pull
+git worktree add ../AgentB2C-obs5 -b obs5-user-feedback main
+cd ../AgentB2C-obs5
+
+# 1. secrets : .env est gitignored, donc ABSENT d'un worktree neuf
+cp ~/Projects/AgentB2C/.env .env
+
+# 2. venv dédié (.venv* est gitignored : rien n'est partagé entre worktrees)
+#    ⚠️ SANS "google-adk[eval]" — l'extra rend la résolution uv insatisfiable (litellm 1.90.2)
+uv venv --python 3.12 .venv
+uv pip install --python .venv/bin/python \
+  -r agents/hotel_search_agent/requirements.txt -r agents/faq_agent/requirements.txt \
+  -r agents/b2c_concierge/requirements.txt -r requirements-dev.txt -e libs/b2c_common
+
+# 3. contrôle d'install : doit être 100 % vert
+.venv/bin/pytest -q
+
+# 4. hooks : RIEN à faire — core.hooksPath vit dans le .git/config partagé, le worktree en hérite
+
+# 5. lancer la session avec son isolation (ports + environnement Langfuse distincts)
+PORT_OFFSET=30 CONCIERGE_URL=http://localhost:8130/ LANGFUSE_TRACING_ENVIRONMENT=dev-obs5 \
+  claude --model claude-sonnet-5
+```
+
+**Ports** : `8092/8093` sont pris par la fleet, `8100-8102` par la stack par défaut (session du
+checkout principal), `8120` par `run_llm_meter.py`. D'où l'offset **30 → 8130-8132** pour OBS5, et
+`10 → 8110-8112` pour OBS6. `PORT_OFFSET` est livré par OBS6 (son premier item) : avant ce merge, une
+seule stack locale à la fois.
+
+**Nettoyage après merge** :
+
+```bash
+cd ~/Projects/AgentB2C && git worktree remove ../AgentB2C-obs5   # + git worktree list pour vérifier
+```
+
 ## Sessions à cadrer au lancement (fichier de phase à écrire)
 
 **OBS5 — feedback 👍/👎** — fenêtre 4, **en parallèle d'OBS7**, dans un worktree
