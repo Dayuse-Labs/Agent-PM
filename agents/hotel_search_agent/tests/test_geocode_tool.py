@@ -1390,3 +1390,17 @@ class TestUnanchoredZoneAsksForTheCity:
 
         assert "dans quelle ville" in fr["diagnostics"]["question"]
         assert "which city" in en["diagnostics"]["question"]
+
+    def test_the_question_persists_the_zone_it_asked_about(self, monkeypatch):
+        # Without this the answer turn has nothing to attach "paris" to: measured
+        # in prod, it searched the bare Paris centroid (Saint-Denis 7,4 km, Orly
+        # 12,6 km) instead of the station. `inject_profile_geo_context` already
+        # refills `zone` from the profile — only the write was missing.
+        _patch_multi(monkeypatch, [])
+        monkeypatch.setattr(geocode_tool, "get_searchbox_client", lambda: _FakeSearchBox(None))
+
+        result = geocode_location(zone="gare de lyon", locale="fr-FR",
+                                  raw_user_message="pres de la gare de lyon demain")
+
+        assert result["error"] == "geocode_ambiguous"
+        assert result["profile_delta"] == {"zone": "gare de lyon"}
