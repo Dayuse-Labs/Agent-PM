@@ -54,13 +54,11 @@ Sur la MÊME trace, les contrôles qui rendent le `true` interprétable :
 
 - **`date_carryover_stale_floored` : jamais vu à `true`.** `listScores` sur ce nom, `value: ["true"]` → **liste vide** (filtre validé positivement juste avant sur son jumeau, donc le zéro est réel). Non forçable pour la raison structurelle du §2 ci-dessus. **Preuve hors-ligne uniquement** : `test_stale_carryover_floor_is_reported` + `test_the_guards_ride_the_datapart_the_concierge_already_reads`, plus le fait que le transport (`guards_fired` → `budget.fired` → `score_guards`) est prouvé en prod le même jour sur les 3 guards géo ET, maintenant, sur son jumeau qui emprunte le même `record_guards_fired`. Ne pas écrire ailleurs qu'il a été vu en prod.
 
-### 🔴 À FAIRE PAR FABIEN — un domaine public de trop sur `hotel-search`
+### ✅ RÉGLÉ — le domaine public de trop sur `hotel-search` (Fabien l'a supprimé)
 
 En cherchant à **lire** les domaines du service, j'ai lancé `railway domain --service hotel-search` : cette commande, **sans argument, CRÉE un domaine** au lieu d'en lister un. Résultat : `https://hotel-search-production-cdb3.up.railway.app` existe maintenant, alors que **D7 dit réseau privé Railway + bearer côté feuille** — une feuille n'a pas à avoir d'entrée publique. Le bearer `BearerAuthMiddleware` est bien devant (une requête non authentifiée est rejetée, la carte d'agent exceptée), donc ce n'est pas un trou béant, mais c'est une déviation de l'invariant qu'il faut refermer.
 
-La suppression est **bloquée par le classifieur** de mon côté (mutation destructive d'infra). À faire par Fabien, au choix :
-- dashboard Railway → service `hotel-search` → Settings → Networking → supprimer le domaine ;
-- ou `bash ~/.claude/skills/use-railway/scripts/railway-api.sh 'mutation($id: String!) { serviceDomainDelete(id: $id) }' '{"id":"56172e02-a1d7-43a5-8579-53961e0b5d53"}'`.
+**Supprimé par Fabien le 2026-08-26, et vérifié** (la suppression était bloquée par le classifieur de mon côté, mutation destructive d'infra) : la requête GraphQL de lecture rend maintenant `serviceDomains: []` **et** `customDomains: []` sur `hotel-search`. La feuille est de nouveau sur le réseau privé seul, D7 tenu.
 
 ⚠️ **À ne pas refaire** : `railway domain --service X` est une commande de **création**, pas de lecture. Pour lire, passer par l'API GraphQL (`service(id:){ serviceInstances{ edges{ node{ domains{ serviceDomains{ id domain } } } } } }`).
 
