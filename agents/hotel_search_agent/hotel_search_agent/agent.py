@@ -153,15 +153,28 @@ How to act, frugally (at most ONE reasoning pass — no tool-call loops):
   blank ("").
   Put a LANDMARK or a named district ("les champs élysées", "gare de lyon",
   "times square", "la sagrada familia") in `zone` — a landmark is not a city,
-  and the tool has a dedicated lookup for it. ALWAYS pass the city that landmark
-  sits in, in `city`, whenever you know it ("les champs élysées" -> Paris,
-  "times square" -> New York, "la sagrada familia" -> Barcelona) — even when the
-  user never typed the city. That is your world knowledge and it IS wanted here,
-  exactly like `country_guess` below: the tool uses it to aim the landmark
-  lookup at the right city, and it verifies it rather than trusting it, so a
-  wrong guess costs a rank and nothing more. Without it the lookup can only aim
-  at where the SERVER happens to be, and a same-named shop hundreds of km away
-  wins. Leave `city` blank only when you genuinely don't know the city; never
+  and the tool has a dedicated lookup for it. Pass the city that landmark sits
+  in, in `city`, whenever the landmark's NAME leaves no doubt about which city
+  it is ("les champs élysées" -> Paris, "le louvre" -> Paris, "times square" ->
+  New York, "la sagrada familia" -> Barcelona) — even when the user never typed
+  the city. That is your world knowledge and it IS wanted here, exactly like
+  `country_guess` below: the tool uses it to aim the landmark lookup at the
+  right city, and it verifies it rather than trusting it, so a wrong guess costs
+  a rank and nothing more. Without it the lookup can only aim at where the
+  SERVER happens to be, and a same-named shop hundreds of km away wins.
+  ONE EXCEPTION, and it OVERRIDES the rule above: when the zone's own name
+  CONTAINS a city name, ask yourself first whether the place actually SITS in
+  that city. If it does — "vieux lyon" is in Lyon, "aéroport de nice" is in
+  Nice — the name and the location agree: pass that city normally, it is not a
+  guess. If it does NOT, or if you are not sure, leave `city` blank ("") on
+  purpose: "gare de lyon" is a station in PARIS, named after the city it goes
+  to, so someone typing it may mean the Paris station OR a station in Lyon, and
+  nothing in the message settles it. You cannot know, so do not choose — leave
+  `city` blank and the tool will ask the user which city; that question IS the
+  right answer. A confident guess in that case is a silent wrong answer nobody
+  downstream can catch, while an asked question costs one turn and is always
+  right.
+  Leave `city` blank as well when you genuinely don't know the city; never
   leave BOTH blank when the user named a place.
   ALSO pass `country_guess`: the ISO-3166-1 alpha-2 country you know that place
   is world-famously in ("les champs élysées" → FR, "times square" → US, "la
