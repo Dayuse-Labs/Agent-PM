@@ -1404,3 +1404,178 @@ class TestUnanchoredZoneAsksForTheCity:
 
         assert result["error"] == "geocode_ambiguous"
         assert result["profile_delta"] == {"zone": "gare de lyon"}
+
+
+class _QueryAwareClient:
+    """A v6 client whose answer depends on the QUERY, which is what the
+    dedicated city lookup needs: the combined query and the bare city are two
+    different questions and the whole fix is that we now ask the second one."""
+
+    def __init__(self, by_query: dict[str, list]):
+        self.by_query = by_query
+        self.calls: list[tuple] = []
+        self.langs: list = []
+        self.proximities: list = []
+
+    def geocode_candidates(self, query, *, country=None, language=None, proximity=None, **kwargs):
+        self.calls.append((query, country))
+        self.langs.append(language)
+        self.proximities.append(proximity)
+        return list(self.by_query.get(query, []))
+
+
+class TestACityNameWithoutACoordinate:
+    """2026-08-26. `city_anchor` was SCAVENGED from the v6 candidates of this
+    turn's combined query: a coordinate only existed when one of them happened
+    to echo the city AND carry inventory. When none did, the city was folded
+    into the Search-Box query instead — which measurably drops the clean
+    feature out of the candidate list altogether:
+
+        "aéroport de nice, Nice" → 10 businesses, no airport (a sandwich shop won)
+        "champs élysées, Paris"  → 10 businesses, no avenue (a competitor hotel won)
+
+    Prod, 2026-08-26: « pres de l aeroport de nice demain » emitted `city: Nice`
+    on all 3 turns and still resolved to "Transferts Aéroport Nice, AIR
+    PROMENADE" — a shuttle company 6 km from the airport. Paris was never
+    safer by design; its turns simply took the anchored path."""
+
+    NICE = _c("Nice", "FR", "Alpes-Maritimes", lat=43.7101, lon=7.2618)
+    #: The shape that defeats the scavenging loop: a v6 miss whose label says
+    #: neither the zone nor the city, so the echo guard rejects it (tier 1 falls
+    #: through to Search Box) AND no candidate can anchor the city.
+    V6_MISS = _c("Villeneuve", "FR", "PACA", ftype="poi", lat=43.66, lon=7.20)
+    AIRPORT = GeocodeResult(
+        latitude=43.6603,
+        longitude=7.2048,
+        place_name="Aéroport de Nice, 06200 Nice, France",
+        country_code="FR",
+        region="",
+    )
+
+    def _patch(self, monkeypatch, by_query, *, inventory, searchbox=AIRPORT):
+        client = _QueryAwareClient(by_query)
+        monkeypatch.setattr(geocode_tool, "get_mapbox_client", lambda: client)
+        monkeypatch.setattr(geocode_tool, "get_inventory", lambda: _FakeInventory(inventory))
+        box = _FakeSearchBox(searchbox)
+        monkeypatch.setattr(geocode_tool, "get_searchbox_client", lambda: box)
+        return client, box
+
+    def test_the_city_is_geocoded_and_the_searchbox_query_stays_bare(self, monkeypatch):
+        client, box = self._patch(
+            monkeypatch,
+            {"aéroport de nice, Nice": [self.V6_MISS], "Nice": [self.NICE]},
+            inventory={43.7101: 53, 43.66: 60, 43.6603: 60},
+        )
+
+        result = geocode_location(
+            city="Nice", zone="aéroport de nice",
+            raw_user_message="pres de l aeroport de nice demain", locale="fr-FR",
+        )
+
+        # The bare landmark, NOT "aéroport de nice, Nice" — that is what keeps
+        # the clean feature in the list instead of ten businesses named after it.
+        assert box.calls[0][0] == "aéroport de nice"
+        # …because the city now has a coordinate, passed as Mapbox's "lon,lat".
+        assert box.proximities[0] == "7.2618,43.7101"
+        assert client.calls[1] == ("Nice", None)  # the dedicated lookup
+        assert result["ok"] is True
+        assert result["resolved_place"] == "Aéroport de Nice, 06200 Nice, France"
+
+    def test_an_uncredible_city_candidate_still_falls_back_to_folding(self, monkeypatch):
+        # S-G9 on the new path: the bare-city lookup for "Paris" also returns the
+        # neighbourhood literally named Paris in ROANNE (2 hotels, 390 km off).
+        # An anchor that aims a lookup must be credible on its own, so below the
+        # inventory tier there is no anchor — and the old fallback is unchanged.
+        roanne = _c("Paris", "FR", "Roanne, Loire", ftype="neighborhood", lat=46.0457, lon=4.0702)
+        _client, box = self._patch(
+            monkeypatch,
+            {"gare de lyon, Paris": [self.V6_MISS], "Paris": [roanne]},
+            inventory={46.0457: 2, 43.66: 60, 43.6603: 60},
+        )
+
+        geocode_location(
+            city="Paris", zone="gare de lyon",
+            raw_user_message="pres de la gare de lyon demain", locale="fr-FR",
+        )
+
+        assert box.calls[0][0] == "gare de lyon, Paris"
+        assert box.proximities[0] is None
+
+    def test_a_turn_resolved_by_tier_one_pays_for_no_second_geocode(self, monkeypatch):
+        # The lookup is lazy on purpose: it sits after the tier-1 return, so the
+        # common case (the city itself echoes) keeps costing exactly one call.
+        client, _box = self._patch(
+            monkeypatch,
+            {"vieux nice, Nice": [_c("Vieux Nice", "FR", "06300 Nice", ftype="neighborhood",
+                                     lat=43.6961, lon=7.2758)]},
+            inventory={43.6961: 40},
+        )
+
+        result = geocode_location(
+            city="Nice", zone="vieux nice",
+            raw_user_message="un hotel vers le vieux nice demain", locale="fr-FR",
+        )
+
+        assert result["ok"] is True
+        assert len(client.calls) == 1
+
+    def test_the_new_anchor_activates_guard_14_where_it_was_a_no_op(self, monkeypatch):
+        # Guard #14 could not fire without an anchor — that is exactly how the
+        # Toulon POI (830 km) was accepted. A geocoded city IS an anchor, so a
+        # POI in the wrong place is now rejected instead of returned.
+        far_away = GeocodeResult(
+            latitude=43.1242, longitude=5.9280,
+            place_name="Aéroport de Nice, 83000 Toulon, France",
+            country_code="FR", region="",
+        )
+        _client, box = self._patch(
+            monkeypatch,
+            {"aéroport de nice, Nice": [self.V6_MISS], "Nice": [self.NICE]},
+            inventory={43.7101: 53, 43.66: 60, 43.1242: 60},
+            searchbox=far_away,
+        )
+
+        result = geocode_location(
+            city="Nice", zone="aéroport de nice",
+            raw_user_message="pres de l aeroport de nice demain", locale="fr-FR",
+        )
+
+        assert box.proximities[0] == "7.2618,43.7101"
+        assert result["ok"] is False
+        assert "poi_anchor_coherence" in (result.get("guards_fired") or [])
+
+
+class TestPoiAnchorCeilingIsTight:
+    """2026-08-26: the ceiling was 100 km, which only ever caught the absurd.
+    The measured window is (32, 130) — Disneyland Paris at 31,3 km must be kept,
+    the closest observed mis-resolution is Saint-Quentin at 130 — so it now sits
+    at the tight end instead of the loose one."""
+
+    def _paris(self, monkeypatch, poi):
+        paris = _c("Paris", "FR", "Île-de-France", lat=48.8566, lon=2.3522)
+        _patch_multi(monkeypatch, [paris], inventory={48.8566: 780})
+        monkeypatch.setattr(geocode_tool, "get_searchbox_client", lambda: _FakeSearchBox(poi))
+
+    def test_a_poi_69_km_out_is_now_rejected(self, monkeypatch):
+        # Beauvais is 69 km from central Paris and marketed as "Paris-Beauvais".
+        # Under the old 100 km ceiling it passed as a Paris landmark.
+        beauvais = GeocodeResult(49.4544, 2.1128, "Aéroport Paris-Beauvais, 60000 Beauvais,"
+                                 " France", "FR", "Hauts-de-France")
+        self._paris(monkeypatch, beauvais)
+
+        result = geocode_location(city="Paris", zone="aéroport de paris",
+                                  raw_user_message="un hotel vers l aeroport de paris")
+
+        assert result["ok"] is False
+        assert "poi_anchor_coherence" in result["guards_fired"]
+
+    def test_the_binding_case_still_passes(self, monkeypatch):
+        # Disneyland Paris, 31,3 km — the reason the ceiling cannot go below 32.
+        park = GeocodeResult(48.8674, 2.7836, "Disneyland Paris, 77700 Chessy, France", "FR", "IdF")
+        self._paris(monkeypatch, park)
+
+        result = geocode_location(city="Paris", zone="disneyland paris",
+                                  raw_user_message="hôtel près de disneyland paris")
+
+        assert result["ok"] is True
+        assert "poi_anchor_coherence" not in (result.get("guards_fired") or [])

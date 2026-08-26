@@ -2,6 +2,62 @@
 
 État du chantier pour reprise en session fraîche. **Lire en entier avant d'agir ; ne pas reconstruire ce qui existe.** Mettre à jour en fin de CHAQUE session (bloc daté en tête).
 
+## 🛰️ Addendum 2026-08-26 octies — « pourquoi Nice rate alors que Paris marche » : rien n'est en dur, Paris prenait juste l'autre chemin. Une ville NOMMÉE sans coordonnée est maintenant géocodée
+
+Question posée par Fabien (« j'ai peur que Paris fonctionne parce qu'on a mis des trucs en dur dans le code »). **Réponse : non, et c'est vérifié plutôt qu'affirmé.** Aucun nom de ville ni coordonnée en dur dans la feuille — tous les hits `paris` de `agents/hotel_search_agent/**.py` sont des commentaires et docstrings, et le ranker n'est que des poids génériques (`_TYPE_PRIOR`, `_W_*`, `_MIN_TIER_INVENTORY`). `inventory_snapshot.json` est une donnée, pas une préférence.
+
+### La vraie cause : `city_anchor` était GLANÉ, pas cherché
+
+`geocode_tool.py` a trois chemins pour dire à Search Box de quelle ville on parle (son propre commentaire les énumère) : **1.** une coordonnée → `proximity`, requête NUE ; **2.** un nom seul → replié dans la requête (`_searchbox_query`) ; **3.** rien → biais IP.
+
+Or le cas 1 n'était jamais *cherché* : `city_anchor` n'existait que si l'un des candidats v6 de la requête **combinée du tour** (« aéroport de nice, Nice ») échoait la ville ET passait `in_inventory_tier`. Aucun ⇒ cas 2. Et le cas 2 ne coûte pas seulement le libellé, mesuré en direct (sonde de décomposition du ranker, terme par terme) :
+
+| requête envoyée à Search Box | ce qui revient | gagnant |
+|---|---|---|
+| `"aéroport de nice, Nice"` | 10 commerces, **aucun aéroport** | *Bagnard aéroport de Nice* (un marchand de sandwichs) |
+| `"champs élysées, Paris"` | 10 commerces, **aucune avenue** | *citizenM Paris Champs Elysees* — un **hôtel concurrent**, à 1,2 km |
+| `"aéroport de nice"` + `proximity` sur Nice | l'aéroport EST dans la liste | **Aéroport de Nice, 06200** (7,57 contre 4,67) |
+| `"gare de lyon"` + `proximity` sur Paris | la gare EST dans la liste | **Gare de Lyon, Pl. Louis Armand, 75012** (9,45 contre 6,50) |
+
+**La feature propre n'est pas mal classée : elle est ABSENTE de la liste.** Aucun ranker ne peut rattraper ça — même corollaire que le bloc « ter » (*on ne re-classe pas ce qui n'est pas renvoyé*), à un endroit neuf. Et **Paris n'est pas plus sûr par construction** : replié dans la requête, il rend un hôtel concurrent comme origine de recherche. Il marchait parce que ses tours trouvaient un candidat qui échoait « Paris » avec de l'inventaire, donc prenaient le cas 1.
+
+⚠️ À noter : depuis mon IP, `"champs élysées"` **nu** ne renvoie qu'**un seul** candidat — *Clinique des Champs Elysées, 69006 **Lyon***. Et `_echoes` le laisse passer (le libellé contient « champs » et « elysees »). Le mode de défaillance Toulon-830-km est donc toujours vivant au niveau IP ; ce qui protège la prod, c'est la ville émise par le modèle, pas le guard d'écho.
+
+### Correctif 1 — géocoder la ville pour de bon
+
+`_city_coordinate()` : un NOM de ville sans coordonnée est un trou qu'on peut simplement fermer, en géocodant la ville nue — la même opération v6 que le tool fait déjà pour une recherche de ville. La requête Search Box reste alors NUE. Mesuré : Nice → `(43.7101, 7.2618)`, tier=True, 53 hôtels.
+
+- **Paresseux** : placé après le retour tier-1, donc un tour résolu normalement coûte toujours **un seul** appel v6 (verrouillé par test). Un appel de plus uniquement sur le chemin qui dégradait.
+- **`in_inventory_tier` reste le test de crédibilité** (S-G9) : le lookup nu de « Paris » renvoie aussi le quartier nommé Paris à **Roanne**. Vérifié sur ce chemin : Paris (783 hôtels) passe, Roanne (2) non — et le repli en requête reste alors intact.
+- Effet de bord voulu : **le guard #14 cesse d'être un no-op ici**. Avec une ancre, il peut enfin rejeter un POI au mauvais endroit — c'est exactement comme le POI de Toulon avait été accepté.
+
+### Correctif 2 — le plafond du guard #14 : 100 km → 40 km
+
+Fabien, en séance : « 100 km c'est beaucoup trop ». **Il a raison** : à 100 km ce n'était pas un contrôle de cohérence sur une ville, c'était un contrôle de l'absurde. La fenêtre est bornée aux deux bouts par des distances **mesurées**, donc ce n'est pas un choix de goût :
+
+| à GARDER | | à REJETER | |
+|---|---|---|---|
+| Orly | 14,7 km | Beauvais (« Paris »-Beauvais) | 69,0 km |
+| Versailles | 17,5 km | Saint-Quentin | 130 km |
+| CDG | 22,7 km | Viré | 329 km |
+| Évry (homonyme) | 25,7 km | Lyon | 393 km |
+| **Disneyland Paris** | **31,3 km** ← contraignant | Toulon | 830 km |
+
+Tout dans (32, 130) se défend ; 100 en était le bout le plus lâche, 40 est le bout serré qui garde Disneyland avec ~8 km de marge. Beauvais est désormais rejeté contre une ancre Paris — délibéré, c'est une autre ville. **S'applique à toutes les ancres, fix GPS compris.** Aucun test existant ne dépendait du plafond lâche (vérifié : la suite passe sans amendement).
+
+### Vérifications
+
+`1442 passed, 1 skipped` (1436 + 6), ruff + mypy + guardrails verts. **2 des 6 tests échouent si on retire le correctif 1** (vérifié en le retirant puis en le remettant) ; les 4 autres verrouillent des invariants (repli inchangé, paresse du lookup, plafond).
+
+En direct, après les deux correctifs (sonde in-process, aucun LLM) : `Nice`+`aéroport de nice` → *Aéroport de Nice, 06200* ; `Paris`+`champs élysées` → *Champs-Élysées, Paris* ; `Paris`+`gare de lyon` → *Gare de Lyon, Pl. Louis Armand, 75012* (le tour-réponse du clarify de #90, non régressé) ; `Nice`+`vieux nice` → *Vieux Nice, 06300*.
+
+### Reste
+
+- ⬜ **Confirmation en prod NON FAITE.** La chaîne de preuve est en pièces mesurées, pas de bout en bout en prod : symptôme prod mesuré (3/3), mécanisme lu dans le code, requête repliée mesurée perdante, coordonnée de ville mesurée crédible, aéroport mesuré gagnant avec cette proximité, câblage verrouillé hors-ligne.
+  **#91 est mergée depuis (`48a665d`)** et les deux changements vivent dans la MÊME feuille (`agent.py` pour le prompt, `geocode_tool.py` pour la géo) : **un seul `railway up --service hotel-search --detach`**, une fois ce bloc mergé aussi, vérifie les deux. Critères cumulés : « gare de lyon » (2 tournures) → question 3/3 chacune · « vieux lyon » → *Vieux Lyon 69005* · **« aéroport de nice » → *Aéroport de Nice, 06200*, plus la société de navettes** · contrôles champs-élysées / montmartre / louvre → `Paris` 3/3 · `llm_calls=3` sur les traces. Stamper `LANGFUSE_RELEASE` sur le sha de merge avec `--skip-deploys` d'abord.
+- ⚠️ **Interaction avec #91, à surveiller** : #91 a poussé « aéroport de nice » vers la QUESTION (résolu 1/3 seulement), et ce bloc-ci rend la réponse CORRECTE quand le modèle émet bien `Nice`. Le coût résiduel de #91 est donc plus élevé qu'à sa mesure : on pose une question là où la couche géo sait maintenant répondre juste. C'est exactement le cas « le nom et le lieu s'accordent » que V2-narrow veut laisser passer — candidat à un ajustement de formulation, à ne décider qu'après la mesure prod des deux ensemble.
+- ⚠️ **Défaut voisin trouvé en passant, NON corrigé** : `city="Lyon"` + `zone="gare de lyon"` (la branche Lyon du clarify de #90) résout sur **« La Garde, Lyon, Rhône »** — un POI dans la bonne ville mais qui n'est pas une gare. Le guard #14 ne peut rien voir (c'est dans la ville) : c'est une imprécision de ranker sur le libellé, pas une erreur de position. À traiter à part.
+- ⚠️ L'ancre de ville étant maintenant presque toujours présente, `_W_LANDMARK_CITY_ANCHOR` (2,5) et `_LANDMARK_ANCHOR_ZERO_KM` (40) pèsent sur bien plus de tours qu'avant. Non re-calibrés : à surveiller sur les landmarks légitimement excentrés (Disneyland est à 31,3 km, donc dans la zone de décroissance du bonus).
 ## 🏷️ Addendum 2026-08-26 septies — S5 durcie sur le piège « la zone embarque un nom de ville », et la mesure a corrigé la prémisse : 3 cas sur 4 émettaient DÉJÀ la bonne ville
 
 Scope d'une seule chose : l'instruction S5 de la feuille. **Aucun fichier de la couche déterministe touché** (`geocode_tool.py`, `geo_resolver.py`, `response_bridge.py` intacts), et `guard_geocode_echo_back` non durci — cette classe lui est structurellement invisible, « Gare de Lyon, 75012 Paris » écho-matche légitimement « gare » ET « lyon ».

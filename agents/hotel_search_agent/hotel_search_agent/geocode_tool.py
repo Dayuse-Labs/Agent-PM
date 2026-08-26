@@ -120,15 +120,25 @@ def _echoes(place_name: str, *, city: str | None, zone: str | None, state_hint: 
 
 
 #: How far a tier-2 POI may sit from THIS turn's anchor before the 14th guard
-#: (`poi_anchor_coherence`, 2026-08-26) throws it away. Calibrated on the
-#: distances actually measured, not guessed: a landmark is essentially never
-#: more than a few tens of km from the city it belongs to, so this keeps
-#: Disneyland Paris (32 km from central Paris) and rejects every observed
-#: IP-bias mis-resolution — Saint-Quentin 130 km, Viré 329, Lyon 393,
-#: Toulon 830. Évry (27 km) is deliberately NOT reachable by this threshold:
-#: tightening it far enough to catch that would reject Disneyland, and the
-#: city-in-the-query fix covers Évry anyway.
-_POI_ANCHOR_MAX_KM = 100.0
+#: (`poi_anchor_coherence`, 2026-08-26) throws it away.
+#:
+#: Tightened from 100 km to 40 km on 2026-08-26 (Fabien: "100 km c'est beaucoup
+#: trop", and he is right — at 100 km this was a check against the ABSURD, not a
+#: coherence check on a city). The window is bounded at both ends by measured
+#: distances, so it is not a taste call:
+#:   must KEEP    Orly 14,7 km · Versailles 17,5 · CDG 22,7 · Évry 25,7 (a
+#:                homonym, but the near cases belong to the anchoring fix, not
+#:                to this veto) · Disneyland Paris 31,3 ← the binding case
+#:   must REJECT  Saint-Quentin 130 km · Viré 329 · Lyon 393 · Toulon 830
+#: Anything in (32, 130) is therefore defensible; 100 was the loosest end of it
+#: and 40 is the tight end that still clears Disneyland with ~8 km of headroom.
+#: Beauvais (69 km, marketed as a "Paris" airport) is now rejected against a
+#: Paris anchor — deliberate: it is a different city, and the user who means it
+#: says Beauvais.
+#:
+#: This applies to EVERY anchor, the device GPS fix included — not only to the
+#: city coordinate `_city_coordinate` introduces below.
+_POI_ANCHOR_MAX_KM = 40.0
 
 
 def _poi_anchor_incoherent(
@@ -151,6 +161,65 @@ def _poi_anchor_incoherent(
     if anchor is None:
         return False
     return haversine_km(anchor[0], anchor[1], poi.latitude, poi.longitude) > _POI_ANCHOR_MAX_KM
+
+
+def _city_coordinate(
+    city: str,
+    *,
+    country: str | None,
+    locale_country: str | None,
+    language: str | None,
+) -> tuple[float, float] | None:
+    """The coordinate of a city the user NAMED, geocoded on purpose.
+
+    2026-08-26, found while auditing why "aéroport de nice" resolved to a
+    shuttle company on the Promenade des Anglais, 6 km from the airport, while
+    every Paris landmark resolved cleanly. The `city_anchor` loop below is
+    SCAVENGING: it only yields a coordinate when one of the v6 candidates for
+    THIS turn's combined query ("aéroport de nice, Nice") happens to echo the
+    city AND carry real inventory. When none does, the city is demoted to a
+    query STRING (`_searchbox_query`), which buys the position and loses the
+    label — and it loses more than the label. Measured:
+      `"aéroport de nice, Nice"`  → 10 businesses, no airport (winner: a
+                                    sandwich shop AT the airport)
+      `"champs élysées, Paris"`   → 10 businesses, no avenue (winner: a
+                                    competitor HOTEL, 1,2 km off)
+    The clean feature is not out-ranked, it is ABSENT from the list, so no
+    ranker can recover it. Paris only ever looked safe because its turns take
+    the anchored path; nothing in the code favours it.
+
+    A city NAME with no coordinate is a gap we can just close: geocoding the
+    bare city is the same v6 operation this tool already performs for a city
+    search, and it hands back the very `proximity` that lets the query stay
+    bare. Measured on the failing case: Nice → (43.7101, 7.2618), after which
+    Search Box does return "Aéroport de Nice, 06200 Nice" and the exact-name
+    bonus wins it outright (7.57, against 4.67 for the sandwich shop).
+
+    `in_inventory_tier` stays the credibility test, for exactly the reason the
+    scavenging loop has it (S-G9): the bare-city lookup for "Paris" also
+    returns the neighbourhood literally named Paris in ROANNE, and an anchor
+    that aims a lookup and vetoes its result must be credible on its own.
+    Verified on this path: Paris proper (783 hotels) passes, Roanne (2) does
+    not."""
+    candidates = get_mapbox_client().geocode_candidates(
+        city, country=country, language=language, proximity=None
+    )
+    resolution = geo_resolver.resolve(
+        candidates,
+        inventory=get_inventory(),
+        country_hint=country,
+        region_hint=None,
+        locale_country=locale_country,
+        proximity=None,
+        requested_name=city,
+        language=language,
+    )
+    for scored in resolution.scored:
+        if not scored.in_inventory_tier:
+            continue
+        if _echoes(scored.candidate.place_name, city=city, zone=None, state_hint=None):
+            return (scored.candidate.latitude, scored.candidate.longitude)
+    return None
 
 
 def _anchor_state(
@@ -706,6 +775,23 @@ def geocode_location(
     # "Champs-Élysées" neighborhood; `"les champs élysées, Paris"` → 10
     # businesses, top one "Onitsuka Tiger Champs Elysées, Paris Flagship".
     # Same 0.1-0.3 km position, very different label.
+    # A city NAME with no city COORDINATE means the scavenging loop above found
+    # nothing credible among THIS turn's candidates. Rather than fall straight
+    # to folding the city into the query — which measurably drops the clean
+    # feature out of the candidate list entirely (`_city_coordinate`) — ask v6
+    # for the city itself. One extra call, only on this path (a turn resolved by
+    # tier 1 has already returned above), and it converts the lossy fallback
+    # into the anchored path that works. Guard #14 also stops being a no-op
+    # here: with an anchor it can finally reject a POI in the wrong place.
+    if poi_anchor is None and echo_city and effective_zone:
+        city_anchor = _city_coordinate(
+            echo_city,
+            country=effective_country_code,
+            locale_country=guess_iso or _locale_country(locale),
+            language=lang,
+        )
+        poi_anchor = city_anchor
+
     searchbox_proximity = (
         f"{poi_anchor[1]},{poi_anchor[0]}" if poi_anchor is not None else None
     )
