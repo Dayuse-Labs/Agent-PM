@@ -1239,3 +1239,48 @@ class TestRadiusFollowsTheRequestNotTheGeocoder:
 
         assert result["ok"] is True
         assert result["distance_origin_type"] == "city_centroid"
+
+
+class TestCityAnchorMustBeInventoryCredible:
+    """Found on the first post-deploy check, 2026-08-26. The city anchor aims
+    the Search-Box lookup AND feeds guard #14's veto, so a candidate that merely
+    ECHOES the city's name is not enough — that is the S-G9 micro-homonym trap
+    the resolver's own docstring warns about, reintroduced in a new place.
+
+    Real case: "gare de lyon" + city "Paris". The only v6 candidate echoing
+    "Paris" was a neighbourhood literally named Paris in ROANNE (2 hotels
+    nearby, 390 km out). It became "the verified Paris", aimed Search Box at
+    Roanne, which returned Lyon stations, which failed the echo — and the turn
+    died on a clarify."""
+
+    def test_a_micro_homonym_of_the_city_is_not_a_valid_anchor(self, monkeypatch):
+        roanne_paris = _c("Paris", "FR", "Loire", ftype="neighborhood", lat=46.046, lon=4.070)
+        garde_lyon = _c("La Garde", "FR", "Rhône", ftype="neighborhood", lat=45.760, lon=4.796)
+        _patch_multi(monkeypatch, [garde_lyon, roanne_paris],
+                     inventory={45.760: 80, 46.046: 2})   # Roanne is below the tier
+        poi = GeocodeResult(48.8443, 2.3743, "Gare de Lyon, 75012 Paris, France", "FR", "IdF")
+        box = _FakeSearchBox(poi)
+        monkeypatch.setattr(geocode_tool, "get_searchbox_client", lambda: box)
+
+        result = geocode_location(city="Paris", zone="gare de lyon", country_code="FR",
+                                  raw_user_message="hotel pres de la gare de lyon demain")
+
+        assert result["ok"] is True
+        # No credible anchor ⇒ no proximity, and the city is folded into the
+        # query instead. Aiming at Roanne is exactly what must not happen.
+        assert box.proximities[-1] is None
+        assert box.calls[-1][0] == "gare de lyon, Paris"
+
+    def test_an_inventory_credible_city_candidate_is_still_used_as_the_anchor(self, monkeypatch):
+        real_paris = _c("Paris", "FR", "Île-de-France", ftype="place", lat=48.8566, lon=2.3522)
+        _patch_multi(monkeypatch, [real_paris], inventory={48.8566: 780})
+        poi = GeocodeResult(48.8698, 2.3078, "Champs-Élysées, 75008 Paris, France", "FR", "IdF")
+        box = _FakeSearchBox(poi)
+        monkeypatch.setattr(geocode_tool, "get_searchbox_client", lambda: box)
+
+        result = geocode_location(city="Paris", zone="les champs élysées",
+                                  raw_user_message="un hôtel vers les champs élysées à paris")
+
+        assert result["ok"] is True
+        assert box.proximities[-1] == "2.3522,48.8566"
+        assert box.calls[-1][0] == "les champs élysées"   # bare query, keeps the clean label

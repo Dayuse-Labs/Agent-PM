@@ -548,9 +548,22 @@ def geocode_location(
     # weak, band-limited `_W_PROXIMITY` — conflating the two would let a device
     # fix in Paris pull a landmark search for Lyon back to Paris, which is the
     # failure the Pelias band rule exists to prevent.
+    # ⚠️ The candidate must ALSO carry a real inventory footprint, not just
+    # echo the city's name. Echoing alone is the S-G9 micro-homonym trap the
+    # resolver's own docstring warns about, and it bit here on the first
+    # post-deploy check (2026-08-26): for "gare de lyon" + city "Paris", the
+    # ONLY v6 candidate echoing "Paris" was a neighbourhood literally named
+    # Paris in ROANNE — 2 hotels nearby, 390 km away. It became "the verified
+    # Paris", aimed Search Box at Roanne, and the turn died on a clarify. An
+    # anchor that aims a lookup and vetoes its result has to be credible on
+    # its own, and `in_inventory_tier` is exactly that test (>= 3 hotels).
+    # No credible candidate ⇒ no anchor, and the city falls back to being
+    # folded into the query — which is what resolves this case correctly.
     city_anchor: tuple[float, float] | None = None
     if echo_city:
         for scored in resolution.scored:
+            if not scored.in_inventory_tier:
+                continue
             if _echoes(scored.candidate.place_name, city=echo_city, zone=None, state_hint=None):
                 city_anchor = (scored.candidate.latitude, scored.candidate.longitude)
                 break
