@@ -2,6 +2,54 @@
 
 État du chantier pour reprise en session fraîche. **Lire en entier avant d'agir ; ne pas reconstruire ce qui existe.** Mettre à jour en fin de CHAQUE session (bloc daté en tête).
 
+## 🩹 Addendum 2026-08-26 bis — dashboard Langfuse OBS3 cassé (3 widgets sur 7) : les widgets créés via MCP sont estampillés `min_version = 2` et lisent une table qui n'existe qu'en v4
+
+Hors-session, déclenché par un rapport de Fabien : à l'ouverture du dashboard `b2c-concierge — OBS3 deterministic scores`, toast rouge **`Internal Server Error … Path: dashboard.executeQuery`**. **Corrigé, vérifié des deux côtés (reload OK + zéro erreur serveur depuis).**
+
+### Cause racine — ni les définitions de widgets, ni un flag v4 activé par erreur
+
+`dashboard_widgets.min_version = 2` sur **les 7 widgets créés le 2026-07-30 via le serveur MCP Langfuse** (tous les widgets créés avant, via l'UI, sont à `1`). Le query builder lit ce champ : `(minVersion ?? 1) >= 2` ⇒ il prend les **view declarations v2**, qui lisent `events_core` / `events_full` — **tables qui n'existent QUE en Langfuse v4**. L'instance est en **v3.224.3** : ClickHouse a 74 migrations et aucune table `events_*` (`traces`, `observations`, `scores`, `dataset_run_items_rmt`, `analytics_*`), et **aucune migration de l'image ne les crée**.
+
+Le SQL généré est doublement cassé — c'est ce que le toast cachait :
+
+```sql
+FROM events_core AS events_observations
+WHERE events_observations.environment IN (...)   -- alias
+  AND events_core.project_id = '...'             -- nom d'origine -> "Unknown table expression identifier"
+```
+
+**Pourquoi la page marchait à moitié** (un `0.18` s'affichait) : seuls les **3 widgets de la vue `observations`** tombent — `Cost by model`, `Latency p95 by observation name`, `Observation count by level` (54 + 54 + 32 lignes d'erreur dans les logs `langfuse-web`). Les 4 widgets `scores-*` ont des declarations v2 qui pointent encore sur `scores` : ils rendent normalement. **Un dashboard partiellement vivant est la signature de ce bug.**
+
+### Écartées, preuves à l'appui (ne pas les ressusciter)
+
+| Hypothèse | Réfutation |
+|---|---|
+| Toggle « v4 beta » cliqué par un utilisateur | `v4_beta_enabled = false` pour **les 4 users** en base |
+| `LANGFUSE_MIGRATION_V4_WRITE_MODE` en `dual`/`events_only` | défaut **`legacy`** au tag v3.224.3 ; et l'ingestion écrit bien dans `observations` (22k obs sur 24 h, la plus récente à 07:26 le jour même) |
+| `LANGFUSE_MIGRATION_V4_ALLOW_PREVIEW_OPT_IN` | défaut **`"false"`** en v3.224.3 — le défaut `true` de la doc concerne la ligne v4, ne pas s'y fier pour v3 |
+| Un flag events-table posé sur le service | aucun `LANGFUSE_ENABLE_EVENTS_TABLE_*` défini sur `langfuse-web` |
+| Définitions de widgets invalides | les **7** requêtes rejouées via `GET /api/public/metrics` (chemin v1) renvoient toutes de vraies données |
+
+### Correctif appliqué (Postgres Langfuse, prod)
+
+```sql
+UPDATE dashboard_widgets SET min_version = 1 WHERE min_version = 2;   -- UPDATE 7
+```
+
+Réversible d'une ligne (`SET min_version = 2`). Vérifié : les 7 lignes sont à `1`, Fabien a rechargé le dashboard (**tout s'affiche**), et **zéro** ligne `events_core` dans les logs `langfuse-web` après le correctif (140 au total, la dernière à 07:02:50Z).
+
+### ⚠️ Le piège, à connaître avant de recréer un widget
+
+**Tout widget créé via les tools MCP Langfuse naît estampillé `min_version = 2`** — vérifié en créant puis supprimant un widget sonde. Sur cette instance v3, il est donc cassé d'avance s'il utilise la vue `observations`. Jusqu'à OBS9 (montée en v4) : **créer les widgets dans l'UI**, ou remettre `min_version = 1` juste après une création MCP. `observability/langfuse/dashboard-b2c.json` **ne contient pas** `min_version` : recréer le dashboard depuis cet export via MCP réintroduit la panne (avertissement ajouté dans `observability/langfuse/README.md`).
+
+Sharp edge upstream connu : discussion Langfuse #12777 (`Unknown table expression identifier 'events_core'` après une montée de version v3).
+
+### Outillage de debug de cette instance (coûte une heure si on le redécouvre)
+
+- `psql` via `railway ssh` **se bloque sur le pager** (c'est `less`, pas la DB) : toujours `psql -P pager=off`.
+- Le `grep` BusyBox des conteneurs n'a **pas `-b`**, et il faut `-a` pour traiter les chunks `.next` comme du texte.
+- Projet Langfuse non lié au repo ⇒ logs via GraphQL `deploymentLogs(deploymentId, filter, limit)` (`scripts/railway-api.sh` du skill `use-railway`). La ligne `tRPC route failed` est inutile : c'est la ligne voisine `ClickHouse query failed` qui porte le vrai SQL.
+
 ## ✅ Addendum 2026-08-26 — P1 déployé sur `aa401ba` et prouvé en prod ; la DoD 24 h d'OBS7 est CLOSE (les 3 juges sains, le prompt v2 corrige bien le faux positif)
 
 Session courte : déploiement + la vérification 24 h qui n'était mesurable que maintenant.
