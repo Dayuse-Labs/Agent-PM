@@ -35,6 +35,7 @@ from the candidates' `place_formatted` — never a candidate dump, never a loop
 """
 from __future__ import annotations
 
+import re
 import unicodedata
 from dataclasses import dataclass, field
 
@@ -148,6 +149,27 @@ def _name_fold(value: str | None) -> str:
     return "".join(ch for ch in text if not unicodedata.combining(ch))
 
 
+def _tokens(folded: str) -> list[str]:
+    """Alphanumeric words of an already-folded name. Punctuation is dropped
+    rather than kept as a token: "74 - Disneyland" must count 1 extra word, not 2."""
+    return [tok for tok in re.split(r"[^a-z0-9]+", folded) if tok]
+
+
+def _landmark_key(value: str | None) -> tuple[str, ...]:
+    """Comparable word tuple for a landmark name: diacritics folded, punctuation
+    dropped, a leading article removed.
+
+    Punctuation MUST go through the same normalisation as the request, not just
+    the diacritics `_name_fold` handles: "Champs-Élysées" folds to
+    "champs-elysees", which is not the string "champs elysees", so comparing the
+    folded strings denied the exact-name bonus to the real Paris district and
+    handed it to a same-named district in Évry 27 km away — which then won."""
+    words = _tokens(_name_fold(value))
+    if words and words[0] in _LEADING_ARTICLE_WORDS:
+        return tuple(words[1:])
+    return tuple(words)
+
+
 def _differs_by_place(a: GeocodeCandidate, b: GeocodeCandidate) -> bool:
     """True when two candidates denote genuinely different places (different
     country, or different region within a country) — the case worth asking about.
@@ -177,6 +199,161 @@ def _clarify_question(options: list[GeocodeCandidate], language: str | None = No
         return f"Did you mean {labels[0]}?"
     joined = ", ".join(labels[:-1]) + f", or {labels[-1]}"
     return f"There are a few places by that name — which did you mean: {joined}?"
+
+
+#: Landmark (tier-2 / Search Box) feature-type prior. Deliberately NOT
+#: `_TYPE_PRIOR`: the priors genuinely INVERT between the two questions. For a
+#: city query a `place` is the best possible answer, so it scores highest up
+#: there. For a landmark query a `place` is the WORST — the user named
+#: something finer than a city ("les champs élysées"), so resolving to the city
+#: itself silently widens the search to the whole metro. The named district and
+#: the POI are what "around X" means.
+_LANDMARK_TYPE_PRIOR = {
+    "neighborhood": 4.5, "poi": 4.0, "locality": 4.0,
+    "address": 3.0, "place": 2.0, "district": 1.5, "region": 1.0,
+}
+
+#: Mapbox's own list position, for landmarks only — 6x weaker than `_W_RANK`.
+#: On the city path Mapbox's order is the only relevance proxy v6 gives, so it
+#: earns 0.3. Here it is the very thing we distrust: this endpoint's ordering IS
+#: the IP-biased ordering. At 0.3 it contributes up to 2.7 points across a
+#: 10-candidate list — more than the whole city-anchor term — and it showed:
+#: a district 27 km outside the named city outranked the real one purely for
+#: being 5 positions higher. Keep it only as a deterministic last tie-break.
+_W_LANDMARK_RANK = 0.05
+
+#: Landmark ranking weights, on top of the shared ones above.
+#: An EXACT name match is the strongest signal a POI list offers: querying
+#: "gare de lyon" returns both a business literally called "gare lyon" in the
+#: 19th (4 km off) and the actual "Gare de Lyon" station — only the name tells
+#: them apart, and Mapbox ranks the wrong one first.
+_W_LANDMARK_EXACT_NAME = 3.0
+#: Businesses NAMED AFTER a landmark ("Onitsuka Tiger Champs Elysées, Paris
+#: Flagship", "Le Relais de Montmartre") are usually geographically fine but
+#: make a terrible search-origin label — `resolved_place` reaches the customer
+#: through `active_filters.distance_origin`. A small penalty per word Mapbox
+#: added that the user never said breaks position ties in favour of the clean
+#: feature.
+#:
+#: Counted as "tokens the candidate name has and the request doesn't", NOT as
+#: "the request is a substring of the name": the substring version measured the
+#: wrong thing and picked the worst candidate. Probed on "disneyland paris" —
+#: a rental listing called "74 - Disneyland in Paris" (in the 3rd
+#: arrondissement, 30 km off) escaped the penalty entirely because the
+#: interleaved "in" broke the substring, while "Parking Disneyland Paris" at
+#: the actual park was penalised for its one extra word.
+_W_LANDMARK_NAME_BLOAT = 0.25
+#: …and the penalty is capped, so a landmark whose official name is simply long
+#: ("JFK" → "John F. Kennedy International Airport") cannot be demoted below a
+#: worse-placed candidate on verbosity alone. Below both the exact-name bonus
+#: and the inventory weight, on purpose: this only ever breaks near-ties.
+_MAX_LANDMARK_NAME_BLOAT = 1.5
+
+#: Leading articles, dropped from BOTH sides before the exact-name comparison.
+#: Users type them and official feature names don't ("les champs élysées" vs the
+#: "Champs Élysées" neighborhood), so without this the article denies the bonus
+#: to the real place and hands it to any homonym business that happens to
+#: include it. Measured: it made "Les Champs Elysées", a venue in Le Havre
+#: 200 km away, outrank the actual Paris district.
+_LEADING_ARTICLE_WORDS = frozenset({"les", "le", "la", "l", "the", "des", "de", "du"})
+
+#: A VERIFIED city anchor — the v6 candidate that echoed the city the user
+#: actually named — is a far sharper prior than a GPS fix, and it gets its own
+#: tight scale. `_W_PROXIMITY`'s 25→500 km band exists to stop a device fix
+#: overriding an explicit distant destination (the Pelias rule) and is
+#: deliberately kept for that; applied to a landmark inside a named city it is
+#: useless: it scored the real Champs-Élysées and a same-named district in Évry
+#: 27 km away within 0.002 of each other, and the Évry one won on its feature
+#: type. Within a named city, 27 km is not a near-tie — it is the wrong place.
+#:
+#: Only ever a BONUS for being near the anchor, never a penalty for being far,
+#: and only fed from a city the user named — so it cannot reproduce the failure
+#: the band rule guards against ("a hotel in New York" typed from Paris).
+_W_LANDMARK_CITY_ANCHOR = 2.5
+_LANDMARK_ANCHOR_FULL_KM = 5.0
+_LANDMARK_ANCHOR_ZERO_KM = 40.0
+
+#: The landmark ranker's own inventory cap, far above the city resolver's 30.
+#: For CITY disambiguation 30 is plenty — the question is only "does this
+#: candidate have a real footprint". For a POI homonym the MAGNITUDE is the
+#: discriminator: Paris (785 hotels within 25 km) and Le Havre (a couple of
+#: dozen) both blow past 30, so at that cap they score identically and a tie is
+#: settled by whichever name Mapbox happened to phrase like the request. A
+#: wider range restores the signal that actually separates them.
+_LANDMARK_INVENTORY_SOFT_CAP = 300
+#: A candidate with NO bookable inventory anywhere near it cannot be the place
+#: a day-use customer meant. Demoted hard (below every candidate that has
+#: some), never removed — if they ALL have none, the least-bad one still wins
+#: and the echo guard remains the final say.
+_LANDMARK_NO_INVENTORY_PENALTY = 6.0
+
+
+def _city_anchor_credit(
+    candidate: GeocodeCandidate, anchor: tuple[float, float] | None
+) -> float:
+    """[0,1] closeness to a verified city anchor, on the tight landmark scale."""
+    if anchor is None:
+        return 0.0
+    dist = haversine_km(anchor[0], anchor[1], candidate.latitude, candidate.longitude)
+    if dist <= _LANDMARK_ANCHOR_FULL_KM:
+        return 1.0
+    if dist >= _LANDMARK_ANCHOR_ZERO_KM:
+        return 0.0
+    return (_LANDMARK_ANCHOR_ZERO_KM - dist) / (
+        _LANDMARK_ANCHOR_ZERO_KM - _LANDMARK_ANCHOR_FULL_KM
+    )
+
+
+def rank_landmark(
+    candidates: list[GeocodeCandidate],
+    *,
+    requested_zone: str,
+    inventory: InventoryProvider,
+    proximity: tuple[float, float] | None = None,
+    city_anchor: tuple[float, float] | None = None,
+    radius_km: float = DEFAULT_RADIUS_KM,
+) -> GeocodeCandidate | None:
+    """Pick the best Search-Box candidate for a named landmark, or None.
+
+    SELECT-ONLY on purpose — no clarify branch. `resolve` above asks the user
+    when two CITIES are a genuine near-tie, which is a real question; a POI
+    list is not ("did you mean Azur Café or Unisex?"). So this ranks and
+    commits, and the caller's echo-back guard stays the veto.
+
+    Exists because Mapbox's top-1 for this endpoint is biased by the caller's
+    egress IP (`searchbox_client` docstring): trusting it made the leaf's
+    landmark resolution a function of which datacenter the container runs in.
+    Ranking the whole list on signals Mapbox cannot know — our inventory, the
+    exact name asked for — is what makes the outcome ours and reproducible.
+    """
+    if not candidates:
+        return None
+    wanted = _landmark_key(requested_zone)
+    wanted_tokens = set(wanted)
+
+    def score(candidate: GeocodeCandidate) -> float:
+        count = inventory.count_near(candidate.latitude, candidate.longitude, radius_km=radius_km)
+        value = _LANDMARK_TYPE_PRIOR.get(candidate.feature_type, _TYPE_PRIOR_DEFAULT)
+        value -= _W_LANDMARK_RANK * candidate.rank
+        if count > 0:
+            value += _W_INVENTORY * (
+                min(count, _LANDMARK_INVENTORY_SOFT_CAP) / _LANDMARK_INVENTORY_SOFT_CAP
+            )
+        else:
+            value -= _LANDMARK_NO_INVENTORY_PENALTY
+        value += _W_PROXIMITY * _proximity_credit(candidate, proximity)
+        value += _W_LANDMARK_CITY_ANCHOR * _city_anchor_credit(candidate, city_anchor)
+        name = _landmark_key(candidate.name)
+        if name == wanted:
+            value += _W_LANDMARK_EXACT_NAME
+        elif wanted_tokens:
+            extra = len([t for t in name if t not in wanted_tokens])
+            value -= min(_W_LANDMARK_NAME_BLOAT * extra, _MAX_LANDMARK_NAME_BLOAT)
+        return value
+
+    # `max` keeps the first of equal scores, and the input is in Mapbox rank
+    # order — so a true tie falls back to the vendor's opinion, deterministically.
+    return max(candidates, key=score)
 
 
 def resolve(

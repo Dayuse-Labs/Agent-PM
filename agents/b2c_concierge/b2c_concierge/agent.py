@@ -1180,6 +1180,19 @@ class _B2cConcierge(BaseAgent):
         # comes back as profile_delta.
         budget.charge("leaf_llm")
         leaf_text, response = await _run_leaf(route.target, ctx, leaf_profile_view(profile))
+        # OBS3 (2026-08-26): the guards that fired INSIDE the leaf, folded into
+        # the same set the spine's own guards use — same one-liner as the inline
+        # tools below. Until now the 5 leaf-side names in GUARD_SCORE_NAMES (the
+        # 3 geo + 2 date guards) had no way home, so `score_guards` published
+        # them as 0.0 on every turn ever recorded.
+        #
+        # POPPED, not read: a turn whose ONLY payload is this telemetry must
+        # still count as an empty response for every decision below (the
+        # degrade check right here, and `"results" in response` further down).
+        # Removing the key first keeps that control flow byte-identical instead
+        # of making observability change behaviour.
+        if isinstance(response, dict):
+            budget.fired.update(response.pop("guards_fired", None) or [])
         if leaf_text is None and not response:
             self._emit_turn_metric(family, f"leaf:{route.target}", budget, t_start, "degraded", inv)
             yield self._final(ctx, templates.leaf_degraded_response(family, reply_language, profile.city))

@@ -72,6 +72,16 @@ _STATE_COUNTRY_KEY = "temp:hotel_search_country_code"
 # being unmeasurable). Additive to the DataPart; the concierge ignores unknown keys.
 _STATE_ANCHOR_KEY = "temp:hotel_search_anchor"
 _STATE_DISTANCE_ORIGIN_KEY = "temp:hotel_search_distance_origin"
+# OBS3 (2026-08-26): the names of the deterministic guards that fired in THIS
+# leaf this turn, on their way to the concierge's `score_guards`.
+#
+# Why it did not exist before: 5 of the 13 `GUARD_SCORE_NAMES` fire here, not in
+# the concierge — and nothing ever carried them across A2A, so `score_guards`
+# emitted them as 0.0 on every single turn, forever. `scores.py` says as much
+# ("a later session wires their call sites"). The visible consequence: the
+# Toulon trace showed `guard_geocode_echo_back = false`, which read as a
+# structural false negative of the guard when it was really an unwired score.
+_STATE_GUARDS_KEY = "temp:hotel_search_guards_fired"
 # The budget / time-slot the model actually sent search_offers, captured from
 # the tool args (search_offers has NATIVE priceRangeMax/timeSlot params — no
 # virtual param needed, unlike amenities in S10) and mapped to the profile in
@@ -857,6 +867,16 @@ def capture_after_tool(
     name = getattr(tool, "name", "") or ""
 
     if name == "geocode_location":
+        # Guards are recorded on EVERY outcome, not just the successful ones: a
+        # guard that fired and then made the turn fail honestly is exactly what
+        # OBS3 needs to see.
+        if isinstance(tool_response, dict):
+            fired = tool_response.get("guards_fired")
+            if isinstance(fired, list) and fired:
+                previous = tool_context.state.get(_STATE_GUARDS_KEY) or []
+                tool_context.state[_STATE_GUARDS_KEY] = sorted(
+                    {str(f) for f in list(previous) + fired}
+                )
         if isinstance(tool_response, dict) and tool_response.get("ok"):
             delta = tool_response.get("profile_delta")
             if isinstance(delta, dict) and delta:
@@ -1284,6 +1304,13 @@ def emit_search_datapart(callback_context: Any) -> genai_types.Content | None:
             payload["search_date"] = search_date
     if profile_delta:
         payload["profile_delta"] = profile_delta
+    # OBS3: top-level, NOT nested in profile_delta — this is telemetry, not
+    # profile state, and `apply_profile_delta` would reject an unknown slot.
+    # The concierge folds it into `budget.fired` (see agent.py); an older
+    # concierge simply ignores the key, so the two sides can deploy in any order.
+    guards_fired = state.get(_STATE_GUARDS_KEY)
+    if isinstance(guards_fired, list) and guards_fired:
+        payload["guards_fired"] = list(guards_fired)
     if clarify_turn:
         # A geocode homonym clarify ended this turn with no search (S-G10, D3):
         # flag it deterministically so the orchestrator's facade can report

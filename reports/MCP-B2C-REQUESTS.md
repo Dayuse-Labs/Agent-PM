@@ -7,6 +7,80 @@ removed.
 
 ## Open
 
+### `resolve_location`: a Dayuse-owned POI/landmark geocoder on the `poi` index
+
+**Requested:** 2026-08-26 (geo session)
+**Status:** open — this is the structural fix (P2 of `AUDIT-AGENTIQUE-2026-07-30.md`)
+
+**What:** a tool that resolves a landmark/district/POI name to coordinates from
+MCP_B2C's own `poi` Elasticsearch index (alias `POI_INDEX`, present but not
+wired to any tool today). Suggested shape, mirroring `search_offers`' own
+vocabulary:
+
+```
+resolve_location(query: str, locale: str, country_code: str | null,
+                 near_lat: float | null, near_lon: float | null, limit: int)
+  -> [{ name, lat, lon, country_code, region, city, feature_kind, hotel_count }]
+```
+
+`hotel_count` (bookable Dayuse hotels near the candidate) is the field that
+matters most — see below.
+
+**Why — the reason got much stronger this session.** We now have the mechanism,
+not just the symptom. The landmark tier is Mapbox Search Box `/forward`, and
+Mapbox documents for that endpoint: ***"If not provided, the default is IP
+proximity."*** We send no `proximity` when the user has granted no GPS, so
+**the resolution is a function of the container's egress IP** — an input we
+never chose, that is absent from every trace, that differs between a laptop and
+a Railway container, and that can change with no deploy at all.
+
+Measured, not inferred:
+
+- Production, 2026-08-25: "autour des champs élysées" resolved to
+  `Champs Elysées, 32 Rue d'Alger, 83000 Toulon, France` — **830 km off**.
+  The same tool arguments replayed from a laptop the next day returned Paris
+  (trace `5eec27af27b79ed4b87f4c325b563bbc`).
+- Mid-session, this machine's egress IP changed on its own and the identical
+  query moved from Paris to a bistro in Viré, Saône-et-Loire (**329 km**);
+  "gare de lyon" moved to a business in Lyon (**393 km**).
+- A landmark probe over 18 cases scored **8/18 from a bad IP and 15/18 from a
+  good one — same code, same commit, same minute**.
+
+**A Dayuse POI index is immune to this by construction.** It has no notion of a
+caller IP, it carries `name_<locale>` with autocomplete analyzers across the 29
+markets (so it already knows "champs élysées", "gare de lyon", "sagrada
+familia" in the right language), and it is the only geocoder naturally weighted
+by OUR supply — the thing that actually distinguishes the Champs-Élysées from a
+same-named shop in Toulon. Our client-side resolver approximates that weighting
+today with `count_near` over a static snapshot; the index would answer it
+directly.
+
+**Current client-side workaround (shipped 2026-08-26, and it is a workaround):**
+
+1. Never let Mapbox choose the bias: an explicit `proximity` built from a
+   verified city coordinate (the v6 candidate that echoed the city the user
+   named), or the device GPS fix.
+2. Ask for the full candidate list (`limit=10`) and rank it ourselves —
+   `geo_resolver.rank_landmark`: exact-name match, feature-type prior,
+   inventory density, a tight city-anchor term.
+3. A 14th deterministic guard, `poi_anchor_coherence`, throws away a POI more
+   than 100 km from the turn's own anchor.
+4. Fall back to folding the city into the query when we have a city name but no
+   coordinate for it — which fixes the position but degrades the label (the
+   list fills with businesses named after the landmark).
+
+That took the probe to 17/18, but every layer of it is compensation for a
+geocoder that ranks by the wrong signal. Step 4 in particular trades label
+quality for correctness, and nothing we can do client-side removes the IP
+dependency on the bare-landmark path (no city named, no GPS) — Mapbox offers no
+way to switch the bias off.
+
+**Removal condition:** `resolve_location` becomes tier 1 for any request naming
+a zone/landmark; Mapbox stays the fallback for out-of-inventory places. The
+echo-back guard and `poi_anchor_coherence` stay as-is — they verify facts and
+cost nothing. Step 4 (city folded into the query) and the IP dependency both
+disappear.
+
 ### `search_offers`: sub-hour `timeSlot` (startMinute/endMinute)
 
 **Requested:** 2026-07-23 (S-G6)

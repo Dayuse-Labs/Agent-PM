@@ -36,8 +36,8 @@ from hotel_search_agent.geo_guards import (
     resolve_state_hint,
     select_us_postal_anchor,
 )
-from hotel_search_agent.inventory import get_inventory
-from hotel_search_agent.mapbox_client import GeocodeResult, MapboxClient
+from hotel_search_agent.inventory import get_inventory, haversine_km
+from hotel_search_agent.mapbox_client import GeocodeCandidate, GeocodeResult, MapboxClient
 from hotel_search_agent.response_bridge import read_profile_in
 from hotel_search_agent.searchbox_client import SearchBoxClient
 
@@ -119,6 +119,100 @@ def _echoes(place_name: str, *, city: str | None, zone: str | None, state_hint: 
     return geocode_echo_matches(place_name, city=city, zone=zone, state_hint=state_hint)
 
 
+#: How far a tier-2 POI may sit from THIS turn's anchor before the 14th guard
+#: (`poi_anchor_coherence`, 2026-08-26) throws it away. Calibrated on the
+#: distances actually measured, not guessed: a landmark is essentially never
+#: more than a few tens of km from the city it belongs to, so this keeps
+#: Disneyland Paris (32 km from central Paris) and rejects every observed
+#: IP-bias mis-resolution — Saint-Quentin 130 km, Viré 329, Lyon 393,
+#: Toulon 830. Évry (27 km) is deliberately NOT reachable by this threshold:
+#: tightening it far enough to catch that would reject Disneyland, and the
+#: city-in-the-query fix covers Évry anyway.
+_POI_ANCHOR_MAX_KM = 100.0
+
+
+def _poi_anchor_incoherent(
+    poi: GeocodeCandidate,
+    *,
+    anchor: tuple[float, float] | None,
+) -> bool:
+    """Guard #14 — is this tier-2 POI absurdly far from where the turn is about?
+
+    The echo-back guard validates the NAME; this one validates the PLACE, which
+    is the hole the audit called M4 ("a business called « Champs Elysées » in
+    Toulon echoes « champs élysées » perfectly — the name is right, the place is
+    wrong"). It is a distance check against the anchor the turn already
+    established: the device GPS fix, or the best tier-1 candidate.
+
+    Honest limit: with NO anchor (bare landmark, no city, no GPS) there is
+    nothing to compare to, so it does not fire and does not block. That case is
+    covered upstream by putting the city in the Search-Box query — this guard
+    is the net under that fix, not a substitute for it."""
+    if anchor is None:
+        return False
+    return haversine_km(anchor[0], anchor[1], poi.latitude, poi.longitude) > _POI_ANCHOR_MAX_KM
+
+
+def _anchor_state(
+    *,
+    city: str | None,
+    raw_user_message: str,
+    profile_state_context: str | None,
+    profile_location_hint: str | None,
+    guards_fired: list[str],
+) -> dict:
+    """`anchor_state_context` plus the OBS3 wiring its guard never had.
+
+    The `state_anchoring` guard is one of the 5 that fire in this leaf and whose
+    Langfuse score was structurally stuck at 0.0 — nothing reported them to the
+    concierge (`scores.py`: "a later session wires their call sites"). It counts
+    as having fired when it actually did something: a US state is in effect for
+    this geocode, or it cleared a stale one."""
+    anchored, delta = anchor_state_context(
+        city=city,
+        raw_user_message=raw_user_message,
+        profile_in={
+            "last_state_context": profile_state_context,
+            "last_city": profile_location_hint,
+        },
+    )
+    if anchored or "last_state_context" in delta:
+        guards_fired.append("state_anchoring")
+    return delta
+
+
+def _searchbox_query(zone: str | None, city: str | None, metro: str | None) -> str:
+    """`"<zone>, <city>"` when a city or metro is known, the landmark alone
+    otherwise — the LAST-RESORT way to tell Search Box which city we mean.
+
+    Only used when we have a city NAME but no city COORDINATE (see the caller:
+    a coordinate is strictly better, because it goes in `proximity` and leaves
+    the query bare). The 2026-07-23 comment this partially reverses said "the
+    landmark ALONE — appending the city biases Search Box toward businesses
+    named after the landmark (probed: 'La Défense, Paris' → a hotel 'Citadines
+    La Défense')". That was right, and measurement confirms it: `"les champs
+    élysées, Paris"` returns 10 businesses and no clean feature at all. What it
+    got wrong is the conclusion — the bare landmark is not safe either, because
+    Mapbox then ranks it by our egress IP (130-400 km errors). Both readings
+    hold: appending the city buys the right POSITION at the cost of the LABEL,
+    so it is the fallback, not the default."""
+    anchor = (city or "").strip() or (metro or "").strip()
+    zone_part = (zone or "").strip()
+    if anchor and zone_part:
+        return f"{zone_part}, {anchor}"
+    return zone_part or anchor
+
+
+def _fail(error: str, diagnostics: dict, guards_fired: list[str] | None = None) -> dict:
+    """A guarded failure. Carries `guards_fired` like `_ok` does: a guard that
+    fired and then made the turn fail honestly is exactly the event OBS3 wants
+    to see — scoring only the successes would report the opposite of reality."""
+    payload: dict = {"ok": False, "error": error, "diagnostics": diagnostics}
+    if guards_fired:
+        payload["guards_fired"] = sorted(set(guards_fired))
+    return payload
+
+
 def _ok(
     result: GeocodeResult,
     *,
@@ -127,6 +221,7 @@ def _ok(
     distance_origin_type: str,
     zone: str | None = None,
     metro: str | None = None,
+    guards_fired: list[str] | None = None,
 ) -> dict:
     # S-G5: zone/metro were accepted by this tool and validated by the echo
     # guard, but never reached the profile before now (audit gap — "a zone is
@@ -137,7 +232,7 @@ def _ok(
         delta["zone"] = zone
     if metro:
         delta["metro"] = metro
-    return {
+    payload = {
         "ok": True,
         "latitude": result.latitude,
         "longitude": result.longitude,
@@ -147,10 +242,17 @@ def _ok(
         "country_code": result.country_code,
         "profile_delta": delta,
     }
+    # OBS3: which deterministic guards actually fired this turn, so the
+    # concierge can score them (`response_bridge` stashes this, the spine folds
+    # it into `budget.fired`). Only-when-non-empty: the model never needs to
+    # read it, and an empty list would just be noise in the tool payload.
+    if guards_fired:
+        payload["guards_fired"] = sorted(set(guards_fired))
+    return payload
 
 
 def geocode_location(
-    city: str,
+    city: str = "",
     zone: str | None = None,
     metro: str | None = None,
     country_code: str | None = None,
@@ -169,6 +271,16 @@ def geocode_location(
         city: The destination city as extracted from the request (may be a
             generic word like "airport" — demoted to a zone hint, never
             geocoded literally).
+
+            Defaults to "" and is NOT a mandatory parameter, deliberately. It
+            used to have no default, so ADK declared it mandatory and rejected
+            the whole tool call with "the following mandatory input parameters
+            are not present: city" whenever the model omitted the key — which
+            it does precisely when the user named a landmark and no city. 14
+            such dead turns in the traces between 2026-08-15 and 08-26 (champs
+            élysées, louvre, gare de lyon, eiffel tower, la défense, buckingham
+            palace). An absent `city` is a legitimate shape, so it degrades to
+            the landmark path instead of killing the turn.
         zone: A sub-city area/landmark, if any. A landmark/POI here ("La Défense",
             "Tour Eiffel") is what triggers the Search-Box tier-2 fallback when
             v6 can't resolve it.
@@ -236,12 +348,23 @@ def geocode_location(
     On any guard rejection or geocoder failure, a clean diagnostic:
         {"ok": False, "error": "<reason>", "diagnostics": {...}}
     """
+    guards_fired: list[str] = []
     demoted = demote_generic_city({"city": city, "zone": zone, "metro": metro})
     effective_city: str | None = demoted.get("city")
     effective_zone: str | None = demoted.get("zone")
     effective_metro: str | None = demoted.get("metro")
     if effective_city != city or effective_metro != metro:
         mark_level("WARNING", status_message="generic_location_demoted")
+        guards_fired.append("generic_location_demotion")
+
+    # S4 (2026-08-26): the search RADIUS derives from what the user asked for,
+    # not from the geocoder's taxonomy. `inject_landmark_radius` tightens the
+    # `search_offers` disc to 3 km only when this says "poi"; before this it was
+    # whichever tier happened to answer, so the same landmark got a 3 km disc
+    # via Search Box and a 20 km one via v6 (`neighborhood` → `city_centroid`).
+    # A specific named zone means "around X" whoever resolved it.
+    zone_is_specific = bool(effective_zone) and not is_generic_location_token(effective_zone or "")
+    zone_origin_type = "poi" if zone_is_specific else "city_centroid"
 
     # Computed BEFORE the early return below, because the zone-only landmark
     # path now needs both (P0-2 fix 1) — they depend only on the call's own
@@ -307,9 +430,14 @@ def geocode_location(
         # No `zone_is_landmark` model flag is needed (the audit listed one as a
         # bonus): the code can tell, and a signal the code owns cannot be
         # hallucinated.
-        if effective_zone and not is_generic_location_token(effective_zone):
-            landmark = get_searchbox_client().forward(
-                effective_zone,
+        if zone_is_specific:
+            landmark_candidates = get_searchbox_client().forward_candidates(
+                # No city to append here by definition (this branch is "no city
+                # and no metro"), so the landmark goes alone — `_searchbox_query`
+                # would return exactly that. This is the one path that stays
+                # exposed to Mapbox's IP-biased ranking, which is why it ranks
+                # the whole candidate list instead of trusting top-1.
+                effective_zone or "",
                 # The raw `country_code` param, not `effective_country_code`:
                 # the US-ZIP anchor that derives the latter runs further down,
                 # after this early return. A bare landmark with no city and a US
@@ -318,24 +446,45 @@ def geocode_location(
                 language=lang,
                 proximity=proximity_str,
             )
+            landmark = geo_resolver.rank_landmark(
+                landmark_candidates,
+                requested_zone=effective_zone or "",
+                inventory=get_inventory(),
+                proximity=proximity_tuple,
+            )
             if landmark is not None and _echoes(
                 landmark.place_name, city=None, zone=effective_zone, state_hint=None
             ):
-                return _ok(
-                    landmark,
-                    feature_type="poi",
-                    profile_delta={},
-                    distance_origin_type="poi",
-                    zone=effective_zone,
-                )
-        return {
-            "ok": False,
-            "error": "no_geocodable_location",
-            "diagnostics": {
-                "reason": "generic_location_only" if effective_zone else "missing_city",
+                # Guard #14 — with no city named, `proximity_tuple` (the device
+                # fix) is the only anchor available; without one the guard is a
+                # no-op here and the ranker above is what carries the case.
+                if _poi_anchor_incoherent(landmark, anchor=proximity_tuple):
+                    guards_fired.append("poi_anchor_coherence")
+                    mark_level("WARNING", status_message="poi_anchor_incoherent")
+                else:
+                    return _ok(
+                        landmark.as_result(),
+                        feature_type=landmark.feature_type,
+                        profile_delta={},
+                        distance_origin_type="poi",
+                        zone=effective_zone,
+                        guards_fired=guards_fired,
+                    )
+        return _fail(
+            "no_geocodable_location",
+            {
+                # A specific landmark that simply failed to resolve is NOT a
+                # "generic location" — reporting it as one sent readers of this
+                # diagnostic looking for a demotion that never happened
+                # (`is_generic_location_token("notre dame")` is False).
+                "reason": (
+                    "landmark_not_resolved" if zone_is_specific
+                    else "generic_location_only" if effective_zone else "missing_city"
+                ),
                 "zone_hint": effective_zone,
             },
-        }
+            guards_fired,
+        )
 
     # A 5-digit US ZIP anywhere in the request is stronger, deterministic
     # evidence than trusting the model to also extract country_code — without
@@ -383,13 +532,36 @@ def geocode_location(
 
     echo_city = effective_city or effective_metro
 
+    # The turn's geographic anchor for guard #14. An anchor that vetoes another
+    # resolution must itself be verified first, so this is deliberately NOT
+    # v6's top candidate: by the time tier 2 runs, that candidate is the one the
+    # echo guard just REJECTED. Anchoring on it would let v6 fuzzing to another
+    # continent ("La Défense, Paris" → Al Ain, AE) veto the correct Search-Box
+    # answer — precisely the case P0-2 fixed. So: the device GPS fix, else the
+    # best v6 candidate that independently echoes the CITY the user named.
+    # No named city (the bare-landmark shape) ⇒ no anchor and no guard; that
+    # case belongs to `_searchbox_query`, not to this guard.
+    #
+    # `city_anchor` is kept SEPARATE from the GPS fix on purpose. It is the
+    # coordinate of the city the user themselves named, verified by the echo
+    # guard, so `rank_landmark` may lean on it hard. A GPS fix stays on the
+    # weak, band-limited `_W_PROXIMITY` — conflating the two would let a device
+    # fix in Paris pull a landmark search for Lyon back to Paris, which is the
+    # failure the Pelias band rule exists to prevent.
+    city_anchor: tuple[float, float] | None = None
+    if echo_city:
+        for scored in resolution.scored:
+            if _echoes(scored.candidate.place_name, city=echo_city, zone=None, state_hint=None):
+                city_anchor = (scored.candidate.latitude, scored.candidate.longitude)
+                break
+    poi_anchor: tuple[float, float] | None = proximity_tuple or city_anchor
+
     clarify_response: dict | None = None
     if resolution.decision == "clarify":
         mark_level("WARNING", status_message="geocode_ambiguous")
-        clarify_response = {
-            "ok": False,
-            "error": "geocode_ambiguous",
-            "diagnostics": {
+        clarify_response = _fail(
+            "geocode_ambiguous",
+            {
                 "question": resolution.question,
                 "options": [
                     {
@@ -401,7 +573,8 @@ def geocode_location(
                     for c in resolution.options
                 ],
             },
-        }
+            guards_fired,
+        )
         # A named zone/landmark can make v6's whole candidate list fuzz (the
         # real place isn't a v6 feature at all — "La Défense" only exists in
         # the Search-Box tier). Don't ask the user to pick among fuzzy
@@ -414,24 +587,28 @@ def geocode_location(
     if resolution.decision == "select" and resolution.chosen is not None:
         chosen = resolution.chosen
         if _echoes(chosen.place_name, city=echo_city, zone=effective_zone, state_hint=state_hint):
-            _, profile_delta = anchor_state_context(
+            profile_delta = _anchor_state(
                 city=effective_city,
                 raw_user_message=raw_user_message,
-                profile_in={
-                    "last_state_context": profile_state_context,
-                    "last_city": profile_location_hint,
-                },
+                profile_state_context=profile_state_context,
+                profile_location_hint=profile_location_hint,
+                guards_fired=guards_fired,
             )
             return _ok(
                 chosen.as_result(),
                 feature_type=chosen.feature_type,
                 profile_delta=profile_delta,
-                distance_origin_type="city_centroid",
+                # S4: a named specific zone means "around X" even when it was v6
+                # that answered, so the 3 km disc applies here too. Without this
+                # the same landmark got 3 km via Search Box and 20 km via v6.
+                distance_origin_type=zone_origin_type,
                 zone=effective_zone,
                 metro=effective_metro,
+                guards_fired=guards_fired,
             )
         # The chosen candidate failed the echo sanity check — fall through to the
         # Search-Box tier-2 fallback below if a zone/landmark was named.
+        guards_fired.append("geocode_echo_back")
 
     # Tier 2 (A2-b): v6 gave us nothing acceptable. When the request named a
     # zone/landmark ("La Défense", "Tour Eiffel"), retry ONCE via Search Box,
@@ -441,41 +618,75 @@ def geocode_location(
     # used AS the destination is a POI, invisible to v6's city feature types,
     # so the zone-only trigger left it unreachable; a bare-city miss that HAS
     # candidates still never reaches Search Box, unchanged.
-    searchbox_query = effective_zone
-    if not searchbox_query and not candidates:
-        searchbox_query = effective_city or effective_metro
+    #
+    # How the city reaches Search Box (2026-08-26). Leaving `proximity` unset
+    # does NOT mean "unbiased": Mapbox then biases by our egress IP, which is
+    # what resolved "les champs élysées" to a shop in Toulon. So we always give
+    # it a bias WE chose when we have one, in this order:
+    #   1. `poi_anchor` — the device GPS fix, or the v6 candidate that echoed
+    #      the city the user named. A coordinate, so the query stays the BARE
+    #      landmark, which is what keeps the clean feature in the list.
+    #   2. no coordinate but a city STRING → fold the city into the query
+    #      (`_searchbox_query`). Last resort: it does fix the position, but it
+    #      also floods the list with businesses named after the landmark and one
+    #      of them becomes `resolved_place`, which the customer sees.
+    #   3. neither → the bare landmark, IP-biased, and `rank_landmark` is the
+    #      only defence. The documented residual.
+    # Measured on "les champs élysées": bare query + Paris proximity → the
+    # "Champs-Élysées" neighborhood; `"les champs élysées, Paris"` → 10
+    # businesses, top one "Onitsuka Tiger Champs Elysées, Paris Flagship".
+    # Same 0.1-0.3 km position, very different label.
+    searchbox_proximity = (
+        f"{poi_anchor[1]},{poi_anchor[0]}" if poi_anchor is not None else None
+    )
+    if searchbox_proximity is not None:
+        searchbox_query = effective_zone or effective_city or effective_metro or ""
+    else:
+        searchbox_query = _searchbox_query(effective_zone, effective_city, effective_metro)
+    if not effective_zone and candidates:
+        # A bare-city miss that HAS v6 candidates still never reaches Search Box
+        # (worse for cities, separate SKU) — unchanged.
+        searchbox_query = ""
     if searchbox_query:
-        # The landmark ALONE — appending the city biases Search Box toward
-        # businesses named after the landmark (probed: "La Défense, Paris" →
-        # a hotel "Citadines La Défense"; bare "La Défense" → the district).
-        poi = get_searchbox_client().forward(
+        poi_candidates = get_searchbox_client().forward_candidates(
             searchbox_query,
             country=_soft_country(effective_country_code, country_guess, locale),
             language=lang,
-            # P0-2 fix 2 (M3): the client has always accepted a proximity bias
-            # and tier 2 never passed one, so the POI lookup was blind to the
-            # device fix that tier 1 already used.
-            proximity=proximity_str,
+            proximity=searchbox_proximity,
+        )
+        poi = geo_resolver.rank_landmark(
+            poi_candidates,
+            requested_zone=effective_zone or effective_city or effective_metro or "",
+            inventory=get_inventory(),
+            proximity=proximity_tuple,
+            city_anchor=city_anchor,
         )
         if poi is not None and _echoes(
             poi.place_name, city=echo_city, zone=effective_zone, state_hint=state_hint
         ):
-            _, profile_delta = anchor_state_context(
-                city=effective_city,
-                raw_user_message=raw_user_message,
-                profile_in={
-                    "last_state_context": profile_state_context,
-                    "last_city": profile_location_hint,
-                },
-            )
-            return _ok(
-                poi,
-                feature_type="poi",
-                profile_delta=profile_delta,
-                distance_origin_type="poi",
-                zone=effective_zone,
-                metro=effective_metro,
-            )
+            # Guard #14 (`poi_anchor_coherence`): the echo above proved the NAME,
+            # this proves the PLACE. Rejecting falls through to the honest
+            # outcomes below — never a fabricated coordinate, never a retry.
+            if _poi_anchor_incoherent(poi, anchor=poi_anchor):
+                guards_fired.append("poi_anchor_coherence")
+                mark_level("WARNING", status_message="poi_anchor_incoherent")
+            else:
+                profile_delta = _anchor_state(
+                    city=effective_city,
+                    raw_user_message=raw_user_message,
+                    profile_state_context=profile_state_context,
+                    profile_location_hint=profile_location_hint,
+                    guards_fired=guards_fired,
+                )
+                return _ok(
+                    poi.as_result(),
+                    feature_type=poi.feature_type,
+                    profile_delta=profile_delta,
+                    distance_origin_type="poi",
+                    zone=effective_zone,
+                    metro=effective_metro,
+                    guards_fired=guards_fired,
+                )
 
     # Tier 2 missed too — a pending clarify (homonym near-tie) is the honest
     # outcome now, ahead of the generic diagnostics below.
@@ -489,14 +700,16 @@ def geocode_location(
         # query just matched nothing it can see (and the Search-Box fallback
         # above missed too) — the model used to dress "unavailable" up as a
         # service outage for the user (S-G11, "geolocation service unavailable").
-        return {"ok": False, "error": "geocode_no_match", "diagnostics": {"query": query}}
+        return _fail("geocode_no_match", {"query": query}, guards_fired)
     resolved_place = resolution.chosen.place_name if resolution.chosen is not None else None
     mark_level("WARNING", status_message="geocode_echo_mismatch")
-    return {
-        "ok": False,
-        "error": "geocode_echo_mismatch",
-        "diagnostics": {"query": query, "resolved_place": resolved_place},
-    }
+    if "geocode_echo_back" not in guards_fired:
+        guards_fired.append("geocode_echo_back")
+    return _fail(
+        "geocode_echo_mismatch",
+        {"query": query, "resolved_place": resolved_place},
+        guards_fired,
+    )
 
 
 def _is_blank(value: object) -> bool:

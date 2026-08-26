@@ -367,3 +367,28 @@ def test_state_context_reused_without_explicit_state_or_city_change():
     )
     assert anchored2 == "CT"
     assert "last_state_context" not in delta2
+
+
+class TestGenericTokensAreArticleInsensitive:
+    """2026-08-26. The word set carried "the airport" explicitly but no French
+    articled form, and the model writes what the user said: "un hôtel près de la
+    gare" produces `zone="la gare"`, which was NOT recognised as generic. So a
+    generic word reached the Search-Box landmark lookup — the thing the tier-2
+    comment warns about ("Search Box would happily return some airport on
+    another continent") — and the failure diagnostic named it a landmark."""
+
+    def test_french_articled_generic_words_are_generic(self):
+        for token in ("la gare", "le centre ville", "les aeroports", "l'aeroport"):
+            assert is_generic_location_token(token) is True, token
+
+    def test_articled_real_landmarks_stay_specific(self):
+        # The whole reason this cannot be a blunt "strip every article": these
+        # are the landmarks the tier-2 lookup exists for.
+        for token in ("les champs élysées", "la défense", "la sagrada familia",
+                      "gare de lyon", "the eiffel tower"):
+            assert is_generic_location_token(token) is False, token
+
+    def test_a_bare_generic_word_is_unchanged(self):
+        assert is_generic_location_token("gare") is True
+        assert is_generic_location_token("airport") is True
+        assert is_generic_location_token("terminal 2") is True

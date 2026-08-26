@@ -22,8 +22,11 @@ def _disabled(monkeypatch):
 class TestGuardScoreNamesContract:
     _SNAKE_CASE_RE = re.compile(r"^[a-z][a-z0-9_]*$")
 
-    def test_exactly_13_names(self):
-        assert len(scores.GUARD_SCORE_NAMES) == 13
+    def test_exactly_14_names(self):
+        # 13 → 14 on 2026-08-26 (`poi_anchor_coherence`). The contract allows
+        # ADDING a guard; it forbids renaming or removing one, which is what
+        # would break a score's history.
+        assert len(scores.GUARD_SCORE_NAMES) == 14
 
     def test_no_duplicates(self):
         assert len(set(scores.GUARD_SCORE_NAMES)) == len(scores.GUARD_SCORE_NAMES)
@@ -38,8 +41,10 @@ class TestGuardScoreNamesContract:
         assert isinstance(scores.GUARD_SCORE_NAMES, tuple)
 
     def test_expected_names_present(self):
-        # The 11 ported from agent-usa's 2026-06 audit + the 2 AgentB2C-only
-        # additions (R9 = booking_confirmation, S-G12 = hotel_link_truthfulness).
+        # The 11 ported from agent-usa's 2026-06 audit + the 3 AgentB2C-only
+        # additions (R9 = booking_confirmation, S-G12 = hotel_link_truthfulness,
+        # and poi_anchor_coherence = the M4 "the name is right, the place is
+        # wrong" hole).
         assert set(scores.GUARD_SCORE_NAMES) == {
             "geocode_echo_back",
             "generic_location_demotion",
@@ -54,6 +59,7 @@ class TestGuardScoreNamesContract:
             "named_hotel_lookup",
             "booking_confirmation",
             "hotel_link_truthfulness",
+            "poi_anchor_coherence",
         }
 
 

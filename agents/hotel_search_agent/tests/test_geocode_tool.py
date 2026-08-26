@@ -50,12 +50,34 @@ class FakeMapboxClient:
         ]
 
 
+def _as_candidate(result: GeocodeResult, *, feature_type: str = "poi", rank: int = 0) -> GeocodeCandidate:
+    """A Search-Box result in the candidate shape the tier now consumes. Tier 2
+    switched from Mapbox's `limit=1` top pick to the full candidate list ranked
+    by `geo_resolver.rank_landmark` (2026-08-26: that top-1 is biased by the
+    caller's egress IP), so the fakes hand back candidates."""
+    return GeocodeCandidate(
+        latitude=result.latitude,
+        longitude=result.longitude,
+        name=result.place_name.split(",")[0],
+        place_name=result.place_name,
+        place_formatted=result.place_name,
+        feature_type=feature_type,
+        country_code=result.country_code,
+        region=result.region,
+        bbox=None,
+        rank=rank,
+    )
+
+
 class _NoSearchBox:
     """Tier-2 disabled offline: a miss degrades honestly instead of hitting the
     network. Tests that exercise the Search-Box fallback patch this explicitly."""
 
     def forward(self, *args, **kwargs):
         return None
+
+    def forward_candidates(self, *args, **kwargs):
+        return []
 
 
 @pytest.fixture(autouse=True)
@@ -127,6 +149,13 @@ class TestGenericCityDemotion:
             "ok": False,
             "error": "no_geocodable_location",
             "diagnostics": {"reason": "generic_location_only", "zone_hint": "airport"},
+            # OBS3 (2026-08-26): the demotion guard now REPORTS itself, so the
+            # concierge can score it. Before this the 3 geo guards were wired
+            # nowhere and their Langfuse series sat at 0.0 forever, which is
+            # what made "guard_generic_location_demotion = false" on the Toulon
+            # trace look like a structural false negative rather than an
+            # unwired score.
+            "guards_fired": ["generic_location_demotion"],
         }
         assert fake.calls == []
 
@@ -326,6 +355,13 @@ class _FakeSearchBox:
         self.proximities.append(proximity)
         self.langs.append(language)
         return self.result
+
+    def forward_candidates(self, query, *, country=None, language=None, proximity=None, **kwargs):
+        self.calls.append((query, country))
+        self.countries.append(country)
+        self.proximities.append(proximity)
+        self.langs.append(language)
+        return [] if self.result is None else [_as_candidate(self.result)]
 
 
 class _FakeInventory:
@@ -1003,3 +1039,203 @@ class TestCountryGuessIsASoftPrior:
 
         assert result["ok"] is True
         assert result["country_code"] == "IT"
+
+
+class TestCityIsNotAMandatoryParameter:
+    """2026-08-26. `city: str` had NO default, so ADK declared it mandatory and
+    rejected the whole tool call — "the following mandatory input parameters are
+    not present: city" — every time the model omitted the key, which is exactly
+    what it does when the user names a landmark and no city. 14 such dead turns
+    in the Langfuse traces between 2026-08-15 and 08-26 (champs élysées, louvre,
+    gare de lyon, eiffel tower, la défense, buckingham palace). This was read as
+    extraction non-determinism ("~1 turn in 6"); it was a signature."""
+
+    def test_the_tool_is_callable_with_no_city_argument_at_all(self, monkeypatch):
+        _patch_multi(monkeypatch, [])
+        poi = GeocodeResult(48.8698, 2.3078, "Champs-Élysées, Paris, France", "FR", "Île-de-France")
+        monkeypatch.setattr(geocode_tool, "get_searchbox_client", lambda: _FakeSearchBox(poi))
+
+        # No `city=` — the shape that used to fail before the function ran.
+        result = geocode_location(zone="les champs élysées", country_guess="FR",
+                                  raw_user_message="je cherche un hôtel autour des champs élysées")
+
+        assert result["ok"] is True
+        assert result["latitude"] == 48.8698
+
+    def test_city_has_a_default_so_adk_cannot_mark_it_required(self):
+        import inspect
+
+        missing = [
+            name for name, p in inspect.signature(geocode_location).parameters.items()
+            if p.default is inspect.Parameter.empty
+        ]
+        # ADK derives "mandatory input parameter" from "has no default value".
+        assert missing == []
+
+    def test_an_unresolved_landmark_is_not_reported_as_a_generic_location(self, monkeypatch):
+        # The diagnostic used to say `generic_location_only` for ANY zone that
+        # failed, including a real landmark — `is_generic_location_token("notre
+        # dame")` is False, so it sent readers hunting a demotion that never
+        # happened.
+        _patch_multi(monkeypatch, [])
+
+        result = geocode_location(city="", zone="notre dame", country_code="FR",
+                                  raw_user_message="day use autour de notre dame")
+
+        assert result["ok"] is False
+        assert result["diagnostics"]["reason"] == "landmark_not_resolved"
+
+    def test_a_genuinely_generic_zone_still_reports_generic(self, monkeypatch):
+        _patch_multi(monkeypatch, [])
+
+        result = geocode_location(city="", zone="gare", country_code="FR",
+                                  raw_user_message="un hôtel près de la gare")
+
+        assert result["ok"] is False
+        assert result["diagnostics"]["reason"] == "generic_location_only"
+
+
+class TestSearchBoxProximityIsNeverLeftToMapbox:
+    """Mapbox documents, for `/search/searchbox/v1/forward`: "If not provided,
+    the default is IP proximity." Sending no `proximity` therefore does not mean
+    "unbiased" — it means "biased by whatever IP this container egresses from".
+    That is what resolved "les champs élysées" to a shop of that name in Toulon,
+    830 km away, on 2026-08-25 in production, while the identical arguments
+    replayed from a laptop returned Paris (trace 5eec27af27b79ed4b87f4c325b563bbc)."""
+
+    def test_a_verified_city_coordinate_is_sent_as_proximity_with_a_bare_query(self, monkeypatch):
+        # v6 resolves the CITY but its pick fails the landmark echo, so tier 2
+        # runs — and it must aim at the city we just verified, not at the
+        # datacenter. Bare query on purpose: appending the city floods the list
+        # with businesses named after the landmark, and one of them becomes the
+        # `resolved_place` the customer sees.
+        paris = _c("Paris", "FR", "Île-de-France", lat=48.8566, lon=2.3522)
+        _patch_multi(monkeypatch, [paris], inventory={48.8566: 780})
+        poi = GeocodeResult(48.8698, 2.3078, "Champs-Élysées, 75008 Paris, France", "FR", "IdF")
+        box = _FakeSearchBox(poi)
+        monkeypatch.setattr(geocode_tool, "get_searchbox_client", lambda: box)
+
+        result = geocode_location(city="Paris", zone="les champs élysées",
+                                  raw_user_message="un hôtel vers les champs élysées à paris")
+
+        assert result["ok"] is True
+        assert box.calls[-1][0] == "les champs élysées"        # bare, not "…, Paris"
+        assert box.proximities[-1] == "2.3522,48.8566"         # lon,lat of the verified city
+
+    def test_without_any_coordinate_the_city_is_folded_into_the_query_instead(self, monkeypatch):
+        # No GPS, and v6 produced nothing that echoes the city — so there is no
+        # coordinate to aim with. Folding the city into the query is the only
+        # remaining way to say which city we mean. Costs label quality, which is
+        # why it is the fallback and not the default.
+        _patch_multi(monkeypatch, [])
+        poi = GeocodeResult(48.8698, 2.3078, "Champs-Élysées, 75008 Paris, France", "FR", "IdF")
+        box = _FakeSearchBox(poi)
+        monkeypatch.setattr(geocode_tool, "get_searchbox_client", lambda: box)
+
+        result = geocode_location(city="Paris", zone="les champs élysées",
+                                  raw_user_message="un hôtel vers les champs élysées à paris")
+
+        assert result["ok"] is True
+        assert box.calls[-1][0] == "les champs élysées, Paris"
+        assert box.proximities[-1] is None
+
+    def test_a_gps_fix_still_wins_over_the_city_coordinate(self, monkeypatch):
+        paris = _c("Paris", "FR", "Île-de-France", lat=48.8566, lon=2.3522)
+        _patch_multi(monkeypatch, [paris], inventory={48.8566: 780})
+        poi = GeocodeResult(48.8698, 2.3078, "Champs-Élysées, 75008 Paris, France", "FR", "IdF")
+        box = _FakeSearchBox(poi)
+        monkeypatch.setattr(geocode_tool, "get_searchbox_client", lambda: box)
+
+        result = geocode_location(city="Paris", zone="les champs élysées",
+                                  raw_user_message="un hôtel vers les champs élysées à paris",
+                                  proximity_lat=48.87, proximity_lon=2.31)
+
+        assert result["ok"] is True
+        assert box.proximities[-1] == "2.31,48.87"
+
+
+class TestPoiAnchorCoherenceGuard:
+    """Guard #14 (`poi_anchor_coherence`). The echo-back guard validates the
+    NAME, which a homonym passes perfectly — audit M4, "the name is right, the
+    place is wrong". This validates the PLACE against the turn's own anchor."""
+
+    def test_a_poi_far_from_the_verified_city_is_rejected(self, monkeypatch):
+        paris = _c("Paris", "FR", "Île-de-France", lat=48.8566, lon=2.3522)
+        _patch_multi(monkeypatch, [paris], inventory={48.8566: 780})
+        # Echoes "champs élysées" perfectly — and sits in Toulon, 830 km away.
+        toulon = GeocodeResult(43.1215, 5.9322, "Champs Elysées, 32 Rue d'Alger, 83000 Toulon,"
+                               " France", "FR", "PACA")
+        monkeypatch.setattr(geocode_tool, "get_searchbox_client", lambda: _FakeSearchBox(toulon))
+
+        result = geocode_location(city="Paris", zone="les champs élysées",
+                                  raw_user_message="un hôtel vers les champs élysées à paris")
+
+        assert result["ok"] is False
+        assert "poi_anchor_coherence" in result["guards_fired"]
+
+    def test_a_landmark_legitimately_outside_the_city_centre_is_kept(self, monkeypatch):
+        # Disneyland Paris is 32 km from central Paris. The threshold is
+        # calibrated to keep it: this guard catches gross mis-resolutions, and
+        # the city-in-the-query / proximity fix handles the near ones.
+        paris = _c("Paris", "FR", "Île-de-France", lat=48.8566, lon=2.3522)
+        _patch_multi(monkeypatch, [paris], inventory={48.8566: 780})
+        park = GeocodeResult(48.8674, 2.7836, "Disneyland Paris, 77700 Chessy, France", "FR", "IdF")
+        monkeypatch.setattr(geocode_tool, "get_searchbox_client", lambda: _FakeSearchBox(park))
+
+        result = geocode_location(city="Paris", zone="disneyland paris",
+                                  raw_user_message="hôtel près de disneyland paris")
+
+        assert result["ok"] is True
+        assert "poi_anchor_coherence" not in (result.get("guards_fired") or [])
+
+    def test_with_no_anchor_at_all_the_guard_does_not_block(self, monkeypatch):
+        # The bare-landmark shape: no city, no GPS. Nothing to compare against,
+        # so the guard must not fire — that case belongs to the query/proximity
+        # fix, not to this guard. Documented limit, asserted so it stays true.
+        _patch_multi(monkeypatch, [])
+        far = GeocodeResult(43.1215, 5.9322, "Champs Elysées, 83000 Toulon, France", "FR", "PACA")
+        monkeypatch.setattr(geocode_tool, "get_searchbox_client", lambda: _FakeSearchBox(far))
+
+        result = geocode_location(city="", zone="les champs élysées", country_guess="FR",
+                                  raw_user_message="autour des champs élysées")
+
+        assert result["ok"] is True
+        assert "poi_anchor_coherence" not in (result.get("guards_fired") or [])
+
+
+class TestRadiusFollowsTheRequestNotTheGeocoder:
+    """`inject_landmark_radius` tightens the search disc to 3 km only when
+    `distance_origin_type == "poi"`. That used to depend on WHICH TIER answered,
+    so the same landmark got a 3 km disc via Search Box and a 20 km one via v6
+    (`neighborhood` → `city_centroid`) — and `hotels_within_km` failed for
+    reasons that had nothing to do with the geocode being right."""
+
+    def test_a_named_zone_resolved_by_tier_1_is_still_a_poi_origin(self, monkeypatch):
+        quartier = _c("Champs-Élysées", "FR", "Île-de-France",
+                      ftype="neighborhood", lat=48.8698, lon=2.3078)
+        _patch_multi(monkeypatch, [quartier], inventory={48.8698: 780})
+
+        result = geocode_location(city="Paris", zone="Champs-Élysées",
+                                  raw_user_message="un hôtel vers les champs élysées à paris")
+
+        assert result["ok"] is True
+        assert result["distance_origin_type"] == "poi"
+
+    def test_a_generic_zone_keeps_the_city_centroid_origin(self, monkeypatch):
+        boston = _c("Boston", "US", "Massachusetts", lat=42.3601, lon=-71.0589)
+        _patch_multi(monkeypatch, [boston], inventory={42.3601: 200})
+
+        result = geocode_location(city="Boston", zone="airport",
+                                  raw_user_message="hotel near the airport in Boston tomorrow")
+
+        assert result["ok"] is True
+        assert result["distance_origin_type"] == "city_centroid"
+
+    def test_a_plain_city_search_keeps_the_city_centroid_origin(self, monkeypatch):
+        paris = _c("Paris", "FR", "Île-de-France", lat=48.8566, lon=2.3522)
+        _patch_multi(monkeypatch, [paris], inventory={48.8566: 780})
+
+        result = geocode_location(city="Paris", raw_user_message="un hôtel à paris demain")
+
+        assert result["ok"] is True
+        assert result["distance_origin_type"] == "city_centroid"

@@ -1625,3 +1625,54 @@ def test_skip_final_generation_carries_the_same_disclosure():
     })
     text = skip_final_generation(ctx, None).content.parts[0].text
     assert "2026-07-28" in text
+
+
+class TestGuardsFiredCrossesA2A:
+    """OBS3 (2026-08-26). 6 of the 14 `GUARD_SCORE_NAMES` fire in THIS leaf and
+    had no way to reach the concierge, so `score_guards` published them as 0.0 on
+    every turn ever recorded — which is why `guard_geocode_echo_back = false` on
+    the Toulon trace read as a structural false negative rather than "not
+    measured". The tool reports what fired, `capture_after_tool` accumulates it,
+    and `emit_search_datapart` puts it on the wire."""
+
+    def test_capture_after_tool_accumulates_across_calls(self):
+        ctx = _Ctx()
+        capture_after_tool(_Tool("geocode_location"), {}, ctx,
+                           {"ok": False, "guards_fired": ["generic_location_demotion"]})
+        capture_after_tool(_Tool("geocode_location"), {}, ctx,
+                           {"ok": True, "latitude": 1.0, "longitude": 2.0,
+                            "guards_fired": ["state_anchoring"]})
+        assert ctx.state["temp:hotel_search_guards_fired"] == [
+            "generic_location_demotion", "state_anchoring",
+        ]
+
+    def test_a_failed_geocode_still_records_its_guards(self):
+        # A guard that fired and then made the turn fail honestly is exactly
+        # what OBS3 needs to see — scoring only successes reports the opposite.
+        ctx = _Ctx()
+        capture_after_tool(_Tool("geocode_location"), {}, ctx,
+                           {"ok": False, "error": "geocode_echo_mismatch",
+                            "guards_fired": ["geocode_echo_back"]})
+        assert ctx.state["temp:hotel_search_guards_fired"] == ["geocode_echo_back"]
+
+    def test_emit_puts_guards_on_the_datapart(self):
+        ctx = _Ctx(state={
+            "temp:hotel_search_guards_fired": ["state_anchoring"],
+            "temp:hotel_search_profile_delta": {"last_city": "Milford"},
+        })
+        content = emit_search_datapart(ctx)
+        assert content is not None
+        payload = _decode(content)
+        assert payload["guards_fired"] == ["state_anchoring"]
+        # Top-level, NOT inside profile_delta: apply_profile_delta would reject
+        # an unknown slot, and this is telemetry rather than profile state.
+        assert "guards_fired" not in payload["profile_delta"]
+
+    def test_guards_alone_are_enough_to_emit(self):
+        # The turn that matters most for the demotion guard has no results and
+        # no profile delta at all ("un hôtel près de la gare"). If telemetry
+        # could not create a payload, that guard would stay unmeasurable.
+        ctx = _Ctx(state={"temp:hotel_search_guards_fired": ["generic_location_demotion"]})
+        content = emit_search_datapart(ctx)
+        assert content is not None
+        assert _decode(content)["guards_fired"] == ["generic_location_demotion"]

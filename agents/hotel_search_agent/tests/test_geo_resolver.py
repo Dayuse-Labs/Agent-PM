@@ -266,3 +266,122 @@ def test_single_candidate_is_selected():
     only = cand("Reims", "FR", "Grand Est", lat=49.25, rank=0)
     res = geo_resolver.resolve([only], inventory=FakeInventory({49.25: 3}))
     assert res.decision == "select" and res.chosen is only
+
+
+class TestRankLandmark:
+    """`rank_landmark` — the tier-2 (Search Box) ranker, 2026-08-26.
+
+    It exists because Mapbox's top-1 for `/search/searchbox/v1/forward` is
+    biased by the CALLER'S EGRESS IP (documented: "if not provided, the default
+    is IP proximity"). Trusting it made the leaf's landmark resolution a
+    function of which datacenter the container ran in — prod resolved "autour
+    des champs élysées" to a shop of that name in Toulon, 830 km away, while the
+    same arguments from a laptop returned Paris. Every case below is a real
+    candidate list observed live, not a synthetic one.
+    """
+
+    def test_selects_only_never_asks(self):
+        # `resolve` clarifies between two cities because that is a real
+        # question. "Did you mean Azur Café or Unisex?" is not.
+        a = cand("Champs-Élysées", "FR", "IdF", ftype="neighborhood", lat=1.0)
+        b = cand("Azur Café", "FR", "IdF", ftype="poi", lat=2.0, rank=1)
+        got = geo_resolver.rank_landmark(
+            [a, b], requested_zone="champs élysées", inventory=FakeInventory({1.0: 700, 2.0: 700})
+        )
+        assert got is a
+
+    def test_no_candidates_is_none(self):
+        assert geo_resolver.rank_landmark(
+            [], requested_zone="champs élysées", inventory=FakeInventory({})
+        ) is None
+
+    def test_a_leading_article_does_not_hand_the_exact_match_to_a_homonym(self):
+        # Live failure: querying "les champs élysées" made "Les Champs Elysées",
+        # a venue in Le Havre 200 km away, an EXACT name match while the real
+        # "Champs Élysées" district was not one — so the homonym won the bonus.
+        havre = cand("Les Champs Elysées", "FR", "Normandie", ftype="poi", lat=49.49, rank=6)
+        paris = cand("Champs Élysées", "FR", "IdF", ftype="neighborhood", lat=48.87, rank=8)
+        got = geo_resolver.rank_landmark(
+            [havre, paris],
+            requested_zone="les champs élysées",
+            inventory=FakeInventory({49.49: 16, 48.87: 785}),
+        )
+        assert got is paris
+
+    def test_punctuation_does_not_deny_the_exact_match(self):
+        # "Champs-Élysées" folds to "champs-elysees", which is NOT the string
+        # "champs elysees" — comparing folded STRINGS gave the bonus to a
+        # same-named district in Évry 27 km out, which then won on feature type.
+        evry = cand("Champs Élysées", "FR", "Essonne", ftype="neighborhood",
+                    lat=48.64, lon=2.43, rank=8)
+        paris = cand("Champs-Élysées", "FR", "IdF", ftype="poi", lat=48.87, lon=2.30, rank=7)
+        got = geo_resolver.rank_landmark(
+            [evry, paris],
+            requested_zone="les champs élysées",
+            inventory=FakeInventory({48.64: 314, 48.87: 783}),
+            city_anchor=(48.869, 2.304),
+        )
+        assert got is paris
+
+    def test_a_verified_city_anchor_outweighs_a_better_feature_type(self):
+        # The whole point of `city_anchor`: within a city the user NAMED, 27 km
+        # is not a near-tie, it is the wrong place. `_W_PROXIMITY`'s 25-500 km
+        # band (kept for GPS) scored these two within 0.002 of each other.
+        far = cand("Champs Élysées", "FR", "Essonne", ftype="neighborhood",
+                   lat=48.64, lon=2.43, rank=0)
+        near = cand("Champs-Élysées", "FR", "IdF", ftype="poi", lat=48.87, lon=2.30, rank=5)
+        got = geo_resolver.rank_landmark(
+            [far, near],
+            requested_zone="champs élysées",
+            inventory=FakeInventory({48.64: 314, 48.87: 783}),
+            city_anchor=(48.869, 2.304),
+        )
+        assert got is near
+
+    def test_zero_inventory_candidate_is_demoted_hard(self):
+        empty = cand("Champs Élysées", "FR", "Aisne", ftype="neighborhood", lat=49.85)
+        real = cand("Champs Elysees", "FR", "IdF", ftype="poi", lat=48.87, rank=3)
+        got = geo_resolver.rank_landmark(
+            [empty, real],
+            requested_zone="champs élysées",
+            inventory=FakeInventory({49.85: 0, 48.87: 780}),
+        )
+        assert got is real
+
+    def test_a_whole_city_loses_to_the_named_district(self):
+        # `_LANDMARK_TYPE_PRIOR` inverts `_TYPE_PRIOR` on purpose: resolving a
+        # landmark to its city silently widens the search to the whole metro.
+        city = cand("Paris", "FR", "IdF", ftype="place", lat=48.86)
+        district = cand("Montmartre", "FR", "IdF", ftype="neighborhood", lat=48.88, rank=1)
+        got = geo_resolver.rank_landmark(
+            [city, district],
+            requested_zone="montmartre",
+            inventory=FakeInventory({48.86: 783, 48.88: 783}),
+        )
+        assert got is district
+
+    def test_a_long_official_name_is_not_demoted_below_a_worse_placed_candidate(self):
+        # "JFK" -> "John F. Kennedy International Airport" is 5 words the user
+        # never typed; the bloat penalty is capped so verbosity alone cannot
+        # lose to a nearer-phrased but worse candidate.
+        airport = cand("John F. Kennedy International Airport", "US", "NY", ftype="poi", lat=40.64)
+        decoy = cand("JFK", "US", "TX", ftype="poi", lat=32.0, rank=1)
+        got = geo_resolver.rank_landmark(
+            [airport, decoy],
+            requested_zone="JFK",
+            inventory=FakeInventory({40.64: 227, 32.0: 0}),
+        )
+        assert got is airport
+
+    def test_a_business_named_after_the_landmark_loses_the_label_to_a_clean_feature(self):
+        # Both are geographically fine; `resolved_place` reaches the customer
+        # through active_filters.distance_origin, so the clean one must win.
+        shop = cand("Onitsuka Tiger Champs Elysées, Paris Flagship", "FR", "IdF",
+                    ftype="poi", lat=48.871)
+        clean = cand("Champs-Élysées", "FR", "IdF", ftype="poi", lat=48.870, rank=7)
+        got = geo_resolver.rank_landmark(
+            [shop, clean],
+            requested_zone="les champs élysées",
+            inventory=FakeInventory({48.871: 784, 48.870: 783}),
+        )
+        assert got is clean

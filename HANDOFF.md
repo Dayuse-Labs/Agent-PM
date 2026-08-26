@@ -2,6 +2,109 @@
 
 État du chantier pour reprise en session fraîche. **Lire en entier avant d'agir ; ne pas reconstruire ce qui existe.** Mettre à jour en fin de CHAQUE session (bloc daté en tête).
 
+## 🗺️ Addendum 2026-08-26 bis — chantier GÉO : la cause du bug Toulon n'était NI M3 NI M4, c'est le `proximity` par défaut de Mapbox Search Box (= **IP proximity**). Et le tour mort du landmark était un paramètre obligatoire, pas de la non-détermination d'extraction.
+
+Deux symptômes, deux causes, aucune des deux au dossier. **Corriger la mémoire, pas seulement l'état** — les blocs « 08-25 » et « 08-25 ter » ci-dessous attribuent ces deux bugs à des mécanismes réfutés ici.
+
+### 🔴 Symptôme 2 — ce n'était PAS de la non-détermination d'extraction
+
+`city: str` dans `geocode_location` **n'avait pas de valeur par défaut**, donc ADK le déclarait obligatoire. Quand le modèle omet la clé — ce qu'il fait exactement quand l'utilisateur nomme un landmark et aucune ville — **l'appel d'outil était rejeté avant que la fonction ne tourne** :
+
+```
+IN : {"zone": "les champs élysées", "country_guess": "FR", "language_hint": "fr"}   # pas de clé "city"
+OUT: {"error": "Invoking `geocode_location()` failed as the following mandatory
+      input parameters are not present:\ncity\n…"}
+```
+
+**14 occurrences dans les traces Langfuse entre le 08-15 et le 08-26**, toutes sur les landmarks du chantier : champs élysées, louvre, gare de lyon, eiffel tower, la défense, buckingham palace. Le « ~1 tour sur 6 » c'était simplement : parfois le modèle écrit `city: ""` (ça marche, ça atteint le chemin landmark), parfois il omet la clé (échec dur).
+
+**Correctif : `city: str = ""`.** Un test verrouille qu'aucun paramètre de `geocode_location` n'est sans défaut — ADK dérive « mandatory » de « pas de défaut ».
+
+### 🔴 Symptôme 1 — la cause est une entrée que nous ne choisissions pas : l'IP de sortie du conteneur
+
+Doc Mapbox Search Box `/forward`, verbatim : ***« If not provided, the default is IP proximity. »*** Le tier-2 landmark n'envoyait aucun `proximity` sans fix GPS — donc **la résolution était une fonction de l'IP de sortie du conteneur**. Entrée absente des traces, différente entre un portable et Railway, et susceptible de changer **sans aucun déploiement**.
+
+Prouvé quatre fois, pas déduit :
+
+1. **La trace prod du défaut ne porte aucun `proximity`** (`5eec27af27b79ed4b87f4c325b563bbc`, 08-25 13:30Z) : `{"zone": "les champs élysées", "city": "", "country_guess": "FR", "locale": "fr-FR"}`. Le raisonnement `_soft_country` du bloc « ter » est juste mais **n'est pas le mécanisme**.
+2. **Les mêmes args rejoués en local rendaient Paris à 0,3 km** — même code, même commit, IP différente.
+3. **Un `proximity` explicite au sud de la France reproduit Toulon exactement** : `Champs Elysées, 32 Rue d'Alger, 83000 Toulon, France` — le label de la trace, caractère pour caractère.
+4. **Mon IP de sortie a changé DEUX FOIS en pleine session** (`45.156.191.77` → `149.232.201.113` → `92.184.140.202`) et les mêmes requêtes ont bougé de 130 à 400 km : « montmartre » → *Le Relais de Montmartre*, **Viré (329 km)** ; « gare de lyon » → un commerce à **Lyon (393 km)** ; « les champs élysées » → **Saint-Quentin (130 km)**.
+
+⚠️ **Conséquence sur toute mesure géo passée et future** : le score du harnais géo dépend de l'IP de sortie. Le probe livré l'imprime en tête et il faut le citer avec tout chiffre. Deux runs depuis deux IP ne sont pas comparables — c'est précisément le défaut mesuré.
+
+**Corollaire qui a orienté tout le chantier** : ni un guard sur le nom, ni un scope pays, ni un re-ranking ne peuvent corriger ça seuls. Sous un `proximity` lointain, Search Box ne renvoie **plus que 1 ou 2 features**, toutes des homonymes locaux — le landmark célèbre n'est **pas dans la liste**. On ne re-classe pas ce qui n'est pas renvoyé. **Il fallait contrôler l'entrée.**
+
+### Une piste testée et REFUSÉE par la mesure (ne pas la reprendre)
+
+`proximity` = **ancre d'inventaire par marché** (le disque de 25 km le plus dense du pays, calculé depuis les exports par pays). Séduisant : déterministe, code-owned, pondéré par notre offre. **Réfuté** : l'ancre ES est **Madrid**, donc « sagrada familia » partait à **503 km**. Ça remplace un biais non choisi par un biais qui casse tout landmark hors de la plus grosse métropole de son pays.
+
+### Ce qui est livré
+
+1. **`proximity` n'est plus jamais laissé à Mapbox.** Ordre de préférence, tout code-owned : fix GPS → **coordonnée d'une ville vérifiée** (le candidat v6 qui écho-matche la ville nommée) → à défaut, la ville est **repliée dans la requête** (`"<zone>, <ville>"`) → à défaut rien, et le ranker est la seule défense (résidu documenté).
+   ⚠️ Le repli #3 **corrige la position et dégrade le label** : `"les champs élysées, Paris"` renvoie 10 commerces et **aucune feature propre**, et le premier devient le `resolved_place` que le client voit (`active_filters.distance_origin.label`). Mesuré. C'est pourquoi la coordonnée est préférée à la chaîne : requête nue + `proximity=Paris` → *« Avenue des Champs-Élysées, 75008 Paris »*. **Le commentaire de 2026-07-23 (« the landmark ALONE ») avait raison sur le LABEL et tort sur le LIEU — les deux lectures tiennent, c'est pour ça que c'est un repli et pas le défaut.**
+2. **`geo_resolver.rank_landmark`** — tier-2 classe au lieu de croire le top-1 (`limit=10`, le max Mapbox, même appel, même SKU). **Select-only, zéro clarify** : on ne demande pas de choisir entre « Azur Café » et « Unisex ».
+3. **`inject_landmark_radius` suit la DEMANDE, pas la taxonomie du géocodeur** : `distance_origin_type="poi"` dès qu'une zone spécifique est nommée, quel que soit le tier. Sans ça, S2 régressait `hotels_within_km` — un landmark gagnant en tier-1 comme `neighborhood` retombait sur un disque de 20 km.
+4. **Instruction de la feuille** : passer la ville du landmark devient **attendu** (même cadrage que `country_guess`, qui avait marché). Vérifié en prod locale : sur « autour des champs elysees » le modèle émet désormais `city: "Paris"` de lui-même.
+5. **`is_generic_location_token` devient insensible aux articles.** La liste contenait « the airport » mais aucune forme française articulée — et le modèle écrit ce que l'utilisateur dit : « près de la gare » → `zone="la gare"`, **non reconnu comme générique**, donc un mot générique partait au lookup landmark (exactement ce que le commentaire du tier-2 redoute). Plus les pluriels français d'« aéroport », absents à côté d'« airports » qui y était.
+6. **14e guard `poi_anchor_coherence`** (décision Fabien) + **la plomberie qui rend les guards réels** (ci-dessous).
+7. **`scripts/probe_geo_landmarks.py`** — 18 cas landmark, réseau seulement, **zéro LLM, zéro service**. C'est l'instrument qui aurait attrapé ce bug, et le seul moyen de mesurer le géo sans la variance du modèle.
+
+### 🔴 Découverte : 6 des 13 noms de `GUARD_SCORE_NAMES` n'étaient posés NULLE PART
+
+Les 3 guards géo et les 2 guards date tirent **dans la feuille**, et la feuille **ne rapportait jamais** ce qui avait tiré. `score_guards` publiait donc ces noms **à 0.0 sur chaque tour, depuis toujours**. `scores.py` le disait (« a later session wires their call sites ») — cette session n'avait jamais eu lieu.
+
+⚠️ **Ça change la lecture du bloc « 08-25 ter »** : *« guard_geocode_echo_back = false ET guard_generic_location_demotion = false → un guard vert ici est un faux négatif STRUCTUREL »*. **Non.** C'étaient des scores **jamais câblés**. Un score à 0.0 qui veut dire « pas mesuré » est pire qu'une absence : il se lit comme « le guard n'a pas tiré ».
+
+**Plomberie livrée** : la feuille accumule les noms dans `temp:hotel_search_guards_fired` et les met sur son DataPart A2A ; le spine fait `budget.fired.update(response.pop("guards_fired", ...))`. **`pop` et non `get`** : un DataPart ne portant QUE de la télémétrie doit rester une réponse vide pour toutes les décisions en aval (le check de dégradation, `"results" in response`) — l'observabilité ne doit pas changer le control flow. Un test le verrouille.
+
+**Câblés** : les 3 guards géo + `poi_anchor_coherence`. **Toujours PAS câblés, donc toujours à 0.0** : `date_hallucinated_year_rolled_forward` et `date_carryover_stale_floored` — le transport existe maintenant, il ne manque que leurs sites d'appel dans le résolveur de dates. **C'est le prochain petit chantier évident.**
+
+### Le 14e guard, et sa limite assumée
+
+`poi_anchor_coherence` (score config `bad09ed2-8066-4c84-864d-09a445377773`, 27 caractères, sous le plafond de 35). Seuil **100 km**, calibré sur les distances réellement mesurées : laisse passer Disneyland (32 km), rejette Saint-Quentin (130), Viré (329), Lyon (393), Toulon (830).
+
+**L'ancre n'est PAS le top candidat v6** — piège trouvé par un test : à l'heure du tier-2, ce candidat est celui que l'écho vient de REJETER. S'ancrer dessus faisait vetoer la bonne réponse Search Box dès que v6 partait sur un autre continent (« La Défense, Paris » → Al Aïn, AE), soit exactement le cas que P0-2 avait corrigé. **Une ancre qui vetoe doit elle-même être vérifiée** : GPS, sinon le candidat v6 qui écho-matche la ville nommée.
+
+⚠️ **Limite honnête** : sans ville nommée ni GPS (le landmark nu), il n'y a rien à comparer — le guard ne tire pas et ne bloque pas. Ce cas appartient au contrôle du `proximity`, pas au guard. Un test l'affirme pour que ça reste vrai. Évry (27 km) est **hors de portée** de ce seuil : le resserrer assez pour l'attraper rejetterait Disneyland.
+
+### 🪤 Quatre pièges payés dans le ranker (ne pas les repayer)
+
+1. **`_TYPE_PRIOR` s'INVERSE entre les deux questions.** Pour une ville, `place` est la meilleure réponse (5.0). Pour un landmark c'est la PIRE : l'utilisateur a nommé plus fin qu'une ville, résoudre vers la ville élargit silencieusement au métro entier. D'où `_LANDMARK_TYPE_PRIOR` séparé.
+2. **L'article donnait le bonus de nom exact à l'homonyme.** « les champs élysées » faisait de « Les Champs Elysées », un lieu au **Havre (200 km)**, un match EXACT — pendant que le vrai quartier « Champs Élysées » n'en était pas un.
+3. **La ponctuation aussi.** `_name_fold` garde les tirets : « Champs-Élysées » ne vaut pas la chaîne « champs elysees ». Comparer des CHAÎNES pliées donnait le bonus à un quartier homonyme d'**Évry (27 km)**, qui gagnait ensuite sur son type de feature. → comparer des **tuples de tokens** (`_landmark_key`).
+4. **`_W_RANK` (0.3) pesait plus lourd que toute l'ancre ville.** Sur 10 candidats ça fait 2,7 points — plus que le terme d'ancre (2,5) — alors que l'ordre Mapbox de cet endpoint EST l'ordre biaisé par l'IP. → `_W_LANDMARK_RANK = 0.05`, simple bris d'égalité déterministe.
+   Et `_INVENTORY_SOFT_CAP = 30` (calibré pour les villes) ne distingue pas Paris (785) du Havre (16) : les deux plafonnent. → `_LANDMARK_INVENTORY_SOFT_CAP = 300`.
+
+### Mesures
+
+**Probe landmark, MÊME IP (`92.184.140.202`), main vs branche, dos à dos** — c'est le seul protocole valide, cf. l'avertissement plus haut :
+
+| | main | branche |
+|---|---|---|
+| `probe_geo_landmarks.py` (18 cas) | **15/18** | **17/18** |
+
+Corrigés : `gare-de-lyon` (4,0 km → 0,0 : Mapbox classait 1er un commerce « gare lyon » du 19e) et `champs-elysees-city-key-absent` (outil non appelable → 0,3 km). **Zéro régression.** Et les labels sont redevenus des vrais noms de lieux (« Avenue des Champs-Élysées, 75008 Paris ») au lieu de boutiques.
+
+⚠️ **Le 15/18 de main est trompeusement bon** : ce jour-là l'IP était bonne. Depuis l'IP `149.232.201.113`, le même main faisait **8/18**. C'est l'amplitude du défaut, pas la qualité de main.
+
+**Prouvé en local sur les 3 services réels**, requête exacte du défaut prod (« je cherche un hotel autour des champs elysees demain ») :
+`5 hôtels parisiens`, `city: Paris` (émis par le modèle seul), `distance_origin = {"label": "Avenue des Champs-Élysées, 75008 Paris, France", "type": "poi"}`. **Plus de Toulon.**
+
+### Gates
+
+`1427 passed, 1 skipped` (+33, baseline 1394) · ruff · mypy 46 fichiers · guardrails OK. **Les ~150 tests de guards sont restés verts.** Trois tests ont bougé, tous pour une raison instruite : le contrat 13→14 noms, un `assert result == {...}` qui gagne `guards_fired` (le guard se déclare enfin), et 2 fakes Search Box qui apprennent `forward_candidates`.
+
+### Reste
+
+- **`disneyland-paris` échoue toujours (30,6 km), sur main comme sur la branche — PAS une régression.** Mécanisme mesuré : une annonce du 3e arrondissement littéralement nommée « 74 - Disneyland in Paris » écho-matche et gagne. Le vrai discriminant serait un **consensus de cluster** (3 candidats sur 4 se regroupent au parc, le 4e est à 30 km) ; délibérément **non fait** — un heuristique de plus calibré sur 1 cas dans un probe de 18 est un aller simple vers le surapprentissage. À reprendre avec un dataset plus large.
+- **Le guard n'a pas encore été VU tirer sur du trafic réel** : les 4 tours locaux ont tous emprunté des chemins où aucun guard feuille ne tire (chemin zone-only, ou un tour qui a timeouté). Le mécanisme est verrouillé par 5 tests déterministes (feuille → DataPart → `budget.fired` → `score_guards`), pas par une observation live. **À revérifier après déploiement** : un tour landmark avec ville nommée doit pouvoir sortir `guard_geocode_echo_back = 1`.
+- **2 guards date toujours non câblés** (ci-dessus) — petit et évident maintenant que le transport existe.
+- **P2 versé dans `reports/MCP-B2C-REQUESTS.md`** : `resolve_location` sur l'index `poi` de MCP_B2C. Les findings la renforcent beaucoup : un index POI Dayuse est **immune au biais IP** par construction, et c'est le seul géocodeur naturellement pondéré par notre inventaire. Tout ce qu'on vient de livrer est de la compensation.
+- **`triage.response_language`** (une conversation FR où l'utilisateur tape « sí » repart en anglais) : PR séparée après le géo, arbitré avec Fabien. Volontairement pas mélangé — si la mesure bouge, on doit savoir lequel des deux l'a bougée.
+- Inchangé : harnais OBS6 (`lang-confirm-implicit` impassable, variance de `_lookup_trace_facts`), plafond OpenAI, fenêtre OBS8, OBS9 avant fin janvier 2027.
+- **Pas encore déployé** : la prod tourne toujours sur `aa401ba`.
+
 ## ✅ Addendum 2026-08-26 — P1 déployé sur `aa401ba` et prouvé en prod ; la DoD 24 h d'OBS7 est CLOSE (les 3 juges sains, le prompt v2 corrige bien le faux positif)
 
 Session courte : déploiement + la vérification 24 h qui n'était mesurable que maintenant.
@@ -143,10 +246,10 @@ Mapbox Search Box a matché un **commerce littéralement nommé « Champs Elysé
 
 **Deux observations qui comptent pour la suite :**
 
-1. **Aucun guard géo n'a tiré** : `guard_geocode_echo_back = false` ET `guard_generic_location_demotion = false` sur cette trace. C'est exactement **M4 de l'audit** (*« l'écho valide le NOM, pas le LIEU »*) : l'écho Mapbox contient bien « Champs Elysées », donc le guard est satisfait — alors que le lieu est à 830 km. **Un guard vert ici est un faux négatif structurel, pas un oubli de câblage.**
+1. ⚠️ **PÉRIMÉ — voir le bloc « 08-26 bis » en tête.** Ces deux scores étaient **jamais câblés** (à 0.0 sur CHAQUE tour depuis toujours) : ce n'était pas un faux négatif structurel du guard, c'était une absence de mesure. Et la cause du défaut n'est ni M3 ni M4 mais le `proximity` par défaut de Search Box (= IP proximity). Conservé pour la trace du raisonnement. ~~**Aucun guard géo n'a tiré** : `guard_geocode_echo_back = false` ET `guard_generic_location_demotion = false` sur cette trace. C'est exactement **M4 de l'audit** (*« l'écho valide le NOM, pas le LIEU »*) : l'écho Mapbox contient bien « Champs Elysées », donc le guard est satisfait — alors que le lieu est à 830 km. **Un guard vert ici est un faux négatif structurel, pas un oubli de câblage.**
 2. **La synthèse dégrade honnêtement** : *« la recherche a bien trouvé 4 offres… mais à Toulon, pas autour des Champs-Élysées ; dites-moi la ville exacte (Paris) »*. L'agent ne ment pas — mais il affiche quand même 4 cartes de Toulon.
 
-⚠️ **Sensible à la normalisation** : « champs elysees » (sans accents, tour 1) → 0 hôtel ; « champs élysées » (avec accents, contrôle A) → Toulon. Deux chemins de résolution différents pour la même intention.
+⚠️ ~~**Sensible à la normalisation**~~ **PÉRIMÉ (08-26 bis)** : ce n'était pas la normalisation. Les deux formes empruntent le MÊME chemin ; ce qui variait était le classement IP-biaisé de Mapbox. Vérifié : « champs elysees » et « champs élysées » donnent le même top-1 à IP constante.
 
 ### Reste
 
@@ -248,9 +351,12 @@ Gates sur `main` après merge : `1339 passed, 1 skipped` · ruff + mypy clean ·
 
 ### Reste connu, mesuré
 
-- **~1 tour sur 6** (6 essais) le modèle n'émet NI `city` NI `zone` sur « autour des champs
-  élysées » → tour mort. C'est la **non-détermination d'extraction** = P1 de l'audit (étendre le
-  contrat JSON du triage), explicitement hors périmètre P0-2.
+- ⚠️ **PÉRIMÉ — voir « 08-26 bis » en tête.** Ce n'était PAS de la non-détermination
+  d'extraction et rien à voir avec le contrat du triage : `city: str` n'avait pas de défaut,
+  donc ADK rejetait l'appel d'outil quand le modèle omettait la clé (14 occurrences tracées).
+  Le modèle émettait bien `zone`. Corrigé par `city: str = ""`.
+  ~~**~1 tour sur 6** (6 essais) le modèle n'émet NI `city` NI `zone` → tour mort ; c'est la
+  non-détermination d'extraction = P1 de l'audit.~~
 - `clarify_expected` **19/19 → 18/19** : un homonyme que `country_guess` tranche au lieu de
   demander. Contrepartie assumée d'un prior soft, à surveiller.
 - `active_filters_include` occupancy : 1/5 encore rouge (cas limite d'extraction).
