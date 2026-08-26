@@ -2,6 +2,60 @@
 
 État du chantier pour reprise en session fraîche. **Lire en entier avant d'agir ; ne pas reconstruire ce qui existe.** Mettre à jour en fin de CHAQUE session (bloc daté en tête).
 
+## ✅ Addendum 2026-08-26 nonies — #91 + #92 DÉPLOYÉES sur `e6d3460` et prouvées en prod : les 7 critères passent, dont l'aéroport de Nice 3/3
+
+Suite directe des blocs « septies » (S5) et « octies » (la géo). Les deux PR mergées, **un seul déploiement** parce que les deux changements vivent dans la même feuille.
+
+### Déploiement, avec la preuve que l'estampille ne ment pas
+
+- `LANGFUSE_RELEASE=e6d3460` posé sur **`hotel-search` seulement**, avec `--skip-deploys`. Vérifié : le `last_deploy` est resté à **15:10:57 +02:00** après le stamp — donc aucun redéploiement de l'ANCIEN code sous la nouvelle estampille.
+- `railway up --service hotel-search --environment production --detach` → **SUCCESS 16:24:07 +02:00**. `--detach` volontaire (`--ci` streame les build logs, qui contiennent `FLEET_READ_TOKEN` en clair).
+- **`concierge` et `faq` NON redéployés, et leur estampille reste `7d41d41`** — c'est honnête : `git log 7d41d41..e6d3460` ne touche que `agents/hotel_search_agent/**` et `HANDOFF.md`, zéro `libs/`, zéro concierge, zéro faq. ⚠️ **Conséquence pour le fil-piège** : il faut désormais le lire **par service** (`git log <release>..main -- agents/b2c_concierge libs` pour le concierge, etc.). Lu globalement sur `-- agents libs`, il criera au loup sur les commits de la feuille.
+- Preuve **autrement que par l'estampille**, dans le conteneur qui tourne (`railway ssh`) : `_city_coordinate` ×4, `_POI_ANCHOR_MAX_KM = 40.0`, et la nouvelle formulation S5 (« NAMED AFTER A CITY THEY ARE NOT IN ») ×1.
+
+### Les 21 tours, 3 par tournure, `x-dayuse-synthetic: 1`, session fraîche à chaque tour
+
+| tournure | critère | résultat |
+|---|---|---|
+| « pres de la gare de lyon demain » | question 3/3 | ✅ 3/3, 0 hôtel |
+| « autour de la gare de lyon demain » | question 3/3 | ✅ **3/3** — la baseline émettait `Paris` 3/3, c'est-à-dire une **réponse fausse possible en silence**. Le pile-ou-face a disparu du bon côté. |
+| « un hotel vers le vieux lyon demain » | *Vieux Lyon 69005* | ✅ 3/3, `city: lyon`, 5 hôtels |
+| **« pres de l aeroport de nice demain »** | l'aéroport, plus la navette | ✅ **3/3 *Aéroport de Nice, 06200 Nice*** (avant : *Transferts Aéroport Nice, AIR PROMENADE*, à 6 km), 3 hôtels |
+| « autour des champs elysees demain » | `Paris` 3/3 | ✅ *Avenue des Champs-Élysées, 75008* |
+| « autour de montmartre demain » | `Paris` 3/3 | ✅ 3/3 (la baseline locale était à 2/3) |
+| « autour du louvre demain » | `Paris` 3/3 | ✅ *Louvre, 75002* |
+
+### Le parcours complet en 2 tours (celui que les deux PR traversent)
+
+| tour, même session | résultat |
+|---|---|
+| T1 « pres de la gare de lyon demain » | question posée, **`zone: gare de lyon` persistée**, 0 hôtel |
+| **T2 « paris »** | `city: Paris` + `zone: gare de lyon` → origine = ***Gare de Lyon, Pl. Louis Armand, 75012 Paris*** (`type: poi`), 5 hôtels, **ibis Paris Gare de Lyon Ledru Rollin à 0,5 km** |
+
+⚠️ Piège de lecture que je me suis infligé : sur ce tour l'ibis à 0,5 km est le **5e** résultat (la liste n'est pas triée par distance), et n'imprimer que les 3 premiers donne l'impression d'une régression vers 1,6 km. Ce n'en était pas une — même liste, même hôtel, vérifié sur le tour de contrôle « pres de la gare de lyon a paris demain ».
+
+Et **l'origine est maintenant la gare elle-même**, plus un hôtel concurrent : la baseline rendait *CitizenM Paris Gare de Lyon, 8 Rue Van Gogh* comme `distance_origin` — le symptôme exact de la requête repliée décrit dans « octies ».
+
+### Budget et guards, sur les traces
+
+- **`llm_calls`** : 25 traces dans la fenêtre post-déploiement, **24 à 3 et une à 1**. Plafond ≤ 3 respecté partout.
+- **`guard_geocode_echo_back` : `true` sur 11 des 25.** Le guard travaille.
+- **`guard_anti_clarification_loop` : jamais `true`** — le critère du bloc « sexies » sur le tour-réponse est tenu.
+- **`guard_poi_anchor_coherence` : jamais `true`** → le plafond resserré à 40 km **n'a rejeté aucun POI** sur cet échantillon. Pas de dégât collatéral mesuré sur le resserrage.
+
+⚠️ **Piège d'outillage, à retenir** : ces `guard_*` sont des scores **BOOLEAN**. Les filtrer avec `dataType: ["NUMERIC"]` + `valueMin: 1` renvoie une liste vide — qui ressemble à « aucun guard n'a jamais tiré ». Je suis tombé dedans et je l'ai rattrapé en validant le filtre sur un nom dont je savais qu'il avait des `true`. **Toujours valider positivement un filtre avant de conclure d'un zéro** — même famille de piège que « un 0.0 qui veut dire "pas mesuré" se lit "n'a pas tiré" ».
+
+### L'interaction #91/#92 que « octies » signalait ne se matérialise PAS en prod
+
+Le bloc « octies » prévenait : #91 pousse « aéroport de nice » vers la question (résolu 1/3 en local), alors que #92 rend la réponse correcte — donc on poserait une question là où la géo sait répondre. **En prod, le modèle émet `Nice` 3/3** sur cette tournure, la géo répond juste, et aucune question n'est posée. L'inquiétude était fondée sur la mesure locale ; la mesure prod la lève. Le résidu local (1/3) reste un écart local/prod non expliqué, pas un défaut produit — **ne pas retoucher la formulation S5 sur cette base**.
+
+### Reste
+
+- ⚠️ **Défaut voisin toujours ouvert** : `city="Lyon"` + `zone="gare de lyon"` résout sur *« La Garde, Lyon, Rhône »* — bonne ville, mais ce n'est pas une gare, et le guard #14 ne peut rien voir (la distance est bonne). Imprécision de ranker sur le libellé.
+- ⚠️ L'ancre de ville étant maintenant presque toujours présente, `_W_LANDMARK_CITY_ANCHOR` (2,5) et `_LANDMARK_ANCHOR_ZERO_KM` (40) pèsent sur bien plus de tours qu'avant. Non re-calibrés.
+- `triage.response_language` : PR séparée, toujours ouverte.
+- Les 2 guards date toujours non câblés ; P2 `resolve_location` reste la seule sortie structurelle.
+
 ## 🛰️ Addendum 2026-08-26 octies — « pourquoi Nice rate alors que Paris marche » : rien n'est en dur, Paris prenait juste l'autre chemin. Une ville NOMMÉE sans coordonnée est maintenant géocodée
 
 Question posée par Fabien (« j'ai peur que Paris fonctionne parce qu'on a mis des trucs en dur dans le code »). **Réponse : non, et c'est vérifié plutôt qu'affirmé.** Aucun nom de ville ni coordonnée en dur dans la feuille — tous les hits `paris` de `agents/hotel_search_agent/**.py` sont des commentaires et docstrings, et le ranker n'est que des poids génériques (`_TYPE_PRIOR`, `_W_*`, `_MIN_TIER_INVENTORY`). `inventory_snapshot.json` est une donnée, pas une préférence.
