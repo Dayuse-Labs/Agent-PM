@@ -7,16 +7,20 @@ import pytest
 import b2c_concierge.triage as triage_module
 from b2c_concierge.budget import TurnBudget
 from b2c_concierge.triage import (
+    BOOKING_CONFIRMATIONS,
     FALLBACK_FAMILY,
     FALLBACK_PICK,
     FAMILIES,
+    LANGUAGES,
     PICKS,
+    TEMPLATE_LANGUAGES,
     Triage,
     classify,
     fallback_family,
     fallback_pick,
     guess_language,
     is_social_ack,
+    response_language,
 )
 
 
@@ -26,6 +30,16 @@ def _llm_response(text: str):
 
 def _classify(message: str, budget: TurnBudget | None = None) -> Triage:
     return asyncio.run(classify(message, budget or TurnBudget()))
+
+
+def _script(monkeypatch, payload: str) -> None:
+    """Module-level twin of TestPickClassification._with_llm, for the P1 slot
+    tests below (they are plain classes, not part of that fixture's family)."""
+
+    async def fake_acompletion(**kwargs):
+        return _llm_response(payload)
+
+    monkeypatch.setattr(triage_module.litellm, "acompletion", fake_acompletion)
 
 
 class TestSocialAckFastPath:
@@ -292,3 +306,134 @@ class TestPerRoleLlmParams:
     )
     def test_fallback_pick_separates_superlative_from_comparative(self, message, expected):
         assert fallback_pick(message) == expected
+
+
+class TestP1Slots:
+    """P1-1 (audit 2026-07-30 §P1): the 5 slots that moved from fr/en regex in
+    profile.py to the classify already paid for. Contract for all of them: an
+    absent or malformed value is None — "no LLM signal, use the regex" — and
+    NEVER a default answer, because a consumer reading None as False would
+    silently turn a skipped key into a negative."""
+
+    def test_all_five_slots_are_carried_through(self, monkeypatch):
+        _script(
+            monkeypatch,
+            '{"family": "booking", "language": "es", "affirmative": true,'
+            ' "booking_confirmation": "confirm", "wants_more_options": false,'
+            ' "bare_budget_value": 80, "hotel_name": "Villa Paris Orly"}',
+        )
+        t = _classify("sí, confírmalo")
+        assert t.affirmative is True
+        assert t.booking_confirmation == "confirm"
+        assert t.wants_more_options is False
+        assert t.bare_budget_value == 80.0
+        assert t.hotel_name == "Villa Paris Orly"
+
+    def test_absent_keys_are_none_not_false(self, monkeypatch):
+        _script(monkeypatch, '{"family": "search", "language": "fr"}')
+        t = _classify("un hotel a lyon")
+        assert t.affirmative is None
+        assert t.booking_confirmation is None
+        assert t.wants_more_options is None
+        assert t.bare_budget_value is None
+        assert t.hotel_name is None
+
+    def test_the_llm_being_down_leaves_every_slot_none(self, monkeypatch):
+        async def _boom(*args, **kwargs):
+            raise TimeoutError("nope")
+
+        monkeypatch.setattr(triage_module.litellm, "acompletion", _boom)
+        t = _classify("d'autres options")
+        assert t.used_llm is False
+        assert (t.affirmative, t.booking_confirmation, t.wants_more_options) == (None, None, None)
+        assert t.bare_budget_value is None and t.hotel_name is None
+
+    @pytest.mark.parametrize("raw", ['"true"', "1", '"yes"', "null"])
+    def test_only_a_real_json_bool_is_accepted(self, monkeypatch, raw):
+        _script(monkeypatch, '{"family": "ack", "language": "en", "affirmative": %s}' % raw)
+        assert _classify("ok").affirmative is None
+
+    def test_booking_confirmation_outside_the_enum_is_rejected(self, monkeypatch):
+        _script(
+            monkeypatch,
+            '{"family": "booking", "language": "en", "booking_confirmation": "maybe"}',
+        )
+        assert _classify("hmm").booking_confirmation is None
+
+    def test_booking_confirmation_enum_is_the_closed_set(self):
+        assert BOOKING_CONFIRMATIONS == ("none", "confirm", "refuse", "change")
+
+    @pytest.mark.parametrize(
+        "raw,expected",
+        [("80", 80.0), ('"120"', 120.0), ('"80,5"', 80.5), ("true", None), ("0", None), ("-5", None)],
+    )
+    def test_budget_slot_validation(self, monkeypatch, raw, expected):
+        _script(
+            monkeypatch,
+            '{"family": "search", "language": "en", "bare_budget_value": %s}' % raw,
+        )
+        assert _classify("80").bare_budget_value == expected
+
+    def test_an_over_long_hotel_name_degrades_to_none(self, monkeypatch):
+        # The slot becomes MCP find_hotel_by_name's `name` argument: a model
+        # that pastes the whole message must fall back to the phrase-stripper,
+        # never send an unbounded query.
+        _script(
+            monkeypatch,
+            '{"family": "details", "language": "en", "hotel_name": "%s"}' % ("x" * 200),
+        )
+        assert _classify("details").hotel_name is None
+
+    @pytest.mark.parametrize("raw", ['"   "', '""', "42", "null"])
+    def test_hotel_name_rejects_blank_and_non_strings(self, monkeypatch, raw):
+        _script(monkeypatch, '{"family": "details", "language": "en", "hotel_name": %s}' % raw)
+        assert _classify("details").hotel_name is None
+
+    def test_hotel_name_is_trimmed(self, monkeypatch):
+        _script(
+            monkeypatch,
+            '{"family": "details", "language": "en", "hotel_name": "  Ibis Lyon Gare  "}',
+        )
+        assert _classify("details").hotel_name == "Ibis Lyon Gare"
+
+    def test_the_prompt_declares_all_five_slots(self):
+        # Contract lock, same intent as the pick test above: the consumers read
+        # these keys by name, so the instruction must keep asking for them.
+        for key in (
+            "affirmative",
+            "booking_confirmation",
+            "wants_more_options",
+            "bare_budget_value",
+            "hotel_name",
+        ):
+            assert f'"{key}"' in triage_module._TRIAGE_INSTRUCTION
+
+
+class TestP1LanguageRecognition:
+    """P1-2: recognition widens to 7 languages so the slots above work outside
+    fr/en; what we ANSWER in stays fr/en until templates.py is translated."""
+
+    def test_the_recognized_set(self):
+        assert LANGUAGES == ("fr", "en", "es", "it", "de", "pt", "nl")
+        assert TEMPLATE_LANGUAGES == ("fr", "en")
+
+    @pytest.mark.parametrize("lang", ["es", "it", "de", "pt", "nl"])
+    def test_a_newly_recognized_language_survives_validation(self, monkeypatch, lang):
+        _script(monkeypatch, '{"family": "search", "language": "%s"}' % lang)
+        assert _classify("hotel con piscina").language == lang
+
+    def test_an_unknown_language_still_falls_back_to_the_regex_guess(self, monkeypatch):
+        _script(monkeypatch, '{"family": "search", "language": "kl"}')
+        assert _classify("je cherche un hotel").language == "fr"
+
+    @pytest.mark.parametrize("lang", ["es", "it", "de", "pt", "nl", "kl", None, ""])
+    def test_response_language_clamps_everything_untranslated_to_english(self, lang):
+        assert response_language(lang) == "en"
+
+    @pytest.mark.parametrize("lang", ["fr", "en"])
+    def test_response_language_passes_the_two_we_can_write(self, lang):
+        assert response_language(lang) == lang
+
+    def test_the_prompt_lists_the_widened_enum(self):
+        assert "'es'" in triage_module._TRIAGE_INSTRUCTION
+        assert "'nl'" in triage_module._TRIAGE_INSTRUCTION

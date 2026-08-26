@@ -138,7 +138,7 @@ from .profile import (
 )
 from .profile_store import get_profile_store
 from .routing import LEAF_FAQ, LEAF_HOTEL_SEARCH, ROUTES, bearer_token, card_url
-from .triage import SERVICE, classify, is_social_ack, template_language
+from .triage import SERVICE, classify, is_social_ack, response_language, template_language
 
 logger = logging.getLogger(__name__)
 metrics_logger = logging.getLogger("b2c_concierge.metrics")
@@ -796,6 +796,7 @@ class _B2cConcierge(BaseAgent):
         self, ctx: InvocationContext, profile: SessionProfile, store: Any, message: str,
         family: str, language: str, route: Any, budget: TurnBudget, t_start: float, inv: str,
         picked_hotel_id: int | None = None,
+        llm_hotel_name: str | None = None,
     ) -> AsyncGenerator[Event, None]:
         """details / compare: the real MCP_B2C call is a CODE decision
         (route.kind == "inline" was already resolved by triage + the routing
@@ -808,7 +809,8 @@ class _B2cConcierge(BaseAgent):
         in inline_tools.py's hotel resolver."""
         if route.target == "get_hotel_details":
             result = await inline_tools.get_hotel_details(
-                message, profile, picked_hotel_id=picked_hotel_id
+                message, profile, picked_hotel_id=picked_hotel_id,
+                llm_hotel_name=llm_hotel_name,
             )
             hotels = [result["hotel"]] if result.get("ok") else []
             leaf_text = f"Hotel details retrieved for {hotels[0].get('name')}." if hotels else ""
@@ -890,6 +892,7 @@ class _B2cConcierge(BaseAgent):
         self, ctx: InvocationContext, profile: SessionProfile, store: Any, message: str,
         family: str, language: str, user_confirmed: bool, budget: TurnBudget, t_start: float, inv: str,
         picked_hotel_id: int | None = None,
+        llm_hotel_name: str | None = None,
     ) -> AsyncGenerator[Event, None]:
         """R9 / guard #12: fully deterministic, ZERO extra LLM call — a
         booking confirmation is security-sensitive control flow and must
@@ -904,7 +907,8 @@ class _B2cConcierge(BaseAgent):
         case."""
         budget.fired.add("booking_confirmation")
         result = await inline_tools.generate_booking_link(
-            message, profile, user_confirmed, picked_hotel_id=picked_hotel_id
+            message, profile, user_confirmed, picked_hotel_id=picked_hotel_id,
+            llm_hotel_name=llm_hotel_name,
         )
         budget.fired.update(result.get("guards_fired") or [])
         await store.set(ctx.session.id, profile)  # persists pending_booking either way
@@ -966,21 +970,29 @@ class _B2cConcierge(BaseAgent):
         store = get_profile_store()
         profile = await store.get(ctx.session.id)
 
-        # OBS3: computed once — message/profile don't change across the call
-        # sites below (ack fast-path, routing overrides, booking dispatch).
-        # `refinement_signal` true IS the recovery-ack guard (P2) catching a
-        # bare "ok"/refinement; `booking_signal` true is the R9 gate
-        # recognizing a pending-offer confirmation.
-        refinement_signal = is_search_refinement_signal(message, profile)
-        booking_signal = is_booking_confirmation_signal(message, profile)
-        if refinement_signal:
-            budget.fired.add("recovery_ack")
-
         # 1. Ack fast-path: zero LLM, template only — UNLESS the profile
         # signals a search refinement (a bare "ok" after an empty search must
         # re-run the search, never celebrate a stale/empty shortlist) OR a
         # pending booking confirmation (R9: a bare "yes" must reach the
         # code-owned confirmation gate, never the ack template).
+        #
+        # P1-1: these two calls stay REGEX-ONLY (no triage slots passed), and
+        # that is not a shortcut — it is exact. This gate runs before any LLM
+        # call and only ever sees messages `is_social_ack` accepts, i.e. members
+        # of `_ACK_WORDS`, which is itself an fr/en word list. A Spanish "sí" or
+        # a German "ja" never matches it and never reaches this line at all;
+        # it goes to triage like any other substantive message, where the slots
+        # DO apply. So for the exact set of messages that can get here, the
+        # fr/en regexes are already complete, and feeding them a model's opinion
+        # would buy nothing while costing one economy call on every "bonjour"
+        # that follows an empty search.
+        #
+        # Residual gap, pre-existing and unchanged: `_ACK_WORDS` contains two
+        # agreement tokens `_AFFIRMATIVE_RE` does not ("top", "génial"), so
+        # those alone after an empty search still reach the ack template. Not a
+        # regression — closing it means touching a proven regex, not this gate.
+        refinement_signal = is_search_refinement_signal(message, profile)
+        booking_signal = is_booking_confirmation_signal(message, profile)
         if is_social_ack(message) and not refinement_signal and not booking_signal:
             self._emit_turn_metric("ack", "template:ack", budget, t_start, "ok", inv)
             # S-CX2 (audit F5): a bare "ok" carries no language signal — the
@@ -995,6 +1007,36 @@ class _B2cConcierge(BaseAgent):
         triage = await classify(message, budget, inv)
         family = triage.family
         route = ROUTES[family]
+        # P1-1: the two code-owned override signals are RE-derived here, now fed
+        # by triage's slots on top of their own regexes (the slots ADD coverage
+        # — notably outside fr/en — they never veto a regex match; see
+        # profile.py). The regex-only pair computed above the ack fast-path is
+        # deliberately not reused: it had to run before any LLM existed, and
+        # this is the first point where the slots do. Recomputing costs two
+        # regex matches; carrying the pre-LLM answer forward would silently
+        # discard the whole point of the slots.
+        # `refinement_signal` true IS the recovery-ack guard (P2) catching a
+        # bare "ok"/refinement; `booking_signal` true is the R9 gate
+        # recognizing a pending-offer confirmation. Computed once — message and
+        # profile don't change across the call sites below.
+        refinement_signal = is_search_refinement_signal(
+            message,
+            profile,
+            llm_affirmative=triage.affirmative,
+            llm_wants_more=triage.wants_more_options,
+            llm_bare_budget=triage.bare_budget_value,
+        )
+        booking_signal = is_booking_confirmation_signal(
+            message, profile, llm_booking_confirmation=triage.booking_confirmation
+        )
+        if refinement_signal:
+            budget.fired.add("recovery_ack")
+        # P1-2: `triage.language` may now be any of 7 recognized languages, but
+        # only fr/en can be WRITTEN. Clamp once, here, and use `reply_language`
+        # everywhere a template or the synthesis prompt is fed — see
+        # triage.response_language for why widening recognition must not widen
+        # the answer.
+        reply_language = response_language(triage.language)
         # Code-owned overrides (LLM never routes). A pending-offer confirmation
         # wins; otherwise a refinement of a PRIOR search re-routes to a fresh
         # search REGARDLESS of what triage guessed — a terse "le 28"/"moins cher"
@@ -1082,6 +1124,7 @@ class _B2cConcierge(BaseAgent):
                     template_language(profile.language, profile.locale, message),
                     user_confirmed, budget, t_start, inv,
                     picked_hotel_id=picked.get("hotel_id") if picked else None,
+                    llm_hotel_name=triage.hotel_name,
                 ):
                     yield event
                 return
@@ -1090,8 +1133,9 @@ class _B2cConcierge(BaseAgent):
             # ever chooses whether/which tool to call here), then the same
             # grounded-synthesis pattern as a leaf leg.
             async for event in self._run_inline_lookup(
-                ctx, profile, store, message, family, triage.language, route, budget, t_start, inv,
+                ctx, profile, store, message, family, reply_language, route, budget, t_start, inv,
                 picked_hotel_id=picked.get("hotel_id") if picked else None,
+                llm_hotel_name=triage.hotel_name,
             ):
                 yield event
             return
@@ -1102,12 +1146,12 @@ class _B2cConcierge(BaseAgent):
         # spent above. Any non-bare-affirmative message (a new city, a new
         # budget, anything substantive) clears the flags and searches again.
         if route.target == LEAF_HOTEL_SEARCH and profile.search_exhausted:
-            if not is_bare_affirmative(message):
+            if not is_bare_affirmative(message, triage.affirmative):
                 profile.search_exhausted = False
                 profile.widen_attempt_count = 0
             else:
                 self._emit_turn_metric(family, "template:search_exhausted", budget, t_start, "ok", inv)
-                yield self._final(ctx, templates.search_exhausted_response(triage.language, profile.city))
+                yield self._final(ctx, templates.search_exhausted_response(reply_language, profile.city))
                 return
 
         # S-G5: "other options" pagination — advance the cursor deterministically
@@ -1116,7 +1160,9 @@ class _B2cConcierge(BaseAgent):
         # (hotel_search_agent.response_bridge.inject_pagination_offset).
         # shown_hotel_ids stays the belt-and-suspenders exclusion filter
         # regardless of what the cursor computes.
-        more_options = route.target == LEAF_HOTEL_SEARCH and is_more_options_signal(message)
+        more_options = route.target == LEAF_HOTEL_SEARCH and is_more_options_signal(
+            message, triage.wants_more_options
+        )
         if more_options:
             advance_search_cursor(profile)
         elif route.target == LEAF_HOTEL_SEARCH:
@@ -1136,7 +1182,7 @@ class _B2cConcierge(BaseAgent):
         leaf_text, response = await _run_leaf(route.target, ctx, leaf_profile_view(profile))
         if leaf_text is None and not response:
             self._emit_turn_metric(family, f"leaf:{route.target}", budget, t_start, "degraded", inv)
-            yield self._final(ctx, templates.leaf_degraded_response(family, triage.language, profile.city))
+            yield self._final(ctx, templates.leaf_degraded_response(family, reply_language, profile.city))
             return
         # A text-less leaf turn that still carried a DataPart is NOT a leaf
         # failure (S-G9 finding 2: under gpt-5.2 a follow-up turn can end with
@@ -1162,7 +1208,7 @@ class _B2cConcierge(BaseAgent):
             await store.set(ctx.session.id, profile)
             self._emit_turn_metric(family, f"leaf:{route.target}", budget, t_start, "degraded", inv)
             yield self._final(
-                ctx, templates.leaf_degraded_response(family, triage.language, profile.city)
+                ctx, templates.leaf_degraded_response(family, reply_language, profile.city)
             )
             return
         if route.target == LEAF_HOTEL_SEARCH and "results" in response:
@@ -1182,7 +1228,7 @@ class _B2cConcierge(BaseAgent):
             record_search_outcome(
                 profile,
                 results_count=results_count,
-                language=triage.language,
+                language=reply_language,
                 same_day_dead_end=same_day_dead_end,
             )
             record_search_shortlist(profile, response["results"])  # S07: named-hotel lookup guard
@@ -1198,7 +1244,7 @@ class _B2cConcierge(BaseAgent):
                 yield self._final(
                     ctx,
                     templates.search_exhausted_response(
-                        triage.language, profile.city, reason="pagination"
+                        reply_language, profile.city, reason="pagination"
                     ),
                 )
                 return
@@ -1216,10 +1262,10 @@ class _B2cConcierge(BaseAgent):
         # turns (`search_unavailable`, pagination exhausted) where the frame
         # carried `hotels: []` — nothing to paint — and the payload's `hotels`
         # is None either way (`normalize_hotels(x) if x else None`).
-        yield self._hotels_event(ctx, response, triage.language, build_hotel_picks(profile))
+        yield self._hotels_event(ctx, response, reply_language, build_hotel_picks(profile))
 
         synth = await self._synthesize_with_guards(
-            message=message, language=triage.language, leaf_text=leaf_text, response=response,
+            message=message, language=reply_language, leaf_text=leaf_text, response=response,
             profile=profile, budget=budget, invocation_id=inv,
         )
         await store.set(ctx.session.id, profile)
@@ -1232,7 +1278,7 @@ class _B2cConcierge(BaseAgent):
         # Double failure only (text-less leaf AND failed synthesis): honest
         # degraded template rather than an empty message.
         final_text = synth or leaf_text or templates.leaf_degraded_response(
-            family, triage.language, profile.city
+            family, reply_language, profile.city
         )
         for chunk in _chunk_text(final_text):
             yield self._chunk_event(ctx, chunk)

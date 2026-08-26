@@ -137,14 +137,20 @@ def _extract_hotel_name_candidate(text: str) -> str:
 
 
 async def _resolve_hotel_id(
-    session: ClientSession, reference: str, profile: SessionProfile
+    session: ClientSession,
+    reference: str,
+    profile: SessionProfile,
+    llm_hotel_name: str | None = None,
 ) -> tuple[int | None, str | None]:
     with observation(as_type="guardrail", name="resolve-named-hotel"):
-        return await _resolve_hotel_id_impl(session, reference, profile)
+        return await _resolve_hotel_id_impl(session, reference, profile, llm_hotel_name)
 
 
 async def _resolve_hotel_id_impl(
-    session: ClientSession, reference: str, profile: SessionProfile
+    session: ClientSession,
+    reference: str,
+    profile: SessionProfile,
+    llm_hotel_name: str | None = None,
 ) -> tuple[int | None, str | None]:
     """Named-hotel lookup guard (item 4, hardened S12 audit 2026-07-20): a
     STRONG shortlist hit (exact/substring name match) resolves immediately,
@@ -170,7 +176,15 @@ async def _resolve_hotel_id_impl(
     if strong_hit is not None and strong_hit.get("hotel_id") is not None:
         return int(strong_hit["hotel_id"]), str(strong_hit["name"])
 
-    args: dict[str, Any] = {"name": _extract_hotel_name_candidate(reference)}
+    # P1-1: triage's `hotel_name` slot is the PRIMARY extraction now — it read
+    # the same message and can strip request phrasing in any language, which the
+    # two regexes below only do for a handful of fr/en openers. The stripper
+    # stays as the fallback (slot absent, malformed, or over-long): unlike the
+    # boolean slots, this one is a VALUE, so "LLM primary, regex fallback" is
+    # the right shape here rather than an additive OR.
+    args: dict[str, Any] = {
+        "name": llm_hotel_name or _extract_hotel_name_candidate(reference)
+    }
     if profile.city:
         args["cityName"] = profile.city
     result = await _call_tool(session, "find_hotel_by_name", args)
@@ -325,7 +339,10 @@ def _normalize_hotel_for_display(hotel: dict[str, Any], best_offer: dict[str, An
 
 
 async def get_hotel_details(
-    hotel_reference: str, profile: SessionProfile, picked_hotel_id: int | None = None
+    hotel_reference: str,
+    profile: SessionProfile,
+    picked_hotel_id: int | None = None,
+    llm_hotel_name: str | None = None,
 ) -> dict[str, Any]:
     """Real MCP_B2C `get_hotel_details`, hotel resolved via the named-hotel
     lookup guard — or taken straight from `picked_hotel_id` when the spine
@@ -341,7 +358,9 @@ async def get_hotel_details(
                 hotel_id: int | None = picked_hotel_id
                 guards_fired: list[str] = []
                 if hotel_id is None:
-                    hotel_id, _ = await _resolve_hotel_id(session, hotel_reference, profile)
+                    hotel_id, _ = await _resolve_hotel_id(
+                        session, hotel_reference, profile, llm_hotel_name
+                    )
                     guards_fired.append("named_hotel_lookup")
                 if hotel_id is None:
                     return {"ok": False, "error": "hotel not found", "guards_fired": guards_fired}
@@ -667,6 +686,7 @@ async def _quote_fresh_offer(
     profile: SessionProfile,
     picked_hotel_id: int | None = None,
     authorize_link: bool = False,
+    llm_hotel_name: str | None = None,
 ) -> dict[str, Any]:
     """The confirmed=false branch: resolves the hotel from `hotel_reference`
     (named-hotel lookup guard, item 4) and ALWAYS quotes confirmed=false,
@@ -703,7 +723,7 @@ async def _quote_fresh_offer(
                     hotel_name = str(entry.get("name")) if entry else None
                 else:
                     hotel_id, hotel_name = await _resolve_hotel_id(
-                        session, hotel_reference, profile
+                        session, hotel_reference, profile, llm_hotel_name
                     )
                     guards_fired.append("named_hotel_lookup")
                 if hotel_id is None:
@@ -881,10 +901,11 @@ async def generate_booking_link(
     profile: SessionProfile,
     user_confirmed: bool,
     picked_hotel_id: int | None = None,
+    llm_hotel_name: str | None = None,
 ) -> dict[str, Any]:
     with observation(as_type="guardrail", name="authorize-booking-link"):
         return await _generate_booking_link_impl(
-            hotel_reference, profile, user_confirmed, picked_hotel_id
+            hotel_reference, profile, user_confirmed, picked_hotel_id, llm_hotel_name
         )
 
 
@@ -893,6 +914,7 @@ async def _generate_booking_link_impl(
     profile: SessionProfile,
     user_confirmed: bool,
     picked_hotel_id: int | None = None,
+    llm_hotel_name: str | None = None,
 ) -> dict[str, Any]:
     """R9 / guard #12. `generate_booking_link` is stateless server-side (a
     bare `confirmed=true` call returns a real link with no memory of any
@@ -960,5 +982,9 @@ async def _generate_booking_link_impl(
             return multi
 
     return await _quote_fresh_offer(
-        hotel_reference, profile, picked_hotel_id, authorize_link=picked_hotel_id is not None
+        hotel_reference,
+        profile,
+        picked_hotel_id,
+        authorize_link=picked_hotel_id is not None,
+        llm_hotel_name=llm_hotel_name,
     )

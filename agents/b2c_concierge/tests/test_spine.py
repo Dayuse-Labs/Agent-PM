@@ -1013,9 +1013,15 @@ class TestNamedHotelLookupThroughTheSpine:
         # hotel — the resolver must find it via the shortlist, never MCP.
         recorded: list[str] = []
 
-        async def _fake_get_hotel_details(hotel_reference, profile_arg, picked_hotel_id=None):
+        async def _fake_get_hotel_details(
+            hotel_reference, profile_arg, picked_hotel_id=None, llm_hotel_name=None
+        ):
             recorded.append(hotel_reference)
             assert profile_arg.last_results[0]["hotel_id"] == 4242
+            # P1-1: the triage `hotel_name` slot rides along to the resolver.
+            # The scripted classify below emits no such key, so it must arrive
+            # as None — the resolver then falls back to its phrase-stripper.
+            assert llm_hotel_name is None
             return {"ok": True, "hotel": {"id": 4242, "name": "Kimpton - Hotel Palomar South Beach"}}
 
         monkeypatch.setattr(agent_module.inline_tools, "get_hotel_details", _fake_get_hotel_details)
@@ -1137,3 +1143,72 @@ class TestObs3ScoresNeverContainMessageContent:
             if call.get("data_type") == "BOOLEAN":
                 # Langfuse BOOLEAN scores are 0/1, never Python True/False.
                 assert call["value"] in (0.0, 1.0)
+
+
+class TestP1ForeignAffirmativeThroughTheSpine:
+    """End-to-end proof of P1-1 + P1-2 (dataset b2c/language-robustness): a
+    Spanish "sí" after an empty search must re-run the search. Before this it
+    reached the ack template — `_AFFIRMATIVE_RE` is fr/en, so the recovery-ack
+    guard was blind to it."""
+
+    def test_a_spanish_affirmative_after_an_empty_streak_routes_to_search(
+        self, scripted, fake_profile_store
+    ):
+        runner, session = _new_session()
+        asyncio.run(
+            fake_profile_store.set(session.id, SessionProfile(consecutive_empty_searches=1))
+        )
+        llm, leaf_calls = scripted(
+            '{"family": "ack", "language": "es", "affirmative": true}',
+            "Ampliando la búsqueda.",
+            leaf_text="results: hotel A",
+        )
+        _drive_in(runner, session.id, "sí")
+        # Triage said ack; the code-owned override re-routed to search on the
+        # slot. The LLM never routes — it only supplied the signal.
+        assert leaf_calls == ["hotel_search"]
+
+    def test_the_same_message_without_the_slot_stays_an_ack(
+        self, scripted, fake_profile_store
+    ):
+        """The control: identical state and message, slot absent → today's
+        behaviour. Proves the routing change comes from the slot, not from the
+        empty streak alone."""
+        runner, session = _new_session()
+        asyncio.run(
+            fake_profile_store.set(session.id, SessionProfile(consecutive_empty_searches=1))
+        )
+        llm, leaf_calls = scripted('{"family": "ack", "language": "es"}')
+        _drive_in(runner, session.id, "sí")
+        assert leaf_calls == []
+
+    def test_a_recognized_language_never_leaks_into_the_synthesis_prompt(
+        self, scripted, fake_profile_store
+    ):
+        """P1-2 clamp: recognition widened to 7 languages, but the synthesis
+        prompt must still be told a language we can actually write. Without the
+        clamp this reads `LANG: es` and the answer comes back in Spanish while
+        every deterministic template stays English."""
+        runner, session = _new_session()
+        asyncio.run(
+            fake_profile_store.set(session.id, SessionProfile(consecutive_empty_searches=1))
+        )
+        llm, leaf_calls = scripted(
+            '{"family": "ack", "language": "es", "affirmative": true}',
+            "Widening the search.",
+            leaf_text="results: hotel A",
+        )
+        _drive_in(runner, session.id, "sí")
+        synthesis_prompt = json.dumps(llm.calls[-1]["messages"])
+        assert "LANG: en" in synthesis_prompt
+        assert "LANG: es" not in synthesis_prompt
+
+    def test_a_plain_greeting_still_costs_zero_llm_calls(self, scripted, caplog):
+        """The invariant P1-1 must not break: widening the contract must not
+        make the ack fast-path pay for a classify. An empty scripted plan means
+        any LLM call at all fails this test."""
+        runner, session = _new_session()
+        llm, leaf_calls = scripted()
+        _drive_in(runner, session.id, "Bonjour !")
+        assert llm.calls == []
+        assert _turn_metric(caplog)["llm_calls"] == "0"

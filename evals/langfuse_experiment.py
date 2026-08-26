@@ -156,6 +156,8 @@ async def _lookup_trace_facts(
     skip. So: keep re-fetching every attempt until `search_offers_args` is
     actually found, or the budget runs out."""
     search_offers_args: dict[str, Any] | None = None
+    triage_family: str | None = None
+    acted_family: str | None = None
     family: str | None = None
     pick: dict[str, Any] | None = None
 
@@ -179,9 +181,17 @@ async def _lookup_trace_facts(
                 elif obs.type == "GENERATION":
                     parsed = _try_dict(obs.output)
                     if parsed is not None and "family" in parsed:
-                        family = parsed.get("family")
+                        triage_family = parsed.get("family")
                         pick = {"pick": parsed.get("pick"), "pick_position": parsed.get("pick_position")}
+                # The family the spine ACTED on, posted as OBS2 metadata by
+                # `_emit_turn_metric` on the concierge's own AGENT observation.
+                # See `family` in the return dict below for why this outranks
+                # the triage generation's own answer.
+                metadata = getattr(obs, "metadata", None) or {}
+                if isinstance(metadata, dict) and metadata.get("family"):
+                    acted_family = str(metadata["family"])
 
+        family = acted_family or triage_family
         if search_offers_args is not None and family is not None:
             break
         if attempt < _TRACE_LOOKUP_ATTEMPTS - 1:
@@ -190,6 +200,28 @@ async def _lookup_trace_facts(
     return {
         "search_offers_args": search_offers_args,
         "pick": pick,
+        # The family the spine ACTED on, not the one the triage LLM proposed.
+        # These differ by design and the difference is the whole architecture:
+        # "the LLM never routes" — triage only classifies, and code-owned
+        # overrides in agent.py re-route on top of it (recovery-ack → search,
+        # booking confirmation → booking, a shortlist ordinal → booking).
+        #
+        # Reading the generation's own `family` made `expected_route` blind to
+        # every one of those overrides. Caught 2026-08-25 measuring P1-1: a
+        # Spanish "vale" after an empty search was scored a FAILURE
+        # (`family="ack"`) while the same trace's AGENT observation recorded
+        # `family=search`, `route=leaf:hotel_search` — the spine had routed it
+        # correctly. The metric was reporting on the classifier, not the router.
+        #
+        # `metadata.family` (not `metadata.route`) on purpose: `route` speaks a
+        # third vocabulary tied to routing.py internals ("leaf:hotel_search"),
+        # while `family` feeds the same code-owned `_derive_route` mapping the
+        # dataset vocabulary already uses. `triage_family` stays the fallback
+        # for a trace whose AGENT observation didn't make it to the exporter.
+        #
+        # ⚠️ This CHANGES what `expected_route` measures. Runs before
+        # 2026-08-25 scored triage classification; runs after score real
+        # routing. Do not compare the two directly.
         "family": family,
         "route": _derive_route(family, response),
     }
