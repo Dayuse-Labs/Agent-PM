@@ -203,13 +203,28 @@ def _searchbox_query(zone: str | None, city: str | None, metro: str | None) -> s
     return zone_part or anchor
 
 
-def _fail(error: str, diagnostics: dict, guards_fired: list[str] | None = None) -> dict:
+def _fail(
+    error: str,
+    diagnostics: dict,
+    guards_fired: list[str] | None = None,
+    profile_delta: dict | None = None,
+) -> dict:
     """A guarded failure. Carries `guards_fired` like `_ok` does: a guard that
     fired and then made the turn fail honestly is exactly the event OBS3 wants
-    to see — scoring only the successes would report the opposite of reality."""
+    to see — scoring only the successes would report the opposite of reality.
+
+    `profile_delta` exists for ONE case: a clarify. When this tool asks the user
+    a question, whatever the question was ABOUT has to survive the answer turn —
+    otherwise the answer arrives with nothing to attach itself to. Measured in
+    prod on 2026-08-26: asked "gare de lyon — which city?", answered "paris",
+    and the search ran on the bare Paris centroid (Saint-Denis 7,4 km, Orly
+    12,6 km) because the zone was never persisted. S-G5's own rationale ("a zone
+    is lost across turns") applied to the clarify path it had missed."""
     payload: dict = {"ok": False, "error": error, "diagnostics": diagnostics}
     if guards_fired:
         payload["guards_fired"] = sorted(set(guards_fired))
+    if profile_delta:
+        payload["profile_delta"] = profile_delta
     return payload
 
 
@@ -463,6 +478,10 @@ def geocode_location(
                         "options": [],
                     },
                     guards_fired,
+                    # The zone is the whole subject of the question — persist it
+                    # so the answering turn resolves "<zone> + <city>" instead of
+                    # the bare city (verified broken in prod before this).
+                    {"zone": effective_zone} if effective_zone else None,
                 )
             landmark_candidates = get_searchbox_client().forward_candidates(
                 # No city to append here by definition (this branch is "no city
@@ -620,6 +639,11 @@ def geocode_location(
                 ],
             },
             guards_fired,
+            # Same reason as the unanchored gate above: this clarify can also be
+            # returned with a zone in hand (line ~758, once tier 2 has missed
+            # too), and the answer turn needs it. When there is no zone the
+            # early return below carries None, so nothing changes there.
+            {"zone": effective_zone} if effective_zone else None,
         )
         # A named zone/landmark can make v6's whole candidate list fuzz (the
         # real place isn't a v6 feature at all — "La Défense" only exists in

@@ -537,6 +537,38 @@ def test_capture_geocode_ambiguous_stashes_the_clarify_question():
     assert "Budapest (Hungary)" in ctx.state["temp:hotel_search_clarify_question"]
 
 
+def test_capture_geocode_ambiguous_also_stashes_the_zone_it_asked_about():
+    # 2026-08-26, measured in prod: asked "gare de lyon — which city?", answered
+    # "paris", and the search ran on the bare Paris centroid (Saint-Denis 7,4 km,
+    # Orly 12,6 km) because the clarify persisted nothing. A question whose
+    # subject dies with the turn cannot be answered.
+    ctx = _Ctx()
+    resp = {
+        "ok": False,
+        "error": "geocode_ambiguous",
+        "diagnostics": {"question": "Près de « gare de lyon » — dans quelle ville cherchez-vous ?"},
+        "profile_delta": {"zone": "gare de lyon"},
+    }
+    assert capture_after_tool(_Tool("geocode_location"), {}, ctx, resp) is None
+    assert ctx.state["temp:hotel_search_profile_delta"] == {"zone": "gare de lyon"}
+
+
+def test_a_clarify_delta_never_erases_what_the_turn_already_resolved():
+    # Merge, don't replace: an earlier tool call in the same turn may already
+    # have stashed a delta, and the clarify must not blank it.
+    ctx = _Ctx({"temp:hotel_search_profile_delta": {"last_city": "Paris"}})
+    resp = {
+        "ok": False,
+        "error": "geocode_ambiguous",
+        "diagnostics": {"question": "q"},
+        "profile_delta": {"zone": "gare de lyon"},
+    }
+    capture_after_tool(_Tool("geocode_location"), {}, ctx, resp)
+    assert ctx.state["temp:hotel_search_profile_delta"] == {
+        "last_city": "Paris", "zone": "gare de lyon"
+    }
+
+
 def test_capture_geocode_other_errors_stash_no_clarify_question():
     ctx = _Ctx()
     resp = {"ok": False, "error": "geocode_echo_mismatch", "diagnostics": {"query": "x"}}

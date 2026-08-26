@@ -894,6 +894,17 @@ def capture_after_tool(
                     "type": tool_response.get("distance_origin_type") or "city_centroid",
                 }
         elif isinstance(tool_response, dict) and tool_response.get("error") == "geocode_ambiguous":
+            # 2026-08-26: a clarify carries a profile delta too, and it has to be
+            # stashed like the ok-path's — otherwise the subject of the question
+            # dies with the turn. Verified in prod: asked "gare de lyon — which
+            # city?", answered "paris", and the search ran on the bare Paris
+            # centroid because the zone was never persisted. The re-injection
+            # side already existed (`inject_profile_geo_context` refills `zone`
+            # from the profile); only the write was missing.
+            delta = tool_response.get("profile_delta")
+            if isinstance(delta, dict) and delta:
+                previous = tool_context.state.get(_STATE_DELTA_KEY) or {}
+                tool_context.state[_STATE_DELTA_KEY] = {**previous, **delta}
             # S-G10 (D3): remember the clarify question — emit_search_datapart
             # turns it into a deterministic `requires_clarification` flag when
             # no search ends up running this turn.

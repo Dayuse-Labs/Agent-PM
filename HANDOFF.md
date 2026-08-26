@@ -2,6 +2,42 @@
 
 État du chantier pour reprise en session fraîche. **Lire en entier avant d'agir ; ne pas reconstruire ce qui existe.** Mettre à jour en fin de CHAQUE session (bloc daté en tête).
 
+## 🔗 Addendum 2026-08-26 sexies — la question de #89 marchait, sa RÉPONSE non : le clarify ne persistait pas la zone dont il parlait
+
+Vérification en prod de `3966c20` (#89 déployé, 3× SUCCESS 12:59Z, `city_needed_question` présent dans le conteneur). Le tour 1 fait exactement ce qui était demandé — mais la séquence complète, elle, ne tenait pas.
+
+| Tour (même session, `x-dayuse-synthetic: 1`) | Résultat |
+|---|---|
+| T1. « pres de la gare de lyon demain » | ✅ **0 hôtel**, `requires_clarification: true`, question posée : *« Près de la « Gare de Lyon », … il me manque la ville (Paris, Marseille, etc.) »*. Plus aucun hôtel lyonnais. |
+| **T2. « paris »** | ❌ **5 hôtels sur tout le Grand Paris** — Saint-Denis 7,4 km, Orly 12,6 km, Nanterre 10,6 km, Rungis 10,5 km. `distance_origin.type = city_centroid`, **`zone: None`**. La gare a disparu. |
+| A. « autour des champs elysees demain » | ✅ inchangé (`poi` sur l'avenue, 5 hôtels parisiens) |
+| D. « autour de montmartre demain » | ✅ inchangé |
+
+Attendu au T2 : `ibis`/`CitizenM Paris Gare de Lyon` à ~0,5 km — le chiffre que la sonde C1 avait déjà prouvé atteignable.
+
+### La cause, dans le correctif de #89 lui-même
+
+La moitié « ré-injection » existait déjà : `inject_profile_geo_context` recharge `zone` depuis `profile_in` quand le modèle l'omet. **C'est l'écriture qui manquait** : `profile_in["zone"]` n'est alimenté que par `_ok(...)` (S-G5, `delta["zone"] = zone`), et le clarify passe par `_fail(...)`, qui ne portait aucun delta. Côté bridge, le stash du delta est à l'intérieur de `if tool_response.get("ok")`.
+
+Donc la zone mourait avec le tour, et « paris » arrivait sans rien à quoi se rattacher. **C'est le trou S-G5 (« a zone is lost across turns ») sur le seul chemin que S-G5 n'avait pas couvert** — celui où l'outil pose une question.
+
+### Correctif
+
+- `_fail` accepte un `profile_delta` optionnel, **pour ce cas uniquement** : quand l'outil pose une question, le sujet de la question doit survivre au tour de réponse.
+- Les **deux** chemins de clarify le portent : la nouvelle porte sans-ancre, et le clarify homonyme de ville (qui peut aussi être renvoyé zone en main, une fois tier 2 manqué — même défaut, même ligne).
+- Le bridge stashe ce delta sur la branche `geocode_ambiguous`, **en le fusionnant** avec ce qui est déjà là (`{**previous, **delta}`) : un clarify ne doit pas effacer ce qu'un appel antérieur du même tour avait résolu.
+- La chaîne est complète et vérifiée dans le code : clarify → `profile_delta{zone}` → state → DataPart (l'émission lit `raw_delta["zone"]` sans dépendre de `results`) → profil concierge → `profile_in` du tour suivant → ré-injection.
+
+### Vérifications
+
+`1436 passed, 1 skipped` (1433 + 3 nouveaux tests, dont un qui fixe la fusion et non le remplacement), ruff + mypy + guardrails verts.
+
+⚠️ **Pas encore vérifié en prod** : il faut redéployer puis rejouer T1 → T2 dans une même session, et confirmer au T2 la gare parisienne à ~0,5 km **et** que `guard_anti_clarification_loop` ne se déclenche pas.
+
+### Leçon de méthode (3 fois de suite maintenant)
+
+#87 vérifié → défaut trouvé (ancre Roanne) → #88. #88 vérifié → défaut trouvé (Lyon au lieu de Paris) → #89. #89 vérifié → défaut trouvé (la réponse perd la zone) → celui-ci. **À chaque fois c'est la vérification post-déploiement en prod qui a trouvé, jamais les tests** — parce que chaque défaut vivait dans l'interaction entre une couche neuve et une couche existante, pas dans une couche. Le tour 2 d'une séquence de clarify n'était couvert par aucun test : un clarify n'est pas testé tant que sa réponse ne l'est pas.
+
 ## 🧭 Addendum 2026-08-26 quinquies — `fa08813` déployé et vérifié ; le tour vedette n'était plus mort mais **faux avec assurance**, alors le chemin zone-seule sans ancre DEMANDE la ville
 
 Suite directe du bloc « quater ». Deux choses ici : le déploiement de #88 (fait, vérifié, non encore documenté) et le défaut que sa vérification a trouvé — encore une fois.
