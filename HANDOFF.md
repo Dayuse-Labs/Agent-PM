@@ -53,7 +53,8 @@ Le bloc « octies » prévenait : #91 pousse « aéroport de nice » vers la que
 
 - ⚠️ **Défaut voisin toujours ouvert** : `city="Lyon"` + `zone="gare de lyon"` résout sur *« La Garde, Lyon, Rhône »* — bonne ville, mais ce n'est pas une gare, et le guard #14 ne peut rien voir (la distance est bonne). Imprécision de ranker sur le libellé.
 - ⚠️ L'ancre de ville étant maintenant presque toujours présente, `_W_LANDMARK_CITY_ANCHOR` (2,5) et `_LANDMARK_ANCHOR_ZERO_KM` (40) pèsent sur bien plus de tours qu'avant. Non re-calibrés.
-- `triage.response_language` : PR séparée, toujours ouverte.
+- ✅ **CORRECTION — « `triage.response_language` : PR séparée, toujours ouverte » était PÉRIMÉ** et se recopiait de bloc en bloc depuis « quater » (moi compris, dans « septies », « octies » et la première version de celui-ci : recopié sans vérifier). **C'est livré** : `locale_response_language` vit dans `triage.py` et `facade.py` s'en sert à 6 endroits (`response_language` est même une clé de `CONTRACT_KEYS`), arrivé par `5ac9b49` (`fix(scx2)`). Rien à faire, l'item disparaît d'ici.
+- ⬜ **Les seules PR réellement ouvertes** (vérifié `gh pr list`, pas déduit) : **#40** `scx6-same-day-cutoff-fallback` (l'après-midi, « aucune offre » est le cutoff du jour — on propose demain, ouverte depuis le 2026-07-27) et **#19** `s-d-judge-ab` (bench de juges agent-usa vs AgentB2C, depuis le 2026-07-22). Un mois chacune.
 - Les 2 guards date toujours non câblés ; P2 `resolve_location` reste la seule sortie structurelle.
 
 ## 🛰️ Addendum 2026-08-26 octies — « pourquoi Nice rate alors que Paris marche » : rien n'est en dur, Paris prenait juste l'autre chemin. Une ville NOMMÉE sans coordonnée est maintenant géocodée
