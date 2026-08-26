@@ -6,6 +6,14 @@
 
 Scope : uniquement le câblage de l'observabilité des 2 derniers noms de `GUARD_SCORE_NAMES` sans producteur. Zéro touche à la logique de date, zéro touche à `geocode_tool.py` / `geo_resolver.py`. Branche `feat/obs3-wire-date-guards`, commit `33432ff`, PR ouverte — **non mergée**.
 
+### Après le merge — état des estampilles, et pourquoi aucun service n'est en retard
+
+PR #95 mergée en `9cbbab3` (2026-08-26 17:16 Paris, vrai merge commit, donc `33432ff` est bien un ancêtre de `main`).
+
+- **`git diff 33432ff 9cbbab3 -- agents libs` est VIDE** : l'arbre de code déployé sur la feuille est identique à `main` sur la totalité de `agents/` et `libs/`. Aucun service n'est en retard sur du code.
+- **L'estampille de `hotel-search` reste `33432ff`, volontairement** — pas re-posée sur le merge commit. C'est la réponse la PLUS précise à « quel code tourne » : c'est exactement l'arbre qu'a uploadé `railway up`, et comme c'est un ancêtre de `main` le fil-piège `git log <release>..main` lit propre quand même. Re-estampiller n'aurait rien ajouté et aurait coûté une mutation d'infra (avec le risque du `--skip-deploys` oublié).
+- **`concierge` et `faq` restent à `7d41d41`, et leur fil-piège SONNE — c'est un faux positif, documenté ici pour ne pas le re-diagnostiquer.** `git log 7d41d41..main -- agents/b2c_concierge libs` rend exactement un commit, `33432ff`, et sa seule modification dans le périmètre du concierge est la **docstring de module** de `libs/b2c_common/b2c_common/scores.py` (vérifié ligne par ligne : le diff de `libs` est intégralement à l'intérieur du `"""…"""` de tête). **Zéro changement exécutable, donc aucun redéploiement dû.** C'est l'instance concrète du piège annoncé au bloc « nonies » : un fil-piège lu sur `libs` accuse le concierge dès qu'une feuille touche un commentaire partagé.
+
 ### Le correctif, et la décision de design
 
 Les 2 sites de tir (`_resolve_absolute` l. 228, `_usable_carried_date` l. 262) sont dans des helpers **purs**, sans `tool_context`. Choix retenu : **accumulateur `list[str]` passé en paramètre** — le patron déjà en place dans `geocode_tool` (`_anchor_state(..., guards_fired=...)`) — et pas une valeur de retour enrichie, qui aurait cassé le tuple public de `resolve_date_label`. Ce paramètre y est **optionnel** (`guards_fired: list[str] | None = None`) : la signature à 2 arguments que les tests utilisent partout continue de marcher.
