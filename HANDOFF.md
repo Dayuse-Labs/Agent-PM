@@ -2,6 +2,70 @@
 
 État du chantier pour reprise en session fraîche. **Lire en entier avant d'agir ; ne pas reconstruire ce qui existe.** Mettre à jour en fin de CHAQUE session (bloc daté en tête).
 
+## 🏷️ Addendum 2026-08-26 septies — S5 durcie sur le piège « la zone embarque un nom de ville », et la mesure a corrigé la prémisse : 3 cas sur 4 émettaient DÉJÀ la bonne ville
+
+Scope d'une seule chose : l'instruction S5 de la feuille. **Aucun fichier de la couche déterministe touché** (`geocode_tool.py`, `geo_resolver.py`, `response_bridge.py` intacts), et `guard_geocode_echo_back` non durci — cette classe lui est structurellement invisible, « Gare de Lyon, 75012 Paris » écho-matche légitimement « gare » ET « lyon ».
+
+### La prémisse de la session était partiellement périmée — mesuré avant d'écrire une ligne
+
+Baseline en prod sur `7d41d41`, **3 tours par tournure** (`x-dayuse-synthetic: 1`, session fraîche à chaque tour — sinon le clarify de #90 persiste la zone et contamine la tournure suivante) :
+
+| tournure | `city` émis | résultat |
+|---|---|---|
+| « pres de la gare de lyon demain » | `None` ×3 | clarify, 0 hôtel — **le comportement V2 était déjà là** |
+| « autour de la gare de lyon demain » | **`Paris` ×3** | 5 hôtels, POI = *CitizenM Paris Gare de Lyon, 75012* |
+| « un hotel vers le vieux lyon demain » | **`Lyon` ×3** | 5 hôtels, *Vieux Lyon, 69005 Lyon* |
+| « pres de l aeroport de nice demain » | **`Nice` ×3** | 3 hôtels, POI à Nice |
+| contrôles champs-élysées / montmartre / louvre | `Paris` ×3 chacun | le bon POI à chaque fois |
+
+Deux conséquences. D'abord le `city: None` sur « autour de la gare de lyon » du bloc « quinquies » **ne se reproduit plus** : 3/3 `Paris` aujourd'hui, à prompt identique (#89/#90 ne touchent pas le prompt). Le défaut réel n'est donc pas une omission systématique, c'est **une pièce lancée d'un jour à l'autre** — et une mesure à 1 tour ne peut pas la voir. Ensuite, la variante V2 telle que spécifiée aurait transformé **3 réponses correctes en questions** : « vieux lyon » et « aéroport de nice » embarquent un nom de ville qui *est* leur localisation, il n'y a aucun doute à arbitrer là, seulement de la friction à ajouter.
+
+**Décision révisée avec Fabien en séance : V2-narrow.** L'exception se déclare sur le **conflit** (le lieu n'est pas dans la ville que son nom nomme) et non sur la présence d'un nom de ville. Échoue du bon côté : incertain → `city` vide → la question se pose.
+
+### L'instrument local, et le piège qui le rendait muet
+
+Mesurer un prompt demande le vrai modèle, mais pas forcément la prod : la feuille lit `DAYUSE_MODEL` avec `gpt-4o-mini` par défaut (`agent.py:83`) — **exactement le modèle que `hotel-search` fait tourner en prod** (vérifié : `railway variables`). Donc `run_local.sh` + les 21 tours sur `127.0.0.1:8100` mesurent le même émetteur avec le même prompt, sans écart prod/main.
+
+⚠️ **Piège : en local il n'y a pas de Redis.** `b2c_concierge: profile store unreachable (set), not persisted` → `build_active_filters` relit un profil vide → **`active_filters.city` vaut `None` sur TOUS les tours**, y compris quand le delta était bon (`dayuse_metric=profile_ops set=6 slots=city,…,zone` le prouve dans le log). Un instrument muet qui ressemble à un résultat. `docker run -d --name s5probe-redis -p 6379:6379 redis:7-alpine` suffit ; **validé contre la prod** ensuite sur le contrôle louvre : `city=Paris`, `zone=louvre`, `poi/Louvre, 75002 Paris`, 5 hôtels — identique au tour prod.
+
+⚠️ **Et `active_filters.city` reste un proxy, pas la vérité entière** : le chemin tier-2 landmark renvoie `_ok(..., profile_delta={})` (`geocode_tool.py:517`), donc il résout correctement **sans porter de ville dans le profil**. Un `city: None` n'y signifie pas « aucune ville émise ». Le signal sain est le couple **`requires_clarification` + le POI résolu**. Les args de l'outil ne sont pas loguables (RGPD : zéro contenu de message dans les métriques), donc l'attribution par champ n'est pas mesurable côté feuille.
+
+### Deux formulations, la première sur-appliquait — mesuré, pas supposé
+
+Mesures **locales**, 3 tours par tournure, même instrument, Redis up :
+
+| cas | avant (main) | formulation 1 | formulation 2 (retenue) |
+|---|---|---|---|
+| « pres de la gare de lyon » | `city` 1/3, question 2/3 | question 3/3 | **question 3/3** ✅ |
+| « autour de la gare de lyon » | question 3/3 | question 3/3 | **question 3/3** ✅ |
+| « vieux lyon » | `Lyon` 3/3 | question 3/3 ❌ | **résolu 3/3** (POI *Vieux Lyon 69005*) ✅ |
+| « aéroport de nice » | `Nice` 3/3 | question 3/3 ❌ | résolu **1/3** ⚠️ |
+| contrôle champs-élysées | `Paris` 3/3 | `Paris` 3/3 | `Paris` 3/3 ✅ |
+| contrôle montmartre | `Paris` **2/3** (1 question) | `Paris` 2/3 | `Paris` **3/3** ✅ |
+| contrôle louvre | `Paris` 3/3 | `Paris` 3/3 | `Paris` 3/3 ✅ |
+
+La formulation 1 se comportait comme la variante grossière : le modèle retenait le **déclencheur en tête de paragraphe** (« quand la zone contient un nom de ville ») et n'appliquait jamais la branche « si le lieu y siège vraiment, passe la ville ». Reformulée pour que la **classe de conflit** soit la première chose lue (« les rares lieux NOMMÉS D'APRÈS UNE VILLE OÙ ILS NE SONT PAS »), non-application énoncée explicitement à la fin.
+
+⚠️ **Le blanc 1/3 sur montmartre existait DÉJÀ dans la baseline locale** (`[Paris, Paris, None]`) : ce n'était pas une régression de la formulation 1. C'est la baseline locale qui l'a établi — sans elle, il aurait été mis sur le dos du changement.
+
+### Acquis et coût résiduel, énoncés tels quels
+
+- **Acquis** : le cas de conflit (« gare de lyon », les 2 tournures) pose la question **6/6**. Avant, une tournure émettait `Paris` 1/3 en local et 3/3 en prod — le silence assuré était atteignable.
+- **Coût** : « aéroport de nice » ne résout plus que 1/3 (3/3 avant) — il pose la question 2/3 du temps sans en avoir besoin. Assumé : c'est le mauvais côté du bon arbitrage (friction, pas réponse fausse), la direction que la décision produit du 2026-08-26 accepte explicitement.
+- **La garantie est probabiliste**, comme elle l'aurait été en V1 : c'est un prompt sur `gpt-4o-mini`, pas du code. La différence tient au **sens de l'échec** — ici un raté produit une question de trop, en V1 il produisait une réponse fausse que personne en aval ne pouvait attraper. **Le filet déterministe (#89 + #90) reste la seule preuve**, et rien de ce changement n'en dépend.
+- **Leçon structurelle** : `gpt-4o-mini` ne tient pas de façon fiable un conditionnel à deux branches enfoui dans une instruction longue — la phrase de déclenchement domine la condition. Argument de plus pour la sortie structurelle **P2 `resolve_location`** (cf. `reports/MCP-B2C-REQUESTS.md`), où le discriminant serait calculé et non demandé.
+
+### Vérifications
+
+`1436 passed, 1 skipped`, ruff + mypy + guardrails verts (aucun test ne figeait le texte de S5 — vérifié avant d'éditer). Sonde de session : `probe_s5_city.py` (scratchpad, non committée — elle n'a de valeur qu'avec un `S5_BASE` et une clé).
+
+### Reste
+
+- ⬜ **Confirmation en prod NON FAITE, et c'est délibéré** : elle exige de déployer, et la brancher non mergée en prod recréerait l'écart prod/main que les 3 blocs précédents signalent. Séquence après merge de la PR : stamper `LANGFUSE_RELEASE` sur le sha de merge avec `--skip-deploys`, `railway up --service hotel-search --detach` **seulement** (le diff est un prompt dans la feuille, concierge/faq inchangés), puis rejouer les 21 tours. Critères : « gare de lyon » (2 tournures) → question 3/3 chacune ; « vieux lyon » → *Vieux Lyon 69005* ; contrôles → `Paris` 3/3 ; et `llm_calls=3` sur les traces.
+- ⚠️ Repéré au passage, hors scope : « pres de l aeroport de nice » résolvait en prod sur *« Transferts Aéroport Nice, AIR PROMENADE »* — une société de navettes, pas l'aéroport (en local, sur la formulation 2, c'est bien *Aéroport de Nice, 06200*). Imprécision de ranker, pas de la ville.
+- `triage.response_language` : PR séparée, toujours ouverte.
+- Les 2 guards date toujours non câblés ; P2 `resolve_location` reste la seule sortie structurelle.
+
 ## 🔗 Addendum 2026-08-26 sexies — la question de #89 marchait, sa RÉPONSE non : le clarify ne persistait pas la zone dont il parlait
 
 Vérification en prod de `3966c20` (#89 déployé, 3× SUCCESS 12:59Z, `city_needed_question` présent dans le conteneur). Le tour 1 fait exactement ce qui était demandé — mais la séquence complète, elle, ne tenait pas.
