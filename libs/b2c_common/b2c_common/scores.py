@@ -11,10 +11,21 @@ named-hotel-card specs); 2 are AgentB2C-specific additions beyond that spec
 (`booking_confirmation` = R9/guard #12, `hotel_link_truthfulness` = S-G12,
 guard #13) — see CLAUDE.md's "13 guards déterministes".
 
-Five of the 13 (the geo/date guards) fire inside `hotel_search_agent`, out of
-this phase's zone (`libs/b2c_common/**` + `agents/b2c_concierge/**`) — their
-names are reserved here (the contract is frozen once) but nothing in this
-repo emits them yet; a later session wires their call sites (see HANDOFF).
+Five of the 14 (the geo/date guards) fire inside `hotel_search_agent`, out of
+this phase's zone (`libs/b2c_common/**` + `agents/b2c_concierge/**`).
+
+⚠️ Updated 2026-08-26. This used to say those names were "reserved here but
+nothing in this repo emits them yet; a later session wires their call sites" —
+and that session had not happened, so `score_guards` was publishing SIX of the
+names as 0.0 on every turn, indefinitely. That is worse than a gap: it reads as
+"the guard did not fire" rather than "the guard is not measured", and it is
+exactly why `guard_geocode_echo_back = false` on the Toulon trace looked like a
+structural false negative. The leaf now reports what fired through a
+`guards_fired` key on its A2A DataPart, which the spine folds into
+`budget.fired` (`b2c_concierge.agent`). Wired so far: the 3 geo guards +
+`poi_anchor_coherence`. STILL UNWIRED, so still permanently 0.0:
+`date_hallucinated_year_rolled_forward` and `date_carryover_stale_floored` —
+the transport now exists, only their call sites in the date resolver need it.
 """
 from __future__ import annotations
 
@@ -38,9 +49,16 @@ GUARD_SCORE_NAMES: tuple[str, ...] = (
     "anti_clarification_loop",
     "amenity_truthfulness",
     "named_hotel_lookup",
-    # --- 2 AgentB2C-specific additions (beyond the ported spec) --------------
+    # --- 3 AgentB2C-specific additions (beyond the ported spec) --------------
     "booking_confirmation",
     "hotel_link_truthfulness",
+    # #14 (2026-08-26): a tier-2 landmark POI absurdly far from the turn's own
+    # anchor is thrown away. The echo guard above validates the NAME, which a
+    # homonym passes perfectly ("Champs Elysées", a shop in Toulon, 830 km from
+    # the avenue) — audit M4. This one validates the PLACE. Fires in
+    # `hotel_search_agent.geocode_tool`, reaches here through the leaf's
+    # `guards_fired` DataPart key.
+    "poi_anchor_coherence",
 )
 
 #: Closed set for the `degraded` CATEGORICAL score (RGPD: a rule id, never
@@ -80,6 +98,7 @@ _SCORE_CONFIG_IDS: dict[str, str] = {
     "guard_named_hotel_lookup": "a615105a-2f7d-492f-a749-052eda8a02bf",
     "guard_booking_confirmation": "20abf459-1e56-4c48-bd9c-e464ac9b0de1",
     "guard_hotel_link_truthfulness": "f474dd88-aac9-490d-99a3-e4e41060df35",
+    "guard_poi_anchor_coherence": "bad09ed2-8066-4c84-864d-09a445377773",
     "hotels_returned": "1bd1f4bb-483b-4c17-bffc-4724b338d7c5",
     "empty_shortlist": "e4f02fd6-63c1-424a-989f-db337f1fd8c3",
     "llm_calls": "db37879d-1a74-4d53-8ce8-51fb8e88c361",

@@ -153,8 +153,15 @@ How to act, frugally (at most ONE reasoning pass — no tool-call loops):
   blank ("").
   Put a LANDMARK or a named district ("les champs élysées", "gare de lyon",
   "times square", "la sagrada familia") in `zone` — a landmark is not a city,
-  and the tool has a dedicated lookup for it. When you also know the city it
-  sits in, pass that in `city` as well; the tool handles either shape, so never
+  and the tool has a dedicated lookup for it. ALWAYS pass the city that landmark
+  sits in, in `city`, whenever you know it ("les champs élysées" -> Paris,
+  "times square" -> New York, "la sagrada familia" -> Barcelona) — even when the
+  user never typed the city. That is your world knowledge and it IS wanted here,
+  exactly like `country_guess` below: the tool uses it to aim the landmark
+  lookup at the right city, and it verifies it rather than trusting it, so a
+  wrong guess costs a rank and nothing more. Without it the lookup can only aim
+  at where the SERVER happens to be, and a same-named shop hundreds of km away
+  wins. Leave `city` blank only when you genuinely don't know the city; never
   leave BOTH blank when the user named a place.
   ALSO pass `country_guess`: the ISO-3166-1 alpha-2 country you know that place
   is world-famously in ("les champs élysées" → FR, "times square" → US, "la

@@ -1,5 +1,5 @@
 {
-  "$comment": "OBS3 — Langfuse score configs for AgentB2C, versioned in git so they're re-creatable on any instance (score configs are project-scoped, no bulk-import API — this file is the source of truth, POST /api/public/score-configs per entry to restore). Mirrors the 16 configs actually created on the project's Langfuse instance on 2026-07-30 (project cms4gd0d20002nz029tuly62e), plus 3 `human_*` configs added 2026-07-31 by OBS7 for judge/human calibration (see observability/langfuse/evaluators.json and evaluation-rules.json), plus `degraded` added 2026-08-24 — 20 total. The contract for the `guard_*` names is GUARD_SCORE_NAMES in libs/b2c_common/b2c_common/scores.py — never rename an entry once it has real data. Exactly ONE name is permanently config-less, and known_gaps explains why it must not be retried.",
+  "$comment": "OBS3 — Langfuse score configs for AgentB2C, versioned in git so they're re-creatable on any instance (score configs are project-scoped, no bulk-import API — this file is the source of truth, POST /api/public/score-configs per entry to restore). Mirrors the 16 configs actually created on the project's Langfuse instance on 2026-07-30 (project cms4gd0d20002nz029tuly62e), plus 3 `human_*` configs added 2026-07-31 by OBS7 for judge/human calibration (see observability/langfuse/evaluators.json and evaluation-rules.json), plus `degraded` added 2026-08-24, plus `guard_poi_anchor_coherence` added 2026-08-26 (the 14th guard) — 21 total. Also 2026-08-26: the 3 geo guards' 'not yet wired for emission' note was TRUE and is now stale — the leaf reports them on its A2A DataPart. The 2 date guards remain unwired (still 0.0 on every turn). The contract for the `guard_*` names is GUARD_SCORE_NAMES in libs/b2c_common/b2c_common/scores.py — never rename an entry once it has real data. Exactly ONE name is permanently config-less, and known_gaps explains why it must not be retried.",
   "project_id": "cms4gd0d20002nz029tuly62e",
   "known_gaps": [
     {
@@ -12,19 +12,19 @@
       "id": "544fbf28-27a0-44e9-a73a-4e9a1851f507",
       "name": "guard_geocode_echo_back",
       "dataType": "BOOLEAN",
-      "description": "Geo guard 1 (ported agent-usa audit): geocode echo-back match rejected (incl. state hints + ZIP anchor) — hotel_search_agent/geo_guards.py. Not yet wired for emission (OBS3 zone excludes agents/hotel_search_agent/**); reserved name."
+      "description": "Geo guard 1 (ported agent-usa audit): geocode echo-back match rejected (incl. state hints + ZIP anchor) — hotel_search_agent/geocode_tool.py. WIRED 2026-08-26: the leaf reports it on its A2A DataPart (`guards_fired`) and the spine folds it into budget.fired. Before that it emitted 0.0 on every turn."
     },
     {
       "id": "82c3932a-6815-4390-9343-9f152e1713c9",
       "name": "guard_generic_location_demotion",
       "dataType": "BOOLEAN",
-      "description": "Geo guard 2 (ported agent-usa audit): a generic place word demoted before geocoding — hotel_search_agent/geo_guards.py. Not yet wired for emission (leaf out of OBS3 zone); reserved name."
+      "description": "Geo guard 2 (ported agent-usa audit): a generic place word demoted before geocoding — hotel_search_agent/geocode_tool.py. WIRED 2026-08-26 via the leaf's `guards_fired` DataPart key. Before that it emitted 0.0 on every turn."
     },
     {
       "id": "cd2a03b3-e943-48b5-b422-39c747ee5026",
       "name": "guard_state_anchoring",
       "dataType": "BOOLEAN",
-      "description": "Geo guard 3 (ported agent-usa audit): US state anchor carried/resolved across turns — hotel_search_agent/geo_guards.py. Not yet wired for emission (leaf out of OBS3 zone); reserved name."
+      "description": "Geo guard 3 (ported agent-usa audit): US state anchor carried/resolved across turns — hotel_search_agent/geocode_tool.py. WIRED 2026-08-26 via the leaf's `guards_fired` DataPart key. Before that it emitted 0.0 on every turn."
     },
     {
       "id": "c8779d65-cd76-47e6-bb03-936376b7ad2e",
@@ -138,6 +138,12 @@
         { "label": "facade_shield", "value": 1 }
       ],
       "description": "The one kind of dependency degradation the concierge process can itself observe. Closed set (RGPD: must never become free text) mirrors b2c_common.scores._DEGRADED_REASONS. Created 2026-08-24 via the langfuse SDK: the MCP server's createScoreConfig tool rejects every categoricalCategories payload with a generic 'label value pairs' error, but the SDK accepts that same shape — so that was a tool-side bug, not a payload problem. Use the SDK (or the UI) for CATEGORICAL configs."
+    },
+    {
+      "id": "bad09ed2-8066-4c84-864d-09a445377773",
+      "name": "guard_poi_anchor_coherence",
+      "dataType": "BOOLEAN",
+      "description": "Geo guard 14 (AgentB2C-specific, 2026-08-26): a tier-2 Search Box landmark POI thrown away for sitting >100 km from the turn's own anchor (device GPS fix, or the v6 candidate that echoed the city the user named). Closes audit M4 - the echo-back guard validates the NAME, which a homonym passes perfectly (a shop called \"Champs Elysees\" in Toulon, 830 km from the avenue); this validates the PLACE. hotel_search_agent/geocode_tool.py, wired via the leaf's `guards_fired` DataPart key. No anchor (bare landmark, no city, no GPS) = no-op by design."
     }
   ]
 }

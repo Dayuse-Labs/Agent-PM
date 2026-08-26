@@ -1060,6 +1060,48 @@ class TestObs3GuardScores:
         assert "recovery_ack" in guard_calls[-1]
         assert turn_calls[-1] == {"hotels_returned": 1, "llm_calls": 3}
 
+    def test_a_leaf_side_guard_reaches_the_score(self, scripted, fake_profile_store, monkeypatch):
+        # OBS3 (2026-08-26). 6 of the 14 GUARD_SCORE_NAMES fire inside
+        # hotel_search_agent, and nothing carried them across A2A — so
+        # score_guards published them as 0.0 on every turn ever recorded. That
+        # is what made `guard_geocode_echo_back = false` on the Toulon trace
+        # look like a structural false negative instead of "not measured".
+        runner, session = _new_session()
+        scripted(
+            '{"family": "search", "language": "fr"}',
+            "Voici 3 hôtels.",
+            leaf_text="results",
+            response={
+                "results": [{"name": "H", "hotel_id": 1}],
+                "guards_fired": ["geocode_echo_back", "poi_anchor_coherence"],
+            },
+        )
+        guard_calls: list[set] = []
+        monkeypatch.setattr(agent_module, "score_guards", lambda fired: guard_calls.append(set(fired)))
+        _drive_in(runner, session.id, USER_MESSAGE_SEARCH)
+        assert {"geocode_echo_back", "poi_anchor_coherence"} <= guard_calls[-1]
+
+    def test_a_telemetry_only_leaf_payload_is_still_an_empty_response(
+        self, scripted, fake_profile_store, monkeypatch
+    ):
+        # `guards_fired` is POPPED before the emptiness checks, so a payload
+        # carrying nothing else must degrade exactly as an absent DataPart
+        # does. Observability must not change control flow.
+        runner, session = _new_session()
+
+        async def telemetry_only_leaf(leaf, ctx, profile_in):
+            return None, {"guards_fired": ["generic_location_demotion"]}
+
+        scripted('{"family": "search", "language": "fr"}')
+        monkeypatch.setattr(agent_module, "_run_leaf", telemetry_only_leaf)
+        guard_calls: list[set] = []
+        monkeypatch.setattr(agent_module, "score_guards", lambda fired: guard_calls.append(set(fired)))
+        events = _drive_in(runner, session.id, USER_MESSAGE_SEARCH)
+        # Degraded (the honest outcome for "the leaf said nothing")...
+        assert _answer(events) == templates.leaf_degraded_response("search", "fr", None)
+        # ...and the guard is still scored.
+        assert "generic_location_demotion" in guard_calls[-1]
+
     def test_anti_clarification_loop_guard_is_scored(self, scripted, fake_profile_store, monkeypatch):
         question = "Which airport area exactly should I prioritize?"
         runner, session = _new_session()

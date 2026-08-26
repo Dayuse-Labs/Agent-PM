@@ -171,6 +171,10 @@ _GENERIC_LOCATION_WORDS = frozenset(
         "the airport",
         "aeroport",
         "aéroport",
+        # Plural parity with "airports" above, which was already here — the
+        # French singulars were listed and the plurals were not (2026-08-26).
+        "aeroports",
+        "aéroports",
         "aeropuerto",
         "terminal",
         "downtown",
@@ -191,15 +195,31 @@ _GENERIC_LOCATION_WORDS = frozenset(
 )
 
 
+#: Leading determiners stripped before the generic-word lookup. The word set
+#: above already carries "the airport" explicitly, so the intent was always to
+#: match articled forms — it just never covered the French ones, and the model
+#: writes what the user said. Found 2026-08-26: "un hôtel près de la gare" makes
+#: the model send `zone="la gare"`, which was NOT recognised as generic, so a
+#: generic word went to the Search-Box landmark lookup — the exact thing the
+#: tier-2 comment warns about ("Search Box would happily return some airport on
+#: another continent").
+_LEADING_DETERMINERS = ("les ", "le ", "la ", "l'", "l ", "the ", "une ", "un ", "an ", "a ")
+
+
 def is_generic_location_token(value: str | None) -> bool:
-    """True when `value` is a generic place word ("airport", "terminal 2")
-    rather than a real city/locality name."""
+    """True when `value` is a generic place word ("airport", "la gare",
+    "terminal 2") rather than a real city/locality name."""
     token = " ".join(str(value or "").lower().split())
     if not token:
         return False
-    if token in _GENERIC_LOCATION_WORDS:
+    candidates = {token}
+    for determiner in _LEADING_DETERMINERS:
+        if token.startswith(determiner):
+            candidates.add(token[len(determiner):].strip())
+            break
+    if candidates & _GENERIC_LOCATION_WORDS:
         return True
-    return bool(re.fullmatch(r"terminal\s*\d{0,2}", token))
+    return any(re.fullmatch(r"terminal\s*\d{0,2}", c) for c in candidates)
 
 
 def demote_generic_city(query_params: dict) -> dict:
