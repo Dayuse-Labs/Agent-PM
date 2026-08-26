@@ -2,6 +2,49 @@
 
 État du chantier pour reprise en session fraîche. **Lire en entier avant d'agir ; ne pas reconstruire ce qui existe.** Mettre à jour en fin de CHAQUE session (bloc daté en tête).
 
+## 🚢 Addendum 2026-08-26 quater — géo DÉPLOYÉ sur `5d0996c` et prouvé en prod ; la vérification a trouvé un défaut dans le correctif lui-même (ancre ville = homonyme micro-inventaire), corrigé
+
+Suite directe du bloc « ter ». **PR #87 mergée**, `LANGFUSE_RELEASE=5d0996c` stampé sur les 3 services avec `skipDeploys: true` (vérifié : les 3 `last_deploy` sont restés à 07:11 après le stamp, donc aucun redéploiement de l'ANCIEN code sous la nouvelle estampille), puis `railway up --detach` **feuilles d'abord** puis concierge. **3× SUCCESS.** Plus d'écart prod/main.
+
+### Prouvé en prod, pas déclaré — 4 tours `x-dayuse-synthetic: 1`
+
+| Tour | Résultat |
+|---|---|
+| **A. « autour des champs elysees demain »** (la requête exacte du défaut) | **5 hôtels parisiens**, `distance_origin = {"label": "Avenue des Champs-Élysées, 75008 Paris, France", "type": "poi"}`, `radiusKm: 3`. **Plus de Toulon.** `city: "Paris"` émis par le modèle SEUL (l'instruction S5 marche). |
+| B. contrôle occupancy « à paris demain pour 2 adultes et 1 enfant » | `adults: 2, children: 1`, 5 hôtels, `city_centroid` et **aucun `radiusKm`** (défaut MCP 20 km) — exactement le design S4, P0-1 non régressé |
+| C. « pres de la gare de lyon demain » | ❌ `geocode_ambiguous`, 0 hôtel — **défaut, voir ci-dessous** |
+| D. « autour de montmartre demain » | 5 hôtels, `radiusKm: 3`, et **`guards_fired: ["geocode_echo_back"]`** |
+
+### ✅ La plomberie OBS3 est prouvée en prod : `guard_geocode_echo_back = 1`
+
+Sur le tour D, le score `guard_geocode_echo_back` vaut **1** en `environment=production`. **C'est le premier score non nul de l'histoire de ces 6 noms** — ils étaient à 0.0 sur chaque tour depuis que les guards existent. `14` noms de guards présents sur chaque trace (le 14e est live), `llm_calls=3` partout (budget respecté).
+
+Le tour D confirme aussi S4 dans la vraie vie : `resolved_feature_type: "neighborhood"` (donc **tier-1** a répondu) ET `distance_origin_type: "poi"` ET `radiusKm: 3`. Sans S4 ce tour repartait sur un disque de 20 km.
+
+### 🐛 Le défaut trouvé PAR la vérification — dans le correctif lui-même
+
+Tour C, `zone="gare de lyon"`, `city="Paris"`. L'ancre ville que le bloc « ter » a introduite se choisissait sur le **seul écho du NOM** de la ville. Or, sur cette requête, l'unique candidat v6 qui écho-matche « Paris » est un quartier **littéralement nommé « Paris » à ROANNE** — 2 hôtels à proximité, **390 km**. Il est donc devenu « le Paris vérifié », a pointé le `proximity` de Search Box sur Roanne, qui a rendu les gares de Lyon-Perrache, qui ont échoué l'écho → tour mort sur un clarify.
+
+**C'est exactement le piège S-G9 que le docstring du resolver décrit** (« a 1-hotel micro-homonym must never silently outrank a world-famous zero-inventory city »), réintroduit à un endroit neuf. **Une ancre qui pointe un lookup et vetoe son résultat doit être crédible par elle-même** : la condition manquante est `in_inventory_tier` (≥ 3 hôtels), qui existait déjà. Sans ancre crédible → pas d'ancre → la ville est repliée dans la requête, et ce chemin résout le cas correctement (0,4 km, mesuré).
+
+⚠️ **Ce n'était PAS une régression** : vérifié sur un worktree à `a65a0a9`, ce même tour rendait déjà `geocode_ambiguous` avant le chantier. Le défaut est dans un mécanisme neuf dont la sortie coïncidait avec l'ancienne. **C'est la vérification post-déploiement qui l'a trouvé, pas les tests** — 2 tests de régression posés depuis.
+
+### Mesures, protocole même-IP (le seul valide)
+
+| IP de sortie | avant (`a65a0a9`) | après |
+|---|---|---|
+| `92.184.140.202` (« bonne ») | 15/18 | **17/18** |
+| `149.232.201.113` (« mauvaise ») | **8/18** | **13/18** |
+
+Les 5 cas encore rouges sur la mauvaise IP sont **tous** de forme *zone-only sans ville* — le résidu documenté (pas de ville, pas de GPS ⇒ biais IP, le ranker est la seule défense). ⚠️ **Le probe est plus pessimiste que la réalité sur ce point** : ses cas passent `city: ""` de force, alors qu'en prod le modèle fournit la ville de lui-même depuis S5 (vérifié tour A).
+
+### Reste
+
+- `disneyland-paris` : inchangé, toujours 30,6 km, **pas une régression** (cf. bloc « ter »).
+- Les 2 guards date toujours non câblés (le transport existe).
+- P2 `resolve_location` : la seule sortie structurelle, cf. `reports/MCP-B2C-REQUESTS.md`.
+- `triage.response_language` : PR séparée, toujours ouverte.
+
 ## 🗺️ Addendum 2026-08-26 ter — chantier GÉO : la cause du bug Toulon n'était NI M3 NI M4, c'est le `proximity` par défaut de Mapbox Search Box (= **IP proximity**). Et le tour mort du landmark était un paramètre obligatoire, pas de la non-détermination d'extraction.
 
 Deux symptômes, deux causes, aucune des deux au dossier. **Corriger la mémoire, pas seulement l'état** — les blocs « 08-25 » et « 08-25 ter » ci-dessous attribuent ces deux bugs à des mécanismes réfutés ici.
