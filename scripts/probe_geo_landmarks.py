@@ -22,6 +22,13 @@ fixed egress IP it is deterministic, and it scores against the very coordinates
 be quoted alongside any before/after comparison: two runs from different IPs are
 not comparable, and that is precisely the defect this probe measures.
 
+Since 2026-08-26 the zone-only cases (a landmark with no city) call tier 2
+DIRECTLY — `forward_candidates` + `geo_resolver.rank_landmark`, same query, same
+scope — because `geocode_location` now asks which city on that shape rather than
+resolving it under IP bias. Routing them through the tool would score that
+product policy (18 clarifies) instead of the ranker this probe measures. Cases
+that carry a city, and the generic-zone refusal case, still go through the tool.
+
 Usage (needs MAPBOX_ACCESS_TOKEN; no other credential, no service running):
     set -a; . ./.env; set +a
     .venv/bin/python scripts/probe_geo_landmarks.py
@@ -41,6 +48,8 @@ _LEAF = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 if _LEAF not in sys.path:
     sys.path.insert(0, _LEAF)
 
+from hotel_search_agent import geo_resolver  # noqa: E402
+from hotel_search_agent import geocode_tool as _gt  # noqa: E402
 from hotel_search_agent.geocode_tool import geocode_location  # noqa: E402
 from hotel_search_agent.inventory import haversine_km  # noqa: E402
 
@@ -137,6 +146,41 @@ CASES: tuple[dict[str, object], ...] = (
 )
 
 
+def _rank_only(args: dict) -> dict:
+    """Tier 2 called directly, for the zone-only cases.
+
+    Since 2026-08-26 `geocode_location` ASKS which city on the zone-only shape
+    instead of resolving it: unanchored, the lookup can only aim at the egress
+    IP, which is the very defect this probe exists to measure. Going through the
+    tool would therefore score the product policy (18 clarifies) and tell us
+    nothing about the ranker. So these cases call the exact tier-2 pipeline the
+    policy now gates — same query, same scope, same ranker — which keeps the 18
+    cases and the same-IP protocol meaningful.
+    """
+    zone = str(args.get("zone") or "")
+    lang = (str(args.get("locale") or "")[:2] or str(args.get("language_hint") or "")[:2]) or None
+    candidates = _gt.get_searchbox_client().forward_candidates(
+        zone,
+        country=_gt._soft_country(
+            args.get("country_code"), args.get("country_guess"), args.get("locale")
+        ),
+        language=lang,
+        proximity=None,
+    )
+    winner = geo_resolver.rank_landmark(
+        candidates, requested_zone=zone, inventory=_gt.get_inventory(), proximity=None
+    )
+    if winner is None:
+        return {"ok": False, "error": "landmark_not_resolved"}
+    return {
+        "ok": True,
+        "latitude": winner.latitude,
+        "longitude": winner.longitude,
+        "resolved_place": winner.place_name,
+        "distance_origin_type": "poi",
+    }
+
+
 def _egress_ip() -> str:
     try:
         import httpx
@@ -151,8 +195,13 @@ def run() -> tuple[list[dict[str, object]], int, int]:
     passed = 0
     for case in CASES:
         expected = case["expected"]
+        args = dict(case["args"])  # type: ignore[arg-type]
+        # A generic zone must still be REFUSED by the tool's own discriminator,
+        # so those cases keep the full path; a named landmark with no city goes
+        # straight to the ranker (see `_rank_only`).
+        rank_only = expected is not None and not args.get("city") and not args.get("metro")
         try:
-            result = geocode_location(**case["args"])  # type: ignore[arg-type]
+            result = _rank_only(args) if rank_only else geocode_location(**args)
         except TypeError as exc:
             # A missing required parameter. In-process this is a TypeError; via
             # ADK it is the "mandatory input parameters are not present" tool

@@ -833,7 +833,7 @@ class TestZoneOnlyLandmarkReachesSearchBox:
         monkeypatch.setattr(geocode_tool, "get_searchbox_client", lambda: box)
         return box
 
-    def test_bare_landmark_with_no_city_now_resolves(self, monkeypatch):
+    def test_bare_landmark_with_no_city_resolves_once_an_anchor_exists(self, monkeypatch):
         _patch_multi(monkeypatch, [], inventory={})
         box = self._box(monkeypatch, _CHAMPS)
 
@@ -841,6 +841,10 @@ class TestZoneOnlyLandmarkReachesSearchBox:
             city="", zone="champs élysées",
             raw_user_message="je cherche un hôtel autour des champs élysées",
             locale="fr-FR", country_guess="FR",
+            # 2026-08-26: unanchored, this shape now asks which city (see
+            # TestUnanchoredZoneAsksForTheCity). The P0-2 win fenced here is that
+            # the landmark REACHES tier 2 instead of dying before it ran.
+            proximity_lat=48.87, proximity_lon=2.31,
         )
 
         assert result["ok"] is True
@@ -881,7 +885,8 @@ class TestZoneOnlyLandmarkReachesSearchBox:
         self._box(monkeypatch, None)
 
         result = geocode_location(
-            city="", zone="zzz nonexistent landmark", raw_user_message="hotel there"
+            city="", zone="zzz nonexistent landmark", raw_user_message="hotel there",
+            proximity_lat=48.87, proximity_lon=2.31,
         )
 
         assert result["ok"] is False
@@ -898,17 +903,28 @@ class TestZoneOnlyLandmarkReachesSearchBox:
         self._box(monkeypatch, elsewhere)
 
         result = geocode_location(
-            city="", zone="champs élysées", raw_user_message="hotel champs élysées"
+            city="", zone="champs élysées", raw_user_message="hotel champs élysées",
+            proximity_lat=48.87, proximity_lon=2.31,
         )
 
+        # Anchored on purpose: unanchored this would now be `geocode_ambiguous`
+        # and the test would pass for the wrong reason, fencing nothing. On THIS
+        # tier a failed echo degrades to `no_geocodable_location` (the
+        # `geocode_echo_mismatch` error belongs to the tier-1 city path).
         assert result["ok"] is False
+        assert result["error"] == "no_geocodable_location"
 
 
 class TestSearchBoxIsScoped:
     """P0-2 fix 2 (audit §1 M3). The tier-2 lookup was worldwide and blind: no
     proximity (though the client accepts one) and a country that is only set
     when the user NAMED one. A perfect name match in the wrong country sails
-    through the echo guard (M4), so the scope is the only separator."""
+    through the echo guard (M4), so the scope is the only separator.
+
+    Since 2026-08-26 an unanchored zone-only request asks which city instead of
+    resolving under egress-IP bias, so these cases carry a device fix: what they
+    assert (the tier-2 scope) is what happens once the lookup is legitimately
+    allowed to run."""
 
     def _box(self, monkeypatch, result=_CHAMPS):
         box = _FakeSearchBox(result)
@@ -921,7 +937,7 @@ class TestSearchBoxIsScoped:
 
         geocode_location(
             city="", zone="champs élysées", raw_user_message="hotel",
-            country_guess="FR",
+            country_guess="FR", proximity_lat=48.87, proximity_lon=2.31,
         )
 
         assert box.countries == ["FR"]
@@ -930,7 +946,8 @@ class TestSearchBoxIsScoped:
         _patch_multi(monkeypatch, [], inventory={})
         box = self._box(monkeypatch)
 
-        geocode_location(city="", zone="champs élysées", raw_user_message="h", locale="fr-FR")
+        geocode_location(city="", zone="champs élysées", raw_user_message="h", locale="fr-FR",
+                         proximity_lat=48.87, proximity_lon=2.31)
 
         assert box.countries == ["FR"]
 
@@ -942,6 +959,7 @@ class TestSearchBoxIsScoped:
         geocode_location(
             city="", zone="champs élysées", raw_user_message="h",
             country_code="BE", country_guess="FR", locale="fr-FR",
+            proximity_lat=48.87, proximity_lon=2.31,
         )
 
         assert box.countries == ["BE"]
@@ -977,7 +995,8 @@ class TestSearchBoxIsScoped:
         box = self._box(monkeypatch)
 
         geocode_location(
-            city="", zone="champs élysées", raw_user_message="h", country_guess="France"
+            city="", zone="champs élysées", raw_user_message="h", country_guess="France",
+            proximity_lat=48.87, proximity_lon=2.31,
         )
 
         assert box.countries == [None]
@@ -1059,8 +1078,12 @@ class TestCityIsNotAMandatoryParameter:
         result = geocode_location(zone="les champs élysées", country_guess="FR",
                                   raw_user_message="je cherche un hôtel autour des champs élysées")
 
-        assert result["ok"] is True
-        assert result["latitude"] == 48.8698
+        # Still callable (that is this class's subject, and the signature test
+        # below is what actually fences the ADK bug). The OUTCOME changed on
+        # 2026-08-26: unanchored, this now asks which city instead of resolving
+        # under egress-IP bias — see TestUnanchoredZoneAsksForTheCity.
+        assert result["ok"] is False
+        assert result["error"] == "geocode_ambiguous"
 
     def test_city_has_a_default_so_adk_cannot_mark_it_required(self):
         import inspect
@@ -1080,7 +1103,8 @@ class TestCityIsNotAMandatoryParameter:
         _patch_multi(monkeypatch, [])
 
         result = geocode_location(city="", zone="notre dame", country_code="FR",
-                                  raw_user_message="day use autour de notre dame")
+                                  raw_user_message="day use autour de notre dame",
+                                  proximity_lat=48.85, proximity_lon=2.35)
 
         assert result["ok"] is False
         assert result["diagnostics"]["reason"] == "landmark_not_resolved"
@@ -1188,18 +1212,23 @@ class TestPoiAnchorCoherenceGuard:
         assert result["ok"] is True
         assert "poi_anchor_coherence" not in (result.get("guards_fired") or [])
 
-    def test_with_no_anchor_at_all_the_guard_does_not_block(self, monkeypatch):
-        # The bare-landmark shape: no city, no GPS. Nothing to compare against,
-        # so the guard must not fire — that case belongs to the query/proximity
-        # fix, not to this guard. Documented limit, asserted so it stays true.
+    def test_with_no_anchor_at_all_the_turn_never_reaches_this_guard(self, monkeypatch):
+        # This guard's documented limit was "with no anchor there is nothing to
+        # compare against, so it cannot fire" — which is exactly how the Toulon
+        # POI got accepted. Since 2026-08-26 that shape is gated upstream: with
+        # no city, no metro and no device fix the tool asks which city, so the
+        # unguardable case no longer reaches this guard at all.
         _patch_multi(monkeypatch, [])
         far = GeocodeResult(43.1215, 5.9322, "Champs Elysées, 83000 Toulon, France", "FR", "PACA")
-        monkeypatch.setattr(geocode_tool, "get_searchbox_client", lambda: _FakeSearchBox(far))
+        box = _FakeSearchBox(far)
+        monkeypatch.setattr(geocode_tool, "get_searchbox_client", lambda: box)
 
         result = geocode_location(city="", zone="les champs élysées", country_guess="FR",
                                   raw_user_message="autour des champs élysées")
 
-        assert result["ok"] is True
+        assert result["ok"] is False
+        assert result["error"] == "geocode_ambiguous"
+        assert box.calls == []          # the Toulon POI is never even fetched
         assert "poi_anchor_coherence" not in (result.get("guards_fired") or [])
 
 
@@ -1284,3 +1313,80 @@ class TestCityAnchorMustBeInventoryCredible:
         assert result["ok"] is True
         assert box.proximities[-1] == "2.3522,48.8566"
         assert box.calls[-1][0] == "les champs élysées"   # bare query, keeps the clean label
+
+
+class TestUnanchoredZoneAsksForTheCity:
+    """2026-08-26, found by the post-deploy verification of `fa08813` in prod.
+
+    `« pres de la gare de lyon demain »` came back with 5 hotels in LYON — a
+    Paris station answered with another city, confidently. Measured from the
+    prod container, the candidate list for a bare "gare de lyon" is ten Lyon
+    tram stops and the Paris station is NOT in it (it appears only once the
+    `proximity` bias already points at Paris), so the ranker cannot recover it
+    and no honest option list can be built from what came back. The same turn
+    with "à paris" lands 0,5 km from the station, which is what proves the
+    resolver itself is sound and the missing `city` is the whole defect.
+
+    Product decision: when the doubt is real and undecidable, ask which city
+    rather than ship an egress-IP-dependent guess as a fact."""
+
+    def test_a_named_zone_with_no_anchor_asks_which_city(self, monkeypatch):
+        _patch_multi(monkeypatch, [])
+        poi = GeocodeResult(45.7695, 4.8530, "Masséna, 69006 Lyon, France", "FR", "ARA")
+        box = _FakeSearchBox(poi)
+        monkeypatch.setattr(geocode_tool, "get_searchbox_client", lambda: box)
+
+        result = geocode_location(zone="gare de lyon", country_code="FR", locale="fr-FR",
+                                  raw_user_message="hôtel pres de la gare de lyon demain")
+
+        assert result["ok"] is False
+        assert result["error"] == "geocode_ambiguous"
+        assert "gare de lyon" in result["diagnostics"]["question"]
+        # The Lyon candidate must not be offered back: it IS the wrong answer.
+        assert result["diagnostics"]["options"] == []
+        # And the question costs no geocoder call at all — we ask BEFORE looking
+        # up, precisely because the lookup has nothing to aim at.
+        assert box.calls == []
+
+    def test_a_device_fix_still_resolves_the_same_zone(self, monkeypatch):
+        # The P0-2 win is preserved wherever an anchor exists: with a GPS fix the
+        # ranker has something Mapbox cannot bias, so nothing is asked.
+        _patch_multi(monkeypatch, [], inventory={48.8698: 210})
+        poi = GeocodeResult(48.8698, 2.3078, "Champs-Élysées, 75008 Paris, France", "FR", "IdF")
+        monkeypatch.setattr(geocode_tool, "get_searchbox_client", lambda: _FakeSearchBox(poi))
+
+        result = geocode_location(zone="les champs élysées", country_guess="FR",
+                                  proximity_lat=48.87, proximity_lon=2.31,
+                                  raw_user_message="un hôtel autour des champs élysées")
+
+        assert result["ok"] is True
+        assert result["latitude"] == 48.8698
+        assert result["distance_origin_type"] == "poi"
+
+    def test_a_named_zone_with_a_city_is_untouched_by_the_gate(self, monkeypatch):
+        # Fence for the dominant prod path (tours A/D): a city was given, so the
+        # lookup is aimed and the gate must stay out of the way.
+        paris = _c("Paris", "FR", "Île-de-France", ftype="place", lat=48.8566, lon=2.3522)
+        _patch_multi(monkeypatch, [paris], inventory={48.8566: 780})
+        poi = GeocodeResult(48.8443, 2.3743, "Gare de Lyon, 75012 Paris, France", "FR", "IdF")
+        box = _FakeSearchBox(poi)
+        monkeypatch.setattr(geocode_tool, "get_searchbox_client", lambda: box)
+
+        result = geocode_location(city="Paris", zone="gare de lyon", locale="fr-FR",
+                                  raw_user_message="hôtel pres de la gare de lyon a paris demain")
+
+        # Which tier answers depends on what v6 returns for "gare de lyon, Paris"
+        # (in prod it is tier 2, here the fake's v6 candidate echoes and wins) —
+        # what this fences is only that the gate stayed out of the way.
+        assert result["ok"] is True
+        assert "error" not in result
+
+    def test_the_question_speaks_the_conversation_language(self, monkeypatch):
+        _patch_multi(monkeypatch, [])
+        monkeypatch.setattr(geocode_tool, "get_searchbox_client", lambda: _FakeSearchBox(None))
+
+        fr = geocode_location(zone="gare de lyon", locale="fr-FR", raw_user_message="x")
+        en = geocode_location(zone="times square", locale="en-US", raw_user_message="x")
+
+        assert "dans quelle ville" in fr["diagnostics"]["question"]
+        assert "which city" in en["diagnostics"]["question"]

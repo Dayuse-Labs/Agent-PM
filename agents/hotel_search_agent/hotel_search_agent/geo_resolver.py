@@ -201,6 +201,26 @@ def _clarify_question(options: list[GeocodeCandidate], language: str | None = No
     return f"There are a few places by that name — which did you mean: {joined}?"
 
 
+def city_needed_question(zone: str, language: str | None = None) -> str:
+    """Ask WHICH CITY, for a named zone that arrived with no anchor at all.
+
+    Deterministic template, localized fr/en like `_clarify_question` above and
+    for the same reason (S-CX2: this text can reach the customer verbatim).
+
+    Option-less ON PURPOSE, unlike every other clarify in this module. The only
+    city we could put in front of the user here is the one an IP-biased lookup
+    returns, and naming it would anchor them on precisely the answer we just
+    decided we cannot trust: measured from the prod container, "gare de lyon"
+    yields ten Lyon tram stops and the Paris station the user means is absent
+    from the candidate list entirely. A question with no options is honest; a
+    question offering only Lyon is a wrong answer wearing a question mark.
+    """
+    label = (zone or "").strip()
+    if language == "fr":
+        return f"Près de « {label} » — dans quelle ville cherchez-vous ?"
+    return f'Near "{label}" — which city are you looking in?'
+
+
 #: Landmark (tier-2 / Search Box) feature-type prior. Deliberately NOT
 #: `_TYPE_PRIOR`: the priors genuinely INVERT between the two questions. For a
 #: city query a `place` is the best possible answer, so it scores highest up
