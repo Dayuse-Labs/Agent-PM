@@ -2,7 +2,7 @@
 
 État du chantier pour reprise en session fraîche. **Lire en entier avant d'agir ; ne pas reconstruire ce qui existe.** Mettre à jour en fin de CHAQUE session (bloc daté en tête).
 
-## 🗺️ Addendum 2026-08-26 bis — chantier GÉO : la cause du bug Toulon n'était NI M3 NI M4, c'est le `proximity` par défaut de Mapbox Search Box (= **IP proximity**). Et le tour mort du landmark était un paramètre obligatoire, pas de la non-détermination d'extraction.
+## 🗺️ Addendum 2026-08-26 ter — chantier GÉO : la cause du bug Toulon n'était NI M3 NI M4, c'est le `proximity` par défaut de Mapbox Search Box (= **IP proximity**). Et le tour mort du landmark était un paramètre obligatoire, pas de la non-détermination d'extraction.
 
 Deux symptômes, deux causes, aucune des deux au dossier. **Corriger la mémoire, pas seulement l'état** — les blocs « 08-25 » et « 08-25 ter » ci-dessous attribuent ces deux bugs à des mécanismes réfutés ici.
 
@@ -104,6 +104,53 @@ Corrigés : `gare-de-lyon` (4,0 km → 0,0 : Mapbox classait 1er un commerce « 
 - **`triage.response_language`** (une conversation FR où l'utilisateur tape « sí » repart en anglais) : PR séparée après le géo, arbitré avec Fabien. Volontairement pas mélangé — si la mesure bouge, on doit savoir lequel des deux l'a bougée.
 - Inchangé : harnais OBS6 (`lang-confirm-implicit` impassable, variance de `_lookup_trace_facts`), plafond OpenAI, fenêtre OBS8, OBS9 avant fin janvier 2027.
 - **Pas encore déployé** : la prod tourne toujours sur `aa401ba`.
+## 🩹 Addendum 2026-08-26 bis — dashboard Langfuse OBS3 cassé (3 widgets sur 7) : les widgets créés via MCP sont estampillés `min_version = 2` et lisent une table qui n'existe qu'en v4
+
+Hors-session, déclenché par un rapport de Fabien : à l'ouverture du dashboard `b2c-concierge — OBS3 deterministic scores`, toast rouge **`Internal Server Error … Path: dashboard.executeQuery`**. **Corrigé, vérifié des deux côtés (reload OK + zéro erreur serveur depuis).**
+
+### Cause racine — ni les définitions de widgets, ni un flag v4 activé par erreur
+
+`dashboard_widgets.min_version = 2` sur **les 7 widgets créés le 2026-07-30 via le serveur MCP Langfuse** (tous les widgets créés avant, via l'UI, sont à `1`). Le query builder lit ce champ : `(minVersion ?? 1) >= 2` ⇒ il prend les **view declarations v2**, qui lisent `events_core` / `events_full` — **tables qui n'existent QUE en Langfuse v4**. L'instance est en **v3.224.3** : ClickHouse a 74 migrations et aucune table `events_*` (`traces`, `observations`, `scores`, `dataset_run_items_rmt`, `analytics_*`), et **aucune migration de l'image ne les crée**.
+
+Le SQL généré est doublement cassé — c'est ce que le toast cachait :
+
+```sql
+FROM events_core AS events_observations
+WHERE events_observations.environment IN (...)   -- alias
+  AND events_core.project_id = '...'             -- nom d'origine -> "Unknown table expression identifier"
+```
+
+**Pourquoi la page marchait à moitié** (un `0.18` s'affichait) : seuls les **3 widgets de la vue `observations`** tombent — `Cost by model`, `Latency p95 by observation name`, `Observation count by level` (54 + 54 + 32 lignes d'erreur dans les logs `langfuse-web`). Les 4 widgets `scores-*` ont des declarations v2 qui pointent encore sur `scores` : ils rendent normalement. **Un dashboard partiellement vivant est la signature de ce bug.**
+
+### Écartées, preuves à l'appui (ne pas les ressusciter)
+
+| Hypothèse | Réfutation |
+|---|---|
+| Toggle « v4 beta » cliqué par un utilisateur | `v4_beta_enabled = false` pour **les 4 users** en base |
+| `LANGFUSE_MIGRATION_V4_WRITE_MODE` en `dual`/`events_only` | défaut **`legacy`** au tag v3.224.3 ; et l'ingestion écrit bien dans `observations` (22k obs sur 24 h, la plus récente à 07:26 le jour même) |
+| `LANGFUSE_MIGRATION_V4_ALLOW_PREVIEW_OPT_IN` | défaut **`"false"`** en v3.224.3 — le défaut `true` de la doc concerne la ligne v4, ne pas s'y fier pour v3 |
+| Un flag events-table posé sur le service | aucun `LANGFUSE_ENABLE_EVENTS_TABLE_*` défini sur `langfuse-web` |
+| Définitions de widgets invalides | les **7** requêtes rejouées via `GET /api/public/metrics` (chemin v1) renvoient toutes de vraies données |
+
+### Correctif appliqué (Postgres Langfuse, prod)
+
+```sql
+UPDATE dashboard_widgets SET min_version = 1 WHERE min_version = 2;   -- UPDATE 7
+```
+
+Réversible d'une ligne (`SET min_version = 2`). Vérifié : les 7 lignes sont à `1`, Fabien a rechargé le dashboard (**tout s'affiche**), et **zéro** ligne `events_core` dans les logs `langfuse-web` après le correctif (140 au total, la dernière à 07:02:50Z).
+
+### ⚠️ Le piège, à connaître avant de recréer un widget
+
+**Tout widget créé via les tools MCP Langfuse naît estampillé `min_version = 2`** — vérifié en créant puis supprimant un widget sonde. Sur cette instance v3, il est donc cassé d'avance s'il utilise la vue `observations`. Jusqu'à OBS9 (montée en v4) : **créer les widgets dans l'UI**, ou remettre `min_version = 1` juste après une création MCP. `observability/langfuse/dashboard-b2c.json` **ne contient pas** `min_version` : recréer le dashboard depuis cet export via MCP réintroduit la panne (avertissement ajouté dans `observability/langfuse/README.md`).
+
+Sharp edge upstream connu : discussion Langfuse #12777 (`Unknown table expression identifier 'events_core'` après une montée de version v3).
+
+### Outillage de debug de cette instance (coûte une heure si on le redécouvre)
+
+- `psql` via `railway ssh` **se bloque sur le pager** (c'est `less`, pas la DB) : toujours `psql -P pager=off`.
+- Le `grep` BusyBox des conteneurs n'a **pas `-b`**, et il faut `-a` pour traiter les chunks `.next` comme du texte.
+- Projet Langfuse non lié au repo ⇒ logs via GraphQL `deploymentLogs(deploymentId, filter, limit)` (`scripts/railway-api.sh` du skill `use-railway`). La ligne `tRPC route failed` est inutile : c'est la ligne voisine `ClickHouse query failed` qui porte le vrai SQL.
 
 ## ✅ Addendum 2026-08-26 — P1 déployé sur `aa401ba` et prouvé en prod ; la DoD 24 h d'OBS7 est CLOSE (les 3 juges sains, le prompt v2 corrige bien le faux positif)
 
@@ -246,10 +293,10 @@ Mapbox Search Box a matché un **commerce littéralement nommé « Champs Elysé
 
 **Deux observations qui comptent pour la suite :**
 
-1. ⚠️ **PÉRIMÉ — voir le bloc « 08-26 bis » en tête.** Ces deux scores étaient **jamais câblés** (à 0.0 sur CHAQUE tour depuis toujours) : ce n'était pas un faux négatif structurel du guard, c'était une absence de mesure. Et la cause du défaut n'est ni M3 ni M4 mais le `proximity` par défaut de Search Box (= IP proximity). Conservé pour la trace du raisonnement. ~~**Aucun guard géo n'a tiré** : `guard_geocode_echo_back = false` ET `guard_generic_location_demotion = false` sur cette trace. C'est exactement **M4 de l'audit** (*« l'écho valide le NOM, pas le LIEU »*) : l'écho Mapbox contient bien « Champs Elysées », donc le guard est satisfait — alors que le lieu est à 830 km. **Un guard vert ici est un faux négatif structurel, pas un oubli de câblage.**
+1. ⚠️ **PÉRIMÉ — voir le bloc « 08-26 ter » en tête.** Ces deux scores étaient **jamais câblés** (à 0.0 sur CHAQUE tour depuis toujours) : ce n'était pas un faux négatif structurel du guard, c'était une absence de mesure. Et la cause du défaut n'est ni M3 ni M4 mais le `proximity` par défaut de Search Box (= IP proximity). Conservé pour la trace du raisonnement. ~~**Aucun guard géo n'a tiré** : `guard_geocode_echo_back = false` ET `guard_generic_location_demotion = false` sur cette trace. C'est exactement **M4 de l'audit** (*« l'écho valide le NOM, pas le LIEU »*) : l'écho Mapbox contient bien « Champs Elysées », donc le guard est satisfait — alors que le lieu est à 830 km. **Un guard vert ici est un faux négatif structurel, pas un oubli de câblage.**
 2. **La synthèse dégrade honnêtement** : *« la recherche a bien trouvé 4 offres… mais à Toulon, pas autour des Champs-Élysées ; dites-moi la ville exacte (Paris) »*. L'agent ne ment pas — mais il affiche quand même 4 cartes de Toulon.
 
-⚠️ ~~**Sensible à la normalisation**~~ **PÉRIMÉ (08-26 bis)** : ce n'était pas la normalisation. Les deux formes empruntent le MÊME chemin ; ce qui variait était le classement IP-biaisé de Mapbox. Vérifié : « champs elysees » et « champs élysées » donnent le même top-1 à IP constante.
+⚠️ ~~**Sensible à la normalisation**~~ **PÉRIMÉ (08-26 ter)** : ce n'était pas la normalisation. Les deux formes empruntent le MÊME chemin ; ce qui variait était le classement IP-biaisé de Mapbox. Vérifié : « champs elysees » et « champs élysées » donnent le même top-1 à IP constante.
 
 ### Reste
 
@@ -351,7 +398,7 @@ Gates sur `main` après merge : `1339 passed, 1 skipped` · ruff + mypy clean ·
 
 ### Reste connu, mesuré
 
-- ⚠️ **PÉRIMÉ — voir « 08-26 bis » en tête.** Ce n'était PAS de la non-détermination
+- ⚠️ **PÉRIMÉ — voir « 08-26 ter » en tête.** Ce n'était PAS de la non-détermination
   d'extraction et rien à voir avec le contrat du triage : `city: str` n'avait pas de défaut,
   donc ADK rejetait l'appel d'outil quand le modèle omettait la clé (14 occurrences tracées).
   Le modèle émettait bien `zone`. Corrigé par `city: str = ""`.
