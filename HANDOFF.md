@@ -2,6 +2,73 @@
 
 État du chantier pour reprise en session fraîche. **Lire en entier avant d'agir ; ne pas reconstruire ce qui existe.** Mettre à jour en fin de CHAQUE session (bloc daté en tête).
 
+## 🧭 Addendum 2026-08-26 quinquies — `fa08813` déployé et vérifié ; le tour vedette n'était plus mort mais **faux avec assurance**, alors le chemin zone-seule sans ancre DEMANDE la ville
+
+Suite directe du bloc « quater ». Deux choses ici : le déploiement de #88 (fait, vérifié, non encore documenté) et le défaut que sa vérification a trouvé — encore une fois.
+
+### Déployé : `fa08813` sur les 3 services
+
+`LANGFUSE_RELEASE=fa08813` stampé **avant** le déploiement avec `--skip-deploys` (vérifié : les 3 `last_deploy` sont restés à 09:00:52 / 08:58:58 / 08:59:07 après le stamp), puis `railway up` feuilles d'abord. **3× SUCCESS à 12:12Z.** L'estampille ne ment pas, et c'est prouvé autrement que par elle : `grep in_inventory_tier /app/hotel_search_agent/geocode_tool.py` → 2 occurrences dans le conteneur qui tourne (0 avant).
+
+⚠️ Au passage : `108807a` a été committé à 09:08Z, **après** les déploiements de 09:00 — donc prod tournait bien #87 et pas #88, malgré des `railway up` postérieurs au merge de #87. Le stamp était honnête. Ne pas déduire « déployé après le merge » de « déployé récemment ».
+
+### Vérifié en prod, 4 tours `x-dayuse-synthetic: 1`
+
+| Tour | Résultat |
+|---|---|
+| A. « autour des champs elysees demain » | ✅ 5 hôtels parisiens, `poi` sur l'avenue, `city: Paris` émis seul |
+| D. « autour de montmartre demain » | ✅ inchangé, `guard_geocode_echo_back = 1` |
+| **C. « pres de la gare de lyon demain »** | ❌ **5 hôtels à LYON** (`distance_origin = "Masséna, Cr Vitton, 69006 Lyon"`) — le tour mort a été échangé contre une réponse fausse |
+| C1. le même **avec « a paris »** | ✅ `CitizenM Paris Gare de Lyon, 75012` — `ibis Paris Gare de Lyon` à **0,5 km** |
+
+`llm_calls = 3` partout, 14 noms de guards par trace. #88 tient sa promesse (plus d'ancre Roanne, plus de `geocode_ambiguous` sur ce tour) — mais le résultat produit n'est pas meilleur pour autant.
+
+### La cause : ce n'est PAS le géocodage, c'est l'absence de `city`
+
+Mesuré depuis le conteneur de prod (donc à l'IP réelle) :
+
+| sonde | résultat |
+|---|---|
+| candidats Search Box pour `"gare de lyon"` (country=fr) | **10 POI, tous lyonnais** (arrêts de tram) — la gare parisienne **n'est pas dans la liste** |
+| la même requête avec `proximity` forcé sur Paris | `Gare de Lyon, 75012 Paris` en **rang 1** |
+| `« autour de la gare de lyon demain »` (autre tournure) | `city: None` → Lyon |
+
+Donc : l'index Mapbox contient bien la gare de Paris, elle n'apparaît **que si le biais pointe déjà sur Paris** ; le chemin resolver est **correct dès que `city` est présent** ; et le corollaire du bloc « ter » se vérifie une fois de plus — *on ne re-classe pas ce qui n'est pas renvoyé*. Aucune liste d'options honnête ne peut même être **construite** depuis ce que Mapbox renvoie.
+
+⚠️ **L'instruction S5 nomme DÉJÀ « gare de lyon » en exemple** et exige la ville du landmark. La feuille ne s'y conforme pas précisément quand la zone contient elle-même un nom de ville — elle considère la ville comme donnée. C'est une non-conformité de modèle, pas un trou d'instruction.
+
+### Décision produit (Fabien, 2026-08-26) et correctif
+
+> « Si il y a un doute possible il vaut mieux demander laquelle. »
+
+Dans la branche zone-seule, quand la requête n'a **aucune ancre** (`city` vide, `metro` vide, pas de fix GPS), le résultat est une fonction de l'IP du conteneur **par construction** : on ne lance plus le lookup, on renvoie `geocode_ambiguous` avec `« Près de « … » — dans quelle ville cherchez-vous ? »` (`geo_resolver.city_needed_question`, localisée fr/en comme `_clarify_question`, S-CX2). Zéro appel géocodeur — on en **économise** un.
+
+- `error` reste **`geocode_ambiguous`** : toute la plomberie existe déjà (`response_bridge` stashe la question → `requires_clarification`, l'instruction `agent.py` dit « DO NOT search, ask »). Aucun contrat touché.
+- `status_message` distinct (**`geocode_city_needed`**) pour séparer ce cas du homonyme-de-ville dans le widget « Observation count by level ».
+- **Pas d'`options`** : la seule ville qu'on pourrait proposer est celle du lookup IP-biaisé — Lyon. Une question qui n'offre que Lyon, c'est une mauvaise réponse déguisée en question.
+- Quand un fix GPS existe, **comportement inchangé** (ranker + echo + `poi_anchor_coherence`). Gate 3 intact.
+
+### Ce que ça change dans les tests — plus que prévu
+
+Le plan annonçait « 1 test à amender » : c'était **faux**, il y en avait 8 (le comptage par regex avait raté les appels multi-lignes et les `city=""`). Les cas zone-seule de `TestZoneOnlyLandmarkReachesSearchBox`, `TestSearchBoxIsScoped` et le diagnostic `landmark_not_resolved` portent maintenant un **fix GPS** : ce qu'ils vérifient (le scope tier-2, les diagnostics honnêtes, le guard d'écho) reste vérifié, une fois le lookup légitimement autorisé.
+
+⚠️ Un test passait pour la **mauvaise raison** après le changement (`test_an_echo_mismatch_is_not_accepted_even_scoped` n'assertait que `ok is False`, satisfait par le nouveau clarify) : ancré + assertion sur l'erreur exacte (`no_geocodable_location` — le `geocode_echo_mismatch` appartient au chemin tier-1, pas à celui-là).
+
+Et le guard #14 : sa limite documentée (« sans ancre il n'y a rien à comparer, donc il ne peut pas se déclencher » — c'est **exactement** comment le POI de Toulon avait été accepté) devient **inatteignable**. Le test correspondant assert désormais la meilleure vérité : sans ancre, le tour ne parvient plus jusqu'au guard, et le POI de Toulon n'est même plus récupéré.
+
+### `scripts/probe_geo_landmarks.py` recibé — sinon il criait au loup
+
+16 de ses 18 cas passent `"city": ""` : à travers l'outil, ils clarifieraient tous et le probe afficherait **0/18**, ce qui ressemble à une catastrophe alors que c'est la politique. Les cas zone-seule appellent donc tier 2 **directement** (`forward_candidates` + `rank_landmark`, même requête, même scope) — le probe mesure le **ranker**, pas la politique posée au-dessus. Les cas avec ville et le cas de refus générique gardent le chemin complet.
+
+**Vérifié : `13/18` sur l'IP `149.232.201.113`** — exactement le chiffre du tableau de #88 pour cette IP. Même instrument, même mesure. Ses 5 rouges (gare-de-lyon, gare-du-nord, la-défense, louvre-en, notre-dame) sont tous de forme zone-seule : le ranker garde son résidu, **le produit ne le sert plus**.
+
+### Reste
+
+- **Déployer ce correctif** puis rejouer les 4 tours : C doit poser la question (`requires_clarification: true`, 0 hôtel), puis « paris » dans la même session doit rendre la gare parisienne à ~0,5 km, A et D inchangés, et `guard_anti_clarification_loop` ne doit PAS se déclencher au tour 2.
+- **Optionnel, à trancher** : durcir S5 avec le piège explicite (« quand la zone contient un nom de ville, ce nom fait partie du NOM du lieu — « gare de lyon » est à Paris »). Ça réduirait la fréquence des questions ; c'est un pari de conformité sur gpt-4o-mini, et c'est pourquoi le correctif déterministe n'en dépend pas.
+- `triage.response_language` : PR séparée, toujours ouverte.
+- Les 2 guards date toujours non câblés ; P2 `resolve_location` reste la seule sortie structurelle.
+
 ## 🚢 Addendum 2026-08-26 quater — géo DÉPLOYÉ sur `5d0996c` et prouvé en prod ; la vérification a trouvé un défaut dans le correctif lui-même (ancre ville = homonyme micro-inventaire), corrigé
 
 Suite directe du bloc « ter ». **PR #87 mergée**, `LANGFUSE_RELEASE=5d0996c` stampé sur les 3 services avec `skipDeploys: true` (vérifié : les 3 `last_deploy` sont restés à 07:11 après le stamp, donc aucun redéploiement de l'ANCIEN code sous la nouvelle estampille), puis `railway up --detach` **feuilles d'abord** puis concierge. **3× SUCCESS.** Plus d'écart prod/main.

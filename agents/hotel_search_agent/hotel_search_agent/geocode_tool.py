@@ -343,7 +343,10 @@ def geocode_location(
         {"ok": True, "latitude", "longitude", "resolved_place",
          "resolved_feature_type", "distance_origin_type", "country_code",
          "profile_delta"}
-    On an ambiguous homonym, a clarify request (ask ONE question, don't search):
+    On an ambiguous homonym — or on a named zone that arrived with NO anchor at
+    all (no city, no metro, no device fix), where the answer would otherwise be
+    a function of this container's egress IP — a clarify request (ask ONE
+    question, don't search):
         {"ok": False, "error": "geocode_ambiguous", "diagnostics": {"question", "options"}}
     On any guard rejection or geocoder failure, a clean diagnostic:
         {"ok": False, "error": "<reason>", "diagnostics": {...}}
@@ -431,6 +434,36 @@ def geocode_location(
         # bonus): the code can tell, and a signal the code owns cannot be
         # hallucinated.
         if zone_is_specific:
+            # 2026-08-26, found by the post-deploy verification of `fa08813`: with
+            # no city, no metro AND no device fix, this lookup has nothing to aim
+            # at but the container's egress IP (Mapbox's documented default for
+            # `proximity`). Measured from the prod container: "gare de lyon"
+            # returns ten Lyon tram stops and the Paris station the user means is
+            # NOT in the candidate list — it only appears once the bias already
+            # points at Paris. So no re-ranking can recover it (the ranker cannot
+            # rank what was never returned) and no honest option list can be built
+            # from what came back. The same turn with "à paris" lands 0,5 km from
+            # the station, which is what proves the resolver itself is fine.
+            #
+            # The doubt is therefore real AND undecidable here, so we ask instead
+            # of shipping an IP-dependent guess as a fact (product decision,
+            # 2026-08-26: "si il y a un doute possible il vaut mieux demander
+            # laquelle"). Cheaper too — the question costs zero geocoder calls.
+            #
+            # Runs AFTER the GPS branch above, so Gate 3 still holds; and when a
+            # device fix DOES exist the ranker keeps the case exactly as before.
+            if proximity_tuple is None:
+                mark_level("WARNING", status_message="geocode_city_needed")
+                return _fail(
+                    "geocode_ambiguous",
+                    {
+                        "question": geo_resolver.city_needed_question(
+                            effective_zone or "", lang
+                        ),
+                        "options": [],
+                    },
+                    guards_fired,
+                )
             landmark_candidates = get_searchbox_client().forward_candidates(
                 # No city to append here by definition (this branch is "no city
                 # and no metro"), so the landmark goes alone — `_searchbox_query`
