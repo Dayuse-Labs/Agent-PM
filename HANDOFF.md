@@ -2,6 +2,45 @@
 
 État du chantier pour reprise en session fraîche. **Lire en entier avant d'agir ; ne pas reconstruire ce qui existe.** Mettre à jour en fin de CHAQUE session (bloc daté en tête).
 
+## ✅ Addendum 2026-08-26 — P1 déployé sur `aa401ba` et prouvé en prod ; la DoD 24 h d'OBS7 est CLOSE (les 3 juges sains, le prompt v2 corrige bien le faux positif)
+
+Session courte : déploiement + la vérification 24 h qui n'était mesurable que maintenant.
+
+### Déployé
+
+`LANGFUSE_RELEASE=aa401ba` stampé sur les 3 services (`skipDeploys`), puis `railway up --detach` feuilles d'abord. **3× SUCCESS.** Seul `agents/b2c_concierge` avait changé ; `hotel-search` et `faq` ont été redéployés quand même, pour que l'estampille ne mente pas (même convention que le 08-25). **Plus d'écart prod/main.**
+
+### Prouvé en prod, pas déclaré — session à 2 tours via le proxy widget
+
+| Tour | Résultat |
+|---|---|
+| 1. recherche impossible (Melun + 4 amenities + 9 adultes, aujourd'hui) | 0 hôtel → `empty_shortlist=1`, streak à 1 |
+| 2. **« sí »** | **relance une recherche**, `llm_calls=3` (triage + feuille + synthèse) |
+
+`llm_calls=3` est la preuve : un template d'ack aurait coûté 1. Avant P1-1, « sí » ne matchait pas `_AFFIRMATIVE_RE` et tombait sur l'ack, sur une liste vide. Le slot `affirmative` le rattrape en prod.
+
+### OBS7 — DoD 24 h CLOSE
+
+- **Les 3 règles sont saines** : `enabled:true`, `status:active`, `pausedReason:null`, **jamais en erreur**.
+- **`obs7-user-distress-v3chat` a produit ~13 scores — les premiers de son histoire.** Tous `false`, raisonnements cohérents, y compris le cas multilingue pour lequel il a été refait (« the message translates to *that's perfect, go ahead* »).
+- **Le prompt `Hallucination` v2 marche** : 6 scores depuis l'amendement, **tous à 0,0**, dont deux qui portent exactement la forme de raisonnement qui produisait 0,7 avant :
+  > *« …cannot be verified as true or false without access to real-time data; **therefore, no definitive hallucination** can be identified. »*
+
+  **Zéro pénalité « lacks verification » depuis v2.** ⚠️ n petit et surtout du trafic `development` (les runs d'éval de la veille) — c'est un signal, pas encore une statistique.
+
+### 🐛 Verrue trouvée en vérifiant (PAS une régression, à traiter à part)
+
+Sur le tour 2, la conversation était en **français** (tour 1 en français, `locale=fr-FR`), l'utilisateur tape « sí », et **la réponse revient en anglais**. Cause : `response_language(triage.language)` clamp « es » → « en », alors que la langue établie de la conversation (`profile.language`) dirait « fr ».
+
+**Vérifié que ce n'est pas nouveau** : avant P1-2, « es » était rejeté par la validation → `guess_language("sí")` → pas d'indice FR → « en » aussi. Même sortie. Mais le clamp rend la verrue plus visible et donne l'endroit exact où la corriger : **`response_language` devrait préférer `profile.language` à un « en » nu**. Une ligne, mais elle change un comportement de réponse — à trancher, pas à glisser.
+
+### Reste (inchangé sauf mention)
+
+- **Chantier géo** : c'est le prochain, et le seul défaut produit visible restant (tour mort landmark ~1/6 + Toulon).
+- Dettes du harnais OBS6 : `lang-confirm-implicit` impassable (`hotel_id` fabriqué), variance de `_lookup_trace_facts`.
+- Actions Fabien : fenêtre OBS8, plafond OpenAI, décision edge public du concierge.
+- OBS9 (Langfuse v4) avant fin janvier 2027, après OBS8.
+
 ## 🧠 Addendum 2026-08-25 quater — P1-1 + P1-2 : 5 slots sortent du regex, la reconnaissance de langue passe à 7. Et le harnais OBS6 mesurait la mauvaise couche.
 
 Chantier P1 de `AUDIT-AGENTIQUE-2026-07-30.md`. **Deux livrables, dont un non prévu** : le fix lui-même, et la correction d'un défaut du harnais découvert en essayant de le mesurer.
