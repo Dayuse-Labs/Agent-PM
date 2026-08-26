@@ -34,6 +34,7 @@ from hotel_search_agent.response_bridge import (
     inject_landmark_radius,
     normalize_hotel,
     normalize_search_results,
+    record_guards_fired,
     read_profile_in,
     skip_final_generation,
     stamp_turn_start,
@@ -1708,3 +1709,22 @@ class TestGuardsFiredCrossesA2A:
         content = emit_search_datapart(ctx)
         assert content is not None
         assert _decode(content)["guards_fired"] == ["generic_location_demotion"]
+
+    def test_record_guards_fired_dedupes_and_keeps_a_stable_order(self):
+        # The single writer of the state key: `capture_after_tool` folds the
+        # geocode tool's response through it, and the date resolver — a BEFORE-
+        # tool callback with no response to hang a key on — calls it directly.
+        ctx = _Ctx()
+        record_guards_fired(ctx, ["state_anchoring", "geocode_echo_back"])
+        record_guards_fired(ctx, ["state_anchoring", "date_carryover_stale_floored"])
+        assert ctx.state["temp:hotel_search_guards_fired"] == [
+            "date_carryover_stale_floored", "geocode_echo_back", "state_anchoring",
+        ]
+
+    def test_record_guards_fired_writes_nothing_when_nothing_fired(self):
+        # An empty accumulator must not create the key: `emit_search_datapart`
+        # treats its presence as "there is telemetry to send", and an empty list
+        # on the wire would be pure noise.
+        ctx = _Ctx()
+        record_guards_fired(ctx, [])
+        assert "temp:hotel_search_guards_fired" not in ctx.state

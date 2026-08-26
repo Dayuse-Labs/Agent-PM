@@ -39,7 +39,7 @@ import json
 import logging
 import math
 import time
-from typing import Any
+from typing import Any, Iterable
 
 from a2a import types as a2a_types
 from google.adk.a2a.converters.part_converter import (
@@ -854,6 +854,26 @@ def _apply_date_fallback(tool_context: Any, stashed: dict[str, Any]) -> None:
     }
 
 
+def record_guards_fired(tool_context: Any, names: Iterable[str]) -> None:
+    """Merge deterministic guard names into the turn's OBS3 set — the SINGLE
+    writer of `_STATE_GUARDS_KEY`, so both producers share one semantics
+    (accumulate across callbacks, dedupe, stay ordered).
+
+    Two producers, two shapes. `geocode_location` returns its own
+    `guards_fired` list in the tool response, folded in by `capture_after_tool`
+    below. `datetime_resolver.resolve_search_date` is a BEFORE-tool callback:
+    there is no response to hang a key on, so it fills a local accumulator and
+    calls this directly. Either way `emit_search_datapart` finds them in state.
+
+    RGPD: a guard NAME and nothing else — never the date, the place or the
+    message that made it fire."""
+    fired = [str(n) for n in names if n]
+    if not fired:
+        return
+    previous = tool_context.state.get(_STATE_GUARDS_KEY) or []
+    tool_context.state[_STATE_GUARDS_KEY] = sorted({*(str(p) for p in previous), *fired})
+
+
 def capture_after_tool(
     tool: Any, args: dict[str, Any], tool_context: Any, tool_response: Any
 ) -> dict[str, Any] | None:
@@ -872,11 +892,8 @@ def capture_after_tool(
         # OBS3 needs to see.
         if isinstance(tool_response, dict):
             fired = tool_response.get("guards_fired")
-            if isinstance(fired, list) and fired:
-                previous = tool_context.state.get(_STATE_GUARDS_KEY) or []
-                tool_context.state[_STATE_GUARDS_KEY] = sorted(
-                    {str(f) for f in list(previous) + fired}
-                )
+            if isinstance(fired, list):
+                record_guards_fired(tool_context, fired)
         if isinstance(tool_response, dict) and tool_response.get("ok"):
             delta = tool_response.get("profile_delta")
             if isinstance(delta, dict) and delta:

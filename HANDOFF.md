@@ -2,6 +2,80 @@
 
 État du chantier pour reprise en session fraîche. **Lire en entier avant d'agir ; ne pas reconstruire ce qui existe.** Mettre à jour en fin de CHAQUE session (bloc daté en tête).
 
+## ✅ Addendum 2026-08-26 decies — les 2 guards date sont CÂBLÉS ; `guard_date_hallucinated_year_rolled_forward` vu à **true 3/3 en prod** (première fois de l'histoire du projet)
+
+Scope : uniquement le câblage de l'observabilité des 2 derniers noms de `GUARD_SCORE_NAMES` sans producteur. Zéro touche à la logique de date, zéro touche à `geocode_tool.py` / `geo_resolver.py`. Branche `feat/obs3-wire-date-guards`, commit `33432ff`, PR ouverte — **non mergée**.
+
+### Le correctif, et la décision de design
+
+Les 2 sites de tir (`_resolve_absolute` l. 228, `_usable_carried_date` l. 262) sont dans des helpers **purs**, sans `tool_context`. Choix retenu : **accumulateur `list[str]` passé en paramètre** — le patron déjà en place dans `geocode_tool` (`_anchor_state(..., guards_fired=...)`) — et pas une valeur de retour enrichie, qui aurait cassé le tuple public de `resolve_date_label`. Ce paramètre y est **optionnel** (`guards_fired: list[str] | None = None`) : la signature à 2 arguments que les tests utilisent partout continue de marcher.
+
+`resolve_search_date` (qui a le `tool_context`) crée l'accumulateur et le remet à un helper NOUVEAU, `response_bridge.record_guards_fired` — désormais l'**unique écrivain** de `temp:hotel_search_guards_fired`. `capture_after_tool` y passe maintenant la liste que renvoie `geocode_location` (mêmes 4 lignes, dédupliquées) : une seule sémantique de fusion (accumule, déduplique, ordonne) pour les deux producteurs. Il fallait un helper parce que `resolve_search_date` est un **before_tool** callback : il n'y a aucune réponse d'outil sur laquelle accrocher une clé `guards_fired`.
+
+`GUARD_SCORE_NAMES` non touché : aucun renommage, aucun retrait, aucun réordonnancement. Zéro appel LLM ajouté (`llm_calls = 3` sur la trace de preuve, plafond tenu). Zéro contenu de message dans la télémétrie : un nom de guard, jamais la date ni le message.
+
+### ⚠️ Le plan de forçage du brief était INVERSÉ, pour une raison qu'il ne pouvait pas voir
+
+Le brief disait : « `date_carryover_stale_floored` est forçable par un appel A2A direct à la feuille avec une date passée dans `profile_in` ; `date_hallucinated_year_rolled_forward` n'est PAS forçable (il faut que le modèle invente une année) ». **Les deux moitiés sont fausses.**
+
+1. **Un appel direct à la feuille ne peut produire AUCUN score.** `score_guards` n'est appelé qu'à **un seul endroit dans tout le repo** : `b2c_concierge/agent.py:562`. La feuille ne publie rien. Vérifié (`grep -rn "score_guards" agents/*/[a-z]*/*.py`). Donc pour voir un score, le tour DOIT traverser le concierge.
+2. **Le guard « année hallucinée » EST forçable, trivialement** : le code tire sur *toute* date ISO passée, peu importe son origine. Il suffit que **l'utilisateur** donne l'année lui-même — « un hotel a paris **le 6 aout 2023** » — et le modèle la recopie en `absolute: 2023-08-06` (c'est même son instruction : « YYYY-MM-DD if they gave a year »). Le nom du guard parle d'hallucination, son déclencheur est « ISO dans le passé ». Déterministe, 3/3.
+3. **`date_carryover_stale_floored` n'est PAS forçable en prod**, et pour une raison structurelle mesurée dans le conteneur : avec `profile_in.date = 2026-08-20` (passé) et un message SANS date, **gpt-4o-mini renvoie la date du profil comme label `absolute`** au lieu de l'omettre. Le tour prend donc le chemin « label frais », et c'est le guard **année** qui tire — pas le plancher. Vérifié 2×, deux formulations (« un hotel », « d autres options ») : `guards_fired: ["date_hallucinated_year_rolled_forward"]` les deux fois. Le plancher est un vrai dernier recours (le modèle omet complètement le label), atteignable en pratique par le straddle de minuit, pas à la demande.
+
+### Déploiement de la feuille SEULE, avec la preuve que l'estampille ne ment pas
+
+- `LANGFUSE_RELEASE=33432ff` sur **`hotel-search` seulement**, `--skip-deploys`. `last_deploy` **resté à 16:24:07 +02:00** après le stamp → aucun redéploiement de l'ANCIEN code sous la nouvelle estampille.
+- `railway up --service hotel-search --environment production --detach` → **SUCCESS 16:57:11 +02:00** (`--detach` volontaire, `--ci` streame `FLEET_READ_TOKEN` en clair).
+- `concierge` et `faq` NON redéployés : le diff ne touche `libs/b2c_common/scores.py` **qu'en docstring**, et le fold côté concierge (`response.pop("guards_fired")`) est déjà en prod depuis `7d41d41`. Rien à redéployer là.
+- Preuve **autrement que par l'estampille**, dans le conteneur qui tourne : `record_guards_fired` ×4 dans `datetime_resolver.py`, ×2 dans `response_bridge.py`, et `guards_fired.append("date_…")` ×2.
+- 🪤 **Piège de chemin** : dans le conteneur le code est à **`/app/hotel_search_agent/…`**, PAS `/app/agents/hotel_search_agent/hotel_search_agent/…`. Un `grep` sur le chemin du repo répond « No such file or directory » et se lit comme « le code n'est pas déployé ». Le localiser par `find / -name <fichier>.py`.
+
+### La preuve qui compte : le score à `true` dans Langfuse
+
+3 tours via le proxy widget (`https://widget-production-3f56.up.railway.app/v3/chat`, `x-dayuse-synthetic: 1`, session fraîche à chaque tour), avec une année passée donnée par l'utilisateur :
+
+| tour | message | réponse | trace |
+|---|---|---|---|
+| 1 | « un hotel a paris le 6 aout 2023 » | *« …aucune offre à Paris pour le 6 août **2027** »* | `fa3003fc0a358dddd2037330c55e3982` |
+| 2 | « je cherche un hotel a lyon le 10 mai 2022 » | *« …pour le 10/05/**2027** (votre message mentionne 10 mai 2022) »* | `a78d11afe88a0b5fb8c76e1c181d94eb` |
+| 3 | idem | idem | `0d204653597912186a3f72c33d8a5366` |
+
+`guard_date_hallucinated_year_rolled_forward` = **`true`, 3/3**, `environment: production`. Ce sont les **3 seuls `true` de toute l'histoire du projet** (`listScores` sur ce nom, `dataType: BOOLEAN`, `value: ["true"]`, limit 5 → 3 lignes) : avant ce déploiement le score était structurellement à 0.0, exactement comme annoncé.
+
+Sur la MÊME trace, les contrôles qui rendent le `true` interprétable :
+- `guard_date_carryover_stale_floored` = **`false`** → les deux noms sont indépendants, le câblage n'a pas mis tout le monde à 1.0.
+- `llm_calls` = **3** → plafond ≤ 3 tenu, ce chantier n'ajoute aucun appel.
+- `hotels_returned` = 0 → normal, le 2027-08-06 n'a pas d'inventaire.
+- `configId` = `null` sur le guard année : **définitif et attendu** (43 caractères contre 35 max côté Langfuse), son jumeau a bien le sien (`c8779d65-…`). Rien à réessayer.
+
+🪤 Rappel du piège d'outillage, re-vérifié : ces scores sont **BOOLEAN**. Le filtre `value` s'écrit `["true"]` — `["1"]` fait répondre au serveur `value filter with dataType=BOOLEAN requires each value to be "true" or "false"`. Et le filtre a été **validé positivement** (il a rendu 3 lignes) avant de conclure du zéro sur l'autre nom.
+
+### ❌ Ce qui n'a PAS pu être prouvé en prod
+
+- **`date_carryover_stale_floored` : jamais vu à `true`.** `listScores` sur ce nom, `value: ["true"]` → **liste vide** (filtre validé positivement juste avant sur son jumeau, donc le zéro est réel). Non forçable pour la raison structurelle du §2 ci-dessus. **Preuve hors-ligne uniquement** : `test_stale_carryover_floor_is_reported` + `test_the_guards_ride_the_datapart_the_concierge_already_reads`, plus le fait que le transport (`guards_fired` → `budget.fired` → `score_guards`) est prouvé en prod le même jour sur les 3 guards géo ET, maintenant, sur son jumeau qui emprunte le même `record_guards_fired`. Ne pas écrire ailleurs qu'il a été vu en prod.
+
+### ✅ RÉGLÉ — le domaine public de trop sur `hotel-search` (Fabien l'a supprimé)
+
+En cherchant à **lire** les domaines du service, j'ai lancé `railway domain --service hotel-search` : cette commande, **sans argument, CRÉE un domaine** au lieu d'en lister un. Résultat : `https://hotel-search-production-cdb3.up.railway.app` existe maintenant, alors que **D7 dit réseau privé Railway + bearer côté feuille** — une feuille n'a pas à avoir d'entrée publique. Le bearer `BearerAuthMiddleware` est bien devant (une requête non authentifiée est rejetée, la carte d'agent exceptée), donc ce n'est pas un trou béant, mais c'est une déviation de l'invariant qu'il faut refermer.
+
+**Supprimé par Fabien le 2026-08-26, et vérifié** (la suppression était bloquée par le classifieur de mon côté, mutation destructive d'infra) : la requête GraphQL de lecture rend maintenant `serviceDomains: []` **et** `customDomains: []` sur `hotel-search`. La feuille est de nouveau sur le réseau privé seul, D7 tenu.
+
+⚠️ **À ne pas refaire** : `railway domain --service X` est une commande de **création**, pas de lecture. Pour lire, passer par l'API GraphQL (`service(id:){ serviceInstances{ edges{ node{ domains{ serviceDomains{ id domain } } } } } }`).
+
+### Vérification locale
+
+- `.venv/bin/pytest -q` → **1451 passed, 1 skipped** (référence d'entrée : 1442 / 1 → **+9 tests**).
+- **Preuve que les nouveaux tests échouent sans le correctif** : `datetime_resolver.py` remis à `HEAD`, tests conservés → **5 échecs sur 7**. Les 2 qui passent quand même sont ceux qui doivent passer : le contrôle négatif (`test_a_clean_turn_reports_no_date_guard_at_all`) et le test de compatibilité de signature (`test_resolve_date_label_still_works_without_an_accumulator`).
+- `ruff check .` → All checks passed ; `mypy agents libs` → no issues in 46 files ; `dayuse_guardrails.sh` → OK.
+
+### Reste (repris du bloc « nonies », inchangé sauf mention)
+
+- ✅ **Les 2 guards date ne sont plus « non câblés »** — l'item du bloc précédent disparaît. Les 14 noms de `GUARD_SCORE_NAMES` ont maintenant un producteur (vérifié nom par nom contre le code, pas déduit).
+- ⚠️ Défaut voisin toujours ouvert : `city="Lyon"` + `zone="gare de lyon"` résout sur *« La Garde, Lyon, Rhône »* — bonne ville, pas une gare, guard #14 aveugle (la distance est bonne).
+- ⚠️ `_W_LANDMARK_CITY_ANCHOR` (2,5) et `_LANDMARK_ANCHOR_ZERO_KM` (40) pèsent sur bien plus de tours depuis que l'ancre de ville est presque toujours présente. Non re-calibrés.
+- ⬜ PR réellement ouvertes : **#40** `scx6-same-day-cutoff-fallback` et **#19** `s-d-judge-ab` (un mois chacune), plus celle de cette session.
+- P2 `resolve_location` reste la seule sortie structurelle.
+
 ## ✅ Addendum 2026-08-26 nonies — #91 + #92 DÉPLOYÉES sur `e6d3460` et prouvées en prod : les 7 critères passent, dont l'aéroport de Nice 3/3
 
 Suite directe des blocs « septies » (S5) et « octies » (la géo). Les deux PR mergées, **un seul déploiement** parce que les deux changements vivent dans la même feuille.
@@ -55,7 +129,7 @@ Le bloc « octies » prévenait : #91 pousse « aéroport de nice » vers la que
 - ⚠️ L'ancre de ville étant maintenant presque toujours présente, `_W_LANDMARK_CITY_ANCHOR` (2,5) et `_LANDMARK_ANCHOR_ZERO_KM` (40) pèsent sur bien plus de tours qu'avant. Non re-calibrés.
 - ✅ **CORRECTION — « `triage.response_language` : PR séparée, toujours ouverte » était PÉRIMÉ** et se recopiait de bloc en bloc depuis « quater » (moi compris, dans « septies », « octies » et la première version de celui-ci : recopié sans vérifier). **C'est livré** : `locale_response_language` vit dans `triage.py` et `facade.py` s'en sert à 6 endroits (`response_language` est même une clé de `CONTRACT_KEYS`), arrivé par `5ac9b49` (`fix(scx2)`). Rien à faire, l'item disparaît d'ici.
 - ⬜ **Les seules PR réellement ouvertes** (vérifié `gh pr list`, pas déduit) : **#40** `scx6-same-day-cutoff-fallback` (l'après-midi, « aucune offre » est le cutoff du jour — on propose demain, ouverte depuis le 2026-07-27) et **#19** `s-d-judge-ab` (bench de juges agent-usa vs AgentB2C, depuis le 2026-07-22). Un mois chacune.
-- Les 2 guards date toujours non câblés ; P2 `resolve_location` reste la seule sortie structurelle.
+- ~~Les 2 guards date toujours non câblés~~ → **RÉSOLU le même jour, voir « decies » en tête** (`33432ff` déployée, `guard_date_hallucinated_year_rolled_forward` à `true` 3/3 en prod). P2 `resolve_location` reste la seule sortie structurelle. ⚠️ Cette phrase se recopiait de bloc en bloc depuis « quinquies » (l. 254, 357) : ne pas la ressortir.
 
 ## 🛰️ Addendum 2026-08-26 octies — « pourquoi Nice rate alors que Paris marche » : rien n'est en dur, Paris prenait juste l'autre chemin. Une ville NOMMÉE sans coordonnée est maintenant géocodée
 

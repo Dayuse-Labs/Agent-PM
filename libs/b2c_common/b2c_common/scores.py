@@ -11,7 +11,7 @@ named-hotel-card specs); 2 are AgentB2C-specific additions beyond that spec
 (`booking_confirmation` = R9/guard #12, `hotel_link_truthfulness` = S-G12,
 guard #13) — see CLAUDE.md's "13 guards déterministes".
 
-Five of the 14 (the geo/date guards) fire inside `hotel_search_agent`, out of
+Six of the 14 (the geo/date guards) fire inside `hotel_search_agent`, out of
 this phase's zone (`libs/b2c_common/**` + `agents/b2c_concierge/**`).
 
 ⚠️ Updated 2026-08-26. This used to say those names were "reserved here but
@@ -22,10 +22,16 @@ names as 0.0 on every turn, indefinitely. That is worse than a gap: it reads as
 exactly why `guard_geocode_echo_back = false` on the Toulon trace looked like a
 structural false negative. The leaf now reports what fired through a
 `guards_fired` key on its A2A DataPart, which the spine folds into
-`budget.fired` (`b2c_concierge.agent`). Wired so far: the 3 geo guards +
-`poi_anchor_coherence`. STILL UNWIRED, so still permanently 0.0:
-`date_hallucinated_year_rolled_forward` and `date_carryover_stale_floored` —
-the transport now exists, only their call sites in the date resolver need it.
+`budget.fired` (`b2c_concierge.agent`).
+
+**Every name in `GUARD_SCORE_NAMES` is now wired** — the last two,
+`date_hallucinated_year_rolled_forward` and `date_carryover_stale_floored`,
+were connected the same day: they fire in pure helpers inside
+`hotel_search_agent.datetime_resolver`, so `resolve_search_date` threads a
+local accumulator through them and hands it to
+`response_bridge.record_guards_fired` (the single writer of the leaf's guard
+state), which the DataPart already carries. A 0.0 on any of these names now
+means "did not fire" and nothing else.
 """
 from __future__ import annotations
 

@@ -30,6 +30,8 @@ from hotel_search_agent.response_bridge import (
     STATE_EXACT_WINDOW_KEY,
     STATE_RESOLVED_DATE_KEY,
     STATE_SEARCH_DATE_KEY,
+    emit_search_datapart,
+    find_datapart,
 )
 
 
@@ -382,6 +384,94 @@ def test_resolve_date_malformed_label_behaves_like_no_label():
     resolve_search_date(_Tool("search_offers"), args, ctx)
     assert args["date"] == future  # carryover wins, "gibberish" never persisted
     assert STATE_RESOLVED_DATE_KEY not in ctx.state
+
+
+# --- OBS3: the 2 date guards reach the concierge ------------------------------------------------
+
+_GUARDS_KEY = "temp:hotel_search_guards_fired"
+
+
+class TestDateGuardsAreObservable:
+    """Both date guards fire in PURE helpers with no `tool_context`, so until
+    2026-08-26 they only ever called `mark_level` — nobody downstream learned
+    they had fired, and `score_guards` published
+    `guard_date_hallucinated_year_rolled_forward` /
+    `guard_date_carryover_stale_floored` as 0.0 on every turn ever recorded. A
+    0.0 that means "not measured" reads as "did not fire": exactly the trap the
+    geo guards were in. `resolve_search_date` now threads an accumulator through
+    the helpers and hands it to `record_guards_fired`, from where
+    `emit_search_datapart` puts it on the A2A DataPart."""
+
+    def test_hallucinated_past_year_is_reported(self):
+        # Same verbatim prod payload as the resolution test above (trace
+        # 1ee2b59c, 2026-07-29): the guard did its job then and nobody could
+        # count it.
+        ctx = _ctx_with_profile({})
+        args = {"date": {"type": "absolute", "value": "2023-08-06", "expression": "6 aout"}}
+        resolve_search_date(_Tool("search_offers"), args, ctx)
+        assert ctx.state[_GUARDS_KEY] == ["date_hallucinated_year_rolled_forward"]
+
+    def test_stale_carryover_floor_is_reported(self):
+        ctx = _ctx_with_profile({"date": (date.today() - timedelta(days=1)).isoformat()})
+        args = {}
+        resolve_search_date(_Tool("search_offers"), args, ctx)
+        assert ctx.state[_GUARDS_KEY] == ["date_carryover_stale_floored"]
+
+    def test_a_clean_turn_reports_no_date_guard_at_all(self):
+        # The negative half of the contract: a 0.0 must keep meaning "did not
+        # fire". If a clean turn wrote the key, every turn would score 1.0 and
+        # the series would be just as useless as when it was stuck at 0.0.
+        ctx = _ctx_with_profile({})
+        args = {"date": {"type": "relative", "value": "tomorrow"}}
+        resolve_search_date(_Tool("search_offers"), args, ctx)
+        assert _GUARDS_KEY not in ctx.state
+
+    def test_year_roll_is_reported_even_when_the_label_then_fails_to_resolve(self):
+        # A PAST LEAP DAY is the one label that fires the guard and still comes
+        # back unresolvable: 2020-02-29 is a real date (so the guard fires),
+        # but 02-29 has no next occurrence in either candidate year, so the
+        # turn falls through to the carry-over exit instead of the fresh-label
+        # one. Asserted on the pure helper, with an explicit `_TODAY`: the
+        # callback resolves "today" off the real clock, and a literal date
+        # there would make this test a function of the calendar (the lesson of
+        # the 2026-08-06 rot — 2028 IS a leap year and would flip it).
+        fired: list[str] = []
+        _, resolved_from, _ = resolve_date_label(
+            {"type": "absolute", "value": "2020-02-29"}, _TODAY, fired
+        )
+        assert resolved_from == "default"  # unresolvable, so the caller carries over
+        assert fired == ["date_hallucinated_year_rolled_forward"]
+
+    def test_an_impossible_calendar_date_is_not_charged_to_the_guard(self):
+        # "2023-02-30" never existed, so it fails the `date()` construction
+        # BEFORE the past-year branch — the guard measures a model that invented
+        # a YEAR, not one that invented a day, and must not inflate on the
+        # latter.
+        fired: list[str] = []
+        assert resolve_date_label(
+            {"type": "absolute", "value": "2023-02-30"}, _TODAY, fired
+        )[1] == "default"
+        assert fired == []
+
+    def test_the_guards_ride_the_datapart_the_concierge_already_reads(self):
+        # End of the wire the concierge folds into `budget.fired`: the resolver
+        # is a before_tool callback, so this asserts the hand-off survives all
+        # the way to `emit_search_datapart` — the transport the 3 geo guards
+        # were proven on in prod on 2026-08-26.
+        ctx = _ctx_with_profile({"date": (date.today() - timedelta(days=1)).isoformat()})
+        resolve_search_date(_Tool("search_offers"), {}, ctx)
+        content = emit_search_datapart(ctx)
+        assert content is not None
+        payload = find_datapart(content.parts)
+        assert payload["guards_fired"] == ["date_carryover_stale_floored"]
+
+    def test_resolve_date_label_still_works_without_an_accumulator(self):
+        # Public signature, used with 2 positional args throughout this file:
+        # the guard must not become a required parameter of date resolution.
+        resolved, resolved_from, _ = resolve_date_label(
+            {"type": "absolute", "value": "2023-08-06"}, _TODAY
+        )
+        assert (resolved, resolved_from) == (date(2026, 8, 6), "absolute")
 
 
 # --- parse_duration_minutes --------------------------------------------------------------------

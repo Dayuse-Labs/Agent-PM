@@ -59,6 +59,7 @@ from hotel_search_agent.response_bridge import (
     STATE_SEARCH_DATE_KEY,
     read_profile_in,
     read_structured_payload,
+    record_guards_fired,
 )
 
 # Same stdout metrics logger as equipment_ids.py / response_bridge.py.
@@ -214,7 +215,7 @@ def _next_occurrence(month: int, day: int, today: date) -> date | None:
     return candidate
 
 
-def _resolve_absolute(value: Any, today: date) -> date | None:
+def _resolve_absolute(value: Any, today: date, guards_fired: list[str]) -> date | None:
     v = str(value or "").strip()
     match = _ISO_DATE_RE.match(v)
     if match:
@@ -226,6 +227,7 @@ def _resolve_absolute(value: Any, today: date) -> date | None:
         if candidate >= today:
             return candidate
         mark_level("WARNING", status_message="date_hallucinated_year_rolled_forward")
+        guards_fired.append("date_hallucinated_year_rolled_forward")
         # A year in the PAST is proof the model invented one. Its instruction is
         # explicit — "YYYY-MM-DD if they gave a year, else MM-DD; NEVER add or
         # guess a year yourself" — and prod 2026-07-29 caught gpt-4o-mini
@@ -242,7 +244,7 @@ def _resolve_absolute(value: Any, today: date) -> date | None:
     return None
 
 
-def _usable_carried_date(value: Any, today: date) -> str | None:
+def _usable_carried_date(value: Any, today: date, guards_fired: list[str]) -> str | None:
     """The carried `profile_in.date` when it is still searchable — else None,
     so the caller falls back to today.
 
@@ -260,15 +262,25 @@ def _usable_carried_date(value: Any, today: date) -> str | None:
         return None
     if carried < today:
         mark_level("WARNING", status_message="date_carryover_stale_floored")
+        guards_fired.append("date_carryover_stale_floored")
         return None
     return value
 
 
-def resolve_date_label(label: Any, today: date) -> tuple[date, str, str | None]:
+def resolve_date_label(
+    label: Any, today: date, guards_fired: list[str] | None = None
+) -> tuple[date, str, str | None]:
     """(resolved_date, resolved_from, expression) from the model's `date` label.
     `resolved_from` in {"relative", "absolute", "default"} — "default" covers a
     missing/malformed label (the caller decides whether that's a fresh-turn
-    bootstrap or a carryover; this function only ever resolves what it's given)."""
+    bootstrap or a carryover; this function only ever resolves what it's given).
+
+    OBS3: `guards_fired` is the accumulator the caller reads back to learn that
+    `date_hallucinated_year_rolled_forward` fired (same pattern as
+    `geocode_tool`, which threads one through its own guards). Optional because
+    resolution itself does not need it — the date math is identical either
+    way — and because this signature is public."""
+    fired = guards_fired if guards_fired is not None else []
     if isinstance(label, dict):
         expression = label.get("expression") if isinstance(label.get("expression"), str) else None
         label_type, value = label.get("type"), label.get("value")
@@ -277,7 +289,7 @@ def resolve_date_label(label: Any, today: date) -> tuple[date, str, str | None]:
             if resolved is not None:
                 return resolved, "relative", expression
         elif label_type == "absolute":
-            resolved = _resolve_absolute(value, today)
+            resolved = _resolve_absolute(value, today, fired)
             if resolved is not None:
                 return resolved, "absolute", expression
         return today, "default", expression
@@ -296,14 +308,23 @@ def resolve_search_date(tool: Any, args: dict[str, Any], tool_context: Any) -> N
     falling back to `reference_today` only on a true first mention — and
     persists NOTHING, so a silent turn never overwrites a real prior date with
     today's bootstrap default (the audit's "date lost on a later turn" bug,
-    avoided by construction rather than patched after the fact)."""
+    avoided by construction rather than patched after the fact).
+
+    OBS3 (2026-08-26): this is where the two date guards finally become
+    OBSERVABLE. They fire in pure helpers with no `tool_context`, so they report
+    through a local accumulator that is handed to `record_guards_fired` on both
+    exits — from there `emit_search_datapart` puts it on the A2A DataPart and
+    the concierge folds it into `score_guards`. Before this, both names were
+    published as 0.0 on every turn forever, which reads as "the guard did not
+    fire" instead of "the guard is not measured"."""
     if getattr(tool, "name", "") != "search_offers":
         return None
     profile_in = read_profile_in(tool_context)
     today = reference_today(profile_in)
+    guards_fired: list[str] = []
     label = args.pop("date", None)
     if isinstance(label, dict) and label.get("type") in ("relative", "absolute"):
-        resolved_date, resolved_from, expression = resolve_date_label(label, today)
+        resolved_date, resolved_from, expression = resolve_date_label(label, today, guards_fired)
         if resolved_from != "default":
             args["date"] = resolved_date.isoformat()
             date_reference: dict[str, Any] = {"resolved_from": resolved_from}
@@ -317,14 +338,22 @@ def resolve_search_date(tool: Any, args: dict[str, Any], tool_context: Any) -> N
                 "date_reference": date_reference,
             }
             _stash_search_date(tool_context, args["date"], today)
+            record_guards_fired(tool_context, guards_fired)
             return None
     # No fresh, resolvable label this turn — carry over rather than re-derive,
     # unless the carried date is no longer searchable (`_usable_carried_date`).
-    args["date"] = _usable_carried_date(profile_in.get("date"), today) or today.isoformat()
+    args["date"] = (
+        _usable_carried_date(profile_in.get("date"), today, guards_fired) or today.isoformat()
+    )
     # Stash AFTER the guard, never before: `same_day` is what licenses the
     # next-day probe, and a stale carried date floored back to today must be
     # reported as the same-day search it has just become.
     _stash_search_date(tool_context, args["date"], today)
+    # A label that fired the year-roll guard and STILL failed to resolve lands
+    # here rather than on the exit above (a past leap day: "2020-02-29" is a
+    # real date, so the guard fires, but 02-29 has no next occurrence in either
+    # candidate year) — same accumulator, so the guard is reported either way.
+    record_guards_fired(tool_context, guards_fired)
     return None
 
 
