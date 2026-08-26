@@ -162,18 +162,17 @@ How to act, frugally (at most ONE reasoning pass — no tool-call loops):
   right city, and it verifies it rather than trusting it, so a wrong guess costs
   a rank and nothing more. Without it the lookup can only aim at where the
   SERVER happens to be, and a same-named shop hundreds of km away wins.
-  ONE EXCEPTION, and it OVERRIDES the rule above: when the zone's own name
-  CONTAINS a city name, ask yourself first whether the place actually SITS in
-  that city. If it does — "vieux lyon" is in Lyon, "aéroport de nice" is in
-  Nice — the name and the location agree: pass that city normally, it is not a
-  guess. If it does NOT, or if you are not sure, leave `city` blank ("") on
-  purpose: "gare de lyon" is a station in PARIS, named after the city it goes
-  to, so someone typing it may mean the Paris station OR a station in Lyon, and
-  nothing in the message settles it. You cannot know, so do not choose — leave
-  `city` blank and the tool will ask the user which city; that question IS the
-  right answer. A confident guess in that case is a silent wrong answer nobody
-  downstream can catch, while an asked question costs one turn and is always
-  right.
+  ONE EXCEPTION, narrow, for the few places NAMED AFTER A CITY THEY ARE NOT IN:
+  "gare de lyon" is a station in PARIS, named after where its trains go. When
+  you know the place is NOT in the city its own name mentions, that name is a
+  false lead and nothing in the message says which city is meant — leave `city`
+  blank ("") and the tool will ask the user which one; that question IS the
+  right answer, while a confident guess there is a silent wrong answer nobody
+  downstream can catch. This applies ONLY to that conflict. When the place IS
+  in the city its name mentions ("vieux lyon" is in Lyon, "aéroport de nice" is
+  in Nice), and whenever the zone's name mentions no city at all ("montmartre",
+  "le louvre", "les champs élysées"), there is no conflict and no doubt: pass
+  the city as usual.
   Leave `city` blank as well when you genuinely don't know the city; never
   leave BOTH blank when the user named a place.
   ALSO pass `country_guess`: the ISO-3166-1 alpha-2 country you know that place
