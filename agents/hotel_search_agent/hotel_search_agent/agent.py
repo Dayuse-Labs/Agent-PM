@@ -55,6 +55,7 @@ from hotel_search_agent.equipment_ids import (
     inject_amenities_declaration,
 )
 from hotel_search_agent.geocode_tool import geocode_location, inject_profile_geo_context
+from hotel_search_agent.budget_injection import inject_profile_budget
 from hotel_search_agent.occupancy import inject_profile_occupancy
 from hotel_search_agent.mcp_guard import (
     mcp_circuit_after_tool,
@@ -352,6 +353,7 @@ root_agent = Agent(
         mcp_circuit_before_tool,
         enforce_equipment_filters,
         inject_profile_occupancy,
+        inject_profile_budget,
         inject_profile_geo_context,
         inject_pagination_offset,
         inject_landmark_radius,

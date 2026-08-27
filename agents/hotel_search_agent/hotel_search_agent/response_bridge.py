@@ -381,10 +381,14 @@ def _first(*values: Any) -> Any:
     return None
 
 
-def _positive_budget(value: Any) -> float | None:
+def positive_budget(value: Any) -> float | None:
     """A search_offers `priceRangeMax` coerced to a positive float, else None.
     The args are model-generated (untrusted): never persist a garbage or a
-    non-positive (0 / negative) budget."""
+    non-positive (0 / negative) budget. Public (like `party_count` below):
+    shared with `budget_injection.py` so the carryover and the capture can
+    never disagree on what counts as a valid budget."""
+    if isinstance(value, bool):
+        return None  # bool is an int subclass — float(True) == 1.0 would slip through
     try:
         budget = float(value)
     except (TypeError, ValueError):
@@ -401,7 +405,7 @@ def _budget_timeslot_from_args(args: dict[str, Any]) -> dict[str, Any]:
     one). A one-sided time-slot (only startHour, or only endHour) is kept as-is;
     the concierge handles start_only/end_only modes."""
     captured: dict[str, Any] = {}
-    budget_max = _positive_budget(args.get("priceRangeMax"))
+    budget_max = positive_budget(args.get("priceRangeMax"))
     if budget_max is not None:
         captured["budget_max"] = budget_max
     time_slot = args.get("timeSlot")

@@ -2,6 +2,18 @@
 
 État du chantier pour reprise en session fraîche. **Lire en entier avant d'agir ; ne pas reconstruire ce qui existe.** Mettre à jour en fin de CHAQUE session (bloc daté en tête).
 
+## ✅ Addendum 2026-08-27 sexies — le budget affiché s'applique enfin (arbitrage Fabien sur le constat hors-périmètre d'UX1)
+
+Suite du constat « hors périmètre » de la session UX1 (`budget_max` affiché dans `active_filters` mais jamais ré-injecté dans `search_offers` — mesuré, pas corrigé, sur son propre HANDOFF/PR #104). Fabien a tranché : **le porter comme les amenities/occupancy**. Branche `fix/budget-max-search-injection`, PR ouverte (non mergée).
+
+**Correctif** : `hotel_search_agent/budget_injection.py::inject_profile_budget`, nouveau `before_tool_callback` sur `search_offers`, même patron que `occupancy.py` (scalaire, pas un ensemble — la rétraction/soustraction d'UX1 pour `amenities` ne s'applique pas ici : « max 50 » **remplace** 80, ne s'additionne pas). Le modèle emet `priceRangeMax` ce tour-ci → il gagne ; sinon `profile_in.budget_max` (déjà présent sur le fil, `budget_max` n'est pas dans `_CONCIERGE_ONLY_KEYS`) comble le trou. `response_bridge._positive_budget` rendu public (`positive_budget`) et partagé, capture + injection ne peuvent plus diverger sur ce qui compte comme un budget valide.
+
+**Bug pré-existant trouvé au passage, corrigé** : `positive_budget(True)` rendait `1.0` (`bool` est une sous-classe d'`int`, `float(True) == 1.0`) — même piège que celui dont `party_count` se protège déjà explicitement. Un garde `isinstance(value, bool)` ajouté ; test de régression sur `test_capture_rejects_non_positive_budget`.
+
+**Preuve (offline, déterministe — pas de prod)** : test qui échoue sur le comportement d'avant (`test_a_budget_stated_on_turn_1_reaches_turn_2s_search_offers_args`, sur la couture réelle `SessionProfile.budget_max` → `leaf_profile_view` → enveloppe A2A réelle → `inject_profile_budget`), **vérifié en neutralisant temporairement la ligne de carryover** : 3 tests tombent avec le message exact du bug (`KeyError: 'priceRangeMax'`), restauré ensuite — pas un `git stash` cette fois (fichier neuf, rien à stasher), mais la même discipline. `pytest -q` (après rebase sur `main` post-#104) : **1499 passed, 1 skipped**. ruff, mypy, guardrails verts.
+
+⚠️ **Pas encore vérifié en prod.** Deux tentatives de repro conversationnelle via le proxy widget (`x-dayuse-synthetic: 1`) n'ont pas donné de signal propre — le second tour ("montre m'en d'autres" → pagination, page 2 vide sur un petit marché ; "plutot le matin" → change aussi la disponibilité, confond la comparaison) et l'inventaire spa+Paris+demain trouvé n'avait aucun hôtel au-dessus de 80 € à faire réapparaître. Contrairement au constat original d'UX1 (mesuré hors-ligne avec un script direct sur la vraie couture, `measure_budget_gap.py`), je n'ai pas rejoué ce script ici — seulement les tests ci-dessus. **Ne pas écrire « prouvé en prod »** avant un vrai déploiement + une mesure aussi propre que celle d'UX1.
+
 ## ✅ Addendum 2026-08-27 quater — UX1 : « enlève le spa » enlève vraiment le spa (rétraction de filtre en multi-tour)
 
 Symptôme de Fabien : « si je demande un hôtel à Paris avec spa et qu'il ne me retourne rien, quand je lui demande d'enlever le filtre spa, il ne le fait pas. »
