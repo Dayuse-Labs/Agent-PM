@@ -2,6 +2,24 @@
 
 État du chantier pour reprise en session fraîche. **Lire en entier avant d'agir ; ne pas reconstruire ce qui existe.** Mettre à jour en fin de CHAQUE session (bloc daté en tête).
 
+## ✅ Addendum 2026-08-27 octies — UX3 phase 2B : demande MCP_B2C écrite + la divulgation EUR ne sortait pas, corrigée en code
+
+GO de Fabien reçu sur le verdict de la phase 1. Les 2 livrables de la phase 2B (`phases/UX3-devise-locale-mesure.md`), sur la même branche/PR que la phase 1 (`measure/ux3-currency-locale`, PR #103).
+
+**Livrable 1 — demande écrite à MCP_B2C** : `reports/PROMPT-MCP-B2C-DEVISE-LOCALE-2026-08-27.md`. Un seul champ demandé, `hotelPrice` par offre (devise réelle de l'hôtel), sur le modèle de `PROMPT-MCP-B2C-RATEPLANS.md` qui a déjà marché. Point fort de la demande : la propre réponse de MCP_B2C du 2026-07-28 mentionne déjà `hotelPrice`/`hotelComparativePrice` en interne (utilisés pour vérifier la cohérence FX d'`originalPriceEuro`) — donc probablement un cas (a) « déjà dans l'index, juste pas projeté », pas un chantier de réindexation. Pas encore posée dans une session sur le repo MCP_B2C (côté Fabien/l'équipe MCP_B2C de porter le prompt).
+
+**Livrable 2 — la divulgation existante ne sortait pas, et c'est corrigé.** `agent.py::_synthesize_with_guards` construit déjà une `CURRENCY note` et instruit le LLM de synthèse de « mention plainly that prices are shown in EUR with no conversion applied » (S-G7). **Vérifié en PROD, ça ne sort JAMAIS** : tour synthétique (`x-dayuse-synthetic: 1`, `POST /v3/chat` sur `widget-production-3f56.up.railway.app`) « un hotel a Bangkok demain avec piscine » → 5 hôtels `currency_code: THB` affichés, réponse *« …et la meilleure économie ressort sur le Hotel Royal Bangkok (forte remise vs le tarif nuit)… »* — **aucune mention de devise**. Les tests existants (`TestCurrencyDisclosureThroughTheSpine`) ne verrouillaient que le PROMPT, jamais le texte final — trou de couverture classique (même famille que S-PERF5 : une fonction câblée jusqu'au prompt mais jamais vérifiée jusqu'au rendu).
+
+Correctif : nouveau guard déterministe `currency_guard.py::enforce_currency_disclosure` — même contrat que `amenity_guard`/`link_guard` (passe post-LLM, une correction, jamais de retry), append une ligne honnête (« Prix affichés en euros, sans conversion. » / anglais) quand `currency_note` est non-vide et que le texte ne le dit pas déjà (détection volontairement grossière côté « déjà dit », biaisée pour re-dire plutôt que taire). **Test qui échoue sur l'ancien code avec la signature exacte du bug** (`test_a_model_that_ignores_the_instruction_gets_backstopped_in_the_final_text`), vérifié par `git stash` du seul `agent.py`.
+
+⚠️ **Décision de scope, pas un guard scoré** : contrairement à `amenity_truthfulness`/`hotel_link_truthfulness`, ce correctif n'est **pas** ajouté à `GUARD_SCORE_NAMES` — la liste des 13 guards est un contrat compté (CLAUDE.md, OBS3), et l'ajout d'un 14e n'était pas demandé par la phase. Metric non-scorée seulement (`concierge_metric=currency_guard disclosed=1`). À arbitrer par Fabien si une preuve prod mesurable dans Langfuse est voulue plus tard.
+
+**Non fait** : le correctif n'est **pas encore déployé** (PR non mergée) — la preuve ci-dessus documente le BUG en prod, pas le fix ; le fix est prouvé en local (test + `pytest -q`), pas en prod. Après merge+déploiement du concierge, re-vérifier avec le même tour synthétique que la ligne de disclosure sort bien.
+
+`pytest -q` (après rebase sur `main` post-#104/#105) : **1508 passed, 1 skipped**. ruff, mypy, guardrails verts.
+
+**Item marqué bloqué côté MCP_B2C** pour la partie « devise locale affichée » : en attente de leur réponse sur `hotelPrice`.
+
 ## ✅ Addendum 2026-08-27 septies — UX3 phase 1 : `priceEuro` est réellement en EUR (lecture A confirmée), zéro code de prod
 
 Mesure seule, comme demandé — `reports/RESEARCH-UX3-DEVISE-LOCALE-2026-08-27.md` porte le détail. 4 marchés non-euro (TH/US/GB/CH) sondés via `search_offers` + `get_hotel_details` (script `scripts/probe_currency_priceeuro.py`, réseau réel, pas un pytest), `priceEuro` comparé au prix affiché EN DIRECT par le site de prod pour le **même hôtel, même jour** (Chrome headless/CDP sur `?date=2026-08-28`, pas le `priceRange` générique du JSON-LD — piège découvert en cours de route : ce champ est un minimum toutes-dates confondues, pas comparable).

@@ -561,6 +561,27 @@ class TestCurrencyDisclosureThroughTheSpine:
 
         assert "CURRENCY" not in llm.calls[-1]["messages"][1]["content"]
 
+    def test_a_model_that_ignores_the_instruction_gets_backstopped_in_the_final_text(
+        self, monkeypatch, fake_leg, fake_profile_store
+    ):
+        """UX3 phase 2B, prod probe 2026-08-27: the prompt carried a CURRENCY
+        note (proven above) but the LLM's own text never mentioned it — the
+        gap between "instructed" and "delivered" this guard closes."""
+        fake_leg.response_payload = {
+            "results": [{"id": 1, "name": "Hotel A", "currency_code": "THB"}],
+            "profile_delta": {"city": "Bangkok"},
+        }
+        _scripted_llm(
+            monkeypatch, '{"family": "search", "language": "en"}',
+            "Here is a hotel with a great discount.",  # no currency mention, exactly the prod repro
+        )
+        runner = InMemoryRunner(root_agent)
+        session = _new_session(runner)
+
+        answer = _run_turn(runner, session.id, "hotels in Bangkok")
+
+        assert "Prices are shown in EUR, with no conversion applied." in answer
+
 
 class TestProfileContinuityAcrossTurns:
     def test_city_from_turn_one_is_sent_as_profile_in_on_turn_two(
