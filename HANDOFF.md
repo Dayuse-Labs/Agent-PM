@@ -2,7 +2,7 @@
 
 État du chantier pour reprise en session fraîche. **Lire en entier avant d'agir ; ne pas reconstruire ce qui existe.** Mettre à jour en fin de CHAQUE session (bloc daté en tête).
 
-## ✅ Addendum 2026-08-27 nonies — UX2 : réponses dans les 7 langues reconnues, `TEMPLATE_LANGUAGES = LANGUAGES` — DÉPLOYÉ ET PROUVÉ EN PROD
+## ✅ Addendum 2026-08-27 decies — UX2 : réponses dans les 7 langues reconnues, `TEMPLATE_LANGUAGES = LANGUAGES` — DÉPLOYÉ ET PROUVÉ EN PROD
 
 Phase `phases/UX2-reponses-7-langues.md`, branche `feat/ux2-seven-languages` (commit `c7c36b6`, non mergée — PR ouverte pour la review de Fabien). Prérequis UX5 vérifié mergé dans `main` avant de commencer (`git merge-base --is-ancestor 82d5e3f HEAD`).
 
@@ -61,6 +61,31 @@ Chaque table a été écrite en copiant l'implémentation `if language == "fr": 
 - `ratePlanName` (nom de chambre partenaire) reste non traduit, par design (`messages.js:667-669`).
 - `evalset/`/`dayuse_eval_pack/` élargis par langue = UX2-bis, pas cette phase.
 - La précision du classify LLM sur un message court/ambigu cross-lingual (cf. le piège NL ci-dessus) — pas un défaut introduit ici, pas mesuré avant cette phase non plus.
+
+**Réconciliation avec #106 (UX4, mergé pendant que cette PR était ouverte)** : zéro chevauchement de fichiers source (UX4 ne touche que `inline_tools.py`) — seul `HANDOFF.md` avait un conflit d'insertion (les deux PR ajoutaient un bloc au même endroit), résolu en gardant les deux blocs. `pytest -q` après merge : **1691 passed, 1 skipped** (1686 UX2 + 5 UX4). `ruff`, `mypy` (48 fichiers), `dayuse_guardrails.sh` : verts.
+
+## ✅ Addendum 2026-08-27 nonies — UX4 : dédoublonnage des rate plans sur la signature d'affichage (backend)
+
+Décision de design déjà tranchée et écrite dans `phases/UX4-rateplans-indistinguables.md` : `_day_rate_plans` (`agents/b2c_concierge/b2c_concierge/inline_tools.py`) dédoublonnait déjà sur `offer_id`, mais deux offres MCP d'UUID différents peuvent produire deux lignes rigoureusement identiques à l'écran (51 % des hôtels multi-plans partagent `ratePlanName` sur toutes leurs formules, `roomType` est NULL partout, `offerType` est un enum fermé à 5 valeurs). Branche `fix/ux4-rateplan-dedup`.
+
+**Correctif** : dédoublonnage additionnel sur la signature d'affichage `(offer_type, name, start_time, end_time, price_eur_cents)`, en plus de `offer_id`, dans la même boucle (l'ordre — filtrage par jour d'abord, dédoublonnage ensuite — n'a pas changé). Le prix reste dans la signature (décision du fichier de phase) : deux formules identiques mais à des prix différents restent deux lignes. La première offre rencontrée pour une signature donnée est conservée ; comme la liste est triée cheapest-first ensuite et que deux doublons ont le même prix par construction, l'offre gardée n'a pas d'importance pour l'utilisateur. Effet de bord voulu et déjà géré côté widget : un seul survivant fait retomber la carte sur le chemin simple (`renderRatePlans`' `plans.length < 2`), rien à changer côté JS.
+
+**5 tests ajoutés** (`TestRatePlanDedupOnDisplaySignature`, `test_inline_tools.py`), sur la couture réelle (`generate_booking_link` → `_quote_picked_rate_plans` → `_day_rate_plans`), pas sur la fonction isolée :
+1. Deux UUID différents, signature identique → 1 seul plan rendu, et **`generate_booking_link` n'est appelé qu'une fois** (le doublon ne coûte pas de round-trip MCP — la raison même du choix backend écrite dans la phase).
+2. Cas Ibis La Ciotat (même `offerType`, même créneau, noms différents) → 3 plans conservés.
+3. Cas Mercure Lyon Saxe (même nom, créneaux différents) → 3 plans conservés.
+4. Prix différents, tout le reste identique → 2 plans conservés (le prix reste un vrai différenciateur).
+5. Deux plans sans prix (`price_eur_cents is None` des deux côtés) mais différant par ailleurs → non collapsés à tort (le `None` partagé ne suffit pas seul).
+
+**Le test #1 échoue sur l'ancien code avec la signature exacte du bug** — vérifié par `git stash push` du seul `inline_tools.py` (pas les tests) : `assert 'rate_plans' not in result` échoue (`rate_plans` présent avec 2 entrées) sur le code d'avant, les 4 autres tests passent des deux côtés (ils verrouillent un comportement déjà correct). Stash restauré ensuite, pas de perte.
+
+`pytest -q` : **1513 passed, 1 skipped** (baseline 1508 + 5). `ruff`, `mypy` (48 fichiers), `dayuse_guardrails.sh` : verts.
+
+**Preuve prod — cherchée, non trouvée.** Script live `scripts/probe_rateplan_dedup.py` (même patron que `probe_currency_priceeuro.py` : appels réseau réels à MCP_B2C, pas un pytest) : pour chaque hôtel réel, reproduit EN PARALLÈLE l'ancien dédoublonnage (offset_id seul, avec le même cap `_MAX_RATE_PLANS`) et le nouveau (`inline_tools._day_rate_plans` réel), et signale un hôtel/jour où les deux comptes diffèrent pour une raison autre que le cap. **439 hôtels réels probés au total** (recherche via `search_offers` sur 32 marchés — Paris, Lyon, Marseille, Bordeaux, Nice, Toulouse, Lille, Nantes, Strasbourg, Madrid, Barcelone, Bruxelles, Rome, Milan, Amsterdam, Berlin, Vienne, Lisbonne, Genève, Munich, Londres, Bangkok, New York, Zurich, Montpellier, Rennes, Reims, Toulon, Grenoble, Dijon, Angers, Nîmes — dates J+1 à J+6 selon le lot), **0 collision réelle de signature trouvée** sur la fenêtre d'inventaire testée. **Ne pas écrire « prouvé en prod »** : ce que cette mesure établit, c'est que sur cet échantillon-là, à ce moment-là, aucun hôtel réel n'a déclenché le cas — pas que le cas n'existe pas (les 51 % de `ratePlanName` partagé restent un fait mesuré séparément, sur le snapshot catalogue complet, pas sur ce probe).
+
+⚠️ **Un faux positif trouvé et corrigé en cours de route**, gardé ici pour la leçon : la première version de `_old_dedup_count` dans le script ne répliquait PAS le cap `_MAX_RATE_PLANS` de l'ancien code — un hôtel avec >6 formules toutes distinctes lisait comme une "collision" (`before=8, after=6`) alors qu'aucune signature ne collidait réellement (hôtel 16896, Paris, 2026-08-28 — vérifié offre par offre après coup). Un second bug, plus sérieux, s'est glissé pendant le refactor anti-429 du script (passage d'une session MCP persistante à une session par appel, pour éviter qu'un 429 sur un appel casse toute la file — memory: "MCP 429s on chained calls") : le bloc de résumé + le `return` sont restés à leur ancienne indentation, désormais À L'INTÉRIEUR de la boucle par hôtel — la fonction retournait après le **premier** hôtel de chaque lot alors que `len(hotel_ids)` (calculé avant la boucle) continuait d'afficher le compte total, donnant l'illusion que tout le lot avait été parcouru. Deux lots ("0 hits" sur 116 puis 180 hôtels annoncés) n'avaient en réalité vérifié qu'un seul hôtel chacun. Repéré par `mypy` (`Missing return statement`) avant que la conclusion ne soit écrite ici — corrigé, et les 3 lots ci-dessus (116 + 236 + 87 = 439) sont les runs POST-correction, vérifiés en observant `probed X/Y hotels` progresser jusqu'à Y à chaque fois.
+
+**Hors périmètre, non touché** : l'heuristique `nameLeads` du widget (`messages.js`), et la demande à MCP_B2C d'un différenciateur de formule (`reports/PROMPT-MCP-B2C-RATEPLANS.md`, déjà écrite, sujet différent).
 
 ## ✅ Addendum 2026-08-27 octies — UX3 phase 2B : demande MCP_B2C écrite + la divulgation EUR ne sortait pas, corrigée en code
 

@@ -605,20 +605,42 @@ def _offers_for_day(offers: list[Any], date: str | None) -> list[dict[str, Any]]
 
 def _day_rate_plans(offers: list[Any], date: str | None) -> list[dict[str, Any]]:
     """S-CX8: every bookable formula ON ONE DAY, cheapest first, deduped by
-    offer id, capped at `_MAX_RATE_PLANS`.
+    offer id AND by display signature, capped at `_MAX_RATE_PLANS`.
 
     Same one-day restriction as `_best_offer`, and for the same live-probed
     reason: `get_hotel_details` without a date returns EVERY upcoming offer (94
     across 32 days for hotel 22293), so an unscoped list would mix next
     Tuesday's formulas into today's choices. Plans without a price sort last
-    (still bookable, just not comparable)."""
+    (still bookable, just not comparable).
+
+    UX4: two MCP offers with different UUIDs can still render as two
+    rigorously identical rows — 51% of multi-plan hotels give every formula
+    the same `ratePlanName`, `roomType` is NULL everywhere, and `offerType` is
+    a 5-value enum, so a type/name/slot collision is structurally common, not
+    exotic. If a user can't tell two rows apart on screen, there is no choice
+    to offer: dedupe on the display signature `(offer_type, name, start_time,
+    end_time, price_eur_cents)` too, keeping the first one encountered — the
+    list is sorted cheapest-first below anyway, and duplicates share the same
+    price by construction. Price stays IN the signature: two otherwise
+    identical formulas at different prices are a real choice."""
     plans: list[dict[str, Any]] = []
     seen: set[str] = set()
+    seen_signatures: set[tuple[Any, ...]] = set()
     for offer in _offers_for_day(offers, date):
         plan = _rate_plan_view(offer)
         if plan is None or plan["offer_id"] in seen:
             continue
+        signature = (
+            plan.get("offer_type"),
+            plan.get("name"),
+            plan.get("start_time"),
+            plan.get("end_time"),
+            plan.get("price_eur_cents"),
+        )
+        if signature in seen_signatures:
+            continue
         seen.add(plan["offer_id"])
+        seen_signatures.add(signature)
         plans.append(plan)
     plans.sort(key=lambda p: (p.get("price_eur_cents") is None, p.get("price_eur_cents") or 0))
     return plans[:_MAX_RATE_PLANS]
