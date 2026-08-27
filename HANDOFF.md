@@ -2,6 +2,66 @@
 
 État du chantier pour reprise en session fraîche. **Lire en entier avant d'agir ; ne pas reconstruire ce qui existe.** Mettre à jour en fin de CHAQUE session (bloc daté en tête).
 
+## ✅ Addendum 2026-08-27 nonies — UX2 : réponses dans les 7 langues reconnues, `TEMPLATE_LANGUAGES = LANGUAGES` — DÉPLOYÉ ET PROUVÉ EN PROD
+
+Phase `phases/UX2-reponses-7-langues.md`, branche `feat/ux2-seven-languages` (commit `c7c36b6`, non mergée — PR ouverte pour la review de Fabien). Prérequis UX5 vérifié mergé dans `main` avant de commencer (`git merge-base --is-ancestor 82d5e3f HEAD`).
+
+### Le périmètre réel du clamp — plus large que le tableau initial de la phase
+
+Le tableau de la phase listait 7 sites (`templates.py`, `triage.py` ×3, `agent.py`, `response_bridge.py::_profile_language`, `amenity_guard.py::_HEDGE_FR`), avec la mention explicite « à re-vérifier en début de phase ». Trois sites de plus se sont révélés être **la même classe de bug**, pas du scope creep :
+
+- `b2c_concierge/profile.py` — `_RECOVERY_SUGGESTIONS_FR/_EN` et `_DATE_SUGGESTIONS_FR/_EN` (les chips de récupération après un 0-résultat) sont du texte utilisateur avec le même clamp binaire, alimentées par `reply_language` (donc par le MÊME `response_language()` qu'on élargit).
+- `hotel_search_agent/geo_resolver.py` — `_clarify_question`/`city_needed_question` (les questions de désambiguïsation géo, ex. « Springfield, IL ou MO ? ») sont du texte VERBATIM potentiellement montré à l'utilisateur, alimentées par `language_hint = profile_in["language"]`. **Avant cette phase, `profile.language` ne pouvait déjà porter QUE fr/en** (le clamp d'`agent.py:1094` bloquait tout le reste) — donc `language_hint` ne pouvait jamais porter "es"/"it"/… en pratique, même si triage RECONNAISSAIT déjà 7 langues depuis P1-2. En élargissant `agent.py:1094`, ce garde-fou disparaît et `language_hint` peut désormais porter les 5 nouvelles langues DANS LE MÊME TOUR (le profil est mis à jour avant l'appel à la feuille) — sans traduire ces 2 fonctions, un utilisateur espagnol qui déclenche un clarify géo aurait reçu une question en anglais au milieu d'une réponse par ailleurs espagnole. Traduit pour fermer ce trou, avec verrou fr/en chaîne pour chaîne comme le reste.
+- `hotel_search_agent/geocode_tool.py` — 2 docstrings affirmaient que `profile_in.language` « ne peut jamais porter "pt" » : devenu faux, corrigé (documentation seule, aucun changement de comportement).
+
+Hors périmètre confirmé et non touché : `search_context_line` (labels anglais internes au prompt de synthèse, jamais montrés tels quels — le LLM synthétise dans la langue cible), `_DATE_MENTION_RE`/`_FR_HINTS` (regex fr/en de secours, explicitement hors scope par la phase), `guess_language` (dernier recours fr/en, inchangé par design).
+
+### Le mécanisme : une table par langue avec fallback anglais, pas des `if/elif`
+
+`_pick(language, table)` où `table` est un `dict[str, str]` avec au minimum la clé `"en"` — `table.get(language, table["en"])`. Répliqué dans chaque fichier touché (pas de dépendance inter-packages : `hotel_search_agent` est une feuille stateless sans import vers `b2c_concierge`, donc `response_bridge.py`/`geo_resolver.py` portent chacun une copie locale de `("fr","en","es","it","de","pt","nl")` — synchronisée à la main, commentée comme telle). Pour les textes avec interpolation (offre de réservation, disclosure de date, clarify géo), la table porte des `str.format()` templates plutôt que des f-strings figées — la valeur insérée (nom d'hôtel, ville, date) n'est jamais re-parsée pour ses propres accolades, donc aucun risque d'injection.
+
+**Source de style pour les 5 nouvelles langues** : `web/vendor/static/js/chat/i18n.js` (7 blocs déjà rédigés). Registre retenu : tutoiement es/it/de/nl (`tú`/`tu`/`du`/`je`), vouvoiement pt (pt-PT, pas pt-BR — cohérent avec `_MARKET`). Vocabulaire : franja horaria/fascia oraria/Zeitfenster/horário/tijdslot pour « créneau », búsqueda/ricerca/Suche/pesquisa/zoekopdracht pour « recherche ».
+
+### Non-régression fr/en : verrouillée par construction, pas juste testée
+
+Chaque table a été écrite en copiant l'implémentation `if language == "fr": ... else: ...` d'origine terme à terme, puis vérifiée par un script qui reconstruit la sortie de l'ANCIEN code (f-strings originales, recopiées) et compare chaîne pour chaîne à la nouvelle sortie sur tous les cas de branche (`templates.py`, `response_bridge.py`, `geo_resolver.py`) — 0 divergence. `TestFrenchAndEnglishUnchanged` dans `test_templates.py` verrouille ensuite 4 chaînes exactes en dur (contre une régression future).
+
+### DoD
+
+1. **Table complète pour les 7 langues, testée par construction** — `TestSevenLanguageCoverage` (`test_templates.py`) itère les 14 cas × 6 langues non-anglaises et assère qu'aucune ne retombe sur la chaîne EN ; aucune exception légitime rencontrée (toutes les traductions diffèrent réellement).
+2. **Fallback testé** — `TestFallbackToEnglish` : `ja`/`xx`/`""`/`None` rendent la chaîne EN, sans exception, pour les 14 cas.
+3. **Non-régression fr/en** — `TestFrenchAndEnglishUnchanged` (chaînes exactes) + script de vérification byte-à-byte contre l'ancien code (templates.py, response_bridge.py, geo_resolver.py) — 0 divergence.
+4. **`pytest -q` : 1686 passed, 1 skipped** (baseline 1452 passed + 234 tests ajoutés/modifiés depuis, dont 178 par cette phase). `ruff check .` : clean. `mypy agents libs` : clean (1 erreur de typage `str | None` vs `dict[str,str].get` trouvée et corrigée dans `geo_resolver.city_needed_question`). `bash scripts/dayuse_guardrails.sh .` : OK.
+5. **12 tests existants avaient le clamp comme PRÉMISSE et ont dû être inversés** (pas juste "cassés par erreur" — leur assertion ÉTAIT le comportement qu'on vient de changer) : `test_triage.py` (`TEMPLATE_LANGUAGES == ("fr","en")`, `locale_response_language("pt-PT") is None`, `template_language(None,"es-ES",...) == "en"`, `response_language("es") == "en"`), `test_native_context.py`/`test_native_context_http.py` (`_locale_response_language("es-ES") is None`, `"Bonjour !"` + locale `es-ES` retombait sur `fr` via le guess), `test_facade_http.py` (le shield répondait en anglais sur locale `es-ES`), `test_spine.py` (`test_a_recognized_language_never_leaks_into_the_synthesis_prompt` — le nom même du test décrivait le clamp qu'on lève). Chaque test inversé garde un frère qui prouve le fallback reste atteignable sur une langue VRAIMENT non reconnue (`ja-JP`/`ja`/`kl`), pour ne pas perdre la couverture du cas fallback en élargissant le cas passant.
+6. **Preuve prod, 5 langues × 1 tour, sessions fraîches, `x-dayuse-synthetic: 1`, via le widget public** (`https://widget-production-3f56.up.railway.app`, pas de cookie réutilisé entre appels) :
+
+| Langue | Message | `response_language` | Réponse (tronquée) |
+|---|---|---|---|
+| es | « hotel en Madrid mañana » | `es` | « Para Madrid mañana (2026-08-28) he encontrado 5 ofertas de day-use; destaca el ahorro de Hotel Los Olivos, aprox. un 48% por debajo de su tarifa nocturna. Si me dices la zona que prefieres… » |
+| it | « hotel a Milano domani » | `it` | « Per domani 2026-08-28 a Milano ho trovato 5 opzioni Dayuse: spicca soprattutto il risparmio del Glam Hotel Milano, molto sotto la tariffa notturna (circa -58%). Se mi dici zona preferita… » |
+| de | « Hotel in Berlin morgen » | `de` | « Für Berlin habe ich für den 28.08.2026 fünf Dayuse‑Angebote gefunden – besonders sticht das ARCOTEL John F Berlin heraus, da es stark (ca. 47%) unter dem Nachttarif liegt. Soll es eher… » |
+| pt | « hotel em Lisboa amanha » | `pt` | « Para Lisboa amanhã (2026-08-28), encontrei 5 opções de day use; o destaque é o Hyatt Regency Lisbon, com cerca de 53% de desconto face à tarifa noturna. Quer que eu refine… » |
+| nl | « ik zoek een hotel in Amsterdam voor morgen overdag » | `nl` | « Voor Amsterdam heb ik voor 28-08-2026 dagkamers gevonden; de beste deal qua besparing is het Radisson Blu Hotel Amsterdam Airport Schiphol (ongeveer 42% onder het nachttarief). Zeg me je gewenste tijdslot… » |
+
+**Aucune réponse ne mélange deux langues** — vérifié aussi sur l'event SSE `hotels` (`/v3/chat/stream`, tour IT) : `"response_language": "it"` ride bien la première frame, identique au payload `done`, donc pas de risque de rendu mixte façon S-PERF4.
+
+🪤 **Fait découvert pendant la vérification, PAS un bug** : le premier essai NL (« hotel in Amsterdam morgen ») a classifié `language: en` — le message est ambigu (« hotel »/« in » sont identiques en anglais, et le triage LLM n'a pas eu assez de signal). Reformulé en néerlandais moins ambigu (« ik zoek… voor… overdag »), la classification devient `nl` immédiatement. C'est une limite de PRÉCISION du classify LLM sur un message très court et cross-lingual, pas un défaut du clamp qu'on vient de lever — hors périmètre de cette phase (le classify existe et fonctionne depuis P1-2).
+
+7. **Déployé** — `LANGFUSE_RELEASE=c7c36b6` posé sur `concierge` et `hotel-search` avec `--skip-deploys` (vérifié : les deux `latestDeployment.createdAt` inchangés après le stamp), puis `railway up --service hotel-search --detach` (`SUCCESS 15:59:46Z`) puis `railway up --service concierge --detach` (`SUCCESS 16:00:34Z`) — feuille d'abord, même convention que PR #95/#102. `faq` et `widget` laissés sur leur estampille : aucun fichier du diff ne les touche.
+
+### Pièges rencontrés
+
+- 🪤 Le tableau de périmètre de la phase venait avec l'avertissement « à re-vérifier en début de phase » — s'y fier aveuglément aurait laissé `profile.py` (chips de récupération) et `geo_resolver.py` (clarify géo) en anglais alors que tout le reste du tour est dans la langue de l'utilisateur, exactement le défaut « incohérence visible » que la phase corrige ailleurs.
+- 🪤 `agent.py:1094` (widen du stockage de `profile.language`) a un effet de bord non trivial une passerelle plus loin : il alimente `language_hint` envoyé à la feuille geo, qui avant cette phase ne pouvait JAMAIS porter autre chose que fr/en/None, même si triage reconnaissait déjà 7 langues depuis P1-2 — la reconnaissance seule ne suffisait pas à exposer le trou, il fallait aussi élargir CE site précis du clamp pour que le trou devienne atteignable.
+- 📌 Le CLI `railway up` de cette session ne supporte pas `-m` (contrairement à la doc du skill `use-railway`) — `railway up --service <s> --detach` tout court fonctionne.
+
+### Reste à faire (hors périmètre de cette phase, arbitrages explicites de Fabien)
+
+- Le japonais/arabe/thaï et toute langue hors des 7 : chantier RTL + refonte génération, explicitement hors scope.
+- `ratePlanName` (nom de chambre partenaire) reste non traduit, par design (`messages.js:667-669`).
+- `evalset/`/`dayuse_eval_pack/` élargis par langue = UX2-bis, pas cette phase.
+- La précision du classify LLM sur un message court/ambigu cross-lingual (cf. le piège NL ci-dessus) — pas un défaut introduit ici, pas mesuré avant cette phase non plus.
+
 ## ✅ Addendum 2026-08-27 octies — UX3 phase 2B : demande MCP_B2C écrite + la divulgation EUR ne sortait pas, corrigée en code
 
 GO de Fabien reçu sur le verdict de la phase 1. Les 2 livrables de la phase 2B (`phases/UX3-devise-locale-mesure.md`), sur la même branche/PR que la phase 1 (`measure/ux3-currency-locale`, PR #103).
