@@ -10,7 +10,17 @@ Finding sorti de la vérification du bloc précédent, refermé ici. `WidgetProx
 
 **Preuves** : `tests/test_widget_proxy_cache.py` (5 tests, **4 échouent sans le correctif** — vérifié en stashant le seul `run_widget_proxy.py`) ; et sur un proxy lancé pour de vrai en local : `200 + ETag + no-cache`, puis **`304 Not Modified`** sur l'etag rendu, puis `200` sur un etag périmé, index inclus. Suite complète : 1457 passed, 1 skipped ; ruff + mypy + guardrails verts.
 
-⚠️ **Pas encore déployé** au moment où j'écris (le gate reste la review de Fabien). Après merge : `railway up` du **`widget`** seul — le `concierge` n'est pas concerné.
+**Déployé** — PR #99 mergée en `676557b`, `LANGFUSE_RELEASE=676557b` + `railway up --service widget` → SUCCESS (08:26 UTC). Vérifié sur la prod, **à travers l'edge Railway** : `200 + etag + cache-control: no-cache`, **`304`** sur un GET conditionnel portant l'etag rendu, `200` sur un etag périmé, index compris. L'etag de `state.js` en prod (`"06451cb5…"`) est identique à celui calculé en local sur le fichier corrigé : c'est bien le bon asset qui est servi.
+
+### 🪤 Sauf que cette première version était INCOMPLÈTE — le navigateur revalidait sans jamais obtenir de 304
+
+Le contrôle navigateur (Chrome piloté en CDP, 2 chargements de la page prod) dit deux choses. **La bonne** : au chargement 2, Chrome **envoie bien `If-None-Match`** — plus de cache muet, l'objectif de correction est atteint. **La mauvaise** : il reçoit **`200` avec le corps entier sur 36 des 38 assets**.
+
+Cause : **l'edge Railway réécrit notre ETag fort en ETag faible** (`W/"06451cb5…"`) quand il compresse la réponse. Le navigateur renvoie donc `W/"…"`, et la comparaison exacte du handler ne matchait pas. Or `If-None-Match` se compare **toujours** avec la fonction *faible* (RFC 9110 §13.1.2) et peut porter une **liste** d'etags ou `*` — les trois cas manquaient.
+
+Correctif de suite : helper `_if_none_match_hits()` (strip du préfixe `W/`, liste, `*`) + 3 tests (les 3 échouent sans lui ; suite complète 1460 passed, 1 skipped). Branche **`fix/etag-weak-comparison`**. ⚠️ Non déployé au moment où j'écris ; après merge, `railway up` du `widget` seul puis re-passer le contrôle CDP — le critère est « chargement 2 → 304 », pas seulement « `If-None-Match` envoyé ».
+
+**Leçon** : sur ce déploiement, un ETag n'est pas ce qu'on a écrit dans le code — l'edge peut le transformer. Un test unitaire sur notre propre handler ne pouvait pas voir ça ; seul le navigateur contre la prod l'a montré.
 
 ## ✅ Addendum 2026-08-27 — le reload du widget ne repart plus sur la session d'avant (précédence `session_id` inversée)
 

@@ -139,6 +139,26 @@ class WidgetProxyHandler(BaseHTTPRequestHandler):
             self.send_error(404)
 
     # --- static / index --------------------------------------------------------------------
+    def _if_none_match_hits(self, etag: str) -> bool:
+        """Weak comparison over the client's `If-None-Match` list (RFC 9110
+        §13.1.2 — that header ALWAYS uses the weak function, and may carry
+        several etags or `*`).
+
+        Not pedantry: Railway's edge rewrites our strong ETag as weak (`W/"…"`)
+        when it compresses the response, so Chrome echoes `W/"…"` back. Measured
+        against prod on 2026-08-27, an exact string compare here answered 200
+        with the full body on 36 of 38 assets — the browser revalidated (which
+        was the point) but never got a 304 out of it.
+        """
+        header = self.headers.get("If-None-Match") or ""
+        if header.strip() == "*":
+            return True
+        return any(
+            candidate.strip().removeprefix("W/") == etag
+            for candidate in header.split(",")
+            if candidate.strip()
+        )
+
     def _send_cacheable(self, body: bytes, content_type: str) -> None:
         """Serve `body` with a content ETag and `Cache-Control: no-cache`.
 
@@ -152,7 +172,7 @@ class WidgetProxyHandler(BaseHTTPRequestHandler):
         every use", so the client still gets a cheap 304 instead of the bytes.
         """
         etag = f'"{hashlib.sha256(body).hexdigest()[:32]}"'
-        if self.headers.get("If-None-Match") == etag:
+        if self._if_none_match_hits(etag):
             self.send_response(304)
             self.send_header("ETag", etag)
             self.send_header("Cache-Control", "no-cache")
