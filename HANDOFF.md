@@ -64,6 +64,10 @@ Une passe de review indépendante sur le diff a trouvé 2 points réels, corrig�
 
 `pytest -q` inchangé (1691 passed, 1 skipped), `ruff`/`mypy`/`dayuse_guardrails.sh` verts.
 
+### ✅ Mergée (PR #107, `e7795fc`) et REDÉPLOYÉE avec les 2 correctifs
+
+`LANGFUSE_RELEASE=e7795fc` posé sur `concierge` et `hotel-search` avec `--skip-deploys` (timestamps `latestDeployment.createdAt` inchangés après le stamp, vérifié), puis `railway up --service hotel-search --detach` (`SUCCESS 16:17:46Z`) puis `railway up --service concierge --detach` (`SUCCESS 16:19:50Z`). Les 5 langues re-vérifiées en prod sur le code redéployé (mêmes messages que la sonde initiale, sessions fraîches) : `response_language` et texte 100 % dans la langue attendue pour es/it/de/pt/nl, aucun changement de comportement visible (les 2 correctifs de la review ne touchent que des chemins non exercés par ces 5 tours : le clarify géo et le leaf-degraded ES avec ville).
+
 ### Reste à faire (hors périmètre de cette phase, arbitrages explicites de Fabien)
 
 - Le japonais/arabe/thaï et toute langue hors des 7 : chantier RTL + refonte génération, explicitement hors scope.
