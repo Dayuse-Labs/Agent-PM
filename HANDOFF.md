@@ -2,6 +2,14 @@
 
 État du chantier pour reprise en session fraîche. **Lire en entier avant d'agir ; ne pas reconstruire ce qui existe.** Mettre à jour en fin de CHAQUE session (bloc daté en tête).
 
+## ✅ Addendum 2026-08-27 ter — UX5 : le lien de réservation ne dit plus « c'est confirmé »
+
+`templates.booking_link_response` (FR + EN) retirait « C'est confirmé — » / « Confirmed — » avant de coller le lien : la phrase confirmait l'*intention* de l'utilisateur (R9), mais lue à côté du lien et du nom de l'hôtel elle se lisait comme « votre chambre est réservée ». Correctif : `Voici votre lien de réservation pour {hotel} — il reste à finaliser sur la page Dayuse : {url}` / `Here's your booking link for {hotel} — you'll finalize on the Dayuse page: {url}` — zéro changement de logique, zéro changement de signature, `booking_offer_summary_response` (le tour d'avant, qui pose la question) non touché. Wording final = arbitrage produit, 3 variantes FR/EN proposées dans la PR.
+
+**Preuve widget (local, pas prod — PR non mergée)** : proxy widget (`scripts/run_widget_proxy.py`) contre le concierge local avec Redis réel (`docker run redis:7-alpine`, sinon le profil de session n'est jamais persisté et le pick échoue), piloté en Chrome headless/CDP. Un tour recherche + pick d'hôtel affiche directement `booking_link_response` (le pick génère déjà le lien — S-CX8, pas de tour de confirmation séparé nécessaire dans ce chemin) : texte rendu FR et EN conforme, sans « confirmé »/« confirmed », captures dans le scratchpad de session. `pytest -q` 1460 passed, 1 skipped (baseline inchangée) ; ruff, mypy, guardrails verts.
+
+⚠️ **Ordonnancement rappelé** : cette branche doit être mergée AVANT UX2 (qui réécrit `templates.py` pour 7 langues), sinon UX2 repart de la mauvaise phrase.
+
 ## ✅ Addendum 2026-08-27 bis — les assets du widget revalident (ETag + `no-cache` sur le proxy)
 
 Finding sorti de la vérification du bloc précédent, refermé ici. `WidgetProxyHandler` servait l'index et `/static/**` avec **le seul `Content-Length`** : ni `Cache-Control`, ni `ETag`, ni `Last-Modified`. Or les assets du widget sont **non versionnés** (`chat_clean.html` charge `/static/js/chat/*.js` à chemin fixe), donc la fraîcheur d'une copie en cache était laissée aux heuristiques du navigateur : un client pouvait faire tourner un ancien `state.js` contre une façade plus récente — la classe de bug exacte que le correctif de session venait de refermer.
