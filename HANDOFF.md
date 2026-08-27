@@ -2,6 +2,14 @@
 
 État du chantier pour reprise en session fraîche. **Lire en entier avant d'agir ; ne pas reconstruire ce qui existe.** Mettre à jour en fin de CHAQUE session (bloc daté en tête).
 
+## ✅ Addendum 2026-08-27 septies — UX3 phase 1 : `priceEuro` est réellement en EUR (lecture A confirmée), zéro code de prod
+
+Mesure seule, comme demandé — `reports/RESEARCH-UX3-DEVISE-LOCALE-2026-08-27.md` porte le détail. 4 marchés non-euro (TH/US/GB/CH) sondés via `search_offers` + `get_hotel_details` (script `scripts/probe_currency_priceeuro.py`, réseau réel, pas un pytest), `priceEuro` comparé au prix affiché EN DIRECT par le site de prod pour le **même hôtel, même jour** (Chrome headless/CDP sur `?date=2026-08-28`, pas le `priceRange` générique du JSON-LD — piège découvert en cours de route : ce champ est un minimum toutes-dates confondues, pas comparable).
+
+Les 4 ratios (site affiché / `priceEuro`-en-EUR) tombent chacun dans la fourchette réelle du taux de change du marché — TH 37,99 (THB 935 vs 24,61 €×38=935,2, écart 0,2 %), US 1,141, GB 0,861, CH 0,979 — concordance trop précise sur 4 marchés indépendants pour être un hasard. **`priceEuro` est en EUR : cet item bloque sur MCP_B2C (phase 2B)**, par l'arbitrage de Fabien du 2026-08-27 (pas de taux de change côté AgentB2C sur un prix de réservation).
+
+**STOP conforme à la phase** : aucune ligne de code de production touchée, phase 2B non démarrée — attend le GO de Fabien. `pytest -q` 1460 passed, 1 skipped (inchangé) ; ruff, mypy, guardrails verts. Worktree `AgentB2C-ux3-currency`, branche `measure/ux3-currency-locale`.
+
 ## ✅ Addendum 2026-08-27 sexies — le budget affiché s'applique enfin (arbitrage Fabien sur le constat hors-périmètre d'UX1)
 
 Suite du constat « hors périmètre » de la session UX1 (`budget_max` affiché dans `active_filters` mais jamais ré-injecté dans `search_offers` — mesuré, pas corrigé, sur son propre HANDOFF/PR #104). Fabien a tranché : **le porter comme les amenities/occupancy**. Branche `fix/budget-max-search-injection`, PR ouverte (non mergée).
