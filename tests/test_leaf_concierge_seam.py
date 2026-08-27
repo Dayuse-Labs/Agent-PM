@@ -11,9 +11,19 @@ the actual seam: leaf emit → decoded DataPart → `apply_profile_delta` →
 """
 from __future__ import annotations
 
+from a2a import types as a2a_types
+from google.adk.a2a.converters.part_converter import convert_a2a_part_to_genai_part
+from google.genai import types as genai_types
+
 from b2c_concierge.facade import build_active_filters, normalize_hotels
 from b2c_concierge.ground_truth import shortlist_ground_truth_block
-from b2c_concierge.profile import SessionProfile, apply_profile_delta, record_search_outcome
+from b2c_concierge.profile import (
+    SessionProfile,
+    apply_profile_delta,
+    leaf_profile_view,
+    record_search_outcome,
+)
+from hotel_search_agent.equipment_ids import enforce_equipment_filters
 from hotel_search_agent.response_bridge import (
     STATE_SEARCH_DATE_KEY as _SEARCH_DATE_KEY,
 )
@@ -219,3 +229,142 @@ def test_same_day_dead_end_travels_to_the_date_chips():
         same_day_dead_end=bool(wire_search_date.get("cutoff_closed")),
     )
     assert profile.last_suggestions == ["voir demain", "après-demain", "élargir la zone"]
+
+
+# --- UX1: retracting a filter across turns ("enlève le spa") -----------------------------------
+#
+# The seam is the whole story here: the leaf's `enforce_equipment_filters`
+# unions the request's `profile_in.amenities` with what the model extracted,
+# `emit_search_datapart` sends the applied set back, and `apply_profile_delta`
+# stores it — so a filter survives every turn by construction. Testing either
+# side alone proves nothing about a RETRACTION, which needs both to agree.
+
+_APPLIED_AMENITIES_KEY = "temp:hotel_search_applied_amenities"
+_CLARIFY_QUESTION_KEY = "temp:hotel_search_clarify_question"
+_GUARDS_FIRED_KEY = "temp:hotel_search_guards_fired"
+
+
+class _LeafCtx:
+    """ToolContext/CallbackContext stand-in for one leaf turn: dict-backed
+    `.state`, plus the inbound `{query_params, profile_in}` DataPart the
+    concierge really sends — wrapped by the REAL ADK a2a→genai converter, the
+    exact hop `equipment_ids._profile_amenities` decodes."""
+
+    def __init__(self, profile: SessionProfile | None = None, state: dict | None = None):
+        self.state: dict = dict(state or {})
+        self.user_content = None
+        if profile is not None:
+            datapart = a2a_types.Part(
+                root=a2a_types.DataPart(
+                    data={"query_params": {}, "profile_in": leaf_profile_view(profile)}
+                )
+            )
+            self.user_content = genai_types.Content(
+                role="user",
+                parts=[
+                    genai_types.Part(text="le message du tour"),
+                    convert_a2a_part_to_genai_part(datapart),
+                ],
+            )
+
+
+def _leaf_turn(profile: SessionProfile, message: str, **model_args) -> dict:
+    """One full leaf→concierge turn: the model's extracted args go through
+    `enforce_equipment_filters` (which owns every filter value), the search
+    result is emitted as the A2A DataPart, and the concierge folds the delta
+    back into `profile`. Returns the args MCP would actually have received."""
+    ctx = _LeafCtx(profile)
+    args = {"lat": 48.85, "lon": 2.35, "date": "2026-08-28", **model_args}
+    enforce_equipment_filters(_LeafTool("search_offers"), args, ctx)
+    ctx.state[_RESULTS_KEY] = [{"id": 1, "name": "Villa", "amenities": []}]
+    content = emit_search_datapart(ctx)
+    payload = next(d for d in (decode_datapart(p) for p in content.parts) if d is not None)
+    apply_profile_delta(profile, payload.get("profile_delta") or {}, message)
+    return args
+
+
+class _LeafTool:
+    def __init__(self, name: str) -> None:
+        self.name = name
+
+
+class TestFilterRetractionAcrossTurns:
+    def test_a_clarification_turn_never_wipes_the_accumulated_amenities(self):
+        """🪤 THE trap of this phase, and the only way this fix can break prod.
+
+        On a turn that stops at `geocode_location` (a homonym clarification) or
+        at `find_hotel_by_name`, `search_offers` never runs — so
+        `enforce_equipment_filters` never writes
+        `STATE_APPLIED_AMENITIES_KEY`. "Absent" and "written empty" are two
+        different facts, and an unconditional `{"op": "set", "value": []}`
+        would collapse them into one: every clarification turn would silently
+        drop the filters the user stated three turns ago."""
+        profile = SessionProfile(city="Paris", amenities=["spa", "pool"])
+        ctx = _LeafCtx(profile, {_CLARIFY_QUESTION_KEY: "Le Paris du Texas ou celui de France ?"})
+        content = emit_search_datapart(ctx)
+        payload = next(d for d in (decode_datapart(p) for p in content.parts) if d is not None)
+
+        # The slot must be ABSENT from the delta — carryover by construction.
+        assert "amenities" not in (payload.get("profile_delta") or {})
+        apply_profile_delta(profile, payload.get("profile_delta") or {}, "celui de France")
+        assert profile.amenities == ["spa", "pool"]
+
+    def test_a_search_turn_that_applied_nothing_still_wipes_nothing(self):
+        # Same distinction, the other branch: a turn where search_offers DID
+        # run and the profile carried no amenity writes an empty applied set.
+        # Nothing to remove, nothing removed.
+        profile = SessionProfile(city="Paris")
+        _leaf_turn(profile, "un hôtel à Paris")
+        assert profile.amenities == []
+
+    def test_removing_a_filter_drops_it_from_the_next_search(self):
+        """THE bug Fabien reported. Turn 1 asks for a spa, turn 2 asks to drop
+        it — and the second `search_offers` must go out with NO equipment
+        filter at all, not with the spa re-applied from the profile."""
+        profile = SessionProfile(city="Paris")
+
+        turn1 = _leaf_turn(profile, "un hôtel à Paris avec spa", amenities=["spa"])
+        assert turn1["hotelEquipmentIds"] == [35]
+        assert profile.amenities == ["spa"]  # accumulated, as designed
+
+        turn2 = _leaf_turn(profile, "enlève le spa", amenities_removed=["spa"])
+        assert "hotelEquipmentIds" not in turn2  # ← the signature of the bug
+        assert profile.amenities == []  # and the retraction persists
+
+    def test_a_retraction_survives_a_third_silent_turn(self):
+        # The retraction has to be persisted, not just honored once: turn 3
+        # mentions no amenity at all and must stay unfiltered.
+        profile = SessionProfile(city="Paris")
+        _leaf_turn(profile, "un hôtel à Paris avec spa", amenities=["spa"])
+        _leaf_turn(profile, "enlève le spa", amenities_removed=["spa"])
+        turn3 = _leaf_turn(profile, "moins cher")
+        assert "hotelEquipmentIds" not in turn3
+        assert profile.amenities == []
+
+    def test_removing_one_filter_of_two_keeps_the_other(self):
+        profile = SessionProfile(city="Paris")
+        _leaf_turn(profile, "un hôtel à Paris avec spa et piscine", amenities=["spa", "pool"])
+        assert profile.amenities == ["spa", "pool"]
+
+        turn2 = _leaf_turn(profile, "enlève le spa", amenities_removed=["spa"])
+        assert turn2["hotelEquipmentIds"] == [33, 34, 2982, 3000, 3001]  # pool only
+        assert profile.amenities == ["pool"]
+
+    def test_normal_accumulation_still_survives(self):
+        # The accumulation rule is NOT the bug (occupancy.py's doctrine): a
+        # filter stated on turn 1 must not need restating on turn 2.
+        profile = SessionProfile(city="Paris")
+        _leaf_turn(profile, "un hôtel à Paris avec piscine", amenities=["pool"])
+        turn2 = _leaf_turn(profile, "et un spa", amenities=["spa"])
+        assert turn2["hotelEquipmentIds"] == [33, 34, 2982, 3000, 3001, 35]
+        assert profile.amenities == ["pool", "spa"]
+
+    def test_a_fresh_negation_clears_a_filter_asked_for_earlier(self):
+        # Collateral benefit: MCP has no negative filter, so "sans piscine"
+        # and "enlève la piscine" are the same business effect — and today the
+        # former keeps filtering on pool.
+        profile = SessionProfile(city="Paris")
+        _leaf_turn(profile, "un hôtel avec piscine", amenities=["pool"])
+        turn2 = _leaf_turn(profile, "en fait un hôtel sans piscine", amenities_removed=["pool"])
+        assert "hotelEquipmentIds" not in turn2
+        assert profile.amenities == []

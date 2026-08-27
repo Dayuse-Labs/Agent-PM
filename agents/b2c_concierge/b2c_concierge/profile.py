@@ -468,27 +468,36 @@ def _mentions_explicit_time(message: str) -> bool:
 # --- Combined delta application ---------------------------------------------
 
 
-def _normalize_delta(delta: dict[str, Any]) -> tuple[dict[str, Any], set[str]]:
+def _normalize_delta(delta: dict[str, Any]) -> tuple[dict[str, Any], set[str], set[str]]:
     """Splits an incoming (possibly mixed) delta into (`values` — the
     effective flat value per "set" slot, `clears` — the slot names carrying
-    an explicit `{"op": "clear"}`). A slot absent from `delta` never appears
-    in either output — that IS carryover, enforced by construction (the
-    caller only ever reads a slot it finds in `values`/`clears`). A slot NOT
-    shaped as a typed op (`{"op": "set"|"clear", ...}`) is today's plain
-    `{key: value}` leaf format — treated as an implicit "set" (S-G1 retro-
-    compat: the leaf migrates to typed ops in S-G5/S-G6, nothing breaks
-    before then)."""
+    an explicit `{"op": "clear"}`, `explicit_sets` — the slot names that
+    arrived as a typed `{"op": "set"}` rather than a bare value). A slot
+    absent from `delta` never appears in any output — that IS carryover,
+    enforced by construction (the caller only ever reads a slot it finds in
+    `values`/`clears`). A slot NOT shaped as a typed op (`{"op":
+    "set"|"clear", ...}`) is today's plain `{key: value}` leaf format —
+    treated as an implicit "set" (S-G1 retro-compat: the leaf migrates to
+    typed ops in S-G5/S-G6, nothing breaks before then).
+
+    UX1: `explicit_sets` is what lets a slot distinguish "the leaf sent me the
+    authoritative state of this slot" from "the leaf sent me something to fold
+    in". It matters for exactly one slot today, `amenities`, whose flat form
+    is append-only and therefore cannot express a retraction — and for which
+    an empty typed set is a meaningful value, not a no-op."""
     values: dict[str, Any] = {}
     clears: set[str] = set()
+    explicit_sets: set[str] = set()
     for key, raw in delta.items():
         if isinstance(raw, dict) and raw.get("op") in ("set", "clear"):
             if raw["op"] == "clear":
                 clears.add(key)
             else:
                 values[key] = raw.get("value")
+                explicit_sets.add(key)
         else:
             values[key] = raw
-    return values, clears
+    return values, clears, explicit_sets
 
 
 def _log_profile_ops(set_slots: set[str], clear_slots: set[str]) -> None:
@@ -525,8 +534,10 @@ def apply_profile_delta(
     single `values` dict (drop-in replacement for the old `delta` everywhere
     below, byte-for-byte retro-compatible with a flat delta) plus a `clears`
     set applied generically at the end, after every field-specific guard has
-    run."""
-    values, clears = _normalize_delta(dict(delta))
+    run, plus (UX1) an `explicit_sets` set naming the slots that arrived as a
+    typed set — read by `amenities` alone, to tell an authoritative
+    replacement apart from a fragment to merge."""
+    values, clears, explicit_sets = _normalize_delta(dict(delta))
     known_fields = set(SessionProfile.__dataclass_fields__)
 
     # City change clears the geo anchors/zone/metro/search-anchor (S04 +
@@ -613,7 +624,17 @@ def apply_profile_delta(
     if "timeslot_request_source" in values:
         profile.timeslot_request_source = values["timeslot_request_source"]
 
-    if values.get("amenities"):
+    # UX1 — the amenity filter is the one slot the user must be able to SHRINK
+    # ("enleve le spa"). A typed `{"op": "set"}` from the leaf carries the
+    # whole filter state of the turn (equipment_ids unions the profile in
+    # before it subtracts), so it REPLACES — an empty value included, which is
+    # exactly what a full retraction looks like. The flat form stays
+    # append-only: it is an explicit contract of `_normalize_delta` ("today's
+    # plain `{key: value}` leaf format") that existing callers and tests rely
+    # on, and a plain list genuinely is a fragment with no authority to wipe.
+    if "amenities" in explicit_sets:
+        profile.amenities = list(values.get("amenities") or [])
+    elif values.get("amenities"):
         merged = list(profile.amenities)
         for amenity in values["amenities"]:
             if amenity not in merged:

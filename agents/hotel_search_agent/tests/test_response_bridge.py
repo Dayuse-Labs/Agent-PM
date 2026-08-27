@@ -1022,8 +1022,10 @@ def test_emit_returns_none_when_nothing_captured():
 
 
 def test_emit_includes_applied_amenities_in_profile_delta():
-    # The concierge re-learns the filter (apply_profile_delta merges amenities),
-    # so next turn's profile_in accumulates it and active_filters light up.
+    # The concierge re-learns the filter, so next turn's profile_in carries it
+    # and active_filters light up. UX1: a typed `set`, because `requested`
+    # already CONTAINS the profile's own keys — it is the authoritative filter
+    # state of the turn, not a fragment to append.
     ctx = _Ctx(
         {
             "temp:hotel_search_results": [{"id": 1, "name": "Villa Test"}],
@@ -1031,14 +1033,26 @@ def test_emit_includes_applied_amenities_in_profile_delta():
         }
     )
     data = _decode(emit_search_datapart(ctx))
-    assert data["profile_delta"] == {"amenities": ["pool"]}
+    assert data["profile_delta"] == {"amenities": {"op": "set", "value": ["pool"]}}
 
 
-def test_emit_omits_amenities_when_none_applied():
-    # An empty list must never reach the delta — it could read as a wipe.
+def test_emit_sends_an_empty_set_when_the_search_applied_no_filter():
+    # UX1: the search RAN and ended up with no filter — that is a fact about
+    # the turn and it has to travel, or "enlève le spa" can never stick.
     ctx = _Ctx({"temp:hotel_search_results": [], STATE_APPLIED_AMENITIES_KEY: []})
     data = _decode(emit_search_datapart(ctx))
-    assert "profile_delta" not in data
+    assert data["profile_delta"] == {"amenities": {"op": "set", "value": []}}
+
+
+def test_emit_omits_amenities_when_no_search_ran_this_turn():
+    # 🪤 The trap of UX1, locked here at the source. `enforce_equipment_filters`
+    # ALWAYS writes the key when search_offers runs (`[]` included), so an
+    # ABSENT key means the tool never ran — a geocode clarification, a
+    # find_hotel_by_name. That is carryover, and emitting an empty set here
+    # would wipe the user's filters on every clarification turn.
+    ctx = _Ctx({"temp:hotel_search_results": [{"id": 1, "name": "Villa Test"}]})
+    data = _decode(emit_search_datapart(ctx))
+    assert "amenities" not in (data.get("profile_delta") or {})
 
 
 # --- budget / time-slot → profile_delta (the S9/S12 gap this session closes) -----------------
@@ -1108,7 +1122,7 @@ def test_emit_budget_timeslot_coexists_with_city_and_amenities():
     data = _decode(emit_search_datapart(ctx))
     assert data["profile_delta"] == {
         "city": {"op": "set", "value": "Paris"},
-        "amenities": ["pool"],
+        "amenities": {"op": "set", "value": ["pool"]},
         "budget_max": 90.0,
         "budget_request_source": "flexible_default",
     }

@@ -199,6 +199,13 @@ How to act, frugally (at most ONE reasoning pass — no tool-call loops):
   hotelEquipmentIds or roomEquipmentIds yourself: equipment-ID filters are
   code-owned and applied automatically from your `amenities` keys plus the
   request profile.
+- Pass search_offers an `amenities_removed` argument (same canonical keys)
+  when the user DROPS an amenity constraint ("enlève le spa", "finalement
+  sans le spa", "drop the pool filter") or NEGATES one ("un hôtel sans
+  piscine", "no pool") — the filters they stated on earlier turns are still
+  applied, and this is the only way to take one back. Never put the same key
+  in `amenities` and `amenities_removed`, and omit the argument entirely when
+  nothing was dropped or negated.
 - Pass search_offers a `priceRangeMax` (a number, in euros) ONLY when the user
   states an explicit maximum budget ("under 80 euros", "max 120€", "no more
   than 90€"); also pass `priceRangeMin` if they give a lower bound too. Pass
