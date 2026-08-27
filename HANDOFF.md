@@ -55,6 +55,15 @@ Chaque table a été écrite en copiant l'implémentation `if language == "fr": 
 - 🪤 `agent.py:1094` (widen du stockage de `profile.language`) a un effet de bord non trivial une passerelle plus loin : il alimente `language_hint` envoyé à la feuille geo, qui avant cette phase ne pouvait JAMAIS porter autre chose que fr/en/None, même si triage reconnaissait déjà 7 langues depuis P1-2 — la reconnaissance seule ne suffisait pas à exposer le trou, il fallait aussi élargir CE site précis du clamp pour que le trou devienne atteignable.
 - 📌 Le CLI `railway up` de cette session ne supporte pas `-m` (contrairement à la doc du skill `use-railway`) — `railway up --service <s> --detach` tout court fonctionne.
 
+### Auto-review avant la review de Fabien (`bd6ba86`)
+
+Une passe de review indépendante sur le diff a trouvé 2 points réels, corrigés :
+
+1. `geo_resolver._clarify_question` était la seule table élargie de la phase à indexer `_CLARIFY_MANY`/`_CLARIFY_LAST_SEP` en `[lang]` brut une fois `lang` résolu — un futur désync entre les 3 dicts (une langue ajoutée à l'un, oubliée dans l'autre) aurait fait un `KeyError` au lieu du fallback anglais gracieux garanti partout ailleurs dans la phase. Passé en `.get(lang, table["en"])`, comme `city_needed_question` juste en dessous le fait déjà.
+2. `_DEGRADED_SUFFIX["es"]` empilait la même préposition deux fois dans `leaf_degraded_response` avec une ville : « …hoteles **en** Paris **en** este momento… ». Reformulé en « ahora mismo », qui aligne aussi cette chaîne sur le phrasé déjà utilisé par `_SERVICE_DEGRADED["es"]` pour le même sens (au lieu d'en diverger sans raison).
+
+`pytest -q` inchangé (1691 passed, 1 skipped), `ruff`/`mypy`/`dayuse_guardrails.sh` verts.
+
 ### Reste à faire (hors périmètre de cette phase, arbitrages explicites de Fabien)
 
 - Le japonais/arabe/thaï et toute langue hors des 7 : chantier RTL + refonte génération, explicitement hors scope.
