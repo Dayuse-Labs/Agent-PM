@@ -838,7 +838,10 @@ def test_capture_ignores_garbage_budget_and_keeps_one_sided_timeslot():
 def test_capture_rejects_non_positive_budget():
     ctx = _Ctx()
     resp = {"structuredContent": _search_offers_structured(1), "isError": False}
-    for bad in (0, -20, None):
+    for bad in (0, -20, None, True, False):
+        # bool is an int subclass — float(True) == 1.0 would slip past a bare
+        # float() coercion (found writing the budget_injection.py tests that
+        # share this same validator).
         ctx.state.clear()
         capture_after_tool(_Tool("search_offers"), {"priceRangeMax": bad}, ctx, resp)
         assert _BUDGET_TIMESLOT_KEY not in ctx.state

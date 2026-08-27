@@ -23,6 +23,7 @@ from b2c_concierge.profile import (
     leaf_profile_view,
     record_search_outcome,
 )
+from hotel_search_agent.budget_injection import inject_profile_budget
 from hotel_search_agent.equipment_ids import enforce_equipment_filters
 from hotel_search_agent.response_bridge import (
     STATE_SEARCH_DATE_KEY as _SEARCH_DATE_KEY,
@@ -368,3 +369,34 @@ class TestFilterRetractionAcrossTurns:
         turn2 = _leaf_turn(profile, "en fait un hôtel sans piscine", amenities_removed=["pool"])
         assert "hotelEquipmentIds" not in turn2
         assert profile.amenities == []
+
+
+def test_a_budget_stated_on_turn_1_reaches_turn_2s_search_offers_args():
+    """UX1 follow-up (measured + arbitrated by Fabien 2026-08-27): the exact
+    gap the report found. `active_filters.budget_max` kept showing the
+    profile's value while `priceRangeMax` was silently absent from the next
+    turn's `search_offers` call — the display and the applied filter had
+    drifted apart, mirror image of UX1's amenities-retraction bug.
+
+    Walks the REAL seam: `SessionProfile.budget_max` → `leaf_profile_view`
+    (what the concierge actually sends) → the real ADK a2a→genai DataPart
+    envelope → `inject_profile_budget` (what the leaf actually reads)."""
+    profile = SessionProfile(city="Paris", budget_max=80.0)
+    datapart = a2a_types.Part(
+        root=a2a_types.DataPart(
+            data={"query_params": {}, "profile_in": leaf_profile_view(profile)}
+        )
+    )
+    tool_context = type("_ToolCtx", (), {})()
+    tool_context.user_content = genai_types.Content(
+        role="user",
+        parts=[
+            genai_types.Part(text="montre m'en d'autres"),  # no price mentioned
+            convert_a2a_part_to_genai_part(datapart),
+        ],
+    )
+
+    args = {"lat": 48.85, "lon": 2.35, "date": "2026-08-28"}
+    inject_profile_budget(_LeafTool("search_offers"), args, tool_context)
+
+    assert args["priceRangeMax"] == 80.0
