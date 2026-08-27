@@ -18,7 +18,17 @@ Le contrôle navigateur (Chrome piloté en CDP, 2 chargements de la page prod) d
 
 Cause : **l'edge Railway réécrit notre ETag fort en ETag faible** (`W/"06451cb5…"`) quand il compresse la réponse. Le navigateur renvoie donc `W/"…"`, et la comparaison exacte du handler ne matchait pas. Or `If-None-Match` se compare **toujours** avec la fonction *faible* (RFC 9110 §13.1.2) et peut porter une **liste** d'etags ou `*` — les trois cas manquaient.
 
-Correctif de suite : helper `_if_none_match_hits()` (strip du préfixe `W/`, liste, `*`) + 3 tests (les 3 échouent sans lui ; suite complète 1460 passed, 1 skipped). Branche **`fix/etag-weak-comparison`**. ⚠️ Non déployé au moment où j'écris ; après merge, `railway up` du `widget` seul puis re-passer le contrôle CDP — le critère est « chargement 2 → 304 », pas seulement « `If-None-Match` envoyé ».
+Correctif : helper `_if_none_match_hits()` (strip du préfixe `W/`, liste séparée par virgules, `*`) + 3 tests (les 3 échouent sans lui). PR #100 mergée en `58e15b5`, `LANGFUSE_RELEASE=58e15b5` + `railway up --service widget` → SUCCESS (08:33:35 UTC). Suite : 1460 passed, 1 skipped.
+
+**Vérifié en navigateur, avec le bon critère** — Chrome CDP, 2 chargements de la page prod : chargement 1 = `200 + ETag + no-cache`, chargement 2 = **`304` sur les 38 assets** (contre 36 `200` + 2 `304` avant ce correctif). Zéro asset servi depuis un cache muet.
+
+`state.js` servi en prod garde l'etag `"06451cb5…"` : le fichier est **octet pour octet celui déjà prouvé** au bloc précédent, les deux redéploiements du `widget` n'ont rien changé au correctif de session.
+
+### 🪤 Deux pièges de méthode, à ne pas re-payer
+
+- **« Avant/après déploiement » se prouve avec les horodatages, pas avec l'ordre des commandes.** J'ai étiqueté une mesure « AVANT deploy » alors que le build était déjà live depuis ~1 min : elle rendait déjà `304`, ce qui aurait pu passer pour « le correctif ne servait à rien ». Comparer l'heure de la sonde avec `latestDeployment.createdAt` (`railway status --json`) avant de nommer une mesure.
+- **Un `304` vu depuis l'extérieur n'est pas forcément le nôtre : l'edge Railway peut répondre à une requête conditionnelle depuis SON cache.** Pour mesurer le comportement de l'origine, ajouter un cache-buster que l'edge n'a jamais vu : `GET /static/js/chat/state.js?cb=<alea>` + `If-None-Match: W/"…"` → `304` (c'est bien notre handler), le même avec un etag périmé → `200`, une liste contenant le nôtre → `304`. Le `304` renvoie l'etag **fort** (pas de corps → pas de compression → pas d'affaiblissement).
+
 
 **Leçon** : sur ce déploiement, un ETag n'est pas ce qu'on a écrit dans le code — l'edge peut le transformer. Un test unitaire sur notre propre handler ne pouvait pas voir ça ; seul le navigateur contre la prod l'a montré.
 
