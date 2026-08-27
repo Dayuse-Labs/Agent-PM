@@ -2,6 +2,16 @@
 
 État du chantier pour reprise en session fraîche. **Lire en entier avant d'agir ; ne pas reconstruire ce qui existe.** Mettre à jour en fin de CHAQUE session (bloc daté en tête).
 
+## ✅ Addendum 2026-08-27 bis — les assets du widget revalident (ETag + `no-cache` sur le proxy)
+
+Finding sorti de la vérification du bloc précédent, refermé ici. `WidgetProxyHandler` servait l'index et `/static/**` avec **le seul `Content-Length`** : ni `Cache-Control`, ni `ETag`, ni `Last-Modified`. Or les assets du widget sont **non versionnés** (`chat_clean.html` charge `/static/js/chat/*.js` à chemin fixe), donc la fraîcheur d'une copie en cache était laissée aux heuristiques du navigateur : un client pouvait faire tourner un ancien `state.js` contre une façade plus récente — la classe de bug exacte que le correctif de session venait de refermer.
+
+**Correctif** : un seul helper `_send_cacheable(body, content_type)` utilisé par l'index ET par les statiques, qui pose un **`ETag` de contenu** (sha256 tronqué) + **`Cache-Control: no-cache`**, et répond **304** sans corps quand l'`If-None-Match` correspond. `no-cache` ≠ « ne cache pas » : le client peut stocker, mais doit revalider avant chaque usage — la revalidation coûte un 304, pas les octets. Pas de versionnage de noms de fichiers (il faudrait une étape de build pour un gain de perf dont la démo n'a pas besoin).
+
+**Preuves** : `tests/test_widget_proxy_cache.py` (5 tests, **4 échouent sans le correctif** — vérifié en stashant le seul `run_widget_proxy.py`) ; et sur un proxy lancé pour de vrai en local : `200 + ETag + no-cache`, puis **`304 Not Modified`** sur l'etag rendu, puis `200` sur un etag périmé, index inclus. Suite complète : 1457 passed, 1 skipped ; ruff + mypy + guardrails verts.
+
+⚠️ **Pas encore déployé** au moment où j'écris (le gate reste la review de Fabien). Après merge : `railway up` du **`widget`** seul — le `concierge` n'est pas concerné.
+
 ## ✅ Addendum 2026-08-27 — le reload du widget ne repart plus sur la session d'avant (précédence `session_id` inversée)
 
 Symptôme rapporté par Fabien : « je rafraîchis la page du widget, je pose une nouvelle recherche et il me parle des critères de la session d'avant le reload ». Ce n'était pas de la dérive de prompt : le serveur **refusait** de laisser le reload ouvrir une nouvelle session.
@@ -54,7 +64,7 @@ Symptôme rapporté par Fabien : « je rafraîchis la page du widget, je pose un
 - 🪤 **CDP** : après un `Page.reload()`, cliquer `#main-submit-button` ne produit **rien** — la page est revenue sur la vue d'accueil (`#initial-input`), le clic est perdu. Pour le tour suivant, refaire un chargement `?q=…` (qui auto-envoie). Ça a coûté deux runs.
 - 🪤 **CDP** : ne pas régler le timeout sur le socket brut (`ws.socket.settimeout`) pour dépiler les événements — la connexion meurt (`no close frame received`). Utiliser `ws.recv(timeout=…)` de `websockets.sync`.
 - 📌 **Transport SSE re-confirmé en prod** : les tours du navigateur partent sur **`/v3/chat/stream`**, pas `/v3/chat` — déjà consigné plus bas (bloc S-PERF4, `l. 1063` et `l. 1934`), recoché de mes yeux le 2026-08-27. Corollaire pour toute probe DOM : la fin de réponse ne se détecte pas au nombre de nœuds mais à la **stabilisation du texte**, puisque les tokens arrivent en streaming.
-- ⚠️ **Les assets statiques sont servis sans `Cache-Control`, sans `ETag` et sans `Last-Modified`** (`content-length` seul) : vérifié sur `/static/js/chat/state.js`, qui sert bien le nouveau code. Un reload revalide, donc l'utilisateur qui recharge reçoit le correctif ; mais le cache heuristique d'un navigateur peut garder l'ancien `state.js` un moment pour une visite ultérieure. **Non traité ici** — c'est un chantier de politique de cache, pas de session.
+- ✅ **Les assets statiques partaient sans `Cache-Control`, sans `ETag` et sans `Last-Modified`** (`content-length` seul), donc leur fraîcheur était laissée aux heuristiques du navigateur — un client pouvait rejouer un ancien `state.js` contre une façade plus récente, exactement la classe de bug que ce bloc corrige. **Traité juste après, branche `fix/widget-asset-revalidation`** (voir le bloc suivant).
 - Le body `session_id` (M1 legacy) reste envoyé par le widget et vaut désormais le même id que le header : redondant mais volontaire, c'est le contrat iso agent-usa.
 
 
