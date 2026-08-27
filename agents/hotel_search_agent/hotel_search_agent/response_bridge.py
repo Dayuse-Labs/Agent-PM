@@ -1092,9 +1092,14 @@ def capture_after_tool(
 def _op_set(value: Any) -> dict[str, Any]:
     """S-G1 typed-ops envelope for an explicit "set" — the concierge's
     `apply_profile_delta` reducer accepts this identically to a bare value
-    (S-G1 retro-compat), so this is purely the leaf's migration to the
-    auditable shape (S-G5) for the geo slots it owns; amenities/budget/
-    timeslot stay flat here on purpose (out of this phase's scope)."""
+    (S-G1 retro-compat) for a NON-empty value, and treats it as an
+    authoritative replacement (UX1) for the slots that need one.
+
+    `amenities` migrated here in UX1 — the "out of this phase's scope" note
+    this docstring used to carry: a filter that can only be added to is a
+    filter the user cannot retract. Budget/timeslot stay flat (their
+    retraction is a separate, unarbitrated question — see the HANDOFF's
+    "budget affiche != budget applique" note)."""
     return {"op": "set", "value": value}
 
 
@@ -1263,13 +1268,23 @@ def emit_search_datapart(callback_context: Any) -> genai_types.Content | None:
         profile_delta["date"] = _op_set(resolved_date["date"])
         if resolved_date.get("date_reference"):
             profile_delta["date_reference"] = _op_set(resolved_date["date_reference"])
-    # Applied amenity filters → the concierge re-learns them (apply_profile_delta
-    # merges without duplicates), so the NEXT turn's profile_in accumulates the
-    # filter and search_context_line/active_filters show it SAME turn. Only-when-
-    # present: an empty list must never wipe the profile.
-    applied_amenities = state.get(STATE_APPLIED_AMENITIES_KEY) or []
-    if applied_amenities:
-        profile_delta["amenities"] = list(applied_amenities)
+    # Applied amenity filters → the concierge re-learns them. UX1: this is an
+    # `_op_set`, i.e. the AUTHORITATIVE state of the filter after this turn,
+    # emitted EVEN WHEN EMPTY — which is what makes "enleve le spa" stick. It
+    # is lossless because `requested` already CONTAINS the profile's own keys
+    # (equipment_ids unions before it subtracts), so the set carries the whole
+    # turn's filter, never a fragment.
+    #
+    # 🪤 The distinction that makes this safe: `None` (the key was never
+    # written, because search_offers did not run this turn — a geocode
+    # clarification, a find_hotel_by_name) means CARRYOVER and must stay out of
+    # the delta; `[]` (written by enforce_equipment_filters, which always
+    # writes) means "this turn's search had no filter" and must be sent. The
+    # old `state.get(KEY) or []` collapsed the two, so an unconditional emit
+    # here would wipe the filters on every clarification turn.
+    applied_amenities = state.get(STATE_APPLIED_AMENITIES_KEY)
+    if applied_amenities is not None:
+        profile_delta["amenities"] = _op_set(list(applied_amenities))
     # Budget / time-slot → the orchestrator's schema keys (exact match, verified
     # 2026-07-21 against apply_profile_delta). The request-source is ALWAYS the
     # non-explicit constant; the concierge's P1 guard upgrades it to "explicit"

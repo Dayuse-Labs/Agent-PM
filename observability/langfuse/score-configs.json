@@ -1,5 +1,5 @@
 {
-  "$comment": "OBS3 — Langfuse score configs for AgentB2C, versioned in git so they're re-creatable on any instance (score configs are project-scoped, no bulk-import API — this file is the source of truth, POST /api/public/score-configs per entry to restore). Mirrors the 16 configs actually created on the project's Langfuse instance on 2026-07-30 (project cms4gd0d20002nz029tuly62e), plus 3 `human_*` configs added 2026-07-31 by OBS7 for judge/human calibration (see observability/langfuse/evaluators.json and evaluation-rules.json), plus `degraded` added 2026-08-24, plus `guard_poi_anchor_coherence` added 2026-08-26 (the 14th guard) — 21 total. Also 2026-08-26: the 3 geo guards' 'not yet wired for emission' note was TRUE and is now stale — the leaf reports them on its A2A DataPart. The 2 date guards remain unwired (still 0.0 on every turn). The contract for the `guard_*` names is GUARD_SCORE_NAMES in libs/b2c_common/b2c_common/scores.py — never rename an entry once it has real data. Exactly ONE name is permanently config-less, and known_gaps explains why it must not be retried.",
+  "$comment": "OBS3 — Langfuse score configs for AgentB2C, versioned in git so they're re-creatable on any instance (score configs are project-scoped, no bulk-import API — this file is the source of truth, POST /api/public/score-configs per entry to restore). Mirrors the 16 configs actually created on the project's Langfuse instance on 2026-07-30 (project cms4gd0d20002nz029tuly62e), plus 3 `human_*` configs added 2026-07-31 by OBS7 for judge/human calibration (see observability/langfuse/evaluators.json and evaluation-rules.json), plus `degraded` added 2026-08-24, plus `guard_poi_anchor_coherence` added 2026-08-26 (the 14th guard), plus `guard_filter_relaxation_honored` added 2026-08-27 (the 15th, UX1) — 22 total. Also 2026-08-26: the 3 geo guards' 'not yet wired for emission' note was TRUE and is now stale — the leaf reports them on its A2A DataPart. 2026-08-26 (decies): the 2 date guards are wired too — every GUARD_SCORE_NAMES entry now has a producer. The contract for the `guard_*` names is GUARD_SCORE_NAMES in libs/b2c_common/b2c_common/scores.py — never rename an entry once it has real data. Exactly ONE name is permanently config-less, and known_gaps explains why it must not be retried.",
   "project_id": "cms4gd0d20002nz029tuly62e",
   "known_gaps": [
     {
@@ -144,6 +144,12 @@
       "name": "guard_poi_anchor_coherence",
       "dataType": "BOOLEAN",
       "description": "Geo guard 14 (AgentB2C-specific, 2026-08-26): a tier-2 Search Box landmark POI thrown away for sitting >100 km from the turn's own anchor (device GPS fix, or the v6 candidate that echoed the city the user named). Closes audit M4 - the echo-back guard validates the NAME, which a homonym passes perfectly (a shop called \"Champs Elysees\" in Toulon, 830 km from the avenue); this validates the PLACE. hotel_search_agent/geocode_tool.py, wired via the leaf's `guards_fired` DataPart key. No anchor (bare landmark, no city, no GPS) = no-op by design."
+    },
+    {
+      "id": "964592d3-2214-44c4-9754-aae6fe9ca5aa",
+      "name": "guard_filter_relaxation_honored",
+      "dataType": "BOOLEAN",
+      "description": "UX1 guard 15 (AgentB2C-specific, created 2026-08-27): the user retracted an amenity filter (\"enleve le spa\") and the search really went out without it. Amenity filters accumulate across turns by design, so before this the profile could only grow and the retraction turn replayed an identical search. Fires in hotel_search_agent/equipment_ids.py::enforce_equipment_filters when an `amenities_removed` key actually took a key out of the set that would otherwise have been applied; reaches the concierge through the leaf's `guards_fired` DataPart key. The name is 31 chars, under the 35-char server cap that permanently blocks the one entry in known_gaps."
     }
   ]
 }

@@ -9,10 +9,12 @@ rename or remove one. 11 are ported from agent-usa's 2026-06 production audit
 (`tests/unit/application/test_audit_fixes_2026_06.py` + the loop-enforcement/
 named-hotel-card specs); 2 are AgentB2C-specific additions beyond that spec
 (`booking_confirmation` = R9/guard #12, `hotel_link_truthfulness` = S-G12,
-guard #13) — see CLAUDE.md's "13 guards déterministes".
+guard #13) — see CLAUDE.md's "13 guards déterministes" — plus
+`poi_anchor_coherence` (#14) and `filter_relaxation_honored` (#15, UX1).
 
-Six of the 14 (the geo/date guards) fire inside `hotel_search_agent`, out of
-this phase's zone (`libs/b2c_common/**` + `agents/b2c_concierge/**`).
+Seven of the 15 (the geo/date guards + `filter_relaxation_honored`) fire
+inside `hotel_search_agent`, out of the OBS3 phase's zone
+(`libs/b2c_common/**` + `agents/b2c_concierge/**`).
 
 ⚠️ Updated 2026-08-26. This used to say those names were "reserved here but
 nothing in this repo emits them yet; a later session wires their call sites" —
@@ -65,6 +67,15 @@ GUARD_SCORE_NAMES: tuple[str, ...] = (
     # `hotel_search_agent.geocode_tool`, reaches here through the leaf's
     # `guards_fired` DataPart key.
     "poi_anchor_coherence",
+    # #15 (UX1, 2026-08-27): the user retracted an amenity filter ("enleve le
+    # spa") and the search actually went out WITHOUT it. Filters accumulate by
+    # design across turns, so until now the profile could only grow: the
+    # retraction turn replayed the identical search. Fires in
+    # `hotel_search_agent.equipment_ids.enforce_equipment_filters` when a
+    # removal key really took a key out of the set that would have been
+    # applied; reaches here through the leaf's `guards_fired` DataPart key.
+    # APPENDED, never reordered — the contract at the top of this module.
+    "filter_relaxation_honored",
 )
 
 #: Closed set for the `degraded` CATEGORICAL score (RGPD: a rule id, never
@@ -105,6 +116,7 @@ _SCORE_CONFIG_IDS: dict[str, str] = {
     "guard_booking_confirmation": "20abf459-1e56-4c48-bd9c-e464ac9b0de1",
     "guard_hotel_link_truthfulness": "f474dd88-aac9-490d-99a3-e4e41060df35",
     "guard_poi_anchor_coherence": "bad09ed2-8066-4c84-864d-09a445377773",
+    "guard_filter_relaxation_honored": "964592d3-2214-44c4-9754-aae6fe9ca5aa",
     "hotels_returned": "1bd1f4bb-483b-4c17-bffc-4724b338d7c5",
     "empty_shortlist": "e4f02fd6-63c1-424a-989f-db337f1fd8c3",
     "llm_calls": "db37879d-1a74-4d53-8ce8-51fb8e88c361",

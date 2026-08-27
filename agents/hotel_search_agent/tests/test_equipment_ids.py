@@ -7,7 +7,9 @@ converter — the exact inbound hop that wraps the orchestrator's DataPart.
 """
 from __future__ import annotations
 
+import contextlib
 import copy
+import logging
 
 from a2a import types as a2a_types
 from google.adk.a2a.converters.part_converter import convert_a2a_part_to_genai_part
@@ -247,3 +249,130 @@ def test_enforce_ignores_other_tools():
     enforce_equipment_filters(_Tool("geocode_location"), args, ctx)
     assert args == {"location": "Miami"}
     assert ctx.state == {}
+
+
+# --- UX1: the retraction channel (`amenities_removed`) ----------------------------------------
+def test_inject_adds_the_removal_param_with_the_same_closed_enum():
+    # The model needs a channel to express a retraction — and it must be the
+    # SAME closed world, or a removal key could never match a filter key.
+    request = _llm_request(copy.deepcopy(_MCP_SCHEMA))
+    inject_amenities_declaration(None, request)
+    props = request.config.tools[0].function_declarations[1].parameters_json_schema["properties"]
+    assert props["amenities_removed"]["items"]["enum"] == list(EQUIPMENT_IDS)
+    assert props["amenities"]["items"]["enum"] == list(EQUIPMENT_IDS)
+
+
+def test_enforce_subtracts_a_removed_key_from_the_profile_filter():
+    # THE fix: turn 2 says "enlève le spa" with nothing else — the accumulated
+    # profile filter must not come back.
+    ctx = _Ctx(user_content=_user_content_with_profile(["spa"]))
+    args = {"amenities_removed": ["spa"]}
+    enforce_equipment_filters(_Tool("search_offers"), args, ctx)
+    assert "amenities_removed" not in args  # virtual param, never reaches MCP
+    assert "hotelEquipmentIds" not in args
+    assert ctx.state[STATE_APPLIED_AMENITIES_KEY] == []
+
+
+def test_enforce_subtracts_only_the_named_key():
+    ctx = _Ctx(user_content=_user_content_with_profile(["pool", "spa"]))
+    args = {"amenities_removed": ["spa"]}
+    enforce_equipment_filters(_Tool("search_offers"), args, ctx)
+    assert args["hotelEquipmentIds"] == [33, 34, 2982, 3000, 3001]
+    assert ctx.state[STATE_APPLIED_AMENITIES_KEY] == ["pool"]
+
+
+def test_enforce_removal_of_a_key_never_asked_for_is_a_no_op():
+    ctx = _Ctx(user_content=_user_content_with_profile(["pool"]))
+    args = {"amenities_removed": ["sauna"]}
+    enforce_equipment_filters(_Tool("search_offers"), args, ctx)
+    assert args["hotelEquipmentIds"] == [33, 34, 2982, 3000, 3001]
+    assert ctx.state[STATE_APPLIED_AMENITIES_KEY] == ["pool"]
+
+
+def test_enforce_removal_drops_unknown_values_like_the_request_leg():
+    ctx = _Ctx(user_content=_user_content_with_profile(["pool"]))
+    args = {"amenities_removed": ["helipad", 42, None, "  POOL "]}
+    enforce_equipment_filters(_Tool("search_offers"), args, ctx)
+    assert "hotelEquipmentIds" not in args  # the normalized "pool" still bit
+    assert ctx.state[STATE_APPLIED_AMENITIES_KEY] == []
+
+
+def test_a_key_in_both_fields_is_applied_not_removed():
+    # gpt-4o-mini's negation-inversion trap (S10): on "je veux une piscine" it
+    # can copy the key into BOTH fields. An explicit request THIS turn must
+    # never be cancelled by a removal signal — the fail-safe direction is to
+    # keep filtering, which the user can always retract next turn.
+    ctx = _Ctx()
+    args = {"amenities": ["pool"], "amenities_removed": ["pool"]}
+    enforce_equipment_filters(_Tool("search_offers"), args, ctx)
+    assert args["hotelEquipmentIds"] == [33, 34, 2982, 3000, 3001]
+    assert ctx.state[STATE_APPLIED_AMENITIES_KEY] == ["pool"]
+
+
+@contextlib.contextmanager
+def _metric_lines():
+    """The `dayuse.metrics` lines emitted inside the block. Read off the logger
+    itself, not stdout: its handler is a StreamHandler bound to whatever
+    `sys.stdout` was at import time and it does not propagate, so neither
+    caplog nor capsys/capfd reliably sees it under pytest's own capture."""
+    lines: list[str] = []
+
+    class _Collect(logging.Handler):
+        def emit(self, record):
+            lines.append(record.getMessage())
+
+    logger = logging.getLogger("dayuse.metrics")
+    handler = _Collect()
+    logger.addHandler(handler)
+    try:
+        yield lines
+    finally:
+        logger.removeHandler(handler)
+
+
+def test_a_collision_is_counted_in_a_content_free_metric():
+    ctx = _Ctx()
+    with _metric_lines() as lines:
+        enforce_equipment_filters(
+            _Tool("search_offers"), {"amenities": ["pool"], "amenities_removed": ["pool"]}, ctx
+        )
+    line = next(ln for ln in lines if "amenity_filter_conflict" in ln)
+    assert "n_conflicts=1" in line
+    assert "pool" not in line  # RGPD: counts only, never the keys
+
+
+def test_no_conflict_metric_without_a_collision():
+    ctx = _Ctx(user_content=_user_content_with_profile(["spa"]))
+    with _metric_lines() as lines:
+        enforce_equipment_filters(_Tool("search_offers"), {"amenities_removed": ["spa"]}, ctx)
+    assert not [ln for ln in lines if "amenity_filter_conflict" in ln]
+
+
+def test_enforce_pops_the_removal_param_on_find_hotel_by_name():
+    ctx = _Ctx()
+    args = {"name": "Villa", "amenities": ["pool"], "amenities_removed": ["spa"]}
+    enforce_equipment_filters(_Tool("find_hotel_by_name"), args, ctx)
+    assert args == {"name": "Villa"}
+
+
+# --- the OBS3 guard --------------------------------------------------------------------------
+def test_the_relaxation_guard_fires_when_a_key_is_actually_dropped():
+    ctx = _Ctx(user_content=_user_content_with_profile(["spa"]))
+    enforce_equipment_filters(_Tool("search_offers"), {"amenities_removed": ["spa"]}, ctx)
+    assert ctx.state["temp:hotel_search_guards_fired"] == ["filter_relaxation_honored"]
+
+
+def test_the_relaxation_guard_stays_silent_when_nothing_was_dropped():
+    for args in ({"amenities": ["pool"]}, {"amenities_removed": ["sauna"]}, {}):
+        ctx = _Ctx(user_content=_user_content_with_profile(["pool"]))
+        enforce_equipment_filters(_Tool("search_offers"), dict(args), ctx)
+        assert "temp:hotel_search_guards_fired" not in ctx.state
+
+
+def test_the_relaxation_guard_does_not_fire_on_a_collision():
+    # Nothing was relaxed: the key is still filtered on.
+    ctx = _Ctx()
+    enforce_equipment_filters(
+        _Tool("search_offers"), {"amenities": ["pool"], "amenities_removed": ["pool"]}, ctx
+    )
+    assert "temp:hotel_search_guards_fired" not in ctx.state

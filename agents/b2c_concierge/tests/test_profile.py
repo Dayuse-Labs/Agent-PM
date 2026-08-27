@@ -499,9 +499,53 @@ class TestProfileSerialization:
 
 class TestAmenitiesAndLanguage:
     def test_amenities_merge_without_duplicates(self):
+        # The FLAT form stays append-only — an explicit contract of
+        # `_normalize_delta` ("today's plain {key: value} leaf format"), and a
+        # bare list genuinely is a fragment with no authority to wipe.
         profile = SessionProfile(amenities=["pool"])
         apply_profile_delta(profile, {"amenities": ["pool", "spa"]}, "with spa please")
         assert profile.amenities == ["pool", "spa"]
+
+    # --- UX1: the typed set is authoritative, so a filter can shrink ---------
+    def test_a_typed_set_replaces_instead_of_merging(self):
+        profile = SessionProfile(amenities=["pool", "spa"])
+        apply_profile_delta(
+            profile, {"amenities": {"op": "set", "value": ["pool"]}}, "enlève le spa"
+        )
+        assert profile.amenities == ["pool"]
+
+    def test_an_empty_typed_set_empties_the_filter(self):
+        # THE retraction. The flat form cannot express this: `[]` is falsy and
+        # the append-only branch swallows it.
+        profile = SessionProfile(amenities=["spa"])
+        apply_profile_delta(profile, {"amenities": {"op": "set", "value": []}}, "enlève le spa")
+        assert profile.amenities == []
+
+    def test_an_empty_flat_list_still_wipes_nothing(self):
+        profile = SessionProfile(amenities=["spa"])
+        apply_profile_delta(profile, {"amenities": []}, "moins cher")
+        assert profile.amenities == ["spa"]
+
+    def test_an_absent_slot_is_carryover(self):
+        profile = SessionProfile(amenities=["spa"])
+        apply_profile_delta(profile, {"city": "Lyon"}, "et à Lyon ?")
+        assert profile.amenities == ["spa"]
+
+    def test_a_typed_clear_still_resets_the_slot_to_its_default(self):
+        # The generic clear path is untouched by UX1.
+        profile = SessionProfile(amenities=["spa"])
+        apply_profile_delta(profile, {"amenities": {"op": "clear"}}, "on repart de zéro")
+        assert profile.amenities == []
+
+    def test_a_typed_set_does_not_disturb_the_other_slots(self):
+        profile = SessionProfile(city="Paris", budget_max=90.0, amenities=["spa"])
+        apply_profile_delta(
+            profile,
+            {"amenities": {"op": "set", "value": []}, "city": {"op": "set", "value": "Paris"}},
+            "enlève le spa",
+        )
+        assert profile.amenities == []
+        assert profile.city == "Paris" and profile.budget_max == 90.0
 
     def test_language_is_overwritten(self):
         profile = SessionProfile(language="en")
