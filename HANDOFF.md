@@ -35,9 +35,26 @@ Symptôme rapporté par Fabien : « je rafraîchis la page du widget, je pose un
 - Côté widget (node, DOM stubé) : 2 chargements de `state.js` → 2 ids différents ; `resetState()` → id neuf ; **`sessionStorage` jamais touché** (getItem/setItem instrumentés, 0 appel).
 - Le proxy widget forwarde bien `X-Client-Session-Id` (il ne retire que les hop-by-hop et l'en-tête de clé API, `run_widget_proxy.py`).
 
-### ⚠️ Reste à faire
+### ✅ Déployé et vérifié EN PROD (2026-08-27, PR #97 mergée en `10a6d89`)
 
-- **NON déployé, donc NON vérifié dans un navigateur.** Le tableau de repro ci-dessus documente l'état AVANT correctif ; la preuve « après » exige un `railway up` de **`concierge`** (précédence) **et** **`widget`** (front vendored), puis un reload réel + question nue.
+`LANGFUSE_RELEASE=10a6d89` posé sur **`concierge`** et **`widget`** (`--skip-deploys`), puis `railway up --detach` sur les deux → `concierge=SUCCESS widget=SUCCESS`. `hotel-search` et `faq` **volontairement laissés sur leur estampille** : aucun de leurs fichiers n'est dans le diff.
+
+**Preuve serveur** — 3 appels via le proxy widget (`x-dayuse-synthetic: 1`), le même scénario que la repro du bug :
+
+| Appel | Envoyé | Résultat |
+|---|---|---|
+| 1 | id client A, sans cookie, « hotel a Bordeaux demain apres-midi avec piscine » | `conversation_id = A`, 4 hôtels, cookie posé |
+| 2 | **id client B NEUF + le cookie de A**, « je cherche un hotel » | `conversation_id = B`, **0 hôtel**, « j'ai besoin de la ville ou du quartier… » ← **le bug est mort** |
+| 3 | retour sur l'**id A** (cookie = B), « je cherche un hotel » | `conversation_id = A`, Bordeaux + piscine reviennent ← **la continuité multi-tour n'a pas été cassée** |
+
+**Preuve navigateur** (Chrome headless piloté en CDP, contre la prod) : chargement 1 en deep link Bordeaux → 4 cartes ; `Page.reload()` → transcript vide ; chargement suivant + question nue → réponse qui **demande la destination et la date**. Les deux requêtes `/v3/chat/stream` portent **deux `X-Client-Session-Id` différents** (`ee9d4d60…` puis `62f14197…`) et la seconde **envoie bien `du_chat_sid`** : le cookie est présent, et il est ignoré. Captures dans le scratchpad de session.
+
+### Pièges et faits découverts pendant la vérification
+
+- 🪤 **CDP** : après un `Page.reload()`, cliquer `#main-submit-button` ne produit **rien** — la page est revenue sur la vue d'accueil (`#initial-input`), le clic est perdu. Pour le tour suivant, refaire un chargement `?q=…` (qui auto-envoie). Ça a coûté deux runs.
+- 🪤 **CDP** : ne pas régler le timeout sur le socket brut (`ws.socket.settimeout`) pour dépiler les événements — la connexion meurt (`no close frame received`). Utiliser `ws.recv(timeout=…)` de `websockets.sync`.
+- 📌 **Transport SSE re-confirmé en prod** : les tours du navigateur partent sur **`/v3/chat/stream`**, pas `/v3/chat` — déjà consigné plus bas (bloc S-PERF4, `l. 1063` et `l. 1934`), recoché de mes yeux le 2026-08-27. Corollaire pour toute probe DOM : la fin de réponse ne se détecte pas au nombre de nœuds mais à la **stabilisation du texte**, puisque les tokens arrivent en streaming.
+- ⚠️ **Les assets statiques sont servis sans `Cache-Control`, sans `ETag` et sans `Last-Modified`** (`content-length` seul) : vérifié sur `/static/js/chat/state.js`, qui sert bien le nouveau code. Un reload revalide, donc l'utilisateur qui recharge reçoit le correctif ; mais le cache heuristique d'un navigateur peut garder l'ancien `state.js` un moment pour une visite ultérieure. **Non traité ici** — c'est un chantier de politique de cache, pas de session.
 - Le body `session_id` (M1 legacy) reste envoyé par le widget et vaut désormais le même id que le header : redondant mais volontaire, c'est le contrat iso agent-usa.
 
 
