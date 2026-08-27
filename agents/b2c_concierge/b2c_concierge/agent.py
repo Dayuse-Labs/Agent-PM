@@ -139,7 +139,14 @@ from .profile import (
 )
 from .profile_store import get_profile_store
 from .routing import LEAF_FAQ, LEAF_HOTEL_SEARCH, ROUTES, bearer_token, card_url
-from .triage import SERVICE, classify, is_social_ack, response_language, template_language
+from .triage import (
+    SERVICE,
+    TEMPLATE_LANGUAGES,
+    classify,
+    is_social_ack,
+    response_language,
+    template_language,
+)
 
 logger = logging.getLogger(__name__)
 metrics_logger = logging.getLogger("b2c_concierge.metrics")
@@ -1045,11 +1052,12 @@ class _B2cConcierge(BaseAgent):
         )
         if refinement_signal:
             budget.fired.add("recovery_ack")
-        # P1-2: `triage.language` may now be any of 7 recognized languages, but
-        # only fr/en can be WRITTEN. Clamp once, here, and use `reply_language`
-        # everywhere a template or the synthesis prompt is fed — see
-        # triage.response_language for why widening recognition must not widen
-        # the answer.
+        # P1-2/UX2: `triage.language` is one of the 7 recognized languages, all
+        # answerable since UX2 translated templates.py. Clamp once, here (via
+        # `response_language`), and use `reply_language` everywhere a template
+        # or the synthesis prompt is fed — see triage.response_language for
+        # why this stays a choke point rather than reading `triage.language`
+        # directly at each call site.
         reply_language = response_language(triage.language)
         # Code-owned overrides (LLM never routes). A pending-offer confirmation
         # wins; otherwise a refinement of a PRIOR search re-routes to a fresh
@@ -1090,8 +1098,11 @@ class _B2cConcierge(BaseAgent):
         # message — and a pick-button click sends a LABEL ("Villa Paris Orly
         # €54.00"), which carries no language at all, so a French session got
         # its booking answer in English. A click never overwrites it: the label
-        # is not the user's prose.
-        if clicked_id is None and triage.language in ("fr", "en"):
+        # is not the user's prose. UX2: widened from fr/en to TEMPLATE_LANGUAGES
+        # (all 7) — `triage.classify` already validates `language` against
+        # LANGUAGES, so this check is a defensive choke point, not a filter
+        # that fires in practice.
+        if clicked_id is None and triage.language in TEMPLATE_LANGUAGES:
             profile.language = triage.language
 
         if booking_signal:

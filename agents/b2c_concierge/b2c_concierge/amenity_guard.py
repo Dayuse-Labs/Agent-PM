@@ -161,22 +161,54 @@ def _hedge_amenity_claims(
     return rewritten, remaining
 
 
-# Bilingual hedge/correction text — this spine's synthesis output language is
-# only ever fr/en (triage.Triage.language), unlike agent-usa's 7-language t().
-_HEDGE_FR = "non confirmé"
-_HEDGE_EN = "not confirmed"
+# Hedge/correction text for the 7 languages the spine can answer in since UX2
+# (2026-08-27) — matching agent-usa's 7-language t() parity (behavior ported,
+# not code, like the rest of this module — see its docstring).
+_HEDGE: dict[str, str] = {
+    "fr": "non confirmé",
+    "en": "not confirmed",
+    "es": "no confirmado",
+    "it": "non confermato",
+    "de": "nicht bestätigt",
+    "pt": "não confirmado",
+    "nl": "niet bevestigd",
+}
+
+_CORRECTION_NOTE: dict[str, str] = {
+    "fr": (
+        "⚠️ Correction : {hotel_name} ne liste pas {amenity_label} parmi ses "
+        "équipements Dayuse — vérifie directement auprès de l'hôtel."
+    ),
+    "en": (
+        "⚠️ Correction: {hotel_name} does not list {amenity_label} among its "
+        "Dayuse amenities — please verify directly with the hotel."
+    ),
+    "es": (
+        "⚠️ Corrección: {hotel_name} no incluye {amenity_label} entre sus "
+        "servicios Dayuse — verifícalo directamente con el hotel."
+    ),
+    "it": (
+        "⚠️ Correzione: {hotel_name} non include {amenity_label} tra i suoi "
+        "servizi Dayuse — verifica direttamente con l'hotel."
+    ),
+    "de": (
+        "⚠️ Korrektur: {hotel_name} listet {amenity_label} nicht unter seinen "
+        "Dayuse-Ausstattungen — bitte direkt beim Hotel nachfragen."
+    ),
+    "pt": (
+        "⚠️ Correção: {hotel_name} não inclui {amenity_label} entre os seus "
+        "serviços Dayuse — verifique diretamente com o hotel."
+    ),
+    "nl": (
+        "⚠️ Correctie: {hotel_name} vermeldt {amenity_label} niet bij zijn "
+        "Dayuse-voorzieningen — controleer dit rechtstreeks bij het hotel."
+    ),
+}
 
 
 def _correction_note(hotel_name: str, amenity_label: str, language: str) -> str:
-    if language == "fr":
-        return (
-            f"⚠️ Correction : {hotel_name} ne liste pas {amenity_label} parmi ses "
-            "équipements Dayuse — vérifie directement auprès de l'hôtel."
-        )
-    return (
-        f"⚠️ Correction: {hotel_name} does not list {amenity_label} among its "
-        "Dayuse amenities — please verify directly with the hotel."
-    )
+    template = _CORRECTION_NOTE.get(language, _CORRECTION_NOTE["en"])
+    return template.format(hotel_name=hotel_name, amenity_label=amenity_label)
 
 
 def apply_amenity_truthfulness(
@@ -197,7 +229,7 @@ def apply_amenity_truthfulness(
         if not violations:
             merged = {name: sorted(keys) for name, keys in already.items() if keys}
             return message, merged
-        hedge = _HEDGE_FR if language == "fr" else _HEDGE_EN
+        hedge = _HEDGE.get(language, _HEDGE["en"])
         text, unhedged = _hedge_amenity_claims(str(message or ""), violations, hotels, hedge)
         notes: list[str] = []
         for hotel_name, amenity_keys in sorted(unhedged.items()):

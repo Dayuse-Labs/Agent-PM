@@ -1107,13 +1107,94 @@ def _op_set(value: Any) -> dict[str, Any]:
     return {"op": "set", "value": value}
 
 
+# UX2 (2026-08-27): local copy of the concierge's triage.TEMPLATE_LANGUAGES —
+# this leaf is a separate stateless A2A package (decision B3) with no import
+# path to b2c_concierge, so this tuple is kept in sync by hand.
+_SUPPORTED_LANGUAGES = ("fr", "en", "es", "it", "de", "pt", "nl")
+
+
 def _profile_language(context: Any) -> str:
-    """The conversation's fr/en (profile_in.language, triage-owned) — "en" when
-    absent. S-CX2 (audit CX F3): the leaf's code-built texts are normally
-    rewritten by the orchestrator's synthesis, but on a synthesis failure they
-    are served VERBATIM — a French customer was receiving raw English."""
+    """The conversation's response language (profile_in.language, triage-
+    owned) — "en" when absent/unrecognized. S-CX2 (audit CX F3): the leaf's
+    code-built texts are normally rewritten by the orchestrator's synthesis,
+    but on a synthesis failure they are served VERBATIM — a French customer
+    was receiving raw English. UX2 widened this from fr/en to the 7 languages
+    the concierge now answers in (see triage.TEMPLATE_LANGUAGES)."""
     language = read_profile_in(context).get("language")
-    return language if language in ("fr", "en") else "en"
+    return language if language in _SUPPORTED_LANGUAGES else "en"
+
+
+_DATE_FALLBACK_SWAPPED: dict[str, str] = {
+    "fr": (
+        " Les réservations pour aujourd'hui ({fell_back_from}) sont closes — "
+        "ces offres sont celles du {offered}."
+    ),
+    "en": (
+        " Same-day bookings for today ({fell_back_from}) are closed — "
+        "these offers are for {offered}."
+    ),
+    "es": (
+        " Las reservas para hoy ({fell_back_from}) están cerradas — estas "
+        "ofertas son para el {offered}."
+    ),
+    "it": (
+        " Le prenotazioni per oggi ({fell_back_from}) sono chiuse — queste "
+        "offerte sono per il {offered}."
+    ),
+    "de": (
+        " Buchungen für heute ({fell_back_from}) sind bereits geschlossen — "
+        "diese Angebote gelten für den {offered}."
+    ),
+    "pt": (
+        " As reservas para hoje ({fell_back_from}) estão encerradas — estas "
+        "ofertas são para o dia {offered}."
+    ),
+    "nl": (
+        " Boekingen voor vandaag ({fell_back_from}) zijn gesloten — deze "
+        "aanbiedingen gelden voor {offered}."
+    ),
+}
+
+_DATE_FALLBACK_SAME_DAY: dict[str, str] = {
+    "fr": (
+        " Recherche effectuée pour aujourd'hui ({offered}) : les réservations "
+        "du jour sont déjà closes."
+    ),
+    "en": (
+        " This search was for today ({offered}): same-day bookings are "
+        "already closed."
+    ),
+    "es": (
+        " Búsqueda realizada para hoy ({offered}): las reservas del mismo "
+        "día ya están cerradas."
+    ),
+    "it": (
+        " Ricerca effettuata per oggi ({offered}): le prenotazioni dello "
+        "stesso giorno sono già chiuse."
+    ),
+    "de": (
+        " Suche für heute ({offered}) durchgeführt: Buchungen für den "
+        "gleichen Tag sind bereits geschlossen."
+    ),
+    "pt": (
+        " Pesquisa efetuada para hoje ({offered}): as reservas do próprio "
+        "dia já estão encerradas."
+    ),
+    "nl": (
+        " Zoekopdracht uitgevoerd voor vandaag ({offered}): boekingen voor "
+        "dezelfde dag zijn al gesloten."
+    ),
+}
+
+_DATE_FALLBACK_PLAIN: dict[str, str] = {
+    "fr": " Recherche effectuée pour le {offered}.",
+    "en": " Searched for {offered}.",
+    "es": " Búsqueda realizada para el {offered}.",
+    "it": " Ricerca effettuata per il {offered}.",
+    "de": " Suche durchgeführt für den {offered}.",
+    "pt": " Pesquisa efetuada para o dia {offered}.",
+    "nl": " Zoekopdracht uitgevoerd voor {offered}.",
+}
 
 
 def _date_fallback_line(search_date: Any, language: str) -> str:
@@ -1124,31 +1205,69 @@ def _date_fallback_line(search_date: Any, language: str) -> str:
     the old text sent users off widening a zone that had 518 hotels in it)."""
     if not isinstance(search_date, dict):
         return ""
-    fr = language == "fr"
     offered, fell_back_from = search_date.get("date"), search_date.get("cutoff_fallback_from")
     if isinstance(fell_back_from, str) and isinstance(offered, str):
-        return (
-            f" Les réservations pour aujourd'hui ({fell_back_from}) sont closes — "
-            f"ces offres sont celles du {offered}."
-            if fr
-            else (
-                f" Same-day bookings for today ({fell_back_from}) are closed — "
-                f"these offers are for {offered}."
-            )
-        )
+        template = _DATE_FALLBACK_SWAPPED.get(language, _DATE_FALLBACK_SWAPPED["en"])
+        return template.format(fell_back_from=fell_back_from, offered=offered)
     if search_date.get("same_day") and isinstance(offered, str):
-        return (
-            f" Recherche effectuée pour aujourd'hui ({offered}) : les réservations "
-            "du jour sont déjà closes."
-            if fr
-            else (
-                f" This search was for today ({offered}): same-day bookings are "
-                "already closed."
-            )
-        )
+        template = _DATE_FALLBACK_SAME_DAY.get(language, _DATE_FALLBACK_SAME_DAY["en"])
+        return template.format(offered=offered)
     if isinstance(offered, str):
-        return f" Recherche effectuée pour le {offered}." if fr else f" Searched for {offered}."
+        template = _DATE_FALLBACK_PLAIN.get(language, _DATE_FALLBACK_PLAIN["en"])
+        return template.format(offered=offered)
     return ""
+
+
+_OUTCOME_EMPTY: dict[str, str] = {
+    "fr": "Aucune offre de jour trouvée pour cette recherche.",
+    "en": "No day-use offers found for this search.",
+    "es": "No se encontraron ofertas de día para esta búsqueda.",
+    "it": "Nessuna offerta per il giorno trovata per questa ricerca.",
+    "de": "Keine Tagesangebote für diese Suche gefunden.",
+    "pt": "Não foram encontradas ofertas de dia para esta pesquisa.",
+    "nl": "Geen dagaanbiedingen gevonden voor deze zoekopdracht.",
+}
+
+_OUTCOME_FOUND: dict[str, str] = {
+    "fr": "{count} offre(s) de jour trouvée(s) : {names}.",
+    "en": "{count} day-use offer(s) found: {names}.",
+    "es": "{count} oferta(s) de día encontrada(s): {names}.",
+    "it": "{count} offerta/e per il giorno trovata/e: {names}.",
+    "de": "{count} Tagesangebot(e) gefunden: {names}.",
+    "pt": "{count} oferta(s) de dia encontrada(s): {names}.",
+    "nl": "{count} dagaanbieding(en) gevonden: {names}.",
+}
+
+_OUTCOME_TIMESLOT_FALLBACK: dict[str, str] = {
+    "fr": (
+        " Aucune offre ne couvre exactement le créneau demandé ; voici les "
+        "options les plus proches."
+    ),
+    "en": (
+        " No offer covers the exact requested time window; showing the "
+        "closest matches instead."
+    ),
+    "es": (
+        " Ninguna oferta cubre exactamente la franja solicitada; aquí "
+        "tienes las opciones más cercanas."
+    ),
+    "it": (
+        " Nessuna offerta copre esattamente la fascia oraria richiesta; "
+        "ecco le opzioni più vicine."
+    ),
+    "de": (
+        " Kein Angebot deckt genau das gewünschte Zeitfenster ab; hier sind "
+        "die nächstgelegenen Optionen."
+    ),
+    "pt": (
+        " Nenhuma oferta cobre exatamente o horário pedido; aqui estão as "
+        "opções mais próximas."
+    ),
+    "nl": (
+        " Geen enkel aanbod dekt precies het gevraagde tijdslot; hier zijn "
+        "de dichtstbijzijnde opties."
+    ),
+}
 
 
 def _outcome_text(
@@ -1161,36 +1280,54 @@ def _outcome_text(
     orchestrator's `leaf_text` — it re-synthesizes the user-facing answer in the
     user's language from this + the structured results' ground-truth block, so
     this text only needs to be a faithful, compact summary (never invented) —
-    localized fr/en (S-CX2) because it IS shown verbatim when synthesis fails.
+    localized for the 7 languages the concierge can answer in (S-CX2, widened
+    by UX2) because it IS shown verbatim when synthesis fails.
 
     S-G6 (A4-c): `timeslot_fallback` — set when the exact-minute window would
     have emptied the results entirely and the leaf fell back to the coarser
     hour-rounded set instead of a silent 0 — appends an honest disclosure so
     the synthesis never implies these hotels cover the exact time asked."""
-    fr = language == "fr"
     date_line = _date_fallback_line(search_date, language)
     if not results:
-        return (
-            "Aucune offre de jour trouvée pour cette recherche." + date_line
-            if fr
-            else "No day-use offers found for this search." + date_line
-        )
+        return _OUTCOME_EMPTY.get(language, _OUTCOME_EMPTY["en"]) + date_line
     names = ", ".join(str(r.get("name")) for r in results if r.get("name"))
-    if fr:
-        text = f"{len(results)} offre(s) de jour trouvée(s) : {names}." + date_line
-        if timeslot_fallback:
-            text += (
-                " Aucune offre ne couvre exactement le créneau demandé ; "
-                "voici les options les plus proches."
-            )
-        return text
-    text = f"{len(results)} day-use offer(s) found: {names}." + date_line
+    template = _OUTCOME_FOUND.get(language, _OUTCOME_FOUND["en"])
+    text = template.format(count=len(results), names=names) + date_line
     if timeslot_fallback:
-        text += (
-            " No offer covers the exact requested time window; showing the "
-            "closest matches instead."
-        )
+        text += _OUTCOME_TIMESLOT_FALLBACK.get(language, _OUTCOME_TIMESLOT_FALLBACK["en"])
     return text
+
+
+_SEARCH_UNAVAILABLE: dict[str, str] = {
+    "fr": (
+        "La recherche d'hôtels est momentanément indisponible — je préfère ne rien "
+        "inventer. Pouvez-vous réessayer dans un instant ?"
+    ),
+    "en": (
+        "The hotel search is temporarily unavailable — I'd rather not make anything up. "
+        "Could you try again in a moment?"
+    ),
+    "es": (
+        "La búsqueda de hoteles no está disponible en este momento — prefiero no "
+        "inventar nada. ¿Puedes intentarlo de nuevo en un momento?"
+    ),
+    "it": (
+        "La ricerca degli hotel è momentaneamente non disponibile — preferisco non "
+        "inventare nulla. Puoi riprovare tra un istante?"
+    ),
+    "de": (
+        "Die Hotelsuche ist momentan nicht verfügbar — ich möchte mir nichts ausdenken. "
+        "Kannst du es in einem Moment noch einmal versuchen?"
+    ),
+    "pt": (
+        "A pesquisa de hotéis está temporariamente indisponível — prefiro não inventar "
+        "nada. Pode tentar novamente daqui a pouco?"
+    ),
+    "nl": (
+        "De hotelzoekfunctie is tijdelijk niet beschikbaar — ik wil liever niets "
+        "verzinnen. Kun je het over een moment opnieuw proberen?"
+    ),
+}
 
 
 def _search_unavailable_text(language: str) -> str:
@@ -1200,15 +1337,7 @@ def _search_unavailable_text(language: str) -> str:
     simply unreachable. The orchestrator serves its own degraded template on
     the `search_unavailable` status; this text is the fallback for direct A2A
     consumers and for the synthesis-failure verbatim path."""
-    if language == "fr":
-        return (
-            "La recherche d'hôtels est momentanément indisponible — je préfère ne rien "
-            "inventer. Pouvez-vous réessayer dans un instant ?"
-        )
-    return (
-        "The hotel search is temporarily unavailable — I'd rather not make anything up. "
-        "Could you try again in a moment?"
-    )
+    return _SEARCH_UNAVAILABLE.get(language, _SEARCH_UNAVAILABLE["en"])
 
 
 def stamp_turn_start(callback_context: Any) -> None:

@@ -180,32 +180,75 @@ def _differs_by_place(a: GeocodeCandidate, b: GeocodeCandidate) -> bool:
     return a.region.strip().lower() != b.region.strip().lower()
 
 
+_CLARIFY_ONE: dict[str, str] = {
+    "fr": "Vouliez-vous dire {label} ?",
+    "en": "Did you mean {label}?",
+    "es": "¿Querías decir {label}?",
+    "it": "Intendevi {label}?",
+    "de": "Meintest du {label}?",
+    "pt": "Quis dizer {label}?",
+    "nl": "Bedoelde je {label}?",
+}
+
+_CLARIFY_MANY: dict[str, str] = {
+    "fr": "Plusieurs endroits portent ce nom — lequel vouliez-vous dire : {joined} ?",
+    "en": "There are a few places by that name — which did you mean: {joined}?",
+    "es": "Hay varios lugares con ese nombre — ¿cuál querías decir: {joined}?",
+    "it": "Ci sono più luoghi con questo nome — quale intendevi: {joined}?",
+    "de": "Es gibt mehrere Orte mit diesem Namen — welchen meintest du: {joined}?",
+    "pt": "Há vários lugares com esse nome — qual quis dizer: {joined}?",
+    "nl": "Er zijn meerdere plaatsen met deze naam — welke bedoelde je: {joined}?",
+}
+
+# The separator before the LAST item in a joined list ("A, B{sep}C") — French/
+# Portuguese drop the comma before the conjunction, English/German/Dutch keep
+# it; Spanish/Italian follow the French convention here.
+_CLARIFY_LAST_SEP: dict[str, str] = {
+    "fr": " ou ",
+    "en": ", or ",
+    "es": " o ",
+    "it": " o ",
+    "de": ", oder ",
+    "pt": " ou ",
+    "nl": ", of ",
+}
+
+
 def _clarify_question(options: list[GeocodeCandidate], language: str | None = None) -> str:
     """Deterministic template — the options are differentiated by their
     `place_formatted` context (country/region), exactly what a homonym needs.
-    Localized fr/en (S-CX2, audit F3/F5): this question can reach the customer
-    verbatim (the emit event replaces the model's text, and the synthesis
-    fallback serves leaf text as-is), so it must speak the user's language."""
+    Localized for the 7 languages the concierge can answer in (S-CX2, audit
+    F3/F5, widened by UX2): this question can reach the customer verbatim (the
+    emit event replaces the model's text, and the synthesis fallback serves
+    leaf text as-is), so it must speak the user's language."""
     labels = []
     for c in options:
         ctx = c.place_formatted or c.country_code or ""
         labels.append(f"{c.name} ({ctx})" if ctx else c.name)
-    if language == "fr":
-        if len(labels) == 1:
-            return f"Vouliez-vous dire {labels[0]} ?"
-        joined = ", ".join(labels[:-1]) + f" ou {labels[-1]}"
-        return f"Plusieurs endroits portent ce nom — lequel vouliez-vous dire : {joined} ?"
+    lang = language if language in _CLARIFY_ONE else "en"
     if len(labels) == 1:
-        return f"Did you mean {labels[0]}?"
-    joined = ", ".join(labels[:-1]) + f", or {labels[-1]}"
-    return f"There are a few places by that name — which did you mean: {joined}?"
+        return _CLARIFY_ONE[lang].format(label=labels[0])
+    joined = ", ".join(labels[:-1]) + _CLARIFY_LAST_SEP[lang] + labels[-1]
+    return _CLARIFY_MANY[lang].format(joined=joined)
+
+
+_CITY_NEEDED: dict[str, str] = {
+    "fr": "Près de « {label} » — dans quelle ville cherchez-vous ?",
+    "en": 'Near "{label}" — which city are you looking in?',
+    "es": 'Cerca de "{label}" — ¿en qué ciudad buscas?',
+    "it": 'Vicino a "{label}" — in quale città stai cercando?',
+    "de": "„{label}“ in der Nähe — in welcher Stadt suchst du?",
+    "pt": 'Perto de "{label}" — em que cidade está a procurar?',
+    "nl": 'In de buurt van "{label}" — in welke stad zoek je?',
+}
 
 
 def city_needed_question(zone: str, language: str | None = None) -> str:
     """Ask WHICH CITY, for a named zone that arrived with no anchor at all.
 
-    Deterministic template, localized fr/en like `_clarify_question` above and
-    for the same reason (S-CX2: this text can reach the customer verbatim).
+    Deterministic template, localized for the 7 languages like
+    `_clarify_question` above and for the same reason (S-CX2: this text can
+    reach the customer verbatim).
 
     Option-less ON PURPOSE, unlike every other clarify in this module. The only
     city we could put in front of the user here is the one an IP-biased lookup
@@ -216,9 +259,8 @@ def city_needed_question(zone: str, language: str | None = None) -> str:
     question offering only Lyon is a wrong answer wearing a question mark.
     """
     label = (zone or "").strip()
-    if language == "fr":
-        return f"Près de « {label} » — dans quelle ville cherchez-vous ?"
-    return f'Near "{label}" — which city are you looking in?'
+    template = _CITY_NEEDED.get(language or "", _CITY_NEEDED["en"])
+    return template.format(label=label)
 
 
 #: Landmark (tier-2 / Search Box) feature-type prior. Deliberately NOT

@@ -1224,26 +1224,28 @@ class TestP1ForeignAffirmativeThroughTheSpine:
         _drive_in(runner, session.id, "sí")
         assert leaf_calls == []
 
-    def test_a_recognized_language_never_leaks_into_the_synthesis_prompt(
+    def test_a_recognized_language_now_flows_into_the_synthesis_prompt(
         self, scripted, fake_profile_store
     ):
-        """P1-2 clamp: recognition widened to 7 languages, but the synthesis
-        prompt must still be told a language we can actually write. Without the
-        clamp this reads `LANG: es` and the answer comes back in Spanish while
-        every deterministic template stays English."""
+        """UX2 (2026-08-27): TEMPLATE_LANGUAGES now equals LANGUAGES, so the
+        synthesis prompt is told the language we can actually write — which is
+        every recognized one. Before UX2 this clamped to `LANG: en` even for a
+        Spanish message, to avoid a mixed-language answer (synthesis in
+        Spanish, every deterministic template still in English); now the
+        clamp is a pass-through instead."""
         runner, session = _new_session()
         asyncio.run(
             fake_profile_store.set(session.id, SessionProfile(consecutive_empty_searches=1))
         )
         llm, leaf_calls = scripted(
             '{"family": "ack", "language": "es", "affirmative": true}',
-            "Widening the search.",
+            "Ampliando la búsqueda.",
             leaf_text="results: hotel A",
         )
         _drive_in(runner, session.id, "sí")
         synthesis_prompt = json.dumps(llm.calls[-1]["messages"])
-        assert "LANG: en" in synthesis_prompt
-        assert "LANG: es" not in synthesis_prompt
+        assert "LANG: es" in synthesis_prompt
+        assert "LANG: en" not in synthesis_prompt
 
     def test_a_plain_greeting_still_costs_zero_llm_calls(self, scripted, caplog):
         """The invariant P1-1 must not break: widening the contract must not

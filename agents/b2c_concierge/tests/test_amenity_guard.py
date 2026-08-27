@@ -95,3 +95,30 @@ class TestApplyAmenityTruthfulness:
         result, corrections = apply_amenity_truthfulness("has a pool", [None, 42], "en")
         assert result == "has a pool"
         assert corrections == {}
+
+
+class TestUX2SevenLanguageHedges:
+    """UX2 (2026-08-27): the hedge/correction text widened from fr/en to the
+    7 languages the concierge can now answer in."""
+
+    def test_spanish_hedge_uses_the_localized_marker(self):
+        message = "- Le Meridien — jacuzzi y piscina"
+        hotels = [{"name": "Le Meridien", "amenities": ["Piscine"]}]
+        result, corrections = apply_amenity_truthfulness(message, hotels, "es")
+        assert "jacuzzi (no confirmado)" in result
+        assert corrections == {"Le Meridien": ["jacuzzi"]}
+
+    def test_correction_note_is_localized_de(self):
+        from b2c_concierge.amenity_guard import _correction_note
+
+        note = _correction_note("Sonesta Carmel Suites", "jacuzzi", "de")
+        assert note == (
+            "⚠️ Korrektur: Sonesta Carmel Suites listet jacuzzi nicht unter seinen "
+            "Dayuse-Ausstattungen — bitte direkt beim Hotel nachfragen."
+        )
+
+    def test_unrecognized_language_falls_back_to_the_english_hedge(self):
+        message = "- Le Meridien — jacuzzi"
+        hotels = [{"name": "Le Meridien", "amenities": []}]
+        result, _ = apply_amenity_truthfulness(message, hotels, "ja")
+        assert "jacuzzi (not confirmed)" in result

@@ -126,12 +126,20 @@ def test_locale_currency_domain_persist_and_surface(client):
     assert r.json()["response_language"] == "fr"
 
 
-def test_unsupported_locale_falls_back_to_guess_language(client):
+def test_declared_locale_beats_the_message_guess(client):
     r = client.post("/v3/chat", json={"message": "Bonjour !", "locale": "es-ES"})
-    # fr/en scope only — an unsupported primary tag never becomes response_language;
-    # guess_language("Bonjour !") still resolves "fr" from the message itself.
+    # UX2 (2026-08-27): "es" is now answerable, and the DECLARED locale wins
+    # over guess_language's French-hint false positive on this message.
+    assert r.json()["response_language"] == "es"
+    assert r.json()["active_filters"]["locale"] == "es-ES"
+
+
+def test_unsupported_locale_falls_back_to_guess_language(client):
+    r = client.post("/v3/chat", json={"message": "Bonjour !", "locale": "ja-JP"})
+    # A primary tag outside the 7 recognized languages never becomes
+    # response_language; guess_language("Bonjour !") still resolves "fr".
     assert r.json()["response_language"] == "fr"
-    assert r.json()["active_filters"]["locale"] == "es-ES"  # still stored, just not used for language
+    assert r.json()["active_filters"]["locale"] == "ja-JP"  # still stored, just not used for language
 
 
 def test_empty_message_ack_prefers_locale_over_default_english(client):

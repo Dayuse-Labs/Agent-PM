@@ -75,7 +75,9 @@ class TestLocaleResponseLanguage:
         assert _locale_response_language("EN") == "en"
 
     def test_unsupported_or_absent_locale_is_none(self):
-        assert _locale_response_language("es-ES") is None  # fr/en scope only
+        # UX2 (2026-08-27): es is now answerable — use a genuinely
+        # unrecognized primary tag to exercise the None branch.
+        assert _locale_response_language("ja-JP") is None
         assert _locale_response_language(None) is None
         assert _locale_response_language("") is None
 
