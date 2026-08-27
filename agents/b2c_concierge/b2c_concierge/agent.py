@@ -111,6 +111,7 @@ from . import inline_tools, templates
 from .a2a_datapart import encode_datapart, find_datapart
 from .amenity_guard import apply_amenity_truthfulness
 from .budget import TurnBudget
+from .currency_guard import enforce_currency_disclosure
 from .ground_truth import shortlist_ground_truth_block, shortlist_hotels, synthesis_angle
 from .leg import StatelessLeafLeg
 from .link_guard import enforce_hotel_link_truthfulness
@@ -788,6 +789,19 @@ class _B2cConcierge(BaseAgent):
                 enqueue_metric_event(
                     "link_guard", service=SERVICE, invocation_id=invocation_id,
                     stripped=stripped_links,
+                )
+            # UX3 phase 2B: the CURRENCY note above only reaches the PROMPT —
+            # a live prod probe showed the LLM silently dropping it. Backstop
+            # in code, same "never trust the LLM's phrasing for a fact that
+            # matters" posture as the two guards above.
+            candidate, currency_disclosed = enforce_currency_disclosure(
+                candidate, currency_note, language
+            )
+            if currency_disclosed:
+                metrics_logger.info("concierge_metric=currency_guard disclosed=1")
+                enqueue_metric_event(
+                    "currency_guard", service=SERVICE, invocation_id=invocation_id,
+                    disclosed=True,
                 )
         return candidate or None
 
