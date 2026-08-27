@@ -2,6 +2,121 @@
 
 État du chantier pour reprise en session fraîche. **Lire en entier avant d'agir ; ne pas reconstruire ce qui existe.** Mettre à jour en fin de CHAQUE session (bloc daté en tête).
 
+## ✅ Addendum 2026-08-27 quater — UX1 : « enlève le spa » enlève vraiment le spa (rétraction de filtre en multi-tour)
+
+Symptôme de Fabien : « si je demande un hôtel à Paris avec spa et qu'il ne me retourne rien, quand je lui demande d'enlever le filtre spa, il ne le fait pas. »
+
+**Ce n'était pas un bug de multi-tour — le multi-tour marchait trop bien.** Le filtre d'équipement était ré-appliqué par **deux cliquets indépendants, tous deux monotones croissants**, et couper un seul ne change rien de visible :
+
+- **Cliquet A (feuille)** — `equipment_ids.enforce_equipment_filters` faisait `requested = profile_keys + llm_keys`, une **union avec le profil à chaque tour**. Et le modèle n'avait **aucun canal** pour exprimer un retrait : le param virtuel `amenities` est déclaré « amenities the user explicitly asked the hotel to HAVE » et l'instruction lui **interdit** d'y mettre une négation. Donc « enlève le spa » → `amenities` omis → `llm_keys = []` → `requested = ["spa"]` → `hotelEquipmentIds = [35]` repart vers MCP. Tour **identique** au précédent.
+- **Cliquet B (concierge)** — `apply_profile_delta` mergeait `amenities` en **append-only**. `profile.amenities` ne pouvait que grandir pour toute la durée de la session, et un `{"op":"set","value":[]}` correct aurait été **avalé** par le `if values.get("amenities")` (liste vide = falsy).
+
+**La règle d'accumulation n'est PAS le bug et n'a pas été touchée** (`occupancy.py` l. 26-33 en écrit la doctrine : l'utilisateur ne doit pas retaper « avec piscine » à chaque tour). Ce qui manquait, c'est le **canal de rétraction**. Le correctif **ajoute une soustraction**, il ne remplace pas l'union par un écrasement.
+
+### Le correctif (5 fichiers + le score config)
+
+| Fichier | Changement |
+|---|---|
+| `hotel_search_agent/equipment_ids.py` | 2e param virtuel `amenities_removed` (même enum fermée `list(EQUIPMENT_IDS)`) + soustraction après l'union + guard #15 |
+| `hotel_search_agent/agent.py` | 1 puce d'instruction pour le nouveau param (les 2 formulations) |
+| `hotel_search_agent/response_bridge.py` | `profile_delta["amenities"]` passe en `_op_set(...)`, émis même vide — **avec la sentinelle** |
+| `b2c_concierge/profile.py` | `_normalize_delta` remonte un 3e élément `explicit_sets` ; le bloc amenities honore le remplacement |
+| `libs/b2c_common/scores.py` | +1 nom **appendé** dans `GUARD_SCORE_NAMES` + son `config_id` |
+| `observability/langfuse/score-configs.json` | le 22e config, créé pour de vrai sur l'instance |
+
+**Précédence quand une clé arrive dans les DEUX champs : l'ajout gagne.** Ce n'est pas une préférence, c'est la direction fail-safe contre le piège d'inversion de négation de gpt-4o-mini (leçon S10 — et `_AMENITIES_PROPERTY` est déjà écrit pour lui) : sur « je veux une piscine » le modèle peut recopier la clé dans les deux champs, et une demande explicite **ce tour-ci** ne doit jamais être annulée par un signal de retrait. L'utilisateur peut toujours retirer au tour suivant ; une demande silencieusement ignorée n'a pas ce recours. Collision comptée en métrique content-free `dayuse_metric=amenity_filter_conflict` (comptes seuls, jamais les clés).
+
+**Bénéfice collatéral, à signaler à Fabien** : « un hôtel **sans** piscine » **après** « avec piscine » gardait le filtre piscine. MCP n'ayant pas de filtre négatif, « je ne veux pas de X » **est** « X n'est pas dans le filtre » — le même canal corrige les deux, et la description du param couvre explicitement les deux formulations.
+
+### 🪤 LE piège de la phase, et pourquoi le test de non-régression a été écrit EN PREMIER
+
+Sur un tour où `search_offers` ne tourne pas (clarification qui s'arrête à `geocode_location`, ou `find_hotel_by_name`), `STATE_APPLIED_AMENITIES_KEY` n'est **jamais écrit**. Le code d'avant (`state.get(KEY) or []`) écrasait la distinction entre **« absent »** (→ carryover) et **« écrit vide »** (→ set à vide). Tel quel, passer en `_op_set` inconditionnel **aurait effacé les filtres à CHAQUE tour de clarification** — une régression bien pire que le bug corrigé, et invisible en tests unitaires côté feuille seule. D'où la sentinelle : `applied = state.get(KEY)` puis `if applied is not None:`. `enforce_equipment_filters` écrit **toujours** la clé quand il tourne (`[]` compris), donc « absent » ne peut signifier qu'une chose.
+
+Verrouillé à deux niveaux : `test_emit_omits_amenities_when_no_search_ran_this_turn` (à la source) et `test_a_clarification_turn_never_wipes_the_accumulated_amenities` (sur la couture complète, avec un profil à 2 amenities).
+
+### Preuves
+
+**Le test de la signature du bug échoue sur le code d'avant** — `tests/test_leaf_concierge_seam.py::TestFilterRetractionAcrossTurns::test_removing_a_filter_drops_it_from_the_next_search` :
+
+```
+AssertionError: assert 'hotelEquipmentIds' not in
+  {'amenities_removed': ['spa'], 'date': '2026-08-28', 'hotelEquipmentIds': [35], 'lat': 48.85, ...}
+```
+
+Vérifié par `git stash push` des **seuls 3 fichiers source** du correctif (`equipment_ids.py`, `response_bridge.py`, `profile.py` — pas les tests, pas le prompt, pas `scores.py`), comme `test_client_header_outranks_an_existing_cookie` l'a fait pour PR #97 : **17 tests tombent, et les 2 tests du piège passent quand même** (ils verrouillent un comportement pré-existant, ils doivent passer des deux côtés).
+
+**26 tests ajoutés**, sur la couture réelle (`enforce_equipment_filters` → `emit_search_datapart` → DataPart A2A décodée → `apply_profile_delta` → `leaf_profile_view` du tour suivant), pas sur chaque moitié isolément — c'est la classe de bug que `test_leaf_concierge_seam.py` existe pour attraper. Couvre : rétraction, rétraction persistée sur un 3e tour muet, retrait d'un filtre sur deux, accumulation normale intacte, négation fraîche, précédence de collision, métrique de collision, guard qui tire / ne tire pas.
+
+`pytest -q` : **1486 passed, 1 skipped** (baseline 1460 + 26). `ruff`, `mypy` (46 fichiers), `dayuse_guardrails.sh` : verts. **Zéro appel LLM ajouté** — le param virtuel voyage dans l'appel existant de la feuille.
+
+### Repro EN PROD avant déploiement (10:03:43-58Z, builds `10a6d89` / `33432ff`)
+
+| Tour | Message | `active_filters.amenities` | Hôtels |
+|---|---|---|---|
+| 1 | « hotel a Paris demain apres-midi avec spa » | `['spa']` | 5 |
+| 2 | **« enleve le spa »** | **`['spa']`** ← inchangé | 5 |
+
+Réponse du tour 2, mot pour mot : *« Pour le 28/08/2026 à Paris, la recherche a été faite avec le critère "spa"… Si vous voulez "sans spa", je peux relancer la recherche sans ce filtre »* — le modèle **sait** qu'on lui demande d'enlever le filtre, il n'a simplement aucun moyen de le faire. C'est exactement le symptôme de Fabien, capturé avant tout déploiement.
+
+### ✅ Déployé et vérifié EN PROD (branche non mergée — même convention que PR #95 / `33432ff`)
+
+`LANGFUSE_RELEASE=792d9fe` posé sur **`concierge`** et **`hotel-search`** avec `--skip-deploys` (vérifié : les deux `latestDeployment.createdAt` sont restés à 07:58:59Z / 2026-08-26T14:57:11Z après le stamp — aucun redéploiement de l'ANCIEN code sous la nouvelle estampille), puis `railway up --detach` **feuille d'abord** puis concierge → `hotel-search=SUCCESS 10:05:12Z`, `concierge=SUCCESS 10:07:04Z`. `faq` et `widget` **volontairement laissés sur leur estampille** : aucun de leurs fichiers n'est dans le diff.
+
+**Sonde 1 — la séquence de Fabien, session fraîche, `x-dayuse-synthetic: 1`** (10:08:57 → 10:09:24Z, donc bien APRÈS les deux SUCCESS) :
+
+| Tour | Message | `active_filters.amenities` | Hôtels rendus |
+|---|---|---|---|
+| 1 | « hotel a Paris demain apres-midi avec spa » | `['spa']` | 5 — *Hôtel Résidence Europe & Spa, Belinda Hôtel & Spa…* |
+| 2 | **« enleve le spa »** | **`[]`** ← le filtre est parti | 5 — *H4 Wyndham Pleyel, Mercure Orly, Novotel La Défense…* |
+
+La liste d'hôtels du tour 2 est **entièrement différente** de celle du tour 1 : la recherche est réellement repartie sans filtre, ce n'est pas un affichage qui change tout seul. Comparer avec la repro d'avant déploiement plus haut (mêmes messages, `['spa']` et **les mêmes 5 hôtels** au tour 2).
+
+**`guard_filter_relaxation_honored = true` dans Langfuse**, trace `94e82e77765da2bdfebcdfc84241bc3d`, `environment: production`, `configId: 964592d3-2214-44c4-9754-aae6fe9ca5aa`. Sur la même trace : **`llm_calls = 3`** (plafond structurel tenu, zéro appel ajouté), `hotels_returned = 5`, `empty_shortlist = false`.
+
+⚠️ **Le filtre Langfuse a été validé POSITIVEMENT avant de conclure quoi que ce soit** (un zéro sur un filtre cassé se lit exactement comme un guard qui ne tire pas). La forme qui marche : `name: ["guard_…"]` + `dataType: ["BOOLEAN"]` + `value: ["true"]` (+ `environment: ["production"]`) — vérifiée d'abord sur `guard_date_hallucinated_year_rolled_forward`, qui **rend bien 3 lignes** avec cette forme exacte. `value: ["1"]` fait échouer le serveur. Deux autres noms rendent 0 avec la même requête (`guard_amenity_truthfulness`, `guard_poi_anchor_coherence`) : c'est un vrai zéro, pas un filtre cassé.
+
+**Sonde 2 — le piège ET le bénéfice collatéral, en prod, session fraîche** (10:10:18 → 10:11:03Z) :
+
+| Tour | Message | `active_filters.amenities` | Hôtels |
+|---|---|---|---|
+| 1 | « hotel a Paris demain apres-midi avec piscine » | `['pool']` | 5 |
+| 2 | « quelles sont les conditions d'annulation ? » (famille **faq** — `search_offers` ne tourne PAS) | **`['pool']`** ← 🪤 survit | 0 |
+| 3 | « montre m'en d'autres » | `['pool']` | 5 |
+| 4 | **« en fait je veux un hotel sans piscine »** | **`[]`** | 5 |
+
+Le tour 2 est **le piège de la phase, joué en prod sur un vrai tour sans recherche** : le filtre survit. Le tour 4 est le **bénéfice collatéral** : une négation fraîche retire maintenant un filtre posé avant, au lieu de le garder. Guard à `true` sur cette trace aussi (`bd6680d1a3836a3daabab58ad279a6c8`).
+
+### 📌 Constat de synthèse à part, PAS un bug UX1 — à noter pour UX2
+
+Sur la sonde 1 tour 2, la **mécanique** est juste (filtre retiré, recherche relancée, hôtels neufs) mais la **phrase** est maladroite : « je ne peux pas retirer "le spa" de cette sélection car l'info spa n'apparaît pas sur ces fiches ». La synthèse décrit l'ancienne sélection au lieu de dire « c'est reparti sans le filtre spa ». C'est un problème de prompt de synthèse (le ground-truth du tour ne dit pas qu'un filtre vient d'être retiré), pas de filtre — la preuve, c'est que `active_filters` et la liste d'hôtels sont corrects. À traiter avec UX2 (réécriture de `templates.py`), pas ici.
+
+### Pièges et faits découverts pendant la phase
+
+- 📌 **`CLAUDE.md` disait « 13 guards déterministes » alors qu'il y en avait 14 depuis le 2026-08-26** (`poi_anchor_coherence` n'y avait jamais été ajouté). Corrigé au passage en **15** avec les deux entrées manquantes, sinon le fichier que toute session lit en premier partait à deux guards de retard. Le contrat exécutable reste `GUARD_SCORE_NAMES` — `CLAUDE.md` n'en est que le miroir en prose.
+- 🪤 **`dayuse.metrics` n'est capturable ni par `caplog` ni par `capsys`/`capfd` sous pytest.** Son handler est un `StreamHandler` lié au `sys.stdout` du moment de l'import (donc à l'objet de capture GLOBALE de pytest) et il ne propage pas. Les lignes apparaissent bien dans « Captured stdout call » du rapport, mais `capfd.readouterr()` rend vide — deux itérations perdues. Le patron qui marche : brancher un handler jetable sur `logging.getLogger("dayuse.metrics")` (voir `_metric_lines()` dans `test_equipment_ids.py`).
+- 📌 **`railway ssh` est bloqué par le classifieur de permissions** dans cette session : la preuve « le bon code tourne dans le conteneur » a donc été faite **par le comportement** (guard à `true` + liste d'hôtels qui change), pas par un `grep` dans `/app`. C'est au moins aussi fort ici, puisque le guard ne peut pas exister sans le code déployé.
+
+### ⚠️ HORS PÉRIMÈTRE, mesuré et NON corrigé — **le budget affiché n'est pas le budget appliqué** (arbitrage Fabien)
+
+Découvert en analysant UX1, mesuré pendant, **délibérément pas corrigé** : élargir le scope en cours de phase est exactement ce que `SESSIONS-CLAUDE-CODE.md` interdit.
+
+`query_params` part **toujours vide** (`b2c_concierge/agent.py` l. 349-351, commentaire explicite : « its business schema is S4's contract to fill, not S5's ») : tout voyage par `profile_in`. Or `budget_max` n'est **jamais** ré-injecté dans les args de `search_offers`. Les deux autres slots équivalents le sont : `amenities` via `equipment_ids.enforce_equipment_filters`, `adults`/`children` via `occupancy.inject_profile_occupancy`. Côté feuille, `budget_max` n'existe qu'en **lecture** (`response_bridge._budget_timeslot_from_args` le capture depuis le `priceRangeMax` que le modèle a envoyé) — il n'y a aucun chemin d'écriture. Ses seuls consommateurs sont `facade.py` l. 379 (`active_filters`, donc l'UI) et `agent.py` l. 697.
+
+**Mesure** (même couture réelle que les tests UX1 : `inject_profile_occupancy` + `enforce_equipment_filters` + `capture_after_tool` + `emit` + `apply_profile_delta`). Tour 1 : « un hôtel à Paris avec spa, pour 2 adultes, max 80 euros ». Tour 2 : « montre m'en d'autres » (aucune mention de prix, de personnes ou d'équipement).
+
+| Slot | Affiché tour 2 (`active_filters`) | Réellement appliqué tour 2 (arg MCP) |
+|---|---|---|
+| `amenities` | `['spa']` | `hotelEquipmentIds = [35]` ✅ |
+| `adults` | `2` | `adults = 2` ✅ |
+| **`budget_max`** | **`80.0`** | **`priceRangeMax` absent** ❌ |
+
+C'est le **symptôme miroir** de celui de Fabien : là il s'agissait d'un critère retiré qui restait appliqué, ici d'un critère affiché qui n'est pas appliqué. Deux arbitrages possibles, à trancher par Fabien :
+
+1. **Porter le budget comme les amenities** — un `inject_profile_budget` before_tool sur `search_offers`. Cohérent avec les deux autres slots, mais il faudra dire ce que devient la rétraction (« oublie le budget ») : le même canal qu'UX1, ou rien.
+2. **Cesser de l'afficher** — retirer `budget_max` d'`active_filters` quand il ne filtre pas. Moins de code, mais l'UI perd une information que l'utilisateur a bien donnée.
+
+Script de mesure re-jouable dans le scratchpad de session (`measure_budget_gap.py`) — 40 lignes, aucun réseau.
+
 ## ✅ Addendum 2026-08-27 ter — UX5 : le lien de réservation ne dit plus « c'est confirmé »
 
 `templates.booking_link_response` (FR + EN) retirait « C'est confirmé — » / « Confirmed — » avant de coller le lien : la phrase confirmait l'*intention* de l'utilisateur (R9), mais lue à côté du lien et du nom de l'hôtel elle se lisait comme « votre chambre est réservée ». Correctif : `Voici votre lien de réservation pour {hotel} — il reste à finaliser sur la page Dayuse : {url}` / `Here's your booking link for {hotel} — you'll finalize on the Dayuse page: {url}` — zéro changement de logique, zéro changement de signature, `booking_offer_summary_response` (le tour d'avant, qui pose la question) non touché. Wording final = arbitrage produit, 3 variantes FR/EN proposées dans la PR.
