@@ -159,18 +159,25 @@ def _api_key_error(request: Request) -> JSONResponse | None:
     return JSONResponse({"error": "Unauthorized"}, status_code=401)
 
 
-# --- session resolution (cookie → X-Client-Session-Id → M1 legacy body → new) ---------------
+# --- session resolution (X-Client-Session-Id → cookie → M1 legacy body → new) ---------------
+# ORDER MATTERS: the explicit client id comes FIRST, the cookie only backs it up.
+# The cookie is httponly, so a browser client can never drop it from JS — while it
+# won the tie, a page RELOAD resumed the previous server session (Redis profile +
+# ADK history) whatever id the widget asked for: a blank chat answering with the
+# criteria of the search from before the reload. The widget now mints one id per
+# page load (`state.js`), so it owns conversation boundaries; the cookie still
+# carries continuity for header-less callers of the iso-contract (agent-usa's BFF).
 def _valid(session_id: str) -> bool:
     return bool(SESSION_ID_PATTERN.fullmatch(session_id))
 
 
 def _resolve_session_id(request: Request, body: dict[str, Any]) -> str:
-    cookie_sid = (request.cookies.get(_cookie_name()) or "").strip()
-    if cookie_sid and _valid(cookie_sid):
-        return cookie_sid
     client_sid = (request.headers.get("X-Client-Session-Id") or "").strip()
     if client_sid and _valid(client_sid):
         return client_sid
+    cookie_sid = (request.cookies.get(_cookie_name()) or "").strip()
+    if cookie_sid and _valid(cookie_sid):
+        return cookie_sid
     legacy = body.get("session_id")
     if _session_phase() == "M1" and legacy is not None:
         legacy = str(legacy).strip()
@@ -182,12 +189,12 @@ def _resolve_session_id(request: Request, body: dict[str, Any]) -> str:
 
 def _resolve_existing_session_id(request: Request, body: dict[str, Any]) -> str | None:
     """Like _resolve_session_id but never mints a new id (reset/GET semantics)."""
-    cookie_sid = (request.cookies.get(_cookie_name()) or "").strip()
-    if cookie_sid and _valid(cookie_sid):
-        return cookie_sid
     client_sid = (request.headers.get("X-Client-Session-Id") or "").strip()
     if client_sid and _valid(client_sid):
         return client_sid
+    cookie_sid = (request.cookies.get(_cookie_name()) or "").strip()
+    if cookie_sid and _valid(cookie_sid):
+        return cookie_sid
     legacy = body.get("session_id")
     if _session_phase() == "M1" and legacy is not None:
         legacy = str(legacy).strip()

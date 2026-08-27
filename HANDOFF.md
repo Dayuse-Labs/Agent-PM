@@ -2,6 +2,45 @@
 
 État du chantier pour reprise en session fraîche. **Lire en entier avant d'agir ; ne pas reconstruire ce qui existe.** Mettre à jour en fin de CHAQUE session (bloc daté en tête).
 
+## ✅ Addendum 2026-08-27 — le reload du widget ne repart plus sur la session d'avant (précédence `session_id` inversée)
+
+Symptôme rapporté par Fabien : « je rafraîchis la page du widget, je pose une nouvelle recherche et il me parle des critères de la session d'avant le reload ». Ce n'était pas de la dérive de prompt : le serveur **refusait** de laisser le reload ouvrir une nouvelle session.
+
+### Repro live sur `https://widget-production-3f56.up.railway.app` (code AVANT correctif)
+
+| Appel | Envoyé | `conversation_id` rendu | Réponse |
+|---|---|---|---|
+| 1 | « hotel a Bordeaux demain apres-midi avec piscine », client vierge | `cs_reloadtest_…625` + `Set-Cookie du_chat_sid` | 5 hôtels Bordeaux |
+| 2 | **« je cherche un hotel »** (nu), cookie + même id sessionStorage = *reload* | `cs_reloadtest_…625` | « Pour Bordeaux le 28/08/2026, j'ai trouvé 5 hôtels avec piscine… » |
+| 3 | **« je cherche un hotel »**, cookie + id client **tout neuf** | `cs_reloadtest_…625` ← l'ANCIEN | « Pour Bordeaux le 28/08/2026 (avec piscine)… » |
+
+**L'appel 3 est la preuve décisive** : on donne au serveur un `session_id` neuf, il le remplace par celui du cookie. Aucun correctif côté navigateur ne pouvait s'en sortir.
+
+### Les 3 couches (la première est la cause décisive)
+
+1. **Le cookie gagnait sur tout.** `_resolve_session_id` (facade.py) lisait `du_chat_sid` **avant** `X-Client-Session-Id`. Le cookie est `httponly` (donc inatteignable depuis JS) et `max_age=3600` re-posé à chaque tour : pendant 1 h, tout reload — nouvel onglet et redémarrage du navigateur inclus — reprenait la même session serveur, avec le profil Redis (TTL glissant 30 min) et les events ADK.
+2. **Le widget persistait aussi un id à travers les reloads** : `state.js` gardait `clientSessionId` en **sessionStorage** (qui survit à un reload), et `send.js` l'envoie comme `session_id` de body quand `currentConversationId` est `null`, c'est-à-dire juste après un reload. Second porteur de la même continuité.
+3. **L'UI et le serveur n'étaient pas d'accord sur le sens d'un reload** : la page revient avec une conversation vide + le greeting, pendant que le serveur garde tout. D'où le « des fois » : ça dépend si l'heure du cookie / les 30 min de Redis étaient écoulées.
+
+### Correctif (décision produit de Fabien : **un reload = une nouvelle conversation**)
+
+- `facade.py` : précédence inversée dans `_resolve_session_id` **et** `_resolve_existing_session_id` → `X-Client-Session-Id` d'abord, cookie en secours. Le cookie continue donc de porter la continuité pour les appelants **sans header** (le BFF iso-contrat d'agent-usa) : rien ne change pour eux.
+- `state.js` : `clientSessionId` minté **par chargement de page**, plus jamais persisté (la fonction `getOrCreateClientSessionId` et la clé `du_chat_client_session_id` sont supprimées ; une clé résiduelle dans un navigateur qui revient n'est plus jamais relue).
+- `state.js::resetState()` : mint un id neuf. Le bouton « nouvelle conversation » ne recyclait pas seulement l'id — il **rejouait l'id de la session que `/v3/chat/session/reset` venait de supprimer**, ce qui rangeait la conversation neuve sous la session précédente dans Langfuse/Redis.
+
+### Preuves
+
+- Test de régression `tests/api/test_facade_http.py::test_client_header_outranks_an_existing_cookie` : **échoue sur l'ancien code avec exactement la signature du bug** (`AssertionError: assert 'before-reload' == 'after-reload'`, vérifié par `git stash` du seul `facade.py`), passe avec.
+- `pytest -q` : **1452 passed, 1 skipped**. `ruff` + `mypy` (46 fichiers) + `dayuse_guardrails.sh` : verts.
+- Côté widget (node, DOM stubé) : 2 chargements de `state.js` → 2 ids différents ; `resetState()` → id neuf ; **`sessionStorage` jamais touché** (getItem/setItem instrumentés, 0 appel).
+- Le proxy widget forwarde bien `X-Client-Session-Id` (il ne retire que les hop-by-hop et l'en-tête de clé API, `run_widget_proxy.py`).
+
+### ⚠️ Reste à faire
+
+- **NON déployé, donc NON vérifié dans un navigateur.** Le tableau de repro ci-dessus documente l'état AVANT correctif ; la preuve « après » exige un `railway up` de **`concierge`** (précédence) **et** **`widget`** (front vendored), puis un reload réel + question nue.
+- Le body `session_id` (M1 legacy) reste envoyé par le widget et vaut désormais le même id que le header : redondant mais volontaire, c'est le contrat iso agent-usa.
+
+
 ## ✅ Addendum 2026-08-26 decies — les 2 guards date sont CÂBLÉS ; `guard_date_hallucinated_year_rolled_forward` vu à **true 3/3 en prod** (première fois de l'histoire du projet)
 
 Scope : uniquement le câblage de l'observabilité des 2 derniers noms de `GUARD_SCORE_NAMES` sans producteur. Zéro touche à la logique de date, zéro touche à `geocode_tool.py` / `geo_resolver.py`. Branche `feat/obs3-wire-date-guards`, commit `33432ff`, PR ouverte — **non mergée**.

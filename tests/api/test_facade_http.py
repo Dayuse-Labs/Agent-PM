@@ -47,6 +47,27 @@ def test_x_client_session_id_header_pins_the_session(client):
     assert r.json()["session_id"] == "pinned-123"
 
 
+def test_client_header_outranks_an_existing_cookie(client):
+    """THE RELOAD BUG. The `du_chat_sid` cookie is httponly, so the widget cannot
+    drop it from JS: while it outranked `X-Client-Session-Id`, a reloaded page —
+    which wipes the visible conversation and mints a new client session id — was
+    silently pinned back onto the previous server session, and answered a fresh
+    "je cherche un hotel" with the city/date/amenities of the search before the
+    reload. The explicit client id must win; the cookie only backs it up."""
+    first = client.post(
+        "/v3/chat", json={"message": "Bonjour !"}, headers={"X-Client-Session-Id": "before-reload"}
+    )
+    assert first.json()["session_id"] == "before-reload"
+    assert "du_chat_sid=before-reload" in first.headers.get("set-cookie", "")
+
+    # Same cookie jar (the browser kept the cookie across the reload), new id.
+    second = client.post(
+        "/v3/chat", json={"message": "Bonjour !"}, headers={"X-Client-Session-Id": "after-reload"}
+    )
+    assert second.json()["session_id"] == "after-reload"
+    assert "du_chat_sid=after-reload" in second.headers.get("set-cookie", "")
+
+
 def test_m1_accepts_legacy_body_session_when_no_cookie(fresh_client):
     c = fresh_client()
     r = c.post("/v3/chat", json={"message": "hello", "session_id": "legacy_session_123"})

@@ -9,8 +9,14 @@ function readMeta(name) {
     return document.querySelector(`meta[name="${name}"]`)?.content?.trim() || '';
 }
 
-const CLIENT_SESSION_STORAGE_KEY = 'du_chat_client_session_id';
-
+/**
+ * One id per PAGE LOAD — deliberately NOT persisted (it used to live in
+ * sessionStorage, which survives a reload). A reload wipes the visible
+ * conversation, so it must start a new server session too: the id we mint here
+ * is what `api.js` sends as `X-Client-Session-Id`, and the facade now trusts
+ * that header over its own httponly `du_chat_sid` cookie. Persist this again
+ * and the reloaded page silently resumes the previous search's criteria.
+ */
 function createRandomId() {
     try {
         if (typeof crypto !== 'undefined' && typeof crypto.randomUUID === 'function') {
@@ -20,19 +26,6 @@ function createRandomId() {
         // no-op
     }
     return `cs_${Date.now()}_${Math.random().toString(36).slice(2, 12)}`;
-}
-
-function getOrCreateClientSessionId() {
-    try {
-        const existing = sessionStorage.getItem(CLIENT_SESSION_STORAGE_KEY);
-        if (existing) return String(existing);
-        const next = createRandomId();
-        sessionStorage.setItem(CLIENT_SESSION_STORAGE_KEY, next);
-        return next;
-    } catch (_e) {
-        // Privacy mode / storage restrictions fallback.
-        return createRandomId();
-    }
 }
 
 function getInitialEntrySource() {
@@ -56,7 +49,7 @@ export const DEFAULT_MARKET_CONTEXT = Object.freeze({
 });
 
 export const state = {
-    clientSessionId: getOrCreateClientSessionId(),
+    clientSessionId: createRandomId(),
     currentConversationId: null,
     currentTurnId: null,
     turnSequence: 0,
@@ -125,6 +118,10 @@ export function applyMarketFromResponse(data) {
 
 // Reset state
 export function resetState() {
+    // A new conversation gets a new client session id: the reset endpoint just
+    // deleted the server session behind the old one, and reusing that id would
+    // file the fresh conversation under the previous session in Langfuse/Redis.
+    state.clientSessionId = createRandomId();
     state.currentConversationId = null;
     state.currentTurnId = null;
     state.turnSequence = 0;
