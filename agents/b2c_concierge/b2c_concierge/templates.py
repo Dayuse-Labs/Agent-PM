@@ -405,7 +405,11 @@ _DEGRADED: dict[str, dict[str, str]] = {
 _DEGRADED_SUFFIX: dict[str, str] = {
     "fr": " pour le moment, et je préfère ne rien inventer. Pouvez-vous réessayer dans un instant ?",
     "en": " right now, and I'd rather not make anything up. Could you try again in a moment?",
-    "es": " en este momento, y prefiero no inventar nada. ¿Puedes intentarlo de nuevo en un momento?",
+    # "ahora mismo", not "en este momento": leaf_degraded_response's `{where}`
+    # already ends in "en {city}" right before this suffix — avoids stacking
+    # "en Paris en este momento" back to back. Matches _SERVICE_DEGRADED's ES
+    # phrasing for the same "right now" slot.
+    "es": " ahora mismo, y prefiero no inventar nada. ¿Puedes intentarlo de nuevo en un momento?",
     "it": " in questo momento, e preferisco non inventare nulla. Puoi riprovare tra un istante?",
     "de": ", und ich möchte mir nichts ausdenken. Kannst du es in einem Moment noch einmal versuchen?",
     "pt": " neste momento, e prefiro não inventar nada. Pode tentar novamente daqui a pouco?",

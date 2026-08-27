@@ -227,9 +227,10 @@ def _clarify_question(options: list[GeocodeCandidate], language: str | None = No
         labels.append(f"{c.name} ({ctx})" if ctx else c.name)
     lang = language if language in _CLARIFY_ONE else "en"
     if len(labels) == 1:
-        return _CLARIFY_ONE[lang].format(label=labels[0])
-    joined = ", ".join(labels[:-1]) + _CLARIFY_LAST_SEP[lang] + labels[-1]
-    return _CLARIFY_MANY[lang].format(joined=joined)
+        return _CLARIFY_ONE.get(lang, _CLARIFY_ONE["en"]).format(label=labels[0])
+    sep = _CLARIFY_LAST_SEP.get(lang, _CLARIFY_LAST_SEP["en"])
+    joined = ", ".join(labels[:-1]) + sep + labels[-1]
+    return _CLARIFY_MANY.get(lang, _CLARIFY_MANY["en"]).format(joined=joined)
 
 
 _CITY_NEEDED: dict[str, str] = {
