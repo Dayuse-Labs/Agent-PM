@@ -1241,6 +1241,191 @@ class TestRatePlanSelector:
         assert "get_hotel_details" not in {c[0] for c in session.calls}
 
 
+class TestRatePlanDedupOnDisplaySignature:
+    """UX4 (2026-08-27, phases/UX4-rateplans-indistinguables.md): dedupe on the
+    DISPLAY signature the widget actually renders, not just `offer_id` — two
+    MCP offers with different UUIDs but the same `(offer_type, name,
+    start_time, end_time, price_eur_cents)` produce two rigorously identical
+    rows, and there is no choice to offer when the user cannot tell two rows
+    apart. Price stays IN the signature on purpose: a real price difference is
+    a real choice and must never be collapsed away.
+
+    Both named edge cases live in `messages.js`'s own `nameLeads` comment —
+    Ibis La Ciotat (type+slot collide, names differ) and Mercure Lyon Saxe
+    (name collides, slots differ) — and must survive here exactly as the
+    frontend heuristic already treats them: kept, not collapsed.
+    """
+
+    def _mcp(self, monkeypatch, offers, link=None):
+        return _install(
+            monkeypatch,
+            {
+                "get_hotel_details": FakeResult({"hotel": {"hotelId": 22293}, "offers": offers}),
+                "generate_booking_link": link
+                or (
+                    lambda args: FakeResult(
+                        {"link": {"url": f"https://www.dayuse.fr/tunnel?offerId={args['ratePlanUuid']}"}}
+                    )
+                ),
+            },
+        )
+
+    def _pick(self, profile):
+        return _run(
+            inline_tools.generate_booking_link(
+                "le moins cher", profile, user_confirmed=False, picked_hotel_id=22293
+            )
+        )
+
+    def _profile(self):
+        return SessionProfile(
+            last_results=[{"hotel_id": 22293, "name": "Villa Paris Orly"}], date="2026-07-28"
+        )
+
+    def test_two_different_uuids_with_an_identical_display_signature_collapse_to_one(
+        self, monkeypatch
+    ):
+        session = self._mcp(
+            monkeypatch,
+            offers=[
+                {
+                    "ratePlanUuid": "rp-a",
+                    "availabilityDate": "2026-07-28",
+                    "startHour": 10,
+                    "endHour": 15,
+                    "priceEuro": 7000,
+                    "offerType": "dayuse.day",
+                    "ratePlanName": "Standard Room",
+                },
+                {
+                    "ratePlanUuid": "rp-b",
+                    "availabilityDate": "2026-07-28",
+                    "startHour": 10,
+                    "endHour": 15,
+                    "priceEuro": 7000,
+                    "offerType": "dayuse.day",
+                    "ratePlanName": "Standard Room",
+                },
+            ],
+        )
+        result = self._pick(self._profile())
+        # A single survivor collapses back to the plain, selector-less card —
+        # `renderRatePlans`' own NO_PLANS threshold (`plans.length < 2`).
+        # Nothing to change on the widget side.
+        assert "rate_plans" not in result
+        assert result["url"].endswith("offerId=rp-a")  # the first one encountered, kept
+        # Deduped BEFORE the link round-trip: rp-b never costs an MCP call —
+        # the reason this lives in the backend (MCP 429s on chained calls).
+        link_calls = [c[1]["ratePlanUuid"] for c in session.calls if c[0] == "generate_booking_link"]
+        assert link_calls == ["rp-a"]
+
+    def test_ibis_la_ciotat_same_type_and_slot_different_names_keeps_all_three(self, monkeypatch):
+        """Real edge case: 3 formulas, all `dayuse.day`, all 10:00-15:00,
+        differing only by room (sea view / balcony / standard). The signature
+        must NOT collapse on type+slot alone — losing real inventory."""
+        self._mcp(
+            monkeypatch,
+            offers=[
+                {
+                    "ratePlanUuid": f"rp-{i}",
+                    "availabilityDate": "2026-07-28",
+                    "startHour": 10,
+                    "endHour": 15,
+                    "priceEuro": 7000,
+                    "offerType": "dayuse.day",
+                    "ratePlanName": name,
+                }
+                for i, name in enumerate(
+                    ["Chambre Vue Mer", "Chambre avec Balcon", "Chambre Standard"]
+                )
+            ],
+        )
+        result = self._pick(self._profile())
+        assert {p["offer_id"] for p in result["rate_plans"]} == {"rp-0", "rp-1", "rp-2"}
+
+    def test_mercure_lyon_saxe_same_name_different_slots_keeps_all_three(self, monkeypatch):
+        """Real edge case: 3 formulas all named "Standard King Room",
+        differing only by timeslot. The signature must NOT collapse on the
+        shared name alone."""
+        self._mcp(
+            monkeypatch,
+            offers=[
+                {
+                    "ratePlanUuid": f"rp-{i}",
+                    "availabilityDate": "2026-07-28",
+                    "startHour": start,
+                    "endHour": end,
+                    "priceEuro": 7000,
+                    "offerType": "dayuse.day",
+                    "ratePlanName": "Standard King Room",
+                }
+                for i, (start, end) in enumerate([(10, 15), (15, 20), (20, 23)])
+            ],
+        )
+        result = self._pick(self._profile())
+        assert {p["offer_id"] for p in result["rate_plans"]} == {"rp-0", "rp-1", "rp-2"}
+
+    def test_a_real_price_difference_is_never_collapsed_away(self, monkeypatch):
+        """Same type, name and slot but a different price IS a real choice —
+        the price is displayed, the user sees the difference."""
+        self._mcp(
+            monkeypatch,
+            offers=[
+                {
+                    "ratePlanUuid": "rp-cheap",
+                    "availabilityDate": "2026-07-28",
+                    "startHour": 10,
+                    "endHour": 15,
+                    "priceEuro": 7000,
+                    "offerType": "dayuse.day",
+                    "ratePlanName": "Standard Room",
+                },
+                {
+                    "ratePlanUuid": "rp-costly",
+                    "availabilityDate": "2026-07-28",
+                    "startHour": 10,
+                    "endHour": 15,
+                    "priceEuro": 8000,
+                    "offerType": "dayuse.day",
+                    "ratePlanName": "Standard Room",
+                },
+            ],
+        )
+        result = self._pick(self._profile())
+        assert {p["offer_id"] for p in result["rate_plans"]} == {"rp-cheap", "rp-costly"}
+
+    def test_priceless_plans_are_not_wrongly_collapsed_on_their_shared_none_price(
+        self, monkeypatch
+    ):
+        """Two formulas with no `priceEuro` both carry `price_eur_cents=None`
+        — still bookable, just not comparable. That shared None must not be
+        enough to collapse them when they genuinely differ elsewhere: the
+        other signature members must suffice on their own."""
+        self._mcp(
+            monkeypatch,
+            offers=[
+                {
+                    "ratePlanUuid": "rp-noprice-a",
+                    "availabilityDate": "2026-07-28",
+                    "startHour": 10,
+                    "endHour": 15,
+                    "offerType": "dayuse.day",
+                    "ratePlanName": "Chambre Vue Mer",
+                },
+                {
+                    "ratePlanUuid": "rp-noprice-b",
+                    "availabilityDate": "2026-07-28",
+                    "startHour": 10,
+                    "endHour": 15,
+                    "offerType": "dayuse.day",
+                    "ratePlanName": "Chambre avec Balcon",
+                },
+            ],
+        )
+        result = self._pick(self._profile())
+        assert {p["offer_id"] for p in result["rate_plans"]} == {"rp-noprice-a", "rp-noprice-b"}
+
+
 class TestHotelAmenitiesAreCardLevel:
     """S-CX8 / MCP 2026-07-28: `includedAmenities` arrived with the deploy. It is
     NOT a per-formula inclusion — probed over 227 multi-formula days it was
