@@ -39,6 +39,7 @@ Usage:
 from __future__ import annotations
 
 import argparse
+import hashlib
 import mimetypes
 import os
 import re
@@ -138,12 +139,35 @@ class WidgetProxyHandler(BaseHTTPRequestHandler):
             self.send_error(404)
 
     # --- static / index --------------------------------------------------------------------
-    def _respond_html(self, body: bytes) -> None:
+    def _send_cacheable(self, body: bytes, content_type: str) -> None:
+        """Serve `body` with a content ETag and `Cache-Control: no-cache`.
+
+        The widget assets are UNVERSIONED (no content hash in the filename, and
+        the page loads them at fixed paths), and this handler used to send no
+        validator and no cache directive at all — leaving the browser free to
+        reuse a heuristically-cached copy without asking. That is a correctness
+        problem, not a performance one: a page holding an old `state.js` against
+        a newer facade is exactly the class of bug the 2026-08-27 session-reload
+        fix was about. `no-cache` means "you may store it, but revalidate before
+        every use", so the client still gets a cheap 304 instead of the bytes.
+        """
+        etag = f'"{hashlib.sha256(body).hexdigest()[:32]}"'
+        if self.headers.get("If-None-Match") == etag:
+            self.send_response(304)
+            self.send_header("ETag", etag)
+            self.send_header("Cache-Control", "no-cache")
+            self.end_headers()
+            return
         self.send_response(200)
-        self.send_header("Content-Type", "text/html; charset=utf-8")
+        self.send_header("Content-Type", content_type)
         self.send_header("Content-Length", str(len(body)))
+        self.send_header("ETag", etag)
+        self.send_header("Cache-Control", "no-cache")
         self.end_headers()
         self.wfile.write(body)
+
+    def _respond_html(self, body: bytes) -> None:
+        self._send_cacheable(body, "text/html; charset=utf-8")
 
     def _serve_static(self, path: str) -> None:
         root = (self.agent_usa_dir / "static").resolve()
@@ -155,12 +179,7 @@ class WidgetProxyHandler(BaseHTTPRequestHandler):
             self.send_error(404)
             return
         content_type = mimetypes.guess_type(str(target))[0] or "application/octet-stream"
-        body = target.read_bytes()
-        self.send_response(200)
-        self.send_header("Content-Type", content_type)
-        self.send_header("Content-Length", str(len(body)))
-        self.end_headers()
-        self.wfile.write(body)
+        self._send_cacheable(target.read_bytes(), content_type)
 
     # --- reverse proxy (streams incrementally — SSE-safe) -----------------------------------
     def _proxy(self, method: str) -> None:
