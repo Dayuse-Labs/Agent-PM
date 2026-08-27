@@ -106,8 +106,8 @@ def booking_link_response(*, hotel_name: str, url: str | None, language: str) ->
     if not url:
         return booking_needs_selection_response(None, None, language)
     if language == "fr":
-        return f"C'est confirmé — voici votre lien de réservation pour {hotel_name} : {url}"
-    return f"Confirmed — here is your booking link for {hotel_name}: {url}"
+        return f"Voici votre lien de réservation pour {hotel_name} — il reste à finaliser sur la page Dayuse : {url}"
+    return f"Here's your booking link for {hotel_name} — you'll finalize on the Dayuse page: {url}"
 
 
 def booking_needs_selection_response(
