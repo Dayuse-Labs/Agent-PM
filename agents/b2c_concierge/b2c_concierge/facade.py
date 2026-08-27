@@ -10,7 +10,8 @@ agent-usa, not a peer agent.
 WHAT THIS IS — and is NOT. The response is iso-contract with agent-usa's
 `/v3/chat` in SHAPE (same keys/types, so the frontend switch is invisible), NOT
 in semantics: the B2C spine has no staged intake, no market engine, and answers
-only fr/en — so agent-usa's staged-workflow fields are MAPPED from the spine's
+in the 7 languages triage recognizes (UX2, 2026-08-27) — so agent-usa's
+staged-workflow fields are MAPPED from the spine's
 real state where an equivalent exists and given honest, documented defaults
 where it doesn't (see build_chat_payload). The RGPD/honesty invariant is about
 never inventing a hotel/price/policy — these control booleans are not hotel data.
@@ -622,8 +623,8 @@ def _parse_client_timezone(raw: Any) -> str | None:
 
 
 # `_locale_response_language` moved to triage.locale_response_language (S-CX2:
-# the spine's template paths need the same locale→fr/en mapping as this facade)
-# — imported under its historical local name above.
+# the spine's template paths need the same locale→TEMPLATE_LANGUAGES mapping
+# as this facade) — imported under its historical local name above.
 
 
 def _parse_gps_anchor(body: dict[str, Any], turn_index: int) -> dict[str, Any] | None:
@@ -728,11 +729,12 @@ def _shield_payload(
         "facade_shield", service=SERVICE, invocation_id=session_id,
         path=path, error_type=type(exc).__name__,
     )
-    # Customers span many countries/languages; templates exist in fr/en only.
-    # A DECLARED locale we have no translation for answers in ENGLISH (Fabien,
-    # PR #34 review) — never via guess_language, whose French hints can misfire
-    # on other Romance languages (es/it/pt). The message-language guess remains
-    # only for requests that carry no locale at all.
+    # Customers span many countries/languages; templates now exist for the 7
+    # triage recognizes (UX2, 2026-08-27). A DECLARED locale we STILL have no
+    # translation for answers in ENGLISH (Fabien, PR #34 review) — never via
+    # guess_language, whose French hints can misfire on other Romance
+    # languages (es/it/pt). The message-language guess remains only for
+    # requests that carry no locale at all.
     locale = _parse_locale(body.get("locale"))
     if locale:
         language = _locale_response_language(locale) or "en"

@@ -1745,3 +1745,44 @@ class TestGuardsFiredCrossesA2A:
         ctx = _Ctx()
         record_guards_fired(ctx, [])
         assert "temp:hotel_search_guards_fired" not in ctx.state
+
+
+class TestUX2SevenLanguageTexts:
+    """UX2 (2026-08-27): `_profile_language`/`_outcome_text`/
+    `_search_unavailable_text`/`_date_fallback_line` widened from fr/en to
+    the 7 languages the concierge can now answer in."""
+
+    def test_profile_language_recognizes_all_seven(self):
+        from hotel_search_agent.response_bridge import _profile_language
+
+        for lang in ("fr", "en", "es", "it", "de", "pt", "nl"):
+            ctx = _Ctx(user_content=_user_content_with_profile_in({"language": lang}))
+            assert _profile_language(ctx) == lang
+
+    def test_profile_language_falls_back_to_english(self):
+        from hotel_search_agent.response_bridge import _profile_language
+
+        ctx = _Ctx(user_content=_user_content_with_profile_in({"language": "ja"}))
+        assert _profile_language(ctx) == "en"
+
+    def test_outcome_text_is_localized_es(self):
+        ctx = _Ctx(
+            {_RESULTS_KEY: []},
+            user_content=_user_content_with_profile_in({"language": "es"}),
+        )
+        content = emit_search_datapart(ctx)
+        assert "No se encontraron ofertas" in content.parts[0].text
+
+    def test_search_unavailable_text_is_localized_de(self):
+        ctx = _Ctx(
+            {_SEARCH_UNAVAILABLE_KEY: True},
+            user_content=_user_content_with_profile_in({"language": "de"}),
+        )
+        content = emit_search_datapart(ctx)
+        assert "Hotelsuche ist momentan nicht verfügbar" in content.parts[0].text
+
+    def test_outcome_text_new_languages_never_fall_back_to_english(self):
+        results = [{"name": "Hotel 1"}]
+        en = _outcome_text(results, False, "en")
+        for lang in ("es", "it", "de", "pt", "nl"):
+            assert _outcome_text(results, False, lang) != en

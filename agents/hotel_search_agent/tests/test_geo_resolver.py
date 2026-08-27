@@ -235,6 +235,32 @@ def test_clarify_question_is_localized_fr():
     assert "British Columbia" in res.question and "Texas" in res.question
 
 
+def test_clarify_question_is_localized_es():
+    # UX2 (2026-08-27): widened from fr/en to the 7 languages the concierge
+    # can now answer in.
+    bc = cand("Victoria", "CA", "British Columbia", lat=48.43, rank=0)
+    tx = cand("Victoria", "US", "Texas", lat=28.80, rank=1)
+    inv = FakeInventory({48.43: 20, 28.80: 15})
+    res = geo_resolver.resolve([bc, tx], inventory=inv, language="es")
+    assert res.decision == "clarify"
+    assert "cuál querías decir" in res.question
+    assert "British Columbia" in res.question and "Texas" in res.question
+
+
+def test_clarify_question_unrecognized_language_falls_back_to_english():
+    bc = cand("Victoria", "CA", "British Columbia", lat=48.43, rank=0)
+    tx = cand("Victoria", "US", "Texas", lat=28.80, rank=1)
+    inv = FakeInventory({48.43: 20, 28.80: 15})
+    res = geo_resolver.resolve([bc, tx], inventory=inv, language="ja")
+    assert "which did you mean" in res.question
+
+
+def test_city_needed_question_is_localized_nl():
+    assert geo_resolver.city_needed_question("gare de lyon", "nl") == (
+        'In de buurt van "gare de lyon" — in welke stad zoek je?'
+    )
+
+
 def test_adjacent_near_duplicate_is_not_asked_about():
     # "New York" vs "West New York, NJ" (~8 km): a suburb sharing the same search
     # area is not a genuine alternative — select the top, never ask.

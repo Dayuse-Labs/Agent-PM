@@ -399,16 +399,19 @@ def geocode_location(
             city switch that should clear a stale state anchor.
         locale: The client's own locale tag (profile_in.locale, S-G2 native-
             context — e.g. "pt-PT"; NOT profile_in.language, which is triage's
-            fr/en-only conversation-language guess and can never carry "pt") —
-            a SOFT signal: it biases Mapbox scoring/localisation and gives the
-            same-country candidate a bounded prior. Never a filter. Injected
-            deterministically by `inject_profile_geo_context` below (S-G7) —
-            never expected from the model itself (it has no reliable way to
-            know the client's UI locale).
-        language_hint: The conversation language (profile_in.language, triage's
-            fr/en guess), injected deterministically like `locale`. Used ONLY
-            as a fallback for the Mapbox `language` request param when no real
-            locale exists — NEVER for the resolver's country prior
+            conversation-language guess and carries only the 2-letter code
+            itself, e.g. "pt", never the region) — a SOFT signal: it biases
+            Mapbox scoring/localisation and gives the same-country candidate a
+            bounded prior. Never a filter. Injected deterministically by
+            `inject_profile_geo_context` below (S-G7) — never expected from
+            the model itself (it has no reliable way to know the client's UI
+            locale).
+        language_hint: The conversation language (profile_in.language,
+            triage's recognized-language guess, one of the 7 in
+            triage.LANGUAGES since P1-2/UX2), injected deterministically like
+            `locale`. Used ONLY as a fallback for the Mapbox `language`
+            request param when no real locale exists — NEVER for the
+            resolver's country prior
             (`_locale_country` stays locale-only: a triage language guess must
             not boost a country, S-G7 pitfall). Why it matters: S-G9 showed
             Mapbox's candidate LIST itself changes with `language` — the bare
@@ -896,10 +899,11 @@ def inject_profile_geo_context(tool: object, args: dict, tool_context: object) -
     - `locale` (S-G7): same category as the two above — the client's own
       native-context locale (profile_in.locale), always profile-sourced.
       The leaf's instruction used to ask the model to copy `profile_in.language`
-      here instead; that field is triage's fr/en-only conversation-language
-      guess (never "pt"/"it"/…), so it could never actually carry the Lisboa
-      case's locale prior. Fixed by injecting the real field deterministically,
-      same doctrine as everything else in this callback.
+      here instead; that field is triage's conversation-language guess and
+      carries only the bare 2-letter code (e.g. "pt"), never a region, so it
+      could never actually carry the Lisboa case's locale prior ("pt-PT").
+      Fixed by injecting the real field deterministically, same doctrine as
+      everything else in this callback.
     A profile with nothing to offer (first turn, no DataPart) leaves `args`
     exactly as the model wrote them."""
     if getattr(tool, "name", "") != "geocode_location":

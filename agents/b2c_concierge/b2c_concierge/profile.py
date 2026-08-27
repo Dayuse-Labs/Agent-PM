@@ -94,21 +94,41 @@ MAX_SHOWN_HOTEL_IDS = 25
 
 _metrics_logger = logging.getLogger("b2c_concierge.metrics")
 
-# Recovery suggestions (P2): code-owned, localized — set on the profile the
-# moment a search returns zero results so a later bare "ok"/"sure" can be
-# matched against them deterministically (never against the LLM's own prose).
-_RECOVERY_SUGGESTIONS_FR = ["augmenter le budget", "élargir la zone", "retirer un filtre"]
-_RECOVERY_SUGGESTIONS_EN = ["increase the budget", "try a nearby area", "remove a filter"]
+# Recovery suggestions (P2): code-owned, localized (7 languages since UX2,
+# 2026-08-27) — set on the profile the moment a search returns zero results so
+# a later bare "ok"/"sure" can be matched against them deterministically
+# (never against the LLM's own prose). Matching (`is_search_refinement_signal`
+# below) is a verbatim membership check against the PERSISTED list, so it
+# works identically whatever language the labels are in.
+_RECOVERY_SUGGESTIONS: dict[str, list[str]] = {
+    "fr": ["augmenter le budget", "élargir la zone", "retirer un filtre"],
+    "en": ["increase the budget", "try a nearby area", "remove a filter"],
+    "es": ["aumentar el presupuesto", "ampliar la zona", "quitar un filtro"],
+    "it": ["aumentare il budget", "ampliare la zona", "rimuovere un filtro"],
+    "de": ["Budget erhöhen", "Umkreis erweitern", "einen Filter entfernen"],
+    "pt": ["aumentar o orçamento", "alargar a zona", "retirar um filtro"],
+    "nl": ["budget verhogen", "gebied vergroten", "een filter verwijderen"],
+}
 
 # S-CX6: a SAME-DAY dead end has exactly one cure, and it is not in the trio
 # above — day-use booking cutoffs land on the stay date itself (latest ~16h
 # local, measured), so from mid-afternoon "today" is closed market-wide and
 # budget/zone/filter chips send the user chasing a problem that isn't there.
-# These labels are deliberately worded so `_DATE_MENTION_RE` matches them when
-# they come back as a message: a click then relaunches a dated search through
-# the refinement path that already exists, with no new plumbing.
-_DATE_SUGGESTIONS_FR = ["voir demain", "après-demain", "élargir la zone"]
-_DATE_SUGGESTIONS_EN = ["see tomorrow", "the day after tomorrow", "try a nearby area"]
+# The fr/en labels are deliberately worded so `_DATE_MENTION_RE` ALSO matches
+# them as a belt-and-suspenders path when they come back as a message (a
+# click then relaunches a dated search through the refinement path that
+# already exists, with no new plumbing) — that regex stays fr/en-only
+# (out of UX2's scope), so the 5 new languages rely solely on the verbatim
+# membership check above, which is unconditional and sufficient on its own.
+_DATE_SUGGESTIONS: dict[str, list[str]] = {
+    "fr": ["voir demain", "après-demain", "élargir la zone"],
+    "en": ["see tomorrow", "the day after tomorrow", "try a nearby area"],
+    "es": ["ver mañana", "pasado mañana", "ampliar la zona"],
+    "it": ["vedi domani", "dopodomani", "ampliare la zona"],
+    "de": ["morgen ansehen", "übermorgen", "Umkreis erweitern"],
+    "pt": ["ver amanhã", "depois de amanhã", "alargar a zona"],
+    "nl": ["morgen bekijken", "overmorgen", "gebied vergroten"],
+}
 
 # A bare affirmative — narrower than triage.is_social_ack (which also matches
 # greetings/thanks/farewells): only THESE words, alone, signal "yes, do that"
@@ -728,12 +748,10 @@ def record_search_outcome(
         profile.widen_attempt_count = 0
         profile.search_exhausted = False
     elif same_day_dead_end:
-        profile.last_suggestions = list(
-            _DATE_SUGGESTIONS_FR if language == "fr" else _DATE_SUGGESTIONS_EN
-        )
+        profile.last_suggestions = list(_DATE_SUGGESTIONS.get(language, _DATE_SUGGESTIONS["en"]))
     else:
         profile.last_suggestions = list(
-            _RECOVERY_SUGGESTIONS_FR if language == "fr" else _RECOVERY_SUGGESTIONS_EN
+            _RECOVERY_SUGGESTIONS.get(language, _RECOVERY_SUGGESTIONS["en"])
         )
 
 

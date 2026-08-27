@@ -82,8 +82,9 @@ class TestLanguageGuess:
 
 
 class TestTemplateLanguage:
-    """S-CX2: fr/en for a template answer — established conversation language,
-    then client locale, then the message's own detected language."""
+    """The 7 languages for a template answer (UX2, 2026-08-27) — established
+    conversation language, then client locale, then the message's own
+    detected language."""
 
     def test_profile_language_wins(self):
         assert triage_module.template_language("fr", "en-GB", "hello") == "fr"
@@ -91,10 +92,16 @@ class TestTemplateLanguage:
     def test_locale_beats_the_guess_on_a_bare_ok(self):
         assert triage_module.template_language(None, "fr-FR", "ok") == "fr"
 
+    def test_a_now_supported_locale_beats_the_french_hints_guess(self):
+        # UX2 widened templates.py to 7 languages: a declared "es" locale now
+        # wins, including over a message that would trip the French-hints
+        # guess (piège: an Italian/Spanish message can match `_FR_HINTS`).
+        assert triage_module.template_language(None, "es-ES", "je cherche un hôtel") == "es"
+
     def test_unsupported_locale_answers_english(self):
         # Fabien (PR #34 review): no translation for the declared language →
         # English, even when the message text would trip the French-hints guess.
-        assert triage_module.template_language(None, "es-ES", "je cherche un hôtel") == "en"
+        assert triage_module.template_language(None, "ja-JP", "je cherche un hôtel") == "en"
 
     def test_no_locale_falls_back_to_the_message_guess(self):
         assert triage_module.template_language(None, None, "je cherche un hôtel") == "fr"
@@ -105,7 +112,9 @@ class TestTemplateLanguage:
     def test_locale_response_language_maps_primary_tag(self):
         assert triage_module.locale_response_language("fr-FR") == "fr"
         assert triage_module.locale_response_language("en") == "en"
-        assert triage_module.locale_response_language("pt-PT") is None
+        # UX2: all 7 recognized languages are now answerable, pt included.
+        assert triage_module.locale_response_language("pt-PT") == "pt"
+        assert triage_module.locale_response_language("ja-JP") is None
         assert triage_module.locale_response_language(None) is None
 
 
@@ -410,12 +419,13 @@ class TestP1Slots:
 
 
 class TestP1LanguageRecognition:
-    """P1-2: recognition widens to 7 languages so the slots above work outside
-    fr/en; what we ANSWER in stays fr/en until templates.py is translated."""
+    """P1-2 widened RECOGNITION to 7 languages so the slots above work outside
+    fr/en; UX2 (2026-08-27) closed the remaining gap by translating
+    templates.py, so what we ANSWER in now equals what we recognize."""
 
     def test_the_recognized_set(self):
         assert LANGUAGES == ("fr", "en", "es", "it", "de", "pt", "nl")
-        assert TEMPLATE_LANGUAGES == ("fr", "en")
+        assert TEMPLATE_LANGUAGES == LANGUAGES
 
     @pytest.mark.parametrize("lang", ["es", "it", "de", "pt", "nl"])
     def test_a_newly_recognized_language_survives_validation(self, monkeypatch, lang):
@@ -426,12 +436,14 @@ class TestP1LanguageRecognition:
         _script(monkeypatch, '{"family": "search", "language": "kl"}')
         assert _classify("je cherche un hotel").language == "fr"
 
-    @pytest.mark.parametrize("lang", ["es", "it", "de", "pt", "nl", "kl", None, ""])
-    def test_response_language_clamps_everything_untranslated_to_english(self, lang):
+    @pytest.mark.parametrize("lang", ["kl", None, ""])
+    def test_response_language_clamps_everything_unrecognized_to_english(self, lang):
         assert response_language(lang) == "en"
 
-    @pytest.mark.parametrize("lang", ["fr", "en"])
-    def test_response_language_passes_the_two_we_can_write(self, lang):
+    @pytest.mark.parametrize("lang", ["fr", "en", "es", "it", "de", "pt", "nl"])
+    def test_response_language_passes_through_every_recognized_language(self, lang):
+        # UX2: the clamp is now a near-identity map — every recognized
+        # language is answerable, not just fr/en.
         assert response_language(lang) == lang
 
     def test_the_prompt_lists_the_widened_enum(self):

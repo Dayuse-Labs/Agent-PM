@@ -18,6 +18,8 @@ from __future__ import annotations
 
 import logging
 
+import pytest
+
 from b2c_concierge.profile import (
     AUTO_WIDEN_MAX_ATTEMPTS,
     BUDGET_SOURCE_EXPLICIT,
@@ -602,6 +604,29 @@ class TestRecoverySuggestionsLifecycle:
         )
         assert profile.last_suggestions == [
             "augmenter le budget", "élargir la zone", "retirer un filtre",
+        ]
+
+    @pytest.mark.parametrize("language", ["es", "it", "de", "pt", "nl"])
+    def test_new_ux2_languages_never_fall_back_to_english(self, language):
+        # UX2 (2026-08-27): recovery + date suggestions widened from fr/en.
+        recovery = SessionProfile()
+        record_search_outcome(recovery, results_count=0, language=language)
+        assert recovery.last_suggestions != [
+            "increase the budget", "try a nearby area", "remove a filter",
+        ]
+        dated = SessionProfile()
+        record_search_outcome(
+            dated, results_count=0, language=language, same_day_dead_end=True
+        )
+        assert dated.last_suggestions != [
+            "see tomorrow", "the day after tomorrow", "try a nearby area",
+        ]
+
+    def test_an_unrecognized_language_falls_back_to_english_chips(self):
+        profile = SessionProfile()
+        record_search_outcome(profile, results_count=0, language="ja")
+        assert profile.last_suggestions == [
+            "increase the budget", "try a nearby area", "remove a filter",
         ]
 
 

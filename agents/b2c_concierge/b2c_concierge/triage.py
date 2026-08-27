@@ -78,13 +78,16 @@ FALLBACK_PICK = "none"
 # duplicated the fr/en word lists in two places.
 BOOKING_CONFIRMATIONS = ("none", "confirm", "refuse", "change")
 
-# P1-2. Languages the classify may RECOGNIZE. Wider than the languages we can
-# ANSWER in on purpose: recognition is what lets the semantic slots above work
-# outside fr/en, which is the entire point of P1-1. `response_language()` below
-# is the clamp that keeps this from silently changing what users are answered
-# in — see its docstring.
+# P1-2 widened the classify to RECOGNIZE 7 languages so the semantic slots
+# above work outside fr/en; UX2 (2026-08-27) closed the remaining gap by
+# translating templates.py for the 5 new ones, so TEMPLATE_LANGUAGES now
+# equals LANGUAGES. Kept as two names, not one: LANGUAGES is what triage
+# recognizes, TEMPLATE_LANGUAGES is what the spine can actually answer in —
+# `response_language()` below is the single choke point that keeps them in
+# sync, so a future language pulled from templates.py without being pulled
+# from LANGUAGES is caught there, not at every call site.
 LANGUAGES = ("fr", "en", "es", "it", "de", "pt", "nl")
-TEMPLATE_LANGUAGES = ("fr", "en")
+TEMPLATE_LANGUAGES = LANGUAGES
 FALLBACK_RESPONSE_LANGUAGE = "en"
 
 # A hotel name is a name, not a sentence: a model that echoes the whole message
@@ -164,25 +167,28 @@ def guess_language(message: str) -> str:
 
 def locale_response_language(locale: str | None) -> str | None:
     """The 2-letter response-language hint carried by a client locale (e.g.
-    "fr-FR" → "fr"), restricted to the spine's actual fr/en scope: an
-    unsupported primary tag (e.g. "es") is None rather than a language the
-    synthesis cannot actually produce. Shared by the facade (S-G2) and the
-    spine's template paths (S-CX2: a first-turn "ok" from a fr-FR client used
-    to get the English ack — guess_language has no signal on a bare "ok")."""
+    "fr-FR" → "fr"), restricted to the spine's answerable set
+    (TEMPLATE_LANGUAGES — all 7 since UX2): an unrecognized primary tag (e.g.
+    "ja") is None rather than a language the synthesis cannot actually
+    produce. Shared by the facade (S-G2) and the spine's template paths
+    (S-CX2: a first-turn "ok" from a fr-FR client used to get the English ack
+    — guess_language has no signal on a bare "ok")."""
     if not locale:
         return None
     primary = locale.split("-")[0].lower()
-    return primary if primary in ("fr", "en") else None
+    return primary if primary in TEMPLATE_LANGUAGES else None
 
 
 def template_language(profile_language: str | None, locale: str | None, message: str) -> str:
-    """fr/en for a deterministic template answer: the conversation's already-
-    established language first, then the client locale. A DECLARED locale we
-    have no translation for (not fr/en — es/pt/de/…) answers in ENGLISH
+    """A response language for a deterministic template answer: the
+    conversation's already-established language first, then the client
+    locale, restricted to TEMPLATE_LANGUAGES (all 7 since UX2). A locale we
+    still have no table for (anything outside those 7) answers in ENGLISH
     (Fabien, PR #34 review) — never via guess_language, whose French hints can
-    misfire on other Romance languages; the message-language guess is only the
-    last resort when no locale was declared at all."""
-    valid = profile_language if profile_language in ("fr", "en") else None
+    misfire on other Romance languages (an Italian/Spanish message can trip
+    `_FR_HINTS`); the message-language guess is only the last resort when no
+    locale was declared at all."""
+    valid = profile_language if profile_language in TEMPLATE_LANGUAGES else None
     if valid:
         return valid
     if locale:
@@ -193,19 +199,19 @@ def template_language(profile_language: str | None, locale: str | None, message:
 def response_language(language: str | None) -> str:
     """The language a REPLY may actually be written in, from a recognized one.
 
-    P1-2 widened the classify's `language` enum to 7 languages so the semantic
-    slots work outside fr/en. Everything that produces user-facing text —
-    `templates.*_response(...)` and the `LANG:` line of the synthesis prompt —
-    must go through this clamp, or widening recognition would silently change
-    what users are answered in: the synthesis would start replying in Spanish
-    while every deterministic template stayed English (templates.py is 215
-    lines of `_pick(language, fr, en)`), i.e. a mixed-language answer nobody
-    decided on.
+    UX2 (2026-08-27) made TEMPLATE_LANGUAGES equal LANGUAGES: templates.py now
+    has a full table for all 7 languages the classify recognizes, so this is a
+    near-identity map today. It stays as the single choke point everything
+    that produces user-facing text goes through — `templates.*_response(...)`
+    and the `LANG:` line of the synthesis prompt — so a FUTURE narrowing of
+    TEMPLATE_LANGUAGES (a language dropped from templates.py without being
+    dropped from LANGUAGES) is caught here instead of silently producing a
+    mixed-language answer (synthesis in one language, deterministic templates
+    in another) at every call site individually.
 
     Falling back to ENGLISH rather than the message guess is the same rule
-    `template_language` already applies to an untranslated locale (Fabien, PR
-    #34 review). Answering in the user's own language is a separate piece of
-    work — it needs templates.py translated, not an enum widened.
+    `template_language` applies to an untranslated locale (Fabien, PR #34
+    review).
     """
     return language if language in TEMPLATE_LANGUAGES else FALLBACK_RESPONSE_LANGUAGE
 

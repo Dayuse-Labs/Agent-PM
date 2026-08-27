@@ -351,16 +351,29 @@ def test_shield_message_is_localized_from_locale(monkeypatch, client):
     assert r.json()["response_language"] == "fr"
 
 
-def test_shield_unsupported_locale_answers_english(monkeypatch, client):
-    """Customers span many languages but templates exist in fr/en only: a
-    DECLARED locale we can't serve answers in English — even when the message
-    text would trip guess_language's French hints (es/it/pt share them)."""
+def test_shield_now_supported_locale_answers_in_that_language(monkeypatch, client):
+    """UX2 (2026-08-27): templates.py now has all 7 recognized languages, so a
+    DECLARED "es" locale is served in Spanish — even when the message text
+    would trip guess_language's French hints (es/it/pt share them)."""
     async def crash(session_id, user_id, message):
         raise RuntimeError("boom")
         yield  # pragma: no cover
 
     monkeypatch.setattr(facade_module, "_drive", crash)
     r = client.post("/v3/chat", json={"message": "hôtel à Paris", "locale": "es-ES"})
+    assert r.json()["message"] == templates.service_degraded_response("es")
+    assert r.json()["response_language"] == "es"
+
+
+def test_shield_unsupported_locale_answers_english(monkeypatch, client):
+    """Customers span many languages but templates exist for the 7 triage
+    recognizes: a DECLARED locale outside that set still answers in English."""
+    async def crash(session_id, user_id, message):
+        raise RuntimeError("boom")
+        yield  # pragma: no cover
+
+    monkeypatch.setattr(facade_module, "_drive", crash)
+    r = client.post("/v3/chat", json={"message": "hôtel à Paris", "locale": "ja-JP"})
     assert r.json()["message"] == templates.service_degraded_response("en")
     assert r.json()["response_language"] == "en"
 
