@@ -87,6 +87,26 @@ class TestAssetsAlwaysRevalidate:
         assert again["headers"]["ETag"] == first["headers"]["ETag"]
         assert again["headers"]["Cache-Control"] == "no-cache"
 
+    def test_weak_etag_from_the_edge_still_gets_a_304(self):
+        """Railway's edge rewrites the strong ETag as weak when it compresses,
+        so the browser echoes `W/"…"`. RFC 9110 §13.1.2: If-None-Match uses the
+        WEAK comparison, and an exact compare cost a 200-with-body on 36 of 38
+        assets in Chrome against prod (2026-08-27)."""
+        etag = _get("/static/js/chat/state.js")["headers"]["ETag"]
+        r = _get("/static/js/chat/state.js", {"If-None-Match": f"W/{etag}"})
+        assert r["status"] == 304
+        assert r["body"] == b""
+
+    def test_if_none_match_list_is_honored(self):
+        """A client may send several etags; ours matching anywhere is a hit."""
+        etag = _get("/static/js/chat/state.js")["headers"]["ETag"]
+        r = _get("/static/js/chat/state.js", {"If-None-Match": f'"other-build", W/{etag}'})
+        assert r["status"] == 304
+
+    def test_star_if_none_match_gets_a_304(self):
+        r = _get("/static/js/chat/state.js", {"If-None-Match": "*"})
+        assert r["status"] == 304
+
     def test_stale_if_none_match_gets_the_new_bytes(self):
         """The point of the whole thing: a client holding a PREVIOUS version's
         etag must be handed the current file, never a 304."""
