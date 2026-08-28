@@ -6,7 +6,7 @@
 import { state } from './state.js';
 import { appendAmplitudeIdToUrl } from './tracking.js';
 import { sanitizeDayuseUrl } from './security.js';
-import { buildHotelFallbackUrl, normalizeCountryCode } from './markets.js';
+import { normalizeCountryCode } from './markets.js';
 import { getLanguage } from './i18n.js';
 
 /**
@@ -124,8 +124,10 @@ function buildHotelMap() {
 
         const name = String(hotel.name || '');
         const price = String(hotel.price || '');
-        const fallbackUrl = buildHotelFallbackUrl(hotel);
-        const trackedUrl = appendAmplitudeIdToUrl(String(hotel.url || fallbackUrl));
+        // Server-provided url only — no name-slugified fallback (UX6 2026-08-28,
+        // see markets.js). No url means the [HOTEL_ID:n] token resolves to '#',
+        // which is what the else-branch below already did for an unknown id.
+        const trackedUrl = appendAmplitudeIdToUrl(String(hotel.url || ''));
         const safeUrl = sanitizeDayuseUrl(trackedUrl) || '#';
 
         hotelMap[String(id)] = { url: safeUrl, name, price };

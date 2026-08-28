@@ -2,9 +2,206 @@
 
 État du chantier pour reprise en session fraîche. **Lire en entier avant d'agir ; ne pas reconstruire ce qui existe.** Mettre à jour en fin de CHAQUE session (bloc daté en tête).
 
+## ✅ Addendum 2026-08-28 — UX6 : audit des mappings en dur. 98 tables, 0 morte, 0 suppression — et les 4 candidats de la phase réfutés
+
+Phase d'ÉTUDE UX6 (fichier de phase supprimé au nettoyage de fin de chantier — ce bloc et le rapport en portent tout le contenu durable). Livrable : **`reports/AUDIT-MAPPINGS-2026-08-28.md`** (à lire en entier avant de retoucher une table en dur). Branche `audit/ux6-hardcoded-mappings`, PR ouverte. **Zéro ligne exécutable modifiée** — 4 commentaires corrigés + 2 scripts de mesure ajoutés.
+
+### Le résultat en trois lignes
+
+1. **Aucune table morte dans le repo.** Balayage du compte de références hors ligne de définition sur les 74 tables Python : **minimum observé = 1**. La commande est dans le rapport §8, rejouable.
+2. **Les 4 candidats à la suppression de la phase sont tous les 4 en catégorie 1** après mesure. La phase a donc *promu* 2 tables (`_ISO_BY_COUNTRY_NAME`, `_LOCALE_COUNTRY`) de la catégorie 3 vers la catégorie 1, au lieu d'en supprimer.
+3. **~20 tables annoncées, 98 trouvées** — les greps de la phase rataient les tables indentées, les tuples fermés et les `frozenset`. Et **30 des 98 ne sont pas des mappings** : c'est la couche de traduction Python (l'équivalent d'`i18n.js`, que la phase exclut déjà). Le ressenti « plusieurs mappings en dur » porte pour un tiers sur de l'i18n → chantier UX2-bis, pas chantier mappings.
+
+### `countryCode` : mesuré sur 21 pays, la phase avait l'information périmée — pas le code
+
+`scripts/probe_country_code_coverage.py` (réseau réel, pas un pytest), 2026-08-28, date J+2 :
+
+| Chemin | Hôtels | `countryCode` résout un marché | `countryName` résout | **jambe NOM porteuse** |
+|---|---:|---:|---:|---:|
+| `search_offers` (carte feuille) | **201** | **0 (0 %)** | 201 (100 %) | **201 (100 %)** |
+| `get_hotel_details` (inline concierge) | 24 | 24 (100 %) | 24 (100 %) | 0 |
+
+21 marchés avec inventaire dont **12 non-euro** (GB US CH TH SE SG HK AE BR AU CA NZ) — très au-delà des « ≥ 4 pays dont un non-euro » exigés, et le piège « ne pas conclure depuis FR seul » est fermé : `countryCode` est absent sur **100 %** des hôtels de `search_offers`, sur **tous** les marchés. `legs_disagree = 0`, `no_market_at_all = 0` → `_ISO_BY_COUNTRY_NAME` couvre 100 % des `countryName` que MCP émet réellement, aucun trou.
+
+**Donc `_ISO_BY_COUNTRY_NAME` n'est pas un fallback mort : c'est la SEULE jambe qui produit une URL d'hôtel sur le chemin carte** (tout ce que S-G12 garde). Les commentaires `hotel_urls.py:54` et `response_bridge.py:562` sont **confirmés exacts**, re-datés du 2026-08-28 avec le chiffre. `get_hotel_details` envoie bien un `countryCode` (24/24) — ça ne change rien au chemin carte.
+
+### 🔴 Constat non prévu, le plus important de la phase : le widget défait la « None honnête » du back
+
+`hotel_urls.py` promet « an unmapped country yields None — the card honestly has no link rather than a guessed one ». **Faux en pratique** : `markets.js::buildHotelFallbackUrl` slugifie le NOM D'AFFICHAGE dès que `hotel.url` est absent (`card.js:149-151`). Exécuté sur les vrais modules widget (`node`, aucun mock) :
+
+```
+Poland  -> https://dayuse.com/hotels/usa/h-tel-m-tropole-spa      (passe l'allowlist, rendu)
+Japan   -> https://dayuse.com/hotels/usa/grand-hyatt-tokyo        (passe l'allowlist, rendu)
+```
+
+Un hôtel polonais devient une page **`/hotels/usa/`** (car `inferCountryCodeFromHotel` exige 2 lettres et `getMarketMeta` retombe sur `'US'`), avec un slug **inventé et abîmé** (`h-tel-m-tropole-spa` = littéralement le défaut `a-roport` que le back existe pour fermer), et **ça passe le sanitizer**. Pire : `trackEvent('booking_url_fallback')` ne tire **que** si `hotel.url` existait et a été rejeté → le cas « pas d'url → url fabriquée » est **totalement non tracké**.
+
+**Conséquence** : retirer une entrée de `_ISO_BY_COUNTRY_NAME` ne donne pas « pas de lien », ça donne **un lien fabriqué sur le mauvais marché**. C'est la raison la plus forte de garder la table, et elle n'était ni dans la phase ni dans le code.
+⚠️ Portée : exécution déterministe **hors ligne** du vrai code widget. Le chemin est prouvé atteignable ET prouvé fabricant, mais **son taux d'occurrence en prod n'est pas mesuré** (les 21 marchés à inventaire sont tous couverts ; MY/JP/MX avaient `total=0` à la date sondée).
+
+### Catégorie 2 chiffrée, proposée, NON implémentée (conforme au périmètre)
+
+`scripts/measure_market_table_drift.py` (hors ligne, lecture seule) : **85 entrées tenues à la main dans 4 tables et 2 langages** — `_MARKET` (22, py), `COUNTRY_META` (23, js), `COUNTRY_SLUG_TO_CODE` (24, js), `DAYUSE_HOSTS` (16, js).
+
+- ensemble des pays : **0/22 d'écart** ✅ · slugs de chemin : **0/22 d'écart** ✅
+- **hôtes : 8/22 en désaccord (36 %)** — AE AU BR CA HK MY NZ TH : le back réserve sur `www.dayuse.ae`/`au.dayuse.com`/… , le widget browse sur `www.dayuse.com`
+- `DAYUSE_HOSTS` admet encore les 22 hôtes de `_MARKET` (**0 rejeté**) grâce à la règle sous-domaine d'`isHostMatch` → **la panne n'est pas en cours, elle est à un marché de distance** (un eTLD réellement nouveau type `dayuse.pl` déclenche le chemin de fabrication ci-dessus, scénario exact de la panne 404 de 4 jours du 2026-07-06)
+
+3 options chiffrées dans le rapport §6.3. **Recommandation : option C tout de suite** (~30 lignes : convertir les 2 parseurs du script de drift en test qui échoue si `DAYUSE_HOSTS` cesse d'admettre un hôte de `_MARKET` ou si un slug diverge — ne supprime aucune duplication mais supprime la panne silencieuse, seul risque réellement chiffré), **option B ensuite** si l'unification est voulue (génération au build du widget ; l'option A, un JSON servi par la façade, met le sanitizer d'hôtes au bout du réseau — mauvaise direction pour un composant de sécurité).
+
+### 4 arbitrages en attente (aucun n'est une suppression de catégorie 1)
+
+1. Catégorie 2 : option A/B/C ci-dessus.
+2. Aligner `buildHotelFallbackUrl` sur le contrat du back (rendre `null`, ne pas afficher de lien) ? ~10 lignes, **changement visible client donc décision produit**. Mon avis : oui, et avant l'unification.
+3. Le trou de tracking `booking_url_fallback` : 1 ligne, et le taux d'occurrence du constat ci-dessus devient mesurable en prod.
+4. `COUNTRY_META.UK` (`markets.js:46-51`, 6 lignes) : **provablement mort** (`getMarketMeta` passe toujours par `normalizeCountryCode` qui convertit `UK`→`GB` avant la recherche, et `COUNTRY_META` n'est lu qu'à cet endroit). **Non supprimé ici** : il n'existe aucun harnais de test JS dans le repo (pas de `package.json`, pas de `*.test.js`) et le DoD exige « chaque suppression avec son test » ; de plus `markets.js` est explicitement hors périmètre. À faire dans la phase qui touchera ce fichier — la suppression y sera gratuite.
+
+### Ce qui a été modifié : 4 commentaires, zéro comportement
+
+`hotel_urls.py:54` et `response_bridge.py:562` re-datés avec le chiffre 0/201 (ce sont les deux commentaires qui auraient conduit à supprimer la table). `security.js:5` pointait vers `_BOOKING_HOST_BY_COUNTRY in src/application/shared/hotel_urls.py` — **chemin agent-usa, inexistant ici** — corrigé vers `_MARKET` dans `libs/b2c_common/`. `card.js:54` disait « Mirrors the backend `_CURRENCY_DISPLAY` » — **`_CURRENCY_DISPLAY` n'existe pas dans ce repo** (`grep` → 0), corrigé.
+
+### Pièges rencontrés
+
+- 🪤 **Le fichier de phase peut être la source périmée, pas le code.** UX6 affirmait « depuis, `countryCode` est bien présent dans le payload » et donnait `_ISO_BY_COUNTRY_NAME` pour « le meilleur candidat » à la suppression ; le commentaire du code disait l'inverse et avait raison. Les deux appelants *passent* bien `countryCode` en premier argument — mais la **valeur** est `None`. Vérifier la valeur, pas la signature d'appel.
+- 🪤 **« La façade fournit déjà X » peut être inversé.** Pour `_LOCALE_COUNTRY`, la façade fournit la *locale*, qui est l'**entrée** de la table, pas son remplacement (`facade.py:666` → `profile.locale` `:388` → `geocode_tool.py:926` `args["locale"]`). La table est atteinte à 4 sites dont 2 inconditionnels (`geocode_tool.py:649`, `:793`).
+- 🪤 Les greps « tables en dur » d'un fichier de phase sous-comptent : ajouter les tables **indentées**, les **tuples** fermés (`PICKS = (…)`, `LANGUAGES = (…)`, `GUARD_SCORE_NAMES`) et les `frozenset`. 20 annoncées → 98.
+- 📌 `dayuse_guardrails.sh` n'a **aucune** règle sur les constantes ou hosts en dur (seule règle proche : SDK modèle cloud importé en dur) — donc aucun signal du guardrail ne peut être confondu avec un constat de cet audit. Lancé **avant** la phase : `OK`.
+- 📌 La leçon `US_STATE_*` est plus fine que « dérivez d'une lib » : après la dérivation depuis le paquet `us`, le code garde **2 correctifs manuels commentés** (`["mass"]` ajouté, `["washington"]` retiré). Le bon état final n'est pas « zéro table en dur », c'est « la partie mécanique vient d'une source, la partie jugement est en dur **et commentée** ».
+
+### DoD
+
+`pytest -q` : **1691 passed, 1 skipped** (identique à la baseline post-#107 — aucun test ajouté, aucun modifié : rien d'exécutable n'a changé). `ruff check .` : clean. `mypy agents libs` : clean (48 fichiers). `bash scripts/dayuse_guardrails.sh .` : OK, **avant et après**. Les 3 fichiers JS édités re-vérifiés (`node --check` + import réel de `markets.js`/`security.js`). Code de MCP_B2C **non relu** (interdit de session) — tout vient de ses réponses. Aucun 429 sur les 2 runs de sonde (espacement 1,5-2 s).
+
+### Suites arbitrées par Fabien le 2026-08-28 — implémentées sur la même PR
+
+Les 4 arbitrages du rapport ont été tranchés immédiatement (« 1. C now and B later · 2. yes, and ahead of unification · 3. ok · 4. ok »), donc cette PR ne contient plus seulement l'audit. Détail dans le rapport §12.
+
+| # | Décision | Livré |
+|---|---|---|
+| C | garde-fou de dérive maintenant, unification (option B) plus tard | `tests/test_market_table_drift.py` — 11 tests. Échoue avec la signature exacte de la panne : en retirant `'dayuse.fr'` de `DAYUSE_HOSTS`, `AssertionError: 1 market host(s) would be REJECTED … {'FR': 'www.dayuse.fr'}`. Restauré ensuite. |
+| 2 | aligner le widget sur le contrat du back, **avant** l'unification | `buildHotelFallbackUrl` **supprimé** de `markets.js` (+ ses 2 appelants `utils.js`, `card.js`). Plus de slug inventé nulle part. `renderFooter` n'affiche plus de lien hôtel quand il n'y a pas d'URL (au lieu d'un `href="#"` mort). |
+| 3 | tracker le cas non tracké | `card.js` : le garde passe de `if (hotel.url && !sanitizedUrl)` à `if (!sanitizedUrl)`, avec `reason: 'rejected_by_allowlist' \| 'missing_from_payload'`. **Nom d'événement `booking_url_fallback` conservé** — renommer casserait la série Amplitude (même raisonnement que `GUARD_SCORE_NAMES`). |
+| 4 | supprimer `COUNTRY_META.UK` | Fait. Remplacé par un commentaire disant *pourquoi* il était mort, et pourquoi `COUNTRY_SLUG_TO_CODE['uk']` — qui est atteignable — ne doit **pas** être « nettoyé » avec lui. |
+
+**Le harnais de test JS qui manquait existe maintenant** — c'était la raison invoquée dans le rapport §8 pour ne pas supprimer les 6 lignes mortes. `tests/widget/widget_url_contract.test_mjs` (9 tests, `node:test`, aucune dépendance) charge les **vrais** modules widget, et il tourne **dans `pytest -q`** via `TestWidgetUrlContract` (donc en CI : node est présent sur `ubuntu-latest`, aucun changement de workflow). Skip propre si `node` est absent en local.
+
+🪤 **La vérification qui rend ce harnais utile** : `card.js` ne peut pas être ÉVALUÉ en node nu (il importe des modules qui touchent le DOM), mais ESM **parse et lie tout le graphe avant d'évaluer quoi que ce soit** — donc un `import { buildHotelFallbackUrl }` resté en place ressort en `SyntaxError: does not provide an export named`, que le test attrape, alors qu'une `ReferenceError` sur `document` signifie que le linkage a réussi (le seul point testé). Vérifié en réintroduisant l'import mort : le test tombe avec ce message exact, puis restauré.
+
+### ✅ Déployé et VÉRIFIÉ EN PROD (branche non mergée — même convention que PR #95/#102)
+
+**`widget` seul.** Les modifications Python de cette PR sont **prouvées commentaires-seuls** (`git diff` filtré sur les lignes non-commentaires : vide pour `hotel_urls.py` ET `response_bridge.py`), donc `concierge`, `hotel-search` et `faq` gardent leur estampille — elle reste honnête, leur comportement est identique. Les 4 fichiers JS sont toute la modification de comportement, et c'est `widget` qui les sert.
+
+`LANGFUSE_RELEASE=48c399f` posé sur `widget` avec `--skip-deploys` (vérifié : `latestDeployment.createdAt` resté à `2026-08-27T08:33:35.902Z` après le stamp — aucun redéploiement de l'ANCIEN code sous la nouvelle estampille), puis `railway up --service widget --detach` → **`SUCCESS 2026-08-28T07:56:17Z`**.
+
+**Preuve 1 — le code servi a réellement changé.** État AVANT capturé sur le domaine public : `markets.js:46 UK: {` et `markets.js:232 export function buildHotelFallbackUrl(hotel) {` étaient bien servis. APRÈS : 0 occurrence des deux, et les **4 fichiers JS servis sont byte-identiques à HEAD** (`diff` sur `markets.js`, `security.js`, `utils.js`, `hotels/card.js`).
+
+**Preuve 2 — le rendu, sur le module DÉPLOYÉ, dans un vrai Chrome** (import dynamique de `/static/js/chat/hotels/card.js` depuis l'origine live, `createHotelCard` réel sur 2 fixtures — aucun tour de chat, aucun appel MCP, aucune donnée utilisateur) :
+
+| Fixture | lien « voir l'hôtel » | hrefs | `href="#"` | `/hotels/usa/` fabriqué | carte rendue |
+|---|---|---|---|---|---|
+| avec `url` serveur | ✅ présent | le vrai `dayuse.fr/hotels/france/…` + params Amplitude | non | — | oui |
+| **sans `url`** (Poland) | ✅ **absent** | **aucun** | non | ✅ **aucun** | oui, prix compris |
+
+Avant ce déploiement, la MÊME fixture rendait `https://dayuse.com/hotels/usa/h-tel-m-tropole-spa`.
+
+**Preuve 3 — le trou de tracking est fermé, mesuré en prod** (`navigator.sendBeacon` + `amplitude.track` interceptés) :
+
+| Cas | Événement émis |
+|---|---|
+| url valide | **aucun** (correct — rien à signaler) |
+| **pas d'url** | `booking_url_fallback` · `reason: "missing_from_payload"` ← **le cas qui était invisible** |
+| url rejetée par l'allowlist | `booking_url_fallback` · `reason: "rejected_by_allowlist"` · `rejected_url` renseignée |
+
+Même nom d'événement dans les deux cas : la série Amplitude est continue.
+
+**Preuve 4 — un VRAI tour, payloads MCP réels, DOM réel** (`?q=hotel a Paris demain apres-midi`, session fraîche, `x-dayuse-synthetic: 1` injecté avant tout script de page) : **5 cartes, 5 liens, tous sur `www.dayuse.fr`**, `href="#"` = 0, `/hotels/usa/` fabriqué = 0, slug serveur réel (`h4-hotel-wyndham-paris-pleyel-resort`). Le tour est parti sur `/v3/chat/stream`. La non-régression tient donc sur le **vrai** chemin de rendu, pas seulement sur `createHotelCard` isolé.
+
+⚠️ **Ce qui n'est PAS prouvé en prod, et ne peut pas l'être aujourd'hui** : le taux d'occurrence du cas `missing_from_payload` sur du trafic réel. Il demande un hôtel dans un pays absent de `_ISO_BY_COUNTRY_NAME`, et les 21 marchés à inventaire sont tous couverts (c'est la raison même pour laquelle l'audit ne pouvait pas le chiffrer). **C'est l'événement lui-même qui répondra**, dans la durée — pas une sonde.
+
+🪤 **Piège rencontré sur la sonde e2e** : une première version installait le wrapper `fetch` **après** le boot de l'app puis pilotait le textarea à la main — le handler de submit de l'app n'était jamais atteint (`chat_calls: 0` pendant 120 s, lu à tort comme « pas d'inventaire »). La forme qui marche : `Page.addScriptToEvaluateOnNewDocument` (le wrapper est en place avant tout script de page) **+** `?q=` qui auto-envoie. À réutiliser pour toute sonde widget qui doit marquer son trafic.
+
+### ✅ Option B faite + les 8 divergences tranchées par dayuse-com + `_ACK_RE` mesuré (arbitrages Fabien du 2026-08-28)
+
+Détail complet dans le rapport §13 et §14. **Pas encore déployé** (voir plus bas).
+
+**1. La vérité sur les 8 hôtes est dans le monorepo dayuse-com, et c'est `_MARKET` qui a raison.** Sources : `~/PhpstormProjects/dayuse-com` (commit `149c823892`), `apps/frontend/web/i18n/production.js` (liste `domains`, 53 locales) + `apps/frontend/web/config/config.<locale>.ts` (`host`, `countryCode`, `defaultSearchPageLink`). Les 8 hôtes de `_MARKET` (AE AU BR CA HK MY NZ TH) sont **tous** confirmés ; c'est le widget qui envoyait tout le monde sur `www.dayuse.com`.
+
+**Et 2 divergences que la mesure de §6.1 n'avait pas vues** — le script ne comparait que `hotelCountrySlug`, jamais le chemin du `browseUrl`, et **le segment de browse est LOCALISÉ alors que le chemin d'hôtel est anglais** : DE `germany` vs **`deutschland`**, BR `brazil` vs **`brasil`** (ES/IT/NL/CH étaient déjà corrects : espana/italia/nederland/suisse). C'est précisément cette asymétrie qui empêchait de dériver une table de l'autre et justifiait la seconde table.
+
+**Mesuré en HTTP réel** — le coût était pire que « question produit » :
+
+| URL | Résultat |
+|---|---|
+| `www.dayuse.com/s/brazil` (lien du widget) | **404 — mort** |
+| `www.dayuse.net.br/s/brasil` | 200 |
+| `www.dayuse.com/s/malaysia` (lien du widget) | **404 — mort** |
+| `www.dayuse.de/s/germany` | 200 via **1 redirection** vers `/s/deutschland` |
+| `www.dayuse.com/s/{thailand,canada,australia,new-zealand,hong-kong,united-arab-emirates}` | 200, 0 redirection — servis, mais sur le domaine US |
+
+→ verdict précis : **2 liens réellement morts** (BR, MY), **6 qui répondent mais sur le mauvais marché** (devise/locale par défaut fausses), **1 redirection inutile** (DE).
+⚠️ **MY n'a AUCUNE page de browse** dans dayuse-com (`en-MY` n'a pas de `defaultSearchPageLink` ; marché « NEW DOMAIN ») → le référentiel porte `None` et le widget n'affiche pas de lien. Son hôte de **réservation** existe toujours.
+
+**2. Option B : les tables du widget sont générées.** `scripts/generate_widget_markets.py` → `web/vendor/static/js/chat/markets.generated.js` (`COUNTRY_META`, `COUNTRY_SLUG_TO_CODE`), depuis `_MARKET` + `_BROWSE_PATH` + `_LABEL` ajoutées dans le **même** module. `markets.js` les importe. **85 entrées à la main → 38** (46 générées). Barrière : `TestGeneratedFileIsCurrent` régénère et compare octet à octet — vérifiée dans les **deux** sens (édition à la main de l'artifact → `STALE or was hand-edited` ; modification du Python sans régénérer → même échec ; restauré à chaque fois).
+
+🪤 **`DAYUSE_HOSTS` n'est PAS généré, et c'est un choix.** C'est une allowlist de **racines**, volontairement **plus large** que la table de marchés : sa règle de sous-domaine admet `de.dayuse.ch`, `nl.dayuse.be`, `en.dayuse.com.hk` — de vrais hôtes Dayuse absents de `_MARKET` (visibles dans la liste `domains` de dayuse-com). La générer depuis les 22 hôtes la **rétrécirait** et rouvrirait le défaut « pas de lien ». Elle reste à la main, gardée par le test de dérive.
+
+`getMarketMeta` ne devine plus non plus : un marché inconnu rendait `browseUrl: 'https://www.dayuse.com'` + un `hotelCountrySlug` deviné — le slug n'avait plus **aucun lecteur** (son seul consommateur était le fabricateur supprimé). Les deux sont partis, `browseUrl` vaut `null`, `carousel.js` n'affiche plus de lien « voir tout » sans URL.
+⚠️ **Non fait, assumé** : `getMarketFallbackLink` (`responses.js`) garde son repli en dur `www.dayuse.com/s/united-states` (CTA de l'état vide, 4 appelants, et ce repli est un lien vivant). Effet de bord positif : MY passait par `/s/malaysia` (404) et tombe maintenant sur ce repli (200, mauvais marché).
+
+**3. `_ACK_RE` mesuré — item clos, et la conclusion est « ne pas toucher ».** `scripts/measure_social_ack_coverage.py`, 19 formulations × 3 répétitions (3 parce que gpt-4o-mini n'est pas déterministe sur un message court cross-lingual — le piège NL d'UX2) :
+
+| Mesure | Résultat |
+|---|---|
+| fr/en (contrôle) | 4/4 court-circuitées, **0 appel LLM** |
+| es/it/de/pt/nl atteignant le LLM | 15 formulations, 45 runs |
+| classées `family="ack"` | **45/45 — `ack_rate = 1.0`, zéro erreur** |
+| latence ajoutée | **médiane 1 079 ms** (max 2 506) |
+| coût | **$0,000227**/appel (gpt-4o-mini, 1 463 tokens de prompt) |
+| fréquence (Langfuse, prod, 30 j) | **19 / 542 tours racine (3,5 %)** à zéro appel LLM |
+
+Donc : **pas un problème de correction, seulement de latence**, sur une **fraction** de 3,5 % des tours.
+
+🔴 **Et la vraie raison de ne pas élargir** : le garde `agent.py:1017` est `if is_social_ack(...) and not refinement_signal and not booking_signal:`, et ses deux signaux sont **volontairement regex-only à cet endroit** (sans les slots du triage). Or `_AFFIRMATIVE_RE` (`profile.py:136`) est **fr/en uniquement** — ni `sí`, ni `ja`, ni `sim`. Aujourd'hui un « ja » allemand pendant une confirmation de réservation ne matche pas `is_social_ack`, part au triage, et son slot `booking_confirmation` l'amène au gate R9. **Si on ajoutait les affirmatifs à `_ACK_WORDS`, le template d'accueil avalerait la confirmation** et R9 deviendrait inatteignable en de/es/pt : mot pour mot le bug que la **PR #47** a corrigé pour le français (« oui je confirme » → salutation). Ajouter seulement salutations/remerciements échappe à ce piège précis, mais pour ~1,1 s sur une fraction de 3,5 % des tours, contre l'élargissement d'une regex `^…$` prouvée qui est le dernier rempart avant un template. **Gardé en l'état.**
+
+### ✅ Option B DÉPLOYÉE et vérifiée en prod (widget, `d6603ba`)
+
+`railway up --service widget --detach` → **`SUCCESS 2026-08-28T09:07:31Z`**, PUIS `LANGFUSE_RELEASE=d6603ba` posé avec `--skip-deploys` (`latestDeployment.createdAt` toujours `09:07:31Z` après le stamp, vérifié). **Ordre inversé exprès par rapport au déploiement précédent** : la fois d'avant, le stamp était posé AVANT un `railway up` qui s'est fait bloquer, laissant l'estampille revendiquer un build qui ne tournait pas. Stamper APRÈS le SUCCESS ne peut mentir que dans le sens inoffensif.
+
+`widget` seul, à nouveau : les ajouts Python (`_BROWSE_PATH`, `_LABEL`, `market_referential()`) n'ont **aucun appelant au runtime** — `market_referential` n'est lu que par le générateur et les tests, et `build_hotel_page_url`/`_resolve_market` sont inchangés (vérifié sur le diff). `concierge`/`hotel-search`/`faq` gardent une estampille honnête.
+
+**Preuve 1 — les 6 fichiers JS servis sont byte-identiques à HEAD** (`markets.js`, `markets.generated.js`, `security.js`, `utils.js`, `hotels/card.js`, `hotels/carousel.js`), et l'artifact généré est bien servi (l'en-tête « GENERATED FILE — DO NOT EDIT BY HAND » est en prod, avec `browseUrl: 'https://www.dayuse.net.br/s/brasil'`, `'https://th.dayuse.com/s/thailand'`, `browseUrl: null`).
+
+**Preuve 2 — LE résultat : les 21 liens de browse interrogés depuis le module DÉPLOYÉ répondent tous 200, chacun sur son propre hôte de marché, zéro redirection.** MY ne rend aucun lien. Comparaison avec l'avant : 2 liens morts (BR `/s/brazil` 404, MY `/s/malaysia` 404), 6 sur le domaine US, 1 redirection (DE).
+
+| | AE | AU | BR | CA | DE | HK | MY | NZ | TH |
+|---|---|---|---|---|---|---|---|---|---|
+| avant | dayuse.com | dayuse.com | **404** | dayuse.com | 1 redir | dayuse.com | **404** | dayuse.com | dayuse.com |
+| après | `dayuse.ae` 200 | `au.` 200 | `net.br/s/brasil` 200 | `ca.` 200 | `/s/deutschland` 200 | `com.hk` 200 | pas de lien | `nz.` 200 | `th.` 200 |
+
+**Preuve 3 — aucune régression de rendu** malgré le changement structurel de `markets.js` : un vrai tour (`?q=`, `x-dayuse-synthetic: 1`) rend **5 cartes, 5 liens, tous sur `www.dayuse.fr`**, 0 `href="#"`, 0 lien fabriqué. Et les 6 modules refactorés **se lient ET s'évaluent** dans le navigateur en prod (`markets.js`, `markets.generated.js`, `carousel.js`, `card.js`, `utils.js`, `responses.js` → tous `linked+evaluated`, `pageErrors: []`) — ce contrôle-là importe parce qu'un import cassé sur `markets.generated.js` aurait fait tomber tout le widget, pas seulement un lien.
+
+📌 Trap Langfuse consigné : `family`/`route` sont bien de la métadonnée de trace OBS2 (`mark_metadata`, `agent.py:562`) mais **ne remontent pas à plat dans l'API REST des traces** (`metadata` n'y contient que `resourceAttributes`/`scope`/`attributes` OTel) — donc pas de comptage par famille sans creuser les spans. `totalCost == 0` sur les traces racine est le meilleur proxy obtenable. Aussi : `LANGFUSE_BASE_URL` (pas `LANGFUSE_HOST`), et urllib a besoin du bundle `certifi` explicite sinon `CERTIFICATE_VERIFY_FAILED`.
+
+### Les 2 PR restantes : fermées (décision Fabien)
+
+- **#40** `scx6-same-day-cutoff-fallback` — fermée. Vérifié avant : sa substance est **déjà dans `main`** (`_SAME_DAY_CLOSED_NOTE` dans `ground_truth.py:41`, utilisé l. 85). Surtout, la branche est **en retard sur main** : son diff sur `ground_truth.py` **supprimerait** l'affinage de prod du 2026-07-29 et ~113 lignes à partir de `_hotel_line`. La merger aurait régressé.
+- **#19** `s-d-judge-ab` — fermée. ⚠️ Celle-ci portait du contenu **absent de `main`** (`scripts/run_judge_ab.py`, son test, `JUDGE-AB-BENCH-2026-07-22.md`), noté pour que rien ne disparaisse en silence. Sans coût parce que son objet est épuisé (bench A/B contre le POC agent-usa) et ses résultats sont dans `reports/judge_*.json` + `GATE-RERUN-2026-07-23.md`. Récupérable : `git show origin/s-d-judge-ab:scripts/run_judge_ab.py`.
+
+Les deux branches sont intactes, les deux PR réouvrables.
+
+### Nettoyage de fin de chantier — EXÉCUTÉ
+
+Les 2 PR ci-dessus fermées, UX6 est la dernière du chantier : la checklist de `PROMPTS-UX-2026-08-27.md` a été exécutée. Les 8 fichiers de planification sont supprimés (`PROMPTS-UX-2026-08-27.md`, `tasks/todo-ux-2026-08-27.md`, `phases/UX1`→`UX6`). `tasks/todo.md` **non touché** (tracker OBS4).
+
+Les 6 cases vérifiées avant suppression, dont **une qui ne l'était pas** :
+
+- ✅ UX1 (2 cliquets + budget affiché ≠ appliqué), UX3 (verdict devise lecture A, dans `reports/` **et** ici), UX4 (règle de signature d'affichage — vérifiée présente dans la docstring de `_day_rate_plans`, `inline_tools.py:606-625`), UX6 (justification par table → le rapport), variante `pt-PT` d'UX2.
+- ❌ **`_ACK_RE` : la case n'était pas cochable.** Zéro mention dans `HANDOFF.md`, et le code est inchangé. Le constat, préservé ici avant que le fichier de phase disparaisse : `_ACK_WORDS`/`_ACK_RE` (`triage.py:101-107`) sont **fr/en uniquement**, donc un « grazie » ou « danke » nu ne matche pas et **part au triage LLM**. Ce n'est pas un bug (le triage gère) mais ça coûte **un appel LLM** sur un tour qui n'en avait pas besoin. La phase demandait de **mesurer puis décider**, en avertissant de « ne pas gonfler la regex par réflexe » — **aucune mesure n'a été faite**, et rien n'a été touché. Reste donc ouvert, en l'état, avec son avertissement.
+- ✅ Références aux fichiers supprimés : 8 repointées avant suppression (4 dans `HANDOFF.md`, `reports/AUDIT-MAPPINGS-2026-08-28.md`, `reports/RESEARCH-UX3-…`, `test_inline_tools.py:1245`, `probe_rateplan_dedup.py:6`). Ce qui reste après le grep de la checklist n'est que des **noms de chantier** sans chemin (`UX2-bis`, `UX1-followup`, « UX4 (2026-08-27) ») — pas des liens morts.
+
 ## ✅ Addendum 2026-08-27 decies — UX2 : réponses dans les 7 langues reconnues, `TEMPLATE_LANGUAGES = LANGUAGES` — DÉPLOYÉ ET PROUVÉ EN PROD
 
-Phase `phases/UX2-reponses-7-langues.md`, branche `feat/ux2-seven-languages` (commit `c7c36b6`, non mergée — PR ouverte pour la review de Fabien). Prérequis UX5 vérifié mergé dans `main` avant de commencer (`git merge-base --is-ancestor 82d5e3f HEAD`).
+Phase UX2 (fichier de phase supprimé au nettoyage de fin de chantier), branche `feat/ux2-seven-languages` (commit `c7c36b6`, non mergée — PR ouverte pour la review de Fabien). Prérequis UX5 vérifié mergé dans `main` avant de commencer (`git merge-base --is-ancestor 82d5e3f HEAD`).
 
 ### Le périmètre réel du clamp — plus large que le tableau initial de la phase
 
@@ -79,7 +276,7 @@ Une passe de review indépendante sur le diff a trouvé 2 points réels, corrig�
 
 ## ✅ Addendum 2026-08-27 nonies — UX4 : dédoublonnage des rate plans sur la signature d'affichage (backend)
 
-Décision de design déjà tranchée et écrite dans `phases/UX4-rateplans-indistinguables.md` : `_day_rate_plans` (`agents/b2c_concierge/b2c_concierge/inline_tools.py`) dédoublonnait déjà sur `offer_id`, mais deux offres MCP d'UUID différents peuvent produire deux lignes rigoureusement identiques à l'écran (51 % des hôtels multi-plans partagent `ratePlanName` sur toutes leurs formules, `roomType` est NULL partout, `offerType` est un enum fermé à 5 valeurs). Branche `fix/ux4-rateplan-dedup`.
+Décision de design déjà tranchée dans le fichier de phase UX4 (supprimé au nettoyage de fin de chantier ; la règle vit désormais dans la docstring de `_day_rate_plans`) : `_day_rate_plans` (`agents/b2c_concierge/b2c_concierge/inline_tools.py`) dédoublonnait déjà sur `offer_id`, mais deux offres MCP d'UUID différents peuvent produire deux lignes rigoureusement identiques à l'écran (51 % des hôtels multi-plans partagent `ratePlanName` sur toutes leurs formules, `roomType` est NULL partout, `offerType` est un enum fermé à 5 valeurs). Branche `fix/ux4-rateplan-dedup`.
 
 **Correctif** : dédoublonnage additionnel sur la signature d'affichage `(offer_type, name, start_time, end_time, price_eur_cents)`, en plus de `offer_id`, dans la même boucle (l'ordre — filtrage par jour d'abord, dédoublonnage ensuite — n'a pas changé). Le prix reste dans la signature (décision du fichier de phase) : deux formules identiques mais à des prix différents restent deux lignes. La première offre rencontrée pour une signature donnée est conservée ; comme la liste est triée cheapest-first ensuite et que deux doublons ont le même prix par construction, l'offre gardée n'a pas d'importance pour l'utilisateur. Effet de bord voulu et déjà géré côté widget : un seul survivant fait retomber la carte sur le chemin simple (`renderRatePlans`' `plans.length < 2`), rien à changer côté JS.
 
@@ -102,7 +299,7 @@ Décision de design déjà tranchée et écrite dans `phases/UX4-rateplans-indis
 
 ## ✅ Addendum 2026-08-27 octies — UX3 phase 2B : demande MCP_B2C écrite + la divulgation EUR ne sortait pas, corrigée en code
 
-GO de Fabien reçu sur le verdict de la phase 1. Les 2 livrables de la phase 2B (`phases/UX3-devise-locale-mesure.md`), sur la même branche/PR que la phase 1 (`measure/ux3-currency-locale`, PR #103).
+GO de Fabien reçu sur le verdict de la phase 1. Les 2 livrables de la phase 2B d'UX3 (fichier de phase supprimé au nettoyage de fin de chantier), sur la même branche/PR que la phase 1 (`measure/ux3-currency-locale`, PR #103).
 
 **Livrable 1 — demande écrite à MCP_B2C** : `reports/PROMPT-MCP-B2C-DEVISE-LOCALE-2026-08-27.md`. Un seul champ demandé, `hotelPrice` par offre (devise réelle de l'hôtel), sur le modèle de `PROMPT-MCP-B2C-RATEPLANS.md` qui a déjà marché. Point fort de la demande : la propre réponse de MCP_B2C du 2026-07-28 mentionne déjà `hotelPrice`/`hotelComparativePrice` en interne (utilisés pour vérifier la cohérence FX d'`originalPriceEuro`) — donc probablement un cas (a) « déjà dans l'index, juste pas projeté », pas un chantier de réindexation. Pas encore posée dans une session sur le repo MCP_B2C (côté Fabien/l'équipe MCP_B2C de porter le prompt).
 
