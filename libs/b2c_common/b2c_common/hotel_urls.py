@@ -49,6 +49,22 @@ _MARKET: dict[str, tuple[str, str]] = {
     "NZ": ("nz.dayuse.com", "new-zealand"),
     "TH": ("th.dayuse.com", "thailand"),
     "MY": ("my.dayuse.com", "malaysia"),
+    # Added 2026-08-28: the 3 markets that had live MCP inventory while being
+    # unmapped here, so their cards carried NO link at all (measured: KR 2
+    # hotels, TR 6, QA 7; 11 other unmapped countries returned total=0).
+    # Host + country path verified against a REAL hotel URL per market
+    # (supplied by Fabien, each 200):
+    #   kr.dayuse.com/hotels/south-korea/hotel-nafore
+    #   tr.dayuse.com/hotels/turkey/hilton-istanbul-bomonti-hotel-conference-center
+    #   www.dayuse.com/hotels/qatar/ibis-doha
+    # QA deliberately uses qa.dayuse.com rather than the www host of that third
+    # URL: both serve the page (200), but the SAME hotel reads
+    # `"currency":"USD"` on www and `"currency":"QAR"` on qa — the market host
+    # is the one that prices in the local currency. Same reason the widget's
+    # browse hosts were corrected earlier this day.
+    "KR": ("kr.dayuse.com", "south-korea"),
+    "TR": ("tr.dayuse.com", "turkey"),
+    "QA": ("qa.dayuse.com", "qatar"),
 }
 
 # search_offers sends `countryName`, never an ISO code — fold the English name
@@ -92,6 +108,17 @@ _ISO_BY_COUNTRY_NAME: dict[str, str] = {
     "new zealand": "NZ",
     "thailand": "TH",
     "malaysia": "MY",
+    # 2026-08-28. The primary name of each is the one MCP_B2C actually sent on
+    # the probe that found these markets ("South Korea", "Turkey", "Qatar");
+    # the extra keys are the same-country variants a server rename could plausibly
+    # produce, in the spirit of the "usa"/"great britain" aliases above. Keys are
+    # `_fold`ed, so "Türkiye" arrives here as "turkiye".
+    "south korea": "KR",
+    "korea": "KR",
+    "republic of korea": "KR",
+    "turkey": "TR",
+    "turkiye": "TR",
+    "qatar": "QA",
 }
 
 # Browse ("see all hotels in X") path segment per market: `/s/<segment>`.
@@ -135,6 +162,13 @@ _BROWSE_PATH: dict[str, str] = {
     "CA": "canada",
     "NZ": "new-zealand",
     "TH": "thailand",
+    # 2026-08-28, from the same dayuse-com configs (ko-KR, tr-TR, ar-QA), each
+    # verified 200. KR's is the only entry in this table that carries a CITY —
+    # dayuse-com's own `defaultSearchPageLink` for ko-KR is "south-korea/seoul",
+    # which is also where its whole inventory is (2 hotels, both in Seoul).
+    "KR": "south-korea/seoul",
+    "TR": "turkiye",
+    "QA": "qatar",
 }
 
 # English display label per market, for the widget's "see all hotels in X".
@@ -165,6 +199,9 @@ _LABEL: dict[str, str] = {
     "NZ": "New Zealand",
     "TH": "Thailand",
     "MY": "Malaysia",
+    "KR": "South Korea",
+    "TR": "Turkey",
+    "QA": "Qatar",
 }
 
 # The ES slug shape: lowercase ascii words joined by single hyphens. Anything

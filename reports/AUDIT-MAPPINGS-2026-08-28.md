@@ -776,6 +776,41 @@ les 6 modules refactorés **se lient et s'évaluent** dans le navigateur (`pageE
 contrôle qui compte parce qu'un import cassé sur `markets.generated.js` aurait fait tomber
 tout le widget, pas seulement un lien.
 
+### 13.5 Suite post-merge : `_MARKET` passe de 22 à 25 marchés
+
+L'audit avait relevé sans le chiffrer que `_MARKET` couvre 22 pays quand dayuse-com en sert
+53. Depuis §12.2, un pays non mappé ne reçoit plus un lien inventé — il ne reçoit **rien**. La
+question restée ouverte était : est-ce théorique ?
+
+**Non, mais c'est petit et borné.** Sondé sur 14 pays non mappés ayant un vrai domaine Dayuse
+(`search_offers`, réseau réel) : **3 ont de l'inventaire** — KR Séoul 2 hôtels, TR Istanbul 6,
+QA Doha 7 ; les 11 autres (JP, MX, IN, ID, PH, VN, PL, GR, ZA, AR, CN) rendent `total=0`.
+Soit ~15 hôtels réels dont la carte n'avait aucun lien.
+
+Les 2 inconnues qui bloquaient — le chemin d'hôtel anglais n'est **pas** dans la config
+dayuse-com (`defaultSearchPageLink` est le slug de *browse*) — ont été levées par **une vraie
+URL d'hôtel par marché**, pas par déduction, comme la docstring de `_MARKET` l'exige :
+
+| | host | chemin | vérifié sur |
+|---|---|---|---|
+| KR | `kr.dayuse.com` | `south-korea` | `/hotels/south-korea/hotel-nafore` |
+| TR | `tr.dayuse.com` | `turkey` | `/hotels/turkey/hilton-istanbul-bomonti-…` |
+| QA | **`qa.dayuse.com`** | `qatar` | `/hotels/qatar/ibis-doha` |
+
+🪤 **L'URL de référence de QA pointait sur `www.dayuse.com` et n'a pas été reprise telle
+quelle.** Les deux hôtes servent la page (200), mais le **même hôtel** rend
+`"currency":"USD"` sur `www.dayuse.com` et `"currency":"QAR"` sur `qa.dayuse.com`. C'est la
+même classe de défaut que les 8 hôtes de browse de §13.1 — un hôte global qui répond
+correctement tout en imposant les défauts du marché US — cette fois prouvée par une chaîne de
+devise concrète plutôt que déduite. Verrouillé par test.
+
+**Vérification sur l'inventaire réel, pas sur les 3 exemples** : chaque hôtel que MCP renvoie
+réellement à Séoul / Istanbul / Doha, passé par `build_hotel_page_url` puis interrogé en HTTP
+→ **15/15 en 200, zéro redirection**. Les slugs de MCP correspondent donc aux slugs réels du
+site. `markets.generated.js` régénéré (22 → 25), `DAYUSE_HOSTS` inchangé (les 3 nouveaux hôtes
+sont des sous-domaines de la racine `dayuse.com` déjà présente ; le test de dérive confirme
+0/25 rejeté).
+
 ---
 
 ## 14. `_ACK_RE` — l'item qu'UX2 avait laissé sans mesure

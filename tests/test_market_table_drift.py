@@ -214,6 +214,53 @@ class TestGeneratedFileIsCurrent:
         assert rows["TH"]["browse_url"] == "https://th.dayuse.com/s/thailand"
         assert rows["BR"]["browse_url"] == "https://www.dayuse.net.br/s/brasil"
 
+    def test_the_three_markets_added_for_live_unmapped_inventory(self) -> None:
+        """2026-08-28: KR/TR/QA had live MCP inventory while unmapped, so their
+        cards carried NO link (before #109 removed the fabricator, they carried a
+        wrong invented one). Host + country path verified against a real hotel
+        URL per market, and all 15 real MCP hotels resolved 200.
+
+        QA uses `qa.dayuse.com`, not the `www.dayuse.com` of the sample URL:
+        both serve the page, but the SAME hotel reads `"currency":"USD"` on www
+        and `"currency":"QAR"` on qa. Locking that in — reverting it to www would
+        silently price Qatari hotels in dollars.
+        """
+        from b2c_common.hotel_urls import build_hotel_page_url
+
+        assert build_hotel_page_url("hotel-nafore", None, "South Korea") == (
+            "https://kr.dayuse.com/hotels/south-korea/hotel-nafore"
+        )
+        assert build_hotel_page_url("mavirem-hotel", None, "Turkey") == (
+            "https://tr.dayuse.com/hotels/turkey/mavirem-hotel"
+        )
+        assert build_hotel_page_url("ibis-doha", None, "Qatar") == (
+            "https://qa.dayuse.com/hotels/qatar/ibis-doha"
+        )
+        # The name leg is what actually fires in prod: search_offers sends
+        # countryName and never a countryCode (0/201 measured).
+        assert build_hotel_page_url("ibis-doha", "QA", None) == (
+            "https://qa.dayuse.com/hotels/qatar/ibis-doha"
+        )
+        # "Türkiye" folds to "turkiye"; both spellings must resolve.
+        assert build_hotel_page_url("mavirem-hotel", None, "Türkiye") == (
+            "https://tr.dayuse.com/hotels/turkey/mavirem-hotel"
+        )
+
+    def test_korea_is_the_only_browse_path_carrying_a_city(self) -> None:
+        """dayuse-com's `defaultSearchPageLink` for ko-KR is "south-korea/seoul",
+        the only market entry with a city in it — and it is where the whole KR
+        inventory is (2 hotels, both Seoul). Asserted so a future "cleanup" that
+        strips it to "south-korea" has to be a deliberate decision."""
+        from b2c_common.hotel_urls import market_referential
+
+        rows = {row["iso"]: row for row in market_referential()}
+        assert rows["KR"]["browse_url"] == "https://kr.dayuse.com/s/south-korea/seoul"
+        with_city = [
+            iso for iso, row in rows.items()
+            if row["browse_url"] and str(row["browse_url"]).count("/") > 4
+        ]
+        assert with_city == ["KR"], f"a second market gained a city segment: {with_city}"
+
     def test_browse_paths_are_localized_where_dayuse_com_says_so(self) -> None:
         """The trap that kept these two tables apart: the browse segment is
         LOCALIZED while the hotel path is English, so neither can be derived

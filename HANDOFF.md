@@ -2,7 +2,7 @@
 
 État du chantier pour reprise en session fraîche. **Lire en entier avant d'agir ; ne pas reconstruire ce qui existe.** Mettre à jour en fin de CHAQUE session (bloc daté en tête).
 
-## ✅ Addendum 2026-08-28 bis — post-merge #109 : 2 items clos par la mesure, 1 gap réel trouvé
+## ✅ Addendum 2026-08-28 bis — post-merge #109 : 3 items clos par la mesure (dont un gap de liens trouvé ET fermé)
 
 PR #109 **mergée** (`71111cf`, 09:49:45Z). **Zéro PR ouverte** — le chantier UX est clos.
 
@@ -23,7 +23,7 @@ La ligne de `currency_guard.py::enforce_currency_disclosure` est là. Avant le c
 | **QA** Doha | 7 | 5 | `Qatar` | ❌ |
 | JP, MX, IN, ID, PH, VN, PL, GR, ZA, AR, CN | 0 | 0 | — | — |
 
-→ **3/14 marchés non mappés ont de l'inventaire réel**, ~15 hôtels aujourd'hui **sans lien réservable**. Les 11 autres sont vides : le gap est petit et borné, pas massif.
+→ **3/14 marchés non mappés avaient de l'inventaire réel**, ~15 hôtels **sans lien réservable**. Les 11 autres sont vides : gap petit et borné. **Fermé le même jour — voir le point 4.**
 
 Et les domaines existent, vérifiés vivants (200, 0 redirection) avec leur config dayuse-com :
 
@@ -34,7 +34,23 @@ Et les domaines existent, vérifiés vivants (200, 0 redirection) avec leur conf
 | QA | `qa.dayuse.com` | QA | QAR | `qatar` |
 | BH | `bh.dayuse.com` | BH | BHD | `bahrain` (pas encore sondé pour l'inventaire) |
 
-🪤 **Deux inconnues à lever AVANT de mapper, pas à deviner** (la docstring de `_MARKET` exige des valeurs vérifiées en trafic réel, pas déduites) : (a) le **chemin d'hôtel** anglais (`/hotels/<slug>/`) de ces marchés n'est PAS donné par la config dayuse-com — `defaultSearchPageLink` est le slug de *browse*, et pour KR il porte même une ville, forme unique parmi les 22 ; (b) il faut le confirmer sur une vraie URL d'hôtel de chacun de ces hôtes. Le générateur d'option B rend l'ajout mécanique **une fois ces 2 valeurs vérifiées** — c'est la vérification qui est le travail, pas l'édition.
+**4. ✅ Gap FERMÉ le même jour — KR/TR/QA mappés, 15/15 hôtels réels résolvent 200.** Les 2 inconnues (chemin d'hôtel anglais, non donné par la config dayuse-com) ont été levées par **une vraie URL d'hôtel par marché fournie par Fabien**, pas par déduction — la docstring de `_MARKET` exige des valeurs vérifiées en trafic réel :
+
+| | host | chemin | URL de référence (200) |
+|---|---|---|---|
+| KR | `kr.dayuse.com` | `south-korea` | `/hotels/south-korea/hotel-nafore` |
+| TR | `tr.dayuse.com` | `turkey` | `/hotels/turkey/hilton-istanbul-bomonti-hotel-conference-center` |
+| QA | **`qa.dayuse.com`** | `qatar` | `/hotels/qatar/ibis-doha` |
+
+🪤 **L'URL de référence QA était sur `www.dayuse.com`, et je ne l'ai PAS reprise** — mesuré : les deux hôtes servent la page en 200, mais le **même hôtel** rend `"currency":"USD"` sur `www.dayuse.com` et `"currency":"QAR"` sur `qa.dayuse.com`. L'hôte de marché est celui qui affiche la devise locale. C'est exactement la classe de défaut des 8 hôtes de browse corrigés plus tôt dans la journée, cette fois prouvée par une chaîne de devise concrète et pas déduite. Verrouillé par test, pour qu'un retour à `www` soit une décision et pas un glissement.
+
+**Vérification décisive, sur l'inventaire réel et pas sur les 3 exemples** : pour chaque hôtel que MCP renvoie réellement à Séoul / Istanbul / Doha, l'URL construite par `build_hotel_page_url` a été interrogée en HTTP → **15/15 en 200, zéro redirection** (`hotel-nafore`, `luxury-hanok-hotel-daam`, 6 hôtels TR dont `mavirem-hotel`, 7 hôtels QA dont `ibis-doha`). Les slugs de MCP correspondent donc bien aux slugs réels du site.
+
+Ajouté dans les 4 tables du **même** module (`_MARKET`, `_ISO_BY_COUNTRY_NAME` avec les alias `korea`/`republic of korea`/`turkiye`, `_BROWSE_PATH`, `_LABEL`), puis `markets.generated.js` **régénéré** : 22 → **25 marchés**. `DAYUSE_HOSTS` n'a rien demandé (`kr.`/`tr.`/`qa.dayuse.com` sont des sous-domaines de la racine `dayuse.com` déjà présente) — et le test de dérive le confirme : **0/25 rejeté**.
+
+`pytest -q` **1707 passed, 1 skipped**. ruff, mypy, guardrails, `--check` verts.
+
+📌 KR est le **seul** marché dont le slug de browse porte une ville (`south-korea/seoul`, c'est le `defaultSearchPageLink` de dayuse-com pour ko-KR, et c'est là qu'est tout son inventaire). Verrouillé par un test qui échoue si un 2e marché en gagne une.
 
 📌 Le compteur qui répondra tout seul : `booking_url_fallback` avec `reason=missing_from_payload` (livré dans #109, déployé) mesure désormais **combien de fois un utilisateur voit réellement une carte sans lien** — donnée que l'audit n'a pas pu obtenir. À relire dans ~1 semaine : elle dira si ces 3 marchés valent la priorité et en révélera d'autres.
 

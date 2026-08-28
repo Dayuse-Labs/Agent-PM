@@ -119,7 +119,9 @@ test('option B: the market tables come from the generated file', async () => {
     const gen = await import(new URL('markets.generated.js', CHAT));
     assert.ok(gen.COUNTRY_META, 'markets.generated.js must export COUNTRY_META');
     assert.ok(gen.COUNTRY_SLUG_TO_CODE, 'and COUNTRY_SLUG_TO_CODE');
-    assert.equal(Object.keys(gen.COUNTRY_META).length, 22);
+    // 25 since 2026-08-28: KR/TR/QA added — the 3 unmapped markets that had
+    // live MCP inventory and therefore cards with no link at all.
+    assert.equal(Object.keys(gen.COUNTRY_META).length, 25);
     // markets.js must consume them, not redefine them.
     const src = await readFile(new URL('markets.js', CHAT), 'utf8');
     assert.ok(
