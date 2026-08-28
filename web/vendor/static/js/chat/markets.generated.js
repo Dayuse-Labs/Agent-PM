@@ -101,6 +101,12 @@ export const COUNTRY_META = {
         browseUrl: 'https://www.dayuse-hotels.it/s/italia',
         hotelCountrySlug: 'italy',
     },
+    KR: {
+        code: 'KR',
+        label: 'South Korea',
+        browseUrl: 'https://kr.dayuse.com/s/south-korea/seoul',
+        hotelCountrySlug: 'south-korea',
+    },
     MY: {
         code: 'MY',
         label: 'Malaysia',
@@ -125,6 +131,12 @@ export const COUNTRY_META = {
         browseUrl: 'https://pt.dayuse.com/s/portugal',
         hotelCountrySlug: 'portugal',
     },
+    QA: {
+        code: 'QA',
+        label: 'Qatar',
+        browseUrl: 'https://qa.dayuse.com/s/qatar',
+        hotelCountrySlug: 'qatar',
+    },
     SE: {
         code: 'SE',
         label: 'Sweden',
@@ -142,6 +154,12 @@ export const COUNTRY_META = {
         label: 'Thailand',
         browseUrl: 'https://th.dayuse.com/s/thailand',
         hotelCountrySlug: 'thailand',
+    },
+    TR: {
+        code: 'TR',
+        label: 'Turkey',
+        browseUrl: 'https://tr.dayuse.com/s/turkiye',
+        hotelCountrySlug: 'turkey',
     },
     US: {
         code: 'US',
@@ -169,13 +187,16 @@ export const COUNTRY_SLUG_TO_CODE = {
     'hong-kong': 'HK',
     ireland: 'IE',
     italy: 'IT',
+    'south-korea': 'KR',
     malaysia: 'MY',
     netherlands: 'NL',
     'new-zealand': 'NZ',
     portugal: 'PT',
+    qatar: 'QA',
     sweden: 'SE',
     singapore: 'SG',
     thailand: 'TH',
+    turkey: 'TR',
     usa: 'US',
     // Hand-kept aliases (not produced by the backend builder):
     'united-states': 'US',

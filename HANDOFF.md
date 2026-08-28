@@ -2,6 +2,72 @@
 
 État du chantier pour reprise en session fraîche. **Lire en entier avant d'agir ; ne pas reconstruire ce qui existe.** Mettre à jour en fin de CHAQUE session (bloc daté en tête).
 
+## ✅ Addendum 2026-08-28 bis — post-merge #109 : 3 items clos par la mesure (dont un gap de liens trouvé ET fermé)
+
+PR #109 **mergée** (`71111cf`, 09:49:45Z). **Zéro PR ouverte** — le chantier UX est clos.
+
+**1. Estampille remise à jour, sans redéploiement.** L'arbre de `8946df4` (déployé) est identique à celui de `71111cf`, donc le code qui tourne EST celui de `main` ; seule l'estampille nommait un commit hors de `main`. `LANGFUSE_RELEASE=71111cf` posé sur `widget` avec `--skip-deploys` (`createdAt` toujours `09:07:31Z` après, vérifié). Aucun autre service touché.
+
+**2. ✅ La divulgation EUR sort bien en prod — preuve owed d'UX3 phase 2B, enfin faite.** Le bloc « octies » disait « le fix est prouvé en local, pas en prod ; re-vérifier après merge+déploiement ». Vérifié d'abord que le correctif EST déployé (`git merge-base --is-ancestor a7dd75a e7795fc` → oui, le concierge tourne sur `e7795fc`), puis rejoué **le tour exact du bloc octies** (`POST /v3/chat`, `x-dayuse-synthetic: 1`, « un hotel a Bangkok apres demain avec piscine ») :
+
+> « …l'Hotel Royal Bangkok est autour de 67% moins cher que le tarif nuit. … **Prix affichés en euros, sans conversion.** »
+
+La ligne de `currency_guard.py::enforce_currency_disclosure` est là. Avant le correctif, le MÊME tour ne mentionnait aucune devise (documenté dans octies). **Item clos.** Reste bloqué côté MCP_B2C, inchangé : l'affichage en devise locale attend leur réponse sur `hotelPrice` (`reports/PROMPT-MCP-B2C-DEVISE-LOCALE-2026-08-27.md`).
+
+**3. 🔴 Gap réel trouvé, mesuré : 3 marchés vivants ne sont pas dans `_MARKET`, donc leurs cartes n'ont AUCUN lien.** `_MARKET` couvre 22 pays, dayuse-com en sert **53**. Depuis la suppression du fabricateur (#109), un hôtel dans un pays non mappé ne reçoit plus un lien inventé — il ne reçoit **plus rien**. Restait à savoir si c'était théorique. Sondé sur 14 pays non mappés ayant un vrai domaine Dayuse (`search_offers`, J+2, réseau réel) :
+
+| Pays | `total` | hôtels rendus | `countryName` | résolu par `_ISO_BY_COUNTRY_NAME` ? |
+|---|---:|---:|---|---|
+| **KR** Séoul | 2 | 2 | `South Korea` | ❌ |
+| **TR** Istanbul | 6 | 5 | `Turkey` | ❌ |
+| **QA** Doha | 7 | 5 | `Qatar` | ❌ |
+| JP, MX, IN, ID, PH, VN, PL, GR, ZA, AR, CN | 0 | 0 | — | — |
+
+→ **3/14 marchés non mappés avaient de l'inventaire réel**, ~15 hôtels **sans lien réservable**. Les 11 autres sont vides : gap petit et borné. **Fermé le même jour — voir le point 4.**
+
+Et les domaines existent, vérifiés vivants (200, 0 redirection) avec leur config dayuse-com :
+
+| | host | countryCode | currency | `defaultSearchPageLink` |
+|---|---|---|---|---|
+| KR | `kr.dayuse.com` | KR | KRW | **`south-korea/seoul`** ← contient une VILLE |
+| TR | `tr.dayuse.com` | TR | EUR | `turkiye` |
+| QA | `qa.dayuse.com` | QA | QAR | `qatar` |
+| BH | `bh.dayuse.com` | BH | BHD | `bahrain` (pas encore sondé pour l'inventaire) |
+
+**4. ✅ Gap FERMÉ le même jour — KR/TR/QA mappés, 15/15 hôtels réels résolvent 200.** Les 2 inconnues (chemin d'hôtel anglais, non donné par la config dayuse-com) ont été levées par **une vraie URL d'hôtel par marché fournie par Fabien**, pas par déduction — la docstring de `_MARKET` exige des valeurs vérifiées en trafic réel :
+
+| | host | chemin | URL de référence (200) |
+|---|---|---|---|
+| KR | `kr.dayuse.com` | `south-korea` | `/hotels/south-korea/hotel-nafore` |
+| TR | `tr.dayuse.com` | `turkey` | `/hotels/turkey/hilton-istanbul-bomonti-hotel-conference-center` |
+| QA | **`qa.dayuse.com`** | `qatar` | `/hotels/qatar/ibis-doha` |
+
+🪤 **L'URL de référence QA était sur `www.dayuse.com`, et je ne l'ai PAS reprise** — mesuré : les deux hôtes servent la page en 200, mais le **même hôtel** rend `"currency":"USD"` sur `www.dayuse.com` et `"currency":"QAR"` sur `qa.dayuse.com`. L'hôte de marché est celui qui affiche la devise locale. C'est exactement la classe de défaut des 8 hôtes de browse corrigés plus tôt dans la journée, cette fois prouvée par une chaîne de devise concrète et pas déduite. Verrouillé par test, pour qu'un retour à `www` soit une décision et pas un glissement.
+
+**Vérification décisive, sur l'inventaire réel et pas sur les 3 exemples** : pour chaque hôtel que MCP renvoie réellement à Séoul / Istanbul / Doha, l'URL construite par `build_hotel_page_url` a été interrogée en HTTP → **15/15 en 200, zéro redirection** (`hotel-nafore`, `luxury-hanok-hotel-daam`, 6 hôtels TR dont `mavirem-hotel`, 7 hôtels QA dont `ibis-doha`). Les slugs de MCP correspondent donc bien aux slugs réels du site.
+
+Ajouté dans les 4 tables du **même** module (`_MARKET`, `_ISO_BY_COUNTRY_NAME` avec les alias `korea`/`republic of korea`/`turkiye`, `_BROWSE_PATH`, `_LABEL`), puis `markets.generated.js` **régénéré** : 22 → **25 marchés**. `DAYUSE_HOSTS` n'a rien demandé (`kr.`/`tr.`/`qa.dayuse.com` sont des sous-domaines de la racine `dayuse.com` déjà présente) — et le test de dérive le confirme : **0/25 rejeté**.
+
+`pytest -q` **1707 passed, 1 skipped**. ruff, mypy, guardrails, `--check` verts.
+
+### ✅ Les 3 services déployés (`babc652`) et vérifiés en prod
+
+`hotel-search` (`SUCCESS 13:33:55Z`) → `concierge` (`SUCCESS 13:35:34Z`) → `widget` (`SUCCESS 13:39:19Z`), feuille d'abord (convention #95/#102/#107), chacun estampillé `LANGFUSE_RELEASE=babc652` **après** son SUCCESS avec `--skip-deploys` (`createdAt` vérifié inchangé après chaque stamp). `faq` laissé sur son estampille : aucun de ses fichiers dans le diff.
+
+**Preuve 1 — le backend** : tour `POST /v3/chat` « un hotel a Doha apres demain » (`x-dayuse-synthetic: 1`) → **5 cartes, toutes avec `url=https://qa.dayuse.com/hotels/qatar/…`** (`the-avenue-hotel`, `concorde-hotel-doha`, `radisson-blu-doha-hotel`, `ibis-doha`, `alwadi-hotel-doha-mgallery`) et `currency_code=QAR`. Avant ce déploiement : aucune de ces cartes n'avait de lien.
+
+**Preuve 2 — le widget** : l'artifact servi porte bien **25 marchés** avec les 3 nouveaux `browseUrl` (`kr.dayuse.com/s/south-korea/seoul`, `qa.dayuse.com/s/qatar`, `tr.dayuse.com/s/turkiye`), byte-identique à HEAD.
+
+**Preuve 3 — le rendu, vrai tour Doha dans le DOM** (`?q=`, `x-dayuse-synthetic: 1`) : **5 cartes, 5 liens, tous sur `qa.dayuse.com`**, `href="#"` = 0, lien fabriqué = 0. C'est le bout de la chaîne : ces cartes n'avaient aucun lien il y a une heure.
+
+🪤 **Piège de sonde à retenir : le balayage des 25 liens de browse produit UN 404 sporadique, et il se déplace.** Un run donne IT en 404, le run suivant donne AU en 404 — et chaque URL interrogée seule répond 200 trois fois de suite (`/s/italia` ×3, `/s/australia` ×3). C'est du **throttling provoqué par le balayage lui-même** (24 requêtes en rafale sur les hôtes Dayuse), pas un défaut. Deux conséquences : espacer les requêtes (~1,2 s) et **ne jamais conclure d'un 404 isolé dans un balayage sans le rejouer seul**. Au passage, `/s/italy` est un vrai 404 constant — ce qui confirme que `italia` est bien le bon slug.
+
+🪤 **Piège de lecture levé au passage** : ces cartes portent `country_code=QA`, ce qui semble contredire le « 0/201 `countryCode` » de l'audit. Les deux sont vrais. Le 0/201 mesure `hotel["countryCode"]` **venant de MCP** — re-vérifié le même jour sur Doha ET Paris : `'countryCode' in hotel` est `False`. Le `country_code` de la carte vient de `response_bridge.py:1037` (`card.setdefault("country_code", search_country)`) : c'est le pays que **le géocodeur** a résolu pour la recherche. Donc `inferCountryCodeFromHotel` côté widget reçoit bien un ISO2 en pratique — du géocodeur, jamais de MCP.
+
+📌 KR est le **seul** marché dont le slug de browse porte une ville (`south-korea/seoul`, c'est le `defaultSearchPageLink` de dayuse-com pour ko-KR, et c'est là qu'est tout son inventaire). Verrouillé par un test qui échoue si un 2e marché en gagne une.
+
+📌 Le compteur qui répondra tout seul : `booking_url_fallback` avec `reason=missing_from_payload` (livré dans #109, déployé) mesure désormais **combien de fois un utilisateur voit réellement une carte sans lien** — donnée que l'audit n'a pas pu obtenir. À relire dans ~1 semaine : elle dira si ces 3 marchés valent la priorité et en révélera d'autres.
+
 ## ✅ Addendum 2026-08-28 — UX6 : audit des mappings en dur. 98 tables, 0 morte, 0 suppression — et les 4 candidats de la phase réfutés
 
 Phase d'ÉTUDE UX6 (fichier de phase supprimé au nettoyage de fin de chantier — ce bloc et le rapport en portent tout le contenu durable). Livrable : **`reports/AUDIT-MAPPINGS-2026-08-28.md`** (à lire en entier avant de retoucher une table en dur). Branche `audit/ux6-hardcoded-mappings`, PR ouverte. **Zéro ligne exécutable modifiée** — 4 commentaires corrigés + 2 scripts de mesure ajoutés.

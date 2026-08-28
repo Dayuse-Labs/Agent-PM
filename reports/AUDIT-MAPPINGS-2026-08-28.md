@@ -246,6 +246,16 @@ l'information périmée**, pas le code. Les deux commentaires ont été re-daté
 > `countryCode` (24/24). Ça ne rend pas la table réductible — le chemin details a de toute
 > façon la jambe nom en second, et le chemin carte, lui, n'a que la jambe nom.
 
+> ⚠️ **Piège de lecture, levé le 2026-08-28** : une carte rendue par la façade porte bien un
+> `country_code` (ex. `QA` sur un tour Doha), ce qui semble contredire le « 0/201 » ci-dessus.
+> Les deux sont vrais. Le 0/201 mesure `hotel["countryCode"]` **venant de MCP** — re-vérifié
+> le même jour sur Doha ET Paris : `'countryCode' in hotel` est `False`. Le `country_code` de
+> la carte vient de `response_bridge.py:1037`,
+> `card.setdefault("country_code", search_country)` : c'est le pays que **le géocodeur** a
+> résolu pour la recherche, estampillé sur la carte. Conséquence utile :
+> `inferCountryCodeFromHotel` (widget) reçoit donc en pratique un code ISO à 2 lettres — du
+> géocodeur, jamais de MCP.
+
 #### `_LOCALE_COUNTRY` — `hotel_search_agent/geocode_tool.py:50`
 
 La phase demandait : « la locale native arrive maintenant par la façade (S-G2), vérifier si la
@@ -775,6 +785,41 @@ prod, un vrai tour rend 5 cartes / 5 liens sur `www.dayuse.fr` (0 `href="#"`, 0 
 les 6 modules refactorés **se lient et s'évaluent** dans le navigateur (`pageErrors: []`) —
 contrôle qui compte parce qu'un import cassé sur `markets.generated.js` aurait fait tomber
 tout le widget, pas seulement un lien.
+
+### 13.5 Suite post-merge : `_MARKET` passe de 22 à 25 marchés
+
+L'audit avait relevé sans le chiffrer que `_MARKET` couvre 22 pays quand dayuse-com en sert
+53. Depuis §12.2, un pays non mappé ne reçoit plus un lien inventé — il ne reçoit **rien**. La
+question restée ouverte était : est-ce théorique ?
+
+**Non, mais c'est petit et borné.** Sondé sur 14 pays non mappés ayant un vrai domaine Dayuse
+(`search_offers`, réseau réel) : **3 ont de l'inventaire** — KR Séoul 2 hôtels, TR Istanbul 6,
+QA Doha 7 ; les 11 autres (JP, MX, IN, ID, PH, VN, PL, GR, ZA, AR, CN) rendent `total=0`.
+Soit ~15 hôtels réels dont la carte n'avait aucun lien.
+
+Les 2 inconnues qui bloquaient — le chemin d'hôtel anglais n'est **pas** dans la config
+dayuse-com (`defaultSearchPageLink` est le slug de *browse*) — ont été levées par **une vraie
+URL d'hôtel par marché**, pas par déduction, comme la docstring de `_MARKET` l'exige :
+
+| | host | chemin | vérifié sur |
+|---|---|---|---|
+| KR | `kr.dayuse.com` | `south-korea` | `/hotels/south-korea/hotel-nafore` |
+| TR | `tr.dayuse.com` | `turkey` | `/hotels/turkey/hilton-istanbul-bomonti-…` |
+| QA | **`qa.dayuse.com`** | `qatar` | `/hotels/qatar/ibis-doha` |
+
+🪤 **L'URL de référence de QA pointait sur `www.dayuse.com` et n'a pas été reprise telle
+quelle.** Les deux hôtes servent la page (200), mais le **même hôtel** rend
+`"currency":"USD"` sur `www.dayuse.com` et `"currency":"QAR"` sur `qa.dayuse.com`. C'est la
+même classe de défaut que les 8 hôtes de browse de §13.1 — un hôte global qui répond
+correctement tout en imposant les défauts du marché US — cette fois prouvée par une chaîne de
+devise concrète plutôt que déduite. Verrouillé par test.
+
+**Vérification sur l'inventaire réel, pas sur les 3 exemples** : chaque hôtel que MCP renvoie
+réellement à Séoul / Istanbul / Doha, passé par `build_hotel_page_url` puis interrogé en HTTP
+→ **15/15 en 200, zéro redirection**. Les slugs de MCP correspondent donc aux slugs réels du
+site. `markets.generated.js` régénéré (22 → 25), `DAYUSE_HOSTS` inchangé (les 3 nouveaux hôtes
+sont des sous-domaines de la racine `dayuse.com` déjà présente ; le test de dérive confirme
+0/25 rejeté).
 
 ---
 
