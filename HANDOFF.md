@@ -50,6 +50,10 @@ Ajouté dans les 4 tables du **même** module (`_MARKET`, `_ISO_BY_COUNTRY_NAME`
 
 `pytest -q` **1707 passed, 1 skipped**. ruff, mypy, guardrails, `--check` verts.
 
+**Déploiement en cours** — `hotel-search` (`SUCCESS 13:33:55Z`) et `concierge` (`SUCCESS 13:35:34Z`) déployés et estampillés `babc652` (feuille d'abord, convention #95/#102/#107 ; `createdAt` vérifié inchangé après chaque stamp). `widget` reste à déployer. **Moitié backend déjà prouvée en prod** : tour `POST /v3/chat` « un hotel a Doha apres demain » (`x-dayuse-synthetic: 1`) → **5 cartes, toutes avec `url=https://qa.dayuse.com/hotels/qatar/…`** (`the-avenue-hotel`, `concorde-hotel-doha`, `radisson-blu-doha-hotel`, `ibis-doha`, `alwadi-hotel-doha-mgallery`) et `currency_code=QAR`. Avant ce déploiement : aucune de ces cartes n'avait de lien.
+
+🪤 **Piège de lecture levé au passage** : ces cartes portent `country_code=QA`, ce qui semble contredire le « 0/201 `countryCode` » de l'audit. Les deux sont vrais. Le 0/201 mesure `hotel["countryCode"]` **venant de MCP** — re-vérifié le même jour sur Doha ET Paris : `'countryCode' in hotel` est `False`. Le `country_code` de la carte vient de `response_bridge.py:1037` (`card.setdefault("country_code", search_country)`) : c'est le pays que **le géocodeur** a résolu pour la recherche. Donc `inferCountryCodeFromHotel` côté widget reçoit bien un ISO2 en pratique — du géocodeur, jamais de MCP.
+
 📌 KR est le **seul** marché dont le slug de browse porte une ville (`south-korea/seoul`, c'est le `defaultSearchPageLink` de dayuse-com pour ko-KR, et c'est là qu'est tout son inventaire). Verrouillé par un test qui échoue si un 2e marché en gagne une.
 
 📌 Le compteur qui répondra tout seul : `booking_url_fallback` avec `reason=missing_from_payload` (livré dans #109, déployé) mesure désormais **combien de fois un utilisateur voit réellement une carte sans lien** — donnée que l'audit n'a pas pu obtenir. À relire dans ~1 semaine : elle dira si ces 3 marchés valent la priorité et en révélera d'autres.

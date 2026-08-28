@@ -246,6 +246,16 @@ l'information périmée**, pas le code. Les deux commentaires ont été re-daté
 > `countryCode` (24/24). Ça ne rend pas la table réductible — le chemin details a de toute
 > façon la jambe nom en second, et le chemin carte, lui, n'a que la jambe nom.
 
+> ⚠️ **Piège de lecture, levé le 2026-08-28** : une carte rendue par la façade porte bien un
+> `country_code` (ex. `QA` sur un tour Doha), ce qui semble contredire le « 0/201 » ci-dessus.
+> Les deux sont vrais. Le 0/201 mesure `hotel["countryCode"]` **venant de MCP** — re-vérifié
+> le même jour sur Doha ET Paris : `'countryCode' in hotel` est `False`. Le `country_code` de
+> la carte vient de `response_bridge.py:1037`,
+> `card.setdefault("country_code", search_country)` : c'est le pays que **le géocodeur** a
+> résolu pour la recherche, estampillé sur la carte. Conséquence utile :
+> `inferCountryCodeFromHotel` (widget) reçoit donc en pratique un code ISO à 2 lettres — du
+> géocodeur, jamais de MCP.
+
 #### `_LOCALE_COUNTRY` — `hotel_search_agent/geocode_tool.py:50`
 
 La phase demandait : « la locale native arrive maintenant par la façade (S-G2), vérifier si la
