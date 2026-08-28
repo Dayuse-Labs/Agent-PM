@@ -2,6 +2,42 @@
 
 État du chantier pour reprise en session fraîche. **Lire en entier avant d'agir ; ne pas reconstruire ce qui existe.** Mettre à jour en fin de CHAQUE session (bloc daté en tête).
 
+## ✅ Addendum 2026-08-28 bis — post-merge #109 : 2 items clos par la mesure, 1 gap réel trouvé
+
+PR #109 **mergée** (`71111cf`, 09:49:45Z). **Zéro PR ouverte** — le chantier UX est clos.
+
+**1. Estampille remise à jour, sans redéploiement.** L'arbre de `8946df4` (déployé) est identique à celui de `71111cf`, donc le code qui tourne EST celui de `main` ; seule l'estampille nommait un commit hors de `main`. `LANGFUSE_RELEASE=71111cf` posé sur `widget` avec `--skip-deploys` (`createdAt` toujours `09:07:31Z` après, vérifié). Aucun autre service touché.
+
+**2. ✅ La divulgation EUR sort bien en prod — preuve owed d'UX3 phase 2B, enfin faite.** Le bloc « octies » disait « le fix est prouvé en local, pas en prod ; re-vérifier après merge+déploiement ». Vérifié d'abord que le correctif EST déployé (`git merge-base --is-ancestor a7dd75a e7795fc` → oui, le concierge tourne sur `e7795fc`), puis rejoué **le tour exact du bloc octies** (`POST /v3/chat`, `x-dayuse-synthetic: 1`, « un hotel a Bangkok apres demain avec piscine ») :
+
+> « …l'Hotel Royal Bangkok est autour de 67% moins cher que le tarif nuit. … **Prix affichés en euros, sans conversion.** »
+
+La ligne de `currency_guard.py::enforce_currency_disclosure` est là. Avant le correctif, le MÊME tour ne mentionnait aucune devise (documenté dans octies). **Item clos.** Reste bloqué côté MCP_B2C, inchangé : l'affichage en devise locale attend leur réponse sur `hotelPrice` (`reports/PROMPT-MCP-B2C-DEVISE-LOCALE-2026-08-27.md`).
+
+**3. 🔴 Gap réel trouvé, mesuré : 3 marchés vivants ne sont pas dans `_MARKET`, donc leurs cartes n'ont AUCUN lien.** `_MARKET` couvre 22 pays, dayuse-com en sert **53**. Depuis la suppression du fabricateur (#109), un hôtel dans un pays non mappé ne reçoit plus un lien inventé — il ne reçoit **plus rien**. Restait à savoir si c'était théorique. Sondé sur 14 pays non mappés ayant un vrai domaine Dayuse (`search_offers`, J+2, réseau réel) :
+
+| Pays | `total` | hôtels rendus | `countryName` | résolu par `_ISO_BY_COUNTRY_NAME` ? |
+|---|---:|---:|---|---|
+| **KR** Séoul | 2 | 2 | `South Korea` | ❌ |
+| **TR** Istanbul | 6 | 5 | `Turkey` | ❌ |
+| **QA** Doha | 7 | 5 | `Qatar` | ❌ |
+| JP, MX, IN, ID, PH, VN, PL, GR, ZA, AR, CN | 0 | 0 | — | — |
+
+→ **3/14 marchés non mappés ont de l'inventaire réel**, ~15 hôtels aujourd'hui **sans lien réservable**. Les 11 autres sont vides : le gap est petit et borné, pas massif.
+
+Et les domaines existent, vérifiés vivants (200, 0 redirection) avec leur config dayuse-com :
+
+| | host | countryCode | currency | `defaultSearchPageLink` |
+|---|---|---|---|---|
+| KR | `kr.dayuse.com` | KR | KRW | **`south-korea/seoul`** ← contient une VILLE |
+| TR | `tr.dayuse.com` | TR | EUR | `turkiye` |
+| QA | `qa.dayuse.com` | QA | QAR | `qatar` |
+| BH | `bh.dayuse.com` | BH | BHD | `bahrain` (pas encore sondé pour l'inventaire) |
+
+🪤 **Deux inconnues à lever AVANT de mapper, pas à deviner** (la docstring de `_MARKET` exige des valeurs vérifiées en trafic réel, pas déduites) : (a) le **chemin d'hôtel** anglais (`/hotels/<slug>/`) de ces marchés n'est PAS donné par la config dayuse-com — `defaultSearchPageLink` est le slug de *browse*, et pour KR il porte même une ville, forme unique parmi les 22 ; (b) il faut le confirmer sur une vraie URL d'hôtel de chacun de ces hôtes. Le générateur d'option B rend l'ajout mécanique **une fois ces 2 valeurs vérifiées** — c'est la vérification qui est le travail, pas l'édition.
+
+📌 Le compteur qui répondra tout seul : `booking_url_fallback` avec `reason=missing_from_payload` (livré dans #109, déployé) mesure désormais **combien de fois un utilisateur voit réellement une carte sans lien** — donnée que l'audit n'a pas pu obtenir. À relire dans ~1 semaine : elle dira si ces 3 marchés valent la priorité et en révélera d'autres.
+
 ## ✅ Addendum 2026-08-28 — UX6 : audit des mappings en dur. 98 tables, 0 morte, 0 suppression — et les 4 candidats de la phase réfutés
 
 Phase d'ÉTUDE UX6 (fichier de phase supprimé au nettoyage de fin de chantier — ce bloc et le rapport en portent tout le contenu durable). Livrable : **`reports/AUDIT-MAPPINGS-2026-08-28.md`** (à lire en entier avant de retoucher une table en dur). Branche `audit/ux6-hardcoded-mappings`, PR ouverte. **Zéro ligne exécutable modifiée** — 4 commentaires corrigés + 2 scripts de mesure ajoutés.
