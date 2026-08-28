@@ -1242,7 +1242,7 @@ class TestRatePlanSelector:
 
 
 class TestRatePlanDedupOnDisplaySignature:
-    """UX4 (2026-08-27, phases/UX4-rateplans-indistinguables.md): dedupe on the
+    """UX4 (2026-08-27): dedupe on the
     DISPLAY signature the widget actually renders, not just `offer_id` — two
     MCP offers with different UUIDs but the same `(offer_type, name,
     start_time, end_time, price_eur_cents)` produce two rigorously identical

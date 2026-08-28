@@ -1,7 +1,7 @@
 # UX3 phase 1 — `priceEuro` est-il en EUR, ou déjà dans la devise de l'hôtel ?
 
 > Item 3 de la liste Fabien du 2026-08-27. Phase 1 seulement (mesure, zéro code de
-> production) — voir `phases/UX3-devise-locale-mesure.md`.
+> production) — voir le bloc UX3 de `HANDOFF.md` (le fichier de phase a été supprimé au nettoyage de fin de chantier).
 
 ## Verdict
 

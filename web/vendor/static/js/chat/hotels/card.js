@@ -9,7 +9,6 @@ import { formatRating, formatTimeAMPM } from '../utils.js';
 import { selectBestImage } from './images.js';
 import { getLanguage, t } from '../i18n.js';
 import { escapeAttr, escapeHtml, sanitizeDayuseUrl, sanitizeImageUrl } from '../security.js';
-import { buildHotelFallbackUrl } from '../markets.js';
 
 let imageCarouselInstanceCounter = 0;
 
@@ -150,20 +149,25 @@ export function createHotelCard(hotel) {
     const hotelNumericId = hotel.id || hotel.hotel_id || hotelSlug;
     const imageCarouselId = buildImageCarouselId(hotelSlug, hotelNumericId);
 
-    const fallbackUrl = buildHotelFallbackUrl(hotel);
-    const sanitizedUrl = sanitizeDayuseUrl(appendAmplitudeIdToUrl(hotel.url || fallbackUrl));
-    if (hotel.url && !sanitizedUrl) {
-        // A server-provided URL was rejected by the host allowlist — the card
-        // silently degrades to the fallback. Track it: this exact silent swap
-        // 404'd every non-US/FR/SG booking click for 4 days in July 2026.
+    // Server-provided url only. There is no name-slugified fallback any more
+    // (UX6 2026-08-28 — see markets.js for what it used to emit and why it had
+    // to go): a card with no url gets no hotel-page link, which is the contract
+    // the backend builder already holds itself to.
+    const sanitizedUrl = sanitizeDayuseUrl(appendAmplitudeIdToUrl(hotel.url || ''));
+    if (!sanitizedUrl) {
+        // The card cannot offer a hotel page. Two distinct causes, and the
+        // second one used to be INVISIBLE (the old guard was `if (hotel.url &&
+        // !sanitizedUrl)`, so "no url at all" was never reported — the case
+        // where the widget quietly invented one). Event name kept for series
+        // continuity in Amplitude; `reason` is what splits the two.
         trackEvent('booking_url_fallback', {
             hotel_id: String(hotel.id || hotel.hotel_id || ''),
             hotel_name: String(hotel.name || ''),
-            rejected_url: String(hotel.url).slice(0, 300),
-            fallback_url: String(fallbackUrl).slice(0, 300),
+            reason: hotel.url ? 'rejected_by_allowlist' : 'missing_from_payload',
+            rejected_url: String(hotel.url || '').slice(0, 300),
         });
     }
-    const hotelUrl = sanitizedUrl || fallbackUrl;
+    const hotelUrl = sanitizedUrl || '';
 
     // Parse price - handles formats like "$127.00 - $159.00" or just numbers
     const priceInfo = parsePrice(hotel.price || hotel.min_price_ttc || 0, hotel.display_currency);
@@ -750,7 +754,10 @@ function pickableHotelIds() {
  * checkout. That promise is the defect the previous wording was written to avoid.
  */
 function renderFooter(priceInfo, originalPrice, hotelUrl, hotelName, hotelId) {
-    const safeHotelUrl = sanitizeDayuseUrl(hotelUrl || '') || '#';
+    // '' when the payload carried no usable url (UX6 2026-08-28). Never coerce
+    // it to '#': a link that goes nowhere reads as a broken button. The card
+    // drops the hotel-page affordance instead — see `seeHotelHtml` below.
+    const safeHotelUrl = sanitizeDayuseUrl(hotelUrl || '') || '';
     const safeHotelUrlAttr = escapeAttr(safeHotelUrl);
     const safeHotelNameAttr = escapeAttr(String(hotelName || ''));
     const safeHotelIdAttr = escapeAttr(String(hotelId || ''));
@@ -803,11 +810,18 @@ function renderFooter(priceInfo, originalPrice, hotelUrl, hotelName, hotelId) {
                data-hotel-price="${safeHotelPriceAttr}"
                data-hotel-url="${safeHotelUrlAttr}"`;
 
-    // No pick on offer → the hotel page is the only thing this card can do, so it
-    // keeps the button it has always had rather than degrading to a bare link.
-    const seeHotelHtml = canPick
-        ? `<a ${hotelLinkAttrs} class="see-hotel-link">${t('card_see_hotel')}</a>`
-        : `<a ${hotelLinkAttrs} class="book-button-link">
+    // No url → no hotel-page affordance at all (UX6 2026-08-28). The card still
+    // renders its price and, when there is one, its pick button; it simply
+    // stops promising a page it cannot reach. Before this, an unmapped country
+    // got a fabricated /hotels/usa/<slugified-name> link that 404'd.
+    // Otherwise: no pick on offer → the hotel page is the only thing this card
+    // can do, so it keeps the button it has always had rather than degrading to
+    // a bare link.
+    const seeHotelHtml = !safeHotelUrl
+        ? ''
+        : canPick
+            ? `<a ${hotelLinkAttrs} class="see-hotel-link">${t('card_see_hotel')}</a>`
+            : `<a ${hotelLinkAttrs} class="book-button-link">
                <button class="book-button">${t('card_see_hotel')}</button>
            </a>`;
 

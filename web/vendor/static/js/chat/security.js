@@ -6,8 +6,13 @@
 // the backend builds from `_MARKET` in libs/b2c_common/b2c_common/hotel_urls.py
 // (the old pointer here named agent-usa's `_BOOKING_HOST_BY_COUNTRY`, which
 // does not exist in this repo): a host missing here makes sanitizeDayuseUrl
-// reject the card URL, so buildHotelFallbackUrl's name-slugified guess gets
-// rendered instead and every booking click 404s for that market.
+// reject the card URL, and since UX6 removed the name-slugifying fallback the
+// card then shows NO hotel-page link at all for that market. Honest, but still
+// a silent loss of every booking click — hence the drift test below.
+//
+// Enforced by `tests/test_market_table_drift.py`, which fails if this list ever
+// stops admitting a `_MARKET` host. That test is the whole reason the list can
+// stay hand-kept.
 //
 // Hand-kept on both sides, so it drifts silently. Checked 2026-08-28 (UX6
 // audit, reports/AUDIT-MAPPINGS-2026-08-28.md): all 22 `_MARKET` hosts are

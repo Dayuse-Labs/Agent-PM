@@ -1,10 +1,12 @@
 # AUDIT — les mappings en dur d'AgentB2C : lesquels sont légitimes, lesquels sont de la dette
 
-> Phase `phases/UX6-audit-mappings-en-dur.md` (item 6 de la liste Fabien du 2026-08-27 :
-> « On commence à avoir plusieurs mappings en dur. Voir comment on pourrait s'en passer. »)
-> Phase d'ÉTUDE. Ce rapport est le livrable ; les suppressions ne se font que là où la
+> Phase UX6, item 6 de la liste Fabien du 2026-08-27 : « On commence à avoir plusieurs
+> mappings en dur. Voir comment on pourrait s'en passer. »
+> Le fichier de phase (`phases/UX6-…`) a été supprimé au nettoyage de fin de chantier —
+> **ce rapport le remplace.**
+> Phase d'ÉTUDE : le livrable est ce rapport ; les suppressions ne se font que là où la
 > mesure les prouve mortes.
-> Mesures du 2026-08-28. Branche `audit/ux6-hardcoded-mappings`.
+> Mesures du 2026-08-28. Branche `audit/ux6-hardcoded-mappings`, PR #109.
 
 ---
 
@@ -544,3 +546,99 @@ La phase a en réalité fait l'inverse : elle a **promu** 2 tables (`_ISO_BY_COU
 | 3 fichiers JS édités | `node --check` OK ×3, + import réel de `markets.js` / `security.js` |
 | Code de MCP_B2C relu | **Non** — mesures sur ses réponses uniquement |
 | 429 MCP | Espacement 1,5-2 s entre appels ; aucun 429 rencontré sur les 2 runs |
+
+> Les chiffres du tableau ci-dessus sont ceux de **l'audit seul**. Les suites arbitrées (§12)
+> ajoutent 11 tests : `pytest -q` finit à **1702 passed, 1 skipped**.
+
+---
+
+## 12. Suites arbitrées par Fabien le 2026-08-28
+
+Les 4 arbitrages de §10 ont été tranchés le jour même : **« 1. C now and B later · 2. yes, and
+ahead of unification · 3. ok · 4. ok »**. Ils sont livrés sur la même branche/PR. Ce qui suit
+n'est donc plus de l'audit : c'est du code, et §9 (« 4 commentaires, zéro comportement ») ne
+décrit plus que la première moitié de la PR.
+
+### 12.1 Option C — le garde-fou de dérive (sans unification)
+
+`tests/test_market_table_drift.py`, 11 tests. Il **n'unifie rien** — il rend la panne
+silencieuse impossible, ce qui était le seul risque réellement chiffré de §6.1 :
+
+- tout hôte de `_MARKET` est admis par `DAYUSE_HOSTS` (le test qui compte) ;
+- les slugs de chemin `_MARKET` ↔ `COUNTRY_META` concordent ; les ensembles de pays aussi ;
+- tout slug émis par le back est relisible par `COUNTRY_SLUG_TO_CODE` ;
+- la divergence connue des 8 hôtes de browse est **plafonnée, pas interdite** (`<= 8`) : c'est
+  une question produit, pas une panne, et la verrouiller aurait été la trancher — mais un 9e
+  marché divergent réveille le test.
+
+**Les parseurs sont importés de `scripts/measure_market_table_drift.py`, pas réécrits** — les
+réécrire aurait fait de ce test une **cinquième** copie tenue à la main de la table qu'il
+surveille.
+
+Deux protections contre le faux vert : une classe `TestTheParsersActuallyParsed` (un parseur
+qui rend `{}` se lit exactement comme « aucune dérive » — même piège que le faux positif de
+`_old_dedup_count` dans `probe_rateplan_dedup.py`), et un test qui vérifie que le contrôle
+d'allowlist **peut** échouer (`www.dayuse.pl` refusé, `th.dayuse.com` accepté).
+
+**Preuve que le garde tire, avec la signature de la panne** — en retirant temporairement
+`'dayuse.fr'` de `DAYUSE_HOSTS` :
+
+```
+AssertionError: 1 market host(s) would be REJECTED by DAYUSE_HOSTS in
+  web/vendor/static/js/chat/security.js: {'FR': 'www.dayuse.fr'}. Every hotel card in
+  those markets renders with no hotel-page link. Add the host root there.
+```
+
+Restauré ensuite (`git diff` vérifié : seul le commentaire volontaire subsiste).
+
+### 12.2 Décision 2 — le widget ne fabrique plus d'URL
+
+`buildHotelFallbackUrl` est **supprimée** de `markets.js`, avec ses 2 appelants
+(`utils.js::buildHotelMap`, `hotels/card.js::createHotelCard`). Pas de remplacement : pas
+d'URL serveur = pas de lien. Le commentaire laissé à sa place garde la trace de ce qu'elle
+émettait et pourquoi c'était grave, pour qu'elle ne soit pas réintroduite par commodité.
+
+Conséquence de rendu, assumée : `renderFooter` **n'affiche plus le lien hôtel** quand il n'y a
+pas d'URL, au lieu de rendre un `href="#"`. La carte garde son prix et, s'il y en a un, son
+bouton de sélection — elle cesse simplement de promettre une page qu'elle ne peut pas
+atteindre. C'était la formulation explicite de l'arbitrage (« rendre `null`, ne pas afficher
+de lien »).
+
+### 12.3 Décision 3 — le cas non tracké devient visible
+
+Le garde passe de `if (hotel.url && !sanitizedUrl)` à `if (!sanitizedUrl)`, avec une propriété
+`reason` : `'rejected_by_allowlist'` (le cas déjà suivi) ou `'missing_from_payload'` (le cas
+invisible, §6.2). **Le nom d'événement `booking_url_fallback` est conservé** : le renommer
+casserait la série Amplitude, exactement le raisonnement qui rend `GUARD_SCORE_NAMES`
+immuable (§5.2). Le taux d'occurrence que cet audit n'a pas pu mesurer devient mesurable dès
+le déploiement.
+
+### 12.4 Décision 4 — `COUNTRY_META.UK` supprimée, et l'objection de §8 levée
+
+§8 donnait deux raisons de ne pas la supprimer. Les deux sont tombées : `markets.js` est
+maintenant dans le périmètre (décisions 2 et 3 y touchent), et **le harnais de test JS qui
+manquait existe**.
+
+`tests/widget/widget_url_contract.test.mjs` — 9 tests, `node:test`, zéro dépendance, sur les
+**vrais** modules widget. Câblé dans `pytest -q` via
+`test_market_table_drift.py::TestWidgetUrlContract`, donc **il tourne en CI sans modifier le
+workflow** (node est présent sur `ubuntu-latest`) ; skip propre si `node` manque en local.
+Il vérifie notamment que la suppression de l'alias est **sûre** (`getMarketMeta('UK')` →
+`GB`, slug et host inclus) et que `COUNTRY_SLUG_TO_CODE['uk']`, lui, **reste atteignable** —
+pour qu'un futur « nettoyage » ne l'emporte pas avec l'alias mort.
+
+🪤 **La subtilité qui rend ce harnais possible** : `card.js` ne peut pas être ÉVALUÉ en node nu
+(il importe des modules qui touchent le DOM). Mais ESM **parse et lie tout le graphe avant
+d'évaluer**, donc un import resté sur une exportation disparue ressort en
+`SyntaxError: does not provide an export named`, que le test attrape, tandis qu'une
+`ReferenceError` sur `document` signifie que le linkage a réussi — le seul point testé.
+Vérifié en réintroduisant l'import mort : le test tombe avec ce message exact.
+
+### 12.5 Ce qui n'a PAS été fait
+
+- **L'unification (option B)** reste à faire : c'est sa propre phase. Les 85 entrées sont
+  toujours tenues à la main dans 4 tables et 2 langages — le garde-fou empêche seulement que
+  leur dérive soit silencieuse.
+- **Rien n'est déployé.** Les décisions 2 et 3 changent le rendu de la carte et un événement
+  Amplitude : à vérifier en prod après merge, ce qui n'est pas fait ici.
+- **La divergence des 8 hôtes de browse** n'est pas corrigée (question produit, §6.1).

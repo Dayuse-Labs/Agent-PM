@@ -4,7 +4,7 @@
 
 ## ✅ Addendum 2026-08-28 — UX6 : audit des mappings en dur. 98 tables, 0 morte, 0 suppression — et les 4 candidats de la phase réfutés
 
-Phase d'ÉTUDE `phases/UX6-audit-mappings-en-dur.md`. Livrable : **`reports/AUDIT-MAPPINGS-2026-08-28.md`** (à lire en entier avant de retoucher une table en dur). Branche `audit/ux6-hardcoded-mappings`, PR ouverte. **Zéro ligne exécutable modifiée** — 4 commentaires corrigés + 2 scripts de mesure ajoutés.
+Phase d'ÉTUDE UX6 (fichier de phase supprimé au nettoyage de fin de chantier — ce bloc et le rapport en portent tout le contenu durable). Livrable : **`reports/AUDIT-MAPPINGS-2026-08-28.md`** (à lire en entier avant de retoucher une table en dur). Branche `audit/ux6-hardcoded-mappings`, PR ouverte. **Zéro ligne exécutable modifiée** — 4 commentaires corrigés + 2 scripts de mesure ajoutés.
 
 ### Le résultat en trois lignes
 
@@ -72,11 +72,41 @@ Un hôtel polonais devient une page **`/hotels/usa/`** (car `inferCountryCodeFro
 
 `pytest -q` : **1691 passed, 1 skipped** (identique à la baseline post-#107 — aucun test ajouté, aucun modifié : rien d'exécutable n'a changé). `ruff check .` : clean. `mypy agents libs` : clean (48 fichiers). `bash scripts/dayuse_guardrails.sh .` : OK, **avant et après**. Les 3 fichiers JS édités re-vérifiés (`node --check` + import réel de `markets.js`/`security.js`). Code de MCP_B2C **non relu** (interdit de session) — tout vient de ses réponses. Aucun 429 sur les 2 runs de sonde (espacement 1,5-2 s).
 
-**Nettoyage de fin de chantier NON exécuté** : le DoD 7 de la phase le conditionne à « si UX6 est la dernière phase mergée ». Cette PR n'est pas mergée et 2 PR restent ouvertes (`fix/budget-max-search-injection`, `fix/booking-link-wording-not-confirmed`). À faire par la session qui merge la dernière.
+### Suites arbitrées par Fabien le 2026-08-28 — implémentées sur la même PR
+
+Les 4 arbitrages du rapport ont été tranchés immédiatement (« 1. C now and B later · 2. yes, and ahead of unification · 3. ok · 4. ok »), donc cette PR ne contient plus seulement l'audit. Détail dans le rapport §12.
+
+| # | Décision | Livré |
+|---|---|---|
+| C | garde-fou de dérive maintenant, unification (option B) plus tard | `tests/test_market_table_drift.py` — 11 tests. Échoue avec la signature exacte de la panne : en retirant `'dayuse.fr'` de `DAYUSE_HOSTS`, `AssertionError: 1 market host(s) would be REJECTED … {'FR': 'www.dayuse.fr'}`. Restauré ensuite. |
+| 2 | aligner le widget sur le contrat du back, **avant** l'unification | `buildHotelFallbackUrl` **supprimé** de `markets.js` (+ ses 2 appelants `utils.js`, `card.js`). Plus de slug inventé nulle part. `renderFooter` n'affiche plus de lien hôtel quand il n'y a pas d'URL (au lieu d'un `href="#"` mort). |
+| 3 | tracker le cas non tracké | `card.js` : le garde passe de `if (hotel.url && !sanitizedUrl)` à `if (!sanitizedUrl)`, avec `reason: 'rejected_by_allowlist' \| 'missing_from_payload'`. **Nom d'événement `booking_url_fallback` conservé** — renommer casserait la série Amplitude (même raisonnement que `GUARD_SCORE_NAMES`). |
+| 4 | supprimer `COUNTRY_META.UK` | Fait. Remplacé par un commentaire disant *pourquoi* il était mort, et pourquoi `COUNTRY_SLUG_TO_CODE['uk']` — qui est atteignable — ne doit **pas** être « nettoyé » avec lui. |
+
+**Le harnais de test JS qui manquait existe maintenant** — c'était la raison invoquée dans le rapport §8 pour ne pas supprimer les 6 lignes mortes. `tests/widget/widget_url_contract.test_mjs` (9 tests, `node:test`, aucune dépendance) charge les **vrais** modules widget, et il tourne **dans `pytest -q`** via `TestWidgetUrlContract` (donc en CI : node est présent sur `ubuntu-latest`, aucun changement de workflow). Skip propre si `node` est absent en local.
+
+🪤 **La vérification qui rend ce harnais utile** : `card.js` ne peut pas être ÉVALUÉ en node nu (il importe des modules qui touchent le DOM), mais ESM **parse et lie tout le graphe avant d'évaluer quoi que ce soit** — donc un `import { buildHotelFallbackUrl }` resté en place ressort en `SyntaxError: does not provide an export named`, que le test attrape, alors qu'une `ReferenceError` sur `document` signifie que le linkage a réussi (le seul point testé). Vérifié en réintroduisant l'import mort : le test tombe avec ce message exact, puis restauré.
+
+### Les 2 PR restantes : fermées (décision Fabien)
+
+- **#40** `scx6-same-day-cutoff-fallback` — fermée. Vérifié avant : sa substance est **déjà dans `main`** (`_SAME_DAY_CLOSED_NOTE` dans `ground_truth.py:41`, utilisé l. 85). Surtout, la branche est **en retard sur main** : son diff sur `ground_truth.py` **supprimerait** l'affinage de prod du 2026-07-29 et ~113 lignes à partir de `_hotel_line`. La merger aurait régressé.
+- **#19** `s-d-judge-ab` — fermée. ⚠️ Celle-ci portait du contenu **absent de `main`** (`scripts/run_judge_ab.py`, son test, `JUDGE-AB-BENCH-2026-07-22.md`), noté pour que rien ne disparaisse en silence. Sans coût parce que son objet est épuisé (bench A/B contre le POC agent-usa) et ses résultats sont dans `reports/judge_*.json` + `GATE-RERUN-2026-07-23.md`. Récupérable : `git show origin/s-d-judge-ab:scripts/run_judge_ab.py`.
+
+Les deux branches sont intactes, les deux PR réouvrables.
+
+### Nettoyage de fin de chantier — EXÉCUTÉ
+
+Les 2 PR ci-dessus fermées, UX6 est la dernière du chantier : la checklist de `PROMPTS-UX-2026-08-27.md` a été exécutée. Les 8 fichiers de planification sont supprimés (`PROMPTS-UX-2026-08-27.md`, `tasks/todo-ux-2026-08-27.md`, `phases/UX1`→`UX6`). `tasks/todo.md` **non touché** (tracker OBS4).
+
+Les 6 cases vérifiées avant suppression, dont **une qui ne l'était pas** :
+
+- ✅ UX1 (2 cliquets + budget affiché ≠ appliqué), UX3 (verdict devise lecture A, dans `reports/` **et** ici), UX4 (règle de signature d'affichage — vérifiée présente dans la docstring de `_day_rate_plans`, `inline_tools.py:606-625`), UX6 (justification par table → le rapport), variante `pt-PT` d'UX2.
+- ❌ **`_ACK_RE` : la case n'était pas cochable.** Zéro mention dans `HANDOFF.md`, et le code est inchangé. Le constat, préservé ici avant que le fichier de phase disparaisse : `_ACK_WORDS`/`_ACK_RE` (`triage.py:101-107`) sont **fr/en uniquement**, donc un « grazie » ou « danke » nu ne matche pas et **part au triage LLM**. Ce n'est pas un bug (le triage gère) mais ça coûte **un appel LLM** sur un tour qui n'en avait pas besoin. La phase demandait de **mesurer puis décider**, en avertissant de « ne pas gonfler la regex par réflexe » — **aucune mesure n'a été faite**, et rien n'a été touché. Reste donc ouvert, en l'état, avec son avertissement.
+- ✅ Références aux fichiers supprimés : 8 repointées avant suppression (4 dans `HANDOFF.md`, `reports/AUDIT-MAPPINGS-2026-08-28.md`, `reports/RESEARCH-UX3-…`, `test_inline_tools.py:1245`, `probe_rateplan_dedup.py:6`). Ce qui reste après le grep de la checklist n'est que des **noms de chantier** sans chemin (`UX2-bis`, `UX1-followup`, « UX4 (2026-08-27) ») — pas des liens morts.
 
 ## ✅ Addendum 2026-08-27 decies — UX2 : réponses dans les 7 langues reconnues, `TEMPLATE_LANGUAGES = LANGUAGES` — DÉPLOYÉ ET PROUVÉ EN PROD
 
-Phase `phases/UX2-reponses-7-langues.md`, branche `feat/ux2-seven-languages` (commit `c7c36b6`, non mergée — PR ouverte pour la review de Fabien). Prérequis UX5 vérifié mergé dans `main` avant de commencer (`git merge-base --is-ancestor 82d5e3f HEAD`).
+Phase UX2 (fichier de phase supprimé au nettoyage de fin de chantier), branche `feat/ux2-seven-languages` (commit `c7c36b6`, non mergée — PR ouverte pour la review de Fabien). Prérequis UX5 vérifié mergé dans `main` avant de commencer (`git merge-base --is-ancestor 82d5e3f HEAD`).
 
 ### Le périmètre réel du clamp — plus large que le tableau initial de la phase
 
@@ -151,7 +181,7 @@ Une passe de review indépendante sur le diff a trouvé 2 points réels, corrig�
 
 ## ✅ Addendum 2026-08-27 nonies — UX4 : dédoublonnage des rate plans sur la signature d'affichage (backend)
 
-Décision de design déjà tranchée et écrite dans `phases/UX4-rateplans-indistinguables.md` : `_day_rate_plans` (`agents/b2c_concierge/b2c_concierge/inline_tools.py`) dédoublonnait déjà sur `offer_id`, mais deux offres MCP d'UUID différents peuvent produire deux lignes rigoureusement identiques à l'écran (51 % des hôtels multi-plans partagent `ratePlanName` sur toutes leurs formules, `roomType` est NULL partout, `offerType` est un enum fermé à 5 valeurs). Branche `fix/ux4-rateplan-dedup`.
+Décision de design déjà tranchée dans le fichier de phase UX4 (supprimé au nettoyage de fin de chantier ; la règle vit désormais dans la docstring de `_day_rate_plans`) : `_day_rate_plans` (`agents/b2c_concierge/b2c_concierge/inline_tools.py`) dédoublonnait déjà sur `offer_id`, mais deux offres MCP d'UUID différents peuvent produire deux lignes rigoureusement identiques à l'écran (51 % des hôtels multi-plans partagent `ratePlanName` sur toutes leurs formules, `roomType` est NULL partout, `offerType` est un enum fermé à 5 valeurs). Branche `fix/ux4-rateplan-dedup`.
 
 **Correctif** : dédoublonnage additionnel sur la signature d'affichage `(offer_type, name, start_time, end_time, price_eur_cents)`, en plus de `offer_id`, dans la même boucle (l'ordre — filtrage par jour d'abord, dédoublonnage ensuite — n'a pas changé). Le prix reste dans la signature (décision du fichier de phase) : deux formules identiques mais à des prix différents restent deux lignes. La première offre rencontrée pour une signature donnée est conservée ; comme la liste est triée cheapest-first ensuite et que deux doublons ont le même prix par construction, l'offre gardée n'a pas d'importance pour l'utilisateur. Effet de bord voulu et déjà géré côté widget : un seul survivant fait retomber la carte sur le chemin simple (`renderRatePlans`' `plans.length < 2`), rien à changer côté JS.
 
@@ -174,7 +204,7 @@ Décision de design déjà tranchée et écrite dans `phases/UX4-rateplans-indis
 
 ## ✅ Addendum 2026-08-27 octies — UX3 phase 2B : demande MCP_B2C écrite + la divulgation EUR ne sortait pas, corrigée en code
 
-GO de Fabien reçu sur le verdict de la phase 1. Les 2 livrables de la phase 2B (`phases/UX3-devise-locale-mesure.md`), sur la même branche/PR que la phase 1 (`measure/ux3-currency-locale`, PR #103).
+GO de Fabien reçu sur le verdict de la phase 1. Les 2 livrables de la phase 2B d'UX3 (fichier de phase supprimé au nettoyage de fin de chantier), sur la même branche/PR que la phase 1 (`measure/ux3-currency-locale`, PR #103).
 
 **Livrable 1 — demande écrite à MCP_B2C** : `reports/PROMPT-MCP-B2C-DEVISE-LOCALE-2026-08-27.md`. Un seul champ demandé, `hotelPrice` par offre (devise réelle de l'hôtel), sur le modèle de `PROMPT-MCP-B2C-RATEPLANS.md` qui a déjà marché. Point fort de la demande : la propre réponse de MCP_B2C du 2026-07-28 mentionne déjà `hotelPrice`/`hotelComparativePrice` en interne (utilisés pour vérifier la cohérence FX d'`originalPriceEuro`) — donc probablement un cas (a) « déjà dans l'index, juste pas projeté », pas un chantier de réindexation. Pas encore posée dans une session sur le repo MCP_B2C (côté Fabien/l'équipe MCP_B2C de porter le prompt).
 

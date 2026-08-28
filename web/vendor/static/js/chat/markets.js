@@ -43,12 +43,11 @@ const COUNTRY_META = {
         browseUrl: 'https://www.dayuse.co.uk/s/united-kingdom',
         hotelCountrySlug: 'united-kingdom',
     },
-    UK: {
-        code: 'GB',
-        label: 'United Kingdom',
-        browseUrl: 'https://www.dayuse.co.uk/s/united-kingdom',
-        hotelCountrySlug: 'united-kingdom',
-    },
+    // No 'UK' alias here on purpose: `getMarketMeta` routes every key through
+    // `normalizeCountryCode`, which maps UK -> GB BEFORE the lookup, so a 'UK'
+    // entry is unreachable by construction (proven dead, UX6 audit 2026-08-28).
+    // The 'uk' key in COUNTRY_SLUG_TO_CODE below is a different thing and IS
+    // reachable — it matches a /s/uk URL path segment.
     DE: {
         code: 'DE',
         label: 'Germany',
@@ -229,17 +228,21 @@ export function getMarketMetaFromHotels(hotels, fallbackCountryCode = 'US') {
     return getMarketMeta(inferCountryCodeFromHotel(firstHotel), fallbackCountryCode);
 }
 
-export function buildHotelFallbackUrl(hotel) {
-    const name = String(hotel?.name || 'hotel');
-    const slug = name.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '') || 'hotel';
-    const meta = getMarketMeta(inferCountryCodeFromHotel(hotel), 'US');
-
-    if (meta.code === 'US') {
-        return `https://dayuse.com/hotels/usa/${slug}`;
-    }
-    if (meta.code === 'SG') {
-        return `https://www.dayuse.sg/hotels/singapore/${slug}`;
-    }
-    // Never emit the legacy /hotel/<id>/<slug> path — it 404s on every host.
-    return `https://www.dayuse.com/hotels/${meta.hotelCountrySlug}/${slug}`;
-}
+// `buildHotelFallbackUrl` was REMOVED here (UX6 audit, 2026-08-28, arbitrated by
+// Fabien). It slugified the hotel's DISPLAY NAME and served it on a guessed
+// host, which is exactly what the backend builder forbids itself from doing —
+// `libs/b2c_common/b2c_common/hotel_urls.py`: "nothing in this repo may ever
+// slugify a display name into a URL ... an unmapped country yields None, the
+// card honestly has no link rather than a guessed one".
+//
+// The widget was silently defeating that contract. Measured before removal, on
+// the real modules: a hotel in a country absent from `_ISO_BY_COUNTRY_NAME`
+// (so the backend correctly sent NO url) rendered as
+//   'Hôtel Métropole & Spa' (Poland) -> https://dayuse.com/hotels/usa/h-tel-m-tropole-spa
+// — wrong market (every unmapped country fell through to the 'US' default of
+// `getMarketMeta`, since `inferCountryCodeFromHotel` needs a 2-letter code and
+// a full name like "Poland" yields ''), invented accent-mangled slug, and it
+// PASSED `sanitizeDayuseUrl`, so it rendered as a live booking link that 404s.
+//
+// There is deliberately no replacement: no url from the server means no
+// hotel-page link on the card. See reports/AUDIT-MAPPINGS-2026-08-28.md §6.2.

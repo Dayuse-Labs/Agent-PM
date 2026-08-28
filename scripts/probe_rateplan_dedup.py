@@ -3,7 +3,7 @@
 whose DISPLAY SIGNATURE (offer_type, name, start_time, end_time, price)
 collides completely, on the same day, under different `ratePlanUuid`s?
 
-Why this exists (2026-08-27, phases/UX4-rateplans-indistinguables.md). The
+Why this exists (2026-08-27, chantier UX4). The
 design decision (dedupe on the display signature, backend-side) is settled
 and already covered by unit tests with synthetic offers
 (`TestRatePlanDedupOnDisplaySignature` in `test_inline_tools.py`). What those
