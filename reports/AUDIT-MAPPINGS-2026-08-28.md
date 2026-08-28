@@ -639,6 +639,29 @@ Vérifié en réintroduisant l'import mort : le test tombe avec ce message exact
 - **L'unification (option B)** reste à faire : c'est sa propre phase. Les 85 entrées sont
   toujours tenues à la main dans 4 tables et 2 langages — le garde-fou empêche seulement que
   leur dérive soit silencieuse.
-- **Rien n'est déployé.** Les décisions 2 et 3 changent le rendu de la carte et un événement
-  Amplitude : à vérifier en prod après merge, ce qui n'est pas fait ici.
 - **La divergence des 8 hôtes de browse** n'est pas corrigée (question produit, §6.1).
+- **Le taux d'occurrence du cas `missing_from_payload`** n'est toujours pas chiffré, et ne peut
+  pas l'être par une sonde : il demande un hôtel dans un pays absent de
+  `_ISO_BY_COUNTRY_NAME`, et les 21 marchés à inventaire sont tous couverts. C'est
+  l'événement ajouté en 12.3 qui répondra dans la durée.
+
+### 12.6 Déployé et vérifié en prod (2026-08-28)
+
+`widget` seul — les modifications Python de la PR sont prouvées commentaires-seuls, donc les
+3 autres services gardent une estampille honnête. `LANGFUSE_RELEASE=48c399f` posé avec
+`--skip-deploys` (`latestDeployment.createdAt` inchangé après le stamp, vérifié), puis
+`railway up --service widget --detach` → `SUCCESS 2026-08-28T07:56:17Z`.
+
+Quatre preuves, détaillées dans le bloc `HANDOFF.md` du 2026-08-28 :
+
+1. **Le code servi a changé** : `buildHotelFallbackUrl` et `UK:` étaient servis en prod avant,
+   0 occurrence après ; les 4 fichiers JS servis sont byte-identiques à HEAD.
+2. **Le rendu, sur le module déployé, dans un vrai Chrome** : avec `url` → lien réel
+   `dayuse.fr/hotels/france/…` ; **sans `url` → aucun href, aucun `/hotels/usa/` fabriqué**,
+   carte et prix intacts. La même fixture rendait `dayuse.com/hotels/usa/h-tel-m-tropole-spa`
+   avant le déploiement.
+3. **Le trou de tracking est fermé** (`sendBeacon`/`amplitude.track` interceptés) : url valide
+   → aucun événement ; pas d'url → `reason: "missing_from_payload"` ; url rejetée →
+   `reason: "rejected_by_allowlist"`. Même nom d'événement, série Amplitude continue.
+4. **Un vrai tour** (`?q=`, payloads MCP réels, `x-dayuse-synthetic: 1`) : 5 cartes, 5 liens,
+   tous sur `www.dayuse.fr`, 0 `href="#"`, 0 lien fabriqué, slug serveur réel.

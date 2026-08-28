@@ -87,6 +87,39 @@ Les 4 arbitrages du rapport ont été tranchés immédiatement (« 1. C now and 
 
 🪤 **La vérification qui rend ce harnais utile** : `card.js` ne peut pas être ÉVALUÉ en node nu (il importe des modules qui touchent le DOM), mais ESM **parse et lie tout le graphe avant d'évaluer quoi que ce soit** — donc un `import { buildHotelFallbackUrl }` resté en place ressort en `SyntaxError: does not provide an export named`, que le test attrape, alors qu'une `ReferenceError` sur `document` signifie que le linkage a réussi (le seul point testé). Vérifié en réintroduisant l'import mort : le test tombe avec ce message exact, puis restauré.
 
+### ✅ Déployé et VÉRIFIÉ EN PROD (branche non mergée — même convention que PR #95/#102)
+
+**`widget` seul.** Les modifications Python de cette PR sont **prouvées commentaires-seuls** (`git diff` filtré sur les lignes non-commentaires : vide pour `hotel_urls.py` ET `response_bridge.py`), donc `concierge`, `hotel-search` et `faq` gardent leur estampille — elle reste honnête, leur comportement est identique. Les 4 fichiers JS sont toute la modification de comportement, et c'est `widget` qui les sert.
+
+`LANGFUSE_RELEASE=48c399f` posé sur `widget` avec `--skip-deploys` (vérifié : `latestDeployment.createdAt` resté à `2026-08-27T08:33:35.902Z` après le stamp — aucun redéploiement de l'ANCIEN code sous la nouvelle estampille), puis `railway up --service widget --detach` → **`SUCCESS 2026-08-28T07:56:17Z`**.
+
+**Preuve 1 — le code servi a réellement changé.** État AVANT capturé sur le domaine public : `markets.js:46 UK: {` et `markets.js:232 export function buildHotelFallbackUrl(hotel) {` étaient bien servis. APRÈS : 0 occurrence des deux, et les **4 fichiers JS servis sont byte-identiques à HEAD** (`diff` sur `markets.js`, `security.js`, `utils.js`, `hotels/card.js`).
+
+**Preuve 2 — le rendu, sur le module DÉPLOYÉ, dans un vrai Chrome** (import dynamique de `/static/js/chat/hotels/card.js` depuis l'origine live, `createHotelCard` réel sur 2 fixtures — aucun tour de chat, aucun appel MCP, aucune donnée utilisateur) :
+
+| Fixture | lien « voir l'hôtel » | hrefs | `href="#"` | `/hotels/usa/` fabriqué | carte rendue |
+|---|---|---|---|---|---|
+| avec `url` serveur | ✅ présent | le vrai `dayuse.fr/hotels/france/…` + params Amplitude | non | — | oui |
+| **sans `url`** (Poland) | ✅ **absent** | **aucun** | non | ✅ **aucun** | oui, prix compris |
+
+Avant ce déploiement, la MÊME fixture rendait `https://dayuse.com/hotels/usa/h-tel-m-tropole-spa`.
+
+**Preuve 3 — le trou de tracking est fermé, mesuré en prod** (`navigator.sendBeacon` + `amplitude.track` interceptés) :
+
+| Cas | Événement émis |
+|---|---|
+| url valide | **aucun** (correct — rien à signaler) |
+| **pas d'url** | `booking_url_fallback` · `reason: "missing_from_payload"` ← **le cas qui était invisible** |
+| url rejetée par l'allowlist | `booking_url_fallback` · `reason: "rejected_by_allowlist"` · `rejected_url` renseignée |
+
+Même nom d'événement dans les deux cas : la série Amplitude est continue.
+
+**Preuve 4 — un VRAI tour, payloads MCP réels, DOM réel** (`?q=hotel a Paris demain apres-midi`, session fraîche, `x-dayuse-synthetic: 1` injecté avant tout script de page) : **5 cartes, 5 liens, tous sur `www.dayuse.fr`**, `href="#"` = 0, `/hotels/usa/` fabriqué = 0, slug serveur réel (`h4-hotel-wyndham-paris-pleyel-resort`). Le tour est parti sur `/v3/chat/stream`. La non-régression tient donc sur le **vrai** chemin de rendu, pas seulement sur `createHotelCard` isolé.
+
+⚠️ **Ce qui n'est PAS prouvé en prod, et ne peut pas l'être aujourd'hui** : le taux d'occurrence du cas `missing_from_payload` sur du trafic réel. Il demande un hôtel dans un pays absent de `_ISO_BY_COUNTRY_NAME`, et les 21 marchés à inventaire sont tous couverts (c'est la raison même pour laquelle l'audit ne pouvait pas le chiffrer). **C'est l'événement lui-même qui répondra**, dans la durée — pas une sonde.
+
+🪤 **Piège rencontré sur la sonde e2e** : une première version installait le wrapper `fetch` **après** le boot de l'app puis pilotait le textarea à la main — le handler de submit de l'app n'était jamais atteint (`chat_calls: 0` pendant 120 s, lu à tort comme « pas d'inventaire »). La forme qui marche : `Page.addScriptToEvaluateOnNewDocument` (le wrapper est en place avant tout script de page) **+** `?q=` qui auto-envoie. À réutiliser pour toute sonde widget qui doit marquer son trafic.
+
 ### Les 2 PR restantes : fermées (décision Fabien)
 
 - **#40** `scx6-same-day-cutoff-fallback` — fermée. Vérifié avant : sa substance est **déjà dans `main`** (`_SAME_DAY_CLOSED_NOTE` dans `ground_truth.py:41`, utilisé l. 85). Surtout, la branche est **en retard sur main** : son diff sur `ground_truth.py` **supprimerait** l'affinage de prod du 2026-07-29 et ~113 lignes à partir de `_hotel_line`. La merger aurait régressé.
