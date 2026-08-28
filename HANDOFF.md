@@ -2,6 +2,78 @@
 
 État du chantier pour reprise en session fraîche. **Lire en entier avant d'agir ; ne pas reconstruire ce qui existe.** Mettre à jour en fin de CHAQUE session (bloc daté en tête).
 
+## ✅ Addendum 2026-08-28 — UX6 : audit des mappings en dur. 98 tables, 0 morte, 0 suppression — et les 4 candidats de la phase réfutés
+
+Phase d'ÉTUDE `phases/UX6-audit-mappings-en-dur.md`. Livrable : **`reports/AUDIT-MAPPINGS-2026-08-28.md`** (à lire en entier avant de retoucher une table en dur). Branche `audit/ux6-hardcoded-mappings`, PR ouverte. **Zéro ligne exécutable modifiée** — 4 commentaires corrigés + 2 scripts de mesure ajoutés.
+
+### Le résultat en trois lignes
+
+1. **Aucune table morte dans le repo.** Balayage du compte de références hors ligne de définition sur les 74 tables Python : **minimum observé = 1**. La commande est dans le rapport §8, rejouable.
+2. **Les 4 candidats à la suppression de la phase sont tous les 4 en catégorie 1** après mesure. La phase a donc *promu* 2 tables (`_ISO_BY_COUNTRY_NAME`, `_LOCALE_COUNTRY`) de la catégorie 3 vers la catégorie 1, au lieu d'en supprimer.
+3. **~20 tables annoncées, 98 trouvées** — les greps de la phase rataient les tables indentées, les tuples fermés et les `frozenset`. Et **30 des 98 ne sont pas des mappings** : c'est la couche de traduction Python (l'équivalent d'`i18n.js`, que la phase exclut déjà). Le ressenti « plusieurs mappings en dur » porte pour un tiers sur de l'i18n → chantier UX2-bis, pas chantier mappings.
+
+### `countryCode` : mesuré sur 21 pays, la phase avait l'information périmée — pas le code
+
+`scripts/probe_country_code_coverage.py` (réseau réel, pas un pytest), 2026-08-28, date J+2 :
+
+| Chemin | Hôtels | `countryCode` résout un marché | `countryName` résout | **jambe NOM porteuse** |
+|---|---:|---:|---:|---:|
+| `search_offers` (carte feuille) | **201** | **0 (0 %)** | 201 (100 %) | **201 (100 %)** |
+| `get_hotel_details` (inline concierge) | 24 | 24 (100 %) | 24 (100 %) | 0 |
+
+21 marchés avec inventaire dont **12 non-euro** (GB US CH TH SE SG HK AE BR AU CA NZ) — très au-delà des « ≥ 4 pays dont un non-euro » exigés, et le piège « ne pas conclure depuis FR seul » est fermé : `countryCode` est absent sur **100 %** des hôtels de `search_offers`, sur **tous** les marchés. `legs_disagree = 0`, `no_market_at_all = 0` → `_ISO_BY_COUNTRY_NAME` couvre 100 % des `countryName` que MCP émet réellement, aucun trou.
+
+**Donc `_ISO_BY_COUNTRY_NAME` n'est pas un fallback mort : c'est la SEULE jambe qui produit une URL d'hôtel sur le chemin carte** (tout ce que S-G12 garde). Les commentaires `hotel_urls.py:54` et `response_bridge.py:562` sont **confirmés exacts**, re-datés du 2026-08-28 avec le chiffre. `get_hotel_details` envoie bien un `countryCode` (24/24) — ça ne change rien au chemin carte.
+
+### 🔴 Constat non prévu, le plus important de la phase : le widget défait la « None honnête » du back
+
+`hotel_urls.py` promet « an unmapped country yields None — the card honestly has no link rather than a guessed one ». **Faux en pratique** : `markets.js::buildHotelFallbackUrl` slugifie le NOM D'AFFICHAGE dès que `hotel.url` est absent (`card.js:149-151`). Exécuté sur les vrais modules widget (`node`, aucun mock) :
+
+```
+Poland  -> https://dayuse.com/hotels/usa/h-tel-m-tropole-spa      (passe l'allowlist, rendu)
+Japan   -> https://dayuse.com/hotels/usa/grand-hyatt-tokyo        (passe l'allowlist, rendu)
+```
+
+Un hôtel polonais devient une page **`/hotels/usa/`** (car `inferCountryCodeFromHotel` exige 2 lettres et `getMarketMeta` retombe sur `'US'`), avec un slug **inventé et abîmé** (`h-tel-m-tropole-spa` = littéralement le défaut `a-roport` que le back existe pour fermer), et **ça passe le sanitizer**. Pire : `trackEvent('booking_url_fallback')` ne tire **que** si `hotel.url` existait et a été rejeté → le cas « pas d'url → url fabriquée » est **totalement non tracké**.
+
+**Conséquence** : retirer une entrée de `_ISO_BY_COUNTRY_NAME` ne donne pas « pas de lien », ça donne **un lien fabriqué sur le mauvais marché**. C'est la raison la plus forte de garder la table, et elle n'était ni dans la phase ni dans le code.
+⚠️ Portée : exécution déterministe **hors ligne** du vrai code widget. Le chemin est prouvé atteignable ET prouvé fabricant, mais **son taux d'occurrence en prod n'est pas mesuré** (les 21 marchés à inventaire sont tous couverts ; MY/JP/MX avaient `total=0` à la date sondée).
+
+### Catégorie 2 chiffrée, proposée, NON implémentée (conforme au périmètre)
+
+`scripts/measure_market_table_drift.py` (hors ligne, lecture seule) : **85 entrées tenues à la main dans 4 tables et 2 langages** — `_MARKET` (22, py), `COUNTRY_META` (23, js), `COUNTRY_SLUG_TO_CODE` (24, js), `DAYUSE_HOSTS` (16, js).
+
+- ensemble des pays : **0/22 d'écart** ✅ · slugs de chemin : **0/22 d'écart** ✅
+- **hôtes : 8/22 en désaccord (36 %)** — AE AU BR CA HK MY NZ TH : le back réserve sur `www.dayuse.ae`/`au.dayuse.com`/… , le widget browse sur `www.dayuse.com`
+- `DAYUSE_HOSTS` admet encore les 22 hôtes de `_MARKET` (**0 rejeté**) grâce à la règle sous-domaine d'`isHostMatch` → **la panne n'est pas en cours, elle est à un marché de distance** (un eTLD réellement nouveau type `dayuse.pl` déclenche le chemin de fabrication ci-dessus, scénario exact de la panne 404 de 4 jours du 2026-07-06)
+
+3 options chiffrées dans le rapport §6.3. **Recommandation : option C tout de suite** (~30 lignes : convertir les 2 parseurs du script de drift en test qui échoue si `DAYUSE_HOSTS` cesse d'admettre un hôte de `_MARKET` ou si un slug diverge — ne supprime aucune duplication mais supprime la panne silencieuse, seul risque réellement chiffré), **option B ensuite** si l'unification est voulue (génération au build du widget ; l'option A, un JSON servi par la façade, met le sanitizer d'hôtes au bout du réseau — mauvaise direction pour un composant de sécurité).
+
+### 4 arbitrages en attente (aucun n'est une suppression de catégorie 1)
+
+1. Catégorie 2 : option A/B/C ci-dessus.
+2. Aligner `buildHotelFallbackUrl` sur le contrat du back (rendre `null`, ne pas afficher de lien) ? ~10 lignes, **changement visible client donc décision produit**. Mon avis : oui, et avant l'unification.
+3. Le trou de tracking `booking_url_fallback` : 1 ligne, et le taux d'occurrence du constat ci-dessus devient mesurable en prod.
+4. `COUNTRY_META.UK` (`markets.js:46-51`, 6 lignes) : **provablement mort** (`getMarketMeta` passe toujours par `normalizeCountryCode` qui convertit `UK`→`GB` avant la recherche, et `COUNTRY_META` n'est lu qu'à cet endroit). **Non supprimé ici** : il n'existe aucun harnais de test JS dans le repo (pas de `package.json`, pas de `*.test.js`) et le DoD exige « chaque suppression avec son test » ; de plus `markets.js` est explicitement hors périmètre. À faire dans la phase qui touchera ce fichier — la suppression y sera gratuite.
+
+### Ce qui a été modifié : 4 commentaires, zéro comportement
+
+`hotel_urls.py:54` et `response_bridge.py:562` re-datés avec le chiffre 0/201 (ce sont les deux commentaires qui auraient conduit à supprimer la table). `security.js:5` pointait vers `_BOOKING_HOST_BY_COUNTRY in src/application/shared/hotel_urls.py` — **chemin agent-usa, inexistant ici** — corrigé vers `_MARKET` dans `libs/b2c_common/`. `card.js:54` disait « Mirrors the backend `_CURRENCY_DISPLAY` » — **`_CURRENCY_DISPLAY` n'existe pas dans ce repo** (`grep` → 0), corrigé.
+
+### Pièges rencontrés
+
+- 🪤 **Le fichier de phase peut être la source périmée, pas le code.** UX6 affirmait « depuis, `countryCode` est bien présent dans le payload » et donnait `_ISO_BY_COUNTRY_NAME` pour « le meilleur candidat » à la suppression ; le commentaire du code disait l'inverse et avait raison. Les deux appelants *passent* bien `countryCode` en premier argument — mais la **valeur** est `None`. Vérifier la valeur, pas la signature d'appel.
+- 🪤 **« La façade fournit déjà X » peut être inversé.** Pour `_LOCALE_COUNTRY`, la façade fournit la *locale*, qui est l'**entrée** de la table, pas son remplacement (`facade.py:666` → `profile.locale` `:388` → `geocode_tool.py:926` `args["locale"]`). La table est atteinte à 4 sites dont 2 inconditionnels (`geocode_tool.py:649`, `:793`).
+- 🪤 Les greps « tables en dur » d'un fichier de phase sous-comptent : ajouter les tables **indentées**, les **tuples** fermés (`PICKS = (…)`, `LANGUAGES = (…)`, `GUARD_SCORE_NAMES`) et les `frozenset`. 20 annoncées → 98.
+- 📌 `dayuse_guardrails.sh` n'a **aucune** règle sur les constantes ou hosts en dur (seule règle proche : SDK modèle cloud importé en dur) — donc aucun signal du guardrail ne peut être confondu avec un constat de cet audit. Lancé **avant** la phase : `OK`.
+- 📌 La leçon `US_STATE_*` est plus fine que « dérivez d'une lib » : après la dérivation depuis le paquet `us`, le code garde **2 correctifs manuels commentés** (`["mass"]` ajouté, `["washington"]` retiré). Le bon état final n'est pas « zéro table en dur », c'est « la partie mécanique vient d'une source, la partie jugement est en dur **et commentée** ».
+
+### DoD
+
+`pytest -q` : **1691 passed, 1 skipped** (identique à la baseline post-#107 — aucun test ajouté, aucun modifié : rien d'exécutable n'a changé). `ruff check .` : clean. `mypy agents libs` : clean (48 fichiers). `bash scripts/dayuse_guardrails.sh .` : OK, **avant et après**. Les 3 fichiers JS édités re-vérifiés (`node --check` + import réel de `markets.js`/`security.js`). Code de MCP_B2C **non relu** (interdit de session) — tout vient de ses réponses. Aucun 429 sur les 2 runs de sonde (espacement 1,5-2 s).
+
+**Nettoyage de fin de chantier NON exécuté** : le DoD 7 de la phase le conditionne à « si UX6 est la dernière phase mergée ». Cette PR n'est pas mergée et 2 PR restent ouvertes (`fix/budget-max-search-injection`, `fix/booking-link-wording-not-confirmed`). À faire par la session qui merge la dernière.
+
 ## ✅ Addendum 2026-08-27 decies — UX2 : réponses dans les 7 langues reconnues, `TEMPLATE_LANGUAGES = LANGUAGES` — DÉPLOYÉ ET PROUVÉ EN PROD
 
 Phase `phases/UX2-reponses-7-langues.md`, branche `feat/ux2-seven-languages` (commit `c7c36b6`, non mergée — PR ouverte pour la review de Fabien). Prérequis UX5 vérifié mergé dans `main` avant de commencer (`git merge-base --is-ancestor 82d5e3f HEAD`).

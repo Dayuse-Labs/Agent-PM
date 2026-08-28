@@ -51,8 +51,12 @@ function extractDirectImageUrl(url) {
 }
 
 // Display symbol per ISO currency. Spacing is baked in: alphabetic codes get a
-// trailing space ("CHF 120"), glyphs don't ("€120"). Mirrors the backend
-// _CURRENCY_DISPLAY so what the converter formats is rendered faithfully.
+// trailing space ("CHF 120"), glyphs don't ("€120"). Keyed on the `currency_code`
+// the card carries (MCP_B2C's per-hotel currencyCode, S-G7). There is NO backend
+// mirror of this table in this repo — the comment used to claim it mirrored a
+// `_CURRENCY_DISPLAY` that only ever existed in agent-usa (checked 2026-08-28,
+// UX6 audit): prices reach the widget already formatted, so this table only
+// decides the glyph, never a conversion.
 const CURRENCY_SYMBOLS = {
     USD: '$', EUR: '€', GBP: '£', CHF: 'CHF ', CAD: 'C$', AUD: 'A$', NZD: 'NZ$',
     SGD: 'S$', HKD: 'HK$', BRL: 'R$', MXN: 'MX$', AED: 'AED ', SAR: 'SAR ',

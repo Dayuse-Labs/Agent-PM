@@ -51,9 +51,21 @@ _MARKET: dict[str, tuple[str, str]] = {
     "MY": ("my.dayuse.com", "malaysia"),
 }
 
-# search_offers sends `countryName`, never an ISO code (probed 2026-07-20) —
-# fold the English name to ISO. Keys are `_fold`ed. A name absent here means
-# no URL, never a guess.
+# search_offers sends `countryName`, never an ISO code — fold the English name
+# to ISO. Keys are `_fold`ed. A name absent here means no URL, never a guess.
+#
+# NOT a dead fallback — do not shrink it (UX6 audit, re-probed 2026-08-28,
+# reports/AUDIT-MAPPINGS-2026-08-28.md): 0 of 201 hotels across 21 markets
+# carry a `countryCode` on search_offers, so this table is the ONLY leg
+# producing a hotel URL on the card path (100 % load-bearing). It also covers
+# 100 % of the countryName values MCP actually emits — no gap found.
+# `get_hotel_details` DOES send countryCode (24/24), which is why leg 1 exists;
+# that changes nothing for the card path.
+# What a missing entry really costs, and why "honestly no link" is optimistic:
+# the widget's own `buildHotelFallbackUrl` (markets.js) slugifies the DISPLAY
+# NAME when the payload has no url, and renders it on the US host — so a
+# country dropped from here does not lose its link, it gains an invented
+# wrong-market one that passes the host allowlist.
 _ISO_BY_COUNTRY_NAME: dict[str, str] = {
     "united states": "US",
     "united states of america": "US",

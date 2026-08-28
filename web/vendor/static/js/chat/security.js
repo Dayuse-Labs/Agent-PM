@@ -2,11 +2,18 @@
  * Security utilities for chat rendering and URL validation.
  */
 
-// Every real per-market booking host root. MUST stay a superset of the roots
-// produced by the backend host rewrite (_BOOKING_HOST_BY_COUNTRY in
-// src/application/shared/hotel_urls.py): a host missing here makes
-// sanitizeDayuseUrl reject the card URL, so the dead /hotel/<id>/<slug>
-// fallback gets rendered and every booking click 404s for that market.
+// Every real per-market booking host root. MUST stay a superset of the hosts
+// the backend builds from `_MARKET` in libs/b2c_common/b2c_common/hotel_urls.py
+// (the old pointer here named agent-usa's `_BOOKING_HOST_BY_COUNTRY`, which
+// does not exist in this repo): a host missing here makes sanitizeDayuseUrl
+// reject the card URL, so buildHotelFallbackUrl's name-slugified guess gets
+// rendered instead and every booking click 404s for that market.
+//
+// Hand-kept on both sides, so it drifts silently. Checked 2026-08-28 (UX6
+// audit, reports/AUDIT-MAPPINGS-2026-08-28.md): all 22 `_MARKET` hosts are
+// still admitted (0 rejected) — the subdomain rule in isHostMatch covers the
+// *.dayuse.com markets. The next market with a genuinely new eTLD is what
+// breaks it. `scripts/measure_market_table_drift.py` re-checks this in one run.
 const DAYUSE_HOSTS = [
     'dayuse.com',
     'dayuse.fr',

@@ -561,8 +561,10 @@ def normalize_hotel(
         card["image_urls"] = [photo]
     # The widget resolves the hotel's market from an ISO alpha-2 `country_code`
     # (a full `country` name never matches its ISO-keyed table). search_offers
-    # doesn't send one today (probed live 2026-07-20: countryName + slug only) —
-    # keep the preference so a server-provided code wins the day it appears.
+    # STILL doesn't send one: countryName + slug only, probed live 2026-07-20
+    # and re-probed 2026-08-28 (0 of 201 hotels across 21 markets carried a
+    # countryCode — UX6 audit, reports/AUDIT-MAPPINGS-2026-08-28.md). Keep the
+    # preference so a server-provided code wins the day it appears.
     country_code = _iso_alpha2(hotel.get("countryCode"))
     if country_code:
         card["country_code"] = country_code
