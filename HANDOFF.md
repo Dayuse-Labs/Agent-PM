@@ -50,7 +50,17 @@ Ajouté dans les 4 tables du **même** module (`_MARKET`, `_ISO_BY_COUNTRY_NAME`
 
 `pytest -q` **1707 passed, 1 skipped**. ruff, mypy, guardrails, `--check` verts.
 
-**Déploiement en cours** — `hotel-search` (`SUCCESS 13:33:55Z`) et `concierge` (`SUCCESS 13:35:34Z`) déployés et estampillés `babc652` (feuille d'abord, convention #95/#102/#107 ; `createdAt` vérifié inchangé après chaque stamp). `widget` reste à déployer. **Moitié backend déjà prouvée en prod** : tour `POST /v3/chat` « un hotel a Doha apres demain » (`x-dayuse-synthetic: 1`) → **5 cartes, toutes avec `url=https://qa.dayuse.com/hotels/qatar/…`** (`the-avenue-hotel`, `concorde-hotel-doha`, `radisson-blu-doha-hotel`, `ibis-doha`, `alwadi-hotel-doha-mgallery`) et `currency_code=QAR`. Avant ce déploiement : aucune de ces cartes n'avait de lien.
+### ✅ Les 3 services déployés (`babc652`) et vérifiés en prod
+
+`hotel-search` (`SUCCESS 13:33:55Z`) → `concierge` (`SUCCESS 13:35:34Z`) → `widget` (`SUCCESS 13:39:19Z`), feuille d'abord (convention #95/#102/#107), chacun estampillé `LANGFUSE_RELEASE=babc652` **après** son SUCCESS avec `--skip-deploys` (`createdAt` vérifié inchangé après chaque stamp). `faq` laissé sur son estampille : aucun de ses fichiers dans le diff.
+
+**Preuve 1 — le backend** : tour `POST /v3/chat` « un hotel a Doha apres demain » (`x-dayuse-synthetic: 1`) → **5 cartes, toutes avec `url=https://qa.dayuse.com/hotels/qatar/…`** (`the-avenue-hotel`, `concorde-hotel-doha`, `radisson-blu-doha-hotel`, `ibis-doha`, `alwadi-hotel-doha-mgallery`) et `currency_code=QAR`. Avant ce déploiement : aucune de ces cartes n'avait de lien.
+
+**Preuve 2 — le widget** : l'artifact servi porte bien **25 marchés** avec les 3 nouveaux `browseUrl` (`kr.dayuse.com/s/south-korea/seoul`, `qa.dayuse.com/s/qatar`, `tr.dayuse.com/s/turkiye`), byte-identique à HEAD.
+
+**Preuve 3 — le rendu, vrai tour Doha dans le DOM** (`?q=`, `x-dayuse-synthetic: 1`) : **5 cartes, 5 liens, tous sur `qa.dayuse.com`**, `href="#"` = 0, lien fabriqué = 0. C'est le bout de la chaîne : ces cartes n'avaient aucun lien il y a une heure.
+
+🪤 **Piège de sonde à retenir : le balayage des 25 liens de browse produit UN 404 sporadique, et il se déplace.** Un run donne IT en 404, le run suivant donne AU en 404 — et chaque URL interrogée seule répond 200 trois fois de suite (`/s/italia` ×3, `/s/australia` ×3). C'est du **throttling provoqué par le balayage lui-même** (24 requêtes en rafale sur les hôtes Dayuse), pas un défaut. Deux conséquences : espacer les requêtes (~1,2 s) et **ne jamais conclure d'un 404 isolé dans un balayage sans le rejouer seul**. Au passage, `/s/italy` est un vrai 404 constant — ce qui confirme que `italia` est bien le bon slug.
 
 🪤 **Piège de lecture levé au passage** : ces cartes portent `country_code=QA`, ce qui semble contredire le « 0/201 `countryCode` » de l'audit. Les deux sont vrais. Le 0/201 mesure `hotel["countryCode"]` **venant de MCP** — re-vérifié le même jour sur Doha ET Paris : `'countryCode' in hotel` est `False`. Le `country_code` de la carte vient de `response_bridge.py:1037` (`card.setdefault("country_code", search_country)`) : c'est le pays que **le géocodeur** a résolu pour la recherche. Donc `inferCountryCodeFromHotel` côté widget reçoit bien un ISO2 en pratique — du géocodeur, jamais de MCP.
 
