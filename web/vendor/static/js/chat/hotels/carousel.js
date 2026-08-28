@@ -28,11 +28,16 @@ export function createHotelCarousel(hotels) {
     const carouselId = 'carousel-' + Date.now();
 
     const marketMeta = getMarketMetaFromHotels(hotels, state.market);
-    const marketLinkRaw = appendAmplitudeIdToUrl(marketMeta.browseUrl);
+    // `browseUrl` is null for a market with no browse page (MY) and for an
+    // unmapped one — render no "see all" link at all rather than a dead '#'
+    // (UX6 2026-08-28, same rule the card now follows for its hotel link).
     // This URL is interpolated into innerHTML. Without attribute escaping,
     // `&amp_session_id=...` is parsed as the legacy `&amp` HTML entity and
     // becomes `&_session_id=...`, silently breaking Amplitude session handoff.
-    const marketLink = escapeAttr(sanitizeDayuseUrl(marketLinkRaw) || '#');
+    const marketLinkRaw = marketMeta.browseUrl
+        ? appendAmplitudeIdToUrl(marketMeta.browseUrl)
+        : '';
+    const marketLink = escapeAttr(sanitizeDayuseUrl(marketLinkRaw) || '');
     const marketCode = escapeAttr(marketMeta.code);
 
     let html = `
@@ -49,7 +54,7 @@ export function createHotelCarousel(hotels) {
         </div>
         <div class="carousel-indicator">
             <span class="carousel-count" id="${carouselId}-indicator">1 / ${hotels.length}</span>
-            <a href="${marketLink}" target="_blank" rel="noopener" class="see-all-link" data-market="${marketCode}">${t('see_all_hotels_in', { market: marketMeta.label })}</a>
+            ${marketLink ? `<a href="${marketLink}" target="_blank" rel="noopener" class="see-all-link" data-market="${marketCode}">${t('see_all_hotels_in', { market: marketMeta.label })}</a>` : ''}
         </div>
     `;
 

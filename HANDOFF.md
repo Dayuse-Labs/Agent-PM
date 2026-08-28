@@ -120,6 +120,51 @@ Même nom d'événement dans les deux cas : la série Amplitude est continue.
 
 🪤 **Piège rencontré sur la sonde e2e** : une première version installait le wrapper `fetch` **après** le boot de l'app puis pilotait le textarea à la main — le handler de submit de l'app n'était jamais atteint (`chat_calls: 0` pendant 120 s, lu à tort comme « pas d'inventaire »). La forme qui marche : `Page.addScriptToEvaluateOnNewDocument` (le wrapper est en place avant tout script de page) **+** `?q=` qui auto-envoie. À réutiliser pour toute sonde widget qui doit marquer son trafic.
 
+### ✅ Option B faite + les 8 divergences tranchées par dayuse-com + `_ACK_RE` mesuré (arbitrages Fabien du 2026-08-28)
+
+Détail complet dans le rapport §13 et §14. **Pas encore déployé** (voir plus bas).
+
+**1. La vérité sur les 8 hôtes est dans le monorepo dayuse-com, et c'est `_MARKET` qui a raison.** Sources : `~/PhpstormProjects/dayuse-com` (commit `149c823892`), `apps/frontend/web/i18n/production.js` (liste `domains`, 53 locales) + `apps/frontend/web/config/config.<locale>.ts` (`host`, `countryCode`, `defaultSearchPageLink`). Les 8 hôtes de `_MARKET` (AE AU BR CA HK MY NZ TH) sont **tous** confirmés ; c'est le widget qui envoyait tout le monde sur `www.dayuse.com`.
+
+**Et 2 divergences que la mesure de §6.1 n'avait pas vues** — le script ne comparait que `hotelCountrySlug`, jamais le chemin du `browseUrl`, et **le segment de browse est LOCALISÉ alors que le chemin d'hôtel est anglais** : DE `germany` vs **`deutschland`**, BR `brazil` vs **`brasil`** (ES/IT/NL/CH étaient déjà corrects : espana/italia/nederland/suisse). C'est précisément cette asymétrie qui empêchait de dériver une table de l'autre et justifiait la seconde table.
+
+**Mesuré en HTTP réel** — le coût était pire que « question produit » :
+
+| URL | Résultat |
+|---|---|
+| `www.dayuse.com/s/brazil` (lien du widget) | **404 — mort** |
+| `www.dayuse.net.br/s/brasil` | 200 |
+| `www.dayuse.com/s/malaysia` (lien du widget) | **404 — mort** |
+| `www.dayuse.de/s/germany` | 200 via **1 redirection** vers `/s/deutschland` |
+| `www.dayuse.com/s/{thailand,canada,australia,new-zealand,hong-kong,united-arab-emirates}` | 200, 0 redirection — servis, mais sur le domaine US |
+
+→ verdict précis : **2 liens réellement morts** (BR, MY), **6 qui répondent mais sur le mauvais marché** (devise/locale par défaut fausses), **1 redirection inutile** (DE).
+⚠️ **MY n'a AUCUNE page de browse** dans dayuse-com (`en-MY` n'a pas de `defaultSearchPageLink` ; marché « NEW DOMAIN ») → le référentiel porte `None` et le widget n'affiche pas de lien. Son hôte de **réservation** existe toujours.
+
+**2. Option B : les tables du widget sont générées.** `scripts/generate_widget_markets.py` → `web/vendor/static/js/chat/markets.generated.js` (`COUNTRY_META`, `COUNTRY_SLUG_TO_CODE`), depuis `_MARKET` + `_BROWSE_PATH` + `_LABEL` ajoutées dans le **même** module. `markets.js` les importe. **85 entrées à la main → 38** (46 générées). Barrière : `TestGeneratedFileIsCurrent` régénère et compare octet à octet — vérifiée dans les **deux** sens (édition à la main de l'artifact → `STALE or was hand-edited` ; modification du Python sans régénérer → même échec ; restauré à chaque fois).
+
+🪤 **`DAYUSE_HOSTS` n'est PAS généré, et c'est un choix.** C'est une allowlist de **racines**, volontairement **plus large** que la table de marchés : sa règle de sous-domaine admet `de.dayuse.ch`, `nl.dayuse.be`, `en.dayuse.com.hk` — de vrais hôtes Dayuse absents de `_MARKET` (visibles dans la liste `domains` de dayuse-com). La générer depuis les 22 hôtes la **rétrécirait** et rouvrirait le défaut « pas de lien ». Elle reste à la main, gardée par le test de dérive.
+
+`getMarketMeta` ne devine plus non plus : un marché inconnu rendait `browseUrl: 'https://www.dayuse.com'` + un `hotelCountrySlug` deviné — le slug n'avait plus **aucun lecteur** (son seul consommateur était le fabricateur supprimé). Les deux sont partis, `browseUrl` vaut `null`, `carousel.js` n'affiche plus de lien « voir tout » sans URL.
+⚠️ **Non fait, assumé** : `getMarketFallbackLink` (`responses.js`) garde son repli en dur `www.dayuse.com/s/united-states` (CTA de l'état vide, 4 appelants, et ce repli est un lien vivant). Effet de bord positif : MY passait par `/s/malaysia` (404) et tombe maintenant sur ce repli (200, mauvais marché).
+
+**3. `_ACK_RE` mesuré — item clos, et la conclusion est « ne pas toucher ».** `scripts/measure_social_ack_coverage.py`, 19 formulations × 3 répétitions (3 parce que gpt-4o-mini n'est pas déterministe sur un message court cross-lingual — le piège NL d'UX2) :
+
+| Mesure | Résultat |
+|---|---|
+| fr/en (contrôle) | 4/4 court-circuitées, **0 appel LLM** |
+| es/it/de/pt/nl atteignant le LLM | 15 formulations, 45 runs |
+| classées `family="ack"` | **45/45 — `ack_rate = 1.0`, zéro erreur** |
+| latence ajoutée | **médiane 1 079 ms** (max 2 506) |
+| coût | **$0,000227**/appel (gpt-4o-mini, 1 463 tokens de prompt) |
+| fréquence (Langfuse, prod, 30 j) | **19 / 542 tours racine (3,5 %)** à zéro appel LLM |
+
+Donc : **pas un problème de correction, seulement de latence**, sur une **fraction** de 3,5 % des tours.
+
+🔴 **Et la vraie raison de ne pas élargir** : le garde `agent.py:1017` est `if is_social_ack(...) and not refinement_signal and not booking_signal:`, et ses deux signaux sont **volontairement regex-only à cet endroit** (sans les slots du triage). Or `_AFFIRMATIVE_RE` (`profile.py:136`) est **fr/en uniquement** — ni `sí`, ni `ja`, ni `sim`. Aujourd'hui un « ja » allemand pendant une confirmation de réservation ne matche pas `is_social_ack`, part au triage, et son slot `booking_confirmation` l'amène au gate R9. **Si on ajoutait les affirmatifs à `_ACK_WORDS`, le template d'accueil avalerait la confirmation** et R9 deviendrait inatteignable en de/es/pt : mot pour mot le bug que la **PR #47** a corrigé pour le français (« oui je confirme » → salutation). Ajouter seulement salutations/remerciements échappe à ce piège précis, mais pour ~1,1 s sur une fraction de 3,5 % des tours, contre l'élargissement d'une regex `^…$` prouvée qui est le dernier rempart avant un template. **Gardé en l'état.**
+
+📌 Trap Langfuse consigné : `family`/`route` sont bien de la métadonnée de trace OBS2 (`mark_metadata`, `agent.py:562`) mais **ne remontent pas à plat dans l'API REST des traces** (`metadata` n'y contient que `resourceAttributes`/`scope`/`attributes` OTel) — donc pas de comptage par famille sans creuser les spans. `totalCost == 0` sur les traces racine est le meilleur proxy obtenable. Aussi : `LANGFUSE_BASE_URL` (pas `LANGFUSE_HOST`), et urllib a besoin du bundle `certifi` explicite sinon `CERTIFICATE_VERIFY_FAILED`.
+
 ### Les 2 PR restantes : fermées (décision Fabien)
 
 - **#40** `scx6-same-day-cutoff-fallback` — fermée. Vérifié avant : sa substance est **déjà dans `main`** (`_SAME_DAY_CLOSED_NOTE` dans `ground_truth.py:41`, utilisé l. 85). Surtout, la branche est **en retard sur main** : son diff sur `ground_truth.py` **supprimerait** l'affinage de prod du 2026-07-29 et ~113 lignes à partir de `_hotel_line`. La merger aurait régressé.

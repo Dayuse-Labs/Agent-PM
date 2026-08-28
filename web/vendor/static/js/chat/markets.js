@@ -6,172 +6,17 @@
  * amounts in upstream payloads.
  */
 
-const COUNTRY_META = {
-    US: {
-        code: 'US',
-        label: 'USA',
-        browseUrl: 'https://www.dayuse.com/s/united-states',
-        hotelCountrySlug: 'usa',
-    },
-    SG: {
-        code: 'SG',
-        label: 'Singapore',
-        browseUrl: 'https://www.dayuse.sg/s/singapore',
-        hotelCountrySlug: 'singapore',
-    },
-    IT: {
-        code: 'IT',
-        label: 'Italy',
-        browseUrl: 'https://www.dayuse-hotels.it/s/italia',
-        hotelCountrySlug: 'italy',
-    },
-    ES: {
-        code: 'ES',
-        label: 'Spain',
-        browseUrl: 'https://www.dayuse.es/s/espana',
-        hotelCountrySlug: 'spain',
-    },
-    FR: {
-        code: 'FR',
-        label: 'France',
-        browseUrl: 'https://www.dayuse.fr/s/france',
-        hotelCountrySlug: 'france',
-    },
-    GB: {
-        code: 'GB',
-        label: 'United Kingdom',
-        browseUrl: 'https://www.dayuse.co.uk/s/united-kingdom',
-        hotelCountrySlug: 'united-kingdom',
-    },
-    // No 'UK' alias here on purpose: `getMarketMeta` routes every key through
-    // `normalizeCountryCode`, which maps UK -> GB BEFORE the lookup, so a 'UK'
-    // entry is unreachable by construction (proven dead, UX6 audit 2026-08-28).
-    // The 'uk' key in COUNTRY_SLUG_TO_CODE below is a different thing and IS
-    // reachable — it matches a /s/uk URL path segment.
-    DE: {
-        code: 'DE',
-        label: 'Germany',
-        browseUrl: 'https://www.dayuse.de/s/germany',
-        hotelCountrySlug: 'germany',
-    },
-    BE: {
-        code: 'BE',
-        label: 'Belgium',
-        browseUrl: 'https://www.dayuse.be/s/belgique',
-        hotelCountrySlug: 'belgium',
-    },
-    NL: {
-        code: 'NL',
-        label: 'Netherlands',
-        browseUrl: 'https://www.dayuse.nl/s/nederland',
-        hotelCountrySlug: 'netherlands',
-    },
-    CH: {
-        code: 'CH',
-        label: 'Switzerland',
-        browseUrl: 'https://www.dayuse.ch/s/suisse',
-        hotelCountrySlug: 'switzerland',
-    },
-    AT: {
-        code: 'AT',
-        label: 'Austria',
-        browseUrl: 'https://www.dayuse.at/s/austria',
-        hotelCountrySlug: 'austria',
-    },
-    PT: {
-        code: 'PT',
-        label: 'Portugal',
-        browseUrl: 'https://pt.dayuse.com/s/portugal',
-        hotelCountrySlug: 'portugal',
-    },
-    CA: {
-        code: 'CA',
-        label: 'Canada',
-        browseUrl: 'https://www.dayuse.com/s/canada',
-        hotelCountrySlug: 'canada',
-    },
-    AU: {
-        code: 'AU',
-        label: 'Australia',
-        browseUrl: 'https://www.dayuse.com/s/australia',
-        hotelCountrySlug: 'australia',
-    },
-    IE: {
-        code: 'IE',
-        label: 'Ireland',
-        browseUrl: 'https://www.dayuse.ie/s/ireland',
-        hotelCountrySlug: 'ireland',
-    },
-    SE: {
-        code: 'SE',
-        label: 'Sweden',
-        browseUrl: 'https://www.dayuse.se/s/sweden',
-        hotelCountrySlug: 'sweden',
-    },
-    HK: {
-        code: 'HK',
-        label: 'Hong Kong',
-        browseUrl: 'https://www.dayuse.com/s/hong-kong',
-        hotelCountrySlug: 'hong-kong',
-    },
-    AE: {
-        code: 'AE',
-        label: 'United Arab Emirates',
-        browseUrl: 'https://www.dayuse.com/s/united-arab-emirates',
-        hotelCountrySlug: 'united-arab-emirates',
-    },
-    BR: {
-        code: 'BR',
-        label: 'Brazil',
-        browseUrl: 'https://www.dayuse.com/s/brazil',
-        hotelCountrySlug: 'brazil',
-    },
-    NZ: {
-        code: 'NZ',
-        label: 'New Zealand',
-        browseUrl: 'https://www.dayuse.com/s/new-zealand',
-        hotelCountrySlug: 'new-zealand',
-    },
-    TH: {
-        code: 'TH',
-        label: 'Thailand',
-        browseUrl: 'https://www.dayuse.com/s/thailand',
-        hotelCountrySlug: 'thailand',
-    },
-    MY: {
-        code: 'MY',
-        label: 'Malaysia',
-        browseUrl: 'https://www.dayuse.com/s/malaysia',
-        hotelCountrySlug: 'malaysia',
-    },
-};
-
-const COUNTRY_SLUG_TO_CODE = {
-    usa: 'US',
-    'united-states': 'US',
-    singapore: 'SG',
-    italy: 'IT',
-    spain: 'ES',
-    france: 'FR',
-    'united-kingdom': 'GB',
-    uk: 'GB',
-    germany: 'DE',
-    belgium: 'BE',
-    netherlands: 'NL',
-    switzerland: 'CH',
-    austria: 'AT',
-    portugal: 'PT',
-    canada: 'CA',
-    australia: 'AU',
-    ireland: 'IE',
-    sweden: 'SE',
-    'hong-kong': 'HK',
-    'united-arab-emirates': 'AE',
-    brazil: 'BR',
-    'new-zealand': 'NZ',
-    thailand: 'TH',
-    malaysia: 'MY',
-};
+/**
+ * The market tables are GENERATED from the Python referential
+ * (`_MARKET` / `_BROWSE_PATH` / `_LABEL` in
+ * libs/b2c_common/b2c_common/hotel_urls.py) by
+ * scripts/generate_widget_markets.py — they used to be hand-written here, a
+ * second copy of the same referential. Measured 2026-08-28 before the switch:
+ * 8 of 22 market hosts already disagreed with the backend, and
+ * `www.dayuse.com/s/brazil` + `/s/malaysia` were live 404s. Edit the Python
+ * table, run the generator; CI fails if the generated file is stale.
+ */
+import { COUNTRY_META, COUNTRY_SLUG_TO_CODE } from './markets.generated.js';
 
 export function normalizeCountryCode(value) {
     const code = String(value || '').trim().toUpperCase();
@@ -215,12 +60,12 @@ export function inferCountryCodeFromHotel(hotel) {
 
 export function getMarketMeta(countryCode, fallbackCountryCode = 'US') {
     const code = normalizeCountryCode(countryCode) || normalizeCountryCode(fallbackCountryCode) || 'US';
-    return COUNTRY_META[code] || {
-        code,
-        label: code,
-        browseUrl: 'https://www.dayuse.com',
-        hotelCountrySlug: code.toLowerCase(),
-    };
+    // An unmapped market gets NO browseUrl rather than a guessed one — same rule
+    // as the backend builder and as the card link (UX6 2026-08-28). It used to
+    // return 'https://www.dayuse.com' plus a `hotelCountrySlug` guessed from the
+    // ISO code; the slug's only reader was the removed name-slugifying fallback,
+    // and the bare host sent every unmapped market to the US home page.
+    return COUNTRY_META[code] || { code, label: code, browseUrl: null };
 }
 
 export function getMarketMetaFromHotels(hotels, fallbackCountryCode = 'US') {

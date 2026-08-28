@@ -94,6 +94,79 @@ _ISO_BY_COUNTRY_NAME: dict[str, str] = {
     "malaysia": "MY",
 }
 
+# Browse ("see all hotels in X") path segment per market: `/s/<segment>`.
+#
+# NOT derivable from `_MARKET`'s country path above — these are LOCALIZED while
+# the hotel path is English (DE: hotels use `germany`, browse uses
+# `deutschland`; BR: `brazil` vs `brasil`; ES `espana`, IT `italia`, NL
+# `nederland`, BE `belgique`, CH `suisse`). That asymmetry is why the widget
+# could not compute one from the other and kept a second hand-written table.
+#
+# Values are `defaultSearchPageLink` from the dayuse-com monorepo's own
+# per-locale configs (`apps/frontend/web/config/config.<locale>.ts`), read
+# 2026-08-28 — the authoritative referential, cross-checked against
+# `apps/frontend/web/i18n/production.js`'s domain list. Where a country has
+# several locales (CH de/fr, BE fr/nl, HK en/zh) the entry is the one whose
+# host matches `_MARKET` above.
+#
+# MY is deliberately ABSENT: dayuse-com's `en-MY` config has no
+# `defaultSearchPageLink` at all (my.dayuse.com is a "NEW DOMAIN" market with
+# no browse page), and `https://www.dayuse.com/s/malaysia` is a measured 404.
+# No entry means no browse link, never a guessed one — same rule as `_MARKET`.
+_BROWSE_PATH: dict[str, str] = {
+    "US": "united-states",
+    "FR": "france",
+    "GB": "united-kingdom",
+    "DE": "deutschland",
+    "ES": "espana",
+    "IT": "italia",
+    "NL": "nederland",
+    "BE": "belgique",
+    "CH": "suisse",
+    "AT": "austria",
+    "IE": "ireland",
+    "SE": "sweden",
+    "PT": "portugal",
+    "SG": "singapore",
+    "HK": "hong-kong",
+    "AE": "united-arab-emirates",
+    "BR": "brasil",
+    "AU": "australia",
+    "CA": "canada",
+    "NZ": "new-zealand",
+    "TH": "thailand",
+}
+
+# English display label per market, for the widget's "see all hotels in X".
+# Kept here so ONE module owns the whole market referential (the point of this
+# file — see the outage in the docstring). English on purpose: the widget
+# translates around it, and dayuse-com's own `country` field is localized per
+# locale ("Deutschland", "香港"), which is not what this label is for.
+_LABEL: dict[str, str] = {
+    "US": "USA",
+    "FR": "France",
+    "GB": "United Kingdom",
+    "DE": "Germany",
+    "ES": "Spain",
+    "IT": "Italy",
+    "NL": "Netherlands",
+    "BE": "Belgium",
+    "CH": "Switzerland",
+    "AT": "Austria",
+    "IE": "Ireland",
+    "SE": "Sweden",
+    "PT": "Portugal",
+    "SG": "Singapore",
+    "HK": "Hong Kong",
+    "AE": "United Arab Emirates",
+    "BR": "Brazil",
+    "AU": "Australia",
+    "CA": "Canada",
+    "NZ": "New Zealand",
+    "TH": "Thailand",
+    "MY": "Malaysia",
+}
+
 # The ES slug shape: lowercase ascii words joined by single hyphens. Anything
 # else (spaces, accents, uppercase, path separators) is NOT a slug — refuse
 # rather than "repair" it, repairing is how invented slugs happen.
@@ -116,6 +189,29 @@ def _resolve_market(country_code: object, country_name: object) -> tuple[str, st
         if iso:
             return _MARKET[iso]
     return None
+
+
+def market_referential() -> list[dict[str, str | None]]:
+    """The whole market referential, one row per ISO alpha-2, sorted.
+
+    Exists so `scripts/generate_widget_markets.py` can emit the widget's tables
+    from THIS module instead of a hand-kept copy — the duplication that caused
+    agent-usa's 4-day 404 outage (see module docstring) had simply moved to the
+    back/front boundary. `browse_url` is None where the market has no browse
+    page (MY), and callers must render no link rather than a guess.
+    """
+    rows: list[dict[str, str | None]] = []
+    for iso in sorted(_MARKET):
+        host, country_path = _MARKET[iso]
+        browse_path = _BROWSE_PATH.get(iso)
+        rows.append({
+            "iso": iso,
+            "host": host,
+            "country_path": country_path,
+            "browse_url": f"https://{host}/s/{browse_path}" if browse_path else None,
+            "label": _LABEL.get(iso, iso),
+        })
+    return rows
 
 
 def build_hotel_page_url(

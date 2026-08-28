@@ -665,3 +665,154 @@ Quatre preuves, détaillées dans le bloc `HANDOFF.md` du 2026-08-28 :
    `reason: "rejected_by_allowlist"`. Même nom d'événement, série Amplitude continue.
 4. **Un vrai tour** (`?q=`, payloads MCP réels, `x-dayuse-synthetic: 1`) : 5 cartes, 5 liens,
    tous sur `www.dayuse.fr`, 0 `href="#"`, 0 lien fabriqué, slug serveur réel.
+
+---
+
+## 13. Option B — les tables du widget sont GÉNÉRÉES (arbitrage Fabien : « do option B »)
+
+### 13.1 La vérité sur les 8 hôtes, trouvée dans le monorepo dayuse-com
+
+§6.1 laissait la divergence des 8 hôtes de browse comme « question produit ». Ce n'en était
+pas une : le référentiel canonique de Dayuse tranche, et **c'est `_MARKET` qui a raison**.
+
+Sources lues dans `~/PhpstormProjects/dayuse-com` (2026-08-28, commit `149c823892`) :
+`apps/frontend/web/i18n/production.js` (la liste `domains`, 53 locales) et
+`apps/frontend/web/config/config.<locale>.ts` (`host`, `countryCode`,
+`defaultSearchPageLink`).
+
+| | AE | AU | BR | CA | HK | MY | NZ | TH |
+|---|---|---|---|---|---|---|---|---|
+| dayuse-com | `www.dayuse.ae` | `au.dayuse.com` | `www.dayuse.net.br` | `ca.dayuse.com` | `www.dayuse.com.hk` | `my.dayuse.com` | `nz.dayuse.com` | `th.dayuse.com` |
+| `_MARKET` | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ |
+| widget (avant) | ❌ `www.dayuse.com` | ❌ | ❌ | ❌ | ❌ | ❌ | ❌ | ❌ |
+
+**Et deux divergences que la mesure de §6.1 n'avait PAS vues**, parce que le script ne
+comparait que `hotelCountrySlug` et jamais le chemin du `browseUrl` : le segment de browse est
+**localisé** alors que le chemin d'hôtel est anglais.
+
+| | chemin hôtel (anglais) | segment browse (localisé) | widget avant |
+|---|---|---|---|
+| DE | `germany` | **`deutschland`** | `germany` |
+| BR | `brazil` | **`brasil`** | `brazil` |
+| ES / IT / NL / CH | spain / italy / netherlands / switzerland | espana / italia / nederland / suisse | corrects |
+
+**Mesuré en HTTP réel**, ce que ça coûtait :
+
+```
+https://www.dayuse.com/s/brazil        404   <- lien du widget, MORT
+https://www.dayuse.net.br/s/brasil     200   <- le bon
+https://www.dayuse.com/s/malaysia      404   <- lien du widget, MORT
+https://www.dayuse.de/s/germany        200 (1 redirection -> /s/deutschland)
+https://www.dayuse.com/s/thailand      200 (0 redirection)   TH, CA, AU, NZ, HK, AE :
+https://th.dayuse.com/s/thailand       200                   servis, mais sur le domaine US
+```
+
+Donc le verdict honnête, plus précis que « 8 divergences » : **2 liens réellement morts**
+(BR, MY), **6 qui répondent 200 mais sur le mauvais marché** (donc devise et locale par
+défaut fausses, pas une erreur visible), **1 redirection inutile** (DE).
+
+⚠️ **MY est un cas à part** : `en-MY` n'a **aucun** `defaultSearchPageLink` dans dayuse-com
+(`my.dayuse.com` est un marché « NEW DOMAIN » sans page de browse), et `/s/malaysia` est un
+404 mesuré. Il n'existe donc **pas** de bonne URL de browse pour la Malaisie — le référentiel
+porte `None`, et le widget n'affiche pas de lien. Son hôte de **réservation** existe toujours.
+
+### 13.2 Ce qui est généré, et ce qui reste à la main exprès
+
+`scripts/generate_widget_markets.py` émet `web/vendor/static/js/chat/markets.generated.js`
+(`COUNTRY_META`, `COUNTRY_SLUG_TO_CODE`) depuis `_MARKET` + 2 tables ajoutées dans le MÊME
+module (`_BROWSE_PATH`, `_LABEL`, seedées depuis dayuse-com). `markets.js` les importe au lieu
+de les définir. Résultat : **85 entrées tenues à la main → 38**, dont 46 désormais générées.
+
+**`DAYUSE_HOSTS` (`security.js`) n'est PAS généré, et c'est un choix.** C'est une allowlist de
+**racines** d'hôtes, volontairement **plus large** que la table de marchés : sa règle de
+sous-domaine admet `de.dayuse.ch`, `nl.dayuse.be`, `en.dayuse.com.hk` — de vrais hôtes Dayuse
+absents de `_MARKET` (visibles dans la liste `domains` de dayuse-com). La générer depuis les
+22 hôtes la **rétrécirait** et ferait rejeter des URLs légitimes, ce qui rouvrirait le défaut
+« pas de lien » que §12.2 vient de fermer. Elle reste à la main et c'est le **test** de §12.1
+qui la garde (il échoue si elle cesse d'admettre un hôte de `_MARKET`).
+
+`getMarketMeta` ne devine plus rien non plus : un marché inconnu rendait
+`browseUrl: 'https://www.dayuse.com'` + un `hotelCountrySlug` deviné depuis le code ISO. Le
+slug n'avait plus **aucun lecteur** (son seul consommateur était le fabricateur supprimé) et
+l'hôte nu envoyait tout marché inconnu sur la home US → les deux sont partis, `browseUrl`
+vaut `null`, et `carousel.js` n'affiche plus de lien « voir tout » quand il n'y en a pas.
+
+### 13.3 La barrière, prouvée dans les deux sens
+
+`tests/test_market_table_drift.py::TestGeneratedFileIsCurrent` régénère et compare octet à
+octet. Vérifié en cassant les deux côtés :
+
+- **édition à la main de l'artifact** (`th.dayuse.com` → `www.dayuse.com`) → `AssertionError:
+  markets.generated.js is STALE or was hand-edited`, et `--check` sort en 1 avec le diff ;
+- **modification du Python sans régénérer** (`"TH": "thailand"` → `"thailande"`) → même
+  échec.
+
+Restauré dans les deux cas. La duplication ne peut donc plus dériver en silence — l'objet
+même de l'exercice.
+
+⚠️ **Non fait, et assumé** : `getMarketFallbackLink` (`handlers/responses.js`) garde son
+repli en dur `https://www.dayuse.com/s/united-states` quand aucun `browseUrl` n'est
+disponible. C'est le CTA de l'état vide, il a 4 appelants, et ce repli est un lien **vivant**
+(200 mesuré) — le recâbler pour un `null` dépasse option B. Effet de bord positif quand même :
+MY passait par `/s/malaysia` (404) et tombe maintenant sur ce repli (200, mauvais marché).
+
+---
+
+## 14. `_ACK_RE` — l'item qu'UX2 avait laissé sans mesure
+
+§10 le signalait, le bloc HANDOFF du 2026-08-28 l'a préservé avant la suppression du fichier
+de phase : `_ACK_WORDS`/`_ACK_RE` (`triage.py:101-107`) sont fr/en uniquement, donc un
+« grazie » ou « danke » nu ne court-circuite pas et paie un appel de triage LLM. La consigne
+de la phase était explicite : **mesurer, puis décider ; ne pas gonfler la regex par réflexe.**
+
+`scripts/measure_social_ack_coverage.py` (appels LLM réels, pas un pytest), 19 formulations,
+3 répétitions chacune — 3 répétitions parce que gpt-4o-mini n'est pas déterministe sur un
+message court cross-lingual (c'est exactement le piège NL d'UX2) :
+
+| Mesure | Résultat |
+|---|---|
+| Formulations court-circuitées (fr/en, contrôle) | 4 / 4, **0 appel LLM** |
+| Formulations atteignant le LLM (es/it/de/pt/nl) | 15 |
+| Runs LLM | 45 |
+| Classées `family="ack"` | **45 / 45 — `ack_rate = 1.0`** |
+| Mauvaise classification | **aucune** |
+| Latence médiane ajoutée | **1 079 ms** (max 2 506 ms) |
+| Coût par appel | **$0,000227** (gpt-4o-mini, 1 463 tokens de prompt) |
+
+**Ce n'est donc pas un problème de correction, seulement de latence.** L'utilisateur reçoit la
+même réponse ; elle arrive ~1,1 s plus tard et coûte deux centièmes de centime.
+
+**Fréquence, bornée** (Langfuse, production, 30 jours) : sur **542 tours** racine
+(`v3.chat_stream`/`v3.chat`), **19 (3,5 %)** ont pris un chemin à **zéro appel LLM** — le
+court-circuit ack fr/en, plus le shield de façade. Le gain maximal d'un élargissement est donc
+une **fraction** de ces 3,5 %, celle du trafic non-fr/en. (Proxy assumé : `family`/`route` sont
+bien de la métadonnée de trace OBS2 mais ne remontent pas à plat dans l'API REST des traces —
+`totalCost == 0` est la meilleure approximation obtenable sans creuser les spans.)
+
+### 🔴 Recommandation : NE PAS élargir — et surtout jamais avec un affirmatif
+
+La consigne « ne pas gonfler par réflexe » protège contre un bug **connu et déjà survenu en
+prod**, pas contre une vague inélégance.
+
+Le garde-fou d'`agent.py:1017` est :
+`if is_social_ack(message) and not refinement_signal and not booking_signal:`
+et ses deux signaux sont **volontairement regex-only à cet endroit**, sans les slots du triage
+(le commentaire l. 1000-1010 l'explique). Or `_AFFIRMATIVE_RE` (`profile.py:136`) est
+**fr/en uniquement** : `ok|okay|d'accord|sure|yes|yeah|oui|super|parfait|great|perfect|cool`
+— ni `sí`, ni `ja`, ni `sim`.
+
+Donc **aujourd'hui**, un « ja » allemand alors qu'une réservation attend confirmation ne
+matche pas `is_social_ack`, part au triage, et son slot `booking_confirmation` l'amène
+correctement au gate R9. **Si on ajoutait les affirmatifs à `_ACK_WORDS`**, ce même « ja »
+matcherait `is_social_ack`, `booking_signal` resterait faux (regex fr/en), et **le template
+d'accueil avalerait la confirmation de réservation** — rendant R9 inatteignable pour les
+utilisateurs de/es/pt. C'est mot pour mot le bug que la PR #47 a corrigé pour le français
+(« oui je confirme » → template de salutation).
+
+Ajouter seulement des salutations/remerciements (hola, gracias, ciao, grazie, danke, olá,
+obrigado, bedankt) échappe à ce piège précis — un remerciement n'est pas une confirmation.
+Mais le bénéfice est de **~1,1 s sur une fraction de 3,5 % des tours**, contre un
+élargissement d'une regex `^…$` prouvée qui est le dernier rempart avant un template. Le
+rapport bénéfice/risque ne le justifie pas.
+
+**Verdict : gardé en l'état, mesuré, et documenté.** L'item est clos — plus « non mesuré ».

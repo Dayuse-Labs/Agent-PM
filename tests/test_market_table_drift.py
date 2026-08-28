@@ -173,6 +173,67 @@ class TestKnownDivergenceIsNotAsserted:
         )
 
 
+class TestGeneratedFileIsCurrent:
+    """UX6 option B: the widget's market tables are GENERATED from `_MARKET` /
+    `_BROWSE_PATH` / `_LABEL`, so they cannot drift from the Python referential
+    unless someone edits the artifact or forgets to regenerate. This is the gate
+    that makes that impossible rather than merely discouraged.
+
+    This is why the slug/set comparisons above are now near-tautological — kept
+    anyway, because they fail LOUDLY and specifically if the generator is ever
+    changed to stop deriving one of those fields.
+    """
+
+    def test_committed_artifact_matches_the_python_referential(self) -> None:
+        script = REPO_ROOT / "scripts" / "generate_widget_markets.py"
+        spec = importlib.util.spec_from_file_location("generate_widget_markets", script)
+        assert spec is not None and spec.loader is not None
+        gen = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(gen)
+
+        target = REPO_ROOT / "web" / "vendor" / "static" / "js" / "chat" / "markets.generated.js"
+        assert target.is_file(), f"missing generated file: {target}"
+        assert target.read_text(encoding="utf-8") == gen.render(), (
+            "web/vendor/static/js/chat/markets.generated.js is STALE or was hand-edited.\n"
+            "Fix: .venv/bin/python scripts/generate_widget_markets.py\n"
+            "Never edit the generated file — change the Python table in "
+            "libs/b2c_common/b2c_common/hotel_urls.py instead."
+        )
+
+    def test_the_market_with_no_browse_page_is_null_not_guessed(self) -> None:
+        """MY has no browse page in dayuse-com's own config and
+        `www.dayuse.com/s/malaysia` is a measured 404 — so the referential must
+        carry None and the widget must render no link, never a guess."""
+        from b2c_common.hotel_urls import market_referential
+
+        rows = {row["iso"]: row for row in market_referential()}
+        assert rows["MY"]["browse_url"] is None
+        assert rows["MY"]["host"] == "my.dayuse.com"  # the BOOKING host still exists
+        # And a market that does have one is a real per-market host, not the
+        # global one the widget used to send everybody to.
+        assert rows["TH"]["browse_url"] == "https://th.dayuse.com/s/thailand"
+        assert rows["BR"]["browse_url"] == "https://www.dayuse.net.br/s/brasil"
+
+    def test_browse_paths_are_localized_where_dayuse_com_says_so(self) -> None:
+        """The trap that kept these two tables apart: the browse segment is
+        LOCALIZED while the hotel path is English, so neither can be derived
+        from the other. Values from dayuse-com's per-locale configs, 2026-08-28.
+        """
+        from b2c_common.hotel_urls import market_referential
+
+        rows = {row["iso"]: row for row in market_referential()}
+        for iso, hotel_path, browse_segment in (
+            ("DE", "germany", "deutschland"),
+            ("BR", "brazil", "brasil"),
+            ("ES", "spain", "espana"),
+            ("IT", "italy", "italia"),
+            ("NL", "netherlands", "nederland"),
+            ("CH", "switzerland", "suisse"),
+        ):
+            assert rows[iso]["country_path"] == hotel_path
+            assert str(rows[iso]["browse_url"]).endswith(f"/s/{browse_segment}")
+
+
 class TestWidgetUrlContract:
     """Runs `tests/widget/widget_url_contract.test.mjs` — the JS half of UX6's
     arbitrated fixes (the widget must not invent a hotel URL).

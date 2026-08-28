@@ -17,6 +17,7 @@
  */
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
+import { readFile } from 'node:fs/promises';
 
 const CHAT = new URL('../../web/vendor/static/js/chat/', import.meta.url);
 
@@ -112,6 +113,50 @@ test('card.js still links — no dangling import of the removed function', async
             `card.js imports something markets.js no longer exports: ${error.message}`,
         );
     }
+});
+
+test('option B: the market tables come from the generated file', async () => {
+    const gen = await import(new URL('markets.generated.js', CHAT));
+    assert.ok(gen.COUNTRY_META, 'markets.generated.js must export COUNTRY_META');
+    assert.ok(gen.COUNTRY_SLUG_TO_CODE, 'and COUNTRY_SLUG_TO_CODE');
+    assert.equal(Object.keys(gen.COUNTRY_META).length, 22);
+    // markets.js must consume them, not redefine them.
+    const src = await readFile(new URL('markets.js', CHAT), 'utf8');
+    assert.ok(
+        !/^const COUNTRY_META = \{/m.test(src),
+        'markets.js redefines COUNTRY_META — it must import the generated table',
+    );
+    assert.match(src, /from '\.\/markets\.generated\.js'/);
+
+    // The artifact must announce itself, so nobody hand-edits it.
+    const artifact = await readFile(new URL('markets.generated.js', CHAT), 'utf8');
+    assert.match(artifact, /GENERATED FILE — DO NOT EDIT BY HAND/);
+});
+
+test('the browse hosts are per-market, not the global one', async () => {
+    const { getMarketMeta } = await import(new URL('markets.js', CHAT));
+    // These 8 all pointed at www.dayuse.com before option B; dayuse-com's own
+    // per-locale configs say otherwise, and /s/brazil + /s/malaysia were 404s.
+    const expected = {
+        TH: 'th.dayuse.com', CA: 'ca.dayuse.com', AU: 'au.dayuse.com',
+        NZ: 'nz.dayuse.com', HK: 'www.dayuse.com.hk', AE: 'www.dayuse.ae',
+        BR: 'www.dayuse.net.br',
+    };
+    for (const [code, host] of Object.entries(expected)) {
+        const url = getMarketMeta(code).browseUrl;
+        assert.equal(new URL(url).hostname, host, `${code} browse host`);
+    }
+    assert.equal(getMarketMeta('BR').browseUrl, 'https://www.dayuse.net.br/s/brasil');
+});
+
+test('a market with no browse page yields null, and no guessed URL', async () => {
+    const { getMarketMeta } = await import(new URL('markets.js', CHAT));
+    assert.equal(getMarketMeta('MY').browseUrl, null, 'MY has no browse page');
+    // An entirely unmapped market must not fall back to a bare host either.
+    const unknown = getMarketMeta('ZZ');
+    assert.equal(unknown.browseUrl, null);
+    assert.equal(unknown.hotelCountrySlug, undefined,
+        'the guessed hotelCountrySlug is gone — its only reader was the removed fabricator');
 });
 
 test('utils.js still links — same check for the second call site', async () => {
