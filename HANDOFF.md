@@ -163,6 +163,23 @@ Donc : **pas un problème de correction, seulement de latence**, sur une **fract
 
 🔴 **Et la vraie raison de ne pas élargir** : le garde `agent.py:1017` est `if is_social_ack(...) and not refinement_signal and not booking_signal:`, et ses deux signaux sont **volontairement regex-only à cet endroit** (sans les slots du triage). Or `_AFFIRMATIVE_RE` (`profile.py:136`) est **fr/en uniquement** — ni `sí`, ni `ja`, ni `sim`. Aujourd'hui un « ja » allemand pendant une confirmation de réservation ne matche pas `is_social_ack`, part au triage, et son slot `booking_confirmation` l'amène au gate R9. **Si on ajoutait les affirmatifs à `_ACK_WORDS`, le template d'accueil avalerait la confirmation** et R9 deviendrait inatteignable en de/es/pt : mot pour mot le bug que la **PR #47** a corrigé pour le français (« oui je confirme » → salutation). Ajouter seulement salutations/remerciements échappe à ce piège précis, mais pour ~1,1 s sur une fraction de 3,5 % des tours, contre l'élargissement d'une regex `^…$` prouvée qui est le dernier rempart avant un template. **Gardé en l'état.**
 
+### ✅ Option B DÉPLOYÉE et vérifiée en prod (widget, `d6603ba`)
+
+`railway up --service widget --detach` → **`SUCCESS 2026-08-28T09:07:31Z`**, PUIS `LANGFUSE_RELEASE=d6603ba` posé avec `--skip-deploys` (`latestDeployment.createdAt` toujours `09:07:31Z` après le stamp, vérifié). **Ordre inversé exprès par rapport au déploiement précédent** : la fois d'avant, le stamp était posé AVANT un `railway up` qui s'est fait bloquer, laissant l'estampille revendiquer un build qui ne tournait pas. Stamper APRÈS le SUCCESS ne peut mentir que dans le sens inoffensif.
+
+`widget` seul, à nouveau : les ajouts Python (`_BROWSE_PATH`, `_LABEL`, `market_referential()`) n'ont **aucun appelant au runtime** — `market_referential` n'est lu que par le générateur et les tests, et `build_hotel_page_url`/`_resolve_market` sont inchangés (vérifié sur le diff). `concierge`/`hotel-search`/`faq` gardent une estampille honnête.
+
+**Preuve 1 — les 6 fichiers JS servis sont byte-identiques à HEAD** (`markets.js`, `markets.generated.js`, `security.js`, `utils.js`, `hotels/card.js`, `hotels/carousel.js`), et l'artifact généré est bien servi (l'en-tête « GENERATED FILE — DO NOT EDIT BY HAND » est en prod, avec `browseUrl: 'https://www.dayuse.net.br/s/brasil'`, `'https://th.dayuse.com/s/thailand'`, `browseUrl: null`).
+
+**Preuve 2 — LE résultat : les 21 liens de browse interrogés depuis le module DÉPLOYÉ répondent tous 200, chacun sur son propre hôte de marché, zéro redirection.** MY ne rend aucun lien. Comparaison avec l'avant : 2 liens morts (BR `/s/brazil` 404, MY `/s/malaysia` 404), 6 sur le domaine US, 1 redirection (DE).
+
+| | AE | AU | BR | CA | DE | HK | MY | NZ | TH |
+|---|---|---|---|---|---|---|---|---|---|
+| avant | dayuse.com | dayuse.com | **404** | dayuse.com | 1 redir | dayuse.com | **404** | dayuse.com | dayuse.com |
+| après | `dayuse.ae` 200 | `au.` 200 | `net.br/s/brasil` 200 | `ca.` 200 | `/s/deutschland` 200 | `com.hk` 200 | pas de lien | `nz.` 200 | `th.` 200 |
+
+**Preuve 3 — aucune régression de rendu** malgré le changement structurel de `markets.js` : un vrai tour (`?q=`, `x-dayuse-synthetic: 1`) rend **5 cartes, 5 liens, tous sur `www.dayuse.fr`**, 0 `href="#"`, 0 lien fabriqué. Et les 6 modules refactorés **se lient ET s'évaluent** dans le navigateur en prod (`markets.js`, `markets.generated.js`, `carousel.js`, `card.js`, `utils.js`, `responses.js` → tous `linked+evaluated`, `pageErrors: []`) — ce contrôle-là importe parce qu'un import cassé sur `markets.generated.js` aurait fait tomber tout le widget, pas seulement un lien.
+
 📌 Trap Langfuse consigné : `family`/`route` sont bien de la métadonnée de trace OBS2 (`mark_metadata`, `agent.py:562`) mais **ne remontent pas à plat dans l'API REST des traces** (`metadata` n'y contient que `resourceAttributes`/`scope`/`attributes` OTel) — donc pas de comptage par famille sans creuser les spans. `totalCost == 0` sur les traces racine est le meilleur proxy obtenable. Aussi : `LANGFUSE_BASE_URL` (pas `LANGFUSE_HOST`), et urllib a besoin du bundle `certifi` explicite sinon `CERTIFICATE_VERIFY_FAILED`.
 
 ### Les 2 PR restantes : fermées (décision Fabien)

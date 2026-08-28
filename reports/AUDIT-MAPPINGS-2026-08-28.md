@@ -756,6 +756,26 @@ disponible. C'est le CTA de l'état vide, il a 4 appelants, et ce repli est un l
 (200 mesuré) — le recâbler pour un `null` dépasse option B. Effet de bord positif quand même :
 MY passait par `/s/malaysia` (404) et tombe maintenant sur ce repli (200, mauvais marché).
 
+### 13.4 Déployé et vérifié en prod (widget `d6603ba`, `SUCCESS 2026-08-28T09:07:31Z`)
+
+Stamp posé **après** le SUCCESS cette fois (la fois d'avant, un `railway up` bloqué après le
+stamp avait laissé l'estampille revendiquer un build absent — stamper après ne peut mentir que
+dans le sens inoffensif). `widget` seul : les ajouts Python n'ont aucun appelant au runtime.
+
+**Le résultat, interrogé depuis le module déployé** : les **21 liens de browse répondent 200,
+chacun sur son propre hôte de marché, zéro redirection** ; MY ne rend aucun lien.
+
+| | AE | AU | BR | CA | DE | HK | MY | NZ | TH |
+|---|---|---|---|---|---|---|---|---|---|
+| avant | dayuse.com | dayuse.com | **404** | dayuse.com | 1 redir | dayuse.com | **404** | dayuse.com | dayuse.com |
+| après | 200 | 200 | 200 | 200 | 200 | 200 | pas de lien | 200 | 200 |
+
+Plus : les 6 fichiers JS servis sont byte-identiques à HEAD, l'artifact généré est bien en
+prod, un vrai tour rend 5 cartes / 5 liens sur `www.dayuse.fr` (0 `href="#"`, 0 fabriqué), et
+les 6 modules refactorés **se lient et s'évaluent** dans le navigateur (`pageErrors: []`) —
+contrôle qui compte parce qu'un import cassé sur `markets.generated.js` aurait fait tomber
+tout le widget, pas seulement un lien.
+
 ---
 
 ## 14. `_ACK_RE` — l'item qu'UX2 avait laissé sans mesure
