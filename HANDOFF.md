@@ -66,7 +66,11 @@ Ajouté dans les 4 tables du **même** module (`_MARKET`, `_ISO_BY_COUNTRY_NAME`
 
 📌 KR est le **seul** marché dont le slug de browse porte une ville (`south-korea/seoul`, c'est le `defaultSearchPageLink` de dayuse-com pour ko-KR, et c'est là qu'est tout son inventaire). Verrouillé par un test qui échoue si un 2e marché en gagne une.
 
-📌 Le compteur qui répondra tout seul : `booking_url_fallback` avec `reason=missing_from_payload` (livré dans #109, déployé) mesure désormais **combien de fois un utilisateur voit réellement une carte sans lien** — donnée que l'audit n'a pas pu obtenir. À relire dans ~1 semaine : elle dira si ces 3 marchés valent la priorité et en révélera d'autres.
+📌 Le compteur qui répondra tout seul : `booking_url_fallback` avec `reason=missing_from_payload` (livré dans #109, déployé) mesure désormais **combien de fois un utilisateur voit réellement une carte sans lien** — donnée que l'audit n'a pas pu obtenir.
+
+🪤 **Où le lire — PAS dans les logs Railway** (vérifié le 2026-09-01, après une affirmation erronée de ma part). `trackEvent` (`tracking.js:117`) a **deux** puits : `amplitude.track(...)`, qui poste directement chez Amplitude, et `navigator.sendBeacon('/api/track')`. Or `/api/track` est **avalé** par le proxy widget — `run_widget_proxy.py:133-135` répond 204 et **jette le corps** (sa docstring l'assume : « swallowed locally (204) — AgentB2C doesn't implement it and it's fire-and-forget analytics »). Les logs Railway montrent donc bien `POST /api/track … 204`, ce qui prouve que des événements partent, mais **ne portent ni le nom de l'événement ni `reason`**. La donnée n'existe que **dans Amplitude** (événement `booking_url_fallback`, propriété `reason` ∈ `missing_from_payload` / `rejected_by_allowlist`) — accès Dayuse, hors de ce repo.
+
+💡 **Option non faite, à trancher** : faire logger au proxy le `event` + `reason` lus dans le corps du beacon (~10 lignes dans `run_widget_proxy.py`), pour que cette métrique se lise comme toutes les autres du repo (`dayuse_metric=` / `concierge_metric=` dans les logs Railway) au lieu d'exiger un accès Amplitude. RGPD : nom d'événement et `reason` ne sont pas du contenu utilisateur — mais le corps du beacon en contient d'autres champs, donc il faudrait logger une **liste blanche** de clés, jamais le payload brut. Décision Fabien : ça touche le seul service public.
 
 ## ✅ Addendum 2026-08-28 — UX6 : audit des mappings en dur. 98 tables, 0 morte, 0 suppression — et les 4 candidats de la phase réfutés
 
