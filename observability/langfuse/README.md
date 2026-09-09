@@ -11,6 +11,11 @@ file d'annotation. Instance self-hosted **v3.224.3** (`langfuse-web-production-2
 > annotation → dataset → rejeu, RGPD, quiz. Données figées au 2026-09-09 ; les requêtes de
 > rafraîchissement sont en annexe de la page.
 
+> 📗 **Pour ajouter un test** : `guide-tests-langfuse.html` — même format autonome. Comment écrire un cas,
+> l'envoyer dans Langfuse, lancer le passage, lire le résultat. Contient le **tri des 8 remontées QA du
+> 2026-09-08** (lesquelles sont auditables et lesquelles ne le seront jamais), les 18 vérifications
+> disponibles, un constructeur de cas interactif, et un vrai avant/après (67 % → 84 % sur `b2c/geo-poi`).
+
 ## ⚠️ Ne pas recréer les widgets via le serveur MCP Langfuse (tant qu'on est en v3)
 
 `createDashboardWidget` (MCP) estampille **`dashboard_widgets.min_version = 2`** sans
