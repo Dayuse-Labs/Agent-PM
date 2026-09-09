@@ -2,6 +2,26 @@
 
 État du chantier pour reprise en session fraîche. **Lire en entier avant d'agir ; ne pas reconstruire ce qui existe.** Mettre à jour en fin de CHAQUE session (bloc daté en tête).
 
+## ✅ Addendum 2026-09-09 — support pédagogique Langfuse pour Produit/QA (docs, zéro code applicatif)
+
+**Fait.** `observability/langfuse/guide-langfuse-pm-qa.html` : page HTML **autonome** (aucun CDN, aucun serveur, ouvrable en `file://`), en français, destinée à **un PM et un QA non-devs**. 9 sections : pourquoi/accès, les 5 objets, anatomie d'un tour, les 3 familles de scores, les 7 vignettes du dashboard décodées, 6 playbooks d'enquête, la boucle annotation→dataset→rejeu→CI, pièges & RGPD, quiz. Pointeur ajouté dans `observability/langfuse/README.md`.
+
+**Toutes les données de la page sont réelles**, extraites en lecture seule le 2026-09-09 (`GET /api/public/{traces,scores,metrics,datasets,sessions}` + outils MCP `list*`) ; les requêtes de rafraîchissement sont en annexe **dans la page**, il n'y a pas de script à maintenir. Pièce centrale : la trace `0230928659c538b69b3d309b8434d2d3` (tour `synthetic`, release `e7795fc`) rendue en cascade cliquable — **1 racine / 34 observations / 4 services / 18 scores**, avec les vraies durées et coûts (`gpt-5.2` = **76 % des 0,00532 $** du tour pour 1 appel sur 4) et les vrais arguments de `geocode_location` et `search_offers`.
+
+**Chiffres de référence relevés au passage** (utiles pour la prochaine session, tous sur la période juillet→septembre) : `guard_recovery_ack` **10,3 %** · `guard_booking_confirmation` **9,5 %** · `guard_geocode_echo_back` **9,2 %** · `guard_filter_relaxation_honored` 3,4 % (n=117) · 6 guards à **0 %** · `empty_shortlist` **40,7 %** (n=668) · `hotels_returned` 2,68 en moyenne · `llm_calls` 2,63 (**budget de 3 jamais dépassé, 0 tour au-dessus**) · `ttft_ms` p95 **25,9 ms** mais sur **197 tours seulement** sur 652 (seul le streaming l'émet) · niveaux d'observation DEFAULT 34 003 / WARNING 118 / **ERROR 233** · coûts cumulés `gpt-4o` 2,99 $ + `gpt-5.2` 2,05 $ + `gpt-4o-mini` 1,62 $ = **6,66 $**.
+
+**3 documents périmés corrigés dans la page** (à corriger à la source un jour) : `dashboard-b2c.json` annonce « 13 series » et « seuls 8 guards émettent » (→ **15, tous câblés**) ; `PLAN-OBS-LANGFUSE-2026-07-29.md:117` dit « 2/3 juges actifs » (→ **3/3** depuis le 2026-08-25) ; la score config `guard_poi_anchor_coherence` dit « > 100 km » (→ **40 km**).
+
+**🔴 2 trous trouvés en lisant le code, NON corrigés (hors scope de cette session, signalés dans la page) :**
+1. **`evals/langfuse_experiment.py::_call_facade` n'envoie pas `X-Dayuse-Synthetic`** (aucun `headers=`) : chaque tour de rejeu d'experiment produit une trace **non taguée**, donc éligible à l'échantillonnage 5 % des 3 juges et non exclue du feeder d'annotation. Correctif = une ligne. C'est très probablement l'origine des items vides (`input=None`) qui avaient pollué la file d'annotation.
+2. **Le widget navigateur ne l'envoie jamais non plus** (`web/vendor/static/js/chat/api.js::getChatHeaders`) : **les tours de test d'un QA dans le widget sont indistinguables du trafic réel** — ils entrent dans les taux du dashboard et sont notés par les juges. À trancher : header injecté par le proxy widget derrière un flag, ou un mode « QA » explicite.
+
+**🟠 Piège d'API relevé** : `GET /api/public/scores?value=1` **ne filtre pas** (renvoie 10 923 lignes, zéros compris). Filtrer côté client, ou passer par `/api/public/metrics` (qui, lui, agrège correctement — y compris en v3).
+
+**🟠 Rouge préexistant sur `main`, sans lien avec cette session** : `agents/hotel_search_agent/tests/test_datetime_resolver.py::test_resolve_search_date_marks_a_carried_over_future_date_as_not_today` échoue depuis **aujourd'hui** — le test code en dur `2026-09-09` comme date *future* et on y est. Même classe que les tests corrigés en PR #71 (pourrissement par le calendrier) ; le correctif immunisant est de passer une date de référence explicite, pas de bouger le littéral. Vérifié : le test échoue à l'identique sur un arbre sans mes fichiers (`git stash -u`). Reste : 1 échec, **1 706 passés**, ruff/mypy/guardrails **verts**.
+
+**Vérification faite** (pas seulement « le HTML est valide ») : Chrome headless piloté en CDP, **32 assertions vertes, 0 erreur console** — rendu des 10 sections, bascule « masquer la plomberie » (18 ⇄ 34 lignes), clic sur 3 étapes, onglets des 3 familles de scores, filtres de la table, quiz, absence de défilement horizontal, thème sombre ; 8 captures relues à l'œil. 4 bugs de rendu trouvés et corrigés par cette relecture (barres de cascade invisibles car `.track` était un `<span>` inline ; `th` sticky créant une bande vide et masquant la ligne de groupe ; flèche de retour SVG rendue en triangle plein faute de `fill="none"` ; texte du quiz en monospace).
+
 ## ✅ Addendum 2026-08-28 bis — post-merge #109 : 3 items clos par la mesure (dont un gap de liens trouvé ET fermé)
 
 PR #109 **mergée** (`71111cf`, 09:49:45Z). **Zéro PR ouverte** — le chantier UX est clos.
