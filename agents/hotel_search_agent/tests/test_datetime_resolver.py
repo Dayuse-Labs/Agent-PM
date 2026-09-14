@@ -759,7 +759,11 @@ def test_resolve_search_date_always_stamps_the_searched_date():
 
 
 def test_resolve_search_date_marks_a_carried_over_future_date_as_not_today():
-    ctx = _ctx_with_profile({"date": "2026-09-09"})
+    # Clock-relative, see above: hardcoded, this stopped testing the carry-over
+    # path the day the literal went by — the stale date is then floored back to
+    # today by `_usable_carried_date` and `same_day` flips true.
+    future = (date.today() + timedelta(days=7)).isoformat()
+    ctx = _ctx_with_profile({"date": future})
     args = {}
     resolve_search_date(_Tool("search_offers"), args, ctx)
-    assert ctx.state[STATE_SEARCH_DATE_KEY] == {"date": "2026-09-09", "same_day": False}
+    assert ctx.state[STATE_SEARCH_DATE_KEY] == {"date": future, "same_day": False}
