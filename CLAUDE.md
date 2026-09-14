@@ -55,7 +55,11 @@ bash scripts/run_local.sh
 # Smoke e2e (les 3 services doivent tourner) — 1 tour ack + 1 search + 1 faq via l'orchestrateur
 python scripts/smoke_e2e.py
 
-# Tests (offline — ni réseau ni clé API)
+# Tests (offline — ni réseau ni clé API) — ~23 s, dont ~12 s pour le SEUL
+# tests/test_calendar_rot.py, qui rejoue toute la suite dans un sous-processus
+# avec l'horloge décalée de +400 j (plugin tests/timeshift_plugin.py). C'est le
+# garde anti-pourrissement calendaire : il tombe si un test est épinglé à un
+# littéral de date qui a cessé de tester ce qu'il annonce (2 vagues : PR #71, #114).
 .venv/bin/pytest -q
 
 # Lint + typecheck (mêmes jobs qu'en CI)
