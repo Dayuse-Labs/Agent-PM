@@ -2,6 +2,8 @@
 
 État du chantier pour reprise en session fraîche. **Lire en entier avant d'agir ; ne pas reconstruire ce qui existe.** Mettre à jour en fin de CHAQUE session (bloc daté en tête).
 
+> 📋 **Pour savoir QUOI faire ensuite, ouvrir [`CHANTIERS.md`](CHANTIERS.md)** (état vérifié au 2026-09-14) : la liste des chantiers ouverts, chacun avec sa preuve, ses actions et un prompt prêt à coller — plus la liste de ce qu'il ne faut **pas** relancer parce que c'est déjà livré. `tasks/todo.md` est périmé et ne doit plus servir de référence.
+
 ## ✅ Addendum 2026-09-09 — support pédagogique Langfuse pour Produit/QA (docs, zéro code applicatif)
 
 **Fait.** `observability/langfuse/guide-langfuse-pm-qa.html` : page HTML **autonome** (aucun CDN, aucun serveur, ouvrable en `file://`), en français, destinée à **un PM et un QA non-devs**. 9 sections : pourquoi/accès, les 5 objets, anatomie d'un tour, les 3 familles de scores, les 7 vignettes du dashboard décodées, 6 playbooks d'enquête, la boucle annotation→dataset→rejeu→CI, pièges & RGPD, quiz. Pointeur ajouté dans `observability/langfuse/README.md`.
