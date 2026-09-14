@@ -1,0 +1,1170 @@
+<title>Ajouter un test à l'agent</title>
+<meta name="description" content="Tutoriel : créer un jeu de prompts de test, le lancer, lire les résultats — AgentB2C × Langfuse">
+<style>
+:root{
+  --bg:#f6f6f9; --surface:#fff; --surface-2:#fbfbfd; --ink:#13131b; --ink-soft:#3d3d4d;
+  --muted:#61617a; --line:#e4e4ec; --line-strong:#d0d0dc;
+  --accent:#5b47e0; --accent-ink:#3d2bb8; --accent-soft:#efecff;
+  --ok:#067647; --ok-soft:#e6f6ed; --warn:#b54708; --warn-soft:#fff6ea; --err:#b42318; --err-soft:#fdecea;
+  --svc-cx:#5b47e0; --svc-hs:#0e9384; --svc-faq:#b54708; --svc-mcp:#c11574; --svc-plumb:#9aa0b4;
+  --radius:14px; --radius-s:9px;
+  --shadow:0 1px 2px rgba(16,16,40,.05),0 8px 24px -12px rgba(16,16,40,.14);
+  --mono:ui-monospace,SFMono-Regular,"SF Mono",Menlo,Consolas,monospace;
+}
+@media (prefers-color-scheme:dark){:root:not([data-theme=light]){
+  --bg:#0d0d12; --surface:#16161e; --surface-2:#1b1b24; --ink:#edecf3; --ink-soft:#c8c7d4;
+  --muted:#9695ab; --line:#26262f; --line-strong:#33333f;
+  --accent:#9384ff; --accent-ink:#b3a8ff; --accent-soft:#201e3a;
+  --ok:#3ec489; --ok-soft:#0f2a1e; --warn:#e8a25c; --warn-soft:#2c1d0d; --err:#f08a80; --err-soft:#2d1412;
+  --svc-cx:#9384ff; --svc-hs:#3fd0bd; --svc-faq:#e8a25c; --svc-mcp:#f078b6; --svc-plumb:#6f7488;
+  --shadow:0 1px 2px rgba(0,0,0,.4),0 10px 30px -14px rgba(0,0,0,.6);
+}}
+:root[data-theme=dark]{
+  --bg:#0d0d12; --surface:#16161e; --surface-2:#1b1b24; --ink:#edecf3; --ink-soft:#c8c7d4;
+  --muted:#9695ab; --line:#26262f; --line-strong:#33333f;
+  --accent:#9384ff; --accent-ink:#b3a8ff; --accent-soft:#201e3a;
+  --ok:#3ec489; --ok-soft:#0f2a1e; --warn:#e8a25c; --warn-soft:#2c1d0d; --err:#f08a80; --err-soft:#2d1412;
+  --svc-cx:#9384ff; --svc-hs:#3fd0bd; --svc-faq:#e8a25c; --svc-mcp:#f078b6; --svc-plumb:#6f7488;
+  --shadow:0 1px 2px rgba(0,0,0,.4),0 10px 30px -14px rgba(0,0,0,.6);
+}
+*{box-sizing:border-box}
+body{margin:0;background:var(--bg);color:var(--ink);
+  font:15px/1.62 -apple-system,BlinkMacSystemFont,"Segoe UI",Inter,Roboto,Helvetica,Arial,sans-serif;
+  -webkit-font-smoothing:antialiased}
+h1,h2,h3,h4{line-height:1.22;margin:0;letter-spacing:-.017em;font-weight:640}
+p{margin:0 0 .85em}
+a{color:var(--accent);text-decoration:none;border-bottom:1px solid color-mix(in srgb,var(--accent) 35%,transparent)}
+a:hover{border-bottom-color:var(--accent)}
+code,kbd{font-family:var(--mono);font-size:.875em}
+code{background:var(--surface-2);border:1px solid var(--line);border-radius:5px;padding:.08em .34em;color:var(--ink-soft)}
+.wrap{max-width:1120px;margin:0 auto;padding:0 22px}
+.mono{font-family:var(--mono)}
+.small{font-size:13px}
+.muted{color:var(--muted)}
+
+/* ---------- hero ---------- */
+header.hero{background:
+   radial-gradient(1000px 380px at 12% -10%,color-mix(in srgb,var(--accent) 16%,transparent),transparent 70%),
+   var(--surface);
+  border-bottom:1px solid var(--line);padding:44px 0 30px}
+.eyebrow{font-size:12px;font-weight:680;letter-spacing:.1em;text-transform:uppercase;color:var(--accent);margin-bottom:11px}
+header.hero h1{font-size:clamp(30px,4.6vw,45px);letter-spacing:-.03em}
+.lede{font-size:17.5px;color:var(--ink-soft);max-width:66ch;margin-top:13px}
+.badges{display:flex;flex-wrap:wrap;gap:8px;margin-top:22px}
+.badge{display:inline-flex;align-items:center;gap:7px;background:var(--surface-2);border:1px solid var(--line);
+  border-radius:999px;padding:5px 12px;font-size:12.5px;color:var(--ink-soft);font-family:var(--mono)}
+.badge b{color:var(--ink);font-weight:620}
+.badge.eu{border-color:color-mix(in srgb,var(--ok) 40%,var(--line));background:var(--ok-soft);color:var(--ok)}
+.snapshot{display:grid;grid-template-columns:repeat(auto-fit,minmax(112px,1fr));gap:1px;margin-top:26px;
+  background:var(--line);border:1px solid var(--line);border-radius:var(--radius);overflow:hidden}
+.snapshot div{background:var(--surface);padding:13px 15px}
+.snapshot .n{font-size:22px;font-weight:660;letter-spacing:-.03em;font-family:var(--mono)}
+.snapshot .l{font-size:11.5px;color:var(--muted);text-transform:uppercase;letter-spacing:.05em;margin-top:2px}
+
+/* ---------- nav ---------- */
+nav.toc{position:sticky;top:0;z-index:60;background:color-mix(in srgb,var(--bg) 88%,transparent);
+  backdrop-filter:blur(12px);border-bottom:1px solid var(--line)}
+nav.toc .wrap{display:flex;align-items:center;gap:10px;padding:9px 22px}
+nav.toc .links{display:flex;align-items:center;gap:6px;overflow-x:auto;flex:1;min-width:0;scrollbar-width:none}
+nav.toc .links::-webkit-scrollbar{display:none}
+nav.toc a{white-space:nowrap;font-size:13px;font-weight:560;color:var(--muted);border:0;padding:6px 11px;border-radius:8px}
+nav.toc a:hover{background:var(--surface-2);color:var(--ink)}
+nav.toc a.on{background:var(--accent-soft);color:var(--accent-ink)}
+nav.toc a .k{font-family:var(--mono);opacity:.55;margin-right:5px}
+#themeBtn{flex:none;background:var(--surface);border:1px solid var(--line);color:var(--muted);
+  border-radius:8px;padding:6px 10px;font:inherit;font-size:13px;cursor:pointer}
+#themeBtn:hover{color:var(--ink)}
+
+/* ---------- sections ---------- */
+section{padding:52px 0;border-bottom:1px solid var(--line)}
+section>.wrap>.shead{margin-bottom:26px}
+.shead .num{font-family:var(--mono);font-size:12.5px;color:var(--accent);font-weight:640}
+.shead h2{font-size:clamp(22px,2.9vw,29px);margin-top:5px}
+.shead p{color:var(--ink-soft);max-width:74ch;margin-top:9px;margin-bottom:0}
+
+.grid{display:grid;gap:14px}
+.g2{grid-template-columns:repeat(auto-fit,minmax(290px,1fr))}
+.g3{grid-template-columns:repeat(auto-fit,minmax(232px,1fr))}
+.card{background:var(--surface);border:1px solid var(--line);border-radius:var(--radius);padding:18px}
+.card h3{font-size:15.5px;display:flex;align-items:center;gap:8px}
+.card h4{font-size:13px;text-transform:uppercase;letter-spacing:.055em;color:var(--muted);margin-bottom:7px}
+.card p:last-child{margin-bottom:0}
+.card.pad0{padding:0;overflow:hidden}
+
+.note{border-left:3px solid var(--accent);background:var(--accent-soft);padding:13px 16px;border-radius:0 var(--radius-s) var(--radius-s) 0;margin:16px 0}
+.note.warn{border-color:var(--warn);background:var(--warn-soft)}
+.note.err{border-color:var(--err);background:var(--err-soft)}
+.note.ok{border-color:var(--ok);background:var(--ok-soft)}
+.note p:last-child{margin-bottom:0}
+.note b{color:var(--ink)}
+.note .tag{display:block;font-size:11.5px;font-weight:700;letter-spacing:.06em;text-transform:uppercase;margin-bottom:5px;opacity:.85}
+
+table{width:100%;border-collapse:collapse;font-size:13.5px}
+th,td{text-align:left;padding:9px 11px;border-bottom:1px solid var(--line);vertical-align:top}
+th{font-size:11.5px;text-transform:uppercase;letter-spacing:.05em;color:var(--muted);font-weight:640;
+  background:var(--surface-2)}
+tbody tr:hover{background:var(--surface-2)}
+td.num,th.num{text-align:right;font-family:var(--mono);white-space:nowrap}
+.scroller{overflow-x:auto;border:1px solid var(--line);border-radius:var(--radius);background:var(--surface)}
+
+.pill{display:inline-block;font-size:11px;font-weight:670;letter-spacing:.03em;padding:2px 7px;border-radius:5px;
+  font-family:var(--mono);white-space:nowrap}
+.pill.cx{background:color-mix(in srgb,var(--svc-cx) 15%,transparent);color:var(--svc-cx)}
+.pill.hs{background:color-mix(in srgb,var(--svc-hs) 15%,transparent);color:var(--svc-hs)}
+.pill.faq{background:color-mix(in srgb,var(--svc-faq) 15%,transparent);color:var(--svc-faq)}
+.pill.mcp{background:color-mix(in srgb,var(--svc-mcp) 15%,transparent);color:var(--svc-mcp)}
+.pill.plumb{background:color-mix(in srgb,var(--svc-plumb) 18%,transparent);color:var(--svc-plumb)}
+.pill.ok{background:var(--ok-soft);color:var(--ok)}
+.pill.warn{background:var(--warn-soft);color:var(--warn)}
+.pill.err{background:var(--err-soft);color:var(--err)}
+.pill.neutral{background:var(--surface-2);color:var(--muted);border:1px solid var(--line)}
+
+button.btn{font:inherit;font-size:13px;font-weight:560;background:var(--surface);color:var(--ink-soft);
+  border:1px solid var(--line-strong);border-radius:8px;padding:7px 13px;cursor:pointer}
+button.btn:hover{border-color:var(--accent);color:var(--accent)}
+button.btn.on{background:var(--accent);border-color:var(--accent);color:#fff}
+:root[data-theme=dark] button.btn.on{color:#12121a}
+@media (prefers-color-scheme:dark){:root:not([data-theme=light]) button.btn.on{color:#12121a}}
+
+/* ---------- waterfall ---------- */
+.wf{border:1px solid var(--line);border-radius:var(--radius);background:var(--surface);overflow:hidden}
+.wf-bar{display:flex;flex-wrap:wrap;gap:9px;align-items:center;padding:12px 14px;border-bottom:1px solid var(--line);
+  background:var(--surface-2)}
+.wf-bar .sp{flex:1}
+.wf-legend{display:flex;flex-wrap:wrap;gap:12px;font-size:12px;color:var(--muted);padding:10px 14px;
+  border-bottom:1px solid var(--line)}
+.wf-legend span{display:inline-flex;align-items:center;gap:6px}
+.wf-legend i{width:10px;height:10px;border-radius:3px;display:inline-block}
+.wf-body{display:grid;grid-template-columns:minmax(0,1.35fr) minmax(0,1fr)}
+@media (max-width:880px){.wf-body{grid-template-columns:1fr}}
+.wf-rows{border-right:1px solid var(--line);max-height:560px;overflow:auto}
+@media (max-width:880px){.wf-rows{border-right:0;border-bottom:1px solid var(--line);max-height:420px}}
+.row{display:grid;grid-template-columns:minmax(0,1fr) minmax(80px,.85fr) 60px;gap:10px;align-items:center;width:100%;text-align:left;
+  background:none;border:0;border-bottom:1px solid var(--line);padding:6px 12px;cursor:pointer;font:inherit;color:inherit}
+.row:hover{background:var(--surface-2)}
+.row.sel{background:var(--accent-soft)}
+.row .lbl{display:flex;align-items:center;gap:7px;min-width:0}
+.row .nm{font-family:var(--mono);font-size:12px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.row .track{display:block;position:relative;height:14px;background:var(--surface-2);border:1px solid var(--line);border-radius:4px;overflow:hidden}
+.row .fill{position:absolute;top:0;bottom:0;border-radius:4px;min-width:2px}
+.row .ms{display:block;font-family:var(--mono);font-size:11px;color:var(--muted);text-align:right;white-space:nowrap}
+.tp{font-family:var(--mono);font-size:9.5px;font-weight:700;letter-spacing:.04em;padding:1px 4px;border-radius:3px;flex:none}
+.wf-detail{padding:16px 18px;max-height:560px;overflow:auto}
+.wf-detail .dt-name{font-family:var(--mono);font-size:14px;word-break:break-all;margin:8px 0 4px}
+.kv{display:grid;grid-template-columns:auto 1fr;gap:5px 14px;font-size:13px;margin:14px 0}
+.kv dt{color:var(--muted);font-size:12px}
+.kv dd{margin:0;font-family:var(--mono);font-size:12.5px}
+.dt-why{background:var(--surface-2);border:1px solid var(--line);border-radius:var(--radius-s);padding:12px 14px;font-size:13.5px}
+.dt-why b{color:var(--ink)}
+
+/* ---------- misc components ---------- */
+.bar{height:8px;background:var(--surface-2);border:1px solid var(--line);border-radius:99px;overflow:hidden;min-width:64px}
+.bar i{display:block;height:100%;background:var(--accent);border-radius:99px}
+.bar i.zero{background:var(--line-strong)}
+.filters{display:flex;flex-wrap:wrap;gap:8px;align-items:center;margin-bottom:13px}
+input[type=search]{font:inherit;font-size:13px;background:var(--surface);color:var(--ink);border:1px solid var(--line-strong);
+  border-radius:8px;padding:7px 11px;min-width:190px}
+input[type=search]:focus{outline:2px solid var(--accent-soft);border-color:var(--accent)}
+details{background:var(--surface);border:1px solid var(--line);border-radius:var(--radius);margin-bottom:10px}
+details[open]{box-shadow:var(--shadow)}
+summary{cursor:pointer;padding:14px 17px;font-weight:600;font-size:14.5px;display:flex;gap:10px;align-items:center;
+  list-style:none}
+summary::-webkit-details-marker{display:none}
+summary::after{content:"+";margin-left:auto;font-family:var(--mono);color:var(--muted);font-size:17px;flex:none}
+details[open] summary::after{content:"\2212"}
+details .body{padding:0 17px 17px;border-top:1px solid var(--line);padding-top:14px}
+ol.steps{margin:0;padding-left:0;list-style:none;counter-reset:s}
+ol.steps li{counter-increment:s;position:relative;padding-left:32px;margin-bottom:11px;font-size:14px}
+ol.steps li::before{content:counter(s);position:absolute;left:0;top:0;width:21px;height:21px;border-radius:6px;
+  background:var(--accent-soft);color:var(--accent-ink);font-family:var(--mono);font-size:11.5px;font-weight:700;
+  display:grid;place-items:center}
+ol.steps li:last-child{margin-bottom:0}
+.recipe{display:flex;gap:8px;align-items:flex-start;background:var(--surface-2);border:1px solid var(--line);
+  border-radius:var(--radius-s);padding:10px 12px;margin-top:9px}
+.recipe .rc{flex:1;font-family:var(--mono);font-size:12px;word-break:break-word;color:var(--ink-soft)}
+.recipe button{flex:none;font:inherit;font-size:11px;background:var(--surface);border:1px solid var(--line-strong);
+  color:var(--muted);border-radius:6px;padding:3px 8px;cursor:pointer}
+.recipe button:hover{color:var(--accent);border-color:var(--accent)}
+
+/* quiz */
+.quiz{counter-reset:q}
+.q{background:var(--surface);border:1px solid var(--line);border-radius:var(--radius);padding:17px;margin-bottom:11px}
+.q .qt{font-weight:600;font-size:14.5px;margin-bottom:11px;display:flex;gap:9px}
+.q .qt span:first-child{font-family:var(--mono);color:var(--accent);flex:none}
+.opts{display:grid;gap:7px}
+.opt{text-align:left;font:inherit;font-size:13.5px;background:var(--surface-2);border:1px solid var(--line);
+  border-radius:var(--radius-s);padding:9px 12px;cursor:pointer;color:var(--ink-soft)}
+.opt:hover{border-color:var(--accent)}
+.opt.good{background:var(--ok-soft);border-color:var(--ok);color:var(--ok);font-weight:600}
+.opt.bad{background:var(--err-soft);border-color:var(--err);color:var(--err)}
+.opt[disabled]{cursor:default}
+.expl{margin-top:11px;font-size:13.5px;color:var(--ink-soft);border-left:3px solid var(--line-strong);padding-left:12px}
+#qscore{font-family:var(--mono);font-size:13px}
+
+/* cheatsheet */
+.cheat{display:grid;grid-template-columns:repeat(auto-fit,minmax(255px,1fr));gap:13px}
+.cheat .card{padding:15px}
+.cheat ul{margin:0;padding-left:17px;font-size:13.5px}
+.cheat li{margin-bottom:5px}
+
+footer{padding:34px 0 60px;color:var(--muted);font-size:13px}
+footer .wrap>p{max-width:78ch}
+pre{background:var(--surface);border:1px solid var(--line);border-radius:var(--radius-s);padding:13px;
+  overflow-x:auto;font-family:var(--mono);font-size:11.5px;line-height:1.55;margin:0 0 10px}
+
+@media print{
+  nav.toc,#themeBtn,.wf-bar,button{display:none}
+  body{background:#fff}
+  section{page-break-inside:avoid;border:0;padding:16px 0}
+  .noprint{display:none!important}
+  #cheat{page-break-before:always}
+}
+</style>
+<style>
+/* --- specifique a cette page --- */
+.verdict{display:grid;grid-template-columns:34px 1fr;gap:12px;align-items:start}
+.verdict .ico{font-size:20px;line-height:1.1;text-align:center}
+.tri td{vertical-align:top}
+.tri .q{font-size:13.5px}
+.builder{display:grid;grid-template-columns:minmax(0,1fr) minmax(0,1fr);gap:16px}
+@media (max-width:860px){.builder{grid-template-columns:1fr}}
+.chk{display:flex;gap:9px;align-items:flex-start;padding:9px 0;border-bottom:1px solid var(--line)}
+.chk:last-child{border-bottom:0}
+.chk input[type=checkbox]{margin-top:3px;flex:none;width:15px;height:15px;accent-color:var(--accent)}
+.chk label{font-size:13.5px;cursor:pointer}
+.chk .nm{font-family:var(--mono);font-size:12.5px;color:var(--accent-ink)}
+.chk .hint{display:block;color:var(--muted);font-size:12px;margin-top:1px}
+.chk input[type=text]{font:inherit;font-family:var(--mono);font-size:12px;background:var(--surface-2);color:var(--ink);
+  border:1px solid var(--line-strong);border-radius:6px;padding:4px 7px;margin-top:5px;width:100%;max-width:330px}
+.out{position:sticky;top:56px}
+.out pre{max-height:420px;overflow:auto}
+#examples pre,.out pre{white-space:pre-wrap;word-break:break-all}
+.step{display:grid;grid-template-columns:30px 1fr;gap:13px;margin-bottom:18px}
+.step .n{width:26px;height:26px;border-radius:8px;background:var(--accent);color:#fff;display:grid;place-items:center;
+  font-family:var(--mono);font-size:12.5px;font-weight:700;flex:none}
+:root[data-theme=dark] .step .n{color:#12121a}
+@media (prefers-color-scheme:dark){:root:not([data-theme=light]) .step .n{color:#12121a}}
+.step h3{font-size:15.5px;margin-bottom:5px}
+.step p{margin-bottom:8px;font-size:14px}
+.diff{display:grid;grid-template-columns:1fr 1fr;gap:0;border:1px solid var(--line);border-radius:var(--radius);overflow:hidden}
+@media (max-width:760px){.diff{grid-template-columns:1fr}}
+.diff>div{padding:14px 16px}
+.diff>div:first-child{border-right:1px solid var(--line);background:var(--err-soft)}
+.diff>div:last-child{background:var(--ok-soft)}
+@media (max-width:760px){.diff>div:first-child{border-right:0;border-bottom:1px solid var(--line)}}
+.diff h4{margin-bottom:9px}
+.diff ul{margin:0;padding-left:16px;font-size:13px}
+.diff li{margin-bottom:4px;font-family:var(--mono);font-size:11.5px}
+</style>
+
+<header class="hero">
+  <div class="wrap">
+    <div class="eyebrow">AgentB2C &middot; Tutoriel Produit / QA</div>
+    <h1>Ajouter un test à l'agent</h1>
+    <p class="lede">Comment transformer « j'ai vu un truc anormal » en un cas de test qui sera rejoué à chaque
+      modification du produit : écrire le cas, l'envoyer dans Langfuse, le faire tourner, lire le résultat.
+      Ce guide part de <b>vos 8 remontées réelles</b> du 8 septembre — et commence par dire lesquelles
+      un test peut réellement attraper.</p>
+    <div class="badges">
+      <span class="badge">4 jeux de cas <b>existants</b></span>
+      <span class="badge">54 cas <b>aujourd'hui</b></span>
+      <span class="badge">18 <b>types de vérification</b></span>
+      <span class="badge eu">&#9679; les cas vivent dans Langfuse (UE)</span>
+    </div>
+  </div>
+</header>
+
+<nav class="toc">
+  <div class="wrap">
+    <div class="links">
+      <a href="#possible"><span class="k">1</span>Depuis Langfuse ?</a>
+      <a href="#triage"><span class="k">2</span>Vos 8 remontées</a>
+      <a href="#anatomie"><span class="k">3</span>Anatomie d'un cas</a>
+      <a href="#vocabulaire"><span class="k">4</span>Vérifications</a>
+      <a href="#builder"><span class="k">5</span>Construire</a>
+      <a href="#lancer"><span class="k">6</span>Lancer</a>
+      <a href="#lire"><span class="k">7</span>Lire</a>
+      <a href="#pieges"><span class="k">8</span>Pièges</a>
+    </div>
+    <button id="themeBtn" type="button" title="Basculer clair / sombre">&#9681; thème</button>
+  </div>
+</nav>
+
+<main>
+
+<section id="possible">
+  <div class="wrap">
+    <div class="shead">
+      <div class="num">01</div>
+      <h2>« Peut-on les jouer depuis Langfuse ? »</h2>
+      <p>Réponse honnête : <b>en partie</b>. Le jeu de cas vit dans Langfuse, les résultats se lisent dans
+        Langfuse — mais l'exécution, elle, ne peut pas être déclenchée par un bouton dans Langfuse.
+        Voici pourquoi, précisément.</p>
+    </div>
+
+    <div class="grid g2">
+      <div class="card">
+        <h4 style="color:var(--ok)">&#9679; Ce que Langfuse fait pour nous</h4>
+        <ul style="margin:0;padding-left:18px;font-size:13.5px">
+          <li><b>Héberger le jeu de cas</b> — les 54 cas sont dans Langfuse, versionnés aussi dans le repo</li>
+          <li><b>Stocker chaque passage</b> comme un « run » nommé</li>
+          <li><b>Comparer deux passages côte à côte</b> dans l'interface — c'est l'écran qui répond à
+            « mon correctif a-t-il amélioré quelque chose&nbsp;? »</li>
+          <li><b>Relier chaque cas à sa trace</b> : un cas rouge se clique et vous voyez le tour entier</li>
+          <li><b>Ajouter un cas depuis une trace</b>, directement dans l'interface</li>
+        </ul>
+      </div>
+      <div class="card">
+        <h4 style="color:var(--err)">&#9679; Ce que Langfuse ne peut pas faire</h4>
+        <p style="font-size:13.5px"><b>Appeler notre agent.</b> Langfuse ne sait pas parler à
+          <span class="mono">b2c-concierge</span> : il ne connaît ni son adresse, ni son protocole, ni ses
+          3 services satellites. Il ne peut donc pas produire les réponses à évaluer.</p>
+        <p style="font-size:13.5px">Il existe bien un bouton « lancer une expérience » dans l'interface, mais
+          il fait autre chose : il joue <b>un prompt stocké dans Langfuse</b> contre un modèle, et rien de plus.
+          Pas de triage, pas de résolution de lieu, pas de recherche d'inventaire, pas de garde-fous.
+          <b>Ça teste un prompt, pas le produit.</b></p>
+        <div class="note err small" style="margin-bottom:0">Vérifié le 9 septembre : notre projet contient
+          <b>0 prompt</b> géré dans Langfuse — les nôtres vivent dans le code. Ce bouton n'a donc même pas
+          de matière à jouer aujourd'hui.</div>
+      </div>
+    </div>
+
+    <h4 style="margin:22px 0 10px">Les 3 combinaisons possibles, d'après la documentation Langfuse</h4>
+    <div class="scroller">
+      <table>
+        <thead><tr><th></th><th>Exécution par Langfuse</th><th>Exécution par une commande</th></tr></thead>
+        <tbody>
+          <tr>
+            <td><b>Jeu de cas hébergé dans Langfuse</b></td>
+            <td class="small">« Prompt Experiments » — <b>un prompt</b> stocké dans Langfuse joué contre un
+              modèle. <span class="pill err">ne teste pas notre agent</span></td>
+            <td class="small"><b>C'est notre cas.</b> Le jeu est dans Langfuse, la commande appelle notre agent,
+              les résultats remontent dans Langfuse. <span class="pill ok">ce que fait ce tutoriel</span></td>
+          </tr>
+          <tr>
+            <td><b>Jeu de cas local</b></td>
+            <td class="small"><span class="pill neutral">non supporté</span></td>
+            <td class="small">Possible, mais on perd la comparaison de runs dans l'interface — c'est
+              exactement pourquoi nos jeux sont hébergés.</td>
+          </tr>
+        </tbody>
+      </table>
+    </div>
+
+    <div class="note">
+      <span class="tag">Conséquence pratique pour vous</span>
+      <p>Écrire un cas et lire les résultats se font <b>sans une ligne de code</b>. Seul le lancement demande
+        une commande, sur une machine qui atteint l'agent. Concrètement, deux chemins&nbsp;:
+        <b>(a)</b> vous écrivez le cas, un dev lance le passage et vous envoie le lien du run —
+        c'est le fonctionnement actuel&nbsp;; <b>(b)</b> on branche un bouton dans GitHub
+        (« Run workflow », choisir le jeu et le nom du passage) et vous devenez autonomes.
+        Le job d'intégration continue qui fait déjà tourner tout ça existe — il ne lui manque
+        que le déclencheur manuel. <b>Dites-moi si vous voulez ce bouton, c'est une petite modification.</b></p>
+    </div>
+  </div>
+</section>
+
+<section id="triage">
+  <div class="wrap">
+    <div class="shead">
+      <div class="num">02</div>
+      <h2>Vos 8 remontées, triées</h2>
+      <p>Avant d'écrire quoi que ce soit : <b>toutes les anomalies ne sont pas testables par ce harnais.</b>
+        Il vérifie ce que l'agent <i>répond</i> (le texte, les cartes d'hôtel, les filtres retenus, la requête
+        envoyée à l'inventaire). Tout ce qui vit <b>ailleurs</b> — un libellé du widget, un prix venu de
+        l'inventaire, une page dayuse.com, une décision de conception — lui est invisible.
+        Vérifié un par un contre le code&nbsp;:</p>
+    </div>
+
+    <div class="snapshot" id="triageCount" style="margin-bottom:20px"></div>
+
+    <div class="scroller" style="margin-bottom:16px">
+      <table class="tri">
+        <thead><tr>
+          <th style="width:26px">#</th><th style="min-width:250px">Votre remontée</th>
+          <th style="width:150px">Testable&nbsp;?</th><th>Pourquoi, et quoi faire</th>
+        </tr></thead>
+        <tbody id="triRows"></tbody>
+      </table>
+    </div>
+
+    <div class="grid g3">
+      <div class="note ok" style="margin:0">
+        <span class="tag">2 remontées &rarr; un test, tout de suite</span>
+        <p>Les n° <b>1</b> et <b>2</b> se traduisent en cas de test avec le vocabulaire existant.
+          Ils sont écrits pour vous en section 5, prêts à copier.</p>
+      </div>
+      <div class="note warn" style="margin:0">
+        <span class="tag">2 remontées &rarr; testables en partie</span>
+        <p>Le n° <b>5</b> se scinde en deux : la <i>mention</i> de la devise est testable et doit être
+          verrouillée&nbsp;; la <i>conversion</i> est bloquée en amont. Le n° <b>4</b> demande une nouvelle
+          vérification à coder (petite).</p>
+      </div>
+      <div class="note err" style="margin:0">
+        <span class="tag">4 remontées &rarr; un test serait inutile</span>
+        <p>Les n° <b>7</b> et <b>8</b> sont des libellés figés du widget : <b>7 lignes à corriger</b>, aucun test
+          possible ni nécessaire. Les n° <b>3</b> et <b>6</b> sortent du périmètre de l'agent.</p>
+      </div>
+    </div>
+
+    <div class="note" style="margin-top:16px">
+      <span class="tag">La règle générale, à garder en tête</span>
+      <p>Un test de ce harnais ne peut affirmer une chose que si elle est <b>dans la réponse de l'agent</b>.
+        Posez-vous la question : « si je regardais uniquement le texte de la réponse et la liste des hôtels,
+        pourrais-je constater le problème&nbsp;? » Si oui, c'est testable. Si le problème n'apparaît qu'à
+        l'écran, dans une page externe, ou dans une conversation sur ce que le produit <i>devrait</i> faire,
+        ce n'est pas un test qu'il faut ouvrir — c'est un ticket.</p>
+    </div>
+  </div>
+</section>
+
+<section id="anatomie">
+  <div class="wrap">
+    <div class="shead">
+      <div class="num">03</div>
+      <h2>Anatomie d'un cas de test</h2>
+      <p>Un cas = <b>une ligne</b> dans un fichier. Voici un vrai cas du jeu <span class="mono">b2c/geo-poi</span>
+        (celui qui a déclenché l'audit géo de juillet), champ par champ. Cliquez une étiquette.</p>
+    </div>
+    <div class="grid g2">
+      <div>
+        <div class="card pad0" style="padding:16px">
+          <div class="small muted" style="margin-bottom:8px">evals/datasets/b2c-geo-poi.jsonl &mdash; ligne 1</div>
+          <pre id="anatomyCode" style="margin:0"></pre>
+        </div>
+        <div class="filters" style="margin-top:12px" id="anatomyTabs"></div>
+      </div>
+      <div class="card" id="anatomyDetail"></div>
+    </div>
+    <div class="note warn">
+      <span class="tag">Les 2 règles qui évitent 90 % des ennuis</span>
+      <p><b>1. Un cas ne vérifie que ce qu'il déclare.</b> Si vous n'écrivez pas <span class="mono">min_hotels</span>,
+        le nombre d'hôtels n'est pas vérifié — et personne ne vous le dira.
+        Corollaire redoutable : <b>une clé mal orthographiée ne produit aucune erreur</b>, elle ne vérifie
+        simplement rien. Après votre premier passage, contrôlez que la ligne attendue est bien apparue dans
+        le résumé.<br>
+        <b>2. Un identifiant = un cas figé pour toujours.</b> On ne modifie jamais le contenu d'un cas
+        existant : cela réécrirait l'historique et rendrait incomparables tous les passages passés.
+        Un attendu qui change = un nouveau cas, avec un nouvel identifiant.</p>
+    </div>
+  </div>
+</section>
+
+<section id="vocabulaire">
+  <div class="wrap">
+    <div class="shead">
+      <div class="num">04</div>
+      <h2>Les 18 vérifications disponibles</h2>
+      <p>C'est tout le vocabulaire. Rien d'autre n'existe — et c'est volontaire : chaque vérification est du
+        code déterministe, sans IA, donc <b>reproductible</b>. La colonne « exemple réel » vient de vrais
+        passages : c'est le commentaire que vous lirez à côté du score.</p>
+    </div>
+    <div class="filters">
+      <input type="search" id="vSearch" placeholder="Filtrer (ex. hôtel, texte, date, ville…)" aria-label="Filtrer les vérifications">
+      <button class="btn on" data-lvl="all" type="button">Toutes</button>
+      <button class="btn" data-lvl="resp" type="button">Sur la réponse (14)</button>
+      <button class="btn" data-lvl="trace" type="button">Sur la trace (4)</button>
+    </div>
+    <div class="scroller">
+      <table>
+        <thead><tr>
+          <th style="min-width:215px">Vérification</th><th style="width:90px">Valeur</th>
+          <th>Ce qu'elle affirme</th><th style="min-width:190px">Exemple réel de commentaire</th>
+        </tr></thead>
+        <tbody id="vRows"></tbody>
+      </table>
+    </div>
+    <div class="grid g2" style="margin-top:16px">
+      <div class="note warn" style="margin:0">
+        <span class="tag">« Vrai par défaut » &mdash; le faux ami</span>
+        <p><span class="mono">hotels_within_km</span> et les deux <span class="mono">*_capacity_gte</span>
+          affirment quelque chose sur <b>chaque</b> hôtel rendu. Avec <b>zéro</b> hôtel rendu, il n'y a rien à
+          violer : ils passent au vert. <b>Lisez-les toujours à côté de <span class="mono">min_hotels</span></b>,
+          jamais seuls.</p>
+      </div>
+      <div class="note" style="margin:0">
+        <span class="tag">Les 4 vérifications « sur la trace » coûtent du temps</span>
+        <p>Elles vont relire la trace dans Langfuse après le tour, avec jusqu'à <b>7 tentatives espacées de
+          2,5 s</b> (l'envoi vers Langfuse est asynchrone). Un cas qui en déclare une peut donc prendre
+          ~15 s de plus. Ne les déclarez que si vous voulez vraiment vérifier <i>ce qui a été envoyé à
+          l'inventaire</i> plutôt que ce qui a été répondu.</p>
+      </div>
+    </div>
+  </div>
+</section>
+
+<section id="builder">
+  <div class="wrap">
+    <div class="shead">
+      <div class="num">05</div>
+      <h2>Construire votre cas</h2>
+      <p>Cochez ce que vous voulez vérifier, remplissez, copiez la ligne. Elle est prête à être collée
+        dans un des fichiers de cas.</p>
+    </div>
+    <div class="builder">
+      <div class="card">
+        <h4>1. La situation</h4>
+        <div class="chk"><label style="width:100%">
+          <span class="nm">le message de l'utilisateur</span>
+          <span class="hint">La phrase exacte à rejouer. C'est le seul message envoyé à l'agent.</span>
+          <input type="text" id="bMsg" value="I need a room for today in Paris"></label></div>
+        <div class="chk"><label style="width:100%">
+          <span class="nm">langue / marché</span>
+          <span class="hint">Détermine la langue de réponse attendue.</span>
+          <input type="text" id="bLocale" value="en-GB"></label></div>
+        <div class="chk"><label style="width:100%">
+          <span class="nm">identifiant du cas</span>
+          <span class="hint">Unique, définitif, préfixé par la famille. Jamais réutilisé.</span>
+          <input type="text" id="bId" value="qa-2026-09-09-ma-remontee"></label></div>
+        <div class="chk"><label style="width:100%">
+          <span class="nm">statut</span>
+          <span class="hint"><b>target</b> = échoue aujourd'hui, c'est la barre à atteindre. <b>regression_guard</b> = passe aujourd'hui, ne doit jamais retomber.</span>
+          <input type="text" id="bStatus" value="target"></label></div>
+        <div class="chk"><label style="width:100%">
+          <span class="nm">pourquoi ce cas existe</span>
+          <span class="hint">1 à 3 phrases. C'est ce que lira la personne qui trouvera ce cas rouge dans 6 mois.</span>
+          <input type="text" id="bNotes" style="max-width:none" value="Remontée QA du 2026-09-08 : des hôtels sont affichés et le texte dit qu'il n'y a pas de dispo."></label></div>
+
+        <h4 style="margin-top:18px">2. Les vérifications</h4>
+        <div id="bChecks"></div>
+      </div>
+      <div class="out">
+        <div class="card">
+          <h4>Votre cas, prêt à copier</h4>
+          <pre id="bOut"></pre>
+          <div style="display:flex;gap:8px;flex-wrap:wrap">
+            <button class="btn" type="button" id="bCopy">Copier la ligne</button>
+            <span class="small muted" id="bWarn"></span>
+          </div>
+          <p class="small muted" style="margin:12px 0 0">À coller à la fin d'un des fichiers de
+            <span class="mono">evals/datasets/</span> — <b>une ligne, sans retour à la ligne au milieu</b>.
+            Le fichier le plus naturel pour une remontée de test est celui de la famille concernée&nbsp;;
+            pour un incident vu en production, c'est
+            <span class="mono">b2c-prod-regressions.jsonl</span> (et là, donnez plutôt l'identifiant de
+            trace à un dev : le texte du tour est relu depuis la trace, jamais retapé).</p>
+        </div>
+      </div>
+    </div>
+
+    <h3 style="font-size:17px;margin:28px 0 12px">3 cas écrits depuis vos remontées</h3>
+    <p class="small muted" style="max-width:80ch">Ceux-ci sont réels et robustes : chacun est formulé pour ne
+      pas dépendre de l'heure de la journée ni de l'inventaire du jour — c'est la partie difficile de
+      l'exercice, et la raison n° 1 des faux rouges.</p>
+    <div id="examples"></div>
+  </div>
+</section>
+
+<section id="lancer">
+  <div class="wrap">
+    <div class="shead">
+      <div class="num">06</div>
+      <h2>Lancer le jeu</h2>
+      <p>Six commandes, dans cet ordre. Elles supposent le dépôt installé une première fois
+        (section « Setup » du <span class="mono">CLAUDE.md</span>).</p>
+    </div>
+    <div id="steps"></div>
+    <div class="note warn">
+      <span class="tag">Chaque passage coûte de vrais appels de modèle</span>
+      <p>Un jeu de 21 cas = 21 vrais tours d'agent, soit ~60 appels de modèle facturés. C'est peu
+        (quelques centimes), mais ça n'est pas gratuit : ne gonflez pas un jeu sans raison, et préférez
+        <span class="mono">--datasets</span> ciblé sur la famille que vous travaillez.</p>
+    </div>
+    <div class="note err">
+      <span class="tag">Créer un NOUVEAU jeu demande un dev</span>
+      <p>La correspondance fichier &rarr; jeu Langfuse est écrite dans le code
+        (<span class="mono">scripts/langfuse_seed_datasets.py</span>). Vous pouvez <b>ajouter des cas à un
+        jeu existant</b> librement&nbsp;; créer un jeu <span class="mono">b2c/qa-reports</span> est une ligne
+        à ajouter par un dev. Demandez-la une fois, et vous serez autonomes ensuite.</p>
+    </div>
+  </div>
+</section>
+
+<section id="lire">
+  <div class="wrap">
+    <div class="shead">
+      <div class="num">07</div>
+      <h2>Lire les résultats</h2>
+      <p>Deux endroits : le résumé imprimé par la commande (rapide), et la page du passage dans Langfuse
+        (détaillée, cas par cas). Tout ce qui suit vient d'un <b>vrai passage</b> de notre instance.</p>
+    </div>
+
+    <h4 style="margin-bottom:9px">Ce que la commande imprime</h4>
+    <pre>b2c/geo-poi — 21 items
+  clarify_expected                  18/19 (95%)
+  hotels_within_km                  11/17 (65%)
+  min_hotels                        19/20 (95%)
+  resolved_country_code             16/18 (89%)
+  expected_route                    skipped x3
+  -&gt; https://langfuse-web-production-272b.up.railway.app/project/cms4gd0d20002nz029tuly62e/datasets/&lt;id&gt;/runs/&lt;id&gt;</pre>
+    <div class="grid g3" style="margin-bottom:18px">
+      <div class="card"><h4>Le dénominateur change à chaque ligne</h4>
+        <p class="small"><span class="mono">18/19</span> et <span class="mono">11/17</span> sur 21 cas :
+          normal. Chaque ligne ne compte que les cas qui <b>déclarent</b> cette vérification.
+          Un dénominateur plus petit que prévu = une clé oubliée ou mal orthographiée.</p></div>
+      <div class="card"><h4><span class="mono">skipped</span> n'est ni un succès ni un échec</h4>
+        <p class="small">La vérification n'a pas pu tourner (donnée absente). Elle est <b>exclue du
+          pourcentage</b>, exprès. Attention : <span class="mono">X 4/4 (100%)</span> avec
+          <span class="mono">X skipped x10</span> veut dire que X n'a réellement été vérifié que 4 fois sur 14.</p></div>
+      <div class="card"><h4>Le lien est la pièce à partager</h4>
+        <p class="small">La dernière ligne est l'adresse de la page du passage : c'est elle qu'on colle dans
+          un ticket ou une pull request. Elle ouvre la vue cas par cas, avec le texte de la réponse et le
+          commentaire de chaque vérification.</p></div>
+    </div>
+
+    <h4 style="margin:24px 0 9px">Comparer deux passages &mdash; un vrai avant / après</h4>
+    <p class="small muted" style="max-width:82ch">Le 25 août, un correctif a ajouté un rayon de 3 km sur les
+      points d'intérêt. Deux passages encadrent le changement, sur le même jeu de 21 cas. Chiffres recalculés
+      depuis l'instance&nbsp;:</p>
+    <div class="grid g2" style="margin-bottom:14px">
+      <div class="card"><h4>Avant &mdash; <span class="mono">p0-2-after-2026-08-25</span></h4>
+        <p style="font-size:26px;font-family:var(--mono);margin:0"><b>67 %</b>
+          <span class="small muted" style="font-size:13px">58/86 vérifications</span></p></div>
+      <div class="card" style="border-color:var(--ok)"><h4>Après &mdash; <span class="mono">p0-2-radius-2026-08-25</span></h4>
+        <p style="font-size:26px;font-family:var(--mono);margin:0;color:var(--ok)"><b>84 %</b>
+          <span class="small muted" style="font-size:13px">72/86 vérifications</span></p></div>
+    </div>
+    <div class="scroller" style="margin-bottom:14px">
+      <table>
+        <thead><tr><th>Vérification</th><th class="num">Avant</th><th class="num">Après</th><th style="width:170px">Lecture</th></tr></thead>
+        <tbody id="cmpRows"></tbody>
+      </table>
+    </div>
+    <div class="note ok">
+      <span class="tag">C'est exactement ce qu'on attend d'un bon passage</span>
+      <p>Un gros gain là où le correctif visait (<span class="mono">hotels_within_km</span> 4/17 &rarr; 11/17),
+        un effet de bord positif (<span class="mono">min_hotels</span> 15/20 &rarr; 19/20 : le rayon n'a pas
+        créé de fausse pénurie), et <b>une petite régression assumée et visible</b>
+        (<span class="mono">clarify_expected</span> 19/19 &rarr; 18/19). Sans les deux passages du même jour,
+        aucun de ces trois faits n'était connaissable.</p>
+    </div>
+
+    <h4 style="margin:24px 0 9px">Le même cas, avant et après</h4>
+    <p class="small muted">Le cas <span class="mono">geo-poi-champs-elysees-bare</span> &mdash;
+      « je cherche un hôtel autour des champs élysées ». Commentaires réels, tels qu'affichés à côté du score :</p>
+    <div class="diff">
+      <div>
+        <h4>Avant &mdash; 4/5</h4>
+        <ul>
+          <li>&#10003; clarify_expected</li>
+          <li><b>&#10007; hotels_within_km</b><br>
+            <span class="muted">Novotel Paris La Défense Nanterre: 7.1km &gt; 3km; Villa Paris Orly: 12.7km &gt; 3km</span></li>
+          <li>&#10003; message_must_not_contain_any</li>
+          <li>&#10003; min_hotels &mdash; 2 hotels &gt;= 1</li>
+          <li>&#10003; resolved_country_code</li>
+        </ul>
+      </div>
+      <div>
+        <h4>Après &mdash; 5/5</h4>
+        <ul>
+          <li>&#10003; clarify_expected</li>
+          <li><b>&#10003; hotels_within_km</b><br>
+            <span class="muted">all 2 hotels within radius</span></li>
+          <li>&#10003; message_must_not_contain_any</li>
+          <li>&#10003; min_hotels &mdash; 2 hotels &gt;= 1</li>
+          <li>&#10003; resolved_country_code</li>
+        </ul>
+      </div>
+    </div>
+    <p class="small muted" style="margin-top:11px">Le commentaire <b>nomme l'hôtel et la distance</b> :
+      c'est là qu'est le diagnostic, pas dans le 0/1. Un score sans son commentaire est presque inutile.</p>
+  </div>
+</section>
+
+<section id="pieges">
+  <div class="wrap">
+    <div class="shead">
+      <div class="num">08</div>
+      <h2>Les 6 pièges qui font lire un passage de travers</h2>
+      <p>Tous constatés sur ce harnais, tous documentés dans le dépôt. Le premier est le plus dangereux.</p>
+    </div>
+    <div id="traps"></div>
+  </div>
+</section>
+
+</main>
+
+<footer>
+  <div class="wrap">
+    <details class="noprint">
+      <summary>Annexe &mdash; les 4 jeux de cas existants</summary>
+      <div class="body">
+        <div class="scroller"><table>
+          <thead><tr><th>Jeu hébergé</th><th>Fichier</th><th class="num">Cas</th><th>Ce qu'il protège</th></tr></thead>
+          <tbody>
+            <tr><td class="mono small">b2c/geo-poi</td><td class="mono small">b2c-geo-poi.jsonl</td><td class="num">21</td><td class="small">Lieux, points d'intérêt, homonymes de villes</td></tr>
+            <tr><td class="mono small">b2c/occupancy</td><td class="mono small">b2c-occupancy.jsonl</td><td class="num">14</td><td class="small">Adultes / enfants réellement pris en compte</td></tr>
+            <tr><td class="mono small">b2c/language-robustness</td><td class="mono small">b2c-language-robustness.jsonl</td><td class="num">13</td><td class="small">Langue de réponse, sur plusieurs tours</td></tr>
+            <tr><td class="mono small">b2c/prod-regressions</td><td class="mono small">b2c-prod-regressions.jsonl</td><td class="num">6</td><td class="small">Incidents réels de production, rattachés à leur trace</td></tr>
+          </tbody>
+        </table></div>
+        <p class="small muted" style="margin:11px 0 0">Le <span class="mono">/</span> dans le nom crée un
+          dossier dans l'interface Langfuse. Les 4 jeux sont re-semés à chaque passage d'intégration continue :
+          le fichier du dépôt est la source de vérité, l'instance en est le miroir.</p>
+      </div>
+    </details>
+    <p style="margin-top:22px">Tutoriel rédigé pour l'équipe Produit&nbsp;/&nbsp;QA d'AgentB2C.
+      Mécanismes vérifiés contre le code le 9&nbsp;septembre&nbsp;2026&nbsp;; chiffres et commentaires
+      d'exemple extraits de vrais passages de l'instance. À lire après
+      <span class="mono">guide-langfuse-pm-qa.html</span>.</p>
+  </div>
+</footer>
+
+<script>
+/* ============================================================================
+   Tri des 8 remontées QA du 2026-09-08, vérifié un par un contre le code.
+   niveau: ok = testable avec le vocabulaire actuel · part = en partie
+           new = demande une nouvelle vérification à coder · no = hors périmètre
+   ========================================================================= */
+const TRI = [
+  { n:1, lvl:'ok', t:'« Une chambre pour aujourd\'hui » : l\'agent affiche des hôtels puis dit qu\'il n\'y a pas de dispo',
+    v:'Oui, entièrement',
+    d:'Les deux faits sont dans la réponse : le nombre de cartes <b>et</b> le texte. C\'est exactement ce que le harnais sait comparer.'+
+      '<br><br><b>Ce que dit le code :</b> il existe un comportement volontaire (S-CX6, <span class="mono">ground_truth.py</span>) — '+
+      'quand la réservation le jour même est déjà fermée (elle ferme vers 16 h), la recherche est <b>relancée pour le lendemain</b> '+
+      'et l\'agent a l\'ordre de dire « ces offres sont pour demain, pas pour aujourd\'hui ». '+
+      'Ce que votre testeur a vu est donc probablement <b>cette divulgation mal formulée</b>, pas une donnée fausse. '+
+      'Ça reste un vrai défaut — de formulation — et un test peut interdire la version contradictoire.'+
+      '<br><br><b>Cas prêt en section 5 (cas A).</b>' },
+  { n:2, lvl:'ok', t:'Format de date : « 2026-09-08 » au lieu de « Tuesday, the 8th of September 2026 »',
+    v:'Oui, entièrement',
+    d:'La date brute apparaît bien dans le <b>texte de l\'agent</b> — vérifié sur une vraie trace : '+
+      '« Pour demain (2026-09-10) à Paris… ». Donc un test peut l\'interdire.'+
+      '<br><br><b>L\'astuce pour que le cas ne pourrisse pas :</b> n\'écrivez pas la date du jour dans le cas '+
+      '(il deviendrait faux demain). Interdisez le <b>préfixe d\'année</b> : une date correctement formatée '+
+      'ne contient jamais « 2026- ». Le cas reste valable indéfiniment.'+
+      '<br><br><b>Cas prêt en section 5 (cas B).</b>' },
+  { n:3, lvl:'no', t:'On ne devrait pas pouvoir sélectionner un hôtel et entrer dans le tunnel — et si l\'utilisateur veut payer en ligne ?',
+    v:'Non — et un test serait le mauvais outil',
+    d:'C\'est une <b>question de conception produit</b> : « ce parcours devrait-il exister&nbsp;? ». '+
+      'Un test ne peut affirmer que ce qui est observable dans une réponse&nbsp;; il ne peut pas exprimer '+
+      '« cette fonctionnalité ne devrait pas être là ».'+
+      '<br><br><b>Où ça va :</b> une décision produit, puis — si le parcours change — des cas de test sur le '+
+      '<i>nouveau</i> comportement attendu. Le test vient après l\'arbitrage, jamais à sa place.' },
+  { n:4, lvl:'new', t:'Une date sélectionnée ne s\'applique pas sur la page hôtel',
+    v:'Pas aujourd\'hui — petite évolution nécessaire',
+    d:'La date voyage dans les <b>paramètres du lien</b> généré. Or les 14 vérifications « réponse » regardent '+
+      'la liste d\'hôtels, les filtres retenus, le texte et le drapeau de clarification — <b>aucune ne regarde '+
+      'l\'adresse du lien</b>.'+
+      '<br><br><b>Ce qui manque :</b> une vérification du type « le lien de l\'hôtel contient tel paramètre » '+
+      '(une vingtaine de lignes à ajouter). Demandez-la, elle servira souvent.'+
+      '<br><br>⚠️ La seconde moitié du problème — « la page dayuse.com applique-t-elle la date reçue&nbsp;? » — '+
+      'est <b>hors de notre système</b> : aucun test de l\'agent ne pourra jamais l\'attraper.' },
+  { n:5, lvl:'part', t:'La devise semble bloquée en EUR, impossible de la changer même en le demandant',
+    v:'En partie — à scinder en deux',
+    d:'<b>Moitié testable, et à verrouiller tout de suite :</b> il existe un garde-fou '+
+      '(<span class="mono">currency_guard.py</span>) qui oblige l\'agent à <b>dire</b> que les prix sont en '+
+      'euros sans conversion quand le marché n\'est pas la zone euro. Cette phrase est vérifiable, et elle '+
+      'doit devenir un <span class="pill ok">regression_guard</span> pour ne jamais disparaître. '+
+      '<b>Cas prêt en section 5 (cas C).</b>'+
+      '<br><br><b>Moitié non testable utilement :</b> la <i>conversion</i> réelle des prix est bloquée en '+
+      'amont — elle attend une évolution du service d\'inventaire (champ de prix en devise locale). '+
+      'Vous pouvez écrire le cas en <span class="pill warn">target</span> pour documenter l\'attente : '+
+      'il restera rouge jusqu\'à ce que l\'inventaire livre, et <b>c\'est son rôle</b>.' },
+  { n:6, lvl:'no', t:'Le prix affiché ne tient pas compte de la configuration des Booking Fees',
+    v:'Non — mauvais étage',
+    d:'Le prix vient du <b>service d\'inventaire</b>, et l\'option « afficher les prix sans frais de réservation » '+
+      'est une configuration <b>back-office par hôtel</b>. L\'agent ne fait que retransmettre ce qu\'il reçoit.'+
+      '<br><br>Et techniquement : un test devrait figer un montant, alors que l\'inventaire est vivant '+
+      '(les prix bougent dans la journée) — le cas serait rouge un jour sur deux pour de mauvaises raisons.'+
+      '<br><br><b>Où ça va :</b> côté inventaire / back-office, pas dans le jeu de cas de l\'agent.' },
+  { n:7, lvl:'no', t:'La réassurance « Free cancellation until arrival » est fausse',
+    v:'Non — c\'est un libellé figé, pas une réponse',
+    d:'Cette phrase n\'est <b>jamais produite par l\'agent</b> : c\'est une étiquette statique de l\'interface, '+
+      'écrite en dur dans <span class="mono">web/vendor/static/js/chat/i18n.js</span> '+
+      '(<span class="mono">card_free_cancel</span>, ligne 86 pour l\'anglais).'+
+      '<br><br><b>Aucun test ne peut la voir, et aucun n\'est nécessaire :</b> c\'est une correction de texte. '+
+      'Attention, elle existe en <b>7 langues</b> (en, fr, es, it, pt, de, nl) — il y a donc '+
+      '<b>7 lignes à corriger</b>, plus la variante <span class="mono">reassurance_free_cancel</span>. '+
+      'Un ticket de copy, pas un cas de test.' },
+  { n:8, lvl:'no', t:'La réassurance « for the day, taxes included » est fausse',
+    v:'Non — même cause',
+    d:'Même chose : <span class="mono">card_price_note</span> dans le même fichier '+
+      '(ligne 75 pour l\'anglais), <b>7 langues</b>. Les taxes sont incluses à l\'entrée du tunnel, pas au '+
+      'moment de l\'affichage du prix — donc c\'est bien le libellé qui est faux, et il se corrige à la main '+
+      'en 7 endroits.'+
+      '<br><br>💡 Ces deux remontées (7 et 8) sont les <b>moins chères à régler de toute la liste</b> : '+
+      'une phrase juste × 7 langues, et c\'est clos.' },
+];
+
+const VOCAB = [
+  { n:'min_hotels', lvl:'resp', ty:'nombre', w:'Au moins N hôtels rendus. Le plus utile de tous : c\'est la vérification « l\'utilisateur a reçu quelque chose ».', c:'only 0 hotels, expected >= 1', real:1 },
+  { n:'max_hotels', lvl:'resp', ty:'nombre', w:'Au plus N hôtels rendus.', c:'—' },
+  { n:'hotels_within_km', lvl:'resp', ty:'{lat, lon, km}', w:'<b>Chaque</b> hôtel rendu est à moins de N km du point donné. Un hôtel sans coordonnées compte comme faute.', c:'Novotel Paris La Défense Nanterre: 7.1km > 3km', real:1 },
+  { n:'resolved_country_code', lvl:'resp', ty:'"FR"', w:'Le pays retenu par la recherche est bien celui attendu. Le détecteur d\'homonymes de pays.', c:'active_filters.country_code=None, expected \'FR\'', real:1 },
+  { n:'if_resolved_country_code', lvl:'resp', ty:'"FR"', w:'Idem, mais neutralisé si l\'agent a préféré poser une question de clarification.', c:'clarify issued instead of a direct resolution — n/a', skip:1 },
+  { n:'clarify_expected', lvl:'resp', ty:'vrai / faux', w:'L\'agent devait (ou ne devait pas) poser une question au lieu de chercher.', c:'requires_clarification=True, expected False', real:1 },
+  { n:'clarify_options_include_country', lvl:'resp', ty:'["FR","GB"]', w:'La question de clarification propose bien ces pays. ⚠️ Recherche de texte approximative : signal faible.', c:'missing hints for [\'GB\'] (best-effort text match)' },
+  { n:'must_ask_city', lvl:'resp', ty:'vrai / faux', w:'L\'agent demande bien la ville. ⚠️ Détection par mots-clés (« quelle ville », « which city ») : signal faible.', c:'(keyword heuristic, weak signal)' },
+  { n:'message_must_contain_any', lvl:'resp', ty:'["euros","EUR"]', w:'Au moins une de ces expressions est dans la réponse. Sert à verrouiller une divulgation obligatoire.', c:'—' },
+  { n:'message_must_not_contain_any', lvl:'resp', ty:'["2026-","Abidjan"]', w:'Aucune de ces expressions n\'apparaît. <b>La plus efficace pour une remontée QA</b> : elle interdit une formulation fausse.', c:'none present', real:1 },
+  { n:'active_filters_include', lvl:'resp', ty:'{"city":"Paris"}', w:'Les filtres retenus par l\'agent contiennent ces valeurs. ⚠️ Sensible à la casse.', c:'city: expected \'Paris\', got \'paris\'', real:1 },
+  { n:'offers_capacity_gte', lvl:'resp', ty:'nombre', w:'Chaque hôtel rendu accepte au moins N personnes.', c:'DoubleTree by Hilton London - West End: capacity missing/too low', real:1 },
+  { n:'offers_children_capacity_gte', lvl:'resp', ty:'nombre', w:'Chaque hôtel rendu accepte au moins N enfants.', c:'—' },
+  { n:'party_total', lvl:'resp', ty:'nombre', w:'adultes + enfants retenus = N. Le test « le nombre de personnes a bien été compris ».', c:'—' },
+  { n:'clarify_allowed', lvl:'resp', ty:'vrai / faux', w:'<b>Ne produit aucun score.</b> Modificateur : autorise <span class="mono">min_hotels</span> et <span class="mono">party_total</span> à passer si l\'agent a posé une question au lieu de chercher.', c:'—', mod:1 },
+  { n:'trace.search_offers_args_include', lvl:'trace', ty:'{"priceRangeMax":150}', w:'La requête <b>réellement envoyée à l\'inventaire</b> contient ces paramètres. La vérification la plus profonde : elle voit ce que l\'agent a vraiment demandé.', c:'priceRangeMax: expected 150, got None', real:1 },
+  { n:'trace.search_offers_args_absent', lvl:'trace', ty:'["priceRangeMax"]', w:'Ces paramètres ne doivent PAS avoir été envoyés. Garde anti-invention : l\'agent ne doit pas inventer un budget que personne n\'a donné.', c:'unexpectedly present: [\'priceRangeMax\']' },
+  { n:'trace.expected_pick', lvl:'trace', ty:'{pick, pick_position}', w:'L\'agent a bien compris quel hôtel de la liste l\'utilisateur désignait.', c:'triage generation output not found in the concierge trace', skip:1 },
+  { n:'trace.expected_route', lvl:'trace', ty:'"search_refinement"', w:'Le message a été routé vers le bon traitement. Vocabulaire : search_refinement, ack, faq, booking_confirmed, not_booking_confirmed, details, compare.', c:'derived route=\'ack\', expected \'search_refinement\'', real:1 },
+];
+
+const CMP = [
+  ['hotels_within_km','4/17','11/17','up','la cible du correctif'],
+  ['min_hotels','15/20','19/20','up','effet de bord positif'],
+  ['resolved_country_code','13/18','16/18','up',''],
+  ['active_filters_include','0/1','1/1','up',''],
+  ['clarify_expected','19/19','18/19','down','1 cas à examiner'],
+  ['message_must_not_contain_any','6/6','6/6','flat',''],
+  ['max_hotels','1/1','1/1','flat',''],
+  ['clarify_options_include_country','0/2','0/2','flat','jamais passé'],
+  ['must_ask_city','0/1','0/1','flat','jamais passé'],
+  ['if_resolved_country_code','0/1','0/1','flat',''],
+];
+</script>
+
+<script>
+/* --- 3 cas écrits depuis les remontées (objets -> JSON garanti valide) --- */
+const EXAMPLES = [
+  { t:'Cas A — remontée n°1 : des hôtels affichés, mais un texte qui dit le contraire',
+    why:'Formulé pour être vrai <b>à toute heure</b>. On n\'exige pas la phrase « ces offres sont pour demain » '+
+        '(elle n\'apparaît que si la réservation du jour est déjà fermée, donc l\'après-midi) : on interdit '+
+        'seulement la <b>contradiction</b>. Si des hôtels sont affichés, le texte ne peut pas dire qu\'il n\'y a rien. '+
+        'Ce cas est donc stable le matin comme le soir.',
+    o:{ id:'qa-2026-09-08-today-cards-vs-no-availability',
+        input:{ messages:[{role:'user',content:'I need a room for today in Paris'}], profile:{locale:'en-GB',language:'en'} },
+        expected_output:{ min_hotels:1,
+          message_must_not_contain_any:['no availability','No availability','no rooms available','not available today','pas de disponibilité'] },
+        metadata:{ family:'qa-report', locale:'en', status:'target', bug_ref:'qa-2026-09-08-item1',
+          notes:"Remontee QA 2026-09-08 : des hotels sont affiches pour aujourd'hui puis le texte annonce l'absence de dispo. Mecanisme S-CX6 (ground_truth.py) : quand le meme-jour est ferme (~16h), la recherche est relancee pour le lendemain et l'agent DOIT dire que les offres sont pour demain. Ce cas interdit la formulation contradictoire, sans dependre de l'heure du run." } } },
+
+  { t:'Cas B — remontée n°2 : la date brute au lieu d\'une date lisible',
+    why:'La clé est de <b>ne jamais écrire une date en dur</b> — le cas serait faux le lendemain. '+
+        'On interdit le préfixe d\'année : une date correctement rédigée en anglais ne contient jamais « 2026- ». '+
+        'Le cas reste juste indéfiniment (ajoutez les années suivantes une fois, et c\'est réglé).',
+    o:{ id:'qa-2026-09-08-iso-date-leaks-into-reply-en',
+        input:{ messages:[{role:'user',content:'a hotel in London tomorrow'}], profile:{locale:'en-GB',language:'en'} },
+        expected_output:{ min_hotels:1, message_must_not_contain_any:['2026-','2027-','2028-'] },
+        metadata:{ family:'qa-report', locale:'en', status:'target', bug_ref:'qa-2026-09-08-item2',
+          notes:"Remontee QA 2026-09-08 : la reponse anglaise affiche '2026-09-08' au lieu de 'Tuesday, the 8th of September 2026'. Verifie sur trace reelle : la date ISO sort bien dans le texte de l'agent. On interdit le prefixe d'annee plutot qu'une date precise, pour que le cas ne pourrisse pas avec le calendrier." } } },
+
+  { t:'Cas C — remontée n°5 : verrouiller la mention de la devise',
+    why:'Celui-ci <b>passe déjà</b> : c\'est donc un <span class="pill ok">regression_guard</span>, pas une cible. '+
+        'Son rôle est d\'empêcher la disparition silencieuse d\'une divulgation obligatoire. '+
+        'La <i>conversion</i> des prix, elle, reste bloquée en amont — ne l\'écrivez pas ici.',
+    o:{ id:'qa-2026-09-08-currency-disclosure-non-eurozone',
+        input:{ messages:[{role:'user',content:'un hotel a Bangkok apres demain avec piscine'}], profile:{locale:'fr-FR',language:'fr'} },
+        expected_output:{ min_hotels:1, message_must_contain_any:['euros','EUR','sans conversion'] },
+        metadata:{ family:'qa-report', locale:'fr', status:'regression_guard', bug_ref:'qa-2026-09-08-item5',
+          notes:"Remontee QA 2026-09-08 : la devise semble bloquee en EUR. La conversion est bloquee en amont (service d'inventaire), mais la DIVULGATION 'prix affiches en euros, sans conversion' est produite par currency_guard.py et verifiee en prod. Ce cas la verrouille : elle ne doit jamais disparaitre." } } },
+];
+
+const STEPS = [
+  { t:'Démarrer Redis', c:'docker run -d --rm --name agentb2c-redis -p 6379:6379 redis:7',
+    d:'Indispensable, même si vos cas n\'ont pas d\'historique. C\'est là que le lanceur dépose le profil du '+
+      'cas (langue, ville déjà connue, personnes…) avant d\'appeler l\'agent — les agents satellites étant '+
+      'sans mémoire, c\'est le seul moyen de rejouer un tour de milieu de conversation.' },
+  { t:'Démarrer les 3 services', c:'bash scripts/run_local.sh',
+    d:'Lance le concierge (port 8100) et les deux agents satellites (8101, 8102), et attend que chacun réponde. '+
+      'Journaux et identifiants de processus dans <span class="mono">.run-logs/</span>.' },
+  { t:'Charger les clés dans votre terminal', c:'set -a; . ./.env; set +a',
+    d:'Les services lisent <span class="mono">.env</span> tout seuls, <b>mais pas votre terminal</b>. Sans ça, '+
+      'la commande de lancement s\'arrête avec « LANGFUSE_PUBLIC_KEY is not set ».' },
+  { t:'Vérifier vos cas sans rien envoyer', c:'.venv/bin/python scripts/langfuse_seed_datasets.py --dry-run',
+    d:'Contrôle local, sans réseau ni clé : JSON valide, clés obligatoires présentes, <b>pas deux fois le même '+
+      'identifiant</b>. En cas de faute, il affiche le fichier et le numéro de ligne. '+
+      '<b>Faites toujours ça avant d\'envoyer.</b>' },
+  { t:'Envoyer les cas dans Langfuse', c:'.venv/bin/python scripts/langfuse_seed_datasets.py',
+    d:'Chaque cas est envoyé sous son identifiant : relancer la commande <b>met à jour</b> au lieu de créer un '+
+      'doublon. Pour n\'envoyer qu\'un fichier : <span class="mono">--only b2c-geo-poi</span>.' },
+  { t:'Lancer le passage', c:'.venv/bin/python -m evals.langfuse_experiment \\\n  --datasets b2c/geo-poi \\\n  --run-name qa-2026-09-09-remontees',
+    d:'Les deux options sont obligatoires. <b>Pas d\'espace après la virgule</b> dans la liste des jeux. '+
+      'Le nom du passage doit être <b>nouveau</b> : réutiliser un nom existant ne provoque aucune erreur mais '+
+      'mélange deux exécutions dans le même passage, ce qui rend la comparaison illisible. '+
+      'Convention utile : <span class="mono">qa-&lt;date&gt;-&lt;sujet&gt;</span>. '+
+      '5 cas tournent en parallèle par défaut (<span class="mono">--max-concurrency</span>).' },
+  { t:'Tout arrêter', c:'bash scripts/run_local.sh stop && docker rm -f agentb2c-redis', d:'À ne pas oublier.' },
+];
+
+const TRAPS = [
+  { t:'Une stack éteinte ressemble à un passage à moitié réussi',
+    d:'C\'est <b>le piège le plus dangereux</b>. Si le concierge n\'est pas démarré, chaque appel échoue mais '+
+      'le lanceur ne s\'arrête pas : la réponse devient vide. Or une réponse vide fait <b>passer au vert</b> '+
+      '<span class="mono">message_must_not_contain_any</span> (rien d\'interdit dans du vide) et '+
+      '<span class="mono">hotels_within_km</span> (aucun hôtel à mettre en faute).'+
+      '<br><br><b>La signature à reconnaître :</b> <span class="mono">min_hotels 0/N (0%)</span> sur '+
+      '<b>tous</b> les jeux à la fois. Si vous voyez ça, ne cherchez pas un bug produit : vérifiez que les '+
+      'services tournent.' },
+  { t:'Deux Redis différents = de faux échecs sur les cas multi-tours',
+    d:'Si le lanceur écrit le profil dans un Redis et le concierge en lit un autre, il n\'y a <b>aucune erreur</b> : '+
+      'le tour est simplement rejoué <b>sans son historique</b>. Les cas de milieu de conversation échouent alors '+
+      'pour une raison qui n\'a rien à voir avec le produit. Les deux côtés doivent pointer le même Redis '+
+      '(<span class="mono">CONCIERGE_REDIS_URL</span>, par défaut <span class="mono">redis://localhost:6379/0</span>).' },
+  { t:'Une clé mal orthographiée ne dit rien du tout',
+    d:'Rien ne valide le contenu de <span class="mono">expected_output</span>. Écrivez '+
+      '<span class="mono">min_hotel</span> (sans « s ») et la vérification <b>n\'existe pas</b> : aucune erreur, '+
+      'aucun score, un cas qui a l\'air vert parce qu\'il ne vérifie rien.'+
+      '<br><br><b>Le contrôle :</b> après le passage, regardez le dénominateur de la ligne attendue. '+
+      'Il doit avoir augmenté de 1. Sinon, votre clé n\'est pas reconnue.' },
+  { t:'Le harnais a une vraie variance d\'un passage à l\'autre',
+    d:'Constaté et documenté : les vérifications « sur la trace » dépendent d\'une relecture asynchrone qui '+
+      'échoue parfois (2/7 ↔ 3/7 sur le même code). <b>Lire un passage isolé comme une vérité est une erreur.</b> '+
+      'Faites-en deux, ou rejouez le cas à la main pour confirmer.' },
+  { t:'Un rouge peut être « environnemental », pas une régression',
+    d:'Exemple réel : <span class="mono">b2c/prod-regressions · min_hotels 2/6</span>, identique sur la branche '+
+      'et sur la version de référence — cause : passage lancé en fin d\'après-midi, quand la réservation du '+
+      'jour même est fermée. <b>Sans passage de contrôle le même jour, ce 2/6 se lisait comme une catastrophe.</b>'+
+      '<br><br><b>La règle :</b> un « après » ne se lit jamais seul. Toujours un « avant » du même jour.' },
+  { t:'Un cas peut être structurellement impassable',
+    d:'Un cas mal construit plafonne sous 100 % pour toujours : c\'est un <b>défaut du cas</b>, pas de l\'agent. '+
+      'Exemple présent dans nos jeux : un cas amorce une réservation sur un identifiant d\'hôtel inventé, '+
+      'donc aucun lien ne peut être produit — plafond 6/7 définitif.'+
+      '<br><br>Avant d\'accuser le produit, relisez <span class="mono">notes</span> : c\'est exactement à ça '+
+      'que sert ce champ.' },
+];
+
+const ANATOMY = {
+  code:'{"id": "geo-poi-champs-elysees-bare",\n "input": {\n   "messages": [{"role": "user", "content": "je cherche un hôtel autour des champs élysées"}],\n   "profile": {"locale": "fr-FR", "language": "fr"}\n },\n "expected_output": {\n   "min_hotels": 1,\n   "hotels_within_km": {"lat": 48.8698, "lon": 2.3078, "km": 3},\n   "resolved_country_code": "FR",\n   "clarify_expected": false,\n   "message_must_not_contain_any": ["Abidjan", "Montréal", "Montreal", "Illinois"]\n },\n "metadata": {\n   "family": "geo-poi", "locale": "fr", "status": "target",\n   "bug_ref": "fabien-2026-07-30-champs-elysees",\n   "notes": "Cas déclencheur de l\'audit : landmark parisien sans ville nommée…"\n }}',
+  fields:[
+    { k:'id', t:'L\'identifiant, définitif',
+      d:'Choisi à la main, <b>unique dans tout le projet</b> (pas seulement dans le fichier). Relancer l\'envoi '+
+        'met le cas à jour au lieu d\'en créer un second — c\'est ce qui rend l\'opération rejouable sans risque.'+
+        '<br><br><b>Préfixez toujours par la famille</b> (<span class="mono">geo-poi-…</span>, '+
+        '<span class="mono">qa-…</span>) : un identifiant réutilisé entre deux jeux n\'est pas détecté localement '+
+        'mais sera refusé côté serveur.' },
+    { k:'input.messages', t:'La conversation, jusqu\'au tour à rejouer',
+      d:'Seul le <b>dernier message « user »</b> est réellement envoyé à l\'agent. Les tours précédents sont là '+
+        'pour qu\'un humain comprenne le cas — ils ne sont pas rejoués.'+
+        '<br><br>Deux rôles autorisés seulement : <span class="mono">user</span> et '+
+        '<span class="mono">assistant</span>. Au moins un message, et au moins un message « user », '+
+        'sinon le cas est refusé.' },
+    { k:'input.profile', t:'Ce que l\'agent savait déjà',
+      d:'Le profil accumulé <b>avant</b> ce tour : langue, ville déjà comprise, nombre de personnes, dernières '+
+        'suggestions… Déposé dans Redis juste avant l\'appel.'+
+        '<br><br><b>C\'est le champ le plus important pour un cas multi-tours.</b> Un cas de milieu de '+
+        'conversation <i>sans</i> profil ne reproduit pas la situation : il produit de faux échecs et, pire, '+
+        'de faux succès. Pour un tour d\'ouverture, <span class="mono">{"locale": …, "language": …}</span> suffit.'+
+        '<br><br>Une clé inconnue est <b>ignorée en silence</b> — comme en production.' },
+    { k:'expected_output', t:'Les vérifications',
+      d:'C\'est le cœur du cas. <b>Seules les clés écrites ici sont vérifiées</b> : le vocabulaire complet est '+
+        'en section 4.'+
+        '<br><br>Ici, 5 vérifications : au moins 1 hôtel, tous à moins de 3 km de l\'Arc de Triomphe, pays '+
+        'résolu = France, l\'agent ne devait <b>pas</b> poser de question, et la réponse ne doit citer aucun '+
+        'homonyme mondial (Abidjan, Montréal, Illinois ont tous une avenue ou une rue « Champs-Élysées »).'+
+        '<br><br>⚠️ Aucun contrôle de forme ici : une clé inventée ne vérifie rien, sans prévenir.' },
+    { k:'metadata.status', t:'target ou regression_guard',
+      d:'<span class="pill warn">target</span> = « ce cas <b>échoue aujourd\'hui</b>, c\'est la barre à atteindre ». '+
+        'Un rouge est donc <b>attendu</b> et n\'est pas une mauvaise nouvelle.'+
+        '<br><br><span class="pill ok">regression_guard</span> = « ce cas passe aujourd\'hui et ne doit plus '+
+        'jamais retomber ». Un rouge ici est une alerte.'+
+        '<br><br>C\'est une convention de lecture humaine : aucun code ne filtre dessus. Mais sans elle, '+
+        'personne ne sait si un rouge est normal.' },
+    { k:'metadata.notes', t:'Pourquoi ce cas existe',
+      d:'Une à trois phrases : ce que le cas piège, d\'où vient la borne choisie, ce qu\'il ne faut pas '+
+        '« corriger » par erreur.'+
+        '<br><br><b>C\'est le champ que lira la personne qui trouvera votre cas rouge dans six mois</b> — '+
+        'peut-être vous. Le champ <span class="mono">bug_ref</span> l\'accompagne : un pointeur vers la '+
+        'remontée d\'origine. Un cas sans histoire est un cas qu\'on finira par supprimer à tort.' },
+  ],
+};
+
+const CHECKS = [
+  { n:'min_hotels', lbl:'Au moins N hôtels sont affichés', hint:'La vérification la plus utile. Presque tous les cas devraient l\'avoir.', def:'1', on:true, kind:'int' },
+  { n:'message_must_not_contain_any', lbl:'La réponse ne doit PAS contenir…', hint:'Séparez par des virgules. La plus efficace pour une remontée QA : elle interdit une formulation fausse.', def:'no availability, No availability', on:true, kind:'list' },
+  { n:'message_must_contain_any', lbl:'La réponse doit contenir au moins un de…', hint:'Pour verrouiller une mention obligatoire (devise, jour réellement proposé…).', def:'euros, sans conversion', kind:'list' },
+  { n:'resolved_country_code', lbl:'Le pays retenu est…', hint:'Code à 2 lettres. Attrape les homonymes de villes.', def:'FR', kind:'str' },
+  { n:'clarify_expected', lbl:'L\'agent devait-il poser une question ?', hint:'true = on attend une question de clarification, false = on attend une recherche.', def:'false', kind:'bool' },
+  { n:'hotels_within_km', lbl:'Tous les hôtels sont dans une zone', hint:'Format : latitude, longitude, rayon en km.', def:'48.8698, 2.3078, 3', kind:'geo' },
+  { n:'active_filters_include', lbl:'Les filtres retenus contiennent…', hint:'Format : clé=valeur, séparés par des virgules. Sensible à la casse.', def:'city=Paris', kind:'kv' },
+  { n:'party_total', lbl:'Nombre total de personnes comprises', hint:'adultes + enfants.', def:'2', kind:'int' },
+  { n:'max_hotels', lbl:'Au plus N hôtels affichés', hint:'Rarement utile, sauf pour vérifier une limite.', def:'5', kind:'int' },
+];
+</script>
+
+<script>
+const $ = (s, r) => (r || document).querySelector(s);
+const esc = s => String(s).replace(/[&<>"]/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]));
+
+/* --- compteurs du tri --- */
+const byLvl = l => TRI.filter(t => t.lvl === l).length;
+$('#triageCount').innerHTML = [
+  [TRI.length, 'remontées'],
+  [byLvl('ok'), 'testables tout de suite'],
+  [byLvl('part') + byLvl('new'), 'testables en partie'],
+  [byLvl('no'), 'hors périmètre d\'un test'],
+].map(([n, l]) => `<div><div class="n">${n}</div><div class="l">${l}</div></div>`).join('');
+
+/* --- tableau de tri --- */
+const PILL = { ok:'ok', part:'warn', new:'warn', no:'err' };
+const ICO = { ok:'&#9989;', part:'&#9888;&#65039;', new:'&#128295;', no:'&#10060;' };
+$('#triRows').innerHTML = TRI.map(t => `
+  <tr>
+    <td class="num"><b>${t.n}</b></td>
+    <td class="q">${t.t}</td>
+    <td><span class="pill ${PILL[t.lvl]}">${ICO[t.lvl]} ${t.v}</span></td>
+    <td class="small">${t.d}</td>
+  </tr>`).join('');
+
+/* --- vocabulaire --- */
+let lvlFilter = 'all';
+function vocabRows() {
+  const q = $('#vSearch').value.trim().toLowerCase();
+  const rows = VOCAB.filter(v =>
+    (lvlFilter === 'all' || (lvlFilter === 'trace' ? v.lvl === 'trace' : v.lvl === 'resp')) &&
+    (!q || (v.n + ' ' + v.w).toLowerCase().includes(q)));
+  $('#vRows').innerHTML = rows.length ? rows.map(v => `
+    <tr>
+      <td><span class="mono" style="font-size:12px">${v.n}</span>
+        ${v.lvl === 'trace' ? '<br><span class="pill neutral">sur la trace</span>' : ''}
+        ${v.mod ? '<br><span class="pill warn">modificateur</span>' : ''}</td>
+      <td class="mono" style="font-size:11.5px">${esc(v.ty)}</td>
+      <td class="small">${v.w}</td>
+      <td class="small mono" style="font-size:11px">${v.c === '—' ? '<span class="muted">—</span>' : esc(v.c)}
+        ${v.real ? '<br><span class="pill ok">réel</span>' : ''}${v.skip ? '<br><span class="pill neutral">peut être ignorée</span>' : ''}</td>
+    </tr>`).join('') : '<tr><td colspan="4" class="muted small">Aucune vérification ne correspond.</td></tr>';
+}
+$('#vSearch').addEventListener('input', vocabRows);
+document.querySelectorAll('[data-lvl]').forEach(b => b.addEventListener('click', () => {
+  document.querySelectorAll('[data-lvl]').forEach(o => o.classList.toggle('on', o === b));
+  lvlFilter = b.dataset.lvl; vocabRows();
+}));
+vocabRows();
+
+/* --- anatomie : code + onglets de champs --- */
+$('#anatomyCode').textContent = ANATOMY.code;
+let anaSel = 0;
+function drawAna() {
+  $('#anatomyTabs').innerHTML = ANATOMY.fields.map((f, i) =>
+    `<button class="btn${i === anaSel ? ' on' : ''}" data-ana="${i}" type="button">${f.k}</button>`).join('');
+  const f = ANATOMY.fields[anaSel];
+  $('#anatomyDetail').innerHTML = `<span class="pill cx mono">${esc(f.k)}</span>
+    <h3 style="font-size:16px;margin:10px 0 8px">${f.t}</h3>
+    <p style="margin:0;font-size:14px">${f.d}</p>`;
+  $('#anatomyTabs').querySelectorAll('[data-ana]').forEach(b =>
+    b.addEventListener('click', () => { anaSel = +b.dataset.ana; drawAna(); }));
+}
+drawAna();
+
+/* --- comparaison avant / après --- */
+const MARK = { up:['pill ok', '&#8599; mieux'], down:['pill err', '&#8600; régression'], flat:['pill neutral', '= stable'] };
+$('#cmpRows').innerHTML = CMP.map(([n, a, b, d, note]) => `
+  <tr><td class="mono" style="font-size:12px">${n}</td>
+    <td class="num">${a}</td><td class="num"><b>${b}</b></td>
+    <td><span class="${MARK[d][0]}">${MARK[d][1]}</span>${note ? ` <span class="muted small">${note}</span>` : ''}</td></tr>`).join('');
+
+/* --- étapes --- */
+$('#steps').innerHTML = STEPS.map((s, i) => `
+  <div class="step">
+    <div class="n">${i + 1}</div>
+    <div>
+      <h3>${s.t}</h3>
+      <pre style="margin:0 0 8px">${esc(s.c)}</pre>
+      <p class="muted" style="margin:0">${s.d}</p>
+    </div>
+  </div>`).join('');
+
+/* --- pièges --- */
+$('#traps').innerHTML = TRAPS.map((t, i) => `
+  <details${i === 0 ? ' open' : ''}>
+    <summary><span class="pill warn">${i + 1}</span>${t.t}</summary>
+    <div class="body"><p style="margin:0">${t.d}</p></div>
+  </details>`).join('');
+
+/* --- 3 cas d'exemple --- */
+$('#examples').innerHTML = EXAMPLES.map((e, i) => `
+  <details${i === 0 ? ' open' : ''}>
+    <summary><span class="pill ok">${String.fromCharCode(65 + i)}</span>${e.t}</summary>
+    <div class="body">
+      <p style="font-size:14px">${e.why}</p>
+      <pre>${esc(JSON.stringify(e.o))}</pre>
+      <button class="btn" type="button" data-copy="${esc(JSON.stringify(e.o))}">Copier la ligne</button>
+    </div>
+  </details>`).join('');
+
+/* --- constructeur de cas --- */
+$('#bChecks').innerHTML = CHECKS.map((c, i) => `
+  <div class="chk">
+    <input type="checkbox" id="c${i}" data-i="${i}"${c.on ? ' checked' : ''}>
+    <label for="c${i}">
+      <span class="nm">${c.n}</span> — ${c.lbl}
+      <span class="hint">${c.hint}</span>
+      <input type="text" data-v="${i}" value="${esc(c.def)}">
+    </label>
+  </div>`).join('');
+
+function parseVal(kind, raw) {
+  const s = raw.trim();
+  if (kind === 'int') { const n = parseInt(s, 10); return Number.isFinite(n) ? n : null; }
+  if (kind === 'bool') return s.toLowerCase() === 'true';
+  if (kind === 'str') return s || null;
+  if (kind === 'list') { const a = s.split(',').map(x => x.trim()).filter(Boolean); return a.length ? a : null; }
+  if (kind === 'geo') {
+    const p = s.split(',').map(x => parseFloat(x.trim()));
+    return (p.length === 3 && p.every(Number.isFinite)) ? { lat:p[0], lon:p[1], km:p[2] } : null;
+  }
+  if (kind === 'kv') {
+    const o = {};
+    s.split(',').forEach(pair => { const [k, ...v] = pair.split('='); if (k && v.length) o[k.trim()] = v.join('=').trim(); });
+    return Object.keys(o).length ? o : null;
+  }
+  return null;
+}
+
+function build() {
+  const expected = {}; const bad = [];
+  CHECKS.forEach((c, i) => {
+    if (!$(`#c${i}`).checked) return;
+    const v = parseVal(c.kind, $(`[data-v="${i}"]`).value);
+    if (v === null) bad.push(c.n); else expected[c.n] = v;
+  });
+  const loc = $('#bLocale').value.trim() || 'fr-FR';
+  const item = {
+    id: $('#bId').value.trim() || 'qa-sans-identifiant',
+    input: {
+      messages: [{ role:'user', content: $('#bMsg').value }],
+      profile: { locale: loc, language: loc.split('-')[0] },
+    },
+    expected_output: expected,
+    metadata: {
+      family: 'qa-report',
+      locale: loc.split('-')[0],
+      status: $('#bStatus').value.trim() || 'target',
+      bug_ref: $('#bId').value.trim(),
+      notes: $('#bNotes').value,
+    },
+  };
+  const line = JSON.stringify(item);
+  $('#bOut').textContent = line;
+  $('#bCopy').dataset.copy = line;
+  const warns = [];
+  if (!Object.keys(expected).length) warns.push('aucune vérification cochée : ce cas ne vérifierait rien');
+  if (bad.length) warns.push('valeur illisible pour ' + bad.join(', '));
+  if (!/^[a-z0-9-]+$/.test(item.id)) warns.push('identifiant : minuscules, chiffres et tirets uniquement');
+  $('#bWarn').innerHTML = warns.length
+    ? `<span style="color:var(--err)">&#9888; ${warns.join(' · ')}</span>`
+    : '<span style="color:var(--ok)">&#10003; prêt</span>';
+}
+$('#builder').addEventListener('input', build);
+$('#builder').addEventListener('change', build);
+build();
+
+/* copie */
+document.addEventListener('click', e => {
+  const b = e.target.closest('[data-copy]'); if (!b) return;
+  const done = () => { const t = b.textContent; b.textContent = 'copié ✓'; setTimeout(() => b.textContent = t, 1400); };
+  if (navigator.clipboard) navigator.clipboard.writeText(b.dataset.copy).then(done, done); else done();
+});
+
+/* thème + navigation */
+const root = document.documentElement;
+$('#themeBtn').addEventListener('click', () => {
+  const dark = matchMedia('(prefers-color-scheme: dark)').matches;
+  const cur = root.getAttribute('data-theme') || (dark ? 'dark' : 'light');
+  root.setAttribute('data-theme', cur === 'dark' ? 'light' : 'dark');
+});
+const links = [...document.querySelectorAll('nav.toc a')];
+const spy = new IntersectionObserver(es => es.forEach(en => {
+  if (!en.isIntersecting) return;
+  links.forEach(a => a.classList.toggle('on', a.getAttribute('href') === '#' + en.target.id));
+}), { rootMargin:'-15% 0px -70% 0px' });
+document.querySelectorAll('main section[id]').forEach(s => spy.observe(s));
+</script>

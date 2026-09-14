@@ -1,0 +1,1620 @@
+<title>Langfuse chez AgentB2C</title>
+<meta name="description" content="Guide interactif Langfuse pour Product & QA — AgentB2C">
+<style>
+:root{
+  --bg:#f6f6f9; --surface:#fff; --surface-2:#fbfbfd; --ink:#13131b; --ink-soft:#3d3d4d;
+  --muted:#61617a; --line:#e4e4ec; --line-strong:#d0d0dc;
+  --accent:#5b47e0; --accent-ink:#3d2bb8; --accent-soft:#efecff;
+  --ok:#067647; --ok-soft:#e6f6ed; --warn:#b54708; --warn-soft:#fff6ea; --err:#b42318; --err-soft:#fdecea;
+  --svc-cx:#5b47e0; --svc-hs:#0e9384; --svc-faq:#b54708; --svc-mcp:#c11574; --svc-plumb:#9aa0b4;
+  --radius:14px; --radius-s:9px;
+  --shadow:0 1px 2px rgba(16,16,40,.05),0 8px 24px -12px rgba(16,16,40,.14);
+  --mono:ui-monospace,SFMono-Regular,"SF Mono",Menlo,Consolas,monospace;
+}
+@media (prefers-color-scheme:dark){:root:not([data-theme=light]){
+  --bg:#0d0d12; --surface:#16161e; --surface-2:#1b1b24; --ink:#edecf3; --ink-soft:#c8c7d4;
+  --muted:#9695ab; --line:#26262f; --line-strong:#33333f;
+  --accent:#9384ff; --accent-ink:#b3a8ff; --accent-soft:#201e3a;
+  --ok:#3ec489; --ok-soft:#0f2a1e; --warn:#e8a25c; --warn-soft:#2c1d0d; --err:#f08a80; --err-soft:#2d1412;
+  --svc-cx:#9384ff; --svc-hs:#3fd0bd; --svc-faq:#e8a25c; --svc-mcp:#f078b6; --svc-plumb:#6f7488;
+  --shadow:0 1px 2px rgba(0,0,0,.4),0 10px 30px -14px rgba(0,0,0,.6);
+}}
+:root[data-theme=dark]{
+  --bg:#0d0d12; --surface:#16161e; --surface-2:#1b1b24; --ink:#edecf3; --ink-soft:#c8c7d4;
+  --muted:#9695ab; --line:#26262f; --line-strong:#33333f;
+  --accent:#9384ff; --accent-ink:#b3a8ff; --accent-soft:#201e3a;
+  --ok:#3ec489; --ok-soft:#0f2a1e; --warn:#e8a25c; --warn-soft:#2c1d0d; --err:#f08a80; --err-soft:#2d1412;
+  --svc-cx:#9384ff; --svc-hs:#3fd0bd; --svc-faq:#e8a25c; --svc-mcp:#f078b6; --svc-plumb:#6f7488;
+  --shadow:0 1px 2px rgba(0,0,0,.4),0 10px 30px -14px rgba(0,0,0,.6);
+}
+*{box-sizing:border-box}
+body{margin:0;background:var(--bg);color:var(--ink);
+  font:15px/1.62 -apple-system,BlinkMacSystemFont,"Segoe UI",Inter,Roboto,Helvetica,Arial,sans-serif;
+  -webkit-font-smoothing:antialiased}
+h1,h2,h3,h4{line-height:1.22;margin:0;letter-spacing:-.017em;font-weight:640}
+p{margin:0 0 .85em}
+a{color:var(--accent);text-decoration:none;border-bottom:1px solid color-mix(in srgb,var(--accent) 35%,transparent)}
+a:hover{border-bottom-color:var(--accent)}
+code,kbd{font-family:var(--mono);font-size:.875em}
+code{background:var(--surface-2);border:1px solid var(--line);border-radius:5px;padding:.08em .34em;color:var(--ink-soft)}
+.wrap{max-width:1120px;margin:0 auto;padding:0 22px}
+.mono{font-family:var(--mono)}
+.small{font-size:13px}
+.muted{color:var(--muted)}
+
+/* ---------- hero ---------- */
+header.hero{background:
+   radial-gradient(1000px 380px at 12% -10%,color-mix(in srgb,var(--accent) 16%,transparent),transparent 70%),
+   var(--surface);
+  border-bottom:1px solid var(--line);padding:44px 0 30px}
+.eyebrow{font-size:12px;font-weight:680;letter-spacing:.1em;text-transform:uppercase;color:var(--accent);margin-bottom:11px}
+header.hero h1{font-size:clamp(30px,4.6vw,45px);letter-spacing:-.03em}
+.lede{font-size:17.5px;color:var(--ink-soft);max-width:66ch;margin-top:13px}
+.badges{display:flex;flex-wrap:wrap;gap:8px;margin-top:22px}
+.badge{display:inline-flex;align-items:center;gap:7px;background:var(--surface-2);border:1px solid var(--line);
+  border-radius:999px;padding:5px 12px;font-size:12.5px;color:var(--ink-soft);font-family:var(--mono)}
+.badge b{color:var(--ink);font-weight:620}
+.badge.eu{border-color:color-mix(in srgb,var(--ok) 40%,var(--line));background:var(--ok-soft);color:var(--ok)}
+.snapshot{display:grid;grid-template-columns:repeat(auto-fit,minmax(112px,1fr));gap:1px;margin-top:26px;
+  background:var(--line);border:1px solid var(--line);border-radius:var(--radius);overflow:hidden}
+.snapshot div{background:var(--surface);padding:13px 15px}
+.snapshot .n{font-size:22px;font-weight:660;letter-spacing:-.03em;font-family:var(--mono)}
+.snapshot .l{font-size:11.5px;color:var(--muted);text-transform:uppercase;letter-spacing:.05em;margin-top:2px}
+
+/* ---------- nav ---------- */
+nav.toc{position:sticky;top:0;z-index:60;background:color-mix(in srgb,var(--bg) 88%,transparent);
+  backdrop-filter:blur(12px);border-bottom:1px solid var(--line)}
+nav.toc .wrap{display:flex;align-items:center;gap:10px;padding:9px 22px}
+nav.toc .links{display:flex;align-items:center;gap:6px;overflow-x:auto;flex:1;min-width:0;scrollbar-width:none}
+nav.toc .links::-webkit-scrollbar{display:none}
+nav.toc a{white-space:nowrap;font-size:13px;font-weight:560;color:var(--muted);border:0;padding:6px 11px;border-radius:8px}
+nav.toc a:hover{background:var(--surface-2);color:var(--ink)}
+nav.toc a.on{background:var(--accent-soft);color:var(--accent-ink)}
+nav.toc a .k{font-family:var(--mono);opacity:.55;margin-right:5px}
+#themeBtn{flex:none;background:var(--surface);border:1px solid var(--line);color:var(--muted);
+  border-radius:8px;padding:6px 10px;font:inherit;font-size:13px;cursor:pointer}
+#themeBtn:hover{color:var(--ink)}
+
+/* ---------- sections ---------- */
+section{padding:52px 0;border-bottom:1px solid var(--line)}
+section>.wrap>.shead{margin-bottom:26px}
+.shead .num{font-family:var(--mono);font-size:12.5px;color:var(--accent);font-weight:640}
+.shead h2{font-size:clamp(22px,2.9vw,29px);margin-top:5px}
+.shead p{color:var(--ink-soft);max-width:74ch;margin-top:9px;margin-bottom:0}
+
+.grid{display:grid;gap:14px}
+.g2{grid-template-columns:repeat(auto-fit,minmax(290px,1fr))}
+.g3{grid-template-columns:repeat(auto-fit,minmax(232px,1fr))}
+.card{background:var(--surface);border:1px solid var(--line);border-radius:var(--radius);padding:18px}
+.card h3{font-size:15.5px;display:flex;align-items:center;gap:8px}
+.card h4{font-size:13px;text-transform:uppercase;letter-spacing:.055em;color:var(--muted);margin-bottom:7px}
+.card p:last-child{margin-bottom:0}
+.card.pad0{padding:0;overflow:hidden}
+
+.note{border-left:3px solid var(--accent);background:var(--accent-soft);padding:13px 16px;border-radius:0 var(--radius-s) var(--radius-s) 0;margin:16px 0}
+.note.warn{border-color:var(--warn);background:var(--warn-soft)}
+.note.err{border-color:var(--err);background:var(--err-soft)}
+.note.ok{border-color:var(--ok);background:var(--ok-soft)}
+.note p:last-child{margin-bottom:0}
+.note b{color:var(--ink)}
+.note .tag{display:block;font-size:11.5px;font-weight:700;letter-spacing:.06em;text-transform:uppercase;margin-bottom:5px;opacity:.85}
+
+table{width:100%;border-collapse:collapse;font-size:13.5px}
+th,td{text-align:left;padding:9px 11px;border-bottom:1px solid var(--line);vertical-align:top}
+th{font-size:11.5px;text-transform:uppercase;letter-spacing:.05em;color:var(--muted);font-weight:640;
+  background:var(--surface-2)}
+tbody tr:hover{background:var(--surface-2)}
+td.num,th.num{text-align:right;font-family:var(--mono);white-space:nowrap}
+.scroller{overflow-x:auto;border:1px solid var(--line);border-radius:var(--radius);background:var(--surface)}
+
+.pill{display:inline-block;font-size:11px;font-weight:670;letter-spacing:.03em;padding:2px 7px;border-radius:5px;
+  font-family:var(--mono);white-space:nowrap}
+.pill.cx{background:color-mix(in srgb,var(--svc-cx) 15%,transparent);color:var(--svc-cx)}
+.pill.hs{background:color-mix(in srgb,var(--svc-hs) 15%,transparent);color:var(--svc-hs)}
+.pill.faq{background:color-mix(in srgb,var(--svc-faq) 15%,transparent);color:var(--svc-faq)}
+.pill.mcp{background:color-mix(in srgb,var(--svc-mcp) 15%,transparent);color:var(--svc-mcp)}
+.pill.plumb{background:color-mix(in srgb,var(--svc-plumb) 18%,transparent);color:var(--svc-plumb)}
+.pill.ok{background:var(--ok-soft);color:var(--ok)}
+.pill.warn{background:var(--warn-soft);color:var(--warn)}
+.pill.err{background:var(--err-soft);color:var(--err)}
+.pill.neutral{background:var(--surface-2);color:var(--muted);border:1px solid var(--line)}
+
+button.btn{font:inherit;font-size:13px;font-weight:560;background:var(--surface);color:var(--ink-soft);
+  border:1px solid var(--line-strong);border-radius:8px;padding:7px 13px;cursor:pointer}
+button.btn:hover{border-color:var(--accent);color:var(--accent)}
+button.btn.on{background:var(--accent);border-color:var(--accent);color:#fff}
+:root[data-theme=dark] button.btn.on{color:#12121a}
+@media (prefers-color-scheme:dark){:root:not([data-theme=light]) button.btn.on{color:#12121a}}
+
+/* ---------- waterfall ---------- */
+.wf{border:1px solid var(--line);border-radius:var(--radius);background:var(--surface);overflow:hidden}
+.wf-bar{display:flex;flex-wrap:wrap;gap:9px;align-items:center;padding:12px 14px;border-bottom:1px solid var(--line);
+  background:var(--surface-2)}
+.wf-bar .sp{flex:1}
+.wf-legend{display:flex;flex-wrap:wrap;gap:12px;font-size:12px;color:var(--muted);padding:10px 14px;
+  border-bottom:1px solid var(--line)}
+.wf-legend span{display:inline-flex;align-items:center;gap:6px}
+.wf-legend i{width:10px;height:10px;border-radius:3px;display:inline-block}
+.wf-body{display:grid;grid-template-columns:minmax(0,1.35fr) minmax(0,1fr)}
+@media (max-width:880px){.wf-body{grid-template-columns:1fr}}
+.wf-rows{border-right:1px solid var(--line);max-height:560px;overflow:auto}
+@media (max-width:880px){.wf-rows{border-right:0;border-bottom:1px solid var(--line);max-height:420px}}
+.row{display:grid;grid-template-columns:minmax(0,1fr) minmax(80px,.85fr) 60px;gap:10px;align-items:center;width:100%;text-align:left;
+  background:none;border:0;border-bottom:1px solid var(--line);padding:6px 12px;cursor:pointer;font:inherit;color:inherit}
+.row:hover{background:var(--surface-2)}
+.row.sel{background:var(--accent-soft)}
+.row .lbl{display:flex;align-items:center;gap:7px;min-width:0}
+.row .nm{font-family:var(--mono);font-size:12px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.row .track{display:block;position:relative;height:14px;background:var(--surface-2);border:1px solid var(--line);border-radius:4px;overflow:hidden}
+.row .fill{position:absolute;top:0;bottom:0;border-radius:4px;min-width:2px}
+.row .ms{display:block;font-family:var(--mono);font-size:11px;color:var(--muted);text-align:right;white-space:nowrap}
+.tp{font-family:var(--mono);font-size:9.5px;font-weight:700;letter-spacing:.04em;padding:1px 4px;border-radius:3px;flex:none}
+.wf-detail{padding:16px 18px;max-height:560px;overflow:auto}
+.wf-detail .dt-name{font-family:var(--mono);font-size:14px;word-break:break-all;margin:8px 0 4px}
+.kv{display:grid;grid-template-columns:auto 1fr;gap:5px 14px;font-size:13px;margin:14px 0}
+.kv dt{color:var(--muted);font-size:12px}
+.kv dd{margin:0;font-family:var(--mono);font-size:12.5px}
+.dt-why{background:var(--surface-2);border:1px solid var(--line);border-radius:var(--radius-s);padding:12px 14px;font-size:13.5px}
+.dt-why b{color:var(--ink)}
+
+/* ---------- misc components ---------- */
+.bar{height:8px;background:var(--surface-2);border:1px solid var(--line);border-radius:99px;overflow:hidden;min-width:64px}
+.bar i{display:block;height:100%;background:var(--accent);border-radius:99px}
+.bar i.zero{background:var(--line-strong)}
+.filters{display:flex;flex-wrap:wrap;gap:8px;align-items:center;margin-bottom:13px}
+input[type=search]{font:inherit;font-size:13px;background:var(--surface);color:var(--ink);border:1px solid var(--line-strong);
+  border-radius:8px;padding:7px 11px;min-width:190px}
+input[type=search]:focus{outline:2px solid var(--accent-soft);border-color:var(--accent)}
+details{background:var(--surface);border:1px solid var(--line);border-radius:var(--radius);margin-bottom:10px}
+details[open]{box-shadow:var(--shadow)}
+summary{cursor:pointer;padding:14px 17px;font-weight:600;font-size:14.5px;display:flex;gap:10px;align-items:center;
+  list-style:none}
+summary::-webkit-details-marker{display:none}
+summary::after{content:"+";margin-left:auto;font-family:var(--mono);color:var(--muted);font-size:17px;flex:none}
+details[open] summary::after{content:"\2212"}
+details .body{padding:0 17px 17px;border-top:1px solid var(--line);padding-top:14px}
+ol.steps{margin:0;padding-left:0;list-style:none;counter-reset:s}
+ol.steps li{counter-increment:s;position:relative;padding-left:32px;margin-bottom:11px;font-size:14px}
+ol.steps li::before{content:counter(s);position:absolute;left:0;top:0;width:21px;height:21px;border-radius:6px;
+  background:var(--accent-soft);color:var(--accent-ink);font-family:var(--mono);font-size:11.5px;font-weight:700;
+  display:grid;place-items:center}
+ol.steps li:last-child{margin-bottom:0}
+.recipe{display:flex;gap:8px;align-items:flex-start;background:var(--surface-2);border:1px solid var(--line);
+  border-radius:var(--radius-s);padding:10px 12px;margin-top:9px}
+.recipe .rc{flex:1;font-family:var(--mono);font-size:12px;word-break:break-word;color:var(--ink-soft)}
+.recipe button{flex:none;font:inherit;font-size:11px;background:var(--surface);border:1px solid var(--line-strong);
+  color:var(--muted);border-radius:6px;padding:3px 8px;cursor:pointer}
+.recipe button:hover{color:var(--accent);border-color:var(--accent)}
+
+/* quiz */
+.quiz{counter-reset:q}
+.q{background:var(--surface);border:1px solid var(--line);border-radius:var(--radius);padding:17px;margin-bottom:11px}
+.q .qt{font-weight:600;font-size:14.5px;margin-bottom:11px;display:flex;gap:9px}
+.q .qt span:first-child{font-family:var(--mono);color:var(--accent);flex:none}
+.opts{display:grid;gap:7px}
+.opt{text-align:left;font:inherit;font-size:13.5px;background:var(--surface-2);border:1px solid var(--line);
+  border-radius:var(--radius-s);padding:9px 12px;cursor:pointer;color:var(--ink-soft)}
+.opt:hover{border-color:var(--accent)}
+.opt.good{background:var(--ok-soft);border-color:var(--ok);color:var(--ok);font-weight:600}
+.opt.bad{background:var(--err-soft);border-color:var(--err);color:var(--err)}
+.opt[disabled]{cursor:default}
+.expl{margin-top:11px;font-size:13.5px;color:var(--ink-soft);border-left:3px solid var(--line-strong);padding-left:12px}
+#qscore{font-family:var(--mono);font-size:13px}
+
+/* cheatsheet */
+.cheat{display:grid;grid-template-columns:repeat(auto-fit,minmax(255px,1fr));gap:13px}
+.cheat .card{padding:15px}
+.cheat ul{margin:0;padding-left:17px;font-size:13.5px}
+.cheat li{margin-bottom:5px}
+
+footer{padding:34px 0 60px;color:var(--muted);font-size:13px}
+footer .wrap>p{max-width:78ch}
+pre{background:var(--surface);border:1px solid var(--line);border-radius:var(--radius-s);padding:13px;
+  overflow-x:auto;font-family:var(--mono);font-size:11.5px;line-height:1.55;margin:0 0 10px}
+
+@media print{
+  nav.toc,#themeBtn,.wf-bar,button{display:none}
+  body{background:#fff}
+  section{page-break-inside:avoid;border:0;padding:16px 0}
+  .noprint{display:none!important}
+  #cheat{page-break-before:always}
+}
+</style>
+
+<header class="hero">
+  <div class="wrap">
+    <div class="eyebrow">AgentB2C &middot; Observabilité</div>
+    <h1>Langfuse, mode d'emploi</h1>
+    <p class="lede">Tout ce que fait le concierge conversationnel — chaque message, chaque appel de modèle,
+      chaque recherche d'hôtel — laisse une trace dans Langfuse. Ce guide explique ce qu'on y trouve,
+      comment le lire, et quoi en faire quand quelque chose cloche. <b>Toutes les données affichées ici
+      sortent de notre instance réelle.</b></p>
+    <div class="badges">
+      <span class="badge">instance <b>langfuse-web-production-272b.up.railway.app</b></span>
+      <span class="badge">projet <b>b2c-concierge</b></span>
+      <span class="badge">version <b>v3.224.3</b></span>
+      <span class="badge eu">&#9679; hébergé en UE (Railway europe-west4)</span>
+    </div>
+    <div class="snapshot" id="snapshot"></div>
+    <p class="small muted" style="margin-top:12px">Instantané extrait le <b>9 septembre 2026</b> en lecture seule
+      via l'API publique du projet — les compteurs avancent avec le trafic, les mécanismes non.
+      Les requêtes exactes pour rafraîchir sont en annexe, en bas de page.</p>
+  </div>
+</header>
+
+<nav class="toc">
+  <div class="wrap">
+    <div class="links">
+    <a href="#pourquoi"><span class="k">1</span>Pourquoi</a>
+    <a href="#objets"><span class="k">2</span>Les 5 objets</a>
+    <a href="#anatomie"><span class="k">3</span>Anatomie</a>
+    <a href="#scores"><span class="k">4</span>Les scores</a>
+    <a href="#dashboard"><span class="k">5</span>Dashboard</a>
+    <a href="#playbooks"><span class="k">6</span>Playbooks</a>
+    <a href="#boucle"><span class="k">7</span>Boucle</a>
+    <a href="#pieges"><span class="k">8</span>Pièges</a>
+    <a href="#quiz"><span class="k">9</span>Quiz</a>
+    </div>
+    <button id="themeBtn" type="button" title="Basculer clair / sombre">&#9681; thème</button>
+  </div>
+</nav>
+
+<main>
+
+<section id="pourquoi">
+  <div class="wrap">
+    <div class="shead">
+      <div class="num">01</div>
+      <h2>À quoi ça sert</h2>
+      <p>Un agent conversationnel n'est pas un formulaire : à la même question, il peut répondre différemment
+        d'une fois sur l'autre. On ne peut donc pas se contenter de « ça marche / ça marche pas ».
+        Langfuse est l'outil qui rend chaque réponse <b>observable après coup</b> et <b>mesurable dans le temps</b>.</p>
+    </div>
+
+    <div class="grid g3">
+      <div class="card">
+        <h3>&#128065; Voir</h3>
+        <p class="small muted" style="margin-bottom:9px">« Qu'est-ce qui s'est passé pour ce message-là&nbsp;? »</p>
+        <p>Chaque message d'utilisateur produit un arbre détaillé : le message reçu, la façon dont il a été
+          classé, la ville reconnue, la requête exactement envoyée à l'inventaire, les hôtels revenus,
+          le texte final. Rien n'est reconstitué : c'est enregistré au moment où ça se produit.</p>
+      </div>
+      <div class="card">
+        <h3>&#128207; Mesurer</h3>
+        <p class="small muted" style="margin-bottom:9px">« Est-ce que ça se dégrade&nbsp;? »</p>
+        <p>Sur chaque tour, le code pose lui-même une vingtaine de notes chiffrées (des <b>scores</b>) :
+          combien d'hôtels affichés, combien d'appels au modèle, quels garde-fous ont dû corriger la réponse,
+          en combien de temps. C'est ce qui permet de suivre une tendance, pas juste une anecdote.</p>
+      </div>
+      <div class="card">
+        <h3>&#128260; Rejouer</h3>
+        <p class="small muted" style="margin-bottom:9px">« Est-ce que le bug d'hier est bien mort&nbsp;? »</p>
+        <p>Un tour qui a mal tourné peut être figé en cas de test, puis rejoué à chaque modification.
+          Deux passages se comparent côte à côte dans l'outil. C'est la mémoire anti-régression du produit.</p>
+      </div>
+    </div>
+
+    <div class="grid g2" style="margin-top:14px">
+      <div class="card">
+        <h4>Accès</h4>
+        <table>
+          <tbody>
+            <tr><td>Instance</td><td class="mono small">langfuse-web-production-272b.up.railway.app</td></tr>
+            <tr><td>Projet</td><td class="mono small">b2c-concierge</td></tr>
+            <tr><td>Version serveur</td><td class="mono small">v3.224.3 (auto-hébergée)</td></tr>
+            <tr><td>Hébergement</td><td class="small">Railway, région <span class="mono">europe-west4</span> — donnée qui ne quitte pas l'UE</td></tr>
+            <tr><td>Qui alimente</td><td class="small">AgentB2C uniquement. Aucun autre produit Dayuse n'écrit dedans.</td></tr>
+          </tbody>
+        </table>
+        <p class="small muted" style="margin:11px 0 0">Demandez votre accès à Fabien : il n'y a pas de SSO ni
+          d'auto-inscription, et la gestion fine des rôles n'est pas disponible sur notre édition — tout compte
+          créé voit le projet entier.</p>
+      </div>
+      <div class="card">
+        <h4>Les 4 services qui écrivent dans une même trace</h4>
+        <table>
+          <tbody>
+            <tr><td><span class="pill cx">b2c-concierge</span></td><td class="small">L'orchestrateur. Reçoit le message, classe la demande, appelle qui il faut, rédige la réponse finale, pose tous les scores.</td></tr>
+            <tr><td><span class="pill hs">hotel-search-agent</span></td><td class="small">La feuille recherche : comprend le lieu et la date, interroge l'inventaire.</td></tr>
+            <tr><td><span class="pill faq">faq-agent</span></td><td class="small">La feuille FAQ : conditions, annulation, horaires.</td></tr>
+            <tr><td><span class="pill mcp">mcp-b2c</span></td><td class="small">L'accès en lecture à l'inventaire (Elasticsearch). Service séparé, mais visible dans la même trace.</td></tr>
+          </tbody>
+        </table>
+        <p class="small muted" style="margin:11px 0 0">C'est le point important : <b>un tour = une seule trace</b>,
+          même s'il traverse 4 services. Vous n'avez jamais à recoller des morceaux à la main.</p>
+      </div>
+    </div>
+  </div>
+</section>
+
+<section id="objets">
+  <div class="wrap">
+    <div class="shead">
+      <div class="num">02</div>
+      <h2>Les 5 objets à connaître</h2>
+      <p>Langfuse a son vocabulaire. Voici les cinq seuls mots à retenir, et surtout ce que chacun vaut
+        <b>chez nous</b> — c'est là que se cachent les malentendus.</p>
+    </div>
+    <div class="grid g2" id="objects"></div>
+    <div class="note warn">
+      <span class="tag">Le piège n°1 quand vous ouvrez l'écran</span>
+      <p>Dans la liste, une trace s'appelle <code>v3.chat_stream</code> et semble ne rien contenir : ni question,
+        ni réponse. <b>C'est normal.</b> Depuis notre refonte du traçage, le message et la réponse ne sont plus
+        portés par la trace mais par sa <b>première observation</b> (celle qui porte le même nom). Cliquez sur la
+        trace, puis sur la ligne du haut de l'arbre : la question et la réponse sont là.</p>
+    </div>
+  </div>
+</section>
+
+<section id="anatomie">
+  <div class="wrap">
+    <div class="shead">
+      <div class="num">03</div>
+      <h2>Anatomie d'un tour, en vrai</h2>
+      <p>Ci-dessous, <b>un vrai tour</b> de notre instance, pas un schéma. Un utilisateur écrit une phrase,
+        le concierge répond en 5,2&nbsp;secondes, et cela produit <b>34 lignes</b> dans l'arbre.
+        Cliquez sur n'importe quelle ligne : le panneau de droite explique à quoi elle sert.</p>
+    </div>
+
+    <div class="card" style="margin-bottom:14px">
+      <div class="badges" style="margin-top:0;margin-bottom:13px">
+        <span class="badge">trace <b id="tId"></b></span>
+        <span class="badge">session <b id="tSess"></b></span>
+        <span class="badge">version déployée <b id="tRel"></b></span>
+        <span class="badge" id="tTags"></span>
+      </div>
+      <h4>Le message reçu</h4>
+      <p class="mono" style="font-size:14px" id="tIn"></p>
+      <h4 style="margin-top:15px">La réponse renvoyée</h4>
+      <p id="tOut" style="margin-bottom:0"></p>
+    </div>
+
+    <div class="wf">
+      <div class="wf-bar">
+        <button class="btn on" id="btnPlumb" type="button">Masquer la plomberie technique</button>
+        <span class="sp"></span>
+        <span class="small muted" id="wfCount"></span>
+      </div>
+      <div class="wf-legend">
+        <span><i style="background:var(--svc-cx)"></i> b2c-concierge</span>
+        <span><i style="background:var(--svc-hs)"></i> hotel-search-agent</span>
+        <span><i style="background:var(--svc-mcp)"></i> mcp-b2c &rarr; Elasticsearch</span>
+        <span><i style="background:var(--svc-plumb)"></i> plomberie A2A / ADK</span>
+        <span class="muted">&mdash; la largeur de la barre = la durée réelle</span>
+      </div>
+      <div class="wf-body">
+        <div class="wf-rows" id="wfRows"></div>
+        <div class="wf-detail" id="wfDetail"></div>
+      </div>
+    </div>
+
+    <div class="grid g2" style="margin-top:14px">
+      <div class="card">
+        <h4>Où part le temps (5 205 ms)</h4>
+        <div id="timeSplit"></div>
+        <p class="small muted" style="margin:12px 0 0">Le tour est dominé par <b>deux</b> attentes : la feuille
+          de recherche (2,1&nbsp;s, dont 1&nbsp;s d'inventaire et 2&nbsp;s de modèle) et la rédaction finale
+          (2,2&nbsp;s). Le classement initial du message ne coûte que 0,9&nbsp;s.</p>
+      </div>
+      <div class="card">
+        <h4>Où part l'argent (0,00532 $ ce tour-là)</h4>
+        <div id="costSplit"></div>
+        <p class="small muted" style="margin:12px 0 0">4 appels de modèle, mais <b>un seul</b> pèse 76&nbsp;% de
+          la facture : la rédaction finale, confiée à un gros modèle. À l'inverse, les 2 appels de la feuille
+          avalent <b>13 000 tokens d'entrée</b> pour 3&nbsp;centièmes de centime — c'est le bénéfice du choix
+          « un modèle par rôle ».</p>
+      </div>
+    </div>
+
+    <div class="note">
+      <span class="tag">Pourquoi 34 lignes pour un seul message</span>
+      <p>Sur les 34 lignes, <b>16 sont de la plomberie</b> : les bibliothèques qui font passer l'appel d'un service
+        à l'autre se tracent elles-mêmes. Elles ne servent qu'aux devs, et le bouton ci-dessus les masque.
+        Les <b>18 restantes</b> racontent l'histoire du tour et sont les seules à lire.
+        Un tour de recherche sain fait 31 à 34 lignes : si vous en voyez 13, c'est qu'il n'y a pas eu de recherche
+        (réponse toute faite, ou question de FAQ).</p>
+    </div>
+  </div>
+</section>
+
+<section id="scores">
+  <div class="wrap">
+    <div class="shead">
+      <div class="num">04</div>
+      <h2>Les scores : la note de chaque tour</h2>
+      <p>Un <b>score</b> est une note attachée à un tour. C'est ce qui transforme « j'ai vu un truc bizarre »
+        en « ça arrive sur 9&nbsp;% des tours ». Il y en a de trois provenances très différentes, et les
+        confondre mène à des conclusions fausses.</p>
+    </div>
+
+    <div class="filters">
+      <button class="btn on" data-fam="det" type="button">1. Posés par le code (fiables à 100 %)</button>
+      <button class="btn" data-fam="jud" type="button">2. Posés par un juge IA (échantillon 5 %)</button>
+      <button class="btn" data-fam="hum" type="button">3. Posés par un humain</button>
+    </div>
+
+    <div id="fam-det" class="fam">
+      <p>Le code du concierge pose ces notes <b>sur chaque tour, sans exception</b> : elles ne coûtent rien,
+        ne dépendent d'aucune IA, et sont donc les seules sur lesquelles on peut construire une alerte.
+        Les 15 premières sont les <b>garde-fous</b> (« guards ») : des corrections automatiques que le code
+        applique quand le modèle dérape. Un guard à <span class="mono">1</span> signifie
+        <b>« le garde-fou a dû intervenir »</b> — donc le modèle avait tort, mais l'utilisateur, lui, a reçu une
+        réponse correcte.</p>
+      <div class="filters">
+        <input type="search" id="gSearch" placeholder="Filtrer (ex. date, lien, budget&hellip;)" aria-label="Filtrer les scores">
+        <button class="btn" id="gOnlyFire" type="button">Seulement ceux qui ont déjà déclenché</button>
+      </div>
+      <div class="scroller">
+        <table>
+          <thead><tr>
+            <th style="min-width:210px">Score</th><th>Ce que ça veut dire quand ça vaut 1</th>
+            <th style="width:80px">Posé par</th><th class="num" style="width:152px">Taux réel</th><th class="num" style="width:70px">Tours</th>
+          </tr></thead>
+          <tbody id="gRows"></tbody>
+        </table>
+      </div>
+      <p class="small muted" style="margin-top:9px" id="gEmpty"></p>
+
+      <div class="grid g2" style="margin-top:16px">
+        <div class="note ok">
+          <span class="tag">À retenir</span>
+          <p><b>Un guard à 0 ne veut pas dire « non mesuré ». Il veut dire « n'a pas eu besoin d'intervenir ».</b>
+            Les 15 guards sont envoyés à chaque tour, y compris ceux qui n'ont rien fait — c'est ce qui permet
+            de calculer un taux. Attention&nbsp;: ce n'était vrai qu'à partir du <b>26 août 2026</b>. Avant cette
+            date, 6 guards de la feuille étaient toujours à 0 faute d'être remontés : ne relisez pas
+            l'historique antérieur comme un signal.</p>
+        </div>
+        <div class="note warn">
+          <span class="tag">Le cas où un 0 est vraiment un trou</span>
+          <p>Si l'appel à la feuille de recherche a échoué (timeout), le concierge ne reçoit jamais la liste des
+            guards déclenchés côté feuille : <b>les 6 guards géo/date retombent à 0</b> même si l'un d'eux avait
+            travaillé. Le réflexe : vérifier d'abord <code>degraded</code> et <code>status</code>.
+            Idem pour un tour qui n'atteint jamais la feuille (réponse toute faite, FAQ) : les guards géo à 0
+            sont normaux, il n'y avait rien à garder.</p>
+        </div>
+      </div>
+    </div>
+
+    <div id="fam-jud" class="fam" hidden>
+      <p>Trois « juges » sont des <b>appels à un petit modèle</b> (<span class="mono">gpt-4o-mini</span>) que
+        Langfuse déclenche lui-même, côté serveur, sur <b>5&nbsp;% des tours réels</b>. Ils notent ce qu'aucun
+        code ne sait mesurer : est-ce que la réponse invente&nbsp;? est-elle pertinente&nbsp;? l'utilisateur
+        s'énerve-t-il&nbsp;? Coût mesuré : <b>0,0000822&nbsp;$ par appel</b>, soit une douzaine de centimes par
+        mois au volume actuel.</p>
+      <div class="grid g3" id="judgeCards"></div>
+      <h4 style="margin:22px 0 9px">Verdicts réels, tels qu'ils sont écrits dans l'outil</h4>
+      <div class="scroller"><table>
+        <thead><tr><th style="width:150px">Juge</th><th class="num" style="width:70px">Note</th><th>Justification renvoyée par le juge</th></tr></thead>
+        <tbody id="judgeRows"></tbody>
+      </table></div>
+      <div class="note warn">
+        <span class="tag">Lisez toujours la justification, jamais la note seule</span>
+        <p>Les deux exemples surlignés ci-dessus sont de <b>vraies erreurs de juge</b> : une réponse de
+          politesse notée <span class="mono">0,0</span> en pertinence (le juge attendait une « information »),
+          et un tour de réservation parfaitement correct noté <span class="mono">0,6</span>.
+          Un juge IA n'a ni le contexte de la conversation, ni le droit d'ouvrir un lien. Ces notes sont un
+          <b>signal de tri</b> pour aller regarder, jamais une vérité. Historique utile : le juge
+          « hallucination » pénalisait les bonnes réponses parce qu'il ne pouvait pas vérifier les liens ; on a dû
+          lui écrire noir sur blanc que les liens ne sont pas de son ressort (ils sont vérifiés par un guard).</p>
+      </div>
+    </div>
+
+    <div id="fam-hum" class="fam" hidden>
+      <div class="grid g2">
+        <div class="card">
+          <h3>&#128077; / &#128078; Le pouce de l'utilisateur</h3>
+          <p>Un pouce apparaît sous chaque réponse dans le widget. Il écrit un score
+            <code>user-feedback</code> (1 = &#128077;, 0 = &#128078;) sur la trace du tour concerné.
+            Changer d'avis <b>écrase</b> le vote au lieu d'en ajouter un second.</p>
+          <div class="kv">
+            <dt>Reçus à ce jour</dt><dd id="fbCount"></dd>
+            <dt>Commentaire libre</dt><dd>accepté par l'API (500 car. max), <b>pas de champ dans le widget</b></dd>
+          </div>
+          <p class="note warn small" style="margin-bottom:0"><b>Condition d'apparition :</b> le pouce n'existe
+            que si la réponse est arrivée en streaming — c'est le seul mode qui renvoie l'identifiant de trace au
+            navigateur. Pas de pouce visible = pas de bug, mais pas de trace à noter non plus.</p>
+        </div>
+        <div class="card">
+          <h3>&#9997; L'annotation manuelle</h3>
+          <p>Une <b>file d'annotation</b> (<span class="mono">obs7-judge-calibration</span>) empile des tours à
+            relire à la main. On y note les <b>mêmes trois dimensions que les juges</b>, préfixées
+            <span class="mono">human_</span>, pour pouvoir comparer l'IA et l'humain sur le même tour.</p>
+          <div class="scroller" style="margin-top:11px"><table>
+            <thead><tr><th>Score humain</th><th>Échelle</th><th class="num">Posés</th></tr></thead>
+            <tbody id="humanRows"></tbody>
+          </table></div>
+          <p class="small muted" style="margin:10px 0 0">C'est le poste de travail naturel d'un QA : la file
+            propose aussi d'écrire la <b>réponse qu'il aurait fallu donner</b>, qui devient ensuite un cas de test.</p>
+        </div>
+      </div>
+    </div>
+  </div>
+</section>
+
+<section id="dashboard">
+  <div class="wrap">
+    <div class="shead">
+      <div class="num">05</div>
+      <h2>Le dashboard, décodé</h2>
+      <p>Il existe <b>un seul</b> tableau de bord : <span class="mono">b2c-concierge — OBS3 deterministic
+        scores</span>. Sept vignettes. Voici, pour chacune, ce qu'elle mesure vraiment, sa valeur au
+        9&nbsp;septembre&nbsp;2026, et le contresens qu'elle permet.</p>
+    </div>
+
+    <div class="grid g2">
+      <div class="card">
+        <h3><span class="pill neutral">1</span> TTFT p95 (ms)</h3>
+        <p class="small muted">Délai avant que l'utilisateur voie <i>quelque chose</i> bouger à l'écran.</p>
+        <p><b style="font-size:20px;font-family:var(--mono)">25,9 ms</b>
+          <span class="pill ok">objectif &lt; 300 ms</span></p>
+        <p class="small">Très largement tenu. Ce n'est <b>pas</b> le temps de réponse : c'est le temps avant le
+          premier signe de vie.</p>
+        <div class="note warn small" style="margin-bottom:0"><b>Piège :</b> mesuré sur <b>197 tours seulement</b>
+          sur 652, parce que seuls les tours en streaming l'émettent. La vignette est juste, mais elle ne parle
+          pas de tout le trafic.</div>
+      </div>
+
+      <div class="card">
+        <h3><span class="pill neutral">2</span> Empty shortlist rate</h3>
+        <p class="small muted">Part des tours qui n'ont affiché aucune carte d'hôtel.</p>
+        <p><b style="font-size:20px;font-family:var(--mono)">40,7 %</b>
+          <span class="pill warn">à interpréter</span></p>
+        <div class="note err small" style="margin-bottom:0"><b>Le contresens le plus coûteux de ce dashboard :</b>
+          ça ne veut <b>pas</b> dire que 4 utilisateurs sur 10 ne trouvent rien. Le score vaut 1 dès qu'un tour
+          n'affiche pas de carte — ce qui inclut les bonjours, les questions de FAQ, les demandes de précision
+          (« dans quelle ville&nbsp;? ») et les confirmations de réservation. Pour la vraie question produit,
+          il faut restreindre aux tours de recherche.</div>
+      </div>
+
+      <div class="card">
+        <h3><span class="pill neutral">3</span> Tours au-delà du budget de 3 appels</h3>
+        <p class="small muted">Notre règle d'architecture : 3 appels de modèle maximum par tour.</p>
+        <p><b style="font-size:20px;font-family:var(--mono)">0</b>
+          <span class="pill ok">jamais dépassé</span></p>
+        <p class="small">Répartition réelle sur 652 tours : <b>532 tours à 3 appels</b>, 102 à 1 (réponse toute
+          faite), 8 à 2, 10 à 0. Moyenne 2,63.</p>
+        <p class="small muted" style="margin-bottom:0">Cette vignette est un contrôle de coût : si elle décolle,
+          une boucle s'est installée quelque part.</p>
+      </div>
+
+      <div class="card">
+        <h3><span class="pill neutral">4</span> Guard firing rate</h3>
+        <p class="small muted">Taux de déclenchement de chaque garde-fou, en barres.</p>
+        <p><b style="font-size:20px;font-family:var(--mono)">15 séries</b>
+          <span class="pill warn">titre périmé</span></p>
+        <div class="note warn small" style="margin-bottom:0"><b>Le titre dit « 13 series » : il a menti dès
+          l'ajout du 14<sup>e</sup> et du 15<sup>e</sup> garde-fou.</b> La vignette, elle, est juste — elle
+          affiche tout ce qui commence par <span class="mono">guard_</span>, donc bien 15 séries.
+          Fiez-vous aux barres, pas au titre.</div>
+      </div>
+
+      <div class="card">
+        <h3><span class="pill neutral">5</span> Latency p95 par étape</h3>
+        <p class="small muted">Quelle étape est lente, tous tours confondus.</p>
+        <p><b style="font-size:20px;font-family:var(--mono)">21,1 s</b>
+          <span class="pill err">p95 du tour complet</span></p>
+        <p class="small">À comparer au tour vitrine de la section 3 (5,2&nbsp;s) : le p95 est écrasé par une
+          minorité de tours très lents (dépendance qui tousse, timeout de feuille à 10&nbsp;s).
+          C'est là qu'on va chercher les tours à ouvrir.</p>
+        <div class="note warn small" style="margin-bottom:0"><b>Piège :</b> cette vignette liste aussi les
+          étapes de plomberie, qui « durent » aussi longtemps que ce qu'elles enveloppent. Ne concluez pas
+          qu'A2A est lent parce que son span dure 2&nbsp;s : il <i>contient</i> les 2&nbsp;s de la feuille.</div>
+      </div>
+
+      <div class="card">
+        <h3><span class="pill neutral">6</span> Observations par niveau</h3>
+        <p class="small muted">Le volume d'anomalies signalées par le code lui-même.</p>
+        <p style="font-family:var(--mono);font-size:15px">
+          <span class="pill neutral">DEFAULT 34 003</span>
+          <span class="pill warn">WARNING 118</span>
+          <span class="pill err">ERROR 233</span></p>
+        <p class="small">C'est <b>la file de debug quotidienne</b> : un filtre <span class="mono">level =
+          ERROR</span> sur les traces vous donne directement les tours où une dépendance a lâché
+          (feuille injoignable, inventaire en circuit ouvert, Mapbox épuisé).
+          Le message d'erreur est toujours un <b>nom de règle stable</b>, jamais du texte utilisateur.</p>
+      </div>
+
+      <div class="card">
+        <h3><span class="pill neutral">7</span> Coût par modèle</h3>
+        <p class="small muted">Somme dépensée, ventilée par modèle.</p>
+        <p><b style="font-size:20px;font-family:var(--mono)">6,66 $</b> <span class="small muted">cumul depuis juillet</span></p>
+        <div id="modelCost"></div>
+        <div class="note warn small" style="margin:12px 0 0"><b>Deux pièges :</b> les coûts de la feuille étaient
+          comptés <b>2 fois</b> avant le 30 juillet 2026, et Langfuse <b>ne recalcule jamais</b> le passé
+          (ni après un correctif, ni après un changement de tarif). Ne comparez donc pas un mois d'avant
+          août avec aujourd'hui. Et le gros modèle n'est utilisé que pour la rédaction finale : sa part de
+          <i>coût</i> n'est pas sa part d'<i>appels</i>.</div>
+      </div>
+
+      <div class="card" style="border-style:dashed">
+        <h3 class="muted">La vignette qui manque</h3>
+        <p class="small">Aucune vignette ne suit <code>degraded</code> (les dégradations honnêtes : feuille
+          injoignable, bouclier de façade). Le score existe et est renseigné — 4 occurrences à ce jour, toutes
+          <span class="mono">leaf_call_failed</span> — mais personne ne l'a encore mis sur le dashboard.</p>
+        <div class="note err small" style="margin-bottom:0"><b>Règle absolue si vous ajoutez une vignette :</b>
+          créez-la <b>dans l'interface</b>. Une vignette créée par outillage automatique est estampillée pour
+          une version future de Langfuse et renvoie une erreur 500 sur les vues « observations » — symptôme
+          reconnaissable : <b>un dashboard à moitié vivant</b>, les cartes de scores s'affichent et les
+          3 graphiques du bas sont morts. C'est déjà arrivé, et ça a été réparé en base.</div>
+      </div>
+    </div>
+  </div>
+</section>
+
+<section id="playbooks">
+  <div class="wrap">
+    <div class="shead">
+      <div class="num">06</div>
+      <h2>Playbooks : « je fais quoi si&hellip; »</h2>
+      <p>Six situations concrètes, avec le chemin exact dans l'outil. Chaque recette de filtre est copiable.</p>
+    </div>
+    <div id="playbooks"></div>
+  </div>
+</section>
+
+<section id="boucle">
+  <div class="wrap">
+    <div class="shead">
+      <div class="num">07</div>
+      <h2>La boucle qualité, de bout en bout</h2>
+      <p>Observer ne sert à rien si rien n'en sort. Voici le circuit qui transforme
+        « un utilisateur a vu une réponse fausse » en « ce bug ne peut plus revenir ».</p>
+    </div>
+
+    <div class="card pad0" style="padding:16px;overflow-x:auto">
+      <svg viewBox="0 0 1148 240" style="width:100%;min-width:900px;height:auto" role="img"
+           aria-label="Circuit qualité : un tour en production est repéré, annoté par un humain, figé en cas de test, puis rejoué à chaque changement">
+        <defs>
+          <marker id="ar" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto">
+            <path d="M0,0 L10,5 L0,10 z" fill="var(--line-strong)"/>
+          </marker>
+        </defs>
+        <g font-family="var(--mono)" font-size="11" fill="var(--muted)">
+          <g>
+            <rect x="10" y="60" width="200" height="110" rx="10" fill="var(--surface-2)" stroke="var(--svc-cx)" stroke-width="1.5"/>
+            <text x="110" y="84" text-anchor="middle" font-size="12.5" font-weight="700" fill="var(--ink)">Un tour en prod</text>
+            <text x="110" y="104" text-anchor="middle">1 trace · 18 scores</text>
+            <text x="110" y="121" text-anchor="middle">34 observations</text>
+          </g>
+          <g>
+            <rect x="242" y="44" width="200" height="142" rx="10" fill="var(--surface-2)" stroke="var(--line-strong)" stroke-width="1.5"/>
+            <text x="342" y="68" text-anchor="middle" font-size="12.5" font-weight="700" fill="var(--ink)">3 façons d'être repéré</text>
+            <text x="342" y="88" text-anchor="middle">👎 pouce utilisateur</text>
+            <text x="342" y="105" text-anchor="middle">juge IA (5 % des tours)</text>
+            <text x="342" y="122" text-anchor="middle">score anormal</text>
+            <text x="342" y="172" text-anchor="middle" fill="var(--accent)">↑ ou un QA qui le voit</text>
+          </g>
+          <g>
+            <rect x="474" y="52" width="200" height="126" rx="10" fill="var(--surface-2)" stroke="var(--warn)" stroke-width="1.5"/>
+            <text x="574" y="76" text-anchor="middle" font-size="12.5" font-weight="700" fill="var(--ink)">File d'annotation</text>
+            <text x="574" y="96" text-anchor="middle">un humain note</text>
+            <text x="574" y="113" text-anchor="middle">les 3 mêmes axes</text>
+            <text x="574" y="164" text-anchor="middle" fill="var(--warn)">→ calibre les juges</text>
+          </g>
+          <g>
+            <rect x="706" y="52" width="200" height="126" rx="10" fill="var(--surface-2)" stroke="var(--svc-hs)" stroke-width="1.5"/>
+            <text x="806" y="76" text-anchor="middle" font-size="12.5" font-weight="700" fill="var(--ink)">Cas figé (dataset)</text>
+            <text x="806" y="96" text-anchor="middle">1 ligne + n° de trace</text>
+            <text x="806" y="113" text-anchor="middle">+ résultat attendu</text>
+            <text x="806" y="164" text-anchor="middle" fill="var(--svc-hs)">54 cas aujourd'hui</text>
+          </g>
+          <g>
+            <rect x="938" y="52" width="200" height="126" rx="10" fill="var(--surface-2)" stroke="var(--accent)" stroke-width="1.5"/>
+            <text x="1038" y="76" text-anchor="middle" font-size="12.5" font-weight="700" fill="var(--ink)">Rejeu automatique</text>
+            <text x="1038" y="96" text-anchor="middle">à chaque changement</text>
+            <text x="1038" y="113" text-anchor="middle">2 passages comparés</text>
+            <text x="1038" y="164" text-anchor="middle" fill="var(--accent)">+ un job en CI</text>
+          </g>
+          <path d="M214,115 H236" fill="none" stroke="var(--line-strong)" stroke-width="1.5" marker-end="url(#ar)"/>
+          <path d="M446,115 H468" fill="none" stroke="var(--line-strong)" stroke-width="1.5" marker-end="url(#ar)"/>
+          <path d="M678,115 H700" fill="none" stroke="var(--line-strong)" stroke-width="1.5" marker-end="url(#ar)"/>
+          <path d="M910,115 H932" fill="none" stroke="var(--line-strong)" stroke-width="1.5" marker-end="url(#ar)"/>
+          <path d="M1038,182 V214 H574 V184" fill="none" stroke="var(--line-strong)" stroke-width="1.5" stroke-dasharray="5 4" marker-end="url(#ar)"/>
+          <text x="806" y="232" text-anchor="middle" fill="var(--muted)">un rejeu qui échoue renvoie un tour à relire — la boucle se referme</text>
+        </g>
+      </svg>
+    </div>
+
+    <div class="grid g2" style="margin-top:16px">
+      <div class="card">
+        <h4>Étage 1 &mdash; calibrer les juges (l'IA note-t-elle comme nous&nbsp;?)</h4>
+        <div class="scroller" style="margin-bottom:10px"><table>
+          <thead><tr><th>Tour</th><th>Axe</th><th class="num">Juge IA</th><th class="num">Humain</th><th>Verdict</th></tr></thead>
+          <tbody>
+            <tr><td class="mono small">95ad5d4d&hellip;</td><td>Hallucination</td><td class="num">0,0</td><td class="num">0,0</td><td><span class="pill ok">d'accord</span></td></tr>
+            <tr><td class="mono small">f1f59761&hellip;</td><td>Hallucination</td><td class="num">0,7</td><td class="num">0,0</td><td><span class="pill err">juge trop sévère</span></td></tr>
+            <tr><td class="mono small">f74ac766&hellip;</td><td>Pertinence</td><td class="num">0,8</td><td class="num">0,5</td><td><span class="pill warn">écart 0,30</span></td></tr>
+          </tbody>
+        </table></div>
+        <div class="note err small" style="margin-bottom:0"><b>Ne dites jamais « les juges sont d'accord à 50 % ».</b>
+          Il y a <b>trois</b> points de comparaison. C'est un test de tuyauterie qui prouve que le circuit
+          fonctionne, pas un indicateur de qualité. Pour un chiffre défendable il faudra plusieurs dizaines de
+          tours annotés — et il faut mettre en file <b>les tours déjà notés par un juge</b>, sinon les deux
+          échantillonnages de 5 % ne se croisent jamais (constaté : zéro tour en commun).</div>
+      </div>
+      <div class="card">
+        <h4>Étage 2 &mdash; les 4 jeux de cas figés</h4>
+        <div class="scroller" style="margin-bottom:10px"><table>
+          <thead><tr><th>Jeu</th><th class="num">Cas</th><th>Ce qu'il protège</th></tr></thead>
+          <tbody>
+            <tr><td class="mono small">b2c/geo-poi</td><td class="num">21</td><td class="small">Lieux et points d'intérêt : « autour des Champs-Élysées » ne doit pas partir à Abidjan.</td></tr>
+            <tr><td class="mono small">b2c/occupancy</td><td class="num">14</td><td class="small">Nombre d'adultes et d'enfants réellement pris en compte.</td></tr>
+            <tr><td class="mono small">b2c/language-robustness</td><td class="num">13</td><td class="small">Réponses dans la langue de l'utilisateur, sur plusieurs tours.</td></tr>
+            <tr><td class="mono small">b2c/prod-regressions</td><td class="num">6</td><td class="small">Incidents réels de production, chacun rattaché à sa trace d'origine.</td></tr>
+          </tbody>
+        </table></div>
+        <p class="small"><b>Deux étiquettes à connaître</b> sur chaque cas :
+          <span class="pill warn">target</span> = « échoue aujourd'hui, c'est la barre à atteindre » et
+          <span class="pill ok">regression_guard</span> = « passe aujourd'hui, ne doit plus jamais retomber ».
+          Un cas rouge n'est donc pas forcément une mauvaise nouvelle&nbsp;: encore faut-il regarder son étiquette.</p>
+        <p class="small muted" style="margin-bottom:0">Un cas est <b>figé pour toujours</b> : on n'en modifie jamais
+          un existant, on en ajoute un nouveau.</p>
+      </div>
+    </div>
+
+    <div class="grid g2" style="margin-top:14px">
+      <div class="card">
+        <h4>Étage 3 &mdash; comparer deux passages</h4>
+        <p class="small">Chaque rejeu porte un nom choisi à la main, ce qui rend la comparaison lisible.
+          Vraies paires présentes dans l'outil :</p>
+        <p class="mono small">p1-baseline-2026-08-25 &nbsp;&harr;&nbsp; p1-after-2026-08-25<br>
+          p0-2-after-2026-08-25 &nbsp;&harr;&nbsp; p0-2-radius-2026-08-25<br>
+          baseline &nbsp;&harr;&nbsp; after-gpt4o</p>
+        <p class="small muted">34 passages au total sur les 4 jeux. Le lien du passage est collé dans la
+          pull request : c'est la pièce que Fabien relit.</p>
+        <div class="note ok small" style="margin-bottom:0"><b>Ce que la mesure a déjà corrigé :</b> l'audit
+          croyait que le modèle n'extrayait pas le nombre d'adultes ; le rejeu a montré qu'il le faisait déjà
+          dans 78&nbsp;% des cas — le vrai trou était en aval. Sur les lieux, ajouter un rayon de 3&nbsp;km a fait
+          passer « hôtels dans la bonne zone » de 24&nbsp;% à <b>65&nbsp;%</b> sans créer de fausse pénurie.</div>
+      </div>
+      <div class="card">
+        <h4>Étage 4 &mdash; le garde-barrière en CI</h4>
+        <p><span class="pill warn">mesure, pas encore blocage</span></p>
+        <p class="small">Un job d'intégration continue rejoue <span class="mono">b2c/geo-poi</span> à chaque
+          proposition de code et publie le taux de réussite. <b>Mais il ne bloque rien aujourd'hui</b> :
+          le seuil (<span class="mono">&ge; 60 %</span>) est écrit puis mis en commentaire, et le job est
+          marqué « ne fait pas échouer la CI ».</p>
+        <p class="small muted">C'est un choix assumé : <b>on pose la mesure avant le seuil</b>. Il faut
+          2 ou 3 passages de référence sur la branche principale pour savoir où placer la barre — sinon on
+          bloque l'équipe sur du bruit.</p>
+        <div class="note small" style="margin-bottom:0"><b>Question de PM à poser :</b> quand rend-on ce
+          garde-barrière bloquant, et sur quel jeu&nbsp;? C'est une décision produit, pas technique :
+          elle arbitre entre vitesse de livraison et risque de régression.</div>
+      </div>
+    </div>
+  </div>
+</section>
+
+<section id="pieges">
+  <div class="wrap">
+    <div class="shead">
+      <div class="num">08</div>
+      <h2>Données personnelles, et les pièges qui font lire faux</h2>
+      <p>Deux sujets qu'il vaut mieux connaître avant la première question en réunion.</p>
+    </div>
+
+    <h3 style="font-size:17px;margin-bottom:12px">Ce qui arrive dans Langfuse &mdash; et ce qui n'y arrive pas</h3>
+    <div class="grid g2">
+      <div class="card">
+        <h4 style="color:var(--warn)">&#9679; Présent dans les traces</h4>
+        <ul style="margin:0;padding-left:18px;font-size:13.5px">
+          <li><b>Le message de l'utilisateur</b>, mot pour mot</li>
+          <li><b>La réponse envoyée</b>, mot pour mot</li>
+          <li><b>Les prompts complets</b> envoyés aux modèles, réponses comprises</li>
+          <li><b>Les coordonnées GPS</b> si le navigateur les a partagées</li>
+          <li>Les arguments et résultats des outils (ville, dates, budget, filtres)</li>
+          <li>Un identifiant de session et un identifiant d'utilisateur
+            <span class="mono small">v3_&lt;session&gt;</span></li>
+          <li>Le commentaire libre d'un pouce, s'il y en a un (500 car. max)</li>
+        </ul>
+        <p class="small muted" style="margin:11px 0 0">C'est assumé : Langfuse est <b>le canal d'audit
+          autorisé</b>, hébergé en UE, miroir de la table de logs conversationnels.</p>
+      </div>
+      <div class="card">
+        <h4 style="color:var(--ok)">&#9679; Volontairement absent</h4>
+        <ul style="margin:0;padding-left:18px;font-size:13.5px">
+          <li><b>Aucune identité réelle</b> : l'« utilisateur » est dérivé d'un identifiant de session tiré
+            par le navigateur — pas de compte, pas d'e-mail, pas d'IP</li>
+          <li><b>Aucun contenu dans les scores</b> ni dans leurs commentaires automatiques — verrouillé par un test</li>
+          <li><b>Aucun contenu dans les messages d'erreur</b> : uniquement des noms de règles
+            (<span class="mono small">leaf_call_failed</span>, <span class="mono small">mcp_circuit_open</span>&hellip;)</li>
+          <li><b>Aucun contenu dans les métriques ni les logs</b> applicatifs</li>
+          <li><b>Rien n'est transmis à Mapbox</b> : aucun identifiant de traçage ne sort vers les tiers</li>
+          <li>Le catalogue d'agent et les appels non authentifiés ne créent aucune trace</li>
+        </ul>
+      </div>
+    </div>
+    <div class="note err">
+      <span class="tag">Le point à annoncer, pas à découvrir</span>
+      <p><b>Les 3 juges IA envoient du contenu réel de conversation à OpenAI</b> (le message et la réponse),
+        donc <b>hors</b> de notre instance européenne. C'est une extension du périmètre de traitement,
+        arbitrée et horodatée le 31 juillet 2026. Ça ne concerne que <b>5&nbsp;% des tours</b>, jamais les tours
+        marqués de test. À l'inverse, <b>aucun score, aucune métrique et aucun log</b> ne contient de contenu.
+        Autre point à savoir : notre édition n'a pas de politique de purge automatique — rien ne s'efface tout seul.</p>
+    </div>
+
+    <h3 style="font-size:17px;margin:30px 0 12px">Les 8 pièges qui font tirer de mauvaises conclusions</h3>
+    <div id="traps"></div>
+  </div>
+</section>
+
+<section id="quiz">
+  <div class="wrap">
+    <div class="shead">
+      <div class="num">09</div>
+      <h2>Vérifiez que c'est passé</h2>
+      <p>Huit questions, réponse immédiate. Si vous en ratez une, la section correspondante est en lien.
+        <span class="muted" id="qscore"></span></p>
+    </div>
+    <div class="quiz" id="quizBox"></div>
+  </div>
+</section>
+
+<section id="cheat">
+  <div class="wrap">
+    <div class="shead">
+      <div class="num">&#9635;</div>
+      <h2>Antisèche</h2>
+      <p>Une page à imprimer ou à garder ouverte à côté de l'outil.</p>
+    </div>
+    <div class="cheat">
+      <div class="card">
+        <h4>Le vocabulaire en 5 lignes</h4>
+        <ul>
+          <li><b>Trace</b> = 1 message d'utilisateur (1 tour)</li>
+          <li><b>Session</b> = 1 conversation entière</li>
+          <li><b>Observation</b> = 1 étape dans le tour</li>
+          <li><b>Score</b> = 1 note sur un tour</li>
+          <li><b>Dataset / run</b> = 1 cas figé / 1 rejeu</li>
+        </ul>
+      </div>
+      <div class="card">
+        <h4>Réflexes de lecture</h4>
+        <ul>
+          <li>La question et la réponse sont sur la <b>1<sup>re</sup> ligne de l'arbre</b>, pas sur la trace</li>
+          <li>Toujours vérifier le filtre <b>environment</b> (<span class="mono">production</span>)</li>
+          <li>Toujours exclure le tag <b>synthetic</b> pour du trafic réel</li>
+          <li>Guard à <b>1</b> = le code a corrigé le modèle (bonne nouvelle)</li>
+          <li>Un p95 élevé ≠ un tour typique : ouvrir un tour lent</li>
+        </ul>
+      </div>
+      <div class="card">
+        <h4>Les 4 filtres les plus utiles</h4>
+        <ul>
+          <li><span class="mono">level = ERROR</span> &rarr; les dépendances qui ont lâché</li>
+          <li><span class="mono">scores: user-feedback = 0</span> &rarr; les &#128078; à relire</li>
+          <li><span class="mono">scores: empty_shortlist = 1</span> &rarr; les tours sans hôtel</li>
+          <li><span class="mono">name = v3.chat_stream</span> &rarr; le trafic du widget</li>
+        </ul>
+      </div>
+      <div class="card">
+        <h4>Ordres de grandeur (sept. 2026)</h4>
+        <ul>
+          <li>~5&nbsp;s pour un tour de recherche</li>
+          <li>0,005&nbsp;$ par tour de recherche</li>
+          <li>3 appels de modèle max, jamais dépassé</li>
+          <li>2,7 hôtels affichés en moyenne</li>
+          <li>6,66&nbsp;$ dépensés en 2 mois, tout compris</li>
+        </ul>
+      </div>
+      <div class="card">
+        <h4>Marquer un tour comme test</h4>
+        <ul>
+          <li>Le widget <b>ne le fait pas</b> : vos tours ressemblent à du trafic réel</li>
+          <li>Il faut l'en-tête <span class="mono">X-Dayuse-Synthetic: 1</span></li>
+          <li>Effet : tag <span class="mono">synthetic</span>, exclu des juges</li>
+          <li>À demander à un dev si vous testez en volume</li>
+        </ul>
+      </div>
+      <div class="card">
+        <h4>Qui contacter</h4>
+        <ul>
+          <li><b>Accès / compte</b> : Fabien</li>
+          <li><b>Un tour bizarre</b> : copiez l'identifiant de trace (32 caractères) dans le ticket</li>
+          <li><b>Un cas à figer</b> : donnez l'identifiant de trace, un dev l'ajoute au jeu de tests</li>
+          <li><b>Une vignette à créer</b> : dans l'interface, jamais par script</li>
+        </ul>
+      </div>
+    </div>
+  </div>
+</section>
+
+</main>
+
+<footer>
+  <div class="wrap">
+    <details class="noprint">
+      <summary>Annexe &mdash; comment les chiffres de cette page ont été obtenus</summary>
+      <div class="body">
+        <p class="small">Tout vient de l'API publique du projet, en lecture seule, le 9 septembre 2026.
+          Les identifiants sont ceux du fichier <span class="mono">.env</span> à la racine du dépôt
+          (<span class="mono">LANGFUSE_PUBLIC_KEY</span> / <span class="mono">LANGFUSE_SECRET_KEY</span>).
+          Pour rafraîchir la page, rejouez ces requêtes et remplacez les valeurs dans le bloc
+          <span class="mono">DATA</span> du script.</p>
+<pre># le tour vitrine, avec son arbre complet et ses scores
+curl -s -u "$LANGFUSE_PUBLIC_KEY:$LANGFUSE_SECRET_KEY" \
+  "$LANGFUSE_BASE_URL/api/public/traces/0230928659c538b69b3d309b8434d2d3"
+
+# taux de declenchement de tous les scores booleens (guards inclus)
+curl -s -u "$LANGFUSE_PUBLIC_KEY:$LANGFUSE_SECRET_KEY" -G \
+  --data-urlencode 'query={"view":"scores-boolean","metrics":[{"measure":"value","aggregation":"avg"},
+    {"measure":"count","aggregation":"count"}],"dimensions":[{"field":"name"}],"filters":[],
+    "fromTimestamp":"2026-07-01T00:00:00Z","toTimestamp":"2026-09-10T00:00:00Z"}' \
+  "$LANGFUSE_BASE_URL/api/public/metrics"
+
+# cout par modele  (remplacer view/dimensions pour la latence p95, les niveaux, le volume/jour)
+curl -s -u "$LANGFUSE_PUBLIC_KEY:$LANGFUSE_SECRET_KEY" -G \
+  --data-urlencode 'query={"view":"observations","metrics":[{"measure":"totalCost","aggregation":"sum"},
+    {"measure":"count","aggregation":"count"}],"dimensions":[{"field":"providedModelName"}],"filters":[],
+    "fromTimestamp":"2026-07-01T00:00:00Z","toTimestamp":"2026-09-10T00:00:00Z"}' \
+  "$LANGFUSE_BASE_URL/api/public/metrics"
+
+# verdicts des juges, annotations humaines, pouces
+curl -s -u "$LANGFUSE_PUBLIC_KEY:$LANGFUSE_SECRET_KEY" \
+  "$LANGFUSE_BASE_URL/api/public/scores?limit=50&name=obs7-relevance-v3chat"</pre>
+        <div class="note warn small" style="margin-bottom:0"><b>Un filtre de l'API ne marche pas :</b>
+          <span class="mono">&amp;value=1</span> sur <span class="mono">/api/public/scores</span> renvoie
+          <b>toutes</b> les lignes, zéros compris (10&nbsp;923 au lieu d'une poignée). Filtrez côté client,
+          ou passez par <span class="mono">/api/public/metrics</span>.</div>
+      </div>
+    </details>
+
+    <details class="noprint">
+      <summary>Deux limites connues, non corrigées à ce jour</summary>
+      <div class="body">
+        <ol class="steps">
+          <li><b>Un QA qui teste dans le widget produit du trafic indistinguable du trafic réel.</b>
+            Le navigateur n'envoie jamais l'en-tête <span class="mono">X-Dayuse-Synthetic</span> : vos tours de
+            test sont donc éligibles à l'échantillonnage des juges et apparaissent dans les taux du dashboard.
+            Correctif d'une ligne côté outillage, pas encore fait.</li>
+          <li><b>Les rejeux de jeux de tests ne sont pas marqués non plus</b>, pour la même raison — ils sont
+            donc aussi éligibles aux juges. C'est ce qui a rempli la file d'annotation de tours vides
+            (sans question ni réponse à annoter) lors de sa première mise en service.</li>
+        </ol>
+      </div>
+    </details>
+
+    <p style="margin-top:22px">Guide rédigé pour la présentation Produit&nbsp;/&nbsp;QA du projet
+      <b>AgentB2C</b>. Données réelles extraites le 9&nbsp;septembre&nbsp;2026 &mdash;
+      les valeurs bougent, les mécanismes non. Source&nbsp;:
+      <span class="mono">observability/langfuse/guide-langfuse-pm-qa.html</span>.</p>
+  </div>
+</footer>
+
+<script>
+/* ============================================================================
+   Données réelles extraites de l'instance Langfuse b2c-concierge le 2026-09-09.
+   Aucune valeur inventée. Requêtes de rafraîchissement : voir l'annexe du pied
+   de page. Instantané : 3 640 traces / 904 sessions / 22 score configs.
+   ========================================================================= */
+const DATA = {
+  snapshot: [
+    ['3 640', 'traces (tours)'], ['904', 'sessions'], ['34', 'étapes / tour'],
+    ['18', 'scores / tour'], ['6,66 $', 'coût cumulé'], ['4', 'services tracés'],
+  ],
+
+  objects: [
+    { t:'Trace', sub:'= UN message d\'utilisateur',
+      d:'Le conteneur de tout ce qui s\'est passé pour un seul message. On dit « un tour ».',
+      us:'Chez nous une trace s\'appelle <span class="mono">v3.chat_stream</span> (widget en streaming), '+
+         '<span class="mono">v3.chat</span> (mode simple) ou <span class="mono">a2a.b2c_concierge</span> '+
+         '(outillage interne, pas un vrai utilisateur). Une trace ne couvre <b>jamais</b> une conversation entière.' },
+    { t:'Observation', sub:'= UNE étape du tour',
+      d:'Chaque ligne de l\'arbre. Il y en a 5 sortes, et la sorte compte plus que le nom.',
+      us:'<span class="pill neutral">SPAN</span> une étape quelconque &middot; '+
+         '<span class="pill cx">GENERATION</span> un appel de modèle (avec son coût et ses tokens) &middot; '+
+         '<span class="pill hs">TOOL</span> un outil appelé (recherche, géocodage) &middot; '+
+         '<span class="pill faq">AGENT</span> un agent qui prend la main &middot; '+
+         '<span class="pill err">GUARDRAIL</span> un garde-fou qui a vérifié la réponse.' },
+    { t:'Score', sub:'= UNE note sur un tour',
+      d:'Un chiffre ou un booléen attaché à la trace. C\'est ce qui rend l\'agent mesurable.',
+      us:'18 à 20 scores par tour chez nous. <b>Seul le concierge en pose</b> : si vous regardez une trace de '+
+         'feuille isolée, elle n\'aura jamais de score, et ce n\'est pas un bug.' },
+    { t:'Session', sub:'= UNE conversation',
+      d:'Le fil qui relie les tours d\'un même utilisateur. C\'est l\'écran à ouvrir pour comprendre un malentendu.',
+      us:'Exemple réel de 4 tours : <span class="mono">« I want a room in Hong kong for today »</span> &rarr; '+
+         '<span class="mono">« Metropark Hotel Kowloon €66 »</span> &rarr; idem &rarr; '+
+         '<span class="mono">« I want price in HKD »</span>. Le widget crée une session par ouverture de page.' },
+    { t:'Dataset & Run', sub:'= UN cas figé / UN rejeu',
+      d:'Un jeu de cas de test hébergé dans Langfuse, et le résultat d\'un passage sur ce jeu.',
+      us:'4 jeux, 54 cas, 34 passages enregistrés. Deux passages se comparent côte à côte : c\'est '+
+         'l\'écran qui répond à « est-ce que mon correctif a amélioré quelque chose&nbsp;? ».' },
+  ],
+
+  /* Étiquettes pédagogiques par étape. Clé = nom de l'observation
+     (les appels de modèle du concierge sont distingués par leur modèle). */
+  labels: {
+    'v3.chat': { t:'La porte d\'entrée HTTP',
+      w:'<b>La ligne la plus importante de l\'arbre.</b> C\'est elle qui porte la question de l\'utilisateur '+
+        'et la réponse finale — pas la trace elle-même. C\'est aussi elle qui porte les 18 scores du tour.' },
+    'invoke_workflow b2c_concierge': { t:'Le tour vu par le framework',
+      w:'Enveloppe posée par le framework d\'agents. Rien à y lire : son contenu est celui de la ligne suivante.' },
+    'invoke_agent b2c_concierge': { t:'L\'orchestrateur au travail',
+      w:'C\'est ici que sont rangées les <b>métadonnées de décision</b> du tour : <span class="mono">route</span> '+
+        '(qui a été appelé), <span class="mono">family</span> (comment le message a été classé), '+
+        '<span class="mono">llm_calls</span> et <span class="mono">status</span>. À ouvrir pour savoir '+
+        '<i>pourquoi</i> le tour a pris ce chemin.' },
+    'acompletion:gpt-4o-mini': { t:'Appel n°1 — le triage',
+      w:'Le message est classé en une seule question à un petit modèle : recherche&nbsp;? FAQ&nbsp;? '+
+        'confirmation de réservation&nbsp;? simple bonjour&nbsp;? Un repli sans IA existe si l\'appel échoue. '+
+        '<b>0,9 s et 3 % du coût du tour.</b>' },
+    'invoke_agent hotel_search_leg': { t:'L\'appel à la feuille recherche',
+      w:'Le concierge délègue. Budget&nbsp;: <b>10 s, sans réessai</b> — au-delà il répond honnêtement qu\'il '+
+        'n\'a pas pu chercher, plutôt que de faire attendre.' },
+    'a2a.b2c_hotel_search': { t:'La feuille recherche prend la main',
+      w:'<b>Frontière réseau franchie.</b> On est maintenant dans un autre service, sur une autre machine — '+
+        'et pourtant toujours dans la même trace. C\'est le point technique qui rend cet outil utile chez nous.' },
+    'invoke_workflow b2c_hotel_search': { t:'La feuille vue par le framework', w:'Enveloppe technique.' },
+    'invoke_agent b2c_hotel_search': { t:'La feuille au travail',
+      w:'Deux appels de modèle vont s\'enchaîner : un pour comprendre le lieu et la date, un pour lancer '+
+        'la recherche avec les bons filtres.' },
+    'call_llm': { t:'Enveloppe d\'un appel de modèle (vidée exprès)',
+      w:'<b>Volontairement vide : 0 token, 0 coût, aucun contenu.</b> Sans cela, Langfuse comptait les tokens '+
+        'deux fois (mesuré : 4 810 au lieu de 4 484). Tout est sur la ligne <span class="mono">GENERATION</span> '+
+        'juste en dessous.' },
+    'generate_content gpt-4o-mini': { t:'Appel de modèle de la feuille',
+      w:'Prompt très gros (<b>~6 600 tokens d\'entrée</b>) mais modèle bon marché : les deux appels de la '+
+        'feuille coûtent ensemble 3 centièmes de centime. C\'est l\'intérêt d\'un modèle choisi par rôle.' },
+    'geocode_location': { t:'Résolution du lieu',
+      w:'Transforme « Paris » ou « autour des Champs-Élysées » en coordonnées. <b>C\'est ici que se déclenchent '+
+        '5 des 15 garde-fous</b> (homonymes, lieux trop vagues, points d\'intérêt à 800 km). L\'appel à Mapbox '+
+        'lui-même n\'est pas tracé — seule sa durée est visible.' },
+    'search_offers': { t:'La recherche d\'offres',
+      w:'<b>La ligne à ouvrir quand un utilisateur dit « ce n\'est pas ce que j\'ai demandé ».</b> Les arguments '+
+        'exactement envoyés à l\'inventaire sont là : ville, coordonnées, date, créneau, budget, équipements. '+
+        'Comparez-les à la phrase de l\'utilisateur : l\'écart est le bug.' },
+    'elasticsearch.search': { t:'La requête envoyée à l\'inventaire',
+      w:'Vue depuis le service d\'inventaire (un 4<sup>e</sup> service, tracé dans la même trace).' },
+    'search': { t:'L\'exécution côté moteur de recherche',
+      w:'242 ms sur ce tour. Si ce chiffre gonfle, le problème est dans l\'inventaire, pas dans l\'agent.' },
+    'acompletion:gpt-5.2': { t:'Appel n°3 — la rédaction finale',
+      w:'Le gros modèle écrit la réponse à partir des hôtels trouvés. <b>2,2 s et 76 % du coût du tour</b> à lui '+
+        'seul. C\'est le poste à surveiller si la facture augmente, et le premier levier de latence.' },
+    'verify-amenity-claims': { t:'Garde-fou : équipements réellement disponibles',
+      w:'Relit la réponse rédigée et vérifie que chaque équipement annoncé (piscine, spa&hellip;) est bien attesté '+
+        'par les données. Sinon il nuance le texte. Déclenche sur <b>0,31 %</b> des tours.' },
+    'enforce-hotel-link-truthfulness': { t:'Garde-fou : aucun lien d\'hôtel inventé',
+      w:'Supprime tout lien vers une page Dayuse qui ne correspond pas à un hôtel réellement trouvé ce tour-là. '+
+        'Un modèle qui fabrique une URL plausible est un vrai incident : celui-ci le rend impossible.' },
+  },
+
+  guards: [
+    { n:'geocode_echo_back', s:'hs', r:0.0920, c:652,
+      m:'Le géocodeur a renvoyé un lieu qui ne correspond pas à ce que l\'utilisateur a écrit → rejeté.' },
+    { n:'generic_location_demotion', s:'hs', r:0.0000, c:652,
+      m:'Un mot trop vague (« hôtel », « centre ») a été écarté avant d\'aller chercher un lieu.' },
+    { n:'state_anchoring', s:'hs', r:0.0092, c:652,
+      m:'Un état américain a servi à trancher entre deux villes homonymes.' },
+    { n:'date_hallucinated_year_rolled_forward', s:'hs', r:0.0046, c:652, noconf:true, ex:'incident réel de production, corrigé et déployé',
+      m:'Le modèle a inventé une année passée (« 6 août » → 2023) : la date a été ramenée dans le futur.' },
+    { n:'date_carryover_stale_floored', s:'hs', r:0.0000, c:652,
+      m:'Une date reprise d\'un tour précédent était périmée : ramenée à aujourd\'hui.' },
+    { n:'budget_integrity', s:'cx', r:0.0000, c:652,
+      m:'Un budget annoncé a été préservé, ou un faux budget déduit d\'une durée/distance a été refusé.' },
+    { n:'timeslot_sanitization', s:'cx', r:0.0000, c:652,
+      m:'Un créneau horaire impossible (fin avant début) a été réparé.' },
+    { n:'recovery_ack', s:'cx', r:0.1028, c:652, ex:'543346e17df9ea8f58e82821f5e29827',
+      m:'Après une recherche sans résultat, un simple « ok » a bien relancé la recherche au lieu d\'être pris pour un bonjour.' },
+    { n:'anti_clarification_loop', s:'cx', r:0.0000, c:652,
+      m:'L\'agent allait reposer la question qu\'il venait de poser : bloqué, un seul réessai, puis coupe nette.' },
+    { n:'amenity_truthfulness', s:'cx', r:0.0031, c:652, ex:'e28396d9e258a702baedc8af1c0435c2',
+      m:'Un équipement annoncé dans la réponse n\'était pas attesté par les données : le texte a été nuancé.' },
+    { n:'named_hotel_lookup', s:'cx', r:0.0092, c:652, ex:'e60160c5134dcc21a8fa6f3915c5c7b7',
+      m:'Un hôtel nommé par l\'utilisateur a été relié à une vraie fiche, pas à une invention.' },
+    { n:'booking_confirmation', s:'cx', r:0.0951, c:652, ex:'e60160c5134dcc21a8fa6f3915c5c7b7',
+      m:'Le lien de réservation a exigé une confirmation explicite : impossible à générer sur un malentendu.' },
+    { n:'hotel_link_truthfulness', s:'cx', r:0.0000, c:652,
+      m:'Un lien vers une page d\'hôtel fabriqué de toutes pièces a été retiré de la réponse.' },
+    { n:'poi_anchor_coherence', s:'hs', r:0.0000, c:315,
+      m:'Un lieu-dit absurdement loin du repère du tour a été jeté (le fameux commerce « Champs-Élysées » à Toulon, 830 km).' },
+    { n:'filter_relaxation_honored', s:'hs', r:0.0342, c:117, ex:'8bf6ec3c83de3955cf4b1d986524af4a',
+      m:'L\'utilisateur a retiré un filtre (« enlève le spa ») et la recherche est vraiment repartie sans lui.' },
+  ],
+
+  turnScores: [
+    { n:'hotels_returned', s:'cx', v:'2,68 en moyenne', c:652, m:'Nombre de cartes d\'hôtel affichées ce tour-là.' },
+    { n:'empty_shortlist', s:'cx', v:'40,7 % des tours', c:668, m:'Aucune carte affichée. <b>Inclut les bonjours, FAQ et demandes de précision</b> — ce n\'est pas un taux d\'échec.' },
+    { n:'llm_calls', s:'cx', v:'2,63 en moyenne', c:652, m:'Appels de modèle consommés. Budget d\'architecture : 3 maximum. Jamais dépassé à ce jour.' },
+    { n:'ttft_ms', s:'cx', v:'25,9 ms (p95)', c:197, m:'Délai avant le premier signe de vie à l\'écran. Objectif &lt; 300 ms. Seuls les tours en streaming l\'émettent.' },
+    { n:'degraded', s:'cx', v:'4 occurrences', c:4, m:'Dégradation assumée. Ensemble fermé de 2 valeurs : <span class="mono">leaf_call_failed</span> (les 4 cas) et <span class="mono">facade_shield</span>.' },
+  ],
+
+  judges: [
+    { t:'Hallucination', sc:'obs7-hallucination-v3chat', e:'0 → 1', n:17,
+      d:'La réponse affirme-t-elle quelque chose qui n\'est pas étayé&nbsp;? 0 = rien à signaler.' },
+    { t:'Pertinence', sc:'obs7-relevance-v3chat', e:'0 → 1', n:10,
+      d:'La réponse répond-elle à la question posée&nbsp;? 1 = parfaitement.' },
+    { t:'Détresse utilisateur', sc:'obs7-user-distress-v3chat', e:'oui / non', n:24,
+      d:'L\'utilisateur montre-t-il de l\'agacement ou de la grossièreté&nbsp;? Aucun cas positif à ce jour.' },
+  ],
+
+  judgeRows: [
+    { j:'Pertinence', v:'0,9', bad:false,
+      c:'The generation provides specific information about hotel options and encourages further clarification from the user, directly addressing the query about hotels in Rome for the weekend.' },
+    { j:'Pertinence', v:'1,0', bad:false,
+      c:'The response directly addresses the request for a hotel room in Paris for tomorrow by providing a specific recommendation and offering to assist further.' },
+    { j:'Pertinence', v:'0,0', bad:true,
+      c:'The response does not provide relevant information related to the user\'s greeting and does not address a specific inquiry or topic.' },
+    { j:'Pertinence', v:'0,6', bad:true,
+      c:'The generation provides a direct link for booking the H4 Hotel Wyndham Paris Pleyel Resort, which is relevant to the query about pricing and reservation; however, it does not address any details regarding the €95 rate.' },
+    { j:'Hallucination', v:'0,0', bad:false,
+      c:'The generation mentions specific details about a hotel and pricing, which are live data from a booking system that I cannot verify, hence it does not contain evidence of hallucination.' },
+    { j:'Détresse', v:'non', bad:false,
+      c:'The user is making a straightforward request for a room in Hong Kong without expressing any frustration or annoyance. There is no profanity or strong language present.' },
+  ],
+
+  humanRows: [
+    ['human_hallucination', '0 → 1', 17], ['human_relevance', '0 → 1', 17], ['human_user_distress', 'oui / non', 17],
+  ],
+
+  modelCost: [
+    { m:'gpt-4o', v:2.99, calls:558, note:'ancien modèle de rédaction' },
+    { m:'gpt-5.2', v:2.05, calls:538, note:'rédaction finale aujourd\'hui' },
+    { m:'gpt-4o-mini', v:1.62, calls:4745, note:'triage + feuilles' },
+  ],
+};
+</script>
+
+<script>
+DATA.playbooks = [
+  { t:'Un utilisateur dit que la réponse est fausse',
+    who:'PM · QA',
+    steps:[
+      'Récupérez l\'identifiant de <b>session</b> (une conversation) ou de <b>trace</b> (un message). Le QA peut le lire dans le widget ; sinon, retrouvez la conversation par sa date et son environnement.',
+      'Ouvrez la <b>session</b> d\'abord, pas la trace : la moitié des « réponses fausses » sont en réalité un malentendu accumulé sur 3 tours (une ville comprise au tour 1 qui n\'a jamais été corrigée).',
+      'Sur le tour fautif, ouvrez la ligne <span class="mono">search_offers</span> de type <span class="pill hs">TOOL</span> : elle contient <b>la requête exactement envoyée à l\'inventaire</b>.',
+      'Comparez cette requête à ce que l\'utilisateur a écrit. L\'écart <i>est</i> le bug. S\'il n\'y a pas d\'écart, le problème est dans la rédaction finale (dernier appel de modèle) ou dans l\'inventaire lui-même.',
+      'Regardez les scores du tour : un garde-fou à 1 vous dit qu\'une correction a déjà eu lieu ; <span class="mono">degraded</span> vous dit qu\'une dépendance a lâché.',
+    ],
+    rec:[['Filtre pour retrouver un utilisateur mécontent', 'scores: user-feedback = 0  ·  environment = production']] },
+
+  { t:'« C\'est lent »',
+    who:'PM · QA',
+    steps:[
+      'Ne partez pas du dashboard : le p95 global (21 s) est écrasé par une minorité de tours pathologiques et ne décrit personne.',
+      'Filtrez les traces par durée décroissante et ouvrez <b>trois</b> tours lents.',
+      'Dans l\'arbre, cherchez la barre la plus large. Trois coupables possibles seulement : la <b>rédaction finale</b> (gros modèle), la <b>feuille de recherche</b>, ou l\'<b>inventaire</b>.',
+      'Si la feuille a mis exactement 10 s, ce n\'est pas de la lenteur : c\'est le budget maximum, donc un timeout. Cherchez alors <span class="mono">level = ERROR</span> sur le même tour.',
+    ],
+    rec:[['Les tours où une dépendance a lâché', 'level = ERROR  ·  environment = production']] },
+
+  { t:'« Il ne me propose aucun hôtel »',
+    who:'PM · QA',
+    steps:[
+      'Filtrez sur <span class="mono">empty_shortlist = 1</span>, mais <b>ne lisez pas ce taux comme un taux d\'échec</b> : il compte aussi les bonjours et les questions de FAQ.',
+      'Ouvrez la ligne <span class="mony mono">search_offers</span> : si les arguments sont bons, il n\'y avait vraiment pas d\'offre.',
+      'Vérifiez l\'heure du tour. Toutes nos offres ont une limite de réservation le jour même (16 h au plus tard) : après cette heure, une recherche « pour aujourd\'hui » ne peut structurellement rien renvoyer. Ce n\'est pas un bug d\'agent.',
+      'Vérifiez les filtres accumulés : un utilisateur qui a demandé piscine + spa + budget 60 € restreint parfois la recherche à zéro sans s\'en rendre compte.',
+    ],
+    rec:[['Les tours sans aucune carte', 'scores: empty_shortlist = 1  ·  name = v3.chat_stream']] },
+
+  { t:'Un lien ou un hôtel qui a l\'air inventé',
+    who:'QA',
+    steps:[
+      'C\'est le scénario le plus grave (on envoie l\'utilisateur sur une page qui n\'existe pas) et c\'est aussi celui qui est le plus verrouillé.',
+      'Regardez d\'abord <span class="mono">guard_hotel_link_truthfulness</span> sur le tour : à 1, le lien fabriqué a été <b>retiré avant l\'affichage</b> — le système a fait son travail.',
+      'À 0 alors que vous voyez quand même un lien douteux dans l\'interface : c\'est un vrai incident, à remonter immédiatement avec l\'identifiant de trace.',
+      'Vérifiez aussi <span class="mono">guard_named_hotel_lookup</span> : il prouve que l\'hôtel nommé a été relié à une fiche réelle.',
+    ],
+    rec:[['Les tours où un lien a été retiré', 'scores: guard_hotel_link_truthfulness = 1']] },
+
+  { t:'Je veux tester en volume sans polluer les chiffres',
+    who:'QA',
+    steps:[
+      '<b>Sachez-le d\'abord : tester dans le widget pollue les chiffres.</b> Le navigateur ne marque pas ses tours, donc vos tests comptent comme du trafic réel dans le dashboard et sont éligibles aux juges IA.',
+      'Le seul mécanisme de marquage est l\'en-tête HTTP <span class="mono">X-Dayuse-Synthetic: 1</span>, qui pose le tag <span class="mono">synthetic</span> sur la trace.',
+      'Un tour marqué est automatiquement exclu des 3 juges IA et de la file d\'annotation. Demandez à un dev un script de test, ou une façon d\'injecter l\'en-tête.',
+      'Convention utile pour vous retrouver : donnez à votre session un nom reconnaissable. Attention, aucun filtre automatique ne s\'appuie dessus — c\'est purement pour l\'œil humain.',
+    ],
+    rec:[['Ne voir que le trafic réel', 'environment = production  ·  tags: exclure « synthetic »'],
+         ['Ne voir que vos tours de test', 'tags: inclure « synthetic »']] },
+
+  { t:'Ce bug ne doit plus jamais revenir',
+    who:'PM · QA',
+    steps:[
+      'Copiez l\'identifiant de trace (32 caractères) du tour fautif. <b>C\'est la seule chose qu\'on vous demande.</b>',
+      'Décidez avec un dev ce que la <b>bonne</b> réponse aurait dû être, en termes vérifiables : au moins 1 hôtel, dans telle zone, tel pays reconnu, sans mentionner tel mot.',
+      'Le dev ajoute une ligne au jeu <span class="mono">b2c/prod-regressions</span> avec votre identifiant de trace : le texte du tour est relu depuis la trace, jamais retapé à la main.',
+      'Le cas est alors rejoué à chaque proposition de code. Étiquetez-le <span class="pill warn">target</span> s\'il échoue encore (c\'est la barre à atteindre) ou <span class="pill ok">regression_guard</span> s\'il passe déjà.',
+      'Un cas est figé pour toujours : on n\'en modifie jamais un existant, on en ajoute un nouveau.',
+    ],
+    rec:[['Ce qu\'il faut coller dans le ticket', 'trace_id (32 car. hex) + ce que la réponse aurait dû contenir']] },
+];
+
+DATA.traps = [
+  { t:'Le filtre « environment » — le piège numéro un',
+    d:'Plusieurs environnements cohabitent dans le même projet : <span class="mono">production</span>, '+
+      '<span class="mono">development</span>, quelques <span class="mono">dev-obs*</span> et surtout '+
+      '<span class="mono">langfuse-llm-as-a-judge</span> (les traces des juges eux-mêmes). Un dashboard lu '+
+      'sans ce filtre mélange tout. Pire : <b>le service d\'inventaire est le même pour la prod et le dev local</b>, '+
+      'donc quelques lignes d\'un tour de développement s\'affichent en <span class="mono">production</span>. '+
+      'Filtrer sur l\'environnement au niveau des <i>étapes</i> ne donnera jamais un résultat parfaitement propre.' },
+  { t:'Le tag « synthetic » existe même en production',
+    d:'Nos vérifications après déploiement sont scriptées et partent sur la vraie production. Elles portent le '+
+      'tag <span class="mono">synthetic</span>. Donc « je suis en production » ne suffit pas : <b>il faut aussi '+
+      'exclure ce tag</b> pour parler de vrais utilisateurs. Et l\'inverse est vrai : un tour de test passé '+
+      'depuis le widget n\'a <i>pas</i> ce tag et se fait compter comme réel.' },
+  { t:'« Pas de score de juge » ne veut pas dire « c\'est cassé »',
+    d:'Les juges tournent sur 5 % des tours, et les <b>trois tirages sont indépendants</b> : le même tour n\'est '+
+      'presque jamais noté par les trois. À une douzaine de tours par jour, l\'espérance est de <b>0,6 note par '+
+      'juge et par jour</b> : voir 1 note, ou 0, est parfaitement normal. Corollaire mesuré : juges et '+
+      'annotations humaines n\'avaient <b>aucun tour en commun</b> — d\'où la nécessité de mettre en file '+
+      'les tours déjà notés.' },
+  { t:'Une trace n\'apparaît pas instantanément',
+    d:'L\'envoi vers Langfuse se fait par lots, en tâche de fond. Après un test, attendez quelques secondes et '+
+      'rafraîchissez. Si vous scriptez une vérification, ne vous arrêtez pas au premier résultat non vide : '+
+      'attendez de trouver <i>le fait précis</i> que vous cherchez, sinon vous lisez un arbre à moitié arrivé.' },
+  { t:'Le passé n\'est jamais recalculé',
+    d:'Ni un correctif de comptage, ni un changement de tarif de modèle ne réécrit l\'historique déjà enregistré. '+
+      'Concrètement : les coûts des feuilles étaient <b>comptés deux fois avant le 30 juillet 2026</b> et le '+
+      'resteront à jamais. Ne comparez pas un « avant » et un « après » qui traversent cette date.' },
+  { t:'« Une seule trace » ne veut pas dire « un seul arbre »',
+    d:'Il est possible d\'avoir une trace unique mais plusieurs racines : l\'arbre est alors coupé en morceaux et '+
+      'on croit à tort qu\'une étape manque. Le contrôle est de vérifier qu\'il n\'y a <b>qu\'une seule ligne '+
+      'de premier niveau</b> (un tour de recherche sain : 31 à 34 étapes, 1 racine).' },
+  { t:'Le nom d\'un score de juge est le nom de la RÈGLE',
+    d:'Les scores s\'appellent <span class="mono">obs7-relevance-v3chat</span> et pas « Relevance » : c\'est le '+
+      'nom de la <b>règle</b>, pas celui du juge. Conséquence à connaître avant de « ranger » : renommer une '+
+      'règle casse l\'historique du score, alors que changer le juge en dessous ne le casse pas.' },
+  { t:'Un guard sans description dans l\'interface n\'est pas cassé',
+    d:'<span class="mono">guard_date_hallucinated_year_rolled_forward</span> apparaît sans libellé ni validation : '+
+      'son nom fait 43 caractères et Langfuse plafonne à 35. Le score est bien enregistré et exploitable — il '+
+      'n\'a simplement pas de fiche descriptive, et ne peut pas être utilisé dans une file d\'annotation. '+
+      'C\'est définitif : le nom porte déjà de l\'historique de production, on ne le raccourcira pas.' },
+];
+
+DATA.quiz = [
+  { q:'Une « trace » chez nous, ça correspond à quoi ?',
+    o:['Une conversation entière', 'Un seul message d\'utilisateur (un tour)', 'Une session de test', 'Un appel de modèle'],
+    a:1, e:'Un tour = une trace. La conversation entière, c\'est la <b>session</b>. Une trace par conversation avait été envisagée puis rejetée : illisible.', s:'#objets' },
+  { q:'Vous ouvrez une trace : ni question ni réponse affichées. Que faites-vous ?',
+    o:['Vous signalez un bug de traçage', 'Vous cliquez sur la première ligne de l\'arbre', 'Vous changez d\'environnement', 'Vous attendez que le lot arrive'],
+    a:1, e:'C\'est le comportement normal depuis la refonte du traçage : la question et la réponse sont portées par la <b>première observation</b>, pas par la trace.', s:'#objets' },
+  { q:'<span class="mono">guard_recovery_ack = 1</span> sur un tour. Bonne ou mauvaise nouvelle ?',
+    o:['Mauvaise : un garde-fou a échoué', 'Mauvaise : l\'utilisateur a eu une erreur', 'Bonne : le code a rattrapé le modèle', 'Neutre : le score n\'est pas mesuré'],
+    a:2, e:'Un guard à 1 signifie qu\'il <b>est intervenu</b> : le modèle se trompait, le code a corrigé, et l\'utilisateur a reçu une bonne réponse. À 0, il n\'a pas eu besoin d\'intervenir.', s:'#scores' },
+  { q:'<span class="mono">empty_shortlist</span> vaut 40,7 %. Qu\'annoncez-vous en réunion ?',
+    o:['4 utilisateurs sur 10 ne trouvent aucun hôtel', '40 % des recherches échouent', '40 % des tours n\'affichent aucune carte — bonjours et FAQ compris', 'Le taux de conversion est de 59 %'],
+    a:2, e:'Le score vaut 1 dès qu\'un tour n\'affiche pas de carte : cela inclut les salutations, les questions de FAQ, les demandes de précision et les confirmations. Pour un taux d\'échec de recherche, il faut restreindre aux tours de recherche.', s:'#dashboard' },
+  { q:'Sur combien de tours les juges IA se prononcent-ils ?',
+    o:['Tous', '5 % des tours réels', 'Uniquement les tours marqués test', 'Uniquement ceux avec un pouce'],
+    a:1, e:'5 %, en excluant les tours marqués <span class="mono">synthetic</span>. Et les trois juges tirent <b>indépendamment</b> : le même tour est rarement noté par les trois.', s:'#scores' },
+  { q:'Vous passez 50 tours de test dans le widget. Sont-ils exclus des statistiques ?',
+    o:['Oui, le widget les marque automatiquement', 'Oui, si vous nommez la session « test »', 'Non : ils comptent comme du trafic réel', 'Non, mais ils sont supprimés après 24 h'],
+    a:2, e:'Le navigateur n\'envoie jamais l\'en-tête de marquage. Vos 50 tours entrent dans les taux du dashboard et sont éligibles aux juges. C\'est une limite connue, non corrigée : passez par un script si vous testez en volume.', s:'#playbooks' },
+  { q:'Dans le coût d\'un tour de recherche, quel poste domine ?',
+    o:['Le triage du message', 'Les deux appels de la feuille', 'La rédaction finale (76 %)', 'La requête à l\'inventaire'],
+    a:2, e:'Un seul appel sur quatre — la rédaction finale, confiée à un gros modèle — pèse 76 % des 0,005 $ du tour. Les deux appels de la feuille avalent 13 000 tokens pour 3 centièmes de centime.', s:'#anatomie' },
+  { q:'Le garde-barrière d\'évaluation en intégration continue bloque-t-il une fusion aujourd\'hui ?',
+    o:['Oui, sous 60 % de réussite', 'Oui, sur les 4 jeux de tests', 'Non : il mesure et publie, sans bloquer', 'Il n\'existe pas'],
+    a:2, e:'Le seuil de 60 % est écrit puis mis en commentaire, et le job est marqué « ne fait pas échouer la CI ». Choix assumé : on pose la mesure avant le seuil. <b>Le rendre bloquant est une décision produit qui reste à prendre.</b>', s:'#boucle' },
+];
+
+DATA.trace = {"id":"0230928659c538b69b3d309b8434d2d3","name":"v3.chat","tags":["synthetic"],"release":"e7795fc","env":"production","session":"963da223d4d046ebb0bb0e97b557a7e8","ts":"2026-09-09T07:54:49.192Z","latency":5.205,"cost":0.005320949999,"nObs":34,"nScores":18,"input":"un hotel a Paris demain","output":"Pour demain (2026-09-10) à Paris, vous avez 5 offres de day-use disponibles — et la plus belle économie est au H4 Hotel Wyndham Paris Pleyel Resort, très fortement remisé par rapport au tarif nuit. Dites-moi votre arrondissement/zone idéale (centre, La Défense, Orly, etc.) et votre budget max, et je vous affine la sélection.","nodes":[{"i":"e9db226c342a","p":null,"n":"v3.chat","t":"SPAN","o":0,"d":5205,"m":null,"c":0,"u":null,"s":"langfuse-sdk"},{"i":"3e273cf5fb86","p":"e9db226c342a","n":"invoke_workflow b2c_concierge","t":"SPAN","o":1,"d":5202,"m":null,"c":0,"u":null,"s":"gcp.vertex.agent"},{"i":"e9268e0c207a","p":"3e273cf5fb86","n":"invoke_agent b2c_concierge","t":"AGENT","o":1,"d":5202,"m":null,"c":0,"u":null,"s":"gcp.vertex.agent"},{"i":"d5432ba4550b","p":"e9268e0c207a","n":"acompletion","t":"GENERATION","o":2,"d":916,"m":"gpt-4o-mini","c":0.0001566,"u":{"in":1472,"out":69},"s":"openinference.instrumentation.litellm"},{"i":"3a4dbae25fc9","p":"e9268e0c207a","n":"invoke_agent hotel_search_leg","t":"AGENT","o":918,"d":2119,"m":null,"c":0,"u":null,"s":"gcp.vertex.agent"},{"i":"a328615a6c4a","p":"3a4dbae25fc9","n":"a2a.client.transports.jsonrpc.JsonRpcTransport.send_message","t":"SPAN","o":919,"d":2117,"m":null,"c":0,"u":null,"s":"a2a-python-sdk"},{"i":"018496058a87","p":"a328615a6c4a","n":"a2a.client.transports.jsonrpc.JsonRpcTransport._get_http_args","t":"SPAN","o":919,"d":0,"m":null,"c":0,"u":null,"s":"a2a-python-sdk"},{"i":"8ea0715b6b56","p":"a328615a6c4a","n":"a2a.client.transports.jsonrpc.JsonRpcTransport._send_request","t":"SPAN","o":920,"d":2116,"m":null,"c":0,"u":null,"s":"a2a-python-sdk"},{"i":"2506b75bf106","p":"a328615a6c4a","n":"a2a.client.transports.jsonrpc.JsonRpcTransport._apply_interceptors","t":"SPAN","o":920,"d":0,"m":null,"c":0,"u":null,"s":"a2a-python-sdk"},{"i":"8c8eb30b290e","p":"8ea0715b6b56","n":"a2a.b2c_hotel_search","t":"SPAN","o":933,"d":2101,"m":null,"c":0,"u":null,"s":"langfuse-sdk"},{"i":"d830919cabef","p":"26fa8ace1b37","n":"a2a.server.request_handlers.default_request_handler.DefaultRequestHandler.on_message_send","t":"SPAN","o":933,"d":2100,"m":null,"c":0,"u":null,"s":"a2a-python-sdk"},{"i":"26fa8ace1b37","p":"8c8eb30b290e","n":"a2a.server.request_handlers.jsonrpc_handler.JSONRPCHandler.on_message_send","t":"SPAN","o":933,"d":2100,"m":null,"c":0,"u":null,"s":"a2a-python-sdk"},{"i":"0231335ef9f6","p":"d830919cabef","n":"a2a.server.request_handlers.default_request_handler.DefaultRequestHandler._setup_message_execution","t":"SPAN","o":933,"d":1,"m":null,"c":0,"u":null,"s":"a2a-python-sdk"},{"i":"7d4ecbbb8675","p":"0231335ef9f6","n":"a2a.server.request_handlers.default_request_handler.DefaultRequestHandler._register_producer","t":"SPAN","o":934,"d":0,"m":null,"c":0,"u":null,"s":"a2a-python-sdk"},{"i":"bd2c99aebf15","p":"0231335ef9f6","n":"a2a.server.request_handlers.default_request_handler.DefaultRequestHandler._run_event_stream","t":"SPAN","o":935,"d":2098,"m":null,"c":0,"u":null,"s":"a2a-python-sdk"},{"i":"bbd85f93e797","p":"bd2c99aebf15","n":"invoke_workflow b2c_hotel_search","t":"SPAN","o":936,"d":2095,"m":null,"c":0,"u":null,"s":"gcp.vertex.agent"},{"i":"1ea163c95ddd","p":"bbd85f93e797","n":"invoke_agent b2c_hotel_search","t":"AGENT","o":939,"d":2092,"m":null,"c":0,"u":null,"s":"gcp.vertex.agent"},{"i":"63fd709c961b","p":"1ea163c95ddd","n":"call_llm","t":"SPAN","o":974,"d":979,"m":null,"c":0,"u":null,"s":"gcp.vertex.agent"},{"i":"d758332d7055","p":"63fd709c961b","n":"generate_content gpt-4o-mini","t":"GENERATION","o":975,"d":978,"m":"gpt-4o-mini","c":0.00056205,"u":{"in":6615,"out":35},"s":"gcp.vertex.agent"},{"i":"c370669512f6","p":"d758332d7055","n":"geocode_location","t":"TOOL","o":1949,"d":3,"m":null,"c":0,"u":null,"s":"gcp.vertex.agent"},{"i":"3e44cad8f284","p":"1ea163c95ddd","n":"call_llm","t":"SPAN","o":1957,"d":1067,"m":null,"c":0,"u":null,"s":"gcp.vertex.agent"},{"i":"9bfa43489e00","p":"3e44cad8f284","n":"generate_content gpt-4o-mini","t":"GENERATION","o":1957,"d":1067,"m":"gpt-4o-mini","c":0.00054405,"u":{"in":6727,"out":41},"s":"gcp.vertex.agent"},{"i":"184275b102d2","p":"9bfa43489e00","n":"search_offers","t":"TOOL","o":2753,"d":270,"m":null,"c":0,"u":null,"s":"gcp.vertex.agent"},{"i":"a09d3526509d","p":"184275b102d2","n":"search_offers","t":"SPAN","o":2759,"d":255,"m":null,"c":0,"u":null,"s":"dayuse-mcp-server"},{"i":"44f4c9695012","p":"a09d3526509d","n":"elasticsearch.search","t":"SPAN","o":2759,"d":243,"m":null,"c":0,"u":null,"s":"dayuse-mcp-server"},{"i":"385eea59f8fe","p":"44f4c9695012","n":"search","t":"SPAN","o":2759,"d":242,"m":null,"c":0,"u":null,"s":"@elastic/transport"},{"i":"1faf672a4c23","p":"1ea163c95ddd","n":"call_llm","t":"SPAN","o":3029,"d":1,"m":null,"c":0,"u":null,"s":"gcp.vertex.agent"},{"i":"11c79f4cceb2","p":"d830919cabef","n":"a2a.server.request_handlers.default_request_handler.DefaultRequestHandler._cleanup_producer","t":"SPAN","o":3032,"d":1,"m":null,"c":0,"u":null,"s":"a2a-python-sdk"},{"i":"4f0aa6918431","p":"d830919cabef","n":"a2a.utils.helpers.append_artifact_to_task","t":"SPAN","o":3032,"d":0,"m":null,"c":0,"u":null,"s":"a2a-python-sdk"},{"i":"965aacbaa8a5","p":"d830919cabef","n":"a2a.server.request_handlers.default_request_handler.DefaultRequestHandler._send_push_notification_if_needed","t":"SPAN","o":3033,"d":0,"m":null,"c":0,"u":null,"s":"a2a-python-sdk"},{"i":"c6530c0bcc92","p":"d830919cabef","n":"a2a.server.request_handlers.default_request_handler.DefaultRequestHandler._validate_task_id_match","t":"SPAN","o":3033,"d":0,"m":null,"c":0,"u":null,"s":"a2a-python-sdk"},{"i":"4962bcb957d8","p":"e9268e0c207a","n":"acompletion","t":"GENERATION","o":3038,"d":2160,"m":"gpt-5.2","c":0.00405825,"u":{"in":1639,"out":85},"s":"openinference.instrumentation.litellm"},{"i":"dfab6aef6701","p":"e9268e0c207a","n":"verify-amenity-claims","t":"GUARDRAIL","o":5199,"d":0,"m":null,"c":0,"u":null,"s":"langfuse-sdk"},{"i":"8a49ca8c337f","p":"e9268e0c207a","n":"enforce-hotel-link-truthfulness","t":"GUARDRAIL","o":5200,"d":0,"m":null,"c":0,"u":null,"s":"langfuse-sdk"}]};
+</script>
+
+<script>
+/* Entrées / sorties réelles de deux étapes clés du tour vitrine. */
+DATA.io = {
+  'geocode_location': {
+    in:'{ "city": "Paris", "raw_user_message": "un hotel a Paris demain",\n  "profile_location_hint": null, "locale": "fr" }',
+    out:'{ "ok": true, "latitude": 48.853495, "longitude": 2.348392,\n  "resolved_place": "Paris, France", "resolved_feature_type": "place",\n  "distance_origin_type": "city_centroid", "country_code": "FR" }' },
+  'search_offers': {
+    in:'{ "lat": 48.853495, "lon": 2.348392, "date": "2026-09-10", "from": 0 }',
+    out:'{ "resolvedDate": "2026-09-10", "total": 608,\n  "hotels": [ { "id": 18651, "name": "H4 Hotel Wyndham Paris Pleyel Resort",\n                "city": "saint-denis", "stars": 4, ... } ] }' },
+};
+
+/* ========================= rendu ========================= */
+const $ = (s, r) => (r || document).querySelector(s);
+const esc = s => String(s).replace(/[&<>"]/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]));
+const pct = (x, n) => (100 * x).toLocaleString('fr-FR', { maximumFractionDigits: n === undefined ? 2 : n }) + ' %';
+
+/* --- bandeau --- */
+$('#snapshot').innerHTML = DATA.snapshot
+  .map(([n, l]) => `<div><div class="n">${n}</div><div class="l">${l}</div></div>`).join('');
+
+/* --- les 5 objets --- */
+$('#objects').innerHTML = DATA.objects.map(o => `
+  <div class="card">
+    <h3>${o.t} <span class="muted small" style="font-weight:500">${o.sub}</span></h3>
+    <p>${o.d}</p>
+    <div class="dt-why">${o.us}</div>
+  </div>`).join('');
+
+/* --- en-tête du tour vitrine --- */
+const T = DATA.trace;
+$('#tId').textContent = T.id.slice(0, 12) + '…';
+$('#tSess').textContent = T.session.slice(0, 12) + '…';
+$('#tRel').textContent = T.release;
+$('#tTags').innerHTML = T.tags.length
+  ? `tag <b>${T.tags.join(', ')}</b> <span class="muted">(tour de vérification)</span>`
+  : 'aucun tag';
+$('#tIn').textContent = '« ' + T.input + ' »';
+$('#tOut').textContent = T.output;
+
+/* --- cascade (waterfall) --- */
+const nodes = T.nodes, byId = new Map(nodes.map(n => [n.i, n]));
+const TOTAL = Math.max(...nodes.map(n => n.o + n.d));
+const SVC = { cx:'b2c-concierge', hs:'hotel-search-agent', faq:'faq-agent', mcp:'mcp-b2c', plumb:'plomberie' };
+const TYPE = { SPAN:'SPAN', GENERATION:'GEN', TOOL:'TOOL', AGENT:'AGENT', GUARDRAIL:'GUARD' };
+
+function svcOf(n) {
+  if (n.s === 'dayuse-mcp-server' || n.s === '@elastic/transport') return 'mcp';
+  if (n.s === 'a2a-python-sdk') return 'plumb';
+  let cur = n, hops = 0;
+  while (cur && hops++ < 40) {
+    if (cur.n === 'a2a.b2c_hotel_search') return 'hs';
+    if (cur.n === 'a2a.b2c_faq') return 'faq';
+    cur = cur.p ? byId.get(cur.p) : null;
+  }
+  return 'cx';
+}
+const isPlumb = n => n.s === 'a2a-python-sdk' || n.n === 'call_llm';
+const keyOf = n => (n.n === 'acompletion' && n.m) ? 'acompletion:' + n.m : n.n;
+const shortName = n => n.n.startsWith('a2a.') && n.n.length > 34
+  ? 'a2a…' + n.n.split('.').slice(-2).join('.') : n.n;
+
+let hidePlumb = true, selected = null;
+
+function visibleTree() {
+  const kids = new Map();
+  nodes.forEach(n => { const k = n.p || '#'; if (!kids.has(k)) kids.set(k, []); kids.get(k).push(n); });
+  kids.forEach(a => a.sort((x, y) => x.o - y.o || y.d - x.d));
+  const out = [];
+  (function walk(pid, depth) {
+    (kids.get(pid) || []).forEach(n => {
+      const skip = hidePlumb && isPlumb(n);
+      if (!skip) out.push({ n, depth });
+      walk(n.i, skip ? depth : depth + 1);
+    });
+  })('#', 0);
+  return out;
+}
+
+function drawRows() {
+  const rows = visibleTree();
+  $('#wfRows').innerHTML = rows.map(({ n, depth }) => {
+    const sv = svcOf(n);
+    return `<button class="row${selected === n.i ? ' sel' : ''}" data-id="${n.i}" type="button">
+      <span class="lbl" style="padding-left:${depth * 13}px">
+        <span class="tp pill ${sv}">${TYPE[n.t]}</span>
+        <span class="nm" title="${esc(n.n)}">${esc(shortName(n))}</span>
+      </span>
+      <span class="track"><span class="fill" style="left:${100 * n.o / TOTAL}%;width:${Math.max(100 * n.d / TOTAL, .6)}%;background:var(--svc-${sv})"></span></span>
+      <span class="ms">${n.d} ms</span>
+    </button>`;
+  }).join('');
+  const hidden = nodes.length - rows.length;
+  $('#wfCount').innerHTML = hidePlumb
+    ? `<b>${rows.length}</b> étapes affichées &middot; ${hidden} masquées`
+    : `<b>${nodes.length}</b> étapes, plomberie comprise`;
+  $('#wfRows').querySelectorAll('.row').forEach(b =>
+    b.addEventListener('click', () => { selected = b.dataset.id; drawRows(); drawDetail(); }));
+}
+
+function drawDetail() {
+  const n = byId.get(selected);
+  if (!n) {
+    $('#wfDetail').innerHTML = `<h4>Le panneau de lecture</h4>
+      <p class="small muted">Cliquez une étape à gauche : vous verrez à quoi elle sert, ce qu'elle a coûté,
+      et — pour les deux étapes clés — les données réelles qui y sont passées.</p>
+      <div class="dt-why"><b>Commencez par la première ligne</b> (<span class="mono">v3.chat</span>) :
+      c'est celle qui porte la question et la réponse. Puis descendez :
+      <span class="mono">acompletion</span> (triage) &rarr; <span class="mono">search_offers</span>
+      (la vraie requête envoyée) &rarr; <span class="mono">acompletion</span> (la rédaction finale).</div>`;
+    return;
+  }
+  const sv = svcOf(n), L = DATA.labels[keyOf(n)] || DATA.labels[n.n], io = DATA.io[n.n];
+  const rows = [
+    ['Service', `<span class="pill ${sv}">${SVC[sv]}</span>`],
+    ['Type', TYPE[n.t] + (n.t === 'GENERATION' ? ' (appel de modèle)' : '')],
+    ['Durée', n.d + ' ms' + (n.d ? ` — ${pct(n.d / TOTAL, 0)} du tour` : '')],
+    ['Démarrage', '+' + n.o + ' ms après le début'],
+  ];
+  if (n.m) rows.push(['Modèle', n.m]);
+  if (n.c) rows.push(['Coût', n.c.toFixed(8).replace(/0+$/, '').replace('.', ',') + ' $ — ' + pct(n.c / T.cost, 0) + ' du tour']);
+  if (n.u && n.u.in) rows.push(['Tokens', n.u.in + ' entrée / ' + n.u.out + ' sortie']);
+  $('#wfDetail').innerHTML = `
+    <span class="pill ${sv}">${SVC[sv]}</span>
+    <div class="dt-name">${esc(n.n)}</div>
+    <h3 style="font-size:15.5px">${L ? L.t : (isPlumb(n) ? 'Plomberie technique' : 'Étape interne')}</h3>
+    <dl class="kv">${rows.map(([k, v]) => `<dt>${k}</dt><dd>${v}</dd>`).join('')}</dl>
+    <div class="dt-why">${L ? L.w : 'Étape produite automatiquement par une bibliothèque tierce. '
+      + 'Elle ne porte aucune décision : elle enveloppe le travail de la ligne suivante. Rien à y lire.'}</div>
+    ${io ? `<h4 style="margin-top:16px">Ce qui est réellement passé ici</h4>
+      <pre>&#9654; envoyé\n${esc(io.in)}\n\n&#9664; reçu\n${esc(io.out)}</pre>` : ''}`;
+}
+
+$('#btnPlumb').addEventListener('click', e => {
+  hidePlumb = !hidePlumb;
+  e.currentTarget.classList.toggle('on', hidePlumb);
+  e.currentTarget.textContent = hidePlumb ? 'Masquer la plomberie technique' : 'Afficher les 34 étapes';
+  drawRows();
+});
+drawRows(); drawDetail();
+
+/* --- répartition temps / coût --- */
+function splitBars(el, items, unit) {
+  const tot = items.reduce((s, i) => s + i.v, 0);
+  el.innerHTML = items.map(i => `
+    <div style="margin-bottom:9px">
+      <div style="display:flex;gap:8px;font-size:13px;margin-bottom:3px">
+        <span>${i.l}</span><span style="flex:1"></span>
+        <b class="mono">${i.d}</b><span class="muted mono small">${pct(i.v / tot, 0)}</span>
+      </div>
+      <div class="bar"><i style="width:${100 * i.v / tot}%;background:var(--svc-${i.c})"></i></div>
+    </div>`).join('') + `<p class="small muted" style="margin:0">${unit}</p>`;
+}
+splitBars($('#timeSplit'), [
+  { l:'Rédaction finale (gros modèle)', v:2160, d:'2 160 ms', c:'cx' },
+  { l:'Feuille de recherche (tout compris)', v:2119, d:'2 119 ms', c:'hs' },
+  { l:'Triage du message', v:916, d:'916 ms', c:'cx' },
+  { l:'dont inventaire + Elasticsearch', v:255, d:'255 ms', c:'mcp' },
+], 'Les 3 premiers postes s\'additionnent : ils sont séquentiels. L\'inventaire est inclus dans la feuille.');
+splitBars($('#costSplit'), [
+  { l:'Rédaction finale — gpt-5.2', v:0.00405825, d:'0,004058 $', c:'cx' },
+  { l:'Feuille, appel 1 — gpt-4o-mini', v:0.00056205, d:'0,000562 $', c:'hs' },
+  { l:'Feuille, appel 2 — gpt-4o-mini', v:0.00054405, d:'0,000544 $', c:'hs' },
+  { l:'Triage — gpt-4o-mini', v:0.0001566, d:'0,000157 $', c:'cx' },
+], '4 appels de modèle. L\'inventaire et le géocodage ne coûtent pas de tokens.');
+
+$('#modelCost').innerHTML = (() => {
+  const tot = DATA.modelCost.reduce((s, m) => s + m.v, 0);
+  return DATA.modelCost.map(m => `
+    <div style="margin-bottom:8px">
+      <div style="display:flex;gap:8px;font-size:13px"><span class="mono">${m.m}</span>
+        <span class="muted small">${m.note}</span><span style="flex:1"></span>
+        <b class="mono">${m.v.toFixed(2).replace('.', ',')} $</b>
+        <span class="muted mono small">${m.calls} appels</span></div>
+      <div class="bar" style="margin-top:3px"><i style="width:${100 * m.v / tot}%"></i></div>
+    </div>`).join('');
+})();
+</script>
+
+<script>
+/* --- table des scores déterministes --- */
+const maxRate = Math.max(...DATA.guards.map(g => g.r));
+let onlyFire = false;
+
+function guardRows() {
+  const q = $('#gSearch').value.trim().toLowerCase();
+  const keep = g => (!onlyFire || g.r > 0) &&
+    (!q || (g.n + ' ' + g.m).toLowerCase().includes(q));
+  const gs = DATA.guards.filter(keep);
+  const ts = DATA.turnScores.filter(s => !q || (s.n + ' ' + s.m).toLowerCase().includes(q));
+
+  const gRow = g => `<tr>
+    <td><span class="mono">guard_${g.n}</span>${g.noconf
+      ? ' <span class="pill warn" title="Nom trop long pour une fiche Langfuse (43 car. > 35). Le score fonctionne, il n\'a pas de description dans l\'interface.">sans fiche</span>' : ''}</td>
+    <td class="small">${g.m}${g.ex && g.ex.length === 32
+      ? `<br><span class="muted small">Exemple réel : <span class="mono">${g.ex.slice(0, 12)}…</span></span>`
+      : (g.ex ? `<br><span class="muted small">${g.ex}</span>` : '')}</td>
+    <td><span class="pill ${g.s}">${g.s === 'cx' ? 'concierge' : 'feuille'}</span></td>
+    <td class="num">
+      <div style="display:flex;align-items:center;gap:7px;justify-content:flex-end">
+        <div class="bar" style="width:52px"><i class="${g.r ? '' : 'zero'}" style="width:${g.r ? Math.max(100 * g.r / maxRate, 4) : 100}%"></i></div>
+        <span>${g.r ? pct(g.r) : '0 %'}</span></div></td>
+    <td class="num">${g.c}</td></tr>`;
+
+  const tRow = s => `<tr>
+    <td><span class="mono">${s.n}</span></td>
+    <td class="small">${s.m}</td>
+    <td><span class="pill cx">concierge</span></td>
+    <td class="num">${s.v}</td><td class="num">${s.c}</td></tr>`;
+
+  $('#gRows').innerHTML =
+    (gs.length ? `<tr><th colspan="5">Les 15 garde-fous — 1 = le code est intervenu</th></tr>` + gs.map(gRow).join('') : '') +
+    (ts.length ? `<tr><th colspan="5">Les autres mesures de chaque tour</th></tr>` + ts.map(tRow).join('') : '') ||
+    '<tr><td colspan="5" class="muted small">Aucun score ne correspond à ce filtre.</td></tr>';
+
+  const never = DATA.guards.filter(g => g.r === 0).length;
+  $('#gEmpty').innerHTML = `<b>${never} garde-fous sur 15 n'ont jamais eu à intervenir</b> sur la période
+    observée. C'est une bonne nouvelle, pas un signe qu'ils sont morts : ils sont testés unitairement et
+    envoient bien leur 0 à chaque tour. Les 3 plus actifs
+    (<span class="mono">recovery_ack</span> 10,3 %, <span class="mono">booking_confirmation</span> 9,5 %,
+    <span class="mono">geocode_echo_back</span> 9,2 %) sont exactement ceux qui protègent les trois vrais
+    points de fragilité : les tours de rebond, la réservation et les homonymes de villes.`;
+}
+$('#gSearch').addEventListener('input', guardRows);
+$('#gOnlyFire').addEventListener('click', e => {
+  onlyFire = !onlyFire; e.currentTarget.classList.toggle('on', onlyFire); guardRows();
+});
+guardRows();
+
+/* --- juges --- */
+$('#judgeCards').innerHTML = DATA.judges.map(j => `
+  <div class="card">
+    <h3>${j.t}</h3>
+    <p class="small">${j.d}</p>
+    <dl class="kv" style="margin-bottom:0">
+      <dt>Nom du score</dt><dd style="font-size:11.5px">${j.sc}</dd>
+      <dt>Échelle</dt><dd>${j.e}</dd>
+      <dt>Notes posées</dt><dd>${j.n}</dd>
+    </dl>
+  </div>`).join('');
+$('#judgeRows').innerHTML = DATA.judgeRows.map(r => `
+  <tr${r.bad ? ' style="background:var(--err-soft)"' : ''}>
+    <td>${r.j}${r.bad ? ' <span class="pill err">erreur de juge</span>' : ''}</td>
+    <td class="num">${r.v}</td>
+    <td class="small" style="font-style:italic">${esc(r.c)}</td></tr>`).join('');
+
+/* --- humain --- */
+$('#humanRows').innerHTML = DATA.humanRows
+  .map(([n, e, c]) => `<tr><td class="mono small">${n}</td><td class="small">${e}</td><td class="num">${c}</td></tr>`).join('');
+$('#fbCount').innerHTML = '6 &mdash; <b>1 &#128077;</b> et <b>5 &#128078;</b>';
+
+/* --- onglets des 3 familles de scores --- */
+document.querySelectorAll('[data-fam]').forEach(b => b.addEventListener('click', () => {
+  document.querySelectorAll('[data-fam]').forEach(o => o.classList.toggle('on', o === b));
+  document.querySelectorAll('.fam').forEach(f => { f.hidden = f.id !== 'fam-' + b.dataset.fam; });
+}));
+
+/* --- playbooks --- */
+$('#playbooks').innerHTML = DATA.playbooks.map((p, i) => `
+  <details${i === 0 ? ' open' : ''}>
+    <summary><span class="pill neutral">${i + 1}</span>${p.t}
+      <span class="pill ${p.who.includes('PM') ? 'cx' : 'hs'}" style="margin-left:6px">${p.who}</span></summary>
+    <div class="body">
+      <ol class="steps">${p.steps.map(s => `<li>${s}</li>`).join('')}</ol>
+      ${p.rec.map(([l, r]) => `<div class="recipe">
+        <div><div class="small muted" style="margin-bottom:3px">${l}</div><div class="rc">${esc(r)}</div></div>
+        <button type="button" data-copy="${esc(r)}">copier</button></div>`).join('')}
+    </div>
+  </details>`).join('');
+
+/* --- pièges --- */
+$('#traps').innerHTML = DATA.traps.map((t, i) => `
+  <details>
+    <summary><span class="pill warn">${i + 1}</span>${t.t}</summary>
+    <div class="body"><p style="margin:0">${t.d}</p></div>
+  </details>`).join('');
+
+/* copie */
+document.addEventListener('click', e => {
+  const b = e.target.closest('[data-copy]'); if (!b) return;
+  const done = () => { const t = b.textContent; b.textContent = 'copié ✓'; setTimeout(() => b.textContent = t, 1400); };
+  if (navigator.clipboard) navigator.clipboard.writeText(b.dataset.copy).then(done, done); else done();
+});
+
+/* --- quiz --- */
+let answered = 0, right = 0;
+$('#quizBox').innerHTML = DATA.quiz.map((q, i) => `
+  <div class="q" data-q="${i}">
+    <div class="qt"><span>${i + 1}.</span><span>${q.q}</span></div>
+    <div class="opts">${q.o.map((o, j) => `<button class="opt" type="button" data-i="${i}" data-j="${j}">${o}</button>`).join('')}</div>
+    <div class="expl" hidden></div>
+  </div>`).join('');
+$('#quizBox').addEventListener('click', e => {
+  const b = e.target.closest('.opt'); if (!b) return;
+  const box = b.closest('.q'), i = +b.dataset.i, j = +b.dataset.j, q = DATA.quiz[i];
+  if (box.dataset.done) return;
+  box.dataset.done = '1'; answered++; if (j === q.a) right++;
+  box.querySelectorAll('.opt').forEach((o, k) => {
+    o.disabled = true;
+    if (k === q.a) o.classList.add('good');
+    else if (k === j) o.classList.add('bad');
+  });
+  const ex = $('.expl', box);
+  ex.hidden = false;
+  ex.innerHTML = q.e + ` <a href="${q.s}">Relire la section &rarr;</a>`;
+  $('#qscore').textContent = `— ${right} / ${answered} bonnes réponses`;
+});
+
+/* --- thème --- */
+const root = document.documentElement;
+$('#themeBtn').addEventListener('click', () => {
+  const dark = matchMedia('(prefers-color-scheme: dark)').matches;
+  const cur = root.getAttribute('data-theme') || (dark ? 'dark' : 'light');
+  root.setAttribute('data-theme', cur === 'dark' ? 'light' : 'dark');
+});
+
+/* --- surlignage de la navigation --- */
+const links = [...document.querySelectorAll('nav.toc a')];
+const spy = new IntersectionObserver(es => {
+  es.forEach(en => {
+    if (!en.isIntersecting) return;
+    links.forEach(a => a.classList.toggle('on', a.getAttribute('href') === '#' + en.target.id));
+  });
+}, { rootMargin: '-15% 0px -70% 0px' });
+document.querySelectorAll('main section[id]').forEach(s => spy.observe(s));
+</script>

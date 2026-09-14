@@ -4,6 +4,18 @@ Export **réel** (lu depuis l'instance, pas supposé) des objets Langfuse du pro
 `b2c-concierge` : score configs, widgets + dashboard, evaluators, règles d'évaluation,
 file d'annotation. Instance self-hosted **v3.224.3** (`langfuse-web-production-272b`).
 
+> 📘 **Pour un PM ou un QA** (pas pour un dev) : `guide-langfuse-pm-qa.html` — page autonome,
+> à ouvrir directement dans un navigateur (aucun serveur, aucune dépendance réseau). Elle explique
+> l'outil à partir d'un **vrai tour** de l'instance : arbre des 34 étapes cliquable, les 15 guards
+> avec leurs taux réels, les 7 vignettes du dashboard décodées, playbooks d'enquête, boucle
+> annotation → dataset → rejeu, RGPD, quiz. Données figées au 2026-09-09 ; les requêtes de
+> rafraîchissement sont en annexe de la page.
+
+> 📗 **Pour ajouter un test** : `guide-tests-langfuse.html` — même format autonome. Comment écrire un cas,
+> l'envoyer dans Langfuse, lancer le passage, lire le résultat. Contient le **tri des 8 remontées QA du
+> 2026-09-08** (lesquelles sont auditables et lesquelles ne le seront jamais), les 18 vérifications
+> disponibles, un constructeur de cas interactif, et un vrai avant/après (67 % → 84 % sur `b2c/geo-poi`).
+
 ## ⚠️ Ne pas recréer les widgets via le serveur MCP Langfuse (tant qu'on est en v3)
 
 `createDashboardWidget` (MCP) estampille **`dashboard_widgets.min_version = 2`** sans
