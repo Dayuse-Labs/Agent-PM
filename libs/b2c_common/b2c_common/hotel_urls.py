@@ -20,6 +20,8 @@ from __future__ import annotations
 
 import re
 import unicodedata
+from datetime import date
+from urllib.parse import parse_qsl, urlencode, urlsplit, urlunsplit
 
 # Destination-market booking host + English country path-slug, keyed by ISO
 # alpha-2. Values verified in prod traffic by agent-usa (Amplitude export
@@ -267,3 +269,29 @@ def build_hotel_page_url(
         return None
     host, country_path = market
     return f"https://{host}/hotels/{country_path}/{slug}"
+
+
+# The hotel page's own date parameter, as the live site uses it
+# (https://www.dayuse.fr/hotels/france/hotel-paris-montparnasse-tgv?checkinDate=2026-09-27,
+# supplied by product 2026-09-23). Without it the page opens on today, so a
+# user who asked for another day landed on the wrong day's offers.
+CHECKIN_DATE_PARAM = "checkinDate"
+
+
+def with_checkin_date(url: str, checkin_date: str | None) -> str:
+    """`url` with `?checkinDate=<YYYY-MM-DD>` set (replacing any previous
+    value, keeping every other parameter). Anything that is not a Dayuse URL
+    string plus a valid ISO date comes back UNCHANGED — the link is never
+    dropped or mangled because of a bad date."""
+    if not isinstance(url, str) or not url or not isinstance(checkin_date, str):
+        return url
+    try:
+        iso = date.fromisoformat(checkin_date).isoformat()
+    except ValueError:
+        return url
+    parts = urlsplit(url)
+    if parts.scheme not in ("http", "https") or not parts.netloc:
+        return url
+    query = [(k, v) for k, v in parse_qsl(parts.query, keep_blank_values=True) if k != CHECKIN_DATE_PARAM]
+    query.append((CHECKIN_DATE_PARAM, iso))
+    return urlunsplit(parts._replace(query=urlencode(query)))

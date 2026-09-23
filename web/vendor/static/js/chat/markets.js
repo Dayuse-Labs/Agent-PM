@@ -73,6 +73,18 @@ export function getMarketMetaFromHotels(hotels, fallbackCountryCode = 'US') {
     return getMarketMeta(inferCountryCodeFromHotel(firstHotel), fallbackCountryCode);
 }
 
+/**
+ * Market of the hotels actually on screen, or null when they carry no country.
+ * The "see all" CTA above a results carousel must follow THIS market, not the
+ * page's entry market: a Singapore search opened from the default widget host
+ * sent "Voir tout" to www.dayuse.com/s/united-states (QA 2026-09-23) while the
+ * carousel's own link, already hotel-based, correctly said Singapore.
+ */
+export function getResultsMarketMeta(hotels) {
+    const code = inferCountryCodeFromHotel(Array.isArray(hotels) ? hotels[0] : null);
+    return code ? getMarketMeta(code) : null;
+}
+
 // `buildHotelFallbackUrl` was REMOVED here (UX6 audit, 2026-08-28, arbitrated by
 // Fabien). It slugified the hotel's DISPLAY NAME and served it on a guessed
 // host, which is exactly what the backend builder forbids itself from doing —

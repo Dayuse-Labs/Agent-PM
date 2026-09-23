@@ -12,27 +12,19 @@ import { renderClarify } from './chips.js';
 import { getChatEndpoint, getChatHeaders } from '../api.js';
 import { getNativeContext, getClientTimeContext } from '../utils.js';
 import { setLanguage, t, tRotate } from '../i18n.js';
-import { escapeAttr, escapeHtml } from '../security.js';
-import { getMarketFallbackLink, renderSuggestionsRow } from '../handlers/responses.js';
+import { escapeHtml } from '../security.js';
+import { renderSuggestionsRow, resultsSeeAllLinkHtml } from '../handlers/responses.js';
 
 /**
- * Build the meta row shown above a results carousel — currently the count only.
- * e.g. "12 hotels selected for you".
+ * Build the meta row shown above a results carousel: the count
+ * ("12 hotels selected for you") and the "see all" link of the hotels' market.
  */
-function buildResultsMetaHtml(count) {
+function buildResultsMetaHtml(count, hotels) {
     const safeCount = Math.max(0, Number(count) || 0);
-    const seeAll = getMarketFallbackLink();
-    const seeAllHref = escapeAttr(seeAll.url);
-    const seeAllMarket = escapeAttr(seeAll.market);
     return `
         <div class="results-meta">
             <span class="results-count">${t('hotels_selected_for_you', { count: safeCount })}</span>
-            <a href="${seeAllHref}" target="_blank" rel="noopener noreferrer"
-               class="results-see-all"
-               data-track-see-all="meta"
-               data-market="${seeAllMarket}">
-                ${t('see_all')} <span aria-hidden="true">→</span>
-            </a>
+            ${resultsSeeAllLinkHtml(hotels)}
         </div>
     `;
 }
@@ -190,7 +182,7 @@ export async function runSearchWithFilters() {
             const hotelsToShow = data.results.slice(0, 6);
             const hotelsHtml = createHotelCarousel(hotelsToShow);
             // Single bot message = intro + meta line + carousel under one avatar.
-            const combinedHtml = `${buildResultsIntroHtml(data.context)}${buildResultsMetaHtml(data.results.length)}${hotelsHtml}`;
+            const combinedHtml = `${buildResultsIntroHtml(data.context)}${buildResultsMetaHtml(data.results.length, hotelsToShow)}${hotelsHtml}`;
             const carouselMessage = addMessage(combinedHtml, false, true, true, true);
 
             setTimeout(() => {

@@ -1662,8 +1662,29 @@ def test_outcome_text_discloses_the_swapped_day_in_both_languages():
 def test_outcome_text_names_the_closed_day_on_a_dead_end():
     # The defect Fabien hit: a 0-result answer that never said WHICH day it
     # searched reads as a display bug.
-    text = _outcome_text([], False, "fr", {"date": "2026-07-27", "same_day": True})
+    text = _outcome_text(
+        [], False, "fr", {"date": "2026-07-27", "same_day": True, "cutoff_closed": True}
+    )
     assert "2026-07-27" in text and "closes" in text
+
+
+def test_outcome_text_never_says_closed_when_same_day_offers_are_on_screen():
+    # Prod 2026-09-23 (Singapore, 18h local): 4 bookable same-day cards, and
+    # the reply said "les réservations du jour sont closes" — this line fed it.
+    results = normalize_search_results(_search_offers_structured(4))
+    for flags in ({}, {"cutoff_closed": True}):
+        search_date = {"date": "2026-09-23", "same_day": True, **flags}
+        fr = _outcome_text(results, False, "fr", search_date)
+        assert "closes" not in fr and "2026-09-23" in fr
+        en = _outcome_text(results, False, "en", search_date)
+        assert "closed" not in en
+
+
+def test_outcome_text_does_not_invent_a_closed_window_over_an_empty_pool():
+    # Same-day zero WITHOUT cutoff_closed = no inventory at all (Tokyo,
+    # total=0): blaming a closed booking window would be an invented cause.
+    text = _outcome_text([], False, "fr", {"date": "2026-07-27", "same_day": True})
+    assert "closes" not in text and "2026-07-27" in text
 
 
 def test_skip_final_generation_carries_the_same_disclosure():
@@ -1786,3 +1807,48 @@ class TestUX2SevenLanguageTexts:
         en = _outcome_text(results, False, "en")
         for lang in ("es", "it", "de", "pt", "nl"):
             assert _outcome_text(results, False, lang) != en
+
+
+class TestCheckinDateOnHotelLinks:
+    """QA 2026-09-08 n°4: the hotel page opened on today whatever day the user
+    had asked for. Product rule (2026-09-23): only a date the USER gave."""
+
+    _URL = "https://www.dayuse.fr/hotels/france/hotel-paris-montparnasse-tgv"
+
+    def _payload(self, state, profile_in=None):
+        state = {
+            "temp:hotel_search_results": [
+                {"id": 1, "name": "Hotel", "url": self._URL},
+                {"id": 2, "name": "Sans lien"},
+            ],
+            **state,
+        }
+        ctx = _Ctx(state, _user_content_with_profile_in(profile_in) if profile_in else None)
+        return find_datapart(emit_search_datapart(ctx).parts)
+
+    def test_a_date_given_this_turn_reaches_the_link(self):
+        payload = self._payload({
+            STATE_SEARCH_DATE_KEY: {"date": "2026-09-27", "same_day": False},
+            STATE_RESOLVED_DATE_KEY: {"date": "2026-09-27", "date_reference": {}},
+        })
+        assert payload["results"][0]["url"] == f"{self._URL}?checkinDate=2026-09-27"
+        assert "url" not in payload["results"][1]  # no url is never invented
+
+    def test_a_date_carried_from_an_earlier_turn_reaches_the_link(self):
+        payload = self._payload(
+            {STATE_SEARCH_DATE_KEY: {"date": "2026-09-27", "same_day": False}},
+            profile_in={"date": "2026-09-27"},
+        )
+        assert payload["results"][0]["url"] == f"{self._URL}?checkinDate=2026-09-27"
+
+    def test_no_date_from_the_user_leaves_the_link_bare(self):
+        # Silent turn defaulted to today: the page's own default is today.
+        payload = self._payload({STATE_SEARCH_DATE_KEY: {"date": "2026-09-23", "same_day": True}})
+        assert payload["results"][0]["url"] == self._URL
+
+    def test_a_stale_carried_date_floored_to_today_leaves_the_link_bare(self):
+        payload = self._payload(
+            {STATE_SEARCH_DATE_KEY: {"date": "2026-09-23", "same_day": True}},
+            profile_in={"date": "2026-09-01"},
+        )
+        assert payload["results"][0]["url"] == self._URL

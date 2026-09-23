@@ -5,7 +5,7 @@ are locked as named regressions: `ibis-rungis-aeroport-paris-orly` and
 spells them."""
 from __future__ import annotations
 
-from b2c_common import build_hotel_page_url
+from b2c_common import build_hotel_page_url, with_checkin_date
 
 
 class TestProdRepros:
@@ -66,3 +66,25 @@ class TestSlugValidation:
             42,
         ):
             assert build_hotel_page_url(bad, "FR", "France") is None, bad
+
+
+class TestCheckinDate:
+    """QA 2026-09-08 n°4: a user-given date must reach the hotel page, in the
+    live site's own parameter (product, 2026-09-23)."""
+
+    def test_the_product_example(self):
+        assert with_checkin_date(
+            "https://www.dayuse.fr/hotels/france/hotel-paris-montparnasse-tgv", "2026-09-27"
+        ) == "https://www.dayuse.fr/hotels/france/hotel-paris-montparnasse-tgv?checkinDate=2026-09-27"
+
+    def test_replaces_a_previous_date_and_keeps_other_params(self):
+        assert with_checkin_date(
+            "https://www.dayuse.fr/hotels/france/x?a=1&checkinDate=2026-01-01", "2026-09-27"
+        ) == "https://www.dayuse.fr/hotels/france/x?a=1&checkinDate=2026-09-27"
+
+    def test_a_bad_date_or_url_leaves_the_link_untouched(self):
+        url = "https://www.dayuse.fr/hotels/france/x"
+        assert with_checkin_date(url, "demain") == url
+        assert with_checkin_date(url, None) == url
+        assert with_checkin_date("", "2026-09-27") == ""
+        assert with_checkin_date("/hotels/france/x", "2026-09-27") == "/hotels/france/x"

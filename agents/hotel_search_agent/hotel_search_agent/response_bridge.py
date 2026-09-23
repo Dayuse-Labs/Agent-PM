@@ -50,7 +50,7 @@ from google.adk.a2a.converters.part_converter import (
 from google.adk.models.llm_response import LlmResponse
 from google.genai import types as genai_types
 
-from b2c_common import build_hotel_page_url
+from b2c_common import build_hotel_page_url, with_checkin_date
 from hotel_search_agent.inventory import haversine_km
 
 # The concierge reports AT MOST 5 (ground-truth cap) — match it so the model
@@ -1199,19 +1199,33 @@ _DATE_FALLBACK_PLAIN: dict[str, str] = {
 }
 
 
-def _date_fallback_line(search_date: Any, language: str) -> str:
-    """The honest same-day-cutoff disclosure (S-CX6), or "" when this turn is a
-    normal one. Two shapes: the swap happened (offers for another day are on
-    screen — say WHICH day and why), or a same-day search stayed empty (say
-    that today's bookings are what closed, not that the city has no hotels —
-    the old text sent users off widening a zone that had 518 hotels in it)."""
+def _date_fallback_line(search_date: Any, language: str, has_results: bool = False) -> str:
+    """The honest same-day-cutoff disclosure (S-CX6), or the plain searched-date
+    line on a normal turn. Two disclosure shapes: the swap happened (offers for
+    another day are on screen — say WHICH day and why), or a same-day search
+    stayed empty BECAUSE the booking window closed (say that today's bookings
+    are what closed, not that the city has no hotels — the old text sent users
+    off widening a zone that had 518 hotels in it).
+
+    "Closed" needs BOTH an empty result and `cutoff_closed` (set by
+    `datetime_resolver` only when hotels matched and none was bookable). Keyed
+    on `same_day` alone, it was appended to same-day searches WITH bookable
+    results — prod 2026-09-23, Singapore at 18h local: 4 cards on screen and a
+    reply saying "les réservations du jour sont closes". Over an empty pool it
+    would be an invented cause too (the concierge's `date_context_block`
+    applies the same rule)."""
     if not isinstance(search_date, dict):
         return ""
     offered, fell_back_from = search_date.get("date"), search_date.get("cutoff_fallback_from")
     if isinstance(fell_back_from, str) and isinstance(offered, str):
         template = _DATE_FALLBACK_SWAPPED.get(language, _DATE_FALLBACK_SWAPPED["en"])
         return template.format(fell_back_from=fell_back_from, offered=offered)
-    if search_date.get("same_day") and isinstance(offered, str):
+    if (
+        not has_results
+        and search_date.get("same_day")
+        and search_date.get("cutoff_closed")
+        and isinstance(offered, str)
+    ):
         template = _DATE_FALLBACK_SAME_DAY.get(language, _DATE_FALLBACK_SAME_DAY["en"])
         return template.format(offered=offered)
     if isinstance(offered, str):
@@ -1289,7 +1303,7 @@ def _outcome_text(
     have emptied the results entirely and the leaf fell back to the coarser
     hour-rounded set instead of a silent 0 — appends an honest disclosure so
     the synthesis never implies these hotels cover the exact time asked."""
-    date_line = _date_fallback_line(search_date, language)
+    date_line = _date_fallback_line(search_date, language, has_results=bool(results))
     if not results:
         return _OUTCOME_EMPTY.get(language, _OUTCOME_EMPTY["en"]) + date_line
     names = ", ".join(str(r.get("name")) for r in results if r.get("name"))
@@ -1348,6 +1362,32 @@ def stamp_turn_start(callback_context: Any) -> None:
     covers the whole turn regardless of which path it takes (search / clarify
     / geocode-fail) — `emit_search_datapart` reads it back unconditionally."""
     callback_context.state[_STATE_TURN_T0_KEY] = time.monotonic()
+    return None
+
+
+def _user_checkin_date(
+    state: Any, profile_in: dict[str, Any], search_date: Any
+) -> str | None:
+    """The day the hotel-page links must open on, or None to leave them bare.
+
+    Only a date the USER gave (product rule 2026-09-23: "si le user parle d'une
+    date"): a fresh label this turn (`STATE_RESOLVED_DATE_KEY`), or one carried
+    from an earlier turn (`profile_in.date` — the profile only ever persists a
+    user-stated date). The same-day cutoff swap also writes
+    `STATE_RESOLVED_DATE_KEY`, deliberately: the cards on screen are the next
+    day's, and a page opening on today would show the closed day instead. A
+    silent turn that defaulted to today, or whose carried date was floored to
+    today, matches neither and stays bare — the page's own default is today."""
+    if not isinstance(search_date, dict):
+        return None
+    day = search_date.get("date")
+    if not isinstance(day, str) or not day:
+        return None
+    resolved = state.get(STATE_RESOLVED_DATE_KEY)
+    if isinstance(resolved, dict) and resolved.get("date") == day:
+        return day
+    if profile_in.get("date") == day:
+        return day
     return None
 
 
@@ -1480,6 +1520,16 @@ def emit_search_datapart(callback_context: Any) -> genai_types.Content | None:
         search_date = state.get(STATE_SEARCH_DATE_KEY)
         if isinstance(search_date, dict) and search_date.get("date"):
             payload["search_date"] = search_date
+        # The hotel page opens on today unless told otherwise: a user who asked
+        # for another day landed on the wrong day's offers (QA 2026-09-08 n°4).
+        checkin = _user_checkin_date(state, read_profile_in(callback_context), search_date)
+        if checkin:
+            payload["results"] = [
+                {**r, "url": with_checkin_date(r["url"], checkin)}
+                if isinstance(r, dict) and isinstance(r.get("url"), str)
+                else r
+                for r in results
+            ]
     if profile_delta:
         payload["profile_delta"] = profile_delta
     # OBS3: top-level, NOT nested in profile_delta — this is telemetry, not

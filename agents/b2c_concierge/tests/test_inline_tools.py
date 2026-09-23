@@ -177,6 +177,19 @@ class TestGetHotelDetails:
         result = _run(inline_tools.get_hotel_details("Villa Paris Orly", profile))
         assert result["hotel"]["url"] == "https://www.dayuse.fr/hotels/france/villa-paris-orly-rungis"
 
+    def test_page_url_opens_on_the_users_date(self, monkeypatch):
+        # QA 2026-09-08 n°4: `profile.date` only holds a user-given date.
+        response = {
+            **HOTEL_DETAILS_RESPONSE,
+            "hotel": {**HOTEL_DETAILS_RESPONSE["hotel"], "slug": "villa-paris-orly-rungis"},
+        }
+        _install(monkeypatch, {"get_hotel_details": FakeResult(response)})
+        profile = SessionProfile(last_results=SHORTLIST, date="2026-09-27")
+        result = _run(inline_tools.get_hotel_details("Villa Paris Orly", profile))
+        assert result["hotel"]["url"] == (
+            "https://www.dayuse.fr/hotels/france/villa-paris-orly-rungis?checkinDate=2026-09-27"
+        )
+
     def test_stamps_currency_code_when_mcp_sends_it(self, monkeypatch):
         # S-G7: live-probed 2026-07-23 — get_hotel_details returns a per-hotel
         # currencyCode; display-only, priceEuro is unaffected (no conversion).
