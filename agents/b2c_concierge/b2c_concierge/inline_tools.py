@@ -38,7 +38,7 @@ from contextlib import asynccontextmanager
 from typing import Any, AsyncIterator
 
 import httpx
-from b2c_common import build_hotel_page_url, with_checkin_date
+from b2c_common import build_hotel_page_url, display_price_euro, with_checkin_date
 from b2c_common.observability import mark_level, observation, trace_context_carrier
 from mcp import ClientSession
 from mcp.client.streamable_http import streamable_http_client
@@ -321,8 +321,9 @@ def _normalize_hotel_for_display(hotel: dict[str, Any], best_offer: dict[str, An
     if url:
         normalized["url"] = url
     if best_offer:
-        normalized["price"] = _format_price_eur_cents(best_offer.get("priceEuro"))
-        normalized["price_eur_cents"] = _price_eur_cents(best_offer.get("priceEuro"))
+        shown_price = display_price_euro(best_offer, hotel)
+        normalized["price"] = _format_price_eur_cents(shown_price)
+        normalized["price_eur_cents"] = _price_eur_cents(shown_price)
         # S-CX5: the offer's identity travels with its price (same rule and
         # same keys as the search leaf's `normalize_hotel`) so the booking step
         # can reuse THIS offer rather than re-deriving one.
@@ -466,7 +467,9 @@ async def _confirm_pending_offer(pending: dict[str, Any]) -> dict[str, Any]:
         return {"ok": False, "error": f"generate_booking_link failed: {type(exc).__name__}"}
 
 
-def _best_offer(offers: list[Any], date: str | None = None) -> dict[str, Any] | None:
+def _best_offer(
+    offers: list[Any], date: str | None = None, hotel: dict[str, Any] | None = None
+) -> dict[str, Any] | None:
     """The cheapest priced offer ON ONE DAY — the session's `date` when known,
     otherwise the soonest day this hotel is bookable.
 
@@ -491,8 +494,8 @@ def _best_offer(offers: list[Any], date: str | None = None) -> dict[str, Any] | 
     )
     if target:
         pool = [o for o in pool if o.get("availabilityDate") == target] or pool
-    priced = [o for o in pool if o.get("priceEuro") is not None]
-    return min(priced, key=lambda o: o["priceEuro"]) if priced else pool[0]
+    priced = [o for o in pool if display_price_euro(o, hotel) is not None]
+    return min(priced, key=lambda o: display_price_euro(o, hotel)) if priced else pool[0]
 
 
 # S-CX8: how many formulas one booking card may offer. A cap, not a page size:
@@ -504,7 +507,9 @@ def _best_offer(offers: list[Any], date: str | None = None) -> dict[str, Any] | 
 _MAX_RATE_PLANS = 6
 
 
-def _rate_plan_view(offer: dict[str, Any]) -> dict[str, Any] | None:
+def _rate_plan_view(
+    offer: dict[str, Any], hotel: dict[str, Any] | None = None
+) -> dict[str, Any] | None:
     """S-CX8: one MCP offer as a display plan (no link yet — that costs a
     round-trip, added later only for the plans that survive the cut).
 
@@ -532,10 +537,11 @@ def _rate_plan_view(offer: dict[str, Any]) -> dict[str, Any] | None:
     if start and end:
         plan["start_time"] = start
         plan["end_time"] = end
-    price = _format_price_eur_cents(offer.get("priceEuro"))
+    shown_price = display_price_euro(offer, hotel)
+    price = _format_price_eur_cents(shown_price)
     if price:
         plan["price"] = price
-    cents = _price_eur_cents(offer.get("priceEuro"))
+    cents = _price_eur_cents(shown_price)
     if cents is not None:
         plan["price_eur_cents"] = cents
     # `offerType` is the formula's KIND, and the field that actually tells two
@@ -608,7 +614,9 @@ def _offers_for_day(offers: list[Any], date: str | None) -> list[dict[str, Any]]
     return pool
 
 
-def _day_rate_plans(offers: list[Any], date: str | None) -> list[dict[str, Any]]:
+def _day_rate_plans(
+    offers: list[Any], date: str | None, hotel: dict[str, Any] | None = None
+) -> list[dict[str, Any]]:
     """S-CX8: every bookable formula ON ONE DAY, cheapest first, deduped by
     offer id AND by display signature, capped at `_MAX_RATE_PLANS`.
 
@@ -632,7 +640,7 @@ def _day_rate_plans(offers: list[Any], date: str | None) -> list[dict[str, Any]]
     seen: set[str] = set()
     seen_signatures: set[tuple[Any, ...]] = set()
     for offer in _offers_for_day(offers, date):
-        plan = _rate_plan_view(offer)
+        plan = _rate_plan_view(offer, hotel)
         if plan is None or plan["offer_id"] in seen:
             continue
         signature = (
@@ -771,14 +779,15 @@ async def _quote_fresh_offer(
                     if not details["ok"]:
                         return {**details, "guards_fired": guards_fired}
                     offers = details["data"].get("offers") or []
-                    best = _best_offer(offers, profile.date)
+                    details_hotel = details["data"].get("hotel")
+                    best = _best_offer(offers, profile.date, details_hotel)
                     if best is None:
                         return {
                             "ok": False, "error": "no bookable offer for this hotel",
                             "guards_fired": guards_fired,
                         }
                     offer = best
-                    quoted_price = _format_price_eur_cents(best.get("priceEuro"))
+                    quoted_price = _format_price_eur_cents(display_price_euro(best, details_hotel))
                     start_time = _hhmm(best.get("startHour"), best.get("startMinute"))
                     end_time = _hhmm(best.get("endHour"), best.get("endMinute"))
                 identity = {
@@ -850,7 +859,7 @@ async def _quote_picked_rate_plans(hotel_id: int, profile: SessionProfile) -> di
                 if not details["ok"]:
                     return details
                 offers = details["data"].get("offers") or []
-                plans = _day_rate_plans(offers, profile.date)
+                plans = _day_rate_plans(offers, profile.date, details["data"].get("hotel"))
                 if not plans:
                     return {"ok": False, "error": "no bookable offer for this hotel"}
                 amenities = _day_hotel_amenities(_offers_for_day(offers, profile.date))
