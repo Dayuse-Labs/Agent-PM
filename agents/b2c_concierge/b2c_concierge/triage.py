@@ -499,7 +499,6 @@ async def classify(message: str, budget: TurnBudget, invocation_id: str = "") ->
 
 
 def _display_currency_slot(value: Any) -> str | None:
-    """"HOTEL", or an upper-cased 3-letter code; anything else is no request."""
     if not isinstance(value, str):
         return None
     code = value.strip().upper()

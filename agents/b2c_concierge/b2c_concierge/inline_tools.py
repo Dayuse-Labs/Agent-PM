@@ -521,7 +521,6 @@ _MAX_RATE_PLANS = 6
 def _hotel_currency_label(
     offer: dict[str, Any], hotel: dict[str, Any] | None
 ) -> str | None:
-    """The offer's display price in the hotel's own currency, or None."""
     return format_minor_amount(display_price_hotel(offer, hotel), offer.get("hotelCurrency"))
 
 

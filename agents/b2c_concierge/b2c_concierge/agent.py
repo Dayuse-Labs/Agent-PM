@@ -119,6 +119,8 @@ from .display_currency import (
     apply_hotel_currency,
     noted_message,
     resolve_currency_request,
+    shortlist_currencies,
+    shortlist_display_mode,
     unsupported_currency_message,
 )
 from .ground_truth import shortlist_ground_truth_block, shortlist_hotels, synthesis_angle
@@ -742,18 +744,18 @@ class _B2cConcierge(BaseAgent):
         eur_displayed = profile.display_currency != HOTEL
         if eur_displayed and profile.currency and profile.currency.upper() != "EUR":
             currency_bits.append(f"user's own currency: {profile.currency}")
-        # A card left in EUR (no hotel-currency price to swap in) still needs the
-        # disclosure, even when the user asked for the hotel's currency.
+        # In hotel-currency mode the disclosure's generic "prices in EUR" is only
+        # true when NO card could switch; on a mixed list the € on the card says it.
+        hotels = shortlist_hotels(response)
+        any_switched = any(h.get("display_currency") for h in hotels)
         hotel_currencies = sorted(
             {
                 h["currency_code"]
-                for h in shortlist_hotels(response)
-                if isinstance(h.get("currency_code"), str)
-                and h["currency_code"].upper() != "EUR"
-                and not h.get("display_currency")
+                for h in hotels
+                if isinstance(h.get("currency_code"), str) and h["currency_code"].upper() != "EUR"
             }
         )
-        if hotel_currencies:
+        if hotel_currencies and not any_switched:
             currency_bits.append(f"hotel's own currency: {', '.join(hotel_currencies)}")
         currency_note = "; ".join(currency_bits)
 
@@ -1156,8 +1158,6 @@ class _B2cConcierge(BaseAgent):
         elif family != "faq" and refinement_signal:
             family, route = "search", ROUTES["search"]
 
-        # Display currency (2026-09-25): EUR by default, the hotel's own currency
-        # on request, anything else answered with the two available choices.
         currency = resolve_currency_request(triage.display_currency, profile.last_results)
         repeat_search = False
         currency_notice: str | None = None
@@ -1174,7 +1174,10 @@ class _B2cConcierge(BaseAgent):
                 yield self._final(ctx, unsupported_currency_message(currency, reply_language))
                 return
         elif currency.kind == "set":
-            changed = profile.display_currency != currency.mode
+            shown = shortlist_display_mode(profile.last_results)
+            changed = shown != currency.mode and set(
+                shortlist_currencies(profile.last_results)
+            ) != {"EUR"}
             profile.display_currency = currency.mode
             # Only a message that asks for NOTHING else is diverted: a named
             # hotel, a comparison or a policy question keeps its own route, and
@@ -1196,9 +1199,8 @@ class _B2cConcierge(BaseAgent):
                     self._emit_turn_metric(family, "template:currency_noted", budget, t_start, "ok", inv)
                     yield self._final(ctx, template)
                     return
-                # Hotels already on screen: repaint them in the chosen currency.
-                # From page 1 — a repaint after "other options" shows the first
-                # page again (accepted trade-off, 2026-09-25).
+                # Repaints from page 1, even after "other options" (accepted
+                # trade-off, 2026-09-25).
                 family, route = "search", ROUTES["search"]
                 repeat_search = True
 
@@ -1405,6 +1407,12 @@ class _B2cConcierge(BaseAgent):
         final_text = synth or leaf_text or templates.leaf_degraded_response(
             family, reply_language, profile.city
         )
+        if pending_currency is not None and currency_notice is None and "results" not in response:
+            # No hotels came back (e.g. the leaf asked "where?"): the request must
+            # not vanish — answer it with the generic choices.
+            currency_notice = unsupported_currency_message(
+                resolve_currency_request(pending_currency, None), reply_language
+            )
         if currency_notice:
             final_text = f"{final_text.rstrip()}\n\n{currency_notice}"
         for chunk in _chunk_text(final_text):

@@ -37,6 +37,19 @@ def shortlist_currencies(last_results: list[dict[str, Any]] | None) -> tuple[str
     return tuple(sorted(codes))
 
 
+def shortlist_display_mode(last_results: list[dict[str, Any]] | None) -> str | None:
+    """The currency the hotels ON SCREEN are shown in — not the saved preference,
+    which a details-only or unavailable turn can set without repainting them.
+    Hotels that all charge in EUR look the same either way: EUR."""
+    entries = [e for e in last_results or [] if isinstance(e, dict)]
+    for entry in entries:
+        code = entry.get("hotel_currency_code")
+        price = entry.get("price")
+        if isinstance(code, str) and code != "EUR" and isinstance(price, str) and price.startswith(f"{code} "):
+            return HOTEL
+    return None
+
+
 def resolve_currency_request(
     requested: str | None, last_results: list[dict[str, Any]] | None
 ) -> CurrencyDecision:
@@ -103,7 +116,6 @@ _UNSUPPORTED = {
     ),
 }
 
-# No hotel on screen yet: the hotel's currency cannot be named.
 _UNSUPPORTED_NO_HOTEL = {
     "fr": (
         "Je ne peux pas encore afficher les prix en {requested}. Je peux vous les "
@@ -135,7 +147,6 @@ _UNSUPPORTED_NO_HOTEL = {
     ),
 }
 
-# The hotels on screen already price in euros: there is nothing else to offer.
 _UNSUPPORTED_EUR_ONLY = {
     "fr": (
         "Je ne peux pas encore afficher les prix en {requested}. Ces hôtels facturent "
@@ -167,7 +178,6 @@ _UNSUPPORTED_EUR_ONLY = {
     ),
 }
 
-# Preference noted before any search: it will apply to the next one.
 _NOTED = {
     HOTEL: {
         "fr": "C'est noté : j'afficherai les prix dans la devise de chaque hôtel. Où et quand souhaitez-vous réserver ?",
@@ -190,7 +200,6 @@ _NOTED = {
 }
 
 
-# Asked for the currency already in use: nothing to repaint.
 _ALREADY = {
     HOTEL: {
         "fr": "Les prix sont déjà affichés dans la devise de chaque hôtel.",
