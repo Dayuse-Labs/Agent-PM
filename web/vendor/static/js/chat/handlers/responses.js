@@ -15,6 +15,7 @@ import { escapeAttr, escapeHtml, sanitizeDayuseUrl } from '../security.js';
 import {
     getMarketMeta,
     getMarketMetaFromHotels,
+    getResultsMarketMeta,
     inferCountryCodeFromHotel,
     normalizeCountryCode,
 } from '../markets.js';
@@ -49,21 +50,13 @@ export function renderSuggestionsRow(data) {
  * An empty `introText` yields "meta + carousel" only — what the SSE `hotels`
  * frame renders, since the synthesis text does not exist yet at that point.
  */
-export function buildResultsBlock(introText, count, hotelsHtml) {
+export function buildResultsBlock(introText, count, hotelsHtml, hotels = null) {
     const intro = String(introText || '').trim();
     const introHtml = intro ? `<div class="results-intro">${escapeHtml(intro)}</div>` : '';
-    const seeAll = getMarketFallbackLink();
-    const seeAllHref = escapeAttr(seeAll.url);
-    const seeAllMarket = escapeAttr(seeAll.market);
     const metaHtml = `
         <div class="results-meta">
             <span class="results-count">${t('hotels_selected_for_you', { count: Math.max(0, Number(count) || 0) })}</span>
-            <a href="${seeAllHref}" target="_blank" rel="noopener noreferrer"
-               class="results-see-all"
-               data-track-see-all="meta"
-               data-market="${seeAllMarket}">
-                ${t('see_all')} <span aria-hidden="true">→</span>
-            </a>
+            ${resultsSeeAllLinkHtml(hotels)}
         </div>
     `;
     return `${introHtml}${metaHtml}${hotelsHtml || ''}`;
@@ -254,7 +247,9 @@ export function handleNewSearchResponse(data, message) {
         state.currentUserQuery = message;
 
         const hotelCards = createHotelCarousel(data.results);
-        const combined = buildResultsBlock(data.response, data.results.length, hotelCards);
+        const combined = buildResultsBlock(
+            data.response, data.results.length, hotelCards, data.results
+        );
         addMessage(combined, false, true, false, true);
 
         const hasTimeslot = state.selectedFilters.timeslot;
@@ -287,6 +282,32 @@ export function handleTextResponse(data) {
     const processedResponse = replaceHotelIdTags(data.response);
     addMessage(processedResponse);
     renderSuggestionsRow(data);
+}
+
+/**
+ * The "see all" link of the results meta row, following the market of the
+ * hotels on screen (`getResultsMarketMeta`) — the same rule as the carousel's
+ * own "see all hotels in X" link. Only when the hotels carry no country does it
+ * fall back to the page's market context. A market with no browse page (MY)
+ * renders no link rather than a wrong-market one. Returns trusted HTML.
+ */
+export function resultsSeeAllLinkHtml(hotels) {
+    const meta = getResultsMarketMeta(hotels);
+    let url;
+    let market;
+    if (meta) {
+        url = meta.browseUrl ? sanitizeDayuseUrl(appendAmplitudeIdToUrl(meta.browseUrl)) : '';
+        market = meta.code;
+    } else {
+        ({ url, market } = getMarketFallbackLink());
+    }
+    if (!url || url === '#') return '';
+    return `<a href="${escapeAttr(url)}" target="_blank" rel="noopener noreferrer"
+               class="results-see-all"
+               data-track-see-all="meta"
+               data-market="${escapeAttr(market)}">
+                ${t('see_all')} <span aria-hidden="true">→</span>
+            </a>`;
 }
 
 /**
@@ -347,7 +368,9 @@ export function handleResultsResponse(data, hasTimeslotRequest, skipCarousel = f
         const contextMsg = skipCarousel
             ? addMessage(introText)
             : addMessage(
-                buildResultsBlock(introText, results.length, createHotelCarousel(hotelsToShow)),
+                buildResultsBlock(
+                    introText, results.length, createHotelCarousel(hotelsToShow), hotelsToShow
+                ),
                 false, true, false, true
             );
         const firstHotel = hotelsToShow[0] || {};

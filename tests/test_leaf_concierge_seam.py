@@ -207,7 +207,8 @@ def test_search_date_travels_from_leaf_emit_to_the_concierge_decisions():
     assert payload["search_date"] == search_date  # survived the JSON round-trip
 
     block = shortlist_ground_truth_block(payload, SessionProfile())
-    assert "MANDATORY DISCLOSURE" in block and "2026-07-28" in block
+    # The date reaches the prompt written out, never as ISO (QA 2026-09-08 n°2).
+    assert "MANDATORY DISCLOSURE" in block and "Tuesday, July 28, 2026" in block
 
 
 def test_same_day_dead_end_travels_to_the_date_chips():

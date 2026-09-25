@@ -287,7 +287,7 @@ class TestSameDayCutoff:
 
     def test_same_day_dead_end_names_the_day_and_the_cause(self):
         block = shortlist_ground_truth_block(self._CLOSED, _profile(consecutive_empty_searches=1))
-        assert "2026-07-27" in block
+        assert "Monday, July 27, 2026" in block and "2026-07-27" not in block
         assert "CLOSED" in block
 
     def test_same_day_dead_end_forbids_the_irrelevant_remedies(self):
@@ -326,7 +326,7 @@ class TestSameDayCutoff:
             _profile(),
         )
         assert "MANDATORY DISCLOSURE" in block
-        assert "2026-07-28" in block and "2026-07-27" in block
+        assert "Tuesday, July 28, 2026" in block and "Monday, July 27, 2026" in block
         # Disclosure first: the answer's FIRST sentence has to carry it.
         assert block.index("MANDATORY DISCLOSURE") < block.index("Villa Paris Orly")
 
@@ -338,7 +338,21 @@ class TestSameDayCutoff:
             },
             _profile(),
         )
-        assert "SEARCH DATE: these results are for 2026-07-28" in block
+        assert "SEARCH DATE: these results are for Tuesday, July 28, 2026" in block
+
+    def test_the_date_is_written_out_in_the_turn_language(self):
+        # QA 2026-09-08 n°2: an ISO date in the prompt was copied verbatim into
+        # the reply ("Pour demain (2026-09-24)…").
+        block = shortlist_ground_truth_block(
+            {
+                "results": [{"name": "Villa Paris Orly"}],
+                "search_date": {"date": "2026-09-24", "same_day": False},
+            },
+            _profile(),
+            "fr",
+        )
+        assert "jeudi 24 septembre 2026" in block
+        assert "2026-09-24" not in block
 
     def test_a_leaf_without_the_key_changes_nothing(self):
         # Contract safety: an older leaf (or a find_hotel_by_name turn) sends no

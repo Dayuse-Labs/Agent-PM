@@ -175,3 +175,25 @@ test('utils.js still links — same check for the second call site', async () =>
         );
     }
 });
+
+test('the results "see all" follows the hotels on screen, not the entry market', () => {
+    // QA 2026-09-23: a Singapore search on the default widget host sent
+    // "Voir tout" to www.dayuse.com/s/united-states — the page's market context
+    // won over the results. The carousel link, hotel-based, already said Singapore.
+    const sg = markets.getResultsMarketMeta([{ name: 'Studio M Hotel', country_code: 'SG' }]);
+    assert.equal(sg.code, 'SG');
+    assert.equal(sg.browseUrl, 'https://www.dayuse.sg/s/singapore');
+    // Same answer as the carousel's own link for the same hotels.
+    assert.deepEqual(sg, markets.getMarketMetaFromHotels([{ country_code: 'SG' }], 'US'));
+    // Country recovered from the hotel URL when the card has no code.
+    assert.equal(
+        markets.getResultsMarketMeta([{ url: 'https://www.dayuse.fr/hotels/france/drawing-house' }]).code,
+        'FR',
+    );
+});
+
+test('no country on the hotels means no results market — the caller falls back', () => {
+    assert.equal(markets.getResultsMarketMeta([{ name: 'Villa', country: 'Poland' }]), null);
+    assert.equal(markets.getResultsMarketMeta([]), null);
+    assert.equal(markets.getResultsMarketMeta(null), null);
+});

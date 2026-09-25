@@ -450,7 +450,7 @@ function renderHotelsEarly(frame, thinking) {
 
     const hotelsHtml = createHotelCarousel(results.slice(0, 6));
     // No intro text yet — it is still being written upstream.
-    addMessage(buildResultsBlock('', results.length, hotelsHtml), false, true, false, true);
+    addMessage(buildResultsBlock('', results.length, hotelsHtml, results), false, true, false, true);
 
     // Move the thinking bubble BELOW the cards instead of removing it: the
     // synthesis is still running, and this widget's #typing-indicator element

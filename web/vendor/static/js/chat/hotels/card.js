@@ -714,49 +714,18 @@ function renderTimeslots(hotel) {
 }
 
 /**
- * S-CX9 — is this hotel pickable on the CURRENT screen?
+ * The card's single action (QA 2026-09-23, replaces S-CX9's two).
  *
- * The card's primary CTA is gated on `state.hotelPicks`, which is the backend's
- * authority on WHEN a pick may be offered at all (empty until a destination is
- * resolved — the date otherwise defaults to today, Fabien 2026-07-28). Putting an
- * ungated button on every card would have silently repealed that rule: the chips
- * it replaces could only ever exist when the backend had sent picks.
- *
- * `handlers/send.js` fills `state.hotelPicks` before any renderer runs, so this
- * is never read early.
- */
-function pickableHotelIds() {
-    const picks = Array.isArray(state.hotelPicks) ? state.hotelPicks : [];
-    return new Set(
-        picks
-            .map(pick => String(pick?.hotel_id ?? '').trim())
-            .filter(Boolean)
-    );
-}
-
-/**
- * S-CX9 — the card's own actions.
- *
- * Two of them, and the hierarchy is the point:
- *   - "Choisir cet hôtel" ADVANCES THE CONVERSATION. It reuses the `pick-hotel`
- *     handler the deleted chip row used, so the booking card (with its rate-plan
- *     selector) is what answers. Solid evening-blue.
- *   - "Voir la fiche de l'hôtel" LEAVES for dayuse.com. Demoted to a text link.
- *
- * Colour is a contract here, not taste. `hotels.css` already wrote the rule for
- * S-CX5 — "the warm gradient is reserved for the one CTA that actually leaves for
- * the booking tunnel" — and this card's yellow button was the thing violating it,
- * spending the strongest signal in the widget on a detour to a hotel page. After
- * this change exactly one yellow button exists per thread: the one that takes the
- * money (`.booking-card__cta`).
- *
- * The label deliberately does NOT say "Réserver": it opens a booking card, not a
- * checkout. That promise is the defect the previous wording was written to avoid.
+ * "Choisir cet hôtel" now LEAVES for the hotel page on dayuse.com. It used to
+ * open the in-chat booking card (rate-plan selector) while a second, demoted
+ * "Voir la fiche de l'hôtel" link did what users actually expected — product
+ * decision: one button, straight to the hotel page. Evening-blue is kept: the
+ * warm gradient stays reserved for `.booking-card__cta` (hotels.css).
  */
 function renderFooter(priceInfo, originalPrice, hotelUrl, hotelName, hotelId) {
     // '' when the payload carried no usable url (UX6 2026-08-28). Never coerce
     // it to '#': a link that goes nowhere reads as a broken button. The card
-    // drops the hotel-page affordance instead — see `seeHotelHtml` below.
+    // drops its button instead — see `chooseHtml` below.
     const safeHotelUrl = sanitizeDayuseUrl(hotelUrl || '') || '';
     const safeHotelUrlAttr = escapeAttr(safeHotelUrl);
     const safeHotelNameAttr = escapeAttr(String(hotelName || ''));
@@ -786,23 +755,9 @@ function renderFooter(priceInfo, originalPrice, hotelUrl, hotelName, hotelId) {
            </div>`
         : '';
 
-    const canPick = pickableHotelIds().has(String(hotelId || ''));
-    // The message this click sends. Same shape the chips sent — the name plus the
-    // bare price — because it becomes the user's own line in the transcript and
-    // should read like something a person typed. The hotel itself is resolved
-    // server-side from `data-hotel-id`, never from this text.
-    const pickLabel = hasPrice
-        ? `${String(hotelName || '')} ${currencyPrefix}${priceInfo.display}`
-        : String(hotelName || '');
-    const pickHtml = canPick
-        ? `<button class="pick-cta" data-action="pick-hotel"
-                   data-hotel-id="${safeHotelIdAttr}"
-                   data-pick-label="${escapeAttr(pickLabel)}">${t('card_pick_cta')}</button>`
-        : '';
-
     // `data-track-hotel-click` + these four attributes are what tracking.js reads
-    // off the hotel-page link; both shapes below carry them identically so the
-    // event doesn't change meaning with the card's layout.
+    // off the hotel-page link (ui/messages.js); unchanged so the event keeps its
+    // meaning now that the primary button carries it.
     const hotelLinkAttrs = `href="${safeHotelUrlAttr}" target="_blank" rel="noopener noreferrer"
                data-track-hotel-click="1"
                data-hotel-name="${safeHotelNameAttr}"
@@ -810,26 +765,17 @@ function renderFooter(priceInfo, originalPrice, hotelUrl, hotelName, hotelId) {
                data-hotel-price="${safeHotelPriceAttr}"
                data-hotel-url="${safeHotelUrlAttr}"`;
 
-    // No url → no hotel-page affordance at all (UX6 2026-08-28). The card still
-    // renders its price and, when there is one, its pick button; it simply
-    // stops promising a page it cannot reach. Before this, an unmapped country
-    // got a fabricated /hotels/usa/<slugified-name> link that 404'd.
-    // Otherwise: no pick on offer → the hotel page is the only thing this card
-    // can do, so it keeps the button it has always had rather than degrading to
-    // a bare link.
-    const seeHotelHtml = !safeHotelUrl
-        ? ''
-        : canPick
-            ? `<a ${hotelLinkAttrs} class="see-hotel-link">${t('card_see_hotel')}</a>`
-            : `<a ${hotelLinkAttrs} class="book-button-link">
-               <button class="book-button">${t('card_see_hotel')}</button>
-           </a>`;
+    // No url → no button at all (UX6 2026-08-28): the card still shows its
+    // price, it just stops promising a page it cannot reach. Before UX6 an
+    // unmapped country got a fabricated /hotels/usa/<slugified-name> link that 404'd.
+    const chooseHtml = safeHotelUrl
+        ? `<a ${hotelLinkAttrs} class="pick-cta">${t('card_pick_cta')}</a>`
+        : '';
 
     return `
         <div class="hotel-card-footer">
             ${priceHtml}
-            ${pickHtml}
-            ${seeHotelHtml}
+            ${chooseHtml}
         </div>
     `;
 }

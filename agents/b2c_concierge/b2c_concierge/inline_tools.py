@@ -38,7 +38,7 @@ from contextlib import asynccontextmanager
 from typing import Any, AsyncIterator
 
 import httpx
-from b2c_common import build_hotel_page_url
+from b2c_common import build_hotel_page_url, with_checkin_date
 from b2c_common.observability import mark_level, observation, trace_context_carrier
 from mcp import ClientSession
 from mcp.client.streamable_http import streamable_http_client
@@ -371,6 +371,11 @@ async def get_hotel_details(
                 hotel = data.get("hotel") or {}
                 offers = data.get("offers") or []
                 normalized = _normalize_hotel_for_display(hotel, offers[0] if offers else None)
+                # Same rule as the search leaf's cards: `profile.date` only ever
+                # holds a user-given date (or the same-day cutoff swap), so the
+                # hotel page opens on the day the user asked for, not today.
+                if isinstance(normalized.get("url"), str) and profile.date:
+                    normalized["url"] = with_checkin_date(normalized["url"], profile.date)
                 return {"ok": True, "hotel": normalized, "guards_fired": guards_fired}
     except Exception as exc:  # noqa: BLE001 — degrade honestly, never crash the turn
         return {"ok": False, "error": f"get_hotel_details failed: {type(exc).__name__}"}

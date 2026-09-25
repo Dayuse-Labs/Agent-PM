@@ -112,6 +112,7 @@ from .a2a_datapart import encode_datapart, find_datapart
 from .amenity_guard import apply_amenity_truthfulness
 from .budget import TurnBudget
 from .currency_guard import enforce_currency_disclosure
+from .date_format import humanize_iso_dates
 from .ground_truth import shortlist_ground_truth_block, shortlist_hotels, synthesis_angle
 from .leg import StatelessLeafLeg
 from .link_guard import enforce_hotel_link_truthfulness
@@ -678,7 +679,7 @@ class _B2cConcierge(BaseAgent):
         profile.
         """
         budget.charge("synthesis")
-        ground_truth_block = shortlist_ground_truth_block(response, profile)
+        ground_truth_block = shortlist_ground_truth_block(response, profile, language)
         # The one fact worth leading on, decided in CODE from this turn's data
         # (ground_truth.synthesis_angle): the variety the reply was missing has
         # to come from the shortlist, not from temperature. Empty when the data
@@ -810,6 +811,10 @@ class _B2cConcierge(BaseAgent):
                     "currency_guard", service=SERVICE, invocation_id=invocation_id,
                     disclosed=True,
                 )
+            # QA 2026-09-08 n°2: the prompt now carries a written-out date, but
+            # an ISO date the model still emits ("Pour demain (2026-09-24)") is
+            # rewritten in code — same backstop posture, never a retry.
+            candidate, _ = humanize_iso_dates(candidate, language)
         return candidate or None
 
     # --- Inline tools (S07) ---------------------------------------------------------------------

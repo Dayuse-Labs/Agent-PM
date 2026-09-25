@@ -1104,3 +1104,33 @@ class TestSynthesisAnglePlumbing:
         assert "Wide price spread" in second_prompt         # fell through
         stored = asyncio.run(fake_profile_store.get(session.id))
         assert stored.last_synthesis_angle == "spread"
+
+
+class TestWrittenOutDateThroughTheSpine:
+    """QA 2026-09-08 n°2 (prod reply: "Pour demain (2026-09-24) à Paris…"): the
+    prompt carries the date in words, and an ISO date the model still emits is
+    rewritten in code before the reply leaves the concierge."""
+
+    def test_prompt_and_reply_use_the_written_out_date(
+        self, monkeypatch, fake_leg, fake_profile_store
+    ):
+        fake_leg.response_payload = {
+            "results": [{"id": 1, "name": "Drawing House"}],
+            "search_date": {"date": "2026-09-24", "same_day": False},
+            "profile_delta": {"city": "Paris"},
+        }
+        llm = _scripted_llm(
+            monkeypatch,
+            '{"family": "search", "language": "fr"}',
+            "Pour demain (2026-09-24) à Paris avec piscine, tu as 1 offre.",
+        )
+        runner = InMemoryRunner(root_agent)
+        session = _new_session(runner)
+
+        reply = _run_turn(runner, session.id, "un hotel a paris avec piscine demain")
+
+        synthesis_prompt = llm.calls[-1]["messages"][1]["content"]
+        assert "jeudi 24 septembre 2026" in synthesis_prompt
+        assert "2026-09-24" not in synthesis_prompt
+        assert "Pour demain (jeudi 24 septembre 2026) à Paris" in reply
+        assert "2026-09-24" not in reply
