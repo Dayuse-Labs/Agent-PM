@@ -279,7 +279,10 @@ export function handleFollowUp(action) {
             // hotel.price is a formatted string ("from €139.00") — parse it to a
             // number first, otherwise the comparator is NaN and nothing sorts.
             // Missing/zero prices sink to the bottom rather than masquerade as €0.
+            // `price_eur_cents` first: once cards show each hotel's own currency,
+            // the displayed amounts are no longer on one scale.
             const priceVal = (h) => {
+                if (Number.isFinite(h.price_eur_cents) && h.price_eur_cents > 0) return h.price_eur_cents / 100;
                 const v = parsePrice(h.price, h.display_currency).value;
                 return v > 0 ? v : Infinity;
             };

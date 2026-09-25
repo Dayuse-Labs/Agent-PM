@@ -16,6 +16,8 @@ Mécanique : la feuille pose sur chaque carte le prix de la MÊME offre en devis
 
 **Non vérifié** : la reconnaissance réelle par le LLM de triage (« devise locale », « en dollars de Hong Kong »…) dans les 7 langues — les tests scriptent sa réponse. Rendu carte vérifié en Chrome headless (« dès HK$805 · HK$1600/nuit »).
 
+**Code review `/code-review` (PR #118) — 7 constats, tous corrigés sauf un arbitré** : prix barré et % du panneau de formule en devise hôtel ; code ISO d'une NOUVELLE recherche comparé aux hôtels reçus (« Tokyo en yens » → devise hôtel, sinon message avec la devise des nouveaux hôtels) ; repaint seulement pour un message « devise seule » (détails nommés / comparaison / FAQ gardent leur route ; même devise demandée → « déjà affichés en … », sans recherche) ; widget : code ISO inconnu de la table affiché tel quel (« PLN 250 », plus jamais « €250 ») ; mention EUR gardée pour une carte restée en EUR ; puce budget triée sur `price_eur_cents`. 🪤 **Arbitré par Mathias (option a)** : un repaint après « autres options » repart de la page 1 (garder le curseur ne marche pas — la feuille masquerait les hôtels affichés ; ré-afficher sans recherche exigerait de stocker les cartes complètes en Redis). Gates : pytest **1 744 passés / 1 skippé**.
+
 ## ✅ 2026-09-23 — Booking Fees : le prix affiché suit `showPricesWithoutBookingFees` (QA n°6)
 
 **Fait** (branche `fix/booking-fees-display-price`, gates : pytest **1 715 passés / 1 skippé**, ruff, mypy, guardrails **verts**). La QA n°6 avait été classée « pas un chantier agent » : **faux**, c'est l'agent qui affichait `priceEuro` (sans frais) en dur, alors que MCP filtre le budget et trie sur `priceEuroWithBookingFees`.

@@ -115,6 +115,7 @@ from .currency_guard import enforce_currency_disclosure
 from .date_format import humanize_iso_dates
 from .display_currency import (
     HOTEL,
+    already_message,
     apply_hotel_currency,
     noted_message,
     resolve_currency_request,
@@ -741,14 +742,18 @@ class _B2cConcierge(BaseAgent):
         eur_displayed = profile.display_currency != HOTEL
         if eur_displayed and profile.currency and profile.currency.upper() != "EUR":
             currency_bits.append(f"user's own currency: {profile.currency}")
+        # A card left in EUR (no hotel-currency price to swap in) still needs the
+        # disclosure, even when the user asked for the hotel's currency.
         hotel_currencies = sorted(
             {
                 h["currency_code"]
                 for h in shortlist_hotels(response)
-                if isinstance(h.get("currency_code"), str) and h["currency_code"].upper() != "EUR"
+                if isinstance(h.get("currency_code"), str)
+                and h["currency_code"].upper() != "EUR"
+                and not h.get("display_currency")
             }
         )
-        if hotel_currencies and eur_displayed:
+        if hotel_currencies:
             currency_bits.append(f"hotel's own currency: {', '.join(hotel_currencies)}")
         currency_note = "; ".join(currency_bits)
 
@@ -1156,22 +1161,44 @@ class _B2cConcierge(BaseAgent):
         currency = resolve_currency_request(triage.display_currency, profile.last_results)
         repeat_search = False
         currency_notice: str | None = None
+        # A code the hotels on screen don't use may still be the currency of the
+        # hotels a NEW search is about to return ("un hôtel à Tokyo en yens"):
+        # decided once the results are in.
+        pending_currency: str | None = None
         if currency.kind == "unsupported":
-            currency_notice = unsupported_currency_message(currency, reply_language)
-            if family != "search":
+            if family == "search":
+                pending_currency = currency.requested
+            else:
                 await store.set(ctx.session.id, profile)
                 self._emit_turn_metric(family, "template:currency_unsupported", budget, t_start, "ok", inv)
-                yield self._final(ctx, currency_notice)
+                yield self._final(ctx, unsupported_currency_message(currency, reply_language))
                 return
         elif currency.kind == "set":
+            changed = profile.display_currency != currency.mode
             profile.display_currency = currency.mode
-            if family != "search" and not booking_signal and picked is None:
+            # Only a message that asks for NOTHING else is diverted: a named
+            # hotel, a comparison or a policy question keeps its own route, and
+            # those routes already render in the chosen currency.
+            currency_only = (
+                family in ("details", "ack")
+                and triage.hotel_name is None
+                and picked is None
+                and not booking_signal
+            )
+            if currency_only:
+                template: str | None = None
                 if not profile.last_results:
+                    template = noted_message(currency.mode, reply_language)
+                elif not changed:
+                    template = already_message(currency.mode, reply_language)
+                if template is not None:
                     await store.set(ctx.session.id, profile)
                     self._emit_turn_metric(family, "template:currency_noted", budget, t_start, "ok", inv)
-                    yield self._final(ctx, noted_message(currency.mode, reply_language))
+                    yield self._final(ctx, template)
                     return
                 # Hotels already on screen: repaint them in the chosen currency.
+                # From page 1 — a repaint after "other options" shows the first
+                # page again (accepted trade-off, 2026-09-25).
                 family, route = "search", ROUTES["search"]
                 repeat_search = True
 
@@ -1302,6 +1329,12 @@ class _B2cConcierge(BaseAgent):
             )
             return
         if route.target == LEAF_HOTEL_SEARCH and "results" in response:
+            if pending_currency is not None:
+                decided = resolve_currency_request(pending_currency, response["results"])
+                if decided.kind == "set":
+                    profile.display_currency = HOTEL
+                else:
+                    currency_notice = unsupported_currency_message(decided, reply_language)
             if profile.display_currency == HOTEL:
                 apply_hotel_currency(response["results"])
             results_count = len(response["results"])

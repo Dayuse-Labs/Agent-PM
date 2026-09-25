@@ -558,9 +558,8 @@ def _rate_plan_view(
         plan["start_time"] = start
         plan["end_time"] = end
     shown_price = display_price_euro(offer, hotel)
-    price = _format_price_eur_cents(shown_price)
-    if display_currency == HOTEL:
-        price = _hotel_currency_label(offer, hotel) or price
+    hotel_label = _hotel_currency_label(offer, hotel) if display_currency == HOTEL else None
+    price = hotel_label or _format_price_eur_cents(shown_price)
     if price:
         plan["price"] = price
     cents = _price_eur_cents(shown_price)
@@ -616,6 +615,15 @@ def _rate_plan_view(
     # a discount is a claim, and claims need a guard. Both keys stay absent
     # unless the night rate is a real, strictly higher price than the day rate —
     # a "-0 %" or negative badge would be worse than none.
+    # In the hotel's currency, the night rate and the % must be in that currency
+    # too, never an EUR night rate struck through next to a HK$ price.
+    if hotel_label is not None:
+        amount = display_price_hotel(offer, hotel)
+        original = offer.get("originalHotelPrice")
+        if isinstance(original, int) and isinstance(amount, int) and original > amount > 0:
+            plan["original_price"] = format_minor_amount(original, offer.get("hotelCurrency"))
+            plan["discount_pct"] = round((original - amount) / original * 100)
+        return plan
     original_cents = _price_eur_cents(offer.get("originalPriceEuro"))
     if original_cents is not None and cents is not None and original_cents > cents > 0:
         plan["original_price"] = _format_price_eur_cents(original_cents)

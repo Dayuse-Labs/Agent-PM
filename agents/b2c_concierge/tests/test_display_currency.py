@@ -218,6 +218,23 @@ class TestRatePlansInTheHotelCurrency:
         assert plan["price"] == "HKD 805.00"
         assert plan["price_eur_cents"] == 9800  # sorting stays on one scale
 
+    def test_night_rate_and_discount_follow_the_display_currency(self):
+        from b2c_concierge.inline_tools import _rate_plan_view
+
+        offer = {
+            "ratePlanUuid": "p1",
+            "availabilityDate": "2026-09-26",
+            "priceEuroWithBookingFees": 9800,
+            "originalPriceEuro": 20000,
+            "hotelCurrency": "HKD",
+            "hotelPriceWithBookingFees": 80000,
+            "originalHotelPrice": 160000,
+        }
+        eur = _rate_plan_view(offer, {})
+        assert (eur["original_price"], eur["discount_pct"]) == ("€200.00", 51)
+        hotel = _rate_plan_view(offer, {}, HOTEL)
+        assert (hotel["original_price"], hotel["discount_pct"]) == ("HKD 1600.00", 50)
+
 
 def test_display_currency_stays_concierge_side():
     from b2c_concierge.profile import SessionProfile, leaf_profile_view
@@ -225,3 +242,112 @@ def test_display_currency_stays_concierge_side():
     profile = SessionProfile(display_currency=HOTEL)
     assert SessionProfile.from_dict(profile.to_dict()).display_currency == HOTEL
     assert "display_currency" not in leaf_profile_view(profile)
+
+
+class TestReviewFixes:
+    def test_a_new_search_in_its_hotels_own_currency_switches_to_it(
+        self, monkeypatch, fake_leg, fake_profile_store
+    ):
+        # "un hôtel à Tokyo en yens" on turn 1: no shortlist yet, the code is
+        # checked against the hotels the search returns.
+        runner = InMemoryRunner(root_agent)
+        session = _new_session(runner)
+        _scripted_llm(
+            monkeypatch,
+            '{"family": "search", "language": "fr", "display_currency": "JPY"}',
+            "Voici un hôtel.",
+        )
+        tokyo = {**copy.deepcopy(HK_CARD), "hotel_price": "JPY 12000", "hotel_price_minor": 12000,
+                 "hotel_currency_code": "JPY", "currency_code": "JPY"}
+        fake_leg.response_payload = {"results": [tokyo], "profile_delta": {"city": "Tokyo"}}
+
+        reply = _run_turn(runner, session.id, "un hôtel à Tokyo en yens")
+
+        stored = asyncio.run(fake_profile_store.get(session.id))
+        assert stored.display_currency == HOTEL
+        assert stored.last_results[0]["price"] == "JPY 12000"
+        assert "Je ne peux pas encore" not in reply  # no refusal appended
+
+    def test_a_new_search_in_another_currency_names_the_new_hotels_currency(
+        self, monkeypatch, fake_leg, fake_profile_store
+    ):
+        runner = InMemoryRunner(root_agent)
+        session = _new_session(runner)
+        _scripted_llm(
+            monkeypatch,
+            '{"family": "search", "language": "fr", "display_currency": "USD"}',
+            "Voici un hôtel.",
+        )
+        fake_leg.response_payload = {"results": [copy.deepcopy(HK_CARD)], "profile_delta": {"city": "Hong Kong"}}
+
+        reply = _run_turn(runner, session.id, "un hôtel à Hong Kong en dollars américains")
+
+        assert reply.endswith("Laquelle préférez-vous ?")
+        assert "USD" in reply and "HKD" in reply
+        assert asyncio.run(fake_profile_store.get(session.id)).display_currency is None
+
+    def test_a_named_hotel_keeps_its_details_route(self, monkeypatch, fake_leg, fake_profile_store):
+        runner = InMemoryRunner(root_agent)
+        session = _new_session(runner)
+        _scripted_llm(
+            monkeypatch,
+            '{"family": "search", "language": "fr"}',
+            "Voici un hôtel.",
+            '{"family": "details", "language": "fr", "display_currency": "HOTEL", "hotel_name": "Hotel Harbour"}',
+            "Voici le détail.",
+        )
+        fake_leg.response_payload = {"results": [copy.deepcopy(HK_CARD)], "profile_delta": {"city": "Hong Kong"}}
+        _run_turn(runner, session.id, "un hôtel à Hong Kong demain")
+        details_card = {"id": 1, "name": "Hotel Harbour", "price": "€98.00", **{
+            k: HK_CARD[k] for k in ("hotel_price", "hotel_price_minor", "hotel_currency_code")
+        }}
+        calls = []
+
+        async def fake_details(*args, **kwargs):
+            calls.append(args)
+            return {"ok": True, "hotel": copy.deepcopy(details_card)}
+
+        monkeypatch.setattr(agent_module.inline_tools, "get_hotel_details", fake_details)
+        _run_turn(runner, session.id, "montre-moi le Hotel Harbour en devise locale")
+
+        assert fake_leg.call_count == 1  # no repaint search
+        assert len(calls) == 1  # the details lookup it asked for
+        assert asyncio.run(fake_profile_store.get(session.id)).display_currency == HOTEL
+
+    def test_asking_for_the_currency_already_shown_repaints_nothing(
+        self, monkeypatch, fake_leg, fake_profile_store
+    ):
+        runner = InMemoryRunner(root_agent)
+        session = _new_session(runner)
+        _scripted_llm(
+            monkeypatch,
+            '{"family": "search", "language": "fr"}',
+            "Voici un hôtel.",
+            '{"family": "details", "language": "fr", "display_currency": "EUR"}',
+        )
+        fake_leg.response_payload = {"results": [copy.deepcopy(HK_CARD)], "profile_delta": {"city": "Hong Kong"}}
+        _run_turn(runner, session.id, "un hôtel à Hong Kong demain")
+
+        reply = _run_turn(runner, session.id, "en euros")
+
+        assert fake_leg.call_count == 1
+        assert reply == "Les prix sont déjà affichés en euros."
+
+    def test_a_card_left_in_eur_keeps_the_eur_disclosure(
+        self, monkeypatch, fake_leg, fake_profile_store
+    ):
+        runner = InMemoryRunner(root_agent)
+        session = _new_session(runner)
+        llm = _scripted_llm(
+            monkeypatch,
+            '{"family": "details", "language": "fr", "display_currency": "HOTEL"}',
+            '{"family": "search", "language": "fr"}',
+            "Voici un hôtel.",
+        )
+        _run_turn(runner, session.id, "je veux la devise locale")
+        eur_only = {k: v for k, v in HK_CARD.items() if not k.startswith("hotel_")}
+        fake_leg.response_payload = {"results": [eur_only], "profile_delta": {"city": "Hong Kong"}}
+
+        _run_turn(runner, session.id, "un hôtel à Hong Kong demain")
+
+        assert "CURRENCY" in llm.calls[-1]["messages"][1]["content"]

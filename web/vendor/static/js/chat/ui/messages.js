@@ -698,7 +698,7 @@ function renderRatePlans(plans) {
                 </span>
                 <span class="booking-card__plan-prices">
                     ${plan.price ? `<span class="booking-card__plan-amount">${escapeHtml(formatBackendPrice(plan.price))}</span>` : ''}
-                    ${plan.original_price ? `<span class="booking-card__plan-orig">${escapeHtml(String(plan.original_price))}${escapeHtml(t('night_suffix'))}</span>` : ''}
+                    ${plan.original_price ? `<span class="booking-card__plan-orig">${escapeHtml(formatBackendPrice(plan.original_price))}${escapeHtml(t('night_suffix'))}</span>` : ''}
                     ${plan.discount_pct ? `<span class="booking-card__plan-disc">-${escapeHtml(String(plan.discount_pct))}%</span>` : ''}
                 </span>
             </button>`;

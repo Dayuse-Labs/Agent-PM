@@ -190,6 +190,34 @@ _NOTED = {
 }
 
 
+# Asked for the currency already in use: nothing to repaint.
+_ALREADY = {
+    HOTEL: {
+        "fr": "Les prix sont déjà affichés dans la devise de chaque hôtel.",
+        "en": "Prices are already shown in each hotel's own currency.",
+        "es": "Los precios ya se muestran en la moneda de cada hotel.",
+        "it": "I prezzi sono già mostrati nella valuta di ogni hotel.",
+        "de": "Die Preise werden bereits in der Währung des jeweiligen Hotels angezeigt.",
+        "pt": "Os preços já são apresentados na moeda de cada hotel.",
+        "nl": "De prijzen worden al in de valuta van elk hotel getoond.",
+    },
+    "EUR": {
+        "fr": "Les prix sont déjà affichés en euros.",
+        "en": "Prices are already shown in euros.",
+        "es": "Los precios ya se muestran en euros.",
+        "it": "I prezzi sono già mostrati in euro.",
+        "de": "Die Preise werden bereits in Euro angezeigt.",
+        "pt": "Os preços já são apresentados em euros.",
+        "nl": "De prijzen worden al in euro getoond.",
+    },
+}
+
+
+def already_message(mode: str | None, language: str) -> str:
+    table = _ALREADY[HOTEL if mode == HOTEL else "EUR"]
+    return table.get(language, table["en"])
+
+
 def unsupported_currency_message(decision: CurrencyDecision, language: str) -> str:
     requested = decision.requested or ""
     currencies = [c for c in decision.hotel_currencies if c != "EUR"]

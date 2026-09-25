@@ -86,6 +86,11 @@ function marketCurrencySymbol() {
 // glyphs, then compound dollar marks (C$, A$…), then a bare "$" (USD) last.
 function detectCurrencySymbol(str) {
     const s = String(str || '');
+    // A hotel-currency price from the backend starts with its ISO code. One the
+    // table below doesn't know (PLN, INR…) must show as that code, never fall
+    // through to the market's symbol: "PLN 250" rendered as "€250" is a wrong price.
+    const leading = /^([A-Z]{3}) \d/.exec(s.trim());
+    if (leading) return CURRENCY_SYMBOLS[leading[1]] || `${leading[1]} `;
     const code = s.toUpperCase().match(
         /\b(USD|EUR|GBP|CHF|CAD|AUD|NZD|SGD|HKD|BRL|MXN|AED|SAR|QAR|BHD|THB|JPY|KRW|SEK|CZK|TRY|TWD)\b/
     );
