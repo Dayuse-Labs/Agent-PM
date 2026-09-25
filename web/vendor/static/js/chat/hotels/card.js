@@ -63,6 +63,19 @@ const CURRENCY_SYMBOLS = {
     CZK: 'Kč ', TRY: '₺', TWD: 'NT$',
 };
 
+/**
+ * "HKD 780.00" → "HK$780.00". A hotel-currency price comes from the backend with
+ * its ISO code first (the parser below keys on it); rendered as-is it would sit
+ * next to "€95.00" in the booking card. Any other string is returned unchanged.
+ */
+export function formatBackendPrice(price) {
+    const text = String(price || '').trim();
+    const match = /^([A-Z]{3}) (\d[\d.,]*)$/.exec(text);
+    if (!match) return text;
+    const symbol = CURRENCY_SYMBOLS[match[1]];
+    return symbol ? `${symbol}${match[2]}` : text;
+}
+
 function marketCurrencySymbol() {
     const code = String((state.marketContext && state.marketContext.currency) || '').toUpperCase();
     return CURRENCY_SYMBOLS[code] || '';

@@ -38,11 +38,19 @@ from contextlib import asynccontextmanager
 from typing import Any, AsyncIterator
 
 import httpx
-from b2c_common import build_hotel_page_url, display_price_euro, with_checkin_date
+from b2c_common import (
+    build_hotel_page_url,
+    display_price_euro,
+    display_price_hotel,
+    format_minor_amount,
+    hotel_currency_price,
+    with_checkin_date,
+)
 from b2c_common.observability import mark_level, observation, trace_context_carrier
 from mcp import ClientSession
 from mcp.client.streamable_http import streamable_http_client
 
+from .display_currency import HOTEL
 from .profile import (
     SessionProfile,
     resolve_hotel_reference,
@@ -324,6 +332,9 @@ def _normalize_hotel_for_display(hotel: dict[str, Any], best_offer: dict[str, An
         shown_price = display_price_euro(best_offer, hotel)
         normalized["price"] = _format_price_eur_cents(shown_price)
         normalized["price_eur_cents"] = _price_eur_cents(shown_price)
+        hotel_fields = hotel_currency_price(best_offer, hotel)
+        hotel_fields.pop("hotel_original_price", None)
+        normalized.update(hotel_fields)
         # S-CX5: the offer's identity travels with its price (same rule and
         # same keys as the search leaf's `normalize_hotel`) so the booking step
         # can reuse THIS offer rather than re-deriving one.
@@ -507,8 +518,17 @@ def _best_offer(
 _MAX_RATE_PLANS = 6
 
 
+def _hotel_currency_label(
+    offer: dict[str, Any], hotel: dict[str, Any] | None
+) -> str | None:
+    """The offer's display price in the hotel's own currency, or None."""
+    return format_minor_amount(display_price_hotel(offer, hotel), offer.get("hotelCurrency"))
+
+
 def _rate_plan_view(
-    offer: dict[str, Any], hotel: dict[str, Any] | None = None
+    offer: dict[str, Any],
+    hotel: dict[str, Any] | None = None,
+    display_currency: str | None = None,
 ) -> dict[str, Any] | None:
     """S-CX8: one MCP offer as a display plan (no link yet — that costs a
     round-trip, added later only for the plans that survive the cut).
@@ -539,6 +559,8 @@ def _rate_plan_view(
         plan["end_time"] = end
     shown_price = display_price_euro(offer, hotel)
     price = _format_price_eur_cents(shown_price)
+    if display_currency == HOTEL:
+        price = _hotel_currency_label(offer, hotel) or price
     if price:
         plan["price"] = price
     cents = _price_eur_cents(shown_price)
@@ -615,7 +637,10 @@ def _offers_for_day(offers: list[Any], date: str | None) -> list[dict[str, Any]]
 
 
 def _day_rate_plans(
-    offers: list[Any], date: str | None, hotel: dict[str, Any] | None = None
+    offers: list[Any],
+    date: str | None,
+    hotel: dict[str, Any] | None = None,
+    display_currency: str | None = None,
 ) -> list[dict[str, Any]]:
     """S-CX8: every bookable formula ON ONE DAY, cheapest first, deduped by
     offer id AND by display signature, capped at `_MAX_RATE_PLANS`.
@@ -640,7 +665,7 @@ def _day_rate_plans(
     seen: set[str] = set()
     seen_signatures: set[tuple[Any, ...]] = set()
     for offer in _offers_for_day(offers, date):
-        plan = _rate_plan_view(offer, hotel)
+        plan = _rate_plan_view(offer, hotel, display_currency)
         if plan is None or plan["offer_id"] in seen:
             continue
         signature = (
@@ -788,6 +813,8 @@ async def _quote_fresh_offer(
                         }
                     offer = best
                     quoted_price = _format_price_eur_cents(display_price_euro(best, details_hotel))
+                    if profile.display_currency == HOTEL:
+                        quoted_price = _hotel_currency_label(best, details_hotel) or quoted_price
                     start_time = _hhmm(best.get("startHour"), best.get("startMinute"))
                     end_time = _hhmm(best.get("endHour"), best.get("endMinute"))
                 identity = {
@@ -859,7 +886,9 @@ async def _quote_picked_rate_plans(hotel_id: int, profile: SessionProfile) -> di
                 if not details["ok"]:
                     return details
                 offers = details["data"].get("offers") or []
-                plans = _day_rate_plans(offers, profile.date, details["data"].get("hotel"))
+                plans = _day_rate_plans(
+                    offers, profile.date, details["data"].get("hotel"), profile.display_currency
+                )
                 if not plans:
                     return {"ok": False, "error": "no bookable offer for this hotel"}
                 amenities = _day_hotel_amenities(_offers_for_day(offers, profile.date))

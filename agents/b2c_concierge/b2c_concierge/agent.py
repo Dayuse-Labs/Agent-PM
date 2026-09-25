@@ -113,6 +113,13 @@ from .amenity_guard import apply_amenity_truthfulness
 from .budget import TurnBudget
 from .currency_guard import enforce_currency_disclosure
 from .date_format import humanize_iso_dates
+from .display_currency import (
+    HOTEL,
+    apply_hotel_currency,
+    noted_message,
+    resolve_currency_request,
+    unsupported_currency_message,
+)
 from .ground_truth import shortlist_ground_truth_block, shortlist_hotels, synthesis_angle
 from .leg import StatelessLeafLeg
 from .link_guard import enforce_hotel_link_truthfulness
@@ -341,7 +348,11 @@ def _attach_outgoing_datapart(ctx: InvocationContext, payload: dict[str, Any]) -
 
 
 async def _run_leaf(
-    leaf: str, ctx: InvocationContext, profile_in: dict[str, Any]
+    leaf: str,
+    ctx: InvocationContext,
+    profile_in: dict[str, Any],
+    *,
+    query_params: dict[str, Any] | None = None,
 ) -> tuple[str | None, dict[str, Any]]:
     """One leaf leg over A2A: returns (the leaf's final text, its decoded A2A
     DataPart response — `{}` if it didn't send one, e.g. not wired yet). The
@@ -355,9 +366,11 @@ async def _run_leaf(
     the raw leaf output never reaches the end user unsynthesized.
     """
     leg = _get_leg(leaf)
-    # query_params stays an empty dict here on purpose: its business schema
-    # (destination, dates, filters…) is S4's contract to fill, not S5's.
-    _attach_outgoing_datapart(ctx, {"query_params": {}, "profile_in": profile_in})
+    # query_params carries only code-owned hints (e.g. repeat_previous_search);
+    # the business schema (destination, dates, filters…) stays S4's contract.
+    _attach_outgoing_datapart(
+        ctx, {"query_params": query_params or {}, "profile_in": profile_in}
+    )
     texts: list[str] = []
     response: dict[str, Any] = {}
     t0 = time.monotonic()
@@ -723,7 +736,10 @@ class _B2cConcierge(BaseAgent):
         # converted price) that differs from EUR — a fact independent of
         # whatever the user's client currency happens to be.
         currency_bits: list[str] = []
-        if profile.currency and profile.currency.upper() != "EUR":
+        # Prices already shown in each hotel's own currency: an "EUR, no
+        # conversion" disclosure would contradict the cards.
+        eur_displayed = profile.display_currency != HOTEL
+        if eur_displayed and profile.currency and profile.currency.upper() != "EUR":
             currency_bits.append(f"user's own currency: {profile.currency}")
         hotel_currencies = sorted(
             {
@@ -732,7 +748,7 @@ class _B2cConcierge(BaseAgent):
                 if isinstance(h.get("currency_code"), str) and h["currency_code"].upper() != "EUR"
             }
         )
-        if hotel_currencies:
+        if hotel_currencies and eur_displayed:
             currency_bits.append(f"hotel's own currency: {', '.join(hotel_currencies)}")
         currency_note = "; ".join(currency_bits)
 
@@ -855,6 +871,8 @@ class _B2cConcierge(BaseAgent):
             yield self._final(ctx, templates.inline_unresolved_response(route.target, language))
             return
 
+        if profile.display_currency == HOTEL:
+            apply_hotel_currency(hotels)
         response = {"results": hotels}
         # Same picks the `done` payload will carry: details/compare do NOT touch
         # `last_results`, so this reads the shortlist a previous search left —
@@ -1133,6 +1151,30 @@ class _B2cConcierge(BaseAgent):
         elif family != "faq" and refinement_signal:
             family, route = "search", ROUTES["search"]
 
+        # Display currency (2026-09-25): EUR by default, the hotel's own currency
+        # on request, anything else answered with the two available choices.
+        currency = resolve_currency_request(triage.display_currency, profile.last_results)
+        repeat_search = False
+        currency_notice: str | None = None
+        if currency.kind == "unsupported":
+            currency_notice = unsupported_currency_message(currency, reply_language)
+            if family != "search":
+                await store.set(ctx.session.id, profile)
+                self._emit_turn_metric(family, "template:currency_unsupported", budget, t_start, "ok", inv)
+                yield self._final(ctx, currency_notice)
+                return
+        elif currency.kind == "set":
+            profile.display_currency = currency.mode
+            if family != "search" and not booking_signal and picked is None:
+                if not profile.last_results:
+                    await store.set(ctx.session.id, profile)
+                    self._emit_turn_metric(family, "template:currency_noted", budget, t_start, "ok", inv)
+                    yield self._final(ctx, noted_message(currency.mode, reply_language))
+                    return
+                # Hotels already on screen: repaint them in the chosen currency.
+                family, route = "search", ROUTES["search"]
+                repeat_search = True
+
         # 3-5. Code-owned routing.
         if route.kind == "template":
             # The LLM classified ack where the regex fast-path didn't match.
@@ -1209,7 +1251,12 @@ class _B2cConcierge(BaseAgent):
         # (Redis, orchestrator-only — decision B3) travels OUT as profile_in and
         # comes back as profile_delta.
         budget.charge("leaf_llm")
-        leaf_text, response = await _run_leaf(route.target, ctx, leaf_profile_view(profile))
+        leaf_kwargs: dict[str, Any] = (
+            {"query_params": {"repeat_previous_search": True}} if repeat_search else {}
+        )
+        leaf_text, response = await _run_leaf(
+            route.target, ctx, leaf_profile_view(profile), **leaf_kwargs
+        )
         # OBS3 (2026-08-26): the guards that fired INSIDE the leaf, folded into
         # the same set the spine's own guards use — same one-liner as the inline
         # tools below. Until now the 5 leaf-side names in GUARD_SCORE_NAMES (the
@@ -1255,6 +1302,8 @@ class _B2cConcierge(BaseAgent):
             )
             return
         if route.target == LEAF_HOTEL_SEARCH and "results" in response:
+            if profile.display_currency == HOTEL:
+                apply_hotel_currency(response["results"])
             results_count = len(response["results"])
             # S-CX6: today's booking window closed on a market that DOES have
             # matching hotels (leaf-owned `cutoff_closed`; it already probed the
@@ -1323,6 +1372,8 @@ class _B2cConcierge(BaseAgent):
         final_text = synth or leaf_text or templates.leaf_degraded_response(
             family, reply_language, profile.city
         )
+        if currency_notice:
+            final_text = f"{final_text.rstrip()}\n\n{currency_notice}"
         for chunk in _chunk_text(final_text):
             yield self._chunk_event(ctx, chunk)
         yield self._final(ctx, final_text)
