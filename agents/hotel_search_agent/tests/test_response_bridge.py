@@ -1852,3 +1852,31 @@ class TestCheckinDateOnHotelLinks:
             profile_in={"date": "2026-09-01"},
         )
         assert payload["results"][0]["url"] == self._URL
+
+
+class TestBookingFeesOnTheCard:
+    """QA n°6: the card showed `priceEuro` (without fees) whatever the hotel's
+    setting, while MCP filters the budget on the fee-included price."""
+
+    def _hotel(self, **extra):
+        return {
+            "hotelId": 1,
+            "name": "H4",
+            "offers": [
+                {"priceEuro": 9500, "priceEuroWithBookingFees": 10400, "startHour": 12, "endHour": 18},
+                {"priceEuro": 9000, "priceEuroWithBookingFees": 10600, "startHour": 12, "endHour": 22},
+            ],
+            **extra,
+        }
+
+    def test_default_hotel_shows_the_fee_included_price(self):
+        card = normalize_hotel(self._hotel())
+        # Cheapest BY THE SHOWN PRICE: 104 € beats 106 €, even though the
+        # second offer is cheaper without fees.
+        assert card["price"] == "€104.00" and card["price_eur_cents"] == 10400
+        assert card["timeslots"] == [{"start": "12:00", "end": "18:00"}]
+
+    def test_flagged_hotel_shows_the_price_without_fees(self):
+        card = normalize_hotel(self._hotel(showPricesWithoutBookingFees=True))
+        assert card["price"] == "€90.00" and card["price_eur_cents"] == 9000
+        assert card["timeslots"] == [{"start": "12:00", "end": "22:00"}]

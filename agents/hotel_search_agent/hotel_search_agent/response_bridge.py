@@ -50,7 +50,7 @@ from google.adk.a2a.converters.part_converter import (
 from google.adk.models.llm_response import LlmResponse
 from google.genai import types as genai_types
 
-from b2c_common import build_hotel_page_url, with_checkin_date
+from b2c_common import build_hotel_page_url, display_price_euro, with_checkin_date
 from hotel_search_agent.inventory import haversine_km
 
 # The concierge reports AT MOST 5 (ground-truth cap) — match it so the model
@@ -484,10 +484,16 @@ def _stamp_distances(
             card["distance_km"] = round(haversine_km(olat, olon, clat, clon), 1)
 
 
-def _best_offer(offers: list[dict[str, Any]]) -> dict[str, Any] | None:
-    priced = [o for o in offers if isinstance(o, dict) and o.get("priceEuro") is not None]
+def _best_offer(
+    offers: list[dict[str, Any]], hotel: dict[str, Any] | None = None
+) -> dict[str, Any] | None:
+    """Cheapest offer by the price the customer is SHOWN (`display_price_euro`:
+    with or without booking fees, per the hotel's own setting)."""
+    priced = [
+        o for o in offers if isinstance(o, dict) and display_price_euro(o, hotel) is not None
+    ]
     if priced:
-        return min(priced, key=lambda o: o["priceEuro"])
+        return min(priced, key=lambda o: display_price_euro(o, hotel))
     return offers[0] if offers and isinstance(offers[0], dict) else None
 
 
@@ -590,12 +596,13 @@ def normalize_hotel(
         offers = [
             o for o in offers if isinstance(o, dict) and _offer_fits_exact_window(o, start_total, end_total)
         ]
-    best = _best_offer(offers)
+    best = _best_offer(offers, hotel)
     if best:
-        price = _format_price_eur_cents(best.get("priceEuro"))
+        shown_price = display_price_euro(best, hotel)
+        price = _format_price_eur_cents(shown_price)
         if price:
             card["price"] = price
-        cents = _price_eur_cents(best.get("priceEuro"))
+        cents = _price_eur_cents(shown_price)
         if cents is not None:
             card["price_eur_cents"] = cents
         start, end = _hhmm(best.get("startHour"), best.get("startMinute")), _hhmm(

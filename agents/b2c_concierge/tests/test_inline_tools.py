@@ -161,6 +161,19 @@ class TestGetHotelDetails:
         result = _run(inline_tools.get_hotel_details("Villa Paris Orly", profile))
         assert "image_urls" not in result["hotel"]
 
+    def test_details_card_follows_the_booking_fees_setting(self, monkeypatch):
+        # QA n°6: same rule as the search leaf's cards (b2c_common.display_price_euro).
+        offer = {**HOTEL_DETAILS_RESPONSE["offers"][0], "priceEuroWithBookingFees": 5900}
+        profile = SessionProfile(last_results=SHORTLIST)
+        _install(monkeypatch, {"get_hotel_details": FakeResult({**HOTEL_DETAILS_RESPONSE, "offers": [offer]})})
+        hotel = _run(inline_tools.get_hotel_details("Villa Paris Orly", profile))["hotel"]
+        assert hotel["price"] == "€59.00" and hotel["price_eur_cents"] == 5900
+
+        flagged = {**HOTEL_DETAILS_RESPONSE["hotel"], "showPricesWithoutBookingFees": True}
+        _install(monkeypatch, {"get_hotel_details": FakeResult({"hotel": flagged, "offers": [offer]})})
+        hotel = _run(inline_tools.get_hotel_details("Villa Paris Orly", profile))["hotel"]
+        assert hotel["price"] == "€54.00" and hotel["price_eur_cents"] == 5400
+
     def test_builds_page_url_from_es_slug_never_from_the_name(self, monkeypatch):
         # S-G12: url only when the server sends its ES slug — the display
         # name ("Villa Paris Orly") must never be slugified into one.

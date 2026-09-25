@@ -4,6 +4,14 @@
 
 > 📋 **Pour savoir QUOI faire ensuite, ouvrir [`CHANTIERS.md`](CHANTIERS.md)** (état vérifié au 2026-09-14) : la liste des chantiers ouverts, chacun avec sa preuve, ses actions et un prompt prêt à coller — plus la liste de ce qu'il ne faut **pas** relancer parce que c'est déjà livré. `tasks/todo.md` est périmé et ne doit plus servir de référence.
 
+## ✅ 2026-09-23 — Booking Fees : le prix affiché suit `showPricesWithoutBookingFees` (QA n°6)
+
+**Fait** (branche `fix/booking-fees-display-price`, gates : pytest **1 715 passés / 1 skippé**, ruff, mypy, guardrails **verts**). La QA n°6 avait été classée « pas un chantier agent » : **faux**, c'est l'agent qui affichait `priceEuro` (sans frais) en dur, alors que MCP filtre le budget et trie sur `priceEuroWithBookingFees`.
+
+Règle produit (Mathias, 2026-09-23) : `showPricesWithoutBookingFees` (booléen, racine du document hôtel ES) `true` → `priceEuro`, sinon → `priceEuroWithBookingFees`. Nouveau `b2c_common.display_price_euro(offer, hotel)` — repli `priceEuro` si le prix avec frais manque, seul un vrai `True` compte. Appliqué partout où un prix est choisi ou affiché : carte + choix de l'offre la moins chère (`response_bridge.normalize_hotel`/`_best_offer`), fiche détails/compare (`inline_tools._normalize_hotel_for_display`), offre la moins chère et prix cité à la réservation (`_best_offer`, `generate_booking_link`), lignes du panneau de formule (`_rate_plan_view`/`_day_rate_plans`). Le moins cher est désormais calculé sur le prix AFFICHÉ (test : 104 € avec frais bat 106 €, même si l'autre offre est moins chère sans frais). Non touché : le repli de formatage `facade.normalize_hotels` (chemin théorique, les cartes arrivent déjà avec `price`) et le tarif nuit barré.
+
+**Dépendance MCP** : le drapeau n'arrive que si MCP l'expose — branche `fix/show-prices-without-booking-fees` sur `mcp-dayuse` (4 couches : schéma zod, `hotelProps`, entité `Hotel`, `mapHotelIdentity` → présent dans les 6 sorties de tools). **Déployer MCP d'abord** : sans lui, l'agent affiche le prix avec frais pour tous les hôtels, y compris ceux réglés à `true` (erreur dans le sens prudent, jamais un prix trop bas).
+
 ## ✅ 2026-09-23 — 5 remontées QA corrigées (date, « closes », « Voir tout », CTA carte, checkinDate)
 
 **Fait** (branche `fix/qa-widget-2026-09-23`, gates locaux : pytest **1 736 passés / 1 skippé**, ruff, mypy, guardrails **verts**) :
@@ -18,7 +26,7 @@
 
 **Laissé de côté par décision de Mathias** : changement de devise à la demande (bloqué par l'arbitrage Fabien « pas de FX côté AgentB2C » ; `hotelPrice` ne couvrirait de toute façon que la devise de l'hôtel, pas une devise choisie) ; message « Je n'arrive pas à joindre la recherche » sur « refais la requête en changeant la currency » (cause non établie, trace Langfuse non consultée).
 
-**Suite immédiate (autre branche)** : Booking Fees (QA n°6, reclassée — c'est bien un défaut agent). L'agent affiche `priceEuro` en dur à 7 endroits alors que MCP filtre et trie sur `priceEuroWithBookingFees`. Règle produit : `showPricesWithoutBookingFees` (booléen racine du document hôtel ES, déjà indexé, au même niveau que `globalAverageRating`) `true` → `priceEuro`, sinon → `priceEuroWithBookingFees` (repli `priceEuro` si absent). Côté MCP : le champ est jeté par `HotelDocumentSchema` (zod strip) — 4 ajouts à faire, exposé via `mapHotelIdentity`.
+**Suite immédiate (autre branche)** — ✅ livrée, voir le bloc Booking Fees ci-dessus : Booking Fees (QA n°6, reclassée — c'est bien un défaut agent). L'agent affiche `priceEuro` en dur à 7 endroits alors que MCP filtre et trie sur `priceEuroWithBookingFees`. Règle produit : `showPricesWithoutBookingFees` (booléen racine du document hôtel ES, déjà indexé, au même niveau que `globalAverageRating`) `true` → `priceEuro`, sinon → `priceEuroWithBookingFees` (repli `priceEuro` si absent). Côté MCP : le champ est jeté par `HotelDocumentSchema` (zod strip) — 4 ajouts à faire, exposé via `mapHotelIdentity`.
 
 ## ✅ 2026-09-14 — 2e vague de pourrissement calendaire : 1 test immunisé, et la preuve qu'il n'en reste aucun autre
 
@@ -622,7 +630,6 @@ Correctif : helper `_if_none_match_hits()` (strip du préfixe `W/`, liste sépar
 - **« Avant/après déploiement » se prouve avec les horodatages, pas avec l'ordre des commandes.** J'ai étiqueté une mesure « AVANT deploy » alors que le build était déjà live depuis ~1 min : elle rendait déjà `304`, ce qui aurait pu passer pour « le correctif ne servait à rien ». Comparer l'heure de la sonde avec `latestDeployment.createdAt` (`railway status --json`) avant de nommer une mesure.
 - **Un `304` vu depuis l'extérieur n'est pas forcément le nôtre : l'edge Railway peut répondre à une requête conditionnelle depuis SON cache.** Pour mesurer le comportement de l'origine, ajouter un cache-buster que l'edge n'a jamais vu : `GET /static/js/chat/state.js?cb=<alea>` + `If-None-Match: W/"…"` → `304` (c'est bien notre handler), le même avec un etag périmé → `200`, une liste contenant le nôtre → `304`. Le `304` renvoie l'etag **fort** (pas de corps → pas de compression → pas d'affaiblissement).
 
-
 **Leçon** : sur ce déploiement, un ETag n'est pas ce qu'on a écrit dans le code — l'edge peut le transformer. Un test unitaire sur notre propre handler ne pouvait pas voir ça ; seul le navigateur contre la prod l'a montré.
 
 ## ✅ Addendum 2026-08-27 — le reload du widget ne repart plus sur la session d'avant (précédence `session_id` inversée)
@@ -679,7 +686,6 @@ Symptôme rapporté par Fabien : « je rafraîchis la page du widget, je pose un
 - 📌 **Transport SSE re-confirmé en prod** : les tours du navigateur partent sur **`/v3/chat/stream`**, pas `/v3/chat` — déjà consigné plus bas (bloc S-PERF4, `l. 1063` et `l. 1934`), recoché de mes yeux le 2026-08-27. Corollaire pour toute probe DOM : la fin de réponse ne se détecte pas au nombre de nœuds mais à la **stabilisation du texte**, puisque les tokens arrivent en streaming.
 - ✅ **Les assets statiques partaient sans `Cache-Control`, sans `ETag` et sans `Last-Modified`** (`content-length` seul), donc leur fraîcheur était laissée aux heuristiques du navigateur — un client pouvait rejouer un ancien `state.js` contre une façade plus récente, exactement la classe de bug que ce bloc corrige. **Traité juste après, branche `fix/widget-asset-revalidation`** (voir le bloc suivant).
 - Le body `session_id` (M1 legacy) reste envoyé par le widget et vaut désormais le même id que le header : redondant mais volontaire, c'est le contrat iso agent-usa.
-
 
 ## ✅ Addendum 2026-08-26 decies — les 2 guards date sont CÂBLÉS ; `guard_date_hallucinated_year_rolled_forward` vu à **true 3/3 en prod** (première fois de l'histoire du projet)
 
@@ -4031,8 +4037,6 @@ Cas mobile vérifié aussi (colonne 330 px → carte 280,5 px, débord 0).
 - Bruit ADK expérimental « original event loop is closed » au cleanup de session feuille après un timeout concierge — quirk A2A expérimental, inoffensif.
 - Secrets de build/tokens A2A dans le scratchpad de session (éphémère). `FLEET_READ_TOKEN` déposé par Fabien dans `.env` (gitignored) + posé en variable Railway des 3 backends.
 - MCP staging = inventaire épars (cf. addendum eval) : certaines villes « 0 offre » — fidèle au local, pas un signal qualité.
-
-
 
 **Contexte** : suite directe de S-A (PR #18, mergée). Fabien a demandé de faire tourner le pack complet (`eval_pack.runner`/`eval_pack.compare`, code déjà existant, aucun code neuf) contre agent-usa (démarré en local, `:5002`) ET AgentB2C (via l'adapter S-A, `:8110→:8100`), et de produire un comparatif clair. **2 kills accidentels en cours de route** (l'utilisateur faisait des modifs en parallèle) ont fait perdre la première tentative (~75 %/~68 % de progression) — relancé intégralement depuis zéro sur sa confirmation.
 
