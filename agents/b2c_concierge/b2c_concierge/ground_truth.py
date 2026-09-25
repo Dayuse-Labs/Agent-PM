@@ -15,6 +15,8 @@ from __future__ import annotations
 
 from typing import Any
 
+from b2c_common import minor_units
+
 from .date_format import format_date_human
 from .profile import SessionProfile
 
@@ -141,6 +143,18 @@ def _price_cents(hotel: dict[str, Any]) -> int | None:
     return value if isinstance(value, int) and value > 0 else None
 
 
+def _shown_price(hotel: dict[str, Any]) -> tuple[float, str] | None:
+    """The price the card DISPLAYS, in major units, with its currency: the
+    hotel-currency one after `display_currency.apply_hotel_currency`, else EUR.
+    The slot's `original_price` is always in that same currency."""
+    code = hotel.get("display_currency")
+    minor = hotel.get("display_price_minor")
+    if isinstance(code, str) and isinstance(minor, int) and minor > 0:
+        return minor / 10 ** minor_units(code), code
+    cents = _price_cents(hotel)
+    return (cents / 100, "EUR") if cents else None
+
+
 def _first_slot(hotel: dict[str, Any]) -> dict[str, Any]:
     slot = (hotel.get("timeslots") or [None])[0]
     return slot if isinstance(slot, dict) else {}
@@ -200,9 +214,9 @@ def synthesis_angle(response: dict[str, Any] | None, exclude: str = "") -> tuple
     # states the percentage without saying which hotel carries the best one.
     discounts = []
     for hotel in hotels:
-        now, was = _price_cents(hotel), _first_slot(hotel).get("original_price")
-        if now and isinstance(was, (int, float)) and was > 0:
-            pct = round(100 - (now / 100.0) / float(was) * 100)
+        shown, was = _shown_price(hotel), _first_slot(hotel).get("original_price")
+        if shown and isinstance(was, (int, float)) and was > 0:
+            pct = round(100 - shown[0] / float(was) * 100)
             if pct > 0:
                 discounts.append((pct, str(hotel.get("name") or "")))
     if discounts:
@@ -216,11 +230,14 @@ def synthesis_angle(response: dict[str, Any] | None, exclude: str = "") -> tuple
 
     # Price spread: "the cheapest" is answerable by eye on the cards, but how
     # much cheaper is not.
-    prices = [p for p in (_price_cents(h) for h in hotels) if p]
-    if len(prices) >= 2 and min(prices) <= 0.7 * max(prices):
+    shown_prices = [p for p in (_shown_price(h) for h in hotels) if p]
+    prices = [amount for amount, _ in shown_prices]
+    codes = {code for _, code in shown_prices}
+    if len(prices) >= 2 and len(codes) == 1 and min(prices) <= 0.7 * max(prices):
+        unit = "€" if codes == {"EUR"} else next(iter(codes))
         candidates.append((
             "spread",
-            f"Wide price spread: {min(prices) // 100}-{max(prices) // 100} € "
+            f"Wide price spread: {int(min(prices))}-{int(max(prices))} {unit} "
             "across the shortlist. Lead on what the extra buys, so the cheapest "
             "does not just look like the only sensible pick.",
         ))

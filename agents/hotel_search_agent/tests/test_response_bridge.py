@@ -1880,3 +1880,22 @@ class TestBookingFeesOnTheCard:
         card = normalize_hotel(self._hotel(showPricesWithoutBookingFees=True))
         assert card["price"] == "€90.00" and card["price_eur_cents"] == 9000
         assert card["timeslots"] == [{"start": "12:00", "end": "22:00"}]
+
+
+def test_card_carries_the_same_offer_in_the_hotel_currency():
+    # 2026-09-25: EUR stays the displayed price; the hotel-currency twin rides
+    # along for the concierge to swap in on request (never converted).
+    card = normalize_hotel({
+        "hotelId": 1,
+        "name": "Hotel Harbour",
+        "offers": [{
+            "priceEuro": 9500, "priceEuroWithBookingFees": 9800, "originalPriceEuro": 20000,
+            "hotelCurrency": "HKD", "hotelPrice": 78000, "hotelPriceWithBookingFees": 80500,
+            "originalHotelPrice": 160000, "startHour": 10, "endHour": 17,
+        }],
+    })
+    assert card["price"] == "€98.00"
+    assert (card["hotel_price"], card["hotel_price_minor"], card["hotel_currency_code"]) == (
+        "HKD 805.00", 80500, "HKD",
+    )
+    assert card["timeslots"][0]["hotel_original_price"] == 1600.0

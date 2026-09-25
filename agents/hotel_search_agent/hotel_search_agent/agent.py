@@ -152,6 +152,11 @@ How to act, frugally (at most ONE reasoning pass — no tool-call loops):
   locale automatically from profile_in — you never need to copy any of those
   yourself. A FOLLOW-UP with no new destination in THIS message → leave city
   blank ("").
+- `query_params.repeat_previous_search` true → the user only changed how prices
+  are DISPLAYED (e.g. "show the prices in the local currency"). Repeat the
+  previous search as-is: call geocode_location with city blank, then
+  search_offers with no new filter — the destination, date and filters come back
+  from profile_in automatically. Never ask a question on such a turn.
   Put a LANDMARK or a named district ("les champs élysées", "gare de lyon",
   "times square", "la sagrada familia") in `zone` — a landmark is not a city,
   and the tool has a dedicated lookup for it. Pass the city that landmark sits

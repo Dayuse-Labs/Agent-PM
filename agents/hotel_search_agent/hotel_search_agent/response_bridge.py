@@ -50,7 +50,7 @@ from google.adk.a2a.converters.part_converter import (
 from google.adk.models.llm_response import LlmResponse
 from google.genai import types as genai_types
 
-from b2c_common import build_hotel_page_url, display_price_euro, with_checkin_date
+from b2c_common import build_hotel_page_url, display_price_euro, hotel_currency_price, with_checkin_date
 from hotel_search_agent.inventory import haversine_km
 
 # The concierge reports AT MOST 5 (ground-truth cap) — match it so the model
@@ -484,6 +484,20 @@ def _stamp_distances(
             card["distance_km"] = round(haversine_km(olat, olon, clat, clon), 1)
 
 
+def _stamp_hotel_currency_price(
+    card: dict[str, Any], best: dict[str, Any], hotel: dict[str, Any]
+) -> None:
+    """The SAME offer's price in the hotel's own currency, next to the EUR one
+    the card displays by default. The concierge swaps it in when the user asked
+    for the hotel's currency (it never converts: MCP sends both, as indexed)."""
+    fields = hotel_currency_price(best, hotel)
+    original = fields.pop("hotel_original_price", None)
+    card.update(fields)
+    slot = (card.get("timeslots") or [None])[0]
+    if original is not None and isinstance(slot, dict):
+        slot["hotel_original_price"] = original
+
+
 def _best_offer(
     offers: list[dict[str, Any]], hotel: dict[str, Any] | None = None
 ) -> dict[str, Any] | None:
@@ -622,6 +636,7 @@ def normalize_hotel(
             if original_cents is not None and cents is not None and original_cents > cents > 0:
                 slot["original_price"] = round(original_cents / 100, 2)
             card["timeslots"] = [slot]
+        _stamp_hotel_currency_price(card, best, hotel)
         # S-CX5: the IDENTITY of the offer this card prices — `ratePlanUuid` is
         # the booking tunnel's own `offerId` (MCP_B2C generate_booking_link
         # schema) and `availabilityDate` the day it is bookable on. Both come

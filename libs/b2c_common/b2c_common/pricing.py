@@ -26,3 +26,66 @@ def display_price_euro(offer: Mapping[str, Any], hotel: Mapping[str, Any] | None
         return offer.get("priceEuro")
     with_fees = offer.get("priceEuroWithBookingFees")
     return with_fees if with_fees is not None else offer.get("priceEuro")
+
+
+# ISO 4217 exceptions to the 2-decimal rule — the unit of MCP's `hotelPrice*`
+# fields (minor units of `hotelCurrency`, as indexed by dayuse-com / moneyphp).
+_ZERO_DECIMAL = frozenset({
+    "BIF", "CLP", "DJF", "GNF", "ISK", "JPY", "KMF", "KRW", "PYG", "RWF",
+    "UGX", "UYI", "VND", "VUV", "XAF", "XOF", "XPF",
+})
+_THREE_DECIMAL = frozenset({"BHD", "IQD", "JOD", "KWD", "LYD", "OMR", "TND"})
+
+
+def minor_units(currency: str) -> int:
+    if currency in _ZERO_DECIMAL:
+        return 0
+    if currency in _THREE_DECIMAL:
+        return 3
+    return 2
+
+
+def display_price_hotel(offer: Mapping[str, Any], hotel: Mapping[str, Any] | None) -> Any:
+    """Same Booking Fees rule as `display_price_euro`, on the hotel-currency
+    fields MCP exposes per offer (`hotelPrice` / `hotelPriceWithBookingFees`,
+    minor units of `hotelCurrency`)."""
+    if hotel is not None and hotel.get("showPricesWithoutBookingFees") is True:
+        return offer.get("hotelPrice")
+    with_fees = offer.get("hotelPriceWithBookingFees")
+    return with_fees if with_fees is not None else offer.get("hotelPrice")
+
+
+def format_minor_amount(amount: Any, currency: Any) -> str | None:
+    """`"HKD 780.00"` from `(78000, "HKD")`, `"JPY 1600"` from `(1600, "JPY")`.
+    The ISO code (not a glyph) is what the widget's price parser keys on."""
+    if isinstance(amount, bool) or not isinstance(amount, int) or amount < 0:
+        return None
+    if not isinstance(currency, str) or len(currency) != 3 or not currency.isalpha():
+        return None
+    code = currency.upper()
+    decimals = minor_units(code)
+    return f"{code} {amount / 10 ** decimals:.{decimals}f}"
+
+
+def hotel_currency_price(
+    offer: Mapping[str, Any], hotel: Mapping[str, Any] | None
+) -> dict[str, Any]:
+    """The offer's price in the hotel's own currency, ready to stamp on a card:
+    `hotel_price` (formatted), `hotel_price_minor`, `hotel_currency_code`, and
+    `hotel_original_price` (major units, only when a real discount). Empty when
+    MCP sent no usable hotel-currency price."""
+    currency = offer.get("hotelCurrency")
+    amount = display_price_hotel(offer, hotel)
+    formatted = format_minor_amount(amount, currency)
+    if formatted is None:
+        return {}
+    code = str(currency).upper()
+    fields: dict[str, Any] = {
+        "hotel_price": formatted,
+        "hotel_price_minor": amount,
+        "hotel_currency_code": code,
+    }
+    original = offer.get("originalHotelPrice")
+    if isinstance(original, int) and not isinstance(original, bool) and original > amount > 0:
+        fields["hotel_original_price"] = round(original / 10 ** minor_units(code), 3)
+    return fields

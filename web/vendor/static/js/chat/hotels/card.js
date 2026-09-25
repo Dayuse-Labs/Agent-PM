@@ -63,6 +63,19 @@ const CURRENCY_SYMBOLS = {
     CZK: 'Kč ', TRY: '₺', TWD: 'NT$',
 };
 
+/**
+ * "HKD 780.00" → "HK$780.00". A hotel-currency price comes from the backend with
+ * its ISO code first (the parser below keys on it); rendered as-is it would sit
+ * next to "€95.00" in the booking card. Any other string is returned unchanged.
+ */
+export function formatBackendPrice(price) {
+    const text = String(price || '').trim();
+    const match = /^([A-Z]{3}) (\d[\d.,]*)$/.exec(text);
+    if (!match) return text;
+    const symbol = CURRENCY_SYMBOLS[match[1]];
+    return symbol ? `${symbol}${match[2]}` : text;
+}
+
 function marketCurrencySymbol() {
     const code = String((state.marketContext && state.marketContext.currency) || '').toUpperCase();
     return CURRENCY_SYMBOLS[code] || '';
@@ -73,6 +86,11 @@ function marketCurrencySymbol() {
 // glyphs, then compound dollar marks (C$, A$…), then a bare "$" (USD) last.
 function detectCurrencySymbol(str) {
     const s = String(str || '');
+    // A hotel-currency price from the backend starts with its ISO code. One the
+    // table below doesn't know (PLN, INR…) must show as that code, never fall
+    // through to the market's symbol: "PLN 250" rendered as "€250" is a wrong price.
+    const leading = /^([A-Z]{3}) \d/.exec(s.trim());
+    if (leading) return CURRENCY_SYMBOLS[leading[1]] || `${leading[1]} `;
     const code = s.toUpperCase().match(
         /\b(USD|EUR|GBP|CHF|CAD|AUD|NZD|SGD|HKD|BRL|MXN|AED|SAR|QAR|BHD|THB|JPY|KRW|SEK|CZK|TRY|TWD)\b/
     );

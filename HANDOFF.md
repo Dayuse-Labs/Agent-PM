@@ -4,6 +4,22 @@
 
 > 📋 **Pour savoir QUOI faire ensuite, ouvrir [`CHANTIERS.md`](CHANTIERS.md)** (état vérifié au 2026-09-14) : la liste des chantiers ouverts, chacun avec sa preuve, ses actions et un prompt prêt à coller — plus la liste de ce qu'il ne faut **pas** relancer parce que c'est déjà livré. `tasks/todo.md` est périmé et ne doit plus servir de référence.
 
+## ✅ 2026-09-25 — Devise d'affichage : EUR par défaut, devise de l'hôtel sur demande
+
+**Fait** (branche `feat/hotel-currency-display`, **empilée sur `fix/booking-fees-display-price`** — merger celle-ci d'abord ; gates : pytest **1 738 passés / 1 skippé**, ruff, mypy, guardrails **verts**).
+
+Règle produit (Mathias, 2026-09-25) : prix en EUR par défaut ; sur demande (« dans la devise de l'hôtel », ou le code de cette devise), cartes, panneau de formule, texte et prix barré passent dans la devise de l'hôtel, **pour toute la conversation** jusqu'au retour à l'euro, et les cartes déjà affichées sont **ré-affichées** (relance de la même recherche, `query_params.repeat_previous_search`). Toute autre devise → réponse déterministe 7 langues (« pas encore disponible, voici les 2 choix »), sans recherche. **Aucune conversion** : le vrai sujet multi-devises (taux MySQL `tbl_currency_rate`) est en pause, branche MCP supprimée.
+
+Mécanique : la feuille pose sur chaque carte le prix de la MÊME offre en devise hôtel (`hotel_price`, `hotel_price_minor`, `hotel_currency_code`, `slot.hotel_original_price`) via `b2c_common.hotel_currency_price` (même règle Booking Fees que l'euro, décimales ISO) ; nouveau slot de triage `display_currency` (`EUR`/`HOTEL`/code ISO, pas d'appel LLM en plus) ; `profile.display_currency` (concierge-only, hors `leaf_profile_view`) ; `b2c_concierge/display_currency.py` décide et bascule (`apply_hotel_currency`) ; `price_eur_cents` reste en EUR pour le budget et le tri ; angles `discount`/`spread` calculés dans la devise affichée ; disclosure « EUR sans conversion » coupée en mode hôtel ; widget : `formatBackendPrice` (« HKD 805.00 » → « HK$805.00 ») dans le panneau de formule.
+
+**Dépendance** : MR 28 de `mcp-dayuse` (champs `hotelCurrency`/`hotelPrice`/`hotelPriceWithBookingFees`/`originalHotelPrice`) déployée. Sans elle, les cartes n'ont pas de prix devise hôtel et restent en EUR, sans erreur.
+
+**Non vérifié** : la reconnaissance réelle par le LLM de triage (« devise locale », « en dollars de Hong Kong »…) dans les 7 langues — les tests scriptent sa réponse. Rendu carte vérifié en Chrome headless (« dès HK$805 · HK$1600/nuit »).
+
+**Code review `/code-review` (PR #118) — 7 constats, tous corrigés sauf un arbitré** : prix barré et % du panneau de formule en devise hôtel ; code ISO d'une NOUVELLE recherche comparé aux hôtels reçus (« Tokyo en yens » → devise hôtel, sinon message avec la devise des nouveaux hôtels) ; repaint seulement pour un message « devise seule » (détails nommés / comparaison / FAQ gardent leur route ; même devise demandée → « déjà affichés en … », sans recherche) ; widget : code ISO inconnu de la table affiché tel quel (« PLN 250 », plus jamais « €250 ») ; mention EUR gardée pour une carte restée en EUR ; puce budget triée sur `price_eur_cents`. 🪤 **Arbitré par Mathias (option a)** : un repaint après « autres options » repart de la page 1 (garder le curseur ne marche pas — la feuille masquerait les hôtels affichés ; ré-afficher sans recherche exigerait de stocker les cartes complètes en Redis).
+
+**2e review (sur les corrections seules) — 3 effets de bord corrigés** : « déjà affichés » décidé sur les cartes À L'ÉCRAN (`shortlist_display_mode`), pas sur la préférence sauvegardée (qu'un tour détails ou une recherche indisponible peut poser sans repeindre) ; en mode hôtel, la phrase générique « prix en euros » n'est ajoutée que si AUCUNE carte n'a basculé (liste mixte : le € de la carte suffit) ; une devise non disponible demandée dans une recherche sans résultats (« un hôtel en zlotys », la feuille demande la ville) reçoit quand même la réponse. Contrôle négatif fait (les 3 tests tombent sans les correctifs). Commentaires redondants retirés. Gates : pytest **1 747 passés / 1 skippé**.
+
 ## ✅ 2026-09-23 — Booking Fees : le prix affiché suit `showPricesWithoutBookingFees` (QA n°6)
 
 **Fait** (branche `fix/booking-fees-display-price`, gates : pytest **1 715 passés / 1 skippé**, ruff, mypy, guardrails **verts**). La QA n°6 avait été classée « pas un chantier agent » : **faux**, c'est l'agent qui affichait `priceEuro` (sans frais) en dur, alors que MCP filtre le budget et trie sur `priceEuroWithBookingFees`.

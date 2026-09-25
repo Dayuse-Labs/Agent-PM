@@ -254,6 +254,10 @@ class SessionProfile:
     # `children = 0` is a real statement ("adults only"), distinct from None.
     adults: int | None = None
     children: int | None = None
+    # Prices are shown in EUR unless the user asked for the hotel's own
+    # currency ("HOTEL"), kept for the rest of the conversation until they ask
+    # for euros again (product decision 2026-09-25).
+    display_currency: str | None = None
 
     def to_dict(self) -> dict[str, Any]:
         return {
@@ -295,6 +299,7 @@ class SessionProfile:
             "picked_hotel_id": self.picked_hotel_id,
             "adults": self.adults,
             "children": self.children,
+            "display_currency": self.display_currency,
             "schema_version": PROFILE_SCHEMA_VERSION,
         }
 
@@ -322,6 +327,7 @@ _CONCIERGE_ONLY_KEYS = (
     "named_hotel",
     "distance_origin",
     "picked_hotel_id",
+    "display_currency",
 )
 
 
@@ -1024,6 +1030,7 @@ def record_search_shortlist(profile: SessionProfile, results: list[dict[str, Any
         for key in (
             "offer_id", "offer_date", "price", "price_eur_cents",
             "image_urls", "url", "city", "rating", "rating_count", "stars",
+            "hotel_currency_code",
         ):
             if hotel.get(key) is not None:
                 entry[key] = hotel[key]

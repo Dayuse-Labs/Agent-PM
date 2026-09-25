@@ -6,7 +6,7 @@
 import { state } from '../state.js';
 import { getLanguage, t } from '../i18n.js';
 import { escapeAttr, escapeHtml, sanitizeDayuseUrl, sanitizeImageUrl } from '../security.js';
-import { parsePrice } from '../hotels/card.js';
+import { formatBackendPrice, parsePrice } from '../hotels/card.js';
 import { formatRating } from '../utils.js';
 import { submitFeedback } from '../feedback.js';
 
@@ -351,7 +351,7 @@ function selectRatePlan(row) {
 
     const priceTarget = card.querySelector('[data-plan-price-target="1"]');
     const price = String(row.dataset.planPrice || '');
-    if (priceTarget && price) priceTarget.textContent = price;
+    if (priceTarget && price) priceTarget.textContent = formatBackendPrice(price);
 
     emitTrackEvent('rate_plan_select', {
         hotel_id: String(cta?.dataset.hotelId || ''),
@@ -697,8 +697,8 @@ function renderRatePlans(plans) {
                         </span>` : ''}
                 </span>
                 <span class="booking-card__plan-prices">
-                    ${plan.price ? `<span class="booking-card__plan-amount">${escapeHtml(String(plan.price))}</span>` : ''}
-                    ${plan.original_price ? `<span class="booking-card__plan-orig">${escapeHtml(String(plan.original_price))}${escapeHtml(t('night_suffix'))}</span>` : ''}
+                    ${plan.price ? `<span class="booking-card__plan-amount">${escapeHtml(formatBackendPrice(plan.price))}</span>` : ''}
+                    ${plan.original_price ? `<span class="booking-card__plan-orig">${escapeHtml(formatBackendPrice(plan.original_price))}${escapeHtml(t('night_suffix'))}</span>` : ''}
                     ${plan.discount_pct ? `<span class="booking-card__plan-disc">-${escapeHtml(String(plan.discount_pct))}%</span>` : ''}
                 </span>
             </button>`;
@@ -796,7 +796,7 @@ export function createBookingCard(card) {
 
     const priceHtml = card.price
         ? `<div class="booking-card__pricerow">
-               <span class="booking-card__price" data-plan-price-target="1">${escapeHtml(String(card.price))}</span>
+               <span class="booking-card__price" data-plan-price-target="1">${escapeHtml(formatBackendPrice(card.price))}</span>
                <span class="booking-card__pricenote">${escapeHtml(t('card_price_note'))}</span>
            </div>`
         : '';
