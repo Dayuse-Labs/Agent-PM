@@ -4,6 +4,20 @@
 
 > 📋 **Pour savoir QUOI faire ensuite, ouvrir [`CHANTIERS.md`](CHANTIERS.md)** (état vérifié au 2026-09-14) : la liste des chantiers ouverts, chacun avec sa preuve, ses actions et un prompt prêt à coller — plus la liste de ce qu'il ne faut **pas** relancer parce que c'est déjà livré. `tasks/todo.md` est périmé et ne doit plus servir de référence.
 
+## ✅ 2026-09-29 — Demande de devise classée `faq` : les cartes sont quand même repeintes
+
+**Fait** (branche `fix/currency-request-routed-to-faq`, gates : pytest **1 786 passés / 1 skippé**, ruff, mypy, guardrails **verts**).
+
+Constat en local (vrai LLM de triage) : « donne le prix en sgd », « je veux dans la monnaie de l'hotel », « affiche les prix en devise locale » sont classés `faq`. Le repaint n'acceptait que `details`/`ack` : le tour partait à la FAQ, qui répondait à tort « les prix sont déjà en SGD », cartes inchangées. Deux couches : (1) prompt de triage — voir les prix dans une devise = `details`, seule une question de PAIEMENT = `faq` ; (2) filet déterministe dans `agent.py` — une demande de devise classée `faq` repeint aussi, sauf si `triage.asks_policy(message)` (`_FAQ_RE` + `_PAYMENT_RE` : payer/pay/paie/accept, « pays » exclu). « je peux payer en HKD ? » garde sa route FAQ. Contrôle négatif fait (les 3 tests de repaint tombent sans le filet). Rejoué en local avec le vrai LLM : les deux formulations repeignent en SGD.
+
+**Vérifié le même jour en local (MCP mcp-dayuse `main` sur :8080), remontées QA déjà corrigées le 2026-09-23** : « Voir tout » (lien du pays des hôtels, FR → `dayuse.fr/s/france`) ; « réservations closes » absente sur 6 recherches du jour avec résultats ; date jamais en ISO (format US gardé, décision Mathias, pas le format britannique demandé par la QA) ; `?checkinDate=` sur les liens des cartes ; Booking Fees — 20 hôtels réglés à `true` (NY, Miami, Singapour, Hong Kong) affichent `priceEuro`, les hôtels Paris réglés à `false` affichent `priceEuroWithBookingFees`.
+
+🪤 **Pièges découverts** :
+- **La préprod MCP est antérieure au 2026-09-25** : sans `hotelCurrency`/`hotelPrice`, les cartes restent en EUR sans erreur. Tester en local contre mcp-dayuse `main` (`npm run dev`, lit `.env.local`, port 8080, token = `MCP_AUTH_TOKEN` de `.env.local` à reporter dans `MCP_B2C_AUTH_TOKEN`).
+- **Un redémarrage du MCP casse la feuille search** jusqu'au redémarrage des services (`search_offers` → `mcp_tool_error` en ~5 ms, session MCP périmée gardée par le `McpToolset`). Arrivera aussi à chaque redéploiement MCP en prod. **Non corrigé** (décision Mathias : plus tard).
+
+**Reste** : lien tunnel direct quand l'utilisateur ÉCRIT son choix (« je prends le premier ») — la QA le conteste, décision produit à prendre ; synthèse « à 18-18 km du centre » quand toutes les distances sont égales (défaut mineur, non corrigé).
+
 ## ✅ 2026-09-25 — Devise d'affichage : EUR par défaut, devise de l'hôtel sur demande
 
 **Fait** (branche `feat/hotel-currency-display`, **empilée sur `fix/booking-fees-display-price`** — merger celle-ci d'abord ; gates : pytest **1 738 passés / 1 skippé**, ruff, mypy, guardrails **verts**).

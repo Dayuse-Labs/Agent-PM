@@ -162,6 +162,58 @@ class TestThroughTheSpine:
         stored = asyncio.run(fake_profile_store.get(session.id))
         assert stored.display_currency is None
 
+    @pytest.mark.parametrize(
+        "message, requested",
+        [
+            ("donne le prix en hkd", "HKD"),
+            ("je veux dans la monnaie de l'hotel", "HOTEL"),
+            ("affiche les prix en devise locale", "HOTEL"),
+        ],
+    )
+    def test_a_currency_request_filed_as_faq_still_repaints(
+        self, monkeypatch, fake_leg, fake_profile_store, message, requested
+    ):
+        runner = InMemoryRunner(root_agent)
+        session = _new_session(runner)
+        _scripted_llm(
+            monkeypatch,
+            '{"family": "search", "language": "fr"}',
+            "Voici un hôtel.",
+            f'{{"family": "faq", "language": "fr", "display_currency": "{requested}"}}',
+            "Voici les prix en dollars de Hong Kong.",
+        )
+        fake_leg.response_payload = {"results": [copy.deepcopy(HK_CARD)], "profile_delta": {"city": "Hong Kong"}}
+        _run_turn(runner, session.id, "un hôtel à Hong Kong demain")
+
+        fake_leg.response_payload = {"results": [copy.deepcopy(HK_CARD)]}
+        _run_turn(runner, session.id, message)
+
+        assert fake_leg.call_count == 2  # the search leaf, not the faq one
+        outgoing = find_datapart(fake_leg.seen_outgoing_parts)
+        assert outgoing["query_params"] == {"repeat_previous_search": True}
+        stored = asyncio.run(fake_profile_store.get(session.id))
+        assert stored.last_results[0]["price"] == "HKD 780.00"
+
+    def test_a_payment_question_keeps_its_faq_route(self, monkeypatch, fake_leg, fake_profile_store):
+        runner = InMemoryRunner(root_agent)
+        session = _new_session(runner)
+        _scripted_llm(
+            monkeypatch,
+            '{"family": "search", "language": "fr"}',
+            "Voici un hôtel.",
+            '{"family": "faq", "language": "fr", "display_currency": "HKD"}',
+            "Vous pouvez payer par carte.",
+        )
+        fake_leg.response_payload = {"results": [copy.deepcopy(HK_CARD)], "profile_delta": {"city": "Hong Kong"}}
+        _run_turn(runner, session.id, "un hôtel à Hong Kong demain")
+
+        _run_turn(runner, session.id, "je peux payer en HKD ?")
+
+        outgoing = find_datapart(fake_leg.seen_outgoing_parts)
+        assert outgoing.get("query_params") != {"repeat_previous_search": True}
+        stored = asyncio.run(fake_profile_store.get(session.id))
+        assert stored.last_results[0]["price"] == "€95.00"
+
     def test_preference_before_any_search_is_noted(self, monkeypatch, fake_leg, fake_profile_store):
         runner = InMemoryRunner(root_agent)
         session = _new_session(runner)
@@ -177,6 +229,22 @@ class TestThroughTheSpine:
 
 
 class TestTriageSlot:
+    @pytest.mark.parametrize(
+        "message, expected",
+        [
+            ("donne le prix en sgd", False),
+            ("je veux dans la monnaie de l'hotel", False),
+            ("les prix dans la devise du pays", False),
+            ("je peux payer en SGD ?", True),
+            ("quelles devises acceptez-vous ?", True),
+            ("conditions d'annulation", True),
+        ],
+    )
+    def test_asks_policy(self, message, expected):
+        from b2c_concierge.triage import asks_policy
+
+        assert asks_policy(message) is expected
+
     def test_display_currency_slot(self):
         from b2c_concierge.triage import _display_currency_slot
 
