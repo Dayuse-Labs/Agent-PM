@@ -69,6 +69,8 @@ bash scripts/dayuse_guardrails.sh .
   --config_file_path evalset/test_config.json
 ```
 
+Déploiement de la démo Railway : **`DEPLOY.md`** (topologie, procédure pas à pas, pièges) — ne jamais déployer sans l'avoir suivi.
+
 CI GitHub Actions : `.github/workflows/ci.yml` (ruff, mypy, pytest, guardrails, job eval non bloquant). Secrets requis : `FLEET_READ_TOKEN` (lecture du repo fleet privé), `OPENAI_API_KEY` (job eval).
 
 ## Fin de session — OBLIGATOIRE

@@ -4,6 +4,16 @@
 
 > 📋 **Pour savoir QUOI faire ensuite, ouvrir [`CHANTIERS.md`](CHANTIERS.md)** (état vérifié au 2026-09-14) : la liste des chantiers ouverts, chacun avec sa preuve, ses actions et un prompt prêt à coller — plus la liste de ce qu'il ne faut **pas** relancer parce que c'est déjà livré. `tasks/todo.md` est périmé et ne doit plus servir de référence.
 
+## ✅ 2026-09-29 — Redéploiement Railway de `07be07e` + procédure écrite dans `DEPLOY.md`
+
+**Fait** : les 4 services redéployés depuis `main` propre (`07be07e`, pytest **1 786 passés / 1 skippé**) — `widget`/`concierge`/`hotel-search` étaient sur `451c7e6`, `faq` sur `7d41d41` (en retard via `libs/b2c_common`). Estampille `LANGFUSE_RELEASE=07be07e` posée avec `--skip-deploys` puis `railway up --detach` feuilles d'abord → 4 × `SUCCESS` (~10:04Z).
+
+**Preuve prod** (widget `/v3/chat`, `x-dayuse-synthetic: 1`) : « affiche les prix dans la devise de l'hôtel » → acquitté comme devise, plus routé FAQ (#119) ; puis « Londres, Royaume-Uni, demain après-midi » dans la même session → 5 cartes `display_currency=GBP` (`GBP 90.00`…, liens `dayuse.co.uk` avec `?checkinDate=`). Contrôle : même recherche en session fraîche → « prix affichés en € sans conversion » (EUR par défaut, #118). Non prouvé en prod : la règle Booking Fees (#117).
+
+**`DEPLOY.md` (neuf)** : la procédure n'existait qu'éparpillée dans ~10 blocs de ce fichier. Les deux snippets (preuve Python, statut `railway status --json`) ont été exécutés tels qu'écrits. **Convention d'estampille tranchée : AVANT `railway up`** (Railway fige les variables au déploiement, c'est ce qui fait porter le SHA aux traces du nouveau conteneur) ; le bloc du 2026-08-28 recommandait APRÈS — ça rend la variable juste mais le conteneur garde l'ancienne valeur jusqu'au déploiement suivant. En cas d'échec d'un `up`, remettre l'ancienne estampille.
+
+🪤 **Observé, non investigué** : « un hôtel en day use à Londres demain après-midi » (sans pays) → clarification « plusieurs lieux portent ce nom » en 20,5 s au lieu d'une recherche. Même famille que Budapest→US ; pas vérifié si c'est nouveau.
+
 ## ✅ 2026-09-29 — Demande de devise classée `faq` : les cartes sont quand même repeintes
 
 **Fait** (branche `fix/currency-request-routed-to-faq`, gates : pytest **1 786 passés / 1 skippé**, ruff, mypy, guardrails **verts**).
