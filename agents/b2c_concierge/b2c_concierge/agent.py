@@ -153,6 +153,7 @@ from .routing import LEAF_FAQ, LEAF_HOTEL_SEARCH, ROUTES, bearer_token, card_url
 from .triage import (
     SERVICE,
     TEMPLATE_LANGUAGES,
+    asks_policy,
     classify,
     is_social_ack,
     response_language,
@@ -1181,9 +1182,11 @@ class _B2cConcierge(BaseAgent):
             profile.display_currency = currency.mode
             # Only a message that asks for NOTHING else is diverted: a named
             # hotel, a comparison or a policy question keeps its own route, and
-            # those routes already render in the chosen currency.
+            # those routes already render in the chosen currency. The LLM often
+            # files "donne le prix en sgd" under faq: unless the message really
+            # asks about conditions or paying, it is a currency request too.
             currency_only = (
-                family in ("details", "ack")
+                (family in ("details", "ack") or (family == "faq" and not asks_policy(message)))
                 and triage.hotel_name is None
                 and picked is None
                 and not booking_signal

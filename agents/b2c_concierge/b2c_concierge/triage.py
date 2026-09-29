@@ -121,6 +121,9 @@ _FAQ_RE = re.compile(
     r"check.?out|cgv|\bfaq\b|fonctionne|how does|comment ça marche|paiement|payment",
     re.IGNORECASE,
 )
+# Paying in a currency is a policy question; seeing prices in one is not.
+# `pay(?!s\b)` keeps "pays" (country) out.
+_PAYMENT_RE = re.compile(r"\bpay(?!s\b)\w*|\bpaie\w*|\baccept\w*", re.IGNORECASE)
 _COMPARE_RE = re.compile(r"compar\w*|\bversus\b|\bvs\b|différence|difference", re.IGNORECASE)
 _DETAILS_RE = re.compile(
     r"détails?|\bdetails?\b|équipements?|amenities|piscine|\bspa\b|parking|photos?",
@@ -272,6 +275,12 @@ def fallback_pick(message: str) -> str:
     return "cheapest" if _PICK_CHEAPEST_RE.search(message or "") else FALLBACK_PICK
 
 
+def asks_policy(message: str) -> bool:
+    """A real conditions / payment question, whatever the LLM family says —
+    "je peux payer en SGD ?" is one, "donne le prix en sgd" is not."""
+    return bool(_FAQ_RE.search(message or "") or _PAYMENT_RE.search(message or ""))
+
+
 def fallback_family(message: str) -> str:
     """Deterministic family when the LLM classify failed. Best-effort keywords."""
     if is_social_ack(message):
@@ -303,7 +312,10 @@ with exactly these keys:
   greets AND asks something is NOT `ack`. A follow-up that ADJUSTS a previous
   search — a new date ("pour le 28", "plutôt demain"), a cheaper budget, another
   area/zone — is `search`, NEVER `booking`; `booking` is only an explicit request
-  to get the link / proceed with a specific hotel already chosen.
+  to get the link / proceed with a specific hotel already chosen. Asking to SEE
+  the prices in a currency ("donne le prix en SGD", "dans la monnaie de l'hôtel",
+  "en devise locale") is `details`, NEVER `faq`; only a question about PAYING
+  ("je peux payer en SGD ?", "quelles devises acceptez-vous ?") is `faq`.
 - "language": one of {list(LANGUAGES)} — the language the message is actually
   written in. Report what you SEE: never fall back to "en" because the language
   is not French, and never let a single borrowed word decide (a Spanish message
