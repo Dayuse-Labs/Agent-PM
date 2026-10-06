@@ -41,11 +41,22 @@ from hotel_search_agent.response_bridge import (
 )
 
 
+class _RingInventory:
+    """Counts `per_km` hotels per km of radius — enough to pick a ring."""
+
+    def __init__(self, per_km: float):
+        self.per_km = per_km
+
+    def count_near(self, lat, lon, *, radius_km):
+        return int(radius_km * self.per_km)
+
+
 class TestLandmarkRadius:
-    """P0-2 fix 4. A landmark anchor and a city anchor used to search the same
-    20 km disc (MCP's `radiusKm` default), so a geocode precise to 250 m still
-    returned hotels 7-13 km away. That is why fixing the geocode alone left
-    `hotels_within_km` at 24%."""
+    """P0-2 fix 4 + mcp-dayuse#7. A landmark anchor and a city anchor used to
+    search the same 20 km disc ranked by relevance, so a geocode precise to
+    250 m still returned hotels 7-13 km away. The disc and the order are now the
+    Dayuse site's for a place without a search page: the smallest ring holding
+    10 hotels, nearest first."""
 
     def _ctx(self, origin):
         # The GEOCODE-branch anchor, not the search-branch distance origin:
@@ -53,16 +64,36 @@ class TestLandmarkRadius:
         state = {} if origin is None else {"temp:hotel_search_anchor": origin}
         return _Ctx(state=state)
 
-    def test_a_poi_anchor_tightens_the_disc(self):
+    def _inventory(self, monkeypatch, per_km):
+        monkeypatch.setattr(
+            "hotel_search_agent.response_bridge.get_inventory", lambda: _RingInventory(per_km)
+        )
+
+    def test_a_poi_anchor_gets_the_sites_ring_and_distance_order(self, monkeypatch):
+        self._inventory(monkeypatch, per_km=10)  # 20 hotels within 2 km
         args = {"lat": 48.8698, "lon": 2.3078}
         inject_landmark_radius(_Tool("search_offers"), args, self._ctx({"type": "poi"}))
-        assert args["radiusKm"] == 3.0
+        assert args["radiusKm"] == 2.0
+        assert args["sort"] == "distance"
+
+    def test_the_ring_grows_until_it_holds_ten_hotels(self, monkeypatch):
+        self._inventory(monkeypatch, per_km=0.5)  # 5 km → 2, 10 → 5, 20 → 10
+        args = {"lat": 43.73, "lon": 7.42}
+        inject_landmark_radius(_Tool("search_offers"), args, self._ctx({"type": "poi"}))
+        assert args["radiusKm"] == 20.0
+
+    def test_a_sparse_place_gets_the_widest_ring(self, monkeypatch):
+        self._inventory(monkeypatch, per_km=0)
+        args = {"lat": 45.0, "lon": 5.0}
+        inject_landmark_radius(_Tool("search_offers"), args, self._ctx({"type": "poi"}))
+        assert args["radiusKm"] == 50.0
 
     def test_a_city_anchor_leaves_mcp_its_own_default(self):
-        # Absent key, NOT an explicit 20 — MCP owns the city default.
+        # Absent keys, NOT an explicit 20 / relevance — MCP owns the city default.
         args = {"lat": 48.85, "lon": 2.35}
         inject_landmark_radius(_Tool("search_offers"), args, self._ctx({"type": "city"}))
         assert "radiusKm" not in args
+        assert "sort" not in args
 
     def test_a_gps_anchor_is_deliberately_not_tightened(self):
         args = {"lat": 48.85, "lon": 2.35}
@@ -74,16 +105,18 @@ class TestLandmarkRadius:
         inject_landmark_radius(_Tool("search_offers"), args, self._ctx(None))
         assert "radiusKm" not in args
 
-    def test_a_radius_the_model_invented_is_dropped(self):
+    def test_a_radius_or_order_the_model_invented_is_dropped(self):
         # Doctrine: a radius is a filter, and the LLM never owns a filter value.
-        args = {"lat": 48.85, "lon": 2.35, "radiusKm": 200}
+        args = {"lat": 48.85, "lon": 2.35, "radiusKm": 200, "sort": "distance"}
         inject_landmark_radius(_Tool("search_offers"), args, self._ctx({"type": "city"}))
         assert "radiusKm" not in args
+        assert "sort" not in args
 
-    def test_a_model_radius_is_replaced_on_a_poi_anchor(self):
+    def test_a_model_radius_is_replaced_on_a_poi_anchor(self, monkeypatch):
+        self._inventory(monkeypatch, per_km=10)
         args = {"lat": 48.8698, "lon": 2.3078, "radiusKm": 200}
         inject_landmark_radius(_Tool("search_offers"), args, self._ctx({"type": "poi"}))
-        assert args["radiusKm"] == 3.0
+        assert args["radiusKm"] == 2.0
 
     def test_other_tools_are_untouched(self):
         args = {"name": "Hilton", "radiusKm": 9}
@@ -389,6 +422,21 @@ def test_capture_search_offers_stamps_distance_km_from_stashed_anchor():
     assert "distance_km" in card and card["distance_km"] < 1.0  # ~0.6 km from Notre-Dame
     origin = ctx.state[_DISTANCE_ORIGIN_KEY]
     assert origin["type"] == "city_centroid"
+
+
+def test_capture_orders_cards_nearest_first_around_a_poi():
+    # mcp-dayuse#7 (Monaco): relevance put two hotels 18 km out ahead of one 0.7 km away.
+    ctx = _Ctx({_ANCHOR_KEY: {"latitude": 43.7325, "longitude": 7.4190, "label": "Monaco", "type": "poi"}})
+    structured = {"total": 2, "results": [_geo_hotel(1, 43.6650, 7.2150), _geo_hotel(2, 43.7350, 7.4250)]}
+    capture_after_tool(_Tool("search_offers"), {}, ctx, {"structuredContent": structured, "isError": False})
+    assert [c["id"] for c in ctx.state[_RESULTS_KEY]] == [2, 1]
+
+
+def test_capture_keeps_relevance_order_around_a_city():
+    ctx = _Ctx({_ANCHOR_KEY: {"latitude": 43.7325, "longitude": 7.4190, "label": "Monaco", "type": "city_centroid"}})
+    structured = {"total": 2, "results": [_geo_hotel(1, 43.6650, 7.2150), _geo_hotel(2, 43.7350, 7.4250)]}
+    capture_after_tool(_Tool("search_offers"), {}, ctx, {"structuredContent": structured, "isError": False})
+    assert [c["id"] for c in ctx.state[_RESULTS_KEY]] == [1, 2]
 
 
 def test_capture_search_offers_distance_from_args_when_no_anchor():
