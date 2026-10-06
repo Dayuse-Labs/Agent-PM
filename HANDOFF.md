@@ -4,7 +4,15 @@
 
 > 📋 **Pour savoir QUOI faire ensuite, ouvrir [`CHANTIERS.md`](CHANTIERS.md)** (état vérifié au 2026-09-14) : la liste des chantiers ouverts, chacun avec sa preuve, ses actions et un prompt prêt à coller — plus la liste de ce qu'il ne faut **pas** relancer parce que c'est déjà livré. `tasks/todo.md` est périmé et ne doit plus servir de référence.
 
-## 2026-10-06 — Préserver l’intention multi-tour ; validation avant review
+## 2026-10-06 — Suite : état de production adapté au concierge, sources distinguées
+
+**Fait** : production Railway réellement relue (`a08a7792`), Postgres/Qdrant + cache d’export S3, `AVAILABILITY_STRICT_EXPORT=false`. Snapshot de lieu lié à la demande, contexte durable de triage, corrections explicites budget/horaires persistées avant la feuille, schéma strict, avertissement d’alternative et timeouts Redis. Concierge seul propriétaire de l’état ; feuilles A2A stateless et outils MCP conservés. Triage évalué `gpt-4.1-mini` (défaut du Dockerfile concierge), feuilles/synthèse `gpt-4o-mini`. Aucun nouvel appel regex.
+
+**Vérifié avant mise à jour de la PR #123** : runtime `1853c94`, 125 conversations / 348 tours par agent contre la prod, 6 SAV / 8 tours isolés, 1 annulation synthétique / 4 tours. 1 847 tests passent, 1 ignoré ; Ruff/mypy/garde-fous verts. Modèle : coût cumulé **27.98 USD / 60 USD**, itérations et échecs inclus, rapprochement terminé. Contrôle à faits identiques : synthèse AgentB2C main→PR sur quatre fixtures, pas legacy contre MCP.
+
+**Reste / pièges** : snapshot fournisseur ≠ bon lieu (Disneyland, Rennes sud) ; plafond supprimé à tort sur cheaper ; références ordinales sans shortlist ; pertinence/proximité, langues et nuits ; réservation existante non annulable par le candidat. 15/24 critères géographiques conservés côté candidat contre 17/24 en prod ; ce n’est pas un score global. L’export/Qdrant et le MCP dev ne sont pas à inventaire égal. [Mécanismes, preuves et limites](docs/evaluations/production-state-transfer-2026-10-06.md). PR maintenue en draft, aucun merge/déploiement.
+
+## 2026-10-06 — Première révision (historique) : préserver l’intention multi-tour
 
 Demande : reprendre les mécanismes éprouvés du legacy et ses conversations réelles, sans nouvelle regex. Cette branche contient les changements applicatifs ; le harnais et le registre historique sont dans la PR #121.
 

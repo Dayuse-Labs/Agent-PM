@@ -1,5 +1,7 @@
 # Préservation des conversations de production — review AgentB2C
 
+> Rapport historique de la première itération, runtime `032e9e3`. Pour la suite du travail et les résultats du nouveau profil, voir [mémoire de production et comparaison des sources](production-state-transfer-2026-10-06.md). Les comptes ci-dessous ne décrivent pas les révisions ultérieures.
+
 Cette branche porte des mécanismes de préservation du contexte observés dans le legacy. Elle ne remplace pas la validation produit du nouvel agent et ne donne pas de feu vert au lancement.
 
 ## Changements applicatifs

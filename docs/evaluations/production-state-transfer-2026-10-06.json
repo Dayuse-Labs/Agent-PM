@@ -1,0 +1,290 @@
+{
+  "runtime_sha": "1853c942b6de620f0a6283978b2ac5dfa9396fc6",
+  "legacy_production_sha": "a08a7792ed95dedca6255b5c588a80a504dd6249",
+  "candidate_models": {
+    "triage": "gpt-4.1-mini",
+    "leaves_and_synthesis": "gpt-4o-mini"
+  },
+  "legacy_model": "gpt-5.2",
+  "production_availability": {
+    "checked_at": "2026-10-06T21:09:38.884277+00:00",
+    "endpoint": "https://ai.dayuse.com/availability-stats",
+    "scope": "One responding worker only; GET may trigger normal lazy cache refresh, no explicit sync POST. No per-offer freshness guarantee.",
+    "config": {
+      "AVAILABILITY_STRICT_EXPORT": "false",
+      "AVAILABILITY_MAX_FALLBACK_DAYS": "not explicitly configured",
+      "AVAILABILITY_REFRESH_TTL_SECONDS": "not explicitly configured",
+      "AVAILABILITY_HTTP_TIMEOUT_SECONDS": "60"
+    },
+    "cache": {
+      "loaded": true,
+      "tried_loading": true,
+      "source_date": "2026-10-06",
+      "last_refresh_at": "2026-10-06T21:06:46.639445+00:00",
+      "rate_plan_count": 17672,
+      "hotel_count": 7463,
+      "available_rate_plan_count": 17624,
+      "available_hotel_count": 7454
+    }
+  },
+  "source_separation_controls": {
+    "scope": "Diagnostic probes after the replay; no model calls. Not a canonical-inventory legacy-vs-MCP test.",
+    "catalog_lookup": {
+      "tool": "find_hotel_by_name",
+      "hotel_id": 9287,
+      "found": true
+    },
+    "controlled_radius_queries": [
+      {
+        "date": "2026-10-06",
+        "radius_km": 3,
+        "price_cap_eur": 130,
+        "pool_equipment_ids": [
+          33,
+          34,
+          2982,
+          3000,
+          3001
+        ],
+        "reported_total": 0,
+        "returned_hotels": 0,
+        "returned_hotel_ids": []
+      },
+      {
+        "date": "2026-10-06",
+        "radius_km": 10,
+        "price_cap_eur": 130,
+        "pool_equipment_ids": [
+          33,
+          34,
+          2982,
+          3000,
+          3001
+        ],
+        "reported_total": 2,
+        "returned_hotels": 0,
+        "returned_hotel_ids": []
+      },
+      {
+        "date": "2026-10-07",
+        "radius_km": 3,
+        "price_cap_eur": 130,
+        "pool_equipment_ids": [
+          33,
+          34,
+          2982,
+          3000,
+          3001
+        ],
+        "reported_total": 0,
+        "returned_hotels": 0,
+        "returned_hotel_ids": []
+      },
+      {
+        "date": "2026-10-07",
+        "radius_km": 10,
+        "price_cap_eur": 130,
+        "pool_equipment_ids": [
+          33,
+          34,
+          2982,
+          3000,
+          3001
+        ],
+        "reported_total": 2,
+        "returned_hotels": 2,
+        "returned_hotel_ids": [
+          8533,
+          9287
+        ]
+      }
+    ],
+    "zero_price_source_control": {
+      "hotel_id": 8991,
+      "rate_plan_id": 33937,
+      "date": "2026-10-07",
+      "priceEuro": 0,
+      "priceEuroWithBookingFees": 0,
+      "scope": "Verified in direct read-only MCP response, after observing a replay card. Commercial validity not verified."
+    }
+  },
+  "candidate_turn_status_counts": {
+    "ok": 340,
+    "degraded": 20
+  },
+  "candidate_route_counts": {
+    "leaf:hotel_search": 294,
+    "leaf:faq": 30,
+    "template:ack": 22,
+    "template:search_exhausted": 2,
+    "inline:get_hotel_details": 9,
+    "inline:compare_hotels": 2,
+    "inline:generate_booking_link": 1
+  },
+  "new_regex_calls_added": 0,
+  "runtime_python_files_verified_identical": 58,
+  "release_approved": false,
+  "cumulative_model_cost_usd": "27.97600753938099987547",
+  "budget_ceiling_usd": 60,
+  "pending_cost_accounting": null,
+  "tests": {
+    "passed": 1847,
+    "skipped": 1,
+    "mypy_source_files": 58
+  },
+  "cohorts": {
+    "live": {
+      "sessions": 125,
+      "turns_per_agent": 348,
+      "variants": {
+        "production": {
+          "cost_usd": "6.463262409850",
+          "turns_with_cards": 190,
+          "median_seconds": 11.01,
+          "p95_seconds": 16.72
+        },
+        "new_main": {
+          "cost_usd": "1.35788274999999995917",
+          "turns_with_cards": 136,
+          "median_seconds": 4.91,
+          "p95_seconds": 8.1
+        }
+      }
+    },
+    "support": {
+      "sessions": 6,
+      "turns_per_agent": 8,
+      "variants": {
+        "production": {
+          "cost_usd": "0.075383349996",
+          "turns_with_cards": 0,
+          "median_seconds": 5.5,
+          "p95_seconds": 7.09
+        },
+        "new_main": {
+          "cost_usd": "0.01532259999999999963",
+          "turns_with_cards": 0,
+          "median_seconds": 3.1,
+          "p95_seconds": 3.55
+        }
+      }
+    },
+    "cancellation": {
+      "sessions": 1,
+      "turns_per_agent": 4,
+      "variants": {
+        "production": {
+          "cost_usd": "0.04039980",
+          "turns_with_cards": 0,
+          "median_seconds": 5.68,
+          "p95_seconds": 6.28
+        },
+        "new_main": {
+          "cost_usd": "0.00912704999999999997",
+          "turns_with_cards": 0,
+          "median_seconds": 3.54,
+          "p95_seconds": 7.31
+        }
+      }
+    }
+  },
+  "geo_criterion_counts": {
+    "production": {
+      "preserved": 17,
+      "failed": 2,
+      "partial": 5
+    },
+    "candidate": {
+      "preserved": 15,
+      "partial": 6,
+      "failed": 2,
+      "unverified": 1
+    }
+  },
+  "first_pr_geo_criterion_counts": {
+    "partial": 7,
+    "preserved": 12,
+    "failed": 5
+  },
+  "live_card_checks": {
+    "displayed_offer_covers_stay:production": {
+      "fail": 22,
+      "pass": 2,
+      "skipped": 9
+    },
+    "cheaper_option:production": {
+      "fail": 3,
+      "pass": 2
+    },
+    "displayed_offer_budget:production": {
+      "fail": 2,
+      "pass": 12,
+      "skipped": 3
+    },
+    "displayed_priced_stay:production": {
+      "fail": 2
+    },
+    "displayed_offer_covers_stay:new_main": {
+      "fail": 10,
+      "skipped": 20,
+      "pass": 3
+    },
+    "cheaper_option:new_main": {
+      "skipped": 1,
+      "fail": 3,
+      "pass": 1
+    },
+    "displayed_offer_budget:new_main": {
+      "pass": 8,
+      "skipped": 9
+    },
+    "displayed_priced_stay:new_main": {
+      "fail": 1,
+      "skipped": 1
+    }
+  },
+  "fixed_evidence": {
+    "input_sha256": "7215f3d5d53274a190cb4fa983564f525fc3ba9018a7bd0055b8faa76a864a27",
+    "variants": {
+      "main": {
+        "calls": 4,
+        "cost_usd": "0.00102899999999999996"
+      },
+      "pr": {
+        "calls": 4,
+        "cost_usd": "0.00109859999999999996"
+      }
+    },
+    "pending": null,
+    "scope": "AgentB2C main→PR synthesis only; not legacy parity. 3 archived MCP offer sets + 1 synthetic budget counterfactual."
+  },
+  "triage_ab": {
+    "variants": {
+      "mini4o": {
+        "calls": 16,
+        "cost_usd": "0.0092983499999999998"
+      },
+      "mini41": {
+        "calls": 16,
+        "cost_usd": "0.0247075999999999988"
+      }
+    },
+    "pending": null,
+    "scope": "16 development messages per model; not a held-out quality rate."
+  },
+  "limitations": [
+    "Traffic is unclassified: recorded conversations are not certified organic customer traffic.",
+    "Qualitative annotations are Codex review, not human-approved gold labels.",
+    "Previously seen regression corpus; no fresh holdout and no population quality rate.",
+    "Historical user messages unchanged, current clock and stock; after/before are not a controlled causal experiment.",
+    "Production and candidate have different models, inventories and environments.",
+    "Unknown GPS/account not reconstructed; historical follow-ups may refer to different answers.",
+    "A geographic pass is not overall conversation success; no cards means card predicates cannot be scored.",
+    "Budget/time must apply to the same offer; no invented currency conversion.",
+    "Budget is cumulative model cost of this $60 campaign, including iterations and failures; excludes Codex/infrastructure/earlier campaign.",
+    "Candidate FAQ tools cannot execute existing-booking cancellation. The isolated synthetic scenario is not a real booking integration test.",
+    "Live replay compares legacy export/Qdrant against dev MCP, not agents at identical inventory. Missing offers are not automatically agent errors.",
+    "Fixed-evidence comparison covers AgentB2C main versus PR synthesis only, not the legacy engine. A canonical inventory and validated adapters for both engines are not implemented.",
+    "Triage gpt-4.1-mini is required to reproduce the candidate; leaves and synthesis remain gpt-4o-mini. Legacy production uses gpt-5.2."
+  ]
+}
