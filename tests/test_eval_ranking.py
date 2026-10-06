@@ -130,7 +130,7 @@ def _pool_hotel(hid, offers):
 
 
 def test_filter_pool_exact_window_drops_non_fitting_hotels():
-    fits = _pool_hotel(1, [{"startHour": 8, "startMinute": 0, "endHour": 13, "endMinute": 0}])
+    fits = _pool_hotel(1, [{"startHour": 7, "startMinute": 0, "endHour": 14, "endMinute": 0}])
     too_early = _pool_hotel(2, [{"startHour": 7, "startMinute": 0, "endHour": 12, "endMinute": 0}])
     pool = [fits, too_early]
     assert er.filter_pool_exact_window(pool, (450, 810)) == [fits]  # 07:30-13:30
@@ -206,3 +206,10 @@ def test_score_sample_partial_overlap_and_order_sensitivity():
 
 def test_score_sample_empty_pool_returns_none():
     assert er.score_sample([1, 2, 3], []) is None
+
+
+def test_window_ranking_pool_excludes_shorter_stays_when_covering_offer_exists():
+    covering = _pool_hotel(1, [{"startHour": 9, "endHour": 17}])
+    shorter = _pool_hotel(2, [{"startHour": 10, "endHour": 16}])
+    late = _pool_hotel(3, [{"startHour": 11, "endHour": 18}])
+    assert er.filter_pool_exact_window([shorter, covering, late], (600, 1020)) == [covering]

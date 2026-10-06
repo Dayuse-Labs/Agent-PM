@@ -56,7 +56,8 @@ Private live evidence: `current-production-deployment.json`,
 `comparison-rebaseline.json`, and `current-prod-comparison/{pilot-manifest,
 pilot-inputs,pilot-review,cost-snapshot}.json`, plus per-agent conversation outputs.
 The original and corrected comparisons must remain distinctly labelled throughout
-the report and PR. No additional application change was made after this rebaseline.
+the report and PR. The subsequent offline stay-window fix below has not yet been
+run in a new paired live comparison.
 
 `python -m evals.current_production_comparison --run <private-pilot-directory>
 --output <private-report.html>` renders the actual responses and displayed cards
@@ -71,6 +72,38 @@ The replacement must retain learned behavior from the legacy agent: search
 relevance and complete multi-turn follow-up, as well as FAQ and cancellation
 support. Old assistant answers are evidence to investigate,
 not gold labels: several contain inconsistent policy or capability claims.
+
+## First search fix after correcting the production reference
+
+For a requested stay of 10:00–17:00, the new agent's post-filter admitted a shorter
+10:00–16:00 offer and discarded a covering 09:00–17:00 offer. This was traced to
+reversed containment in `response_bridge._offer_fits_exact_window`, not inferred
+from a natural-language judge. For two-sided same-day intervals the patch requires
+`offer_start <= requested_start < requested_end <= offer_end`. One-sided bounds
+retain their existing contract. The selected price, time slot and booking offer ID
+continue to come from the same offer. The existing explicit alternative fallback
+remains when no covering offer is available.
+
+The recorded MCP response tied to source row 25808 was normalized offline through
+both main `07be07e` and the patch. Main displays four cards, three failing full stay
+coverage; the patch displays three cards, all covering the stay. For the affected
+hotel the displayed interval becomes 09:00–17:00 rather than 10:00–16:00, with the
+corresponding offer ID. The independent `evals/preservation_checks.py` was unchanged;
+its result is evidence about these cards only. Private evidence:
+`stay-window-fix-offline.json` records the fixture hash and both outputs.
+
+Four new regression tests cover offer identity/price, one-minute gaps, missing
+bounds, preserved one-sided behavior and ranking-pool eligibility. Two earlier
+tests asserted the incorrect containment semantics and were corrected. Five tests
+fail before the fix; the complete patched suite passes 1,898 tests with one skip.
+The ranking script still mirrors display eligibility and is not an independent
+quality oracle. No model calls were made for this fix or verification.
+
+This is **not another current-production conversation replay**. The four-case live
+pilot remains frozen on unmodified main. MCP's upstream filter, its search recall,
+intent extraction and multi-turn propagation are not proven fixed. In particular,
+post-filtering cannot recover offers excluded upstream. These remain part of the
+expanded production comparison, with the requested spend ceiling still pending.
 
 ## Evidence and frozen references
 
