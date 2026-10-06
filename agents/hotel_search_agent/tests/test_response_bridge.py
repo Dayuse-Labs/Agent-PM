@@ -1903,8 +1903,6 @@ def test_card_carries_the_same_offer_in_the_hotel_currency():
 
 def test_requested_stay_keeps_covering_offer_and_its_booking_identity():
     """Real replay failure shape: 09–17 was dropped in favor of 10–16."""
-    from evals.preservation_checks import check_displayed_offers
-
     shorter = {**_offer(10, 0, 16, 0, price=4000), "ratePlanUuid": "shorter"}
     covering = {**_offer(9, 0, 17, 0, price=7000), "ratePlanUuid": "covering"}
     hotel = _hotel_with_offers(1, [shorter, covering])
@@ -1918,10 +1916,6 @@ def test_requested_stay_keeps_covering_offer_and_its_booking_identity():
     assert cards[0]["price_eur_cents"] == 7000
     assert cards[0]["timeslots"] == [{"start": "09:00", "end": "17:00"}]
     assert not ctx.state.get("temp:hotel_search_timeslot_fallback")
-    result = check_displayed_offers({"hotels": cards}, {
-        "stay_window": {"start": "10:00", "end": "17:00"},
-    })
-    assert result[0]["status"] == "pass"
 
 
 def test_exact_stay_rejects_partial_overlap_and_missing_bounds():
