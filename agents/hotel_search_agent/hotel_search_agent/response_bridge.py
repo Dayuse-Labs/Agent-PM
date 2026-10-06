@@ -51,7 +51,13 @@ from google.adk.models.llm_response import LlmResponse
 from google.genai import types as genai_types
 
 from b2c_common import build_hotel_page_url, display_price_euro, hotel_currency_price, with_checkin_date
-from b2c_common.timeslot import requested_hours, slot_covers_window, window_fallback_line
+from b2c_common.timeslot import (
+    DAYPART_HOURS,
+    requested_hours,
+    slot_covers_window,
+    slot_overlaps_daypart,
+    window_fallback_line,
+)
 from hotel_search_agent.inventory import haversine_km
 from hotel_search_agent.mcp_guard import classify_mcp_error
 
@@ -118,6 +124,9 @@ STATE_RESOLVED_DATE_KEY = "temp:hotel_search_resolved_date"
 # post-filter, after the before_tool_callback has already floored/ceiled the
 # args sent to MCP.
 STATE_EXACT_WINDOW_KEY = "temp:hotel_search_exact_window"
+# mcp-dayuse#8, option B: the daypart ("afternoon"...) this search filtered on,
+# written by datetime_resolver.resolve_search_timeslot.
+STATE_DAYPART_KEY = "temp:hotel_search_daypart"
 # S-G6: set when the exact-window post-filter would have emptied the result
 # set entirely — the leaf then falls back to the coarser (hour-rounded)
 # results instead of a silent 0, and the outcome text discloses the fallback.
@@ -351,6 +360,17 @@ def _hhmm_from_total(total_minutes: Any) -> str | None:
     return f"{hour:02d}:{minute:02d}"
 
 
+# An exact clock window (start/end minutes-of-day, site covering rule) or a
+# daypart name (soft overlap rule) — see b2c_common.timeslot.
+Window = tuple[int | None, int | None] | str
+
+
+def _offer_matches(offer: dict[str, Any], window: Window) -> bool:
+    if isinstance(window, str):
+        return slot_overlaps_daypart(offer.get("startHour"), offer.get("endHour"), window)
+    return _offer_covers_window(offer, window[0], window[1])
+
+
 def _offer_covers_window(
     offer: dict[str, Any], start_total: int | None, end_total: int | None
 ) -> bool:
@@ -517,7 +537,7 @@ def _photo_url(main_photo_normal: Any) -> str | None:
 
 
 def normalize_hotel(
-    hotel: dict[str, Any], exact_window: tuple[int | None, int | None] | None = None
+    hotel: dict[str, Any], exact_window: Window | None = None
 ) -> dict[str, Any]:
     """One compact hotel card from an MCP_B2C hotel dict (camelCase). Only the
     fields a booking decision / a card needs — never an invented booking link,
@@ -596,10 +616,7 @@ def normalize_hotel(
         card["currency_code"] = currency_code
     offers = hotel.get("offers") or []
     if exact_window is not None:
-        start_total, end_total = exact_window
-        offers = [
-            o for o in offers if isinstance(o, dict) and _offer_covers_window(o, start_total, end_total)
-        ]
+        offers = [o for o in offers if isinstance(o, dict) and _offer_matches(o, exact_window)]
     best = _best_offer(offers, hotel)
     if best:
         shown_price = display_price_euro(best, hotel)
@@ -663,7 +680,7 @@ def normalize_hotel(
 def normalize_search_results(
     structured: Any,
     exclude_ids: set[Any] | None = None,
-    exact_window: tuple[int | None, int | None] | None = None,
+    exact_window: Window | None = None,
 ) -> list[dict[str, Any]]:
     """Top-5 compact cards from a tool's structuredContent. Handles the
     `search_offers` envelope (`{"results": [...]}`, confirmed live) and the
@@ -696,9 +713,8 @@ def normalize_search_results(
         if not isinstance(item, dict):
             continue
         if exact_window is not None:
-            start_total, end_total = exact_window
             fits_any = any(
-                isinstance(o, dict) and _offer_covers_window(o, start_total, end_total)
+                isinstance(o, dict) and _offer_matches(o, exact_window)
                 for o in (item.get("offers") or [])
             )
             if not fits_any:
@@ -988,7 +1004,7 @@ def capture_after_tool(
         return None
 
     exclude_ids: set[Any] | None = None
-    strict_window: tuple[int | None, int | None] | None = None
+    strict_window: Window | None = None
     if name == "search_offers":
         # S-G5 pagination safety net: hotels already shown across earlier turns
         # (accumulated at the profile, S-G1) are filtered out before the top-5
@@ -1024,6 +1040,9 @@ def capture_after_tool(
                     start_total if isinstance(start_total, int) else None,
                     end_total if isinstance(end_total, int) else None,
                 )
+        daypart = tool_context.state.get(STATE_DAYPART_KEY)
+        if daypart in DAYPART_HOURS:
+            strict_window = daypart
     results = normalize_search_results(structured, exclude_ids, strict_window)
     timeslot_fallback = False
     if strict_window is not None and not results:
@@ -1092,6 +1111,10 @@ def capture_after_tool(
         # Runs for a 0-result search too (that is exactly when auto-widen needs
         # the budget); a failed search already returned above, so nothing here.
         budget_timeslot = _budget_timeslot_from_args(args)
+        if tool_context.state.get(STATE_DAYPART_KEY):
+            # The timeSlot sent was the daypart's hours, not a stated window.
+            budget_timeslot.pop("timeslot_start", None)
+            budget_timeslot.pop("timeslot_end", None)
         # S-G6 (core-e2e-084): `args["timeSlot"]` only holds the floored/ceiled
         # HOUR bounds by the time this after_tool_callback sees it (the
         # before_tool_callback already rewrote it for MCP, which has no minute
@@ -1334,6 +1357,10 @@ def _outcome_text(
 
 
 def _state_window_label(state: Any) -> str:
+    daypart = state.get(STATE_DAYPART_KEY)
+    if daypart in DAYPART_HOURS:
+        first_hour, last_hour = DAYPART_HOURS[daypart]
+        return f"{first_hour:02d}:00–{last_hour:02d}:00"
     window = state.get(STATE_EXACT_WINDOW_KEY)
     if not isinstance(window, dict):
         return ""
@@ -1504,6 +1531,15 @@ def emit_search_datapart(callback_context: Any) -> genai_types.Content | None:
         if budget_timeslot.get("timeslot_end"):
             profile_delta["timeslot_end"] = budget_timeslot["timeslot_end"]
         profile_delta["timeslot_request_source"] = _REQUEST_SOURCE_FLEXIBLE
+        # A stated clock window replaces a daypart carried from earlier.
+        if read_profile_in(callback_context).get("daypart"):
+            profile_delta["daypart"] = {"op": "clear"}
+    daypart = state.get(STATE_DAYPART_KEY)
+    if daypart in DAYPART_HOURS:
+        # ...and a daypart replaces a clock window: one time filter at a time.
+        profile_delta["daypart"] = _op_set(daypart)
+        for slot in ("timeslot", "timeslot_start", "timeslot_end", "timeslot_mode"):
+            profile_delta[slot] = {"op": "clear"}
     # P0-1: party size → the orchestrator's slots. No request-source twin: an
     # occupancy is never inferred or widened, so there is no flexible/explicit
     # distinction to carry. `children` is sent when captured even at 0 ("adults

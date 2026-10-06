@@ -401,3 +401,19 @@ def test_a_budget_stated_on_turn_1_reaches_turn_2s_search_offers_args():
     inject_profile_budget(_LeafTool("search_offers"), args, tool_context)
 
     assert args["priceRangeMax"] == 80.0
+
+
+def test_a_daypart_replaces_a_clock_window_across_the_seam():
+    """Option B (mcp-dayuse#8): the leaf's daypart delta lands in the profile,
+    clears the earlier clock window, and travels back on the next turn."""
+    from hotel_search_agent.response_bridge import STATE_DAYPART_KEY
+
+    content = emit_search_datapart(
+        _Ctx({_RESULTS_KEY: [{"id": 1, "name": "Villa"}], STATE_DAYPART_KEY: "afternoon"})
+    )
+    payload = next(d for d in (decode_datapart(p) for p in content.parts) if d is not None)
+    profile = SessionProfile(timeslot_start="12:00", timeslot_end="13:00", timeslot_mode="range")
+    apply_profile_delta(profile, payload["profile_delta"], "plutôt l'après-midi")
+    assert profile.daypart == "afternoon"
+    assert (profile.timeslot_start, profile.timeslot_end, profile.timeslot_mode) == (None, None, None)
+    assert leaf_profile_view(profile)["daypart"] == "afternoon"

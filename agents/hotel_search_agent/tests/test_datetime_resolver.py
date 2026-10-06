@@ -772,14 +772,38 @@ def test_resolve_search_date_marks_a_carried_over_future_date_as_not_today():
 # --- mcp-dayuse#8: a time slot the user never stated is dropped ----------------------------------
 
 
-def test_daypart_time_slot_is_dropped_and_flagged():
-    # "por la tarde" came back as 12h-23h: under the site's covering rule it
-    # empties the search instead of narrowing it.
+def test_daypart_becomes_a_soft_filter_not_an_invented_window():
+    # "por la tarde" came back from the model as 12h-23h. Option B (Mathias
+    # 2026-10-06): the daypart is read in code and sent as its own hours —
+    # MCP's timeSlot overlaps — with NO exact window (no covering rule).
     ctx = _ctx_with_profile({}, "busco un hotel con piscina en madrid mañana por la tarde")
     args = {"timeSlot": {"startHour": 12, "endHour": 23}}
     resolve_search_timeslot(_Tool("search_offers"), args, ctx)
-    assert "timeSlot" not in args
+    assert args["timeSlot"] == {"startHour": 12, "endHour": 18}
     assert STATE_EXACT_WINDOW_KEY not in ctx.state
+    assert ctx.state["temp:hotel_search_daypart"] == "afternoon"
+
+
+def test_a_carried_daypart_applies_when_the_turn_says_nothing_about_time():
+    ctx = _ctx_with_profile({"daypart": "morning"}, "et à Villeurbanne ?")
+    args: dict = {}
+    resolve_search_timeslot(_Tool("search_offers"), args, ctx)
+    assert args["timeSlot"] == {"startHour": 6, "endHour": 12}
+
+
+def test_a_stated_clock_time_wins_over_a_carried_daypart():
+    ctx = _ctx_with_profile({"daypart": "morning"}, "plutôt de 14h à 16h")
+    args = {"timeSlot": {"startHour": 14, "endHour": 16}}
+    resolve_search_timeslot(_Tool("search_offers"), args, ctx)
+    assert args["timeSlot"] == {"startHour": 14, "endHour": 16}
+    assert "temp:hotel_search_daypart" not in ctx.state
+
+
+def test_an_invented_slot_without_any_daypart_is_dropped_and_flagged():
+    ctx = _ctx_with_profile({}, "un hôtel à Lyon demain")
+    args = {"timeSlot": {"startHour": 12, "endHour": 23}}
+    resolve_search_timeslot(_Tool("search_offers"), args, ctx)
+    assert "timeSlot" not in args
     assert ctx.state["temp:hotel_search_guards_fired"] == ["timeslot_sanitization"]
 
 

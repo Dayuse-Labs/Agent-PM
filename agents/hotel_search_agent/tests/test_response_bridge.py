@@ -1994,3 +1994,45 @@ def test_circuit_open_is_scored_as_an_mcp_error():
     ctx = _Ctx()
     capture_after_tool(_Tool("search_offers"), {}, ctx, {"ok": False, "error": "mcp_circuit_open"})
     assert _decode(emit_search_datapart(ctx))["fallbacks_fired"] == ["mcp_error"]
+
+
+# --- option B: a daypart filters softly (overlap), never as a clock window ----------------------
+from hotel_search_agent.response_bridge import STATE_DAYPART_KEY  # noqa: E402
+
+
+def test_capture_filters_a_daypart_by_overlap():
+    ctx = _Ctx({STATE_DAYPART_KEY: "afternoon"})
+    resp = {
+        "structuredContent": {
+            "results": [
+                _hotel_with_offers(1, [_offer(8, 0, 12, 0)]),  # morning only: out
+                _hotel_with_offers(2, [_offer(10, 0, 16, 0)]),  # partly afternoon: in
+            ]
+        },
+        "isError": False,
+    }
+    args = {"timeSlot": {"startHour": 12, "endHour": 18}}
+    capture_after_tool(_Tool("search_offers"), args, ctx, resp)
+    assert [h["id"] for h in ctx.state["temp:hotel_search_results"]] == [2]
+    # The daypart's hours are not a stated window: never captured as one.
+    assert "timeslot_start" not in (ctx.state.get(_BUDGET_TIMESLOT_KEY) or {})
+
+
+def test_emit_persists_the_daypart_and_clears_the_clock_window():
+    ctx = _Ctx({"temp:hotel_search_results": [{"id": 1, "name": "Villa"}], STATE_DAYPART_KEY: "afternoon"})
+    delta = _decode(emit_search_datapart(ctx))["profile_delta"]
+    assert delta["daypart"] == {"op": "set", "value": "afternoon"}
+    assert delta["timeslot_start"] == {"op": "clear"} and delta["timeslot_end"] == {"op": "clear"}
+
+
+def test_emit_clears_a_carried_daypart_when_a_clock_window_is_stated():
+    ctx = _Ctx(
+        {
+            "temp:hotel_search_results": [{"id": 1, "name": "Villa"}],
+            _BUDGET_TIMESLOT_KEY: {"timeslot_start": "14:00", "timeslot_end": "16:00"},
+        },
+        user_content=_user_content_with_profile_in({"daypart": "morning"}),
+    )
+    delta = _decode(emit_search_datapart(ctx))["profile_delta"]
+    assert delta["daypart"] == {"op": "clear"}
+    assert delta["timeslot_start"] == "14:00"

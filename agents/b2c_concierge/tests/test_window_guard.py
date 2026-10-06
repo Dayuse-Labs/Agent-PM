@@ -103,3 +103,12 @@ class TestSpine:
         assert _drive("Un hôtel à Lyon demain de 12h à 13h") == "Deux hôtels couvrent 12h–13h."
         assert hotels[-1] == cards
         assert "window_match" not in fired[-1]
+
+
+def test_saying_none_covers_is_not_enough_the_cards_must_be_labelled_closest():
+    # Live 2026-10-06: "aucune ne couvre entièrement le créneau de 6h à 16h".
+    text, added = enforce_window_disclosure(
+        "Plusieurs options, mais aucune ne couvre entièrement le créneau de 6h à 16h.",
+        "06:00–16:00", "fr",
+    )
+    assert added and text.endswith("voici les offres les plus proches.")

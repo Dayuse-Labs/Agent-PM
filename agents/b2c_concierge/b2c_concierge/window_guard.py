@@ -14,9 +14,13 @@ from typing import Any
 
 from b2c_common.timeslot import parse_hhmm, requested_hours, slot_covers_window, window_fallback_line
 
-# Coarse on purpose, like currency_guard: a missed paraphrase costs one
-# extra honest sentence, never a silent claim.
-_ALREADY_SAID_RE = re.compile(r"couvr|\bcover|cubr|copr|\bdeckt?\b|\bdekt\b|\bcobr", re.IGNORECASE)
+# What must be said is that the cards are the CLOSEST offers (mcp-dayuse#4):
+# "aucune ne couvre entièrement le créneau" alone leaves the cards unlabelled
+# (seen live 2026-10-06). Coarse on purpose, like currency_guard: a missed
+# paraphrase costs one extra honest sentence, never a silent claim.
+_ALREADY_SAID_RE = re.compile(
+    r"plus proches|closest|más cercan|più vicin|nächstgelegen|mais próxim|dichtstbij", re.IGNORECASE
+)
 
 
 def _card_covers(card: dict[str, Any], start: int | None, end: int | None) -> bool | None:

@@ -16,6 +16,8 @@ two can never disagree.
 """
 from __future__ import annotations
 
+import re
+import unicodedata
 from typing import Any
 
 
@@ -91,3 +93,61 @@ def window_fallback_line(window: str, language: str) -> str:
     say it with the same words."""
     template = _WINDOW_FALLBACK.get(language, _WINDOW_FALLBACK["en"])
     return template.format(window=window).replace("  ", " ")
+
+
+# --- Dayparts (decision Mathias 2026-10-06, option B) --------------------------
+# "l'après-midi", "por la tarde": no clock time, so the site's covering rule
+# cannot apply (it would demand an offer spanning the whole afternoon). A
+# daypart is a SOFT filter instead: an offer matches when part of it falls in
+# the period — the same overlap semantics MCP's own `timeSlot` uses.
+DAYPART_HOURS: dict[str, tuple[int, int]] = {
+    "morning": (6, 12),
+    "afternoon": (12, 18),
+    "evening": (18, 23),
+}
+
+# Accent-folded, lower-cased text. Spanish/Portuguese "mañana"/"tarde" alone
+# also mean "tomorrow"/"late": only their daypart constructions count.
+_DAYPART_RES: dict[str, re.Pattern[str]] = {
+    "morning": re.compile(
+        r"\b(?:matin|matinee|morning|(?:por|de|en) la manana|mattin[ao]|vormittags?"
+        r"|morgens|am morgen|(?:de|pela|a) manha|ochtend|s ochtends)\b"
+    ),
+    "afternoon": re.compile(
+        r"\b(?:apres[ -]midi|aprem|afternoon|(?:por|de|en|a) la tarde|(?:a|de|pela) tarde"
+        r"|pomeriggio|nachmittags?|middag|s middags)\b"
+    ),
+    "evening": re.compile(
+        r"\b(?:soir|soiree|evening|tonight|(?:por|de|en) la noche|(?:a|de|pela) noite"
+        # Italian "sera" only in its daypart constructions: bare, it is
+        # also French "(ce) sera".
+        r"|(?:la|di|in) sera|serata|stasera|abends?|am abend|avond|s avonds)\b"
+    ),
+}
+
+
+def _fold(text: str) -> str:
+    decomposed = unicodedata.normalize("NFKD", text)
+    return "".join(c for c in decomposed if not unicodedata.combining(c)).lower().replace("'", " ")
+
+
+def daypart_in(text: str) -> str | None:
+    """The ONE daypart the text names, else None (none, or several)."""
+    folded = _fold(text or "")
+    found = [name for name, pattern in _DAYPART_RES.items() if pattern.search(folded)]
+    return found[0] if len(found) == 1 else None
+
+
+def slot_overlaps_daypart(slot_start_hour: Any, slot_end_hour: Any, daypart: str) -> bool:
+    """Part of the slot falls inside the daypart (touching bounds do not
+    count: an 08-12 offer is not an afternoon offer)."""
+    hours = DAYPART_HOURS.get(daypart)
+    if hours is None:
+        return False
+    try:
+        slot_start, slot_end = int(slot_start_hour), int(slot_end_hour)
+    except (TypeError, ValueError):
+        return False
+    if slot_end == 0 and slot_start > 0:
+        slot_end = 24
+    return slot_start < hours[1] and slot_end > hours[0]

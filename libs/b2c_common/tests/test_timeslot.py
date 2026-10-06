@@ -57,3 +57,47 @@ def test_fallback_line_has_no_exactly():
     assert window_fallback_line("06:00–16:00", "fr") == (
         "Aucune offre ne couvre tout le créneau 06:00–16:00 ; voici les offres les plus proches."
     )
+
+
+# --- dayparts: the soft filter (option B, 2026-10-06) ------------------------
+from b2c_common.timeslot import daypart_in, slot_overlaps_daypart  # noqa: E402
+
+
+@pytest.mark.parametrize(
+    "text,expected",
+    [
+        ("un hôtel à Lyon l'après-midi", "afternoon"),
+        ("busco un hotel en madrid mañana por la tarde", "afternoon"),
+        ("am Nachmittag in Berlin", "afternoon"),
+        ("à tarde em Lisboa", "afternoon"),
+        ("demain matin à Lyon", "morning"),
+        ("por la mañana en Madrid", "morning"),
+        ("ce soir à Paris", "evening"),
+        ("stasera a Roma", "evening"),
+        # Not dayparts.
+        ("mañana en Madrid", None),  # tomorrow
+        ("llego tarde", None),  # late
+        ("ce sera pour 2 personnes", None),  # French "sera"
+        ("matin ou soir", None),  # two of them: nothing certain
+        ("de 12h à 13h", None),
+    ],
+)
+def test_daypart_in(text, expected):
+    assert daypart_in(text) == expected
+
+
+@pytest.mark.parametrize(
+    "slot,daypart,expected",
+    [
+        ((10, 16), "afternoon", True),
+        ((8, 12), "afternoon", False),  # touching is not overlapping
+        ((8, 14), "afternoon", True),
+        ((17, 23), "evening", True),
+        ((8, 14), "evening", False),
+        ((18, 0), "evening", True),  # ends at midnight
+        ((7, 10), "morning", True),
+        ((None, 10), "morning", False),
+    ],
+)
+def test_slot_overlaps_daypart(slot, daypart, expected):
+    assert slot_overlaps_daypart(slot[0], slot[1], daypart) is expected
