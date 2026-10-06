@@ -105,6 +105,7 @@ _STATE_NAMED_NOT_FOUND_KEY = "temp:hotel_search_named_not_found"
 # emit. This is what lets the concierge's S12 guards (budget-vs-duration,
 # auto-widen/exhaustion, provenance) finally run on real traffic (S9/S12 gap).
 _STATE_BUDGET_TIMESLOT_KEY = "temp:hotel_search_budget_timeslot"
+_STATE_RADIUS_KEY = "temp:hotel_search_radius_km"
 # Public (unlike the keys above): written by equipment_ids.enforce_equipment_filters,
 # read back here for card stamping + the profile_delta — same cross-callback
 # `temp:` hand-off as _STATE_COUNTRY_KEY.
@@ -1073,6 +1074,9 @@ def capture_after_tool(
     if timeslot_fallback:
         tool_context.state[_STATE_TIMESLOT_FALLBACK_KEY] = True
     if name == "search_offers":
+        radius = args.get("radiusKm")
+        if isinstance(radius, (int, float)) and not isinstance(radius, bool):
+            tool_context.state[_STATE_RADIUS_KEY] = radius
         # Distance instrumentation (A8-a): the anchor is the geocode result the
         # model copied into search_offers' lat/lon — prefer the richer stashed
         # anchor (carries a label/type), fall back to the raw args coords.
@@ -1447,6 +1451,34 @@ def _user_checkin_date(
     return None
 
 
+def _search_context(
+    state: Any, raw_delta: dict[str, Any], profile_in: dict[str, Any], search_date: Any
+) -> dict[str, Any]:
+    """The search this turn actually ran (mcp-dayuse#5): the one source the
+    concierge cites in an empty state, instead of what the model remembers.
+    Place from this turn's geocode when it ran, else the carried profile;
+    budget/window/amenities from the real search_offers args."""
+    if raw_delta:
+        city, zone = raw_delta.get("last_city"), raw_delta.get("zone")
+    else:
+        city, zone = profile_in.get("city"), profile_in.get("zone")
+    sent = state.get(_STATE_BUDGET_TIMESLOT_KEY) or {}
+    daypart = state.get(STATE_DAYPART_KEY)
+    return {
+        "city": city or None,
+        "zone": zone or None,
+        "date": search_date.get("date") if isinstance(search_date, dict) else None,
+        "daypart": daypart if daypart in DAYPART_HOURS else None,
+        "timeslot_start": sent.get("timeslot_start"),
+        "timeslot_end": sent.get("timeslot_end"),
+        "budget_max": sent.get("budget_max"),
+        "amenities": list(state.get(STATE_APPLIED_AMENITIES_KEY) or []),
+        "adults": sent.get("adults"),
+        "children": sent.get("children"),
+        "radius_km": state.get(_STATE_RADIUS_KEY),
+    }
+
+
 def emit_search_datapart(callback_context: Any) -> genai_types.Content | None:
     """`after_agent_callback`: emit ONE event carrying BOTH a short grounded text
     outcome AND the structured `{results, profile_delta}` DataPart from what
@@ -1587,6 +1619,9 @@ def emit_search_datapart(callback_context: Any) -> genai_types.Content | None:
             payload["search_date"] = search_date
         # The hotel page opens on today unless told otherwise: a user who asked
         # for another day landed on the wrong day's offers (QA 2026-09-08 n°4).
+        payload["search_context"] = _search_context(
+            state, raw_delta, read_profile_in(callback_context), search_date
+        )
         checkin = _user_checkin_date(state, read_profile_in(callback_context), search_date)
         if checkin:
             payload["results"] = [

@@ -153,6 +153,7 @@ from .profile import (
 )
 from .profile_store import get_profile_store
 from .requested_date import date_served_notice, expected_search_date, reference_today
+from .no_offers import drop_restated, no_offers_line
 from .window_guard import enforce_window_disclosure, enforce_window_match, window_label
 from .routing import LEAF_FAQ, LEAF_HOTEL_SEARCH, ROUTES, bearer_token, card_url
 from .triage import (
@@ -469,6 +470,8 @@ ABSOLUTE RULES — a violation is a defect:
    there are NO results: say plainly "no day-use offers in <place> for <date>"
    and offer one concrete next step (change the date, widen the area, or adjust
    the budget) — never leave the user unsure whether it's a display glitch.
+   When a NO OFFERS sentence is present, it is already shown above your reply:
+   do not repeat the place, date or filters — go straight to that next step.
 8. If a PROVENANCE note is present, never claim the user requested the
    budget/timeslot values it names — they came from a system default, not
    something the user said; state them, if at all, only as your own
@@ -599,7 +602,7 @@ class _B2cConcierge(BaseAgent):
         self, *, message: str, language: str, leaf_text: str, ground_truth_block: str,
         widen_note: str | None, invocation_id: str, extra_instruction: str = "",
         search_context: str = "", provenance_note: str = "", currency_note: str = "",
-        angle: str = "",
+        angle: str = "", no_offers: str = "",
     ) -> str | None:
         """ONE litellm call producing a candidate synthesis text, or None on
         failure. The system prompt's STATIC prefix never changes (cache); only
@@ -640,7 +643,9 @@ class _B2cConcierge(BaseAgent):
             user += f"\n\nPROVENANCE: {provenance_note}"
         if currency_note:
             user += f"\n\nCURRENCY: {currency_note}"
-        if search_context:
+        if no_offers:
+            user += f"\n\nNO OFFERS (already shown above your reply, in code): {no_offers}"
+        elif search_context:
             user += f"\n\nSEARCH CONTEXT (what you understood — restate briefly): {search_context}"
         if angle:
             user += f"\n\nANGLE (lead on this, in your own words): {angle}"
@@ -698,7 +703,7 @@ class _B2cConcierge(BaseAgent):
     async def _synthesize_with_guards(
         self, *, message: str, language: str, leaf_text: str, response: dict[str, Any],
         profile: SessionProfile, budget: TurnBudget, invocation_id: str,
-        leaf_text_is_user_facing: bool = True,
+        leaf_text_is_user_facing: bool = True, no_offers: str = "",
     ) -> str | None:
         """ONE charged "synthesis" budget slot (internal retries below are an
         implementation detail of this ONE phase — same precedent as the
@@ -790,7 +795,7 @@ class _B2cConcierge(BaseAgent):
             ground_truth_block=ground_truth_block, widen_note=widen_note,
             invocation_id=invocation_id, search_context=search_context,
             provenance_note=provenance_note, currency_note=currency_note,
-            angle=angle,
+            angle=angle, no_offers=no_offers,
         )
 
         def fallback() -> str | None:
@@ -817,7 +822,7 @@ class _B2cConcierge(BaseAgent):
                     ground_truth_block=ground_truth_block, widen_note=widen_note,
                     invocation_id=invocation_id, extra_instruction=directive,
                     search_context=search_context, provenance_note=provenance_note,
-                    currency_note=currency_note, angle=angle,
+                    currency_note=currency_note, angle=angle, no_offers=no_offers,
                 )
                 if retry is not None:
                     candidate = retry
@@ -1425,6 +1430,7 @@ class _B2cConcierge(BaseAgent):
             )
             return
         window_fallback: str | None = None
+        no_offers = ""
         if route.target == LEAF_HOTEL_SEARCH and "results" in response:
             # guard_window_match (mcp-dayuse#8): what reaches the screen as a
             # match covers the slot, by the site rule the leaf filters with.
@@ -1453,6 +1459,10 @@ class _B2cConcierge(BaseAgent):
             if profile.display_currency == HOTEL:
                 apply_hotel_currency(response["results"])
             results_count = len(response["results"])
+            if results_count == 0:
+                # mcp-dayuse#5: the criteria of the search that actually ran,
+                # cited in code — never what the model remembers of the request.
+                no_offers = no_offers_line(response.get("search_context"), reply_language)
             # S-CX6: today's booking window closed on a market that DOES have
             # matching hotels (leaf-owned `cutoff_closed`; it already probed the
             # next day and found nothing usable either). The chips must then
@@ -1506,7 +1516,7 @@ class _B2cConcierge(BaseAgent):
 
         synth = await self._synthesize_with_guards(
             message=message, language=reply_language, leaf_text=leaf_text, response=response,
-            profile=profile, budget=budget, invocation_id=inv,
+            profile=profile, budget=budget, invocation_id=inv, no_offers=no_offers,
         )
         await store.set(ctx.session.id, profile)
 
@@ -1535,6 +1545,9 @@ class _B2cConcierge(BaseAgent):
                 templates.named_hotel_not_found_notice(named_not_found, reply_language, profile.city)
                 + f"\n\n{final_text}"
             )
+        if no_offers:
+            rest = drop_restated(final_text, no_offers)
+            final_text = f"{no_offers}\n\n{rest}" if rest else no_offers
         if window_fallback:
             final_text, _ = enforce_window_disclosure(final_text, window_fallback, reply_language)
         if date_notice:

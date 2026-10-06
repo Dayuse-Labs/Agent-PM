@@ -514,6 +514,52 @@ class TestProvenanceHonestyThroughTheSpine:
         assert "PROVENANCE" not in llm.calls[-1]["messages"][1]["content"]
 
 
+class TestNoOffersCitesTheSearchThatRan:
+    """mcp-dayuse#5 (live 2026-10-06): "near Gare du Nord from 7am to 9am with a
+    sauna under 30 euros" came back as "No offers in Paris … with a sauna under
+    30 euros" — the zone and the window gone."""
+
+    _CONTEXT = {
+        "city": "Paris", "zone": "Gare du Nord", "date": "2026-10-07", "daypart": None,
+        "timeslot_start": "07:00", "timeslot_end": "09:00", "budget_max": 30.0,
+        "amenities": ["sauna"], "adults": None, "children": None, "radius_km": 3,
+    }
+
+    def test_the_reply_opens_with_the_criteria_written_in_code(
+        self, monkeypatch, fake_leg, fake_profile_store
+    ):
+        fake_leg.response_payload = {"results": [], "search_context": self._CONTEXT}
+        llm = _scripted_llm(
+            monkeypatch, '{"family": "search", "language": "en"}', "Try a later time or a wider area.",
+        )
+        runner = InMemoryRunner(root_agent)
+        session = _new_session(runner)
+
+        answer = _run_turn(runner, session.id, "a hotel near Gare du Nord tomorrow 7am-9am with a sauna")
+
+        assert answer.startswith(
+            "No offers around Gare du Nord, Paris on Wednesday, October 7, 2026, "
+            "from 7:00 to 9:00, under €30, with a sauna."
+        )
+        assert answer.endswith("Try a later time or a wider area.")
+        user_msg = llm.calls[-1]["messages"][1]["content"]
+        assert "NO OFFERS (already shown" in user_msg and "SEARCH CONTEXT (what" not in user_msg
+
+    def test_a_search_with_results_gets_no_such_sentence(
+        self, monkeypatch, fake_leg, fake_profile_store
+    ):
+        fake_leg.response_payload = {
+            "results": [{"id": 1, "name": "Hotel A"}], "search_context": self._CONTEXT,
+        }
+        _scripted_llm(monkeypatch, '{"family": "search", "language": "en"}', "Here is a hotel.")
+        runner = InMemoryRunner(root_agent)
+        session = _new_session(runner)
+
+        answer = _run_turn(runner, session.id, "a hotel near Gare du Nord")
+
+        assert not answer.startswith("No offers")
+
+
 class TestCurrencyDisclosureThroughTheSpine:
     """S-G7 (A6-a): display stays EUR, never an invented conversion — the
     CURRENCY marker mirrors the existing PROVENANCE/AUTO_WIDEN precedent.

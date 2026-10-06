@@ -951,14 +951,14 @@ def test_emit_builds_decodable_datapart_with_results_and_mapped_delta():
 
 def test_emit_zero_results_carries_a_no_offers_outcome_text():
     content = emit_search_datapart(_Ctx({"temp:hotel_search_results": []}))
-    assert _decode(content) == {"results": []}
+    assert _decode(content)["results"] == []
     assert _text(content)  # non-empty outcome line ("No day-use offers found…")
 
 
 def test_emit_results_only_when_no_delta():
     ctx = _Ctx({"temp:hotel_search_results": []})
     data = _decode(emit_search_datapart(ctx))
-    assert data == {"results": []}  # a real 0-result search, no profile_delta
+    assert "profile_delta" not in data and data["results"] == []  # a real 0-result search
 
 
 def test_emit_delta_only_when_no_search_ran():
@@ -2036,3 +2036,33 @@ def test_emit_clears_a_carried_daypart_when_a_clock_window_is_stated():
     delta = _decode(emit_search_datapart(ctx))["profile_delta"]
     assert delta["daypart"] == {"op": "clear"}
     assert delta["timeslot_start"] == "14:00"
+
+
+def test_datapart_carries_the_search_that_actually_ran():
+    """mcp-dayuse#5: an empty state cites the executed search — the zone, the
+    window and the filters really sent — not what the model remembers."""
+    ctx = _Ctx({
+        "temp:hotel_search_results": [],
+        "temp:hotel_search_profile_delta": {"last_city": "Paris", "zone": "Gare du Nord"},
+        STATE_SEARCH_DATE_KEY: {"date": "2026-10-07", "same_day": False},
+        "temp:hotel_search_budget_timeslot": {
+            "budget_max": 30.0, "timeslot_start": "07:00", "timeslot_end": "09:00", "adults": 2,
+        },
+        STATE_APPLIED_AMENITIES_KEY: ["sauna"],
+        "temp:hotel_search_radius_km": 3,
+    }, user_content=_user_content_with_profile_in({"city": "Lyon", "zone": "Part-Dieu"}))
+    context = _decode(emit_search_datapart(ctx))["search_context"]
+    assert context == {
+        "city": "Paris", "zone": "Gare du Nord", "date": "2026-10-07", "daypart": None,
+        "timeslot_start": "07:00", "timeslot_end": "09:00", "budget_max": 30.0,
+        "amenities": ["sauna"], "adults": 2, "children": None, "radius_km": 3,
+    }
+
+
+def test_search_context_carries_the_profile_place_when_no_geocode_ran():
+    ctx = _Ctx(
+        {"temp:hotel_search_results": [], STATE_SEARCH_DATE_KEY: {"date": "2026-10-07"}},
+        user_content=_user_content_with_profile_in({"city": "Lyon"}),
+    )
+    context = _decode(emit_search_datapart(ctx))["search_context"]
+    assert (context["city"], context["zone"], context["budget_max"]) == ("Lyon", None, None)
