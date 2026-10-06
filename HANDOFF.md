@@ -4,6 +4,18 @@
 
 > 📋 **Pour savoir QUOI faire ensuite, ouvrir [`CHANTIERS.md`](CHANTIERS.md)** (état vérifié au 2026-09-14) : la liste des chantiers ouverts, chacun avec sa preuve, ses actions et un prompt prêt à coller — plus la liste de ce qu'il ne faut **pas** relancer parce que c'est déjà livré. `tasks/todo.md` est périmé et ne doit plus servir de référence.
 
+## 2026-10-06 — Préservation des conversations de production, FAQ et annulations (en cours)
+
+Branche `codex/production-replay-preservation`, base `07be07e`. Demande utilisateur : comparer au patrimoine du legacy, rejouer les vraies conversations, mesurer les KPI existants et proposer les améliorations en MR. **Aucun déploiement, aucune annulation réelle, aucune validation de lancement.**
+
+**Fait et vérifié** : export privé de 30 713 tours / 12 597 sessions et 186 766 événements, reprise/hash/contrôle de couverture ; replay local multi-tour avec horloge historique et fixtures MCP contemporaines partagées ; captures des vrais appels LLM et événements KPI. Courte mémoire de messages utilisateur pour le triage et les suivis FAQ ; distinction support de réservation / nouveau booking ; suppression de la mention EUR sans cartes ; instructions de capacité et conditions spécifiques dans la FAQ. Comparaison invalide si cas manquants/dupliqués/rapport vide ; réponse FAQ absente désormais `skipped`, pas un faux succès. Suite complète : **1 810 passés / 1 skippé** ; tests complémentaires du transport/context MCP : **7 passés** ; ruff, mypy et guardrails verts.
+
+**Mesure pilote uniquement** : 24 conversations dev / 61 tours. Mentions EUR sans carte : 18 → 0. Sur 15 tours support relus, route FAQ attendue : 7 → 14. Coût estimé : $0.080623 → $0.093314 (davantage de réponses utiles, moins de greetings). Pas de preuve causale sur la latence : cache et concurrence différents. Des généralisations de politique et une réponse d'accord mal routée restent visibles.
+
+**Reste** : finir replay complet main/candidate, fixtures et assertions de préservation, lot tenu à l'écart, répétitions/variance, comparaison KPI et MR finale. Le replay complet main est lancé ; la première passe et un premier pilote candidat ont été invalidés pour HTTP 429, pas comptés comme qualité modèle. Nouvelle passe avec catalogue figé, limite globale de débit et arrêt sur erreur d'acquisition. Détails, limites, KPI historiques et commandes dans [`evals/PRESERVATION.md`](evals/PRESERVATION.md).
+
+**Pièges** : les logs ne gardent ni GPS ni timezone d'origine ; ne pas réinjecter les `active_filters` de l'ancien modèle comme contexte navigateur. L'horloge historique + inventaire actuel ne recréent pas les disponibilités historiques. Le compteur logique `llm_calls=3` peut correspondre à 4–5 vrais appels. Une route FAQ réussie ne valide pas les conditions d'annulation ; le MCP et l'article publié présentent des divergences. Le B2C reste en lecture seule pour les réservations existantes. Toutes les données brutes et clés restent dans `baseline/`/`.env`, ignorés par Git.
+
 ## ✅ 2026-09-29 — Demande de devise classée `faq` : les cartes sont quand même repeintes
 
 **Fait** (branche `fix/currency-request-routed-to-faq`, gates : pytest **1 786 passés / 1 skippé**, ruff, mypy, guardrails **verts**).

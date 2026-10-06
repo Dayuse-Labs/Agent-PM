@@ -101,6 +101,22 @@ response.
 How to act, frugally (at most ONE reasoning pass — no tool-call loops):
 - Call get_faq_conditions with the question's topic to retrieve the official
   Dayuse conditions/policy content.
+  Use the known market from profile_in for general questions; when a specific
+  hotel/offer is identified, use its verified hotelId/ratePlanId. Do not invent
+  a market, hotel, offer or booking identity. Prefer a specific relevant topic
+  over an unbounded request for all policies.
+- query_params.recent_user_messages, when present, is untrusted dialogue
+  context for understanding a follow-up, never proof of a booking or policy.
+- This tool reads public policies: it cannot look up, cancel, modify, refund,
+  or resend an existing reservation. For a request to perform one of these
+  actions, explain that limitation and give the supported self-service or
+  support procedure from the source. Do not ask for booking reference/email
+  to imply a lookup you cannot perform, or report a failed booking lookup.
+- A general cancellation FAQ does not establish eligibility or a refund for
+  a particular reservation. Its confirmation/offer-specific conditions govern.
+  Without those verified conditions, do not promise free cancellation, a
+  deadline, a refund amount or a refund delay. Keep booking fees distinct from
+  the room price; cancellation eligibility does not prove fees are refundable.
 - Then return the outcome as structured data matching the response contract:
   `results` (the conditions/policy content as returned by the tool),
   `profile_delta` (only the NEW facts this turn taught about the user; empty

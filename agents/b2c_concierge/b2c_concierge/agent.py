@@ -112,6 +112,7 @@ from .a2a_datapart import encode_datapart, find_datapart
 from .amenity_guard import apply_amenity_truthfulness
 from .budget import TurnBudget
 from .currency_guard import enforce_currency_disclosure
+from .dialogue_context import recent_user_messages
 from .date_format import humanize_iso_dates
 from .display_currency import (
     HOTEL,
@@ -422,6 +423,7 @@ language — that is irrelevant to your output language.
 Write ONE reply to the user in the LANGUAGE given by the LANG marker (fr or en),
 even when the OUTCOME text is in a different language (e.g. English).
 
+The following carousel rules apply to HOTEL RESULTS only, not FAQ/support.
 THE CLIENT ALREADY SHOWS THE HOTELS. Your reply is displayed UNDER a carousel
 of cards that each already give: photo, hotel name, district, star rating,
 review score with its count, the price WITH the crossed-out night rate and the
@@ -443,6 +445,14 @@ Therefore:
 - When an ANGLE block is present, it is the fact to lead on. Write it in your
   own words; never quote it back.
 A long reply is a defect even when every word in it is true.
+
+For FAQ/support with no hotel results, answer the actual question and provide
+the supported next step from the OUTCOME, including a verified support link
+or self-service instructions when useful. Do not discuss a nonexistent hotel
+shortlist. For an existing reservation, do not infer cancellation eligibility,
+a deadline, fees refunded or a refund delay from general FAQ text. Explain
+that the offer/confirmation's specific conditions apply. Never imply you
+looked up a reservation: this FAQ source only reads public policy content.
 
 ABSOLUTE RULES — a violation is a defect:
 1. Ground everything ONLY in the OUTCOME below (and the GROUND TRUTH block when
@@ -740,14 +750,14 @@ class _B2cConcierge(BaseAgent):
         # converted price) that differs from EUR — a fact independent of
         # whatever the user's client currency happens to be.
         currency_bits: list[str] = []
+        hotels = shortlist_hotels(response)
         # Prices already shown in each hotel's own currency: an "EUR, no
         # conversion" disclosure would contradict the cards.
         eur_displayed = profile.display_currency != HOTEL
-        if eur_displayed and profile.currency and profile.currency.upper() != "EUR":
+        if hotels and eur_displayed and profile.currency and profile.currency.upper() != "EUR":
             currency_bits.append(f"user's own currency: {profile.currency}")
         # In hotel-currency mode the disclosure's generic "prices in EUR" is only
         # true when NO card could switch; on a mixed list the € on the card says it.
-        hotels = shortlist_hotels(response)
         any_switched = any(h.get("display_currency") for h in hotels)
         hotel_currencies = sorted(
             {
@@ -1056,7 +1066,8 @@ class _B2cConcierge(BaseAgent):
             return
 
         # 2. Triage (ONE economy LLM + regex fallback). Off the session/stream.
-        triage = await classify(message, budget, inv)
+        recent_messages = recent_user_messages(ctx.session.events, message)
+        triage = await classify(message, budget, inv, recent_messages=recent_messages)
         family = triage.family
         route = ROUTES[family]
         # P1-1: the two code-owned override signals are RE-derived here, now fed
@@ -1286,6 +1297,8 @@ class _B2cConcierge(BaseAgent):
         leaf_kwargs: dict[str, Any] = (
             {"query_params": {"repeat_previous_search": True}} if repeat_search else {}
         )
+        if family == "faq" and recent_messages:
+            leaf_kwargs = {"query_params": {"recent_user_messages": recent_messages}}
         leaf_text, response = await _run_leaf(
             route.target, ctx, leaf_profile_view(profile), **leaf_kwargs
         )

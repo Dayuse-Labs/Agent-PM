@@ -316,7 +316,12 @@ def response_evaluator(
     JSON body. `output` is the task's return value (see module docstring)."""
     expected = expected_output or {}
     response = (output or {}).get("response") if isinstance(output, dict) else None
-    return [e for check in _RESPONSE_CHECKS if (e := check(expected, response)) is not None]
+    evaluations = [e for check in _RESPONSE_CHECKS if (e := check(expected, response)) is not None]
+    if response is None:
+        # In particular max_hotels=0 and forbidden-text checks used to pass on
+        # transport failure: an absent reply isn't a correct FAQ answer.
+        return [_skip(e.name, "chat response unavailable; cannot grade this assertion") for e in evaluations]
+    return evaluations
 
 
 # --- trace-level checks -------------------------------------------------------
