@@ -145,6 +145,7 @@ class TestMetricsWiring:
         from hotel_search_agent.equipment_ids import enforce_equipment_filters
         from hotel_search_agent.geocode_tool import inject_profile_geo_context
         from hotel_search_agent.occupancy import inject_profile_occupancy
+        from hotel_search_agent.schema_guard import drop_args_outside_schema
         from hotel_search_agent.response_bridge import (
             inject_landmark_radius,
             inject_pagination_offset,
@@ -159,7 +160,10 @@ class TestMetricsWiring:
         # the geocode's after_tool stash, which it does by construction
         # (different phase).
         assert before[0] is tool_timing_before
-        assert len(before) == 11
+        assert len(before) == 12
+        # mcp-dayuse#8: the schema guard must see the args every other
+        # callback has finished rewriting.
+        assert before[-1] is drop_args_outside_schema
         assert resolve_search_date in before
         assert resolve_search_timeslot in before
         assert before[2] is mcp_circuit_before_tool
