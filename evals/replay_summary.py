@@ -24,18 +24,24 @@ def distribution(values: list[float]) -> dict:
             "p50": values[math.ceil(len(values) * .5) - 1], "p95": values[math.ceil(len(values) * .95) - 1]}
 
 
+def retained_metrics(cases: list[dict], metrics: list[dict], variant: str) -> list[dict]:
+    """Join only the retained attempt; older instrumentation is never guessed on resume."""
+    keys = {(case["case_id"], str(turn["index"])) for case in cases for turn in case["turns"]}
+    sessions = {case["case_id"]: case["session_id"] for case in cases}
+    resumed = {case["case_id"] for case in cases if case.get("previous_sessions")}
+    return [m for m in metrics if m.get("x-replay-variant") == variant
+              and (m.get("x-replay-case"), m.get("x-replay-turn")) in keys
+              and ((m.get("x-replay-session-id") == sessions.get(m.get("x-replay-case")))
+                   if m.get("x-replay-session-id") else m.get("x-replay-case") not in resumed)]
+
+
 def summarize(directory: Path, metrics: list[dict]) -> dict[str, Any]:
     manifest = json.loads((directory / "manifest.json").read_text())
     variant = manifest["identity"]["variant"]
     cases = [json.loads(p.read_text()) for p in (directory / "cases").glob("*.json")]
     turns = [(case, turn) for case in cases for turn in case["turns"]]
-    keys = {(case["case_id"], str(turn["index"])) for case, turn in turns}
-    sessions = {case["case_id"]: case["session_id"] for case in cases}
     resumed = {case["case_id"] for case in cases if case.get("previous_sessions")}
-    joined = [m for m in metrics if m.get("x-replay-variant") == variant
-              and (m.get("x-replay-case"), m.get("x-replay-turn")) in keys
-              and ((m.get("x-replay-session-id") == sessions.get(m.get("x-replay-case")))
-                   if m.get("x-replay-session-id") else m.get("x-replay-case") not in resumed)]
+    joined = retained_metrics(cases, metrics, variant)
     turn_metrics = [m for m in joined if m["event_type"] == "turn"]
     llm = [m for m in joined if m["event_type"] == "llm_call"]
     all_attempt_llm = [m for m in metrics if m.get("x-replay-variant") == variant and m["event_type"] == "llm_call"]

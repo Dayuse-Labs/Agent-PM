@@ -173,6 +173,23 @@ superseded outputs never count as successful retained attempts. Cached search
 responses contained no affected `checkinDate` URLs. The correction and exact case
 IDs are recorded in the private `harness-date-mapping-20261006.json` manifest.
 
+## Independent holdout review
+
+Before reading the corresponding outputs, a deterministic input-only sample was
+frozen from the unclassified holdout: 12 FAQ/booking-hint and 18 other sessions,
+78 turns in total, deduplicated by normalized conversation hash. The seed is
+`dayuse-preservation-holdout-review-v1`. Codex annotated 73 routing expectations;
+five ambiguous or counterfactual continuations remain unscored. Thirty case-level
+content rubrics link to the preservation registry and cover dates, time-window
+coverage, equipment, currency, age, booking support and capability honesty.
+These are not human-approved labels or a prevalence-weighted sample.
+
+The exact inputs, selection and oracles stay private. Both frozen revisions run this
+additional cohort separately; it does not replace the full replay. No application
+change may be tuned on these outcomes while still describing them as untouched
+holdout evidence. Report routing and content review separately; a holdout label
+alone never turns ungraded outputs into a quality score.
+
 ## Existing business KPIs
 
 Recomputed with legacy main's `conversation_weekly_report.py`, existing synthetic
@@ -200,6 +217,10 @@ Tools:
 - `python -m evals.replay_runtime --help`: isolated local service launcher.
 - `python -m evals.production_replay --help`: full-session replay and checkpoints.
 - `python -m evals.replay_summary --help`: coverage and observed KPI aggregates.
+- `python -m evals.replay_comparison --help`: paired aggregates on the same complete
+  conversations; verifies corpus hash, case hashes, turn identities/order and run
+  configuration. Refuses invalidated/superseded runs. Exit 2 means incomplete;
+  exit 0 confirms descriptive corpus coverage, not answer correctness or release readiness.
 
 Use a detached baseline checkout and a separate candidate checkout, distinct local
 Redis databases/ports, the same LiteLLM model, a shared read-only proxy, and no
