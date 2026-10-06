@@ -35,6 +35,7 @@ import litellm
 from b2c_common import max_tokens_for, reasoning_kwargs_for, role_model, temperature_kwargs_for
 from b2c_common.search_location import parse_location_update
 from .search_constraints import parse_search_update
+from .triage_schema import location_edit, response_format
 from dayuse_agent_common import (
     cost_from_tokens,
     enqueue_metric_event,
@@ -397,7 +398,7 @@ with exactly these keys:
   "will I lose the $10 booking fee?" asks about policy, not display currency.
 
 - "search_update": only search constraints explicitly changed in the CURRENT
-  message. Return {{}} when unchanged. Never repeat old constraints from history.
+  message. Set each unchanged field to null. Never repeat old constraints from history.
   Each field is {{"value": ..., "evidence": "exact quote from current message"}}.
   Supported fields: budget_max (positive amount, null ONLY for explicit removal;
   add "currency":"EUR" or the explicitly stated ISO currency, otherwise null),
@@ -409,15 +410,18 @@ with exactly these keys:
   names or corrects the location, null when this turn names no location. Never
   copy a place from recent history as evidence for a new edit.
 - "location_update": a semantic edit to the requested geography, independent of
-  filters. Use {{"action":"retain"}} when THIS message only changes budget,
+  filters. Use {{"action":"retain","kind":null,"fields":[]}} when THIS message only changes budget,
   time, equipment, or asks about existing results; never re-extract a location
   from older messages on such a turn.
   For a NEW destination first identify its kind ("city", "area", "landmark",
-  or "unknown"), then use {{"action":"replace", "kind":..., "city":..., "zone":...,
-  "metro":..., "country_code":..., "region":...}} (omit unknown fields).
+  or "unknown"), then use {{"action":"replace", "kind":..., "fields":[
+  {{"field":"city","value":...}}, {{"field":"zone","value":...}}]}}.
+  Include known fields only; field names are city, zone, metro, country_code, region.
   For an area adjustment WITHIN the current destination or an answer to a
   location clarification use "action":"refine"; only include changed fields.
-  An explicit null clears a previous field. A country change is "replace".
+  A field entry with value=null clears that previous field; an absent entry
+  preserves it on refine. kind=null preserves the previous kind on refine.
+  A country change is "replace".
   city = the actual municipality, zone = the FULL named district/landmark
   including its identifying airport/station name, never just a terminal number.
   A business district, borough or neighbourhood is kind=area, NOT a city.
@@ -492,6 +496,7 @@ async def classify(message: str, budget: TurnBudget, invocation_id: str = "",
                   + f"MESSAGE:\n<<<\n{message}\n>>>"},
             ],
             timeout=_TRIAGE_TIMEOUT,
+            response_format=response_format(FAMILIES, LANGUAGES, PICKS, BOOKING_CONFIRMATIONS),
             **extra_params,
         )
     except Exception as exc:  # noqa: BLE001 — triage must never hard-fail; fall back to regex
@@ -579,7 +584,7 @@ async def classify(message: str, budget: TurnBudget, invocation_id: str = "",
 
 
 def _ground_location_update(data: dict, message: str) -> dict | None:
-    edit = parse_location_update(data.get("location_update"))
+    edit = parse_location_update(location_edit(data.get("location_update")))
     if edit is None or edit["action"] == "retain":
         return edit
     evidence = data.get("location_evidence")

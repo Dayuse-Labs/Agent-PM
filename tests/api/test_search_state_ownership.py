@@ -161,3 +161,30 @@ def test_priced_offer_mismatch_is_visible_even_if_synthesis_ignores_leaf_warning
     response = {'results':[{'price_eur_cents':7500,'timeslots':[{'start':'09:00','end':'18:00'}]}]}
     assert annotate_constraints(response,p) == []
     assert constraint_notice(response,'en') == ''
+
+
+def test_wire_location_refinement_distinguishes_unchanged_from_explicit_clear():
+    edit = _ground_location_update({
+        'location_evidence': 'Downtown',
+        'location_update': {'action': 'refine', 'kind': 'area', 'fields': [
+            {'field': 'zone', 'value': 'Downtown'}, {'field': 'metro', 'value': None},
+        ]},
+    }, 'Downtown please')
+    view = prepare_search_context(committed(), edit)
+    assert view['search_location_request']['city'] == 'Berkeley'
+    assert view['search_location_request']['zone'] == 'Downtown'
+    assert view['search_location_request']['metro'] is None
+    assert _ground_location_update({'location_update': {'action': 'retain', 'kind': None, 'fields': []}}, '100') == {'action': 'retain'}
+
+
+def test_strict_generation_contract_rejects_observed_nested_location_and_missing_evidence():
+    from jsonschema import Draft202012Validator
+    from b2c_concierge.triage import BOOKING_CONFIRMATIONS, FAMILIES, LANGUAGES, PICKS
+    from b2c_concierge.triage_schema import response_format
+    schema = response_format(FAMILIES, LANGUAGES, PICKS, BOOKING_CONFIRMATIONS)['json_schema']['schema']
+    Draft202012Validator.check_schema(schema)
+    validator = Draft202012Validator(schema['properties']['search_update'])
+    # These two actual malformed generations used to silently discard the edit.
+    assert list(validator.iter_errors({'location_update': {'action': 'replace'}, 'location_evidence': 'station'}))
+    assert list(validator.iter_errors({'budget_max': {'value': 95, 'currency': 'EUR'}, 'timeslot_start': None, 'timeslot_end': None}))
+    assert not list(validator.iter_errors({'budget_max': {'value': 95, 'currency': 'EUR', 'evidence': '95€'}, 'timeslot_start': None, 'timeslot_end': None}))
