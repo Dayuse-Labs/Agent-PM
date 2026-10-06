@@ -47,7 +47,7 @@ _OPENAI_REASONING_PREFIXES = ("gpt-5", "o1", "o3", "o4")
 _MAX_TOKENS_DEFAULTS = {
     # Includes the semantic location edit; keep enough headroom for complete
     # JSON (truncation loses every triage slot, not only geography).
-    "TRIAGE": 400,
+    "TRIAGE": 650,
     # Synthesis replies are ~150-300 tokens; same reasoning-token headroom.
     "SYNTHESIS": 1000,
 }

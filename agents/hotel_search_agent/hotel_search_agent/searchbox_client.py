@@ -177,6 +177,7 @@ class SearchBoxClient:
                     bbox=None,
                     rank=rank,
                     iata_code=SearchBoxClient._iata_code(props),
+                    provider_place_id=props.get("mapbox_id") or feature.get("id"),
                 )
             )
         return candidates

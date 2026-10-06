@@ -81,7 +81,10 @@ def get_profile_store() -> ProfileStore:
     global _store
     if _store is None:
         url = os.environ.get("CONCIERGE_REDIS_URL", "redis://localhost:6379/0")
-        _store = ProfileStore(redis.Redis.from_url(url, decode_responses=True))
+        _store = ProfileStore(redis.Redis.from_url(
+            url, decode_responses=True, socket_connect_timeout=2, socket_timeout=3,
+            health_check_interval=30,
+        ))
     return _store
 
 

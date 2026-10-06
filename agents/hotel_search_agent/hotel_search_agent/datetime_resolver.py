@@ -529,6 +529,10 @@ def resolve_search_timeslot(tool: Any, args: dict[str, Any], tool_context: Any) 
     start_total = _minutes_of_day(time_slot.get("startHour"), time_slot.get("startMinute"))
     end_total = _minutes_of_day(time_slot.get("endHour"), time_slot.get("endMinute"))
     duration_minutes = parse_duration_minutes(args.pop("duration", None))
+    if profile_in.get("constraint_edits_managed") and profile_in.get("timeslot_request_source") == "explicit":
+        start_total = _parse_hhmm_to_minutes(profile_in.get("timeslot_start"))
+        end_total = _parse_hhmm_to_minutes(profile_in.get("timeslot_end"))
+        duration_minutes = None
 
     if start_total is None and duration_minutes is not None:
         start_total = _parse_hhmm_to_minutes(profile_in.get("timeslot_start"))

@@ -260,6 +260,7 @@ class SessionProfile:
     display_currency: str | None = None
     # Unverified semantic request, retained even if the leaf times out.
     search_location_request: dict[str, Any] | None = None
+    resolved_search_location: dict[str, Any] | None = None
 
     def to_dict(self) -> dict[str, Any]:
         return {
@@ -303,6 +304,7 @@ class SessionProfile:
             "children": self.children,
             "display_currency": self.display_currency,
             "search_location_request": self.search_location_request,
+            "resolved_search_location": self.resolved_search_location,
             "schema_version": PROFILE_SCHEMA_VERSION,
         }
 
@@ -332,6 +334,7 @@ _CONCIERGE_ONLY_KEYS = (
     "picked_hotel_id",
     "display_currency",
     "search_location_request",
+    "resolved_search_location",
 )
 
 

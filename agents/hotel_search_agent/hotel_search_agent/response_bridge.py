@@ -941,6 +941,7 @@ def capture_after_tool(
                 record_guards_fired(tool_context, fired)
         if isinstance(tool_response, dict) and tool_response.get("ok"):
             resolved_delta = dict(tool_response.get("profile_delta") or {})
+            tool_context.state["temp:resolved_search_location"] = dict(tool_response)
             request = read_profile_in(tool_context).get("search_location_request")
             if isinstance(request, dict):
                 # Only a successful resolution may promote the requested
@@ -1556,6 +1557,8 @@ def emit_search_datapart(callback_context: Any) -> genai_types.Content | None:
     )
 
     payload: dict[str, Any] = {}
+    if state.get("temp:resolved_search_location"):
+        payload["resolved_location"] = state["temp:resolved_search_location"]
     if results is not None:  # a search ran (even 0 results is a real outcome)
         payload["results"] = results
         # S-CX6: WHICH day these results (or this dead end) are about, and

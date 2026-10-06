@@ -113,7 +113,10 @@ from .amenity_guard import apply_amenity_truthfulness
 from .budget import TurnBudget
 from .currency_guard import enforce_currency_disclosure
 from .dialogue_context import recent_user_messages
-from .search_context import prepare_search_context
+from .search_context import prepare_search_context, triage_search_context
+from .search_constraints import apply_search_update, protect_explicit_constraints
+from .result_constraints import annotate_constraints, constraint_notice
+from b2c_common.resolved_location import location_snapshot
 from .date_format import humanize_iso_dates
 from .display_currency import (
     HOTEL,
@@ -718,7 +721,10 @@ class _B2cConcierge(BaseAgent):
         profile.
         """
         budget.charge("synthesis")
+        warnings = annotate_constraints(response, profile)
         ground_truth_block = shortlist_ground_truth_block(response, profile, language)
+        if warnings:
+            ground_truth_block += "\nDISPLAYED ALTERNATIVES: some offers fail " + ", ".join(warnings) + ". Never claim all requested constraints are satisfied.\n"
         # The one fact worth leading on, decided in CODE from this turn's data
         # (ground_truth.synthesis_angle): the variety the reply was missing has
         # to come from the shortlist, not from temperature. Empty when the data
@@ -1079,7 +1085,8 @@ class _B2cConcierge(BaseAgent):
 
         # 2. Triage (ONE economy LLM + regex fallback). Off the session/stream.
         recent_messages = recent_user_messages(ctx.session.events, message)
-        triage = await classify(message, budget, inv, recent_messages=recent_messages)
+        triage = await classify(message, budget, inv, recent_messages=recent_messages,
+                                search_context=triage_search_context(profile))
         family = triage.family
         route = ROUTES[family]
         # P1-1: the two code-owned override signals are RE-derived here, now fed
@@ -1305,7 +1312,8 @@ class _B2cConcierge(BaseAgent):
             # Triage already recognized the amount. Put it in profile_in so
             # the real MCP budget-injection callback can enforce it even if
             # the stateless leaf model does not repeat the bare-number intent.
-            apply_recognized_bare_budget(profile, message, triage.bare_budget_value, budget.fired)
+            apply_search_update(profile, triage.search_update)
+            recognized_budget = apply_recognized_bare_budget(profile, message, triage.bare_budget_value, budget.fired)
 
         # Leaf leg (search / faq): charge the leaf's 0-1 internal LLM slot, then
         # ONE call, per-family budget (_leaf_timeout), no retry. Session profile
@@ -1320,8 +1328,9 @@ class _B2cConcierge(BaseAgent):
         search_view = leaf_profile_view(profile)
         if route.target == LEAF_HOTEL_SEARCH:
             search_view = prepare_search_context(
-                profile, {"action": "retain"} if repeat_search else triage.location_update
+                profile, {"action": "retain"} if repeat_search or recognized_budget else triage.location_update
             )
+            search_view["constraint_edits_managed"] = triage.search_update is not None
             # Persist the request before remote work: a timeout must not erase
             # the destination the user just supplied. It is still unverified.
             await store.set(ctx.session.id, profile)
@@ -1356,6 +1365,8 @@ class _B2cConcierge(BaseAgent):
 
         delta = response.get("profile_delta") or {}
         if delta:
+            if route.target == LEAF_HOTEL_SEARCH and triage.search_update is not None:
+                delta = protect_explicit_constraints(profile, delta)
             apply_profile_delta(profile, delta, message, budget.fired)
             requested_location = profile.search_location_request
             if (route.target == LEAF_HOTEL_SEARCH and delta.get("city")
@@ -1364,6 +1375,10 @@ class _B2cConcierge(BaseAgent):
                 # that triage omitted. Preserve that verified disambiguation.
                 requested_location["country_code"] = profile.country_anchor
                 requested_location["region"] = profile.state_anchor
+        if route.target == LEAF_HOTEL_SEARCH and isinstance(response.get("resolved_location"), dict):
+            snapshot = location_snapshot(profile.search_location_request or {}, response["resolved_location"])
+            if snapshot:
+                profile.resolved_search_location = snapshot
         # S-CX2 (audit CX F2): the leaf reports the search TOOLS never ran this
         # turn (MCP unreachable / circuit open / budget spent before the
         # search). Serve the honest degraded template — never synthesize, or
@@ -1463,6 +1478,9 @@ class _B2cConcierge(BaseAgent):
             currency_notice = unsupported_currency_message(
                 resolve_currency_request(pending_currency, None), reply_language
             )
+        notice = constraint_notice(response, reply_language)
+        if notice:
+            final_text = f"{notice}\n\n{final_text}"
         if currency_notice:
             final_text = f"{final_text.rstrip()}\n\n{currency_notice}"
         for chunk in _chunk_text(final_text):

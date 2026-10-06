@@ -313,6 +313,9 @@ def _ok(
     # lost across turns"). Only-when-present: no zone/metro this turn is
     # carryover at the concierge (S-G1), never a clear.
     delta = dict(profile_delta)
+    if result.provider_place_id:
+        # The resolved provider region outranks words in a negated user phrase.
+        delta["last_state_context"] = result.region or None
     if zone:
         delta["zone"] = zone
     if metro:
@@ -325,6 +328,7 @@ def _ok(
         "resolved_feature_type": feature_type,
         "distance_origin_type": distance_origin_type,
         "country_code": result.country_code,
+        "provider_place_id": result.provider_place_id,
         "profile_delta": delta,
     }
     # OBS3: which deterministic guards actually fired this turn, so the
@@ -634,6 +638,9 @@ def geocode_location(
         country_code=effective_country_code,
     )
 
+    if location_kind is not None:
+        state_hint = profile_state_context
+
     query = ", ".join(
         part for part in (effective_zone, effective_city or effective_metro, state_hint) if part
     )
@@ -909,7 +916,7 @@ def _is_blank(value: object) -> bool:
     return value is None or (isinstance(value, str) and not value.strip())
 
 
-def inject_profile_geo_context(tool: object, args: dict, tool_context: object) -> None:
+def inject_profile_geo_context(tool: object, args: dict, tool_context: object) -> dict | None:
     """`before_tool_callback` (P0 #4 fix, S-G5) — the deterministic
     profile→tool-args bridge for `geocode_location`, same pattern as
     `equipment_ids.enforce_equipment_filters`: the leaf's own instruction used
@@ -943,6 +950,11 @@ def inject_profile_geo_context(tool: object, args: dict, tool_context: object) -
 
     request = profile_in.get("search_location_request")
     if isinstance(request, dict):
+        from b2c_common.resolved_location import verified_resolution
+
+        cached = verified_resolution(profile_in.get("resolved_search_location"), request)
+        if cached:
+            return cached
         # The orchestrator already interpreted the location edit. Do not let a
         # second model turn a municipality into a neighbourhood or drop a POI.
         for key in ("city", "zone", "metro", "country_code"):

@@ -22,7 +22,7 @@ from __future__ import annotations
 import logging
 from typing import Any
 
-from hotel_search_agent.response_bridge import find_datapart, positive_budget
+from hotel_search_agent.response_bridge import find_datapart, positive_budget, read_profile_in
 
 _metrics_logger = logging.getLogger("dayuse.metrics")
 
@@ -53,6 +53,14 @@ def inject_profile_budget(tool: Any, args: dict[str, Any], tool_context: Any) ->
     never receive one, so there is nothing to pop on them."""
     name = getattr(tool, "name", "") or ""
     if name != "search_offers":
+        return None
+
+    profile = read_profile_in(tool_context)
+    if profile.get("constraint_edits_managed") and profile.get("budget_request_source") == "explicit":
+        args.pop("priceRangeMax", None)
+        cap = positive_budget(profile.get("budget_max"))
+        if cap is not None:
+            args["priceRangeMax"] = cap
         return None
 
     sent = positive_budget(args.get("priceRangeMax"))

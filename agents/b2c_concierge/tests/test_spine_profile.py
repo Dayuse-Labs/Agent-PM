@@ -1233,7 +1233,7 @@ def test_search_request_survives_leaf_timeout_and_reaches_next_turn(monkeypatch,
 
     monkeypatch.setattr(agent_module, '_run_leaf', unavailable)
     llm = _scripted_llm(monkeypatch,
-        json.dumps({'family':'search','language':'en','location_update':{
+        json.dumps({'family':'search','language':'en','location_evidence':'Milford ct','location_update':{
             'action':'replace','city':'Milford','region':'Connecticut','country_code':'US'}}),
         json.dumps({'family':'search','language':'en','bare_budget_value':110,
                     'location_update':{'action':'retain'}}))
