@@ -1,45 +1,67 @@
 # Production knowledge preservation replay — 2026-10-06
 
-## Budgeted campaign checkpoint
+## Completed $60 campaign and geographic extension
 
-The user authorized **$60 for the new campaign**, excluding prior runs. Dispatch
-stops at $40 observed model cost with $20 reserved for accounting uncertainty;
-this is telemetry accounting, not a provider invoice quota. No paid model judge.
-The input-first sample is 84 conversations / 209 turns: 80 live search/general
-FAQ and four isolated booking-support cases. Another 24 validation conversations
-(22 live, two support) were selected and annotated after application candidate
-`6857706` was frozen, before validation outputs. Do not call this a full-corpus
-replay or a representative global quality score.
+Observed model cost: **$7.9261**, including transport incidents and a final audit
+of all136 local model-session cost records. No accounting remains pending. The
+$60 ceiling applies to this new campaign, excluding earlier runs, Codex and
+infrastructure; dispatch stopped at $40 with $20 reserve. No paid model judge.
+This is telemetry accounting, not a provider invoice quota or a full-corpus run.
 
-Initial live comparison: 79 complete conversations / 202 turns per agent,
-plus one retained production transport failure. The last turn of that failed
-conversation was not executed. Observed initial live model cost: $4.435, including
-incidents. Four historical support cases then completed in the isolated runtime
-against new main ($4.474 cumulative). Fourteen full live dialogues / 53 paired
-turns and all four support cases have written diagnostic reviews. A production HTTP timeout after 180 seconds
-is retained as a transport failure; its model calls are accounted, not retried
-to hide the failure. The remaining conversations run in two-conversation batches,
-with serial turns and one cost-ledger writer; stratify latency by concurrency.
-The first failed runner's cookie contamination remains separately excluded from
-quality and included in cost. Neither incident is an agent-quality improvement.
+| Cohort | Complete dialogues | Turns per agent | Scope |
+|---|---:|---:|---|
+| Initial live |79|202|Production today versus B2C main07be07e |
+| Initial support |4|4|Exact legacy source, isolated fake booking provider |
+| Frozen candidate validation live |22|74|Candidate6857706, input-first separate selection |
+| Validation support |2|4|Isolated legacy versus frozen candidate |
+| Known development reproductions |2|4|Budget propagation and full-stay coverage |
+| Synthetic cancellation |1|4|Fake owned booking, no real action |
+| Geographic extension after VPN |22|67|Targeted historical development sequences |
 
-`priced_stay_checks.py` provides explicit schema adaptation for budget evaluation:
-legacy slot amounts and currencies versus B2C's canonical selected-offer amount.
-Combined budget and hours must be witnessed by the **same** offer. Unknown
-currency/amount is unscored; there is no inferred FX or fee addition. A decrease
-in mismatching cards caused by returning no cards is not a quality gain. The
-report renderer accepts reviewed batch-specific scope/findings instead of copying
-the first pilot's timeout claim into every subsequent report.
+One initial production HTTP timeout remains a failure, with its final source
+turn unexecuted. Two additional geo conversations /five turns were attempted
+during lost VPN connectivity and produced degraded candidate responses; retained
+in cost/evidence, not scored as geographical errors. Cohort counts are not
+unique-session totals. Historical traffic not explicitly synthetic is still not
+certified organic. Never retry completed cases to hide failures.
 
-The private report is `reports/audit_eval_mcp_20261006/budget60_comparison.html`
-in the legacy workspace. Exact runtime handles, checkpoint data and serial next
-steps are in private `budget60-current-production/campaign.json`. The first four support cases are complete; candidate validation (22 live, two
-SAV) is in progress. Two known development reproductions and one explicitly
-synthetic owned-booking cancellation probe are queued separately, not included
-in unseen-validation or historical-cohort rates. Candidate corrections include full-stay
-coverage and transmission of recognized short EUR budgets into the search
-profile/MCP, without another model call. Global relevance, geography, cheaper
-follow-ups and booking-support parity remain open.
+All24 validation sequences and all24 attempted geo sequences were reviewed in
+full. `geo_preservation_registry.json` connects each geo case to a legacy test,
+input criterion, result and limitation. After VPN: candidate6 preserved,4 partial,
+10 failed,2 unverified on their targeted criteria. These are diagnostic counts,
+not a population quality score. Geography remains a launch blocker: clarification
+loops for known places, airport/neighborhood proximity loss and forgotten
+explicit location corrections. Production also fails some exclusions and
+ambiguous/composed destinations. GBP alone is not proof of Halifax's country.
+
+Exact traces for JFK and La Défense reach the deliberate no-city/no-GPS guard
+in `geocode_tool.py`. Do not remove it blindly and reintroduce hosting-IP bias.
+Safe landmark disambiguation, durable explicit-city carryover, distance origins
+and negative location constraints need separate validation. Missing recorded GPS
+was never invented; GPS-origin carryover and Dublin City Centre have legacy
+unit coverage but no dedicated B2C live replay in this campaign.
+
+Local geo checks: legacy239 passed,8 skipped,1 xfail,1 xpass; B2C157 passed.
+Different suites cannot establish parity. First legacy attempt lacked its sparse
+checkout's data; rerun used data from the exact same commit. Full B2C suite:
+1950 passed,1 skipped; lint/typecheck/guardrails passed. The last code CI executed
+its offline checks; live eval/Langfuse steps were skipped without secrets.
+
+Live development proof: OrangeCounty→60 reaches `priceRangeMax=60`, allfive
+cards are below60EUR. This proves canonical budget propagation, not USD/EUR
+semantics. FortLauderdale13Nov2026,10–17h returns three covering slots. Pool
+amenities are present; contractually included pool access is not independently
+proven. Synthetic cancellation invokes only booking/policy lookup on legacy,
+then repeats confirmation without cancellation; B2C truthfully declines action.
+MCP cancellation articles conflict (two hours before arrival versus slot start),
+so neither is silently made a universal gold policy.
+
+Private entry report: `reports/audit_eval_mcp_20261006/budget60_summary.html` in
+the legacy workspace; geo matrix links the22 complete post-VPN paired dialogues.
+Hashes, exact sessions, source rows, deployment checks, traces and raw responses
+remain under ignored `baseline/`. Historical CTR/satisfaction proxies are kept
+separate from replay measures; no conversion or customer-satisfaction uplift is
+claimed. Candidate6857706 stayed frozen throughout validation and geo inspection.
 
 ## Current comparison — corrected after user clarification
 

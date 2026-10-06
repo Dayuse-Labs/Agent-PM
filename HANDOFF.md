@@ -4,6 +4,20 @@
 
 > 📋 **Pour savoir QUOI faire ensuite, ouvrir [`CHANTIERS.md`](CHANTIERS.md)** (état vérifié au 2026-09-14) : la liste des chantiers ouverts, chacun avec sa preuve, ses actions et un prompt prêt à coller — plus la liste de ce qu'il ne faut **pas** relancer parce que c'est déjà livré. `tasks/todo.md` est périmé et ne doit plus servir de référence.
 
+## 2026-10-06 — Campagne à 60 $ terminée ; résultats et MR121
+
+**État final : les checkpoints ci-dessous sont historiques.** Coût modèle observé : **7,9261 $**, incidents et appels tardifs inclus, aucun coût en attente. Aucun juge payant. Le plafond de 60 $ exclut les dépenses antérieures, Codex et l’infrastructure. Comparaison échantillonnée, pas un replay de tout le corpus. Candidat applicatif figé `6857706`, référence production `a08a7792`.
+
+**Couverture vérifiée** : 79 conversations live / 202 tours par agent, plus un timeout prod conservé et un dernier tour non exécuté ; quatre SAV isolés. Validation distincte : 22 live / 74 tours et deux SAV / quatre tours, tous relus. Deux reproductions dev / quatre tours et un scénario d’annulation fictive / quatre tours. Extension géo : 24 conversations / 72 tours tentées ; deux pendant la coupure VPN restent non scorées, les 22 autres / 67 tours sont terminées et relues. Ces lots peuvent se recouper : ne pas additionner comme conversations uniques.
+
+**Verdict géographique ciblé** : candidat, après VPN, six cas préservés, quatre partiels, dix échecs et deux non démontrés. Boucles de clarification sur La Défense, JFK, Milford CT et Westminster ; proximité Heathrow/Bercy perdue. Abu Dhabi, Milano, Melbourne et Singapore restent dans le bon pays ; Gillingham fonctionne mieux que la prod. Des erreurs existent aussi côté prod. Ni GPS absent du corpus ni pays souhaité pour Halifax ne sont inventés. Dublin City Centre reste sans replay B2C dédié. Aucun feu vert de lancement.
+
+**Correctifs vérifiés** : `priceRangeMax=60` atteint le MCP ; cinq cartes sous 60 EUR, sans preuve de conversion USD/EUR. Fort Lauderdale, 13 novembre 2026, 10–17 h : trois offres couvrantes. Piscine présente dans les équipements, inclusion contractuelle non prouvée. Annulation fictive : le legacy consulte réservation/politique mais redemande confirmation après un oui ; aucun appel d’annulation. Le B2C annonce sa limite. Les FAQ MCP renvoient des délais contradictoires : ne pas attribuer cela à une hallucination.
+
+**Technique** : 1 950 tests B2C passés, un skippé ; ruff/mypy/guardrails verts. Sous-suite géographique : 157 B2C passés ; 239 legacy passés, huit skips, un xfail, un xpass. Suites différentes, pas une preuve de parité. Premier essai legacy invalide faute de données dans le checkout sparse ; rerun avec les données du même SHA. CI `3c859f9` : checks exécutés ; étapes live eval/Langfuse skippées faute de secrets. Derniers changements : documentation et registre uniquement, aucune retouche applicative sur la validation.
+
+**Livrables et reprise** : MR121 reste brouillon, sans fusion ni déploiement. Rapports privés côté legacy : `reports/audit_eval_mcp_20261006/budget60_summary.html` et `budget60_geo_matrix.html`. Registre public : `evals/geo_preservation_registry.json`. État privé dans `budget60-current-production/campaign.json`, `campaign-summary.json` et `final-local-cost-audit.json`. Tous les runners de cette campagne sont terminés : ne pas les relancer automatiquement.
+
 ## 2026-10-06 — Préservation des conversations de production, FAQ et annulations (en cours)
 
 **Checkpoint primaire terminé, validation distincte en cours.** Les 80 cas live initiaux ont été tentés : **79 conversations complètes / 202 tours par agent**, plus un cas interrompu par timeout HTTP prod au tour2 (troisième tour non exécuté). Quatre SAV réels ont ensuite été rejoués avec le code legacy isolé et nouveau main : tous complets. Coût observé à la fin du live initial : **4,435 $**, puis **4,474 $** après les quatre SAV, incidents inclus. Revue écrite de 14 dialogues live / 53 tours + quatre SAV ; aucune prétention de taux global de qualité. Le rapport privé a été régénéré avec les 79 dialogues complets.
