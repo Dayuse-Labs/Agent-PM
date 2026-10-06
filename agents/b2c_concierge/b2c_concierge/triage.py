@@ -417,13 +417,12 @@ with exactly these keys:
   time, equipment, or asks about existing results; never re-extract a location
   from older messages on such a turn.
   For a NEW destination first identify its kind ("city", "area", "landmark",
-  or "unknown"), then use {{"action":"replace", "kind":..., "fields":[
-  {{"field":"city","value":...}}, {{"field":"zone","value":...}}]}}.
-  Include known fields only; field names are city, zone, metro, country_code, region.
+  or "unknown"), then use action="replace" and the named fields city, zone,
+  metro, country_code, region. Use null for unspecified fields, clear_fields=[].
   For an area adjustment WITHIN the current destination or an answer to a
   location clarification use "action":"refine"; only include changed fields.
-  A field entry with value=null clears that previous field; an absent entry
-  preserves it on refine. kind=null preserves the previous kind on refine.
+  On refine, null fields are unchanged. To explicitly remove a location field,
+  put its name in clear_fields and set its value to null. kind=null is unchanged.
   A country change is "replace".
   city = the actual municipality, zone = the FULL named district/landmark
   including its identifying airport/station name, never just a terminal number.
@@ -443,6 +442,10 @@ with exactly these keys:
   country_code is a two-letter code ONLY when the user specifies a country or
   an unambiguous state/region, never inferred from language/currency/browser.
   region is the user's stated state/province, expanded if abbreviated.
+  A state/province is NEVER zone. For example 'Springfield Massachusetts' means
+  city=Springfield, region=Massachusetts, country_code=US, zone=null.
+  For a well-known landmark, provide its known parent city as a candidate when
+  confident; the geocoder verifies it. Do not treat every landmark as ambiguous.
   No coordinates, no excluded destination as the positive target. Retain the
   complete place reference when the user corrects or reiterates it.
 

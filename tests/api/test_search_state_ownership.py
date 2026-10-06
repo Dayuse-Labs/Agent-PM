@@ -166,15 +166,14 @@ def test_priced_offer_mismatch_is_visible_even_if_synthesis_ignores_leaf_warning
 def test_wire_location_refinement_distinguishes_unchanged_from_explicit_clear():
     edit = _ground_location_update({
         'location_evidence': 'Downtown',
-        'location_update': {'action': 'refine', 'kind': 'area', 'fields': [
-            {'field': 'zone', 'value': 'Downtown'}, {'field': 'metro', 'value': None},
-        ]},
+        'location_update': {'action': 'refine', 'kind': 'area', 'city': None,
+            'zone': 'Downtown', 'metro': None, 'country_code': None, 'region': None, 'clear_fields': ['metro']},
     }, 'Downtown please')
     view = prepare_search_context(committed(), edit)
     assert view['search_location_request']['city'] == 'Berkeley'
     assert view['search_location_request']['zone'] == 'Downtown'
     assert view['search_location_request']['metro'] is None
-    assert _ground_location_update({'location_update': {'action': 'retain', 'kind': None, 'fields': []}}, '100') == {'action': 'retain'}
+    assert _ground_location_update({'location_update': {'action': 'retain'}}, '100') == {'action': 'retain'}
 
 
 def test_strict_generation_contract_rejects_observed_nested_location_and_missing_evidence():

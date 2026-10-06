@@ -33,10 +33,12 @@ def response_format(families: tuple, languages: tuple, picks: tuple, confirmatio
         "location_update": {"anyOf": [_object({"action": {"type": "string", "enum": ["retain"]}}), _object({
             "action": {"type": "string", "enum": ["replace", "refine"]},
             "kind": _nullable({"type": "string", "enum": ["city", "area", "landmark", "unknown"]}),
-            "fields": {"type": "array", "items": _object({
-                "field": {"type": "string", "enum": ["city", "zone", "metro", "country_code", "region"]},
-                "value": _nullable(text),
-            })},
+            "city": {**_nullable(text), "description": "Municipality, not a state or landmark. For a well-known landmark, its known parent city is a candidate independently verified by the geocoder."},
+            "zone": {**_nullable(text), "description": "Named district/borough/landmark within a city. Never a state, province or country. Keep the complete airport or station name."},
+            "metro": _nullable(text),
+            "country_code": {**_nullable(text), "description": "ISO2 only from an explicit country or unambiguous stated state/province."},
+            "region": {**_nullable(text), "description": "State/province (expanded abbreviation); never put it in zone."},
+            "clear_fields": {"type": "array", "items": {"type": "string", "enum": ["city", "zone", "metro", "country_code", "region"]}},
         })]},
     })
     return {"type": "json_schema", "json_schema": {"name": "concierge_triage", "strict": True, "schema": schema}}
@@ -46,19 +48,20 @@ def location_edit(value: object) -> dict | None:
     """Normalize the wire edit without conflating absent fields with clears."""
     if not isinstance(value, dict):
         return None
-    if "fields" not in value:
-        return value  # Existing adapters/tests may still supply the flat edit.
-    fields = value["fields"]
-    if not isinstance(fields, list):
+    if "clear_fields" not in value:
+        return value  # Existing adapters may still supply the internal flat edit.
+    clears = value["clear_fields"]
+    allowed = ("city", "zone", "metro", "country_code", "region")
+    if not isinstance(clears, list) or any(k not in allowed for k in clears):
         return None
     out = {"action": value.get("action")}
     if value.get("kind") is not None:
         out["kind"] = value["kind"]
-    for item in fields:
-        if not isinstance(item, dict) or set(item) != {"field", "value"}:
-            return None
-        key = item["field"]
-        if key not in ("city", "zone", "metro", "country_code", "region") or key in out:
-            return None
-        out[key] = item["value"]
+    for key in allowed:
+        if key in clears:
+            if value.get(key) is not None:
+                return None
+            out[key] = None
+        elif value.get(key) is not None:
+            out[key] = value[key]
     return out
