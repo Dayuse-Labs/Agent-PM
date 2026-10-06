@@ -13,6 +13,7 @@ session OBS6 (qui possède les experiments, les évaluateurs et le gate CI), pas
 | `b2c-language-robustness.jsonl` | `b2c/language-robustness` | 13 |
 | `b2c-prod-regressions.jsonl` | `b2c/prod-regressions` | 6 — **importé** (`source_trace_id`), pas semé — voir OBS6 §5 |
 | `b2c-qa-2026-09-30.jsonl` | `b2c/qa-2026-09-30` | 10 — retours QA du 30/09 (mcp-dayuse#8), attendus calculés par code |
+| `b2c-geo-class-2026-10-06.jsonl` | `b2c/geo-class-2026-10-06` | 10 — classe géographique (mcp-dayuse#7) : hôtel nommé, quartier, homonyme |
 
 Import (crée les datasets hébergés + upsert des items, idempotent — les `id` sont déterministes) :
 
@@ -66,6 +67,7 @@ Pensé pour des évaluateurs Python déterministes (D-OBS-3), en deux niveaux.
 | `cards_cover_window {start, end}` | chaque carte couvre le créneau selon la règle du site (`b2c_common.timeslot`, l'oracle partagé) — ou aucune ne le couvre et la réponse les annonce comme « les plus proches » |
 | `offers_on_date {month, day}` / `{days_ahead}` | chaque carte est une offre du jour demandé (prochaine occurrence, Europe/Paris) |
 | `no_iso_date_in_message` | aucune date ISO dans le texte (hors URL) |
+| `first_hotel_name_contains` | la 1re carte est l'hôtel nommé (sous-chaîne, sans casse) |
 
 **Niveau trace** (`expected_output.trace`) — nécessite la trace Langfuse du run (args réels des tools,
 route de triage). À brancher en évaluateur second temps (OBS6/OBS7) ; le réflexe consigné au HANDOFF :

@@ -188,3 +188,15 @@ def test_no_iso_date_in_message_ignores_urls():
     ok = {"message": "Voir https://www.dayuse.fr/h?checkinDate=2026-10-07 pour mercredi 7 octobre."}
     assert _score(expected, ok)["no_iso_date_in_message"].value == 1
     assert _score(expected, {"message": "Recherche effectuée pour le 2026-09-30."})["no_iso_date_in_message"].value == 0
+
+
+def test_first_hotel_name_contains_reads_the_first_card_only():
+    # mcp-dayuse#7: the hotel the user named is the first card.
+    expected = {"first_hotel_name_contains": "st paul's hotel"}
+    assert _score(expected, {"hotels": [{"name": "St Paul's Hotel"}, {"name": "B"}]})[
+        "first_hotel_name_contains"
+    ].value == 1
+    assert _score(expected, {"hotels": [{"name": "B"}, {"name": "St Paul's Hotel"}]})[
+        "first_hotel_name_contains"
+    ].value == 0
+    assert _score(expected, {"hotels": []})["first_hotel_name_contains"].value == 0
