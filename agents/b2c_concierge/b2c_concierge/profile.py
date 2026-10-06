@@ -262,6 +262,9 @@ class SessionProfile:
     # until they mention one: the EUR disclosure is only owed after that
     # (mcp-dayuse#5 — the widget's own currency is not a request).
     requested_currency: str | None = None
+    # The site's search page for the last search that ran ({"name", "url"}),
+    # the target of the widget's "Voir tout" (mcp-dayuse#5); None = country page.
+    search_page: dict[str, str] | None = None
     # mcp-dayuse#8, option B: "morning" | "afternoon" | "evening" — a soft
     # time filter read in code by the leaf, exclusive with a clock window.
     daypart: str | None = None
@@ -308,6 +311,7 @@ class SessionProfile:
             "children": self.children,
             "display_currency": self.display_currency,
             "requested_currency": self.requested_currency,
+            "search_page": self.search_page,
             "daypart": self.daypart,
             "schema_version": PROFILE_SCHEMA_VERSION,
         }
@@ -338,6 +342,7 @@ _CONCIERGE_ONLY_KEYS = (
     "picked_hotel_id",
     "display_currency",
     "requested_currency",
+    "search_page",
 )
 
 

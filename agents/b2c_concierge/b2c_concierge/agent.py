@@ -531,6 +531,7 @@ class _B2cConcierge(BaseAgent):
         response: dict[str, Any],
         language: str,
         picks: list[dict[str, Any]] | None = None,
+        search_page: dict[str, str] | None = None,
     ) -> Event:
         return self._marker_event(
             ctx,
@@ -553,6 +554,8 @@ class _B2cConcierge(BaseAgent):
                 # mode. Same `build_hotel_picks(profile)` the `done` payload
                 # calls, over the same profile: equal by construction.
                 "hotel_picks": picks or [],
+                # mcp-dayuse#5: the site's page for this search, for "Voir tout".
+                "search_page": search_page,
             },
         )
 
@@ -1459,6 +1462,9 @@ class _B2cConcierge(BaseAgent):
             if profile.display_currency == HOTEL:
                 apply_hotel_currency(response["results"])
             results_count = len(response["results"])
+            search_context = response.get("search_context")
+            page = search_context.get("search_page") if isinstance(search_context, dict) else None
+            profile.search_page = page if isinstance(page, dict) and page.get("url") else None
             if results_count == 0:
                 # mcp-dayuse#5: the criteria of the search that actually ran,
                 # cited in code — never what the model remembers of the request.
@@ -1512,7 +1518,9 @@ class _B2cConcierge(BaseAgent):
         # turns (`search_unavailable`, pagination exhausted) where the frame
         # carried `hotels: []` — nothing to paint — and the payload's `hotels`
         # is None either way (`normalize_hotels(x) if x else None`).
-        yield self._hotels_event(ctx, response, reply_language, build_hotel_picks(profile))
+        yield self._hotels_event(
+            ctx, response, reply_language, build_hotel_picks(profile), profile.search_page
+        )
 
         synth = await self._synthesize_with_guards(
             message=message, language=reply_language, leaf_text=leaf_text, response=response,

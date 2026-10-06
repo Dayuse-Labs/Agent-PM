@@ -51,6 +51,7 @@ from google.adk.models.llm_response import LlmResponse
 from google.genai import types as genai_types
 
 from b2c_common import build_hotel_page_url, display_price_euro, hotel_currency_price, with_checkin_date
+from b2c_common.search_page import build_search_page_url, pick_search_page
 from b2c_common.timeslot import (
     DAYPART_HOURS,
     requested_hours,
@@ -106,6 +107,7 @@ _STATE_NAMED_NOT_FOUND_KEY = "temp:hotel_search_named_not_found"
 # auto-widen/exhaustion, provenance) finally run on real traffic (S9/S12 gap).
 _STATE_BUDGET_TIMESLOT_KEY = "temp:hotel_search_budget_timeslot"
 _STATE_RADIUS_KEY = "temp:hotel_search_radius_km"
+_STATE_SEARCH_PAGE_KEY = "temp:hotel_search_search_page"
 # Public (unlike the keys above): written by equipment_ids.enforce_equipment_filters,
 # read back here for card stamping + the profile_delta — same cross-callback
 # `temp:` hand-off as _STATE_COUNTRY_KEY.
@@ -1077,6 +1079,13 @@ def capture_after_tool(
         radius = args.get("radiusKm")
         if isinstance(radius, (int, float)) and not isinstance(radius, bool):
             tool_context.state[_STATE_RADIUS_KEY] = radius
+        geo = tool_context.state.get(_STATE_DELTA_KEY) or {}
+        place = (geo.get("zone"), geo.get("last_city")) if geo else (
+            read_profile_in(tool_context).get("zone"), read_profile_in(tool_context).get("city")
+        )
+        tool_context.state[_STATE_SEARCH_PAGE_KEY] = pick_search_page(
+            structured.get("results") if isinstance(structured, dict) else None, list(place)
+        )
         # Distance instrumentation (A8-a): the anchor is the geocode result the
         # model copied into search_offers' lat/lon — prefer the richer stashed
         # anchor (carries a label/type), fall back to the raw args coords.
@@ -1464,10 +1473,25 @@ def _search_context(
         city, zone = profile_in.get("city"), profile_in.get("zone")
     sent = state.get(_STATE_BUDGET_TIMESLOT_KEY) or {}
     daypart = state.get(STATE_DAYPART_KEY)
+    day = search_date.get("date") if isinstance(search_date, dict) else None
+    search_page = None
+    page = state.get(_STATE_SEARCH_PAGE_KEY)
+    if isinstance(page, dict):
+        cards = state.get(_STATE_RESULTS_KEY) or []
+        country = state.get(_STATE_COUNTRY_KEY) or next(
+            (c.get("country_code") for c in cards if isinstance(c, dict) and c.get("country_code")), None
+        )
+        url = build_search_page_url(
+            page["path"], country, name=page["name"], checkin_date=day,
+            timeslot_start=sent.get("timeslot_start"), timeslot_end=sent.get("timeslot_end"),
+        )
+        if url:
+            search_page = {"name": page["name"], "url": url}
     return {
+        "search_page": search_page,
         "city": city or None,
         "zone": zone or None,
-        "date": search_date.get("date") if isinstance(search_date, dict) else None,
+        "date": day,
         "daypart": daypart if daypart in DAYPART_HOURS else None,
         "timeslot_start": sent.get("timeslot_start"),
         "timeslot_end": sent.get("timeslot_end"),

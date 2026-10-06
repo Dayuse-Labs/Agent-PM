@@ -158,3 +158,24 @@ class TestHotelPicks:
             language="fr", turn_id="t", booking_card=card,
         )
         assert payload["booking_card"] == card
+
+
+class TestSeeAllSearchPage:
+    """mcp-dayuse#5: the site's search page for the search that ran rides
+    `market` — the widget's « Voir tout » opens it instead of the country page."""
+
+    PAGE = {"name": "Lyon", "url": "https://www.dayuse.fr/s/france/auvergne-rhone-alpes/rhone/lyon?checkinDate=2026-10-07"}
+
+    def test_the_page_rides_the_market_object(self):
+        payload = build_chat_payload(
+            session_id="s", final_text="hi", hotels=[{"id": 1, "name": "H", "country_code": "FR"}],
+            profile=SessionProfile(city="Lyon", search_page=self.PAGE), language="fr", turn_id="t",
+        )
+        assert payload["market"] == {"country_code": "FR", "search_page": self.PAGE}
+
+    def test_no_page_leaves_the_market_object_as_before(self):
+        payload = build_chat_payload(
+            session_id="s", final_text="hi", hotels=[{"id": 1, "name": "H", "country_code": "FR"}],
+            profile=SessionProfile(city="Lyon"), language="fr", turn_id="t",
+        )
+        assert payload["market"] == {"country_code": "FR"}
