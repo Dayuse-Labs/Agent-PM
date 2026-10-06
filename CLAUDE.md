@@ -45,8 +45,8 @@ git config core.hooksPath .githooks   # guardrails en pre-commit
 # google-cloud-aiplatform[evaluation], qui exige litellm<1.86 alors qu'on pin litellm==1.90.2
 # -> résolution uv insatisfiable (les versions PyPI ont bougé depuis S3). google-adk[a2a] des
 # requirements suffit pour pytest, run_local.sh et smoke. L'extra eval n'est nécessaire QUE pour
-# `adk eval` : l'installer dans un venv jetable dédié (litellm y sera downgradé), comme le fait le
-# job CI `eval` séparé — jamais dans le venv de dev.
+# `adk eval` : l'installer dans un venv jetable dédié (litellm y sera downgradé),
+# jamais dans le venv de dev. La CI utilise la batterie S08 ci-dessous sans cet extra.
 
 # Run local — 3 services : concierge :8100, search :8101, faq :8102 (pids + logs dans .run-logs/ ;
 # source .env si présent ; aucun appel LLM/MCP au boot). Stop : bash scripts/run_local.sh stop
@@ -64,12 +64,12 @@ python scripts/smoke_e2e.py
 # Guardrails statiques Dayuse (aussi exécutés par le hook pre-commit)
 bash scripts/dayuse_guardrails.sh .
 
-# Eval ADK (32 scénarios, 8 familles — score libre au stade squelette ; services up requis)
-.venv/bin/adk eval agents/b2c_concierge/b2c_concierge evalset/evalset-v0.adk.json \
-  --config_file_path evalset/test_config.json
+# Batterie S08 (32 scénarios, 8 familles ; services, modèle, MCP et Mapbox requis)
+# Appels modèles payants, judge exploratoire : ce score ne vaut pas GO de lancement.
+.venv/bin/python scripts/run_dynamic_conversation_regression.py --output evals/reports/battery.json
 ```
 
-CI GitHub Actions : `.github/workflows/ci.yml` (ruff, mypy, pytest, guardrails, job eval non bloquant). Secrets requis : `FLEET_READ_TOKEN` (lecture du repo fleet privé), `OPENAI_API_KEY` (job eval).
+CI GitHub Actions : `.github/workflows/ci.yml` (ruff, mypy, pytest, guardrails, job eval non bloquant). Secrets requis : `FLEET_READ_TOKEN` (lecture du repo fleet privé). Les jobs live exigent `OPENAI_API_KEY`, `MCP_B2C_URL`, `MCP_B2C_AUTH_TOKEN` et `MAPBOX_ACCESS_TOKEN` ; sans eux, ils signalent explicitement « non exécuté ». Les experiments Langfuse lisent les datasets hébergés existants sans les réimporter automatiquement.
 
 ## Fin de session — OBLIGATOIRE
 

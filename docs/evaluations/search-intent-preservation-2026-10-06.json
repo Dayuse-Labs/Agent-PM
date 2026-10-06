@@ -1,0 +1,170 @@
+{
+  "generated_at": "2026-10-06T20:01:52.467141+00:00",
+  "candidate_runtime_sha": "032e9e385731236f6af2f9ed41dd4486e2e7e18e",
+  "reference_sha": "a08a7792ed95dedca6255b5c588a80a504dd6249",
+  "release_approved": false,
+  "observed_cumulative_model_cost_usd": "17.10339388960299993573",
+  "ceiling_usd": 60,
+  "new_regex_added": false,
+  "tests": {
+    "passed": 1828,
+    "skipped": 1,
+    "ruff": "passed",
+    "mypy_source_files": 54,
+    "guardrails": "passed"
+  },
+  "limitations": [
+    "Traffic is unclassified: recorded conversations are not certified organic customer traffic.",
+    "Qualitative annotations are Codex review, not human-approved gold labels.",
+    "Previously seen regression corpus; no fresh holdout and no population quality rate.",
+    "Historical user messages unchanged, current clock and stock; after/before are not a controlled causal experiment.",
+    "Production and candidate have different models, inventories and environments.",
+    "Unknown GPS/account not reconstructed; historical follow-ups may refer to different answers.",
+    "A geographic pass is not overall conversation success; no cards means card predicates cannot be scored.",
+    "Budget/time must apply to the same offer; no invented currency conversion.",
+    "FAQ source cancellation deadlines conflict. New agent cannot execute a cancellation.",
+    "Budget is cumulative model cost of this $60 campaign, including iterations and failures; excludes Codex/infrastructure/earlier campaign."
+  ],
+  "cohorts": {
+    "live": {
+      "sessions": 125,
+      "turns_per_agent": 348,
+      "variants": {
+        "production": {
+          "cost_usd": "6.600660469818",
+          "turns_with_cards": 190,
+          "median_seconds": 12.2,
+          "p95_seconds": 19.59
+        },
+        "new_main": {
+          "cost_usd": "0.90329954999999996844",
+          "turns_with_cards": 134,
+          "median_seconds": 5.4,
+          "p95_seconds": 10.12
+        }
+      },
+      "check_counts": {
+        "displayed_offer_covers_stay:production": {
+          "fail": 19,
+          "pass": 2,
+          "skipped": 12
+        },
+        "cheaper_option:production": {
+          "fail": 3,
+          "pass": 2
+        },
+        "displayed_offer_budget:production": {
+          "fail": 1,
+          "skipped": 4,
+          "pass": 12
+        },
+        "displayed_priced_stay:production": {
+          "fail": 2
+        },
+        "displayed_offer_covers_stay:new_main": {
+          "skipped": 24,
+          "pass": 2,
+          "fail": 7
+        },
+        "cheaper_option:new_main": {
+          "skipped": 2,
+          "fail": 2,
+          "pass": 1
+        },
+        "displayed_offer_budget:new_main": {
+          "pass": 6,
+          "skipped": 11
+        },
+        "displayed_priced_stay:new_main": {
+          "skipped": 2
+        }
+      }
+    },
+    "support": {
+      "sessions": 6,
+      "turns_per_agent": 8,
+      "variants": {
+        "production": {
+          "cost_usd": "0.07151025",
+          "turns_with_cards": 0,
+          "median_seconds": 7.66,
+          "p95_seconds": 9.79
+        },
+        "new_main": {
+          "cost_usd": "0.00683984999999999961",
+          "turns_with_cards": 0,
+          "median_seconds": 3.71,
+          "p95_seconds": 4.69
+        }
+      },
+      "check_counts": {}
+    },
+    "targeted": {
+      "sessions": 2,
+      "turns_per_agent": 4,
+      "variants": {
+        "production": {
+          "cost_usd": "0.117505779997",
+          "turns_with_cards": 4,
+          "median_seconds": 15.76,
+          "p95_seconds": 20.1
+        },
+        "new_main": {
+          "cost_usd": "0.01166175000000000007",
+          "turns_with_cards": 4,
+          "median_seconds": 6.81,
+          "p95_seconds": 7.59
+        }
+      },
+      "check_counts": {}
+    },
+    "cancellation": {
+      "sessions": 1,
+      "turns_per_agent": 4,
+      "variants": {
+        "production": {
+          "cost_usd": "0.043399999997",
+          "turns_with_cards": 0,
+          "median_seconds": 6.46,
+          "p95_seconds": 6.66
+        },
+        "new_main": {
+          "cost_usd": "0.00467819999999999997",
+          "turns_with_cards": 0,
+          "median_seconds": 5.44,
+          "p95_seconds": 9.97
+        }
+      },
+      "check_counts": {}
+    }
+  },
+  "geo": {
+    "full_counts": {
+      "production": {
+        "preserved": 15,
+        "failed": 3,
+        "partial": 5,
+        "unverified": 1
+      },
+      "candidate": {
+        "partial": 7,
+        "preserved": 12,
+        "failed": 5
+      }
+    },
+    "common_previously_scored": {
+      "before": {
+        "failed": 10,
+        "preserved": 6,
+        "partial": 4,
+        "unverified": 2
+      },
+      "after": {
+        "preserved": 12,
+        "partial": 5,
+        "failed": 5
+      }
+    }
+  },
+  "review_provenance": "Codex qualitative review, not human-approved gold; unclassified recorded traffic"
+}
