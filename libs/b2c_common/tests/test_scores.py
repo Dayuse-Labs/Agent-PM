@@ -222,3 +222,24 @@ class TestScoreTtftEnabled:
 
         monkeypatch.setattr(scores, "get_langfuse", lambda: _BrokenClient())
         scores.score_ttft(1.0)  # must not raise
+
+
+class TestScoreFallbacks:
+    def test_names_contract(self):
+        # Same contract as GUARD_SCORE_NAMES: append, never rename or remove.
+        assert scores.FALLBACK_SCORE_NAMES == ("synthesis", "mcp_error", "named_hotel_not_found")
+
+    def test_disabled_is_a_noop(self):
+        scores.score_fallbacks({"synthesis"})  # must not raise
+
+    def test_emits_one_boolean_per_name_and_ignores_unknown(self, monkeypatch):
+        client = _RecordingClient()
+        monkeypatch.setattr(scores, "get_langfuse", lambda: client)
+        scores.score_fallbacks({"synthesis", "not_a_fallback"})
+        by_name = {c["name"]: c["value"] for c in client.calls}
+        assert by_name == {
+            "fallback_synthesis": 1.0,
+            "fallback_mcp_error": 0.0,
+            "fallback_named_hotel_not_found": 0.0,
+        }
+        assert all(c["data_type"] == "BOOLEAN" for c in client.calls)

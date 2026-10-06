@@ -70,6 +70,8 @@ class ScriptedLlm:
         item = self.plan.pop(0)
         if isinstance(item, Exception):
             raise item
+        if not isinstance(item, str):
+            return item  # a pre-built response (e.g. finish_reason=length)
         return _llm_response(item)
 
 
@@ -350,6 +352,50 @@ class TestHonestDegradation:
             answer = _drive(USER_MESSAGE_SEARCH)
         assert answer == "GROUNDED LEAF TEXT"
         assert _turn_metric(caplog)["status"] == "synthesis_fallback"
+
+    @pytest.mark.parametrize(
+        "synthesis",
+        [
+            # QA trace 62207822: gpt-5.2 spent max_tokens on reasoning.
+            SimpleNamespace(choices=[SimpleNamespace(
+                message=SimpleNamespace(content=None), finish_reason="length",
+            )]),
+            # Cut off mid-sentence: still never served.
+            SimpleNamespace(choices=[SimpleNamespace(
+                message=SimpleNamespace(content="Vous avez de belles"), finish_reason="length",
+            )]),
+            _llm_response("   "),
+        ],
+        ids=["length-empty", "length-partial", "blank"],
+    )
+    def test_unusable_synthesis_serves_a_clean_scored_fallback(
+        self, scripted, caplog, monkeypatch, synthesis
+    ):
+        scored: list[set[str]] = []
+        monkeypatch.setattr(agent_module, "score_fallbacks", lambda f: scored.append(set(f)))
+        scripted(
+            '{"family": "search", "language": "fr"}',
+            synthesis,
+            leaf_text=(
+                "5 offre(s) de jour trouvée(s) : Hotel A, Hotel B. "
+                "Recherche effectuée pour le 2026-09-30."
+            ),
+        )
+        with caplog.at_level(logging.INFO, logger="b2c_concierge.metrics"):
+            answer = _drive("un hôtel à San Francisco avec parking et piscine")
+        assert "2026-09-30" not in answer
+        assert "mercredi 30 septembre 2026" in answer
+        assert "Vous avez de belles" not in answer
+        assert "filtrer les résultats sur le parking" in answer
+        assert _turn_metric(caplog)["status"] == "synthesis_fallback"
+        assert scored == [{"synthesis"}]
+
+    def test_a_good_synthesis_scores_no_fallback(self, scripted, monkeypatch):
+        scored: list[set[str]] = []
+        monkeypatch.setattr(agent_module, "score_fallbacks", lambda f: scored.append(set(f)))
+        scripted('{"family": "search", "language": "fr"}', "Voici deux hôtels.")
+        assert _drive(USER_MESSAGE_SEARCH) == "Voici deux hôtels."
+        assert scored == [set()]
 
     def test_search_unavailable_status_degrades_honestly_without_synthesis(
         self, scripted, caplog

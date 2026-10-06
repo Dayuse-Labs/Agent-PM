@@ -78,6 +78,23 @@ GUARD_SCORE_NAMES: tuple[str, ...] = (
     "filter_relaxation_honored",
 )
 
+#: Degraded paths that still answer (mcp-dayuse#8): each becomes the BOOLEAN
+#: score `f"fallback_{name}"`, a full 0/1 snapshot every turn like the guards.
+#: Same contract as `GUARD_SCORE_NAMES`: append, never rename or remove.
+#: Kept apart from the `degraded` CATEGORICAL score on purpose — its Langfuse
+#: config pins the category list, so a new value there would be rejected.
+FALLBACK_SCORE_NAMES: tuple[str, ...] = (
+    # The synthesis produced nothing usable (exception, empty content or
+    # finish_reason=length): the code-built fallback text was served.
+    "synthesis",
+    # An MCP tool answered with an error (invalid argument, server error):
+    # the user got a degraded answer instead of results.
+    "mcp_error",
+    # A named hotel could not be found and the turn answered with something
+    # else (a city-wide search) instead of that hotel.
+    "named_hotel_not_found",
+)
+
 #: Closed set for the `degraded` CATEGORICAL score (RGPD: a rule id, never
 #: free text) — only the reasons the concierge can itself observe. The
 #: leaf-only root causes (mcp_circuit_open, mapbox_retry_exhausted) are not
@@ -135,6 +152,17 @@ def score_guards(fired: Iterable[str]) -> None:
     fired_set = set(fired)
     for name in GUARD_SCORE_NAMES:
         _score(client, f"guard_{name}", 1.0 if name in fired_set else 0.0, "BOOLEAN")
+
+
+def score_fallbacks(fell_back: Iterable[str]) -> None:
+    """One BOOLEAN score per `FALLBACK_SCORE_NAMES` entry on the CURRENT trace,
+    1.0 if present in `fell_back`. No-op when disabled; never raises."""
+    client = get_langfuse()
+    if client is None:
+        return
+    fell_back_set = set(fell_back)
+    for name in FALLBACK_SCORE_NAMES:
+        _score(client, f"fallback_{name}", 1.0 if name in fell_back_set else 0.0, "BOOLEAN")
 
 
 def score_turn(*, hotels_returned: int, llm_calls: int) -> None:

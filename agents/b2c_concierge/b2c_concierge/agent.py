@@ -83,6 +83,7 @@ from b2c_common import (
     reasoning_kwargs_for,
     role_model,
     score_degraded,
+    score_fallbacks,
     score_guards,
     score_turn,
     temperature_kwargs_for,
@@ -113,6 +114,7 @@ from .amenity_guard import apply_amenity_truthfulness
 from .budget import TurnBudget
 from .currency_guard import enforce_currency_disclosure
 from .date_format import humanize_iso_dates
+from .fallback_text import synthesis_fallback_text
 from .display_currency import (
     HOTEL,
     already_message,
@@ -586,6 +588,7 @@ class _B2cConcierge(BaseAgent):
         # OBS3: the 12+1 guard series + hotels_returned/empty_shortlist/llm_calls
         # — a full 0/1 snapshot every turn, not just when something fired.
         score_guards(budget.fired)
+        score_fallbacks(budget.fallbacks)
         score_turn(hotels_returned=hotels_returned, llm_calls=budget.llm_calls)
 
     # --- Synthesis (guarded) ----------------------------------------------------------------
@@ -663,19 +666,36 @@ class _B2cConcierge(BaseAgent):
         usage = getattr(resp, "usage", None)
         prompt_tokens = getattr(usage, "prompt_tokens", None) or 0
         completion_tokens = getattr(usage, "completion_tokens", None) or 0
+        choice = resp.choices[0]
+        content = (choice.message.content or "").strip()
+        # QA 2026-09-30 (trace 62207822): on a reasoning model the whole
+        # max_tokens budget can go to thinking — finish_reason=length, empty
+        # content — and that used to be logged as a plain "ok". A cut-off
+        # answer is no better: half a sentence is never served.
+        finish_reason = getattr(choice, "finish_reason", None)
+        if finish_reason == "length":
+            status = "truncated"
+        elif not content:
+            status = "empty"
+        else:
+            status = "ok"
         enqueue_metric_event(
             "llm_call", service=SERVICE, invocation_id=invocation_id, agent=SERVICE,
-            model=model_slug, ms=int((time.monotonic() - t0) * 1000), status="ok",
+            model=model_slug, ms=int((time.monotonic() - t0) * 1000), status=status,
             prompt_tokens=prompt_tokens, completion_tokens=completion_tokens,
             cost_usd=provider_cost_usd(resp) or cost_from_tokens(model_slug, prompt_tokens, completion_tokens),
             phase="synthesis",
             reasoning_effort=reasoning_effort_label(),
         )
-        return (resp.choices[0].message.content or "").strip() or None
+        if status != "ok":
+            logger.warning("b2c_concierge: synthesis unusable (%s), serving the fallback", status)
+            return None
+        return content
 
     async def _synthesize_with_guards(
         self, *, message: str, language: str, leaf_text: str, response: dict[str, Any],
         profile: SessionProfile, budget: TurnBudget, invocation_id: str,
+        leaf_text_is_user_facing: bool = True,
     ) -> str | None:
         """ONE charged "synthesis" budget slot (internal retries below are an
         implementation detail of this ONE phase — same precedent as the
@@ -706,8 +726,9 @@ class _B2cConcierge(BaseAgent):
         angle_key, angle = synthesis_angle(response, profile.last_synthesis_angle or "")
         profile.last_synthesis_angle = angle_key or None
         widen_note = None
-        if profile.auto_widen_disclosure:
-            d = profile.auto_widen_disclosure
+        widen = profile.auto_widen_disclosure
+        if widen:
+            d = widen
             widen_note = (
                 f"the budget was automatically increased from {d['from']} to {d['to']} "
                 "after repeated empty searches."
@@ -767,8 +788,19 @@ class _B2cConcierge(BaseAgent):
             provenance_note=provenance_note, currency_note=currency_note,
             angle=angle,
         )
+
+        def fallback() -> str | None:
+            budget.fallbacks.add("synthesis")
+            if not leaf_text_is_user_facing:
+                return None
+            text = synthesis_fallback_text(
+                leaf_text, message=message, language=language, widen=widen,
+                currency_note=currency_note,
+            )
+            return text or None
+
         if candidate is None:
-            return None
+            return fallback()
 
         question = extract_final_question(candidate)
         if question and questions_equivalent(question, profile.last_clarifying_question):
@@ -839,7 +871,7 @@ class _B2cConcierge(BaseAgent):
             # an ISO date the model still emits ("Pour demain (2026-09-24)") is
             # rewritten in code — same backstop posture, never a retry.
             candidate, _ = humanize_iso_dates(candidate, language)
-        return candidate or None
+        return candidate or fallback()
 
     # --- Inline tools (S07) ---------------------------------------------------------------------
     async def _run_inline_lookup(
@@ -891,12 +923,15 @@ class _B2cConcierge(BaseAgent):
         synth = await self._synthesize_with_guards(
             message=message, language=language, leaf_text=leaf_text, response=response,
             profile=profile, budget=budget, invocation_id=inv,
+            # The inline leaf_text is an internal English note, never shown.
+            leaf_text_is_user_facing=False,
         )
         await store.set(ctx.session.id, profile)
 
         self._emit_turn_metric(
             family, f"inline:{route.target}", budget, t_start,
-            "ok" if synth else "synthesis_fallback", inv, hotels_returned=len(hotels),
+            "synthesis_fallback" if "synthesis" in budget.fallbacks else "ok", inv,
+            hotels_returned=len(hotels),
         )
         final_text = synth or templates.inline_unresolved_response(route.target, language)
         for chunk in _chunk_text(final_text):
@@ -1402,12 +1437,12 @@ class _B2cConcierge(BaseAgent):
 
         self._emit_turn_metric(
             family, f"leaf:{route.target}", budget, t_start,
-            "ok" if synth else "synthesis_fallback", inv,
+            "synthesis_fallback" if "synthesis" in budget.fallbacks else "ok", inv,
             hotels_returned=len(response.get("results") or []),
         )
         # Double failure only (text-less leaf AND failed synthesis): honest
         # degraded template rather than an empty message.
-        final_text = synth or leaf_text or templates.leaf_degraded_response(
+        final_text = synth or templates.leaf_degraded_response(
             family, reply_language, profile.city
         )
         if pending_currency is not None and currency_notice is None and "results" not in response:
