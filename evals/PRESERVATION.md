@@ -91,7 +91,15 @@ published help article. Neither old generated answers nor a general article may
 override the terms of a particular booking. Policy accuracy remains an unresolved
 release check; a passing route or absence of hotel cards does not satisfy it.
 
-## Measured pilot: preliminary, not a release gate
+## Historical pilot diagnostics — calendar-sensitive cases superseded
+
+**The mixed-pilot figures below predate a subsequently discovered fixture calendar
+bug.** `availabilityDate` and `cutoffDeadlineUtc` had not been shifted with the
+resolved search date. Those outputs must not support release or final cost/quality
+claims. All affected search/inline conversations in the active full runs, holdout
+review and baseline/v3 pilots have been archived and requeued. FAQ-only cases did
+not use these offer dates; narrowly scoped routing diagnostics remain observations,
+not a full policy or end-to-end correctness score. Corrected summaries are pending.
 
 Same 24 dev conversations / 61 turns (23 unclassified sessions, 1 explicit test):
 
@@ -173,6 +181,32 @@ superseded outputs never count as successful retained attempts. Cached search
 responses contained no affected `checkinDate` URLs. The correction and exact case
 IDs are recorded in the private `harness-date-mapping-20261006.json` manifest.
 
+## Calendar fixture integrity and limits
+
+The revised mapper covers the actual MCP offer schema (`availabilityDate` and
+`cutoffDeadlineUtc`) as well as `resolvedDate` and booking-link dates. An offline
+contract audit checked **1,135 captured tool fixtures**, 13,264 date fields,
+12,188 cutoff timestamps and 3,725 normalized hotel cards with no network calls.
+The live calendar smoke then verified five dated hotel cards, two booking cards,
+four booking/hotel URL dates and an undated upcoming quote. Article freshness
+timestamps remain untouched. A test also runs the mapped offer
+through the application's real hotel-card normalizer.
+
+Undated details and comparisons have a different contract: they return upcoming
+offers, not offers restricted to one requested date. The proxy does **not** inject
+a date and silently change that scope. Instead it maps the snapshot's dates
+relative to its acquisition UTC day (old captures use the original file timestamp,
+now persisted with an explicit provenance label). Explicit-date calls use the
+shared October 8 anchor. These two views do **not** prove identical inventory
+across tools: cross-tool price/availability and historical cutoff eligibility remain
+unverified, including intraday acquisition and timezone/DST effects. Do not grade
+those as exact historical outcomes. Private MCP receipts identify undated upcoming
+calls for review without logging user messages, arguments or credentials.
+
+This is a comparative simulation on shared contemporary tool snapshots, not a
+reconstruction of a historical booking environment. A stricter end-to-end inventory
+comparison requires historical tool results or a server-side frozen clock/inventory.
+
 ## Independent holdout review
 
 Before reading the corresponding outputs, a deterministic input-only sample was
@@ -189,6 +223,40 @@ additional cohort separately; it does not replace the full replay. No applicatio
 change may be tuned on these outcomes while still describing them as untouched
 holdout evidence. Report routing and content review separately; a holdout label
 alone never turns ungraded outputs into a quality score.
+
+The corrected-calendar review is complete for both revisions: **30 sessions / 78
+turns**. Per-case A/B presentation was randomized, and all content annotations
+were saved before reading the version mapping. Style may reveal a version; formal
+blinding is not claimed. The candidate application stayed frozen at `a47a31e`.
+
+| Narrow review measure | Main | Candidate v3 |
+| --- | ---: | ---: |
+| Expected route met, among 73 scored turns | 54 | 65 |
+| Case content criterion met | 6 | 11 |
+| Case content criterion partially met | 5 | 4 |
+| Case content criterion failed | 17 | 13 |
+| Insufficient evidence for the content criterion | 2 | 2 |
+| Stock EUR disclaimer without cards, among 78 turns | 23 | 0 |
+| Actual observed LLM calls | 246 | 261 |
+| Retained-attempt estimated LLM cost, USD | 0.139614 | 0.152049 |
+
+The two unscored content cases concern unsupported amenity-retention evidence and
+a date criterion lacking the original timezone. Partial is not pass. Six cases
+improve in this ordinal review (three fail→pass, two partial→pass, one fail→partial);
+no downward transition was observed on these narrow criteria. This does not
+establish statistical superiority or global policy accuracy. All 78 turn metrics
+joined uniquely per version; five routing ambiguities remain unscored.
+
+Remaining failures include airport/location clarification loops, requested stay
+windows not covered by shown offers, unanswered under-21 check-in restrictions,
+booking-transmission questions answered as check-in timing, and long urgent
+support dialogues resetting or promising quick resolution. Cancellation support
+without an email link retains context better but still repeats an unavailable
+route rather than reliably offering a concrete alternative. The candidate has
+**13 failed and four partial content criteria** in this deliberately stratified
+sample; this is not launch approval. Input-only labels and reviewed outputs stay
+private in `holdout-review-oracles.json`, `holdout-content-review-ab.json`,
+`holdout-review-results.json` and `holdout-review-paired-comparison.json`.
 
 ## Existing business KPIs
 

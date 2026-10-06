@@ -16,7 +16,7 @@ import json
 import os
 import re
 import time
-from datetime import date, timedelta
+from datetime import UTC, date, datetime, timedelta
 from pathlib import Path
 from typing import Any
 from urllib.parse import parse_qsl, urlencode, urlsplit, urlunsplit
@@ -58,9 +58,15 @@ def restore_dates(value: Any, days: int, key: str = "") -> Any:
         return {k: restore_dates(v, days, k) for k, v in value.items()}
     if isinstance(value, list):
         return [restore_dates(v, days, key) for v in value]
-    if isinstance(value, str) and key in {"date", "resolvedDate", "checkinDate", "checkoutDate"}:
+    if isinstance(value, str) and key in {"date", "resolvedDate", "availabilityDate", "checkinDate", "checkoutDate"}:
         try:
             return (date.fromisoformat(value) - timedelta(days=days)).isoformat()
+        except ValueError:
+            pass
+    if isinstance(value, str) and key == "cutoffDeadlineUtc":
+        try:
+            datetime.fromisoformat(value.replace("Z", "+00:00"))
+            return (date.fromisoformat(value[:10]) - timedelta(days=days)).isoformat() + value[10:]
         except ValueError:
             pass
     if isinstance(value, str) and value.startswith(("https://", "http://")):
@@ -81,10 +87,11 @@ def decode_rpc(response: httpx.Response) -> dict:
 
 
 class FixtureProxy:
-    def __init__(self, upstream: str, token: str, cache: Path, inventory_day: str):
+    def __init__(self, upstream: str, token: str, cache: Path, inventory_day: str, receipts: Path | None = None):
         self.upstream = upstream
         self.cache = cache
         self.inventory_day = inventory_day
+        self.receipts = receipts
         self.client = httpx.AsyncClient(timeout=30, headers={
             "Authorization": "Bearer " + token, "Content-Type": "application/json",
             "Accept": "application/json, text/event-stream",
@@ -164,15 +171,31 @@ class FixtureProxy:
         path = self.cache / (key + ".json")
         async with self.key_locks.setdefault(key, asyncio.Lock()):
             if path.exists():
-                result = json.loads(path.read_text())["result"]
+                cached = json.loads(path.read_text())
+                result = cached["result"]
+                # Old fixtures predate capture metadata. Their original file
+                # timestamp supplies an explicit UTC reference-day assumption.
+                captured_at = cached.get("captured_at") or datetime.fromtimestamp(path.stat().st_mtime, UTC).isoformat()
+                if "captured_at" not in cached:
+                    cached.update(captured_at=captured_at, capture_timestamp_basis="legacy_file_mtime")
+                    atomic_json(path, cached)
             else:
                 rpc = await self.rpc("tools/call", {"name": name, "arguments": mapped})
                 if "error" in rpc:
                     raise ToolRpcError(rpc["error"])
                 result = rpc["result"]
+                captured_at = datetime.now(UTC).isoformat()
                 if not result.get("isError"):
                     atomic_json(path, {"tool": name, "arguments": mapped, "result": result,
-                        "inventory_day": self.inventory_day})
+                        "inventory_day": self.inventory_day, "captured_at": captured_at,
+                        "capture_timestamp_basis": "local_utc_after_response"})
+        if name in {"get_hotel_details", "compare_hotels"} and "date" not in args and source_today:
+            # An omitted date means the actual upcoming-offer snapshot, not a
+            # single requested day. Injecting a date would change the contract.
+            # Preserve the snapshot's relative upcoming dates. This does NOT
+            # make it the same supply as explicit-date anchor-day searches;
+            # cross-tool inventory equivalence remains a documented limitation.
+            days = (datetime.fromisoformat(captured_at).date() - date.fromisoformat(source_today)).days
         result = copy.deepcopy(result)
         if name in DATED_TOOLS and days:
             if "structuredContent" in result:
@@ -202,6 +225,15 @@ class FixtureProxy:
                 context = (params.get("_meta") or {}).get("dayuse_replay", {})
                 result = await self.tool(params["name"], params.get("arguments", {}),
                                          context.get("x-replay-source-today"))
+                if self.receipts and context.get("x-replay-case"):
+                    receipt = {k: context[k] for k in ("x-replay-case", "x-replay-turn", "x-replay-variant", "x-replay-session-id") if k in context}
+                    receipt.update(tool=params["name"], calendar_mapping_version=2,
+                        date_mode="upcoming_snapshot" if params["name"] in {"get_hotel_details", "compare_hotels"}
+                        and "date" not in params.get("arguments", {}) else "explicit_anchor_or_not_dated")
+                    self.receipts.parent.mkdir(parents=True, exist_ok=True, mode=0o700)
+                    with self.receipts.open("a", encoding="utf-8") as handle:
+                        handle.write(json.dumps(receipt) + "\n")
+                    self.receipts.chmod(0o600)
             elif method == "ping":
                 result = {}
             else:
@@ -229,10 +261,11 @@ def main() -> None:
     parser.add_argument("--cache", type=Path, required=True)
     parser.add_argument("--inventory-day", required=True)
     parser.add_argument("--port", type=int, default=8370)
+    parser.add_argument("--receipts", type=Path)
     args = parser.parse_args()
     from dotenv import load_dotenv
     load_dotenv(args.env_file)
-    proxy = FixtureProxy(args.upstream, os.environ["MCP_B2C_AUTH_TOKEN"], args.cache, args.inventory_day)
+    proxy = FixtureProxy(args.upstream, os.environ["MCP_B2C_AUTH_TOKEN"], args.cache, args.inventory_day, args.receipts)
     app = Starlette(routes=[Route("/mcp", proxy.handle, methods=["POST", "GET", "DELETE"]),
                            Route("/status", proxy.status)])
     import uvicorn

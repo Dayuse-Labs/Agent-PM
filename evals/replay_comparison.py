@@ -132,6 +132,8 @@ def compare(baseline: Path, candidate: Path, expected: list[dict], corpus_sha: s
                         "The EUR flag recognizes the application's two stock disclosure templates, not all model paraphrases.",
                         "LLM cost covers observed retained-attempt events; missing events are not zero cost.",
                         "Local latency depends on cache acquisition and machine load; not causal production latency.",
+                        "Explicit-date fixtures and undated upcoming snapshots use different reference days; cross-tool inventory equivalence is not proven.",
+                        "Translated cutoff timestamps do not reconstruct historical eligibility, intraday inventory or timezone/DST effects.",
                         "Historical user continuations may depend on the recorded old replies.",
                         "An untouched holdout split label does not make ungraded outcomes a quality score."]}
 
