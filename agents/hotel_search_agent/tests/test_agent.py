@@ -147,6 +147,7 @@ class TestMetricsWiring:
         from hotel_search_agent.occupancy import inject_profile_occupancy
         from hotel_search_agent.schema_guard import drop_args_outside_schema
         from hotel_search_agent.response_bridge import (
+            capture_after_tool,
             inject_landmark_radius,
             inject_pagination_offset,
         )
@@ -159,8 +160,13 @@ class TestMetricsWiring:
         # tool names/keys), EXCEPT that inject_landmark_radius must follow
         # the geocode's after_tool stash, which it does by construction
         # (different phase).
+        from hotel_search_agent.named_hotel import follow_named_hotel, prepare_named_hotel_lookup
+
         assert before[0] is tool_timing_before
-        assert len(before) == 12
+        assert len(before) == 13
+        # mcp-dayuse#7: the named-hotel lookup's virtual `date` label is
+        # popped before the schema guard would drop it.
+        assert before[-2] is prepare_named_hotel_lookup
         # mcp-dayuse#8: the schema guard must see the args every other
         # callback has finished rewriting.
         assert before[-1] is drop_args_outside_schema
@@ -173,6 +179,10 @@ class TestMetricsWiring:
         assert before[6] is inject_profile_geo_context
         assert before[7] is inject_pagination_offset
         assert before[8] is inject_landmark_radius
+        after = self._as_list(root_agent.after_tool_callback)
+        # The dated search around a found hotel must stash its cards before
+        # capture_after_tool would stash the bare identity card.
+        assert after.index(follow_named_hotel) == after.index(capture_after_tool) - 1
         assert tool_timing_after in self._as_list(root_agent.after_tool_callback)
         assert mcp_circuit_after_tool in self._as_list(root_agent.after_tool_callback)
         assert tool_error_metric in self._as_list(root_agent.on_tool_error_callback)

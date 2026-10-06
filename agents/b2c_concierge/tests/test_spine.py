@@ -75,6 +75,14 @@ class ScriptedLlm:
         return _llm_response(item)
 
 
+class _LeafCalls(list):
+    """The leaves called, in order; `.kwargs` holds what each call was given."""
+
+    def __init__(self):
+        super().__init__()
+        self.kwargs: list[dict] = []
+
+
 @pytest.fixture
 def scripted(monkeypatch):
     """Installs a scripted LLM + a fake leaf leg; returns (llm, leaf_calls)."""
@@ -84,10 +92,11 @@ def scripted(monkeypatch):
         # Both triage and synthesis resolve litellm.acompletion at call time on
         # the shared module object — one patch covers both call sites.
         monkeypatch.setattr(agent_module.litellm, "acompletion", llm)
-        leaf_calls: list[str] = []
+        leaf_calls = _LeafCalls()
 
-        async def fake_run_leaf(leaf, ctx, profile_in):
+        async def fake_run_leaf(leaf, ctx, profile_in, **kwargs):
             leaf_calls.append(leaf)
+            leaf_calls.kwargs.append(kwargs)
             return leaf_text, dict(response or {})
 
         monkeypatch.setattr(agent_module, "_run_leaf", fake_run_leaf)
@@ -447,6 +456,65 @@ class TestHonestDegradation:
             },
         )
         assert _drive("le Pullman Lyon a des dispos ?") == "Le Pullman Lyon est disponible."
+
+    def test_a_named_hotel_is_handed_to_the_leaf_by_name(self, scripted):
+        # mcp-dayuse#7: « St Paul's Hotel » was geocoded as a landmark.
+        _, leaf_calls = scripted(
+            '{"family": "search", "language": "fr", "hotel_name": "St Paul\'s Hotel"}',
+            "Le St Paul's Hotel est disponible.",
+            response={"results": [{"hotel_id": 7, "name": "St Paul's Hotel"}]},
+        )
+        _drive("un hôtel au St Paul's Hotel à Londres demain")
+        assert leaf_calls.kwargs == [{"query_params": {"hotel_name": "St Paul's Hotel"}}]
+
+    def test_a_named_hotel_without_offers_that_day_is_said_first(self, scripted):
+        scripted(
+            '{"family": "search", "language": "fr", "hotel_name": "St Paul\'s Hotel"}',
+            "Voici des hôtels proches.",
+            response={
+                "results": [{"hotel_id": 3, "name": "The W14"}],
+                "search_date": {"date": "2026-10-07"},
+                "named_hotel": {"name": "St Paul's Hotel", "offered": False},
+            },
+        )
+        answer = _drive("un hôtel au St Paul's Hotel à Londres demain")
+        assert answer == (
+            templates.named_hotel_not_offered_notice("St Paul's Hotel", "mercredi 7 octobre 2026", "fr")
+            + "\n\nVoici des hôtels proches."
+        )
+
+    def test_several_matching_hotels_are_a_question_then_the_reply_picks_one(
+        self, monkeypatch, fake_profile_store
+    ):
+        candidates = [
+            {"name": "Leonardo Royal Hotel London City", "city": "london"},
+            {"name": "Leonardo Royal Hotel London St Pauls", "city": "london"},
+        ]
+        plan = [
+            '{"family": "search", "language": "fr", "hotel_name": "Leonardo Royal"}',
+            # triage reads « celui de … » as a position: the words must win.
+            '{"family": "search", "language": "fr", "pick": "position", "pick_position": 1}',
+            "Le Leonardo Royal Hotel London St Pauls est disponible.",
+        ]
+        monkeypatch.setattr(agent_module.litellm, "acompletion", ScriptedLlm(*plan))
+        sent: list[dict] = []
+        responses = [
+            {"named_hotel_ambiguous": {"query": "Leonardo Royal", "candidates": candidates},
+             "requires_clarification": True},
+            {"results": [{"hotel_id": 2, "name": "Leonardo Royal Hotel London St Pauls"}]},
+        ]
+
+        async def fake_run_leaf(leaf, ctx, profile_in, **kwargs):
+            sent.append(kwargs)
+            return None, responses.pop(0)
+
+        monkeypatch.setattr(agent_module, "_run_leaf", fake_run_leaf)
+        runner, session = _new_session()
+        first = _answer(_drive_in(runner, session.id, "je veux le Leonardo Royal à Londres demain"))
+        assert first == templates.named_hotel_ambiguous_response("Leonardo Royal", candidates, "fr")
+        _drive_in(runner, session.id, "celui de St Pauls")
+        assert sent[1] == {"query_params": {"hotel_name": "Leonardo Royal Hotel London St Pauls"}}
+        assert asyncio.run(fake_profile_store.get(session.id)).named_candidates is None
 
     def test_named_hotel_not_found_without_any_text_is_answered_in_code(self, scripted, caplog):
         scripted(

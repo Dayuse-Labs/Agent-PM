@@ -99,6 +99,10 @@ _STATE_MCP_ERROR_KEY = "temp:hotel_search_mcp_error"
 # The name `find_hotel_by_name` could not find, so the concierge can say so
 # when the turn answers with other hotels (QA trace 6ef04c80).
 _STATE_NAMED_NOT_FOUND_KEY = "temp:hotel_search_named_not_found"
+# mcp-dayuse#7 (named_hotel.py): the hotel a name lookup found, and whether it
+# has offers on the searched day; or, when several hotels matched, which ones.
+STATE_NAMED_HOTEL_KEY = "temp:hotel_search_named_hotel"
+STATE_NAMED_AMBIGUOUS_KEY = "temp:hotel_search_named_ambiguous"
 # The budget / time-slot the model actually sent search_offers, captured from
 # the tool args (search_offers has NATIVE priceRangeMax/timeSlot params — no
 # virtual param needed, unlike amenities in S10) and mapped to the profile in
@@ -933,6 +937,8 @@ def _record_fallback(tool_context: Any, name: str) -> None:
 def _record_mcp_error(
     tool_context: Any, tool_name: str, args: dict[str, Any], tool_response: dict[str, Any]
 ) -> None:
+    if tool_name == "find_hotel_by_name" and tool_context.state.get(STATE_NAMED_AMBIGUOUS_KEY):
+        return  # several hotels match: a question for the user, not an error
     kind = classify_mcp_error(tool_response) or "failed"
     if kind == "not_found" and tool_name == "find_hotel_by_name":
         envelope = (tool_response.get("structuredContent") or {}).get("error") or {}
@@ -1004,6 +1010,8 @@ def capture_after_tool(
 
     if name not in _TARGET_TOOLS or not isinstance(tool_response, dict):
         return None
+    if name == "find_hotel_by_name" and tool_context.state.get(STATE_NAMED_HOTEL_KEY):
+        return None  # the dated search around the hotel already stashed the cards
     if tool_response.get("error") == "mcp_circuit_open":
         # S-CX2: the breaker short-circuited an MCP search call — remember it so
         # emit_search_datapart / skip_final_generation degrade deterministically
@@ -1580,7 +1588,8 @@ def emit_search_datapart(callback_context: Any) -> genai_types.Content | None:
         profile_delta["distance_origin"] = distance_origin
 
     clarify_question = state.get(_STATE_CLARIFY_QUESTION_KEY)
-    clarify_turn = results is None and isinstance(clarify_question, str)
+    named_ambiguous = state.get(STATE_NAMED_AMBIGUOUS_KEY) if results is None else None
+    clarify_turn = results is None and (isinstance(clarify_question, str) or bool(named_ambiguous))
     # S-CX2 (audit F2 — false scarcity): the search tools did not produce ANY
     # response this turn, yet the pipeline meant to search: either the breaker
     # short-circuited an MCP call (explicit flag), or the geocode SUCCEEDED
@@ -1638,6 +1647,11 @@ def emit_search_datapart(callback_context: Any) -> genai_types.Content | None:
     named_not_found = state.get(_STATE_NAMED_NOT_FOUND_KEY)
     if isinstance(named_not_found, str):
         payload["named_hotel_not_found"] = named_not_found
+    named_hotel = state.get(STATE_NAMED_HOTEL_KEY)
+    if results is not None and isinstance(named_hotel, dict):
+        payload["named_hotel"] = named_hotel
+    if isinstance(named_ambiguous, dict):
+        payload["named_hotel_ambiguous"] = named_ambiguous
     if results is not None and state.get(_STATE_TIMESLOT_FALLBACK_KEY):
         # No offer covers the window: the cards are the closest ones. The
         # concierge makes sure the answer says so (`guard_window_match`).
@@ -1661,7 +1675,7 @@ def emit_search_datapart(callback_context: Any) -> genai_types.Content | None:
                 )
             )
         )
-    elif clarify_turn:
+    elif clarify_turn and isinstance(clarify_question, str):
         # This event replaces the model's own final text (last non-partial
         # wins), so the deterministic clarify question must ride here or the
         # question would be lost — the orchestrator's synthesis re-localizes it.
