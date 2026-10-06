@@ -517,22 +517,42 @@ class TestProvenanceHonestyThroughTheSpine:
 class TestCurrencyDisclosureThroughTheSpine:
     """S-G7 (A6-a): display stays EUR, never an invented conversion — the
     CURRENCY marker mirrors the existing PROVENANCE/AUTO_WIDEN precedent.
-    Two independent triggers: the user's own native-context currency
-    (profile.currency), and a shown hotel's own `currency_code` (live-probed
-    2026-07-23 — MCP sends it, but the numeric price stays EUR regardless)."""
+    Owed only once the user has asked for a currency (mcp-dayuse#5): the
+    widget's own currency and a hotel's own `currency_code` are not requests."""
 
-    def test_non_eur_user_currency_triggers_a_disclosure(
+    def test_the_widget_currency_alone_gets_no_disclosure(
         self, monkeypatch, fake_leg, fake_profile_store
     ):
+        """mcp-dayuse#5: 22 of 29 traces of 2026-09-30 carried the note, the
+        test widget sending currency USD, nobody having asked."""
         fake_leg.response_payload = {
-            "results": [{"id": 1, "name": "Hotel A"}],
-            "profile_delta": {"city": "Miami", "currency": "USD"},
+            "results": [{"id": 1, "name": "Hotel A", "currency_code": "USD"}],
+            "profile_delta": {"city": "San Francisco", "currency": "USD"},
         }
-        llm = _scripted_llm(monkeypatch, '{"family": "search", "language": "en"}', "Here is a hotel.")
+        _scripted_llm(monkeypatch, '{"family": "search", "language": "en"}', "Here is a hotel.")
         runner = InMemoryRunner(root_agent)
         session = _new_session(runner)
 
-        _run_turn(runner, session.id, "hotels in Miami")
+        answer = _run_turn(runner, session.id, "a hotel in San Francisco tomorrow")
+
+        assert "no conversion" not in answer.lower()
+
+    def test_a_requested_currency_shown_in_eur_triggers_a_disclosure(
+        self, monkeypatch, fake_leg, fake_profile_store
+    ):
+        fake_leg.response_payload = {
+            "results": [{"id": 1, "name": "Hotel A", "currency_code": "USD"}],
+            "profile_delta": {"city": "Miami"},
+        }
+        llm = _scripted_llm(
+            monkeypatch,
+            '{"family": "search", "language": "en", "display_currency": "USD"}',
+            "Here is a hotel.",
+        )
+        runner = InMemoryRunner(root_agent)
+        session = _new_session(runner)
+
+        _run_turn(runner, session.id, "hotels in Miami, prices in dollars")
 
         user_msg = llm.calls[-1]["messages"][1]["content"]
         system_msg = llm.calls[-1]["messages"][0]["content"]
@@ -540,22 +560,25 @@ class TestCurrencyDisclosureThroughTheSpine:
         assert "USD" in user_msg
         assert "no conversion" in system_msg.lower()
 
-    def test_non_eur_hotel_currency_triggers_a_disclosure_even_without_user_currency(
+    def test_the_request_is_remembered_on_the_next_turns(
         self, monkeypatch, fake_leg, fake_profile_store
     ):
         fake_leg.response_payload = {
             "results": [{"id": 1, "name": "Hotel A", "currency_code": "USD"}],
             "profile_delta": {"city": "Miami"},
         }
-        llm = _scripted_llm(monkeypatch, '{"family": "search", "language": "en"}', "Here is a hotel.")
+        llm = _scripted_llm(
+            monkeypatch,
+            '{"family": "search", "language": "en", "display_currency": "USD"}', "Here is a hotel.",
+            '{"family": "search", "language": "en"}', "Another one.",
+        )
         runner = InMemoryRunner(root_agent)
         session = _new_session(runner)
 
-        _run_turn(runner, session.id, "hotels in Miami")
+        _run_turn(runner, session.id, "hotels in Miami, prices in dollars")
+        _run_turn(runner, session.id, "another one with a pool")
 
-        user_msg = llm.calls[-1]["messages"][1]["content"]
-        assert "CURRENCY" in user_msg
-        assert "USD" in user_msg
+        assert "CURRENCY" in llm.calls[-1]["messages"][1]["content"]
 
     def test_eur_currency_never_gets_a_disclosure(self, monkeypatch, fake_leg, fake_profile_store):
         fake_leg.response_payload = {
@@ -594,13 +617,13 @@ class TestCurrencyDisclosureThroughTheSpine:
             "profile_delta": {"city": "Bangkok"},
         }
         _scripted_llm(
-            monkeypatch, '{"family": "search", "language": "en"}',
+            monkeypatch, '{"family": "search", "language": "en", "display_currency": "THB"}',
             "Here is a hotel with a great discount.",  # no currency mention, exactly the prod repro
         )
         runner = InMemoryRunner(root_agent)
         session = _new_session(runner)
 
-        answer = _run_turn(runner, session.id, "hotels in Bangkok")
+        answer = _run_turn(runner, session.id, "hotels in Bangkok, in baht please")
 
         assert "Prices are shown in EUR, with no conversion applied." in answer
 

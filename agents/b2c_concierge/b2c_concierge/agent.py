@@ -756,32 +756,33 @@ class _B2cConcierge(BaseAgent):
         provenance_note = "; ".join(prov_bits)
 
         # Currency honesty (S-G7, A6-a: display stays EUR, never an invented
-        # conversion — this is the disclosure, not the pricing). Two
-        # independent triggers, either alone is enough: (a) the user's own
-        # native-context currency (profile.currency, S-G1/S-G2) differs from
-        # EUR; (b) a hotel actually shown this turn has its OWN currency
-        # (`currency_code`, live-probed 2026-07-23 — MCP sends it, but never a
-        # converted price) that differs from EUR — a fact independent of
-        # whatever the user's client currency happens to be.
+        # conversion — this is the disclosure, not the pricing). Owed only once
+        # the user has asked for a currency other than EUR (mcp-dayuse#5,
+        # decision Mathias 2026-10-06): the widget's own currency is not a
+        # request, and a note on every non-EUR market was noise (22 of 29
+        # traces). Then: the requested code is not what the cards show, or a
+        # shown hotel has its OWN non-EUR currency and no card switched to it.
         currency_bits: list[str] = []
-        # Prices already shown in each hotel's own currency: an "EUR, no
-        # conversion" disclosure would contradict the cards.
-        eur_displayed = profile.display_currency != HOTEL
-        if eur_displayed and profile.currency and profile.currency.upper() != "EUR":
-            currency_bits.append(f"user's own currency: {profile.currency}")
-        # In hotel-currency mode the disclosure's generic "prices in EUR" is only
-        # true when NO card could switch; on a mixed list the € on the card says it.
-        hotels = shortlist_hotels(response)
-        any_switched = any(h.get("display_currency") for h in hotels)
-        hotel_currencies = sorted(
-            {
-                h["currency_code"]
-                for h in hotels
-                if isinstance(h.get("currency_code"), str) and h["currency_code"].upper() != "EUR"
-            }
-        )
-        if hotel_currencies and not any_switched:
-            currency_bits.append(f"hotel's own currency: {', '.join(hotel_currencies)}")
+        requested = profile.requested_currency
+        if requested not in (None, "EUR"):
+            # Prices already shown in each hotel's own currency: an "EUR, no
+            # conversion" disclosure would contradict the cards.
+            eur_displayed = profile.display_currency != HOTEL
+            if eur_displayed and requested != HOTEL:
+                currency_bits.append(f"user asked for: {requested}")
+            # In hotel-currency mode the disclosure's generic "prices in EUR" is only
+            # true when NO card could switch; on a mixed list the € on the card says it.
+            hotels = shortlist_hotels(response)
+            any_switched = any(h.get("display_currency") for h in hotels)
+            hotel_currencies = sorted(
+                {
+                    h["currency_code"]
+                    for h in hotels
+                    if isinstance(h.get("currency_code"), str) and h["currency_code"].upper() != "EUR"
+                }
+            )
+            if hotel_currencies and not any_switched:
+                currency_bits.append(f"hotel's own currency: {', '.join(hotel_currencies)}")
         currency_note = "; ".join(currency_bits)
 
         candidate = await self._generate_once(
@@ -1200,6 +1201,8 @@ class _B2cConcierge(BaseAgent):
             family, route = "search", ROUTES["search"]
 
         currency = resolve_currency_request(triage.display_currency, profile.last_results)
+        if triage.display_currency:
+            profile.requested_currency = triage.display_currency
         repeat_search = False
         currency_notice: str | None = None
         # A code the hotels on screen don't use may still be the currency of the

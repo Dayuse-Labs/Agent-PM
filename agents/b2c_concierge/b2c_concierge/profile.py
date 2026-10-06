@@ -258,6 +258,10 @@ class SessionProfile:
     # currency ("HOTEL"), kept for the rest of the conversation until they ask
     # for euros again (product decision 2026-09-25).
     display_currency: str | None = None
+    # Last currency the user asked for ("EUR", "HOTEL" or an ISO code), None
+    # until they mention one: the EUR disclosure is only owed after that
+    # (mcp-dayuse#5 — the widget's own currency is not a request).
+    requested_currency: str | None = None
     # mcp-dayuse#8, option B: "morning" | "afternoon" | "evening" — a soft
     # time filter read in code by the leaf, exclusive with a clock window.
     daypart: str | None = None
@@ -303,6 +307,7 @@ class SessionProfile:
             "adults": self.adults,
             "children": self.children,
             "display_currency": self.display_currency,
+            "requested_currency": self.requested_currency,
             "daypart": self.daypart,
             "schema_version": PROFILE_SCHEMA_VERSION,
         }
@@ -332,6 +337,7 @@ _CONCIERGE_ONLY_KEYS = (
     "distance_origin",
     "picked_hotel_id",
     "display_currency",
+    "requested_currency",
 )
 
 
