@@ -188,3 +188,13 @@ def test_strict_generation_contract_rejects_observed_nested_location_and_missing
     assert list(validator.iter_errors({'location_update': {'action': 'replace'}, 'location_evidence': 'station'}))
     assert list(validator.iter_errors({'budget_max': {'value': 95, 'currency': 'EUR'}, 'timeslot_start': None, 'timeslot_end': None}))
     assert not list(validator.iter_errors({'budget_max': {'value': 95, 'currency': 'EUR', 'evidence': '95€'}, 'timeslot_start': None, 'timeslot_end': None}))
+
+
+def test_wire_contract_cannot_mix_retention_with_a_new_location_kind():
+    from jsonschema import Draft202012Validator
+    from b2c_concierge.triage import BOOKING_CONFIRMATIONS, FAMILIES, LANGUAGES, PICKS
+    from b2c_concierge.triage_schema import response_format
+    schema = response_format(FAMILIES, LANGUAGES, PICKS, BOOKING_CONFIRMATIONS)['json_schema']['schema']
+    validator = Draft202012Validator(schema['properties']['location_update'])
+    assert not list(validator.iter_errors({'action': 'retain'}))
+    assert list(validator.iter_errors({'action': 'retain', 'kind': 'area', 'fields': []}))

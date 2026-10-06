@@ -30,14 +30,14 @@ def response_format(families: tuple, languages: tuple, picks: tuple, confirmatio
             "timeslot_end": _nullable(edit),
         }),
         "location_evidence": _nullable(text),
-        "location_update": _object({
-            "action": {"type": "string", "enum": ["retain", "replace", "refine"]},
+        "location_update": {"anyOf": [_object({"action": {"type": "string", "enum": ["retain"]}}), _object({
+            "action": {"type": "string", "enum": ["replace", "refine"]},
             "kind": _nullable({"type": "string", "enum": ["city", "area", "landmark", "unknown"]}),
             "fields": {"type": "array", "items": _object({
                 "field": {"type": "string", "enum": ["city", "zone", "metro", "country_code", "region"]},
                 "value": _nullable(text),
             })},
-        }),
+        })]},
     })
     return {"type": "json_schema", "json_schema": {"name": "concierge_triage", "strict": True, "schema": schema}}
 

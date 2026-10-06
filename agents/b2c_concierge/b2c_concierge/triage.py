@@ -406,11 +406,14 @@ with exactly these keys:
   A clock or duration is never a budget. A duration alone is not a start/end.
   Interpret 4pm as 16:00, retain half-hours. Do not invent a budget or hours.
   Budget is a search cap, never a booking fee, refund, distance, age or hotel pick.
+  Copy evidence literally without adding punctuation or JSON delimiters.
+  Example: "under 80 euros after 14:30" means budget_max value=80, evidence=
+  "80 euros", currency="EUR"; timeslot_start value="14:30", evidence="14:30".
 - "location_evidence": exact short quote copied from the CURRENT message that
   names or corrects the location, null when this turn names no location. Never
   copy a place from recent history as evidence for a new edit.
 - "location_update": a semantic edit to the requested geography, independent of
-  filters. Use {{"action":"retain","kind":null,"fields":[]}} when THIS message only changes budget,
+  filters. Use {{"action":"retain"}} when THIS message only changes budget,
   time, equipment, or asks about existing results; never re-extract a location
   from older messages on such a turn.
   For a NEW destination first identify its kind ("city", "area", "landmark",
