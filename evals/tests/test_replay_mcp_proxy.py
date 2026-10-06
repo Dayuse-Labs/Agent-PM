@@ -14,6 +14,14 @@ def test_shift_preserves_relative_days_and_maps_structured_dates_back():
     assert result == {"resolvedDate": "2026-07-04", "offers": [{"date": "2026-07-04"}], "updatedAt": "2026-10-01"}
 
 
+@pytest.mark.parametrize("tool", ["get_hotel_details", "compare_hotels", "generate_booking_link"])
+def test_inline_tools_share_the_same_inventory_day_as_search(tool):
+    args, days = shift_request(tool, {"date": "2026-07-04", "hotelId": 1}, "2026-07-03", "2026-10-08")
+    assert args == {"date": "2026-10-09", "hotelId": 1}
+    result = restore_dates({"url": "https://www.dayuse.fr/booking?checkinDate=2026-10-09&hotelId=1", "date": "2026-10-09"}, days)
+    assert result == {"url": "https://www.dayuse.fr/booking?checkinDate=2026-07-04&hotelId=1", "date": "2026-07-04"}
+
+
 def test_two_historical_clocks_share_equivalent_supply_without_response_mutation(tmp_path):
     async def run():
         proxy = FixtureProxy("https://example.invalid/mcp", "fake", tmp_path, "2026-10-08")

@@ -14,10 +14,12 @@ import copy
 import hashlib
 import json
 import os
+import re
 import time
 from datetime import date, timedelta
 from pathlib import Path
 from typing import Any
+from urllib.parse import parse_qsl, urlencode, urlsplit, urlunsplit
 
 import httpx
 from starlette.applications import Starlette
@@ -29,6 +31,7 @@ from evals.production_corpus import atomic_json
 
 READ_ONLY = {"search_offers", "find_hotel_by_name", "get_hotel_details", "compare_hotels",
              "generate_booking_link", "get_faq_conditions", "list_amenities"}
+DATED_TOOLS = {"search_offers", "get_hotel_details", "compare_hotels", "generate_booking_link"}
 
 
 class ToolRpcError(Exception):
@@ -40,7 +43,7 @@ class ToolRpcError(Exception):
 def shift_request(name: str, arguments: dict, source_today: str | None, inventory_day: str) -> tuple[dict, int]:
     args = copy.deepcopy(arguments)
     days = (date.fromisoformat(inventory_day) - date.fromisoformat(source_today)).days if source_today else 0
-    if name == "search_offers" and isinstance(args.get("date"), str):
+    if name in DATED_TOOLS and isinstance(args.get("date"), str):
         try:
             args["date"] = (date.fromisoformat(args["date"]) + timedelta(days=days)).isoformat()
         except ValueError:
@@ -60,6 +63,12 @@ def restore_dates(value: Any, days: int, key: str = "") -> Any:
             return (date.fromisoformat(value) - timedelta(days=days)).isoformat()
         except ValueError:
             pass
+    if isinstance(value, str) and value.startswith(("https://", "http://")):
+        parsed = urlsplit(value)
+        if re.fullmatch(r"(?:[a-z0-9-]+\.)*dayuse\.[a-z.]+", parsed.hostname or ""):
+            params = [(k, restore_dates(v, days, k)) for k, v in parse_qsl(parsed.query, keep_blank_values=True)]
+            if params != parse_qsl(parsed.query, keep_blank_values=True):
+                return urlunsplit(parsed._replace(query=urlencode(params)))
     return value
 
 
@@ -165,7 +174,7 @@ class FixtureProxy:
                     atomic_json(path, {"tool": name, "arguments": mapped, "result": result,
                         "inventory_day": self.inventory_day})
         result = copy.deepcopy(result)
-        if name == "search_offers" and days:
+        if name in DATED_TOOLS and days:
             if "structuredContent" in result:
                 result["structuredContent"] = restore_dates(result["structuredContent"], days)
             for block in result.get("content", []):

@@ -64,6 +64,16 @@ probe, counterexample and ownership. It is an audit registry, not 32 passing tes
 Its execution statuses describe the initial audit; scored coverage must be attached
 explicitly as work progresses. Relative `evidence/` references refer to the private audit archive; public repository and help-center links remain resolvable from the registry.
 
+`faq_source_coverage.json` follows every one of the 104 legacy KB entries. Manual
+source comparison of the 38 entries without matching IDs found 7 central intents
+with corresponding guidance, 2 with changed details, 18 partial matches, 1 conflicting
+extension instruction and 10 without a match in the observed catalog. This is not
+proof that ten product capabilities are missing: hotel-specific fields and articles
+outside these probes may cover them. Among the 66 matching IDs, the cancellation
+source conflict is identified explicitly; the other 65 still need content review.
+Source coverage and model answer quality remain separate measures. The 13 hardcoded
+FAQ entries are inventoried separately and are not claimed as covered by this matrix.
+
 Preserve routing between new searches, public policy questions and support for an
 existing booking; follow-up context; payment/guarantee/prepayment/booking-fee
 distinctions; offer-specific cancellation deadlines; source freshness; market,
@@ -115,16 +125,29 @@ the user inputs **before reading either version's validation replies**. 52 turns
 had a sufficiently clear routing expectation; nine ambiguous turns were left
 unscored. Main meets 44/52, v2 meets 52/52, with no routing regression on these
 annotations. Spurious EUR disclosure: 21→0; retained-attempt estimated cost:
-$0.096328→$0.098502. Both have two degraded turn metrics. These remain routing
+$0.096267→$0.098712 after rerunning the date-mapping-affected cases. Both have two degraded turn metrics. These remain routing
 and behavior diagnostics, not human-reviewed policy accuracy or organic conversion.
-The final holdout has not been used for development.
+Two cases per validation variant were rerun after the fixture date correction;
+the routing counts stayed 44/52 and 52/52. Earlier dev-pilot cost figures above
+predate this harness correction and are preliminary observations, not a final cost
+comparison. The final holdout has not been used for development.
 
 The first full baseline attempt and first candidate pilot hit staging HTTP 429 and
 were invalidated. The replacement proxy freezes the tool catalog, shares successful
 results and applies a global token bucket (8 burst, 72 requests/min). A provider
 failure during a turn makes the replacement runner stop; HTTP 200 alone is not
-proof of a valid replay. The replacement full baseline is **in progress**; no
+proof of a valid replay. Both frozen full-corpus variants are **in progress**; no
 complete full-corpus comparison, holdout win or launch approval is claimed.
+
+The initial fixture gateway shifted search dates only. The correction also shifts
+`get_hotel_details`, `compare_hotels` and `generate_booking_link`, and restores the
+historical dates in their structured output and Dayuse URL query parameters. Before
+resuming, 93 baseline and 6 candidate full-run cases with inline routes were set
+incomplete and archived privately; each reruns in a fresh session. Two cases per
+validation variant were similarly rerun. Unaffected completed cases are reused;
+superseded outputs never count as successful retained attempts. Cached search
+responses contained no affected `checkinDate` URLs. The correction and exact case
+IDs are recorded in the private `harness-date-mapping-20261006.json` manifest.
 
 ## Existing business KPIs
 
@@ -167,12 +190,13 @@ cases restart from turn one with a new session. Metrics join the retained attemp
 - Source logs lack original GPS, timezone and user/account context. Locale is absent
   in 5,075 turns, currency in 5,190, domain in 3,010. Replay only request-derived
   fields; never use old model-generated active filters as native input.
-- Naive legacy timestamps are treated as UTC. Search dates shift to shared current
-  inventory (anchor October 8), then structured dates map back. This does not
+- Naive legacy timestamps are treated as UTC. Search, detail, comparison and booking-link
+  dates shift to shared current inventory (anchor October 8), then structured dates
+  and Dayuse URL date parameters map back. This does not
   reconstruct historical availability, prices or booking-specific conditions.
 - Mapbox is live. Tool results are frozen per identical request; different tool
-  queries may retrieve different contemporary supply. Booking-link dates are not
-  reconstructed by the search-only date mapping.
+  queries may retrieve different contemporary supply. Generated evaluation links
+  contain replay dates and must not be treated as usable real-booking evidence.
 - Fixed historical continuations can depend on the old assistant's replies. Mark
   such paths as counterfactual limitations rather than unquestioned agent failures.
 - Complete both full runs, independently grade critical behavior, evaluate an
