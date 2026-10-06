@@ -634,3 +634,27 @@ cases restart from turn one with a new session. Metrics join the retained attemp
   The existing battery gate now checks its configured total and per-family counts,
   and refuses an absent battery or interrupted/empty unit suite. Its old quality
   floor is deliberately not rewritten to manufacture a passing release result.
+
+## Bare budget lost between triage and the search tool
+
+The ongoing primary comparison produced a precisely joined failure on the real
+sequence Orange County → “60”. In trace `001f38f9c88730e9a5debd1408fca544`, triage
+returns `bare_budget_value=60`, but the actual `search_offers` call omits
+`priceRangeMax` and repeats the prior expensive shortlist. The slot previously
+changed routing without entering the profile sent to the stateless leaf.
+
+The candidate now validates the recognized amount against the literal user text
+and puts it into `profile_in` after resolving search vs shortlist selection.
+The existing leaf budget callback supplies the real MCP cap when omitted by the
+model. EUR/default display and plain/euro amounts only: foreign-currency values
+and hotel-currency display are left to their existing extraction, with no invented
+exchange rate. Other filters remain intact; a bare “2” selecting a displayed
+hotel still follows the booking path. This fixes transmission, not all budget
+interpretation or search-ranking defects.
+
+A regression failed before the patch (150 remained instead of60). The passing
+test follows the real outgoing DataPart and leaf callback through to
+`priceRangeMax=60`; another protects ordinal routing. Ten tests added, full suite
+1,920 passed / one skipped, lint/typecheck/guardrails green. No new model calls
+for diagnosis or offline checks. Live candidate validation is still outstanding;
+the primary running baseline continues on main `07be07e` unchanged.

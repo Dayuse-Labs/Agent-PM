@@ -381,6 +381,28 @@ def _bare_number_value(message: str) -> float | None:
     return float(match.group(1).replace(",", "."))
 
 
+def apply_recognized_bare_budget(
+    profile: SessionProfile, message: str, value: float | None, fired: set[str]
+) -> bool:
+    """Carry a triage-recognized EUR budget into the outgoing search profile.
+
+    Routing alone does not apply the cap: the stateless leaf may omit it. Code
+    validates the LLM slot against the literal amount before persisting it. Do
+    not interpret a foreign-currency amount or hotel-currency display as EUR;
+    those require a currency-aware extraction, not an invented conversion.
+    Caller must first resolve search vs hotel-position/booking/FAQ routing.
+    """
+    if value is None or profile.display_currency not in (None, "EUR") or not _has_prior_search_context(profile):
+        return False
+    match = re.fullmatch(r"\s*€?\s*(\d+(?:[.,]\d+)?)\s*€?\s*", message)
+    if not match or float(match.group(1).replace(",", ".")) != value or value <= 0:
+        return False
+    apply_profile_delta(profile, {
+        "budget_max": value, "budget_request_source": BUDGET_SOURCE_EXPLICIT,
+    }, message, fired)
+    return True
+
+
 def _looks_like_time_derived_budget(message: str, budget_max: float) -> bool:
     """True when `budget_max` more plausibly came from a duration/distance
     mention ("less than 20 minutes away") than a real currency amount —

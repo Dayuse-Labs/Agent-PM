@@ -1172,3 +1172,52 @@ class TestWrittenOutDateThroughTheSpine:
         assert "2026-09-24" not in synthesis_prompt
         assert "Pour demain (jeudi 24 septembre 2026) à Paris" in reply
         assert "2026-09-24" not in reply
+
+
+def test_recognized_bare_budget_reaches_actual_search_arguments(
+    monkeypatch, fake_leg, fake_profile_store
+):
+    """Observed prod comparison: triage knew 60 but MCP received no cap."""
+    from hotel_search_agent.budget_injection import inject_profile_budget
+
+    fake_leg.response_payload = {"results": [], "profile_delta": {}}
+    llm = _scripted_llm(
+        monkeypatch,
+        '{"family":"search","language":"en","bare_budget_value":60}',
+        "No matching offers under your budget.",
+    )
+    runner = InMemoryRunner(root_agent)
+    session = _new_session(runner)
+    asyncio.run(fake_profile_store.set(session.id, SessionProfile(city="Orange County", budget_max=150)))
+    _run_turn(runner, session.id, "60")
+
+    payload = find_datapart(fake_leg.seen_outgoing_parts)
+    assert payload["profile_in"]["budget_max"] == 60
+    assert payload["profile_in"]["budget_request_source"] == BUDGET_SOURCE_EXPLICIT
+    # Exercise the real leaf callback, not just a profile or UI assertion.
+    context = SimpleNamespace(user_content=genai_types.Content(parts=fake_leg.seen_outgoing_parts))
+    args = {"lat": 33.78, "lon": -117.85}
+    inject_profile_budget(SimpleNamespace(name="search_offers"), args, context)
+    assert args["priceRangeMax"] == 60
+    assert asyncio.run(fake_profile_store.get(session.id)).budget_max == 60
+    assert len(llm.calls) == 2  # Existing triage + synthesis, no extra model call.
+
+
+def test_bare_shortlist_position_does_not_become_a_budget(monkeypatch, fake_leg, fake_profile_store):
+    observed = {}
+
+    async def booking(self, ctx, profile, *args, **kwargs):
+        observed["budget"] = profile.budget_max
+        yield self._final(ctx, "Please confirm this offer.")
+
+    monkeypatch.setattr(type(root_agent), "_run_booking", booking)
+    _scripted_llm(monkeypatch, '{"family":"search","language":"en","bare_budget_value":2}')
+    runner = InMemoryRunner(root_agent)
+    session = _new_session(runner)
+    seeded = SessionProfile(city="Paris", budget_max=150, last_results=[
+        {"hotel_id": 1, "name": "First Hotel"}, {"hotel_id": 2, "name": "Second Hotel"},
+    ])
+    asyncio.run(fake_profile_store.set(session.id, seeded))
+    _run_turn(runner, session.id, "2")
+    assert observed["budget"] == 150
+    assert fake_leg.call_count == 0

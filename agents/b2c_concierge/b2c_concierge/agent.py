@@ -132,6 +132,7 @@ from .profile import (
     SessionProfile,
     advance_search_cursor,
     apply_profile_delta,
+    apply_recognized_bare_budget,
     build_hotel_picks,
     extract_final_question,
     is_bare_affirmative,
@@ -1298,6 +1299,12 @@ class _B2cConcierge(BaseAgent):
             # the user had just seen (prod 2026-07-27: "book the cheapest"
             # returned pricier ones because the cheap five were on screen).
             reset_search_cursor(profile)
+
+        if route.target == LEAF_HOTEL_SEARCH:
+            # Triage already recognized the amount. Put it in profile_in so
+            # the real MCP budget-injection callback can enforce it even if
+            # the stateless leaf model does not repeat the bare-number intent.
+            apply_recognized_bare_budget(profile, message, triage.bare_budget_value, budget.fired)
 
         # Leaf leg (search / faq): charge the leaf's 0-1 internal LLM slot, then
         # ONE call, per-family budget (_leaf_timeout), no retry. Session profile
