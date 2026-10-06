@@ -264,6 +264,9 @@ class SessionProfile:
     # mcp-dayuse#7: the hotels the last turn asked the user to choose between
     # (a name several hotels share). Read on the next turn only, then cleared.
     named_candidates: list[str] | None = None
+    # mcp-dayuse#7: a homonym the last turn asked about (« which Manhattan? »)
+    # with the options offered, so the answer completes it. Next search only.
+    pending_place: dict[str, Any] | None = None
 
     def to_dict(self) -> dict[str, Any]:
         return {
@@ -308,6 +311,7 @@ class SessionProfile:
             "display_currency": self.display_currency,
             "daypart": self.daypart,
             "named_candidates": self.named_candidates,
+            "pending_place": self.pending_place,
             "schema_version": PROFILE_SCHEMA_VERSION,
         }
 
@@ -686,6 +690,8 @@ def apply_profile_delta(
     # zone-only change is exactly the audit's "keep everything else" case.
     if "zone" in values:
         profile.zone = values["zone"]
+    if "pending_place" in values:
+        profile.pending_place = values["pending_place"]
     if "metro" in values:
         profile.metro = values["metro"]
     if "named_hotel" in values:

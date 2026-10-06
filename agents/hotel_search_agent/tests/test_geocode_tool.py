@@ -406,6 +406,27 @@ class TestMultiCandidateResolution:
         countries = {o["country_code"] for o in result["diagnostics"]["options"]}
         assert {"CA", "US"} <= countries
 
+    def test_a_homonym_clarify_keeps_the_place_and_its_options_for_the_answer(self, monkeypatch):
+        # mcp-dayuse#7: « Manhattan » → « New York » searched all of New York.
+        ny = _c("Manhattan", "US", "New York", lat=40.78, rank=0)
+        ks = _c("Manhattan", "US", "Kansas", lat=39.18, rank=1)
+        _patch_multi(monkeypatch, [ny, ks], inventory={40.78: 20, 39.18: 15})
+
+        result = geocode_location(city="Manhattan", raw_user_message="hôtel à Manhattan")
+
+        pending = result["profile_delta"]["pending_place"]
+        assert pending["name"] == "Manhattan"
+        assert {o["region"] for o in pending["options"]} == {"New York", "Kansas"}
+
+    def test_a_district_resolved_as_the_destination_gets_the_site_rule(self, monkeypatch):
+        manhattan = _c("Manhattan", "US", "New York", ftype="locality", lat=40.78, rank=0)
+        _patch_multi(monkeypatch, [manhattan], inventory={40.78: 40})
+
+        result = geocode_location(city="Manhattan", raw_user_message="hotels in Manhattan")
+
+        assert result["ok"] is True
+        assert result["distance_origin_type"] == "poi"
+
     def test_locale_is_passed_to_mapbox_as_language(self, monkeypatch):
         lisbon = _c("Lisbon", "PT", "Lisboa", lat=38.72, rank=0)
         client = _patch_multi(monkeypatch, [lisbon], inventory={38.72: 26})
@@ -702,6 +723,42 @@ def _user_content_with_profile_in(profile_in: dict) -> genai_types.Content:
         role="user",
         parts=[genai_types.Part(text="autres options"), convert_a2a_part_to_genai_part(datapart)],
     )
+
+
+_PENDING_MANHATTAN = {
+    "name": "Manhattan",
+    "options": [
+        {"name": "Manhattan", "country_code": "US", "region": "New York",
+         "place_formatted": "New York, United States"},
+        {"name": "Manhattan", "country_code": "US", "region": "Kansas",
+         "place_formatted": "Kansas, United States"},
+    ],
+}
+
+
+class TestPendingPlace:
+    """mcp-dayuse#7: the answer to « which Manhattan? » completes the place."""
+
+    def _inject(self, args):
+        ctx = _Ctx(user_content=_user_content_with_profile_in({"pending_place": _PENDING_MANHATTAN}))
+        inject_profile_geo_context(_Tool("geocode_location"), args, ctx)
+        return args
+
+    def test_an_answer_naming_one_option_searches_the_homonym_there(self):
+        args = self._inject({"city": "New York", "raw_user_message": "New York"})
+        assert args["city"] == "Manhattan"
+        assert args["country_code"] == "US"
+
+    def test_the_answer_is_read_without_case_or_accents(self):
+        assert self._inject({"city": "", "raw_user_message": "plutôt le kansas"})["city"] == "Manhattan"
+
+    def test_an_answer_naming_no_option_is_a_new_destination(self):
+        args = self._inject({"city": "Lyon", "raw_user_message": "non, plutôt Lyon"})
+        assert args["city"] == "Lyon"
+
+    def test_an_answer_naming_every_option_decides_nothing(self):
+        args = self._inject({"city": "", "raw_user_message": "New York ou Kansas ?"})
+        assert args["city"] != "Manhattan"
 
 
 class TestInjectProfileGeoContext:

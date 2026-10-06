@@ -1517,6 +1517,8 @@ def emit_search_datapart(callback_context: Any) -> genai_types.Content | None:
         profile_delta["zone"] = _op_set(raw_delta["zone"])
     if raw_delta.get("metro"):
         profile_delta["metro"] = _op_set(raw_delta["metro"])
+    if raw_delta.get("pending_place"):
+        profile_delta["pending_place"] = _op_set(raw_delta["pending_place"])
     # S-G6: a FRESH date label this turn (datetime_resolver.resolve_search_date)
     # — only-when-present. When the model extracted no date this turn, nothing
     # is stashed here at all (the code-computed search still used the

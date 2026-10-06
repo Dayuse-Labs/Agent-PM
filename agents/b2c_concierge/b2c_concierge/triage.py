@@ -168,6 +168,17 @@ def is_social_ack(message: str) -> bool:
     return bool(message) and bool(_ACK_RE.match(message.strip()))
 
 
+_WORD_RE = re.compile(r"[^\W\d_]+")
+
+
+def has_language_evidence(message: str) -> bool:
+    """False for a message made only of proper nouns (« New York », « Paris »,
+    « NYC »): it says where, not in which language. mcp-dayuse#7: answering
+    « which Manhattan? » with « New York » switched a French session to
+    English."""
+    return any(word.islower() for word in _WORD_RE.findall(message or ""))
+
+
 def guess_language(message: str) -> str:
     return "fr" if _FR_HINTS.search(message or "") else "en"
 

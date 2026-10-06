@@ -157,6 +157,7 @@ from .requested_date import date_served_notice, expected_search_date, reference_
 from .window_guard import enforce_window_disclosure, enforce_window_match, window_label
 from .routing import LEAF_FAQ, LEAF_HOTEL_SEARCH, ROUTES, bearer_token, card_url
 from .triage import (
+    has_language_evidence,
     SERVICE,
     TEMPLATE_LANGUAGES,
     asks_policy,
@@ -1130,7 +1131,13 @@ class _B2cConcierge(BaseAgent):
         # or the synthesis prompt is fed — see triage.response_language for
         # why this stays a choke point rather than reading `triage.language`
         # directly at each call site.
-        reply_language = response_language(triage.language)
+        # mcp-dayuse#7: a message of proper nouns only (« New York ») says where,
+        # not in which language — the conversation's language stands.
+        reply_language = response_language(
+            profile.language
+            if profile.language and not has_language_evidence(message)
+            else triage.language
+        )
         # Code-owned overrides (LLM never routes). A pending-offer confirmation
         # wins; otherwise a refinement of a PRIOR search re-routes to a fresh
         # search REGARDLESS of what triage guessed — a terse "le 28"/"moins cher"
@@ -1185,7 +1192,11 @@ class _B2cConcierge(BaseAgent):
         # (all 7) — `triage.classify` already validates `language` against
         # LANGUAGES, so this check is a defensive choke point, not a filter
         # that fires in practice.
-        if clicked_id is None and triage.language in TEMPLATE_LANGUAGES:
+        if (
+            clicked_id is None
+            and triage.language in TEMPLATE_LANGUAGES
+            and (profile.language is None or has_language_evidence(message))
+        ):
             profile.language = triage.language
 
         if booking_signal:
@@ -1427,6 +1438,8 @@ class _B2cConcierge(BaseAgent):
         delta = response.get("profile_delta") or {}
         if delta:
             apply_profile_delta(profile, delta, message, budget.fired)
+        if route.target == LEAF_HOTEL_SEARCH and "pending_place" not in delta:
+            profile.pending_place = None  # answered, or the user moved on
         date_notice: str | None = None
         search_date_part = response.get("search_date")
         if expected_date and isinstance(search_date_part, dict):

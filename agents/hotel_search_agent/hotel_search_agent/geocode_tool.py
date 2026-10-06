@@ -25,6 +25,8 @@ turn's `profile_in` by whoever owns the session (the orchestrator, S5).
 from __future__ import annotations
 
 import os
+import re
+import unicodedata
 
 from b2c_common.observability import mark_level
 from hotel_search_agent import geo_resolver
@@ -139,6 +141,9 @@ def _echoes(place_name: str, *, city: str | None, zone: str | None, state_hint: 
 #: This applies to EVERY anchor, the device GPS fix included — not only to the
 #: city coordinate `_city_coordinate` introduces below.
 _POI_ANCHOR_MAX_KM = 40.0
+
+#: Mapbox v6 types below a city: a district or a borough, never a whole city.
+_DISTRICT_FEATURE_TYPES = frozenset({"locality", "neighborhood"})
 
 
 def _poi_anchor_incoherent(
@@ -696,26 +701,26 @@ def geocode_location(
     clarify_response: dict | None = None
     if resolution.decision == "clarify":
         mark_level("WARNING", status_message="geocode_ambiguous")
+        options = [
+            {
+                "name": c.name,
+                "country_code": c.country_code,
+                "region": c.region,
+                "place_formatted": c.place_formatted,
+            }
+            for c in resolution.options
+        ]
         clarify_response = _fail(
             "geocode_ambiguous",
-            {
-                "question": resolution.question,
-                "options": [
-                    {
-                        "name": c.name,
-                        "country_code": c.country_code,
-                        "region": c.region,
-                        "place_formatted": c.place_formatted,
-                    }
-                    for c in resolution.options
-                ],
-            },
+            {"question": resolution.question, "options": options},
             guards_fired,
             # Same reason as the unanchored gate above: this clarify can also be
             # returned with a zone in hand (line ~758, once tier 2 has missed
-            # too), and the answer turn needs it. When there is no zone the
-            # early return below carries None, so nothing changes there.
-            {"zone": effective_zone} if effective_zone else None,
+            # too), and the answer turn needs it. mcp-dayuse#7: without a zone,
+            # the homonym itself is what the answer turn completes (« Manhattan »
+            # → « New York »), so it travels with the options it was asked about.
+            {"zone": effective_zone} if effective_zone
+            else {"pending_place": {"name": echo_city or "", "options": options}},
         )
         # A named zone/landmark can make v6's whole candidate list fuzz (the
         # real place isn't a v6 feature at all — "La Défense" only exists in
@@ -743,7 +748,12 @@ def geocode_location(
                 # S4: a named specific zone means "around X" even when it was v6
                 # that answered, so the 3 km disc applies here too. Without this
                 # the same landmark got 3 km via Search Box and 20 km via v6.
-                distance_origin_type=zone_origin_type,
+                # mcp-dayuse#7: same for a district typed as the destination
+                # (« Manhattan »): no search page of its own, the site's rule.
+                distance_origin_type=(
+                    "poi" if chosen.feature_type in _DISTRICT_FEATURE_TYPES
+                    else zone_origin_type
+                ),
                 zone=effective_zone,
                 metro=effective_metro,
                 guards_fired=guards_fired,
@@ -878,6 +888,38 @@ def _is_blank(value: object) -> bool:
     return value is None or (isinstance(value, str) and not value.strip())
 
 
+def _folded(text: str) -> str:
+    decomposed = unicodedata.normalize("NFD", text or "")
+    return "".join(ch for ch in decomposed if not unicodedata.combining(ch)).casefold()
+
+
+def _complete_pending_place(args: dict, pending: object) -> None:
+    """mcp-dayuse#7: the previous turn asked which « Manhattan » (a homonym
+    clarify); THIS message answers it. When the message names exactly one of
+    the options it was asked about (« New York », « Illinois », « Portugal »),
+    the homonym is searched there — the answer completes the place, it does
+    not replace it (before: « New York » searched the whole of New York City).
+    A message that names none of them is a new destination: left alone."""
+    if not isinstance(pending, dict) or not pending.get("name"):
+        return
+    message = f" {_folded(str(args.get('raw_user_message') or ''))} "
+    said = re.sub(r"[^\w]+", " ", message)
+    matched = []
+    for option in pending.get("options") or []:
+        if not isinstance(option, dict):
+            continue
+        labels = [option.get("region") or ""]
+        labels += str(option.get("place_formatted") or "").split(",")
+        if any(len(lbl.strip()) >= 2 and f" {_folded(lbl.strip())} " in said for lbl in labels):
+            matched.append(option)
+    if len(matched) != 1:
+        return
+    args["city"] = pending["name"]
+    args.pop("zone", None)
+    if _is_blank(args.get("country_code")) and matched[0].get("country_code"):
+        args["country_code"] = matched[0]["country_code"]
+
+
 def inject_profile_geo_context(tool: object, args: dict, tool_context: object) -> None:
     """`before_tool_callback` (P0 #4 fix, S-G5) — the deterministic
     profile→tool-args bridge for `geocode_location`, same pattern as
@@ -910,6 +952,7 @@ def inject_profile_geo_context(tool: object, args: dict, tool_context: object) -
         return None
     profile_in = read_profile_in(tool_context)
 
+    _complete_pending_place(args, profile_in.get("pending_place"))
     if _is_blank(args.get("city")) and profile_in.get("city"):
         args["city"] = profile_in["city"]
     if _is_blank(args.get("zone")) and profile_in.get("zone"):

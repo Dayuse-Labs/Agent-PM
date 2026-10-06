@@ -516,6 +516,42 @@ class TestHonestDegradation:
         assert sent[1] == {"query_params": {"hotel_name": "Leonardo Royal Hotel London St Pauls"}}
         assert asyncio.run(fake_profile_store.get(session.id)).named_candidates is None
 
+    def test_a_homonym_question_is_answered_in_the_conversation_language(
+        self, monkeypatch, fake_profile_store
+    ):
+        # mcp-dayuse#7: « New York » answering « which Manhattan? » came back in
+        # English, and the place asked about must reach the answer turn once.
+        pending = {"name": "Manhattan", "options": [{"region": "New York"}]}
+        plan = [
+            '{"family": "search", "language": "fr"}',
+            "Quel Manhattan ?",
+            '{"family": "search", "language": "en"}',
+            "Voici des hôtels à Manhattan.",
+        ]
+        llm = ScriptedLlm(*plan)
+        monkeypatch.setattr(agent_module.litellm, "acompletion", llm)
+        seen: list[dict] = []
+        responses = [
+            {"requires_clarification": True,
+             "profile_delta": {"pending_place": {"op": "set", "value": pending}}},
+            {"results": [{"hotel_id": 1, "name": "Moxy NYC Downtown"}],
+             "profile_delta": {"city": "Manhattan"}},
+        ]
+
+        async def fake_run_leaf(leaf, ctx, profile_in, **kwargs):
+            seen.append(dict(profile_in))
+            return "leaf", responses.pop(0)
+
+        monkeypatch.setattr(agent_module, "_run_leaf", fake_run_leaf)
+        runner, session = _new_session()
+        _drive_in(runner, session.id, "un hôtel à Manhattan demain")
+        _drive_in(runner, session.id, "New York")
+        assert seen[1]["pending_place"] == pending
+        assert "LANG: fr" in str(llm.calls[3]["messages"])
+        profile = asyncio.run(fake_profile_store.get(session.id))
+        assert profile.pending_place is None
+        assert profile.language == "fr"
+
     def test_named_hotel_not_found_without_any_text_is_answered_in_code(self, scripted, caplog):
         scripted(
             '{"family": "search", "language": "fr"}',

@@ -2084,3 +2084,13 @@ def test_emit_clears_a_carried_daypart_when_a_clock_window_is_stated():
     delta = _decode(emit_search_datapart(ctx))["profile_delta"]
     assert delta["daypart"] == {"op": "clear"}
     assert delta["timeslot_start"] == "14:00"
+
+
+def test_emit_carries_the_homonym_asked_about_to_the_profile():
+    # mcp-dayuse#7: the answer turn needs it (« which Manhattan? » → « New York »).
+    pending = {"name": "Manhattan", "options": [{"region": "New York"}]}
+    ctx = _Ctx({"temp:hotel_search_profile_delta": {"pending_place": pending},
+                "temp:hotel_search_clarify_question": "Quel Manhattan ?"})
+    content = emit_search_datapart(ctx)
+    data = find_datapart(content.parts)
+    assert data["profile_delta"]["pending_place"] == {"op": "set", "value": pending}
