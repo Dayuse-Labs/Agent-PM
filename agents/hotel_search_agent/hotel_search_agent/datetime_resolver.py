@@ -503,6 +503,40 @@ def _parse_hhmm_to_minutes(value: Any) -> int | None:
 
 _MAX_MINUTE_OF_DAY = 23 * 60 + 59
 
+# A clock time the user actually stated: "14h", "14h30", "13:30", "2pm",
+# "15 heures/Uhr/horas/ore/uur", "a las 3", "midi"/"noon"... in the 7 reply
+# languages. A daypart ("l'après-midi", "por la tarde") is not one.
+_CLOCK_TIME_RE = re.compile(
+    r"\b\d{1,2}\s*h(?:\s*\d{2})?\b|\b\d{1,2}:\d{2}\b|\b\d{1,2}\s*(?:am|pm|a\.m\.|p\.m\.)"
+    r"|\b\d{1,2}\s*(?:heures?|uhr|horas?|ore|uur)\b"
+    r"|\b(?:a las|alle|às|as|om|um|at|à)\s+\d{1,2}\b"
+    r"|(?<!après-)(?<!apres-)(?<!après )(?<!apres )\b(?:midi|minuit|noon|midnight|mediod[ií]a|medianoche|mezzogiorno|mezzanotte"
+    r"|mittags?|mitternacht|meio-dia|meia-noite|middag|middernacht)\b",
+    re.IGNORECASE,
+)
+
+
+def _user_text(tool_context: Any) -> str:
+    content = getattr(tool_context, "user_content", None)
+    parts = getattr(content, "parts", None) or []
+    return " ".join(p.text for p in parts if getattr(p, "text", None))
+
+
+def _invented_time_slot(time_slot: dict[str, Any], tool_context: Any, profile_in: dict[str, Any]) -> bool:
+    """mcp-dayuse#8: a `timeSlot` the user never stated. The instruction
+    already forbids it, but "por la tarde" came back as 12h-23h — harmless
+    while the leaf kept offers INSIDE the window, it empties a search under
+    the site's covering rule (b2c_common.timeslot). A slot repeated from the
+    profile (a follow-up turn) is not invented."""
+    if not time_slot or _CLOCK_TIME_RE.search(_user_text(tool_context)):
+        return False
+    carried = (
+        _parse_hhmm_to_minutes(profile_in.get("timeslot_start")),
+        _parse_hhmm_to_minutes(profile_in.get("timeslot_end")),
+    )
+    sent = (time_slot.get("startHour"), time_slot.get("endHour"))
+    return sent != tuple(m // 60 if m is not None else None for m in carried)
+
 
 def resolve_search_timeslot(tool: Any, args: dict[str, Any], tool_context: Any) -> None:
     """`before_tool_callback` (A4-c interim): combine the model's `timeSlot`
@@ -526,6 +560,10 @@ def resolve_search_timeslot(tool: Any, args: dict[str, Any], tool_context: Any) 
     profile_in = read_profile_in(tool_context)
     time_slot = args.get("timeSlot")
     time_slot = time_slot if isinstance(time_slot, dict) else {}
+    if _invented_time_slot(time_slot, tool_context, profile_in):
+        mark_level("WARNING", status_message="timeslot_sanitization")
+        record_guards_fired(tool_context, ["timeslot_sanitization"])
+        time_slot = {}
     start_total = _minutes_of_day(time_slot.get("startHour"), time_slot.get("startMinute"))
     end_total = _minutes_of_day(time_slot.get("endHour"), time_slot.get("endMinute"))
     duration_minutes = parse_duration_minutes(args.pop("duration", None))
