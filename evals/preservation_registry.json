@@ -88,7 +88,8 @@
           "unscored_turns": 15
         },
         "interpretation": "No gain inferred: one mismatch became a no-card clarification. Disclosed alternatives require separate review.",
-        "application_candidate": "a47a31ef383b0ca027486bec7cd3addff52e25e4"
+        "application_candidate": "a47a31ef383b0ca027486bec7cd3addff52e25e4",
+        "verified_mechanism": "One exact trace/session and upstream fixture hash join confirms timeSlot 10–17 was sent, a 9–17 offer existed for the same displayed hotel, and the inside-window predicate discards it while showing 10–16. This is not explained solely by historical inventory changes."
       }
     },
     {

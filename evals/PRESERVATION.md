@@ -324,6 +324,58 @@ and non-covering cards without identifying the mismatch. The private outputs are
 These are narrow development diagnostics, not a population quality rate or an
 untouched holdout claim. No application tuning uses this new output review.
 
+The same annotated row IDs were also joined to **recorded legacy hotel cards**,
+without using old active filters or compatibility scores as labels. Legacy has
+three turns where every displayed card covers the stay, 13 with a counterexample,
+and eight unscored; all four date checks are unscored because the legacy cards do
+not record `offer_date`. Among the three legacy coverage successes, the candidate
+has two mismatches and one no-card clarification. The New Haven mismatch is
+explicitly disclosed as an alternative. This is a useful preservation diagnostic,
+but **not a controlled architecture regression estimate**: legacy had the original
+inventory and historical code, whereas the replay uses today's captured supply.
+The private join is `offer-constraint-legacy-comparison.json`.
+
+One mechanism is verified beyond the historical-inventory confounder: the exact
+Langfuse trace and synthetic session show a 10:00–17:00 request sent to MCP. Joining
+its arguments to the captured upstream fixture by hash finds a 09:00–17:00 offer
+for the same hotel whose displayed card shows 10:00–16:00. The production
+`_offer_fits_exact_window` predicate explicitly rejects starts before the requested
+start and accepts ends before the requested end. The independent full-stay check
+therefore detects a concrete application filtering mismatch. This does not mean
+that every flexible "within a window" request should use full-stay containment.
+The exact private provenance is in `offer-window-trace-proof.json`; no application
+change is folded into the frozen candidate during the full replay.
+
+## What CI actually verifies
+
+The `checks` job passed on `a777243`, but the optional `eval` job failed during
+installation: `google-adk[eval]==2.4.0` pulled evaluator dependencies incompatible
+with runtime `litellm==1.90.2`. No scenario ran. The Langfuse job skipped its steps
+because its credentials were absent; its green job state was not an experiment.
+
+The workflow now invokes the existing S08 LiteLLM battery on the same canonical
+32 scenarios using the already-tested runtime/dev requirements, without that extra.
+The S08 judge tally is not numerically comparable to the old ADK response-match
+score; it is reported under its own rubric.
+It verifies complete scenario count, reports its exploratory judge tally, and
+stops services through an EXIT trap even on failure. Both optional live jobs check
+MCP, Mapbox and model configuration; Langfuse also requires its project credentials.
+Missing configuration is explicitly reported as **not executed**, with secret
+names only. No credentials were uploaded or changed in GitHub. The repository's
+current secrets list contains only the model and fleet-access keys, so hosted live
+evaluation is still unavailable until configuration is supplied.
+
+The replacement CLI was exercised locally against the live evaluation leaves on
+one case per family: **8/8 scenarios executed**, exploratory judge tally 1 pass / 7
+failures. This verifies the execution path, not a successful quality gate or all
+32 scenarios. All workflow shell blocks parse; missing-config and complete-config
+preflights were exercised with fake values, without exposing secret values.
+
+These jobs remain exploratory and nonblocking as before. Their successful process
+exit is not a release verdict, and the battery's budget counter records logical
+phases rather than observed LLM calls. The production replay's independently
+captured metrics remain the source for actual call/cost comparison.
+
 ## Existing business KPIs
 
 Recomputed with legacy main's `conversation_weekly_report.py`, existing synthetic
