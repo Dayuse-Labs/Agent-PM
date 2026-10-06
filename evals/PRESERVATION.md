@@ -58,6 +58,15 @@ pilot-inputs,pilot-review,cost-snapshot}.json`, plus per-agent conversation outp
 The original and corrected comparisons must remain distinctly labelled throughout
 the report and PR. No additional application change was made after this rebaseline.
 
+`python -m evals.current_production_comparison --run <private-pilot-directory>
+--output <private-report.html>` renders the actual responses and displayed cards
+side by side without model calls. It rejects mismatched input hashes, row order,
+sessions, duplicate-response shortcuts, incomplete or extra cases, and missing
+before/after production deployment verification. Ten offline counterexample tests
+protect those checks and HTML escaping. The output contains real user messages:
+keep it private, outside version control. It deliberately does not score a global
+winner from card counts or infer amenity inclusion from a hotel-level label.
+
 The replacement must retain learned behavior from the legacy agent: search
 relevance and complete multi-turn follow-up, as well as FAQ and cancellation
 support. Old assistant answers are evidence to investigate,
