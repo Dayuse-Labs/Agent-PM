@@ -1357,6 +1357,13 @@ class _B2cConcierge(BaseAgent):
         delta = response.get("profile_delta") or {}
         if delta:
             apply_profile_delta(profile, delta, message, budget.fired)
+            requested_location = profile.search_location_request
+            if (route.target == LEAF_HOTEL_SEARCH and delta.get("city")
+                    and requested_location and profile.city == requested_location.get("city")):
+                # The resolver may have extracted a state from the raw message
+                # that triage omitted. Preserve that verified disambiguation.
+                requested_location["country_code"] = profile.country_anchor
+                requested_location["region"] = profile.state_anchor
         # S-CX2 (audit CX F2): the leaf reports the search TOOLS never ran this
         # turn (MCP unreachable / circuit open / budget spent before the
         # search). Serve the honest degraded template — never synthesize, or

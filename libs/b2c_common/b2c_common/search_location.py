@@ -6,7 +6,7 @@ refinement, and clear on replacement; an explicit null clears a field.
 """
 from typing import Any
 
-LOCATION_FIELDS = ("city", "zone", "metro", "country_code", "region")
+LOCATION_FIELDS = ("city", "zone", "metro", "country_code", "region", "kind")
 
 
 def parse_location_update(value: Any) -> dict[str, Any] | None:
@@ -23,6 +23,8 @@ def parse_location_update(value: Any) -> dict[str, Any] | None:
             return None
         result[key] = item.strip() if isinstance(item, str) else None
     country = result.get("country_code")
+    if result.get("kind") not in (None, "city", "area", "landmark", "unknown"):
+        return None
     if country is not None:
         if len(country) != 2 or not country.isascii() or not country.isalpha():
             return None

@@ -398,13 +398,20 @@ with exactly these keys:
   filters. Use {{"action":"retain"}} when THIS message only changes budget,
   time, equipment, or asks about existing results; never re-extract a location
   from older messages on such a turn.
-  For a NEW destination use {{"action":"replace", "city":..., "zone":...,
+  For a NEW destination first identify its kind ("city", "area", "landmark",
+  or "unknown"), then use {{"action":"replace", "kind":..., "city":..., "zone":...,
   "metro":..., "country_code":..., "region":...}} (omit unknown fields).
   For an area adjustment WITHIN the current destination or an answer to a
   location clarification use "action":"refine"; only include changed fields.
   An explicit null clears a previous field. A country change is "replace".
   city = the actual municipality, zone = the FULL named district/landmark
   including its identifying airport/station name, never just a terminal number.
+  A business district, borough or neighbourhood is kind=area, NOT a city.
+  Put its name in zone and its known parent municipality in city. An airport,
+  station or attraction is kind=landmark. Distinguish an administrative area
+  from a shop or hotel with the same name; they are not interchangeable.
+  Use the proper place name alone: strip relational phrasing such as "near",
+  "close to", "près de" from zone. Keep the identifying proper name intact.
   A town followed by a state abbreviation is a CITY plus region, not a zone.
   A city supplied after a clarification fills city and preserves the requested
   landmark. Amenities, durations, budgets and hotel names are never zones.

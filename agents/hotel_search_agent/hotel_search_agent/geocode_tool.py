@@ -348,6 +348,7 @@ def geocode_location(
     proximity_lat: float | None = None,
     proximity_lon: float | None = None,
     country_guess: str | None = None,
+    location_kind: str | None = None,
 ) -> dict:
     """Resolve a destination to coordinates for `search_offers`, guarded.
 
@@ -369,6 +370,8 @@ def geocode_location(
             "Tour Eiffel") is what triggers the Search-Box tier-2 fallback when
             v6 can't resolve it.
         metro: A metro-area name, if distinct from city.
+        location_kind: Semantic request type (city, area, landmark, unknown).
+            Used to reject a business as an administrative area.
         country_code: A trusted ISO-3166-1 alpha-2 country to scope the
             geocode to, if already known. When omitted, a 5-digit US ZIP
             anywhere in the request (`select_us_postal_anchor`) deterministically
@@ -637,8 +640,17 @@ def geocode_location(
         query, country=effective_country_code, language=lang, proximity=proximity_str
     )
 
+    # Rank matching sub-city features before cities: a city with more inventory
+    # cannot outrank the actual named neighbourhood merely by being larger.
+    area_candidates = [c for c in candidates if effective_zone
+                       and c.feature_type in {"neighborhood", "locality", "district"}
+                       and _echoes(c.name, city=None, zone=effective_zone, state_hint=None)
+                       and _echoes(c.place_name, city=effective_city or effective_metro,
+                                   zone=None, state_hint=state_hint)]
+    ranked_candidates = area_candidates or candidates
+
     resolution = geo_resolver.resolve(
-        candidates,
+        ranked_candidates,
         inventory=get_inventory(),
         country_hint=effective_country_code,
         region_hint=state_hint,
@@ -730,8 +742,10 @@ def geocode_location(
         chosen = resolution.chosen
         # A city's name in the address cannot prove the named neighbourhood.
         # Check the feature itself for a specific zone, not its parent city.
-        zone_matches = not zone_is_specific or _echoes(
-            chosen.name, city=None, zone=effective_zone, state_hint=None
+        zone_matches = not zone_is_specific or (
+            (chosen.feature_type not in {"place", "region"}
+             or chosen.name.casefold() == (effective_zone or "").casefold())
+            and _echoes(chosen.name, city=None, zone=effective_zone, state_hint=None)
         )
         if zone_matches and _echoes(chosen.place_name, city=echo_city, zone=effective_zone, state_hint=state_hint):
             profile_delta = _anchor_state(
@@ -818,6 +832,15 @@ def geocode_location(
             language=lang,
             proximity=searchbox_proximity,
         )
+        if location_kind == "area":
+            administrative = [c for c in poi_candidates
+                              if c.feature_type in {"neighborhood", "locality", "district"}]
+            # Search Box represents some real districts as POIs. Prefer an
+            # administrative feature when supplied; absence alone is not a
+            # proof that a POI is a business. Existing name/spatial guards still
+            # apply, and provider coverage remains an evaluation limitation.
+            if administrative:
+                poi_candidates = administrative
         poi = geo_resolver.rank_landmark(
             poi_candidates,
             requested_zone=effective_zone or effective_city or effective_metro or "",
@@ -922,6 +945,7 @@ def inject_profile_geo_context(tool: object, args: dict, tool_context: object) -
         for key in ("city", "zone", "metro", "country_code"):
             args[key] = request.get(key) or ("" if key == "city" else None)
         args["profile_state_context"] = request.get("region")
+        args["location_kind"] = request.get("kind")
         args["profile_location_hint"] = request.get("city")
         args["proximity_lat"] = None
         args["proximity_lon"] = None

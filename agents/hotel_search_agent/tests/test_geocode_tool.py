@@ -1622,3 +1622,21 @@ def test_only_success_promotes_requested_city_and_explicit_area_clear():
     delta = find_datapart(result.parts)['profile_delta']
     assert delta['city'] == {'op':'set','value':'Milford'}
     assert delta['zone'] == {'op':'set','value':None}
+
+
+def test_short_airport_code_does_not_validate_city_centroid(monkeypatch):
+    _patch_client(monkeypatch, GeocodeResult(40.7127,-74.006,'New York City, New York, United States','US','New York'))
+    result = geocode_location(city='New York',zone='JFK Airport',country_code='US',location_kind='landmark')
+    assert result['ok'] is False
+
+
+def test_named_area_beats_parent_city_with_more_inventory(monkeypatch):
+    from dataclasses import replace
+    city = _c('Berlin','DE','Berlin',lat=52.52,lon=13.4)
+    area = replace(_c('Mitte','DE','Berlin',ftype='locality',lat=52.517,lon=13.403),
+                   place_name='Mitte, Berlin, Germany')
+    _patch_multi(monkeypatch,[city,area],inventory={52.52:500,52.517:30})
+    result = geocode_location(city='Berlin',zone='Mitte',location_kind='area')
+    assert result['ok'] is True
+    assert result['latitude'] == 52.517
+    assert result['resolved_feature_type'] == 'locality'
