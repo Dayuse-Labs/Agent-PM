@@ -265,7 +265,7 @@ class TestBudget:
         runner, session = _new_session()
         asyncio.run(fake_profile_store.set(session.id, SessionProfile(locale="fr-FR")))
         events = _drive_in(runner, session.id, "ok")
-        assert _answer(events) == templates.ack_response("fr")
+        assert _answer(events) == templates.affirmative_relaunch_response("fr", searched=False)
 
     def test_inline_lookup_turn_degrades_on_triage_only_when_unresolved(self, scripted, caplog, monkeypatch):
         # No shortlist, no MCP reachable in tests — degrades honestly BEFORE
@@ -849,12 +849,38 @@ class TestRecoveryAck:
         assert leaf_calls == []
         assert _answer(events) == templates.ack_response("fr")
 
-    def test_bare_ok_without_empty_streak_stays_a_plain_ack(self, scripted, fake_profile_store):
+    def test_bare_ok_without_empty_streak_stays_a_template(self, scripted, fake_profile_store):
         runner, session = _new_session()
         llm, leaf_calls = scripted()  # empty plan: a fresh session has no signal
         events = _drive_in(runner, session.id, "ok")
         assert leaf_calls == []
-        assert _answer(events) == templates.ack_response("en")
+        assert _answer(events) == templates.affirmative_relaunch_response("en", searched=False)
+
+
+class TestBareAffirmativeIsNoGreeting:
+    """mcp-dayuse#6 (Mathias 2026-10-06): "oui"/"ok" with no question pending
+    gets a short relaunch — never "Bonjour, je suis le concierge" mid-way."""
+
+    def test_ok_after_a_search_offers_to_refine(self, scripted, fake_profile_store):
+        runner, session = _new_session()
+        asyncio.run(fake_profile_store.set(session.id, SessionProfile(city="Nice", language="fr")))
+        scripted()  # zero-LLM fast path
+        events = _drive_in(runner, session.id, "ok")
+        assert _answer(events) == templates.affirmative_relaunch_response("fr", searched=True)
+
+    def test_oui_classified_ack_by_the_llm_relaunches(self, scripted, fake_profile_store):
+        # "oui" is not in the fast-path word list: triage says ack.
+        runner, session = _new_session()
+        llm, leaf_calls = scripted('{"family": "ack", "language": "fr", "affirmative": true}')
+        events = _drive_in(runner, session.id, "oui")
+        assert leaf_calls == []
+        assert _answer(events) == templates.affirmative_relaunch_response("fr", searched=False)
+
+    def test_a_greeting_still_gets_the_greeting(self, scripted, fake_profile_store):
+        runner, session = _new_session()
+        scripted()
+        events = _drive_in(runner, session.id, "bonjour")
+        assert _answer(events) == templates.ack_response("fr")
 
 
 class TestRefinementRouting:

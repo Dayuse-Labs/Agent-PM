@@ -1054,6 +1054,17 @@ class _B2cConcierge(BaseAgent):
                 ),
             )
 
+    @staticmethod
+    def _ack_text(
+        profile: SessionProfile, message: str, language: str, llm_affirmative: bool | None = None
+    ) -> str:
+        """The greeting, unless the message is a bare "oui"/"ok": that answers
+        no question here (mcp-dayuse#6, a pending one is routed to the search
+        before this), so it gets a short relaunch instead."""
+        if is_bare_affirmative(message, llm_affirmative):
+            return templates.affirmative_relaunch_response(language, bool(profile.city))
+        return templates.ack_response(language)
+
     # --- Spine --------------------------------------------------------------------------------
     async def _run_async_impl(self, ctx: InvocationContext) -> AsyncGenerator[Event, None]:
         t_start = time.monotonic()
@@ -1108,7 +1119,7 @@ class _B2cConcierge(BaseAgent):
             # conversation's established language / client locale beat the guess.
             yield self._final(
                 ctx,
-                templates.ack_response(template_language(profile.language, profile.locale, message)),
+                self._ack_text(profile, message, template_language(profile.language, profile.locale, message)),
             )
             return
 
@@ -1279,9 +1290,13 @@ class _B2cConcierge(BaseAgent):
         if route.kind == "template":
             # The LLM classified ack where the regex fast-path didn't match.
             self._emit_turn_metric(family, "template:ack", budget, t_start, "ok", inv)
+            await store.set(ctx.session.id, profile)
             yield self._final(
                 ctx,
-                templates.ack_response(template_language(profile.language, profile.locale, message)),
+                self._ack_text(
+                    profile, message, template_language(profile.language, profile.locale, message),
+                    triage.affirmative,
+                ),
             )
             return
 

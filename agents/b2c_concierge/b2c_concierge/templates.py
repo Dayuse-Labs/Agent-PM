@@ -63,6 +63,34 @@ def ack_response(language: str) -> str:
     return _pick(language, _ACK_RESPONSE)
 
 
+# mcp-dayuse#6 (Mathias 2026-10-06): a bare "oui"/"ok" that answers no
+# question is never a greeting — the conversation is under way.
+_AFFIRMATIVE_RELAUNCH: dict[str, str] = {
+    "fr": "Dites-moi la ville et la date, et je vous cherche un hôtel en journée.",
+    "en": "Tell me the city and the date, and I'll find you a day-use hotel.",
+    "es": "Dime la ciudad y la fecha, y te busco un hotel de día.",
+    "it": "Dimmi la città e la data, e ti cerco un hotel per il giorno.",
+    "de": "Sag mir die Stadt und das Datum, und ich suche dir ein Tageshotel.",
+    "pt": "Diga-me a cidade e a data, e procuro-lhe um hotel de dia.",
+    "nl": "Vertel me de stad en de datum, dan zoek ik een daghotel voor je.",
+}
+_AFFIRMATIVE_REFINE: dict[str, str] = {
+    "fr": "Très bien ! Je peux aussi chercher à une autre date, à un autre horaire, avec un budget ou ailleurs.",
+    "en": "Great! I can also search another date, another time slot, with a budget or somewhere else.",
+    "es": "¡Perfecto! También puedo buscar otra fecha, otra franja, con un presupuesto o en otro sitio.",
+    "it": "Perfetto! Posso anche cercare un'altra data, un'altra fascia oraria, con un budget o altrove.",
+    "de": "Gut! Ich kann auch ein anderes Datum, ein anderes Zeitfenster, mit Budget oder woanders suchen.",
+    "pt": "Muito bem! Também posso pesquisar outra data, outro horário, com um orçamento ou noutro lugar.",
+    "nl": "Prima! Ik kan ook zoeken op een andere datum, een ander tijdslot, met een budget of ergens anders.",
+}
+
+
+def affirmative_relaunch_response(language: str, searched: bool) -> str:
+    """The answer to a bare "oui" with no question pending: what to give next,
+    or — once a search has run — how it can be refined."""
+    return _pick(language, _AFFIRMATIVE_REFINE if searched else _AFFIRMATIVE_RELAUNCH)
+
+
 # --- S07: inline tools (real MCP wiring) — zero-LLM honest degradation ------
 
 _INLINE_UNRESOLVED: dict[str, dict[str, str]] = {
