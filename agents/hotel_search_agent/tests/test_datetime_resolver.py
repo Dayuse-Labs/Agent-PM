@@ -876,3 +876,10 @@ def test_a_duration_still_computes_the_end():
     args = {"timeSlot": {"startHour": 10, "endHour": 13}, "duration": "PT3H"}
     resolve_search_timeslot(_Tool("search_offers"), args, ctx)
     assert args["timeSlot"] == {"startHour": 10, "endHour": 13}
+
+
+def test_a_zero_length_window_is_one_time():
+    ctx = _ctx_with_profile({"timeslot_start": "13:00", "timeslot_end": "15:00"}, "à 9h00")
+    args = {"timeSlot": {"startHour": 9, "endHour": 9}}
+    resolve_search_timeslot(_Tool("search_offers"), args, ctx)
+    assert args["timeSlot"] == {"startHour": 9}

@@ -579,6 +579,12 @@ def _drop_unstated_bounds(
         if kept.get(hour_key) is not None and kept[hour_key] not in mentioned:
             kept.pop(hour_key)
             kept.pop(minute_key, None)
+    start = _minutes_of_day(kept.get("startHour"), kept.get("startMinute"))
+    end = _minutes_of_day(kept.get("endHour"), kept.get("endMinute"))
+    if start is not None and end is not None and end <= start:
+        # "à 9h00" also came back as 9h-9h: one time, not a window.
+        kept.pop("endHour")
+        kept.pop("endMinute", None)
     return kept
 
 
