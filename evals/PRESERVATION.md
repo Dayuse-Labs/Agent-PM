@@ -1,5 +1,63 @@
 # Production knowledge preservation replay — 2026-10-06
 
+## Current comparison — corrected after user clarification
+
+**Primary reference is the agent actually serving production today**, not recorded
+old answers and not another AgentB2C revision. Railway verified `ai.dayuse.com`
+on deployment `2c2c30e4-2072-4e0a-b01c-8060f14b35bc`, commit
+`a08a7792ed95dedca6255b5c588a80a504dd6249` (September 25), with configured model
+`gpt-5.2`. Compare it with unmodified AgentB2C main `07be07e`, configured
+`gpt-4o-mini`, local A2A services and the live MCP endpoint. Preserve these model
+differences as part of the product comparison; do not claim to isolate architecture.
+
+The two full historical-clock passes comparing B2C main with patched B2C v3 were
+**stopped intentionally** when the user clarified this reference. Their outputs
+remain secondary diagnostics. They are incomplete and cannot be relabelled as a
+live production comparison. The historical export remains the input corpus and
+source of observed business KPIs, not the current system's response baseline.
+
+A first **four-conversation / 16-turn-per-agent** pilot is complete against the
+actual production endpoint and new main. Each pair receives identical historical
+user messages and recorded request-derived context, in new synthetic sessions,
+turns sequential within each conversation. Both run at the current wall clock;
+new main uses live MCP, without the old fixture/date mapper. The four cases were
+chosen as previously identified search regression sentinels, not a representative
+sample. Current relative dates are intentional; historical absolute dates must
+not be silently converted into gold expectations in subsequent batches.
+
+| Real sequence | Production today | New AgentB2C main + live MCP |
+| --- | --- | --- |
+| Gémenos → pool/spa → Gémenos | Re-asks city, then an amenity-specific offer with wider-area disclosure | First leaf times out; then amenities become a missing-hotel lookup, followed by generic cards |
+| London sauna → cheaper twice | Cheaper option appears and persists; sauna remains in the dialogue | Same shortlist repeated; replies pivot to centrality or night-rate discount |
+| Tenerife → explicit city → open budget → agreement | Initial Colombia misresolution, then resolves Tenerife and continues area expansion | Re-asks location after explicit city, then resets to greeting |
+| Voco Winchester → city → tomorrow → agreement | Reaches named hotel, but final agreement repeats shortlist instead of promised link | Repeated city clarification and greeting, no shortlist |
+
+Production is not perfect and is not gold. Offer-specific amenity inclusion still
+needs source verification; differing inventory must not be blamed solely on the
+model. The first new-agent timeout is recorded separately as a technical failure.
+No population quality percentage follows from these four cases.
+
+The pilot's observed model-cost estimates are **$0.414182 production + $0.036781
+new main = $0.450963**, subject to Langfuse ingestion/accounting completeness and
+not a provider invoice. A naive extrapolation to 30,713 paired turns is about
+**$866**, highly uncertain given this diagnostic sample's traffic mix. The earlier
+rough $157 forecast applied to two GPT-4o-mini passes, not the requested production
+comparison. A spend ceiling has been requested before broadening that run.
+
+Production currently has both `CS_MCP_ENABLED=true` and
+`CS_MCP_ALLOW_CANCEL=true`. The pilot only sends manually reviewed search sequences.
+Replaying cancellation/receipt requests containing real booking credentials against
+production is not part of this audit: those paths require an isolated execution
+environment that preserves the current code and tool contracts while preventing
+real booking/email mutations. Do not silently omit that coverage from the final
+completion audit or claim the search pilot has validated FAQ/cancellation behavior.
+
+Private live evidence: `current-production-deployment.json`,
+`comparison-rebaseline.json`, and `current-prod-comparison/{pilot-manifest,
+pilot-inputs,pilot-review,cost-snapshot}.json`, plus per-agent conversation outputs.
+The original and corrected comparisons must remain distinctly labelled throughout
+the report and PR. No additional application change was made after this rebaseline.
+
 The replacement must retain learned behavior from the legacy agent: search
 relevance and complete multi-turn follow-up, as well as FAQ and cancellation
 support. Old assistant answers are evidence to investigate,
@@ -24,12 +82,14 @@ not gold labels: several contain inconsistent policy or capability claims.
 
 ## What is being compared
 
-1. **Recorded legacy behavior and observed business KPIs.** Recompute the existing
+1. **Current production versus new AgentB2C.** The primary migration comparison
+   described above; real endpoint responses, not old assistant outputs.
+2. **Recorded legacy behavior and observed business KPIs.** Recompute the existing
    weekly-report formulas on the immutable export. Do not fabricate new clicks.
-2. **Unmodified B2C main versus a candidate.** Same user turns, per-request historical
+3. **Secondary unmodified B2C main versus a candidate (stopped).** Same user turns, per-request historical
    clock, model, and shared MCP fixtures. Each conversation starts in a fresh
    synthetic session and runs sequentially; conversations may run concurrently.
-3. **Behavioral regression assertions.** Trace each expectation to a reviewed fix,
+4. **Behavioral regression assertions.** Trace each expectation to a reviewed fix,
    QA ticket or applicable source. Route correctness is not policy correctness.
 
 Conversation hashes define dev/validation/holdout splits. Exact normalized
