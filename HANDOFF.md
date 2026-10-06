@@ -4,6 +4,29 @@
 
 > 📋 **Pour savoir QUOI faire ensuite, ouvrir [`CHANTIERS.md`](CHANTIERS.md)** (état vérifié au 2026-09-14) : la liste des chantiers ouverts, chacun avec sa preuve, ses actions et un prompt prêt à coller — plus la liste de ce qu'il ne faut **pas** relancer parce que c'est déjà livré. `tasks/todo.md` est périmé et ne doit plus servir de référence.
 
+## ✅ 2026-10-06 (bis) — mcp-dayuse#5 : périphérie de la réponse dérivée de la recherche exécutée
+
+**Fait** (branche `fix/search-context-see-all`, **empilée sur `fix/qa-oracle-facts-silent-fallbacks`** — merger celle-ci d'abord ; 1 commit par chantier ; gates : pytest **1 969 passés / 1 skippé**, ruff, mypy, guardrails **verts**). Ticket https://gitlab.com/dayuse/dayuse/mcp-dayuse/-/work_items/5 (+ #2 pour le MCP). Chaque défaut reproduit en live avant correctif, revérifié après, contrôle négatif fait (les nouveaux tests tombent sans le correctif). Décisions Mathias du jour : options recommandées sur les 4 questions.
+
+1. **Provenance** — la feuille envoie toujours `flexible_default` : « de 6h à 16h » / « moins de 120 euros » tapés par l'utilisateur partaient en PROVENANCE « valeur par défaut ». `apply_profile_delta` les passe `explicit` quand le message les énonce (`_mentions_explicit_time`, `_states_amount`) et ne les rétrograde plus quand la même valeur est reportée. ⚠️ Effet voulu : un budget tapé n'est plus auto-élargi (`maybe_auto_widen` l'interdisait déjà pour un budget explicite) ; 2 tests qui élargissaient « a hotel under 100 » réécrits avec « a cheap hotel ».
+2. **Note devise** — « Prix affichés en euros, sans conversion » seulement si l'utilisateur a demandé une devise (`profile.requested_currency`, dernier slot `display_currency` du triage). La devise du widget (`profile.currency`) et la devise propre d'un hôtel ne déclenchent plus rien seules (22 traces sur 29 le 30/09).
+3. **États vides** — la feuille émet `search_context` (lieu, jour servi, créneau ou moment, budget, équipements appliqués, occupation, rayon, page de recherche) depuis les vrais arguments de `search_offers`. À 0 résultat, `b2c_concierge/no_offers.py` écrit la phrase en code (7 langues, « Aucune offre autour de Gare du Nord, Paris le … de 7h à 9h, à moins de 30 €, avec sauna. »), la synthèse n'ajoute que la piste ; une phrase du LLM qui la recopie est retirée (`drop_restated`, vu en live).
+4. **« Voir tout »** — MCP (branche `feature/14707-search-page-breadcrumb` de mcp-dayuse, commit `82c4204`) : `searchPages` sur chaque hôtel de `search_offers` = items `/s/…` du `breadcrumb` indexé. `b2c_common/search_page.py` choisit la page du lieu (nom = zone puis ville, sinon page la plus précise commune à tous les hôtels, jamais le seul pays) et construit l'URL du site (`selectedAddress`, `checkinDate`, `checkinTime=6am`, `checkoutTime=4pm`). Transport : `search_context.search_page` → `profile.search_page` → marqueur `hotels` (SSE) et `market.search_page` (JSON). Widget : « Voir tout » et « Voir tous les hôtels à Lyon → » l'utilisent, page pays en repli. Vérifié en Chrome headless (POST et SSE) et 4 URLs générées en 200 sur le vrai site (Lyon, San Francisco, Paris/Gare du Nord, Londres).
+
+**Non-régression** : pytest/ruff/mypy/guardrails verts ; le rejeu des datasets `evals/datasets/*.jsonl` main vs branche a été **lancé puis interrompu à la demande de Mathias — non fait**, à relancer avant merge.
+
+**Reste** :
+- **Déployer le MCP d'abord** (sinon pas de `searchPages` → repli page pays, sans erreur).
+- Londres → page « Greater London » (aucun nœud « London » dans le fil d'Ariane des hôtels rendus) ; Monaco → pas de lien (marché absent de `_MARKET`).
+- Un moment de la journée (« l'après-midi ») n'envoie pas d'heures au site.
+- Compteur (taille de page présentée comme nombre d'offres) : hors périmètre, tickets #4 / MCP #1.
+- État vide sans hôtel : « Voir tout » reste la page pays (pas d'hôtel → pas de fil d'Ariane).
+
+🪤 **Pièges découverts** :
+- **`/s/san-francisco` seul répond 404** sans `placeId` ; le chemin du fil d'Ariane (`/s/united-states/california/san-francisco-county/san-francisco`) marche, et les chemins sont identiques sur tous les domaines.
+- **Plusieurs sessions en parallèle** : la session #6 a lancé sa stack sur 8120-8122 pendant que la mienne redémarrait (ma stack : `PORT_OFFSET=40`, MCP :8083). Et `git stash` est partagé entre worktrees : un de mes stash a été dépilé dans le worktree principal. Contrôle négatif par copie de fichier uniquement.
+- Le LLM recopie une phrase qu'on lui montre même quand on lui dit de ne pas le faire : dédoublonner en code.
+
 ## ✅ 2026-10-06 — mcp-dayuse#8 : oracle sur les faits, replis observables, contrat MCP
 
 **Fait** (branche `fix/qa-oracle-facts-silent-fallbacks`, 1 commit par chantier ; gates : pytest **1 928 passés / 1 skippé**, ruff, mypy, guardrails **verts**). Ticket https://gitlab.com/dayuse/dayuse/mcp-dayuse/-/work_items/8 (parent dayuse-com#14707). Chaque défaut a été **reproduit en local avant le correctif**, puis revérifié après, sur une 2e stack (`PORT_OFFSET=20`) face au MCP mcp-dayuse `main` local.
