@@ -22,7 +22,7 @@ _GPS_GRANTED = {
 
 
 def _fake_search_leaf(city: str):
-    async def fake_run_leaf(leaf, ctx, profile_in):
+    async def fake_run_leaf(leaf, ctx, profile_in, **kwargs):
         return (f"Voici des hôtels à {city}.", {"results": [], "profile_delta": {"city": city}})
 
     return fake_run_leaf

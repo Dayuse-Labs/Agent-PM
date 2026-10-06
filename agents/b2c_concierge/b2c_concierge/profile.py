@@ -258,6 +258,8 @@ class SessionProfile:
     # currency ("HOTEL"), kept for the rest of the conversation until they ask
     # for euros again (product decision 2026-09-25).
     display_currency: str | None = None
+    # Unverified semantic request, retained even if the leaf times out.
+    search_location_request: dict[str, Any] | None = None
 
     def to_dict(self) -> dict[str, Any]:
         return {
@@ -300,6 +302,7 @@ class SessionProfile:
             "adults": self.adults,
             "children": self.children,
             "display_currency": self.display_currency,
+            "search_location_request": self.search_location_request,
             "schema_version": PROFILE_SCHEMA_VERSION,
         }
 
@@ -328,6 +331,7 @@ _CONCIERGE_ONLY_KEYS = (
     "distance_origin",
     "picked_hotel_id",
     "display_currency",
+    "search_location_request",
 )
 
 
@@ -855,7 +859,11 @@ def _has_refinement_modifier(message: str, llm_bare_budget: float | None = None)
 
 
 def _has_prior_search_context(profile: SessionProfile) -> bool:
-    return bool(profile.city) or bool(profile.last_results) or profile.consecutive_empty_searches > 0
+    requested = profile.search_location_request or {}
+    return (
+        bool(profile.city) or bool(profile.last_results) or profile.consecutive_empty_searches > 0
+        or any(requested.get(key) for key in ("city", "zone", "metro"))
+    )
 
 
 def is_search_refinement_signal(

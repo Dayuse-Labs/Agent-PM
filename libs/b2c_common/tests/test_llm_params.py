@@ -120,7 +120,7 @@ class TestTemperatureYieldsToTheReasoningCap:
 
 class TestMaxTokens:
     def test_built_in_defaults(self):
-        assert max_tokens_for("TRIAGE") == 200
+        assert max_tokens_for("TRIAGE") == 400
         assert max_tokens_for("SYNTHESIS") == 1000
 
     def test_unknown_role_is_uncapped(self):

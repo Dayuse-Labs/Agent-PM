@@ -728,7 +728,12 @@ def geocode_location(
 
     if resolution.decision == "select" and resolution.chosen is not None:
         chosen = resolution.chosen
-        if _echoes(chosen.place_name, city=echo_city, zone=effective_zone, state_hint=state_hint):
+        # A city's name in the address cannot prove the named neighbourhood.
+        # Check the feature itself for a specific zone, not its parent city.
+        zone_matches = not zone_is_specific or _echoes(
+            chosen.name, city=None, zone=effective_zone, state_hint=None
+        )
+        if zone_matches and _echoes(chosen.place_name, city=echo_city, zone=effective_zone, state_hint=state_hint):
             profile_delta = _anchor_state(
                 city=effective_city,
                 raw_user_message=raw_user_message,
@@ -909,6 +914,32 @@ def inject_profile_geo_context(tool: object, args: dict, tool_context: object) -
     if getattr(tool, "name", "") != "geocode_location":
         return None
     profile_in = read_profile_in(tool_context)
+
+    request = profile_in.get("search_location_request")
+    if isinstance(request, dict):
+        # The orchestrator already interpreted the location edit. Do not let a
+        # second model turn a municipality into a neighbourhood or drop a POI.
+        for key in ("city", "zone", "metro", "country_code"):
+            args[key] = request.get(key) or ("" if key == "city" else None)
+        args["profile_state_context"] = request.get("region")
+        args["profile_location_hint"] = request.get("city")
+        args["proximity_lat"] = None
+        args["proximity_lon"] = None
+        # Actual request text, never the model's rewritten version. DataPart
+        # metadata is not part of that text.
+        content = getattr(tool_context, "user_content", None)
+        parts = getattr(content, "parts", None) or []
+        text_parts = [p.text for p in parts if p.text and not getattr(p, "metadata", None)]
+        if text_parts:
+            args["raw_user_message"] = text_parts[0]
+        for source, target in (("locale", "locale"), ("language", "language_hint")):
+            if profile_in.get(source):
+                args[target] = profile_in[source]
+        anchor = profile_in.get("search_anchor")
+        if isinstance(anchor, dict) and not request.get("city") and not request.get("metro"):
+            args["proximity_lat"] = anchor.get("lat")
+            args["proximity_lon"] = anchor.get("lon")
+        return None
 
     if _is_blank(args.get("city")) and profile_in.get("city"):
         args["city"] = profile_in["city"]

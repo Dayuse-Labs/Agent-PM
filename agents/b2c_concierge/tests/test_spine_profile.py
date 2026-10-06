@@ -1221,3 +1221,30 @@ def test_bare_shortlist_position_does_not_become_a_budget(monkeypatch, fake_leg,
     _run_turn(runner, session.id, "2")
     assert observed["budget"] == 150
     assert fake_leg.call_count == 0
+
+
+def test_search_request_survives_leaf_timeout_and_reaches_next_turn(monkeypatch, fake_profile_store):
+    import json
+    seen = []
+
+    async def unavailable(leaf, ctx, profile_in, **kwargs):
+        seen.append((profile_in, kwargs))
+        return None, {}
+
+    monkeypatch.setattr(agent_module, '_run_leaf', unavailable)
+    llm = _scripted_llm(monkeypatch,
+        json.dumps({'family':'search','language':'en','location_update':{
+            'action':'replace','city':'Milford','region':'Connecticut','country_code':'US'}}),
+        json.dumps({'family':'search','language':'en','bare_budget_value':110,
+                    'location_update':{'action':'retain'}}))
+    runner = InMemoryRunner(root_agent)
+    session = _new_session(runner)
+    _run_turn(runner, session.id, 'Milford ct')
+    _run_turn(runner, session.id, '110')
+    assert len(llm.calls) == 2  # triage only; no retry or synthesis on timeout
+    assert seen[1][0]['city'] == 'Milford'
+    assert seen[1][0]['state_anchor'] == 'Connecticut'
+    assert seen[1][0]['budget_max'] == 110
+    assert seen[1][1]['query_params']['recent_user_messages'] == ['Milford ct']
+    stored = asyncio.run(fake_profile_store.get(session.id))
+    assert stored.city is None and stored.search_location_request['city'] == 'Milford'

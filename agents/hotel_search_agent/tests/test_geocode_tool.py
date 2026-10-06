@@ -1579,3 +1579,46 @@ class TestPoiAnchorCeilingIsTight:
 
         assert result["ok"] is True
         assert "poi_anchor_coherence" not in (result.get("guards_fired") or [])
+
+
+def test_semantic_city_and_region_override_wrong_leaf_zone():
+    profile = {'city':'Paris','zone':'Jacuzzi','country_anchor':'FR',
+               'search_location_request':{'city':'Milford','zone':None,'metro':None,'region':'Connecticut','country_code':'US'}}
+    ctx = _Ctx(user_content=_user_content_with_profile_in(profile))
+    args = {'city':'','zone':'Milford','country_code':'FR','proximity_lat':48,'proximity_lon':2}
+    inject_profile_geo_context(_Tool('geocode_location'), args, ctx)
+    assert args['city'] == 'Milford' and args['zone'] is None
+    assert args['profile_state_context'] == 'Connecticut' and args['country_code'] == 'US'
+    assert args['proximity_lat'] is None and args['proximity_lon'] is None
+    assert args['raw_user_message'] == 'autres options'
+
+
+def test_city_centroid_cannot_satisfy_named_zone(monkeypatch):
+    _patch_client(monkeypatch, GeocodeResult(51.5073,-0.1276,'London, England, United Kingdom','GB','England'))
+    # No airport candidate: an honest miss, never London sold as Heathrow.
+    result = geocode_location(city='London',zone='Heathrow Airport Terminal 3',country_code='GB')
+    assert result['ok'] is False
+
+
+def test_search_uses_current_verified_coordinates_not_model_copy():
+    from hotel_search_agent.response_bridge import inject_landmark_radius
+    ctx = _Ctx(user_content=_user_content_with_profile_in({'search_location_request':{'city':'London'}}))
+    args = {'lat':40,'lon':-74}
+    assert inject_landmark_radius(_Tool('search_offers'),args,ctx)['error'] == 'geocode_required'
+    ctx.state['temp:hotel_search_anchor'] = {'latitude':51.47,'longitude':-0.45,'type':'poi'}
+    assert inject_landmark_radius(_Tool('search_offers'),args,ctx) is None
+    assert (args['lat'],args['lon'],args['radiusKm']) == (51.47,-0.45,3)
+
+
+def test_only_success_promotes_requested_city_and_explicit_area_clear():
+    from hotel_search_agent.response_bridge import capture_after_tool, emit_search_datapart, find_datapart
+    request = {'city':'Milford','zone':None,'metro':None,'region':'Connecticut','country_code':'US'}
+    ctx = _Ctx(user_content=_user_content_with_profile_in({'search_location_request':request}))
+    capture_after_tool(_Tool('geocode_location'),{},ctx,{'ok':False,'error':'geocode_no_match'})
+    assert 'temp:hotel_search_profile_delta' not in ctx.state
+    capture_after_tool(_Tool('geocode_location'),{},ctx,{
+        'ok':True,'latitude':41.22,'longitude':-73.06,'country_code':'US','profile_delta':{}})
+    result = emit_search_datapart(ctx)
+    delta = find_datapart(result.parts)['profile_delta']
+    assert delta['city'] == {'op':'set','value':'Milford'}
+    assert delta['zone'] == {'op':'set','value':None}

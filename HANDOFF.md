@@ -4,6 +4,12 @@
 
 > 📋 **Pour savoir QUOI faire ensuite, ouvrir [`CHANTIERS.md`](CHANTIERS.md)** (état vérifié au 2026-09-14) : la liste des chantiers ouverts, chacun avec sa preuve, ses actions et un prompt prêt à coller — plus la liste de ce qu'il ne faut **pas** relancer parce que c'est déjà livré. `tasks/todo.md` est périmé et ne doit plus servir de référence.
 
+## 2026-10-06 — Préservation du lieu multi-tour, nouvelle itération en validation
+
+Demande explicite : améliorer AgentB2C à partir des mécanismes éprouvés en production, sans nouvelle regex ni catalogue de villes, puis rejouer les évaluations avant review. Ajout d’une modification sémantique de lieu au triage existant (`retain` / `replace` / `refine`), validée en code et conservée séparément des coordonnées vérifiées. La recherche reçoit le contexte utilisateur borné ; un timeout ne perd plus la destination demandée. Les coordonnées MCP sont prises dans le géocodage du tour ; un centroïde de ville ne suffit plus à valider un quartier nommé. Pas d’appel LLM supplémentaire ; plafond de sortie triage 400 tokens pour le contrat enrichi.
+
+Tests ciblés verts. Suite complète en reprise après mise à jour de deux doubles de test A2A pour le contexte optionnel ; lint/typecheck/guardrails verts. Six dialogues géo dev seront rejoués d’abord ; pas de résultat live ni de feu vert revendiqué à ce stade. Le ledger cumulatif de la campagne à 60 $ reste la seule source de coût. Les résultats ci-dessous décrivent le candidat antérieur `6857706`.
+
 ## 2026-10-06 — Campagne à 60 $ terminée ; résultats et MR121
 
 **État final : les checkpoints ci-dessous sont historiques.** Coût modèle observé : **7,9261 $**, incidents et appels tardifs inclus, aucun coût en attente. Aucun juge payant. Le plafond de 60 $ exclut les dépenses antérieures, Codex et l’infrastructure. Comparaison échantillonnée, pas un replay de tout le corpus. Candidat applicatif figé `6857706`, référence production `a08a7792`.

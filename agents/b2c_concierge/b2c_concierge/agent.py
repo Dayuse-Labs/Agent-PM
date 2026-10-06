@@ -113,6 +113,7 @@ from .amenity_guard import apply_amenity_truthfulness
 from .budget import TurnBudget
 from .currency_guard import enforce_currency_disclosure
 from .dialogue_context import recent_user_messages
+from .search_context import prepare_search_context
 from .date_format import humanize_iso_dates
 from .display_currency import (
     HOTEL,
@@ -1314,10 +1315,18 @@ class _B2cConcierge(BaseAgent):
         leaf_kwargs: dict[str, Any] = (
             {"query_params": {"repeat_previous_search": True}} if repeat_search else {}
         )
-        if family == "faq" and recent_messages:
-            leaf_kwargs = {"query_params": {"recent_user_messages": recent_messages}}
+        if recent_messages and not repeat_search:
+            leaf_kwargs.setdefault("query_params", {})["recent_user_messages"] = recent_messages
+        search_view = leaf_profile_view(profile)
+        if route.target == LEAF_HOTEL_SEARCH:
+            search_view = prepare_search_context(
+                profile, {"action": "retain"} if repeat_search else triage.location_update
+            )
+            # Persist the request before remote work: a timeout must not erase
+            # the destination the user just supplied. It is still unverified.
+            await store.set(ctx.session.id, profile)
         leaf_text, response = await _run_leaf(
-            route.target, ctx, leaf_profile_view(profile), **leaf_kwargs
+            route.target, ctx, search_view, **leaf_kwargs
         )
         # OBS3 (2026-08-26): the guards that fired INSIDE the leaf, folded into
         # the same set the spine's own guards use — same one-liner as the inline
