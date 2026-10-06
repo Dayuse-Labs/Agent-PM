@@ -1122,6 +1122,16 @@ def record_search_shortlist(profile: SessionProfile, results: list[dict[str, Any
         _accumulate_shown_hotel_ids(profile, [entry["hotel_id"] for entry in shortlist])
 
 
+def shortlist_signature(entries: list[dict[str, Any]] | None) -> tuple[tuple[Any, ...], ...]:
+    """What the cards on screen show of each offer — equal signatures mean
+    the screen did not change."""
+    return tuple(
+        tuple(entry.get(key) for key in ("hotel_id", "offer_id", "price", "start_time", "end_time", "offer_date"))
+        for entry in entries or []
+        if isinstance(entry, dict)
+    )
+
+
 def build_hotel_picks(profile: SessionProfile) -> list[dict[str, Any]]:
     """The hotel-pick buttons (S-CX5, Fabien 2026-07-27): one entry per hotel on
     screen the user can choose, CHEAPEST FIRST.

@@ -22,14 +22,15 @@ def _disabled(monkeypatch):
 class TestGuardScoreNamesContract:
     _SNAKE_CASE_RE = re.compile(r"^[a-z][a-z0-9_]*$")
 
-    def test_exactly_17_names(self):
+    def test_exactly_18_names(self):
         # 13 → 14 on 2026-08-26 (`poi_anchor_coherence`), 14 → 15 on 2026-08-27
         # (`filter_relaxation_honored`, UX1), 15 → 16 on 2026-10-06
-        # (`date_served`, mcp-dayuse#8), 16 → 17 the same day (`window_match`).
+        # (`date_served`, mcp-dayuse#8), 16 → 17 the same day (`window_match`),
+        # 17 → 18 the same day (`refinement_unchanged`, mcp-dayuse#6).
         # The contract allows ADDING a guard; it
         # forbids renaming or removing one, which is what would break a score's
         # history.
-        assert len(scores.GUARD_SCORE_NAMES) == 17
+        assert len(scores.GUARD_SCORE_NAMES) == 18
 
     def test_no_duplicates(self):
         assert len(set(scores.GUARD_SCORE_NAMES)) == len(scores.GUARD_SCORE_NAMES)
@@ -66,6 +67,7 @@ class TestGuardScoreNamesContract:
             "filter_relaxation_honored",
             "date_served",
             "window_match",
+            "refinement_unchanged",
         }
 
 

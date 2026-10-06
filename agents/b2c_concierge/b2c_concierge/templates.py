@@ -85,6 +85,22 @@ _AFFIRMATIVE_REFINE: dict[str, str] = {
 }
 
 
+# mcp-dayuse#6: a follow-up that put back the very same offers says so.
+_REFINEMENT_UNCHANGED: dict[str, str] = {
+    "fr": "Ce changement ne modifie pas les résultats : ce sont les mêmes offres qu'avant.",
+    "en": "That change does not alter the results: these are the same offers as before.",
+    "es": "Este cambio no modifica los resultados: son las mismas ofertas que antes.",
+    "it": "Questa modifica non cambia i risultati: sono le stesse offerte di prima.",
+    "de": "Diese Änderung ändert nichts an den Ergebnissen: Es sind dieselben Angebote wie vorher.",
+    "pt": "Esta alteração não muda os resultados: são as mesmas ofertas de antes.",
+    "nl": "Deze wijziging verandert niets aan de resultaten: het zijn dezelfde aanbiedingen als eerder.",
+}
+
+
+def refinement_unchanged_notice(language: str) -> str:
+    return _pick(language, _REFINEMENT_UNCHANGED)
+
+
 def affirmative_relaunch_response(language: str, searched: bool) -> str:
     """The answer to a bare "oui" with no question pending: what to give next,
     or — once a search has run — how it can be refined."""

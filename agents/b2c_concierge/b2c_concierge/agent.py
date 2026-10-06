@@ -148,6 +148,7 @@ from .profile import (
     record_search_outcome,
     record_search_shortlist,
     reset_search_cursor,
+    shortlist_signature,
     resolve_shortlist_ordinal,
     search_context_line,
     select_cheapest_hotel,
@@ -488,6 +489,16 @@ ABSOLUTE RULES — a violation is a defect:
 
 Output only the reply — no preamble, no headings."""
 
+# mcp-dayuse#6: "élargir la zone" put the same 5 hotels back and the reply
+# said "J'ai élargi la zone". The sentence saying nothing changed is written
+# in code (templates.refinement_unchanged_notice); this keeps the reply from
+# contradicting it.
+_UNCHANGED_NOTE = (
+    "the cards are exactly the ones already shown on the previous turn: the user's "
+    "change did not alter them. Your reply comes right after a sentence saying so. "
+    "Never claim you widened, changed or found anything; offer ONE different next step."
+)
+
 _DO_NOT_ASK_DIRECTIVE = """
 
 DO NOT ASK directive: you already asked "{question}" and it went unanswered
@@ -607,7 +618,7 @@ class _B2cConcierge(BaseAgent):
         self, *, message: str, language: str, leaf_text: str, ground_truth_block: str,
         widen_note: str | None, invocation_id: str, extra_instruction: str = "",
         search_context: str = "", provenance_note: str = "", currency_note: str = "",
-        angle: str = "",
+        angle: str = "", unchanged: bool = False,
     ) -> str | None:
         """ONE litellm call producing a candidate synthesis text, or None on
         failure. The system prompt's STATIC prefix never changes (cache); only
@@ -652,6 +663,8 @@ class _B2cConcierge(BaseAgent):
             user += f"\n\nSEARCH CONTEXT (what you understood — restate briefly): {search_context}"
         if angle:
             user += f"\n\nANGLE (lead on this, in your own words): {angle}"
+        if unchanged:
+            user += f"\n\nUNCHANGED: {_UNCHANGED_NOTE}"
         t0 = time.monotonic()
         try:
             resp = await _get_synthesis_router(model_slug).acompletion(
@@ -706,7 +719,7 @@ class _B2cConcierge(BaseAgent):
     async def _synthesize_with_guards(
         self, *, message: str, language: str, leaf_text: str, response: dict[str, Any],
         profile: SessionProfile, budget: TurnBudget, invocation_id: str,
-        leaf_text_is_user_facing: bool = True,
+        leaf_text_is_user_facing: bool = True, unchanged: bool = False,
     ) -> str | None:
         """ONE charged "synthesis" budget slot (internal retries below are an
         implementation detail of this ONE phase — same precedent as the
@@ -797,7 +810,7 @@ class _B2cConcierge(BaseAgent):
             ground_truth_block=ground_truth_block, widen_note=widen_note,
             invocation_id=invocation_id, search_context=search_context,
             provenance_note=provenance_note, currency_note=currency_note,
-            angle=angle,
+            angle=angle, unchanged=unchanged,
         )
 
         def fallback() -> str | None:
@@ -824,7 +837,7 @@ class _B2cConcierge(BaseAgent):
                     ground_truth_block=ground_truth_block, widen_note=widen_note,
                     invocation_id=invocation_id, extra_instruction=directive,
                     search_context=search_context, provenance_note=provenance_note,
-                    currency_note=currency_note, angle=angle,
+                    currency_note=currency_note, angle=angle, unchanged=unchanged,
                 )
                 if retry is not None:
                     candidate = retry
@@ -1468,6 +1481,7 @@ class _B2cConcierge(BaseAgent):
             )
             return
         window_fallback: str | None = None
+        unchanged = False
         if route.target == LEAF_HOTEL_SEARCH and "results" in response:
             # guard_window_match (mcp-dayuse#8): what reaches the screen as a
             # match covers the slot, by the site rule the leaf filters with.
@@ -1514,7 +1528,22 @@ class _B2cConcierge(BaseAgent):
                 language=reply_language,
                 same_day_dead_end=same_day_dead_end,
             )
+            shown_before = shortlist_signature(profile.last_results)
             record_search_shortlist(profile, response["results"])  # S07: named-hotel lookup guard
+            # guard_refinement_unchanged (mcp-dayuse#6): a follow-up that put
+            # back the very offers on screen says so. Pagination never repeats
+            # a card, and a currency repaint changes only how prices read.
+            unchanged = (
+                results_count > 0
+                and not more_options
+                and not repeat_search
+                and bool(shown_before)
+                and shortlist_signature(profile.last_results) == shown_before
+            )
+            if unchanged:
+                with observation(as_type="guardrail", name="refinement-unchanged"):
+                    mark_level("WARNING", status_message="refinement_unchanged")
+                    budget.fired.add("refinement_unchanged")
             if more_options and results_count == 0:
                 # S-G5: pagination pool exhausted for the CURRENT filters (the
                 # leaf already excluded shown_hotel_ids before returning) —
@@ -1549,7 +1578,7 @@ class _B2cConcierge(BaseAgent):
 
         synth = await self._synthesize_with_guards(
             message=message, language=reply_language, leaf_text=leaf_text, response=response,
-            profile=profile, budget=budget, invocation_id=inv,
+            profile=profile, budget=budget, invocation_id=inv, unchanged=unchanged,
         )
         if route.target == LEAF_HOTEL_SEARCH:
             profile.pending_search = next_pending_search(
@@ -1582,6 +1611,8 @@ class _B2cConcierge(BaseAgent):
                 templates.named_hotel_not_found_notice(named_not_found, reply_language, profile.city)
                 + f"\n\n{final_text}"
             )
+        if unchanged:
+            final_text = f"{templates.refinement_unchanged_notice(reply_language)}\n\n{final_text}"
         if window_fallback:
             final_text, _ = enforce_window_disclosure(final_text, window_fallback, reply_language)
         if date_notice:

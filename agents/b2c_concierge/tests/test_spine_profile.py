@@ -1213,3 +1213,43 @@ class TestPendingSearchThroughTheSpine:
         _run_turn(runner, session.id, "moins cher")
 
         assert self._context_text(fake_leg.seen_outgoing_parts) == "moins cher"
+
+
+class TestRefinementUnchangedThroughTheSpine:
+    """guard #18 (mcp-dayuse#6): "élargir la zone" put the same 5 hotels back
+    and the reply said it had widened. Now the answer says nothing changed."""
+
+    _CARDS = [{"hotel_id": 1, "name": "Hotel A", "price": "€80.00", "offer_id": 11}]
+
+    def _two_searches(self, monkeypatch, fake_leg, second_results, second_message="élargir la zone"):
+        fake_leg.response_payload = {"results": self._CARDS, "profile_delta": {"city": "Paris"}}
+        llm = _scripted_llm(
+            monkeypatch,
+            '{"family": "search", "language": "fr"}', "Voici des hôtels à Paris.",
+            '{"family": "search", "language": "fr"}', "J'ai élargi la zone.",
+        )
+        runner = InMemoryRunner(root_agent)
+        session = _new_session(runner)
+        _run_turn(runner, session.id, "un hotel à Paris demain")
+        fake_leg.response_payload = {"results": second_results, "profile_delta": {}}
+        answer = _run_turn(runner, session.id, second_message)
+        return answer, llm
+
+    def test_the_same_offers_back_on_screen_are_announced(self, monkeypatch, fake_leg):
+        answer, llm = self._two_searches(monkeypatch, fake_leg, list(self._CARDS))
+        assert answer.startswith(
+            "Ce changement ne modifie pas les résultats : ce sont les mêmes offres qu'avant.\n\n"
+        )
+        synthesis_prompt = llm.calls[-1]["messages"][1]["content"]
+        assert "UNCHANGED:" in synthesis_prompt
+
+    def test_new_offers_are_not_announced_as_unchanged(self, monkeypatch, fake_leg):
+        other = [{"hotel_id": 2, "name": "Hotel B", "price": "€70.00", "offer_id": 22}]
+        answer, llm = self._two_searches(monkeypatch, fake_leg, other)
+        assert answer == "J'ai élargi la zone."
+        assert "UNCHANGED:" not in llm.calls[-1]["messages"][1]["content"]
+
+    def test_the_same_hotel_at_another_price_is_a_change(self, monkeypatch, fake_leg):
+        repriced = [{**self._CARDS[0], "price": "€95.00", "offer_id": 12}]
+        answer, _ = self._two_searches(monkeypatch, fake_leg, repriced, "plutôt samedi")
+        assert not answer.startswith("Ce changement")
