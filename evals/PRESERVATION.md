@@ -1,5 +1,42 @@
 # Production knowledge preservation replay — 2026-10-06
 
+## Budgeted campaign checkpoint
+
+The user authorized **$60 for the new campaign**, excluding prior runs. Dispatch
+stops at $40 observed model cost with $20 reserved for accounting uncertainty;
+this is telemetry accounting, not a provider invoice quota. No paid model judge.
+The input-first sample is 84 conversations / 209 turns: 80 live search/general
+FAQ and four isolated booking-support cases. Another 24 validation conversations
+(22 live, two support) were selected and annotated after application candidate
+`6857706` was frozen, before validation outputs. Do not call this a full-corpus
+replay or a representative global quality score.
+
+Checkpoint report: 43 complete live conversations / 108 turns per agent, about
+$2.30 observed campaign cost at capture. Five full dialogues / 23 paired turns
+have a written diagnostic review. A production HTTP timeout after 180 seconds
+is retained as a transport failure; its model calls are accounted, not retried
+to hide the failure. The remaining conversations run in two-conversation batches,
+with serial turns and one cost-ledger writer; stratify latency by concurrency.
+The first failed runner's cookie contamination remains separately excluded from
+quality and included in cost. Neither incident is an agent-quality improvement.
+
+`priced_stay_checks.py` provides explicit schema adaptation for budget evaluation:
+legacy slot amounts and currencies versus B2C's canonical selected-offer amount.
+Combined budget and hours must be witnessed by the **same** offer. Unknown
+currency/amount is unscored; there is no inferred FX or fee addition. A decrease
+in mismatching cards caused by returning no cards is not a quality gain. The
+report renderer accepts reviewed batch-specific scope/findings instead of copying
+the first pilot's timeout claim into every subsequent report.
+
+The private report is `reports/audit_eval_mcp_20261006/budget60_comparison.html`
+in the legacy workspace. Exact runtime handles, checkpoint data and serial next
+steps are in private `budget60-current-production/campaign.json`. Support and
+candidate validation were queued after the main comparison; they are not yet
+reported as executed or successful. Candidate corrections include full-stay
+coverage and transmission of recognized short EUR budgets into the search
+profile/MCP, without another model call. Global relevance, geography, cheaper
+follow-ups and booking-support parity remain open.
+
 ## Current comparison — corrected after user clarification
 
 **Primary reference is the agent actually serving production today**, not recorded

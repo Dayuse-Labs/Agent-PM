@@ -76,3 +76,16 @@ def test_unverified_current_deployment_cannot_be_presented_as_verified(pilot):
     path.write_text(json.dumps(data))
     with pytest.raises(ValueError):
         render(pilot, pilot / "report.html")
+
+
+def test_report_uses_reviewed_scope_and_does_not_invent_pilot_incident(pilot):
+    path = pilot / "pilot-review.json"
+    data = json.loads(path.read_text())
+    data.update(scope_note="Photographie partielle, campagne en cours.", findings=["<script>bad()</script>"])
+    path.write_text(json.dumps(data))
+    render(pilot, pilot / "report.html")
+    page = (pilot / "report.html").read_text()
+    assert "Photographie partielle, campagne en cours." in page
+    assert "&lt;script&gt;bad()&lt;/script&gt;" in page
+    assert "premier appel du nouvel agent a subi un timeout" not in page
+    assert "<script>" not in page

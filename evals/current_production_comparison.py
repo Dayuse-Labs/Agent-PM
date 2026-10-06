@@ -91,6 +91,11 @@ def render(directory: Path, output: Path) -> dict:
         raise ValueError("production deployment was not verified around the run")
     if review.get("reference") != manifest["reference"] or review.get("new_agent") != manifest["new_agent"]:
         raise ValueError("review refers to different agent versions")
+    scope = review.get("scope_note", "Lot ciblé de diagnostic, pas un taux global de qualité.")
+    findings = review.get("findings", [])
+    if not isinstance(scope, str) or not isinstance(findings, list) or any(not isinstance(f, str) for f in findings):
+        raise ValueError("review scope and findings must be plain text")
+    findings_html = "<ul>" + "".join(f"<li>{_text(f)}</li>" for f in findings) + "</ul>" if findings else ""
     sections = []
     for number, pair in enumerate(pairs, 1):
         source = pair["source"]
@@ -120,8 +125,9 @@ def render(directory: Path, output: Path) -> dict:
 <p>{len(pairs)} conversations réelles · {manifest['expected_turns_per_variant']} tours par agent · réponses réellement obtenues lors du même pilote.</p>
 <p class="muted">Exécution : {_text(manifest.get('created_at'))} — {_text(manifest.get('finished_at'))}.</p>
 <p><b>Production :</b> ai.dayuse.com · {_text(manifest['reference']['sha'][:8])} · {_text(manifest['reference']['model_config'])}.<br>
-<b>Nouveau :</b> main {_text(manifest['new_agent']['sha'][:8])} · {_text(manifest['new_agent']['model'])} · MCP live.</p>
-<p class="notice">Lot ciblé de diagnostic, pas un taux global de qualité. Un modèle, des sources d’inventaire et des environnements différents sont comparés. Le premier appel du nouvel agent a subi un timeout : il doit être distingué des défauts de dialogue. La production a également des erreurs et ne constitue pas une réponse de référence parfaite.</p>
+<b>Nouveau :</b> révision {_text(manifest['new_agent']['sha'][:8])} · {_text(manifest['new_agent']['model'])} · MCP live.</p>
+<p class="notice">{_text(scope)} Un modèle, des sources d’inventaire et des environnements différents sont comparés. La production a également des erreurs et ne constitue pas une réponse de référence parfaite.</p>
+{findings_html}
 <p>Les messages sont ceux des conversations historiques, mais les deux agents répondent au temps courant dans des sessions neuves. Les suivis ont parfois été écrits en réaction à une autre réponse historique. Aucun GPS ni compte client d’origine n’a été reconstitué. Un équipement déclaré sur l’hôtel ne prouve pas son inclusion dans chaque offre.</p>
 <p class="muted">Document privé contenant des messages réels. Aucun score de conversion ou de satisfaction client n’est déduit de ces sorties. L’analyse n’ajoute aucun appel modèle.</p>
 {''.join(sections)}</html>'''
