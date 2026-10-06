@@ -42,7 +42,7 @@ new main = $0.450963**, subject to Langfuse ingestion/accounting completeness an
 not a provider invoice. A naive extrapolation to 30,713 paired turns is about
 **$866**, highly uncertain given this diagnostic sample's traffic mix. The earlier
 rough $157 forecast applied to two GPT-4o-mini passes, not the requested production
-comparison. A spend ceiling has been requested before broadening that run.
+comparison. The user subsequently authorized a new campaign capped at $60, described below.
 
 Production currently has both `CS_MCP_ENABLED=true` and
 `CS_MCP_ALLOW_CANCEL=true`. The pilot only sends manually reviewed search sequences.
@@ -72,6 +72,39 @@ The replacement must retain learned behavior from the legacy agent: search
 relevance and complete multi-turn follow-up, as well as FAQ and cancellation
 support. Old assistant answers are evidence to investigate,
 not gold labels: several contain inconsistent policy or capability claims.
+
+## Authorized $60 campaign — running, not yet a result
+
+The user authorized a new $60 campaign after the initial pilot. The budget excludes
+prior diagnostic runs. An observed-cost ledger stops new dispatch at $40 and keeps
+$20 as reserve; missing costs, interrupted requests, cost decreases, or mismatched
+session identities block continuation. Repeated Langfuse reads must show exactly
+one distinct trace per expected production turn and stable costs. Candidate cost
+comes from its actual local LLM events. No model judge is launched. This is a
+telemetry stop plus reserve, not a provider-enforced invoice quota.
+
+Inputs were frozen before reading outputs: 84 dev conversations / 209 turns,
+randomly selected within month and single/multi-turn strata for April 6–October 6.
+Explicit synthetic sessions were excluded; remaining traffic is unclassified.
+Sample probabilities are retained. Complete input review permits 80 conversations
+/ 205 turns on production; four existing-booking requests await isolated support
+execution. Some dev cases overlap prior diagnostics; this is not an unseen holdout
+or a global quality estimate. Independent input annotations cover 40 card-bearing
+requirements and four cheaper-option transitions; missing cards do not pass.
+
+The first run caught a harness defect: one httpx cookie jar was reused across
+conversations, while production prioritizes its session cookie over the supplied
+session ID. The identity check stopped the run at the next case. That contaminated
+pair is excluded from quality results, all costs are retained, and the first
+complete two-turn conversation remains valid. A new batch replays the remaining
+79 cases with fresh per-conversation clients. A MockTransport regression verifies
+both within-conversation continuity and isolation across cases. Twelve new tests;
+full suite 1,910 passed / one skipped, lint/typecheck/guardrails pass.
+
+Private evidence lives in `budget60-current-production/`: immutable sampled
+inputs, input safety review and oracles, campaign budget ledger, incident and cost
+reconciliation, original batch and corrected `baseline-main-part2`. No full-run
+result or release approval is claimed while execution is in progress.
 
 ## First search fix after correcting the production reference
 
@@ -103,7 +136,7 @@ This is **not another current-production conversation replay**. The four-case li
 pilot remains frozen on unmodified main. MCP's upstream filter, its search recall,
 intent extraction and multi-turn propagation are not proven fixed. In particular,
 post-filtering cannot recover offers excluded upstream. These remain part of the
-expanded production comparison, with the requested spend ceiling still pending.
+expanded production comparison, within the subsequently authorized $60 campaign.
 
 ## Evidence and frozen references
 
