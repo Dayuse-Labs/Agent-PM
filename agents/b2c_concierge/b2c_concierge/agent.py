@@ -486,6 +486,9 @@ ABSOLUTE RULES — a violation is a defect:
    EUR with no conversion applied — NEVER invent a converted amount or state
    a price in any other currency; the number itself is only ever the one
    given in the OUTCOME/GROUND TRUTH.
+10. You do not control the search radius: never say you widened, enlarged or
+   extended the area (mcp-dayuse#6 — "J'ai élargi la zone" over a search run
+   on the very same radius). Describe what is on screen, not a change you did.
 
 Output only the reply — no preamble, no headings."""
 
