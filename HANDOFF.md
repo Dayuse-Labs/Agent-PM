@@ -4,6 +4,12 @@
 
 > 📋 **Pour savoir QUOI faire ensuite, ouvrir [`CHANTIERS.md`](CHANTIERS.md)** (état vérifié au 2026-09-14) : la liste des chantiers ouverts, chacun avec sa preuve, ses actions et un prompt prêt à coller — plus la liste de ce qu'il ne faut **pas** relancer parce que c'est déjà livré. `tasks/todo.md` est périmé et ne doit plus servir de référence.
 
+## 2026-10-06 — Arrêt du replay v3 puis verrouillage des identifiants géographiques
+
+`636cebd` : suite 1 969 passés / un skip. Pilote six conversations et six autres conversations géo terminés (35 tours par agent au total), puis arrêt avant les lots de validation : la relecture des outils montrait encore JFK résolu sur East New York et Milford sur un hôtel homonyme. Toutes les tentatives sont conservées, coût cumulé rapproché à 8,9822 $, aucun pending.
+
+Correction supplémentaire en validation : les identifiants courts ne disparaissent plus du contrôle de nom ; les requêtes sémantiques de type ville ne créent pas de faux quartier « ville, État ». Le client Search Box conserve le code IATA **fourni par le géocodeur**, et le classement le préfère aux commerces homonymes. Probe live JFK : John F. Kennedy International Airport, 40.6437681 / -73.7818999. Source du contrat : https://docs.mapbox.com/api/search/search-box/ (`external_ids`). Aucun catalogue d’aéroports ni nouvelle regex. Nouveau candidat figé à rejouer avant présentation de la PR.
+
 ## 2026-10-06 — Préservation du lieu multi-tour, nouvelle itération en validation
 
 Demande explicite : améliorer AgentB2C à partir des mécanismes éprouvés en production, sans nouvelle regex ni catalogue de villes, puis rejouer les évaluations avant review. Ajout d’une modification sémantique de lieu au triage existant (`retain` / `replace` / `refine`), validée en code et conservée séparément des coordonnées vérifiées. La recherche reçoit le contexte utilisateur borné ; un timeout ne perd plus la destination demandée. Les coordonnées MCP sont prises dans le géocodage du tour ; un centroïde de ville ne suffit plus à valider un quartier nommé. Pas d’appel LLM supplémentaire ; plafond de sortie triage 400 tokens pour le contrat enrichi.

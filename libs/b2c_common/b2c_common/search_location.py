@@ -33,6 +33,13 @@ def parse_location_update(value: Any) -> dict[str, Any] | None:
         return {"action": "retain"} if len(result) == 1 else None
     if result["action"] == "replace" and not any(result.get(k) for k in ("city", "zone", "metro")):
         return None
+    if result.get("kind") == "city" and result.get("city"):
+        # A city-level request must not turn a repeated "city, state" label
+        # into a POI search. On a clarification, keep the earlier area intact.
+        if result["action"] == "replace":
+            result["zone"] = None
+        else:
+            result.pop("zone", None)
     return result
 
 
@@ -42,4 +49,6 @@ def location_request(previous: dict[str, Any], update: dict[str, Any]) -> dict[s
         key: previous[key] for key in LOCATION_FIELDS if key in previous
     }
     result.update({key: update[key] for key in LOCATION_FIELDS if key in update})
+    if update["action"] == "refine" and update.get("kind") == "city" and previous.get("zone"):
+        result["kind"] = previous.get("kind")
     return {key: result.get(key) for key in LOCATION_FIELDS}

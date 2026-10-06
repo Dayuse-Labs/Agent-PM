@@ -407,6 +407,10 @@ def rank_landmark(
         value += _W_PROXIMITY * _proximity_credit(candidate, proximity)
         value += _W_LANDMARK_CITY_ANCHOR * _city_anchor_credit(candidate, city_anchor)
         name = _landmark_key(candidate.name)
+        # A provider IATA identifier is stronger evidence than a business name
+        # containing the airport's code. No hand-maintained airport mapping.
+        if candidate.iata_code and candidate.iata_code.lower() in wanted_tokens:
+            value += 10.0
         if name == wanted:
             value += _W_LANDMARK_EXACT_NAME
         elif wanted_tokens:

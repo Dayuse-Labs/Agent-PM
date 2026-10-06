@@ -35,6 +35,7 @@ from hotel_search_agent.geo_guards import (
     is_generic_location_token,
     resolve_state_hint,
     select_us_postal_anchor,
+    specific_name_matches,
 )
 from hotel_search_agent.inventory import get_inventory, haversine_km
 from hotel_search_agent.mapbox_client import GeocodeCandidate, GeocodeResult, MapboxClient
@@ -644,7 +645,7 @@ def geocode_location(
     # cannot outrank the actual named neighbourhood merely by being larger.
     area_candidates = [c for c in candidates if effective_zone
                        and c.feature_type in {"neighborhood", "locality", "district"}
-                       and _echoes(c.name, city=None, zone=effective_zone, state_hint=None)
+                       and specific_name_matches(c.name, effective_zone)
                        and _echoes(c.place_name, city=effective_city or effective_metro,
                                    zone=None, state_hint=state_hint)]
     ranked_candidates = area_candidates or candidates
@@ -745,7 +746,7 @@ def geocode_location(
         zone_matches = not zone_is_specific or (
             (chosen.feature_type not in {"place", "region"}
              or chosen.name.casefold() == (effective_zone or "").casefold())
-            and _echoes(chosen.name, city=None, zone=effective_zone, state_hint=None)
+            and specific_name_matches(chosen.name, effective_zone or "")
         )
         if zone_matches and _echoes(chosen.place_name, city=echo_city, zone=effective_zone, state_hint=state_hint):
             profile_delta = _anchor_state(
@@ -848,7 +849,9 @@ def geocode_location(
             proximity=proximity_tuple,
             city_anchor=city_anchor,
         )
-        if poi is not None and _echoes(
+        if (poi is not None and (not location_kind or specific_name_matches(
+            f"{poi.name} {poi.iata_code or ''}", effective_zone or effective_city or effective_metro or ""
+        ))) and _echoes(
             poi.place_name, city=echo_city, zone=effective_zone, state_hint=state_hint
         ):
             # Guard #14 (`poi_anchor_coherence`): the echo above proved the NAME,

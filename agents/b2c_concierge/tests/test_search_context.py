@@ -51,3 +51,19 @@ def test_malformed_triage_does_not_override_legacy_leaf_contract():
     view = prepare_search_context(profile, None)
     assert 'search_location_request' not in view
     assert profile.search_location_request is None
+
+
+def test_city_kind_cannot_search_a_hotel_named_after_city_and_state():
+    profile = SessionProfile()
+    view = prepare_search_context(profile, {'action':'replace','kind':'city','city':'Milford',
+        'zone':'Milford, CT','region':'Connecticut','country_code':'US'})
+    assert view['zone'] is None
+    assert view['city'] == 'Milford' and view['state_anchor'] == 'Connecticut'
+
+
+def test_city_clarification_keeps_original_landmark_kind_and_name():
+    profile = SessionProfile()
+    prepare_search_context(profile, {'action':'replace','kind':'landmark','zone':'Central Station'})
+    view = prepare_search_context(profile, {'action':'refine','kind':'city','city':'Rotterdam','zone':'Rotterdam'})
+    assert view['zone'] == 'Central Station'
+    assert view['search_location_request']['kind'] == 'landmark'

@@ -1640,3 +1640,34 @@ def test_named_area_beats_parent_city_with_more_inventory(monkeypatch):
     assert result['ok'] is True
     assert result['latitude'] == 52.517
     assert result['resolved_feature_type'] == 'locality'
+
+
+def test_short_airport_code_does_not_validate_unrelated_neighbourhood(monkeypatch):
+    east = _c('East New York','US','New York',ftype='neighborhood',lat=40.664,lon=-73.888)
+    _patch_multi(monkeypatch,[east],inventory={40.664:30})
+    result = geocode_location(city='New York',zone='JFK Airport',country_code='US',location_kind='landmark')
+    assert result['ok'] is False
+
+
+def test_short_airport_identifier_accepts_provider_named_airport(monkeypatch):
+    east = _c('East New York','US','New York',ftype='neighborhood',lat=40.664,lon=-73.888)
+    _patch_multi(monkeypatch,[east],inventory={40.664:30})
+    box = _FakeSearchBox(GeocodeResult(40.6413,-73.7781,'JFK Airport, New York, United States','US','NY'))
+    monkeypatch.setattr(geocode_tool,'get_searchbox_client',lambda:box)
+    result = geocode_location(city='New York',zone='JFK Airport',country_code='US',location_kind='landmark')
+    assert result['ok'] is True and result['latitude'] == 40.6413
+
+
+def test_provider_iata_identity_beats_hotel_named_after_airport(monkeypatch):
+    from dataclasses import replace
+    _patch_multi(monkeypatch,[],inventory={40.6413:1,40.7:30})
+    airport = replace(_c('John F. Kennedy International Airport','US','New York',ftype='poi',lat=40.6413,lon=-73.7781),iata_code='JFK')
+    hotel = _c('LeTap Inn JFK Airport','US','New York',ftype='poi',lat=40.7,lon=-73.81)
+
+    class Candidates:
+        def forward_candidates(self,*args,**kwargs):
+            return [hotel,airport]
+
+    monkeypatch.setattr(geocode_tool,'get_searchbox_client',lambda:Candidates())
+    result = geocode_location(city='New York',zone='JFK Airport',country_code='US',location_kind='landmark')
+    assert result['ok'] is True and result['latitude'] == 40.6413

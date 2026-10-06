@@ -81,3 +81,9 @@ def test_result_is_cached():
     client.forward("La Défense", country="fr")
     client.forward("La Défense", country="fr")
     assert calls["n"] == 1
+
+
+def test_iata_identifier_is_read_only_from_provider_external_ids():
+    assert SearchBoxClient._iata_code({'external_ids':{'iata':'jfk'}}) == 'JFK'
+    assert SearchBoxClient._iata_code({'name':'JFK Airport'}) is None
+    assert SearchBoxClient._iata_code({'external_ids':{'iata':'John F Kennedy'}}) is None
