@@ -76,6 +76,10 @@ GUARD_SCORE_NAMES: tuple[str, ...] = (
     # applied; reaches here through the leaf's `guards_fired` DataPart key.
     # APPENDED, never reordered — the contract at the top of this module.
     "filter_relaxation_honored",
+    # #16 (mcp-dayuse#8, 2026-10-06): the search ran on another day than the
+    # one the user named (QA Côte d'Azur: 3 October asked, 30/09 served).
+    # Fires in `b2c_concierge.agent`, which then says which day is on screen.
+    "date_served",
 )
 
 #: Degraded paths that still answer (mcp-dayuse#8): each becomes the BOOLEAN

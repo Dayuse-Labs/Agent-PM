@@ -151,6 +151,7 @@ from .profile import (
     select_hotel_by_position,
 )
 from .profile_store import get_profile_store
+from .requested_date import date_served_notice, expected_search_date, reference_today
 from .routing import LEAF_FAQ, LEAF_HOTEL_SEARCH, ROUTES, bearer_token, card_url
 from .triage import (
     SERVICE,
@@ -1317,6 +1318,22 @@ class _B2cConcierge(BaseAgent):
         # ONE call, per-family budget (_leaf_timeout), no retry. Session profile
         # (Redis, orchestrator-only — decision B3) travels OUT as profile_in and
         # comes back as profile_delta.
+        # guard_date_served (mcp-dayuse#8): the day this search must run on,
+        # when code can know it. A date named in THIS message is stored before
+        # the leaf runs — a turn that ends on a clarification never reaches
+        # search_offers, and the date used to die with it (QA Côte d'Azur:
+        # "le 3 octobre" asked, today served on the next turn).
+        expected_date: str | None = None
+        if route.target == LEAF_HOTEL_SEARCH:
+            expected_date, from_message = expected_search_date(
+                message, profile.date, reference_today(profile.client_timezone)
+            )
+            if expected_date and from_message:
+                profile.date = expected_date
+                profile.date_reference = {"resolved_from": "concierge"}
+                if profile.client_timezone:
+                    profile.date_reference["client_tz"] = profile.client_timezone
+
         budget.charge("leaf_llm")
         leaf_kwargs: dict[str, Any] = (
             {"query_params": {"repeat_previous_search": True}} if repeat_search else {}
@@ -1353,6 +1370,21 @@ class _B2cConcierge(BaseAgent):
         delta = response.get("profile_delta") or {}
         if delta:
             apply_profile_delta(profile, delta, message, budget.fired)
+        date_notice: str | None = None
+        search_date_part = response.get("search_date")
+        if expected_date and isinstance(search_date_part, dict):
+            served = search_date_part.get("date")
+            # A same-day cutoff swap is already disclosed by the leaf.
+            if (
+                isinstance(served, str)
+                and served != expected_date
+                and search_date_part.get("cutoff_fallback_from") != expected_date
+            ):
+                with observation(as_type="guardrail", name="enforce-date-served"):
+                    mark_level("WARNING", status_message="date_served")
+                    budget.fired.add("date_served")
+                profile.date = expected_date
+                date_notice = date_served_notice(expected_date, served, reply_language)
         # S-CX2 (audit CX F2): the leaf reports the search TOOLS never ran this
         # turn (MCP unreachable / circuit open / budget spent before the
         # search). Serve the honest degraded template — never synthesize, or
@@ -1451,6 +1483,8 @@ class _B2cConcierge(BaseAgent):
             currency_notice = unsupported_currency_message(
                 resolve_currency_request(pending_currency, None), reply_language
             )
+        if date_notice:
+            final_text = f"{final_text.rstrip()}\n\n{date_notice}"
         if currency_notice:
             final_text = f"{final_text.rstrip()}\n\n{currency_notice}"
         for chunk in _chunk_text(final_text):
