@@ -73,3 +73,9 @@ def test_remote_endpoint_and_changed_resume_provenance_rejected(tmp_path):
             await replay([], tmp_path, "http://localhost/chat", "v", 1, {"sha": "changed"})
         assert json.loads((tmp_path / "manifest.json").read_text())["complete"]
     asyncio.run(run())
+
+
+def test_invalidated_run_cannot_reuse_completed_cases(tmp_path):
+    (tmp_path / "INVALIDATED.json").write_text('{"reason":"provider errors"}')
+    with pytest.raises(ValueError, match="invalidated"):
+        asyncio.run(replay([], tmp_path, "http://localhost/chat", "v", 1, {}))

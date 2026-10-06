@@ -40,7 +40,29 @@ not certified organic traffic. Keep both populations visible. Do not exclude a
 session just because it contains a common FAQ question: the legacy report's
 synthetic-content heuristics include ordinary cancellation questions.
 
+## Historical evaluations and feedback
+
+The B2C Langfuse project has four historical datasets / 54 items. Their last
+recorded runs predate this replay and are not measurements of today's candidate.
+The feedback audit found seven `user-feedback` scores (two development, five
+production-tagged), with too little provenance to infer a population satisfaction
+rate. Human-labelled hallucination/relevance/distress scores are sparse; only
+three exact human/judge pairs could be joined and verified. Do not claim a
+calibrated general-purpose policy judge from that evidence.
+
+Fetch trace details by ID and verify returned IDs before joining scores to dataset
+items: a server-side `traceId` score-list filter was observed to be ignored. The
+new replay's route annotations are by **Codex**, not human gold labels. A live
+trace lookup verified the synthetic session ID, `eval-preservation` environment
+and candidate release. Keep those experiments outside organic-traffic reporting.
+
 ## FAQ and cancellation preservation
+
+`preservation_registry.json` versions 32 sourced requirements (18 search/dialogue,
+14 FAQ/cancellation), each with its invariant, legacy/code references, a positive
+probe, counterexample and ownership. It is an audit registry, not 32 passing tests.
+Its execution statuses describe the initial audit; scored coverage must be attached
+explicitly as work progresses. Relative `evidence/` references refer to the private audit archive; public repository and help-center links remain resolvable from the registry.
 
 Preserve routing between new searches, public policy questions and support for an
 existing booking; follow-up context; payment/guarantee/prepayment/booking-fee
@@ -67,7 +89,7 @@ Same 24 dev conversations / 61 turns (23 unclassified sessions, 1 explicit test)
 | --- | ---: | ---: |
 | Transport-complete turns | 61 | 61 |
 | EUR disclosure appended with no hotel cards | 18 | 0 |
-| Correct FAQ route on 15 manually reviewed support turns | 7 | 14 |
+| Correct FAQ route on 15 support turns annotated by Codex | 7 | 14 |
 | Actual observed LLM calls | 171 | 201 |
 | Estimated LLM cost, USD | 0.080623 | 0.093314 |
 | Turn metric status `degraded` | 5 | 3 |
@@ -80,6 +102,22 @@ logical phase counts must not be described as measured model-call counts.
 Do not attribute latency improvements to this patch: the pilot used different
 concurrency, the candidate benefited from warmed fixtures, and local load differs.
 Policy overgeneralization and one support agreement misroute remain in the pilot.
+
+A second, three-line triage iteration explicitly keeps an agreement following
+existing-booking support in FAQ. The same development pilot now routes 15/15 of
+the reviewed turns correctly, with 0 spurious EUR disclosures and $0.100217 estimated
+cost over all 61 turns. The 14→15 change alone is not evidence beyond model variance;
+three repeated runs of the same five critical conversations each give main 7/15 and candidate 15/15. These are repeated measurements of the same inputs, not 45 independent examples. Policy
+correctness remains ungraded and overgeneralized cancellation text is still a risk.
+
+On a separate validation pilot (24 conversations / 61 turns), Codex annotated
+the user inputs **before reading either version's validation replies**. 52 turns
+had a sufficiently clear routing expectation; nine ambiguous turns were left
+unscored. Main meets 44/52, v2 meets 52/52, with no routing regression on these
+annotations. Spurious EUR disclosure: 21→0; retained-attempt estimated cost:
+$0.096328→$0.098502. Both have two degraded turn metrics. These remain routing
+and behavior diagnostics, not human-reviewed policy accuracy or organic conversion.
+The final holdout has not been used for development.
 
 The first full baseline attempt and first candidate pilot hit staging HTTP 429 and
 were invalidated. The replacement proxy freezes the tool catalog, shares successful
@@ -122,8 +160,7 @@ production metrics database. Langfuse traces must be tagged `eval-preservation`
 with synthetic session IDs and release provenance. Secrets stay in private `.env`.
 
 Resume with exactly the same manifest inputs. Completed cases are reused; partial
-cases restart from turn one with a new session. Inspect repeated-attempt metric
-joins before reporting resumed costs. Do not reuse an invalidated run as evidence.
+cases restart from turn one with a new session. Metrics join the retained attempt by its synthetic session ID; total estimated spend across all attempts is also reported. Do not reuse an invalidated run as evidence.
 
 ## Limits and remaining release work
 
@@ -147,3 +184,6 @@ joins before reporting resumed costs. Do not reuse an invalidated run as evidenc
   score `skipped`, never a false success for `max_hotels=0` or forbidden-text checks.
   Existing advisory CI jobs and permissive historic thresholds are not a release
   authorization and still need a calibrated coverage-aware release gate.
+  The existing battery gate now checks its configured total and per-family counts,
+  and refuses an absent battery or interrupted/empty unit suite. Its old quality
+  floor is deliberately not rewritten to manufacture a passing release result.

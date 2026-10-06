@@ -322,6 +322,9 @@ with exactly these keys:
   MESSAGES, when provided, only to interpret short follow-ups. A continuation
   such as "I booked as a guest" is not a social greeting. A clear new hotel
   search still starts a search even after a support conversation.
+  An agreement ("sure", "yes") continuing support for an EXISTING reservation
+  remains `faq`; it is not permission to create a new booking. `booking` needs
+  an identifiable new-booking intent, not just a reservation mentioned earlier.
 - "language": one of {list(LANGUAGES)} — the language the message is actually
   written in. Report what you SEE: never fall back to "en" because the language
   is not French, and never let a single borrowed word decide (a Spanish message

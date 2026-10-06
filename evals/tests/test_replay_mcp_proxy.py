@@ -61,3 +61,25 @@ def test_catalog_is_frozen_and_reused_without_repeated_upstream_requests(tmp_pat
         assert calls == ["tools/list"]
         await proxy.client.aclose()
     asyncio.run(run())
+
+
+def test_tool_rpc_error_preserves_upstream_contract_without_invalidating_other_cases(tmp_path):
+    import httpx
+    from starlette.applications import Starlette
+    from starlette.routing import Route
+
+    async def run():
+        proxy = FixtureProxy("https://example.invalid", "fake", tmp_path, "2026-10-08")
+        error = {"code": -32602, "message": "hotelIds must contain at least two identifiers"}
+        async def rpc(method, params):
+            return {"error": error}
+        proxy.rpc = rpc
+        app = Starlette(routes=[Route("/mcp", proxy.handle, methods=["POST"])])
+        async with httpx.AsyncClient(transport=httpx.ASGITransport(app), base_url="http://localhost") as client:
+            response = await client.post("/mcp", json={"id": 42, "method": "tools/call",
+                "params": {"name": "compare_hotels", "arguments": {"hotelIds": []}}})
+        assert response.json() == {"jsonrpc": "2.0", "id": 42, "error": error}
+        assert proxy.error_count == 0
+        assert proxy.tool_rejections == 1
+        await proxy.client.aclose()
+    asyncio.run(run())

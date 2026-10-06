@@ -18,7 +18,8 @@ from typing import Any
 
 import httpx
 
-HEADERS = ("x-replay-clock", "x-replay-source-today", "x-replay-case", "x-replay-turn", "x-replay-variant")
+HEADERS = ("x-replay-clock", "x-replay-source-today", "x-replay-case", "x-replay-turn", "x-replay-variant",
+           "x-replay-session-id")
 replay_headers: ContextVar[dict[str, str]] = ContextVar("replay_headers", default={})
 
 

@@ -31,11 +31,22 @@ READ_ONLY = {"search_offers", "find_hotel_by_name", "get_hotel_details", "compar
              "generate_booking_link", "get_faq_conditions", "list_amenities"}
 
 
+class ToolRpcError(Exception):
+    """Preserve a server's tool-level RPC rejection without calling it an outage."""
+    def __init__(self, error: dict):
+        self.error = error
+
+
 def shift_request(name: str, arguments: dict, source_today: str | None, inventory_day: str) -> tuple[dict, int]:
     args = copy.deepcopy(arguments)
     days = (date.fromisoformat(inventory_day) - date.fromisoformat(source_today)).days if source_today else 0
     if name == "search_offers" and isinstance(args.get("date"), str):
-        args["date"] = (date.fromisoformat(args["date"]) + timedelta(days=days)).isoformat()
+        try:
+            args["date"] = (date.fromisoformat(args["date"]) + timedelta(days=days)).isoformat()
+        except ValueError:
+            # The upstream owns argument validation. Preserve a malformed
+            # model argument instead of misclassifying it as fixture failure.
+            return args, 0
     return args, days
 
 
@@ -78,6 +89,8 @@ class FixtureProxy:
         self.refilled_at = time.monotonic()
         self.error_count = 0
         self.blocked_until = 0.0
+        self.last_error: dict | None = None
+        self.tool_rejections = 0
 
     async def post_rpc(self, method: str, params: dict, request_id: int = 2) -> httpx.Response:
         # The shared staging service advertises a 100-request rate limit. A
@@ -106,7 +119,8 @@ class FixtureProxy:
 
     async def status(self, request: Request) -> Response:
         return JSONResponse({"error_count": self.error_count,
-                             "ready": time.monotonic() >= self.blocked_until})
+                             "ready": time.monotonic() >= self.blocked_until,
+                             "last_error": self.last_error, "tool_rejections": self.tool_rejections})
 
     async def rpc(self, method: str, params: dict) -> dict:
         async with self.lock:
@@ -145,7 +159,7 @@ class FixtureProxy:
             else:
                 rpc = await self.rpc("tools/call", {"name": name, "arguments": mapped})
                 if "error" in rpc:
-                    raise ValueError("upstream RPC error")
+                    raise ToolRpcError(rpc["error"])
                 result = rpc["result"]
                 if not result.get("isError"):
                     atomic_json(path, {"tool": name, "arguments": mapped, "result": result,
@@ -184,8 +198,16 @@ class FixtureProxy:
             else:
                 return JSONResponse({"jsonrpc": "2.0", "id": body["id"], "error": {"code": -32601, "message": "Method not available"}})
             return JSONResponse({"jsonrpc": "2.0", "id": body["id"], "result": result})
+        except ToolRpcError as exc:
+            self.tool_rejections += 1
+            # The real server rejected this tool call. Return the exact MCP
+            # error so the agent sees the same contract as in production.
+            return JSONResponse({"jsonrpc": "2.0", "id": body["id"], "error": exc.error})
         except (ValueError, KeyError, httpx.HTTPError) as exc:
             self.error_count += 1
+            self.last_error = {"type": type(exc).__name__, "method": method,
+                               "tool": params.get("name"),
+                               "http_status": exc.response.status_code if isinstance(exc, httpx.HTTPStatusError) else None}
             # Error type only: do not leak headers, credentials or upstream bodies.
             return JSONResponse({"jsonrpc": "2.0", "id": body["id"], "error": {
                 "code": -32603, "message": "Fixture dependency failed: " + type(exc).__name__}})

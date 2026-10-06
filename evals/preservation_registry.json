@@ -1,0 +1,787 @@
+{
+  "schema_version": "1.0",
+  "audited_at": "2026-10-06",
+  "legacy_main": "a08a7792ed95dedca6255b5c588a80a504dd6249",
+  "b2c_main": "07be07e447418c1b9b87fdd8b753b36a058a26b8",
+  "scope": "Versioned preservation requirements from legacy fixes, QA and source audit. Not a scored evaluation run.",
+  "rules": [
+    {
+      "id": "M01",
+      "title": "Date conservée pendant une clarification",
+      "invariant": "Une date explicite reste la date de recherche après la réponse à une question de lieu ; chaque offre affichée respecte la date demandée.",
+      "legacy_or_business_sources": [
+        "https://github.com/Dayuse-Labs/agent-conversationnel-USA/blob/a08a7792ed95dedca6255b5c588a80a504dd6249/tests/unit/application/test_audit_fixes_2026_09_08.py",
+        "https://gitlab.com/dayuse/dayuse/dayuse-com/-/work_items/14707",
+        "https://gitlab.com/dayuse/dayuse/mcp-dayuse/-/work_items/6"
+      ],
+      "b2c_sources": [
+        "https://langfuse-web-production-272b.up.railway.app/project/cms4gd0d20002nz029tuly62e/traces/988bb837ccb87c6d796c76d8907ff600",
+        "https://langfuse-web-production-272b.up.railway.app/project/cms4gd0d20002nz029tuly62e/traces/40af2fccc3d5feb6709b79c01cfb2cf6",
+        "https://github.com/Dayuse-Labs/AgentB2C/blob/07be07e447418c1b9b87fdd8b753b36a058a26b8/agents/hotel_search_agent/hotel_search_agent/datetime_resolver.py"
+      ],
+      "status": "qa_failure_confirmed",
+      "owner": "Agent, contrat MCP",
+      "portable_probe": {
+        "clock": "2026-09-30T13:45:00Z",
+        "timezone": "Europe/Paris",
+        "turns": [
+          "Côte d’Azur samedi 3 octobre",
+          "Monaco"
+        ],
+        "assert": "search_offers.date == 2026-10-03 ; date de chaque offre identique"
+      },
+      "counterexample": "Une demande explicite ultérieure de changement de date doit remplacer la date précédente ; minuit doit être résolu dans le fuseau du client.",
+      "execution": "not_replayed_cross_architecture",
+      "oracle_review": "required_before_release_gate"
+    },
+    {
+      "id": "M02",
+      "title": "Offre couvrant tout le créneau demandé",
+      "invariant": "Pour une exigence de présence sur une fenêtre, début offre ≤ début demandé ET fin offre ≥ fin demandée ; distinguer réponse exacte et alternative déclarée.",
+      "legacy_or_business_sources": [
+        "https://gitlab.com/dayuse/dayuse/dayuse-com/-/work_items/14707",
+        "https://gitlab.com/dayuse/dayuse/mcp-dayuse/-/work_items/1",
+        "https://gitlab.com/dayuse/dayuse/mcp-dayuse/-/work_items/4"
+      ],
+      "b2c_sources": [
+        "https://github.com/Dayuse-Labs/AgentB2C/blob/07be07e447418c1b9b87fdd8b753b36a058a26b8/agents/hotel_search_agent/hotel_search_agent/response_bridge.py",
+        "https://github.com/Dayuse-Labs/AgentB2C/blob/07be07e447418c1b9b87fdd8b753b36a058a26b8/scripts/eval_ranking.py",
+        "https://langfuse-web-production-272b.up.railway.app/project/cms4gd0d20002nz029tuly62e/traces/324561ec5cea3bcf2777704843ea2244"
+      ],
+      "status": "code_and_live_contract_mismatch_confirmed",
+      "owner": "MCP et agent",
+      "portable_probe": {
+        "fixtures": [
+          {
+            "request": "12:00–13:00",
+            "offer": "10:00–16:00",
+            "expected": "eligible"
+          },
+          {
+            "request": "06:00–16:00",
+            "offer": "08:00–14:00",
+            "expected": "ineligible_as_exact"
+          }
+        ],
+        "assert": "comparer offres servies, total admissible et libellé ; oracle indépendant du filtre de production"
+      },
+      "counterexample": "Un simple chevauchement peut être présenté comme alternative explicitement annoncée, jamais comme couverture exacte.",
+      "execution": "not_replayed_cross_architecture",
+      "oracle_review": "required_before_release_gate"
+    },
+    {
+      "id": "M03",
+      "title": "Origine GPS conservée au raffinement",
+      "invariant": "Une demande près de moi conserve son origine GPS pour les distances après un ajout de filtre.",
+      "legacy_or_business_sources": [
+        "https://github.com/Dayuse-Labs/agent-conversationnel-USA/blob/a08a7792ed95dedca6255b5c588a80a504dd6249/tests/unit/application/test_near_me_origin_carryover_2026_09_24.py"
+      ],
+      "b2c_sources": [
+        "https://github.com/Dayuse-Labs/AgentB2C/blob/07be07e447418c1b9b87fdd8b753b36a058a26b8/agents/b2c_concierge/b2c_concierge/profile.py",
+        "https://github.com/Dayuse-Labs/AgentB2C/blob/07be07e447418c1b9b87fdd8b753b36a058a26b8/tests/api/test_native_context_http.py"
+      ],
+      "status": "implementation_found_not_validated",
+      "owner": "Agent et contexte widget",
+      "portable_probe": {
+        "context": {
+          "gps": [
+            40.7243,
+            -73.9973
+          ]
+        },
+        "turns": [
+          "Hotels near me",
+          "Luxury"
+        ],
+        "assert": "distance_origin inchangée ; distances calculées depuis le GPS et non le centre de la ville"
+      },
+      "counterexample": "Un nouveau quartier ou une nouvelle destination explicitement demandé peut remplacer l’origine précédente.",
+      "execution": "not_replayed_cross_architecture",
+      "oracle_review": "required_before_release_gate"
+    },
+    {
+      "id": "M04",
+      "title": "Lieu confirmé réutilisé",
+      "invariant": "Un raffinement sans nouveau lieu réutilise l’identité et les coordonnées du lieu confirmé.",
+      "legacy_or_business_sources": [
+        "https://github.com/Dayuse-Labs/agent-conversationnel-USA/blob/a08a7792ed95dedca6255b5c588a80a504dd6249/tests/unit/application/test_audit_fixes_2026_09_25.py"
+      ],
+      "b2c_sources": [
+        "https://github.com/Dayuse-Labs/AgentB2C/blob/07be07e447418c1b9b87fdd8b753b36a058a26b8/agents/b2c_concierge/b2c_concierge/profile.py",
+        "https://github.com/Dayuse-Labs/AgentB2C/blob/07be07e447418c1b9b87fdd8b753b36a058a26b8/agents/hotel_search_agent/hotel_search_agent/geo_resolver.py"
+      ],
+      "status": "implementation_found_not_validated",
+      "owner": "Agent",
+      "portable_probe": {
+        "turns": [
+          "Milano",
+          "Une piscine pour les enfants"
+        ],
+        "fixture": "géocodeur adversarial proposant un hameau homonyme au second tour",
+        "assert": "conserver Milano Italie et ses coordonnées ; ne pas re-résoudre une simple modification d’équipement"
+      },
+      "counterexample": "Une demande explicite de Roma, de Brera ou de déplacement doit déclencher la transition adaptée.",
+      "execution": "not_replayed_cross_architecture",
+      "oracle_review": "required_before_release_gate"
+    },
+    {
+      "id": "M05",
+      "title": "Réponse à la clarification consommée une fois",
+      "invariant": "La sélection d’un candidat de lieu reste acquise après extraction et résolution ; elle ne doit pas relancer la même question.",
+      "legacy_or_business_sources": [
+        "https://github.com/Dayuse-Labs/agent-conversationnel-USA/blob/a08a7792ed95dedca6255b5c588a80a504dd6249/tests/unit/application/test_clarification_answer_survives_intake_2026_08_24.py"
+      ],
+      "b2c_sources": [
+        "https://github.com/Dayuse-Labs/AgentB2C/blob/07be07e447418c1b9b87fdd8b753b36a058a26b8/agents/hotel_search_agent/hotel_search_agent/geo_resolver.py",
+        "https://gitlab.com/dayuse/dayuse/mcp-dayuse/-/work_items/6"
+      ],
+      "status": "coverage_unverified",
+      "owner": "Agent",
+      "portable_probe": {
+        "turns": [
+          "Valence",
+          "Valence 26"
+        ],
+        "fixture": "candidats Valence Drôme FR / Valencia ES / Valence Tarn-et-Garonne FR",
+        "assert": "sélection de la Drôme conservée ; pas de répétition de la liste ; pas de géocodage de la réponse en Metz"
+      },
+      "counterexample": "La sélection n’empêche pas une nouvelle destination explicite au tour suivant.",
+      "execution": "not_replayed_cross_architecture",
+      "oracle_review": "required_before_release_gate"
+    },
+    {
+      "id": "M06",
+      "title": "Pays explicite, homonymes et contexte de marché",
+      "invariant": "Un pays ou une région explicite prime ; les valeurs par défaut de plateforme ne constituent pas une intention utilisateur.",
+      "legacy_or_business_sources": [
+        "https://github.com/Dayuse-Labs/agent-conversationnel-USA/blob/a08a7792ed95dedca6255b5c588a80a504dd6249/tests/unit/application/test_audit_fixes_2026_09_08.py",
+        "https://github.com/Dayuse-Labs/agent-conversationnel-USA/blob/a08a7792ed95dedca6255b5c588a80a504dd6249/tests/unit/application/test_audit_fixes_2026_08_28.py"
+      ],
+      "b2c_sources": [
+        "https://github.com/Dayuse-Labs/AgentB2C/blob/07be07e447418c1b9b87fdd8b753b36a058a26b8/agents/hotel_search_agent/hotel_search_agent/geo_resolver.py",
+        "https://github.com/Dayuse-Labs/AgentB2C/blob/07be07e447418c1b9b87fdd8b753b36a058a26b8/agents/hotel_search_agent/tests/test_geo_resolver.py"
+      ],
+      "status": "implementation_found_not_validated",
+      "owner": "Agent et géocodage MCP",
+      "portable_probe": {
+        "variants": [
+          "London avec contexte GB",
+          "Perth WA avec pays AU explicite",
+          "Washington DC",
+          "POI dans un pays déjà confirmé"
+        ],
+        "assert": "identité pays/région conforme ; pas de choix aveugle du premier candidat ou de l’IP serveur"
+      },
+      "counterexample": "Le contexte du marché ne doit pas empêcher une destination étrangère explicite.",
+      "execution": "not_replayed_cross_architecture",
+      "oracle_review": "required_before_release_gate"
+    },
+    {
+      "id": "M07",
+      "title": "Durée distincte de l’heure d’arrivée",
+      "invariant": "Une durée seule ne crée pas d’heure d’arrivée ; une durée et un début explicites peuvent déterminer la fin.",
+      "legacy_or_business_sources": [
+        "https://github.com/Dayuse-Labs/agent-conversationnel-USA/blob/a08a7792ed95dedca6255b5c588a80a504dd6249/tests/unit/application/test_audit_fixes_2026_09_08.py"
+      ],
+      "b2c_sources": [
+        "https://github.com/Dayuse-Labs/AgentB2C/blob/07be07e447418c1b9b87fdd8b753b36a058a26b8/agents/hotel_search_agent/hotel_search_agent/datetime_resolver.py",
+        "https://github.com/Dayuse-Labs/AgentB2C/blob/07be07e447418c1b9b87fdd8b753b36a058a26b8/agents/hotel_search_agent/tests/test_datetime_resolver.py"
+      ],
+      "status": "implementation_found_not_validated",
+      "owner": "Agent",
+      "portable_probe": {
+        "turns": [
+          "Une chambre pour 2 heures"
+        ],
+        "assert": "duration == PT2H ou équivalent normalisé ; aucune arrivée inventée à 02:00"
+      },
+      "counterexample": "« À 14 h pendant 2 h » doit former 14:00–16:00 ; refuser ou clarifier une heure impossible.",
+      "execution": "not_replayed_cross_architecture",
+      "oracle_review": "required_before_release_gate"
+    },
+    {
+      "id": "M08",
+      "title": "Budget calculé sur le prix et la devise affichés",
+      "invariant": "Le verdict budget utilise le tarif réellement servi et une devise comparable ; ni mélange CAD/EUR, ni autre rate plan.",
+      "legacy_or_business_sources": [
+        "https://github.com/Dayuse-Labs/agent-conversationnel-USA/blob/a08a7792ed95dedca6255b5c588a80a504dd6249/tests/unit/application/test_audit_fixes_2026_08_28.py"
+      ],
+      "b2c_sources": [
+        "https://github.com/Dayuse-Labs/AgentB2C/blob/07be07e447418c1b9b87fdd8b753b36a058a26b8/agents/b2c_concierge/b2c_concierge/display_currency.py",
+        "https://github.com/Dayuse-Labs/AgentB2C/blob/07be07e447418c1b9b87fdd8b753b36a058a26b8/agents/b2c_concierge/tests/test_display_currency.py"
+      ],
+      "status": "implementation_found_not_validated",
+      "owner": "Agent et données tarifaires MCP",
+      "portable_probe": {
+        "fixtures": [
+          {
+            "budget": "95 EUR",
+            "native": "119 CAD",
+            "display": "80.50 EUR",
+            "expected": "under_budget"
+          },
+          {
+            "budget": "200 EUR",
+            "base": "230 EUR",
+            "served": "150 EUR",
+            "expected": "under_budget"
+          }
+        ],
+        "assert": "contrôle sur même offre et même devise ; preuve du taux si conversion"
+      },
+      "counterexample": "300 AED dépasse réellement un plafond 272 AED ; sans taux disponible, ne pas affirmer une comparaison convertie.",
+      "execution": "not_replayed_cross_architecture",
+      "oracle_review": "required_before_release_gate"
+    },
+    {
+      "id": "M09",
+      "title": "Nombres interprétés selon leur rôle",
+      "invariant": "Durée de trajet, âge, capacité, budget, code postal et heure ne se remplacent pas mutuellement.",
+      "legacy_or_business_sources": [
+        "https://github.com/Dayuse-Labs/agent-conversationnel-USA/blob/a08a7792ed95dedca6255b5c588a80a504dd6249/tests/unit/application/test_prod_audit_fixes_2026_07_19.py"
+      ],
+      "b2c_sources": [
+        "https://github.com/Dayuse-Labs/AgentB2C/blob/07be07e447418c1b9b87fdd8b753b36a058a26b8/agents/b2c_concierge/b2c_concierge/triage.py"
+      ],
+      "status": "implementation_found_not_validated",
+      "owner": "Agent",
+      "portable_probe": {
+        "turns": [
+          "Budget maximum 150 euros",
+          "À moins de 20 minutes"
+        ],
+        "assert": "budget conserve 150 ; 20 devient une contrainte de trajet, pas un budget"
+      },
+      "counterexample": "Si l’agent demande explicitement le budget, la réponse « 150 » peut devenir le budget ; l’âge 5 ne signifie pas cinq enfants.",
+      "execution": "not_replayed_cross_architecture",
+      "oracle_review": "required_before_release_gate"
+    },
+    {
+      "id": "M10",
+      "title": "Recommandations appuyées sur les faits servis",
+      "invariant": "Chaque recommandation positive et chaque équipement annoncé doivent être appuyés par les faits de l’hôtel et de l’offre concernés.",
+      "legacy_or_business_sources": [
+        "https://github.com/Dayuse-Labs/agent-conversationnel-USA/blob/a08a7792ed95dedca6255b5c588a80a504dd6249/tests/unit/application/test_claim_grounding_2026_08.py"
+      ],
+      "b2c_sources": [
+        "https://github.com/Dayuse-Labs/AgentB2C/blob/07be07e447418c1b9b87fdd8b753b36a058a26b8/agents/hotel_search_agent/hotel_search_agent/response_bridge.py",
+        "https://github.com/Dayuse-Labs/AgentB2C/blob/07be07e447418c1b9b87fdd8b753b36a058a26b8/agents/b2c_concierge/tests/test_ground_truth.py",
+        "https://github.com/Dayuse-Labs/AgentB2C/blob/07be07e447418c1b9b87fdd8b753b36a058a26b8/evals/judge.py"
+      ],
+      "status": "implementation_found_not_validated",
+      "owner": "Agent et évaluateurs",
+      "portable_probe": {
+        "fixture": "cartes A avec parking, B avec piscine ; hôtel C absent",
+        "assert": "ne pas attribuer la piscine à A ; ne pas recommander C comme disponible ; joindre faits MCP au juge"
+      },
+      "counterexample": "Mentionner qu’un hôtel est indisponible n’est pas une recommandation fantôme ; préserver les paraphrases valides des noms.",
+      "execution": "not_replayed_cross_architecture",
+      "oracle_review": "required_before_release_gate"
+    },
+    {
+      "id": "M11",
+      "title": "Arrêt des recherches vides répétitives",
+      "invariant": "Les tentatives automatiques d’élargissement sont bornées ; une recherche épuisée explique la limite sans relancer le même outil indéfiniment.",
+      "legacy_or_business_sources": [
+        "https://github.com/Dayuse-Labs/agent-conversationnel-USA/blob/a08a7792ed95dedca6255b5c588a80a504dd6249/tests/unit/application/test_search_exhaustion_guard.py"
+      ],
+      "b2c_sources": [
+        "https://github.com/Dayuse-Labs/AgentB2C/blob/07be07e447418c1b9b87fdd8b753b36a058a26b8/agents/b2c_concierge/b2c_concierge/profile.py"
+      ],
+      "status": "explicit_legacy_port_found_not_validated",
+      "owner": "Agent",
+      "portable_probe": {
+        "fixture": "MCP retourne vide à chaque appel",
+        "turns": [
+          "Rimini",
+          "Encore",
+          "Encore",
+          "Encore"
+        ],
+        "assert": "borne d’élargissement respectée, état exhausted persistant, pas de boucle d’appels silencieuse"
+      },
+      "counterexample": "Un changement réel de ville ou de contrainte, ou un résultat positif, doit réinitialiser l’état approprié.",
+      "execution": "not_replayed_cross_architecture",
+      "oracle_review": "required_before_release_gate"
+    },
+    {
+      "id": "M12",
+      "title": "Équipements et familles de filtres",
+      "invariant": "Conserver les exigences demandées ; les variantes d’une famille comme piscine intérieure/extérieure ne doivent pas être exigées simultanément par erreur.",
+      "legacy_or_business_sources": [
+        "https://gitlab.com/dayuse/dayuse/dayuse-com/-/work_items/14707",
+        "https://gitlab.com/dayuse/dayuse/mcp-dayuse/-/work_items/1",
+        "https://gitlab.com/dayuse/dayuse/mcp-dayuse/-/work_items/4"
+      ],
+      "b2c_sources": [
+        "https://langfuse-web-production-272b.up.railway.app/project/cms4gd0d20002nz029tuly62e/traces/62207822529120be15f5d7374f231259",
+        "https://github.com/Dayuse-Labs/AgentB2C/blob/07be07e447418c1b9b87fdd8b753b36a058a26b8/agents/hotel_search_agent/hotel_search_agent/response_bridge.py"
+      ],
+      "status": "qa_failure_confirmed",
+      "owner": "MCP et agent",
+      "portable_probe": {
+        "turns": [
+          "San Francisco aujourd’hui, parking et piscine"
+        ],
+        "assert": "parking ET une variante admissible de piscine, ou explication explicite d’un filtre impossible ; catalogue versionné"
+      },
+      "counterexample": "Ne pas affirmer que spa, hammam ou piscine sont interchangeables sans règle métier ; distinguer équipements de chambre et d’hôtel.",
+      "execution": "not_replayed_cross_architecture",
+      "oracle_review": "required_before_release_gate"
+    },
+    {
+      "id": "M13",
+      "title": "Cartes, total et Voir tout cohérents",
+      "invariant": "Le lien et le total décrivent la même recherche effective que les cartes, avec lieu, date, fenêtre, équipements et devise cohérents.",
+      "legacy_or_business_sources": [
+        "https://gitlab.com/dayuse/dayuse/dayuse-com/-/work_items/14707",
+        "https://gitlab.com/dayuse/dayuse/mcp-dayuse/-/work_items/2",
+        "https://gitlab.com/dayuse/dayuse/mcp-dayuse/-/work_items/5"
+      ],
+      "b2c_sources": [
+        "https://github.com/Dayuse-Labs/AgentB2C/blob/07be07e447418c1b9b87fdd8b753b36a058a26b8/agents/hotel_search_agent/hotel_search_agent/response_bridge.py"
+      ],
+      "status": "coverage_unverified",
+      "owner": "MCP, agent et widget",
+      "portable_probe": {
+        "assert": "vérifier slug canonique, paramètres du lien, nombre total éligible et has_more ; contrôler toutes les pages pour tester le total"
+      },
+      "counterexample": "Le nombre de cartes visibles ne doit pas être confondu avec le total ; une réponse paginée partielle ne permet pas de certifier ce total.",
+      "execution": "not_replayed_cross_architecture",
+      "oracle_review": "required_before_release_gate"
+    },
+    {
+      "id": "M14",
+      "title": "Ville, quartier, POI et hôtel distincts",
+      "invariant": "Le résolveur respecte le type de lieu demandé ; un fallback ne doit pas masquer une recherche plus large.",
+      "legacy_or_business_sources": [
+        "https://github.com/Dayuse-Labs/agent-conversationnel-USA/blob/a08a7792ed95dedca6255b5c588a80a504dd6249/tests/unit/application/test_audit_fixes_2026_09_25.py",
+        "https://gitlab.com/dayuse/dayuse/mcp-dayuse/-/work_items/3",
+        "https://gitlab.com/dayuse/dayuse/mcp-dayuse/-/work_items/7"
+      ],
+      "b2c_sources": [
+        "https://github.com/Dayuse-Labs/AgentB2C/blob/07be07e447418c1b9b87fdd8b753b36a058a26b8/agents/hotel_search_agent/hotel_search_agent/geo_resolver.py"
+      ],
+      "status": "implementation_found_not_validated",
+      "owner": "Agent et MCP",
+      "portable_probe": {
+        "variants": [
+          "Dublin City Centre",
+          "Hotel in Dublin City Centre"
+        ],
+        "assert": "même ville Dublin, même focus centre-ville ; un hôtel nommé reste une recherche d’hôtel"
+      },
+      "counterexample": "Ne pas découper Rockville Centre, Kansas City ou Mexico City ; un échec de POI ne justifie pas un centre-ville silencieux.",
+      "execution": "not_replayed_cross_architecture",
+      "oracle_review": "required_before_release_gate"
+    },
+    {
+      "id": "M15",
+      "title": "Expiration de session compréhensible",
+      "invariant": "Une session expirée ne doit pas feindre de connaître les critères perdus ; pendant la durée de vie prévue, les préférences restent conservées.",
+      "legacy_or_business_sources": [
+        "https://gitlab.com/dayuse/dayuse/dayuse-com/-/work_items/14707",
+        "https://gitlab.com/dayuse/dayuse/mcp-dayuse/-/work_items/6"
+      ],
+      "b2c_sources": [
+        "https://github.com/Dayuse-Labs/AgentB2C/blob/07be07e447418c1b9b87fdd8b753b36a058a26b8/agents/b2c_concierge/b2c_concierge/profile_store.py",
+        "https://langfuse-web-production-272b.up.railway.app/project/cms4gd0d20002nz029tuly62e/traces/b04ca34740d4afb6458a7b1d4b7d8990"
+      ],
+      "status": "business_contract_change_to_validate",
+      "owner": "Agent et widget",
+      "portable_probe": {
+        "clock_control": "tester avant et après TTL de 30 minutes",
+        "turns": [
+          "Lyon demain",
+          "Affiche la devise locale"
+        ],
+        "assert": "avant TTL : contexte conservé ; après TTL : expiration expliquée et nouvelle collecte ciblée"
+      },
+      "counterexample": "Une expiration prévue est un choix produit ; ne pas la classer automatiquement comme une perte d’état prématurée.",
+      "execution": "not_replayed_cross_architecture",
+      "oracle_review": "required_before_release_gate"
+    },
+    {
+      "id": "M16",
+      "title": "Correction, sélection et nouvelle destination",
+      "invariant": "Une correction négative ou un choix dans la shortlist ne doit pas être réinterprété comme une nouvelle destination.",
+      "legacy_or_business_sources": [
+        "https://github.com/Dayuse-Labs/agent-conversationnel-USA/blob/a08a7792ed95dedca6255b5c588a80a504dd6249/tests/unit/application/test_audit_fixes_2026_08_28.py",
+        "https://github.com/Dayuse-Labs/agent-conversationnel-USA/blob/a08a7792ed95dedca6255b5c588a80a504dd6249/tests/unit/application/test_audit_fixes_2026_09_25.py"
+      ],
+      "b2c_sources": [
+        "https://github.com/Dayuse-Labs/AgentB2C/blob/07be07e447418c1b9b87fdd8b753b36a058a26b8/agents/b2c_concierge/b2c_concierge/triage.py",
+        "https://github.com/Dayuse-Labs/AgentB2C/blob/07be07e447418c1b9b87fdd8b753b36a058a26b8/agents/b2c_concierge/b2c_concierge/profile.py"
+      ],
+      "status": "implementation_found_not_validated",
+      "owner": "Agent",
+      "portable_probe": {
+        "variants": [
+          "Non, pas cette ville",
+          "Le deuxième hôtel",
+          "Correction citant la ville rejetée"
+        ],
+        "assert": "intent et transition d’état conformes ; conserver l’identité de l’hôtel choisi"
+      },
+      "counterexample": "Une vraie demande de changement de ville doit continuer à fonctionner ; éviter une règle qui bloque tout changement après une shortlist.",
+      "execution": "not_replayed_cross_architecture",
+      "oracle_review": "required_before_release_gate"
+    },
+    {
+      "id": "M17",
+      "title": "Occupants et âge des enfants",
+      "invariant": "Les offres servies couvrent la capacité requise ; le nombre d’enfants et leur âge sont distincts.",
+      "legacy_or_business_sources": [
+        "https://langfuse-web-production-272b.up.railway.app/project/cms4gd0d20002nz029tuly62e/datasets",
+        "https://gitlab.com/dayuse/dayuse/dayuse-com/-/work_items/14707"
+      ],
+      "b2c_sources": [
+        "https://langfuse-web-production-272b.up.railway.app/project/cms4gd0d20002nz029tuly62e/datasets",
+        "https://github.com/Dayuse-Labs/AgentB2C/blob/07be07e447418c1b9b87fdd8b753b36a058a26b8/agents/b2c_concierge/b2c_concierge/profile.py"
+      ],
+      "status": "historical_b2c_eval_failures_not_current_replay",
+      "owner": "Agent et MCP",
+      "portable_probe": {
+        "turns": [
+          "Deux adultes et un enfant de 5 ans"
+        ],
+        "assert": "adultes 2, enfants 1, âge 5 ; vérifier la capacité de chaque offre et non seulement les arguments de recherche"
+      },
+      "counterexample": "Une quantité isolée ambiguë doit être clarifiée dans son contexte, sans inventer de composition familiale.",
+      "execution": "not_replayed_cross_architecture",
+      "oracle_review": "required_before_release_gate"
+    },
+    {
+      "id": "M18",
+      "title": "Règles d’âge et prudence sans faux positifs",
+      "invariant": "Ne pas inventer de politique d’âge ou suggérer un contournement ; ne pas appliquer une restriction sans signal ni règle applicable.",
+      "legacy_or_business_sources": [
+        "https://github.com/Dayuse-Labs/agent-conversationnel-USA/blob/a08a7792ed95dedca6255b5c588a80a504dd6249/tests/unit/application/test_claim_grounding_2026_08.py",
+        "https://github.com/Dayuse-Labs/agent-conversationnel-USA/blob/a08a7792ed95dedca6255b5c588a80a504dd6249/tests/unit/application/test_prod_audit_fixes_2026_07_19.py"
+      ],
+      "b2c_sources": [
+        "https://github.com/Dayuse-Labs/AgentB2C/blob/07be07e447418c1b9b87fdd8b753b36a058a26b8/agents/hotel_search_agent/hotel_search_agent/response_bridge.py",
+        "https://github.com/Dayuse-Labs/AgentB2C/blob/07be07e447418c1b9b87fdd8b753b36a058a26b8/agents/b2c_concierge/tests/test_ground_truth.py"
+      ],
+      "status": "coverage_unverified",
+      "owner": "Agent et contenu métier",
+      "portable_probe": {
+        "fixture": "politique hôtel documentée ou absente, avec et sans déclaration de minorité",
+        "assert": "affirmations fondées, pas de seuil 18 ans inventé ; traitement cohérent d’une minorité explicitement déclarée"
+      },
+      "counterexample": "Une simple recherche spa ou piscine ne suffit pas à déduire une minorité ou à bloquer une demande ordinaire.",
+      "execution": "not_replayed_cross_architecture",
+      "oracle_review": "required_before_release_gate"
+    },
+    {
+      "id": "F01",
+      "title": "FAQ, recherche et demande d’annulation distinctes",
+      "invariant": "Répondre selon l’intention : information générale, filtre de recherche ou action sur réservation existante.",
+      "legacy_or_business_sources": [
+        "https://github.com/Dayuse-Labs/agent-conversationnel-USA/blob/a08a7792ed95dedca6255b5c588a80a504dd6249/tests/unit/regression/test_not_a_search_edge_cases.py",
+        "https://github.com/Dayuse-Labs/agent-conversationnel-USA/blob/a08a7792ed95dedca6255b5c588a80a504dd6249/tests/unit/application/test_current_geo_cancellation_fixes.py"
+      ],
+      "b2c_sources": [
+        "https://github.com/Dayuse-Labs/AgentB2C/blob/07be07e447418c1b9b87fdd8b753b36a058a26b8/agents/b2c_concierge/b2c_concierge/triage.py"
+      ],
+      "status": "routing_contract_difference_confirmed",
+      "owner": "Agent",
+      "portable_probe": {
+        "positive": "Comparer « conditions d’annulation ? », « annule ma réservation » et « hôtels avec annulation gratuite à Lyon » ; pour chaque cas vérifier démarche et capacités réelles.",
+        "negative": "Une recherche contenant cancel/refund reste une recherche ; « annule » peut aussi refuser la suggestion précédente sans viser une réservation."
+      },
+      "counterexample": "Une recherche contenant cancel/refund reste une recherche ; « annule » peut aussi refuser la suggestion précédente sans viser une réservation.",
+      "execution": "not_replayed_cross_architecture",
+      "oracle_review": "required_before_release_gate"
+    },
+    {
+      "id": "F02",
+      "title": "Paiement à l’hôtel, garantie et prépaiement",
+      "invariant": "Conserver les distinctions de paiement et la séparation prix du séjour / frais déjà payés, sans montant universel inventé.",
+      "legacy_or_business_sources": [
+        "https://github.com/Dayuse-Labs/agent-conversationnel-USA/blob/a08a7792ed95dedca6255b5c588a80a504dd6249/tests/unit/application/test_faq_payment_booking_fee.py",
+        "https://github.com/Dayuse-Labs/agent-conversationnel-USA/blob/a08a7792ed95dedca6255b5c588a80a504dd6249/src/application/agent/tools/faq_tool.py"
+      ],
+      "b2c_sources": [
+        "https://github.com/Dayuse-Labs/AgentB2C/blob/07be07e447418c1b9b87fdd8b753b36a058a26b8/agents/faq_agent/faq_agent/agent.py",
+        "evidence/mcp_faq_probes.json"
+      ],
+      "status": "historical_fix_and_live_source_found_not_replayed",
+      "owner": "Agent et FAQ MCP",
+      "portable_probe": {
+        "positive": "Trois offres figées : paiement sur place, carte de garantie avec frais, prépaiement ; vérifier ce qui est débité maintenant, le solde et les frais remboursables selon la source.",
+        "negative": "Ne pas affirmer « rien à payer à la réservation » pour toutes les offres ; ne pas rendre la fourchette historique €2–7 obligatoire si la source actuelle ou l’offre la remplace."
+      },
+      "counterexample": "Ne pas affirmer « rien à payer à la réservation » pour toutes les offres ; ne pas rendre la fourchette historique €2–7 obligatoire si la source actuelle ou l’offre la remplace.",
+      "execution": "not_replayed_cross_architecture",
+      "oracle_review": "required_before_release_gate"
+    },
+    {
+      "id": "F03",
+      "title": "Échéance et remboursement propres à l’offre",
+      "invariant": "Pour une réservation existante, les conditions et l’échéance de confirmation applicables priment sur une généralité de FAQ. Distinguer annulation autorisée et montants remboursables.",
+      "legacy_or_business_sources": [
+        "https://github.com/Dayuse-Labs/agent-conversationnel-USA/blob/a08a7792ed95dedca6255b5c588a80a504dd6249/src/application/agent/tools/faq_tool.py",
+        "https://github.com/Dayuse-Labs/agent-conversationnel-USA/blob/a08a7792ed95dedca6255b5c588a80a504dd6249/data/knowledge-base-faq-clean.json",
+        "https://support.dayuse.com/hc/en-us/articles/360020402499-What-is-your-cancellation-policy"
+      ],
+      "b2c_sources": [
+        "https://github.com/Dayuse-Labs/AgentB2C/blob/07be07e447418c1b9b87fdd8b753b36a058a26b8/agents/faq_agent/faq_agent/agent.py",
+        "evidence/mcp_faq_probes.json"
+      ],
+      "status": "source_divergence_confirmed",
+      "owner": "Contenu métier, MCP et agent",
+      "portable_probe": {
+        "positive": "Fixtures avec échéance à 10:00, horloge 09:59/10:00/10:01 et fuseau explicite ; assertion conforme à la règle de frontière documentée ; frais et prépaiement évalués séparément.",
+        "negative": "Ne pas généraliser « jusqu’au début du créneau », « deux heures avant » ou « remboursement automatique en 3–5 jours » sans conditions applicables."
+      },
+      "counterexample": "Ne pas généraliser « jusqu’au début du créneau », « deux heures avant » ou « remboursement automatique en 3–5 jours » sans conditions applicables.",
+      "execution": "not_replayed_cross_architecture",
+      "oracle_review": "required_before_release_gate"
+    },
+    {
+      "id": "F04",
+      "title": "Fraîcheur et conflits de sources",
+      "invariant": "Versionner les sources par article, langue, marché, date de mise à jour et empreinte ; signaler les contradictions non résolues au lieu de choisir arbitrairement.",
+      "legacy_or_business_sources": [
+        "https://github.com/Dayuse-Labs/agent-conversationnel-USA/blob/a08a7792ed95dedca6255b5c588a80a504dd6249/data/knowledge-base-faq-clean.json",
+        "https://support.dayuse.com/hc/en-us/articles/360020402499-What-is-your-cancellation-policy",
+        "https://support.dayuse.com/hc/en-us/articles/31196000167826-How-to-cancel-a-booking"
+      ],
+      "b2c_sources": [
+        "evidence/mcp_faq_probes.json"
+      ],
+      "status": "mcp_vs_published_article_difference_confirmed",
+      "owner": "Équipe contenu et MCP",
+      "portable_probe": {
+        "positive": "Article 360020402499 : le MCP capturé parle encore du début du créneau, la page publique consultée renvoie à l’échéance de l’email ; le contrôle doit détecter la différence.",
+        "negative": "Une réponse peut citer un article existant et rester obsolète ; un article général plus récent ne remplace pas automatiquement les conditions contractuelles d’une réservation ancienne."
+      },
+      "counterexample": "Une réponse peut citer un article existant et rester obsolète ; un article général plus récent ne remplace pas automatiquement les conditions contractuelles d’une réservation ancienne.",
+      "execution": "not_replayed_cross_architecture",
+      "oracle_review": "required_before_release_gate"
+    },
+    {
+      "id": "F05",
+      "title": "Contexte marché, hôtel et offre",
+      "invariant": "Une question sur cet hôtel ou cette offre doit transmettre leur identité ; une FAQ publique peut utiliser le marché sans collecter les données de réservation.",
+      "legacy_or_business_sources": [
+        "https://github.com/Dayuse-Labs/agent-conversationnel-USA/blob/a08a7792ed95dedca6255b5c588a80a504dd6249/data/knowledge-base-faq-clean.json"
+      ],
+      "b2c_sources": [
+        "https://github.com/Dayuse-Labs/AgentB2C/blob/07be07e447418c1b9b87fdd8b753b36a058a26b8/agents/faq_agent/faq_agent/agent.py",
+        "evidence/mcp_tools.json",
+        "evidence/mcp_faq_probes.json"
+      ],
+      "status": "live_contract_verified_agent_propagation_unverified",
+      "owner": "Agent et MCP",
+      "portable_probe": {
+        "positive": "Après sélection d’un hôtel et rate plan, demander ses conditions ; vérifier hotelId/ratePlanId. Sans hôtel sélectionné, fournir le marché connu à une question générale.",
+        "negative": "Ne pas demander un hôtel obligatoirement si le marché suffit ; ne pas demander référence/email pour lire une FAQ publique ; ne pas imposer US comme contexte implicite."
+      },
+      "counterexample": "Ne pas demander un hôtel obligatoirement si le marché suffit ; ne pas demander référence/email pour lire une FAQ publique ; ne pas imposer US comme contexte implicite.",
+      "execution": "not_replayed_cross_architecture",
+      "oracle_review": "required_before_release_gate"
+    },
+    {
+      "id": "F06",
+      "title": "Carte cadeau : achat et réservation distincts",
+      "invariant": "Séparer annulation de l’achat d’une carte cadeau et annulation d’une réservation payée avec cette carte ; conserver le mode de restitution documenté.",
+      "legacy_or_business_sources": [
+        "https://github.com/Dayuse-Labs/agent-conversationnel-USA/blob/a08a7792ed95dedca6255b5c588a80a504dd6249/data/knowledge-base-faq-clean.json"
+      ],
+      "b2c_sources": [
+        "evidence/mcp_faq_probes.json",
+        "https://github.com/Dayuse-Labs/AgentB2C/blob/07be07e447418c1b9b87fdd8b753b36a058a26b8/agents/faq_agent/faq_agent/agent.py"
+      ],
+      "status": "source_distinction_found_not_replayed",
+      "owner": "Agent et FAQ MCP",
+      "portable_probe": {
+        "positive": "Deux questions appariées : « rembourser ma carte cadeau » et « annuler une réservation payée avec une carte cadeau » ; réponses différentes selon articles applicables.",
+        "negative": "Ne pas promettre un remboursement bancaire si la source prévoit une nouvelle carte cadeau ; ne pas appliquer l’interdiction de remboursement de l’achat à tout séjour."
+      },
+      "counterexample": "Ne pas promettre un remboursement bancaire si la source prévoit une nouvelle carte cadeau ; ne pas appliquer l’interdiction de remboursement de l’achat à tout séjour.",
+      "execution": "not_replayed_cross_architecture",
+      "oracle_review": "required_before_release_gate"
+    },
+    {
+      "id": "F07",
+      "title": "Modification ou annulation puis nouvelle réservation",
+      "invariant": "Expliquer la démarche autorisée pour le type de changement et la réservation, sans garantir disponibilité, prix ou transfert des avantages.",
+      "legacy_or_business_sources": [
+        "https://github.com/Dayuse-Labs/agent-conversationnel-USA/blob/a08a7792ed95dedca6255b5c588a80a504dd6249/src/application/agent/tools/faq_tool.py",
+        "https://github.com/Dayuse-Labs/agent-conversationnel-USA/blob/a08a7792ed95dedca6255b5c588a80a504dd6249/data/knowledge-base-faq-clean.json"
+      ],
+      "b2c_sources": [
+        "evidence/mcp_faq_probes.json",
+        "https://github.com/Dayuse-Labs/AgentB2C/blob/07be07e447418c1b9b87fdd8b753b36a058a26b8/agents/b2c_concierge/b2c_concierge/agent.py"
+      ],
+      "status": "conflicting_guidance_requires_business_resolution",
+      "owner": "Contenu métier et agent",
+      "portable_probe": {
+        "positive": "Comparer changement d’heure, de date, d’hôtel et réservation avec code promo ; employer le flux applicable, et conserver les restrictions de disponibilité.",
+        "negative": "Ne pas dire universellement que la date se modifie en un clic ou qu’il faut toujours annuler ; les sources observées contiennent des consignes différentes."
+      },
+      "counterexample": "Ne pas dire universellement que la date se modifie en un clic ou qu’il faut toujours annuler ; les sources observées contiennent des consignes différentes.",
+      "execution": "not_replayed_cross_architecture",
+      "oracle_review": "required_before_release_gate"
+    },
+    {
+      "id": "F08",
+      "title": "Retard, no-show et annulation",
+      "invariant": "Distinguer arrivée tardive, absence sans annulation et annulation confirmée ; ne pas inventer de statut de réservation ou de pénalité.",
+      "legacy_or_business_sources": [
+        "https://github.com/Dayuse-Labs/agent-conversationnel-USA/blob/a08a7792ed95dedca6255b5c588a80a504dd6249/src/application/agent/tools/faq_tool.py",
+        "https://github.com/Dayuse-Labs/agent-conversationnel-USA/blob/a08a7792ed95dedca6255b5c588a80a504dd6249/data/knowledge-base-faq-clean.json"
+      ],
+      "b2c_sources": [
+        "https://github.com/Dayuse-Labs/AgentB2C/blob/07be07e447418c1b9b87fdd8b753b36a058a26b8/agents/faq_agent/faq_agent/agent.py",
+        "evidence/mcp_faq_probes.json"
+      ],
+      "status": "coverage_unverified",
+      "owner": "Agent et contenu métier",
+      "portable_probe": {
+        "positive": "« Je vais arriver en retard » puis « finalement je ne viens pas » : expliquer les conséquences et démarches documentées sans marquer soi-même la réservation annulée.",
+        "negative": "Un retard ne prolonge pas automatiquement la fin du créneau ; une absence déclarée dans le chat n’est pas une confirmation d’annulation backend."
+      },
+      "counterexample": "Un retard ne prolonge pas automatiquement la fin du créneau ; une absence déclarée dans le chat n’est pas une confirmation d’annulation backend.",
+      "execution": "not_replayed_cross_architecture",
+      "oracle_review": "required_before_release_gate"
+    },
+    {
+      "id": "F09",
+      "title": "Interruption FAQ sans perte du contexte ni de langue",
+      "invariant": "Une parenthèse FAQ conserve la recherche et la sélection ; la langue suit une priorité explicitement définie entre demande utilisateur et contexte.",
+      "legacy_or_business_sources": [
+        "https://github.com/Dayuse-Labs/agent-conversationnel-USA/blob/a08a7792ed95dedca6255b5c588a80a504dd6249/tests/unit/regression/test_not_a_search_edge_cases.py",
+        "https://github.com/Dayuse-Labs/agent-conversationnel-USA/blob/a08a7792ed95dedca6255b5c588a80a504dd6249/src/application/agent/tools/faq_tool.py"
+      ],
+      "b2c_sources": [
+        "https://github.com/Dayuse-Labs/AgentB2C/blob/07be07e447418c1b9b87fdd8b753b36a058a26b8/agents/faq_agent/faq_agent/agent.py",
+        "https://github.com/Dayuse-Labs/AgentB2C/blob/07be07e447418c1b9b87fdd8b753b36a058a26b8/agents/b2c_concierge/b2c_concierge/triage.py",
+        "https://github.com/Dayuse-Labs/AgentB2C/blob/07be07e447418c1b9b87fdd8b753b36a058a26b8/agents/b2c_concierge/b2c_concierge/agent.py"
+      ],
+      "status": "implementation_found_not_validated",
+      "owner": "Agent et widget",
+      "portable_probe": {
+        "positive": "Rechercher Lyon demain, sélectionner une offre, demander comment payer, puis « le deuxième » ; vérifier identité, date et shortlist conservées. Variante avec changement de langue explicite.",
+        "negative": "La langue anglaise des documents MCP ne doit pas changer la langue de réponse. Dans le cas pt-PT historique, language=en est explicite : clarifier cet oracle avant de déclarer une erreur de langue."
+      },
+      "counterexample": "La langue anglaise des documents MCP ne doit pas changer la langue de réponse. Dans le cas pt-PT historique, language=en est explicite : clarifier cet oracle avant de déclarer une erreur de langue.",
+      "execution": "not_replayed_cross_architecture",
+      "oracle_review": "required_before_release_gate"
+    },
+    {
+      "id": "F10",
+      "title": "Panne, données manquantes et réponse trop volumineuse",
+      "invariant": "Un échec de récupération n’autorise aucune règle inventée ; le système doit poser la question utile ou réduire le périmètre avec un budget d’appels borné.",
+      "legacy_or_business_sources": [
+        "https://github.com/Dayuse-Labs/agent-conversationnel-USA/blob/a08a7792ed95dedca6255b5c588a80a504dd6249/src/application/agent/tools/faq_tool.py"
+      ],
+      "b2c_sources": [
+        "https://github.com/Dayuse-Labs/AgentB2C/blob/07be07e447418c1b9b87fdd8b753b36a058a26b8/agents/faq_agent/faq_agent/agent.py",
+        "evidence/mcp_faq_probes.json"
+      ],
+      "status": "live_errors_reproduced",
+      "owner": "MCP et agent",
+      "portable_probe": {
+        "positive": "Rejouer MissingMandatoryCriterionError sans marché/hôtel, ResultTooLargeError sur FR/all, timeout et absence de section ; vérifier réponse honnête, thème ciblé et aucune boucle.",
+        "negative": "Ne pas transformer l’erreur de source en refus de réservation ; ne pas utiliser une réponse générique ancienne comme fallback silencieux."
+      },
+      "counterexample": "Ne pas transformer l’erreur de source en refus de réservation ; ne pas utiliser une réponse générique ancienne comme fallback silencieux.",
+      "execution": "not_replayed_cross_architecture",
+      "oracle_review": "required_before_release_gate"
+    },
+    {
+      "id": "F11",
+      "title": "Annulation indisponible : limite et démarche utiles",
+      "invariant": "Si l’agent ne peut pas annuler, l’indiquer, orienter vers le parcours officiel et éviter toute collecte de référence/email inutile.",
+      "legacy_or_business_sources": [
+        "https://github.com/Dayuse-Labs/agent-conversationnel-USA/blob/a08a7792ed95dedca6255b5c588a80a504dd6249/tests/unit/application/test_current_geo_cancellation_fixes.py",
+        "https://github.com/Dayuse-Labs/agent-conversationnel-USA/blob/a08a7792ed95dedca6255b5c588a80a504dd6249/src/application/workflow/chat_workflow.py"
+      ],
+      "b2c_sources": [
+        "https://github.com/Dayuse-Labs/AgentB2C/blob/07be07e447418c1b9b87fdd8b753b36a058a26b8/agents/b2c_concierge/b2c_concierge/triage.py",
+        "https://github.com/Dayuse-Labs/AgentB2C/blob/07be07e447418c1b9b87fdd8b753b36a058a26b8/agents/b2c_concierge/b2c_concierge/agent.py",
+        "https://github.com/Dayuse-Labs/AgentB2C/blob/07be07e447418c1b9b87fdd8b753b36a058a26b8/agents/faq_agent/faq_agent/agent.py"
+      ],
+      "status": "legacy_fallback_proven_in_tests_b2c_behavior_unverified",
+      "owner": "Agent et widget",
+      "portable_probe": {
+        "positive": "« Je veux annuler ma réservation » avec capacité désactivée : explication explicite, accès au compte/email/flux officiel, aucune prétention de traitement et aucune demande d’identifiants.",
+        "negative": "Une longue explication de politique ne remplace pas une démarche ; la contrainte générale de synthèse interdisant liens et instructions de clic doit être testée sur ce parcours FAQ."
+      },
+      "counterexample": "Une longue explication de politique ne remplace pas une démarche ; la contrainte générale de synthèse interdisant liens et instructions de clic doit être testée sur ce parcours FAQ.",
+      "execution": "not_replayed_cross_architecture",
+      "oracle_review": "required_before_release_gate"
+    },
+    {
+      "id": "F12",
+      "title": "Gestion de réservation : preuve de propriété",
+      "invariant": "Si la capacité CS est portée, vérifier la propriété côté service avant de lire ou d’agir ; ne pas déléguer ce contrôle au modèle.",
+      "legacy_or_business_sources": [
+        "https://github.com/Dayuse-Labs/agent-conversationnel-USA/blob/a08a7792ed95dedca6255b5c588a80a504dd6249/src/application/services/booking_support.py",
+        "https://github.com/Dayuse-Labs/agent-conversationnel-USA/blob/a08a7792ed95dedca6255b5c588a80a504dd6249/tests/unit/application/test_booking_support.py",
+        "https://github.com/Dayuse-Labs/agent-conversationnel-USA/blob/a08a7792ed95dedca6255b5c588a80a504dd6249/src/application/agent/tools/booking_support_tool.py"
+      ],
+      "b2c_sources": [
+        "https://github.com/Dayuse-Labs/AgentB2C/blob/07be07e447418c1b9b87fdd8b753b36a058a26b8/agents/faq_agent/faq_agent/agent.py",
+        "https://github.com/Dayuse-Labs/AgentB2C/blob/07be07e447418c1b9b87fdd8b753b36a058a26b8/agents/b2c_concierge/b2c_concierge/agent.py"
+      ],
+      "status": "legacy_optional_capability_not_on_b2c_surface",
+      "owner": "Service CS, conditionnel",
+      "portable_probe": {
+        "positive": "Fixtures uniquement : référence + email correspondants, email vérifié de session prioritaire, email backend absent refusé, erreur uniforme pour référence inconnue et mauvais email.",
+        "negative": "Ni nom ni téléphone seuls, ni email fourni contournant la session vérifiée. Ce parcours reste non applicable à AgentB2C tant qu’il est volontairement en lecture seule."
+      },
+      "counterexample": "Ni nom ni téléphone seuls, ni email fourni contournant la session vérifiée. Ce parcours reste non applicable à AgentB2C tant qu’il est volontairement en lecture seule.",
+      "execution": "not_replayed_cross_architecture",
+      "oracle_review": "required_before_release_gate"
+    },
+    {
+      "id": "F13",
+      "title": "Confirmation et preuve d’action réelle",
+      "invariant": "Si l’annulation est activée, séparer préparation, accord explicite et résultat backend ; ne déclarer le succès qu’après confirmation effective.",
+      "legacy_or_business_sources": [
+        "https://github.com/Dayuse-Labs/agent-conversationnel-USA/blob/a08a7792ed95dedca6255b5c588a80a504dd6249/src/application/services/booking_support.py",
+        "https://github.com/Dayuse-Labs/agent-conversationnel-USA/blob/a08a7792ed95dedca6255b5c588a80a504dd6249/tests/unit/application/test_booking_support.py",
+        "https://github.com/Dayuse-Labs/agent-conversationnel-USA/blob/a08a7792ed95dedca6255b5c588a80a504dd6249/src/application/agent/tools/booking_support_tool.py"
+      ],
+      "b2c_sources": [
+        "https://github.com/Dayuse-Labs/AgentB2C/blob/07be07e447418c1b9b87fdd8b753b36a058a26b8/agents/faq_agent/faq_agent/agent.py",
+        "https://github.com/Dayuse-Labs/AgentB2C/blob/07be07e447418c1b9b87fdd8b753b36a058a26b8/agents/b2c_concierge/b2c_concierge/agent.py"
+      ],
+      "status": "legacy_optional_capability_not_on_b2c_surface",
+      "owner": "Service CS et agent, conditionnel",
+      "portable_probe": {
+        "positive": "Fixtures uniquement : préparation sans action, refus utilisateur sans action, confirmation valide, token altéré/expiré refusé, capacité désactivée, backend échoué ; vérifier messages de résultat.",
+        "negative": "Un simple « oui » sans contexte ne vaut pas confirmation. Le HMAC existant ne prouve pas à lui seul une confirmation humaine, une liaison à la session ou un usage unique : ces propriétés restent à tester explicitement."
+      },
+      "counterexample": "Un simple « oui » sans contexte ne vaut pas confirmation. Le HMAC existant ne prouve pas à lui seul une confirmation humaine, une liaison à la session ou un usage unique : ces propriétés restent à tester explicitement.",
+      "execution": "not_replayed_cross_architecture",
+      "oracle_review": "required_before_release_gate"
+    },
+    {
+      "id": "F14",
+      "title": "Couverture de la base FAQ et escalade utile",
+      "invariant": "Conserver une traçabilité pour chaque sujet historique : article actuel équivalent, règle remplacée ou sujet à revoir, avec canal support et portée hôtel/offre adéquats.",
+      "legacy_or_business_sources": [
+        "https://github.com/Dayuse-Labs/agent-conversationnel-USA/blob/a08a7792ed95dedca6255b5c588a80a504dd6249/data/knowledge-base-faq-clean.json",
+        "https://github.com/Dayuse-Labs/agent-conversationnel-USA/blob/a08a7792ed95dedca6255b5c588a80a504dd6249/src/application/agent/tools/faq_tool.py"
+      ],
+      "b2c_sources": [
+        "https://github.com/Dayuse-Labs/AgentB2C/blob/07be07e447418c1b9b87fdd8b753b36a058a26b8/agents/faq_agent/faq_agent/agent.py",
+        "evidence/mcp_faq_probes.json"
+      ],
+      "status": "inventory_created_semantic_mapping_pending",
+      "owner": "Contenu métier, MCP et agent",
+      "portable_probe": {
+        "positive": "104 entrées KB et 13 entrées intégrées : suivre paiement, annulation, âge/ID, horaires, taxes, services inclus, support et demandes de partenariat ; citer une source applicable ou reconnaître la limite.",
+        "negative": "Absence du même articleId ne signifie pas disparition du sujet ; présence du même ID ne prouve ni fraîcheur ni équivalence. Éviter d’exposer le workflow interne de tickets à un client."
+      },
+      "counterexample": "Absence du même articleId ne signifie pas disparition du sujet ; présence du même ID ne prouve ni fraîcheur ni équivalence. Éviter d’exposer le workflow interne de tickets à un client.",
+      "execution": "not_replayed_cross_architecture",
+      "oracle_review": "required_before_release_gate"
+    }
+  ]
+}

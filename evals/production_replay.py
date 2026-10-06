@@ -104,6 +104,7 @@ async def request_turn(client: httpx.AsyncClient, endpoint: str, body: dict, hea
     event = "message"
     data: list[str] = []
     done = None
+    trace_id = None
     async with client.stream("POST", endpoint, json=body, headers=headers) as response:
         response.raise_for_status()
         async for line in response.aiter_lines():
@@ -116,33 +117,39 @@ async def request_turn(client: httpx.AsyncClient, endpoint: str, body: dict, hea
                 payload = json.loads("\n".join(data))
                 if event == "done":
                     done = payload
+                if event == "progress" and isinstance(payload, dict):
+                    trace_id = payload.get("trace_id") or trace_id
                 data = []
                 event = "message"
     if not isinstance(done, dict) or "message" not in done:
         raise ValueError("stream ended without a final chat payload")
-    return {"response": done, "timing_ms": {**first, "total": round((time.monotonic() - start) * 1000, 2)}}
+    return {"response": done, "trace_id": trace_id,
+            "timing_ms": {**first, "total": round((time.monotonic() - start) * 1000, 2)}}
 
 
 async def run_case(case: dict, directory: Path, endpoint: str, variant: str, run_id: str,
                    timeout: float, fixture_health: str | None = None) -> dict:
     path = directory / "cases" / (case["id"] + ".json")
+    previous_sessions = []
     if path.exists():
         saved = json.loads(path.read_text())
         if saved.get("input_hash") != digest(case):
             raise ValueError("case changed on resume")
         if saved.get("complete"):
             return saved
+        previous_sessions = [*saved.get("previous_sessions", []), saved["session_id"]]
     # Partial sessions restart from turn one with a NEW session; never duplicate
     # an uncertain timed-out turn into existing conversational state.
     session = f"eval-preservation-{run_id}-{case['id']}-{uuid.uuid4().hex[:8]}"
     result = {"case_id": case["id"], "input_hash": digest(case), "split": case["split"],
               "traffic": case["traffic"], "family_hint": case["family_hint"],
-              "session_id": session, "complete": False, "turns": []}
+              "session_id": session, "previous_sessions": previous_sessions, "complete": False, "turns": []}
     async with httpx.AsyncClient(timeout=timeout) as client:
         for index, turn in enumerate(case["turns"], 1):
             headers = {"X-Dayuse-Synthetic": "1", "X-Client-Session-Id": session,
                        "X-Replay-Clock": turn["clock"], "X-Replay-Source-Today": turn["clock"][:10],
-                       "X-Replay-Case": case["id"], "X-Replay-Turn": str(index), "X-Replay-Variant": variant}
+                       "X-Replay-Case": case["id"], "X-Replay-Turn": str(index), "X-Replay-Variant": variant,
+                       "X-Replay-Session-Id": session}
             try:
                 health_before = None
                 if fixture_health:
@@ -174,6 +181,8 @@ async def replay(cases: list[dict], directory: Path, endpoint: str, variant: str
                  fixture_health: str | None = None) -> dict:
     if urlparse(endpoint).hostname not in {"127.0.0.1", "localhost", "::1"}:
         raise ValueError("production replay may only target a local evaluation runtime")
+    if (directory / "INVALIDATED.json").exists():
+        raise ValueError("invalidated run cannot be resumed; use a new output directory")
     manifest_path = directory / "manifest.json"
     identity = {"version": VERSION, "cases_hash": digest(cases), "endpoint": endpoint,
                 "variant": variant, "provenance": provenance, "concurrency": concurrency,
@@ -184,7 +193,8 @@ async def replay(cases: list[dict], directory: Path, endpoint: str, variant: str
             raise ValueError("run configuration changed; use a new output directory")
     else:
         manifest = {"identity": identity, "run_id": uuid.uuid4().hex[:10],
-                    "started_at": datetime.now(UTC).isoformat(), "complete": False}
+                    "started_at": datetime.now(UTC).isoformat(), "complete": False,
+                    "expected_sessions": len(cases), "expected_turns": sum(len(c["turns"]) for c in cases)}
         atomic_json(manifest_path, manifest)
     queue: asyncio.Queue = asyncio.Queue()
     for case in cases:
