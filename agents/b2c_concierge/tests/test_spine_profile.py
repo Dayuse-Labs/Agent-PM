@@ -249,7 +249,7 @@ class TestAutoWidenThroughTheSpine:
         runner = InMemoryRunner(root_agent)
         session = _new_session(runner)
 
-        _run_turn(runner, session.id, "a hotel under 100")
+        _run_turn(runner, session.id, "a cheap hotel")
         fake_leg.response_payload = {"results": []}  # keep budget_max as already stored
         _run_turn(runner, session.id, "still looking")
 
@@ -311,7 +311,7 @@ class TestSearchExhaustionThroughTheSpine:
             "results": [],
             "profile_delta": {"budget_max": 100, "budget_request_source": BUDGET_SOURCE_FLEXIBLE_DEFAULT},
         }
-        _run_turn(runner, session.id, "a hotel under 100")
+        _run_turn(runner, session.id, "a cheap hotel")
         fake_leg.response_payload = {"results": []}
         _run_turn(runner, session.id, "still looking")
         _run_turn(runner, session.id, "no luck")
@@ -348,7 +348,7 @@ class TestSearchExhaustionThroughTheSpine:
             "results": [],
             "profile_delta": {"budget_max": 100, "budget_request_source": BUDGET_SOURCE_FLEXIBLE_DEFAULT},
         }
-        _run_turn(runner, session.id, "a hotel under 100")
+        _run_turn(runner, session.id, "a cheap hotel")
         fake_leg.response_payload = {"results": []}
         _run_turn(runner, session.id, "still looking")
         _run_turn(runner, session.id, "no luck")
@@ -488,6 +488,28 @@ class TestProvenanceHonestyThroughTheSpine:
         session = _new_session(runner)
 
         _run_turn(runner, session.id, "hotels in Paris under 150")
+
+        assert "PROVENANCE" not in llm.calls[-1]["messages"][1]["content"]
+
+    def test_window_and_budget_typed_by_the_user_get_no_provenance_note(
+        self, monkeypatch, fake_leg, fake_profile_store
+    ):
+        """mcp-dayuse#5 (trace 324561ec): the leaf always sends flexible_default,
+        so « de 6h à 16h » was presented as a slot applied by default."""
+        fake_leg.response_payload = {
+            "results": [{"id": 1, "name": "Hotel A"}],
+            "profile_delta": {
+                "city": "Paris",
+                "budget_max": 120, "budget_request_source": BUDGET_SOURCE_FLEXIBLE_DEFAULT,
+                "timeslot_start": "10:00", "timeslot_end": "15:00",
+                "timeslot_request_source": BUDGET_SOURCE_FLEXIBLE_DEFAULT,
+            },
+        }
+        llm = _scripted_llm(monkeypatch, '{"family": "search", "language": "fr"}', "Voici un hôtel.")
+        runner = InMemoryRunner(root_agent)
+        session = _new_session(runner)
+
+        _run_turn(runner, session.id, "hôtel à Paris demain de 10h à 15h moins de 120 euros")
 
         assert "PROVENANCE" not in llm.calls[-1]["messages"][1]["content"]
 
