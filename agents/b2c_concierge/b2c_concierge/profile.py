@@ -624,6 +624,12 @@ def apply_profile_delta(
         else:
             profile.timeslot = normalized
 
+    # A bound the leaf cleared is gone before the mode is recomputed below.
+    cleared_bound = False
+    for bound in ("timeslot_start", "timeslot_end"):
+        if bound in clears:
+            setattr(profile, bound, None)
+            cleared_bound = True
     start_candidate = values.get("timeslot_start")
     end_candidate = values.get("timeslot_end")
     reject_start = bool(
@@ -644,13 +650,15 @@ def apply_profile_delta(
         profile.timeslot_start = start_candidate
     if end_candidate and not reject_end:
         profile.timeslot_end = end_candidate
-    if (start_candidate and not reject_start) or (end_candidate and not reject_end):
+    if cleared_bound or (start_candidate and not reject_start) or (end_candidate and not reject_end):
         if profile.timeslot_start and profile.timeslot_end:
             profile.timeslot_mode = "range"
         elif profile.timeslot_start:
             profile.timeslot_mode = "start_only"
         elif profile.timeslot_end:
             profile.timeslot_mode = "end_only"
+        else:
+            profile.timeslot_mode = None
     if "timeslot_request_source" in values:
         profile.timeslot_request_source = values["timeslot_request_source"]
 

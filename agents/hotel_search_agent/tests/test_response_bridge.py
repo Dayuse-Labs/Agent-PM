@@ -1100,6 +1100,9 @@ def test_emit_timeslot_only_carries_no_budget_keys():
     data = _decode(emit_search_datapart(ctx))
     assert data["profile_delta"] == {
         "timeslot_start": "09:00",
+        # mcp-dayuse#6: the window searched is the whole window — the end a
+        # previous turn may have left in the profile is cleared, not carried.
+        "timeslot_end": {"op": "clear"},
         "timeslot_request_source": "flexible_default",
     }
 

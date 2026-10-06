@@ -537,6 +537,55 @@ def _is_carried_slot(time_slot: dict[str, Any], profile_in: dict[str, Any]) -> b
     return sent == tuple(m // 60 if m is not None else None for m in carried)
 
 
+_NAMED_HOURS = {
+    "midi": {12}, "noon": {12}, "mediodia": {12}, "mezzogiorno": {12}, "mittag": {12},
+    "mittags": {12}, "meio-dia": {12}, "middag": {12},
+    "minuit": {0, 23}, "midnight": {0, 23}, "medianoche": {0, 23}, "mezzanotte": {0, 23},
+    "mitternacht": {0, 23}, "meia-noite": {0, 23}, "middernacht": {0, 23},
+}
+
+
+def _stated_hours(text: str) -> set[int]:
+    """The hours of every clock time the message states ("à 9h" → {9},
+    "2pm" → {14}, "midi" → {12})."""
+    hours: set[int] = set()
+    for match in _CLOCK_TIME_RE.finditer(text):
+        token = match.group(0).lower()
+        number = re.search(r"\d{1,2}", token)
+        if number is None:
+            hours |= _NAMED_HOURS.get(token.replace("í", "i"), set())
+            continue
+        hour = int(number.group(0))
+        if re.search(r"p\.?m", token) and hour < 12:
+            hour += 12
+        hours.add(hour)
+    return hours
+
+
+def _drop_unstated_carried_bounds(
+    time_slot: dict[str, Any], tool_context: Any, profile_in: dict[str, Any]
+) -> dict[str, Any]:
+    """mcp-dayuse#6 (Mathias 2026-10-06): a stated time replaces the whole
+    window. "à 9h" after 13h-15h came back from the model as 9h-15h — the end
+    is the previous turn's, never restated. A bound equal to the carried one
+    and absent from a message that does state a time is dropped."""
+    text = _user_text(tool_context)
+    if not _CLOCK_TIME_RE.search(text):
+        return time_slot
+    stated = _stated_hours(text)
+    kept = dict(time_slot)
+    for hour_key, minute_key, profile_key in (
+        ("startHour", "startMinute", "timeslot_start"),
+        ("endHour", "endMinute", "timeslot_end"),
+    ):
+        carried = _parse_hhmm_to_minutes(profile_in.get(profile_key))
+        if carried is None or kept.get(hour_key) != carried // 60 or carried // 60 in stated:
+            continue
+        kept.pop(hour_key)
+        kept.pop(minute_key, None)
+    return kept
+
+
 def _daypart_for_turn(
     time_slot: dict[str, Any], tool_context: Any, profile_in: dict[str, Any]
 ) -> str | None:
@@ -603,6 +652,7 @@ def resolve_search_timeslot(tool: Any, args: dict[str, Any], tool_context: Any) 
         mark_level("WARNING", status_message="timeslot_sanitization")
         record_guards_fired(tool_context, ["timeslot_sanitization"])
         time_slot = {}
+    time_slot = _drop_unstated_carried_bounds(time_slot, tool_context, profile_in)
     start_total = _minutes_of_day(time_slot.get("startHour"), time_slot.get("startMinute"))
     end_total = _minutes_of_day(time_slot.get("endHour"), time_slot.get("endMinute"))
     duration_minutes = parse_duration_minutes(args.pop("duration", None))

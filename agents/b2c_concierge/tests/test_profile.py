@@ -361,6 +361,17 @@ class TestTimeslotSanitization:
         assert profile.timeslot_start == "07:00"
         assert profile.timeslot_mode == "range"
 
+    def test_a_cleared_bound_is_not_carried_over(self):
+        # mcp-dayuse#6: "à 9h00" after 13h-15h — the leaf searched 9h, end free.
+        profile = SessionProfile(
+            timeslot_start="13:00", timeslot_end="15:00", timeslot_mode="range"
+        )
+        apply_profile_delta(
+            profile, {"timeslot_start": "09:00", "timeslot_end": {"op": "clear"}}, "à 9h00"
+        )
+        assert (profile.timeslot_start, profile.timeslot_end) == ("09:00", None)
+        assert profile.timeslot_mode == "start_only"
+
     def test_fresh_timeslot_bounds_set_range_mode(self):
         profile = SessionProfile()
         apply_profile_delta(

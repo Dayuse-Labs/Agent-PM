@@ -1526,10 +1526,10 @@ def emit_search_datapart(callback_context: Any) -> genai_types.Content | None:
         profile_delta["budget_max"] = budget_timeslot["budget_max"]
         profile_delta["budget_request_source"] = _REQUEST_SOURCE_FLEXIBLE
     if budget_timeslot.get("timeslot_start") or budget_timeslot.get("timeslot_end"):
-        if budget_timeslot.get("timeslot_start"):
-            profile_delta["timeslot_start"] = budget_timeslot["timeslot_start"]
-        if budget_timeslot.get("timeslot_end"):
-            profile_delta["timeslot_end"] = budget_timeslot["timeslot_end"]
+        # The window searched is the whole window: a bound it lacks is cleared,
+        # never carried over from an earlier turn (mcp-dayuse#6).
+        for bound in ("timeslot_start", "timeslot_end"):
+            profile_delta[bound] = budget_timeslot.get(bound) or {"op": "clear"}
         profile_delta["timeslot_request_source"] = _REQUEST_SOURCE_FLEXIBLE
         # A stated clock window replaces a daypart carried from earlier.
         if read_profile_in(callback_context).get("daypart"):

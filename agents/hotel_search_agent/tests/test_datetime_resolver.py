@@ -821,3 +821,36 @@ def test_stated_clock_times_are_recognised():
         assert _CLOCK_TIME_RE.search(text), text
     for text in ["l'après-midi", "por la tarde", "in the evening", "demain matin", "pour 2 personnes"]:
         assert not _CLOCK_TIME_RE.search(text), text
+
+
+# --- mcp-dayuse#6: a stated time replaces the whole window ----------------------------------------
+
+
+def test_a_new_start_time_does_not_inherit_the_previous_end():
+    # Live 2026-10-06: "de 13h à 15h" then "à 9h00" searched 9h-15h.
+    ctx = _ctx_with_profile({"timeslot_start": "13:00", "timeslot_end": "15:00"}, "à 9h00")
+    args = {"timeSlot": {"startHour": 9, "endHour": 15}}
+    resolve_search_timeslot(_Tool("search_offers"), args, ctx)
+    assert args["timeSlot"] == {"startHour": 9}
+    assert ctx.state[STATE_EXACT_WINDOW_KEY] == {"start_total": 540, "end_total": None}
+
+
+def test_a_new_end_time_does_not_inherit_the_previous_start():
+    ctx = _ctx_with_profile({"timeslot_start": "09:00", "timeslot_end": "13:00"}, "plutôt jusqu'à 15h")
+    args = {"timeSlot": {"startHour": 9, "endHour": 15}}
+    resolve_search_timeslot(_Tool("search_offers"), args, ctx)
+    assert args["timeSlot"] == {"endHour": 15}
+
+
+def test_a_restated_bound_is_kept():
+    ctx = _ctx_with_profile({"timeslot_start": "13:00", "timeslot_end": "15:00"}, "de 9h à 15h")
+    args = {"timeSlot": {"startHour": 9, "endHour": 15}}
+    resolve_search_timeslot(_Tool("search_offers"), args, ctx)
+    assert args["timeSlot"] == {"startHour": 9, "endHour": 15}
+
+
+def test_a_restated_bound_in_another_notation_is_kept():
+    ctx = _ctx_with_profile({"timeslot_start": "10:00", "timeslot_end": "14:00"}, "from 9am to 2pm")
+    args = {"timeSlot": {"startHour": 9, "endHour": 14}}
+    resolve_search_timeslot(_Tool("search_offers"), args, ctx)
+    assert args["timeSlot"] == {"startHour": 9, "endHour": 14}
