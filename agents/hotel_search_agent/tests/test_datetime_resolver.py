@@ -519,7 +519,7 @@ def test_timeslot_whole_hour_window_unchanged_from_before():
 
 
 def test_timeslot_duration_with_fresh_start_computes_end():
-    ctx = _ctx_with_profile({}, 'à partir de 14h pour 2 heures')
+    ctx = _ctx_with_profile({}, 'à partir de 9h pour 1h30')
     args = {"timeSlot": {"startHour": 9}, "duration": "PT1H30M"}
     resolve_search_timeslot(_Tool("search_offers"), args, ctx)
     assert "duration" not in args
@@ -547,7 +547,7 @@ def test_timeslot_duration_combines_with_carried_over_start():
 
 
 def test_timeslot_one_sided_start_only_kept_as_is():
-    ctx = _ctx_with_profile({}, 'à partir de 14h')
+    ctx = _ctx_with_profile({}, 'à partir de 15h15')
     args = {"timeSlot": {"startHour": 15, "startMinute": 15}}
     resolve_search_timeslot(_Tool("search_offers"), args, ctx)
     assert args["timeSlot"] == {"startHour": 15}
@@ -854,3 +854,25 @@ def test_a_restated_bound_in_another_notation_is_kept():
     args = {"timeSlot": {"startHour": 9, "endHour": 14}}
     resolve_search_timeslot(_Tool("search_offers"), args, ctx)
     assert args["timeSlot"] == {"startHour": 9, "endHour": 14}
+
+
+def test_one_stated_time_is_an_arrival_with_no_end():
+    # Live 2026-10-06: "demain matin 7h" came back as 7h-8h (7h-10h on a retry).
+    ctx = _ctx_with_profile({}, "un hotel à New York demain matin 7h")
+    args = {"timeSlot": {"startHour": 7, "endHour": 8}}
+    resolve_search_timeslot(_Tool("search_offers"), args, ctx)
+    assert args["timeSlot"] == {"startHour": 7}
+
+
+def test_a_range_written_with_a_bare_number_is_kept():
+    ctx = _ctx_with_profile({}, "entre 9 et 11h")
+    args = {"timeSlot": {"startHour": 9, "endHour": 11}}
+    resolve_search_timeslot(_Tool("search_offers"), args, ctx)
+    assert args["timeSlot"] == {"startHour": 9, "endHour": 11}
+
+
+def test_a_duration_still_computes_the_end():
+    ctx = _ctx_with_profile({}, "pour 3 heures à partir de 10h")
+    args = {"timeSlot": {"startHour": 10, "endHour": 13}, "duration": "PT3H"}
+    resolve_search_timeslot(_Tool("search_offers"), args, ctx)
+    assert args["timeSlot"] == {"startHour": 10, "endHour": 13}

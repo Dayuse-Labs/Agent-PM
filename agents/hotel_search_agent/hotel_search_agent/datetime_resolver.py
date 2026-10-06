@@ -562,27 +562,23 @@ def _stated_hours(text: str) -> set[int]:
     return hours
 
 
-def _drop_unstated_carried_bounds(
+def _drop_unstated_bounds(
     time_slot: dict[str, Any], tool_context: Any, profile_in: dict[str, Any]
 ) -> dict[str, Any]:
     """mcp-dayuse#6 (Mathias 2026-10-06): a stated time replaces the whole
-    window. "à 9h" after 13h-15h came back from the model as 9h-15h — the end
-    is the previous turn's, never restated. A bound equal to the carried one
-    and absent from a message that does state a time is dropped."""
+    window, and one stated time is an arrival with no end. The model used to
+    fill the other bound — the previous turn's ("à 9h" after 13h-15h → 9h-15h)
+    or its own ("demain matin 7h" → 7h-8h). A bound whose hour the message
+    does not mention is dropped."""
     text = _user_text(tool_context)
     if not _CLOCK_TIME_RE.search(text):
         return time_slot
-    stated = _stated_hours(text)
+    mentioned = _stated_hours(text) | {int(n) for n in re.findall(r"\d{1,2}", text)}
     kept = dict(time_slot)
-    for hour_key, minute_key, profile_key in (
-        ("startHour", "startMinute", "timeslot_start"),
-        ("endHour", "endMinute", "timeslot_end"),
-    ):
-        carried = _parse_hhmm_to_minutes(profile_in.get(profile_key))
-        if carried is None or kept.get(hour_key) != carried // 60 or carried // 60 in stated:
-            continue
-        kept.pop(hour_key)
-        kept.pop(minute_key, None)
+    for hour_key, minute_key in (("startHour", "startMinute"), ("endHour", "endMinute")):
+        if kept.get(hour_key) is not None and kept[hour_key] not in mentioned:
+            kept.pop(hour_key)
+            kept.pop(minute_key, None)
     return kept
 
 
@@ -652,7 +648,7 @@ def resolve_search_timeslot(tool: Any, args: dict[str, Any], tool_context: Any) 
         mark_level("WARNING", status_message="timeslot_sanitization")
         record_guards_fired(tool_context, ["timeslot_sanitization"])
         time_slot = {}
-    time_slot = _drop_unstated_carried_bounds(time_slot, tool_context, profile_in)
+    time_slot = _drop_unstated_bounds(time_slot, tool_context, profile_in)
     start_total = _minutes_of_day(time_slot.get("startHour"), time_slot.get("startMinute"))
     end_total = _minutes_of_day(time_slot.get("endHour"), time_slot.get("endMinute"))
     duration_minutes = parse_duration_minutes(args.pop("duration", None))
