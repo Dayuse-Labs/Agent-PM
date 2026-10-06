@@ -397,6 +397,69 @@ class TestHonestDegradation:
         assert _drive(USER_MESSAGE_SEARCH) == "Voici deux hôtels."
         assert scored == [set()]
 
+    def test_a_rejected_search_asks_to_rephrase_not_to_retry(self, scripted, monkeypatch):
+        # QA trace 9bc5feb6: an argument the MCP schema refuses got "retry in a
+        # moment", which can only fail the same way.
+        scored: list[set[str]] = []
+        monkeypatch.setattr(agent_module, "score_fallbacks", lambda f: scored.append(set(f)))
+        scripted(
+            '{"family": "search", "language": "fr"}',
+            leaf_text="La recherche d'hôtels est momentanément indisponible.",
+            response={
+                "status": "search_unavailable", "unavailable_reason": "rejected",
+                "fallbacks_fired": ["mcp_error"],
+            },
+        )
+        assert _drive(USER_MESSAGE_SEARCH) == templates.search_rejected_response("fr")
+        assert scored == [{"mcp_error"}]
+
+    def test_named_hotel_missing_from_city_results_is_said_first(self, scripted, monkeypatch):
+        # QA trace 6ef04c80: the named hotel was not found and a city-wide
+        # search answered without a word about it.
+        scored: list[set[str]] = []
+        monkeypatch.setattr(agent_module, "score_fallbacks", lambda f: scored.append(set(f)))
+        scripted(
+            '{"family": "search", "language": "fr"}',
+            "Plusieurs options à Lyon.",
+            response={
+                "results": [{"hotel_id": 1, "name": "Hotel Dau Ly"}],
+                "named_hotel_not_found": "Novotel Lyon Zorbalix",
+                "fallbacks_fired": ["named_hotel_not_found"],
+                "profile_delta": {"city": "Lyon"},
+            },
+        )
+        answer = _drive("des dispos au Novotel Lyon Zorbalix ?")
+        assert answer == (
+            templates.named_hotel_not_found_notice("Novotel Lyon Zorbalix", "fr", "Lyon")
+            + "\n\nPlusieurs options à Lyon."
+        )
+        assert scored == [{"named_hotel_not_found"}]
+
+    def test_no_notice_when_the_named_hotel_is_on_screen_anyway(self, scripted):
+        # The name lookup is stricter than the search (mcp-dayuse#3).
+        scripted(
+            '{"family": "search", "language": "fr"}',
+            "Le Pullman Lyon est disponible.",
+            response={
+                "results": [{"hotel_id": 1, "name": "Pullman Lyon"}],
+                "named_hotel_not_found": "Pullman Lyon",
+                "profile_delta": {"city": "Lyon"},
+            },
+        )
+        assert _drive("le Pullman Lyon a des dispos ?") == "Le Pullman Lyon est disponible."
+
+    def test_named_hotel_not_found_without_any_text_is_answered_in_code(self, scripted, caplog):
+        scripted(
+            '{"family": "search", "language": "fr"}',
+            leaf_text=None,
+            response={"named_hotel_not_found": "Novotel Lyon Zorbalyx",
+                      "fallbacks_fired": ["named_hotel_not_found"]},
+        )
+        with caplog.at_level(logging.INFO, logger="b2c_concierge.metrics"):
+            answer = _drive("des dispos au Novotel Lyon Zorbalyx ?")
+        assert answer == templates.named_hotel_not_found_response("Novotel Lyon Zorbalyx", "fr")
+        assert _turn_metric(caplog)["status"] == "ok"
+
     def test_search_unavailable_status_degrades_honestly_without_synthesis(
         self, scripted, caplog
     ):

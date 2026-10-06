@@ -989,6 +989,25 @@ def _hotel_matches(stripped: str, message_tokens: set[str], hotel: dict[str, Any
     return bool(significant) and bool(significant & message_tokens)
 
 
+def named_hotel_in_results(name: str, results: list[dict[str, Any]] | None) -> bool:
+    """Whether a hotel the MCP name lookup missed is on screen anyway — the
+    lookup is stricter than the search (mcp-dayuse#3: "Pullman Lyon" not
+    found by name, then returned by the city search). Same strong tier as
+    the shortlist matcher, plus: every distinctive word of the name is in
+    the hotel's name."""
+    wanted = name.strip().lower()
+    wanted_tokens = _significant_name_tokens(wanted)
+    for hotel in results or []:
+        if not isinstance(hotel, dict):
+            continue
+        hotel_name = str(hotel.get("name") or "").strip()
+        if _substring_match(wanted, hotel_name) or (
+            wanted_tokens and wanted_tokens <= set(_NAME_TOKEN_RE.findall(hotel_name.lower()))
+        ):
+            return True
+    return False
+
+
 def record_search_shortlist(profile: SessionProfile, results: list[dict[str, Any]] | None) -> None:
     """Persists the on-screen shortlist so a LATER turn can reference a hotel
     by name without a fresh MCP round-trip (named-hotel lookup guard). A

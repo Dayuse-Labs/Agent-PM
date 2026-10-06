@@ -129,6 +129,7 @@ from .ground_truth import shortlist_ground_truth_block, shortlist_hotels, synthe
 from .leg import StatelessLeafLeg
 from .link_guard import enforce_hotel_link_truthfulness
 from .profile import (
+    named_hotel_in_results,
     BUDGET_SOURCE_EXPLICIT,
     SessionProfile,
     advance_search_cursor,
@@ -903,6 +904,8 @@ class _B2cConcierge(BaseAgent):
             names = ", ".join(str(h.get("name")) for h in hotels)
             leaf_text = f"Comparison retrieved for: {names}." if hotels else ""
         budget.fired.update(result.get("guards_fired") or [])
+        if result.get("error") == "hotel not found":
+            budget.fallbacks.add("named_hotel_not_found")
 
         if not result.get("ok") or not hotels:
             self._emit_turn_metric(
@@ -1352,8 +1355,22 @@ class _B2cConcierge(BaseAgent):
         # degrade check right here, and `"results" in response` further down).
         # Removing the key first keeps that control flow byte-identical instead
         # of making observability change behaviour.
+        named_not_found: str | None = None
         if isinstance(response, dict):
             budget.fired.update(response.pop("guards_fired", None) or [])
+            # mcp-dayuse#8: same hand-off for the degraded paths the leaf
+            # answered on, popped for the same reason.
+            budget.fallbacks.update(response.pop("fallbacks_fired", None) or [])
+            named_not_found = response.pop("named_hotel_not_found", None)
+        if named_not_found and not leaf_text and "results" not in response:
+            # The leaf wrote nothing, but code knows why: the hotel does not
+            # exist on Dayuse — not "retry in a moment".
+            await store.set(ctx.session.id, profile)
+            self._emit_turn_metric(family, f"leaf:{route.target}", budget, t_start, "ok", inv)
+            yield self._final(
+                ctx, templates.named_hotel_not_found_response(named_not_found, reply_language)
+            )
+            return
         if leaf_text is None and not response:
             self._emit_turn_metric(family, f"leaf:{route.target}", budget, t_start, "degraded", inv)
             yield self._final(ctx, templates.leaf_degraded_response(family, reply_language, profile.city))
@@ -1397,7 +1414,10 @@ class _B2cConcierge(BaseAgent):
             await store.set(ctx.session.id, profile)
             self._emit_turn_metric(family, f"leaf:{route.target}", budget, t_start, "degraded", inv)
             yield self._final(
-                ctx, templates.leaf_degraded_response(family, reply_language, profile.city)
+                ctx,
+                templates.search_rejected_response(reply_language)
+                if response.get("unavailable_reason") == "rejected"
+                else templates.leaf_degraded_response(family, reply_language, profile.city),
             )
             return
         if route.target == LEAF_HOTEL_SEARCH and "results" in response:
@@ -1482,6 +1502,15 @@ class _B2cConcierge(BaseAgent):
             # not vanish — answer it with the generic choices.
             currency_notice = unsupported_currency_message(
                 resolve_currency_request(pending_currency, None), reply_language
+            )
+        if (
+            isinstance(named_not_found, str)
+            and response.get("results")
+            and not named_hotel_in_results(named_not_found, response["results"])
+        ):
+            final_text = (
+                templates.named_hotel_not_found_notice(named_not_found, reply_language, profile.city)
+                + f"\n\n{final_text}"
             )
         if date_notice:
             final_text = f"{final_text.rstrip()}\n\n{date_notice}"

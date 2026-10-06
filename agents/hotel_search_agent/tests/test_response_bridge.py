@@ -507,7 +507,11 @@ def test_capture_search_offers_failure_is_untouched():
     ctx = _Ctx()
     assert capture_after_tool(_Tool("search_offers"), {}, ctx, {"isError": True}) is None
     assert capture_after_tool(_Tool("search_offers"), {}, ctx, {"ok": False, "error": "x"}) is None
-    assert ctx.state == {}  # nothing stashed on failure
+    # No results stashed on failure — only the failure itself (mcp-dayuse#8).
+    assert ctx.state == {
+        "temp:hotel_search_fallbacks": ["mcp_error"],
+        "temp:hotel_search_mcp_error": "failed",
+    }
 
 
 def test_capture_falls_back_to_content_text_when_no_structured_content():
@@ -1899,3 +1903,53 @@ def test_card_carries_the_same_offer_in_the_hotel_currency():
         "HKD 805.00", 80500, "HKD",
     )
     assert card["timeslots"][0]["hotel_original_price"] == 1600.0
+
+
+# --- mcp-dayuse#8: degraded paths reported to the concierge -------------------------------------
+
+_NOT_FOUND_RESPONSE = {
+    "content": [{"type": "text", "text": 'No hotel found for "Novotel Lyon Zorbalix"'}],
+    "structuredContent": {"error": {
+        "kind": "HotelNotFoundError", "retryable": False, "query": "Novotel Lyon Zorbalix",
+    }},
+    "isError": True,
+}
+_INVALID_ARGS_RESPONSE = {
+    "content": [{"type": "text", "text": "MCP error -32602: Input validation error: Invalid arguments"}],
+    "isError": True,
+}
+
+
+def test_named_hotel_not_found_is_reported_with_its_query():
+    ctx = _Ctx()
+    capture_after_tool(_Tool("find_hotel_by_name"), {"name": "Novotel Zorbalix"}, ctx, _NOT_FOUND_RESPONSE)
+    data = _decode(emit_search_datapart(ctx))
+    assert data["named_hotel_not_found"] == "Novotel Lyon Zorbalix"
+    assert data["fallbacks_fired"] == ["named_hotel_not_found"]
+
+
+def test_a_rejected_search_is_not_reported_as_an_outage():
+    ctx = _Ctx(
+        {_ANCHOR_KEY: {"latitude": 45.76, "longitude": 4.84, "label": "Lyon", "type": "city_centroid"}}
+    )
+    capture_after_tool(_Tool("search_offers"), {}, ctx, _INVALID_ARGS_RESPONSE)
+    data = _decode(emit_search_datapart(ctx))
+    assert data["status"] == "search_unavailable"
+    assert data["unavailable_reason"] == "rejected"
+    assert data["fallbacks_fired"] == ["mcp_error"]
+
+
+def test_a_failed_search_stays_an_outage():
+    ctx = _Ctx(
+        {_ANCHOR_KEY: {"latitude": 45.76, "longitude": 4.84, "label": "Lyon", "type": "city_centroid"}}
+    )
+    capture_after_tool(_Tool("search_offers"), {}, ctx, _INVALID_ARGS_RESPONSE)
+    capture_after_tool(_Tool("search_offers"), {}, ctx, {"isError": True})
+    data = _decode(emit_search_datapart(ctx))
+    assert "unavailable_reason" not in data  # one real failure is enough to say "retry"
+
+
+def test_circuit_open_is_scored_as_an_mcp_error():
+    ctx = _Ctx()
+    capture_after_tool(_Tool("search_offers"), {}, ctx, {"ok": False, "error": "mcp_circuit_open"})
+    assert _decode(emit_search_datapart(ctx))["fallbacks_fired"] == ["mcp_error"]

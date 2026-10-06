@@ -94,8 +94,8 @@ FALLBACK_SCORE_NAMES: tuple[str, ...] = (
     # An MCP tool answered with an error (invalid argument, server error):
     # the user got a degraded answer instead of results.
     "mcp_error",
-    # A named hotel could not be found and the turn answered with something
-    # else (a city-wide search) instead of that hotel.
+    # A hotel the user named could not be found. When the turn still shows
+    # other hotels (city-wide search), the answer now says so first.
     "named_hotel_not_found",
 )
 

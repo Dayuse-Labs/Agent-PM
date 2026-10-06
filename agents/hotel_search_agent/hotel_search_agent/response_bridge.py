@@ -52,6 +52,7 @@ from google.genai import types as genai_types
 
 from b2c_common import build_hotel_page_url, display_price_euro, hotel_currency_price, with_checkin_date
 from hotel_search_agent.inventory import haversine_km
+from hotel_search_agent.mcp_guard import classify_mcp_error
 
 # The concierge reports AT MOST 5 (ground-truth cap) — match it so the model
 # never ingests more than the caller can use. Public (S-G5): also the page
@@ -82,6 +83,15 @@ _STATE_DISTANCE_ORIGIN_KEY = "temp:hotel_search_distance_origin"
 # Toulon trace showed `guard_geocode_echo_back = false`, which read as a
 # structural false negative of the guard when it was really an unwired score.
 _STATE_GUARDS_KEY = "temp:hotel_search_guards_fired"
+# mcp-dayuse#8: the degraded paths this turn still answered on
+# (`FALLBACK_SCORE_NAMES`), on their way to the concierge's `score_fallbacks`.
+_STATE_FALLBACKS_KEY = "temp:hotel_search_fallbacks"
+# "rejected" or "failed" (`mcp_guard.classify_mcp_error`): a rejected request
+# must not be answered with "retry in a moment".
+_STATE_MCP_ERROR_KEY = "temp:hotel_search_mcp_error"
+# The name `find_hotel_by_name` could not find, so the concierge can say so
+# when the turn answers with other hotels (QA trace 6ef04c80).
+_STATE_NAMED_NOT_FOUND_KEY = "temp:hotel_search_named_not_found"
 # The budget / time-slot the model actually sent search_offers, captured from
 # the tool args (search_offers has NATIVE priceRangeMax/timeSlot params — no
 # virtual param needed, unlike amenities in S10) and mapped to the profile in
@@ -902,6 +912,27 @@ def record_guards_fired(tool_context: Any, names: Iterable[str]) -> None:
     tool_context.state[_STATE_GUARDS_KEY] = sorted({*(str(p) for p in previous), *fired})
 
 
+def _record_fallback(tool_context: Any, name: str) -> None:
+    previous = tool_context.state.get(_STATE_FALLBACKS_KEY) or []
+    tool_context.state[_STATE_FALLBACKS_KEY] = sorted({*previous, name})
+
+
+def _record_mcp_error(
+    tool_context: Any, tool_name: str, args: dict[str, Any], tool_response: dict[str, Any]
+) -> None:
+    kind = classify_mcp_error(tool_response) or "failed"
+    if kind == "not_found" and tool_name == "find_hotel_by_name":
+        envelope = (tool_response.get("structuredContent") or {}).get("error") or {}
+        query = envelope.get("query") or args.get("name")
+        if isinstance(query, str) and query.strip():
+            tool_context.state[_STATE_NAMED_NOT_FOUND_KEY] = query.strip()
+        _record_fallback(tool_context, "named_hotel_not_found")
+        return
+    _record_fallback(tool_context, "mcp_error")
+    if tool_context.state.get(_STATE_MCP_ERROR_KEY) != "failed":
+        tool_context.state[_STATE_MCP_ERROR_KEY] = "failed" if kind == "failed" else "rejected"
+
+
 def capture_after_tool(
     tool: Any, args: dict[str, Any], tool_context: Any, tool_response: Any
 ) -> dict[str, Any] | None:
@@ -966,8 +997,11 @@ def capture_after_tool(
         # (the model still sees the neutral diagnostic, but its prose no longer
         # decides what the customer reads on this failure).
         tool_context.state[_STATE_SEARCH_UNAVAILABLE_KEY] = True
+        _record_fallback(tool_context, "mcp_error")
+        tool_context.state[_STATE_MCP_ERROR_KEY] = "failed"
         return None
     if tool_response.get("isError") or tool_response.get("ok") is False:
+        _record_mcp_error(tool_context, name, args, tool_response)
         return None  # a real failure — leave it untouched for the model to relay
 
     structured = read_structured_payload(tool_response)
@@ -1567,8 +1601,16 @@ def emit_search_datapart(callback_context: Any) -> genai_types.Content | None:
         # `requires_clarification` honestly (it used to be hardcoded False and
         # safe clarifying questions scored as hard failures).
         payload["requires_clarification"] = True
+    fallbacks = state.get(_STATE_FALLBACKS_KEY)
+    if isinstance(fallbacks, list) and fallbacks:
+        payload["fallbacks_fired"] = list(fallbacks)
+    named_not_found = state.get(_STATE_NAMED_NOT_FOUND_KEY)
+    if isinstance(named_not_found, str):
+        payload["named_hotel_not_found"] = named_not_found
     if search_unavailable:
         payload["status"] = "search_unavailable"
+        if state.get(_STATE_MCP_ERROR_KEY) == "rejected":
+            payload["unavailable_reason"] = "rejected"
     if not payload:
         return None
 
