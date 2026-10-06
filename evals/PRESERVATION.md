@@ -132,6 +132,30 @@ the routing counts stayed 44/52 and 52/52. Earlier dev-pilot cost figures above
 predate this harness correction and are preliminary observations, not a final cost
 comparison. The final holdout has not been used for development.
 
+A third iteration fixes a concrete context break: the final FAQ synthesis previously
+received only the latest user message and the leaf outcome, even though triage and
+the FAQ leaf received prior user context. The same bounded user-only context now
+also reaches synthesis and its clarification retry, tagged as unverified dialogue
+rather than authenticated booking conditions. Offline end-to-end tests verify this
+path and isolation between sessions.
+
+On the 24-conversation / 61-turn dev pilot, v3 retains 15/15 annotated support routes,
+zero spurious EUR disclosures, 205 actual LLM calls and $0.095766 estimated cost.
+A manual Codex review also examined six post-hoc checks in four development
+conversations, with two additional repetitions per candidate. V2 generalized one
+booking's restrictions to most offers once and offered free cancellation despite
+reported restrictions once; neither behavior appeared in the three v3 observations
+of those cases. V2 succeeds on the other two repetitions itself: this is **not a
+statistically established policy gain**. Both variants still sometimes state a
+generic cancellation deadline for an existing booking. The source conflict and
+policy release check remain unresolved; no aggregate policy-accuracy score is claimed.
+
+The separate validation pilot also completes for v3: 52/52 annotated routes (main
+44/52), zero spurious EUR disclosures, one degraded turn, 214 actual LLM calls
+and $0.108868 estimated cost (main $0.096267). The same nine ambiguous turns stay
+unscored. Extra context and stochastic call paths can change cost; this is not a
+causal estimate of the context patch's marginal cost.
+
 The first full baseline attempt and first candidate pilot hit staging HTTP 429 and
 were invalidated. The replacement proxy freezes the tool catalog, shares successful
 results and applies a global token bucket (8 burst, 72 requests/min). A provider
