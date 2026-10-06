@@ -71,3 +71,51 @@ alternative may still be useful: this is not an overall response-quality grade.
     result = _result("displayed_priced_stay" if required else "displayed_offer_budget", values)
     result["price_basis"] = "same-offer displayed amount; no FX or inferred fees"
     return result
+
+
+def _card_minimum(card: object, schema: str) -> tuple[str, float] | None:
+    if not isinstance(card, dict):
+        return None
+    if schema == "b2c":
+        price = _price(card, "EUR")
+        return ("EUR", price) if price is not None else None
+    slots = card.get("timeslots")
+    if not isinstance(slots, list) or not slots or any(not isinstance(s, dict) for s in slots):
+        return None
+    currencies = [s.get("currency") for s in slots]
+    currency = currencies[0]
+    if not isinstance(currency, str) or any(c != currency for c in currencies):
+        return None
+    prices = [_legacy_price(s, currency) for s in slots]
+    if any(p is None for p in prices):
+        return None  # An unknown cheaper slot could change the old minimum.
+    return currency, min(p for p in prices if p is not None)
+
+
+def check_price_transition(previous: dict | None, current: dict | None, *, schema: str) -> dict:
+    """Find an actually cheaper option, comparing one currency within each agent.
+
+Legacy uses explicit slot currencies; B2C uses canonical EUR values of the
+selected offers. No cross-agent amount comparison or FX is performed. This
+predicate does not validate retained geography, amenities, or stay duration.
+An honest explanation that no cheaper offer exists can be a correct response.
+"""
+    if schema not in {"legacy", "b2c"}:
+        raise ValueError("explicit legacy or b2c schema required")
+    before = [_card_minimum(c, schema) for c in _cards(previous)]
+    after = [_card_minimum(c, schema) for c in _cards(current)]
+    result = {"check": "cheaper_option", "status": "skipped", "currency": None,
+              "scope": "list-price change only; retained constraints and honest alternatives need review"}
+    if not before or not after or any(p is None for p in before):
+        return result
+    known_before = [p for p in before if p is not None]
+    currency = known_before[0][0]
+    if any(p[0] != currency for p in known_before):
+        return result
+    floor = min(p[1] for p in known_before)
+    result["currency"] = currency
+    if any(p is not None and p[0] == currency and p[1] < floor for p in after):
+        result["status"] = "pass"
+    elif all(p is not None and p[0] == currency for p in after):
+        result["status"] = "fail"
+    return result

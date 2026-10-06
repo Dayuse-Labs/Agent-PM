@@ -83,3 +83,30 @@ def test_conversations_do_not_reuse_server_session_cookies():
                 assert not candidate.cookies
 
     asyncio.run(exercise())
+
+
+def test_zero_cost_requires_completed_template_evidence():
+    from evals.live_pair_budget import local_model_costs
+    sid = 'codex-ack'
+    row = {'x-replay-session-id': sid, 'x-replay-turn': '1', 'event_type': 'turn',
+           'llm_calls': 0, 'status': 'ok', 'route': 'template:ack'}
+    assert local_model_costs([row], sid, 1) == {'new_main:codex-ack': '0'}
+    for rows in [[], [row, row], [{**row, 'route': 'leaf:faq'}], [{**row, 'llm_calls': None}],
+                 [{**row, 'status': 'error'}], [{**row, 'llm_calls': True}]]:
+        with pytest.raises(ValueError):
+            local_model_costs(rows, sid, 1)
+
+
+def test_costed_turn_then_free_ack_preserves_cost_and_checks_all_generations():
+    from evals.live_pair_budget import local_model_costs
+    sid = 'codex-mixed'
+    turn = {'x-replay-session-id': sid, 'x-replay-turn': '1', 'event_type': 'turn',
+            'llm_calls': 1, 'status': 'ok', 'route': 'leaf:search'}
+    call = {**turn, 'event_type': 'llm_call', 'cost_usd': '0.01'}
+    ack = {**turn, 'x-replay-turn': '2', 'llm_calls': 0, 'route': 'template:ack'}
+    assert local_model_costs([turn, call, ack], sid, 2)['new_main:'+sid] == '0.01'
+    assert local_model_costs([turn, call, call, ack], sid, 2)['new_main:'+sid] == '0.02'
+    for rows in [[turn, ack], [turn, {**call, 'cost_usd': None}, ack],
+                 [turn, call, ack, {**call, 'x-replay-turn': '2'}]]:
+        with pytest.raises(ValueError):
+            local_model_costs(rows, sid, 2)

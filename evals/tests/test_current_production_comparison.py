@@ -89,3 +89,16 @@ def test_report_uses_reviewed_scope_and_does_not_invent_pilot_incident(pilot):
     assert "&lt;script&gt;bad()&lt;/script&gt;" in page
     assert "premier appel du nouvel agent a subi un timeout" not in page
     assert "<script>" not in page
+
+
+def test_isolated_support_is_not_labelled_as_the_production_endpoint(pilot):
+    for filename in ["pilot-manifest.json", "pilot-review.json"]:
+        path = pilot / filename
+        data = json.loads(path.read_text())
+        data["reference"].update(mode="isolated support", endpoint="http://127.0.0.1:8355/v3/chat")
+        path.write_text(json.dumps(data))
+    render(pilot, pilot / "report.html")
+    page = (pilot / "report.html").read_text()
+    assert "Code de production · support isolé" in page
+    assert "http://127.0.0.1:8355/v3/chat" in page
+    assert "ai.dayuse.com" not in page

@@ -85,6 +85,34 @@ def production_costs(traces: list[dict], session_id: str, expected_turns: int) -
     return {f"production:{t['id']}": str(amount(t.get('totalCost'))) for t in traces}
 
 
+def local_model_costs(rows: list[dict], session_id: str, expected_turns: int) -> dict:
+    """Require completed turn evidence; only a proven template can cost zero.
+
+The spine counts logical model phases, while leaf metrics can contain multiple
+physical generations. Require at least the declared count, never equate them.
+"""
+    selected = [r for r in rows if r.get("x-replay-session-id") == session_id]
+    turns = [r for r in selected if r.get("event_type") == "turn"]
+    expected = {str(i) for i in range(1, expected_turns + 1)}
+    if len(turns) != expected_turns or {str(r.get("x-replay-turn")) for r in turns} != expected:
+        raise ValueError("local completed-turn coverage is not exact")
+    calls = [r for r in selected if r.get("event_type") == "llm_call"]
+    if any(str(r.get("x-replay-turn")) not in expected for r in calls):
+        raise ValueError("local model event belongs to an unexpected turn")
+    total = sum((amount(r.get("cost_usd")) for r in calls), Decimal(0))
+    for turn in turns:
+        observed = [r for r in calls if str(r.get("x-replay-turn")) == str(turn["x-replay-turn"])]
+        declared = turn.get("llm_calls")
+        if isinstance(declared, bool) or not isinstance(declared, int) or declared < 0:
+            raise ValueError("local model-call declaration is missing or invalid")
+        if declared == 0:
+            if observed or turn.get("status") != "ok" or turn.get("route") != "template:ack":
+                raise ValueError("zero cost is not proved by a completed acknowledgement template")
+        elif len(observed) < declared:
+            raise ValueError("local physical model accounting is incomplete")
+    return {f"new_main:{session_id}": str(total)}
+
+
 @asynccontextmanager
 async def conversation_clients(*, timeout: float = 180, transport=None):
     """Fresh cookie jars per conversation, while keeping cookies across its turns.

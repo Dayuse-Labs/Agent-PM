@@ -11,9 +11,12 @@ FAQ and four isolated booking-support cases. Another 24 validation conversations
 `6857706` was frozen, before validation outputs. Do not call this a full-corpus
 replay or a representative global quality score.
 
-Checkpoint report: 43 complete live conversations / 108 turns per agent, about
-$2.30 observed campaign cost at capture. Five full dialogues / 23 paired turns
-have a written diagnostic review. A production HTTP timeout after 180 seconds
+Initial live comparison: 79 complete conversations / 202 turns per agent,
+plus one retained production transport failure. The last turn of that failed
+conversation was not executed. Observed initial live model cost: $4.435, including
+incidents. Four historical support cases then completed in the isolated runtime
+against new main ($4.474 cumulative). Fourteen full live dialogues / 53 paired
+turns and all four support cases have written diagnostic reviews. A production HTTP timeout after 180 seconds
 is retained as a transport failure; its model calls are accounted, not retried
 to hide the failure. The remaining conversations run in two-conversation batches,
 with serial turns and one cost-ledger writer; stratify latency by concurrency.
@@ -30,9 +33,10 @@ the first pilot's timeout claim into every subsequent report.
 
 The private report is `reports/audit_eval_mcp_20261006/budget60_comparison.html`
 in the legacy workspace. Exact runtime handles, checkpoint data and serial next
-steps are in private `budget60-current-production/campaign.json`. Support and
-candidate validation were queued after the main comparison; they are not yet
-reported as executed or successful. Candidate corrections include full-stay
+steps are in private `budget60-current-production/campaign.json`. The first four support cases are complete; candidate validation (22 live, two
+SAV) is in progress. Two known development reproductions and one explicitly
+synthetic owned-booking cancellation probe are queued separately, not included
+in unseen-validation or historical-cohort rates. Candidate corrections include full-stay
 coverage and transmission of recognized short EUR budgets into the search
 profile/MCP, without another model call. Global relevance, geography, cheaper
 follow-ups and booking-support parity remain open.
@@ -695,3 +699,20 @@ test follows the real outgoing DataPart and leaf callback through to
 1,920 passed / one skipped, lint/typecheck/guardrails green. No new model calls
 for diagnosis or offline checks. Live candidate validation is still outstanding;
 the primary running baseline continues on main `07be07e` unchanged.
+
+### Cross-schema cheaper follow-ups and free acknowledgements
+
+`check_price_transition` compares same-currency amounts within each system;
+legacy USD prices are not silently labelled EUR. Missing prior minima prevent a
+pass/fail claim. A cheaper list is only a price predicate, not proof that place,
+hours or amenities survived. Four annotated initial transitions give legacy
+three strictly cheaper lists / one unchanged minimum; new main one unchanged
+minimum / three unscored because a prior or current list is missing. This is a
+small diagnostic count, not a population improvement rate.
+
+An acknowledgement template emitted no model-call event, causing a conservative
+accounting stop. Full completed-turn evidence (`template:ack`, OK, zero declared
+calls, no contradictory generation) now proves zero model spend; absence of
+metrics alone never does. The two completed cases were cost-reconciled without
+replaying them. The report labels the local support runtime distinctly from the
+actual production HTTP endpoint. Offline suite: 1,950 passed, one skipped.

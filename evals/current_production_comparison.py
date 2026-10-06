@@ -96,13 +96,15 @@ def render(directory: Path, output: Path) -> dict:
     if not isinstance(scope, str) or not isinstance(findings, list) or any(not isinstance(f, str) for f in findings):
         raise ValueError("review scope and findings must be plain text")
     findings_html = "<ul>" + "".join(f"<li>{_text(f)}</li>" for f in findings) + "</ul>" if findings else ""
+    reference_label = ("Code de production · support isolé" if manifest["reference"].get("mode")
+                       else "Production aujourd’hui")
     sections = []
     for number, pair in enumerate(pairs, 1):
         source = pair["source"]
         turns = []
         for index, turn in enumerate(source["turns"]):
             columns = []
-            for variant, label in (("production", "Production aujourd’hui"), ("new_main", "Nouvel AgentB2C + MCP")):
+            for variant, label in (("production", reference_label), ("new_main", "Nouvel AgentB2C + MCP")):
                 actual = pair["outputs"][variant]["turns"][index]
                 response = actual["response"]
                 columns.append(
@@ -121,10 +123,10 @@ def render(directory: Path, output: Path) -> dict:
 <meta name="viewport" content="width=device-width,initial-scale=1">
 <title>Dayuse — production actuelle contre nouvel agent</title>
 <style>body{{font:16px/1.5 system-ui;color:#192b26;background:#f6f5f1;max-width:1300px;margin:36px auto;padding:0 24px}}h1{{font-size:32px}}.pair{{display:grid;grid-template-columns:1fr 1fr;gap:18px}}article{{background:white;padding:20px;border:1px solid #d3dbd5;border-radius:8px;min-width:0}}.answer{{white-space:pre-wrap;overflow-wrap:anywhere}}blockquote{{margin:0 0 18px;padding:12px 18px;background:#e6eee8;border-left:4px solid #356f52;white-space:pre-wrap}}.muted{{color:#647169;font-size:13px}}.conversation{{margin:32px 0;border-top:1px solid #becbc2;padding-top:16px}}summary{{cursor:pointer;font-weight:650}}li{{margin:12px 0}}.turn{{margin:28px 0}}.notice{{background:#fff0cc;padding:16px}}@media(max-width:800px){{.pair{{grid-template-columns:1fr}}}}</style>
-<h1>Production actuelle ↔ nouvel AgentB2C avec MCP</h1>
+<h1>{_text(reference_label)} ↔ nouvel AgentB2C avec MCP</h1>
 <p>{len(pairs)} conversations réelles · {manifest['expected_turns_per_variant']} tours par agent · réponses réellement obtenues lors du même pilote.</p>
 <p class="muted">Exécution : {_text(manifest.get('created_at'))} — {_text(manifest.get('finished_at'))}.</p>
-<p><b>Production :</b> ai.dayuse.com · {_text(manifest['reference']['sha'][:8])} · {_text(manifest['reference']['model_config'])}.<br>
+<p><b>{_text(reference_label)} :</b> {_text(manifest['reference'].get('endpoint'))} · {_text(manifest['reference']['sha'][:8])} · {_text(manifest['reference']['model_config'])}.<br>
 <b>Nouveau :</b> révision {_text(manifest['new_agent']['sha'][:8])} · {_text(manifest['new_agent']['model'])} · MCP live.</p>
 <p class="notice">{_text(scope)} Un modèle, des sources d’inventaire et des environnements différents sont comparés. La production a également des erreurs et ne constitue pas une réponse de référence parfaite.</p>
 {findings_html}
