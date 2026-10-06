@@ -1301,21 +1301,31 @@ def test_normalize_hotel_drops_offers_outside_exact_window():
     assert "price" not in card  # the only offer starts too early — doesn't fit
 
 
-def test_normalize_hotel_keeps_offers_fitting_inside_exact_window():
-    hotel = _hotel_with_offers(1, [_offer(7, 30, 13, 30)])
-    card = normalize_hotel(hotel, exact_window=(7 * 60, 14 * 60))  # wider ask, offer fits inside
+def test_normalize_hotel_keeps_offers_that_cover_the_window():
+    # Site rule (mcp-dayuse#4/#8): QA Lyon 12h–13h, an 08–14 offer covers it.
+    hotel = _hotel_with_offers(1, [_offer(8, 0, 14, 0)])
+    card = normalize_hotel(hotel, exact_window=(12 * 60, 13 * 60))
     assert card["price"] == "€50.00"
 
 
-def test_normalize_search_results_drops_hotels_with_no_fitting_offer():
+def test_normalize_hotel_drops_an_offer_inside_a_wider_window():
+    # QA Lyon 6h–16h: the site finds nothing — an 08–14 offer does not cover it.
+    hotel = _hotel_with_offers(1, [_offer(8, 0, 14, 0)])
+    card = normalize_hotel(hotel, exact_window=(6 * 60, 16 * 60))
+    assert "price" not in card
+
+
+def test_normalize_search_results_drops_hotels_with_no_covering_offer():
+    # QA Lyon 22h01–23h01 → 22h–23h: offers closing at 22:00 are out.
     structured = {
         "results": [
-            _hotel_with_offers(1, [_offer(7, 0, 13, 0)]),  # too early, excluded
-            _hotel_with_offers(2, [_offer(7, 30, 13, 30)]),  # fits exactly
+            _hotel_with_offers(1, [_offer(17, 0, 22, 0)]),
+            _hotel_with_offers(2, [_offer(17, 0, 23, 0)]),
+            _hotel_with_offers(3, [_offer(12, 0, 22, 0), _offer(22, 0, 23, 0)]),
         ]
     }
-    results = normalize_search_results(structured, exact_window=(7 * 60 + 30, 13 * 60 + 30))
-    assert [h["id"] for h in results] == [2]
+    results = normalize_search_results(structured, exact_window=(22 * 60 + 1, 23 * 60 + 1))
+    assert [h["id"] for h in results] == [2, 3]
 
 
 def test_normalize_search_results_without_exact_window_behaves_exactly_as_before():
@@ -1342,12 +1352,12 @@ def test_capture_overrides_timeslot_minutes_from_the_exact_window_state():
 
 
 def test_capture_applies_exact_window_post_filter():
-    ctx = _Ctx({STATE_EXACT_WINDOW_KEY: {"start_total": 7 * 60 + 30, "end_total": 13 * 60 + 30}})
+    ctx = _Ctx({STATE_EXACT_WINDOW_KEY: {"start_total": 12 * 60, "end_total": 13 * 60}})
     resp = {
         "structuredContent": {
             "results": [
-                _hotel_with_offers(1, [_offer(7, 0, 13, 0)]),  # excluded
-                _hotel_with_offers(2, [_offer(7, 30, 13, 30)]),  # kept
+                _hotel_with_offers(1, [_offer(13, 0, 18, 0)]),  # starts too late, excluded
+                _hotel_with_offers(2, [_offer(10, 0, 16, 0)]),  # covers 12–13, kept
             ]
         },
         "isError": False,
@@ -1356,6 +1366,22 @@ def test_capture_applies_exact_window_post_filter():
     results = ctx.state["temp:hotel_search_results"]
     assert [h["id"] for h in results] == [2]
     assert "temp:hotel_search_timeslot_fallback" not in ctx.state
+
+
+def test_capture_filters_a_one_sided_window_too():
+    # "à partir de 14h": the offer must let the user in at 14h.
+    ctx = _Ctx({STATE_EXACT_WINDOW_KEY: {"start_total": 14 * 60, "end_total": None}})
+    resp = {
+        "structuredContent": {
+            "results": [
+                _hotel_with_offers(1, [_offer(8, 0, 14, 0)]),
+                _hotel_with_offers(2, [_offer(10, 0, 17, 0)]),
+            ]
+        },
+        "isError": False,
+    }
+    capture_after_tool(_Tool("search_offers"), {}, ctx, resp)
+    assert [h["id"] for h in ctx.state["temp:hotel_search_results"]] == [2]
 
 
 def test_capture_falls_back_when_exact_window_would_empty_everything():
@@ -1385,11 +1411,14 @@ def test_capture_no_exact_window_state_never_filters():
 def test_outcome_text_appends_fallback_disclosure():
     from hotel_search_agent.response_bridge import _outcome_text
 
-    text = _outcome_text([{"name": "Hotel 1"}], timeslot_fallback=True)
-    assert "closest matches" in text
+    text = _outcome_text([{"name": "Hotel 1"}], timeslot_fallback=True, window="06:00–16:00")
+    assert text.endswith("No offer covers the whole 06:00–16:00 time slot; here are the closest offers.")
+    assert "exact" not in text
     assert _outcome_text([{"name": "Hotel 1"}], timeslot_fallback=False) == (
         "1 day-use offer(s) found: Hotel 1."
     )
+    fr = _outcome_text([{"name": "Hotel 1"}], True, "fr", window="06:00–16:00")
+    assert fr.endswith("Aucune offre ne couvre tout le créneau 06:00–16:00 ; voici les offres les plus proches.")
 
 
 def test_skip_final_generation_includes_fallback_note():
@@ -1397,10 +1426,22 @@ def test_skip_final_generation_includes_fallback_note():
         {
             "temp:hotel_search_results": [{"id": 1, "name": "Villa"}],
             "temp:hotel_search_timeslot_fallback": True,
+            STATE_EXACT_WINDOW_KEY: {"start_total": 6 * 60, "end_total": 16 * 60},
         }
     )
     response = skip_final_generation(ctx, None)
-    assert "closest matches" in response.content.parts[0].text
+    assert "the whole 06:00–16:00 time slot" in response.content.parts[0].text
+
+
+def test_emit_flags_the_timeslot_fallback_for_the_concierge():
+    ctx = _Ctx(
+        {
+            "temp:hotel_search_results": [{"id": 1, "name": "Villa"}],
+            "temp:hotel_search_timeslot_fallback": True,
+            STATE_EXACT_WINDOW_KEY: {"start_total": 6 * 60, "end_total": 16 * 60},
+        }
+    )
+    assert _decode(emit_search_datapart(ctx))["timeslot_fallback"] == "06:00–16:00"
 
 
 # --- S-G6: resolved date -> profile_delta --------------------------------------------------------

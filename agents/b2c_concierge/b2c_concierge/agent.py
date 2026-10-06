@@ -153,6 +153,7 @@ from .profile import (
 )
 from .profile_store import get_profile_store
 from .requested_date import date_served_notice, expected_search_date, reference_today
+from .window_guard import enforce_window_disclosure, enforce_window_match, window_label
 from .routing import LEAF_FAQ, LEAF_HOTEL_SEARCH, ROUTES, bearer_token, card_url
 from .triage import (
     SERVICE,
@@ -1420,7 +1421,26 @@ class _B2cConcierge(BaseAgent):
                 else templates.leaf_degraded_response(family, reply_language, profile.city),
             )
             return
+        window_fallback: str | None = None
         if route.target == LEAF_HOTEL_SEARCH and "results" in response:
+            # guard_window_match (mcp-dayuse#8): what reaches the screen as a
+            # match covers the slot, by the site rule the leaf filters with.
+            leaf_fallback = response.pop("timeslot_fallback", None)
+            window = window_label(profile.timeslot_start, profile.timeslot_end)
+            if leaf_fallback:
+                window_fallback = leaf_fallback if isinstance(leaf_fallback, str) else window
+            elif window:
+                kept, dropped = enforce_window_match(
+                    response["results"], profile.timeslot_start, profile.timeslot_end
+                )
+                if dropped:
+                    with observation(as_type="guardrail", name="enforce-window-match"):
+                        mark_level("WARNING", status_message="window_match")
+                        budget.fired.add("window_match")
+                    if len(kept) == len(response["results"]):
+                        window_fallback = window  # none covers: label them closest
+                    else:
+                        response["results"] = kept
             if pending_currency is not None:
                 decided = resolve_currency_request(pending_currency, response["results"])
                 if decided.kind == "set":
@@ -1512,6 +1532,8 @@ class _B2cConcierge(BaseAgent):
                 templates.named_hotel_not_found_notice(named_not_found, reply_language, profile.city)
                 + f"\n\n{final_text}"
             )
+        if window_fallback:
+            final_text, _ = enforce_window_disclosure(final_text, window_fallback, reply_language)
         if date_notice:
             final_text = f"{final_text.rstrip()}\n\n{date_notice}"
         if currency_notice:

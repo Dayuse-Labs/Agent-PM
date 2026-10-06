@@ -80,6 +80,11 @@ GUARD_SCORE_NAMES: tuple[str, ...] = (
     # one the user named (QA Côte d'Azur: 3 October asked, 30/09 served).
     # Fires in `b2c_concierge.agent`, which then says which day is on screen.
     "date_served",
+    # #17 (mcp-dayuse#8, 2026-10-06): a card shown as a match did not cover
+    # the requested slot by the site rule (`b2c_common.timeslot`) — QA Lyon
+    # 22h01–23h01, cards closing at 22:00. Fires in `b2c_concierge.agent`,
+    # which drops those cards (or labels them all as the closest offers).
+    "window_match",
 )
 
 #: Degraded paths that still answer (mcp-dayuse#8): each becomes the BOOLEAN
