@@ -161,10 +161,7 @@ How to act, frugally (at most ONE reasoning pass — no tool-call loops):
   from profile_in automatically. Never ask a question on such a turn.
   Put a LANDMARK or a named district ("les champs élysées", "gare de lyon",
   "times square", "la sagrada familia") in `zone` — a landmark is not a city,
-  and the tool has a dedicated lookup for it. When the user gives a world-famous
-  landmark by a SHORT name, put its full name ("St Paul's" in London -> "St
-  Paul's Cathedral"): the short form is also the name of smaller places
-  elsewhere in the city, and the lookup would take the wrong one. Pass the city that landmark sits
+  and the tool has a dedicated lookup for it. Pass the city that landmark sits
   in, in `city`, whenever the landmark's NAME leaves no doubt about which city
   it is ("les champs élysées" -> Paris, "le louvre" -> Paris, "times square" ->
   New York, "la sagrada familia" -> Barcelona) — even when the user never typed
@@ -184,6 +181,11 @@ How to act, frugally (at most ONE reasoning pass — no tool-call loops):
   in Nice), and whenever the zone's name mentions no city at all ("montmartre",
   "le louvre", "les champs élysées"), there is no conflict and no doubt: pass
   the city as usual.
+  Only for a LANDMARK the user names by a SHORT form (never for a city, which
+  stays in `city`): write its full name in `zone`, its city in `city` as above
+  ("près de St Paul's à Londres" -> zone "St Paul's Cathedral", city "London"):
+  the short form is also the name of smaller places elsewhere in that city, and
+  the lookup would take the wrong one.
   Leave `city` blank as well when you genuinely don't know the city; never
   leave BOTH blank when the user named a place.
   ALSO pass `country_guess`: the ISO-3166-1 alpha-2 country you know that place

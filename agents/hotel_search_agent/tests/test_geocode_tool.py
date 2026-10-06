@@ -622,6 +622,48 @@ class TestSearchBoxTier2:
         assert box.calls  # tier 2 was tried first
 
 
+class TestCityNamedInMessage:
+    """mcp-dayuse#7: the model dropped « Londres » from « près de St Paul's à
+    Londres » one time in five, and the turn asked which city."""
+
+    def _probe(self, monkeypatch, known):
+        probes: list[str] = []
+
+        def fake_city_coordinate(city, **_):
+            probes.append(city)
+            return (51.51, -0.13) if city in known else None
+
+        monkeypatch.setattr(geocode_tool, "_city_coordinate", fake_city_coordinate)
+        return probes
+
+    def test_a_city_after_a_preposition_is_used_once_the_geocoder_confirms_it(self, monkeypatch):
+        probes = self._probe(monkeypatch, {"Londres"})
+        cathedral = _c("St Paul's Cathedral", "GB", "Londres", ftype="neighborhood", lat=51.51)
+        _patch_multi(monkeypatch, [cathedral], inventory={51.51: 30})
+
+        result = geocode_location(
+            city="", zone="St Paul's Cathedral",
+            raw_user_message="un hôtel près de St Paul's à Londres demain",
+        )
+
+        assert probes == ["Londres demain", "Londres"]
+        assert result["ok"] is True
+
+    def test_nothing_confirmed_still_asks_the_city(self, monkeypatch):
+        self._probe(monkeypatch, set())
+        result = geocode_location(
+            city="", zone="St Paul's Cathedral",
+            raw_user_message="un hôtel près de St Paul's à Bidule demain",
+        )
+        assert result["error"] == "geocode_ambiguous"
+
+    def test_an_article_or_a_generic_word_is_never_probed(self, monkeypatch):
+        # « à la gare de Lyon » names a station, not a city called « la » or « gare ».
+        probes = self._probe(monkeypatch, set())
+        geocode_location(city="", zone="gare de lyon", raw_user_message="un hôtel à la gare de lyon")
+        assert probes == []
+
+
 # --- zone/metro in profile_delta (S-G5: previously never persisted) --------------------------
 class TestZoneMetroDelta:
     def test_zone_included_in_delta_when_resolved(self, monkeypatch):

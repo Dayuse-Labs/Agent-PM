@@ -233,4 +233,4 @@ class TestLandmarkInstruction:
         # not the cathedral; « St Paul's Cathedral » resolves exactly.
         from hotel_search_agent.agent import INSTRUCTION
 
-        assert '"St Paul\'s" in London -> "St\n  Paul\'s Cathedral"' in INSTRUCTION
+        assert 'zone "St Paul\'s Cathedral", city "London"' in INSTRUCTION

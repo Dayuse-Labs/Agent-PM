@@ -227,6 +227,49 @@ def _city_coordinate(
     return None
 
 
+# « près de St Paul's à Londres », « near Gare du Nord in Paris », « cerca de la
+# Sagrada Familia en Barcelona »: the word(s) after a place preposition.
+_CITY_AFTER_PREPOSITION_RE = re.compile(
+    r"(?:^|\s)(?:à|a|au|aux|en|in|at|em|no|na|nach|te)\s+([^\W\d_][\w'’-]*(?:\s[^\W\d_][\w'’-]*)?)",
+    re.IGNORECASE,
+)
+_MAX_CITY_PROBES = 3
+_ARTICLES = frozenset({
+    "la", "le", "les", "l", "the", "el", "los", "las", "il", "lo", "der", "die", "das",
+    "de", "du", "des", "o", "os", "het", "een", "un", "une",
+})
+
+
+def _city_named_in_message(
+    raw_user_message: str, language: str | None, locale_country: str | None
+) -> str | None:
+    """mcp-dayuse#7: a landmark arrived without its city although the message
+    names one (« près de St Paul's à Londres » — the model dropped « Londres »
+    one time in five). Before asking the user a question the message already
+    answers, the words after a place preposition are tried as a city: kept only
+    when the geocoder resolves them to a city that echoes them and carries real
+    inventory (`_city_coordinate`, the same test as the landmark anchor). At
+    most 3 lookups, on this path only."""
+    probes: list[str] = []
+    for match in _CITY_AFTER_PREPOSITION_RE.finditer(raw_user_message or ""):
+        words = match.group(1).split()
+        if words[0].casefold() in _ARTICLES:
+            continue  # « à la gare de Lyon » names a place in the city, not the city
+        for candidate in (" ".join(words), words[0]):
+            if (
+                len(candidate) >= 3
+                and candidate not in probes
+                and not is_generic_location_token(candidate)
+            ):
+                probes.append(candidate)
+    for candidate in probes[:_MAX_CITY_PROBES]:
+        if _city_coordinate(
+            candidate, country=None, locale_country=locale_country, language=language
+        ):
+            return candidate
+    return None
+
+
 def _anchor_state(
     *,
     city: str | None,
@@ -483,6 +526,11 @@ def geocode_location(
     # other a hard filter, and conflating them would turn a model guess into a
     # candidate filter — exactly what the doctrine forbids.
     guess_iso = _iso2(country_guess)
+
+    if zone_is_specific and not effective_city and not effective_metro and proximity_tuple is None:
+        effective_city = _city_named_in_message(
+            raw_user_message, lang, guess_iso or _locale_country(locale)
+        )
 
     if not effective_city and not effective_metro:
         # Pure "near me" (S-G10, D1 follow-up): no geocodable destination
