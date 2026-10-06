@@ -1134,3 +1134,82 @@ class TestWrittenOutDateThroughTheSpine:
         assert "2026-09-24" not in synthesis_prompt
         assert "Pour demain (jeudi 24 septembre 2026) à Paris" in reply
         assert "2026-09-24" not in reply
+
+
+class TestPendingSearchThroughTheSpine:
+    """mcp-dayuse#6: what a search turn leaves open (the request it could not
+    search, the question it asked) reaches the leaf with the very next reply."""
+
+    @staticmethod
+    def _context_text(parts) -> str:
+        return parts[0].text if parts and parts[0].text else ""
+
+    def test_a_request_left_unsearched_travels_with_the_reply(
+        self, monkeypatch, fake_leg, fake_profile_store
+    ):
+        # QA 2026-09-30: "demain matin 7h" then "New york" searched without 7h.
+        fake_leg.text = "Which city?"
+        _scripted_llm(
+            monkeypatch,
+            '{"family": "search", "language": "fr"}', "Dans quelle ville souhaitez-vous réserver ?",
+            '{"family": "search", "language": "fr"}', "Voici des hôtels à Lyon.",
+        )
+        runner = InMemoryRunner(root_agent)
+        session = _new_session(runner)
+
+        _run_turn(runner, session.id, "un hotel avec piscine demain de 14h à 18h")
+        fake_leg.response_payload = {"results": ["hotel A"], "profile_delta": {"city": "Lyon"}}
+        _run_turn(runner, session.id, "Lyon")
+
+        parts = fake_leg.seen_outgoing_parts
+        assert self._context_text(parts) == (
+            "EARLIER REQUEST (the user's own words, not searched yet): "
+            "un hotel avec piscine demain de 14h à 18h\n"
+            "YOU ASKED: Dans quelle ville souhaitez-vous réserver ?\n"
+            "REPLY:"
+        )
+        assert parts[1].text == "Lyon"
+        stored = asyncio.run(fake_profile_store.get(session.id))
+        assert stored.pending_search is None
+
+    @pytest.mark.parametrize("reply", ["oui", "ok"])
+    def test_a_bare_yes_answers_the_question_instead_of_greeting(
+        self, monkeypatch, fake_leg, fake_profile_store, reply
+    ):
+        fake_leg.response_payload = {"results": ["hotel A"], "profile_delta": {"city": "Nice"}}
+        _scripted_llm(
+            monkeypatch,
+            '{"family": "search", "language": "fr"}',
+            "Tous sont hors du centre. Voulez-vous des hôtels plus proches du centre ?",
+            '{"family": "ack", "language": "fr", "affirmative": true}', "Voici plus près.",
+        )
+        runner = InMemoryRunner(root_agent)
+        session = _new_session(runner)
+
+        _run_turn(runner, session.id, "un hotel à Nice")
+        answer = _run_turn(runner, session.id, reply)
+
+        assert answer == "Voici plus près."
+        assert fake_leg.call_count == 2
+        assert self._context_text(fake_leg.seen_outgoing_parts) == (
+            "YOU ASKED: Voulez-vous des hôtels plus proches du centre ?\nREPLY:"
+        )
+
+    def test_only_the_next_turn_carries_the_context(
+        self, monkeypatch, fake_leg, fake_profile_store
+    ):
+        fake_leg.response_payload = {"results": ["hotel A"], "profile_delta": {"city": "Nice"}}
+        _scripted_llm(
+            monkeypatch,
+            '{"family": "search", "language": "fr"}', "Voulez-vous un spa ?",
+            '{"family": "search", "language": "fr"}', "Voici des hôtels.",
+            '{"family": "search", "language": "fr"}', "Voici des hôtels moins chers.",
+        )
+        runner = InMemoryRunner(root_agent)
+        session = _new_session(runner)
+
+        _run_turn(runner, session.id, "un hotel à Nice")
+        _run_turn(runner, session.id, "avec spa")
+        _run_turn(runner, session.id, "moins cher")
+
+        assert self._context_text(fake_leg.seen_outgoing_parts) == "moins cher"

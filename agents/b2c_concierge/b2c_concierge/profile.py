@@ -261,6 +261,10 @@ class SessionProfile:
     # mcp-dayuse#8, option B: "morning" | "afternoon" | "evening" — a soft
     # time filter read in code by the leaf, exclusive with a clock window.
     daypart: str | None = None
+    # mcp-dayuse#6: what the last search turn left open, consumed by the very
+    # next turn — "request": the user's own words it could not search yet (it
+    # asked a question instead), "question": the question its answer ended on.
+    pending_search: dict[str, Any] | None = None
 
     def to_dict(self) -> dict[str, Any]:
         return {
@@ -304,6 +308,7 @@ class SessionProfile:
             "children": self.children,
             "display_currency": self.display_currency,
             "daypart": self.daypart,
+            "pending_search": self.pending_search,
             "schema_version": PROFILE_SCHEMA_VERSION,
         }
 
@@ -332,6 +337,7 @@ _CONCIERGE_ONLY_KEYS = (
     "distance_origin",
     "picked_hotel_id",
     "display_currency",
+    "pending_search",
 )
 
 
@@ -887,6 +893,46 @@ def is_search_refinement_signal(
     ):
         return True
     return False
+
+
+# --- Pending search (mcp-dayuse#6) ---------------------------------------
+
+# The unsearched request is the user's own words, kept in Redis under the same
+# TTL as the rest of the profile: bounded so a long clarification chain stays
+# a short prompt prefix.
+_MAX_PENDING_REQUEST_CHARS = 500
+
+
+def next_pending_search(
+    pending: dict[str, Any] | None, message: str, searched: bool, question: str | None
+) -> dict[str, Any] | None:
+    """What a search turn leaves open for the next one. Without a search the
+    turn's message joins the request still waiting (QA 2026-09-30: "demain
+    matin 7h" then "New york" searched without the 7h); after a search only
+    the question its answer ended on is left."""
+    request = None
+    if not searched:
+        earlier = (pending or {}).get("request")
+        joined = "\n".join(part for part in (earlier, message.strip()) if part)
+        request = joined[-_MAX_PENDING_REQUEST_CHARS:] or None
+    if request is None and not question:
+        return None
+    return {"request": request, "question": question}
+
+
+def pending_search_context(pending: dict[str, Any] | None) -> str | None:
+    """The text placed before the user's reply in the message sent to the
+    search leaf, so request and reply read as one message."""
+    if not pending:
+        return None
+    lines = []
+    if pending.get("request"):
+        lines.append(f"EARLIER REQUEST (the user's own words, not searched yet): {pending['request']}")
+    if pending.get("question"):
+        lines.append(f"YOU ASKED: {pending['question']}")
+    if not lines:
+        return None
+    return "\n".join([*lines, "REPLY:"])
 
 
 def _timeslot_label(profile: SessionProfile) -> str | None:

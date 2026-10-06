@@ -142,6 +142,8 @@ from .profile import (
     is_search_refinement_signal,
     leaf_profile_view,
     maybe_auto_widen,
+    next_pending_search,
+    pending_search_context,
     questions_equivalent,
     record_search_outcome,
     record_search_shortlist,
@@ -337,7 +339,9 @@ def _reset_legs() -> None:
     _legs.clear()
 
 
-def _attach_outgoing_datapart(ctx: InvocationContext, payload: dict[str, Any]) -> None:
+def _attach_outgoing_datapart(
+    ctx: InvocationContext, payload: dict[str, Any], context_text: str | None = None
+) -> None:
     """Appends the `{query_params, profile_in}` envelope (contract.py) as an
     A2A DataPart to the CURRENT turn's user event. RemoteA2aAgent builds its
     outgoing A2A message purely from `ctx.session.events` content parts —
@@ -353,7 +357,10 @@ def _attach_outgoing_datapart(ctx: InvocationContext, payload: dict[str, Any]) -
     last_event = ctx.session.events[-1]
     if not last_event.content:
         return
-    last_event.content.parts = [*(last_event.content.parts or []), encode_datapart(payload)]
+    # `context_text` (mcp-dayuse#6) goes BEFORE the user's words: the leaf reads
+    # the earlier request and the reply as one message.
+    prefix = [genai_types.Part(text=context_text)] if context_text else []
+    last_event.content.parts = [*prefix, *(last_event.content.parts or []), encode_datapart(payload)]
 
 
 async def _run_leaf(
@@ -362,6 +369,7 @@ async def _run_leaf(
     profile_in: dict[str, Any],
     *,
     query_params: dict[str, Any] | None = None,
+    context_text: str | None = None,
 ) -> tuple[str | None, dict[str, Any]]:
     """One leaf leg over A2A: returns (the leaf's final text, its decoded A2A
     DataPart response — `{}` if it didn't send one, e.g. not wired yet). The
@@ -378,7 +386,7 @@ async def _run_leaf(
     # query_params carries only code-owned hints (e.g. repeat_previous_search);
     # the business schema (destination, dates, filters…) stays S4's contract.
     _attach_outgoing_datapart(
-        ctx, {"query_params": query_params or {}, "profile_in": profile_in}
+        ctx, {"query_params": query_params or {}, "profile_in": profile_in}, context_text
     )
     texts: list[str] = []
     response: dict[str, Any] = {}
@@ -1085,7 +1093,16 @@ class _B2cConcierge(BaseAgent):
         # regression — closing it means touching a proven regex, not this gate.
         refinement_signal = is_search_refinement_signal(message, profile)
         booking_signal = is_booking_confirmation_signal(message, profile)
-        if is_social_ack(message) and not refinement_signal and not booking_signal:
+        # mcp-dayuse#6: a bare "ok" answering the question the last search
+        # turn asked is a reply to it, not a greeting.
+        pending = profile.pending_search if isinstance(profile.pending_search, dict) else None
+        answers_pending = pending is not None and is_bare_affirmative(message)
+        if (
+            is_social_ack(message)
+            and not refinement_signal
+            and not booking_signal
+            and not answers_pending
+        ):
             self._emit_turn_metric("ack", "template:ack", budget, t_start, "ok", inv)
             # S-CX2 (audit F5): a bare "ok" carries no language signal — the
             # conversation's established language / client locale beat the guess.
@@ -1198,6 +1215,17 @@ class _B2cConcierge(BaseAgent):
             family, route = "booking", ROUTES["booking"]
         elif family != "faq" and refinement_signal:
             family, route = "search", ROUTES["search"]
+        elif (
+            family == "ack"
+            and pending is not None
+            and (pending.get("request") or is_bare_affirmative(message, triage.affirmative))
+        ):
+            # mcp-dayuse#6: the short reply to the last search turn's question
+            # ("oui", "Monaco") goes back to the search with that context.
+            family, route = "search", ROUTES["search"]
+        # Consumed by this turn, whatever it does: only the very next reply
+        # answers a question.
+        profile.pending_search = None
 
         currency = resolve_currency_request(triage.display_currency, profile.last_results)
         repeat_search = False
@@ -1342,6 +1370,9 @@ class _B2cConcierge(BaseAgent):
         leaf_kwargs: dict[str, Any] = (
             {"query_params": {"repeat_previous_search": True}} if repeat_search else {}
         )
+        context_text = pending_search_context(pending) if route.target == LEAF_HOTEL_SEARCH else None
+        if context_text:
+            leaf_kwargs["context_text"] = context_text
         leaf_text, response = await _run_leaf(
             route.target, ctx, leaf_profile_view(profile), **leaf_kwargs
         )
@@ -1505,6 +1536,10 @@ class _B2cConcierge(BaseAgent):
             message=message, language=reply_language, leaf_text=leaf_text, response=response,
             profile=profile, budget=budget, invocation_id=inv,
         )
+        if route.target == LEAF_HOTEL_SEARCH:
+            profile.pending_search = next_pending_search(
+                pending, message, "results" in response, profile.last_clarifying_question
+            )
         await store.set(ctx.session.id, profile)
 
         self._emit_turn_metric(

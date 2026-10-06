@@ -1550,3 +1550,37 @@ class TestP1BudgetGuardStaysRegex:
         assert profile.budget_max == 80.0
         assert profile.budget_request_source == BUDGET_SOURCE_EXPLICIT
         assert "budget_integrity" in fired
+
+
+class TestPendingSearch:
+    """mcp-dayuse#6: what a search turn leaves open for the next one."""
+
+    def test_an_unsearched_request_accumulates_across_clarifications(self):
+        from b2c_concierge.profile import next_pending_search
+
+        first = next_pending_search(None, "un hotel avec spa demain 14h", False, "Où ?")
+        second = next_pending_search(first, "Côte d'Azur", False, "Quelle ville ?")
+        assert second == {
+            "request": "un hotel avec spa demain 14h\nCôte d'Azur",
+            "question": "Quelle ville ?",
+        }
+
+    def test_a_search_keeps_only_its_question(self):
+        from b2c_concierge.profile import next_pending_search
+
+        pending = {"request": "un hotel demain", "question": "Où ?"}
+        assert next_pending_search(pending, "Lyon", True, "Plus central ?") == {
+            "request": None,
+            "question": "Plus central ?",
+        }
+        assert next_pending_search(pending, "Lyon", True, None) is None
+
+    def test_the_request_is_bounded(self):
+        from b2c_concierge.profile import next_pending_search
+
+        pending = next_pending_search(None, "x" * 900, False, None)
+        assert pending is not None and len(pending["request"]) == 500
+
+    def test_it_never_travels_to_the_leaf_as_profile_data(self):
+        profile = SessionProfile(pending_search={"request": "un hotel demain", "question": None})
+        assert "pending_search" not in leaf_profile_view(profile)
