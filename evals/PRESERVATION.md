@@ -1,7 +1,8 @@
 # Production knowledge preservation replay — 2026-10-06
 
-The replacement must retain learned behavior from the legacy agent, including
-FAQ and cancellation support. Old assistant answers are evidence to investigate,
+The replacement must retain learned behavior from the legacy agent: search
+relevance and complete multi-turn follow-up, as well as FAQ and cancellation
+support. Old assistant answers are evidence to investigate,
 not gold labels: several contain inconsistent policy or capability claims.
 
 ## Evidence and frozen references
@@ -55,6 +56,62 @@ items: a server-side `traceId` score-list filter was observed to be ignored. The
 new replay's route annotations are by **Codex**, not human gold labels. A live
 trace lookup verified the synthetic session ID, `eval-preservation` environment
 and candidate release. Keep those experiments outside organic-traffic reporting.
+
+## Search relevance and multi-turn follow-up
+
+Transport completion and hotel counts cannot certify search quality. For each
+sequence, track the user's accumulated constraints, explicit replacements and
+relaxations; compare actual displayed offers with that ledger. Inspect geography,
+date/window, price/currency, occupancy, amenities and the selected hotel/offer.
+Then assess whether a follow-up advances the search or truthfully explains a
+limitation. A missing result is neither a successful match nor proof that suitable
+inventory does not exist. Generated `active_filters` are not ground truth.
+
+An additional **18 development conversations / 70 turns** have been reviewed in
+both frozen B2C versions. Selection used only historical user inputs: the first
+three unselected conversations by stable case ID for each follow-up keyword
+stratum. Keywords selected candidates, not correctness labels; some strata contain
+ambiguous examples and do not prove coverage of every intended operation. Criteria
+were saved before corresponding output inspection. Review is non-blinded Codex
+analysis, not human-approved gold or population accuracy. No additional model calls
+were made for this review. Five sequences were also joined to recorded legacy
+replies by source row ID; different historical inventory prevents causal estimates.
+
+`preservation_checks.py` now independently checks displayed capacity, stars and
+explicit-currency budgets, plus whether a follow-up shows a cheaper option or a
+new hotel identity. It retains the date/window checks. Currency is verified against
+the price field: a market code cannot turn an EUR amount into USD. Empty cards or
+missing fields are unscored; known violations remain failures even with other
+unknown cards. A cheaper request requires a reduction below the prior displayed
+minimum; a request for the cheapest existing choice does **not** require another
+reduction. Hotel novelty is only an identity check, not offer novelty or relevance.
+26 additional counterexample tests cover these distinctions (47 combined tests).
+
+Concrete findings from this development review:
+
+| Sequence | Observed B2C behavior | Preservation implication |
+| --- | --- | --- |
+| Tenerife → Santa Cruz → full city name | Both first show Seville cards; v3 keeps them after explicit Tenerife clarification | Geographic context must constrain resolution; main later corrects to no offers |
+| London sauna → cheaper → cheaper again | Main repeats its shortlist; v3 finds a cheaper option, then returns to the initial more expensive minimum | Price refinement and amenity evidence must persist; empty amenity fields cannot certify sauna access |
+| Gémenos → pool and spa → Gémenos | Both treat amenities as an unidentified hotel, then repeat generic cards | Separate attribute refinement from named-hotel lookup |
+| San Diego bathtub → USD 500 → 13–17 | Main gives generic booking advice; v3 shows some offers ending at 13 or 14 without explaining the mismatch | Preserve room-type need and stay window through budget changes |
+| Late evening → Singapore → other five-star options | New five-star hotels appear, but their slots all end before the requested evening start | New identities and star agreement alone are insufficient |
+| Voco Winchester → city → tomorrow → agreement | Both keep requesting city despite the identified hotel; neither reaches the intended selection | Resolve named-hotel identity and retain pending action through clarification |
+
+The legacy examples retain useful behaviors, but also defects: a redundant city
+question in the Gémenos sequence, unsupported general sauna inclusion, and a lowest
+quoted room price that is not the covering slot in San Diego. Preserve verified
+intent, source data and offer linkage rather than copying historical answers.
+
+Private artifacts: `search-multiturn-dev-inputs.json`,
+`search-multiturn-dev-oracles.json`, `search-multiturn-dev-results.json` and
+`search-multiturn-dev-review.json`. They retain input/output hashes and explicit
+unscored dimensions. The full replay still evaluates frozen application `a47a31e`;
+these new search failures are **not fixed by the FAQ patch**. Before a search fix
+is accepted, verify the tool arguments and returned offer against the trace, add
+an independent regression assertion, and rerun focused dev plus unseen validation
+cases. Do not rerun the entire corpus for each analysis or call this diagnostic a
+completed search-quality gate.
 
 ## FAQ and cancellation preservation
 

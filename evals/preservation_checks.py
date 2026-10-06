@@ -8,6 +8,7 @@ No production ranking/date/filter implementation is imported.
 from __future__ import annotations
 
 import re
+import math
 from datetime import date
 from typing import Any
 
@@ -91,3 +92,102 @@ def check_displayed_offers(response: dict | None, expected: dict) -> list[dict]:
             _slot_covers(h, wanted_window) if isinstance(h, dict) else None for h in hotels
         ]))
     return checks
+
+
+def _number(value: Any) -> float | None:
+    if isinstance(value, bool) or not isinstance(value, (int, float)):
+        return None
+    return float(value) if math.isfinite(value) and value >= 0 else None
+
+
+def _cards(response: dict | None) -> list[Any]:
+    value = response.get("hotels") if isinstance(response, dict) else None
+    return value if isinstance(value, list) else []
+
+
+def _price(card: Any, currency: str) -> float | None:
+    if not isinstance(card, dict):
+        return None
+    if currency == "EUR":
+        return _number(card.get("price_eur_cents"))
+    if card.get("hotel_currency_code") == currency:
+        return _number(card.get("hotel_price_minor"))
+    return None  # Market currency does not describe the EUR numeric price.
+
+
+def check_search_cards(response: dict | None, expected: dict) -> list[dict]:
+    """Check explicitly annotated constraints on the actual displayed cards.
+
+    Carryover is expressed by annotating each follow-up turn independently.
+    This function never treats generated active_filters as proof of relevance.
+    Budget is in currency-specific minor units; no implicit conversion occurs.
+    Amenity inclusion, geography and acceptable alternatives need source review.
+    """
+    allowed = {"offer_date", "stay_window", "capacity_min", "stars_min", "budget"}
+    if set(expected) - allowed:
+        raise ValueError("unsupported search-card expectation")
+    checks = check_displayed_offers(response, {
+        k: v for k, v in expected.items() if k in {"offer_date", "stay_window"}
+    })
+    cards = _cards(response)
+    for oracle, field in (("capacity_min", "capacity"), ("stars_min", "stars")):
+        if oracle not in expected:
+            continue
+        required = _number(expected[oracle])
+        if required is None or required <= 0 or required != int(required):
+            raise ValueError(f"{oracle} must be a positive integer")
+        if oracle == "stars_min" and required > 5:
+            raise ValueError("stars_min cannot exceed five")
+        values = []
+        for card in cards:
+            actual = _number(card.get(field)) if isinstance(card, dict) else None
+            values.append(None if actual is None else actual >= required)
+        checks.append(_result(f"displayed_{oracle}", values))
+    if "budget" in expected:
+        budget = expected["budget"]
+        if not isinstance(budget, dict) or set(budget) != {"currency", "max_minor"}:
+            raise ValueError("budget requires currency and max_minor")
+        currency, limit = budget["currency"], _number(budget["max_minor"])
+        if not isinstance(currency, str) or not re.fullmatch("[A-Z]{3}", currency):
+            raise ValueError("budget currency must be an explicit three-letter code")
+        if limit is None or limit <= 0 or limit != int(limit):
+            raise ValueError("budget max_minor must be a positive integer")
+        prices = [_price(card, currency) for card in cards]
+        checks.append(_result("displayed_budget", [None if v is None else v <= limit for v in prices]))
+    return checks
+
+
+def check_search_transition(previous: dict | None, current: dict | None, requirement: str) -> dict:
+    """Compare two displayed shortlists for an explicitly annotated follow-up.
+
+    A failed comparison means no observed cheaper/new hotel, not an incorrect
+    answer: honestly explaining no alternative may satisfy the conversation.
+    The caller must select the relevant prior turn; no dialogue intent is guessed.
+    """
+    old, new = _cards(previous), _cards(current)
+    if requirement not in {"cheaper_option", "new_hotel"}:
+        raise ValueError("unsupported search transition")
+    status = "skipped"
+    reason = "missing comparable cards"
+    if old and new and requirement == "cheaper_option":
+        before, after = [_price(c, "EUR") for c in old], [_price(c, "EUR") for c in new]
+        if all(v is not None for v in before):
+            floor = min(v for v in before if v is not None)
+            if any(v is not None and v < floor for v in after):
+                status, reason = "pass", "at least one displayed option is strictly cheaper in EUR"
+            elif all(v is not None for v in after):
+                status, reason = "fail", "no displayed option is cheaper than the previous minimum"
+    if old and new and requirement == "new_hotel":
+        def identity(card: Any) -> str | None:
+            value = card.get("hotel_id", card.get("id")) if isinstance(card, dict) else None
+            return str(value) if isinstance(value, (str, int)) and not isinstance(value, bool) and str(value) else None
+
+        before_ids, after_ids = [identity(c) for c in old], [identity(c) for c in new]
+        if all(v is not None for v in before_ids):
+            if any(v is not None and v not in before_ids for v in after_ids):
+                status, reason = "pass", "at least one new displayed hotel identity"
+            elif all(v is not None for v in after_ids):
+                status, reason = "fail", "all displayed hotel identities were already shown"
+    return {"check": requirement, "status": status, "reason": reason,
+            "previous_cards": len(old), "current_cards": len(new),
+            "scope": "displayed shortlist change only; full answer and alternative disclosure require review"}
