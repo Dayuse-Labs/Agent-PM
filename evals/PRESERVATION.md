@@ -64,15 +64,27 @@ probe, counterexample and ownership. It is an audit registry, not 32 passing tes
 Its execution statuses describe the initial audit; scored coverage must be attached
 explicitly as work progresses. Relative `evidence/` references refer to the private audit archive; public repository and help-center links remain resolvable from the registry.
 
-`faq_source_coverage.json` follows every one of the 104 legacy KB entries. Manual
-source comparison of the 38 entries without matching IDs found 7 central intents
-with corresponding guidance, 2 with changed details, 18 partial matches, 1 conflicting
-extension instruction and 10 without a match in the observed catalog. This is not
-proof that ten product capabilities are missing: hotel-specific fields and articles
-outside these probes may cover them. Among the 66 matching IDs, the cancellation
-source conflict is identified explicitly; the other 65 still need content review.
-Source coverage and model answer quality remain separate measures. The 13 hardcoded
-FAQ entries are inventoried separately and are not claimed as covered by this matrix.
+`faq_source_coverage.json` follows every one of the 104 legacy KB entries against
+77 captured MCP articles: **21 normalized text matches, 46 central-intent matches,
+five changed details, 20 partial matches, two conflicting entries and ten without
+a match in the observed catalog**. All 66 same-ID entries have now been compared:
+21 normalized matches, 39 core-equivalent translations, five changed/partial entries
+and the previously identified cancellation conflict. Equal wording is not proof of
+freshness, successful retrieval or correct model answers. No match is not proof of
+product capability loss; hotel-specific fields or unprobed articles may cover it.
+
+The 13 hardcoded FAQ entries now have a separate source mapping in the same file:
+five central-intent matches, three partial matches, three conflicts and two not
+found in the observed FAQ catalog (partner onboarding and the fixed US-city list).
+They overlap the KB and are not 13 additional distinct intents. No old city counts,
+fee values or blanket amenity guarantees are automatically restored.
+
+Preserving source content can preserve a source defect: captured gift-card articles
+disagree on France-only versus five-country use, and cancellation articles generalize
+free cancellation versus non-refundable offers. Other differences concern overnight
+prepayment, cancelling directly with a hotel and alternative-payment methods.
+These discrepancies need an authoritative policy decision; source equivalence
+is a separate axis from current policy correctness.
 
 Preserve routing between new searches, public policy questions and support for an
 existing booking; follow-up context; payment/guarantee/prepayment/booking-fee
@@ -92,6 +104,23 @@ override the terms of a particular booking. Policy accuracy remains an unresolve
 release check; a passing route or absence of hotel cards does not satisfy it.
 
 ## Historical pilot diagnostics — calendar-sensitive cases superseded
+
+**Replacement pilots are complete under the corrected calendar mapper.** New
+`calendar-v5-dev-*` and `calendar-v5-validation-*` directories each contain the
+same 24 sessions / 61 turns per revision, with concurrency 2 and frozen application
+SHAs. All 61 turn metrics join uniquely for each run. These replace the mixed-pilot
+cost/result figures below; the older figures remain historical diagnostics only.
+
+| Corrected-calendar measure | Dev main | Dev v3 | Validation main | Validation v3 |
+| --- | ---: | ---: | ---: | ---: |
+| Stock EUR disclaimer without cards | 18 | 0 | 22 | 0 |
+| Actual observed LLM calls | 168 | 209 | 196 | 208 |
+| Retained-attempt estimated LLM cost, USD | 0.078589 | 0.099055 | 0.098448 | 0.098494 |
+| Non-OK turn status | 6 | 1 | 2 | 1 |
+
+The validation routing check remains **44/52 → 52/52**, with nine ambiguous turns
+unscored. That is a route check, not confirmation that all 52 answers are correct.
+Repeated runs vary in cost and call path; no causal latency or cost gain is claimed.
 
 **The mixed-pilot figures below predate a subsequently discovered fixture calendar
 bug.** `availabilityDate` and `cutoffDeadlineUtc` had not been shifted with the
@@ -227,13 +256,17 @@ alone never turns ungraded outputs into a quality score.
 The corrected-calendar review is complete for both revisions: **30 sessions / 78
 turns**. Per-case A/B presentation was randomized, and all content annotations
 were saved before reading the version mapping. Style may reveal a version; formal
-blinding is not claimed. The candidate application stayed frozen at `a47a31e`.
+blinding is not claimed. The candidate application stayed frozen at `a47a31e`. One baseline content grade
+was subsequently corrected from partial to pass after source inspection confirmed
+its support phone number. This amendment was made after version unblinding; the
+original annotation and evidence-based correction are retained privately. The
+initial count was 6 baseline passes; the corrected count below is 7.
 
 | Narrow review measure | Main | Candidate v3 |
 | --- | ---: | ---: |
 | Expected route met, among 73 scored turns | 54 | 65 |
-| Case content criterion met | 6 | 11 |
-| Case content criterion partially met | 5 | 4 |
+| Case content criterion met | 7 | 11 |
+| Case content criterion partially met | 4 | 4 |
 | Case content criterion failed | 17 | 13 |
 | Insufficient evidence for the content criterion | 2 | 2 |
 | Stock EUR disclaimer without cards, among 78 turns | 23 | 0 |
@@ -241,8 +274,8 @@ blinding is not claimed. The candidate application stayed frozen at `a47a31e`.
 | Retained-attempt estimated LLM cost, USD | 0.139614 | 0.152049 |
 
 The two unscored content cases concern unsupported amenity-retention evidence and
-a date criterion lacking the original timezone. Partial is not pass. Six cases
-improve in this ordinal review (three fail→pass, two partial→pass, one fail→partial);
+a date criterion lacking the original timezone. Partial is not pass. Five cases
+improve in this ordinal review (three fail→pass, one partial→pass, one fail→partial);
 no downward transition was observed on these narrow criteria. This does not
 establish statistical superiority or global policy accuracy. All 78 turn metrics
 joined uniquely per version; five routing ambiguities remain unscored.
