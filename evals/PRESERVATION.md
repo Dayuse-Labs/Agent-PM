@@ -291,6 +291,39 @@ sample; this is not launch approval. Input-only labels and reviewed outputs stay
 private in `holdout-review-oracles.json`, `holdout-content-review-ab.json`,
 `holdout-review-results.json` and `holdout-review-paired-comparison.json`.
 
+## Independent displayed-offer checks
+
+`preservation_checks.py` checks explicitly annotated offer dates and stay windows
+against displayed card fields. It imports no production filters or ranking code.
+A stay from 12:00 to 13:00 requires an offer starting no later than 12:00 and ending
+no earlier than 13:00. This differs from the inside-window predicate reproduced
+by `scripts/eval_ranking.py`; agreeing with that predicate cannot validate the
+customer's requested duration. Minute precision, missing evidence, multiple slots
+and dated-card disagreement have independent positive and negative tests.
+
+On a development-only source-input review, the first 18 unclassified conversations
+matching an explicit time-range pattern yielded 15 eligible sessions / 24 annotated
+turns. Three were excluded for flexible or contradictory boundaries, including an
+"any time within" request that does not require occupying the whole interval.
+Oracles were frozen before reading the corresponding full-replay outputs. Inputs,
+hashes, row identities and retained checkpoints were verified before joining.
+
+Both revisions have at least one displayed card not covering the annotated stay
+on **10 main turns / 9 candidate turns**; the other **14 / 15 turns are unscored**
+because there are no verifiable offers. No turn has every displayed card verified
+to cover the interval. This is **not an improvement claim**: the 10→9 difference
+comes from one candidate clarification with no cards, not a corrected match.
+Four annotated date checks pass in both revisions (three distinct conversations),
+which establishes only displayed-date agreement for those checks.
+
+A mismatch is not automatically an incorrect overall answer: the New Haven case
+explicitly discloses a time-window alternative in both versions. Other reviewed
+replies call an 11:00–16:30 offer a match for an 11:00–19:00 stay or mix covering
+and non-covering cards without identifying the mismatch. The private outputs are
+`offer-constraint-dev-oracles.json` and `offer-constraint-dev-results.json`.
+These are narrow development diagnostics, not a population quality rate or an
+untouched holdout claim. No application tuning uses this new output review.
+
 ## Existing business KPIs
 
 Recomputed with legacy main's `conversation_weekly_report.py`, existing synthetic

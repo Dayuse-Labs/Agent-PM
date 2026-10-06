@@ -32,7 +32,13 @@
       },
       "counterexample": "Une demande explicite ultérieure de changement de date doit remplacer la date précédente ; minuit doit être résolu dans le fuseau du client.",
       "execution": "not_replayed_cross_architecture",
-      "oracle_review": "required_before_release_gate"
+      "oracle_review": "required_before_release_gate",
+      "evaluation_evidence": {
+        "scope": "Four explicit date checks across three development conversations, retained B2C main/candidate outputs only",
+        "checker": "evals/preservation_checks.py:check_displayed_offers",
+        "both_revisions_displayed_date_matches": 4,
+        "interpretation": "Does not validate the full date-carryover rule, timezone behavior or historical availability; separate holdout date failures remain."
+      }
     },
     {
       "id": "M02",
@@ -67,7 +73,23 @@
       },
       "counterexample": "Un simple chevauchement peut être présenté comme alternative explicitement annoncée, jamais comme couverture exacte.",
       "execution": "not_replayed_cross_architecture",
-      "oracle_review": "required_before_release_gate"
+      "oracle_review": "required_before_release_gate",
+      "evaluation_evidence": {
+        "scope": "B2C main/candidate displayed outputs on 15 development conversations; not a legacy cross-architecture replay or global quality grade",
+        "checker": "evals/preservation_checks.py:check_displayed_offers",
+        "tests": "evals/tests/test_preservation_checks.py",
+        "annotated_turns": 24,
+        "baseline": {
+          "mismatch_turns": 10,
+          "unscored_turns": 14
+        },
+        "candidate": {
+          "mismatch_turns": 9,
+          "unscored_turns": 15
+        },
+        "interpretation": "No gain inferred: one mismatch became a no-card clarification. Disclosed alternatives require separate review.",
+        "application_candidate": "a47a31ef383b0ca027486bec7cd3addff52e25e4"
+      }
     },
     {
       "id": "M03",
