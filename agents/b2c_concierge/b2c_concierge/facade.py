@@ -50,7 +50,7 @@ from .agent import _US, metrics_logger, root_agent
 from .conversation_log import build_conversation_log_row, detect_is_synthetic
 from .inline_tools import _format_price_eur_cents
 from .profile import SessionProfile, apply_profile_delta, build_hotel_picks
-from .profile_store import get_profile_store
+from .profile_store import get_profile_store, ttl_minutes
 from .triage import SERVICE, guess_language
 from .triage import locale_response_language as _locale_response_language
 
@@ -92,6 +92,9 @@ CONTRACT_KEYS: frozenset[str] = frozenset(
         "entry_market_country",
         "search_country",
         "turn_id",
+        # mcp-dayuse#6: the profile expired mid-conversation — the widget shows
+        # it, the message already says it.
+        "session_expired",
     }
 )
 
@@ -455,6 +458,7 @@ def build_chat_payload(
     turn_id: str,
     requires_clarification: bool = False,
     booking_card: dict | None = None,
+    session_expired: bool = False,
 ) -> dict[str, Any]:
     """Assemble the iso-contract v3 payload (pure). Mapping notes:
     - message/response/context: the same synthesized text (response/context are
@@ -498,6 +502,7 @@ def build_chat_payload(
         "entry_market_country": market_country,
         "search_country": market_country,
         "turn_id": turn_id,
+        "session_expired": session_expired,
     }
     return _json_safe(payload)
 
@@ -506,18 +511,24 @@ def build_chat_payload(
 async def _finalize(
     *, session_id: str, message: str, final_text: str, hotels: list | None,
     is_synthetic: bool, turn_index: int, requires_clarification: bool = False,
-    booking_card: dict | None = None,
+    booking_card: dict | None = None, session_expired: bool = False,
 ) -> dict[str, Any]:
     """Build the payload from the post-turn profile and persist the conversation
     log (best-effort). Returns the payload."""
-    profile = await get_profile_store().get(session_id)
+    store = get_profile_store()
+    profile = await store.get(session_id)
+    await store.touch(session_id)
     language = (
         profile.language or _locale_response_language(profile.locale) or guess_language(message)
     )
+    if session_expired:
+        notice = templates.session_expired_notice(language, ttl_minutes())
+        final_text = f"{notice}\n\n{final_text}" if final_text else notice
     payload = build_chat_payload(
         session_id=session_id, final_text=final_text, hotels=hotels,
         profile=profile, language=language, turn_id=uuid.uuid4().hex,
         requires_clarification=requires_clarification, booking_card=booking_card,
+        session_expired=session_expired,
     )
     row = build_conversation_log_row(
         session_id=session_id, turn_index=turn_index, user_message=message,
@@ -702,6 +713,16 @@ async def _apply_native_context(session_id: str, body: dict[str, Any], turn_inde
     await store.set(session_id, profile)
 
 
+async def _profile_expired(session_id: str, turn_index: int) -> bool:
+    """mcp-dayuse#6: the conversation is under way (the ADK session has turns)
+    but its profile is gone — the Redis TTL (30 min, RGPD retention) ran out
+    while the session lived on. Read BEFORE the native-context intake writes
+    a fresh profile."""
+    if turn_index == 0:
+        return False
+    return await get_profile_store().exists(session_id) is False
+
+
 def _empty_ack_text(message: str, locale: str | None = None) -> str:
     """Empty message → the zero-LLM ack template (no pointless triage call).
     `locale`, when it resolves to a supported response language, beats the
@@ -766,6 +787,7 @@ async def chat(request: Request) -> Response:
         session = await _get_or_create_session(session_id, user_id)
         turn_index = _count_user_turns(session)
         is_synthetic = detect_is_synthetic(request.headers)
+        session_expired = await _profile_expired(session_id, turn_index)
         await _apply_native_context(session_id, body, turn_index)
 
         # Langfuse audit trace for the turn (no-op without LANGFUSE_* keys).
@@ -798,6 +820,7 @@ async def chat(request: Request) -> Response:
                     session_id=session_id, message=message, final_text=final_text,
                     hotels=hotels, is_synthetic=is_synthetic, turn_index=turn_index,
                     requires_clarification=requires_clarification, booking_card=booking_card,
+                    session_expired=session_expired,
                 )
                 if lf_span is not None:
                     lf_span.update(output=final_text)
@@ -851,6 +874,7 @@ async def chat_stream(request: Request) -> Response:
         session = await _get_or_create_session(session_id, user_id)
         turn_index = _count_user_turns(session)
         is_synthetic = detect_is_synthetic(request.headers)
+        session_expired = await _profile_expired(session_id, turn_index)
         await _apply_native_context(session_id, body, turn_index)
     except Exception as exc:  # noqa: BLE001 — setup failed before the stream opened: still stream a terminal done
         crash_payload = _shield_payload(session_id, body, message, "sse_setup", exc)
@@ -931,6 +955,7 @@ async def chat_stream(request: Request) -> Response:
                         session_id=session_id, message=message, final_text=final_text,
                         hotels=hotels, is_synthetic=is_synthetic, turn_index=turn_index,
                         requires_clarification=requires_clarification, booking_card=booking_card,
+                        session_expired=session_expired,
                     )
                     if lf_span is not None:
                         lf_span.update(output=final_text)

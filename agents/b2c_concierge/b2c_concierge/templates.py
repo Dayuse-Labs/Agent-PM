@@ -85,6 +85,23 @@ _AFFIRMATIVE_REFINE: dict[str, str] = {
 }
 
 
+# mcp-dayuse#6: the profile expired mid-conversation (Redis TTL, RGPD
+# retention) — said before the answer, which then starts from scratch.
+_SESSION_EXPIRED: dict[str, str] = {
+    "fr": "Notre conversation a expiré après {minutes} minutes d'inactivité : je repars de zéro.",
+    "en": "Our conversation expired after {minutes} minutes of inactivity, so I'm starting over.",
+    "es": "Nuestra conversación caducó tras {minutes} minutos de inactividad: empiezo de cero.",
+    "it": "La nostra conversazione è scaduta dopo {minutes} minuti di inattività: riparto da zero.",
+    "de": "Unser Gespräch ist nach {minutes} Minuten Inaktivität abgelaufen, ich fange von vorne an.",
+    "pt": "A nossa conversa expirou após {minutes} minutos de inatividade: recomeço do zero.",
+    "nl": "Ons gesprek is verlopen na {minutes} minuten inactiviteit, dus ik begin opnieuw.",
+}
+
+
+def session_expired_notice(language: str, minutes: int) -> str:
+    return _pick(language, _SESSION_EXPIRED).format(minutes=minutes)
+
+
 # mcp-dayuse#6: a follow-up that put back the very same offers says so.
 _REFINEMENT_UNCHANGED: dict[str, str] = {
     "fr": "Ce changement ne modifie pas les résultats : ce sont les mêmes offres qu'avant.",
