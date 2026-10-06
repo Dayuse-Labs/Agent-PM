@@ -160,11 +160,9 @@ jobs:
                       -r agents/b2c_concierge/requirements.txt \
                       -r requirements-dev.txt \
                       -e libs/b2c_common
-      - name: Seed les datasets hébergés (upsert idempotent)
-        if: steps.gate.outputs.run == 'true'
-        run: |
-          python scripts/langfuse_seed_datasets.py
-          python scripts/langfuse_import_dataset.py
+      # Les datasets hébergés peuvent contenir des corrections humaines.
+      # Ne pas réimporter les fichiers locaux ici : l'upsert remplace les items
+      # de même ID. Le test lit le dataset existant et échoue s'il est absent.
       - name: Boot des 3 services + experiment sur b2c/geo-poi
         if: steps.gate.outputs.run == 'true'
         run: |

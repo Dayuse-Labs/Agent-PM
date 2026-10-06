@@ -4,6 +4,8 @@ Companion of `evals/datasets/*.jsonl` (audit 2026-07-30 — POI + occupancy +
 language-robustness families). HOSTED datasets on purpose: a local dataset
 creates no DatasetRun, hence no comparison view (OBS6 pitfall #1). Items carry
 deterministic ids, so re-running is an upsert — never a duplicate.
+Upsert can overwrite hosted corrections for those ids. Export and reconcile
+hosted annotations before maintenance imports; CI must not run this script.
 
 This script only SEEDS data. Experiments, evaluators and the CI gate belong to
 the OBS6 session (`phases/OBS6-datasets-experiments.md`); the item format here
