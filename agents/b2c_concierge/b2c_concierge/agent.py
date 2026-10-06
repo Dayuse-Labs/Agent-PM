@@ -1329,8 +1329,14 @@ class _B2cConcierge(BaseAgent):
         # (hotel_search_agent.response_bridge.inject_pagination_offset).
         # shown_hotel_ids stays the belt-and-suspenders exclusion filter
         # regardless of what the cursor computes.
-        more_options = route.target == LEAF_HOTEL_SEARCH and is_more_options_signal(
-            message, triage.wants_more_options
+        # mcp-dayuse#7 (trace 550ddc54): « tous les hôtels de Manhattan » read as
+        # "more options" sent from=5 on a first search. Page 2 needs a page 1 on
+        # screen, and a named hotel is a new search, never the next page.
+        more_options = (
+            route.target == LEAF_HOTEL_SEARCH
+            and bool(profile.shown_hotel_ids)
+            and not (named_choice or triage.hotel_name)
+            and is_more_options_signal(message, triage.wants_more_options)
         )
         if more_options:
             advance_search_cursor(profile)

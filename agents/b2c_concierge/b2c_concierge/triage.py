@@ -373,7 +373,8 @@ with exactly these keys:
   search, with no new constraint at all ("d'autres options", "autre chose",
   "show me more", "otras opciones", "altre opzioni", "noch andere", "what else").
   False when it carries a new constraint ("moins cher", "plutôt demain") — that
-  is a refinement, not pagination.
+  is a refinement, not pagination. False when it names a destination ("tous les
+  hôtels de Manhattan", "all hotels in Lyon"): that is a new search.
 - "bare_budget_value": when the message is JUST a number, optionally with a
   currency symbol, and nothing else ("80", "€120", "150"), that number.
   Otherwise null. "moins de 80 euros" is a sentence, not a bare number → null.
