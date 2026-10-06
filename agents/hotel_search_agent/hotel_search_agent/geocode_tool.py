@@ -35,6 +35,7 @@ from hotel_search_agent.geo_guards import (
     is_generic_location_token,
     resolve_state_hint,
     select_us_postal_anchor,
+    specific_name_matches,
 )
 from hotel_search_agent.inventory import get_inventory, haversine_km
 from hotel_search_agent.mapbox_client import GeocodeCandidate, GeocodeResult, MapboxClient
@@ -348,6 +349,7 @@ def geocode_location(
     proximity_lat: float | None = None,
     proximity_lon: float | None = None,
     country_guess: str | None = None,
+    location_kind: str | None = None,
 ) -> dict:
     """Resolve a destination to coordinates for `search_offers`, guarded.
 
@@ -369,6 +371,8 @@ def geocode_location(
             "Tour Eiffel") is what triggers the Search-Box tier-2 fallback when
             v6 can't resolve it.
         metro: A metro-area name, if distinct from city.
+        location_kind: Semantic request type (city, area, landmark, unknown).
+            Used to reject a business as an administrative area.
         country_code: A trusted ISO-3166-1 alpha-2 country to scope the
             geocode to, if already known. When omitted, a 5-digit US ZIP
             anywhere in the request (`select_us_postal_anchor`) deterministically
@@ -637,8 +641,17 @@ def geocode_location(
         query, country=effective_country_code, language=lang, proximity=proximity_str
     )
 
+    # Rank matching sub-city features before cities: a city with more inventory
+    # cannot outrank the actual named neighbourhood merely by being larger.
+    area_candidates = [c for c in candidates if effective_zone
+                       and c.feature_type in {"neighborhood", "locality", "district"}
+                       and specific_name_matches(c.name, effective_zone)
+                       and _echoes(c.place_name, city=effective_city or effective_metro,
+                                   zone=None, state_hint=state_hint)]
+    ranked_candidates = area_candidates or candidates
+
     resolution = geo_resolver.resolve(
-        candidates,
+        ranked_candidates,
         inventory=get_inventory(),
         country_hint=effective_country_code,
         region_hint=state_hint,
@@ -728,7 +741,14 @@ def geocode_location(
 
     if resolution.decision == "select" and resolution.chosen is not None:
         chosen = resolution.chosen
-        if _echoes(chosen.place_name, city=echo_city, zone=effective_zone, state_hint=state_hint):
+        # A city's name in the address cannot prove the named neighbourhood.
+        # Check the feature itself for a specific zone, not its parent city.
+        zone_matches = not zone_is_specific or (
+            (chosen.feature_type not in {"place", "region"}
+             or chosen.name.casefold() == (effective_zone or "").casefold())
+            and specific_name_matches(chosen.name, effective_zone or "")
+        )
+        if zone_matches and _echoes(chosen.place_name, city=echo_city, zone=effective_zone, state_hint=state_hint):
             profile_delta = _anchor_state(
                 city=effective_city,
                 raw_user_message=raw_user_message,
@@ -813,6 +833,15 @@ def geocode_location(
             language=lang,
             proximity=searchbox_proximity,
         )
+        if location_kind == "area":
+            administrative = [c for c in poi_candidates
+                              if c.feature_type in {"neighborhood", "locality", "district"}]
+            # Search Box represents some real districts as POIs. Prefer an
+            # administrative feature when supplied; absence alone is not a
+            # proof that a POI is a business. Existing name/spatial guards still
+            # apply, and provider coverage remains an evaluation limitation.
+            if administrative:
+                poi_candidates = administrative
         poi = geo_resolver.rank_landmark(
             poi_candidates,
             requested_zone=effective_zone or effective_city or effective_metro or "",
@@ -820,7 +849,9 @@ def geocode_location(
             proximity=proximity_tuple,
             city_anchor=city_anchor,
         )
-        if poi is not None and _echoes(
+        if (poi is not None and (not location_kind or specific_name_matches(
+            f"{poi.name} {poi.iata_code or ''}", effective_zone or effective_city or effective_metro or ""
+        ))) and _echoes(
             poi.place_name, city=echo_city, zone=effective_zone, state_hint=state_hint
         ):
             # Guard #14 (`poi_anchor_coherence`): the echo above proved the NAME,
@@ -909,6 +940,33 @@ def inject_profile_geo_context(tool: object, args: dict, tool_context: object) -
     if getattr(tool, "name", "") != "geocode_location":
         return None
     profile_in = read_profile_in(tool_context)
+
+    request = profile_in.get("search_location_request")
+    if isinstance(request, dict):
+        # The orchestrator already interpreted the location edit. Do not let a
+        # second model turn a municipality into a neighbourhood or drop a POI.
+        for key in ("city", "zone", "metro", "country_code"):
+            args[key] = request.get(key) or ("" if key == "city" else None)
+        args["profile_state_context"] = request.get("region")
+        args["location_kind"] = request.get("kind")
+        args["profile_location_hint"] = request.get("city")
+        args["proximity_lat"] = None
+        args["proximity_lon"] = None
+        # Actual request text, never the model's rewritten version. DataPart
+        # metadata is not part of that text.
+        content = getattr(tool_context, "user_content", None)
+        parts = getattr(content, "parts", None) or []
+        text_parts = [p.text for p in parts if p.text and not getattr(p, "metadata", None)]
+        if text_parts:
+            args["raw_user_message"] = text_parts[0]
+        for source, target in (("locale", "locale"), ("language", "language_hint")):
+            if profile_in.get(source):
+                args[target] = profile_in[source]
+        anchor = profile_in.get("search_anchor")
+        if isinstance(anchor, dict) and not request.get("city") and not request.get("metro"):
+            args["proximity_lat"] = anchor.get("lat")
+            args["proximity_lon"] = anchor.get("lon")
+        return None
 
     if _is_blank(args.get("city")) and profile_in.get("city"):
         args["city"] = profile_in["city"]

@@ -1294,12 +1294,12 @@ def _hotel_with_offers(i, offers):
 def test_normalize_hotel_drops_offers_outside_exact_window():
     hotel = _hotel_with_offers(1, [_offer(7, 0, 13, 0)])  # 07:00-13:00
     card = normalize_hotel(hotel, exact_window=(7 * 60 + 30, 13 * 60 + 30))  # 07:30-13:30 asked
-    assert "price" not in card  # the only offer starts too early — doesn't fit
+    assert "price" not in card  # the offer ends before the requested departure
 
 
-def test_normalize_hotel_keeps_offers_fitting_inside_exact_window():
-    hotel = _hotel_with_offers(1, [_offer(7, 30, 13, 30)])
-    card = normalize_hotel(hotel, exact_window=(7 * 60, 14 * 60))  # wider ask, offer fits inside
+def test_normalize_hotel_keeps_offers_covering_the_exact_stay():
+    hotel = _hotel_with_offers(1, [_offer(7, 0, 14, 0)])
+    card = normalize_hotel(hotel, exact_window=(7 * 60 + 30, 13 * 60 + 30))
     assert card["price"] == "€50.00"
 
 
@@ -1899,3 +1899,46 @@ def test_card_carries_the_same_offer_in_the_hotel_currency():
         "HKD 805.00", 80500, "HKD",
     )
     assert card["timeslots"][0]["hotel_original_price"] == 1600.0
+
+
+def test_requested_stay_keeps_covering_offer_and_its_booking_identity():
+    """Real replay failure shape: 09–17 was dropped in favor of 10–16."""
+    from evals.preservation_checks import check_displayed_offers
+
+    shorter = {**_offer(10, 0, 16, 0, price=4000), "ratePlanUuid": "shorter"}
+    covering = {**_offer(9, 0, 17, 0, price=7000), "ratePlanUuid": "covering"}
+    hotel = _hotel_with_offers(1, [shorter, covering])
+    ctx = _Ctx({STATE_EXACT_WINDOW_KEY: {"start_total": 600, "end_total": 1020}})
+    capture_after_tool(_Tool("search_offers"), {}, ctx, {
+        "structuredContent": {"results": [hotel]}, "isError": False,
+    })
+    cards = ctx.state["temp:hotel_search_results"]
+    assert len(cards) == 1
+    assert cards[0]["offer_id"] == "covering"
+    assert cards[0]["price_eur_cents"] == 7000
+    assert cards[0]["timeslots"] == [{"start": "09:00", "end": "17:00"}]
+    assert not ctx.state.get("temp:hotel_search_timeslot_fallback")
+    result = check_displayed_offers({"hotels": cards}, {
+        "stay_window": {"start": "10:00", "end": "17:00"},
+    })
+    assert result[0]["status"] == "pass"
+
+
+def test_exact_stay_rejects_partial_overlap_and_missing_bounds():
+    from hotel_search_agent.response_bridge import _offer_fits_exact_window
+
+    # One minute missing at either end is enough to make the stay impossible.
+    for offer in [_offer(10, 1, 18, 0), _offer(9, 0, 16, 59),
+                  _offer(10, 0, 16, 0), {"startHour": 9}, {"endHour": 18}]:
+        assert not _offer_fits_exact_window(offer, 600, 1020)
+    for offer in [_offer(10, 0, 17, 0), _offer(9, 59, 17, 1)]:
+        assert _offer_fits_exact_window(offer, 600, 1020)
+
+
+def test_one_sided_window_retains_existing_arrival_departure_filter_contract():
+    from hotel_search_agent.response_bridge import _offer_fits_exact_window
+
+    assert _offer_fits_exact_window(_offer(11, 0, 17, 0), 600, None)
+    assert not _offer_fits_exact_window(_offer(9, 0, 17, 0), 600, None)
+    assert _offer_fits_exact_window(_offer(9, 0, 16, 0), None, 1020)
+    assert not _offer_fits_exact_window(_offer(9, 0, 18, 0), None, 1020)

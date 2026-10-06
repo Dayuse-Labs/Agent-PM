@@ -356,12 +356,21 @@ def _offer_minutes_of_day(offer: dict[str, Any], hour_key: str, minute_key: str)
 def _offer_fits_exact_window(
     offer: dict[str, Any], start_total: int | None, end_total: int | None
 ) -> bool:
-    """S-G6 (A4-c): does `offer` fit ENTIRELY inside the exact requested
-    window (minutes-of-day) — same semantics MCP's own timeSlot filter
-    documents ("the offer must fit entirely inside the window"), just applied
-    at minute precision instead of the whole-hour precision MCP itself can
-    filter on. An offer missing a start/end we need to check against never
-    passes (never assume a fit we can't verify)."""
+    """A two-sided stay must be fully covered by the offered access interval.
+
+    For 10:00–17:00, 09:00–17:00 works and 10:00–16:00 does not. The
+    upstream MCP containment filter is not a correctness oracle for this
+    user requirement. Keep the existing one-sided arrival/departure bounds;
+    a missing bound does not establish a full stay. Cross-midnight intervals
+    need dated endpoints and cannot be verified by this same-day filter.
+    """
+    if start_total is not None and end_total is not None:
+        offer_start = _offer_minutes_of_day(offer, "startHour", "startMinute")
+        offer_end = _offer_minutes_of_day(offer, "endHour", "endMinute")
+        return (
+            offer_start is not None and offer_end is not None
+            and offer_start <= start_total < end_total <= offer_end
+        )
     if start_total is not None:
         offer_start = _offer_minutes_of_day(offer, "startHour", "startMinute")
         if offer_start is None or offer_start < start_total:
@@ -689,9 +698,9 @@ def normalize_search_results(
     `exclude_ids` — a named lookup must never be hidden as "already shown".
 
     S-G6 (A4-c): `exact_window`, when given, drops a hotel ENTIRELY when none
-    of its offers fit inside the true requested minutes (see
+    of its offers cover the full requested stay (see
     `_offer_fits_exact_window`) — a hotel whose only offer is 07:00-13:00 is
-    not a real match for "07:30-13:30" even though MCP's own hour-rounded
+    not a real match for "07:30-13:30" because it ends too early, even if MCP's hour-rounded
     filter (07:00-14:00) returned it. `find_hotel_by_name` never passes
     `exact_window` either — a name lookup is not bound to a search's time."""
     if not isinstance(structured, dict):
@@ -765,7 +774,7 @@ def read_structured_payload(tool_response: Any) -> dict[str, Any] | None:
 _POI_RADIUS_KM = 3.0
 
 
-def inject_landmark_radius(tool: Any, args: dict[str, Any], tool_context: Any) -> None:
+def inject_landmark_radius(tool: Any, args: dict[str, Any], tool_context: Any) -> dict | None:
     """`before_tool_callback`: the ONLY writer of search_offers' `radiusKm`.
 
     Tightens the search disc to `_POI_RADIUS_KM` when THIS turn's anchor is a
@@ -794,6 +803,14 @@ def inject_landmark_radius(tool: Any, args: dict[str, Any], tool_context: Any) -
         return None
     args.pop("radiusKm", None)
     origin = tool_context.state.get(_STATE_ANCHOR_KEY)
+    if isinstance(read_profile_in(tool_context).get("search_location_request"), dict):
+        if not isinstance(origin, dict):
+            return {"ok": False, "error": "geocode_required",
+                    "message": "Call geocode_location successfully before search_offers."}
+        # Coordinates are geocoder-owned. Model copies (including coordinates
+        # remembered from the previous destination) have no authority here.
+        args["lat"] = origin["latitude"]
+        args["lon"] = origin["longitude"]
     anchor_type = origin.get("type") if isinstance(origin, dict) else None
     if anchor_type == "poi":
         args["radiusKm"] = _POI_RADIUS_KM
@@ -923,9 +940,17 @@ def capture_after_tool(
             if isinstance(fired, list):
                 record_guards_fired(tool_context, fired)
         if isinstance(tool_response, dict) and tool_response.get("ok"):
-            delta = tool_response.get("profile_delta")
-            if isinstance(delta, dict) and delta:
-                tool_context.state[_STATE_DELTA_KEY] = delta
+            resolved_delta = dict(tool_response.get("profile_delta") or {})
+            request = read_profile_in(tool_context).get("search_location_request")
+            if isinstance(request, dict):
+                # Only a successful resolution may promote the requested
+                # destination. Explicitly cleared areas must clear Redis too.
+                if request.get("city"):
+                    resolved_delta["last_city"] = request["city"]
+                for key in ("zone", "metro"):
+                    resolved_delta[key] = request.get(key)
+            if resolved_delta:
+                tool_context.state[_STATE_DELTA_KEY] = resolved_delta
             country_code = _iso_alpha2(tool_response.get("country_code"))
             if country_code:
                 tool_context.state[_STATE_COUNTRY_KEY] = country_code
@@ -1449,9 +1474,9 @@ def emit_search_datapart(callback_context: Any) -> genai_types.Content | None:
     # guard but never reaching the profile). Only-when-present: no zone/metro
     # mention this turn is carryover, not a clear (a zone-only change
     # deliberately keeps everything else, S-G1's invalidation rule).
-    if raw_delta.get("zone"):
+    if "zone" in raw_delta:
         profile_delta["zone"] = _op_set(raw_delta["zone"])
-    if raw_delta.get("metro"):
+    if "metro" in raw_delta:
         profile_delta["metro"] = _op_set(raw_delta["metro"])
     # S-G6: a FRESH date label this turn (datetime_resolver.resolve_search_date)
     # — only-when-present. When the model extracted no date this turn, nothing

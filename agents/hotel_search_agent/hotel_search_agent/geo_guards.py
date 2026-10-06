@@ -334,6 +334,26 @@ _ECHO_NOISE_WORDS = frozenset(
 )
 
 
+def specific_name_matches(feature_name: str, requested_name: str) -> bool:
+    """Check a feature's own name, retaining short identifiers such as IATA codes.
+
+    This is identifier validation after semantic extraction, not intent parsing.
+    Reuse the existing normalization/noise vocabulary; no destination catalogue.
+    A missing identifying token cannot count as evidence of a name match.
+    """
+    def words(value: str) -> set[str]:
+        folded = _echo_fold(value)
+        for determiner in _LEADING_DETERMINERS:
+            if folded.startswith(determiner):
+                folded = folded[len(determiner):]
+                break
+        normalized = "".join(ch if ch.isalnum() else " " for ch in folded)
+        return set(normalized.split()) - _ECHO_NOISE_WORDS
+
+    wanted = words(requested_name)
+    return bool(wanted) and wanted <= words(feature_name)
+
+
 def geocode_echo_matches(
     place_name: str | None,
     *,

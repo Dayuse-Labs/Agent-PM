@@ -181,11 +181,11 @@ def test_sse_ack_streams_progress_first_then_done(client):
 
 
 def test_sse_search_streams_progress_hotels_tokens_done(monkeypatch, client):
-    async def fake_classify(message, budget, invocation_id=""):
+    async def fake_classify(message, budget, invocation_id="", *, recent_messages=None):
         budget.charge("triage")
         return Triage("search", "fr", used_llm=False)
 
-    async def fake_run_leaf(leaf, ctx, profile_in):
+    async def fake_run_leaf(leaf, ctx, profile_in, **kwargs):
         return (
             "Voici des hôtels à Paris.",
             {
@@ -248,11 +248,11 @@ def test_sse_hotels_frame_carries_the_clarify_flag(monkeypatch, client):
     the widget renders the shortlist as soon as the frame lands, and the
     blocking-POST path answers a clarifying turn WITHOUT a carousel. Without
     this flag the two transports would disagree on that turn."""
-    async def fake_classify(message, budget, invocation_id=""):
+    async def fake_classify(message, budget, invocation_id="", *, recent_messages=None):
         budget.charge("triage")
         return Triage("search", "fr", used_llm=False)
 
-    async def fake_run_leaf(leaf, ctx, profile_in):
+    async def fake_run_leaf(leaf, ctx, profile_in, **kwargs):
         return (
             "De quelle ville parlez-vous ?",
             {
@@ -289,11 +289,11 @@ def test_sse_hotels_frame_picks_are_this_turns_not_the_previous_turns(monkeypatc
     ])
     seen: list[dict] = []
 
-    async def fake_classify(message, budget, invocation_id=""):
+    async def fake_classify(message, budget, invocation_id="", *, recent_messages=None):
         budget.charge("triage")
         return Triage("search", "fr", used_llm=False)
 
-    async def fake_run_leaf(leaf, ctx, profile_in):
+    async def fake_run_leaf(leaf, ctx, profile_in, **kwargs):
         city, hotel = next(turns)
         return (f"Des hôtels à {city}.", {"results": [hotel], "profile_delta": {"city": city}})
 
@@ -436,11 +436,11 @@ def test_shield_survives_profile_store_failure(monkeypatch, client):
 def test_json_and_stream_agree_on_the_same_turn(monkeypatch, client):
     """The non-streamed payload must equal the SSE `done` payload (bar the
     per-turn turn_id) for the same input — one turn logic, two encodings."""
-    async def fake_classify(message, budget, invocation_id=""):
+    async def fake_classify(message, budget, invocation_id="", *, recent_messages=None):
         budget.charge("triage")
         return Triage("search", "fr", used_llm=False)
 
-    async def fake_run_leaf(leaf, ctx, profile_in):
+    async def fake_run_leaf(leaf, ctx, profile_in, **kwargs):
         return ("ok", {"results": [{"id": 1, "name": "Hotel A", "country_code": "FR"}]})
 
     async def fake_generate_once(self, **kwargs):

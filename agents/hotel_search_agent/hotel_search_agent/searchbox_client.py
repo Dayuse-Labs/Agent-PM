@@ -176,6 +176,14 @@ class SearchBoxClient:
                     region=str(region_ctx.get("name") or region_ctx.get("region_code") or ""),
                     bbox=None,
                     rank=rank,
+                    iata_code=SearchBoxClient._iata_code(props),
                 )
             )
         return candidates
+
+    @staticmethod
+    def _iata_code(props: dict) -> str | None:
+        value = (props.get("external_ids") or {}).get("iata")
+        if isinstance(value, str) and len(value) == 3 and value.isascii() and value.isalpha():
+            return value.upper()
+        return None

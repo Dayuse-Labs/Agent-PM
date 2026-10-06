@@ -258,6 +258,8 @@ class SessionProfile:
     # currency ("HOTEL"), kept for the rest of the conversation until they ask
     # for euros again (product decision 2026-09-25).
     display_currency: str | None = None
+    # Unverified semantic request, retained even if the leaf times out.
+    search_location_request: dict[str, Any] | None = None
 
     def to_dict(self) -> dict[str, Any]:
         return {
@@ -300,6 +302,7 @@ class SessionProfile:
             "adults": self.adults,
             "children": self.children,
             "display_currency": self.display_currency,
+            "search_location_request": self.search_location_request,
             "schema_version": PROFILE_SCHEMA_VERSION,
         }
 
@@ -328,6 +331,7 @@ _CONCIERGE_ONLY_KEYS = (
     "distance_origin",
     "picked_hotel_id",
     "display_currency",
+    "search_location_request",
 )
 
 
@@ -379,6 +383,30 @@ def _bare_number_value(message: str) -> float | None:
     if not match:
         return None
     return float(match.group(1).replace(",", "."))
+
+
+def apply_recognized_bare_budget(
+    profile: SessionProfile, message: str, value: float | None, fired: set[str]
+) -> bool:
+    """Carry a triage-recognized EUR budget into the outgoing search profile.
+
+    Routing alone does not apply the cap: the stateless leaf may omit it. Code
+    validates the LLM slot against the literal amount before persisting it. Do
+    not interpret a foreign-currency amount or hotel-currency display as EUR;
+    those require a currency-aware extraction, not an invented conversion.
+    Caller must first resolve search vs hotel-position/booking/FAQ routing.
+    """
+    if value is None or profile.display_currency not in (None, "EUR") or not _has_prior_search_context(profile):
+        return False
+    literal = message.strip().removeprefix("€").removesuffix("€").strip().replace(",", ".")
+    parts = literal.split(".")
+    if (len(parts) > 2 or not all(part.isdecimal() for part in parts)
+            or float(literal) != value or value <= 0):
+        return False
+    apply_profile_delta(profile, {
+        "budget_max": value, "budget_request_source": BUDGET_SOURCE_EXPLICIT,
+    }, message, fired)
+    return True
 
 
 def _looks_like_time_derived_budget(message: str, budget_max: float) -> bool:
@@ -833,7 +861,11 @@ def _has_refinement_modifier(message: str, llm_bare_budget: float | None = None)
 
 
 def _has_prior_search_context(profile: SessionProfile) -> bool:
-    return bool(profile.city) or bool(profile.last_results) or profile.consecutive_empty_searches > 0
+    requested = profile.search_location_request or {}
+    return (
+        bool(profile.city) or bool(profile.last_results) or profile.consecutive_empty_searches > 0
+        or any(requested.get(key) for key in ("city", "zone", "metro"))
+    )
 
 
 def is_search_refinement_signal(

@@ -22,14 +22,14 @@ _GPS_GRANTED = {
 
 
 def _fake_search_leaf(city: str):
-    async def fake_run_leaf(leaf, ctx, profile_in):
+    async def fake_run_leaf(leaf, ctx, profile_in, **kwargs):
         return (f"Voici des hôtels à {city}.", {"results": [], "profile_delta": {"city": city}})
 
     return fake_run_leaf
 
 
 def _install_search_turn(monkeypatch, city: str):
-    async def fake_classify(message, budget, invocation_id=""):
+    async def fake_classify(message, budget, invocation_id="", *, recent_messages=None):
         budget.charge("triage")
         return Triage("search", "fr", used_llm=False)
 

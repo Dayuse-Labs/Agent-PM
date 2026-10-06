@@ -4,6 +4,14 @@
 
 > 📋 **Pour savoir QUOI faire ensuite, ouvrir [`CHANTIERS.md`](CHANTIERS.md)** (état vérifié au 2026-09-14) : la liste des chantiers ouverts, chacun avec sa preuve, ses actions et un prompt prêt à coller — plus la liste de ce qu'il ne faut **pas** relancer parce que c'est déjà livré. `tasks/todo.md` est périmé et ne doit plus servir de référence.
 
+## 2026-10-06 — Préserver l’intention multi-tour ; validation avant review
+
+Demande : reprendre les mécanismes éprouvés du legacy et ses conversations réelles, sans nouvelle regex. Cette branche contient les changements applicatifs ; le harnais et le registre historique sont dans la PR #121.
+
+Le triage déjà payé émet un changement de lieu validé (`retain` / `replace` / `refine`). La demande non vérifiée est conservée séparément du profil résolu ; un timeout ne perd plus le lieu. La recherche reçoit le contexte utilisateur borné et ne peut utiliser que le point géocodé au tour courant. Le quartier ne cède plus sa place au centroïde d’une ville ; les codes IATA sont lus dans les identifiants du fournisseur et priment sur les commerces homonymes. Aucun catalogue géographique ajouté. Les correctifs FAQ, budget explicite et couverture complète du créneau issus du replay précédent sont inclus.
+
+La référence live reste `ai.dayuse.com`, legacy `a08a7792`. Le replay final de 125 conversations distinctes / 348 tours par agent est à exécuter sur ce code avant la création de la PR. SAV et annulation : fournisseur de réservation fictif en environnement isolé. Même ledger cumulatif plafonné à 60 $, aucun juge payant. Données utilisateur et clés non commitées. Les résultats, limites et commandes seront ajoutés à l’issue de la vérification ; aucun feu vert de lancement à ce stade.
+
 ## ✅ 2026-09-29 — Demande de devise classée `faq` : les cartes sont quand même repeintes
 
 **Fait** (branche `fix/currency-request-routed-to-faq`, gates : pytest **1 786 passés / 1 skippé**, ruff, mypy, guardrails **verts**).

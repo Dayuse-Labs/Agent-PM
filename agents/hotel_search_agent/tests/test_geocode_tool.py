@@ -1579,3 +1579,95 @@ class TestPoiAnchorCeilingIsTight:
 
         assert result["ok"] is True
         assert "poi_anchor_coherence" not in (result.get("guards_fired") or [])
+
+
+def test_semantic_city_and_region_override_wrong_leaf_zone():
+    profile = {'city':'Paris','zone':'Jacuzzi','country_anchor':'FR',
+               'search_location_request':{'city':'Milford','zone':None,'metro':None,'region':'Connecticut','country_code':'US'}}
+    ctx = _Ctx(user_content=_user_content_with_profile_in(profile))
+    args = {'city':'','zone':'Milford','country_code':'FR','proximity_lat':48,'proximity_lon':2}
+    inject_profile_geo_context(_Tool('geocode_location'), args, ctx)
+    assert args['city'] == 'Milford' and args['zone'] is None
+    assert args['profile_state_context'] == 'Connecticut' and args['country_code'] == 'US'
+    assert args['proximity_lat'] is None and args['proximity_lon'] is None
+    assert args['raw_user_message'] == 'autres options'
+
+
+def test_city_centroid_cannot_satisfy_named_zone(monkeypatch):
+    _patch_client(monkeypatch, GeocodeResult(51.5073,-0.1276,'London, England, United Kingdom','GB','England'))
+    # No airport candidate: an honest miss, never London sold as Heathrow.
+    result = geocode_location(city='London',zone='Heathrow Airport Terminal 3',country_code='GB')
+    assert result['ok'] is False
+
+
+def test_search_uses_current_verified_coordinates_not_model_copy():
+    from hotel_search_agent.response_bridge import inject_landmark_radius
+    ctx = _Ctx(user_content=_user_content_with_profile_in({'search_location_request':{'city':'London'}}))
+    args = {'lat':40,'lon':-74}
+    assert inject_landmark_radius(_Tool('search_offers'),args,ctx)['error'] == 'geocode_required'
+    ctx.state['temp:hotel_search_anchor'] = {'latitude':51.47,'longitude':-0.45,'type':'poi'}
+    assert inject_landmark_radius(_Tool('search_offers'),args,ctx) is None
+    assert (args['lat'],args['lon'],args['radiusKm']) == (51.47,-0.45,3)
+
+
+def test_only_success_promotes_requested_city_and_explicit_area_clear():
+    from hotel_search_agent.response_bridge import capture_after_tool, emit_search_datapart, find_datapart
+    request = {'city':'Milford','zone':None,'metro':None,'region':'Connecticut','country_code':'US'}
+    ctx = _Ctx(user_content=_user_content_with_profile_in({'search_location_request':request}))
+    capture_after_tool(_Tool('geocode_location'),{},ctx,{'ok':False,'error':'geocode_no_match'})
+    assert 'temp:hotel_search_profile_delta' not in ctx.state
+    capture_after_tool(_Tool('geocode_location'),{},ctx,{
+        'ok':True,'latitude':41.22,'longitude':-73.06,'country_code':'US','profile_delta':{}})
+    result = emit_search_datapart(ctx)
+    delta = find_datapart(result.parts)['profile_delta']
+    assert delta['city'] == {'op':'set','value':'Milford'}
+    assert delta['zone'] == {'op':'set','value':None}
+
+
+def test_short_airport_code_does_not_validate_city_centroid(monkeypatch):
+    _patch_client(monkeypatch, GeocodeResult(40.7127,-74.006,'New York City, New York, United States','US','New York'))
+    result = geocode_location(city='New York',zone='JFK Airport',country_code='US',location_kind='landmark')
+    assert result['ok'] is False
+
+
+def test_named_area_beats_parent_city_with_more_inventory(monkeypatch):
+    from dataclasses import replace
+    city = _c('Berlin','DE','Berlin',lat=52.52,lon=13.4)
+    area = replace(_c('Mitte','DE','Berlin',ftype='locality',lat=52.517,lon=13.403),
+                   place_name='Mitte, Berlin, Germany')
+    _patch_multi(monkeypatch,[city,area],inventory={52.52:500,52.517:30})
+    result = geocode_location(city='Berlin',zone='Mitte',location_kind='area')
+    assert result['ok'] is True
+    assert result['latitude'] == 52.517
+    assert result['resolved_feature_type'] == 'locality'
+
+
+def test_short_airport_code_does_not_validate_unrelated_neighbourhood(monkeypatch):
+    east = _c('East New York','US','New York',ftype='neighborhood',lat=40.664,lon=-73.888)
+    _patch_multi(monkeypatch,[east],inventory={40.664:30})
+    result = geocode_location(city='New York',zone='JFK Airport',country_code='US',location_kind='landmark')
+    assert result['ok'] is False
+
+
+def test_short_airport_identifier_accepts_provider_named_airport(monkeypatch):
+    east = _c('East New York','US','New York',ftype='neighborhood',lat=40.664,lon=-73.888)
+    _patch_multi(monkeypatch,[east],inventory={40.664:30})
+    box = _FakeSearchBox(GeocodeResult(40.6413,-73.7781,'JFK Airport, New York, United States','US','NY'))
+    monkeypatch.setattr(geocode_tool,'get_searchbox_client',lambda:box)
+    result = geocode_location(city='New York',zone='JFK Airport',country_code='US',location_kind='landmark')
+    assert result['ok'] is True and result['latitude'] == 40.6413
+
+
+def test_provider_iata_identity_beats_hotel_named_after_airport(monkeypatch):
+    from dataclasses import replace
+    _patch_multi(monkeypatch,[],inventory={40.6413:1,40.7:30})
+    airport = replace(_c('John F. Kennedy International Airport','US','New York',ftype='poi',lat=40.6413,lon=-73.7781),iata_code='JFK')
+    hotel = _c('LeTap Inn JFK Airport','US','New York',ftype='poi',lat=40.7,lon=-73.81)
+
+    class Candidates:
+        def forward_candidates(self,*args,**kwargs):
+            return [hotel,airport]
+
+    monkeypatch.setattr(geocode_tool,'get_searchbox_client',lambda:Candidates())
+    result = geocode_location(city='New York',zone='JFK Airport',country_code='US',location_kind='landmark')
+    assert result['ok'] is True and result['latitude'] == 40.6413
