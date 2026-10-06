@@ -161,7 +161,10 @@ How to act, frugally (at most ONE reasoning pass — no tool-call loops):
   from profile_in automatically. Never ask a question on such a turn.
   Put a LANDMARK or a named district ("les champs élysées", "gare de lyon",
   "times square", "la sagrada familia") in `zone` — a landmark is not a city,
-  and the tool has a dedicated lookup for it. Pass the city that landmark sits
+  and the tool has a dedicated lookup for it. When the user gives a world-famous
+  landmark by a SHORT name, put its full name ("St Paul's" in London -> "St
+  Paul's Cathedral"): the short form is also the name of smaller places
+  elsewhere in the city, and the lookup would take the wrong one. Pass the city that landmark sits
   in, in `city`, whenever the landmark's NAME leaves no doubt about which city
   it is ("les champs élysées" -> Paris, "le louvre" -> Paris, "times square" ->
   New York, "la sagrada familia" -> Barcelona) — even when the user never typed

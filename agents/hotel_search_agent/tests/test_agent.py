@@ -224,3 +224,13 @@ class TestAmenityInstruction:
             assert key in INSTRUCTION
         assert "{amenity_keys}" not in INSTRUCTION  # .format really ran
         assert "hotelEquipmentIds" in INSTRUCTION  # the prohibition is spelled out
+
+
+
+class TestLandmarkInstruction:
+    def test_a_short_famous_landmark_is_passed_by_its_full_name(self):
+        # mcp-dayuse#7: « St Paul's » resolved to a St Paul's on Burdett Rd (E3),
+        # not the cathedral; « St Paul's Cathedral » resolves exactly.
+        from hotel_search_agent.agent import INSTRUCTION
+
+        assert '"St Paul\'s" in London -> "St\n  Paul\'s Cathedral"' in INSTRUCTION
