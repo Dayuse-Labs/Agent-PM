@@ -1179,7 +1179,7 @@ class _B2cConcierge(BaseAgent):
         if clicked_id is None and reply_language in TEMPLATE_LANGUAGES:
             profile.language = reply_language
 
-        if triage.travel_time_request:
+        if triage.travel_measure == "duration":
             # No routing/traffic provider exists on this MCP surface. Geographic
             # distance cannot establish driving, walking or transit duration.
             await store.set(ctx.session.id, profile)

@@ -1359,10 +1359,21 @@ def test_first_cheapest_search_without_shortlist_still_reaches_search(monkeypatc
 
 
 def test_travel_time_never_comes_from_an_unverified_faq_or_distance(monkeypatch, fake_leg, fake_profile_store):
-    llm = _scripted_llm(monkeypatch, '{"family":"faq","language":"en","travel_time_request":true}')
+    llm = _scripted_llm(monkeypatch, '{"family":"faq","language":"en","travel_measure":"duration"}')
     runner = InMemoryRunner(root_agent)
     session = _new_session(runner)
     answer = _run_turn(runner, session.id, "How long does it take to get from the station to the hotel?")
     assert fake_leg.call_count == 0
     assert len(llm.calls) == 1
     assert "can’t verify travel time" in answer
+
+
+def test_walking_distance_request_is_not_a_travel_duration_block(monkeypatch, fake_leg, fake_profile_store):
+    fake_leg.response_payload = {"requires_clarification": True}
+    fake_leg.text = "Which park do you mean?"
+    _scripted_llm(monkeypatch, '{"family":"search","language":"en","travel_measure":"distance"}')
+    runner = InMemoryRunner(root_agent)
+    session = _new_session(runner)
+    answer = _run_turn(runner, session.id, "A hotel within walking distance of the park")
+    assert fake_leg.call_count == 1
+    assert answer == fake_leg.text
