@@ -96,6 +96,7 @@ from b2c_common.observability import (
     stamp_langfuse_turn_session,
     trace_context_carrier,
 )
+from b2c_common.search_page import without_hours
 from dayuse_agent_common import (
     cost_from_tokens,
     enqueue_metric_event,
@@ -1498,6 +1499,12 @@ class _B2cConcierge(BaseAgent):
             search_context = response.get("search_context")
             page = search_context.get("search_page") if isinstance(search_context, dict) else None
             profile.search_page = page if isinstance(page, dict) and page.get("url") else None
+            if window_fallback and profile.search_page:
+                # The cards are only the closest to the slot: "Voir tout" filtered
+                # on it would open an empty page.
+                profile.search_page = {
+                    **profile.search_page, "url": without_hours(profile.search_page["url"]),
+                }
             if results_count == 0:
                 # mcp-dayuse#5: the criteria of the search that actually ran,
                 # cited in code — never what the model remembers of the request.

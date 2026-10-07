@@ -16,7 +16,7 @@ from __future__ import annotations
 
 import re
 from typing import Any
-from urllib.parse import urlencode
+from urllib.parse import parse_qsl, urlencode, urlsplit, urlunsplit
 
 from .hotel_urls import _resolve_market
 from .timeslot import parse_hhmm, requested_hours
@@ -77,3 +77,12 @@ def build_search_page_url(
         params.append(("checkoutTime", _site_hour(departure)))
     query = f"?{urlencode(params)}" if params else ""
     return f"https://{market[0]}{path}{query}"
+
+
+def without_hours(url: str) -> str:
+    """The same page without `checkinTime`/`checkoutTime`. When no card covers
+    the requested slot, the site filtered on it lists nothing (QA 2026-10-07,
+    « Miami de 6h à 23h » → "No hotel available")."""
+    parts = urlsplit(url)
+    kept = [(k, v) for k, v in parse_qsl(parts.query) if k not in ("checkinTime", "checkoutTime")]
+    return urlunsplit(parts._replace(query=urlencode(kept)))

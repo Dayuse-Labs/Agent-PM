@@ -2,7 +2,7 @@
 ran — the `searchPage` search_offers returns (mcp-dayuse !32), never built."""
 from __future__ import annotations
 
-from b2c_common.search_page import build_search_page_url, search_page_from
+from b2c_common.search_page import build_search_page_url, search_page_from, without_hours
 
 _LYON = {"name": "Lyon", "path": "/s/france/auvergne-rhone-alpes/rhone/lyon"}
 _SF = {"name": "San Francisco", "path": "/s/united-states/california/san-francisco-county/san-francisco"}
@@ -57,3 +57,14 @@ def test_no_window_means_no_hours():
 def test_an_unknown_market_or_path_gives_no_url():
     assert build_search_page_url(_LYON["path"], "ZZ") is None
     assert build_search_page_url("/hotels/france/x", "FR") is None
+
+
+def test_without_hours_keeps_the_place_and_the_day():
+    url = build_search_page_url(
+        _LYON["path"], "FR", name="Lyon", checkin_date="2026-10-07",
+        timeslot_start="06:00", timeslot_end="23:00",
+    )
+    assert without_hours(url) == (
+        "https://www.dayuse.fr/s/france/auvergne-rhone-alpes/rhone/lyon"
+        "?selectedAddress=Lyon&checkinDate=2026-10-07"
+    )
