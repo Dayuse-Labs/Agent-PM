@@ -1,9 +1,9 @@
 {
   "schema_version": 1,
-  "status": "complete_review_not_release_approval",
-  "scope": "32 exigences prioritaires + 24 dialogues géographiques + défauts additionnels du replay; pas exhaustif de tous les correctifs de production",
-  "main_sha": "fee667d3b2b43c91064b58b5186b87ad140cda4f",
-  "candidate_sha": "2bdca9aaa4328d6f4a6cecafc5e18fa951c176b9",
+  "status": "latest_main_review_complete_not_release_approval",
+  "scope": "Current AgentB2C cbe88b9 vs byte-identical previously evaluated candidate runtime 2bdca9a integrated at 1791432. Not fresh legacy-production comparison.",
+  "main_sha": "cbe88b9963f28fbea932ac2a6ce23d22112f2b76",
+  "candidate_sha": "1791432",
   "historical_commits_indexed": 314,
   "historical_tests_indexed": 1707,
   "no_exhaustive_mapping_claim": true,
@@ -23,10 +23,10 @@
       ],
       "scope": "Date requests persist; historical stock and client timezone still need independent evidence.",
       "coverage": "offline_contracts_and_live_review",
-      "live_result": "Open: Italian stay-duration wording became day_after_tomorrow in a real replay (Langfuse verified).",
+      "live_result": "See latest-main case review; no blanket pass.",
       "attribution": "mixte",
       "change_current": "Leur requested_date persiste les dates explicites ; notre contexte les transporte.",
-      "remaining": "La fausse date D+2 de v15 ne se reproduit pas ici ; une durée italienne devient encore un créneau inventé (00–03h sur main, 00–23h avec PR). Pas de correction générale démontrée.",
+      "remaining": "La fausse date D+2 de v15 ne reproduit pas ; durée 2/3h à Milano devient 00–23h inventé dans les deux variantes actuelles.",
       "owner": "agent/date",
       "verdict": "partiel ou non validé; voir preuves ciblées",
       "paired_case_indices": [
@@ -50,7 +50,7 @@
       ],
       "scope": "Integrated main uses site containment with nearest-hour rounding, and soft overlap for dayparts. Historical minute-exact expectations are retained separately; disclosed alternatives do not count as exact matches.",
       "coverage": "offline_contracts_and_live_review",
-      "live_result": "See integrated v15 validation on 2026-10-07; no blanket pass.",
+      "live_result": "See latest-main case review; no blanket pass.",
       "attribution": "déjà chez eux + conflit PR",
       "change_current": "Leur timeslot.py et guard_window_match assurent la contenance avec arrondi à l’heure.",
       "remaining": "Régression propre reproduite : notre avertissement compare encore à la minute et contredit leur règle 08:45 → 09:00.",
@@ -76,7 +76,7 @@
       ],
       "scope": "No GPS invented when absent from recorded browser context; real GPS trajectories not replayed.",
       "coverage": "offline_contracts_and_live_review",
-      "live_result": "See integrated v15 validation on 2026-10-07; no blanket pass.",
+      "live_result": "See latest-main case review; no blanket pass.",
       "attribution": "non démontré",
       "change_current": "Transport GPS existant ; notre nouvelle demande de lieu peut modifier la sélection de l’ancre.",
       "remaining": "Aucun parcours réel avec GPS rejoué ; couverture de bout en bout inconnue.",
@@ -97,7 +97,7 @@
       ],
       "scope": "Verified provider location reused through concierge-owned state.",
       "coverage": "offline_contracts_and_live_review",
-      "live_result": "See integrated v15 validation on 2026-10-07; no blanket pass.",
+      "live_result": "See latest-main case review; no blanket pass.",
       "attribution": "apport PR",
       "change_current": "Snapshot fournisseur lié à la demande, réutilisé dans la feuille stateless ; coordonnées du modèle écrasées.",
       "remaining": "Mécanisme testé ; gain ciblé à confirmer par les dialogues, pas tous les lieux.",
@@ -124,7 +124,7 @@
       ],
       "scope": "Agreement/refusal contracts covered; complete dialogue loops require live review.",
       "coverage": "offline_contracts_and_live_review",
-      "live_result": "See integrated v15 validation on 2026-10-07; no blanket pass.",
+      "live_result": "See latest-main case review; no blanket pass.",
       "attribution": "mixte, incomplet",
       "change_current": "Leur clarification existe ; notre triage reçoit la question et les tours récents.",
       "remaining": "Courbevoie : aucune résolution utile avec PR sur 2 passages, 1/2 sur main. Erreur set/clear observée dans le premier passage ; autres boucles restent ouvertes.",
@@ -152,7 +152,7 @@
       ],
       "scope": "Exact named settlements and provider country/region evidence; no copied city catalogue.",
       "coverage": "offline_contracts_and_live_review",
-      "live_result": "See integrated v15 validation on 2026-10-07; no blanket pass.",
+      "live_result": "See latest-main case review; no blanket pass.",
       "attribution": "apport PR partiel",
       "change_current": "Filtrage des noms exacts et vérification régionale sur métadonnées fournisseur.",
       "remaining": "Homonymes non résolus et contexte de marché ambigu demeurent.",
@@ -183,7 +183,7 @@
       ],
       "scope": "Stay duration is not a price or arrival hour; semantic triage has live variance.",
       "coverage": "offline_contracts_and_live_review",
-      "live_result": "See integrated v15 validation on 2026-10-07; no blanket pass.",
+      "live_result": "See latest-main case review; no blanket pass.",
       "attribution": "ouvert / régression PR possible",
       "change_current": "Consignes sémantiques sur durée de séjour, arrivée et trajet.",
       "remaining": "Refus hors sujet sur layover dans 1/2 passages avec PR, 0/2 sur main ; Pompei ne reproduit pas dans ce passage, défaut non considéré clos.",
@@ -210,7 +210,7 @@
       ],
       "scope": "No fabricated FX; cross-currency budget comparison remains limited.",
       "coverage": "offline_contracts_and_live_review",
-      "live_result": "See integrated v15 validation on 2026-10-07; no blanket pass.",
+      "live_result": "See latest-main case review; no blanket pass.",
       "attribution": "ouvert / apport PR incomplet",
       "change_current": "Leur note de devise existe ; notre préservation de plafond EUR refuse les changements non-EUR.",
       "remaining": "Paramus : ancien plafond 10 conservé après under $80 avec PR sur 2/2 passages ; main change le montant mais le traite encore en EUR. Unité horaire erronée des deux côtés.",
@@ -235,9 +235,9 @@
       ],
       "scope": "Bare budget and ordinal roles have counterexamples; multipicks are not new reservations.",
       "coverage": "offline_contracts_and_live_review",
-      "live_result": "See integrated v15 validation on 2026-10-07; no blanket pass.",
-      "attribution": "apport PR partiel",
-      "change_current": "Un budget numérique isolé atteint la recherche ; références ordinales vérifiées contre la shortlist.",
+      "live_result": "See latest-main case review; no blanket pass.",
+      "attribution": "budget nu déjà sur main ; sélection encore partielle",
+      "change_current": "Transmission du budget nu livrée par #130. PR ajoute la vérification des références ordinales contre la shortlist et la conservation de langue.",
       "remaining": "Contrôles avant/après ; prix horaire et durée restent mal distingués dans certains dialogues.",
       "owner": "agent",
       "verdict": "partiel ou non validé; voir preuves ciblées",
@@ -263,7 +263,7 @@
       ],
       "scope": "Identity-only and geographic clarification cannot become verified availability; prose still needs review.",
       "coverage": "offline_contracts_and_live_review",
-      "live_result": "See integrated v15 validation on 2026-10-07; no blanket pass.",
+      "live_result": "See latest-main case review; no blanket pass.",
       "attribution": "mixte",
       "change_current": "Leurs guards factuels existent ; notre PR sépare identité hôtel et offre disponible, trie la page selon priorité.",
       "remaining": "Pas de preuve de meilleur classement global ni de capacité/équipement commercial vérifié.",
@@ -293,7 +293,7 @@
       ],
       "scope": "Existing bounded widening/exhaustion; no claim of full loop elimination.",
       "coverage": "offline_contracts_and_live_review",
-      "live_result": "See integrated v15 validation on 2026-10-07; no blanket pass.",
+      "live_result": "See latest-main case review; no blanket pass.",
       "attribution": "déjà chez eux, partiel",
       "change_current": "Les bornes de recherche et auto-widen préexistaient.",
       "remaining": "Pas de preuve que la PR élimine toutes les répétitions ; boucles de clarification encore ouvertes.",
@@ -318,7 +318,7 @@
       ],
       "scope": "Provider IDs and explicit removal protected; source coverage differs from legacy.",
       "coverage": "offline_contracts_and_live_review",
-      "live_result": "See integrated v15 validation on 2026-10-07; no blanket pass.",
+      "live_result": "See latest-main case review; no blanket pass.",
       "attribution": "déjà chez eux + dépendance MCP",
       "change_current": "Filtres d’équipements existants ; parking non filtrable signalé par leur dernier fix #129.",
       "remaining": "Parking au tour suivant encore omis ; familles OU et disponibilité des équipements côté MCP non validées.",
@@ -346,7 +346,7 @@
       ],
       "scope": "Cards/count plumbing exists; browse-link query fidelity remains a product gap.",
       "coverage": "offline_contracts_and_live_review",
-      "live_result": "See integrated v15 validation on 2026-10-07; no blanket pass.",
+      "live_result": "See latest-main case review; no blanket pass.",
       "attribution": "déjà chez eux, partiel",
       "change_current": "Leurs #127/#129 corrigent searchPage et retirent le compteur de taille de page.",
       "remaining": "Ne pas attribuer ces gains à notre PR ; total réservable et toutes les contraintes du lien restent à vérifier.",
@@ -369,7 +369,7 @@
       ],
       "scope": "Provider categories gate landmarks and administrative areas; uncertain places stay uncertain.",
       "coverage": "offline_contracts_and_live_review",
-      "live_result": "See integrated v15 validation on 2026-10-07; no blanket pass.",
+      "live_result": "See latest-main case review; no blanket pass.",
       "attribution": "apport PR partiel",
       "change_current": "Types city/area/landmark et catégories du fournisseur excluent commerces homonymes.",
       "remaining": "Contre-épreuves Taxi Disneyland, Homebox Rennes Sud, restaurant La Défense ; succès live non universel.",
@@ -402,7 +402,7 @@
       ],
       "scope": "Session TTL is an intentional product contract; old/new expiration parity not established.",
       "coverage": "offline_contracts_and_live_review",
-      "live_result": "See integrated v15 validation on 2026-10-07; no blanket pass.",
+      "live_result": "See latest-main case review; no blanket pass.",
       "attribution": "non démontré",
       "change_current": "TTL déjà implémenté ; notre changement borne les timeouts Redis.",
       "remaining": "Pas de comparaison après expiration réelle de session.",
@@ -424,7 +424,7 @@
       ],
       "scope": "Explicit replace/retain and session shortlist selection; tests include unresolvable references.",
       "coverage": "offline_contracts_and_live_review",
-      "live_result": "See integrated v15 validation on 2026-10-07; no blanket pass.",
+      "live_result": "See latest-main case review; no blanket pass.",
       "attribution": "apport PR + régression",
       "change_current": "replace/refine/retain, isolation de shortlist et hôtel nommé.",
       "remaining": "La PR garde Rambler mais bloque la correction la defndeb → Courbevoie ; choix ordinal sans liste bloqué en contrôle.",
@@ -453,7 +453,7 @@
       ],
       "scope": "Counts injected into MCP; ages/minor policy not proven by numeric capacity.",
       "coverage": "offline_contracts_and_live_review",
-      "live_result": "See integrated v15 validation on 2026-10-07; no blanket pass.",
+      "live_result": "See latest-main case review; no blanket pass.",
       "attribution": "déjà chez eux, incomplet",
       "change_current": "Injection de nombres d’occupants préexistante.",
       "remaining": "Enfants/âges et capacité commerciale restent non démontrés ; réponse générique Orange County.",
@@ -475,7 +475,7 @@
       "candidate_tests": [],
       "scope": "Business policy and age-specific evidence remain unresolved; never infer eligibility from available rooms.",
       "coverage": "open_business_or_capability_gap",
-      "live_result": "See integrated v15 validation on 2026-10-07; no blanket pass.",
+      "live_result": "See latest-main case review; no blanket pass.",
       "attribution": "non traité",
       "change_current": "Aucune règle d’âge exhaustive portée dans ce diff.",
       "remaining": "Source et conditions d’offre à arbitrer ; aucune garantie de parité.",
@@ -497,9 +497,9 @@
       ],
       "scope": "Existing-booking support is distinct from new booking and hotel search.",
       "coverage": "offline_contracts_and_live_review",
-      "live_result": "See integrated v15 validation on 2026-10-07; no blanket pass.",
-      "attribution": "apport PR partiel",
-      "change_current": "Contexte multi-tour et consigne explicite de distinguer FAQ/action SAV.",
+      "live_result": "See latest-main case review; no blanket pass.",
+      "attribution": "déjà sur main ; couverture métier incomplète",
+      "change_current": "Consignes FAQ/SAV déjà présentes dans main, notamment extraction #131. Aucun mérite incrémental attribué à cette PR pour ces consignes.",
       "remaining": "Routage et réponse utile à vérifier ; aucune action de gestion de réservation ajoutée.",
       "owner": "agent",
       "verdict": "partiel ou non validé; voir preuves ciblées",
@@ -524,9 +524,9 @@
       ],
       "scope": "FAQ schema contract; policy correctness is source-dependent, not proved by schema.",
       "coverage": "offline_contracts_and_live_review",
-      "live_result": "See integrated v15 validation on 2026-10-07; no blanket pass.",
-      "attribution": "consigne PR, données inchangées",
-      "change_current": "Consigne de distinguer frais, garantie, prépaiement et paiement hôtel.",
+      "live_result": "See latest-main case review; no blanket pass.",
+      "attribution": "déjà sur main ; couverture métier incomplète",
+      "change_current": "Consignes FAQ/SAV déjà présentes dans main, notamment extraction #131. Aucun mérite incrémental attribué à cette PR pour ces consignes.",
       "remaining": "Ne modifie pas la source FAQ ; fidélité métier non acquise par un test de schéma.",
       "owner": "métier/MCP",
       "verdict": "partiel ou non validé; voir preuves ciblées",
@@ -550,9 +550,9 @@
       ],
       "scope": "Offer-specific restrictions must survive generic FAQ answers; no general refund parity claim.",
       "coverage": "offline_contracts_and_live_review",
-      "live_result": "See integrated v15 validation on 2026-10-07; no blanket pass.",
-      "attribution": "consigne PR, incomplet",
-      "change_current": "Interdiction de garantir un remboursement/délai à partir de la FAQ générique.",
+      "live_result": "See latest-main case review; no blanket pass.",
+      "attribution": "déjà sur main ; couverture métier incomplète",
+      "change_current": "Consignes FAQ/SAV déjà présentes dans main, notamment extraction #131. Aucun mérite incrémental attribué à cette PR pour ces consignes.",
       "remaining": "Conditions propres à une réservation non accessibles ; pas de validation exhaustive.",
       "owner": "métier/MCP",
       "verdict": "partiel ou non validé; voir preuves ciblées",
@@ -575,7 +575,7 @@
       "candidate_tests": [],
       "scope": "Conflicting FAQ/public articles require business source arbitration.",
       "coverage": "open_business_or_capability_gap",
-      "live_result": "See integrated v15 validation on 2026-10-07; no blanket pass.",
+      "live_result": "See latest-main case review; no blanket pass.",
       "attribution": "non traité",
       "change_current": "Pas de correction de source documentaire dans la PR agent.",
       "remaining": "Divergence documentée entre FAQ MCP et articles ; arbitrage métier nécessaire.",
@@ -599,9 +599,9 @@
       ],
       "scope": "Market/hotel/offer context propagation; no authenticated booking state in B2C MCP.",
       "coverage": "offline_contracts_and_live_review",
-      "live_result": "See integrated v15 validation on 2026-10-07; no blanket pass.",
-      "attribution": "apport PR partiel",
-      "change_current": "Marché/hôtel/offre demandés dans le prompt à partir d’identifiants vérifiés.",
+      "live_result": "See latest-main case review; no blanket pass.",
+      "attribution": "déjà sur main ; couverture métier incomplète",
+      "change_current": "Consignes FAQ/SAV déjà présentes dans main, notamment extraction #131. Aucun mérite incrémental attribué à cette PR pour ces consignes.",
       "remaining": "Instruction au modèle, pas accès à une réservation authentifiée.",
       "owner": "agent/MCP",
       "verdict": "partiel ou non validé; voir preuves ciblées",
@@ -621,7 +621,7 @@
       "candidate_tests": [],
       "scope": "Gift-card purchase versus use remains a semantic coverage requirement.",
       "coverage": "open_business_or_capability_gap",
-      "live_result": "See integrated v15 validation on 2026-10-07; no blanket pass.",
+      "live_result": "See latest-main case review; no blanket pass.",
       "attribution": "non traité",
       "change_current": "Aucun correctif dédié à achat/utilisation carte cadeau.",
       "remaining": "Pas de scénario dédié dans cette comparaison ; reste explicitement non validé.",
@@ -640,7 +640,7 @@
       "candidate_tests": [],
       "scope": "Modification/cancellation/rebooking guidance requires business arbitration.",
       "coverage": "open_business_or_capability_gap",
-      "live_result": "See integrated v15 validation on 2026-10-07; no blanket pass.",
+      "live_result": "See latest-main case review; no blanket pass.",
       "attribution": "non traité",
       "change_current": "Aucune capacité de modification/annulation/réservation de remplacement ajoutée.",
       "remaining": "Démarche documentaire seule ; reprise des acquis SAV incomplète.",
@@ -664,7 +664,7 @@
       "candidate_tests": [],
       "scope": "Late arrival/no-show policies need dated source review.",
       "coverage": "open_business_or_capability_gap",
-      "live_result": "See integrated v15 validation on 2026-10-07; no blanket pass.",
+      "live_result": "See latest-main case review; no blanket pass.",
       "attribution": "non traité",
       "change_current": "Pas de portage spécifique retard/no-show dans le diff.",
       "remaining": "Sources datées et règles par offre à vérifier.",
@@ -685,9 +685,9 @@
       ],
       "scope": "FAQ interruption and language retained in concierge state; live dialogues remain decisive.",
       "coverage": "offline_contracts_and_live_review",
-      "live_result": "See integrated v15 validation on 2026-10-07; no blanket pass.",
-      "attribution": "apport PR",
-      "change_current": "Historique utilisateur borné envoyé au triage, feuille FAQ et synthèse ; langue conservée sur nombre seul.",
+      "live_result": "See latest-main case review; no blanket pass.",
+      "attribution": "contexte FAQ déjà sur main ; langue encore partielle",
+      "change_current": "Contexte utilisateur vers triage/FAQ/synthèse déjà livré par #131. La PR conserve la langue sur un nombre seul et étend le contexte de recherche.",
       "remaining": "Contrôle identique avant/après et suivi SAV dans les replays ; pas de couverture universelle.",
       "owner": "agent",
       "verdict": "partiel ou non validé; voir preuves ciblées",
@@ -711,7 +711,7 @@
       ],
       "scope": "Timeouts, missing evidence and rejected geography cannot be reported as actual empty stock.",
       "coverage": "offline_contracts_and_live_review",
-      "live_result": "See integrated v15 validation on 2026-10-07; no blanket pass.",
+      "live_result": "See latest-main case review; no blanket pass.",
       "attribution": "mixte",
       "change_current": "Leurs erreurs typées et fallback sont présents ; notre PR répare le cooldown du circuit et garde le lieu après timeout.",
       "remaining": "Contre-épreuves sans réseau établissent le delta ; dépendances restent susceptibles de tomber.",
@@ -737,9 +737,9 @@
       ],
       "scope": "Missing booking management must be stated; dedicated isolated CS dialogues are rerun.",
       "coverage": "offline_contracts_and_live_review",
-      "live_result": "See integrated v15 validation on 2026-10-07; no blanket pass.",
-      "attribution": "apport PR limité à honnêteté",
-      "change_current": "Consigne de reconnaître la capacité absente et ne pas demander des identifiants pour une fausse recherche.",
+      "live_result": "See latest-main case review; no blanket pass.",
+      "attribution": "déjà sur main ; couverture métier incomplète",
+      "change_current": "Consignes FAQ/SAV déjà présentes dans main, notamment extraction #131. Aucun mérite incrémental attribué à cette PR pour ces consignes.",
       "remaining": "Annulation réelle absente ; renvoi parfois trop générique, même si honnête.",
       "owner": "agent/MCP",
       "verdict": "partiel ou non validé; voir preuves ciblées",
@@ -763,7 +763,7 @@
       "candidate_tests": [],
       "scope": "Legacy ownership-gated CS capability is absent from new B2C MCP; do not simulate authenticated access.",
       "coverage": "open_business_or_capability_gap",
-      "live_result": "See integrated v15 validation on 2026-10-07; no blanket pass.",
+      "live_result": "See latest-main case review; no blanket pass.",
       "attribution": "capacité absente",
       "change_current": "Aucun outil de réservation authentifiée ni contrôle de propriété dans le nouveau MCP B2C.",
       "remaining": "Non couvert par la PR ; aucune annulation réelle exécutée.",
@@ -787,9 +787,9 @@
       ],
       "scope": "Booking-link confirmation is not cancellation; synthetic cancellation tests are separate from actual action parity.",
       "coverage": "offline_contracts_and_live_review",
-      "live_result": "See integrated v15 validation on 2026-10-07; no blanket pass.",
-      "attribution": "capacité absente / consigne PR",
-      "change_current": "Interdiction de prétendre une action ; confirmation de lien ne vaut pas annulation.",
+      "live_result": "See latest-main case review; no blanket pass.",
+      "attribution": "déjà sur main ; couverture métier incomplète",
+      "change_current": "Consignes FAQ/SAV déjà présentes dans main, notamment extraction #131. Aucun mérite incrémental attribué à cette PR pour ces consignes.",
       "remaining": "Scénario fictif seulement ; zéro preuve de succès de bout en bout.",
       "owner": "MCP/agent",
       "verdict": "partiel ou non validé; voir preuves ciblées",
@@ -808,7 +808,7 @@
       "candidate_tests": [],
       "scope": "FAQ inventory indexed, semantic completeness not established by this patch.",
       "coverage": "open_business_or_capability_gap",
-      "live_result": "See integrated v15 validation on 2026-10-07; no blanket pass.",
+      "live_result": "See latest-main case review; no blanket pass.",
       "attribution": "non démontré",
       "change_current": "Base FAQ inventoriée, aucun portage exhaustif des contenus/escalades.",
       "remaining": "32 exigences prioritaires et 1 707 tests indexés ne représentent pas toute l’intelligence historique.",
@@ -822,6 +822,363 @@
     }
   ],
   "negative_controls": [
+    {
+      "variant": "main_latest",
+      "test": "test_recognized_bare_budget_reaches_actual_search_arguments",
+      "passed": true
+    },
+    {
+      "variant": "main_latest",
+      "test": "test_bare_shortlist_position_does_not_become_a_budget",
+      "passed": true
+    },
+    {
+      "variant": "main_latest",
+      "test": "test_search_request_survives_leaf_timeout_and_reaches_next_turn",
+      "passed": false
+    },
+    {
+      "variant": "main_latest",
+      "test": "test_contextual_decline_keeps_filters_without_search_or_welcome",
+      "passed": false
+    },
+    {
+      "variant": "main_latest",
+      "test": "test_geo_rejection_cannot_be_synthesized_into_no_inventory",
+      "passed": false
+    },
+    {
+      "variant": "main_latest",
+      "test": "test_hotel_identity_cannot_claim_a_verified_offer",
+      "passed": false
+    },
+    {
+      "variant": "main_latest",
+      "test": "test_contextual_decline_without_extracted_question_does_not_restart",
+      "passed": false
+    },
+    {
+      "variant": "main_latest",
+      "test": "test_first_cheapest_search_without_shortlist_still_reaches_search",
+      "passed": true
+    },
+    {
+      "variant": "main_latest",
+      "test": "test_travel_time_never_comes_from_an_unverified_faq_or_distance",
+      "passed": false
+    },
+    {
+      "variant": "main_latest",
+      "test": "test_walking_distance_request_is_not_a_travel_duration_block",
+      "passed": true
+    },
+    {
+      "variant": "main_latest",
+      "test": "test_support_followup_context_reaches_triage_faq_and_final_answer_but_not_another_session",
+      "passed": true
+    },
+    {
+      "variant": "main_latest",
+      "test": "test_overnight_never_fetches_day_offers",
+      "passed": false
+    },
+    {
+      "variant": "main_latest",
+      "test": "test_unresolved_position_never_calls_any_tool",
+      "passed": false
+    },
+    {
+      "variant": "main_latest",
+      "test": "test_bare_budget_preserves_established_language",
+      "passed": false
+    },
+    {
+      "variant": "main_latest",
+      "test": "test_theme_park_not_taxi_named_after_park",
+      "passed": false
+    },
+    {
+      "variant": "main_latest",
+      "test": "test_district_not_storage_business",
+      "passed": false
+    },
+    {
+      "variant": "main_latest",
+      "test": "test_business_homonym_not_administrative_area",
+      "passed": false
+    },
+    {
+      "variant": "main_latest",
+      "test": "test_circuit_recovers_despite_rejected_local_traffic",
+      "passed": false
+    },
+    {
+      "variant": "candidate",
+      "test": "test_recognized_bare_budget_reaches_actual_search_arguments",
+      "passed": true
+    },
+    {
+      "variant": "candidate",
+      "test": "test_bare_shortlist_position_does_not_become_a_budget",
+      "passed": true
+    },
+    {
+      "variant": "candidate",
+      "test": "test_search_request_survives_leaf_timeout_and_reaches_next_turn",
+      "passed": true
+    },
+    {
+      "variant": "candidate",
+      "test": "test_contextual_decline_keeps_filters_without_search_or_welcome",
+      "passed": true
+    },
+    {
+      "variant": "candidate",
+      "test": "test_geo_rejection_cannot_be_synthesized_into_no_inventory",
+      "passed": true
+    },
+    {
+      "variant": "candidate",
+      "test": "test_hotel_identity_cannot_claim_a_verified_offer",
+      "passed": true
+    },
+    {
+      "variant": "candidate",
+      "test": "test_contextual_decline_without_extracted_question_does_not_restart",
+      "passed": true
+    },
+    {
+      "variant": "candidate",
+      "test": "test_first_cheapest_search_without_shortlist_still_reaches_search",
+      "passed": true
+    },
+    {
+      "variant": "candidate",
+      "test": "test_travel_time_never_comes_from_an_unverified_faq_or_distance",
+      "passed": true
+    },
+    {
+      "variant": "candidate",
+      "test": "test_walking_distance_request_is_not_a_travel_duration_block",
+      "passed": true
+    },
+    {
+      "variant": "candidate",
+      "test": "test_support_followup_context_reaches_triage_faq_and_final_answer_but_not_another_session",
+      "passed": true
+    },
+    {
+      "variant": "candidate",
+      "test": "test_overnight_never_fetches_day_offers",
+      "passed": true
+    },
+    {
+      "variant": "candidate",
+      "test": "test_unresolved_position_never_calls_any_tool",
+      "passed": true
+    },
+    {
+      "variant": "candidate",
+      "test": "test_bare_budget_preserves_established_language",
+      "passed": true
+    },
+    {
+      "variant": "candidate",
+      "test": "test_theme_park_not_taxi_named_after_park",
+      "passed": true
+    },
+    {
+      "variant": "candidate",
+      "test": "test_district_not_storage_business",
+      "passed": true
+    },
+    {
+      "variant": "candidate",
+      "test": "test_business_homonym_not_administrative_area",
+      "passed": true
+    },
+    {
+      "variant": "candidate",
+      "test": "test_circuit_recovers_despite_rejected_local_traffic",
+      "passed": true
+    }
+  ],
+  "new_counterexamples": [
+    {
+      "id": "X01",
+      "title": "Avertissement de créneau incompatible avec la règle du site",
+      "input": {
+        "request": "08:45–17:00",
+        "offer": "09:00–17:00"
+      },
+      "upstream_contract": true,
+      "pr_warning": [
+        "hours"
+      ],
+      "source": "result_constraints.annotate_constraints versus b2c_common.timeslot.slot_covers_window",
+      "status": "reproduced_offline; no fix applied in evaluated candidate"
+    },
+    {
+      "id": "X02",
+      "title": "Layover déclenche à tort un refus de calcul de trajet",
+      "case_id": "38d6a346fc6f99fbb922552e",
+      "turn": 1,
+      "status": "observed 1/2 paired live attempts; nondeterministic PR failure, not a 100% repro"
+    }
+  ],
+  "repeated_findings": [
+    {
+      "case_index": 9,
+      "criterion": "Milford Connecticut + 110",
+      "main": "1/2 ville et plafond acquis ; au succès Jacuzzi reste une zone géographique erronée, langue instable",
+      "candidate": "2/2 acquired city and cap"
+    },
+    {
+      "case_index": 15,
+      "criterion": "Courbevoie/La Défense correction",
+      "main": "1/2 useful resolution; other repetition fails",
+      "candidate": "0/2 useful resolution; stale typo retained"
+    },
+    {
+      "case_index": 16,
+      "criterion": "False terminal journey-duration refusal on layover",
+      "main": "0/2",
+      "candidate": "1/2; subsequent Manhattan ambiguous on second repetition"
+    },
+    {
+      "case_index": 32,
+      "criterion": "Update old 10 cap after under $80",
+      "main": "2/2 amount changed, still wrong currency semantics",
+      "candidate": "0/2 amount changed; stale 10 cap retained"
+    }
+  ],
+  "previous_comparison": {
+    "primary": {
+      "run_id": "pr-value-d32797ac",
+      "complete": true,
+      "complete_pairs": 41,
+      "turns": 278,
+      "expected_cases": 41,
+      "expected_turns": 278,
+      "main_sha": "fee667d3b2b43c91064b58b5186b87ad140cda4f",
+      "candidate_sha": "2bdca9aaa4328d6f4a6cecafc5e18fa951c176b9",
+      "clock": "2026-10-07T12:06:44.663750+00:00",
+      "models": {
+        "triage": "gpt-4.1-mini",
+        "leaves_synthesis": "gpt-4o-mini"
+      },
+      "data_control": "Shared exact-argument MCP and Mapbox cache; fixed application clock; different arguments are different retrievals, not identical inventory. No judge.",
+      "initial_committed_usd": "40.30196720933699950883",
+      "cumulative_committed_usd": "41.25129720933699947880",
+      "continuation": {
+        "from_pair": 7,
+        "max_parallel_pairs": 3,
+        "no_completed_pair_repeated": true
+      }
+    },
+    "repeat": {
+      "run_id": "pr-value-repeat-6a21df92",
+      "complete": true,
+      "complete_pairs": 4,
+      "turns": 32,
+      "expected_cases": 4,
+      "expected_turns": 32,
+      "main_sha": "fee667d3b2b43c91064b58b5186b87ad140cda4f",
+      "candidate_sha": "2bdca9aaa4328d6f4a6cecafc5e18fa951c176b9",
+      "clock": "2026-10-07T12:06:44.663750+00:00",
+      "models": {
+        "triage": "gpt-4.1-mini",
+        "leaves_synthesis": "gpt-4o-mini"
+      },
+      "data_control": "Shared exact-argument MCP and Mapbox cache; fixed application clock; different arguments are different retrievals, not identical inventory. No judge.",
+      "initial_committed_usd": "41.25129720933699947880",
+      "cumulative_committed_usd": "41.36594380933699947475",
+      "continuation": {
+        "from_pair": 7,
+        "max_parallel_pairs": 3,
+        "no_completed_pair_repeated": true
+      },
+      "purpose": "Second independent sample on positive Milford and adverse Courbevoie, layover, Paramus; same fixed clock, models and shared source cache."
+    },
+    "stats": {
+      "main": {
+        "turn_status": {
+          "ok": 139,
+          "degraded": 16
+        },
+        "physical_model_events": 538,
+        "observed_usd": "0.43807134999999998743",
+        "unpriced_model_events": 0,
+        "turns": 155
+      },
+      "candidate": {
+        "turn_status": {
+          "ok": 151,
+          "degraded": 4
+        },
+        "physical_model_events": 520,
+        "observed_usd": "0.62997639999999997849",
+        "unpriced_model_events": 0,
+        "turns": 155
+      }
+    },
+    "observed_usd": "40.37001495933699947475",
+    "provision_usd": "1",
+    "committed_usd": "41.37001495933699947475",
+    "new_comparison_cost_usd": "1.06804774999999996592"
+  },
+  "live": {
+    "baseline": "cbe88b9963f28fbea932ac2a6ce23d22112f2b76",
+    "candidate_runtime": "2bdca9aaa4328d6f4a6cecafc5e18fa951c176b9",
+    "candidate_integration": "1791432",
+    "application_runtime_unchanged": true,
+    "paired_turns": 310,
+    "fresh_latest_main_turns": 155,
+    "reused_candidate_turns": 155,
+    "audit_total_paid_turns": 465,
+    "unique_sequences": 41,
+    "repeated_sequences": 4,
+    "stats": {
+      "main": {
+        "turns": 155,
+        "physical_model_events": 538,
+        "turn_status": {
+          "ok": 139,
+          "degraded": 16
+        },
+        "unpriced_model_events": 0,
+        "observed_usd": "0.43807134999999998743"
+      },
+      "candidate": {
+        "turns": 155,
+        "physical_model_events": 520,
+        "turn_status": {
+          "ok": 151,
+          "degraded": 4
+        },
+        "unpriced_model_events": 0,
+        "observed_usd": "0.62997639999999997849"
+      },
+      "main_latest": {
+        "turns": 155,
+        "physical_model_events": 560,
+        "turn_status": {
+          "ok": 145,
+          "degraded": 10
+        },
+        "unpriced_model_events": 0,
+        "observed_usd": "0.46712669999999998801"
+      }
+    },
+    "observed_total_usd": "40.83714165933699946276",
+    "provision_usd": "1",
+    "committed_total_usd": "41.83714165933699946276",
+    "audit_model_cost_usd": "1.53517444999999995393",
+    "pending": null,
+    "late_metric_adjustments": {},
+    "no_paid_judge": true
+  },
+  "previous_negative_controls": [
     {
       "variant": "main",
       "test": "test_recognized_bare_budget_reaches_actual_search_arguments",
@@ -1039,63 +1396,10 @@
       "error": null
     }
   ],
-  "new_counterexamples": [
-    {
-      "id": "X01",
-      "title": "Avertissement de créneau incompatible avec la règle du site",
-      "input": {
-        "request": "08:45–17:00",
-        "offer": "09:00–17:00"
-      },
-      "upstream_contract": true,
-      "pr_warning": [
-        "hours"
-      ],
-      "source": "result_constraints.annotate_constraints versus b2c_common.timeslot.slot_covers_window",
-      "status": "reproduced_offline; no fix applied in evaluated candidate"
-    },
-    {
-      "id": "X02",
-      "title": "Layover déclenche à tort un refus de calcul de trajet",
-      "case_id": "38d6a346fc6f99fbb922552e",
-      "turn": 1,
-      "status": "observed 1/2 paired live attempts; nondeterministic PR failure, not a 100% repro"
-    }
+  "upstream_extractions": [
+    130,
+    131,
+    132
   ],
-  "repeated_findings": [
-    {
-      "case_index": 9,
-      "criterion": "Milford Connecticut + 110",
-      "main": "0/2 acquired city and cap",
-      "candidate": "2/2 acquired city and cap"
-    },
-    {
-      "case_index": 15,
-      "criterion": "Courbevoie/La Défense correction",
-      "main": "1/2 useful resolution; other repetition fails",
-      "candidate": "0/2 useful resolution; stale typo retained"
-    },
-    {
-      "case_index": 16,
-      "criterion": "False terminal journey-duration refusal on layover",
-      "main": "0/2",
-      "candidate": "1/2; subsequent Manhattan ambiguous on second repetition"
-    },
-    {
-      "case_index": 32,
-      "criterion": "Update old 10 cap after under $80",
-      "main": "2/2 amount changed, still wrong currency semantics",
-      "candidate": "0/2 amount changed; stale 10 cap retained"
-    }
-  ],
-  "comparison_summary": {
-    "unique_sequences": 41,
-    "first_pass_turns": 278,
-    "repeat_turns": 32,
-    "total_turns": 310,
-    "new_cost_usd": "1.06804774999999996592",
-    "cumulative_observed_usd": "40.37001495933699947475",
-    "provision_usd": "1",
-    "release_approved": false
-  }
+  "case_review": "latest-main/case-review.json"
 }
