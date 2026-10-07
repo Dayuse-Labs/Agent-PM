@@ -4,6 +4,12 @@
 
 > 📋 **Pour savoir QUOI faire ensuite, ouvrir [`CHANTIERS.md`](CHANTIERS.md)** (état vérifié au 2026-09-14) : la liste des chantiers ouverts, chacun avec sa preuve, ses actions et un prompt prêt à coller — plus la liste de ce qu'il ne faut **pas** relancer parce que c'est déjà livré. `tasks/todo.md` est périmé et ne doit plus servir de référence.
 
+## 2026-10-07 — Audit après extraction #130/#131/#132
+
+Main cbe88b9 vérifié après les fixes de l’équipe. Budget nu, contexte FAQ et socle de harnais déjà intégrés : ne plus les attribuer au delta PR. 41 séquences uniques, 4 répétitions, 155 tours main actuels contre 155 tours PR réutilisés après preuve d’identité agents/libs/configs entre 2bdca9a et 1791432. 18 contrôles : 5 passent main, 18 PR. Tests locaux : main 2135/2 skip, PR 2211/2, harnais 2236/2 ; ruff/mypy/guardrails verts. Cumul 40.83714 USD observés + 1 USD provisionné /60, aucun pending.
+
+**Reste : quatre défauts du candidat** (lieu set/clear, ancien budget/devise, faux refus layover, avertissement créneau incompatible avec arrondi) et décision d’architecture sur l’extraction de lieu au triage. Aucun correctif de ces quatre points appliqué dans cet audit ; aucun GO. [Rapport de valeur résiduelle et matrice](docs/evaluations/pr-incremental-value-2026-10-07.md). Les blocs ci-dessous sont historiques. Le commentaire de l’équipe sur une fermeture des anciennes PR est conservé comme contexte ; les PR restent en draft pour review du delta restant, sans fusion ni déploiement.
+
 ## ✅ 2026-10-07 (ter) — #121 de Victor découpée en 3 PR rebasées sur `main` (référence = main post-#126)
 
 **Fait** (comparaison #121/#123 vs MR de Mathias, puis extraction de ce qui n'est pas déjà sur `main`) :
