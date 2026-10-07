@@ -575,3 +575,16 @@ def contextual_ack_response(language: str) -> str:
         "pt": "Entendido, mantenho os seus critérios atuais.",
         "nl": "Begrepen, ik behoud uw huidige criteria.",
     }.get(language, "Understood, I’ll keep your current criteria.")
+
+
+def identity_only_response(language: str) -> str:
+    """A catalogue match proves identity, never a bookable rate."""
+    return _pick(language, {
+        "fr": "J’ai identifié cet hôtel, mais ses disponibilités et tarifs ne sont pas encore vérifiés. Pour quelle date et quel créneau souhaitez-vous réserver ?",
+        "en": "I found this hotel, but availability and prices have not been verified yet. What date and time window would you like?",
+        "es": "He identificado este hotel, pero aún no se han verificado disponibilidad ni precios. ¿Qué fecha y horario te interesan?",
+        "de": "Ich habe dieses Hotel gefunden, aber Verfügbarkeit und Preise sind noch nicht geprüft. Für welches Datum und welchen Zeitraum suchst du?",
+        "it": "Ho identificato questo hotel, ma disponibilità e prezzi non sono ancora verificati. Per quale data e fascia oraria?",
+        "pt": "Identifiquei este hotel, mas a disponibilidade e os preços ainda não foram verificados. Para que data e horário pretende reservar?",
+        "nl": "Ik heb dit hotel gevonden, maar beschikbaarheid en prijzen zijn nog niet gecontroleerd. Welke datum en welk tijdvak zoekt u?",
+    })

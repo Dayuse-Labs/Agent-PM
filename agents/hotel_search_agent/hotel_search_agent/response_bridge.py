@@ -1621,6 +1621,8 @@ def emit_search_datapart(callback_context: Any) -> genai_types.Content | None:
         payload["resolved_location"] = state["temp:resolved_search_location"]
     if results is not None:  # a search ran (even 0 results is a real outcome)
         payload["results"] = results
+        if state.get("temp:verified_named_hotel") and results and not any(r.get("price_eur_cents") is not None for r in results):
+            payload["identity_only"] = True
         # S-CX6: WHICH day these results (or this dead end) are about, and
         # whether that day is the session's today. The concierge cannot derive
         # it — a carried-over/default date is deliberately never persisted to

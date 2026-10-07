@@ -1309,3 +1309,39 @@ def test_contextual_decline_keeps_filters_without_search_or_welcome(monkeypatch,
     assert "Previous assistant question" in llm.calls[-1]["messages"][1]["content"]
     assert "current criteria" in answer
     assert asyncio.run(fake_profile_store.get(session.id)).budget_max == 60
+
+
+def test_geo_rejection_cannot_be_synthesized_into_no_inventory(monkeypatch, fake_leg, fake_profile_store):
+    fake_leg.response_payload = {"requires_clarification": True}
+    fake_leg.text = "Could you provide the exact address?"
+    llm = _scripted_llm(monkeypatch, '{"family":"search","language":"en"}')
+    runner = InMemoryRunner(root_agent)
+    session = _new_session(runner)
+    answer = _run_turn(runner, session.id, "An ambiguous district")
+    assert answer == fake_leg.text
+    assert len(llm.calls) == 1
+    assert asyncio.run(fake_profile_store.get(session.id)).last_clarifying_question
+
+
+def test_hotel_identity_cannot_claim_a_verified_offer(monkeypatch, fake_leg, fake_profile_store):
+    fake_leg.response_payload = {"identity_only": True, "results": [{"hotel_id": 7, "name": "Known Hotel"}]}
+    fake_leg.text = "I found an available offer!"
+    llm = _scripted_llm(monkeypatch, '{"family":"search","language":"en"}')
+    runner = InMemoryRunner(root_agent)
+    session = _new_session(runner)
+    answer = _run_turn(runner, session.id, "Known Hotel")
+    assert "not been verified" in answer
+    assert len(llm.calls) == 1
+
+
+def test_contextual_decline_without_extracted_question_does_not_restart(monkeypatch, fake_leg, fake_profile_store):
+    runner = InMemoryRunner(root_agent)
+    session = _new_session(runner)
+    asyncio.run(fake_profile_store.set(session.id, SessionProfile(
+        city="Paris", language="en", budget_max=60,
+    )))
+    _scripted_llm(monkeypatch, '{"family":"ack","language":"en","affirmative":false}',
+                  "Understood, I’ll keep your current criteria.")
+    answer = _run_turn(runner, session.id, "No")
+    assert fake_leg.call_count == 0
+    assert "current criteria" in answer

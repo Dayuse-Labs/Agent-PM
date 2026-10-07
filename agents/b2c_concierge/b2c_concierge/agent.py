@@ -1262,7 +1262,8 @@ class _B2cConcierge(BaseAgent):
                 repeat_search = True
 
         # 3-5. Code-owned routing.
-        if route.kind == "template" and profile.last_clarifying_question and not is_social_ack(message):
+        if (route.kind == "template" and not is_social_ack(message)
+                and (profile.last_clarifying_question or profile.search_location_request or profile.city)):
             # A contextual decline must not restart the conversation or authorize
             # a new search. Reuse the existing synthesis phase with no tool call.
             fallback = templates.contextual_ack_response(reply_language)
@@ -1439,6 +1440,27 @@ class _B2cConcierge(BaseAgent):
             snapshot = location_snapshot(profile.search_location_request or {}, response["resolved_location"])
             if snapshot:
                 profile.resolved_search_location = snapshot
+        if route.target == LEAF_HOTEL_SEARCH and response.get("requires_clarification") and leaf_text:
+            # A verified geocoding rejection is not an empty inventory search.
+            # Keep the already localized question rather than letting synthesis
+            # invent scarcity or an outage from it.
+            profile.last_clarifying_question = extract_final_question(leaf_text)
+            await store.set(ctx.session.id, profile)
+            self._emit_turn_metric(family, "template:geo_clarification", budget, t_start, "ok", inv)
+            yield self._hotels_event(ctx, response, reply_language)
+            yield self._final(ctx, leaf_text)
+            return
+        if route.target == LEAF_HOTEL_SEARCH and response.get("identity_only"):
+            record_search_shortlist(profile, response.get("results") or [])
+            reply = templates.identity_only_response(reply_language)
+            profile.last_clarifying_question = extract_final_question(reply)
+            await store.set(ctx.session.id, profile)
+            yield self._hotels_event(ctx, response, reply_language, build_hotel_picks(profile))
+            self._emit_turn_metric(family, "template:hotel_identity", budget, t_start, "ok", inv,
+                                   hotels_returned=len(response.get("results") or []))
+            yield self._final(ctx, reply)
+            return
+
         # S-CX2 (audit CX F2): the leaf reports the search TOOLS never ran this
         # turn (MCP unreachable / circuit open / budget spent before the
         # search). Serve the honest degraded template — never synthesize, or
