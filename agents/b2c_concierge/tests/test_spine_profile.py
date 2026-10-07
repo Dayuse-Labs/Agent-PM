@@ -1345,3 +1345,24 @@ def test_contextual_decline_without_extracted_question_does_not_restart(monkeypa
     answer = _run_turn(runner, session.id, "No")
     assert fake_leg.call_count == 0
     assert "current criteria" in answer
+
+
+def test_first_cheapest_search_without_shortlist_still_reaches_search(monkeypatch, fake_leg, fake_profile_store):
+    fake_leg.response_payload = {"requires_clarification": True}
+    fake_leg.text = "Which city should I search?"
+    _scripted_llm(monkeypatch, '{"family":"search","language":"en","pick":"cheapest"}')
+    runner = InMemoryRunner(root_agent)
+    session = _new_session(runner)
+    answer = _run_turn(runner, session.id, "Cheapest hotels near me")
+    assert fake_leg.call_count == 1
+    assert "Which city" in answer
+
+
+def test_travel_time_never_comes_from_an_unverified_faq_or_distance(monkeypatch, fake_leg, fake_profile_store):
+    llm = _scripted_llm(monkeypatch, '{"family":"faq","language":"en","travel_time_request":true}')
+    runner = InMemoryRunner(root_agent)
+    session = _new_session(runner)
+    answer = _run_turn(runner, session.id, "How long does it take to get from the station to the hotel?")
+    assert fake_leg.call_count == 0
+    assert len(llm.calls) == 1
+    assert "can’t verify travel time" in answer

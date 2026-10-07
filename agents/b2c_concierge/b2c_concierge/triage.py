@@ -169,6 +169,7 @@ class Triage:
     budget_action: str | None = None
     stay_kind: str | None = None
     search_priority: str | None = None
+    travel_time_request: bool | None = None
 
 
 def is_social_ack(message: str) -> bool:
@@ -433,6 +434,7 @@ with exactly these keys:
   "clear" ONLY if the user explicitly removes the price limit (e.g. no budget
   limit / any price). A search with no budget information is "retain".
   On retain/cheaper set search_update.budget_max=null (no edit).
+- "travel_time_request": true when the user asks how long a journey between places takes (driving, walking, transit). False for hotel stay duration or check-in hours.
 - "stay_kind": "overnight" only for an explicit request spanning a night;
   "day_use" for an explicit daytime correction; otherwise null (carry over).
   An agreement to the last question offering a daytime stay sets day_use.
@@ -619,6 +621,7 @@ async def classify(message: str, budget: TurnBudget, invocation_id: str = "",
         search_update=(parse_search_update(data["search_update"], message)
                        if isinstance(data.get("search_update"), dict) else None),
         budget_action=data.get("budget_action") if data.get("budget_action") in {"retain", "set", "clear", "cheaper"} else None,
+        travel_time_request=_bool_slot(data.get("travel_time_request")),
         stay_kind=data.get("stay_kind") if data.get("stay_kind") in {"overnight", "day_use"} else None,
         search_priority=data.get("search_priority") if data.get("search_priority") in {"price", "distance", "rating", "relevance"} else None,
     )

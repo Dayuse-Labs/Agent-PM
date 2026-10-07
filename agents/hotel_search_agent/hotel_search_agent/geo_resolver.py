@@ -393,7 +393,11 @@ def rank_landmark(
     wanted = _landmark_key(requested_zone)
     wanted_tokens = set(wanted)
     if location_kind == "area":
-        candidates = [c for c in candidates if c.feature_type in {"neighborhood", "locality", "district"}]
+        transit_categories = {"public_transportation_station", "railway_station", "light_rail_station", "bus_station", "bus_stop"}
+        candidates = [c for c in candidates if (
+            c.feature_type in {"neighborhood", "locality", "district"}
+            or (_landmark_key(c.name) == wanted and set(c.poi_categories).intersection(transit_categories))
+        )]
     elif location_kind == "landmark":
         # A business merely named after a landmark is not that landmark.
         # Unknown categories need an exact identity match; provider IATA or
@@ -469,7 +473,13 @@ def resolve(
     if country_hint:
         ch = country_hint.upper()
         survivors = [c for c in survivors if c.country_code == ch]
-    exact = [c for c in survivors if requested_name and _name_fold(c.name) == _name_fold(requested_name)]
+    requested_words = _tokens(_name_fold(requested_name))
+    exact = [c for c in survivors if requested_words and (
+        _tokens(_name_fold(c.name)) == requested_words
+        or (c.feature_type == "place" and _tokens(_name_fold(c.name)) in (
+            requested_words + ["city"], ["city", "of"] + requested_words,
+        ))
+    )]
     if exact:
         # Inventory density cannot turn a different settlement into the one
         # named by the user. Keep genuine exact-name homonyms for clarification.

@@ -1179,9 +1179,18 @@ class _B2cConcierge(BaseAgent):
         if clicked_id is None and reply_language in TEMPLATE_LANGUAGES:
             profile.language = reply_language
 
+        if triage.travel_time_request:
+            # No routing/traffic provider exists on this MCP surface. Geographic
+            # distance cannot establish driving, walking or transit duration.
+            await store.set(ctx.session.id, profile)
+            self._emit_turn_metric(family, "template:travel_time_unverified", budget, t_start, "ok", inv)
+            yield self._final(ctx, templates.travel_time_unverified_response(reply_language))
+            return
+
         # A reference must resolve within this session's shortlist. Never turn
         # an unresolved ordinal into a named hotel lookup against the catalogue.
-        if triage.pick != "none" and picked is None and not booking_signal:
+        if (triage.pick != "none" and picked is None and not booking_signal
+                and (triage.pick == "position" or family in {"details", "compare", "booking"})):
             await store.set(ctx.session.id, profile)
             self._emit_turn_metric(family, "template:unresolved_pick", budget, t_start, "ok", inv)
             yield self._final(ctx, templates.inline_unresolved_response("get_hotel_details", reply_language))

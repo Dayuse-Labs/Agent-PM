@@ -723,12 +723,14 @@ def geocode_location(
     # No credible candidate ⇒ no anchor, and the city falls back to being
     # folded into the query — which is what resolves this case correctly.
     city_anchor: tuple[float, float] | None = None
+    city_anchor_country: str | None = None
     if echo_city:
         for scored in resolution.scored:
             if not scored.in_inventory_tier:
                 continue
             if _echoes(scored.candidate.place_name, city=echo_city, zone=None, state_hint=None):
                 city_anchor = (scored.candidate.latitude, scored.candidate.longitude)
+                city_anchor_country = scored.candidate.country_code
                 break
     poi_anchor: tuple[float, float] | None = proximity_tuple or city_anchor
 
@@ -861,7 +863,11 @@ def geocode_location(
     if searchbox_query:
         poi_candidates = get_searchbox_client().forward_candidates(
             searchbox_query,
-            country=_soft_country(effective_country_code, country_guess, locale),
+            # A verified destination outranks the browser's default market.
+            # If only coordinates are verified, proximity + the spatial guard
+            # are safer than hard-filtering to the locale's unrelated country.
+            country=_soft_country(effective_country_code, city_anchor_country or country_guess,
+                                  None if city_anchor is not None else locale),
             language=lang,
             proximity=searchbox_proximity,
         )

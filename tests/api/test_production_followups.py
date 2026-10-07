@@ -93,3 +93,22 @@ def test_verified_named_hotel_uses_provider_city_key_and_new_names_do_not_inheri
     other={'name':'Other hotel','cityName':'London'}
     inject_verified_named_hotel(tool,other,ctx)
     assert other['cityName']=='London'
+
+
+def test_named_area_can_use_exact_public_transport_anchor_but_not_business_homonym():
+    station = place('La Défense', categories=('public_transportation_station','transportation'))
+    restaurant = place('La Défense', categories=('restaurant',))
+    sculpture = place('La Défense', categories=('public_artwork',))
+    inventory = SimpleNamespace(count_near=lambda *a, **k: 100)
+    assert rank_landmark([restaurant,sculpture,station],requested_zone='La Défense',inventory=inventory,location_kind='area') == station
+    assert rank_landmark([restaurant,sculpture],requested_zone='La Défense',inventory=inventory,location_kind='area') is None
+
+
+def test_exact_settlement_filter_keeps_provider_city_qualifier():
+    from hotel_search_agent.geo_resolver import resolve
+    metropolis = replace(place('New York City', kind='place'), latitude=40.7, country_code='US', region='New York')
+    village = replace(place('New York', kind='locality'), latitude=30.0, country_code='US', region='Florida')
+    unrelated = replace(place('New York Mills', kind='place'), latitude=44.0, country_code='US', region='Minnesota')
+    inventory = SimpleNamespace(count_near=lambda lat, *a, **k: 100 if lat in {40.7,44.0} else 0)
+    result = resolve([village,unrelated,metropolis],inventory=inventory,requested_name='New York',country_hint='US')
+    assert result.chosen == metropolis

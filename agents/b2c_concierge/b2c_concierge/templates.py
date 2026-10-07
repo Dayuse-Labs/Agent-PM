@@ -588,3 +588,15 @@ def identity_only_response(language: str) -> str:
         "pt": "Identifiquei este hotel, mas a disponibilidade e os preços ainda não foram verificados. Para que data e horário pretende reservar?",
         "nl": "Ik heb dit hotel gevonden, maar beschikbaarheid en prijzen zijn nog niet gecontroleerd. Welke datum en welk tijdvak zoekt u?",
     })
+
+
+def travel_time_unverified_response(language: str) -> str:
+    return _pick(language, {
+        "fr": "Je ne peux pas vérifier la durée de ce trajet ici. Consultez une application d’itinéraire avec les deux adresses et votre moyen de transport ; les distances des hôtels ne donnent pas un temps de trajet.",
+        "en": "I can’t verify travel time here. Please check a directions app with both addresses and your mode of transport; hotel distances do not establish journey times.",
+        "es": "No puedo verificar aquí la duración del trayecto. Consulta una aplicación de rutas con ambas direcciones y tu medio de transporte; la distancia del hotel no indica el tiempo de viaje.",
+        "de": "Ich kann die Fahr- oder Gehzeit hier nicht prüfen. Nutze eine Routen-App mit beiden Adressen und deinem Verkehrsmittel; Hotelentfernungen belegen keine Reisezeit.",
+        "it": "Non posso verificare qui la durata del tragitto. Consulta un’app di percorsi con entrambi gli indirizzi e il mezzo di trasporto; la distanza dell’hotel non determina il tempo di viaggio.",
+        "pt": "Não consigo verificar aqui o tempo de viagem. Consulte uma aplicação de trajetos com as duas moradas e o meio de transporte; a distância do hotel não determina a duração.",
+        "nl": "Ik kan de reistijd hier niet controleren. Raadpleeg een route-app met beide adressen en uw vervoermiddel; hotelafstanden bepalen de reistijd niet.",
+    })
