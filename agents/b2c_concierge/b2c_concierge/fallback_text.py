@@ -51,6 +51,19 @@ def _pick(table: dict[str, str], language: str) -> str:
     return table.get(language, table["en"])
 
 
+def enforce_parking_reserve(text: str, message: str, language: str) -> tuple[str, bool]:
+    """Appends the parking reserve when the message asks for parking — in
+    code, on the synthesis path too (mcp-dayuse#4: "parking et piscine"
+    answered "tous avec piscine" and said nothing about the parking).
+    Returns (text, appended); never appended twice."""
+    if not _PARKING_RE.search(message or ""):
+        return text, False
+    line = _pick(_PARKING_LINE, language)
+    if line in text:
+        return text, False
+    return f"{text.rstrip()}\n\n{line}" if text.strip() else line, True
+
+
 def _eur(amount: Any, language: str) -> str:
     """Budgets are EUR amounts (`profile.budget_max`)."""
     value = f"{float(amount):g}"
@@ -75,8 +88,6 @@ def synthesis_fallback_text(
         lines.append(_pick(_WIDEN_LINE, language).format(
             from_=_eur(widen["from"], language), to=_eur(widen["to"], language)
         ))
-    if _PARKING_RE.search(message or ""):
-        lines.append(_pick(_PARKING_LINE, language))
-    text = "\n\n".join(lines)
+    text, _ = enforce_parking_reserve("\n\n".join(lines), message, language)
     text, _ = enforce_currency_disclosure(text, currency_note, language)
     return text
