@@ -90,7 +90,7 @@ _DATE_LABEL_PROPERTY: dict[str, Any] = {
             "description": "The user's original wording for the date, verbatim.",
         },
     },
-    "required": ["type", "value"],
+    "required": ["type", "value", "expression"],
     "additionalProperties": False,
     "description": (
         "LABEL the date/day the user means — you never compute or resolve it "
@@ -325,6 +325,18 @@ def resolve_search_date(tool: Any, args: dict[str, Any], tool_context: Any) -> N
     today = reference_today(profile_in)
     guards_fired: list[str] = []
     label = args.pop("date", None)
+    # A calendar value is not evidence that the customer requested a date.
+    # In particular an invented "today" at UTC/client midnight can otherwise
+    # roll the previous server day into NEXT YEAR. Only this turn's literal
+    # customer wording licenses a fresh label; existing dates carry forward.
+    content = getattr(tool_context, "user_content", None)
+    message = " ".join(
+        part.text for part in (getattr(content, "parts", None) or [])
+        if isinstance(getattr(part, "text", None), str)
+    )
+    expression = label.get("expression") if isinstance(label, dict) else None
+    if not isinstance(expression, str) or not expression.strip() or expression not in message:
+        label = None
     if isinstance(label, dict) and label.get("type") in ("relative", "absolute"):
         resolved_date, resolved_from, expression = resolve_date_label(label, today, guards_fired)
         if resolved_from != "default":

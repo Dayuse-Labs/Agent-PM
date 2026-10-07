@@ -291,7 +291,7 @@ def test_resolve_date_ignores_other_tools():
 
 
 def test_resolve_date_fresh_relative_label_writes_iso_and_stashes_delta():
-    ctx = _ctx_with_profile({})
+    ctx = _ctx_with_profile({}, "demain")
     args = {"date": {"type": "relative", "value": "tomorrow", "expression": "demain"}}
     resolve_search_date(_Tool("search_offers"), args, ctx)
     assert args["date"] != "tomorrow"
@@ -308,7 +308,7 @@ def test_resolve_date_fresh_absolute_label_writes_iso_and_stashes_delta():
     # FUTURE. Hardcoded, it silently became a past-date test on 2026-08-06 and
     # then failed against the year-roll-forward guard doing its job.
     future = (date.today() + timedelta(days=7)).isoformat()
-    ctx = _ctx_with_profile({})
+    ctx = _ctx_with_profile({}, future)
     args = {"date": {"type": "absolute", "value": future, "expression": future}}
     resolve_search_date(_Tool("search_offers"), args, ctx)
     assert args["date"] == future
@@ -318,8 +318,8 @@ def test_resolve_date_fresh_absolute_label_writes_iso_and_stashes_delta():
 
 
 def test_resolve_date_includes_client_tz_in_date_reference_when_present():
-    ctx = _ctx_with_profile({"client_timezone": "Europe/Paris"})
-    args = {"date": {"type": "relative", "value": "today"}}
+    ctx = _ctx_with_profile({"client_timezone": "Europe/Paris"}, "today")
+    args = {"date": {"type": "relative", "value": "today", "expression": "today"}}
     resolve_search_date(_Tool("search_offers"), args, ctx)
     assert ctx.state[STATE_RESOLVED_DATE_KEY]["date_reference"]["client_tz"] == "Europe/Paris"
 
@@ -341,7 +341,7 @@ def test_resolve_date_hallucinated_past_year_never_reaches_mcp_nor_the_profile()
     driven through the real callback: MCP must never receive the past date, and
     the profile must never persist it (that persistence is what made turn 2 fail
     too — the model read it back out of profile_in and re-sent it)."""
-    ctx = _ctx_with_profile({})
+    ctx = _ctx_with_profile({}, "6 aout")
     args = {"date": {"type": "absolute", "value": "2023-08-06", "expression": "6 aout"}}
     resolve_search_date(_Tool("search_offers"), args, ctx)
     assert args["date"] >= date.today().isoformat()
@@ -426,7 +426,7 @@ class TestDateGuardsAreObservable:
         # Same verbatim prod payload as the resolution test above (trace
         # 1ee2b59c, 2026-07-29): the guard did its job then and nobody could
         # count it.
-        ctx = _ctx_with_profile({})
+        ctx = _ctx_with_profile({}, "6 aout")
         args = {"date": {"type": "absolute", "value": "2023-08-06", "expression": "6 aout"}}
         resolve_search_date(_Tool("search_offers"), args, ctx)
         assert ctx.state[_GUARDS_KEY] == ["date_hallucinated_year_rolled_forward"]
@@ -441,8 +441,8 @@ class TestDateGuardsAreObservable:
         # The negative half of the contract: a 0.0 must keep meaning "did not
         # fire". If a clean turn wrote the key, every turn would score 1.0 and
         # the series would be just as useless as when it was stuck at 0.0.
-        ctx = _ctx_with_profile({})
-        args = {"date": {"type": "relative", "value": "tomorrow"}}
+        ctx = _ctx_with_profile({}, "tomorrow")
+        args = {"date": {"type": "relative", "value": "tomorrow", "expression": "tomorrow"}}
         resolve_search_date(_Tool("search_offers"), args, ctx)
         assert _GUARDS_KEY not in ctx.state
 

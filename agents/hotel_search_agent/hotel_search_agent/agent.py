@@ -26,7 +26,6 @@ so B2C rows are distinguishable from fleet rows in the shared Postgres.
 from __future__ import annotations
 
 import os
-from datetime import date
 from typing import Any
 
 from b2c_common.observability import stamp_a2a_turn
@@ -46,6 +45,7 @@ from hotel_search_agent.tool_budget_guard import make_per_tool_budget_callback
 from hotel_search_agent.datetime_resolver import (
     inject_datetime_declaration,
     probe_next_day_after_tool,
+    reference_today,
     resolve_search_date,
     resolve_search_timeslot,
 )
@@ -65,6 +65,7 @@ from hotel_search_agent.mcp_guard import (
 from hotel_search_agent.schema_guard import drop_args_outside_schema
 from hotel_search_agent.response_bridge import (
     capture_after_tool,
+    read_profile_in,
     enforce_resolved_search_origin,
     emit_search_datapart,
     inject_landmark_radius,
@@ -316,13 +317,15 @@ def inject_today_before_model(callback_context: Any, llm_request: Any) -> None:
     using the `date`/`duration` LABELS the model extracts per the instruction.
     Done here (not via a callable instruction) because the A2A card builder
     regex-scans `instruction` and rejects a callable."""
-    today = date.today()
+    today = reference_today(read_profile_in(callback_context))
     llm_request.append_instructions(
         [
             f"TODAY is {today.isoformat()} ({today.strftime('%A')}), for context only — you have "
             "no clock and must NEVER compute a calendar date or a time window yourself. Always "
             "emit the `date`/`duration`/`timeSlot` fields exactly as labels of what the user "
-            "said (see their descriptions); the system resolves them."
+            "said (see their descriptions); the system resolves them. The date expression must "
+            "quote the CURRENT customer message verbatim. If no date is mentioned, omit date: "
+            "the system keeps the established date or uses today. Never copy TODAY into a label."
         ]
     )
     return None

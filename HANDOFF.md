@@ -6,6 +6,61 @@
 
 
 
+## 2026-10-08 — v23 : dates client et nouvelle comparaison de production
+
+**Toujours pas de GO remplacement.** Le modèle et le résolveur partagent désormais
+le jour du client. Une date fraîche doit citer le message client actuel : un
+« today » inventé sans présence dans le message ne peut plus remplacer la date
+portée ni provoquer un report à 2027. Cela vérifie la présence littérale de la
+citation, pas toute sa sémantique. Aucun regex ni appel LLM supplémentaire.
+
+Onze nouveaux tests : 8 échecs / 3 succès avant correction ; tests de changement
+de date explicite, de maintien et de frontière UTC/Londres/Toronto. Les fixtures
+antérieures déclarant une date contiennent désormais le texte client correspondant ;
+les assertions de report d’année, de persistance et de fuseau restent inchangées.
+**2 297 tests passés, 1 ignoré** sur la source finale ; 87 ciblés ; ruff,
+mypy (60 fichiers), guardrails et diff propres.
+
+Rejeu correctif : **15 réponses, 0,11324 USD**. Bromley/Brescia recherchent le jour
+local attendu ; date explicite du 10 octobre et 10:30–17:00 conservés pendant les
+changements de pays/quartier/prix. **32 cartes** jointes aux reçus MCP, zéro écart
+prix/expiration/non-jointure. Pas de migration des dates déjà erronées en session.
+
+Les sept nouvelles conversations SQL (23 messages, devises/locales/fuseaux issus
+des diagnostics et extractions Langfuse) sont maintenant rejouées sur les trois
+bras : **69 réponses / 21 revues manuelles**. Messages répétés associés par ordre
+d’occurrence ; fichiers de réponse hashés ; critères de sélection exclus lorsque
+les références historiques ne désignent plus de cartes réellement proposées.
+**37 cartes tarifées** jointes aux reçus search/details, zéro écart de prix,
+expiration ou carte non jointe ; une carte d’identité Libertel séparée, identité
+vérifiée mais aucune disponibilité attestée. Aucune carte plafonnée : pas de
+preuve supplémentaire sur les budgets frais compris.
+
+Résultats contrastés : candidat conserve l’accès piscine à Luxembourg, confirmé
+par includedAmenities des deux offres ; les trois bras échouent sur plusieurs
+aspects des départements/États et des arrondissements multiples. Dans le 78,
+legacy dérive vers Bordeaux/Marmande tandis que B2C/candidat bouclent sur la ville.
+Paris 9/17/18 avec baignoire produit des cartes hors zone, puis des critères
+redemandés bien qu’explicites. Le candidat vérifie les fiches sans garantir la
+baignoire et retrouve un nom mal orthographié ; cela ne remplit pas toute la demande.
+
+**Nouveau défaut géographique avéré** : le contrôle London Ontario / Old East
+Village cherche aux coordonnées de « East Village, Nova Scotia, Canada ».
+Le pays CA et le profil London ne prouvent donc pas la bonne localisation.
+La réussite des contrôles d’état v22 ne vaut pas validation des coordonnées.
+East London et le corridor Waterloo/Wimbledon restent aussi ouverts.
+Le texte « no offers » arrondit les heures suivant la règle de matching du site
+existante : traiter la formulation comme une question UX séparée, ne pas changer
+cette règle produit pour faire passer un test de minutes.
+
+Comparaison fraîche : **0,67989 USD** ; étape date + comparaison : **0,79313 USD** ;
+cumul **84,95688 / 110 USD**, provisions 11,10 USD incluses, réserve 10 USD.
+Aucun runner payant actif. Rapports privés date-v23-summary.private.json et
+new-prod-v23-review.private.html ; données brutes hors Git. Aucun changement
+Railway, merge ou déploiement. Prochain travail : représentation explicite des
+zones administratives/multiples, vérification province/coordonnées, équipements
+propres aux chambres, puis couverture FAQ/annulation/widget et historique restante.
+
 ## 2026-10-08 — v22 : changements de destination et maintien des horaires
 
 **Pas de GO remplacement.** Trois conversations SQL récentes, neuf messages
