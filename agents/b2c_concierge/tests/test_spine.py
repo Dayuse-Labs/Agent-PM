@@ -390,6 +390,26 @@ class TestHonestDegradation:
         assert _turn_metric(caplog)["status"] == "synthesis_fallback"
         assert scored == [{"synthesis"}]
 
+    def test_a_good_synthesis_still_carries_the_parking_reserve(self, scripted):
+        # mcp-dayuse#4 (trace 62207822, live repro 2026-10-07): parking is not
+        # filterable, and a normal synthesis answered "tous avec piscine".
+        scripted(
+            '{"family": "search", "language": "fr"}',
+            "Voici une sélection d'hôtels à Lyon, tous avec piscine.",
+            response={"results": [{"hotel_id": 1, "name": "Hotel A"}]},
+        )
+        answer = _drive("un hôtel à Lyon demain avec parking et piscine")
+        assert answer.startswith("Voici une sélection d'hôtels à Lyon, tous avec piscine.")
+        assert answer.count("filtrer les résultats sur le parking") == 1
+
+    def test_parking_reserve_needs_cards_on_screen(self, scripted):
+        scripted(
+            '{"family": "search", "language": "fr"}',
+            "Aucune offre ce jour-là.",
+            response={"results": []},
+        )
+        assert "parking" not in _drive("un hôtel à Lyon demain avec parking")
+
     def test_a_good_synthesis_scores_no_fallback(self, scripted, monkeypatch):
         scored: list[set[str]] = []
         monkeypatch.setattr(agent_module, "score_fallbacks", lambda f: scored.append(set(f)))

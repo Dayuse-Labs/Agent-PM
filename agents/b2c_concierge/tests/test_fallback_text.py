@@ -1,6 +1,6 @@
 """fallback_text.py — the code-built answer served when the synthesis fails
 (mcp-dayuse#8, QA trace 62207822)."""
-from b2c_concierge.fallback_text import synthesis_fallback_text
+from b2c_concierge.fallback_text import enforce_parking_reserve, synthesis_fallback_text
 
 LEAF = "2 offre(s) de jour trouvée(s) : A, B. Recherche effectuée pour le 2026-09-30."
 
@@ -43,3 +43,18 @@ def test_currency_note_is_disclosed():
 
 def test_empty_leaf_text_stays_empty():
     assert _fallback(leaf="  ", message="avec parking") == ""
+
+
+def test_parking_reserve_is_appended_once():
+    text, appended = enforce_parking_reserve("Tous avec piscine.", "parking et piscine", "fr")
+    assert appended
+    assert text.endswith(
+        "Je n'ai pas pu filtrer les résultats sur le parking : vérifiez-le sur la fiche de l'hôtel."
+    )
+    assert enforce_parking_reserve(text, "parking et piscine", "fr") == (text, False)
+
+
+def test_parking_reserve_needs_a_parking_request():
+    assert enforce_parking_reserve("Tous avec piscine.", "avec piscine", "fr") == (
+        "Tous avec piscine.", False
+    )

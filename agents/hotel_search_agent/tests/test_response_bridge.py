@@ -8,6 +8,7 @@ from __future__ import annotations
 
 import json
 
+import pytest
 from a2a import types as a2a_types
 from google.adk.a2a.converters.part_converter import (
     convert_a2a_part_to_genai_part,
@@ -1415,7 +1416,7 @@ def test_outcome_text_appends_fallback_disclosure():
     assert text.endswith("No offer covers the whole 06:00–16:00 time slot; here are the closest offers.")
     assert "exact" not in text
     assert _outcome_text([{"name": "Hotel 1"}], timeslot_fallback=False) == (
-        "1 day-use offer(s) found: Hotel 1."
+        "Day-use offers shown: Hotel 1."
     )
     fr = _outcome_text([{"name": "Hotel 1"}], True, "fr", window="06:00–16:00")
     assert fr.endswith("Aucune offre ne couvre tout le créneau 06:00–16:00 ; voici les offres les plus proches.")
@@ -2112,3 +2113,14 @@ def test_no_search_page_when_the_mcp_sends_none():
         {"structuredContent": {"total": 1, "results": [_hotel(1, 5000)]}, "isError": False},
     )
     assert _decode(emit_search_datapart(ctx))["search_context"]["search_page"] is None
+
+
+@pytest.mark.parametrize("language", ["fr", "en", "es", "it", "de", "pt", "nl"])
+def test_outcome_text_states_no_count(language):
+    # mcp-dayuse#4: "j'ai trouvé 5 offres" was the page size, not a count.
+    from hotel_search_agent.response_bridge import _outcome_text
+
+    page = [{"name": name} for name in ("Alpha", "Bravo", "Charlie", "Delta", "Echo")]
+    text = _outcome_text(page, language=language)
+    assert not any(ch.isdigit() for ch in text)
+    assert "Alpha" in text and "Echo" in text
