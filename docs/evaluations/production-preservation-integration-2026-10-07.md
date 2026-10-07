@@ -1,6 +1,12 @@
 # Préservation de production — intégration du main courant, 7 octobre 2026
 
-**Draft pour review ; pas de validation de lancement.** Les suites techniques passent, mais des défauts métier persistent. La campagne complète est terminée sur le runtime `40dd0c626069d773f7d7b099340eafea37d28ccb`, intégrant main `9b2ec69`. Les commits ultérieurs ne changent que la documentation. PR applicative #123, puis harnais #121 empilé sur sa branche avec un code applicatif identique.
+**Draft pour review ; pas de validation de lancement.** Les suites techniques passent, mais des défauts métier persistent. La campagne complète est terminée sur le runtime `40dd0c626069d773f7d7b099340eafea37d28ccb`, intégrant main `9b2ec69`. Un dernier correctif de contrat « Voir tout » a été intégré ensuite ; sa validation distincte est décrite ci-dessous. PR applicative #123, puis harnais #121 empilé sur sa branche avec un code applicatif identique.
+
+## Dernier contrat MCP intégré après le rejeu
+
+Main `d973775` a avancé pendant la publication. Runtime final `89c1799` : seuls le parseur de `searchPage` et son transport vers le lien du site changent dans le code applicatif par rapport au runtime live `40dd0c6`. Le workflow CI de cette PR conserve la batterie LiteLLM et son environnement cohérent ; le correctif main visant l’ancien extra ADK ne s’y applique plus.
+
+**2 054 tests applicatifs passent, 1 ignoré** ; Ruff/mypy/guardrails verts. Rejeu hors LLM de **204 réponses `search_offers` réellement capturées en v15** : aucun écart de normalisation des cartes, contraintes ou résultat outil hors `search_page` ; **176 liens** sont désormais construits depuis le `searchPage` du fournisseur. Validation du mapping et du format, pas test HTTP de chaque URL. Coût supplémentaire : zéro. Les 417 tours live ne sont pas prétendus réexécutés sur ce dernier patch de métadonnées ; leur runtime reste `40dd0c6`.
 
 ## Ce qui est proposé
 

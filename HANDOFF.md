@@ -4,6 +4,10 @@
 
 > 📋 **Pour savoir QUOI faire ensuite, ouvrir [`CHANTIERS.md`](CHANTIERS.md)** (état vérifié au 2026-09-14) : la liste des chantiers ouverts, chacun avec sa preuve, ses actions et un prompt prêt à coller — plus la liste de ce qu'il ne faut **pas** relancer parce que c'est déjà livré. `tasks/todo.md` est périmé et ne doit plus servir de référence.
 
+## 2026-10-07 — Contrat searchPage final, après la campagne live
+
+Main `d973775` intégré au runtime `89c1799`. Delta applicatif depuis le candidat live `40dd0c6` limité au lien « Voir tout » (contrat searchPage + pays). 2 054 tests passent / 1 skip ; Ruff/mypy/guardrails verts. Rejeu hors LLM de 204 réponses MCP capturées : aucune différence hors search_page, 176 liens fournisseur reconstruits. Pas de nouvelle campagne live ; les 417 tours restent rattachés à 40dd0c6. Coût cumulé inchangé, 39,30 USD observés + 1 USD provisionné. PR toujours draft, défauts métier ouverts. Détails dans le rapport d’intégration.
+
 ## 2026-10-07 — Intégration évaluée, lancement non validé
 
 Runtime `40dd0c6` intégrant main `9b2ec69`. Les 5 lots v15 sont complets : 148 exécutions/417 tours candidats, références archivées, ancien holdout déjà vu. 2 058 tests application et 2 212 harnais passent (1 skip chacun ; suites se recouvrant). Ruff/mypy/guardrails verts. Géographie : 18 conservés, 5 partiels, 1 échec. Coûts cumulés 39.30 USD observés + 1 USD provisionnés, plafond 60, aucun lot en attente. Défaillances métier et preuves explicitement conservées ; juge antérieur exclu du classement. PR #123 puis #121 empilée, aucun merge vers main ni déploiement. [Résultats intégrés et limites](docs/evaluations/production-preservation-integration-2026-10-07.md).
