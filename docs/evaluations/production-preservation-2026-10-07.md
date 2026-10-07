@@ -1,7 +1,7 @@
 # Préservation des acquis de production — revue du 7 octobre 2026
 
 
-> **Mise à jour d’intégration en cours** : `main` a avancé vers `9b2ec69` pendant la campagne. Le runtime intégré `40dd0c6` conserve les nouveaux correctifs de l’équipe et fait l’objet d’un rejeu séparé v15. Les résultats v14 ci-dessous restent valables uniquement pour `1be8974`, pas pour le dernier code intégré. Aucun lancement validé.
+> **Historique v14** : la campagne intégrée v15 est maintenant terminée ; voir [résultats après intégration de main](production-preservation-integration-2026-10-07.md). Les chiffres ci-dessous restent propres au runtime `1be8974`.
 
 Cette révision prolonge la [comparaison du 6 octobre](production-state-transfer-2026-10-06.md). Elle reste une proposition de migration à revoir, pas une autorisation de lancement. Les résultats du 6 octobre ne sont pas attribués au nouveau runtime.
 

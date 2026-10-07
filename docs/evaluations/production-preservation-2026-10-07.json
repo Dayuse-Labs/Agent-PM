@@ -232,7 +232,7 @@
   "post_campaign_integration": {
     "runtime_sha": "40dd0c626069d773f7d7b099340eafea37d28ccb",
     "main_sha": "9b2ec696cbba41c31be8e8274a2f5b5474593690",
-    "validation": "v15 replay running; v14 results apply to previous runtime only",
+    "validation": "complete; see production-preservation-integration-2026-10-07.json",
     "release_approved": false
   }
 }

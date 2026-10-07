@@ -4,9 +4,9 @@
 
 > 📋 **Pour savoir QUOI faire ensuite, ouvrir [`CHANTIERS.md`](CHANTIERS.md)** (état vérifié au 2026-09-14) : la liste des chantiers ouverts, chacun avec sa preuve, ses actions et un prompt prêt à coller — plus la liste de ce qu'il ne faut **pas** relancer parce que c'est déjà livré. `tasks/todo.md` est périmé et ne doit plus servir de référence.
 
-## 2026-10-07 — Intégration du main courant, contrôle séparé v15
+## 2026-10-07 — Intégration évaluée, lancement non validé
 
-Main `9b2ec69` intégré : dates, fenêtres horaires et moments souples, notes devise sur demande, états vides, Voir tout, contrat MCP. Les slots de contexte et la reprise du coupe-circuit de cette PR sont conservés. Pas de nouvelle regex ajoutée par cette intégration au-delà du code déjà présent sur main. Test de câblage mis à jour pour le dernier guard de schéma. 2 057 tests passent à la première suite, un test de cardinalité corrigé puis ses 18 tests repassés ; mypy 65 fichiers, Ruff et guardrails verts. Rejeu v15 en cours sur runtime `40dd0c6`, preuves v14 conservées distinctes. Pas de lancement. Budget utilisateur toujours 60 USD, seuil interne 42 USD / réserve 18 USD pour contrôler cette intégration.
+Runtime `40dd0c6` intégrant main `9b2ec69`. Les 5 lots v15 sont complets : 148 exécutions/417 tours candidats, références archivées, ancien holdout déjà vu. 2 058 tests application et 2 212 harnais passent (1 skip chacun ; suites se recouvrant). Ruff/mypy/guardrails verts. Géographie : 18 conservés, 5 partiels, 1 échec. Coûts cumulés 39.30 USD observés + 1 USD provisionnés, plafond 60, aucun lot en attente. Défaillances métier et preuves explicitement conservées ; juge antérieur exclu du classement. PR #123 puis #121 empilée, aucun merge vers main ni déploiement. [Résultats intégrés et limites](docs/evaluations/production-preservation-integration-2026-10-07.md).
 
 ## 2026-10-07 — Préservation complète évaluée, validation de lancement non acquise
 
