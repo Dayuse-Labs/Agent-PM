@@ -1517,3 +1517,105 @@ def test_leaf_rounded_delta_cannot_erase_current_user_minutes(
     assert saved.timeslot_start == '11:00'
     assert saved.timeslot_end == '15:30'
     assert saved.timeslot is None  # no stale rounded free-text label
+
+
+@pytest.mark.parametrize('followup,family', [
+    ('Near the station instead', 'search'),
+    ('Something cheaper', 'search'),
+    ('How can I pay?', 'faq'),
+])
+def test_clock_minutes_survive_later_leaf_deltas(
+    monkeypatch, fake_leg, fake_profile_store, followup, family
+):
+    import json
+
+    fake_leg.response_payload = {'results': [], 'profile_delta': {
+        'city': 'Manhattan', 'timeslot_start': '18:00', 'timeslot_end': '21:00',
+    }}
+    _scripted_llm(monkeypatch,
+        '{"family":"search","language":"en","requested_budget":null,'
+        '"requested_window":{"start":"18:30","end":"21:00","evidence":"6:30pm to 9pm"}}',
+        'Which area?',
+        json.dumps({'family': family, 'language': 'en', 'requested_budget': None}),
+        'Here is the information.',
+    )
+    runner = InMemoryRunner(root_agent)
+    session = _new_session(runner)
+    _run_turn(runner, session.id, 'Manhattan tomorrow from 6:30pm to 9pm')
+    _run_turn(runner, session.id, followup)
+    saved = asyncio.run(fake_profile_store.get(session.id))
+    assert (saved.timeslot_start, saved.timeslot_end) == ('18:30', '21:00')
+    assert saved.requested_window == {'start': '18:30', 'end': '21:00'}
+
+
+def test_partial_window_does_not_trust_leaf_claim_of_explicit_start(
+    monkeypatch, fake_leg, fake_profile_store
+):
+    fake_leg.response_payload = {'results': [], 'profile_delta': {}}
+    _scripted_llm(monkeypatch,
+        '{"family":"search","language":"en","requested_budget":null,'
+        '"requested_window":{"end":"20:00","evidence":"until 8pm"}}',
+        'Here are the options.',
+    )
+    runner = InMemoryRunner(root_agent)
+    session = _new_session(runner)
+    asyncio.run(fake_profile_store.set(session.id, SessionProfile(
+        timeslot_start='10:00', timeslot_end='18:00', timeslot_request_source='explicit',
+    )))
+    _run_turn(runner, session.id, 'Tomorrow until 8pm')
+    outgoing = find_datapart(fake_leg.seen_outgoing_parts)['profile_in']
+    assert outgoing['timeslot_start'] is None
+    assert outgoing['timeslot_end'] == '20:00'
+
+
+@pytest.mark.parametrize('start,expected', [('10:15', ('10:15', '11:45')), (None, (None, None))])
+def test_duration_uses_only_a_grounded_arrival(
+    monkeypatch, fake_leg, fake_profile_store, start, expected
+):
+    import json
+
+    message = 'from 10:15am for 90 minutes' if start else 'for 90 minutes'
+    fake_leg.response_payload = {'results': [], 'profile_delta': {}}
+    _scripted_llm(monkeypatch, json.dumps({
+        'family': 'search', 'language': 'en',
+        'requested_window': {'start': start, 'duration_minutes': 90, 'evidence': message},
+    }), 'Which city?')
+    runner = InMemoryRunner(root_agent)
+    session = _new_session(runner)
+    _run_turn(runner, session.id, message)
+    outgoing = find_datapart(fake_leg.seen_outgoing_parts)['profile_in']
+    assert (outgoing['timeslot_start'], outgoing['timeslot_end']) == expected
+
+
+@pytest.mark.parametrize('update,delta,expected', [
+    ({'clear': True, 'evidence': 'any time'},
+     {'timeslot_start': '18:00', 'timeslot_end': '21:00'}, (None, None, None)),
+    ({'replace': True, 'evidence': 'in the morning instead'},
+     {'daypart': 'morning'}, (None, None, 'morning')),
+    ({'start': '06:00', 'end': '12:00', 'evidence': 'in the morning instead'},
+     {'daypart': 'morning'}, (None, None, 'morning')),
+    ({'duration_minutes': 120, 'evidence': 'for two hours instead'},
+     {'timeslot_start': '18:00', 'timeslot_end': '21:00'}, ('18:30', '20:30', None)),
+    ({'start': '22:00', 'evidence': 'from 10pm instead'},
+     {'timeslot_start': '22:00', 'timeslot_end': '21:00'}, ('22:00', None, None)),
+])
+def test_user_can_replace_a_persisted_clock_window(
+    monkeypatch, fake_leg, fake_profile_store, update, delta, expected
+):
+    import json
+
+    fake_leg.response_payload = {'results': [], 'profile_delta': {}}
+    _scripted_llm(monkeypatch,
+        '{"family":"search","language":"en","requested_budget":null,'
+        '"requested_window":{"start":"18:30","end":"21:00","evidence":"6:30pm to 9pm"}}',
+        'Which area?',
+        json.dumps({'family': 'search', 'language': 'en', 'requested_window': update}),
+        'Here are the options.',
+    )
+    runner = InMemoryRunner(root_agent)
+    session = _new_session(runner)
+    _run_turn(runner, session.id, 'Manhattan tomorrow from 6:30pm to 9pm')
+    fake_leg.response_payload = {'results': [], 'profile_delta': delta}
+    _run_turn(runner, session.id, update['evidence'])
+    saved = asyncio.run(fake_profile_store.get(session.id))
+    assert (saved.timeslot_start, saved.timeslot_end, saved.daypart) == expected

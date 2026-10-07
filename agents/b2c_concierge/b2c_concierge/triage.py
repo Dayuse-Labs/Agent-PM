@@ -165,6 +165,8 @@ class Triage:
     display_currency: str | None = None
     # None = no usable change; () = explicit removal of the requested window.
     requested_window: tuple[str | None, ...] | None = None
+    replace_window: bool = False
+    requested_duration_minutes: int | None = None
     hotel_scope: str | None = None
     requested_budget: dict | None = None
     budget_checked: bool = False
@@ -447,8 +449,19 @@ Optional keys, extracted from MESSAGE ONLY, never copied from recent messages:
   For explicit removal of the time restriction: {{"clear":true,"evidence":"exact
   substring requesting removal"}}. Never use [null,null] or an empty array.
   The evidence MUST be included inside this object; without it the update is
-  discarded. Omit the whole object for no change, duration alone, vague dayparts
-  ("afternoon"), hotel opening hours, or questions about the offer's times.
+  discarded. For a NEW nonnumeric time preference replacing prior clock bounds
+  ("in the morning instead", "from eleven to three"), use
+  {{"replace":true,"evidence":"exact new timing words from MESSAGE"}} and let
+  the search specialist interpret it. Never invent numeric bounds for a daypart.
+  For a duration change use {{"duration_minutes":120,"evidence":"for two hours"}};
+  include start/end only when actually stated, never invent a start for a duration.
+  When an arrival AND duration are stated, BOTH are required in the same object:
+  "from 10:15am for 90 minutes" -> {{"start":"10:15","duration_minutes":90,
+  "evidence":"from 10:15am for 90 minutes"}}. This includes written durations
+  ("one hour", "an hour"). Code computes departure; the leaf cannot fill in an
+  omitted duration later. A duration with no arrival must not invent midnight.
+  Omit the whole object for no change, hotel opening hours,
+  or questions about the offer's times.
   "afternoon" is NOT evidence for "12:00". Never copy times from recent messages.
   Extract a stated clock window even if the destination still needs clarification.
 - "hotel_scope": "shown" ONLY for a question about the already proposed hotels
@@ -592,6 +605,8 @@ async def classify(message: str, budget: TurnBudget, invocation_id: str = "",
         hotel_name=_hotel_name_slot(data.get("hotel_name")),
         display_currency=_display_currency_slot(data.get("display_currency")),
         requested_window=_grounded_window(data, message),
+        replace_window=_window_replacement(data, message),
+        requested_duration_minutes=_grounded_duration(data, message),
         hotel_scope="shown" if data.get("hotel_scope") == "shown" else None,
         requested_budget=grounded_budget(data.get("requested_budget"), message),
         budget_checked="requested_budget" in data,
@@ -634,6 +649,8 @@ def _grounded_window(data: dict, message: str) -> tuple[str | None, ...] | None:
     raw = data.get("requested_window")
     if not isinstance(raw, dict):
         return None
+    if raw.get("replace") is True:
+        return None
     if raw.get("clear") is True:
         if raw.get("start") is not None or raw.get("end") is not None:
             return None
@@ -650,3 +667,33 @@ def _grounded_window(data: dict, message: str) -> tuple[str | None, ...] | None:
     if window and not any(c.isascii() and c.isdigit() for c in evidence):
         return None
     return window
+
+
+def _window_replacement(data: dict, message: str) -> bool:
+    """A quoted semantic change releases old bounds without inventing new ones."""
+    raw = data.get("requested_window")
+    if not isinstance(raw, dict) or raw.get("clear") is True:
+        return False
+    evidence = raw.get("evidence")
+    if not isinstance(evidence, str) or not evidence.strip() or evidence not in message:
+        return False
+    if raw.get("replace") is True:
+        return raw.get("start") is None and raw.get("end") is None
+    # The model sometimes labels "morning instead" as 06:00–12:00. Reject
+    # those invented bounds, but let the specialist interpret the quoted new
+    # preference; retaining yesterday's exact evening range would defeat it.
+    return (
+        _requested_window_slot([raw.get("start"), raw.get("end")]) is not None
+        and not any(c.isascii() and c.isdigit() for c in evidence)
+    )
+
+
+def _grounded_duration(data: dict, message: str) -> int | None:
+    raw = data.get("requested_window")
+    if not isinstance(raw, dict) or raw.get("clear") is True or raw.get("replace") is True:
+        return None
+    duration, evidence = raw.get("duration_minutes"), raw.get("evidence")
+    if (type(duration) is int and 0 < duration <= 1440
+            and isinstance(evidence, str) and evidence.strip() and evidence in message):
+        return duration
+    return None

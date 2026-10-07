@@ -1606,3 +1606,17 @@ def test_recognized_euro_amount_preserves_other_search_constraints():
     assert apply_recognized_bare_budget(profile, "60,50 €", 60.5, set())
     assert profile.budget_max == 60.5 and profile.budget_request_source == BUDGET_SOURCE_EXPLICIT
     assert profile.city == "Paris" and profile.amenities == ["pool"] and profile.timeslot_start == "10:00"
+@pytest.mark.parametrize('delta', [
+    {'requested_window': {'start': '10:00', 'end': '12:00'}, 'timeslot_start': '18:00'},
+    {'requested_window': {'op': 'clear'}, 'timeslot_start': {'op': 'clear'}},
+    {'requested_window': {'op': 'set', 'value': {}}, 'timeslot_end': '20:00'},
+])
+def test_leaf_cannot_change_concierge_clock_authority(delta):
+    import json
+
+    profile = SessionProfile(requested_window={'start': '18:30', 'end': '21:00'})
+    profile.restore_requested_window()
+    profile = SessionProfile.from_dict(json.loads(json.dumps(profile.to_dict())))
+    apply_profile_delta(profile, delta, 'Near the station')
+    assert profile.requested_window == {'start': '18:30', 'end': '21:00'}
+    assert (profile.timeslot_start, profile.timeslot_end) == ('18:30', '21:00')

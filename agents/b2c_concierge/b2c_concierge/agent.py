@@ -459,6 +459,10 @@ Therefore:
   If the user has supplied enough preferences, a useful recommendation may
   finish without another question. Do not request optional refinements merely
   to prolong the conversation.
+- "Any time" or removing a time filter means the user accepts the offers'
+  fixed slots, not that they demand a room with unrestricted opening hours.
+  Do not claim this flexibility is unavailable or ask them to restate a time
+  window already supplied and still present in the current request.
 A long reply is a defect even when every word in it is true.
 
 For FAQ/support with no hotel results, answer the actual question and provide
@@ -1251,16 +1255,28 @@ class _B2cConcierge(BaseAgent):
         # yesterday's/earlier window before the update below can be applied.
         # Partial clock answers retain the other bound; explicit clear is ().
         requested_window = triage.requested_window
-        carry_window = profile.timeslot_request_source == BUDGET_SOURCE_EXPLICIT
+        carried_window = profile.requested_window or {}
         next_window = (
-            (requested_window[0] or (profile.timeslot_start if carry_window else None),
-             requested_window[1] or (profile.timeslot_end if carry_window else None))
+            (requested_window[0] or carried_window.get("start"),
+             requested_window[1] or carried_window.get("end"))
             if requested_window else (None, None)
         ) if requested_window is not None else None
-        window_changed = next_window is not None and (
+        if (next_window and requested_window and next_window[0] is not None
+                and next_window[1] is not None and next_window[0] >= next_window[1]):
+            # An updated arrival beyond the old departure (or the converse)
+            # invalidates the carried bound; never invent an overnight range.
+            next_window = (requested_window[0], requested_window[1])
+        if triage.requested_duration_minutes is not None:
+            start = next_window[0] if next_window else carried_window.get("start")
+            if start:
+                hour, minute = (int(part) for part in start.split(":"))
+                end_minutes = hour * 60 + minute + triage.requested_duration_minutes
+                if end_minutes < 1440:
+                    next_window = (start, f"{end_minutes // 60:02d}:{end_minutes % 60:02d}")
+        window_changed = triage.replace_window or (next_window is not None and (
             next_window != (profile.timeslot_start, profile.timeslot_end)
             or (not requested_window and bool(profile.timeslot or profile.daypart))
-        )
+        ))
         if window_changed and family != "faq" and clicked_id is None:
             family, route = "search", ROUTES["search"]
             picked = None
@@ -1426,18 +1442,20 @@ class _B2cConcierge(BaseAgent):
             # returned pricier ones because the cheap five were on screen).
             reset_search_cursor(profile)
 
-        if route.target == LEAF_HOTEL_SEARCH and triage.requested_window is not None:
+        if route.target == LEAF_HOTEL_SEARCH and (
+            triage.replace_window or (triage.requested_duration_minutes is not None and next_window is None)
+        ):
+            # A new daypart/written clock preference must not inherit a prior
+            # exact range. The leaf interprets the new preference this turn.
+            profile.requested_window = {}
+            profile.restore_requested_window()
+            profile.requested_window = None
+        elif route.target == LEAF_HOTEL_SEARCH and next_window is not None:
             # Persist semantic clock extraction before any leaf clarification.
             # Empty tuple is an explicit retraction; absent signal is carryover.
-            requested_window = triage.requested_window
-            profile.timeslot = None
-            profile.daypart = None
             assert next_window is not None
-            profile.timeslot_start, profile.timeslot_end = next_window
-            profile.timeslot_mode = (
-                "range" if all(next_window) else "start_only" if next_window[0] else "end_only"
-            ) if any(next_window) else None
-            profile.timeslot_request_source = BUDGET_SOURCE_EXPLICIT if requested_window else None
+            profile.requested_window = {"start": next_window[0], "end": next_window[1]} if any(next_window) else {}
+            profile.restore_requested_window()
 
         if route.target == LEAF_HOTEL_SEARCH:
             if budget_update is not None:
@@ -1552,19 +1570,6 @@ class _B2cConcierge(BaseAgent):
         delta = response.get("profile_delta") or {}
         if delta:
             apply_profile_delta(profile, delta, message, budget.fired)
-        if route.target == LEAF_HOTEL_SEARCH and next_window is not None:
-            # The leaf can return rounded hours in its delta even though the
-            # current user's exact minutes were already grounded by triage.
-            # Keep that code-owned request for final same-offer window checks.
-            if (profile.timeslot_start, profile.timeslot_end) != next_window:
-                budget.fired.add("timeslot_sanitization")
-            profile.timeslot = None
-            profile.daypart = None
-            profile.timeslot_start, profile.timeslot_end = next_window
-            profile.timeslot_mode = (
-                "range" if all(next_window) else "start_only" if next_window[0] else "end_only"
-            ) if any(next_window) else None
-            profile.timeslot_request_source = BUDGET_SOURCE_EXPLICIT if any(next_window) else None
         if route.target == LEAF_HOTEL_SEARCH and profile.requested_budget:
             profile.requested_budget = resolve_budget_currency(profile.requested_budget, profile.country_anchor)
             clarification = budget_question(profile.requested_budget, reply_language, after_search=True)

@@ -6,6 +6,52 @@
 
 
 
+## 2026-10-08 — v20 : créneau conservé entre les tours, rejeux correctifs terminés
+
+**Toujours pas de GO remplacement.** Le concierge conserve maintenant les bornes
+horaires validées dans un champ persistant distinct des déclarations de la feuille.
+La feuille ne peut ni le réécrire ni le supprimer, y compris via une opération
+`clear`. Le même champ contrôle les arguments horaires MCP et le profil après
+une recherche ou une interruption FAQ. Aucun nouveau regex ni appel LLM ajouté.
+
+Les changements explicites restent possibles : retrait du filtre, nouvelle durée,
+ou préférence non numérique interprétée par la feuille. Quand le triage transforme
+« le matin » en heures sans preuve numérique, les heures sont rejetées et la
+nouvelle préférence est déléguée, plutôt que de conserver l'ancien soir. Les heures
+marquées explicites uniquement par une ancienne feuille ne sont pas promues en
+preuve du concierge. La règle produit d'arrondi des offres reste inchangée.
+
+Trois lots correctifs : **33 réponses au total, coût 0,2620 USD**. Premier lot :
+Manhattan garde 18:30–21 après précision géographique ; Philadelphia garde 09:30
+après « moins cher ». Il révèle une durée d'une heure omise par le triage. Deuxième
+lot : durée corrigée, mais changement au matin ignoré après rejet de 6–12 inventé.
+Après correction de ce chemin, dernier lot **2 parcours / 9 tours : tous les 9
+contrôles d'état horaire passent**, avec mode overlap pour matin et aucun filtre
+horaire après retrait. **26 cartes** jointes par hôtel/formule/date/minute au MCP,
+0 écart de prix/expiration/non jointe. Aucun budget plafonné testé dans ce lot.
+Les 33 réponses ne sont pas toutes issues du code final ; chaque version est figée.
+
+La qualité conversationnelle n'est pas entièrement corrigée : la synthèse redemande
+parfois une durée/fenêtre connue. Le cas combinant matin + heure de départ nécessite
+encore un meilleur contrôle de preuve par borne. Ces résultats ne prouvent ni le
+rappel de l'inventaire, ni une supériorité globale, ni la stabilité du modèle.
+
+Validation code final : **2 261 tests passés, 1 ignoré** ; 191 tests ciblés,
+ruff, mypy (60 fichiers), guardrails et diff propres. Les tests ont reproduit les
+pertes de minutes avant correction. La nouvelle CI reste à vérifier après push.
+
+Revue manuelle historique : **57/108 annotations**, dont les 36 du candidat ;
+51 restent à revoir côté legacy/B2C. Notes originales conservées séparément.
+Contrôle récent SQL : 33 207 lignes incluant nos tests, 2 000 dernières exportées ; ce chiffre ne compte pas des conversations organiques distinctes.
+Coût cumulé comptabilisé **83,3954/110 USD**, dont 11,10 de provisions ; réserve 10.
+Aucun runner payant actif à ce checkpoint. Traces et messages bruts hors Git.
+
+Suite : compléter les 51 revues ; corriger les rôles des nombres, la granularité
+et le suivi géographiques, le grounding horaire restant et les répétitions ;
+challenger les modèles par composant sur ces défauts ; compléter les rejeux avec
+contexte natif retrouvé/dates futures, FAQ/annulation informative et widget.
+PR134 reste brouillon, sans merge, déploiement ni modification Railway.
+
 ## 2026-10-07 — validation historique v19 collectée, revue des notes incomplète
 
 **Pas de GO.** La version runtime `d1eb29e` est restée identique pendant les

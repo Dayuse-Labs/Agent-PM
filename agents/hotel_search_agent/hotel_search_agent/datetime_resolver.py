@@ -590,7 +590,8 @@ def resolve_search_timeslot(tool: Any, args: dict[str, Any], tool_context: Any) 
     profile_in = read_profile_in(tool_context)
     time_slot = args.get("timeSlot")
     time_slot = time_slot if isinstance(time_slot, dict) else {}
-    daypart = _daypart_for_turn(time_slot, tool_context, profile_in)
+    owned_window = profile_in.get("requested_window")
+    daypart = None if isinstance(owned_window, dict) else _daypart_for_turn(time_slot, tool_context, profile_in)
     if daypart is not None:
         # MCP's own timeSlot is an OVERLAP filter: exactly the soft rule.
         # No exact window is stashed — the covering rule must not apply.
@@ -612,6 +613,12 @@ def resolve_search_timeslot(tool: Any, args: dict[str, Any], tool_context: Any) 
         start_total = _parse_hhmm_to_minutes(profile_in.get("timeslot_start"))
     if end_total is None and start_total is not None and duration_minutes is not None:
         end_total = min(start_total + duration_minutes, _MAX_MINUTE_OF_DAY)
+
+    if isinstance(owned_window, dict):
+        # Only the concierge writes this field. Preserve precise bounds across
+        # follow-ups, including an explicit clear, regardless of model args.
+        start_total = _parse_hhmm_to_minutes(owned_window.get("start"))
+        end_total = _parse_hhmm_to_minutes(owned_window.get("end"))
 
     new_time_slot: dict[str, int] = {}
     if start_total is not None:

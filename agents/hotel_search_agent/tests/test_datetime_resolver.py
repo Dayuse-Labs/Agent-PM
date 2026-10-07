@@ -46,6 +46,26 @@ class _Tool:
         self.name = name
 
 
+def test_concierge_clock_window_controls_search_despite_rounded_leaf_arguments():
+    ctx = _ctx_with_profile({
+        'requested_window': {'start': '18:30', 'end': '21:00'},
+        'timeslot_start': '18:30', 'timeslot_end': '21:00',
+    }, 'Near the station instead')
+    args = {'timeSlot': {'startHour': 18, 'endHour': 21}, 'duration': '1 hour'}
+    resolve_search_timeslot(_Tool('search_offers'), args, ctx)
+    assert ctx.state[STATE_EXACT_WINDOW_KEY] == {'start_total': 1110, 'end_total': 1260}
+    assert args['timeSlot'] == {'startHour': 18, 'endHour': 21}
+    assert 'duration' not in args
+
+
+def test_concierge_clear_prevents_leaf_reinstating_an_old_clock_window():
+    ctx = _ctx_with_profile({'requested_window': {}}, 'Any time, forget 6pm to 9pm')
+    args = {'timeSlot': {'startHour': 18, 'endHour': 21}, 'duration': '3 hours'}
+    resolve_search_timeslot(_Tool('search_offers'), args, ctx)
+    assert 'timeSlot' not in args and 'duration' not in args
+    assert STATE_EXACT_WINDOW_KEY not in ctx.state
+
+
 def _user_content_with_profile(profile_in: dict, text: str = "hotel") -> genai_types.Content:
     datapart = a2a_types.Part(
         root=a2a_types.DataPart(data={"query_params": {}, "profile_in": profile_in})

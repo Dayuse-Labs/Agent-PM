@@ -194,6 +194,9 @@ class SessionProfile:
     # None = old scalar session; {} = no requested cap; typed dict = user cap.
     # Distinct from the native MCP EUR filter and from display preferences.
     requested_budget: dict[str, Any] | None = None
+    # Concierge-grounded clock bounds, distinct from a leaf's source claim.
+    # None = legacy/delegated extraction; {} = explicitly no clock constraint.
+    requested_window: dict[str, str | None] | None = None
     timeslot: str | None = None
     timeslot_start: str | None = None
     timeslot_end: str | None = None
@@ -280,6 +283,7 @@ class SessionProfile:
             "budget_max": self.budget_max,
             "budget_request_source": self.budget_request_source,
             "requested_budget": self.requested_budget,
+            "requested_window": self.requested_window,
             "timeslot": self.timeslot,
             "timeslot_start": self.timeslot_start,
             "timeslot_end": self.timeslot_end,
@@ -324,6 +328,24 @@ class SessionProfile:
     def from_dict(cls, data: dict[str, Any]) -> "SessionProfile":
         known = {f: data[f] for f in cls.__dataclass_fields__ if f in data}
         return cls(**known)
+
+    def restore_requested_window(self, fired: set[str] | None = None) -> None:
+        """Keep the user's clock request after any untrusted leaf delta."""
+        if self.requested_window is None:
+            return
+        start, end = self.requested_window.get("start"), self.requested_window.get("end")
+        if fired is not None and (
+            (self.timeslot_start, self.timeslot_end) != (start, end)
+            or self.timeslot or self.daypart
+        ):
+            fired.add("timeslot_sanitization")
+        self.timeslot_start, self.timeslot_end = start, end
+        self.timeslot = None
+        self.daypart = None
+        self.timeslot_mode = (
+            "range" if start and end else "start_only" if start else "end_only" if end else None
+        )
+        self.timeslot_request_source = BUDGET_SOURCE_EXPLICIT if start or end else None
 
 
 # Profile slots the LEAVES never read (verified against every `profile_in`
@@ -613,9 +635,10 @@ def apply_profile_delta(
     replacement apart from a fragment to merge."""
     values, clears, explicit_sets = _normalize_delta(dict(delta))
     known_fields = set(SessionProfile.__dataclass_fields__)
-    # Requested money is concierge-owned, never writable by a leaf delta.
-    values.pop("requested_budget", None)
-    clears.discard("requested_budget")
+    # User-grounded constraints are concierge-owned, including typed clears.
+    for owned_slot in ("requested_budget", "requested_window"):
+        values.pop(owned_slot, None)
+        clears.discard(owned_slot)
     if profile.requested_budget is not None:
         clears.difference_update({"budget_max", "budget_request_source"})
 
@@ -794,6 +817,8 @@ def apply_profile_delta(
     for slot in clears:
         if slot in known_fields:
             setattr(profile, slot, _slot_default(slot))
+
+    profile.restore_requested_window(fired)
 
     _log_profile_ops(
         {k for k in values if k in known_fields},

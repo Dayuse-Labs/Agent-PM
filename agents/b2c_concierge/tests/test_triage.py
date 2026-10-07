@@ -479,6 +479,32 @@ def test_window_requires_evidence_in_current_message(data, message, expected):
     assert triage_module._grounded_window(data, message) == expected
 
 
+@pytest.mark.parametrize('raw,expected', [
+    ({'replace': True, 'evidence': 'in the morning instead'}, True),
+    ({'replace': True, 'evidence': 'yesterday'}, False),
+    ({'replace': True}, False),
+    ({'replace': True, 'start': '10:00', 'evidence': 'in the morning instead'}, False),
+    ({'replace': True, 'clear': True, 'evidence': 'in the morning instead'}, False),
+    ({'start': '06:00', 'end': '12:00', 'evidence': 'in the morning instead'}, True),
+    ({'start': '06:00', 'end': '12:00', 'evidence': 'yesterday'}, False),
+])
+def test_window_replacement_is_exclusive_and_grounded(raw, expected):
+    assert triage_module._window_replacement(
+        {'requested_window': raw}, 'in the morning instead'
+    ) is expected
+
+
+@pytest.mark.parametrize('duration,evidence,expected', [
+    (120, 'two hours', 120), (0, 'two hours', None),
+    (True, 'two hours', None), (1500, 'two hours', None),
+    ('120', 'two hours', None), (120, 'three hours', None),
+])
+def test_requested_duration_is_bounded_and_grounded(duration, evidence, expected):
+    assert triage_module._grounded_duration({'requested_window': {
+        'duration_minutes': duration, 'evidence': evidence,
+    }}, 'for two hours instead') == expected
+
+
 def test_previous_reply_is_bounded_untrusted_context_not_the_message(monkeypatch):
     import json
     captured = []
