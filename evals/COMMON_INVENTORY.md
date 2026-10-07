@@ -39,3 +39,7 @@ La comptabilité peut réserver explicitement 1 USD pour une génération échou
 ## 2026-10-07 — Current-main versus PR audit
 
 The incremental audit is a distinct experiment: main fee667d versus main+PR 2bdca9a, same models and application clock, shared exact-argument MCP/Mapbox response cache. It does not reuse the finite 57-hotel snapshot as if it were current stock. 278 primary paired turns plus 32 repeated turns; four unresolved PR blockers and remaining coverage gaps are documented in docs/evaluations/pr-incremental-value-2026-10-07.md. The evals/value_proof directory retains the 18 zero-cost counterfactual controls. No quality ranking by an LLM judge.
+
+## Latest upstream comparison — 2026-10-07
+
+The incremental-value audit now compares cbe88b9 (including #130/#131/#132) against unchanged candidate application runtime 2bdca9a integrated at 1791432. The 155 candidate turns are reused, 155 latest-main turns are fresh. Same-argument cache, not the finite inventory fixture described above. Controls: 5/18 latest main, 18/18 candidate. Budget and FAQ context are already upstream. See docs/evaluations/pr-incremental-value-2026-10-07.md; all earlier counts in this document are historical.
