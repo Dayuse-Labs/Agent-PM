@@ -85,11 +85,16 @@ def production_costs(traces: list[dict], session_id: str, expected_turns: int) -
     return {f"production:{t['id']}": str(amount(t.get('totalCost'))) for t in traces}
 
 
-def local_model_costs(rows: list[dict], session_id: str, expected_turns: int) -> dict:
+def local_model_costs(
+    rows: list[dict], session_id: str, expected_turns: int, *, error_reserve: str | None = None
+) -> dict:
     """Require completed turn evidence; only a proven template can cost zero.
 
 The spine counts logical model phases, while leaf metrics can contain multiple
 physical generations. Require at least the declared count, never equate them.
+An explicit error_reserve charges a conservative liability against dispatch for
+unpriced failed generations. Keys prefixed unpriced-reserve are NOT observed
+expenses. Report them separately and retain until reconciled to billing.
 """
     selected = [r for r in rows if r.get("x-replay-session-id") == session_id]
     turns = [r for r in selected if r.get("event_type") == "turn"]
@@ -99,7 +104,25 @@ physical generations. Require at least the declared count, never equate them.
     calls = [r for r in selected if r.get("event_type") == "llm_call"]
     if any(str(r.get("x-replay-turn")) not in expected for r in calls):
         raise ValueError("local model event belongs to an unexpected turn")
-    total = sum((amount(r.get("cost_usd")) for r in calls), Decimal(0))
+    reserves = {}
+    total = Decimal(0)
+    occurrences: dict[str, int] = {}
+    for row in calls:
+        if row.get("cost_usd") is not None:
+            total += amount(row["cost_usd"])
+            continue
+        # Opt-in conservative liability, separately keyed from observed spend.
+        # Unknown successful generations still stop the campaign for review.
+        if error_reserve is None or row.get("status") != "error":
+            raise ValueError("missing or invalid model cost")
+        reserve = amount(error_reserve)
+        if reserve <= 0:
+            raise ValueError("unpriced error reserve must be positive")
+        identity = ":".join(str(row.get(k, "")) for k in
+                            ("service", "x-replay-turn", "phase"))
+        occurrences[identity] = occurrences.get(identity, 0) + 1
+        key = f"unpriced-reserve:{session_id}:{identity}:{occurrences[identity]}"
+        reserves[key] = str(reserve)
     for turn in turns:
         observed = [r for r in calls if str(r.get("x-replay-turn")) == str(turn["x-replay-turn"])]
         declared = turn.get("llm_calls")
@@ -110,7 +133,7 @@ physical generations. Require at least the declared count, never equate them.
                 raise ValueError("zero cost is not proved by a completed acknowledgement template")
         elif len(observed) < declared:
             raise ValueError("local physical model accounting is incomplete")
-    return {f"new_main:{session_id}": str(total)}
+    return {f"new_main:{session_id}": str(total), **reserves}
 
 
 @asynccontextmanager

@@ -110,3 +110,24 @@ def test_costed_turn_then_free_ack_preserves_cost_and_checks_all_generations():
                  [turn, call, ack, {**call, 'x-replay-turn': '2'}]]:
         with pytest.raises(ValueError):
             local_model_costs(rows, sid, 2)
+
+
+def test_unpriced_failure_reserve_is_explicit_separate_and_counts_toward_cap(tmp_path):
+    from evals.live_pair_budget import local_model_costs
+    rows = [
+        {"event_type": "turn", "x-replay-session-id": "s", "x-replay-turn": "1", "llm_calls": 1},
+        {"event_type": "llm_call", "x-replay-session-id": "s", "x-replay-turn": "1",
+         "service": "concierge", "phase": "triage", "status": "error"},
+    ]
+    with pytest.raises(ValueError):
+        local_model_costs(rows, "s", 1)
+    costs = local_model_costs(rows, "s", 1, error_reserve="1")
+    assert costs == {"new_main:s": "0", "unpriced-reserve:s:concierge:1:triage:1": "1"}
+    budget = ObservedBudget(tmp_path / "budget.json", ceiling="2", reserve="1")
+    budget.begin("attempt")
+    budget.settle("attempt", costs)
+    with pytest.raises(BudgetStop):
+        budget.begin("next")
+    rows[1]["status"] = "ok"
+    with pytest.raises(ValueError):
+        local_model_costs(rows, "s", 1, error_reserve="1")

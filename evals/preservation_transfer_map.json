@@ -1,0 +1,486 @@
+{
+  "schema_version": 1,
+  "legacy_sha": "a08a7792ed95dedca6255b5c588a80a504dd6249",
+  "candidate_runtime_sha": "1be89742ae3b013ef2531bfe3e3996528bfca664",
+  "meaning": "Traceability of 32 requirements, not 32 passed requirements. Individual historical tests remain indexed separately.",
+  "rules": [
+    {
+      "id": "M01",
+      "title": "Date conservée pendant une clarification",
+      "invariant": "Une date explicite reste la date de recherche après la réponse à une question de lieu ; chaque offre affichée respecte la date demandée.",
+      "source_evidence": [
+        "https://github.com/Dayuse-Labs/agent-conversationnel-USA/blob/a08a7792ed95dedca6255b5c588a80a504dd6249/tests/unit/application/test_audit_fixes_2026_09_08.py",
+        "https://gitlab.com/dayuse/dayuse/dayuse-com/-/work_items/14707",
+        "https://gitlab.com/dayuse/dayuse/mcp-dayuse/-/work_items/6"
+      ],
+      "candidate_tests": [
+        "agents/hotel_search_agent/tests/test_datetime_resolver.py",
+        "agents/b2c_concierge/tests/test_spine_profile.py"
+      ],
+      "scope": "Date requests persist; historical stock and client timezone still need independent evidence.",
+      "coverage": "offline_contracts_and_live_review",
+      "live_result": "See final 2026-10-07 validation; no blanket pass."
+    },
+    {
+      "id": "M02",
+      "title": "Offre couvrant tout le créneau demandé",
+      "invariant": "Pour une exigence de présence sur une fenêtre, début offre ≤ début demandé ET fin offre ≥ fin demandée ; distinguer réponse exacte et alternative déclarée.",
+      "source_evidence": [
+        "https://gitlab.com/dayuse/dayuse/dayuse-com/-/work_items/14707",
+        "https://gitlab.com/dayuse/dayuse/mcp-dayuse/-/work_items/1",
+        "https://gitlab.com/dayuse/dayuse/mcp-dayuse/-/work_items/4"
+      ],
+      "candidate_tests": [
+        "agents/hotel_search_agent/tests/test_response_bridge.py",
+        "tests/api/test_search_state_ownership.py"
+      ],
+      "scope": "Exact windows and explicit alternatives; MCP overlap semantics remain different from full coverage.",
+      "coverage": "offline_contracts_and_live_review",
+      "live_result": "See final 2026-10-07 validation; no blanket pass."
+    },
+    {
+      "id": "M03",
+      "title": "Origine GPS conservée au raffinement",
+      "invariant": "Une demande près de moi conserve son origine GPS pour les distances après un ajout de filtre.",
+      "source_evidence": [
+        "https://github.com/Dayuse-Labs/agent-conversationnel-USA/blob/a08a7792ed95dedca6255b5c588a80a504dd6249/tests/unit/application/test_near_me_origin_carryover_2026_09_24.py"
+      ],
+      "candidate_tests": [
+        "agents/b2c_concierge/tests/test_spine_profile.py",
+        "agents/hotel_search_agent/tests/test_geocode_tool.py"
+      ],
+      "scope": "No GPS invented when absent from recorded browser context; real GPS trajectories not replayed.",
+      "coverage": "offline_contracts_and_live_review",
+      "live_result": "See final 2026-10-07 validation; no blanket pass."
+    },
+    {
+      "id": "M04",
+      "title": "Lieu confirmé réutilisé",
+      "invariant": "Un raffinement sans nouveau lieu réutilise l’identité et les coordonnées du lieu confirmé.",
+      "source_evidence": [
+        "https://github.com/Dayuse-Labs/agent-conversationnel-USA/blob/a08a7792ed95dedca6255b5c588a80a504dd6249/tests/unit/application/test_audit_fixes_2026_09_25.py"
+      ],
+      "candidate_tests": [
+        "tests/api/test_production_followups.py",
+        "tests/api/test_search_state_ownership.py"
+      ],
+      "scope": "Verified provider location reused through concierge-owned state.",
+      "coverage": "offline_contracts_and_live_review",
+      "live_result": "See final 2026-10-07 validation; no blanket pass."
+    },
+    {
+      "id": "M05",
+      "title": "Réponse à la clarification consommée une fois",
+      "invariant": "La sélection d’un candidat de lieu reste acquise après extraction et résolution ; elle ne doit pas relancer la même question.",
+      "source_evidence": [
+        "https://github.com/Dayuse-Labs/agent-conversationnel-USA/blob/a08a7792ed95dedca6255b5c588a80a504dd6249/tests/unit/application/test_clarification_answer_survives_intake_2026_08_24.py"
+      ],
+      "candidate_tests": [
+        "agents/b2c_concierge/tests/test_spine_profile.py"
+      ],
+      "scope": "Agreement/refusal contracts covered; complete dialogue loops require live review.",
+      "coverage": "offline_contracts_and_live_review",
+      "live_result": "See final 2026-10-07 validation; no blanket pass."
+    },
+    {
+      "id": "M06",
+      "title": "Pays explicite, homonymes et contexte de marché",
+      "invariant": "Un pays ou une région explicite prime ; les valeurs par défaut de plateforme ne constituent pas une intention utilisateur.",
+      "source_evidence": [
+        "https://github.com/Dayuse-Labs/agent-conversationnel-USA/blob/a08a7792ed95dedca6255b5c588a80a504dd6249/tests/unit/application/test_audit_fixes_2026_09_08.py",
+        "https://github.com/Dayuse-Labs/agent-conversationnel-USA/blob/a08a7792ed95dedca6255b5c588a80a504dd6249/tests/unit/application/test_audit_fixes_2026_08_28.py"
+      ],
+      "candidate_tests": [
+        "agents/hotel_search_agent/tests/test_geo_resolver.py",
+        "agents/hotel_search_agent/tests/test_geo_guards.py"
+      ],
+      "scope": "Exact named settlements and provider country/region evidence; no copied city catalogue.",
+      "coverage": "offline_contracts_and_live_review",
+      "live_result": "See final 2026-10-07 validation; no blanket pass."
+    },
+    {
+      "id": "M07",
+      "title": "Durée distincte de l’heure d’arrivée",
+      "invariant": "Une durée seule ne crée pas d’heure d’arrivée ; une durée et un début explicites peuvent déterminer la fin.",
+      "source_evidence": [
+        "https://github.com/Dayuse-Labs/agent-conversationnel-USA/blob/a08a7792ed95dedca6255b5c588a80a504dd6249/tests/unit/application/test_audit_fixes_2026_09_08.py"
+      ],
+      "candidate_tests": [
+        "tests/api/test_production_followups.py"
+      ],
+      "scope": "Stay duration is not a price or arrival hour; semantic triage has live variance.",
+      "coverage": "offline_contracts_and_live_review",
+      "live_result": "See final 2026-10-07 validation; no blanket pass."
+    },
+    {
+      "id": "M08",
+      "title": "Budget calculé sur le prix et la devise affichés",
+      "invariant": "Le verdict budget utilise le tarif réellement servi et une devise comparable ; ni mélange CAD/EUR, ni autre rate plan.",
+      "source_evidence": [
+        "https://github.com/Dayuse-Labs/agent-conversationnel-USA/blob/a08a7792ed95dedca6255b5c588a80a504dd6249/tests/unit/application/test_audit_fixes_2026_08_28.py"
+      ],
+      "candidate_tests": [
+        "agents/b2c_concierge/tests/test_currency_guard.py",
+        "agents/b2c_concierge/tests/test_display_currency.py"
+      ],
+      "scope": "No fabricated FX; cross-currency budget comparison remains limited.",
+      "coverage": "offline_contracts_and_live_review",
+      "live_result": "See final 2026-10-07 validation; no blanket pass."
+    },
+    {
+      "id": "M09",
+      "title": "Nombres interprétés selon leur rôle",
+      "invariant": "Durée de trajet, âge, capacité, budget, code postal et heure ne se remplacent pas mutuellement.",
+      "source_evidence": [
+        "https://github.com/Dayuse-Labs/agent-conversationnel-USA/blob/a08a7792ed95dedca6255b5c588a80a504dd6249/tests/unit/application/test_prod_audit_fixes_2026_07_19.py"
+      ],
+      "candidate_tests": [
+        "agents/b2c_concierge/tests/test_spine_profile.py",
+        "tests/api/test_production_followups.py"
+      ],
+      "scope": "Bare budget and ordinal roles have counterexamples; multipicks are not new reservations.",
+      "coverage": "offline_contracts_and_live_review",
+      "live_result": "See final 2026-10-07 validation; no blanket pass."
+    },
+    {
+      "id": "M10",
+      "title": "Recommandations appuyées sur les faits servis",
+      "invariant": "Chaque recommandation positive et chaque équipement annoncé doivent être appuyés par les faits de l’hôtel et de l’offre concernés.",
+      "source_evidence": [
+        "https://github.com/Dayuse-Labs/agent-conversationnel-USA/blob/a08a7792ed95dedca6255b5c588a80a504dd6249/tests/unit/application/test_claim_grounding_2026_08.py"
+      ],
+      "candidate_tests": [
+        "agents/b2c_concierge/tests/test_ground_truth.py",
+        "agents/b2c_concierge/tests/test_spine_profile.py"
+      ],
+      "scope": "Identity-only and geographic clarification cannot become verified availability; prose still needs review.",
+      "coverage": "offline_contracts_and_live_review",
+      "live_result": "See final 2026-10-07 validation; no blanket pass."
+    },
+    {
+      "id": "M11",
+      "title": "Arrêt des recherches vides répétitives",
+      "invariant": "Les tentatives automatiques d’élargissement sont bornées ; une recherche épuisée explique la limite sans relancer le même outil indéfiniment.",
+      "source_evidence": [
+        "https://github.com/Dayuse-Labs/agent-conversationnel-USA/blob/a08a7792ed95dedca6255b5c588a80a504dd6249/tests/unit/application/test_search_exhaustion_guard.py"
+      ],
+      "candidate_tests": [
+        "agents/b2c_concierge/tests/test_profile.py",
+        "agents/b2c_concierge/tests/test_spine_profile.py"
+      ],
+      "scope": "Existing bounded widening/exhaustion; no claim of full loop elimination.",
+      "coverage": "offline_contracts_and_live_review",
+      "live_result": "See final 2026-10-07 validation; no blanket pass."
+    },
+    {
+      "id": "M12",
+      "title": "Équipements et familles de filtres",
+      "invariant": "Conserver les exigences demandées ; les variantes d’une famille comme piscine intérieure/extérieure ne doivent pas être exigées simultanément par erreur.",
+      "source_evidence": [
+        "https://gitlab.com/dayuse/dayuse/dayuse-com/-/work_items/14707",
+        "https://gitlab.com/dayuse/dayuse/mcp-dayuse/-/work_items/1",
+        "https://gitlab.com/dayuse/dayuse/mcp-dayuse/-/work_items/4"
+      ],
+      "candidate_tests": [
+        "agents/hotel_search_agent/tests/test_equipment_ids.py"
+      ],
+      "scope": "Provider IDs and explicit removal protected; source coverage differs from legacy.",
+      "coverage": "offline_contracts_and_live_review",
+      "live_result": "See final 2026-10-07 validation; no blanket pass."
+    },
+    {
+      "id": "M13",
+      "title": "Cartes, total et Voir tout cohérents",
+      "invariant": "Le lien et le total décrivent la même recherche effective que les cartes, avec lieu, date, fenêtre, équipements et devise cohérents.",
+      "source_evidence": [
+        "https://gitlab.com/dayuse/dayuse/dayuse-com/-/work_items/14707",
+        "https://gitlab.com/dayuse/dayuse/mcp-dayuse/-/work_items/2",
+        "https://gitlab.com/dayuse/dayuse/mcp-dayuse/-/work_items/5"
+      ],
+      "candidate_tests": [
+        "agents/hotel_search_agent/tests/test_response_bridge.py"
+      ],
+      "scope": "Cards/count plumbing exists; browse-link query fidelity remains a product gap.",
+      "coverage": "offline_contracts_and_live_review",
+      "live_result": "See final 2026-10-07 validation; no blanket pass."
+    },
+    {
+      "id": "M14",
+      "title": "Ville, quartier, POI et hôtel distincts",
+      "invariant": "Le résolveur respecte le type de lieu demandé ; un fallback ne doit pas masquer une recherche plus large.",
+      "source_evidence": [
+        "https://github.com/Dayuse-Labs/agent-conversationnel-USA/blob/a08a7792ed95dedca6255b5c588a80a504dd6249/tests/unit/application/test_audit_fixes_2026_09_25.py",
+        "https://gitlab.com/dayuse/dayuse/mcp-dayuse/-/work_items/3",
+        "https://gitlab.com/dayuse/dayuse/mcp-dayuse/-/work_items/7"
+      ],
+      "candidate_tests": [
+        "agents/hotel_search_agent/tests/test_geocode_tool.py",
+        "tests/api/test_production_followups.py"
+      ],
+      "scope": "Provider categories gate landmarks and administrative areas; uncertain places stay uncertain.",
+      "coverage": "offline_contracts_and_live_review",
+      "live_result": "See final 2026-10-07 validation; no blanket pass."
+    },
+    {
+      "id": "M15",
+      "title": "Expiration de session compréhensible",
+      "invariant": "Une session expirée ne doit pas feindre de connaître les critères perdus ; pendant la durée de vie prévue, les préférences restent conservées.",
+      "source_evidence": [
+        "https://gitlab.com/dayuse/dayuse/dayuse-com/-/work_items/14707",
+        "https://gitlab.com/dayuse/dayuse/mcp-dayuse/-/work_items/6"
+      ],
+      "candidate_tests": [
+        "agents/b2c_concierge/tests/test_profile_store.py"
+      ],
+      "scope": "Session TTL is an intentional product contract; old/new expiration parity not established.",
+      "coverage": "offline_contracts_and_live_review",
+      "live_result": "See final 2026-10-07 validation; no blanket pass."
+    },
+    {
+      "id": "M16",
+      "title": "Correction, sélection et nouvelle destination",
+      "invariant": "Une correction négative ou un choix dans la shortlist ne doit pas être réinterprété comme une nouvelle destination.",
+      "source_evidence": [
+        "https://github.com/Dayuse-Labs/agent-conversationnel-USA/blob/a08a7792ed95dedca6255b5c588a80a504dd6249/tests/unit/application/test_audit_fixes_2026_08_28.py",
+        "https://github.com/Dayuse-Labs/agent-conversationnel-USA/blob/a08a7792ed95dedca6255b5c588a80a504dd6249/tests/unit/application/test_audit_fixes_2026_09_25.py"
+      ],
+      "candidate_tests": [
+        "tests/api/test_search_state_ownership.py",
+        "agents/b2c_concierge/tests/test_spine_profile.py"
+      ],
+      "scope": "Explicit replace/retain and session shortlist selection; tests include unresolvable references.",
+      "coverage": "offline_contracts_and_live_review",
+      "live_result": "See final 2026-10-07 validation; no blanket pass."
+    },
+    {
+      "id": "M17",
+      "title": "Occupants et âge des enfants",
+      "invariant": "Les offres servies couvrent la capacité requise ; le nombre d’enfants et leur âge sont distincts.",
+      "source_evidence": [
+        "https://langfuse-web-production-272b.up.railway.app/project/cms4gd0d20002nz029tuly62e/datasets",
+        "https://gitlab.com/dayuse/dayuse/dayuse-com/-/work_items/14707"
+      ],
+      "candidate_tests": [
+        "agents/hotel_search_agent/tests/test_occupancy.py"
+      ],
+      "scope": "Counts injected into MCP; ages/minor policy not proven by numeric capacity.",
+      "coverage": "offline_contracts_and_live_review",
+      "live_result": "See final 2026-10-07 validation; no blanket pass."
+    },
+    {
+      "id": "M18",
+      "title": "Règles d’âge et prudence sans faux positifs",
+      "invariant": "Ne pas inventer de politique d’âge ou suggérer un contournement ; ne pas appliquer une restriction sans signal ni règle applicable.",
+      "source_evidence": [
+        "https://github.com/Dayuse-Labs/agent-conversationnel-USA/blob/a08a7792ed95dedca6255b5c588a80a504dd6249/tests/unit/application/test_claim_grounding_2026_08.py",
+        "https://github.com/Dayuse-Labs/agent-conversationnel-USA/blob/a08a7792ed95dedca6255b5c588a80a504dd6249/tests/unit/application/test_prod_audit_fixes_2026_07_19.py"
+      ],
+      "candidate_tests": [],
+      "scope": "Business policy and age-specific evidence remain unresolved; never infer eligibility from available rooms.",
+      "coverage": "open_business_or_capability_gap",
+      "live_result": "See final 2026-10-07 validation; no blanket pass."
+    },
+    {
+      "id": "F01",
+      "title": "FAQ, recherche et demande d’annulation distinctes",
+      "invariant": "Répondre selon l’intention : information générale, filtre de recherche ou action sur réservation existante.",
+      "source_evidence": [
+        "https://github.com/Dayuse-Labs/agent-conversationnel-USA/blob/a08a7792ed95dedca6255b5c588a80a504dd6249/tests/unit/regression/test_not_a_search_edge_cases.py",
+        "https://github.com/Dayuse-Labs/agent-conversationnel-USA/blob/a08a7792ed95dedca6255b5c588a80a504dd6249/tests/unit/application/test_current_geo_cancellation_fixes.py"
+      ],
+      "candidate_tests": [
+        "agents/b2c_concierge/tests/test_triage.py",
+        "agents/b2c_concierge/tests/test_spine_profile.py"
+      ],
+      "scope": "Existing-booking support is distinct from new booking and hotel search.",
+      "coverage": "offline_contracts_and_live_review",
+      "live_result": "See final 2026-10-07 validation; no blanket pass."
+    },
+    {
+      "id": "F02",
+      "title": "Paiement à l’hôtel, garantie et prépaiement",
+      "invariant": "Conserver les distinctions de paiement et la séparation prix du séjour / frais déjà payés, sans montant universel inventé.",
+      "source_evidence": [
+        "https://github.com/Dayuse-Labs/agent-conversationnel-USA/blob/a08a7792ed95dedca6255b5c588a80a504dd6249/tests/unit/application/test_faq_payment_booking_fee.py",
+        "https://github.com/Dayuse-Labs/agent-conversationnel-USA/blob/a08a7792ed95dedca6255b5c588a80a504dd6249/src/application/agent/tools/faq_tool.py"
+      ],
+      "candidate_tests": [
+        "agents/faq_agent/tests/test_faq_contract.py"
+      ],
+      "scope": "FAQ schema contract; policy correctness is source-dependent, not proved by schema.",
+      "coverage": "offline_contracts_and_live_review",
+      "live_result": "See final 2026-10-07 validation; no blanket pass."
+    },
+    {
+      "id": "F03",
+      "title": "Échéance et remboursement propres à l’offre",
+      "invariant": "Pour une réservation existante, les conditions et l’échéance de confirmation applicables priment sur une généralité de FAQ. Distinguer annulation autorisée et montants remboursables.",
+      "source_evidence": [
+        "https://github.com/Dayuse-Labs/agent-conversationnel-USA/blob/a08a7792ed95dedca6255b5c588a80a504dd6249/src/application/agent/tools/faq_tool.py",
+        "https://github.com/Dayuse-Labs/agent-conversationnel-USA/blob/a08a7792ed95dedca6255b5c588a80a504dd6249/data/knowledge-base-faq-clean.json",
+        "https://support.dayuse.com/hc/en-us/articles/360020402499-What-is-your-cancellation-policy"
+      ],
+      "candidate_tests": [
+        "agents/b2c_concierge/tests/test_ground_truth.py"
+      ],
+      "scope": "Offer-specific restrictions must survive generic FAQ answers; no general refund parity claim.",
+      "coverage": "offline_contracts_and_live_review",
+      "live_result": "See final 2026-10-07 validation; no blanket pass."
+    },
+    {
+      "id": "F04",
+      "title": "Fraîcheur et conflits de sources",
+      "invariant": "Versionner les sources par article, langue, marché, date de mise à jour et empreinte ; signaler les contradictions non résolues au lieu de choisir arbitrairement.",
+      "source_evidence": [
+        "https://github.com/Dayuse-Labs/agent-conversationnel-USA/blob/a08a7792ed95dedca6255b5c588a80a504dd6249/data/knowledge-base-faq-clean.json",
+        "https://support.dayuse.com/hc/en-us/articles/360020402499-What-is-your-cancellation-policy",
+        "https://support.dayuse.com/hc/en-us/articles/31196000167826-How-to-cancel-a-booking"
+      ],
+      "candidate_tests": [],
+      "scope": "Conflicting FAQ/public articles require business source arbitration.",
+      "coverage": "open_business_or_capability_gap",
+      "live_result": "See final 2026-10-07 validation; no blanket pass."
+    },
+    {
+      "id": "F05",
+      "title": "Contexte marché, hôtel et offre",
+      "invariant": "Une question sur cet hôtel ou cette offre doit transmettre leur identité ; une FAQ publique peut utiliser le marché sans collecter les données de réservation.",
+      "source_evidence": [
+        "https://github.com/Dayuse-Labs/agent-conversationnel-USA/blob/a08a7792ed95dedca6255b5c588a80a504dd6249/data/knowledge-base-faq-clean.json"
+      ],
+      "candidate_tests": [
+        "agents/faq_agent/tests/test_faq_contract.py",
+        "agents/b2c_concierge/tests/test_spine_profile.py"
+      ],
+      "scope": "Market/hotel/offer context propagation; no authenticated booking state in B2C MCP.",
+      "coverage": "offline_contracts_and_live_review",
+      "live_result": "See final 2026-10-07 validation; no blanket pass."
+    },
+    {
+      "id": "F06",
+      "title": "Carte cadeau : achat et réservation distincts",
+      "invariant": "Séparer annulation de l’achat d’une carte cadeau et annulation d’une réservation payée avec cette carte ; conserver le mode de restitution documenté.",
+      "source_evidence": [
+        "https://github.com/Dayuse-Labs/agent-conversationnel-USA/blob/a08a7792ed95dedca6255b5c588a80a504dd6249/data/knowledge-base-faq-clean.json"
+      ],
+      "candidate_tests": [],
+      "scope": "Gift-card purchase versus use remains a semantic coverage requirement.",
+      "coverage": "open_business_or_capability_gap",
+      "live_result": "See final 2026-10-07 validation; no blanket pass."
+    },
+    {
+      "id": "F07",
+      "title": "Modification ou annulation puis nouvelle réservation",
+      "invariant": "Expliquer la démarche autorisée pour le type de changement et la réservation, sans garantir disponibilité, prix ou transfert des avantages.",
+      "source_evidence": [
+        "https://github.com/Dayuse-Labs/agent-conversationnel-USA/blob/a08a7792ed95dedca6255b5c588a80a504dd6249/src/application/agent/tools/faq_tool.py",
+        "https://github.com/Dayuse-Labs/agent-conversationnel-USA/blob/a08a7792ed95dedca6255b5c588a80a504dd6249/data/knowledge-base-faq-clean.json"
+      ],
+      "candidate_tests": [],
+      "scope": "Modification/cancellation/rebooking guidance requires business arbitration.",
+      "coverage": "open_business_or_capability_gap",
+      "live_result": "See final 2026-10-07 validation; no blanket pass."
+    },
+    {
+      "id": "F08",
+      "title": "Retard, no-show et annulation",
+      "invariant": "Distinguer arrivée tardive, absence sans annulation et annulation confirmée ; ne pas inventer de statut de réservation ou de pénalité.",
+      "source_evidence": [
+        "https://github.com/Dayuse-Labs/agent-conversationnel-USA/blob/a08a7792ed95dedca6255b5c588a80a504dd6249/src/application/agent/tools/faq_tool.py",
+        "https://github.com/Dayuse-Labs/agent-conversationnel-USA/blob/a08a7792ed95dedca6255b5c588a80a504dd6249/data/knowledge-base-faq-clean.json"
+      ],
+      "candidate_tests": [],
+      "scope": "Late arrival/no-show policies need dated source review.",
+      "coverage": "open_business_or_capability_gap",
+      "live_result": "See final 2026-10-07 validation; no blanket pass."
+    },
+    {
+      "id": "F09",
+      "title": "Interruption FAQ sans perte du contexte ni de langue",
+      "invariant": "Une parenthèse FAQ conserve la recherche et la sélection ; la langue suit une priorité explicitement définie entre demande utilisateur et contexte.",
+      "source_evidence": [
+        "https://github.com/Dayuse-Labs/agent-conversationnel-USA/blob/a08a7792ed95dedca6255b5c588a80a504dd6249/tests/unit/regression/test_not_a_search_edge_cases.py",
+        "https://github.com/Dayuse-Labs/agent-conversationnel-USA/blob/a08a7792ed95dedca6255b5c588a80a504dd6249/src/application/agent/tools/faq_tool.py"
+      ],
+      "candidate_tests": [
+        "agents/b2c_concierge/tests/test_spine_profile.py"
+      ],
+      "scope": "FAQ interruption and language retained in concierge state; live dialogues remain decisive.",
+      "coverage": "offline_contracts_and_live_review",
+      "live_result": "See final 2026-10-07 validation; no blanket pass."
+    },
+    {
+      "id": "F10",
+      "title": "Panne, données manquantes et réponse trop volumineuse",
+      "invariant": "Un échec de récupération n’autorise aucune règle inventée ; le système doit poser la question utile ou réduire le périmètre avec un budget d’appels borné.",
+      "source_evidence": [
+        "https://github.com/Dayuse-Labs/agent-conversationnel-USA/blob/a08a7792ed95dedca6255b5c588a80a504dd6249/src/application/agent/tools/faq_tool.py"
+      ],
+      "candidate_tests": [
+        "agents/b2c_concierge/tests/test_leaf_timeout_budgets.py",
+        "agents/hotel_search_agent/tests/test_response_bridge.py"
+      ],
+      "scope": "Timeouts, missing evidence and rejected geography cannot be reported as actual empty stock.",
+      "coverage": "offline_contracts_and_live_review",
+      "live_result": "See final 2026-10-07 validation; no blanket pass."
+    },
+    {
+      "id": "F11",
+      "title": "Annulation indisponible : limite et démarche utiles",
+      "invariant": "Si l’agent ne peut pas annuler, l’indiquer, orienter vers le parcours officiel et éviter toute collecte de référence/email inutile.",
+      "source_evidence": [
+        "https://github.com/Dayuse-Labs/agent-conversationnel-USA/blob/a08a7792ed95dedca6255b5c588a80a504dd6249/tests/unit/application/test_current_geo_cancellation_fixes.py",
+        "https://github.com/Dayuse-Labs/agent-conversationnel-USA/blob/a08a7792ed95dedca6255b5c588a80a504dd6249/src/application/workflow/chat_workflow.py"
+      ],
+      "candidate_tests": [
+        "agents/b2c_concierge/tests/test_spine_profile.py"
+      ],
+      "scope": "Missing booking management must be stated; dedicated isolated CS dialogues are rerun.",
+      "coverage": "offline_contracts_and_live_review",
+      "live_result": "See final 2026-10-07 validation; no blanket pass."
+    },
+    {
+      "id": "F12",
+      "title": "Gestion de réservation : preuve de propriété",
+      "invariant": "Si la capacité CS est portée, vérifier la propriété côté service avant de lire ou d’agir ; ne pas déléguer ce contrôle au modèle.",
+      "source_evidence": [
+        "https://github.com/Dayuse-Labs/agent-conversationnel-USA/blob/a08a7792ed95dedca6255b5c588a80a504dd6249/src/application/services/booking_support.py",
+        "https://github.com/Dayuse-Labs/agent-conversationnel-USA/blob/a08a7792ed95dedca6255b5c588a80a504dd6249/tests/unit/application/test_booking_support.py",
+        "https://github.com/Dayuse-Labs/agent-conversationnel-USA/blob/a08a7792ed95dedca6255b5c588a80a504dd6249/src/application/agent/tools/booking_support_tool.py"
+      ],
+      "candidate_tests": [],
+      "scope": "Legacy ownership-gated CS capability is absent from new B2C MCP; do not simulate authenticated access.",
+      "coverage": "open_business_or_capability_gap",
+      "live_result": "See final 2026-10-07 validation; no blanket pass."
+    },
+    {
+      "id": "F13",
+      "title": "Confirmation et preuve d’action réelle",
+      "invariant": "Si l’annulation est activée, séparer préparation, accord explicite et résultat backend ; ne déclarer le succès qu’après confirmation effective.",
+      "source_evidence": [
+        "https://github.com/Dayuse-Labs/agent-conversationnel-USA/blob/a08a7792ed95dedca6255b5c588a80a504dd6249/src/application/services/booking_support.py",
+        "https://github.com/Dayuse-Labs/agent-conversationnel-USA/blob/a08a7792ed95dedca6255b5c588a80a504dd6249/tests/unit/application/test_booking_support.py",
+        "https://github.com/Dayuse-Labs/agent-conversationnel-USA/blob/a08a7792ed95dedca6255b5c588a80a504dd6249/src/application/agent/tools/booking_support_tool.py"
+      ],
+      "candidate_tests": [
+        "agents/b2c_concierge/tests/test_spine_profile.py"
+      ],
+      "scope": "Booking-link confirmation is not cancellation; synthetic cancellation tests are separate from actual action parity.",
+      "coverage": "offline_contracts_and_live_review",
+      "live_result": "See final 2026-10-07 validation; no blanket pass."
+    },
+    {
+      "id": "F14",
+      "title": "Couverture de la base FAQ et escalade utile",
+      "invariant": "Conserver une traçabilité pour chaque sujet historique : article actuel équivalent, règle remplacée ou sujet à revoir, avec canal support et portée hôtel/offre adéquats.",
+      "source_evidence": [
+        "https://github.com/Dayuse-Labs/agent-conversationnel-USA/blob/a08a7792ed95dedca6255b5c588a80a504dd6249/data/knowledge-base-faq-clean.json",
+        "https://github.com/Dayuse-Labs/agent-conversationnel-USA/blob/a08a7792ed95dedca6255b5c588a80a504dd6249/src/application/agent/tools/faq_tool.py"
+      ],
+      "candidate_tests": [],
+      "scope": "FAQ inventory indexed, semantic completeness not established by this patch.",
+      "coverage": "open_business_or_capability_gap",
+      "live_result": "See final 2026-10-07 validation; no blanket pass."
+    }
+  ]
+}
