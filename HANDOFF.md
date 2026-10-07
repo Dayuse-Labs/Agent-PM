@@ -4,6 +4,20 @@
 
 > 📋 **Pour savoir QUOI faire ensuite, ouvrir [`CHANTIERS.md`](CHANTIERS.md)** (état vérifié au 2026-09-14) : la liste des chantiers ouverts, chacun avec sa preuve, ses actions et un prompt prêt à coller — plus la liste de ce qu'il ne faut **pas** relancer parce que c'est déjà livré. `tasks/todo.md` est périmé et ne doit plus servir de référence.
 
+## ✅ 2026-10-07 (ter) — #121 de Victor découpée en 3 PR rebasées sur `main` (référence = main post-#126)
+
+**Fait** (comparaison #121/#123 vs MR de Mathias, puis extraction de ce qui n'est pas déjà sur `main`) :
+1. `fix/bare-budget-reaches-mcp` — un budget nu (« 60 ») reconnu par le triage atteint enfin `priceRangeMax` (sur `main`, `inject_profile_budget` réappliquait l'ancien 150). pytest 1 986 ✅.
+2. `fix/faq-followup-context` — suivis SAV : 3 derniers messages utilisateur → triage, feuille FAQ, synthèse (tours faq) ; règles « pas de recherche/annulation de réservation ». pytest 1 979 ✅.
+3. `evals/production-replay-harness` (cette PR) — banc de rejeu apparié legacy-prod vs AgentB2C ; job CI `eval` = batterie 32 scénarios au lieu de `adk eval` (plus d'extra `google-adk[eval]`). pytest 2 123 ✅.
+
+**Écarté de #121** (déjà sur `main`, ou en conflit avec) : la règle créneau à la minute (`main` = règle site de #122, `slot_covers_window`) ; la divulgation devise sur FAQ (#126).
+
+**Reste** :
+- #123 (contexte géo multi-tour) **non porté** : il déplace l'extraction du lieu de la feuille vers le triage (schéma JSON strict + `gpt-4.1-mini` figé dans le Dockerfile) — décision d'architecture à trancher avant tout portage. Seul le budget nu en a été repris (identique à #121).
+- `scripts/eval_ranking.py` : miroir du filtre créneau, cite encore `_offer_fits_exact_window` (renommé `_offer_covers_window` sur `main`) et ne fait pas l'arrondi à l'heure de `slot_covers_window`.
+- #121 et #123 restent ouvertes côté Victor : à fermer en renvoyant vers ces PR.
+
 ## 2026-10-07 — Valeur incrémentale vérifiée, quatre reprises avant merge
 
 Main fee667d (#129 inclus) vs main + PR runtime 2bdca9a, mêmes modèles/horloge/cache de sources : 41 séquences / 278 tours puis 32 tours répétés, aucun juge. 18 contrôles identiques : 18 pass PR, 3 main ; gains de contexte/état, mais quatre reprises ouvertes : correction de lieu set/clear, budget/devise périmé, faux refus de trajet sur escale, avertissement de créneau contraire à l'arrondi commun. Main aussi variable. Détails et matrice 32 exigences : [valeur incrémentale](docs/evaluations/pr-incremental-value-2026-10-07.md). Cumul 40,37001 USD observés + 1 USD provisionné / 60, aucun pending. Services de test arrêtés. Ne pas relancer automatiquement une campagne payante. PR reste draft ; aucun GO lancement.

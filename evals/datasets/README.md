@@ -16,6 +16,13 @@ session OBS6 (qui possède les experiments, les évaluateurs et le gate CI), pas
 
 Import (crée les datasets hébergés + upsert des items, idempotent — les `id` sont déterministes) :
 
+La CI lit les datasets hébergés existants ; elle ne lance pas ces imports.
+Un upsert évite les doublons mais peut remplacer les entrées, réponses attendues
+et métadonnées corrigées dans Langfuse pour les mêmes identifiants. Ces scripts
+servent à une initialisation ou une maintenance explicite : exporter la version
+hébergée et réconcilier ses annotations avec les fichiers locaux avant réimport.
+Un dataset absent fait échouer l'experiment ; il n'est pas recréé silencieusement.
+
 ```bash
 # LANGFUSE_PUBLIC_KEY / LANGFUSE_SECRET_KEY / LANGFUSE_HOST dans l'env (ou .env sourcé)
 .venv/bin/python scripts/langfuse_seed_datasets.py            # tout

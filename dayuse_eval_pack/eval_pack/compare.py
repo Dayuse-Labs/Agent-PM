@@ -11,11 +11,17 @@ from typing import Any
 
 
 def _index(report: dict[str, Any]) -> dict[str, dict[str, Any]]:
-    return {
-        str(row["id"]): row
-        for row in report.get("results") or []
-        if isinstance(row, dict) and row.get("id")
-    }
+    indexed = {}
+    for row in report.get("results") or []:
+        if not isinstance(row, dict) or not row.get("id"):
+            raise ValueError("every result must have a case ID")
+        case_id = str(row["id"])
+        if case_id in indexed:
+            raise ValueError(f"duplicate case ID: {case_id}")
+        indexed[case_id] = row
+    if not indexed:
+        raise ValueError("cannot compare an empty evaluation run")
+    return indexed
 
 
 def compare_reports(baseline: dict[str, Any], candidate: dict[str, Any]) -> dict[str, Any]:
@@ -94,6 +100,10 @@ def main() -> int:
     summary = report["summary"]
     print(json.dumps(summary, ensure_ascii=False, indent=2))
     print(f"Report: {output}")
+    # Missing coverage is an invalid comparison, even when explicitly allowing
+    # quality regressions. A truncated candidate must never make a gate green.
+    if summary.get("missing_case", 0):
+        return 1
     if summary.get("regression", 0) and not args.allow_regressions:
         return 1
     return 0

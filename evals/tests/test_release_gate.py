@@ -72,3 +72,20 @@ def test_quick_mode_skips_battery_checks():
 def test_quick_mode_still_checks_units():
     units = {"passed": 1, "failed": 5, "line": "5 failed"}
     assert gate.evaluate(units, None, BASELINES, quick=True)
+
+
+def test_truncated_battery_does_not_pass_even_when_pass_count_is_high():
+    report = _battery(passed=25)
+    report["summary"]["total"] = 25
+    assert gate.evaluate({"passed": 300, "failed": 0, "line": "ok"}, report, BASELINES, quick=False)
+
+
+def test_full_gate_needs_battery_and_quick_gate_needs_real_tests():
+    units = {"passed": 300, "failed": 0, "line": "ok"}
+    assert gate.evaluate(units, None, BASELINES, quick=False)
+    assert gate.evaluate({"passed": 0, "failed": 0, "line": "interrupted", "exit_code": 2}, None, BASELINES, quick=True)
+
+
+def test_missing_family_coverage_fails():
+    baseline = {**BASELINES, "conversation": {**BASELINES["conversation"], "by_family": {"faq": {"count": 4}}}}
+    assert gate.evaluate({"passed": 300, "failed": 0, "line": "ok"}, _battery(), baseline, quick=False)
