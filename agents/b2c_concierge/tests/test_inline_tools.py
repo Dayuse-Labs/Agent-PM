@@ -8,8 +8,12 @@ amenities as `[{"id", "name"}, ...]`, `priceEuro` in EUR cents, and
 from __future__ import annotations
 
 import asyncio
+import json
 from contextlib import asynccontextmanager
+from pathlib import Path
 from types import SimpleNamespace
+
+import jsonschema
 
 from b2c_concierge import inline_tools
 from b2c_concierge.profile import SessionProfile
@@ -65,6 +69,11 @@ COMPARE_RESPONSE = {
 FIND_BY_NAME_RESPONSE = {"hotelId": 99001, "name": "Moxy NYC Chelsea", "cityName": "New York"}
 
 
+_MCP_CONTRACT = json.loads(
+    (Path(__file__).resolve().parents[3] / "contracts" / "mcp_b2c_tools.json").read_text()
+)
+
+
 class FakeResult:
     def __init__(self, data=None, is_error=False):
         self.structuredContent = data
@@ -85,6 +94,9 @@ class FakeSession:
     async def call_tool(self, name, arguments, *, meta=None):
         # `meta` = OBS4's W3C trace context in the MCP `_meta` field (keyword-only,
         # mcp==1.28.1) — None whenever tracing is off, which is the whole suite.
+        # mcp-dayuse#8: every argument set the concierge builds is checked
+        # against the schema the server publishes, in every test of this file.
+        jsonschema.validate(dict(arguments), _MCP_CONTRACT["tools"][name])
         self.calls.append((name, dict(arguments)))
         self.metas.append(meta)
         outcome = self.script.get(name)

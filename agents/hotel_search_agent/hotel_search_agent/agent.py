@@ -62,6 +62,7 @@ from hotel_search_agent.mcp_guard import (
     mcp_circuit_before_tool,
     mcp_circuit_on_error,
 )
+from hotel_search_agent.schema_guard import drop_args_outside_schema
 from hotel_search_agent.response_bridge import (
     capture_after_tool,
     emit_search_datapart,
@@ -374,6 +375,9 @@ root_agent = Agent(
         inject_landmark_radius,
         resolve_search_date,
         resolve_search_timeslot,
+        # LAST: the virtual params are gone by now; anything else the tool's
+        # published schema does not declare would make MCP refuse the call.
+        drop_args_outside_schema,
     ],
     # capture_after_tool is LAST: it may return a truncated payload (which breaks
     # the after-tool chain), so it must never run before mcp_circuit_after_tool

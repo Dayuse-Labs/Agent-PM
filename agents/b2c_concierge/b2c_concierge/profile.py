@@ -260,6 +260,16 @@ class SessionProfile:
     display_currency: str | None = None
     # Unverified semantic request, retained even if the leaf times out.
     search_location_request: dict[str, Any] | None = None
+    # Last currency the user asked for ("EUR", "HOTEL" or an ISO code), None
+    # until they mention one: the EUR disclosure is only owed after that
+    # (mcp-dayuse#5 — the widget's own currency is not a request).
+    requested_currency: str | None = None
+    # The site's search page for the last search that ran ({"name", "url"}),
+    # the target of the widget's "Voir tout" (mcp-dayuse#5); None = country page.
+    search_page: dict[str, str] | None = None
+    # mcp-dayuse#8, option B: "morning" | "afternoon" | "evening" — a soft
+    # time filter read in code by the leaf, exclusive with a clock window.
+    daypart: str | None = None
 
     def to_dict(self) -> dict[str, Any]:
         return {
@@ -303,6 +313,9 @@ class SessionProfile:
             "children": self.children,
             "display_currency": self.display_currency,
             "search_location_request": self.search_location_request,
+            "requested_currency": self.requested_currency,
+            "search_page": self.search_page,
+            "daypart": self.daypart,
             "schema_version": PROFILE_SCHEMA_VERSION,
         }
 
@@ -332,6 +345,8 @@ _CONCIERGE_ONLY_KEYS = (
     "picked_hotel_id",
     "display_currency",
     "search_location_request",
+    "requested_currency",
+    "search_page",
 )
 
 
@@ -422,6 +437,13 @@ def _looks_like_time_derived_budget(message: str, budget_max: float) -> bool:
         return False
     unit = rf"\b{token}\s*(?:am|pm|h|hours?|hrs?|minutes?|mins?|kilometers?|kilometres?|km|miles?|mi)\b"
     return bool(re.search(unit, text))
+
+
+def _states_amount(message: str, budget_max: float) -> bool:
+    """The message itself contains the budget figure ("moins de 120 euros",
+    "under $90"): the user said it, it is not a default."""
+    token = re.escape(str(int(budget_max)) if float(budget_max).is_integer() else str(budget_max))
+    return bool(re.search(rf"(?<![\d.,]){token}(?![\d])", message or ""))
 
 
 def maybe_auto_widen(profile: SessionProfile) -> bool:
@@ -621,12 +643,18 @@ def apply_profile_delta(
             if fired is not None:
                 fired.add("budget_integrity")
         else:
+            carried_explicit = (
+                profile.budget_max == new_budget
+                and profile.budget_request_source == BUDGET_SOURCE_EXPLICIT
+            )
             profile.budget_max = new_budget
             source = values.get("budget_request_source")
             if _bare_number_value(user_message) == new_budget:
                 source = BUDGET_SOURCE_EXPLICIT
                 if fired is not None:
                     fired.add("budget_integrity")
+            elif carried_explicit or _states_amount(user_message, new_budget):
+                source = BUDGET_SOURCE_EXPLICIT
             if source is not None:
                 profile.budget_request_source = source
 
@@ -648,6 +676,11 @@ def apply_profile_delta(
 
     start_candidate = values.get("timeslot_start")
     end_candidate = values.get("timeslot_end")
+    window_carried_explicit = (
+        profile.timeslot_request_source == BUDGET_SOURCE_EXPLICIT
+        and (start_candidate or None, end_candidate or None)
+        == (profile.timeslot_start, profile.timeslot_end)
+    )
     reject_start = bool(
         start_candidate
         and profile.timeslot_mode == "end_only"
@@ -674,7 +707,14 @@ def apply_profile_delta(
         elif profile.timeslot_end:
             profile.timeslot_mode = "end_only"
     if "timeslot_request_source" in values:
-        profile.timeslot_request_source = values["timeslot_request_source"]
+        # The leaf always says "flexible_default": the hours are the user's own
+        # when this message states a time, or when the same window is carried.
+        stated = (start_candidate or end_candidate) and (
+            _mentions_explicit_time(user_message) or window_carried_explicit
+        )
+        profile.timeslot_request_source = (
+            BUDGET_SOURCE_EXPLICIT if stated else values["timeslot_request_source"]
+        )
 
     # UX1 — the amenity filter is the one slot the user must be able to SHRINK
     # ("enleve le spa"). A typed `{"op": "set"}` from the leaf carries the
@@ -727,6 +767,8 @@ def apply_profile_delta(
         profile.search_cursor = int(values["search_cursor"])
     if "client_timezone" in values:
         profile.client_timezone = values["client_timezone"]
+    if "daypart" in values:
+        profile.daypart = values["daypart"]
     # P0-1: party size. Coerced through int() like `search_cursor` — the value
     # arrives from untrusted wire data, and the leaf's own `party_count`
     # validator already refused anything non-integral, so anything odd reaching
@@ -929,7 +971,7 @@ def search_context_line(profile: SessionProfile) -> str:
         bits.append(f"destination: {profile.city}")
     if profile.budget_max:
         bits.append(f"budget max: €{profile.budget_max:.0f}")
-    slot = _timeslot_label(profile)
+    slot = _timeslot_label(profile) or profile.daypart
     if slot:
         bits.append(f"time of day: {slot}")
     if profile.amenities:
@@ -1017,6 +1059,25 @@ def _hotel_matches(stripped: str, message_tokens: set[str], hotel: dict[str, Any
     # Inn" must resolve both without either name appearing verbatim.
     significant = _significant_name_tokens(name)
     return bool(significant) and bool(significant & message_tokens)
+
+
+def named_hotel_in_results(name: str, results: list[dict[str, Any]] | None) -> bool:
+    """Whether a hotel the MCP name lookup missed is on screen anyway — the
+    lookup is stricter than the search (mcp-dayuse#3: "Pullman Lyon" not
+    found by name, then returned by the city search). Same strong tier as
+    the shortlist matcher, plus: every distinctive word of the name is in
+    the hotel's name."""
+    wanted = name.strip().lower()
+    wanted_tokens = _significant_name_tokens(wanted)
+    for hotel in results or []:
+        if not isinstance(hotel, dict):
+            continue
+        hotel_name = str(hotel.get("name") or "").strip()
+        if _substring_match(wanted, hotel_name) or (
+            wanted_tokens and wanted_tokens <= set(_NAME_TOKEN_RE.findall(hotel_name.lower()))
+        ):
+            return True
+    return False
 
 
 def record_search_shortlist(profile: SessionProfile, results: list[dict[str, Any]] | None) -> None:

@@ -507,7 +507,11 @@ def test_capture_search_offers_failure_is_untouched():
     ctx = _Ctx()
     assert capture_after_tool(_Tool("search_offers"), {}, ctx, {"isError": True}) is None
     assert capture_after_tool(_Tool("search_offers"), {}, ctx, {"ok": False, "error": "x"}) is None
-    assert ctx.state == {}  # nothing stashed on failure
+    # No results stashed on failure — only the failure itself (mcp-dayuse#8).
+    assert ctx.state == {
+        "temp:hotel_search_fallbacks": ["mcp_error"],
+        "temp:hotel_search_mcp_error": "failed",
+    }
 
 
 def test_capture_falls_back_to_content_text_when_no_structured_content():
@@ -947,14 +951,14 @@ def test_emit_builds_decodable_datapart_with_results_and_mapped_delta():
 
 def test_emit_zero_results_carries_a_no_offers_outcome_text():
     content = emit_search_datapart(_Ctx({"temp:hotel_search_results": []}))
-    assert _decode(content) == {"results": []}
+    assert _decode(content)["results"] == []
     assert _text(content)  # non-empty outcome line ("No day-use offers found…")
 
 
 def test_emit_results_only_when_no_delta():
     ctx = _Ctx({"temp:hotel_search_results": []})
     data = _decode(emit_search_datapart(ctx))
-    assert data == {"results": []}  # a real 0-result search, no profile_delta
+    assert "profile_delta" not in data and data["results"] == []  # a real 0-result search
 
 
 def test_emit_delta_only_when_no_search_ran():
@@ -1297,21 +1301,31 @@ def test_normalize_hotel_drops_offers_outside_exact_window():
     assert "price" not in card  # the offer ends before the requested departure
 
 
-def test_normalize_hotel_keeps_offers_covering_the_exact_stay():
-    hotel = _hotel_with_offers(1, [_offer(7, 0, 14, 0)])
-    card = normalize_hotel(hotel, exact_window=(7 * 60 + 30, 13 * 60 + 30))
+def test_normalize_hotel_keeps_offers_that_cover_the_window():
+    # Site rule (mcp-dayuse#4/#8): QA Lyon 12h–13h, an 08–14 offer covers it.
+    hotel = _hotel_with_offers(1, [_offer(8, 0, 14, 0)])
+    card = normalize_hotel(hotel, exact_window=(12 * 60, 13 * 60))
     assert card["price"] == "€50.00"
 
 
-def test_normalize_search_results_drops_hotels_with_no_fitting_offer():
+def test_normalize_hotel_drops_an_offer_inside_a_wider_window():
+    # QA Lyon 6h–16h: the site finds nothing — an 08–14 offer does not cover it.
+    hotel = _hotel_with_offers(1, [_offer(8, 0, 14, 0)])
+    card = normalize_hotel(hotel, exact_window=(6 * 60, 16 * 60))
+    assert "price" not in card
+
+
+def test_normalize_search_results_drops_hotels_with_no_covering_offer():
+    # QA Lyon 22h01–23h01 → 22h–23h: offers closing at 22:00 are out.
     structured = {
         "results": [
-            _hotel_with_offers(1, [_offer(7, 0, 13, 0)]),  # too early, excluded
-            _hotel_with_offers(2, [_offer(7, 30, 13, 30)]),  # fits exactly
+            _hotel_with_offers(1, [_offer(17, 0, 22, 0)]),
+            _hotel_with_offers(2, [_offer(17, 0, 23, 0)]),
+            _hotel_with_offers(3, [_offer(12, 0, 22, 0), _offer(22, 0, 23, 0)]),
         ]
     }
-    results = normalize_search_results(structured, exact_window=(7 * 60 + 30, 13 * 60 + 30))
-    assert [h["id"] for h in results] == [2]
+    results = normalize_search_results(structured, exact_window=(22 * 60 + 1, 23 * 60 + 1))
+    assert [h["id"] for h in results] == [2, 3]
 
 
 def test_normalize_search_results_without_exact_window_behaves_exactly_as_before():
@@ -1338,12 +1352,12 @@ def test_capture_overrides_timeslot_minutes_from_the_exact_window_state():
 
 
 def test_capture_applies_exact_window_post_filter():
-    ctx = _Ctx({STATE_EXACT_WINDOW_KEY: {"start_total": 7 * 60 + 30, "end_total": 13 * 60 + 30}})
+    ctx = _Ctx({STATE_EXACT_WINDOW_KEY: {"start_total": 12 * 60, "end_total": 13 * 60}})
     resp = {
         "structuredContent": {
             "results": [
-                _hotel_with_offers(1, [_offer(7, 0, 13, 0)]),  # excluded
-                _hotel_with_offers(2, [_offer(7, 30, 13, 30)]),  # kept
+                _hotel_with_offers(1, [_offer(13, 0, 18, 0)]),  # starts too late, excluded
+                _hotel_with_offers(2, [_offer(10, 0, 16, 0)]),  # covers 12–13, kept
             ]
         },
         "isError": False,
@@ -1352,6 +1366,22 @@ def test_capture_applies_exact_window_post_filter():
     results = ctx.state["temp:hotel_search_results"]
     assert [h["id"] for h in results] == [2]
     assert "temp:hotel_search_timeslot_fallback" not in ctx.state
+
+
+def test_capture_filters_a_one_sided_window_too():
+    # "à partir de 14h": the offer must let the user in at 14h.
+    ctx = _Ctx({STATE_EXACT_WINDOW_KEY: {"start_total": 14 * 60, "end_total": None}})
+    resp = {
+        "structuredContent": {
+            "results": [
+                _hotel_with_offers(1, [_offer(8, 0, 14, 0)]),
+                _hotel_with_offers(2, [_offer(10, 0, 17, 0)]),
+            ]
+        },
+        "isError": False,
+    }
+    capture_after_tool(_Tool("search_offers"), {}, ctx, resp)
+    assert [h["id"] for h in ctx.state["temp:hotel_search_results"]] == [2]
 
 
 def test_capture_falls_back_when_exact_window_would_empty_everything():
@@ -1381,11 +1411,14 @@ def test_capture_no_exact_window_state_never_filters():
 def test_outcome_text_appends_fallback_disclosure():
     from hotel_search_agent.response_bridge import _outcome_text
 
-    text = _outcome_text([{"name": "Hotel 1"}], timeslot_fallback=True)
-    assert "closest matches" in text
+    text = _outcome_text([{"name": "Hotel 1"}], timeslot_fallback=True, window="06:00–16:00")
+    assert text.endswith("No offer covers the whole 06:00–16:00 time slot; here are the closest offers.")
+    assert "exact" not in text
     assert _outcome_text([{"name": "Hotel 1"}], timeslot_fallback=False) == (
         "1 day-use offer(s) found: Hotel 1."
     )
+    fr = _outcome_text([{"name": "Hotel 1"}], True, "fr", window="06:00–16:00")
+    assert fr.endswith("Aucune offre ne couvre tout le créneau 06:00–16:00 ; voici les offres les plus proches.")
 
 
 def test_skip_final_generation_includes_fallback_note():
@@ -1393,10 +1426,22 @@ def test_skip_final_generation_includes_fallback_note():
         {
             "temp:hotel_search_results": [{"id": 1, "name": "Villa"}],
             "temp:hotel_search_timeslot_fallback": True,
+            STATE_EXACT_WINDOW_KEY: {"start_total": 6 * 60, "end_total": 16 * 60},
         }
     )
     response = skip_final_generation(ctx, None)
-    assert "closest matches" in response.content.parts[0].text
+    assert "the whole 06:00–16:00 time slot" in response.content.parts[0].text
+
+
+def test_emit_flags_the_timeslot_fallback_for_the_concierge():
+    ctx = _Ctx(
+        {
+            "temp:hotel_search_results": [{"id": 1, "name": "Villa"}],
+            "temp:hotel_search_timeslot_fallback": True,
+            STATE_EXACT_WINDOW_KEY: {"start_total": 6 * 60, "end_total": 16 * 60},
+        }
+    )
+    assert _decode(emit_search_datapart(ctx))["timeslot_fallback"] == "06:00–16:00"
 
 
 # --- S-G6: resolved date -> profile_delta --------------------------------------------------------
@@ -1924,21 +1969,158 @@ def test_requested_stay_keeps_covering_offer_and_its_booking_identity():
     assert result[0]["status"] == "pass"
 
 
-def test_exact_stay_rejects_partial_overlap_and_missing_bounds():
-    from hotel_search_agent.response_bridge import _offer_fits_exact_window
+# --- mcp-dayuse#8: degraded paths reported to the concierge -------------------------------------
 
-    # One minute missing at either end is enough to make the stay impossible.
-    for offer in [_offer(10, 1, 18, 0), _offer(9, 0, 16, 59),
-                  _offer(10, 0, 16, 0), {"startHour": 9}, {"endHour": 18}]:
-        assert not _offer_fits_exact_window(offer, 600, 1020)
-    for offer in [_offer(10, 0, 17, 0), _offer(9, 59, 17, 1)]:
-        assert _offer_fits_exact_window(offer, 600, 1020)
+_NOT_FOUND_RESPONSE = {
+    "content": [{"type": "text", "text": 'No hotel found for "Novotel Lyon Zorbalix"'}],
+    "structuredContent": {"error": {
+        "kind": "HotelNotFoundError", "retryable": False, "query": "Novotel Lyon Zorbalix",
+    }},
+    "isError": True,
+}
+_INVALID_ARGS_RESPONSE = {
+    "content": [{"type": "text", "text": "MCP error -32602: Input validation error: Invalid arguments"}],
+    "isError": True,
+}
 
 
-def test_one_sided_window_retains_existing_arrival_departure_filter_contract():
-    from hotel_search_agent.response_bridge import _offer_fits_exact_window
+def test_named_hotel_not_found_is_reported_with_its_query():
+    ctx = _Ctx()
+    capture_after_tool(_Tool("find_hotel_by_name"), {"name": "Novotel Zorbalix"}, ctx, _NOT_FOUND_RESPONSE)
+    data = _decode(emit_search_datapart(ctx))
+    assert data["named_hotel_not_found"] == "Novotel Lyon Zorbalix"
+    assert data["fallbacks_fired"] == ["named_hotel_not_found"]
 
-    assert _offer_fits_exact_window(_offer(11, 0, 17, 0), 600, None)
-    assert not _offer_fits_exact_window(_offer(9, 0, 17, 0), 600, None)
-    assert _offer_fits_exact_window(_offer(9, 0, 16, 0), None, 1020)
-    assert not _offer_fits_exact_window(_offer(9, 0, 18, 0), None, 1020)
+
+def test_a_rejected_search_is_not_reported_as_an_outage():
+    ctx = _Ctx(
+        {_ANCHOR_KEY: {"latitude": 45.76, "longitude": 4.84, "label": "Lyon", "type": "city_centroid"}}
+    )
+    capture_after_tool(_Tool("search_offers"), {}, ctx, _INVALID_ARGS_RESPONSE)
+    data = _decode(emit_search_datapart(ctx))
+    assert data["status"] == "search_unavailable"
+    assert data["unavailable_reason"] == "rejected"
+    assert data["fallbacks_fired"] == ["mcp_error"]
+
+
+def test_a_failed_search_stays_an_outage():
+    ctx = _Ctx(
+        {_ANCHOR_KEY: {"latitude": 45.76, "longitude": 4.84, "label": "Lyon", "type": "city_centroid"}}
+    )
+    capture_after_tool(_Tool("search_offers"), {}, ctx, _INVALID_ARGS_RESPONSE)
+    capture_after_tool(_Tool("search_offers"), {}, ctx, {"isError": True})
+    data = _decode(emit_search_datapart(ctx))
+    assert "unavailable_reason" not in data  # one real failure is enough to say "retry"
+
+
+def test_circuit_open_is_scored_as_an_mcp_error():
+    ctx = _Ctx()
+    capture_after_tool(_Tool("search_offers"), {}, ctx, {"ok": False, "error": "mcp_circuit_open"})
+    assert _decode(emit_search_datapart(ctx))["fallbacks_fired"] == ["mcp_error"]
+
+
+# --- option B: a daypart filters softly (overlap), never as a clock window ----------------------
+from hotel_search_agent.response_bridge import STATE_DAYPART_KEY  # noqa: E402
+
+
+def test_capture_filters_a_daypart_by_overlap():
+    ctx = _Ctx({STATE_DAYPART_KEY: "afternoon"})
+    resp = {
+        "structuredContent": {
+            "results": [
+                _hotel_with_offers(1, [_offer(8, 0, 12, 0)]),  # morning only: out
+                _hotel_with_offers(2, [_offer(10, 0, 16, 0)]),  # partly afternoon: in
+            ]
+        },
+        "isError": False,
+    }
+    args = {"timeSlot": {"startHour": 12, "endHour": 18}}
+    capture_after_tool(_Tool("search_offers"), args, ctx, resp)
+    assert [h["id"] for h in ctx.state["temp:hotel_search_results"]] == [2]
+    # The daypart's hours are not a stated window: never captured as one.
+    assert "timeslot_start" not in (ctx.state.get(_BUDGET_TIMESLOT_KEY) or {})
+
+
+def test_emit_persists_the_daypart_and_clears_the_clock_window():
+    ctx = _Ctx({"temp:hotel_search_results": [{"id": 1, "name": "Villa"}], STATE_DAYPART_KEY: "afternoon"})
+    delta = _decode(emit_search_datapart(ctx))["profile_delta"]
+    assert delta["daypart"] == {"op": "set", "value": "afternoon"}
+    assert delta["timeslot_start"] == {"op": "clear"} and delta["timeslot_end"] == {"op": "clear"}
+
+
+def test_emit_clears_a_carried_daypart_when_a_clock_window_is_stated():
+    ctx = _Ctx(
+        {
+            "temp:hotel_search_results": [{"id": 1, "name": "Villa"}],
+            _BUDGET_TIMESLOT_KEY: {"timeslot_start": "14:00", "timeslot_end": "16:00"},
+        },
+        user_content=_user_content_with_profile_in({"daypart": "morning"}),
+    )
+    delta = _decode(emit_search_datapart(ctx))["profile_delta"]
+    assert delta["daypart"] == {"op": "clear"}
+    assert delta["timeslot_start"] == "14:00"
+
+
+def test_datapart_carries_the_search_that_actually_ran():
+    """mcp-dayuse#5: an empty state cites the executed search — the zone, the
+    window and the filters really sent — not what the model remembers."""
+    ctx = _Ctx({
+        "temp:hotel_search_results": [],
+        "temp:hotel_search_profile_delta": {"last_city": "Paris", "zone": "Gare du Nord"},
+        STATE_SEARCH_DATE_KEY: {"date": "2026-10-07", "same_day": False},
+        "temp:hotel_search_budget_timeslot": {
+            "budget_max": 30.0, "timeslot_start": "07:00", "timeslot_end": "09:00", "adults": 2,
+        },
+        STATE_APPLIED_AMENITIES_KEY: ["sauna"],
+        "temp:hotel_search_radius_km": 3,
+    }, user_content=_user_content_with_profile_in({"city": "Lyon", "zone": "Part-Dieu"}))
+    context = _decode(emit_search_datapart(ctx))["search_context"]
+    assert context == {
+        "search_page": None, "city": "Paris", "zone": "Gare du Nord", "date": "2026-10-07", "daypart": None,
+        "timeslot_start": "07:00", "timeslot_end": "09:00", "budget_max": 30.0,
+        "amenities": ["sauna"], "adults": 2, "children": None, "radius_km": 3,
+    }
+
+
+def test_search_context_carries_the_profile_place_when_no_geocode_ran():
+    ctx = _Ctx(
+        {"temp:hotel_search_results": [], STATE_SEARCH_DATE_KEY: {"date": "2026-10-07"}},
+        user_content=_user_content_with_profile_in({"city": "Lyon"}),
+    )
+    context = _decode(emit_search_datapart(ctx))["search_context"]
+    assert (context["city"], context["zone"], context["budget_max"]) == ("Lyon", None, None)
+
+
+def test_see_all_targets_the_site_search_page_of_the_place_searched():
+    """mcp-dayuse#5: « Voir tout » opened /s/france whatever was searched; the
+    site's own Lyon search is the breadcrumb path, with the day and the hours."""
+    ctx = _Ctx()
+    capture_after_tool(_Tool("geocode_location"), {}, ctx, {
+        "ok": True, "latitude": 45.76, "longitude": 4.84, "country_code": "FR",
+        "profile_delta": {"last_city": "Lyon"},
+    })
+    hotel = _hotel(1, 5000)
+    hotel["searchPages"] = [
+        {"name": "France", "path": "/s/france"},
+        {"name": "Lyon", "path": "/s/france/auvergne-rhone-alpes/rhone/lyon"},
+    ]
+    capture_after_tool(
+        _Tool("search_offers"), {"lat": 45.76, "lon": 4.84, "timeSlot": {"startHour": 6, "endHour": 16}},
+        ctx, {"structuredContent": {"total": 1, "results": [hotel]}, "isError": False},
+    )
+    ctx.state[STATE_SEARCH_DATE_KEY] = {"date": "2026-10-07"}
+    page = _decode(emit_search_datapart(ctx))["search_context"]["search_page"]
+    assert page == {
+        "name": "Lyon",
+        "url": "https://www.dayuse.fr/s/france/auvergne-rhone-alpes/rhone/lyon"
+        "?selectedAddress=Lyon&checkinDate=2026-10-07&checkinTime=6am&checkoutTime=4pm",
+    }
+
+
+def test_no_search_page_when_the_mcp_sends_none():
+    ctx = _Ctx()
+    capture_after_tool(
+        _Tool("search_offers"), {"lat": 45.76, "lon": 4.84}, ctx,
+        {"structuredContent": {"total": 1, "results": [_hotel(1, 5000)]}, "isError": False},
+    )
+    assert _decode(emit_search_datapart(ctx))["search_context"]["search_page"] is None

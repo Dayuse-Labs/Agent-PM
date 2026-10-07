@@ -7,7 +7,7 @@ import { state } from '../state.js';
 import { appendAmplitudeIdToUrl } from '../tracking.js';
 import { createHotelCard } from './card.js';
 import { t } from '../i18n.js';
-import { escapeAttr, sanitizeDayuseUrl } from '../security.js';
+import { escapeAttr, escapeHtml, sanitizeDayuseUrl } from '../security.js';
 import { getMarketMetaFromHotels } from '../markets.js';
 
 function getCarouselStep(wrapper) {
@@ -34,11 +34,15 @@ export function createHotelCarousel(hotels) {
     // This URL is interpolated into innerHTML. Without attribute escaping,
     // `&amp_session_id=...` is parsed as the legacy `&amp` HTML entity and
     // becomes `&_session_id=...`, silently breaking Amplitude session handoff.
-    const marketLinkRaw = marketMeta.browseUrl
-        ? appendAmplitudeIdToUrl(marketMeta.browseUrl)
-        : '';
+    // mcp-dayuse#5: the search page of the place searched wins over the country.
+    const searchPage = state.searchPage;
+    const linkTarget = searchPage ? searchPage.url : marketMeta.browseUrl;
+    const marketLinkRaw = linkTarget ? appendAmplitudeIdToUrl(linkTarget) : '';
     const marketLink = escapeAttr(sanitizeDayuseUrl(marketLinkRaw) || '');
     const marketCode = escapeAttr(marketMeta.code);
+    const linkLabel = searchPage && searchPage.name
+        ? t('see_all_hotels_at', { place: escapeHtml(searchPage.name) })
+        : t('see_all_hotels_in', { market: marketMeta.label });
 
     let html = `
         <div class="hotel-cards-container" id="${carouselId}">
@@ -54,7 +58,7 @@ export function createHotelCarousel(hotels) {
         </div>
         <div class="carousel-indicator">
             <span class="carousel-count" id="${carouselId}-indicator">1 / ${hotels.length}</span>
-            ${marketLink ? `<a href="${marketLink}" target="_blank" rel="noopener" class="see-all-link" data-market="${marketCode}">${t('see_all_hotels_in', { market: marketMeta.label })}</a>` : ''}
+            ${marketLink ? `<a href="${marketLink}" target="_blank" rel="noopener" class="see-all-link" data-market="${marketCode}">${linkLabel}</a>` : ''}
         </div>
     `;
 

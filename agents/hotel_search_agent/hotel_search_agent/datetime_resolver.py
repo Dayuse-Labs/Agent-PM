@@ -52,8 +52,10 @@ from typing import Any
 from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
 from b2c_common.observability import mark_level
+from b2c_common.timeslot import DAYPART_HOURS, daypart_in
 from hotel_search_agent.response_bridge import (
     STATE_DATE_FALLBACK_KEY,
+    STATE_DAYPART_KEY,
     STATE_EXACT_WINDOW_KEY,
     STATE_RESOLVED_DATE_KEY,
     STATE_SEARCH_DATE_KEY,
@@ -503,6 +505,68 @@ def _parse_hhmm_to_minutes(value: Any) -> int | None:
 
 _MAX_MINUTE_OF_DAY = 23 * 60 + 59
 
+# A clock time the user actually stated: "14h", "14h30", "13:30", "2pm",
+# "15 heures/Uhr/horas/ore/uur", "a las 3", "midi"/"noon"... in the 7 reply
+# languages. A daypart ("l'après-midi", "por la tarde") is not one.
+_CLOCK_TIME_RE = re.compile(
+    r"\b\d{1,2}\s*h(?:\s*\d{2})?\b|\b\d{1,2}:\d{2}\b|\b\d{1,2}\s*(?:am|pm|a\.m\.|p\.m\.)"
+    r"|\b\d{1,2}\s*(?:heures?|uhr|horas?|ore|uur)\b"
+    r"|\b(?:a las|alle|às|as|om|um|at|à)\s+\d{1,2}\b"
+    r"|(?<!après-)(?<!apres-)(?<!après )(?<!apres )\b(?:midi|minuit|noon|midnight|mediod[ií]a|medianoche|mezzogiorno|mezzanotte"
+    r"|mittags?|mitternacht|meio-dia|meia-noite|middag|middernacht)\b",
+    re.IGNORECASE,
+)
+
+
+def _user_text(tool_context: Any) -> str:
+    content = getattr(tool_context, "user_content", None)
+    parts = getattr(content, "parts", None) or []
+    return " ".join(p.text for p in parts if getattr(p, "text", None))
+
+
+def _is_carried_slot(time_slot: dict[str, Any], profile_in: dict[str, Any]) -> bool:
+    """The model repeated the clock window already in the profile (a
+    follow-up turn: "et à Villeurbanne ?")."""
+    carried = (
+        _parse_hhmm_to_minutes(profile_in.get("timeslot_start")),
+        _parse_hhmm_to_minutes(profile_in.get("timeslot_end")),
+    )
+    if carried == (None, None):
+        return False
+    sent = (time_slot.get("startHour"), time_slot.get("endHour"))
+    return sent == tuple(m // 60 if m is not None else None for m in carried)
+
+
+def _daypart_for_turn(
+    time_slot: dict[str, Any], tool_context: Any, profile_in: dict[str, Any]
+) -> str | None:
+    """mcp-dayuse#8, option B (Mathias 2026-10-06): a daypart is read IN CODE
+    ("l'après-midi", "por la tarde") and filters softly — the model used to
+    turn it into an invented clock window (12h-23h) that the site's covering
+    rule then emptied. A stated clock time wins; a daypart carried from the
+    profile applies when the turn says nothing about time."""
+    text = _user_text(tool_context)
+    if _CLOCK_TIME_RE.search(text):
+        return None
+    fresh = daypart_in(text)
+    if fresh is not None:
+        return fresh
+    carried = profile_in.get("daypart")
+    if carried in DAYPART_HOURS and not _is_carried_slot(time_slot, profile_in):
+        return str(carried)
+    return None
+
+
+def _invented_time_slot(time_slot: dict[str, Any], tool_context: Any, profile_in: dict[str, Any]) -> bool:
+    """mcp-dayuse#8: a `timeSlot` the user never stated. The instruction
+    already forbids it, but "por la tarde" came back as 12h-23h — harmless
+    while the leaf kept offers INSIDE the window, it empties a search under
+    the site's covering rule (b2c_common.timeslot). A slot repeated from the
+    profile (a follow-up turn) is not invented."""
+    if not time_slot or _CLOCK_TIME_RE.search(_user_text(tool_context)):
+        return False
+    return not _is_carried_slot(time_slot, profile_in)
+
 
 def resolve_search_timeslot(tool: Any, args: dict[str, Any], tool_context: Any) -> None:
     """`before_tool_callback` (A4-c interim): combine the model's `timeSlot`
@@ -526,6 +590,19 @@ def resolve_search_timeslot(tool: Any, args: dict[str, Any], tool_context: Any) 
     profile_in = read_profile_in(tool_context)
     time_slot = args.get("timeSlot")
     time_slot = time_slot if isinstance(time_slot, dict) else {}
+    daypart = _daypart_for_turn(time_slot, tool_context, profile_in)
+    if daypart is not None:
+        # MCP's own timeSlot is an OVERLAP filter: exactly the soft rule.
+        # No exact window is stashed — the covering rule must not apply.
+        args.pop("duration", None)
+        start_hour, end_hour = DAYPART_HOURS[daypart]
+        args["timeSlot"] = {"startHour": start_hour, "endHour": end_hour}
+        tool_context.state[STATE_DAYPART_KEY] = daypart
+        return None
+    if _invented_time_slot(time_slot, tool_context, profile_in):
+        mark_level("WARNING", status_message="timeslot_sanitization")
+        record_guards_fired(tool_context, ["timeslot_sanitization"])
+        time_slot = {}
     start_total = _minutes_of_day(time_slot.get("startHour"), time_slot.get("startMinute"))
     end_total = _minutes_of_day(time_slot.get("endHour"), time_slot.get("endMinute"))
     duration_minutes = parse_duration_minutes(args.pop("duration", None))
