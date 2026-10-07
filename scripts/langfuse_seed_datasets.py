@@ -36,6 +36,7 @@ DATASET_NAMES = {
     "b2c-language-robustness": "b2c/language-robustness",
     "b2c-qa-2026-09-30": "b2c/qa-2026-09-30",
     "b2c-dialogue-state": "b2c/dialogue-state",
+    "b2c-geo-class-2026-10-06": "b2c/geo-class-2026-10-06",
 }
 
 # OBS6 §2 — lock the item shape server-side so hand-added items can't drift.

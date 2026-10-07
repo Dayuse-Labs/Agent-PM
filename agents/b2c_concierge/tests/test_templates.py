@@ -87,6 +87,12 @@ _CASES: dict[str, Callable[[str | None], str]] = {
     "service_degraded": lambda lang: templates.service_degraded_response(lang),
     "leaf_degraded:search": lambda lang: templates.leaf_degraded_response("search", lang, "Paris"),
     "leaf_degraded:faq": lambda lang: templates.leaf_degraded_response("faq", lang, "Paris"),
+    "named_hotel_ambiguous_response": lambda lang: templates.named_hotel_ambiguous_response(
+        "Leonardo Royal", [{"name": "Leonardo Royal Hotel London City", "city": "london"}], lang
+    ),
+    "named_hotel_not_offered_notice": lambda lang: templates.named_hotel_not_offered_notice(
+        "St Paul's Hotel", "7", lang
+    ),
 }
 
 _NON_ENGLISH_LANGUAGES = [lang for lang in LANGUAGES if lang != "en"]
@@ -169,4 +175,30 @@ class TestFrenchAndEnglishUnchanged:
         assert templates.leaf_degraded_response("faq", "en") == (
             "I can't look up the Dayuse conditions right now, and I'd rather not make "
             "anything up. Could you try again in a moment?"
+        )
+
+
+class TestNamedHotel:
+    """mcp-dayuse#7."""
+
+    def test_the_ambiguity_lists_each_candidate_with_its_city(self):
+        text = templates.named_hotel_ambiguous_response(
+            "Leonardo Royal",
+            [
+                {"name": "Leonardo Royal Hotel London City", "city": "london"},
+                {"name": "Hôtel X", "city": "paris-10"},
+            ],
+            "fr",
+        )
+        assert text == (
+            "Plusieurs hôtels correspondent à « Leonardo Royal » : Leonardo Royal Hotel "
+            "London City (London), Hôtel X (Paris 10). Lequel souhaitez-vous ?"
+        )
+
+    def test_not_offered_names_the_hotel_and_the_day(self):
+        assert templates.named_hotel_not_offered_notice(
+            "St Paul's Hotel", "mercredi 7 octobre 2026", "fr"
+        ) == (
+            "St Paul's Hotel n'a pas d'offre disponible le mercredi 7 octobre 2026 : "
+            "voici les hôtels les plus proches."
         )

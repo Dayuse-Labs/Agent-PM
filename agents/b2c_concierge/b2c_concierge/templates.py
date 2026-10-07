@@ -548,6 +548,56 @@ def named_hotel_not_found_notice(name: str, language: str, city: str | None) -> 
     return _pick(language, _NAMED_NOT_FOUND).format(name=name, where=_where(language, city))
 
 
+_NAMED_AMBIGUOUS: dict[str, str] = {
+    "fr": "Plusieurs hôtels correspondent à « {name} » : {options}. Lequel souhaitez-vous ?",
+    "en": "Several hotels match \"{name}\": {options}. Which one do you mean?",
+    "es": "Varios hoteles coinciden con «{name}»: {options}. ¿Cuál quieres?",
+    "it": "Diversi hotel corrispondono a «{name}»: {options}. Quale desideri?",
+    "de": "Mehrere Hotels passen zu „{name}“: {options}. Welches meinst du?",
+    "pt": "Vários hotéis correspondem a «{name}»: {options}. Qual deseja?",
+    "nl": "Meerdere hotels passen bij \"{name}\": {options}. Welk bedoel je?",
+}
+
+
+def _city_label(slug: str) -> str:
+    """`london` → London, `paris-10` → Paris 10 (the index carries slugs)."""
+    return " ".join(part.capitalize() for part in slug.split("-") if part)
+
+
+def named_hotel_ambiguous_response(
+    name: str, candidates: list[dict[str, str]], language: str
+) -> str:
+    """mcp-dayuse#7: several hotels match the name — ask, never pick one."""
+    options = ", ".join(
+        f"{c['name']} ({_city_label(c['city'])})" if c.get("city") else c["name"]
+        for c in candidates
+    )
+    return _pick(language, _NAMED_AMBIGUOUS).format(name=name, options=options)
+
+
+_NAMED_NOT_OFFERED: dict[str, str] = {
+    "fr": "{name} n'a pas d'offre disponible {when} : voici les hôtels les plus proches.",
+    "en": "{name} has no offer available {when}: here are the nearest hotels.",
+    "es": "{name} no tiene ofertas disponibles {when}: aquí tienes los hoteles más cercanos.",
+    "it": "{name} non ha offerte disponibili {when}: ecco gli hotel più vicini.",
+    "de": "{name} hat {when} kein verfügbares Angebot: Hier sind die nächstgelegenen Hotels.",
+    "pt": "{name} não tem ofertas disponíveis {when}: aqui estão os hotéis mais próximos.",
+    "nl": "{name} heeft {when} geen beschikbaar aanbod: hier zijn de dichtstbijzijnde hotels.",
+}
+
+_ON_DATE: dict[str, str] = {
+    "fr": "le {date}", "en": "on {date}", "es": "el {date}", "it": "il {date}",
+    "de": "am {date}", "pt": "em {date}", "nl": "op {date}",
+}
+
+
+def named_hotel_not_offered_notice(name: str, human_date: str, language: str) -> str:
+    """mcp-dayuse#7: the named hotel exists but has nothing to book that day —
+    the cards are its neighbours, and the answer says so first."""
+    when = _pick(language, _ON_DATE).format(date=human_date)
+    return _pick(language, _NAMED_NOT_OFFERED).format(name=name, when=when)
+
+
 _SEARCH_EXHAUSTED_PAGINATION: dict[str, str] = {
     "fr": (
         "Vous avez vu tous les hôtels correspondant à vos critères{where}. Voulez-vous "

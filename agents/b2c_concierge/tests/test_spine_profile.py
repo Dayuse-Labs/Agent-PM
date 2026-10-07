@@ -426,6 +426,46 @@ class TestPaginationThroughTheSpine:
         assert stored.search_exhausted is True
         assert "criteria" in reply.lower() or "crit" in reply.lower()
 
+    def test_a_first_search_never_starts_on_page_two(
+        self, monkeypatch, fake_leg, fake_profile_store
+    ):
+        # mcp-dayuse#7 (trace 550ddc54): « tous les hôtels de Manhattan » read
+        # as "more options" sent from=5 before anything was on screen.
+        _scripted_llm(
+            monkeypatch,
+            '{"family": "search", "language": "fr", "wants_more_options": true}',
+            "Des hôtels à Manhattan.",
+        )
+        runner = InMemoryRunner(root_agent)
+        session = _new_session(runner)
+        fake_leg.response_payload = {"results": [{"id": 1, "name": "Moxy"}]}
+        _run_turn(runner, session.id, "tous les hôtels de Manhattan demain")
+
+        outgoing = find_datapart(fake_leg.seen_outgoing_parts)
+        assert outgoing["profile_in"]["search_cursor"] == 0
+
+    def test_a_named_hotel_is_never_the_next_page(
+        self, monkeypatch, fake_leg, fake_profile_store
+    ):
+        _scripted_llm(
+            monkeypatch,
+            '{"family": "search", "language": "en"}', "A hotel in Paris.",
+            '{"family": "search", "language": "en", "wants_more_options": true, '
+            '"hotel_name": "Pullman Paris"}',
+            "The Pullman.",
+        )
+        runner = InMemoryRunner(root_agent)
+        session = _new_session(runner)
+        fake_leg.response_payload = {
+            "results": [{"id": 1, "name": "Hotel A"}],
+            "profile_delta": {"city": "Paris"},
+        }
+        _run_turn(runner, session.id, "a hotel in Paris")
+        _run_turn(runner, session.id, "what else? the Pullman Paris maybe")
+
+        outgoing = find_datapart(fake_leg.seen_outgoing_parts)
+        assert outgoing["profile_in"]["search_cursor"] == 0
+
     def test_plain_refinement_does_not_advance_the_cursor(
         self, monkeypatch, fake_leg, fake_profile_store
     ):

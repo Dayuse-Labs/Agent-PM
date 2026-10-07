@@ -1584,3 +1584,36 @@ class TestPendingSearch:
     def test_it_never_travels_to_the_leaf_as_profile_data(self):
         profile = SessionProfile(pending_search={"request": "un hotel demain", "question": None})
         assert "pending_search" not in leaf_profile_view(profile)
+
+
+class TestChooseNamedCandidate:
+    """mcp-dayuse#7: the reply to « which of these hotels? »."""
+
+    CANDIDATES = [
+        "Leonardo Royal Hotel London City",
+        "Leonardo Royal Hotel London St Pauls",
+        "Leonardo Royal Hotel London Tower Bridge",
+    ]
+
+    def test_the_words_that_set_one_apart_pick_it(self):
+        from b2c_concierge.profile import choose_named_candidate
+
+        assert choose_named_candidate("celui de St Pauls", self.CANDIDATES) == self.CANDIDATES[1]
+        assert choose_named_candidate("tower bridge", self.CANDIDATES) == self.CANDIDATES[2]
+
+    def test_words_win_over_a_position_triage_misread(self):
+        from b2c_concierge.profile import choose_named_candidate
+
+        assert choose_named_candidate("celui de St Pauls", self.CANDIDATES, 1) == self.CANDIDATES[1]
+
+    def test_a_position_picks_when_no_word_does(self):
+        from b2c_concierge.profile import choose_named_candidate
+
+        assert choose_named_candidate("le deuxième", self.CANDIDATES, 2) == self.CANDIDATES[1]
+        assert choose_named_candidate("le cinquième", self.CANDIDATES, 5) is None
+
+    def test_shared_words_designate_none(self):
+        from b2c_concierge.profile import choose_named_candidate
+
+        assert choose_named_candidate("le Leonardo Royal", self.CANDIDATES) is None
+        assert choose_named_candidate("un hôtel à Lyon demain", self.CANDIDATES) is None
