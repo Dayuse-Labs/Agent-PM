@@ -6,6 +6,69 @@
 
 
 
+## 2026-10-08 — v25 : équipements au suivi et comparaison de modèle
+
+**Pas de GO remplacement.** Le triage existant extrait maintenant les ajouts et
+retraits d’équipements du message actuel, avec enum fermé et citation littérale.
+Le concierge applique cette opération avant l’appel A2A et la persiste même si
+la recherche est vide. Un indicateur du tour rend ce profil prioritaire dans la
+feuille : une recopie de « jacuzzi » ne peut plus écraser la piscine nouvellement
+demandée. Aucun nouveau regex ni appel LLM. Les équipements inconnus/privatifs
+ne sont pas assimilés à un équipement hôtel ; la couverture chambre reste à faire.
+
+Le retrait conserve le score filter_relaxation_honored et informe la synthèse :
+retirer l’exigence ne signifie pas exclure les hôtels possédant cet équipement.
+Une nouvelle contrainte invalide une sélection antérieure et remet la recherche
+à jour. Les valeurs contradictoires, inconnues ou non citées sont rejetées.
+La présence littérale de la citation ne garantit pas la sémantique universelle.
+
+**2 326 tests passés, un ignoré** sur la source finale ; 123 ciblés, ruff,
+mypy (61 fichiers), guardrails verts. Quatre nouveaux tests de transmission
+échouaient avant correction ; 19 autres couvrent validation, langues, types,
+FAQ/détails et maintien des critères non modifiés.
+
+Rejeu correctif : **16 réponses**, 11 avant la précision de formulation du retrait
+puis 5 sur la source finale. NYC jacuzzi → piscine atteint désormais le MCP avec
+les deux filtres sur 4o-mini. Contrôle français : ajout piscine, retrait jacuzzi,
+Paris → Lyon puis retrait piscine ; date 10 octobre, 10:30–17 et plafond total
+150 EUR conservés. Sur le dernier lot, **20 cartes** jointes aux reçus MCP et
+**20 plafonds frais compris vérifiés**, sans écart ni expiration. L’offre piscine
+du tour 2 mentionne explicitement Indoor pool dans includedAmenities ; le filtre
+jacuzzi hôtel ne démontre pas l’accès inclus ou une installation privative.
+
+Reste un défaut de synthèse : à Lyon, le texte dit que seul Novotel Gerland
+couvre 10:30–17 alors que les quatre autres cartes 10–17 le couvrent aussi.
+Le dernier retrait est correctement formulé. Les valeurs adultes 1 puis 2 dans
+le parcours NYC ne sont pas explicitement données : provenance d’occupation à
+auditer. La correction des filtres ne vaut pas réussite générale de ces parcours.
+
+**Modèle : 11 réponses supplémentaires** sur le même code f61d9db, seul le modèle
+de recherche remplacé localement par 4.1-mini. La piscine atteint le MCP et
+Socastee/Myrtle Beach est résolu, mais le parcours âge finit sur une affirmation
+sans preuve que deux hôtels acceptent 20 ans. Les conditions reçues ne contiennent
+pas ce seuil. La feuille FAQ 4o-mini propose les hôtels de façon ambiguë, puis la
+synthèse 5.2 affirme explicitement 20 ans : ne pas imputer cela directement au
+modèle de recherche. Trois revues manuelles, dix cartes tarifées vérifiées ; un
+seul tirage par cas et inventaire live. Aucun changement global de modèle justifié.
+Les trois services isolés de ce challenge ont été arrêtés.
+
+Nouvel export : **33 293 lignes**, 2 000 récentes. Quatre nouveaux messages dans
+trois sessions hors IDs de campagne, associés exactement à Langfuse ; **12 réponses
+comparatives et 9 revues**. 78/92 reste non traité : legacy propose Paris75,
+B2C/candidate redemandent une ville. Turin 20:30 + trois heures : candidate porte
+23:30, B2C23:00, legacy perd la durée ; formulation candidate confond encore la
+borne demandée et la borne arrondie du matching. Cinq cartes candidates vérifiées.
+Ne pas changer la règle de matching du site pour masquer ce défaut de formulation.
+
+Étape complète : **39 réponses, 15 revues manuelles, 0,38861 USD**. Cumul
+**85,79040 / 110 USD**, provisions11,10 incluses, réserve10. Aucun runner payant
+actif. Comparaison fraîche effectuée avant la dernière précision du retrait ;
+son protocole conserve cette version, sans prétendre que tout tournait sur la
+source finale. Rapports privés amenity-v25-summary, model-v25-review et
+new-prod-v25-review. Suite : géographie typée/multi-zone, FAQ et preuves par offre,
+fidélité de synthèse, contraintes chambre/occupation, couverture historique/widget.
+Aucun merge, déploiement ou changement Railway.
+
 ## 2026-10-08 — v24 : cohérence géographique et nouveaux suivis réels
 
 **Pas de GO remplacement.** Le contrôle de distance s’applique désormais aussi

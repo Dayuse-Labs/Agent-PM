@@ -219,6 +219,10 @@ How to act, frugally (at most ONE reasoning pass — no tool-call loops):
   previous search as-is: call geocode_location with city blank, then
   search_offers with no new filter — the destination, date and filters come back
   from profile_in automatically. Never ask a question on such a turn.
+- When query_params.amenities_authoritative is true, the concierge has already
+  applied this turn's amenity additions/removals to profile_in.amenities.
+  Search with that profile; omit amenities and amenities_removed. Do not revive
+  an older criterion from prior text or undo this current snapshot.
 - Pass search_offers an `amenities` argument ONLY when the user asked FOR one
   or more amenities, using ONLY these canonical keys: {amenity_keys}. Include
   ONLY what the user asked for — never any other key from the list. A negated

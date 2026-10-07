@@ -199,6 +199,13 @@ def enforce_equipment_filters(
     llm_keys = _canonical_keys(args.pop("amenities", None))
     removed_keys = _canonical_keys(args.pop("amenities_removed", None))
     profile_keys = _canonical_keys(_profile_amenities(tool_context))
+    content = getattr(tool_context, "user_content", None)
+    data = find_datapart(getattr(content, "parts", None))
+    params = data.get("query_params") if isinstance(data, dict) else None
+    if isinstance(params, dict) and params.get("amenities_authoritative") is True:
+        # Concierge applied the current, quoted intent before the A2A call.
+        # Preserve that snapshot even if this model repeats an old filter.
+        llm_keys, removed_keys = [], []
 
     # UX1 precedence — a key in BOTH fields is APPLIED, never removed. This is
     # not a preference, it is the fail-safe direction against gpt-4o-mini's

@@ -68,6 +68,7 @@ Logs carry NO message content (GDPR) — only family/route/timings/counters.
 """
 from __future__ import annotations
 
+from b2c_common.amenities import apply_amenity_update
 from b2c_common.search_budget import budget_notice, budget_question, currency_answer, merge_budget, native_eur_cap, resolve_budget_currency
 
 import asyncio
@@ -797,6 +798,14 @@ class _B2cConcierge(BaseAgent):
         profile.auto_widen_disclosure = None  # surfaced at most once, regardless of outcome below
         # Transparency: let the reply restate the understood search params (S9+).
         search_context = search_context_line(profile)
+        if "filter_relaxation_honored" in budget.fired:
+            search_context += (
+                "; AMENITY FILTER REMOVED: the search no longer requires the removed "
+                "equipment. This does NOT exclude hotels that have it; there is no "
+                "negative-equipment filter. Describe removal of the requirement, "
+                "not hotels guaranteed to lack it. If results are present, the "
+                "updated search has already run; do not offer to perform it again."
+            )
         if profile.requested_budget and "results" in response:
             search_context += "; BUDGET VERIFICATION: " + budget_notice(
                 profile.requested_budget, bool(response["results"]), language
@@ -1262,6 +1271,12 @@ class _B2cConcierge(BaseAgent):
         # offer selection. Search first; otherwise "cheapest, but 11–16" picks
         # yesterday's/earlier window before the update below can be applied.
         # Partial clock answers retain the other bound; explicit clear is ().
+        amenity_update = triage.requested_amenities
+        next_amenities = (
+            apply_amenity_update(profile.amenities, amenity_update)
+            if amenity_update is not None else profile.amenities
+        )
+        amenities_changed = next_amenities != profile.amenities
         requested_window = triage.requested_window
         carried_window = profile.requested_window or {}
         next_window = (
@@ -1285,7 +1300,7 @@ class _B2cConcierge(BaseAgent):
             next_window != (profile.timeslot_start, profile.timeslot_end)
             or (not requested_window and bool(profile.timeslot or profile.daypart))
         ))
-        if window_changed and family != "faq" and clicked_id is None:
+        if (window_changed or amenities_changed) and family != "faq" and clicked_id is None:
             family, route = "search", ROUTES["search"]
             picked = None
             booking_signal = False
@@ -1421,6 +1436,16 @@ class _B2cConcierge(BaseAgent):
         # must NOT relaunch the leaf — it costs only the triage call already
         # spent above. Any non-bare-affirmative message (a new city, a new
         # budget, anything substantive) clears the flags and searches again.
+        if route.target == LEAF_HOTEL_SEARCH and amenity_update is not None:
+            if any(key not in next_amenities for key in profile.amenities):
+                budget.fired.add("filter_relaxation_honored")
+            profile.amenities = list(next_amenities)
+            if amenities_changed:
+                profile.search_exhausted = False
+                profile.widen_attempt_count = 0
+                profile.consecutive_empty_searches = 0
+                profile.auto_widen_disclosure = None
+
         if route.target == LEAF_HOTEL_SEARCH and profile.search_exhausted:
             if not is_bare_affirmative(message, triage.affirmative):
                 profile.search_exhausted = False
@@ -1524,6 +1549,10 @@ class _B2cConcierge(BaseAgent):
 
         budget.charge("leaf_llm")
         query_params: dict[str, Any] = {}
+        if route.target == LEAF_HOTEL_SEARCH and amenity_update is not None:
+            # Current intent has already been applied by the state owner.
+            # The leaf must not replace it with a copied stale extraction.
+            query_params["amenities_authoritative"] = True
         if repeat_search:
             query_params["repeat_previous_search"] = True
         if recent_messages and (family == "faq" or not profile.city):

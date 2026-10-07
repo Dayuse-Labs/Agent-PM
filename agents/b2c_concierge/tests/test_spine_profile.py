@@ -1696,3 +1696,38 @@ def test_copied_window_without_new_clock_evidence_preserves_owned_hours(
     assert outgoing['requested_window'] == {'start': '10:30', 'end': '17:00'}
     saved = asyncio.run(fake_profile_store.get(session.id))
     assert (saved.timeslot_start, saved.timeslot_end) == ('10:30', '17:00')
+
+
+@pytest.mark.parametrize('message,update,expected', [
+    ('Get a room with pool access', {'add': ['pool'], 'remove': [], 'evidence': 'pool access'}, ['jacuzzi', 'pool']),
+    ('Pool instead of jacuzzi', {'add': ['pool'], 'remove': ['jacuzzi'], 'evidence': 'Pool instead of jacuzzi'}, ['pool']),
+    ('Sans jacuzzi', {'add': [], 'remove': ['jacuzzi'], 'evidence': 'Sans jacuzzi'}, []),
+])
+def test_current_amenities_reach_leaf_and_survive_empty_response(
+    monkeypatch, fake_leg, fake_profile_store, message, update, expected
+):
+    import json
+
+    fake_leg.response_payload = {'results': [], 'profile_delta': {}}
+    llm = _scripted_llm(monkeypatch, json.dumps({
+        'family': 'search', 'language': 'en', 'requested_amenities': update,
+    }), 'No offers for these criteria.')
+    runner = InMemoryRunner(root_agent)
+    session = _new_session(runner)
+    asyncio.run(fake_profile_store.set(session.id, SessionProfile(
+        city='New York', amenities=['jacuzzi'], currency='USD',
+        requested_window={'start': '10:30', 'end': '17:00'},
+        timeslot_start='10:30', timeslot_end='17:00', timeslot_request_source='explicit',
+    )))
+    _run_turn(runner, session.id, message)
+    outgoing = find_datapart(fake_leg.seen_outgoing_parts)
+    assert outgoing['profile_in']['amenities'] == expected
+    assert outgoing['query_params']['amenities_authoritative'] is True
+    saved = asyncio.run(fake_profile_store.get(session.id))
+    assert saved.amenities == expected
+    assert saved.currency == 'USD'
+    assert (saved.timeslot_start, saved.timeslot_end) == ('10:30', '17:00')
+
+    if update['remove']:
+        assert 'AMENITY FILTER REMOVED' in llm.calls[-1]['messages'][1]['content']
+        assert 'does NOT exclude hotels' in llm.calls[-1]['messages'][1]['content']

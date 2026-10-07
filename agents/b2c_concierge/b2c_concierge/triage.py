@@ -35,6 +35,7 @@ from typing import Any
 
 import litellm
 from b2c_common import max_tokens_for, reasoning_kwargs_for, role_model, temperature_kwargs_for
+from b2c_common.amenities import grounded_amenity_update
 from dayuse_agent_common import (
     cost_from_tokens,
     enqueue_metric_event,
@@ -170,6 +171,7 @@ class Triage:
     hotel_scope: str | None = None
     requested_budget: dict | None = None
     budget_checked: bool = False
+    requested_amenities: dict | None = None
 
 
 def is_social_ack(message: str) -> bool:
@@ -457,6 +459,18 @@ Required key (always present, null if no budget change):
   Always include family, language, and requested_budget (null when no change).
   Omit other optional keys and null-valued fields when unused; keep JSON compact.
 Optional keys, extracted from MESSAGE ONLY, never copied from recent messages:
+- "requested_amenities": for a SEARCH constraint in the CURRENT MESSAGE, an
+  object {{"add": [...], "remove": [...], "evidence": "verbatim current quote"}}.
+  Keys: pool, spa, gym, jacuzzi, sauna, restaurant, breakfast, pet_friendly,
+  shuttle. Always include requested_amenities, null if no change. Extract the
+  CURRENT requested addition, not just a filter from earlier context: after
+  jacuzzi, "Get a room with pool access" adds pool, it does not add jacuzzi.
+  Only an explicit removal/replacement removes an old filter: "pool instead of
+  jacuzzi" adds pool and removes jacuzzi; "sans piscine" removes pool. Keep
+  unrelated constraints. Do not turn a question about a shown hotel's amenities
+  or a general policy into a search update. Do not guess an unsupported key or
+  equate a private bathtub with a hotel hot tub. Evidence must quote MESSAGE,
+  never earlier messages. This object describes intent, not equipment IDs.
 - "requested_window": an object ONLY when MESSAGE changes the requested hours.
   For numeric clock times: {{"start":"HH:MM" or null,"end":"HH:MM" or null,
   "evidence":"exact substring of MESSAGE containing the numeric times"}}.
@@ -636,6 +650,10 @@ async def classify(message: str, budget: TurnBudget, invocation_id: str = "",
         hotel_scope="shown" if data.get("hotel_scope") == "shown" else None,
         requested_budget=requested_budget,
         budget_checked="requested_budget" in data or numeric_only_message(message),
+        requested_amenities=(
+            grounded_amenity_update(data.get("requested_amenities"), message)
+            if family in {"search", "booking"} else None
+        ),
     )
 
 

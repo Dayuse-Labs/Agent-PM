@@ -376,3 +376,20 @@ def test_the_relaxation_guard_does_not_fire_on_a_collision():
         _Tool("search_offers"), {"amenities": ["pool"], "amenities_removed": ["pool"]}, ctx
     )
     assert "temp:hotel_search_guards_fired" not in ctx.state
+
+
+def test_current_concierge_amenities_cannot_be_replaced_by_stale_leaf_extraction():
+    datapart = a2a_types.Part(root=a2a_types.DataPart(data={
+        'query_params': {'amenities_authoritative': True},
+        'profile_in': {'amenities': ['pool']},
+    }))
+    content = genai_types.Content(role='user', parts=[
+        genai_types.Part(text='Pool instead of jacuzzi'),
+        convert_a2a_part_to_genai_part(datapart),
+    ])
+    ctx = _Ctx(user_content=content)
+    args = {'amenities': ['jacuzzi'], 'amenities_removed': ['pool'],
+            'hotelEquipmentIds': [41], 'roomEquipmentIds': [11]}
+    enforce_equipment_filters(_Tool('search_offers'), args, ctx)
+    assert args == {'hotelEquipmentIds': [33, 34, 2982, 3000, 3001]}
+    assert ctx.state[STATE_APPLIED_AMENITIES_KEY] == ['pool']
