@@ -115,6 +115,32 @@ def _run_turn(runner, session_id, message):
 
 
 class TestOutgoingProfileEnvelope:
+    def test_support_followup_context_reaches_triage_faq_and_final_answer_but_not_another_session(
+        self, monkeypatch, fake_leg, fake_profile_store
+    ):
+        fake_leg.text = "Check the confirmation email for your booking."
+        fake_leg.response_payload = {}
+        llm = _scripted_llm(monkeypatch,
+            '{"family":"faq","language":"en"}', "Check your confirmation email.",
+            '{"family":"faq","language":"en"}', "Guest bookings are in the confirmation email.",
+            '{"family":"faq","language":"en"}', "Check your confirmation email.")
+        runner = InMemoryRunner(root_agent)
+        first = _new_session(runner)
+        _run_turn(runner, first.id, "Where can I find my reservation?")
+        _run_turn(runner, first.id, "I booked as a guest")
+        assert "Where can I find my reservation?" in llm.calls[2]["messages"][1]["content"]
+        envelope = find_datapart(fake_leg.seen_outgoing_parts)
+        assert envelope["query_params"]["recent_user_messages"] == ["Where can I find my reservation?"]
+        synthesis = llm.calls[3]["messages"][1]["content"]
+        assert "RECENT USER MESSAGES" in synthesis
+        assert "Where can I find my reservation?" in synthesis
+        assert "I booked as a guest" in synthesis
+        assert "Check your confirmation email." not in synthesis  # previous assistant text is not memory
+        second = _new_session(runner)
+        _run_turn(runner, second.id, "Where is my reservation?")
+        assert "RECENT USER MESSAGES" not in llm.calls[4]["messages"][1]["content"]
+        assert "RECENT USER MESSAGES" not in llm.calls[5]["messages"][1]["content"]
+
     def test_profile_in_travels_to_the_leaf_as_a_datapart(self, monkeypatch, fake_leg):
         fake_leg.response_payload = {"results": [], "profile_delta": {}}
         _scripted_llm(monkeypatch, '{"family": "search", "language": "en"}', "synthesized reply")
