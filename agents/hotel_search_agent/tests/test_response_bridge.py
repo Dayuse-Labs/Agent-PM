@@ -2068,22 +2068,16 @@ def test_search_context_carries_the_profile_place_when_no_geocode_ran():
     assert (context["city"], context["zone"], context["budget_max"]) == ("Lyon", None, None)
 
 
-def test_see_all_targets_the_site_search_page_of_the_place_searched():
+def test_see_all_targets_the_site_search_page_even_with_no_offer():
     """mcp-dayuse#5: « Voir tout » opened /s/france whatever was searched; the
-    site's own Lyon search is the breadcrumb path, with the day and the hours."""
+    site's own Lyon search is the MCP's `searchPage`, with the day and the hours.
+    Shape of search_offers on mcp-dayuse main (!32, 2026-10-07)."""
     ctx = _Ctx()
-    capture_after_tool(_Tool("geocode_location"), {}, ctx, {
-        "ok": True, "latitude": 45.76, "longitude": 4.84, "country_code": "FR",
-        "profile_delta": {"last_city": "Lyon"},
-    })
-    hotel = _hotel(1, 5000)
-    hotel["searchPages"] = [
-        {"name": "France", "path": "/s/france"},
-        {"name": "Lyon", "path": "/s/france/auvergne-rhone-alpes/rhone/lyon"},
-    ]
+    search_page = {"slug": "france/auvergne-rhone-alpes/rhone/lyon", "label": "Lyon", "countryCode": "FR"}
     capture_after_tool(
         _Tool("search_offers"), {"lat": 45.76, "lon": 4.84, "timeSlot": {"startHour": 6, "endHour": 16}},
-        ctx, {"structuredContent": {"total": 1, "results": [hotel]}, "isError": False},
+        ctx,
+        {"structuredContent": {"total": 0, "results": [], "searchPage": search_page}, "isError": False},
     )
     ctx.state[STATE_SEARCH_DATE_KEY] = {"date": "2026-10-07"}
     page = _decode(emit_search_datapart(ctx))["search_context"]["search_page"]

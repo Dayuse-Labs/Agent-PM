@@ -1,69 +1,32 @@
 """mcp-dayuse#5: "Voir tout" opens the site's search page for the search that
-ran, chosen among the breadcrumb pages MCP_B2C exposes — never built."""
+ran — the `searchPage` search_offers returns (mcp-dayuse !32), never built."""
 from __future__ import annotations
 
-from b2c_common.search_page import build_search_page_url, pick_search_page
+from b2c_common.search_page import build_search_page_url, search_page_from
 
-# Breadcrumb pages as seen on the live site (dayuse.fr / dayuse.com SSR, 2026-10-06).
-_FR = {"name": "France", "path": "/s/france"}
-_ARA = {"name": "Auvergne-Rhône-Alpes", "path": "/s/france/auvergne-rhone-alpes"}
-_RHONE = {"name": "Rhône", "path": "/s/france/auvergne-rhone-alpes/rhone"}
 _LYON = {"name": "Lyon", "path": "/s/france/auvergne-rhone-alpes/rhone/lyon"}
-_LYON3 = {
-    "name": "Lyon 3eme arrondissement",
-    "path": "/s/france/auvergne-rhone-alpes/rhone/lyon/lyon-3eme-arrondissement",
-}
-_BRON = {"name": "Bron", "path": "/s/france/auvergne-rhone-alpes/rhone/bron"}
-_LYON3_HOTEL = {"searchPages": [_FR, _ARA, _RHONE, _LYON, _LYON3]}
-_BRON_HOTEL = {"searchPages": [_FR, _ARA, _RHONE, _BRON]}
-
-_US = {"name": "United States", "path": "/s/united-states"}
-_CA = {"name": "California", "path": "/s/united-states/california"}
-_SF_COUNTY = {"name": "San Francisco County", "path": "/s/united-states/california/san-francisco-county"}
 _SF = {"name": "San Francisco", "path": "/s/united-states/california/san-francisco-county/san-francisco"}
-_SAN_MATEO = {"name": "San Mateo County", "path": "/s/united-states/california/san-mateo-county"}
-_SSF = {
-    "name": "South San Francisco",
-    "path": "/s/united-states/california/san-mateo-county/south-san-francisco",
-}
 
 
-def test_the_searched_city_page_is_picked_even_when_some_hotels_are_in_suburbs():
-    assert pick_search_page([_BRON_HOTEL, _LYON3_HOTEL], [None, "Lyon"]) == _LYON
+def test_the_mcp_search_page_is_read_as_the_site_path():
+    """Shape of search_offers on mcp-dayuse main (2026-10-07)."""
+    response = {"results": [], "searchPage": {
+        "slug": "france/auvergne-rhone-alpes/rhone/lyon", "label": "Lyon", "countryCode": "FR",
+    }}
+    assert search_page_from(response) == {
+        "name": "Lyon", "path": "/s/france/auvergne-rhone-alpes/rhone/lyon", "country_code": "FR",
+    }
 
 
-def test_a_flat_us_slug_is_never_used_the_breadcrumb_path_is():
-    """`/s/san-francisco` alone 404s on the live site without a placeId."""
-    hotels = [
-        {"searchPages": [_US, _CA, _SAN_MATEO, _SSF]},
-        {"searchPages": [_US, _CA, _SF_COUNTY, _SF]},
-    ]
-    assert pick_search_page(hotels, [None, "San Francisco"]) == _SF
+def test_no_search_page_when_the_mcp_has_none():
+    assert search_page_from({"results": [], "searchPage": None}) is None
+    assert search_page_from({"results": []}) is None
+    assert search_page_from(None) is None
 
 
-def test_the_zone_wins_over_the_city_when_the_site_has_a_page_for_it():
-    assert pick_search_page([_LYON3_HOTEL], ["Lyon 3eme arrondissement", "Lyon"]) == _LYON3
-
-
-def test_names_compare_without_case_or_accents():
-    assert pick_search_page([_LYON3_HOTEL], [None, "rhone"]) == _RHONE
-
-
-def test_no_name_match_falls_back_to_the_deepest_page_shared_by_every_hotel():
-    """A POI search ("Gare du Nord") has no page of its own."""
-    assert pick_search_page([_BRON_HOTEL, _LYON3_HOTEL], ["Gare de Lyon-Part-Dieu", "Villeurbanne"]) == _RHONE
-
-
-def test_hotels_sharing_only_the_country_give_no_page():
-    other = {"searchPages": [_FR, {"name": "Paris", "path": "/s/france/ile-de-france/paris"}]}
-    assert pick_search_page([_BRON_HOTEL, other], [None, "Nowhere"]) is None
-
-
-def test_no_pages_or_a_malformed_path_give_no_page():
-    assert pick_search_page([], [None, "Lyon"]) is None
-    assert pick_search_page([{"name": "x"}], [None, "Lyon"]) is None
-    bad = {"searchPages": [{"name": "Lyon", "path": "https://evil.example/s/lyon"}]}
-    assert pick_search_page([bad], [None, "Lyon"]) is None
+def test_a_slug_that_is_not_a_site_path_is_refused():
+    for slug in ("https://evil.example/lyon", "France/Lyon", "lyon?x=1", "", 42):
+        assert search_page_from({"searchPage": {"slug": slug, "label": "Lyon"}}) is None
 
 
 def test_the_url_carries_the_day_and_the_hours_in_the_site_format():

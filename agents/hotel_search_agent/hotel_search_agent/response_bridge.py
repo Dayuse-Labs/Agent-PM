@@ -51,7 +51,7 @@ from google.adk.models.llm_response import LlmResponse
 from google.genai import types as genai_types
 
 from b2c_common import build_hotel_page_url, display_price_euro, hotel_currency_price, with_checkin_date
-from b2c_common.search_page import build_search_page_url, pick_search_page
+from b2c_common.search_page import build_search_page_url, search_page_from
 from b2c_common.timeslot import (
     DAYPART_HOURS,
     requested_hours,
@@ -1079,13 +1079,7 @@ def capture_after_tool(
         radius = args.get("radiusKm")
         if isinstance(radius, (int, float)) and not isinstance(radius, bool):
             tool_context.state[_STATE_RADIUS_KEY] = radius
-        geo = tool_context.state.get(_STATE_DELTA_KEY) or {}
-        place = (geo.get("zone"), geo.get("last_city")) if geo else (
-            read_profile_in(tool_context).get("zone"), read_profile_in(tool_context).get("city")
-        )
-        tool_context.state[_STATE_SEARCH_PAGE_KEY] = pick_search_page(
-            structured.get("results") if isinstance(structured, dict) else None, list(place)
-        )
+        tool_context.state[_STATE_SEARCH_PAGE_KEY] = search_page_from(structured)
         # Distance instrumentation (A8-a): the anchor is the geocode result the
         # model copied into search_offers' lat/lon — prefer the richer stashed
         # anchor (carries a label/type), fall back to the raw args coords.
@@ -1478,7 +1472,7 @@ def _search_context(
     page = state.get(_STATE_SEARCH_PAGE_KEY)
     if isinstance(page, dict):
         cards = state.get(_STATE_RESULTS_KEY) or []
-        country = state.get(_STATE_COUNTRY_KEY) or next(
+        country = page.get("country_code") or state.get(_STATE_COUNTRY_KEY) or next(
             (c.get("country_code") for c in cards if isinstance(c, dict) and c.get("country_code")), None
         )
         url = build_search_page_url(
