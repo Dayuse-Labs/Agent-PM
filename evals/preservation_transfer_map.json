@@ -482,5 +482,7 @@
       "coverage": "open_business_or_capability_gap",
       "live_result": "See final 2026-10-07 validation; no blanket pass."
     }
-  ]
+  ],
+  "final_validation": "https://github.com/Dayuse-Labs/AgentB2C/blob/7d8ff171e51dd3c0613a304ac181d82399b3bdb5/docs/evaluations/production-preservation-2026-10-07.md",
+  "all_requirements_passed": false
 }

@@ -24,3 +24,7 @@ Le juge de `conversation_judge.py` complète les vérifications programmatiques 
 Méthode inspirée de [Automating eval design and hillclimbing](https://claude.dev/blog/automating-eval-design-and-hillclimbing/) : vrais parcours, contrôles négatifs, test séparé, vérification du juge et coûts cumulés. Nous conservons aussi les itérations abandonnées et les incidents d’infrastructure, au lieu de les compter comme des réussites.
 
 La comptabilité peut réserver explicitement 1 USD pour une génération échouée sans coût fournisseur observable. Les clés `unpriced-reserve:` consomment le plafond de dispatch et sont rapportées séparément des dépenses observées ; un timeout ne devient jamais un coût nul. Les réserves ne sont retirées qu’après preuve de facturation.
+
+## Résultat du 7 octobre
+
+[Résultats et limites du runtime 1be8974](https://github.com/Dayuse-Labs/AgentB2C/blob/7d8ff171e51dd3c0613a304ac181d82399b3bdb5/docs/evaluations/production-preservation-2026-10-07.md). Les quatre dialogues du contrôle ont été exécutés ; 134 couples prix/créneau affichés correspondent à l’instantané. Deux sondes D+1 dépassent le périmètre sur Milano : cette séquence est exclue de l’agrégat du juge. Le classement du juge GPT‑4.1 est invalidé pour la décision de qualité après contre-vérification d’une localisation inventée ; les résultats bruts restent des pistes de revue. Aucun score automatique de lancement.
