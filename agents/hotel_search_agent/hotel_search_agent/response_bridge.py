@@ -1312,14 +1312,17 @@ _OUTCOME_EMPTY: dict[str, str] = {
     "nl": "Geen dagaanbiedingen gevonden voor deze zoekopdracht.",
 }
 
+# mcp-dayuse#4: no count. The cards are one page (MAX_RESULTS) and MCP's
+# `total` is counted before bookability, so "5 offres trouvées" read as the
+# number of matches; neither number is one.
 _OUTCOME_FOUND: dict[str, str] = {
-    "fr": "{count} offre(s) de jour trouvée(s) : {names}.",
-    "en": "{count} day-use offer(s) found: {names}.",
-    "es": "{count} oferta(s) de día encontrada(s): {names}.",
-    "it": "{count} offerta/e per il giorno trovata/e: {names}.",
-    "de": "{count} Tagesangebot(e) gefunden: {names}.",
-    "pt": "{count} oferta(s) de dia encontrada(s): {names}.",
-    "nl": "{count} dagaanbieding(en) gevonden: {names}.",
+    "fr": "Offres de jour affichées : {names}.",
+    "en": "Day-use offers shown: {names}.",
+    "es": "Ofertas de día mostradas: {names}.",
+    "it": "Offerte per il giorno mostrate: {names}.",
+    "de": "Angezeigte Tagesangebote: {names}.",
+    "pt": "Ofertas de dia apresentadas: {names}.",
+    "nl": "Getoonde dagaanbiedingen: {names}.",
 }
 
 def timeslot_window_label(start_total: int | None, end_total: int | None) -> str:
@@ -1357,7 +1360,7 @@ def _outcome_text(
         return _OUTCOME_EMPTY.get(language, _OUTCOME_EMPTY["en"]) + date_line
     names = ", ".join(str(r.get("name")) for r in results if r.get("name"))
     template = _OUTCOME_FOUND.get(language, _OUTCOME_FOUND["en"])
-    text = template.format(count=len(results), names=names) + date_line
+    text = template.format(names=names) + date_line
     if timeslot_fallback:
         text += " " + window_fallback_line(window, language)
     return text
