@@ -188,3 +188,14 @@ def test_raised_error_observed_afterwards_counts_only_once(fresh_breaker):
         assert fresh_breaker.allow()
     mcp_circuit_on_error(SEARCH_TOOL, {}, None, ConnectionError("down"))
     assert not fresh_breaker.allow()
+
+
+def test_unresolved_location_guard_never_opens_dependency_circuit(fresh_breaker):
+    for _ in range(5):
+        mcp_circuit_after_tool(SEARCH_TOOL, {}, None, {"ok": False, "error": "geocode_required"})
+    assert fresh_breaker.allow()
+    for _ in range(2):
+        mcp_circuit_after_tool(SEARCH_TOOL, {}, None, {"error": "transport timeout"})
+    mcp_circuit_after_tool(SEARCH_TOOL, {}, None, {"ok": False, "error": "geocode_required"})
+    mcp_circuit_after_tool(SEARCH_TOOL, {}, None, {"error": "transport timeout"})
+    assert not fresh_breaker.allow()

@@ -197,3 +197,20 @@ def test_wire_contract_cannot_mix_retention_with_a_new_location_kind():
     validator = Draft202012Validator(schema['properties']['location_update'])
     assert not list(validator.iter_errors({'action': 'retain'}))
     assert list(validator.iter_errors({'action': 'retain', 'kind': 'area', 'fields': []}))
+
+
+def test_repeated_geo_precondition_rejections_do_not_report_an_mcp_outage(monkeypatch):
+    from hotel_search_agent import mcp_guard
+    from hotel_search_agent.resilience import CircuitBreaker
+
+    breaker = CircuitBreaker(failure_threshold=3, cooldown_seconds=30)
+    monkeypatch.setattr(mcp_guard, "breaker", breaker)
+    view = prepare_search_context(SessionProfile(), {"action": "replace", "city": "Paris"})
+    ctx = context(view)
+    tool = SimpleNamespace(name="search_offers")
+    for _ in range(5):
+        assert mcp_guard.mcp_circuit_before_tool(tool, {}, ctx) is None
+        rejection = inject_landmark_radius(tool, {}, ctx)
+        assert rejection["error"] == "geocode_required"
+        mcp_guard.mcp_circuit_after_tool(tool, {}, ctx, rejection)
+    assert breaker.allow()

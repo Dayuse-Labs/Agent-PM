@@ -110,7 +110,7 @@ def mcp_circuit_after_tool(
         return None
     if isinstance(tool_response, dict):
         error = str(tool_response.get("error", "") or "")
-        if error == "mcp_circuit_open" or error.startswith("TOOL BUDGET"):
+        if error in {"mcp_circuit_open", "geocode_required"} or error.startswith("TOOL BUDGET"):
             # No new remote outcome: do not prolong cooldown, count an error
             # twice, or clear failures when another guard skips the call.
             return None
