@@ -113,7 +113,7 @@ from .a2a_datapart import encode_datapart, find_datapart
 from .amenity_guard import apply_amenity_truthfulness
 from .budget import TurnBudget
 from .currency_guard import enforce_currency_disclosure
-from .date_format import humanize_iso_dates
+from .date_format import format_date_human, humanize_iso_dates
 from .fallback_text import synthesis_fallback_text
 from .display_currency import (
     HOTEL,
@@ -129,6 +129,7 @@ from .ground_truth import shortlist_ground_truth_block, shortlist_hotels, synthe
 from .leg import StatelessLeafLeg
 from .link_guard import enforce_hotel_link_truthfulness
 from .profile import (
+    choose_named_candidate,
     named_hotel_in_results,
     BUDGET_SOURCE_EXPLICIT,
     SessionProfile,
@@ -156,6 +157,7 @@ from .requested_date import date_served_notice, expected_search_date, reference_
 from .window_guard import enforce_window_disclosure, enforce_window_match, window_label
 from .routing import LEAF_FAQ, LEAF_HOTEL_SEARCH, ROUTES, bearer_token, card_url
 from .triage import (
+    has_language_evidence,
     SERVICE,
     TEMPLATE_LANGUAGES,
     asks_policy,
@@ -1129,7 +1131,13 @@ class _B2cConcierge(BaseAgent):
         # or the synthesis prompt is fed — see triage.response_language for
         # why this stays a choke point rather than reading `triage.language`
         # directly at each call site.
-        reply_language = response_language(triage.language)
+        # mcp-dayuse#7: a message of proper nouns only (« New York ») says where,
+        # not in which language — the conversation's language stands.
+        reply_language = response_language(
+            profile.language
+            if profile.language and not has_language_evidence(message)
+            else triage.language
+        )
         # Code-owned overrides (LLM never routes). A pending-offer confirmation
         # wins; otherwise a refinement of a PRIOR search re-routes to a fresh
         # search REGARDLESS of what triage guessed — a terse "le 28"/"moins cher"
@@ -1145,6 +1153,15 @@ class _B2cConcierge(BaseAgent):
         # into another relevance search (prod 2026-07-27). Nothing resolvable →
         # `picked` stays None and the turn routes exactly as it did before.
         picked: dict[str, Any] | None = None
+        # mcp-dayuse#7: a reply to "which of these hotels?" names one of them —
+        # the next search looks THAT hotel up by its full name.
+        named_choice: str | None = None
+        pending_named, profile.named_candidates = profile.named_candidates, None
+        if pending_named and profile.picked_hotel_id is None:
+            named_choice = choose_named_candidate(
+                message, pending_named,
+                triage.pick_position if triage.pick == "position" else None,
+            )
         # A CLICKED pick button (its hotel id rode the request body, facade
         # intake) outranks anything read from the text: the user pointed at one
         # card, there is nothing left to interpret. One-shot — cleared here so
@@ -1158,7 +1175,9 @@ class _B2cConcierge(BaseAgent):
                 ),
                 None,
             )
-        if picked is None and triage.pick == "cheapest":
+        if named_choice is not None:
+            pass  # the position, if any, pointed at the candidates, not the cards
+        elif picked is None and triage.pick == "cheapest":
             picked = select_cheapest_hotel(profile.last_results)
         elif picked is None and triage.pick == "position":
             picked = select_hotel_by_position(profile.last_results, triage.pick_position)
@@ -1173,11 +1192,17 @@ class _B2cConcierge(BaseAgent):
         # (all 7) — `triage.classify` already validates `language` against
         # LANGUAGES, so this check is a defensive choke point, not a filter
         # that fires in practice.
-        if clicked_id is None and triage.language in TEMPLATE_LANGUAGES:
+        if (
+            clicked_id is None
+            and triage.language in TEMPLATE_LANGUAGES
+            and (profile.language is None or has_language_evidence(message))
+        ):
             profile.language = triage.language
 
         if booking_signal:
             family, route = "booking", ROUTES["booking"]
+        elif named_choice is not None:
+            family, route = "search", ROUTES["search"]
         elif picked is not None:
             # A pick with a BOOKING intent hands off (a link, guarded below);
             # a pick with any other intent ("montre-moi le moins cher") is a
@@ -1304,8 +1329,14 @@ class _B2cConcierge(BaseAgent):
         # (hotel_search_agent.response_bridge.inject_pagination_offset).
         # shown_hotel_ids stays the belt-and-suspenders exclusion filter
         # regardless of what the cursor computes.
-        more_options = route.target == LEAF_HOTEL_SEARCH and is_more_options_signal(
-            message, triage.wants_more_options
+        # mcp-dayuse#7 (trace 550ddc54): « tous les hôtels de Manhattan » read as
+        # "more options" sent from=5 on a first search. Page 2 needs a page 1 on
+        # screen, and a named hotel is a new search, never the next page.
+        more_options = (
+            route.target == LEAF_HOTEL_SEARCH
+            and bool(profile.shown_hotel_ids)
+            and not (named_choice or triage.hotel_name)
+            and is_more_options_signal(message, triage.wants_more_options)
         )
         if more_options:
             advance_search_cursor(profile)
@@ -1342,6 +1373,11 @@ class _B2cConcierge(BaseAgent):
         leaf_kwargs: dict[str, Any] = (
             {"query_params": {"repeat_previous_search": True}} if repeat_search else {}
         )
+        hotel_name = named_choice or triage.hotel_name
+        if not repeat_search and route.target == LEAF_HOTEL_SEARCH and hotel_name:
+            # mcp-dayuse#7: a hotel the user names is looked up by name, never
+            # geocoded as a landmark.
+            leaf_kwargs = {"query_params": {"hotel_name": hotel_name}}
         leaf_text, response = await _run_leaf(
             route.target, ctx, leaf_profile_view(profile), **leaf_kwargs
         )
@@ -1357,12 +1393,32 @@ class _B2cConcierge(BaseAgent):
         # Removing the key first keeps that control flow byte-identical instead
         # of making observability change behaviour.
         named_not_found: str | None = None
+        named_hotel: Any = None
+        named_ambiguous: Any = None
         if isinstance(response, dict):
             budget.fired.update(response.pop("guards_fired", None) or [])
             # mcp-dayuse#8: same hand-off for the degraded paths the leaf
             # answered on, popped for the same reason.
             budget.fallbacks.update(response.pop("fallbacks_fired", None) or [])
             named_not_found = response.pop("named_hotel_not_found", None)
+            named_hotel = response.get("named_hotel")
+            named_ambiguous = response.pop("named_hotel_ambiguous", None)
+        if isinstance(named_ambiguous, dict) and "results" not in response:
+            profile.named_candidates = [
+                c["name"] for c in named_ambiguous.get("candidates") or []
+                if isinstance(c, dict) and isinstance(c.get("name"), str)
+            ] or None
+            await store.set(ctx.session.id, profile)
+            self._emit_turn_metric(family, f"leaf:{route.target}", budget, t_start, "ok", inv)
+            yield self._final(
+                ctx,
+                templates.named_hotel_ambiguous_response(
+                    named_ambiguous.get("query") or triage.hotel_name or "",
+                    named_ambiguous.get("candidates") or [],
+                    reply_language,
+                ),
+            )
+            return
         if named_not_found and not leaf_text and "results" not in response:
             # The leaf wrote nothing, but code knows why: the hotel does not
             # exist on Dayuse — not "retry in a moment".
@@ -1388,6 +1444,8 @@ class _B2cConcierge(BaseAgent):
         delta = response.get("profile_delta") or {}
         if delta:
             apply_profile_delta(profile, delta, message, budget.fired)
+        if route.target == LEAF_HOTEL_SEARCH and "pending_place" not in delta:
+            profile.pending_place = None  # answered, or the user moved on
         date_notice: str | None = None
         search_date_part = response.get("search_date")
         if expected_date and isinstance(search_date_part, dict):
@@ -1530,6 +1588,21 @@ class _B2cConcierge(BaseAgent):
         ):
             final_text = (
                 templates.named_hotel_not_found_notice(named_not_found, reply_language, profile.city)
+                + f"\n\n{final_text}"
+            )
+        if (
+            isinstance(named_hotel, dict)
+            and named_hotel.get("name")
+            and named_hotel.get("offered") is False
+            and response.get("results")
+        ):
+            served_day = (response.get("search_date") or {}).get("date") or profile.date
+            final_text = (
+                templates.named_hotel_not_offered_notice(
+                    named_hotel["name"],
+                    format_date_human(served_day, reply_language) if served_day else "",
+                    reply_language,
+                )
                 + f"\n\n{final_text}"
             )
         if window_fallback:

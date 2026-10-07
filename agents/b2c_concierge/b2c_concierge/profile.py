@@ -261,6 +261,12 @@ class SessionProfile:
     # mcp-dayuse#8, option B: "morning" | "afternoon" | "evening" — a soft
     # time filter read in code by the leaf, exclusive with a clock window.
     daypart: str | None = None
+    # mcp-dayuse#7: the hotels the last turn asked the user to choose between
+    # (a name several hotels share). Read on the next turn only, then cleared.
+    named_candidates: list[str] | None = None
+    # mcp-dayuse#7: a homonym the last turn asked about (« which Manhattan? »)
+    # with the options offered, so the answer completes it. Next search only.
+    pending_place: dict[str, Any] | None = None
 
     def to_dict(self) -> dict[str, Any]:
         return {
@@ -304,6 +310,8 @@ class SessionProfile:
             "children": self.children,
             "display_currency": self.display_currency,
             "daypart": self.daypart,
+            "named_candidates": self.named_candidates,
+            "pending_place": self.pending_place,
             "schema_version": PROFILE_SCHEMA_VERSION,
         }
 
@@ -332,6 +340,7 @@ _CONCIERGE_ONLY_KEYS = (
     "distance_origin",
     "picked_hotel_id",
     "display_currency",
+    "named_candidates",
 )
 
 
@@ -681,6 +690,8 @@ def apply_profile_delta(
     # zone-only change is exactly the audit's "keep everything else" case.
     if "zone" in values:
         profile.zone = values["zone"]
+    if "pending_place" in values:
+        profile.pending_place = values["pending_place"]
     if "metro" in values:
         profile.metro = values["metro"]
     if "named_hotel" in values:
@@ -1012,6 +1023,27 @@ def named_hotel_in_results(name: str, results: list[dict[str, Any]] | None) -> b
         ):
             return True
     return False
+
+
+def choose_named_candidate(
+    message: str, candidates: list[str], position: int | None = None
+) -> str | None:
+    """The hotel a reply picks among the candidates the last turn listed:
+    by position (« le deuxième »), or by the words that set it apart from the
+    others (« celui de St Pauls » → « Leonardo Royal Hotel London St Pauls »,
+    « Leonardo Royal » being shared by all three). Words win over a position:
+    triage reads « celui de … » as « the first one » often enough. None when
+    the reply designates no single one."""
+    tokens = [set(_NAME_TOKEN_RE.findall(name.lower())) for name in candidates]
+    shared = set.intersection(*tokens) if tokens else set()
+    said = set(_NAME_TOKEN_RE.findall((message or "").lower())) - _NAME_STOPWORDS - shared
+    scores = [len(said & (t - shared)) for t in tokens]
+    best = max(scores, default=0)
+    if best > 0:
+        return candidates[scores.index(best)] if scores.count(best) == 1 else None
+    if position is not None and 1 <= position <= len(candidates):
+        return candidates[position - 1]
+    return None
 
 
 def record_search_shortlist(profile: SessionProfile, results: list[dict[str, Any]] | None) -> None:

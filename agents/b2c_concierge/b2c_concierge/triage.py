@@ -168,6 +168,17 @@ def is_social_ack(message: str) -> bool:
     return bool(message) and bool(_ACK_RE.match(message.strip()))
 
 
+_WORD_RE = re.compile(r"[^\W\d_]+")
+
+
+def has_language_evidence(message: str) -> bool:
+    """False for a message made only of proper nouns (« New York », « Paris »,
+    « NYC »): it says where, not in which language. mcp-dayuse#7: answering
+    « which Manhattan? » with « New York » switched a French session to
+    English."""
+    return any(word.islower() for word in _WORD_RE.findall(message or ""))
+
+
 def guess_language(message: str) -> str:
     return "fr" if _FR_HINTS.search(message or "") else "en"
 
@@ -362,7 +373,8 @@ with exactly these keys:
   search, with no new constraint at all ("d'autres options", "autre chose",
   "show me more", "otras opciones", "altre opzioni", "noch andere", "what else").
   False when it carries a new constraint ("moins cher", "plutôt demain") — that
-  is a refinement, not pagination.
+  is a refinement, not pagination. False when it names a destination ("tous les
+  hôtels de Manhattan", "all hotels in Lyon"): that is a new search.
 - "bare_budget_value": when the message is JUST a number, optionally with a
   currency symbol, and nothing else ("80", "€120", "150"), that number.
   Otherwise null. "moins de 80 euros" is a sentence, not a bare number → null.

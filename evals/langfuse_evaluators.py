@@ -373,6 +373,22 @@ def _eval_no_iso_date_in_message(
     return _bool_eval("no_iso_date_in_message", not hit, f"found {hit}" if hit else "none")
 
 
+def _eval_first_hotel_name_contains(
+    expected: dict[str, Any], response: dict[str, Any] | None
+) -> Evaluation | None:
+    """mcp-dayuse#7: the hotel the user named is the FIRST card."""
+    wanted = expected.get("first_hotel_name_contains")
+    if not isinstance(wanted, str):
+        return None
+    hotels = _hotels(response)
+    if not hotels:
+        return _bool_eval("first_hotel_name_contains", False, "no card")
+    first = str(hotels[0].get("name") or "")
+    return _bool_eval(
+        "first_hotel_name_contains", wanted.casefold() in first.casefold(), f"first card: {first}"
+    )
+
+
 _RESPONSE_CHECKS = (
     _eval_min_hotels,
     _eval_max_hotels,
@@ -391,6 +407,7 @@ _RESPONSE_CHECKS = (
     _eval_cards_cover_window,
     _eval_offers_on_date,
     _eval_no_iso_date_in_message,
+    _eval_first_hotel_name_contains,
 )
 
 
