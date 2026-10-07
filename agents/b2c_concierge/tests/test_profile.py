@@ -1582,3 +1582,27 @@ class TestP1BudgetGuardStaysRegex:
         assert profile.budget_max == 80.0
         assert profile.budget_request_source == BUDGET_SOURCE_EXPLICIT
         assert "budget_integrity" in fired
+
+
+@pytest.mark.parametrize("message,value,mode,city", [
+    ("$60", 60, "EUR", "Paris"),
+    ("60 USD", 60, "EUR", "Paris"),
+    ("60", 60, "HOTEL", "Paris"),
+    ("60", 60, "EUR", None),
+    ("60", None, "EUR", "Paris"),
+    ("60", 80, "EUR", "Paris"),
+    ("60 minutes", 60, "EUR", "Paris"),
+])
+def test_recognized_budget_never_invents_units_or_reinterprets_other_numbers(message, value, mode, city):
+    from b2c_concierge.profile import apply_recognized_bare_budget
+    profile = SessionProfile(city=city, display_currency=mode, budget_max=150)
+    assert not apply_recognized_bare_budget(profile, message, value, set())
+    assert profile.budget_max == 150
+
+
+def test_recognized_euro_amount_preserves_other_search_constraints():
+    from b2c_concierge.profile import apply_recognized_bare_budget
+    profile = SessionProfile(city="Paris", budget_max=150, amenities=["pool"], timeslot_start="10:00")
+    assert apply_recognized_bare_budget(profile, "60,50 €", 60.5, set())
+    assert profile.budget_max == 60.5 and profile.budget_request_source == BUDGET_SOURCE_EXPLICIT
+    assert profile.city == "Paris" and profile.amenities == ["pool"] and profile.timeslot_start == "10:00"
