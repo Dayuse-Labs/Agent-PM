@@ -166,6 +166,7 @@ from .triage import (
     asks_policy,
     classify,
     is_social_ack,
+    numeric_only_message,
     response_language,
     template_language,
 )
@@ -692,7 +693,10 @@ class _B2cConcierge(BaseAgent):
             user += f"\n\nCURRENCY: {currency_note}"
         if no_offers:
             user += f"\n\nNO OFFERS (already shown above your reply, in code): {no_offers}"
-        elif search_context:
+        if search_context:
+            # Empty inventory does not invalidate the user's state. In
+            # particular, keep the no-budget evidence and exact hours visible
+            # instead of letting untrusted leaf prose replace them.
             user += f"\n\nSEARCH CONTEXT (what you understood — restate briefly): {search_context}"
         if angle:
             user += f"\n\nANGLE (optional facts; use only if relevant to the user's request): {angle}"
@@ -1203,7 +1207,11 @@ class _B2cConcierge(BaseAgent):
         # or the synthesis prompt is fed — see triage.response_language for
         # why this stays a choke point rather than reading `triage.language`
         # directly at each call site.
-        reply_language = response_language(triage.language)
+        numeric_reply = numeric_only_message(message)
+        reply_language = (
+            template_language(profile.language, profile.locale, message)
+            if numeric_reply else response_language(triage.language)
+        )
         # Code-owned overrides (LLM never routes). A pending-offer confirmation
         # wins; otherwise a refinement of a PRIOR search re-routes to a fresh
         # search REGARDLESS of what triage guessed — a terse "le 28"/"moins cher"
@@ -1248,7 +1256,7 @@ class _B2cConcierge(BaseAgent):
         # LANGUAGES, so this check is a defensive choke point, not a filter
         # that fires in practice.
         if clicked_id is None and triage.language in TEMPLATE_LANGUAGES:
-            profile.language = triage.language
+            profile.language = reply_language
 
         # A changed, user-grounded clock constraint invalidates the previous
         # offer selection. Search first; otherwise "cheapest, but 11–16" picks
@@ -1570,6 +1578,8 @@ class _B2cConcierge(BaseAgent):
         delta = response.get("profile_delta") or {}
         if delta:
             apply_profile_delta(profile, delta, message, budget.fired)
+        if numeric_reply:
+            profile.language = reply_language
         if route.target == LEAF_HOTEL_SEARCH and profile.requested_budget:
             profile.requested_budget = resolve_budget_currency(profile.requested_budget, profile.country_anchor)
             clarification = budget_question(profile.requested_budget, reply_language, after_search=True)

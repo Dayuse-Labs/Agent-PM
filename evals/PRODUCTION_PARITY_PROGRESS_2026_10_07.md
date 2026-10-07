@@ -1,5 +1,66 @@
 # Audit historique et correctifs v18 — 7 octobre 2026
 
+## 2026-10-08 — v21 : revue des 108 notes terminée, nombres et contexte corrigés
+
+**Toujours pas de GO remplacement.** Les 108 annotations du lot historique v19
+ont été revues séparément des suggestions du juge ; les 216 empreintes des
+rejeux/notations ont été vérifiées. 70 notes ont changé. C'est une classification
+sémantique limitée aux preuves disponibles, pas une validation exhaustive des
+sources, de l'inventaire ou des 6 mois de comportement. Le lot reste sur d1eb29e.
+
+Le triage ne crée plus un budget à partir d'un nombre seul sans contexte : une
+réponse budgétaire doit citer la question précédente réelle. Les codes postaux ne
+sont pas distingués des montants par un seuil arbitraire. Le modèle interprète le
+rôle, le code vérifie la présence de la preuve ; cela ne certifie pas la sémantique
+de toute question. Aucun regex ni appel LLM supplémentaire. Les nombres seuls
+conservent la langue établie ; les contraintes de recherche restent transmises à
+la synthèse même lorsque l'inventaire est vide.
+
+**Quatre itérations, 54 réponses ; dernière version 17 réponses.** Le premier
+correctif rejetait aussi une réponse budgétaire valide faute de citation par le
+modèle. Ce défaut a été conservé dans les rapports, puis corrigé avec un rappel
+ciblé dans le même appel de triage. Dernier lot : 6 contrôles d'état ciblés passent
+(codes postaux sans budget, précision ville/État/pays, montant USD, deux plafonds
+JPY successifs avec langue stable). **20 cartes** jointes aux reçus MCP par
+hôtel/formule/date/minute : zéro écart de prix, expiration ou carte non jointe.
+Aucune carte avec plafond vérifiable dans ce lot : ne pas en déduire une preuve
+supplémentaire sur les budgets frais compris.
+
+**Défauts encore présents** : une synthèse traite parfois un nombre non validé
+comme un plafond ; des clarifications ville/devise tournent en boucle. Géographie
+pays/comté/POI, preuves par borne horaire, accès aux équipements, FAQ et widget
+restent à valider/corriger. Aucun taux global ni supériorité sur prod démontré.
+
+Comparatif de triage isolé : 12 cas × 2 tirages × 2 modèles. Rôle des nombres :
+4o-mini 24/24, 4.1-mini 23/24. Le prompt de ce test précède le dernier rappel
+numérique ; le test ne mesure ni le prompt final ni le parcours complet. Le rejeu
+complet a précisément révélé un défaut absent du test isolé. Aucune configuration
+Railway changée et aucun changement de modèle préconisé sur cette seule preuve.
+
+Nouveau contrôle SQL : 33 216 lignes, 2 000 dernières exportées. Les 9 nouvelles
+lignes forment 3 sessions hors identifiants de nos rejeux connus ; l'API n'expose
+pas is_synthetic, donc provenance organique non certifiée. 9/9 messages associés
+exactement aux extractions Langfuse. Devises/locales attestées dans les diagnostics,
+fuseaux appareil retrouvés. Entrées préparées pour Waterloo/Wimbledon,
+Brescia/province et East London/Bromley, **pas encore rejouées**. GPS/favoris présents
+dans une session mais valeurs exactes non retrouvées : aucune donnée inventée.
+
+Validation code final : **2 276 tests passés, 1 ignoré** ; 206 tests ciblés ;
+ruff, mypy (60 fichiers), guardrails et diff propres. Deux anciens tests traitaient
+un nombre initial comme budget sans contexte : leurs scénarios ont été précisés
+(question budgétaire préalable ou devise explicite), sans retirer les assertions
+sur le caractère explicite et l'absence d'élargissement du plafond. Les nouveaux
+tests ont échoué avant correction (8 échecs, 5 succès).
+
+CI92dd1d5 précédente réussie (étapes live ignorées). Main re-fetché, toujours cbe88b9.
+Coût de cette étape **0,3037 USD**, dont 0,0202 de comparatif modèles ; cumul
+**83,6990/110 USD**, dont 11,10 de provisions, réserve 10. Aucun runner payant actif.
+Données, conversations et rapports détaillés privés hors Git. PR134 reste brouillon,
+sans merge ni déploiement. Suite : reprendre les nouveaux parcours géographiques
+avec leur contexte attesté, puis contrôles horaires, FAQ/annulation informative et
+widget ; préserver les échecs et rejouer après chaque correction.
+
+
 **Pas de GO remplacement production.** Le VPN fonctionne et les comparaisons live
 ont repris. Des gains ciblés sont établis, mais plusieurs défauts importants
 restent ouverts. Aucun merge, déploiement ou changement des modèles Railway.

@@ -251,10 +251,16 @@ class TestProfileDeltaAppliedAndPersisted:
             "results": ["hotel A"],
             "profile_delta": {"budget_max": 180, "budget_request_source": BUDGET_SOURCE_FLEXIBLE_DEFAULT},
         }
-        _scripted_llm(monkeypatch, '{"family": "search", "language": "en"}', "Got it.")
+        question = "What is your maximum total budget?"
+        _scripted_llm(monkeypatch,
+            '{"family": "search", "language": "en"}', question,
+            '{"family":"search","language":"en","requested_budget":'
+            '{"amount":180,"unit":"total","evidence":"180",'
+            '"answer_to":"What is your maximum total budget?"}}', "Got it.")
         runner = InMemoryRunner(root_agent)
         session = _new_session(runner)
-
+        asyncio.run(fake_profile_store.set(session.id, SessionProfile(currency="EUR")))
+        _run_turn(runner, session.id, "A day room please")
         _run_turn(runner, session.id, "180")
 
         stored = asyncio.run(fake_profile_store.get(session.id))
@@ -297,13 +303,14 @@ class TestAutoWidenThroughTheSpine:
         fake_leg.response_payload = {"results": [], "profile_delta": {"budget_max": 100}}
         _scripted_llm(
             monkeypatch,
-            '{"family": "search", "language": "en"}', "No luck yet.",
+            '{"family":"search","language":"en","requested_budget":'
+            '{"amount":100,"currency":"EUR","unit":"total","evidence":"100 euros"}}',
             '{"family": "search", "language": "en"}', "Still nothing.",
         )
         runner = InMemoryRunner(root_agent)
         session = _new_session(runner)
 
-        _run_turn(runner, session.id, "100")  # bare number -> explicit
+        _run_turn(runner, session.id, "100 euros")  # explicit amount and unit
         fake_leg.response_payload = {"results": []}
         _run_turn(runner, session.id, "still looking")
 
@@ -1435,6 +1442,46 @@ def test_currency_answer_completes_budget_without_switching_display(monkeypatch,
     assert profile.requested_budget == {"amount": 50.0, "currency": "USD", "unit": "total"}
     assert profile.display_currency is None and profile.requested_currency is None
     assert fake_leg.call_count == 1
+
+
+def test_numeric_reply_keeps_session_language_despite_model_guess(monkeypatch, fake_leg, fake_profile_store):
+    question = "What is your maximum budget?"
+    fake_leg.response_payload = {"results": ["hotel A"], "profile_delta": {"language": "fr"}}
+    llm = _scripted_llm(monkeypatch,
+        '{"family":"search","language":"en","requested_budget":null}', question,
+        '{"family":"search","language":"fr","requested_budget":'
+        '{"amount":78240,"unit":"total","evidence":"78240",'
+        '"answer_to":"What is your maximum budget?"}}', "Here are the options.")
+    runner = InMemoryRunner(root_agent)
+    session = _new_session(runner)
+    asyncio.run(fake_profile_store.set(session.id, SessionProfile(currency="JPY", locale="en")))
+    _run_turn(runner, session.id, "A day room in Tokyo please")
+    # The setup leaf is not evidence that the English customer changed language.
+    profile = asyncio.run(fake_profile_store.get(session.id))
+    profile.language = "en"
+    asyncio.run(fake_profile_store.set(session.id, profile))
+    _run_turn(runner, session.id, "78240")
+    stored = asyncio.run(fake_profile_store.get(session.id))
+    assert stored.language == "en"
+    assert stored.requested_budget == {"amount": 78240.0, "currency": "JPY", "unit": "total"}
+    assert "LANG: en" in llm.calls[-1]["messages"][1]["content"]
+
+
+def test_empty_results_keep_budget_authority_in_synthesis(monkeypatch, fake_leg, fake_profile_store):
+    fake_leg.text = "No hotels for your 50 EUR budget."
+    fake_leg.response_payload = {
+        "results": [], "profile_delta": {"budget_max": 50},
+        "search_context": {"city": "Arlington", "date": "2026-10-10"},
+    }
+    llm = _scripted_llm(monkeypatch,
+        '{"family":"search","language":"en","requested_budget":null}', "No offers for this date.")
+    runner = InMemoryRunner(root_agent)
+    session = _new_session(runner)
+    _run_turn(runner, session.id, "Arlington on October 10")
+    prompt = llm.calls[-1]["messages"][1]["content"]
+    assert "NO OFFERS" in prompt
+    assert "No numeric budget was established" in prompt
+    assert asyncio.run(fake_profile_store.get(session.id)).budget_max is None
 
 
 @pytest.mark.parametrize('family', ['search', 'booking'])
