@@ -11,6 +11,7 @@ stub server (not re-tested here to keep this suite network-free)."""
 from __future__ import annotations
 
 import litellm
+import pytest
 
 import b2c_concierge.agent as agent_module
 from b2c_concierge.agent import (
@@ -119,7 +120,7 @@ class TestGenerateOnceUsesTheRouter:
         assert calls[0]["model"] == "gpt-4o-mini"  # the real slug, not the Router alias
         # Latency audit 2026-07-28 — bounded synthesis is the one deliberate
         # default change; the reasoning cap stays absent while env is unset.
-        assert calls[0]["max_tokens"] == 1000
+        assert calls[0]["max_tokens"] == 2000
         assert "reasoning_effort" not in calls[0]
         assert calls[0]["temperature"] == 0.2  # unchanged from pre-audit behaviour
 
@@ -159,3 +160,43 @@ class TestGenerateOnceUsesTheRouter:
         # The collision live-caught 2026-07-28 (UnsupportedParamsError →
         # silent leaf-verbatim fallback): temperature yields to the cap.
         assert "temperature" not in calls[0]
+
+
+class TestUnusableSynthesisIsMeasured:
+    """mcp-dayuse#8 (QA trace 62207822): finish_reason=length with empty
+    content used to be logged as status=ok and its text returned as-is."""
+
+    def setup_method(self):
+        _reset_synthesis_routers()
+
+    def teardown_method(self):
+        _reset_synthesis_routers()
+
+    @pytest.mark.parametrize(
+        "content,finish_reason,status",
+        [(None, "length", "truncated"), ("Vous avez de", "length", "truncated"), ("", "stop", "empty")],
+    )
+    def test_returns_none_and_logs_the_real_status(self, monkeypatch, content, finish_reason, status):
+        async def fake_acompletion(**kwargs):
+            return litellm.ModelResponse(
+                choices=[{
+                    "message": {"role": "assistant", "content": content},
+                    "index": 0, "finish_reason": finish_reason,
+                }]
+            )
+
+        events: list[dict] = []
+        monkeypatch.setattr(agent_module.litellm, "acompletion", fake_acompletion)
+        monkeypatch.setattr(
+            agent_module, "enqueue_metric_event", lambda kind, **kw: events.append({"kind": kind, **kw})
+        )
+        import asyncio
+
+        result = asyncio.run(
+            agent_module.root_agent._generate_once(
+                message="bonjour", language="fr", leaf_text="2 offers found",
+                ground_truth_block="", widen_note=None, invocation_id="test-inv",
+            )
+        )
+        assert result is None
+        assert [e["status"] for e in events if e["kind"] == "llm_call"] == [status]

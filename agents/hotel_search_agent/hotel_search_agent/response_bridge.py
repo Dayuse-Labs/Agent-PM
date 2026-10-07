@@ -51,7 +51,15 @@ from google.adk.models.llm_response import LlmResponse
 from google.genai import types as genai_types
 
 from b2c_common import build_hotel_page_url, display_price_euro, hotel_currency_price, with_checkin_date
+from b2c_common.timeslot import (
+    DAYPART_HOURS,
+    requested_hours,
+    slot_covers_window,
+    slot_overlaps_daypart,
+    window_fallback_line,
+)
 from hotel_search_agent.inventory import haversine_km
+from hotel_search_agent.mcp_guard import classify_mcp_error
 
 # The concierge reports AT MOST 5 (ground-truth cap) — match it so the model
 # never ingests more than the caller can use. Public (S-G5): also the page
@@ -82,6 +90,15 @@ _STATE_DISTANCE_ORIGIN_KEY = "temp:hotel_search_distance_origin"
 # Toulon trace showed `guard_geocode_echo_back = false`, which read as a
 # structural false negative of the guard when it was really an unwired score.
 _STATE_GUARDS_KEY = "temp:hotel_search_guards_fired"
+# mcp-dayuse#8: the degraded paths this turn still answered on
+# (`FALLBACK_SCORE_NAMES`), on their way to the concierge's `score_fallbacks`.
+_STATE_FALLBACKS_KEY = "temp:hotel_search_fallbacks"
+# "rejected" or "failed" (`mcp_guard.classify_mcp_error`): a rejected request
+# must not be answered with "retry in a moment".
+_STATE_MCP_ERROR_KEY = "temp:hotel_search_mcp_error"
+# The name `find_hotel_by_name` could not find, so the concierge can say so
+# when the turn answers with other hotels (QA trace 6ef04c80).
+_STATE_NAMED_NOT_FOUND_KEY = "temp:hotel_search_named_not_found"
 # The budget / time-slot the model actually sent search_offers, captured from
 # the tool args (search_offers has NATIVE priceRangeMax/timeSlot params — no
 # virtual param needed, unlike amenities in S10) and mapped to the profile in
@@ -107,6 +124,9 @@ STATE_RESOLVED_DATE_KEY = "temp:hotel_search_resolved_date"
 # post-filter, after the before_tool_callback has already floored/ceiled the
 # args sent to MCP.
 STATE_EXACT_WINDOW_KEY = "temp:hotel_search_exact_window"
+# mcp-dayuse#8, option B: the daypart ("afternoon"...) this search filtered on,
+# written by datetime_resolver.resolve_search_timeslot.
+STATE_DAYPART_KEY = "temp:hotel_search_daypart"
 # S-G6: set when the exact-window post-filter would have emptied the result
 # set entirely — the leaf then falls back to the coarser (hour-rounded)
 # results instead of a silent 0, and the outcome text discloses the fallback.
@@ -340,37 +360,27 @@ def _hhmm_from_total(total_minutes: Any) -> str | None:
     return f"{hour:02d}:{minute:02d}"
 
 
-def _offer_minutes_of_day(offer: dict[str, Any], hour_key: str, minute_key: str) -> int | None:
-    raw_hour: Any = offer.get(hour_key)
-    raw_minute: Any = offer.get(minute_key)
-    try:
-        hour = int(raw_hour)
-        minute = int(raw_minute or 0)
-    except (TypeError, ValueError):
-        return None
-    if not (0 <= hour <= 23 and 0 <= minute <= 59):
-        return None
-    return hour * 60 + minute
+# An exact clock window (start/end minutes-of-day, site covering rule) or a
+# daypart name (soft overlap rule) — see b2c_common.timeslot.
+Window = tuple[int | None, int | None] | str
 
 
-def _offer_fits_exact_window(
+def _offer_matches(offer: dict[str, Any], window: Window) -> bool:
+    if isinstance(window, str):
+        return slot_overlaps_daypart(offer.get("startHour"), offer.get("endHour"), window)
+    return _offer_covers_window(offer, window[0], window[1])
+
+
+def _offer_covers_window(
     offer: dict[str, Any], start_total: int | None, end_total: int | None
 ) -> bool:
-    """S-G6 (A4-c): does `offer` fit ENTIRELY inside the exact requested
-    window (minutes-of-day) — same semantics MCP's own timeSlot filter
-    documents ("the offer must fit entirely inside the window"), just applied
-    at minute precision instead of the whole-hour precision MCP itself can
-    filter on. An offer missing a start/end we need to check against never
-    passes (never assume a fit we can't verify)."""
-    if start_total is not None:
-        offer_start = _offer_minutes_of_day(offer, "startHour", "startMinute")
-        if offer_start is None or offer_start < start_total:
-            return False
-    if end_total is not None:
-        offer_end = _offer_minutes_of_day(offer, "endHour", "endMinute")
-        if offer_end is None or offer_end > end_total:
-            return False
-    return True
+    """mcp-dayuse#4/#8: the site rule, shared with the concierge's
+    `guard_window_match` (`b2c_common.slot_covers_window`) — the offer
+    CONTAINS the requested window, in whole hours. It used to be the
+    opposite (offer inside the window): five 08–14 offers answered "no
+    offer covers 12h–13h exactly", and 6h–16h showed offers the site does
+    not."""
+    return slot_covers_window(offer.get("startHour"), offer.get("endHour"), start_total, end_total)
 
 
 def _first(*values: Any) -> Any:
@@ -527,7 +537,7 @@ def _photo_url(main_photo_normal: Any) -> str | None:
 
 
 def normalize_hotel(
-    hotel: dict[str, Any], exact_window: tuple[int | None, int | None] | None = None
+    hotel: dict[str, Any], exact_window: Window | None = None
 ) -> dict[str, Any]:
     """One compact hotel card from an MCP_B2C hotel dict (camelCase). Only the
     fields a booking decision / a card needs — never an invented booking link,
@@ -606,10 +616,7 @@ def normalize_hotel(
         card["currency_code"] = currency_code
     offers = hotel.get("offers") or []
     if exact_window is not None:
-        start_total, end_total = exact_window
-        offers = [
-            o for o in offers if isinstance(o, dict) and _offer_fits_exact_window(o, start_total, end_total)
-        ]
+        offers = [o for o in offers if isinstance(o, dict) and _offer_matches(o, exact_window)]
     best = _best_offer(offers, hotel)
     if best:
         shown_price = display_price_euro(best, hotel)
@@ -673,7 +680,7 @@ def normalize_hotel(
 def normalize_search_results(
     structured: Any,
     exclude_ids: set[Any] | None = None,
-    exact_window: tuple[int | None, int | None] | None = None,
+    exact_window: Window | None = None,
 ) -> list[dict[str, Any]]:
     """Top-5 compact cards from a tool's structuredContent. Handles the
     `search_offers` envelope (`{"results": [...]}`, confirmed live) and the
@@ -689,10 +696,9 @@ def normalize_search_results(
     `exclude_ids` — a named lookup must never be hidden as "already shown".
 
     S-G6 (A4-c): `exact_window`, when given, drops a hotel ENTIRELY when none
-    of its offers fit inside the true requested minutes (see
-    `_offer_fits_exact_window`) — a hotel whose only offer is 07:00-13:00 is
-    not a real match for "07:30-13:30" even though MCP's own hour-rounded
-    filter (07:00-14:00) returned it. `find_hotel_by_name` never passes
+    of its offers covers the requested window (see `_offer_covers_window`) —
+    MCP's own `timeSlot` filter keeps any OVERLAPPING offer, so a hotel whose
+    only offer is 17:00-22:00 comes back for "22h-23h". `find_hotel_by_name` never passes
     `exact_window` either — a name lookup is not bound to a search's time."""
     if not isinstance(structured, dict):
         return []
@@ -707,9 +713,8 @@ def normalize_search_results(
         if not isinstance(item, dict):
             continue
         if exact_window is not None:
-            start_total, end_total = exact_window
             fits_any = any(
-                isinstance(o, dict) and _offer_fits_exact_window(o, start_total, end_total)
+                isinstance(o, dict) and _offer_matches(o, exact_window)
                 for o in (item.get("offers") or [])
             )
             if not fits_any:
@@ -902,6 +907,27 @@ def record_guards_fired(tool_context: Any, names: Iterable[str]) -> None:
     tool_context.state[_STATE_GUARDS_KEY] = sorted({*(str(p) for p in previous), *fired})
 
 
+def _record_fallback(tool_context: Any, name: str) -> None:
+    previous = tool_context.state.get(_STATE_FALLBACKS_KEY) or []
+    tool_context.state[_STATE_FALLBACKS_KEY] = sorted({*previous, name})
+
+
+def _record_mcp_error(
+    tool_context: Any, tool_name: str, args: dict[str, Any], tool_response: dict[str, Any]
+) -> None:
+    kind = classify_mcp_error(tool_response) or "failed"
+    if kind == "not_found" and tool_name == "find_hotel_by_name":
+        envelope = (tool_response.get("structuredContent") or {}).get("error") or {}
+        query = envelope.get("query") or args.get("name")
+        if isinstance(query, str) and query.strip():
+            tool_context.state[_STATE_NAMED_NOT_FOUND_KEY] = query.strip()
+        _record_fallback(tool_context, "named_hotel_not_found")
+        return
+    _record_fallback(tool_context, "mcp_error")
+    if tool_context.state.get(_STATE_MCP_ERROR_KEY) != "failed":
+        tool_context.state[_STATE_MCP_ERROR_KEY] = "failed" if kind == "failed" else "rejected"
+
+
 def capture_after_tool(
     tool: Any, args: dict[str, Any], tool_context: Any, tool_response: Any
 ) -> dict[str, Any] | None:
@@ -966,8 +992,11 @@ def capture_after_tool(
         # (the model still sees the neutral diagnostic, but its prose no longer
         # decides what the customer reads on this failure).
         tool_context.state[_STATE_SEARCH_UNAVAILABLE_KEY] = True
+        _record_fallback(tool_context, "mcp_error")
+        tool_context.state[_STATE_MCP_ERROR_KEY] = "failed"
         return None
     if tool_response.get("isError") or tool_response.get("ok") is False:
+        _record_mcp_error(tool_context, name, args, tool_response)
         return None  # a real failure — leave it untouched for the model to relay
 
     structured = read_structured_payload(tool_response)
@@ -975,7 +1004,7 @@ def capture_after_tool(
         return None
 
     exclude_ids: set[Any] | None = None
-    strict_window: tuple[int | None, int | None] | None = None
+    strict_window: Window | None = None
     if name == "search_offers":
         # S-G5 pagination safety net: hotels already shown across earlier turns
         # (accumulated at the profile, S-G1) are filtered out before the top-5
@@ -1006,8 +1035,14 @@ def capture_after_tool(
             start_total, end_total = exact_window_state.get("start_total"), exact_window_state.get(
                 "end_total"
             )
-            if isinstance(start_total, int) and isinstance(end_total, int):
-                strict_window = (start_total, end_total)
+            if isinstance(start_total, int) or isinstance(end_total, int):
+                strict_window = (
+                    start_total if isinstance(start_total, int) else None,
+                    end_total if isinstance(end_total, int) else None,
+                )
+        daypart = tool_context.state.get(STATE_DAYPART_KEY)
+        if daypart in DAYPART_HOURS:
+            strict_window = daypart
     results = normalize_search_results(structured, exclude_ids, strict_window)
     timeslot_fallback = False
     if strict_window is not None and not results:
@@ -1076,6 +1111,10 @@ def capture_after_tool(
         # Runs for a 0-result search too (that is exactly when auto-widen needs
         # the budget); a failed search already returned above, so nothing here.
         budget_timeslot = _budget_timeslot_from_args(args)
+        if tool_context.state.get(STATE_DAYPART_KEY):
+            # The timeSlot sent was the daypart's hours, not a stated window.
+            budget_timeslot.pop("timeslot_start", None)
+            budget_timeslot.pop("timeslot_end", None)
         # S-G6 (core-e2e-084): `args["timeSlot"]` only holds the floored/ceiled
         # HOUR bounds by the time this after_tool_callback sees it (the
         # before_tool_callback already rewrote it for MCP, which has no minute
@@ -1276,36 +1315,16 @@ _OUTCOME_FOUND: dict[str, str] = {
     "nl": "{count} dagaanbieding(en) gevonden: {names}.",
 }
 
-_OUTCOME_TIMESLOT_FALLBACK: dict[str, str] = {
-    "fr": (
-        " Aucune offre ne couvre exactement le créneau demandé ; voici les "
-        "options les plus proches."
-    ),
-    "en": (
-        " No offer covers the exact requested time window; showing the "
-        "closest matches instead."
-    ),
-    "es": (
-        " Ninguna oferta cubre exactamente la franja solicitada; aquí "
-        "tienes las opciones más cercanas."
-    ),
-    "it": (
-        " Nessuna offerta copre esattamente la fascia oraria richiesta; "
-        "ecco le opzioni più vicine."
-    ),
-    "de": (
-        " Kein Angebot deckt genau das gewünschte Zeitfenster ab; hier sind "
-        "die nächstgelegenen Optionen."
-    ),
-    "pt": (
-        " Nenhuma oferta cobre exatamente o horário pedido; aqui estão as "
-        "opções mais próximas."
-    ),
-    "nl": (
-        " Geen enkel aanbod dekt precies het gevraagde tijdslot; hier zijn "
-        "de dichtstbijzijnde opties."
-    ),
-}
+def timeslot_window_label(start_total: int | None, end_total: int | None) -> str:
+    """The requested window in whole hours, as the site rule reads it."""
+    arrival, departure = requested_hours(start_total, end_total)
+    if arrival is not None and departure is not None:
+        return f"{arrival:02d}:00–{departure:02d}:00"
+    if arrival is not None:
+        return f"{arrival:02d}:00"
+    if departure is not None:
+        return f"{departure:02d}:00"
+    return ""
 
 
 def _outcome_text(
@@ -1313,6 +1332,7 @@ def _outcome_text(
     timeslot_fallback: bool = False,
     language: str = "en",
     search_date: Any = None,
+    window: str = "",
 ) -> str:
     """A short, code-built (zero-LLM) grounded outcome line. This becomes the
     orchestrator's `leaf_text` — it re-synthesizes the user-facing answer in the
@@ -1332,8 +1352,22 @@ def _outcome_text(
     template = _OUTCOME_FOUND.get(language, _OUTCOME_FOUND["en"])
     text = template.format(count=len(results), names=names) + date_line
     if timeslot_fallback:
-        text += _OUTCOME_TIMESLOT_FALLBACK.get(language, _OUTCOME_TIMESLOT_FALLBACK["en"])
+        text += " " + window_fallback_line(window, language)
     return text
+
+
+def _state_window_label(state: Any) -> str:
+    daypart = state.get(STATE_DAYPART_KEY)
+    if daypart in DAYPART_HOURS:
+        first_hour, last_hour = DAYPART_HOURS[daypart]
+        return f"{first_hour:02d}:00–{last_hour:02d}:00"
+    window = state.get(STATE_EXACT_WINDOW_KEY)
+    if not isinstance(window, dict):
+        return ""
+    start, end = window.get("start_total"), window.get("end_total")
+    return timeslot_window_label(
+        start if isinstance(start, int) else None, end if isinstance(end, int) else None
+    )
 
 
 _SEARCH_UNAVAILABLE: dict[str, str] = {
@@ -1497,6 +1531,15 @@ def emit_search_datapart(callback_context: Any) -> genai_types.Content | None:
         if budget_timeslot.get("timeslot_end"):
             profile_delta["timeslot_end"] = budget_timeslot["timeslot_end"]
         profile_delta["timeslot_request_source"] = _REQUEST_SOURCE_FLEXIBLE
+        # A stated clock window replaces a daypart carried from earlier.
+        if read_profile_in(callback_context).get("daypart"):
+            profile_delta["daypart"] = {"op": "clear"}
+    daypart = state.get(STATE_DAYPART_KEY)
+    if daypart in DAYPART_HOURS:
+        # ...and a daypart replaces a clock window: one time filter at a time.
+        profile_delta["daypart"] = _op_set(daypart)
+        for slot in ("timeslot", "timeslot_start", "timeslot_end", "timeslot_mode"):
+            profile_delta[slot] = {"op": "clear"}
     # P0-1: party size → the orchestrator's slots. No request-source twin: an
     # occupancy is never inferred or widened, so there is no flexible/explicit
     # distinction to carry. `children` is sent when captured even at 0 ("adults
@@ -1567,8 +1610,20 @@ def emit_search_datapart(callback_context: Any) -> genai_types.Content | None:
         # `requires_clarification` honestly (it used to be hardcoded False and
         # safe clarifying questions scored as hard failures).
         payload["requires_clarification"] = True
+    fallbacks = state.get(_STATE_FALLBACKS_KEY)
+    if isinstance(fallbacks, list) and fallbacks:
+        payload["fallbacks_fired"] = list(fallbacks)
+    named_not_found = state.get(_STATE_NAMED_NOT_FOUND_KEY)
+    if isinstance(named_not_found, str):
+        payload["named_hotel_not_found"] = named_not_found
+    if results is not None and state.get(_STATE_TIMESLOT_FALLBACK_KEY):
+        # No offer covers the window: the cards are the closest ones. The
+        # concierge makes sure the answer says so (`guard_window_match`).
+        payload["timeslot_fallback"] = _state_window_label(state) or True
     if search_unavailable:
         payload["status"] = "search_unavailable"
+        if state.get(_STATE_MCP_ERROR_KEY) == "rejected":
+            payload["unavailable_reason"] = "rejected"
     if not payload:
         return None
 
@@ -1579,7 +1634,8 @@ def emit_search_datapart(callback_context: Any) -> genai_types.Content | None:
         parts.append(
             genai_types.Part(
                 text=_outcome_text(
-                    results, timeslot_fallback, language, state.get(STATE_SEARCH_DATE_KEY)
+                    results, timeslot_fallback, language, state.get(STATE_SEARCH_DATE_KEY),
+                    _state_window_label(state),
                 )
             )
         )
@@ -1650,6 +1706,7 @@ def skip_final_generation(callback_context: Any, llm_request: Any) -> LlmRespons
                         timeslot_fallback,
                         _profile_language(callback_context),
                         callback_context.state.get(STATE_SEARCH_DATE_KEY),
+                        _state_window_label(callback_context.state),
                     )
                 )
             ],

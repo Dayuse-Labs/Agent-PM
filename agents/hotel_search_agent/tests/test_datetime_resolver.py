@@ -46,18 +46,18 @@ class _Tool:
         self.name = name
 
 
-def _user_content_with_profile(profile_in: dict) -> genai_types.Content:
+def _user_content_with_profile(profile_in: dict, text: str = "hotel") -> genai_types.Content:
     datapart = a2a_types.Part(
         root=a2a_types.DataPart(data={"query_params": {}, "profile_in": profile_in})
     )
     return genai_types.Content(
         role="user",
-        parts=[genai_types.Part(text="hotel"), convert_a2a_part_to_genai_part(datapart)],
+        parts=[genai_types.Part(text=text), convert_a2a_part_to_genai_part(datapart)],
     )
 
 
-def _ctx_with_profile(profile_in: dict) -> _Ctx:
-    return _Ctx(user_content=_user_content_with_profile(profile_in))
+def _ctx_with_profile(profile_in: dict, text: str = "hotel") -> _Ctx:
+    return _Ctx(user_content=_user_content_with_profile(profile_in, text))
 
 
 # --- inject_datetime_declaration (before_model) -------------------------------------------------
@@ -502,7 +502,7 @@ def test_timeslot_ignores_other_tools():
 
 
 def test_timeslot_sub_hour_window_floors_and_ceils_for_mcp():
-    ctx = _ctx_with_profile({})
+    ctx = _ctx_with_profile({}, 'un hôtel de 7h30 à 13h30')
     args = {"timeSlot": {"startHour": 7, "startMinute": 30, "endHour": 13, "endMinute": 30}}
     resolve_search_timeslot(_Tool("search_offers"), args, ctx)
     assert args["timeSlot"] == {"startHour": 7, "endHour": 14}
@@ -511,7 +511,7 @@ def test_timeslot_sub_hour_window_floors_and_ceils_for_mcp():
 
 
 def test_timeslot_whole_hour_window_unchanged_from_before():
-    ctx = _ctx_with_profile({})
+    ctx = _ctx_with_profile({}, 'from 2pm to 8pm')
     args = {"timeSlot": {"startHour": 14, "endHour": 20}}
     resolve_search_timeslot(_Tool("search_offers"), args, ctx)
     assert args["timeSlot"] == {"startHour": 14, "endHour": 20}
@@ -519,7 +519,7 @@ def test_timeslot_whole_hour_window_unchanged_from_before():
 
 
 def test_timeslot_duration_with_fresh_start_computes_end():
-    ctx = _ctx_with_profile({})
+    ctx = _ctx_with_profile({}, 'à partir de 14h pour 2 heures')
     args = {"timeSlot": {"startHour": 9}, "duration": "PT1H30M"}
     resolve_search_timeslot(_Tool("search_offers"), args, ctx)
     assert "duration" not in args
@@ -547,7 +547,7 @@ def test_timeslot_duration_combines_with_carried_over_start():
 
 
 def test_timeslot_one_sided_start_only_kept_as_is():
-    ctx = _ctx_with_profile({})
+    ctx = _ctx_with_profile({}, 'à partir de 14h')
     args = {"timeSlot": {"startHour": 15, "startMinute": 15}}
     resolve_search_timeslot(_Tool("search_offers"), args, ctx)
     assert args["timeSlot"] == {"startHour": 15}
@@ -563,7 +563,7 @@ def test_timeslot_absent_entirely_stashes_nothing():
 
 
 def test_timeslot_end_never_overflows_past_23():
-    ctx = _ctx_with_profile({})
+    ctx = _ctx_with_profile({}, 'de 22h30 à 23h45')
     args = {"timeSlot": {"startHour": 22, "endHour": 23, "endMinute": 45}}
     resolve_search_timeslot(_Tool("search_offers"), args, ctx)
     assert args["timeSlot"]["endHour"] == 23  # never 24
@@ -767,3 +767,57 @@ def test_resolve_search_date_marks_a_carried_over_future_date_as_not_today():
     args = {}
     resolve_search_date(_Tool("search_offers"), args, ctx)
     assert ctx.state[STATE_SEARCH_DATE_KEY] == {"date": future, "same_day": False}
+
+
+# --- mcp-dayuse#8: a time slot the user never stated is dropped ----------------------------------
+
+
+def test_daypart_becomes_a_soft_filter_not_an_invented_window():
+    # "por la tarde" came back from the model as 12h-23h. Option B (Mathias
+    # 2026-10-06): the daypart is read in code and sent as its own hours —
+    # MCP's timeSlot overlaps — with NO exact window (no covering rule).
+    ctx = _ctx_with_profile({}, "busco un hotel con piscina en madrid mañana por la tarde")
+    args = {"timeSlot": {"startHour": 12, "endHour": 23}}
+    resolve_search_timeslot(_Tool("search_offers"), args, ctx)
+    assert args["timeSlot"] == {"startHour": 12, "endHour": 18}
+    assert STATE_EXACT_WINDOW_KEY not in ctx.state
+    assert ctx.state["temp:hotel_search_daypart"] == "afternoon"
+
+
+def test_a_carried_daypart_applies_when_the_turn_says_nothing_about_time():
+    ctx = _ctx_with_profile({"daypart": "morning"}, "et à Villeurbanne ?")
+    args: dict = {}
+    resolve_search_timeslot(_Tool("search_offers"), args, ctx)
+    assert args["timeSlot"] == {"startHour": 6, "endHour": 12}
+
+
+def test_a_stated_clock_time_wins_over_a_carried_daypart():
+    ctx = _ctx_with_profile({"daypart": "morning"}, "plutôt de 14h à 16h")
+    args = {"timeSlot": {"startHour": 14, "endHour": 16}}
+    resolve_search_timeslot(_Tool("search_offers"), args, ctx)
+    assert args["timeSlot"] == {"startHour": 14, "endHour": 16}
+    assert "temp:hotel_search_daypart" not in ctx.state
+
+
+def test_an_invented_slot_without_any_daypart_is_dropped_and_flagged():
+    ctx = _ctx_with_profile({}, "un hôtel à Lyon demain")
+    args = {"timeSlot": {"startHour": 12, "endHour": 23}}
+    resolve_search_timeslot(_Tool("search_offers"), args, ctx)
+    assert "timeSlot" not in args
+    assert ctx.state["temp:hotel_search_guards_fired"] == ["timeslot_sanitization"]
+
+
+def test_a_slot_carried_from_the_profile_is_kept():
+    ctx = _ctx_with_profile({"timeslot_start": "12:00", "timeslot_end": "13:00"}, "et à Villeurbanne ?")
+    args = {"timeSlot": {"startHour": 12, "endHour": 13}}
+    resolve_search_timeslot(_Tool("search_offers"), args, ctx)
+    assert args["timeSlot"] == {"startHour": 12, "endHour": 13}
+
+
+def test_stated_clock_times_are_recognised():
+    from hotel_search_agent.datetime_resolver import _CLOCK_TIME_RE
+
+    for text in ["de 12h à 13h", "13:30", "2pm", "um 15 Uhr", "a las 3", "à midi", "14 h 30"]:
+        assert _CLOCK_TIME_RE.search(text), text
+    for text in ["l'après-midi", "por la tarde", "in the evening", "demain matin", "pour 2 personnes"]:
+        assert not _CLOCK_TIME_RE.search(text), text

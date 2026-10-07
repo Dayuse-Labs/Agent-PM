@@ -1,0 +1,536 @@
+{
+  "amenities": [
+    {
+      "id": 3,
+      "label": "Air conditioning"
+    },
+    {
+      "id": 4,
+      "label": "Room service"
+    },
+    {
+      "id": 5,
+      "label": "Minibar (extra charge)"
+    },
+    {
+      "id": 7,
+      "label": "Tea & coffee facilities"
+    },
+    {
+      "id": 8,
+      "label": "Flat-screen TV"
+    },
+    {
+      "id": 11,
+      "label": "Bathtub"
+    },
+    {
+      "id": 12,
+      "label": "Shower"
+    },
+    {
+      "id": 13,
+      "label": "Hairdryer"
+    },
+    {
+      "id": 14,
+      "label": "Restaurant"
+    },
+    {
+      "id": 15,
+      "label": "Bar / Café"
+    },
+    {
+      "id": 18,
+      "label": "Terrace"
+    },
+    {
+      "id": 19,
+      "label": "Garden"
+    },
+    {
+      "id": 20,
+      "label": "Elevator"
+    },
+    {
+      "id": 21,
+      "label": "Wheelchair accessible rooms"
+    },
+    {
+      "id": 22,
+      "label": "Valet parking"
+    },
+    {
+      "id": 23,
+      "label": "Free parking"
+    },
+    {
+      "id": 24,
+      "label": "Parking"
+    },
+    {
+      "id": 27,
+      "label": "WiFi (fees apply)"
+    },
+    {
+      "id": 28,
+      "label": "Free WiFi"
+    },
+    {
+      "id": 29,
+      "label": "Business center"
+    },
+    {
+      "id": 30,
+      "label": "Meeting room"
+    },
+    {
+      "id": 32,
+      "label": "Beach access"
+    },
+    {
+      "id": 33,
+      "label": "Outdoor pool"
+    },
+    {
+      "id": 34,
+      "label": "Indoor pool"
+    },
+    {
+      "id": 35,
+      "label": "Spa"
+    },
+    {
+      "id": 36,
+      "label": "Beauty center"
+    },
+    {
+      "id": 38,
+      "label": "Fitness room"
+    },
+    {
+      "id": 39,
+      "label": "Massage"
+    },
+    {
+      "id": 41,
+      "label": "Hot tub"
+    },
+    {
+      "id": 43,
+      "label": "Courtesy tray"
+    },
+    {
+      "id": 2945,
+      "label": "Express dry cleaning"
+    },
+    {
+      "id": 2948,
+      "label": "Parking close by"
+    },
+    {
+      "id": 2949,
+      "label": "Free airport shuttle"
+    },
+    {
+      "id": 2950,
+      "label": "Airport shuttle (fees apply)"
+    },
+    {
+      "id": 2951,
+      "label": "Sauna"
+    },
+    {
+      "id": 2952,
+      "label": "Hammam / Steam room"
+    },
+    {
+      "id": 2956,
+      "label": "Pets allowed"
+    },
+    {
+      "id": 2979,
+      "label": "Designated smoking area"
+    },
+    {
+      "id": 2981,
+      "label": "Rooftop bar"
+    },
+    {
+      "id": 2982,
+      "label": "Rooftop pool"
+    },
+    {
+      "id": 2988,
+      "label": "Concierge service"
+    },
+    {
+      "id": 2990,
+      "label": "Laundry"
+    },
+    {
+      "id": 2991,
+      "label": "Charging station for electric vehicles"
+    },
+    {
+      "id": 2992,
+      "label": "Breakfast area"
+    },
+    {
+      "id": 2993,
+      "label": "Sports ground"
+    },
+    {
+      "id": 2996,
+      "label": "Family rooms"
+    },
+    {
+      "id": 2997,
+      "label": "Vending machines"
+    },
+    {
+      "id": 2998,
+      "label": "ATM"
+    },
+    {
+      "id": 2999,
+      "label": "Minimarket on site"
+    },
+    {
+      "id": 3000,
+      "label": "Pool bar"
+    }
+  ],
+  "generated_at": "2026-10-06T10:52:18+00:00",
+  "tools": {
+    "compare_hotels": {
+      "$schema": "http://json-schema.org/draft-07/schema#",
+      "additionalProperties": false,
+      "properties": {
+        "date": {
+          "description": "Optional day-use date in yyyy-MM-dd format. When provided, hotels are compared on their bookable offers for that date. When omitted, the cheapest upcoming offer (today onward) is used.",
+          "format": "date",
+          "type": "string"
+        },
+        "hotelIds": {
+          "description": "Shortlist of 2 to 10 numeric hotel ids to compare, obtained from the find_hotel_by_name or search_offers tools.",
+          "items": {
+            "exclusiveMinimum": 0,
+            "type": "integer"
+          },
+          "maxItems": 10,
+          "minItems": 2,
+          "type": "array"
+        },
+        "refLat": {
+          "description": "Optional reference latitude to compare hotels by distance. Must be provided together with refLon.",
+          "maximum": 90,
+          "minimum": -90,
+          "type": "number"
+        },
+        "refLon": {
+          "description": "Optional reference longitude to compare hotels by distance. Must be provided together with refLat.",
+          "maximum": 180,
+          "minimum": -180,
+          "type": "number"
+        }
+      },
+      "required": [
+        "hotelIds"
+      ],
+      "type": "object"
+    },
+    "find_hotel_by_name": {
+      "$schema": "http://json-schema.org/draft-07/schema#",
+      "additionalProperties": false,
+      "properties": {
+        "cityName": {
+          "description": "Optional city/market hint to disambiguate when several hotels share a similar name (e.g. \"London\"). Provide it to resolve an AmbiguousHotelError.",
+          "maxLength": 256,
+          "type": "string"
+        },
+        "name": {
+          "description": "Hotel name to look up, e.g. \"Hilton Chelsea\" or \"le Hilton de Chelsea\".",
+          "maxLength": 256,
+          "minLength": 1,
+          "type": "string"
+        }
+      },
+      "required": [
+        "name"
+      ],
+      "type": "object"
+    },
+    "generate_booking_link": {
+      "$schema": "http://json-schema.org/draft-07/schema#",
+      "additionalProperties": false,
+      "properties": {
+        "confirmed": {
+          "description": "MUST be false on the first call: the tool then returns an offer summary to present to the user for explicit confirmation. Set true ONLY after the user has explicitly confirmed.",
+          "type": "boolean"
+        },
+        "date": {
+          "description": "Booking date in yyyy-MM-dd format. Required.",
+          "format": "date",
+          "type": "string"
+        },
+        "hotelId": {
+          "description": "Numeric hotel id of the offer to book (from search_offers or find_hotel_by_name).",
+          "exclusiveMinimum": 0,
+          "type": "integer"
+        },
+        "ratePlanUuid": {
+          "description": "Rate plan UUID of the chosen offer (from search_offers / get_hotel_details). It is the booking tunnel offerId — required.",
+          "maxLength": 64,
+          "minLength": 1,
+          "type": "string"
+        },
+        "sessionId": {
+          "description": "Conversation/session id, propagated as utm_content for attribution.",
+          "maxLength": 128,
+          "minLength": 1,
+          "type": "string"
+        },
+        "utmCampaign": {
+          "description": "Override utm_campaign (default: hotel_search).",
+          "maxLength": 64,
+          "minLength": 1,
+          "type": "string"
+        },
+        "utmMedium": {
+          "description": "Override utm_medium (default: chat).",
+          "maxLength": 64,
+          "minLength": 1,
+          "type": "string"
+        },
+        "utmSource": {
+          "description": "Override utm_source (default: dayuse-ai-agent).",
+          "maxLength": 64,
+          "minLength": 1,
+          "type": "string"
+        }
+      },
+      "required": [
+        "hotelId",
+        "date",
+        "ratePlanUuid",
+        "confirmed"
+      ],
+      "type": "object"
+    },
+    "get_faq_conditions": {
+      "$schema": "http://json-schema.org/draft-07/schema#",
+      "additionalProperties": false,
+      "properties": {
+        "hotelId": {
+          "description": "Optional numeric hotel id (from find_hotel_by_name or search_offers). When provided, adds hotel-specific conditions and rate-plan context. Provide at least one of hotelId or market.",
+          "exclusiveMinimum": 0,
+          "type": "integer"
+        },
+        "market": {
+          "description": "Optional market as an ISO country code (e.g. \"FR\", \"US\", \"IT\", \"BR\"). Scopes the general FAQ when no hotel is resolved yet. If hotelId is given, the market defaults to the hotel country.",
+          "maxLength": 16,
+          "minLength": 1,
+          "type": "string"
+        },
+        "ratePlanId": {
+          "description": "Optional rate plan id (from search_offers/get_hotel_details offers) when the question concerns a specific offer — conditions can differ from one rate plan to another.",
+          "exclusiveMinimum": 0,
+          "type": "integer"
+        },
+        "topic": {
+          "description": "Question theme: \"booking\" (how to book, check-in/out), \"cancellation\", \"payment\" (cash/card, currency), \"taxes\", \"support\" (manage a booking, contact). Defaults to \"all\" (every section).",
+          "enum": [
+            "booking",
+            "cancellation",
+            "payment",
+            "taxes",
+            "support",
+            "all"
+          ],
+          "type": "string"
+        }
+      },
+      "type": "object"
+    },
+    "get_hotel_details": {
+      "$schema": "http://json-schema.org/draft-07/schema#",
+      "additionalProperties": false,
+      "properties": {
+        "date": {
+          "description": "Optional day-use date in yyyy-MM-dd format. When provided, only bookable offers for that date are returned. When omitted, upcoming bookable offers (today onward) are returned.",
+          "format": "date",
+          "type": "string"
+        },
+        "hotelId": {
+          "description": "Numeric hotel id, typically obtained from the find_hotel_by_name tool.",
+          "exclusiveMinimum": 0,
+          "type": "integer"
+        }
+      },
+      "required": [
+        "hotelId"
+      ],
+      "type": "object"
+    },
+    "list_addons": {
+      "$schema": "http://json-schema.org/draft-07/schema#",
+      "additionalProperties": false,
+      "properties": {
+        "familiesOnly": {
+          "description": "true to list only the 6 broad families (Food, Beverages, Romantic, Activities, Services, Special Access), false to list only their sub-categories. Omit to search both.",
+          "type": "boolean"
+        },
+        "query": {
+          "description": "Free-text add-on name to resolve, e.g. \"breakfast\", \"spa\", \"red wine\", \"parking\", \"late check-out\". Matches whole words of the English label, its parent category and common synonyms (accent/case- and punctuation-insensitive). Results are ranked, best match first. Omit to list the whole catalog.",
+          "maxLength": 128,
+          "type": "string"
+        }
+      },
+      "type": "object"
+    },
+    "list_amenities": {
+      "$schema": "http://json-schema.org/draft-07/schema#",
+      "additionalProperties": false,
+      "properties": {
+        "query": {
+          "description": "Free-text amenity name to resolve, e.g. \"air conditioning\", \"pool\", \"free wifi\". Matches the English label and common synonyms (accent/case-insensitive). Omit to list the whole catalog.",
+          "maxLength": 128,
+          "type": "string"
+        },
+        "scope": {
+          "description": "Restrict to one id space: \"hotel\" (whole-property equipment) or \"room\" (in-room equipment). Omit to search both.",
+          "enum": [
+            "hotel",
+            "room"
+          ],
+          "type": "string"
+        }
+      },
+      "type": "object"
+    },
+    "search_offers": {
+      "$schema": "http://json-schema.org/draft-07/schema#",
+      "additionalProperties": false,
+      "properties": {
+        "addonCategoryIds": {
+          "description": "Add-on category IDs to require (hard filter). ALL of them must be available on ONE AND THE SAME offer on the requested date — add-ons are purchased with the booked rate plan, so a hotel selling wine on one rate plan and spa on another does NOT match. Requesting several at once is therefore restrictive: prefer one, or search twice. Resolve add-on names to ids with the list_addons tool first; never guess an id. Granularity is the category, so \"red wine\" is the Wine category. An unresolved id is NOT applied as a filter and is reported back in ignoredAddonCategoryIds.",
+          "items": {
+            "exclusiveMinimum": 0,
+            "type": "integer"
+          },
+          "maxItems": 10,
+          "type": "array"
+        },
+        "adults": {
+          "description": "Minimum number of adults the offer must accommodate (keeps offers with capacity >= N).",
+          "maximum": 20,
+          "minimum": 1,
+          "type": "integer"
+        },
+        "children": {
+          "description": "Minimum number of children the offer must accommodate (keeps offers with childrenCapacity >= N).",
+          "maximum": 20,
+          "minimum": 1,
+          "type": "integer"
+        },
+        "date": {
+          "description": "Target date in ISO format (yyyy-MM-dd), already resolved.",
+          "format": "date",
+          "type": "string"
+        },
+        "from": {
+          "description": "Pagination offset (default 0)",
+          "maximum": 10000,
+          "minimum": 0,
+          "type": "integer"
+        },
+        "hotelEquipmentIds": {
+          "description": "Hotel-level equipment IDs to require (hard filter). Non-pool ids must all be present; pool ids are matched with OR semantics (any requested pool satisfies the filter).",
+          "items": {
+            "exclusiveMinimum": 0,
+            "type": "integer"
+          },
+          "maxItems": 20,
+          "type": "array"
+        },
+        "lat": {
+          "description": "Latitude of the point to search around (required).",
+          "maximum": 90,
+          "minimum": -90,
+          "type": "number"
+        },
+        "lon": {
+          "description": "Longitude of the point to search around (required).",
+          "maximum": 180,
+          "minimum": -180,
+          "type": "number"
+        },
+        "priceRangeMax": {
+          "description": "Maximum price per offer, in EUR (booking fees included). Upper bound of the budget range.",
+          "exclusiveMinimum": 0,
+          "type": "number"
+        },
+        "priceRangeMin": {
+          "description": "Minimum price per offer, in EUR (booking fees included). Lower bound of the budget range.",
+          "exclusiveMinimum": 0,
+          "type": "number"
+        },
+        "radiusKm": {
+          "description": "Search radius in km (default 20)",
+          "exclusiveMinimum": 0,
+          "maximum": 200,
+          "type": "number"
+        },
+        "roomEquipmentIds": {
+          "description": "Room-level (rate-plan) equipment IDs to require (hard filter). Non-pool ids must all be present; pool ids are matched with OR semantics (any requested pool satisfies the filter).",
+          "items": {
+            "exclusiveMinimum": 0,
+            "type": "integer"
+          },
+          "maxItems": 20,
+          "type": "array"
+        },
+        "size": {
+          "description": "Number of hotels per page (default 5, max 50). Above ~6 the response can exceed the transport character limit and be rejected: keep it small and paginate instead.",
+          "maximum": 50,
+          "minimum": 1,
+          "type": "integer"
+        },
+        "starRatings": {
+          "description": "Filter hotels by star rating (e.g. [4, 5] for 4- and 5-star hotels only).",
+          "items": {
+            "maximum": 5,
+            "minimum": 1,
+            "type": "integer"
+          },
+          "maxItems": 5,
+          "type": "array"
+        },
+        "timeSlot": {
+          "additionalProperties": false,
+          "description": "Optional time window preference in hotel local time. An offer is kept when it OVERLAPS this window, not when it fits entirely inside it. Omit it entirely for \"any time today\". Do NOT set startHour to the current hour to filter out past offers: an offer that has already started is still bookable until its own cutoff, and the server already excludes offers past their cutoff. Omitted bounds default to 0 (startHour) and 23 (endHour).",
+          "properties": {
+            "endHour": {
+              "maximum": 23,
+              "minimum": 0,
+              "type": "integer"
+            },
+            "startHour": {
+              "maximum": 23,
+              "minimum": 0,
+              "type": "integer"
+            }
+          },
+          "type": "object"
+        }
+      },
+      "required": [
+        "lat",
+        "lon",
+        "date"
+      ],
+      "type": "object"
+    }
+  }
+}

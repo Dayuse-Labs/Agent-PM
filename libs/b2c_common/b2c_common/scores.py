@@ -9,8 +9,9 @@ rename or remove one. 11 are ported from agent-usa's 2026-06 production audit
 (`tests/unit/application/test_audit_fixes_2026_06.py` + the loop-enforcement/
 named-hotel-card specs); 2 are AgentB2C-specific additions beyond that spec
 (`booking_confirmation` = R9/guard #12, `hotel_link_truthfulness` = S-G12,
-guard #13) — see CLAUDE.md's "13 guards déterministes" — plus
-`poi_anchor_coherence` (#14) and `filter_relaxation_honored` (#15, UX1).
+guard #13) — see CLAUDE.md's "17 guards déterministes" — plus
+`poi_anchor_coherence` (#14), `filter_relaxation_honored` (#15, UX1),
+`date_served` (#16) and `window_match` (#17, both mcp-dayuse#8).
 
 Seven of the 15 (the geo/date guards + `filter_relaxation_honored`) fire
 inside `hotel_search_agent`, out of the OBS3 phase's zone
@@ -76,6 +77,32 @@ GUARD_SCORE_NAMES: tuple[str, ...] = (
     # applied; reaches here through the leaf's `guards_fired` DataPart key.
     # APPENDED, never reordered — the contract at the top of this module.
     "filter_relaxation_honored",
+    # #16 (mcp-dayuse#8, 2026-10-06): the search ran on another day than the
+    # one the user named (QA Côte d'Azur: 3 October asked, 30/09 served).
+    # Fires in `b2c_concierge.agent`, which then says which day is on screen.
+    "date_served",
+    # #17 (mcp-dayuse#8, 2026-10-06): a card shown as a match did not cover
+    # the requested slot by the site rule (`b2c_common.timeslot`) — QA Lyon
+    # 22h01–23h01, cards closing at 22:00. Fires in `b2c_concierge.agent`,
+    # which drops those cards (or labels them all as the closest offers).
+    "window_match",
+)
+
+#: Degraded paths that still answer (mcp-dayuse#8): each becomes the BOOLEAN
+#: score `f"fallback_{name}"`, a full 0/1 snapshot every turn like the guards.
+#: Same contract as `GUARD_SCORE_NAMES`: append, never rename or remove.
+#: Kept apart from the `degraded` CATEGORICAL score on purpose — its Langfuse
+#: config pins the category list, so a new value there would be rejected.
+FALLBACK_SCORE_NAMES: tuple[str, ...] = (
+    # The synthesis produced nothing usable (exception, empty content or
+    # finish_reason=length): the code-built fallback text was served.
+    "synthesis",
+    # An MCP tool answered with an error (invalid argument, server error):
+    # the user got a degraded answer instead of results.
+    "mcp_error",
+    # A hotel the user named could not be found. When the turn still shows
+    # other hotels (city-wide search), the answer now says so first.
+    "named_hotel_not_found",
 )
 
 #: Closed set for the `degraded` CATEGORICAL score (RGPD: a rule id, never
@@ -135,6 +162,17 @@ def score_guards(fired: Iterable[str]) -> None:
     fired_set = set(fired)
     for name in GUARD_SCORE_NAMES:
         _score(client, f"guard_{name}", 1.0 if name in fired_set else 0.0, "BOOLEAN")
+
+
+def score_fallbacks(fell_back: Iterable[str]) -> None:
+    """One BOOLEAN score per `FALLBACK_SCORE_NAMES` entry on the CURRENT trace,
+    1.0 if present in `fell_back`. No-op when disabled; never raises."""
+    client = get_langfuse()
+    if client is None:
+        return
+    fell_back_set = set(fell_back)
+    for name in FALLBACK_SCORE_NAMES:
+        _score(client, f"fallback_{name}", 1.0 if name in fell_back_set else 0.0, "BOOLEAN")
 
 
 def score_turn(*, hotels_returned: int, llm_calls: int) -> None:

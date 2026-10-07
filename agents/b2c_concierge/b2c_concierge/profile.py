@@ -258,6 +258,9 @@ class SessionProfile:
     # currency ("HOTEL"), kept for the rest of the conversation until they ask
     # for euros again (product decision 2026-09-25).
     display_currency: str | None = None
+    # mcp-dayuse#8, option B: "morning" | "afternoon" | "evening" — a soft
+    # time filter read in code by the leaf, exclusive with a clock window.
+    daypart: str | None = None
 
     def to_dict(self) -> dict[str, Any]:
         return {
@@ -300,6 +303,7 @@ class SessionProfile:
             "adults": self.adults,
             "children": self.children,
             "display_currency": self.display_currency,
+            "daypart": self.daypart,
             "schema_version": PROFILE_SCHEMA_VERSION,
         }
 
@@ -701,6 +705,8 @@ def apply_profile_delta(
         profile.search_cursor = int(values["search_cursor"])
     if "client_timezone" in values:
         profile.client_timezone = values["client_timezone"]
+    if "daypart" in values:
+        profile.daypart = values["daypart"]
     # P0-1: party size. Coerced through int() like `search_cursor` — the value
     # arrives from untrusted wire data, and the leaf's own `party_count`
     # validator already refused anything non-integral, so anything odd reaching
@@ -899,7 +905,7 @@ def search_context_line(profile: SessionProfile) -> str:
         bits.append(f"destination: {profile.city}")
     if profile.budget_max:
         bits.append(f"budget max: €{profile.budget_max:.0f}")
-    slot = _timeslot_label(profile)
+    slot = _timeslot_label(profile) or profile.daypart
     if slot:
         bits.append(f"time of day: {slot}")
     if profile.amenities:
@@ -987,6 +993,25 @@ def _hotel_matches(stripped: str, message_tokens: set[str], hotel: dict[str, Any
     # Inn" must resolve both without either name appearing verbatim.
     significant = _significant_name_tokens(name)
     return bool(significant) and bool(significant & message_tokens)
+
+
+def named_hotel_in_results(name: str, results: list[dict[str, Any]] | None) -> bool:
+    """Whether a hotel the MCP name lookup missed is on screen anyway — the
+    lookup is stricter than the search (mcp-dayuse#3: "Pullman Lyon" not
+    found by name, then returned by the city search). Same strong tier as
+    the shortlist matcher, plus: every distinctive word of the name is in
+    the hotel's name."""
+    wanted = name.strip().lower()
+    wanted_tokens = _significant_name_tokens(wanted)
+    for hotel in results or []:
+        if not isinstance(hotel, dict):
+            continue
+        hotel_name = str(hotel.get("name") or "").strip()
+        if _substring_match(wanted, hotel_name) or (
+            wanted_tokens and wanted_tokens <= set(_NAME_TOKEN_RE.findall(hotel_name.lower()))
+        ):
+            return True
+    return False
 
 
 def record_search_shortlist(profile: SessionProfile, results: list[dict[str, Any]] | None) -> None:

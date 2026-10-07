@@ -143,3 +143,48 @@ def test_expected_route():
 
 def test_trace_evaluator_no_trace_assertions_declared():
     assert trace_evaluator(input=None, output=_output({}), expected_output={"min_hotels": 1}, metadata=None) == []
+
+
+# --- mcp-dayuse#8: QA 2026-09-30 facts ---------------------------------------
+def _card(name, start, end, offer_date=None):
+    card = {"name": name, "timeslots": [{"start": start, "end": end}]}
+    if offer_date:
+        card["offer_date"] = offer_date
+    return card
+
+
+def _score(expected, response):
+    return _by_name(response_evaluator(input=None, output=_output(response), expected_output=expected, metadata=None))
+
+
+def test_cards_cover_window_site_rule():
+    expected = {"cards_cover_window": {"start": "22:01", "end": "23:01"}}
+    assert _score(expected, {"hotels": [_card("A", "17:00", "23:00")]})["cards_cover_window"].value == 1
+    bad = _score(expected, {"hotels": [_card("A", "17:00", "23:00"), _card("B", "17:00", "22:00")]})
+    assert bad["cards_cover_window"].value == 0 and "B" in bad["cards_cover_window"].comment
+
+
+def test_cards_cover_window_accepts_cards_labelled_as_closest():
+    expected = {"cards_cover_window": {"start": "06:00", "end": "16:00"}}
+    cards = [_card("A", "08:00", "14:00")]
+    labelled = {"hotels": cards, "message": "Aucune offre ne couvre tout le créneau ; voici les offres les plus proches."}
+    assert _score(expected, labelled)["cards_cover_window"].value == 1
+    assert _score(expected, {"hotels": cards, "message": "Voici A."})["cards_cover_window"].value == 0
+
+
+def test_offers_on_date_days_ahead():
+    from datetime import datetime, timedelta
+    from zoneinfo import ZoneInfo
+
+    day = (datetime.now(ZoneInfo("Europe/Paris")).date() + timedelta(days=2)).isoformat()
+    expected = {"offers_on_date": {"days_ahead": 2}}
+    assert _score(expected, {"hotels": [_card("A", "10:00", "16:00", day)]})["offers_on_date"].value == 1
+    assert _score(expected, {"hotels": [_card("A", "10:00", "16:00", "2000-01-01")]})["offers_on_date"].value == 0
+    assert _score(expected, {"hotels": []})["offers_on_date"].value == "skipped"
+
+
+def test_no_iso_date_in_message_ignores_urls():
+    expected = {"no_iso_date_in_message": True}
+    ok = {"message": "Voir https://www.dayuse.fr/h?checkinDate=2026-10-07 pour mercredi 7 octobre."}
+    assert _score(expected, ok)["no_iso_date_in_message"].value == 1
+    assert _score(expected, {"message": "Recherche effectuée pour le 2026-09-30."})["no_iso_date_in_message"].value == 0

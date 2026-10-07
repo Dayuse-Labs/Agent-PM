@@ -156,3 +156,47 @@ class TestRecovery:
         clock.advance(30.0)
 
         assert mcp_circuit_before_tool(SEARCH_TOOL, {}, None) is None
+
+
+# --- mcp-dayuse#8: which MCP errors are the request's fault ---------------------------------
+
+_NOT_FOUND = {
+    "content": [{"type": "text", "text": 'No hotel found for "Novotel Lyon Zorbalix"'}],
+    "structuredContent": {"error": {
+        "kind": "HotelNotFoundError", "message": "No hotel found", "retryable": False,
+        "query": "Novotel Lyon Zorbalix",
+    }},
+    "isError": True,
+}
+# Verbatim from the local MCP, 2026-10-06 (QA trace 9bc5feb6's shape).
+_INVALID_ARGS = {
+    "content": [{"type": "text", "text": (
+        "MCP error -32602: Input validation error: Invalid arguments for tool search_offers: "
+        "Unrecognized key(s) in object: 'currency'"
+    )}],
+    "isError": True,
+}
+
+
+@pytest.mark.parametrize(
+    "response,kind",
+    [
+        (_NOT_FOUND, "not_found"),
+        (_INVALID_ARGS, "rejected"),
+        ({"structuredContent": {"error": {"kind": "AmbiguousHotelError", "retryable": False}},
+          "isError": True}, "rejected"),
+        ({"isError": True, "content": [{"type": "text", "text": "ES timeout"}]}, "failed"),
+        ({"ok": False, "error": "mcp_circuit_open"}, "failed"),
+        ({"ok": True, "structuredContent": {"items": []}}, None),
+    ],
+)
+def test_classify_mcp_error(response, kind):
+    assert mcp_guard.classify_mcp_error(response) == kind
+
+
+def test_invalid_arguments_do_not_open_the_breaker(clock, monkeypatch):
+    # Three rejected calls used to open the circuit for 30 s, for everyone.
+    monkeypatch.setattr(mcp_guard, "breaker", CircuitBreaker(failure_threshold=3, cooldown_seconds=30.0, clock=clock))
+    for _ in range(3):
+        mcp_circuit_after_tool(_Tool("search_offers"), {}, None, _INVALID_ARGS)
+    assert mcp_circuit_before_tool(_Tool("search_offers"), {}, None) is None
