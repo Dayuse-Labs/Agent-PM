@@ -1,7 +1,7 @@
 {
   "schema_version": 1,
   "legacy_sha": "a08a7792ed95dedca6255b5c588a80a504dd6249",
-  "candidate_runtime_sha": "40dd0c626069d773f7d7b099340eafea37d28ccb",
+  "candidate_runtime_sha": "89c1799cef21e7aff6cc8ab27f21bac7fc323b11",
   "meaning": "Traceability of 32 requirements, not 32 passed requirements. Individual historical tests remain indexed separately.",
   "rules": [
     {
@@ -483,6 +483,8 @@
       "live_result": "See integrated v15 validation on 2026-10-07; no blanket pass."
     }
   ],
-  "final_validation": "https://github.com/Dayuse-Labs/AgentB2C/blob/f93cb6d45154c2e1698b3938ab2315839cfa7afb/docs/evaluations/production-preservation-integration-2026-10-07.md",
-  "all_requirements_passed": false
+  "final_validation": "https://github.com/Dayuse-Labs/AgentB2C/blob/a3af2755b069a806c14b7d517126d810f7bc04fa/docs/evaluations/production-preservation-integration-2026-10-07.md",
+  "all_requirements_passed": false,
+  "live_replay_runtime_sha": "40dd0c626069d773f7d7b099340eafea37d28ccb",
+  "post_live_scope": "Search page metadata only; 204 captured MCP responses replayed offline, no change outside search_page. No new live dialogue run."
 }
