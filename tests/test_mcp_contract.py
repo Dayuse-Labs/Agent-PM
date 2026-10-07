@@ -30,6 +30,7 @@ from google.adk.a2a.converters.part_converter import convert_a2a_part_to_genai_p
 from google.genai import types as genai_types
 
 from hotel_search_agent.agent import root_agent
+from hotel_search_agent.response_bridge import capture_after_tool
 from hotel_search_agent.equipment_ids import EQUIPMENT_IDS
 from hotel_search_agent.schema_guard import drop_args_outside_schema
 
@@ -71,6 +72,12 @@ def _arguments_sent(tool_name: str, model_args: dict[str, Any], profile_in: dict
     tool = SimpleNamespace(name=tool_name, raw_mcp_tool=SimpleNamespace(inputSchema=schema))
     args = copy.deepcopy(model_args)
     ctx = _ToolContext(profile_in)
+    if tool_name == "search_offers":
+        # The search is permitted only after a real geocode outcome. Keep the
+        # contract test exercising the complete callback chain.
+        capture_after_tool(SimpleNamespace(name="geocode_location"), {}, ctx, {
+            "ok": True, "latitude": model_args["lat"], "longitude": model_args["lon"],
+        })
     callbacks = root_agent.before_tool_callback
     assert isinstance(callbacks, list)
     for callback in callbacks:

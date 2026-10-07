@@ -116,6 +116,12 @@ def _soft_country(
 
 
 def _echoes(place_name: str, *, city: str | None, zone: str | None, state_hint: str | None) -> bool:
+    # Matching only the parent city must not turn its centroid into a named
+    # landmark. Reuse the existing validator on the zone independently, then
+    # let the normal city/state check and POI anchor guard do their work.
+    if zone and not is_generic_location_token(zone):
+        if not geocode_echo_matches(place_name, city=None, zone=zone, state_hint=None):
+            return False
     return geocode_echo_matches(place_name, city=city, zone=zone, state_hint=state_hint)
 
 

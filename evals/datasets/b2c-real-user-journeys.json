@@ -1,0 +1,435 @@
+{
+  "cases": [
+    {
+      "id": "gps-manhattan",
+      "initial": "Find a day room near me tomorrow",
+      "persona": "You are in Midtown Manhattan. GPS is supplied on the first turn. You want 11am–4pm, then a cheaper option under $150. Do not name another destination. Ask if the offered hotel is genuinely near your original location.",
+      "requirements": [
+        "GPS origin survives budget/hour refinements",
+        "Never switch to a city centroid or another Manhattan without asking"
+      ],
+      "max_turns": 5,
+      "context": {
+        "locale": "en-US",
+        "domain": "dayuse.com",
+        "client_timezone": "America/New_York"
+      },
+      "origin": "Synthesis from actual production failures and legacy regression tests, not an organic customer conversation",
+      "split": "development",
+      "first_turn_context": {
+        "client_geo_context": {
+          "device": {
+            "latitude": 40.7549,
+            "longitude": -73.984,
+            "accuracy_m": 30,
+            "permission": "granted"
+          }
+        }
+      }
+    },
+    {
+      "id": "dublin-centre",
+      "initial": "A day room in Dublin City Centre please",
+      "persona": "You mean central Dublin in Ireland, tomorrow 11–16, under €120. Reply naturally to questions. After offers ask for the closest central option.",
+      "requirements": [
+        "Ireland anchored",
+        "City Centre is a district qualification, not a different city",
+        "No invented optimal proximity"
+      ],
+      "max_turns": 5,
+      "context": {
+        "locale": "en-IE",
+        "domain": "dayuse.ie",
+        "client_timezone": "Europe/Dublin"
+      },
+      "origin": "Synthesis from actual production failures and legacy regression tests, not an organic customer conversation",
+      "split": "development"
+    },
+    {
+      "id": "auckland",
+      "initial": "A hotel in Auckland for a few hours",
+      "persona": "You mean Auckland New Zealand, today 12–17, budget NZ$200. Correct a wrong country if it occurs, then ask for something cheaper.",
+      "requirements": [
+        "No California hamlet election",
+        "Budget currency honest"
+      ],
+      "max_turns": 5,
+      "context": {
+        "locale": "en-US",
+        "domain": "dayuse.com",
+        "client_timezone": "Pacific/Auckland"
+      },
+      "origin": "Synthesis from actual production failures and legacy regression tests, not an organic customer conversation",
+      "split": "development"
+    },
+    {
+      "id": "budapest",
+      "initial": "Day hotel in Budapest",
+      "persona": "You mean Budapest Hungary, tomorrow 10–16. You are using dayuse.com while travelling. Ask for a pool and then a cheaper option.",
+      "requirements": [
+        "No Missouri homonym",
+        "Explicit destination beats market default"
+      ],
+      "max_turns": 5,
+      "context": {
+        "locale": "en-US",
+        "domain": "dayuse.com",
+        "client_timezone": "Europe/Budapest"
+      },
+      "origin": "Synthesis from actual production failures and legacy regression tests, not an organic customer conversation",
+      "split": "development"
+    },
+    {
+      "id": "department77",
+      "initial": "Je cherche un hôtel dans le 77 pour demain",
+      "persona": "Vous voulez la Seine-et-Marne en France, 10h–17h, moins de 100 euros. Répondez aux questions ; précisez près de Disneyland Paris si utile.",
+      "requirements": [
+        "77 interpreted as French département",
+        "Never infer sector in Asia"
+      ],
+      "max_turns": 5,
+      "context": {
+        "locale": "fr-FR",
+        "domain": "dayuse.fr",
+        "client_timezone": "Europe/Paris"
+      },
+      "origin": "Synthesis from actual production failures and legacy regression tests, not an organic customer conversation",
+      "split": "development"
+    },
+    {
+      "id": "paris-region",
+      "initial": "Un hôtel à Paris pour demain de 12h à 18h",
+      "persona": "Vous voulez Paris en Île-de-France, moins de 110 euros. Après la première réponse, précisez Île-de-France puis demandez moins cher. Ne cherchez pas à La Rochelle ni sur une île.",
+      "requirements": [
+        "Region qualifies existing city",
+        "Date/window survive clarification"
+      ],
+      "max_turns": 5,
+      "context": {
+        "locale": "fr-FR",
+        "domain": "dayuse.fr",
+        "client_timezone": "Europe/Paris"
+      },
+      "origin": "Synthesis from actual production failures and legacy regression tests, not an organic customer conversation",
+      "split": "development"
+    },
+    {
+      "id": "defense-typo",
+      "initial": "Je cherche près de la defndeb pour quelques heures",
+      "persona": "Vous voulez La Défense à Courbevoie en France. Corrigez la faute lors de votre deuxième message, donnez 15h–18h et un budget 70 euros, puis augmentez à 100 si nécessaire.",
+      "requirements": [
+        "Correction replaces stale typo",
+        "Do not retain foreign homonym",
+        "Changed budget effective"
+      ],
+      "max_turns": 5,
+      "context": {
+        "locale": "fr-FR",
+        "domain": "dayuse.fr",
+        "client_timezone": "Europe/Paris"
+      },
+      "origin": "Synthesis from actual production failures and legacy regression tests, not an organic customer conversation",
+      "split": "development"
+    },
+    {
+      "id": "milford",
+      "initial": "A room with a jacuzzi",
+      "persona": "You mean Milford Connecticut tomorrow 10–16. Provide the town when asked, then give bare 110 as the budget, then ask for a cheaper alternative.",
+      "requirements": [
+        "City and CT retained",
+        "Bare budget retains language",
+        "Jacuzzi is an amenity, not a place"
+      ],
+      "max_turns": 5,
+      "context": {
+        "locale": "en-US",
+        "domain": "dayuse.com",
+        "client_timezone": "America/New_York"
+      },
+      "origin": "Synthesis from actual production failures and legacy regression tests, not an organic customer conversation",
+      "split": "development"
+    },
+    {
+      "id": "jfk-layover",
+      "initial": "I have a long layover at JFK",
+      "persona": "You want a day room near JFK airport New York tomorrow from 10:30am to 7pm. Explain this if asked. Compare a cheaper option while retaining the complete window. You are not asking for driving time.",
+      "requirements": [
+        "JFK resolved without redundant city loop",
+        "Layover not a journey-time question",
+        "Whole requested window checked"
+      ],
+      "max_turns": 5,
+      "context": {
+        "locale": "en-US",
+        "domain": "dayuse.com",
+        "client_timezone": "America/New_York"
+      },
+      "origin": "Synthesis from actual production failures and legacy regression tests, not an organic customer conversation",
+      "split": "development"
+    },
+    {
+      "id": "heathrow",
+      "initial": "London Heathrow Terminal 3 day room",
+      "persona": "You arrive tomorrow and need 11am–5pm. Ask for a later shorter 2pm–5pm option, still near Terminal 3. Ask whether shuttle is actually included; accept that it may need confirmation.",
+      "requirements": [
+        "Airport anchor persists",
+        "Window correction effective",
+        "Shuttle not inferred"
+      ],
+      "max_turns": 5,
+      "context": {
+        "locale": "en-GB",
+        "domain": "dayuse.co.uk",
+        "client_timezone": "Europe/London"
+      },
+      "origin": "Synthesis from actual production failures and legacy regression tests, not an organic customer conversation",
+      "split": "development"
+    },
+    {
+      "id": "rambler",
+      "initial": "Rambler Oasis Hotel",
+      "persona": "You specifically mean Rambler Oasis Hotel in Hong Kong, tomorrow for 3 hours. Supply Hong Kong if asked. Ask whether a day room is actually available and its total price; do not switch hotel.",
+      "requirements": [
+        "Named hotel preserved after city followup",
+        "Identity not verified availability"
+      ],
+      "max_turns": 5,
+      "context": {
+        "locale": "en-HK",
+        "domain": "dayuse.com.hk",
+        "client_timezone": "Asia/Hong_Kong"
+      },
+      "origin": "Synthesis from actual production failures and legacy regression tests, not an organic customer conversation",
+      "split": "development"
+    },
+    {
+      "id": "sheraton",
+      "initial": "Sheraton San Siro",
+      "persona": "Vuoi proprio Sheraton Milano San Siro, domani 12–17. Rispondi Milano se viene chiesto, poi 120 come budget. Vuoi sapere se esiste davvero una camera diurna disponibile.",
+      "requirements": [
+        "Named hotel persists after bare budget",
+        "Price and inventory grounded"
+      ],
+      "max_turns": 5,
+      "context": {
+        "locale": "it-IT",
+        "domain": "dayuse.it",
+        "client_timezone": "Europe/Rome"
+      },
+      "origin": "Synthesis from actual production failures and legacy regression tests, not an organic customer conversation",
+      "split": "development"
+    },
+    {
+      "id": "duration-milano",
+      "initial": "Cerco una camera a Milano per due o tre ore",
+      "persona": "Vuoi spendere 30–50 euro. Non hai ancora deciso l’orario di arrivo. Se chiesto, scegli 15h. Poi chiedi se 20–22 sarebbe possibile.",
+      "requirements": [
+        "Duration alone never becomes midnight window",
+        "New explicit clock overrides prior window"
+      ],
+      "max_turns": 5,
+      "context": {
+        "locale": "it-IT",
+        "domain": "dayuse.it",
+        "client_timezone": "Europe/Rome"
+      },
+      "origin": "Synthesis from actual production failures and legacy regression tests, not an organic customer conversation",
+      "split": "development"
+    },
+    {
+      "id": "minutes-lyon",
+      "initial": "Une chambre à Lyon demain de 8h45 à 17h",
+      "persona": "Vous êtes flexible de quinze minutes sur l’arrivée mais devez rester jusqu’à 17h. Budget 100 euros. Choisissez une vraie offre présentée et demandez de confirmer le créneau et le prix total.",
+      "requirements": [
+        "Site rounding applies consistently",
+        "Cover entire end time",
+        "Alternatives disclosed"
+      ],
+      "max_turns": 5,
+      "context": {
+        "locale": "fr-FR",
+        "domain": "dayuse.fr",
+        "client_timezone": "Europe/Paris"
+      },
+      "origin": "Synthesis from actual production failures and legacy regression tests, not an organic customer conversation",
+      "split": "development"
+    },
+    {
+      "id": "midnight",
+      "initial": "A room in London tomorrow from 10pm to 2am",
+      "persona": "You need the full overnight interval. Ask if this is supported. If not, accept the limitation and ask for a daytime 2pm–6pm stay instead.",
+      "requirements": [
+        "Overnight not silently converted",
+        "Explicit daytime change clears old hours"
+      ],
+      "max_turns": 5,
+      "context": {
+        "locale": "en-GB",
+        "domain": "dayuse.co.uk",
+        "client_timezone": "Europe/London"
+      },
+      "origin": "Synthesis from actual production failures and legacy regression tests, not an organic customer conversation",
+      "split": "development"
+    },
+    {
+      "id": "tomorrow-pool",
+      "initial": "Un hôtel avec piscine à Paris demain 12h–18h",
+      "persona": "Vous cherchez pour deux adultes, budget 130 euros. Après une réponse, demandez moins cher, puis demandez si demain et 12–18 sont toujours bien pris en compte.",
+      "requirements": [
+        "Tomorrow retained through cheaper",
+        "Timeslot stable",
+        "No invented date change"
+      ],
+      "max_turns": 5,
+      "context": {
+        "locale": "fr-FR",
+        "domain": "dayuse.fr",
+        "client_timezone": "Europe/Paris"
+      },
+      "origin": "Synthesis from actual production failures and legacy regression tests, not an organic customer conversation",
+      "split": "development"
+    },
+    {
+      "id": "remove-spa",
+      "initial": "A hotel in Berlin Mitte with a spa tomorrow",
+      "persona": "You want 11–16, under €130. After the first search explicitly remove spa and keep a pool only, then ask for a cheaper choice.",
+      "requirements": [
+        "Removed spa not reintroduced",
+        "Pool preserved without false wellness missing",
+        "Mitte remains"
+      ],
+      "max_turns": 5,
+      "context": {
+        "locale": "en-DE",
+        "domain": "dayuse.de",
+        "client_timezone": "Europe/Berlin"
+      },
+      "origin": "Synthesis from actual production failures and legacy regression tests, not an organic customer conversation",
+      "split": "development"
+    },
+    {
+      "id": "paramus-budget",
+      "initial": "Cheapest day room around Paramus NJ",
+      "persona": "You are thinking roughly $10 an hour for a 4-hour stay tomorrow. Then clarify your total budget is under $80, not €10. Ask which options truly fit.",
+      "requirements": [
+        "Hourly vs total separated",
+        "USD vs EUR explicit",
+        "Corrected budget not stale"
+      ],
+      "max_turns": 5,
+      "context": {
+        "locale": "en-US",
+        "domain": "dayuse.com",
+        "client_timezone": "America/New_York"
+      },
+      "origin": "Synthesis from actual production failures and legacy regression tests, not an organic customer conversation",
+      "split": "development"
+    },
+    {
+      "id": "queens-exclude",
+      "initial": "A day room in Queens New York tomorrow",
+      "persona": "You need 11am–6pm under $120. After options say you do not want a hotel near the airport. Ask for a suitable non-airport alternative.",
+      "requirements": [
+        "Queens survives followup",
+        "Airport exclusion applied or inability explicit"
+      ],
+      "max_turns": 5,
+      "context": {
+        "locale": "en-US",
+        "domain": "dayuse.com",
+        "client_timezone": "America/New_York"
+      },
+      "origin": "Synthesis from actual production failures and legacy regression tests, not an organic customer conversation",
+      "split": "development"
+    },
+    {
+      "id": "berkeley-close",
+      "initial": "Day room near Berkeley California",
+      "persona": "You want tomorrow 12–17 under $100. After results insist inside or closest to Berkeley, not a promotion in San Francisco. Ask which actual displayed hotel is closest.",
+      "requirements": [
+        "Proximity addresses origin",
+        "Ranking answer based on served facts"
+      ],
+      "max_turns": 5,
+      "context": {
+        "locale": "en-US",
+        "domain": "dayuse.com",
+        "client_timezone": "America/Los_Angeles"
+      },
+      "origin": "Synthesis from actual production failures and legacy regression tests, not an organic customer conversation",
+      "split": "development"
+    },
+    {
+      "id": "family-capacity",
+      "initial": "A beach day room in Orange County for my family",
+      "persona": "You have 2 adults and 2 children aged 4 and 8. Need tomorrow 11–17. Ask if a specific displayed offer actually accommodates all four and whether beach chairs and umbrellas are included. Do not accept generic booking-for-someone-else advice.",
+      "requirements": [
+        "Capacity verified or unknown stated",
+        "Children counts retained",
+        "Amenities grounded"
+      ],
+      "max_turns": 5,
+      "context": {
+        "locale": "en-US",
+        "domain": "dayuse.com",
+        "client_timezone": "America/Los_Angeles"
+      },
+      "origin": "Synthesis from actual production failures and legacy regression tests, not an organic customer conversation",
+      "split": "validation"
+    },
+    {
+      "id": "faq-detour",
+      "initial": "A hotel in Paris tomorrow from noon to 6pm under €120",
+      "persona": "After receiving results, ask whether you can pay cash and whether a card guarantee is needed. Then return to the cheapest hotel actually displayed and ask if the same time and budget still apply.",
+      "requirements": [
+        "FAQ interrupt preserves selection/date",
+        "Payment vs guarantee distinguished"
+      ],
+      "max_turns": 5,
+      "context": {
+        "locale": "en-GB",
+        "domain": "dayuse.fr",
+        "client_timezone": "Europe/London"
+      },
+      "origin": "Synthesis from actual production failures and legacy regression tests, not an organic customer conversation",
+      "split": "validation"
+    },
+    {
+      "id": "guest-cancel",
+      "initial": "How can I cancel my Dayuse booking myself?",
+      "persona": "You booked as a guest. Ask where to find the self-service link, then whether paid fees are always refundable, then whether this agent can verify the cancellation. Never give a real reference/email, never ask it to execute an action.",
+      "requirements": [
+        "Guest context retained",
+        "No universal free-refund claim",
+        "No claimed cancellation action"
+      ],
+      "max_turns": 5,
+      "context": {
+        "locale": "en-US",
+        "domain": "dayuse.com",
+        "client_timezone": "America/New_York"
+      },
+      "origin": "Synthesis from actual production failures and legacy regression tests, not an organic customer conversation",
+      "split": "validation"
+    },
+    {
+      "id": "select-real-offer",
+      "initial": "Un hôtel près de la gare de Lyon à Paris demain 10h–16h",
+      "persona": "Vous avez 120 euros. S’il y a des cartes, choisissez réellement la deuxième carte affichée et demandez son quartier puis comparez-la à la première. S’il y en a moins de deux, demandez une alternative. Ne confirmez jamais un achat.",
+      "requirements": [
+        "Ordinal bound to actual current shortlist",
+        "Detail uses selected hotel",
+        "Comparison does not invent hotel"
+      ],
+      "max_turns": 5,
+      "context": {
+        "locale": "fr-FR",
+        "domain": "dayuse.fr",
+        "client_timezone": "Europe/Paris"
+      },
+      "origin": "Synthesis from actual production failures and legacy regression tests, not an organic customer conversation",
+      "split": "validation"
+    }
+  ],
+  "method": "Same user goal, separate adaptive user trajectory per agent; no shared expected assistant answer. Validation cases held until after fixes. Outcome review separate from simulator stop."
+}

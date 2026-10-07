@@ -1300,3 +1300,54 @@ def test_bare_shortlist_position_does_not_become_a_budget(monkeypatch, fake_leg,
     _run_turn(runner, session.id, "2")
     assert observed["budget"] == 150
     assert fake_leg.call_count == 0
+
+
+def test_search_followup_gets_customer_context_after_empty_leaf_but_not_other_session(
+    monkeypatch, fake_leg, fake_profile_store
+):
+    fake_leg.text = None
+    fake_leg.response_payload = None
+    _scripted_llm(monkeypatch,
+        '{"family":"search","language":"en"}',
+        '{"family":"search","language":"en"}', 'No current availability verified.',
+        '{"family":"search","language":"en"}', 'Please give a destination.')
+    runner = InMemoryRunner(root_agent)
+    first = _new_session(runner)
+    _run_turn(runner, first.id, 'Near Heathrow Terminal 3 tomorrow from 11 to 17')
+    fake_leg.text = 'Please provide more information.'
+    _run_turn(runner, first.id, 'A later and shorter slot, 14 to 17')
+    envelope = find_datapart(fake_leg.seen_outgoing_parts)
+    assert envelope['query_params']['recent_user_messages'] == [
+        'Near Heathrow Terminal 3 tomorrow from 11 to 17'
+    ]
+    second = _new_session(runner)
+    _run_turn(runner, second.id, 'A room with a pool')
+    assert 'recent_user_messages' not in find_datapart(fake_leg.seen_outgoing_parts)['query_params']
+
+
+def test_recognized_budget_survives_a_failed_search_leaf(
+    monkeypatch, fake_leg, fake_profile_store
+):
+    fake_leg.text = None
+    fake_leg.response_payload = None
+    _scripted_llm(monkeypatch, '{"family":"search","language":"en","bare_budget_value":60}')
+    runner = InMemoryRunner(root_agent)
+    session = _new_session(runner)
+    asyncio.run(fake_profile_store.set(session.id, SessionProfile(
+        city='London', budget_max=150, budget_request_source=BUDGET_SOURCE_EXPLICIT,
+    )))
+    _run_turn(runner, session.id, '60')
+    assert asyncio.run(fake_profile_store.get(session.id)).budget_max == 60
+
+
+def test_resolved_search_uses_profile_not_stale_user_budget_history(monkeypatch, fake_leg):
+    fake_leg.response_payload = {"results": [], "profile_delta": {"city": "Paramus", "budget_max": 10}}
+    _scripted_llm(monkeypatch,
+                  '{"family":"search","language":"en"}', "No offers.",
+                  '{"family":"search","language":"en"}', "Updated search.")
+    runner = InMemoryRunner(root_agent)
+    session = _new_session(runner)
+    _run_turn(runner, session.id, "In Paramus, roughly ten dollars an hour")
+    _run_turn(runner, session.id, "under $80 total")
+    envelope = find_datapart(fake_leg.seen_outgoing_parts)
+    assert "recent_user_messages" not in envelope["query_params"]

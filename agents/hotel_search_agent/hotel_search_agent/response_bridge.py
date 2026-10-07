@@ -773,6 +773,53 @@ def read_structured_payload(tool_response: Any) -> dict[str, Any] | None:
 _POI_RADIUS_KM = 3.0
 
 
+def enforce_resolved_search_origin(
+    tool: Any, args: dict[str, Any], tool_context: Any,
+) -> dict[str, Any] | None:
+    """Bind the MCP search to this turn's verified geocode, not model coordinates.
+
+    The model can emit geocode and search together with placeholder coordinates.
+    A premature search is stopped locally; after geocode finishes, its existing
+    bounded tool budget still allows a valid search. No extra geocoding or model
+    call is added on the normal sequential path.
+    """
+    name = getattr(tool, "name", "")
+    if name == "geocode_location":
+        tool_context.state[_STATE_ANCHOR_KEY] = None
+        return None
+    if name != "search_offers":
+        return None
+    origin = tool_context.state.get(_STATE_ANCHOR_KEY)
+    lat = _coord(origin.get("latitude")) if isinstance(origin, dict) else None
+    lon = _coord(origin.get("longitude")) if isinstance(origin, dict) else None
+    if lat is None or lon is None or not -90 <= lat <= 90:
+        # No MCP-shaped error: this is a local precondition, not an outage.
+        _metrics_logger.info("dayuse_metric=search_origin status=geocode_required")
+        return {
+            "status": "geocode_required",
+            "reason": "Wait for a successful geocode_location result before calling search_offers. "
+                      "If geocoding needs clarification, ask the customer; never invent coordinates.",
+        }
+    args["lat"], args["lon"] = lat, lon
+    return None
+
+
+def inject_origin_sort(tool: Any, args: dict[str, Any], tool_context: Any) -> None:
+    """Ask MCP for nearest-first results around a verified precise origin.
+
+    The MCP contract distinguishes city-wide relevance from proximity to a
+    landmark/address/neighbourhood or device location. Sorting only the returned
+    five cards cannot recover nearer offers omitted by the backend's first page.
+    The final schema guard still drops this optional argument on older servers.
+    """
+    if getattr(tool, "name", "") != "search_offers":
+        return None
+    origin = tool_context.state.get(_STATE_ANCHOR_KEY)
+    if isinstance(origin, dict) and origin.get("type") in {"poi", "gps"}:
+        args["sortBy"] = "distance"
+    return None
+
+
 def inject_landmark_radius(tool: Any, args: dict[str, Any], tool_context: Any) -> None:
     """`before_tool_callback`: the ONLY writer of search_offers' `radiusKm`.
 
@@ -944,6 +991,8 @@ def capture_after_tool(
     name = getattr(tool, "name", "") or ""
 
     if name == "geocode_location":
+        # A failed refinement must not leave an earlier successful origin usable.
+        tool_context.state[_STATE_ANCHOR_KEY] = None
         # Guards are recorded on EVERY outcome, not just the successful ones: a
         # guard that fired and then made the turn fail honestly is exactly what
         # OBS3 needs to see.
@@ -1428,6 +1477,7 @@ def stamp_turn_start(callback_context: Any) -> None:
     covers the whole turn regardless of which path it takes (search / clarify
     / geocode-fail) — `emit_search_datapart` reads it back unconditionally."""
     callback_context.state[_STATE_TURN_T0_KEY] = time.monotonic()
+    callback_context.state[_STATE_ANCHOR_KEY] = None
     return None
 
 

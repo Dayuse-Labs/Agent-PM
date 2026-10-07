@@ -1579,3 +1579,25 @@ class TestPoiAnchorCeilingIsTight:
 
         assert result["ok"] is True
         assert "poi_anchor_coherence" not in (result.get("guards_fired") or [])
+
+
+@pytest.mark.parametrize("with_landmark", [True, False])
+def test_named_zone_cannot_resolve_to_its_city_centroid(monkeypatch, with_landmark):
+    """Live trace: Bercy was reported as a POI at the Paris centroid."""
+    paris = _c("Paris", "FR", "Île-de-France", lat=48.853495, lon=2.348392)
+    _patch_multi(monkeypatch, [paris], inventory={48.853495: 780})
+    if with_landmark:
+        bercy = GeocodeResult(48.8353, 2.3863, "Bercy, Paris, France", "FR", "Île-de-France")
+        monkeypatch.setattr(geocode_tool, "get_searchbox_client", lambda: _FakeSearchBox(bercy))
+
+    result = geocode_location(city="Paris", zone="Bercy", country_code="FR",
+                              raw_user_message="Paris j'arrive à Paris Bercy")
+
+    if with_landmark:
+        assert result["ok"] is True
+        assert result["latitude"] == 48.8353
+        assert result["longitude"] == 2.3863
+        assert result["distance_origin_type"] == "poi"
+    else:
+        assert result["ok"] is False
+        assert "latitude" not in result

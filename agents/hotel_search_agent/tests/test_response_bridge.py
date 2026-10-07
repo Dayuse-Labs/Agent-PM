@@ -2107,3 +2107,87 @@ def test_outcome_text_states_no_count(language):
     text = _outcome_text(page, language=language)
     assert not any(ch.isdigit() for ch in text)
     assert "Alpha" in text and "Echo" in text
+
+
+class TestVerifiedSearchOrigin:
+    @pytest.mark.parametrize("kind", ["poi", "gps"])
+    def test_precise_origin_requests_nearest_backend_page(self, kind):
+        from hotel_search_agent.response_bridge import inject_origin_sort
+
+        ctx = _Ctx(state={})
+        capture_after_tool(_Tool("geocode_location"), {}, ctx, {
+            "ok": True, "latitude": 48.8353, "longitude": 2.3863,
+            "distance_origin_type": kind,
+        })
+        args = {"sortBy": "relevance", "from": 5, "date": "2026-10-08"}
+        inject_origin_sort(_Tool("search_offers"), args, ctx)
+        assert args == {"sortBy": "distance", "from": 5, "date": "2026-10-08"}
+
+    @pytest.mark.parametrize("origin", [None, {"type": "city_centroid"}])
+    def test_city_search_keeps_its_existing_order(self, origin):
+        from hotel_search_agent.response_bridge import inject_origin_sort
+
+        ctx = _Ctx(state={"temp:hotel_search_anchor": origin})
+        args = {"sortBy": "relevance"}
+        inject_origin_sort(_Tool("search_offers"), args, ctx)
+        assert args == {"sortBy": "relevance"}
+
+    def test_sort_does_not_leak_into_named_lookup(self):
+        from hotel_search_agent.response_bridge import inject_origin_sort
+
+        args = {"name": "Rambler Oasis"}
+        ctx = _Ctx(state={"temp:hotel_search_anchor": {"type": "poi"}})
+        inject_origin_sort(_Tool("find_hotel_by_name"), args, ctx)
+        assert args == {"name": "Rambler Oasis"}
+
+    def test_model_placeholder_coordinates_are_replaced_by_the_geocode(self):
+        from hotel_search_agent.response_bridge import enforce_resolved_search_origin
+
+        ctx = _Ctx(state={})
+        args = {"lat": 0, "lon": 0}
+        capture_after_tool(_Tool("geocode_location"), {}, ctx, {
+            "ok": True, "latitude": 51.387974, "longitude": 0.546546,
+            "resolved_place": "Gillingham, Kent, United Kingdom",
+        })
+        assert enforce_resolved_search_origin(_Tool("search_offers"), args, ctx) is None
+        assert args == {"lat": 51.387974, "lon": 0.546546}
+
+    def test_search_before_geocode_is_stopped_then_can_proceed(self):
+        from hotel_search_agent.response_bridge import enforce_resolved_search_origin
+        from hotel_search_agent.mcp_guard import classify_mcp_error
+
+        ctx = _Ctx(state={})
+        args = {"lat": 0, "lon": 0}
+        blocked = enforce_resolved_search_origin(_Tool("search_offers"), args, ctx)
+        assert blocked["status"] == "geocode_required"
+        assert classify_mcp_error(blocked) is None  # not a backend outage
+        capture_after_tool(_Tool("search_offers"), args, ctx, blocked)
+        assert emit_search_datapart(ctx) is None  # no fabricated empty inventory
+        capture_after_tool(_Tool("geocode_location"), {}, ctx, {
+            "ok": True, "latitude": 48.8353, "longitude": 2.3863,
+        })
+        assert enforce_resolved_search_origin(_Tool("search_offers"), args, ctx) is None
+        assert args["lat"] == 48.8353
+
+    def test_a_failed_refinement_cannot_reuse_a_prior_origin(self):
+        from hotel_search_agent.response_bridge import enforce_resolved_search_origin
+
+        ctx = _Ctx(state={"temp:hotel_search_anchor": {
+            "latitude": 48.8566, "longitude": 2.3522,
+        }})
+        enforce_resolved_search_origin(_Tool("geocode_location"), {}, ctx)
+        assert ctx.state["temp:hotel_search_anchor"] is None
+        capture_after_tool(_Tool("geocode_location"), {}, ctx, {
+            "ok": False, "error": "geocode_ambiguous", "diagnostics": {"question": "Which city?"},
+        })
+        assert enforce_resolved_search_origin(_Tool("search_offers"), {"lat": 0, "lon": 0}, ctx)
+
+    def test_a_new_turn_clears_the_prior_origin_and_named_lookup_is_untouched(self):
+        from hotel_search_agent.response_bridge import enforce_resolved_search_origin, stamp_turn_start
+
+        ctx = _Ctx(state={"temp:hotel_search_anchor": {"latitude": 48.85, "longitude": 2.35}})
+        stamp_turn_start(ctx)
+        assert ctx.state["temp:hotel_search_anchor"] is None
+        args = {"name": "Rambler Oasis"}
+        assert enforce_resolved_search_origin(_Tool("find_hotel_by_name"), args, ctx) is None
+        assert args == {"name": "Rambler Oasis"}

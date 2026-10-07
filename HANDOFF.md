@@ -4,6 +4,32 @@
 
 > 📋 **Pour savoir QUOI faire ensuite, ouvrir [`CHANTIERS.md`](CHANTIERS.md)** (état vérifié au 2026-09-14) : la liste des chantiers ouverts, chacun avec sa preuve, ses actions et un prompt prêt à coller — plus la liste de ce qu'il ne faut **pas** relancer parce que c'est déjà livré. `tasks/todo.md` est périmé et ne doit plus servir de référence.
 
+
+## 2026-10-07 — audit prod / MCP et candidat de contexte + proximité
+
+Branche `codex/production-context-and-proximity`, base `cbe88b9`. Voir
+[`evals/REAL_USER_RESULTS_2026_10_07.md`](evals/REAL_USER_RESULTS_2026_10_07.md)
+pour la configuration Railway vérifiée, le protocole, les preuves et les échecs.
+**Pas de GO de lancement : aucun gain global de qualité démontré.** Le MCP est en
+préprod, reflet exact de la prod selon Victor (confirmé dans la conversation).
+
+Patch : persister le profil avant la feuille, transmettre le contexte utilisateur
+borné tant que la ville n'est pas résolue, rejeter une ville-centroïde qui ne valide
+pas le quartier, imposer les coordonnées du géocodage réussi du tour, utiliser le
+tri MCP par distance pour une origine POI/GPS. Concierge propriétaire de l'état,
+feuilles stateless, aucun nouveau regex, aucune modification des modèles déployés.
+Snapshot `search_offers` relu en live ; ne pas déduire que les autres outils ont
+été rafraîchis. Le contrat des heures reste à synchroniser dans un autre correctif.
+
+Validation locale : 2 149 tests passés / 2 ignorés, ruff, mypy et guardrails verts.
+41 séquences historiques (139 tours/bras), 24 objectifs adaptatifs legacy/B2C/v2,
+7 objectifs finaux ciblés, 2 feedbacks adaptés, répétitions critiques. Traces et
+scripts privés conservés dans le workspace legacy, jamais dans Git. Les défauts
+restants de geo/horaires/devise/sélection sont explicités dans le rapport ; les
+simulations invalides ne comptent pas comme succès. Pas de changement de modèle
+recommandé sur les essais 4.1 mini / 5.2 search. Ne pas fermer automatiquement les
+PR #121/#123, ne pas déployer ou fusionner cette branche sans review de l'équipe.
+
 ## ✅ 2026-10-07 (ter) — #121 de Victor découpée en 3 PR rebasées sur `main` (référence = main post-#126)
 
 **Fait** (comparaison #121/#123 vs MR de Mathias, puis extraction de ce qui n'est pas déjà sur `main`) :

@@ -1,0 +1,80 @@
+{
+  "cases": [
+    {
+      "id": "feedback-massage",
+      "origin": "Synthetic adaptation of a negative Langfuse feedback conversation; no historical assistant answer is a gold label.",
+      "turns": [
+        {
+          "body": {
+            "locale": "fr-FR",
+            "domain": "dayuse.com",
+            "currency": "USD",
+            "client_timezone": "America/New_York",
+            "message": "Je cherche une chambre près de l’aéroport JFK demain de 11h à 16h."
+          }
+        },
+        {
+          "body": {
+            "locale": "fr-FR",
+            "domain": "dayuse.com",
+            "currency": "USD",
+            "client_timezone": "America/New_York",
+            "message": "New York, près de JFK."
+          }
+        },
+        {
+          "body": {
+            "locale": "fr-FR",
+            "domain": "dayuse.com",
+            "currency": "USD",
+            "client_timezone": "America/New_York",
+            "message": "Je veux un massage aussi."
+          }
+        },
+        {
+          "body": {
+            "locale": "fr-FR",
+            "domain": "dayuse.com",
+            "currency": "USD",
+            "client_timezone": "America/New_York",
+            "message": "Y a-t-il des massages dans les hôtels proposés ?"
+          }
+        },
+        {
+          "body": {
+            "locale": "fr-FR",
+            "domain": "dayuse.com",
+            "currency": "USD",
+            "client_timezone": "America/New_York",
+            "message": "Si aucun massage n’est confirmé, garde la chambre près de JFK, moins de 150 dollars."
+          }
+        }
+      ]
+    },
+    {
+      "id": "feedback-afternoon",
+      "origin": "Synthetic adaptation of a negative Langfuse feedback conversation; no historical assistant answer is a gold label.",
+      "turns": [
+        {
+          "body": {
+            "locale": "fr-FR",
+            "domain": "dayuse.fr",
+            "currency": "EUR",
+            "client_timezone": "Europe/Paris",
+            "message": "Trouve-moi un hôtel à Lyon pour demain après-midi."
+          }
+        },
+        {
+          "body": {
+            "locale": "fr-FR",
+            "domain": "dayuse.fr",
+            "currency": "EUR",
+            "client_timezone": "Europe/Paris",
+            "message": "Moins de 100 euros, toujours demain après-midi."
+          }
+        }
+      ]
+    }
+  ],
+  "method": "Fixed follow-ups grounded in the two production-tagged sessions containing all five negative production user-feedback scores; organic vs QA unverified. Explicit browser currencies supplied. Dates adapted to tomorrow, no real booking action."
+}

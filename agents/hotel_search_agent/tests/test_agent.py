@@ -147,7 +147,9 @@ class TestMetricsWiring:
         from hotel_search_agent.occupancy import inject_profile_occupancy
         from hotel_search_agent.schema_guard import drop_args_outside_schema
         from hotel_search_agent.response_bridge import (
+            enforce_resolved_search_origin,
             inject_landmark_radius,
+            inject_origin_sort,
             inject_pagination_offset,
         )
 
@@ -160,19 +162,21 @@ class TestMetricsWiring:
         # the geocode's after_tool stash, which it does by construction
         # (different phase).
         assert before[0] is tool_timing_before
-        assert len(before) == 12
+        assert len(before) == 14
         # mcp-dayuse#8: the schema guard must see the args every other
         # callback has finished rewriting.
         assert before[-1] is drop_args_outside_schema
         assert resolve_search_date in before
         assert resolve_search_timeslot in before
         assert before[2] is mcp_circuit_before_tool
-        assert before[3] is enforce_equipment_filters
-        assert before[4] is inject_profile_occupancy
-        assert before[5] is inject_profile_budget
-        assert before[6] is inject_profile_geo_context
-        assert before[7] is inject_pagination_offset
-        assert before[8] is inject_landmark_radius
+        assert before[3] is enforce_resolved_search_origin
+        assert before[4] is enforce_equipment_filters
+        assert before[5] is inject_profile_occupancy
+        assert before[6] is inject_profile_budget
+        assert before[7] is inject_profile_geo_context
+        assert before[8] is inject_pagination_offset
+        assert before[9] is inject_landmark_radius
+        assert before[10] is inject_origin_sort
         assert tool_timing_after in self._as_list(root_agent.after_tool_callback)
         assert mcp_circuit_after_tool in self._as_list(root_agent.after_tool_callback)
         assert tool_error_metric in self._as_list(root_agent.on_tool_error_callback)

@@ -202,6 +202,9 @@
     }
   ],
   "generated_at": "2026-10-06T10:52:18+00:00",
+  "tool_verification_dates": {
+    "search_offers": "2026-10-07"
+  },
   "tools": {
     "compare_hotels": {
       "$schema": "http://json-schema.org/draft-07/schema#",
@@ -446,7 +449,7 @@
           "type": "integer"
         },
         "hotelEquipmentIds": {
-          "description": "Hotel-level equipment IDs to require (hard filter). Non-pool ids must all be present; pool ids are matched with OR semantics (any requested pool satisfies the filter).",
+          "description": "Hotel-level equipment IDs to require (hard filter). Ids of the same amenity group (list_amenities \"group\": pool, parking, shuttle) are OR-matched — any one satisfies the filter; all other ids must all be present.",
           "items": {
             "exclusiveMinimum": 0,
             "type": "integer"
@@ -483,7 +486,7 @@
           "type": "number"
         },
         "roomEquipmentIds": {
-          "description": "Room-level (rate-plan) equipment IDs to require (hard filter). Non-pool ids must all be present; pool ids are matched with OR semantics (any requested pool satisfies the filter).",
+          "description": "Room-level (rate-plan) equipment IDs to require (hard filter). Ids of the same amenity group (list_amenities \"group\": pool) are OR-matched — any one satisfies the filter; all other ids must all be present.",
           "items": {
             "exclusiveMinimum": 0,
             "type": "integer"
@@ -497,6 +500,14 @@
           "minimum": 1,
           "type": "integer"
         },
+        "sortBy": {
+          "description": "Result order. \"relevance\" (default): Dayuse ranking. \"distance\": nearest first from lat/lon (ties broken by hotel id). Use \"distance\" when the search point is a precise place (landmark, address, neighbourhood, station) rather than a whole city — this mirrors dayuse.com. Filters apply identically in both modes; pagination is stable in both.",
+          "enum": [
+            "relevance",
+            "distance"
+          ],
+          "type": "string"
+        },
         "starRatings": {
           "description": "Filter hotels by star rating (e.g. [4, 5] for 4- and 5-star hotels only).",
           "items": {
@@ -509,7 +520,7 @@
         },
         "timeSlot": {
           "additionalProperties": false,
-          "description": "Optional time window preference in hotel local time. An offer is kept when it OVERLAPS this window, not when it fits entirely inside it. Omit it entirely for \"any time today\". Do NOT set startHour to the current hour to filter out past offers: an offer that has already started is still bookable until its own cutoff, and the server already excludes offers past their cutoff. Omitted bounds default to 0 (startHour) and 23 (endHour).",
+          "description": "Optional time window in hotel local time; how it is matched depends on timeSlotMode (default \"overlap\"). Omit it entirely for \"any time today\". Do NOT set startHour to the current hour to filter out past offers: an offer that has already started is still bookable until its own cutoff, and the server already excludes offers past their cutoff. In \"overlap\" mode only, omitted bounds default to 0 (startHour) and 23 (endHour).",
           "properties": {
             "endHour": {
               "maximum": 23,
@@ -523,6 +534,14 @@
             }
           },
           "type": "object"
+        },
+        "timeSlotMode": {
+          "description": "How timeSlot is matched. \"contain\" (use it when the user gives an arrival and/or departure time): the offer must start at or before startHour AND end at or after endHour — same rule as the dayuse.com search, whole hours only (minutes are ignored on both sides). With only startHour the offer must also last until at least startHour+3; with only endHour it must start by endHour-2. \"overlap\" (default, for a loose preference like \"this afternoon\"): the offer only needs to overlap the window. Ignored when timeSlot is absent.",
+          "enum": [
+            "overlap",
+            "contain"
+          ],
+          "type": "string"
         }
       },
       "required": [

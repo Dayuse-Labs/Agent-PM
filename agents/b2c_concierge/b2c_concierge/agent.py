@@ -1380,12 +1380,21 @@ class _B2cConcierge(BaseAgent):
                 if profile.client_timezone:
                     profile.date_reference["client_tz"] = profile.client_timezone
 
+        if route.target == LEAF_HOTEL_SEARCH:
+            # Keep customer changes even when the remote leaf times out or
+            # returns no payload. The concierge remains the only state owner.
+            await store.set(ctx.session.id, profile)
+
         budget.charge("leaf_llm")
-        leaf_kwargs: dict[str, Any] = (
-            {"query_params": {"repeat_previous_search": True}} if repeat_search else {}
-        )
-        if family == "faq" and recent_messages:
-            leaf_kwargs = {"query_params": {"recent_user_messages": recent_messages}}
+        query_params: dict[str, Any] = {}
+        if repeat_search:
+            query_params["repeat_previous_search"] = True
+        if recent_messages and (family == "faq" or not profile.city):
+            # Recover a place/constraint lost before the first resolved search.
+            # Once the city is known, the profile is authoritative: replaying
+            # older words can revive a budget or filter already replaced.
+            query_params["recent_user_messages"] = recent_messages
+        leaf_kwargs: dict[str, Any] = {"query_params": query_params} if query_params else {}
         leaf_text, response = await _run_leaf(
             route.target, ctx, leaf_profile_view(profile), **leaf_kwargs
         )
