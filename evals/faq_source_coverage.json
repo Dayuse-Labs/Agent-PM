@@ -1,0 +1,2232 @@
+{
+  "version": 2,
+  "reviewer": "Codex, not business-approved gold labels",
+  "reviewed_at": "2026-10-06",
+  "scope": "104 legacy KB entries plus a separate mapping of 13 hardcoded FAQ entries to the 77 articles observed in targeted MCP probes. These are not 117 distinct intents.",
+  "legacy_revision": "a08a7792ed95dedca6255b5c588a80a504dd6249",
+  "legacy_kb_sha256": "630f104b1b2f98f27ac7253d8e1359168d115547b98b9e6accc8838c461ca9f9",
+  "mcp_capture_sha256": "31489f5937fcf8edf9c2535b4ecd3048e8613c36f778354f44cc2d5f8075061d",
+  "limitations": [
+    "Observed catalog is not a certified complete help-center inventory.",
+    "No match means not found in these probes, not definitive product capability loss.",
+    "Core-equivalent means the central intent has corresponding source guidance, not all claims are current or that the model answered correctly.",
+    "No historic policy, country count, phone number or fee is restored automatically.",
+    "All same-ID captured contents have now been compared: 21 normalized text matches, 39 core-equivalent translations and five changed/partial entries. This is not a fresh help-center or product-policy validation.",
+    "Conflicts between captured articles can exist even when each article preserves legacy wording."
+  ],
+  "counts": {
+    "normalized_text_equal": 21,
+    "core_equivalent": 46,
+    "changed_details": 5,
+    "partial_coverage": 20,
+    "conflicting_guidance": 2,
+    "not_found_in_observed_catalog": 10
+  },
+  "entries": [
+    {
+      "legacy_id": "360020361640",
+      "language": "en",
+      "question": "Amend my booking (Date & information)",
+      "requires_booking_context": true,
+      "status": "normalized_text_equal",
+      "matched_articles": [
+        {
+          "id": "360020361640",
+          "url": "https://support.dayuse.com/hc/en-us/articles/360020361640-Amend-my-booking-Date-information",
+          "topic": "cancellation"
+        }
+      ],
+      "review_note": "Captured guidance matches after Unicode NFKC, whitespace and pre-punctuation spacing normalization. Equal wording is not proof of freshness or model retrieval.",
+      "agent_behavior": "not_scored_by_source_mapping",
+      "source_comparison": {
+        "legacy_guidance_sha256": "40936b9e95fddf962d8e7c64dd2f0d33364e01c121a002c307b874fd2016b53a",
+        "mcp_body_sha256": "40936b9e95fddf962d8e7c64dd2f0d33364e01c121a002c307b874fd2016b53a",
+        "basis": "captured source text only, not current policy validation"
+      }
+    },
+    {
+      "legacy_id": "360020362900",
+      "language": "en",
+      "question": "Can I book a night on Dayuse.com?",
+      "requires_booking_context": true,
+      "status": "normalized_text_equal",
+      "matched_articles": [
+        {
+          "id": "360020362900",
+          "url": "https://support.dayuse.com/hc/en-us/articles/360020362900-Can-I-book-a-night-on-Dayuse-com",
+          "topic": "booking"
+        }
+      ],
+      "review_note": "Captured guidance matches after Unicode NFKC, whitespace and pre-punctuation spacing normalization. Equal wording is not proof of freshness or model retrieval.",
+      "agent_behavior": "not_scored_by_source_mapping",
+      "source_comparison": {
+        "legacy_guidance_sha256": "c9b3de3f5a923a736bb50519b331ff34d975cc258159d87e2e43bc227e7cd199",
+        "mcp_body_sha256": "c9b3de3f5a923a736bb50519b331ff34d975cc258159d87e2e43bc227e7cd199",
+        "basis": "captured source text only, not current policy validation"
+      }
+    },
+    {
+      "legacy_id": "360020414599",
+      "language": "en",
+      "question": "Customer complaints",
+      "requires_booking_context": true,
+      "status": "core_equivalent",
+      "matched_articles": [
+        {
+          "id": "31477833016466",
+          "url": "https://support.dayuse.com/hc/en-us/articles/31477833016466-Report-an-issue",
+          "topic": "support"
+        }
+      ],
+      "review_note": "Same complaint form, 72-hour response guidance and phone escalation. Booking identifiers belong in the official support form, not in a read-only assistant lookup.",
+      "agent_behavior": "not_scored_by_source_mapping"
+    },
+    {
+      "legacy_id": "360020363020",
+      "language": "en",
+      "question": "Deactivate a customer account",
+      "requires_booking_context": false,
+      "status": "normalized_text_equal",
+      "matched_articles": [
+        {
+          "id": "360020363020",
+          "url": "https://support.dayuse.com/hc/en-us/articles/360020363020-Deactivate-a-customer-account",
+          "topic": "taxes"
+        }
+      ],
+      "review_note": "Captured guidance matches after Unicode NFKC, whitespace and pre-punctuation spacing normalization. Equal wording is not proof of freshness or model retrieval.",
+      "agent_behavior": "not_scored_by_source_mapping",
+      "source_comparison": {
+        "legacy_guidance_sha256": "a9d029a652ad8aed8517d1d0403feebd747b30ab46c68e831321b100ae21ba11",
+        "mcp_body_sha256": "a9d029a652ad8aed8517d1d0403feebd747b30ab46c68e831321b100ae21ba11",
+        "basis": "captured source text only, not current policy validation"
+      }
+    },
+    {
+      "legacy_id": "360020362640",
+      "language": "en",
+      "question": "Do I need to bring a booking confirmation to the hotel?",
+      "requires_booking_context": false,
+      "status": "normalized_text_equal",
+      "matched_articles": [
+        {
+          "id": "360020362640",
+          "url": "https://support.dayuse.com/hc/en-us/articles/360020362640-Do-I-need-to-bring-a-booking-confirmation-to-the-hotel",
+          "topic": "booking"
+        }
+      ],
+      "review_note": "Captured guidance matches after Unicode NFKC, whitespace and pre-punctuation spacing normalization. Equal wording is not proof of freshness or model retrieval.",
+      "agent_behavior": "not_scored_by_source_mapping",
+      "source_comparison": {
+        "legacy_guidance_sha256": "d3e6cc318edb71a80c30547319991b7b220786ac39b7d32eb3f370c37e48fe50",
+        "mcp_body_sha256": "d3e6cc318edb71a80c30547319991b7b220786ac39b7d32eb3f370c37e48fe50",
+        "basis": "captured source text only, not current policy validation"
+      }
+    },
+    {
+      "legacy_id": "360020362260",
+      "language": "en",
+      "question": "How can I book a hotel with my family?",
+      "requires_booking_context": false,
+      "status": "normalized_text_equal",
+      "matched_articles": [
+        {
+          "id": "360020362260",
+          "url": "https://support.dayuse.com/hc/en-us/articles/360020362260-How-can-I-book-a-hotel-with-my-family",
+          "topic": "booking"
+        }
+      ],
+      "review_note": "Captured guidance matches after Unicode NFKC, whitespace and pre-punctuation spacing normalization. Equal wording is not proof of freshness or model retrieval.",
+      "agent_behavior": "not_scored_by_source_mapping",
+      "source_comparison": {
+        "legacy_guidance_sha256": "f24aa3ba779ccd29d5ee66f1eb5e4797fa9a30a0cdd00e3f5b21c1bb15cb403c",
+        "mcp_body_sha256": "f24aa3ba779ccd29d5ee66f1eb5e4797fa9a30a0cdd00e3f5b21c1bb15cb403c",
+        "basis": "captured source text only, not current policy validation"
+      }
+    },
+    {
+      "legacy_id": "360020361220",
+      "language": "en",
+      "question": "How can I find my booking number?",
+      "requires_booking_context": true,
+      "status": "normalized_text_equal",
+      "matched_articles": [
+        {
+          "id": "360020361220",
+          "url": "https://support.dayuse.com/hc/en-us/articles/360020361220-How-can-I-find-my-booking-number",
+          "topic": "booking"
+        }
+      ],
+      "review_note": "Captured guidance matches after Unicode NFKC, whitespace and pre-punctuation spacing normalization. Equal wording is not proof of freshness or model retrieval.",
+      "agent_behavior": "not_scored_by_source_mapping",
+      "source_comparison": {
+        "legacy_guidance_sha256": "3ad18e39d2907c2874a50ae0616fce019ce15aed2363b5c51067cfa6bd7303d2",
+        "mcp_body_sha256": "3ad18e39d2907c2874a50ae0616fce019ce15aed2363b5c51067cfa6bd7303d2",
+        "basis": "captured source text only, not current policy validation"
+      }
+    },
+    {
+      "legacy_id": "31196152190610",
+      "language": "en",
+      "question": "How can I know if my booking is confirmed?",
+      "requires_booking_context": true,
+      "status": "normalized_text_equal",
+      "matched_articles": [
+        {
+          "id": "31196152190610",
+          "url": "https://support.dayuse.com/hc/en-us/articles/31196152190610-How-can-I-know-if-my-booking-is-confirmed",
+          "topic": "booking"
+        }
+      ],
+      "review_note": "Captured guidance matches after Unicode NFKC, whitespace and pre-punctuation spacing normalization. Equal wording is not proof of freshness or model retrieval.",
+      "agent_behavior": "not_scored_by_source_mapping",
+      "source_comparison": {
+        "legacy_guidance_sha256": "f43e9fe1fa2fb21e294149b71e3b7e5c81cad82f6431a52c9d34596876401450",
+        "mcp_body_sha256": "f43e9fe1fa2fb21e294149b71e3b7e5c81cad82f6431a52c9d34596876401450",
+        "basis": "captured source text only, not current policy validation"
+      }
+    },
+    {
+      "legacy_id": "31665606790546",
+      "language": "en",
+      "question": "How can I leave a review about my Dayuse experience?",
+      "requires_booking_context": false,
+      "status": "normalized_text_equal",
+      "matched_articles": [
+        {
+          "id": "31665606790546",
+          "url": "https://support.dayuse.com/hc/en-us/articles/31665606790546-How-can-I-leave-a-review-about-my-Dayuse-experience",
+          "topic": "support"
+        }
+      ],
+      "review_note": "Captured guidance matches after Unicode NFKC, whitespace and pre-punctuation spacing normalization. Equal wording is not proof of freshness or model retrieval.",
+      "agent_behavior": "not_scored_by_source_mapping",
+      "source_comparison": {
+        "legacy_guidance_sha256": "263a4c71e56fa06004e4373c7ebd71d9934b434576efaf6a2c8f4e57ef78d603",
+        "mcp_body_sha256": "263a4c71e56fa06004e4373c7ebd71d9934b434576efaf6a2c8f4e57ef78d603",
+        "basis": "captured source text only, not current policy validation"
+      }
+    },
+    {
+      "legacy_id": "360020362560",
+      "language": "en",
+      "question": "How do I know if my reservation is confirmed?",
+      "requires_booking_context": true,
+      "status": "normalized_text_equal",
+      "matched_articles": [
+        {
+          "id": "360020362560",
+          "url": "https://support.dayuse.com/hc/en-us/articles/360020362560-How-do-I-know-if-my-reservation-is-confirmed",
+          "topic": "taxes"
+        }
+      ],
+      "review_note": "Captured guidance matches after Unicode NFKC, whitespace and pre-punctuation spacing normalization. Equal wording is not proof of freshness or model retrieval.",
+      "agent_behavior": "not_scored_by_source_mapping",
+      "source_comparison": {
+        "legacy_guidance_sha256": "d791fd348b15828d32784da28ff34b70e6b8506c58e5805113a9d5cb2cb05270",
+        "mcp_body_sha256": "d791fd348b15828d32784da28ff34b70e6b8506c58e5805113a9d5cb2cb05270",
+        "basis": "captured source text only, not current policy validation"
+      }
+    },
+    {
+      "legacy_id": "360020363360",
+      "language": "en",
+      "question": "How do I know if the hotel has parking?",
+      "requires_booking_context": false,
+      "status": "normalized_text_equal",
+      "matched_articles": [
+        {
+          "id": "360020363360",
+          "url": "https://support.dayuse.com/hc/en-us/articles/360020363360-How-do-I-know-if-the-hotel-has-parking",
+          "topic": "support"
+        }
+      ],
+      "review_note": "Captured guidance matches after Unicode NFKC, whitespace and pre-punctuation spacing normalization. Equal wording is not proof of freshness or model retrieval.",
+      "agent_behavior": "not_scored_by_source_mapping",
+      "source_comparison": {
+        "legacy_guidance_sha256": "91db48666f51fcfed0841a93676825cf54fcced1315deab31b91acbb9b3f5d77",
+        "mcp_body_sha256": "91db48666f51fcfed0841a93676825cf54fcced1315deab31b91acbb9b3f5d77",
+        "basis": "captured source text only, not current policy validation"
+      }
+    },
+    {
+      "legacy_id": "360020361100",
+      "language": "en",
+      "question": "How do the time slots offered by hotels work?",
+      "requires_booking_context": false,
+      "status": "changed_details",
+      "matched_articles": [
+        {
+          "id": "31200457770130",
+          "url": "https://support.dayuse.com/hc/en-us/articles/31200457770130-What-time-can-I-arrive-or-depart",
+          "topic": "booking"
+        },
+        {
+          "id": "31200494514066",
+          "url": "https://support.dayuse.com/hc/en-us/articles/31200494514066-Can-I-arrive-early-or-leave-later",
+          "topic": "booking"
+        }
+      ],
+      "review_note": "Offer time bounds are retained; MCP adds a one-hour arrival rule for late bookings. Confirm applicability before presenting it as universal.",
+      "agent_behavior": "not_scored_by_source_mapping"
+    },
+    {
+      "legacy_id": "360020361420",
+      "language": "en",
+      "question": "How to cancel my booking?",
+      "requires_booking_context": true,
+      "status": "normalized_text_equal",
+      "matched_articles": [
+        {
+          "id": "360020361420",
+          "url": "https://support.dayuse.com/hc/en-us/articles/360020361420-How-to-cancel-my-booking",
+          "topic": "cancellation"
+        }
+      ],
+      "review_note": "Captured guidance matches after Unicode NFKC, whitespace and pre-punctuation spacing normalization. Equal wording is not proof of freshness or model retrieval.",
+      "agent_behavior": "not_scored_by_source_mapping",
+      "source_comparison": {
+        "legacy_guidance_sha256": "d42aa82646ee4c245d7bd7369ada92e7999417724f1bdd3a61ddaf9059ddb455",
+        "mcp_body_sha256": "8fdd86ad99f70f5bd4faa0a6d3f9469318bf0d6b972ad630a5e9877e817964c5",
+        "basis": "captured source text only, not current policy validation"
+      }
+    },
+    {
+      "legacy_id": "360020363060",
+      "language": "en",
+      "question": "How to unsubscribe from our newsletter?",
+      "requires_booking_context": false,
+      "status": "partial_coverage",
+      "matched_articles": [
+        {
+          "id": "31229410102546",
+          "url": "https://support.dayuse.com/hc/en-us/articles/31229410102546-How-can-I-delete-or-modify-my-personal-information",
+          "topic": "cancellation"
+        }
+      ],
+      "review_note": "MCP mentions profile preferences but not the unsubscribe link or distinction between marketing and transactional emails.",
+      "agent_behavior": "not_scored_by_source_mapping"
+    },
+    {
+      "legacy_id": "360020403919",
+      "language": "en",
+      "question": "I was charged while the hotel refused my booking request.",
+      "requires_booking_context": true,
+      "status": "normalized_text_equal",
+      "matched_articles": [
+        {
+          "id": "360020403919",
+          "url": "https://support.dayuse.com/hc/en-us/articles/360020403919-I-was-charged-while-the-hotel-refused-my-booking-request",
+          "topic": "booking"
+        }
+      ],
+      "review_note": "Captured guidance matches after Unicode NFKC, whitespace and pre-punctuation spacing normalization. Equal wording is not proof of freshness or model retrieval.",
+      "agent_behavior": "not_scored_by_source_mapping",
+      "source_comparison": {
+        "legacy_guidance_sha256": "d5b1097294828b8dc4887190ab67cedb53a2cf6c7184e2a039a76b9dae4f0af2",
+        "mcp_body_sha256": "d5b1097294828b8dc4887190ab67cedb53a2cf6c7184e2a039a76b9dae4f0af2",
+        "basis": "captured source text only, not current policy validation"
+      }
+    },
+    {
+      "legacy_id": "360020404199",
+      "language": "en",
+      "question": "ID requirements",
+      "requires_booking_context": false,
+      "status": "changed_details",
+      "matched_articles": [
+        {
+          "id": "31200583352338",
+          "url": "https://support.dayuse.com/hc/en-us/articles/31200583352338-Requirement-for-Identification-Documents",
+          "topic": "booking"
+        }
+      ],
+      "review_note": "Age and physical-ID requirements remain, but wording changes from most hotels requesting ID to requests on age doubt; jurisdiction and hotel conditions still matter.",
+      "agent_behavior": "not_scored_by_source_mapping"
+    },
+    {
+      "legacy_id": "360020363300",
+      "language": "en",
+      "question": "Is it possible to book a dayuse for a photo shoot?",
+      "requires_booking_context": false,
+      "status": "normalized_text_equal",
+      "matched_articles": [
+        {
+          "id": "360020363300",
+          "url": "https://support.dayuse.com/hc/en-us/articles/360020363300-Is-it-possible-to-book-a-dayuse-for-a-photo-shoot",
+          "topic": "booking"
+        }
+      ],
+      "review_note": "Captured guidance matches after Unicode NFKC, whitespace and pre-punctuation spacing normalization. Equal wording is not proof of freshness or model retrieval.",
+      "agent_behavior": "not_scored_by_source_mapping",
+      "source_comparison": {
+        "legacy_guidance_sha256": "7d4aef2b89cece59a520e8766e4314af21cc6987914c8d1384528709aa412b7c",
+        "mcp_body_sha256": "7d4aef2b89cece59a520e8766e4314af21cc6987914c8d1384528709aa412b7c",
+        "basis": "captured source text only, not current policy validation"
+      }
+    },
+    {
+      "legacy_id": "360020404539",
+      "language": "en",
+      "question": "Maximum room occupancy",
+      "requires_booking_context": false,
+      "status": "partial_coverage",
+      "matched_articles": [
+        {
+          "id": "360020362260",
+          "url": "https://support.dayuse.com/hc/en-us/articles/360020362260-How-can-I-book-a-hotel-with-my-family",
+          "topic": "booking"
+        }
+      ],
+      "review_note": "Family support is present. The general two-person capacity rule and offer exceptions are not established by that article.",
+      "agent_behavior": "not_scored_by_source_mapping"
+    },
+    {
+      "legacy_id": "360020404019",
+      "language": "en",
+      "question": "My booking does not appear in my customer account",
+      "requires_booking_context": true,
+      "status": "normalized_text_equal",
+      "matched_articles": [
+        {
+          "id": "360020404019",
+          "url": "https://support.dayuse.com/hc/en-us/articles/360020404019-My-booking-does-not-appear-in-my-customer-account",
+          "topic": "booking"
+        }
+      ],
+      "review_note": "Captured guidance matches after Unicode NFKC, whitespace and pre-punctuation spacing normalization. Equal wording is not proof of freshness or model retrieval.",
+      "agent_behavior": "not_scored_by_source_mapping",
+      "source_comparison": {
+        "legacy_guidance_sha256": "b964695a1996b54745f707b52447e29b4b47b87a738a91b84743f7f77edfc166",
+        "mcp_body_sha256": "b964695a1996b54745f707b52447e29b4b47b87a738a91b84743f7f77edfc166",
+        "basis": "captured source text only, not current policy validation"
+      }
+    },
+    {
+      "legacy_id": "360020362200",
+      "language": "en",
+      "question": "No credit card required for my booking, is my booking firm?",
+      "requires_booking_context": true,
+      "status": "normalized_text_equal",
+      "matched_articles": [
+        {
+          "id": "360020362200",
+          "url": "https://support.dayuse.com/hc/en-us/articles/360020362200-No-credit-card-required-for-my-booking-is-my-booking-firm",
+          "topic": "payment"
+        }
+      ],
+      "review_note": "Captured guidance matches after Unicode NFKC, whitespace and pre-punctuation spacing normalization. Equal wording is not proof of freshness or model retrieval.",
+      "agent_behavior": "not_scored_by_source_mapping",
+      "source_comparison": {
+        "legacy_guidance_sha256": "761d01489c75e085dc486c5356f1d544f6bc9032c82b71fc75f251d7e71e0326",
+        "mcp_body_sha256": "761d01489c75e085dc486c5356f1d544f6bc9032c82b71fc75f251d7e71e0326",
+        "basis": "captured source text only, not current policy validation"
+      }
+    },
+    {
+      "legacy_id": "360020362960",
+      "language": "en",
+      "question": "Privacy Policy",
+      "requires_booking_context": false,
+      "status": "partial_coverage",
+      "matched_articles": [
+        {
+          "id": "31195413994514",
+          "url": "https://support.dayuse.com/hc/en-us/articles/31195413994514-How-to-create-a-booking-step-by-step",
+          "topic": "booking"
+        }
+      ],
+      "review_note": "Booking instructions discuss limited data sharing, not the full privacy policy or legal disclosure exceptions.",
+      "agent_behavior": "not_scored_by_source_mapping"
+    },
+    {
+      "legacy_id": "31477814606482",
+      "language": "en",
+      "question": "Puis-je faire une demande spéciale (étage élevé, lit bébé, chambre PMR, spa, etc.) ?",
+      "requires_booking_context": false,
+      "status": "partial_coverage",
+      "matched_articles": [
+        {
+          "id": "360020362880",
+          "url": "https://support.dayuse.com/hc/en-us/articles/360020362880-Room-amenities",
+          "topic": "booking"
+        }
+      ],
+      "review_note": "Special-request comment and availability are covered; accessibility escalation, extra fees and essential-needs handling are absent from this article.",
+      "agent_behavior": "not_scored_by_source_mapping"
+    },
+    {
+      "legacy_id": "360020362880",
+      "language": "en",
+      "question": "Room amenities",
+      "requires_booking_context": false,
+      "status": "normalized_text_equal",
+      "matched_articles": [
+        {
+          "id": "360020362880",
+          "url": "https://support.dayuse.com/hc/en-us/articles/360020362880-Room-amenities",
+          "topic": "booking"
+        }
+      ],
+      "review_note": "Captured guidance matches after Unicode NFKC, whitespace and pre-punctuation spacing normalization. Equal wording is not proof of freshness or model retrieval.",
+      "agent_behavior": "not_scored_by_source_mapping",
+      "source_comparison": {
+        "legacy_guidance_sha256": "d16734616887e3cf91288c6c62bf10880bc97c2e09fc25b7167011e41771143b",
+        "mcp_body_sha256": "d16734616887e3cf91288c6c62bf10880bc97c2e09fc25b7167011e41771143b",
+        "basis": "captured source text only, not current policy validation"
+      }
+    },
+    {
+      "legacy_id": "360020363180",
+      "language": "en",
+      "question": "Security Deposit",
+      "requires_booking_context": true,
+      "status": "core_equivalent",
+      "matched_articles": [
+        {
+          "id": "31200586472210",
+          "url": "https://support.dayuse.com/hc/en-us/articles/31200586472210-Security-Deposit",
+          "topic": "booking"
+        }
+      ],
+      "review_note": "Deposit versus card preauthorization, hotel-dependent payment and release timing have corresponding guidance. Do not infer an actual refund status.",
+      "agent_behavior": "not_scored_by_source_mapping"
+    },
+    {
+      "legacy_id": "360020404459",
+      "language": "en",
+      "question": "Upon check-in, what are my payment options for the room?",
+      "requires_booking_context": true,
+      "status": "normalized_text_equal",
+      "matched_articles": [
+        {
+          "id": "360020404459",
+          "url": "https://support.dayuse.com/hc/en-us/articles/360020404459-Upon-check-in-what-are-my-payment-options-for-the-room",
+          "topic": "payment"
+        }
+      ],
+      "review_note": "Captured guidance matches after Unicode NFKC, whitespace and pre-punctuation spacing normalization. Equal wording is not proof of freshness or model retrieval.",
+      "agent_behavior": "not_scored_by_source_mapping",
+      "source_comparison": {
+        "legacy_guidance_sha256": "65951d099dc29da28aca8b496755007e8b01a83d69b027b946a619963573e829",
+        "mcp_body_sha256": "65951d099dc29da28aca8b496755007e8b01a83d69b027b946a619963573e829",
+        "basis": "captured source text only, not current policy validation"
+      }
+    },
+    {
+      "legacy_id": "360020362440",
+      "language": "en",
+      "question": "What is included in the price?",
+      "requires_booking_context": false,
+      "status": "normalized_text_equal",
+      "matched_articles": [
+        {
+          "id": "360020362440",
+          "url": "https://support.dayuse.com/hc/en-us/articles/360020362440-What-is-included-in-the-price",
+          "topic": "booking"
+        }
+      ],
+      "review_note": "Captured guidance matches after Unicode NFKC, whitespace and pre-punctuation spacing normalization. Equal wording is not proof of freshness or model retrieval.",
+      "agent_behavior": "not_scored_by_source_mapping",
+      "source_comparison": {
+        "legacy_guidance_sha256": "0543c320b50f99100d80e6a32dbf8c9d731bfec62a7263bc431450caa46fb355",
+        "mcp_body_sha256": "0543c320b50f99100d80e6a32dbf8c9d731bfec62a7263bc431450caa46fb355",
+        "basis": "captured source text only, not current policy validation"
+      }
+    },
+    {
+      "legacy_id": "360020363220",
+      "language": "en",
+      "question": "What is the customer account for?",
+      "requires_booking_context": false,
+      "status": "core_equivalent",
+      "matched_articles": [
+        {
+          "id": "31195191926290",
+          "url": "https://support.dayuse.com/hc/en-us/articles/31195191926290-Do-I-need-to-create-an-account-to-make-a-booking",
+          "topic": "booking"
+        }
+      ],
+      "review_note": "Account benefits include saved hotels, booking history and faster booking.",
+      "agent_behavior": "not_scored_by_source_mapping"
+    },
+    {
+      "legacy_id": "360020362600",
+      "language": "en",
+      "question": "What is the purpose of the text message sent when booking?",
+      "requires_booking_context": true,
+      "status": "normalized_text_equal",
+      "matched_articles": [
+        {
+          "id": "360020362600",
+          "url": "https://support.dayuse.com/hc/en-us/articles/360020362600-What-is-the-purpose-of-the-text-message-sent-when-booking",
+          "topic": "booking"
+        }
+      ],
+      "review_note": "Captured guidance matches after Unicode NFKC, whitespace and pre-punctuation spacing normalization. Equal wording is not proof of freshness or model retrieval.",
+      "agent_behavior": "not_scored_by_source_mapping",
+      "source_comparison": {
+        "legacy_guidance_sha256": "3397baf17802d5f620c41ad9ac68ebaa19450c6e859d7e3875e15bc20722dcaa",
+        "mcp_body_sha256": "1ef98093d91c514b18e687975a59d33fecac7a2aaf4c637899cd70438e3d733b",
+        "basis": "captured source text only, not current policy validation"
+      }
+    },
+    {
+      "legacy_id": "360020402499",
+      "language": "en",
+      "question": "What is your cancellation policy?",
+      "requires_booking_context": true,
+      "status": "conflicting_guidance",
+      "matched_articles": [
+        {
+          "id": "360020402499",
+          "url": "https://support.dayuse.com/hc/en-us/articles/360020402499-What-is-your-cancellation-policy",
+          "topic": "cancellation"
+        }
+      ],
+      "review_note": "Captured MCP says before the slot starts; current public article says the confirmation-email deadline. Booking-specific terms prevail. Source conflict is not resolved by ID equality.",
+      "agent_behavior": "not_scored_by_source_mapping"
+    },
+    {
+      "legacy_id": "31196171044370",
+      "language": "en",
+      "question": "When should I pay for my booking?",
+      "requires_booking_context": true,
+      "status": "normalized_text_equal",
+      "matched_articles": [
+        {
+          "id": "31196171044370",
+          "url": "https://support.dayuse.com/hc/en-us/articles/31196171044370-When-should-I-pay-for-my-booking",
+          "topic": "payment"
+        }
+      ],
+      "review_note": "Captured guidance matches after Unicode NFKC, whitespace and pre-punctuation spacing normalization. Equal wording is not proof of freshness or model retrieval.",
+      "agent_behavior": "not_scored_by_source_mapping",
+      "source_comparison": {
+        "legacy_guidance_sha256": "13a963c7aeac55c8bdcd7f3aeaa0a4e78e5a04ab7fb96f01c6b7032794d579ca",
+        "mcp_body_sha256": "13a963c7aeac55c8bdcd7f3aeaa0a4e78e5a04ab7fb96f01c6b7032794d579ca",
+        "basis": "captured source text only, not current policy validation"
+      }
+    },
+    {
+      "legacy_id": "31229449723538",
+      "language": "en",
+      "question": "Where can I find my previous bookings?",
+      "requires_booking_context": true,
+      "status": "normalized_text_equal",
+      "matched_articles": [
+        {
+          "id": "31229449723538",
+          "url": "https://support.dayuse.com/hc/en-us/articles/31229449723538-Where-can-I-find-my-previous-bookings",
+          "topic": "booking"
+        }
+      ],
+      "review_note": "Captured guidance matches after Unicode NFKC, whitespace and pre-punctuation spacing normalization. Equal wording is not proof of freshness or model retrieval.",
+      "agent_behavior": "not_scored_by_source_mapping",
+      "source_comparison": {
+        "legacy_guidance_sha256": "f63887cf53e7465a32cd7e1accce7c82094565ce71e3c72799071f199656de8a",
+        "mcp_body_sha256": "f63887cf53e7465a32cd7e1accce7c82094565ce71e3c72799071f199656de8a",
+        "basis": "captured source text only, not current policy validation"
+      }
+    },
+    {
+      "legacy_id": "360020403159",
+      "language": "en",
+      "question": "Why does the hotel I want to book require a credit card payment?",
+      "requires_booking_context": true,
+      "status": "partial_coverage",
+      "matched_articles": [
+        {
+          "id": "360020403159",
+          "url": "https://support.dayuse.com/hc/en-us/articles/360020403159-Why-does-the-hotel-I-want-to-book-require-a-credit-card-payment",
+          "topic": "payment"
+        }
+      ],
+      "review_note": "Same-ID MCP text omits the legacy sentence requiring full payment on overnight offers; other daytime guidance remains. Another article may cover night prepayment.",
+      "agent_behavior": "not_scored_by_source_mapping",
+      "source_comparison": {
+        "legacy_guidance_sha256": "b96e3b1090a33f1c0e34946f63158dc6da2283a4c73872ce98ba9dbeb9232b0a",
+        "mcp_body_sha256": "0a8a1523d979f86d0001a7953ee92600a7724a147e1f99a2ac902899f32f03d3",
+        "basis": "captured source text only, not current policy validation"
+      }
+    },
+    {
+      "legacy_id": "31191684639762",
+      "language": "fr",
+      "question": "A qui s'adresse Dayuse ?",
+      "requires_booking_context": false,
+      "status": "not_found_in_observed_catalog",
+      "matched_articles": [],
+      "review_note": "No matched article for the full audience/use-case explanation in the observed catalog.",
+      "agent_behavior": "not_scored_by_source_mapping"
+    },
+    {
+      "legacy_id": "31195202286866",
+      "language": "fr",
+      "question": "A quoi sert le compte client ?",
+      "requires_booking_context": false,
+      "status": "partial_coverage",
+      "matched_articles": [
+        {
+          "id": "31195191926290",
+          "url": "https://support.dayuse.com/hc/en-us/articles/31195191926290-Do-I-need-to-create-an-account-to-make-a-booking",
+          "topic": "booking"
+        }
+      ],
+      "review_note": "Account benefits are mostly present; the ability to leave a review is not covered by this matched article.",
+      "agent_behavior": "not_scored_by_source_mapping"
+    },
+    {
+      "legacy_id": "31195975455634",
+      "language": "fr",
+      "question": "A quoi sert le SMS envoyé lors d'une réservation ?",
+      "requires_booking_context": false,
+      "status": "core_equivalent",
+      "matched_articles": [
+        {
+          "id": "31195975455634",
+          "url": "https://support.dayuse.com/hc/en-us/articles/31195975455634-What-is-the-purpose-of-the-SMS-sent-during-a-booking",
+          "topic": "booking"
+        }
+      ],
+      "review_note": "Same-ID English MCP translation preserves the central French guidance in this source comparison. Current validity, localization in the answer and successful retrieval remain unverified.",
+      "agent_behavior": "not_scored_by_source_mapping",
+      "source_comparison": {
+        "legacy_guidance_sha256": "2bf3bf93ef8d553090e3a1f3045b7d9e961839c160bcea3297ae4f5428006767",
+        "mcp_body_sha256": "3868a50ad362066cd98c9f2d639b6a64656fee617fdad8b9b625957adf137660",
+        "basis": "captured source text only, not current policy validation"
+      }
+    },
+    {
+      "legacy_id": "31191593005586",
+      "language": "fr",
+      "question": "Combien de temps puis-je rester dans la chambre ?",
+      "requires_booking_context": false,
+      "status": "partial_coverage",
+      "matched_articles": [
+        {
+          "id": "31200457770130",
+          "url": "https://support.dayuse.com/hc/en-us/articles/31200457770130-What-time-can-I-arrive-or-depart",
+          "topic": "booking"
+        },
+        {
+          "id": "31200494514066",
+          "url": "https://support.dayuse.com/hc/en-us/articles/31200494514066-Can-I-arrive-early-or-leave-later",
+          "topic": "booking"
+        }
+      ],
+      "review_note": "Time bounds and freedom within a slot are covered; extension and special-request escalation require separate guidance.",
+      "agent_behavior": "not_scored_by_source_mapping"
+    },
+    {
+      "legacy_id": "31196000167826",
+      "language": "fr",
+      "question": "Comment annuler ma réservation ?",
+      "requires_booking_context": false,
+      "status": "partial_coverage",
+      "matched_articles": [
+        {
+          "id": "31196000167826",
+          "url": "https://support.dayuse.com/hc/en-us/articles/31196000167826-How-to-cancel-a-booking",
+          "topic": "cancellation"
+        }
+      ],
+      "review_note": "Same-ID translated MCP text retains cancellation procedures and conditional terms but omits the legacy warning against cancelling directly with the hotel; the link changes from dayuse.fr to dayuse.com. Shared refund/cutoff generalizations are not independently validated.",
+      "agent_behavior": "not_scored_by_source_mapping",
+      "source_comparison": {
+        "legacy_guidance_sha256": "23c1edb6e201f35817404ae116b8a13f12a4c1edc9ae96afffba9f333f7f1e74",
+        "mcp_body_sha256": "e6dd54fa1fac01ac10a789cb9f3bdbdb95c92800fd88a1ff375e12bbad7f9b17",
+        "basis": "captured source text only, not current policy validation"
+      }
+    },
+    {
+      "legacy_id": "31229437103250",
+      "language": "fr",
+      "question": "Comment créer un compte Dayuse ?",
+      "requires_booking_context": false,
+      "status": "core_equivalent",
+      "matched_articles": [
+        {
+          "id": "31229437103250",
+          "url": "https://support.dayuse.com/hc/en-us/articles/31229437103250-How-to-create-a-Dayuse-account",
+          "topic": "support"
+        }
+      ],
+      "review_note": "Same-ID English MCP translation preserves the central French guidance in this source comparison. Current validity, localization in the answer and successful retrieval remain unverified.",
+      "agent_behavior": "not_scored_by_source_mapping",
+      "source_comparison": {
+        "legacy_guidance_sha256": "ae78ca5e0ab5e4489e352fa5a77cbaf8abfad836d647516d5de1fba16fb425bf",
+        "mcp_body_sha256": "722586caa08851f47ce1e0fd837ed33b281d17680782b255ff96de5571427cd0",
+        "basis": "captured source text only, not current policy validation"
+      }
+    },
+    {
+      "legacy_id": "31195413994514",
+      "language": "fr",
+      "question": "Comment créer une réservation ( étapes par étapes)",
+      "requires_booking_context": false,
+      "status": "core_equivalent",
+      "matched_articles": [
+        {
+          "id": "31195413994514",
+          "url": "https://support.dayuse.com/hc/en-us/articles/31195413994514-How-to-create-a-booking-step-by-step",
+          "topic": "booking"
+        }
+      ],
+      "review_note": "Same-ID English MCP translation preserves the central French guidance in this source comparison. Current validity, localization in the answer and successful retrieval remain unverified.",
+      "agent_behavior": "not_scored_by_source_mapping",
+      "source_comparison": {
+        "legacy_guidance_sha256": "bc646a0d5a00073ce011ab6a0e21cb5992fd30eba5d077a68d4f963a03ec0eeb",
+        "mcp_body_sha256": "40f3f877d1aa7cab10bbf00c88eb7ff16a0f4332630bfff7bd281187ae2c16b3",
+        "basis": "captured source text only, not current policy validation"
+      }
+    },
+    {
+      "legacy_id": "31477856413458",
+      "language": "fr",
+      "question": "Comment faire une demande spéciale ?",
+      "requires_booking_context": false,
+      "status": "partial_coverage",
+      "matched_articles": [
+        {
+          "id": "360020362880",
+          "url": "https://support.dayuse.com/hc/en-us/articles/360020362880-Room-amenities",
+          "topic": "booking"
+        }
+      ],
+      "review_note": "Special requests are mentioned, but accessibility needs, fees and escalation are not fully preserved.",
+      "agent_behavior": "not_scored_by_source_mapping"
+    },
+    {
+      "legacy_id": "31192887978770",
+      "language": "fr",
+      "question": "Comment fonctionne Dayuse, étape par étape ?",
+      "requires_booking_context": false,
+      "status": "core_equivalent",
+      "matched_articles": [
+        {
+          "id": "31195413994514",
+          "url": "https://support.dayuse.com/hc/en-us/articles/31195413994514-How-to-create-a-booking-step-by-step",
+          "topic": "booking"
+        },
+        {
+          "id": "31196171044370",
+          "url": "https://support.dayuse.com/hc/en-us/articles/31196171044370-When-should-I-pay-for-my-booking",
+          "topic": "payment"
+        }
+      ],
+      "review_note": "Search, slot selection, confirmation and offer-dependent payment have corresponding articles. Individual extra claims still need current-policy review.",
+      "agent_behavior": "not_scored_by_source_mapping"
+    },
+    {
+      "legacy_id": "31195824454034",
+      "language": "fr",
+      "question": "Comment fonctionne la carte cadeau Dayuse ?",
+      "requires_booking_context": false,
+      "status": "changed_details",
+      "matched_articles": [
+        {
+          "id": "31195824454034",
+          "url": "https://support.dayuse.com/hc/en-us/articles/31195824454034-How-does-the-Dayuse-gift-card-work",
+          "topic": "payment"
+        }
+      ],
+      "review_note": "Gift-card use expands from France-only in legacy to five countries in this MCP article; another captured article, 31195762796306, still says France-only. Resolve the source conflict before answering eligibility.",
+      "agent_behavior": "not_scored_by_source_mapping",
+      "source_comparison": {
+        "legacy_guidance_sha256": "3e64c1b46297095849128d0d56aa1ebcbf75300b2533a1dc8a5d352fc128ed0d",
+        "mcp_body_sha256": "34aaceba333a42a2db40056a91376c576cdcd0abe6917062ce4aaac7121406ce",
+        "basis": "captured source text only, not current policy validation"
+      },
+      "source_conflict": "Gift-card geographic scope disagrees between captured articles 31195824454034 and 31195762796306."
+    },
+    {
+      "legacy_id": "31196016300306",
+      "language": "fr",
+      "question": "Comment modifier ma réservation ?",
+      "requires_booking_context": false,
+      "status": "core_equivalent",
+      "matched_articles": [
+        {
+          "id": "31196016300306",
+          "url": "https://support.dayuse.com/hc/en-us/articles/31196016300306-How-can-I-modify-my-booking",
+          "topic": "cancellation"
+        }
+      ],
+      "review_note": "Same-ID English MCP translation preserves the central French guidance in this source comparison. Current validity, localization in the answer and successful retrieval remain unverified.",
+      "agent_behavior": "not_scored_by_source_mapping",
+      "source_comparison": {
+        "legacy_guidance_sha256": "3e89a64547f39160588a197bb27e5b2827e6143e3d60cfdb55ebca4ea0ee6e7d",
+        "mcp_body_sha256": "3e93f557fcbdd0f6e2938a70022e2c81c27e822ba4b01bb9c157cb520e36c953",
+        "basis": "captured source text only, not current policy validation"
+      }
+    },
+    {
+      "legacy_id": "31195478095378",
+      "language": "fr",
+      "question": "Comment puis-je acheter une Carte Cadeau ?",
+      "requires_booking_context": false,
+      "status": "core_equivalent",
+      "matched_articles": [
+        {
+          "id": "31195478095378",
+          "url": "https://support.dayuse.com/hc/en-us/articles/31195478095378-How-can-I-purchase-a-Gift-Card",
+          "topic": "payment"
+        }
+      ],
+      "review_note": "Same-ID English MCP translation preserves the central French guidance in this source comparison. Current validity, localization in the answer and successful retrieval remain unverified.",
+      "agent_behavior": "not_scored_by_source_mapping",
+      "source_comparison": {
+        "legacy_guidance_sha256": "68d54d01a73ebf814743717228ffd0c094667683dabd2c4902b96ed7216905da",
+        "mcp_body_sha256": "25ddcd607dc9a1ace99b82eead436effa7a782bdf52d1fb1e10876ef2f9a1a40",
+        "basis": "captured source text only, not current policy validation"
+      }
+    },
+    {
+      "legacy_id": "31196033248914",
+      "language": "fr",
+      "question": "Comment retrouver ma réservation ?",
+      "requires_booking_context": false,
+      "status": "core_equivalent",
+      "matched_articles": [
+        {
+          "id": "31196033248914",
+          "url": "https://support.dayuse.com/hc/en-us/articles/31196033248914-How-can-I-find-my-booking",
+          "topic": "booking"
+        }
+      ],
+      "review_note": "Same-ID English MCP translation preserves the central French guidance in this source comparison. Current validity, localization in the answer and successful retrieval remain unverified.",
+      "agent_behavior": "not_scored_by_source_mapping",
+      "source_comparison": {
+        "legacy_guidance_sha256": "58a9f975f9edfbcf13ff4f19b8f1a1073f646aca5134d0ad3dcd2993f25a1b72",
+        "mcp_body_sha256": "5ef74f7a110934d092926e478e01f102c977b5945a0c904b9b911efd5875aa34",
+        "basis": "captured source text only, not current policy validation"
+      }
+    },
+    {
+      "legacy_id": "31596573415186",
+      "language": "fr",
+      "question": "Comment réserver une chambre sur Dayuse ?",
+      "requires_booking_context": false,
+      "status": "core_equivalent",
+      "matched_articles": [
+        {
+          "id": "31596573415186",
+          "url": "https://support.dayuse.com/hc/en-us/articles/31596573415186-How-to-book-a-room-on-Dayuse",
+          "topic": "booking"
+        }
+      ],
+      "review_note": "Same-ID English MCP translation preserves the central French guidance in this source comparison. Current validity, localization in the answer and successful retrieval remain unverified.",
+      "agent_behavior": "not_scored_by_source_mapping",
+      "source_comparison": {
+        "legacy_guidance_sha256": "88739ce907daeccf3b65f96dd0de48e50bc4c66c89bffbc0cfa43d715ca87f4e",
+        "mcp_body_sha256": "05fb46738fcd9f89cfa1fdafd5d3c41583240928edd8c51e84f1c828d0accca0",
+        "basis": "captured source text only, not current policy validation"
+      }
+    },
+    {
+      "legacy_id": "31200610155154",
+      "language": "fr",
+      "question": "Comment savoir si l'hôtel a un parking ou une navette ?",
+      "requires_booking_context": false,
+      "status": "partial_coverage",
+      "matched_articles": [
+        {
+          "id": "360020363360",
+          "url": "https://support.dayuse.com/hc/en-us/articles/360020363360-How-do-I-know-if-the-hotel-has-parking",
+          "topic": "support"
+        }
+      ],
+      "review_note": "Parking and limited spaces are covered; shuttle availability and operation are not established by this match.",
+      "agent_behavior": "not_scored_by_source_mapping"
+    },
+    {
+      "legacy_id": "31195881613202",
+      "language": "fr",
+      "question": "Comment savoir si ma réservation est bien confirmée ?",
+      "requires_booking_context": false,
+      "status": "core_equivalent",
+      "matched_articles": [
+        {
+          "id": "31196152190610",
+          "url": "https://support.dayuse.com/hc/en-us/articles/31196152190610-How-can-I-know-if-my-booking-is-confirmed",
+          "topic": "booking"
+        }
+      ],
+      "review_note": "Confirmation email and customer-account guidance retained; neither source proves a particular booking exists.",
+      "agent_behavior": "not_scored_by_source_mapping"
+    },
+    {
+      "legacy_id": "31229436938130",
+      "language": "fr",
+      "question": "Comment signaler une activité suspecte sur mon compte ?",
+      "requires_booking_context": false,
+      "status": "core_equivalent",
+      "matched_articles": [
+        {
+          "id": "31229436938130",
+          "url": "https://support.dayuse.com/hc/en-us/articles/31229436938130-How-can-I-report-suspicious-activity-on-my-account",
+          "topic": "support"
+        }
+      ],
+      "review_note": "Same-ID English MCP translation preserves the central French guidance in this source comparison. Current validity, localization in the answer and successful retrieval remain unverified.",
+      "agent_behavior": "not_scored_by_source_mapping",
+      "source_comparison": {
+        "legacy_guidance_sha256": "43ab821c7f65fa4204b4b336770ec4aaba3351425eb59150050089d78456683a",
+        "mcp_body_sha256": "8b18cab90c7253c59d1511476337779fa68b3c1db82df9d65192e17f142e0cd0",
+        "basis": "captured source text only, not current policy validation"
+      }
+    },
+    {
+      "legacy_id": "31477742688402",
+      "language": "fr",
+      "question": "Comment supprimer mon compte ?",
+      "requires_booking_context": false,
+      "status": "partial_coverage",
+      "matched_articles": [
+        {
+          "id": "360020363020",
+          "url": "https://support.dayuse.com/hc/en-us/articles/360020363020-Deactivate-a-customer-account",
+          "topic": "taxes"
+        }
+      ],
+      "review_note": "Contact support to deactivate is present. Deactivation is not proof of data deletion or completion of a privacy request.",
+      "agent_behavior": "not_scored_by_source_mapping"
+    },
+    {
+      "legacy_id": "31229410102546",
+      "language": "fr",
+      "question": "Comment supprimer ou modifier mes informations personnelles ?",
+      "requires_booking_context": false,
+      "status": "changed_details",
+      "matched_articles": [
+        {
+          "id": "31229410102546",
+          "url": "https://support.dayuse.com/hc/en-us/articles/31229410102546-How-can-I-delete-or-modify-my-personal-information",
+          "topic": "cancellation"
+        }
+      ],
+      "review_note": "Translated MCP text adds that profile edits are saved automatically; this behavior is not established by the legacy guidance.",
+      "agent_behavior": "not_scored_by_source_mapping",
+      "source_comparison": {
+        "legacy_guidance_sha256": "776e720e406a7bc14e14f27360b08471607ed6e623c92f8a172663abf1b3e198",
+        "mcp_body_sha256": "e303e801943311861b55cc76c7eca53698fff915bd022009da4fcb9a109ac90a",
+        "basis": "captured source text only, not current policy validation"
+      }
+    },
+    {
+      "legacy_id": "31195762796306",
+      "language": "fr",
+      "question": "Comment utiliser une carte cadeau ?",
+      "requires_booking_context": false,
+      "status": "core_equivalent",
+      "matched_articles": [
+        {
+          "id": "31195762796306",
+          "url": "https://support.dayuse.com/hc/en-us/articles/31195762796306-How-to-use-a-gift-card",
+          "topic": "payment"
+        }
+      ],
+      "review_note": "Same-ID English MCP translation preserves the central French guidance in this source comparison. Current validity, localization in the answer and successful retrieval remain unverified.",
+      "agent_behavior": "not_scored_by_source_mapping",
+      "source_comparison": {
+        "legacy_guidance_sha256": "288c918a53e540246a2d58516de228d8fa87414a41c330be6ea46c87d2783c7d",
+        "mcp_body_sha256": "c983233ced2ad83730464a8fb33ae04315fbfa59b01bca2e5c857723efe5a047",
+        "basis": "captured source text only, not current policy validation"
+      },
+      "source_conflict": "Gift-card geographic scope disagrees between captured articles 31195824454034 and 31195762796306."
+    },
+    {
+      "legacy_id": "31192642351762",
+      "language": "fr",
+      "question": "Dans quels pays et villes Dayuse est-il disponible ?",
+      "requires_booking_context": false,
+      "status": "not_found_in_observed_catalog",
+      "matched_articles": [],
+      "review_note": "No matching geographic-coverage article observed. The historical country/city counts must not be restored as current facts.",
+      "agent_behavior": "not_scored_by_source_mapping"
+    },
+    {
+      "legacy_id": "31195238556818",
+      "language": "fr",
+      "question": "Dayuse travaille-t-il directement avec les hôtels ?",
+      "requires_booking_context": false,
+      "status": "partial_coverage",
+      "matched_articles": [
+        {
+          "id": "31195291334674",
+          "url": "https://support.dayuse.com/hc/en-us/articles/31195291334674-What-are-the-benefits-of-booking-with-Dayuse",
+          "topic": "booking"
+        }
+      ],
+      "review_note": "Discount benefits appear, but direct contracting and hotel-verification claims are not established.",
+      "agent_behavior": "not_scored_by_source_mapping"
+    },
+    {
+      "legacy_id": "31195191926290",
+      "language": "fr",
+      "question": "Dois-je créer un compte pour réserver ?",
+      "requires_booking_context": false,
+      "status": "core_equivalent",
+      "matched_articles": [
+        {
+          "id": "31195191926290",
+          "url": "https://support.dayuse.com/hc/en-us/articles/31195191926290-Do-I-need-to-create-an-account-to-make-a-booking",
+          "topic": "booking"
+        }
+      ],
+      "review_note": "Same-ID English MCP translation preserves the central French guidance in this source comparison. Current validity, localization in the answer and successful retrieval remain unverified.",
+      "agent_behavior": "not_scored_by_source_mapping",
+      "source_comparison": {
+        "legacy_guidance_sha256": "29fbaaa76e557b11b5a99c11cfa13a30a7a98129cf43c2fc17c5c2e781d72fa0",
+        "mcp_body_sha256": "59b63af5b386a017c64c7b3d60d075d94701bf82332bccde75450c258fb45d4a",
+        "basis": "captured source text only, not current policy validation"
+      }
+    },
+    {
+      "legacy_id": "31200586472210",
+      "language": "fr",
+      "question": "Dépôt de garantie",
+      "requires_booking_context": false,
+      "status": "core_equivalent",
+      "matched_articles": [
+        {
+          "id": "31200586472210",
+          "url": "https://support.dayuse.com/hc/en-us/articles/31200586472210-Security-Deposit",
+          "topic": "booking"
+        }
+      ],
+      "review_note": "Same-ID English MCP translation preserves the central French guidance in this source comparison. Current validity, localization in the answer and successful retrieval remain unverified.",
+      "agent_behavior": "not_scored_by_source_mapping",
+      "source_comparison": {
+        "legacy_guidance_sha256": "cf784dddf82ea40302e836a9a6743c49b5de1cab0c33ba76cf683d3b9513ae29",
+        "mcp_body_sha256": "b0071a7c4afd32dd629227c9c7fb2bff68a906ec34c2db130eadc77414a32c23",
+        "basis": "captured source text only, not current policy validation"
+      }
+    },
+    {
+      "legacy_id": "31196477116818",
+      "language": "fr",
+      "question": "Est-ce que je peux annuler ma réservation ?",
+      "requires_booking_context": false,
+      "status": "core_equivalent",
+      "matched_articles": [
+        {
+          "id": "31196477116818",
+          "url": "https://support.dayuse.com/hc/en-us/articles/31196477116818-Can-I-cancel-my-booking",
+          "topic": "cancellation"
+        }
+      ],
+      "review_note": "Same-ID English MCP translation preserves the central French guidance in this source comparison. Current validity, localization in the answer and successful retrieval remain unverified.",
+      "agent_behavior": "not_scored_by_source_mapping",
+      "source_comparison": {
+        "legacy_guidance_sha256": "111afbd3b95220fde2f8aa4cbe338ff1900ba05335ede939cc63c13e1f8c1126",
+        "mcp_body_sha256": "57e6e0c80dd3ab383f02cd18288df3eb9a4e577d0fbe0e32b4c02cd66fcab552",
+        "basis": "captured source text only, not current policy validation"
+      },
+      "source_conflict": "Captured articles generalize most offers as freely cancellable versus mostly non-refundable; offer-specific terms must take precedence."
+    },
+    {
+      "legacy_id": "31196362854802",
+      "language": "fr",
+      "question": "Est-ce que je peux payer en espèces ?",
+      "requires_booking_context": false,
+      "status": "core_equivalent",
+      "matched_articles": [
+        {
+          "id": "31196362854802",
+          "url": "https://support.dayuse.com/hc/en-us/articles/31196362854802-Can-I-pay-in-cash",
+          "topic": "payment"
+        }
+      ],
+      "review_note": "Same-ID English MCP translation preserves the central French guidance in this source comparison. Current validity, localization in the answer and successful retrieval remain unverified.",
+      "agent_behavior": "not_scored_by_source_mapping",
+      "source_comparison": {
+        "legacy_guidance_sha256": "34ea930eba86bbb7b6da2e150a05aa142969619eb168abfa65a4c95fdd1103d4",
+        "mcp_body_sha256": "fc72ac8ce610f85241da4ca9832600f5691266432f5d3b188602180deeb8dfbf",
+        "basis": "captured source text only, not current policy validation"
+      }
+    },
+    {
+      "legacy_id": "31200620414482",
+      "language": "fr",
+      "question": "Est-ce que je peux prolonger mon séjour ?",
+      "requires_booking_context": false,
+      "status": "conflicting_guidance",
+      "matched_articles": [
+        {
+          "id": "31200494514066",
+          "url": "https://support.dayuse.com/hc/en-us/articles/31200494514066-Can-I-arrive-early-or-leave-later",
+          "topic": "booking"
+        }
+      ],
+      "review_note": "Legacy says contact support to extend. Matched MCP text says displayed bounds cannot change. Resolve extension requests with offer-specific conditions; do not promise an extension.",
+      "agent_behavior": "not_scored_by_source_mapping"
+    },
+    {
+      "legacy_id": "31477785373330",
+      "language": "fr",
+      "question": "Est-ce que les paiements en ligne sont sécurisés ?",
+      "requires_booking_context": false,
+      "status": "core_equivalent",
+      "matched_articles": [
+        {
+          "id": "31477785373330",
+          "url": "https://support.dayuse.com/hc/en-us/articles/31477785373330-Are-online-payments-secure",
+          "topic": "payment"
+        }
+      ],
+      "review_note": "Same-ID English MCP translation preserves the central French guidance in this source comparison. Current validity, localization in the answer and successful retrieval remain unverified.",
+      "agent_behavior": "not_scored_by_source_mapping",
+      "source_comparison": {
+        "legacy_guidance_sha256": "ecaa485259f58c13ecb64cb722ab0f911dac444d6723bd44f85845e21b2a13cf",
+        "mcp_body_sha256": "cf6bd6855d093a80dbf365fe07ea600800d263d888509c904e10b6fd311ee097",
+        "basis": "captured source text only, not current policy validation"
+      }
+    },
+    {
+      "legacy_id": "31200583352338",
+      "language": "fr",
+      "question": "Exigence de pièces d'identité",
+      "requires_booking_context": false,
+      "status": "core_equivalent",
+      "matched_articles": [
+        {
+          "id": "31200583352338",
+          "url": "https://support.dayuse.com/hc/en-us/articles/31200583352338-Requirement-for-Identification-Documents",
+          "topic": "booking"
+        }
+      ],
+      "review_note": "Same-ID English MCP translation preserves the central French guidance in this source comparison. Current validity, localization in the answer and successful retrieval remain unverified.",
+      "agent_behavior": "not_scored_by_source_mapping",
+      "source_comparison": {
+        "legacy_guidance_sha256": "db62f1566a92d793cfe32cbe81dad0dac6e7c5478a6081bcb4f2a8c301cad3aa",
+        "mcp_body_sha256": "29d5da65a7513351d4ff161b8980f774d6f163b056646534da2d0c5d4ec99c05",
+        "basis": "captured source text only, not current policy validation"
+      }
+    },
+    {
+      "legacy_id": "31196120115858",
+      "language": "fr",
+      "question": "Je n'ai pas reçu d'e-mail de confirmation — que faire ?",
+      "requires_booking_context": false,
+      "status": "core_equivalent",
+      "matched_articles": [
+        {
+          "id": "31196120115858",
+          "url": "https://support.dayuse.com/hc/en-us/articles/31196120115858-I-haven-t-received-my-confirmation-email-what-should-I-do",
+          "topic": "booking"
+        }
+      ],
+      "review_note": "Same-ID English MCP translation preserves the central French guidance in this source comparison. Current validity, localization in the answer and successful retrieval remain unverified.",
+      "agent_behavior": "not_scored_by_source_mapping",
+      "source_comparison": {
+        "legacy_guidance_sha256": "98f066c9b5d6af0027fa2223b13caa6dcf129ff4c4fb59222ff207e4b5e08628",
+        "mcp_body_sha256": "8c0fc054ac4746d4960532a9470c3d8220aefd1688b1bb68b811adfefe3724f9",
+        "basis": "captured source text only, not current policy validation"
+      }
+    },
+    {
+      "legacy_id": "31477696459538",
+      "language": "fr",
+      "question": "Je n’ai pas reçu mon e-mail de confirmation, que faire ?",
+      "requires_booking_context": false,
+      "status": "core_equivalent",
+      "matched_articles": [
+        {
+          "id": "31196120115858",
+          "url": "https://support.dayuse.com/hc/en-us/articles/31196120115858-I-haven-t-received-my-confirmation-email-what-should-I-do",
+          "topic": "booking"
+        }
+      ],
+      "review_note": "Spam, account lookup and official support escalation retained; MCP adds guest-booking access and a wait threshold.",
+      "agent_behavior": "not_scored_by_source_mapping"
+    },
+    {
+      "legacy_id": "31229464083602",
+      "language": "fr",
+      "question": "J’ai oublié mon mot de passe, que faire ?",
+      "requires_booking_context": false,
+      "status": "core_equivalent",
+      "matched_articles": [
+        {
+          "id": "31229464083602",
+          "url": "https://support.dayuse.com/hc/en-us/articles/31229464083602-I-forgot-my-password-what-should-I-do",
+          "topic": "support"
+        }
+      ],
+      "review_note": "Same-ID English MCP translation preserves the central French guidance in this source comparison. Current validity, localization in the answer and successful retrieval remain unverified.",
+      "agent_behavior": "not_scored_by_source_mapping",
+      "source_comparison": {
+        "legacy_guidance_sha256": "2b3552744689051e91e090f5d3e3b4ce4f21981ce55185ba1049ee09eac61c13",
+        "mcp_body_sha256": "c7dcd1a6dee4d9eea974bdd79e95eaa235878aa51b62c6c8d2558e3eb323ee3d",
+        "basis": "captured source text only, not current policy validation"
+      }
+    },
+    {
+      "legacy_id": "31200757503250",
+      "language": "fr",
+      "question": "Les animaux sont-ils autorisés ?",
+      "requires_booking_context": false,
+      "status": "not_found_in_observed_catalog",
+      "matched_articles": [],
+      "review_note": "No general pet-policy article matched; hotel-specific facts may still be available through other tool fields.",
+      "agent_behavior": "not_scored_by_source_mapping"
+    },
+    {
+      "legacy_id": "31195607085586",
+      "language": "fr",
+      "question": "Les cartes cadeaux sont-elles physiques ou numériques ?",
+      "requires_booking_context": false,
+      "status": "core_equivalent",
+      "matched_articles": [
+        {
+          "id": "31195607085586",
+          "url": "https://support.dayuse.com/hc/en-us/articles/31195607085586-Are-the-gift-cards-physical-or-digital",
+          "topic": "payment"
+        }
+      ],
+      "review_note": "Same-ID English MCP translation preserves the central French guidance in this source comparison. Current validity, localization in the answer and successful retrieval remain unverified.",
+      "agent_behavior": "not_scored_by_source_mapping",
+      "source_comparison": {
+        "legacy_guidance_sha256": "03ed501226a62ac1a0d937c840feaf23d91f7f87542f5a2e0ef7e31e2efbbee1",
+        "mcp_body_sha256": "0013e05dfb9920c8fa1d54608f4b0ffb0f6815cba7f53430f5a2fcfddc02253e",
+        "basis": "captured source text only, not current policy validation"
+      }
+    },
+    {
+      "legacy_id": "31228201227154",
+      "language": "fr",
+      "question": "Les enfants sont-ils acceptés ?",
+      "requires_booking_context": false,
+      "status": "partial_coverage",
+      "matched_articles": [
+        {
+          "id": "360020362260",
+          "url": "https://support.dayuse.com/hc/en-us/articles/360020362260-How-can-I-book-a-hotel-with-my-family",
+          "topic": "booking"
+        }
+      ],
+      "review_note": "Family assistance exists, but it does not establish the historical blanket children/parent-document rule.",
+      "agent_behavior": "not_scored_by_source_mapping"
+    },
+    {
+      "legacy_id": "31196080481298",
+      "language": "fr",
+      "question": "Ma réservation n'apparait pas dans mon compte client",
+      "requires_booking_context": false,
+      "status": "core_equivalent",
+      "matched_articles": [
+        {
+          "id": "360020404019",
+          "url": "https://support.dayuse.com/hc/en-us/articles/360020404019-My-booking-does-not-appear-in-my-customer-account",
+          "topic": "booking"
+        },
+        {
+          "id": "31196120115858",
+          "url": "https://support.dayuse.com/hc/en-us/articles/31196120115858-I-haven-t-received-my-confirmation-email-what-should-I-do",
+          "topic": "booking"
+        },
+        {
+          "id": "31196033248914",
+          "url": "https://support.dayuse.com/hc/en-us/articles/31196033248914-How-can-I-find-my-booking",
+          "topic": "booking"
+        }
+      ],
+      "review_note": "Guest/phone bookings and official retrieval paths are covered across articles. This does not grant the assistant account lookup access.",
+      "agent_behavior": "not_scored_by_source_mapping"
+    },
+    {
+      "legacy_id": "31477736464018",
+      "language": "fr",
+      "question": "Mes données sont-elles protégées ?",
+      "requires_booking_context": false,
+      "status": "not_found_in_observed_catalog",
+      "matched_articles": [],
+      "review_note": "Payment security is not equivalent to a personal-data protection and resale policy.",
+      "agent_behavior": "not_scored_by_source_mapping"
+    },
+    {
+      "legacy_id": "31477811022866",
+      "language": "fr",
+      "question": "Modération des avis hotels",
+      "requires_booking_context": false,
+      "status": "core_equivalent",
+      "matched_articles": [
+        {
+          "id": "31477811022866",
+          "url": "https://support.dayuse.com/hc/en-us/articles/31477811022866-Hotel-review-moderation",
+          "topic": "support"
+        }
+      ],
+      "review_note": "Same-ID English MCP translation preserves the central French guidance in this source comparison. Current validity, localization in the answer and successful retrieval remain unverified.",
+      "agent_behavior": "not_scored_by_source_mapping",
+      "source_comparison": {
+        "legacy_guidance_sha256": "bb1053cd777b43979869ee55571e6018608d73cbf0b37812756ae23fa0842e55",
+        "mcp_body_sha256": "7fee41cfa02ff97d4f8dc10f2273416304b257823af38c69a74dfc02875a6f9c",
+        "basis": "captured source text only, not current policy validation"
+      }
+    },
+    {
+      "legacy_id": "31477813186578",
+      "language": "fr",
+      "question": "Nos engagements",
+      "requires_booking_context": false,
+      "status": "not_found_in_observed_catalog",
+      "matched_articles": [],
+      "review_note": "No matched comprehensive commitments/privacy-rights article in the observed catalog.",
+      "agent_behavior": "not_scored_by_source_mapping"
+    },
+    {
+      "legacy_id": "31433301850770",
+      "language": "fr",
+      "question": "Où retrouver mes anciennes réservations ?",
+      "requires_booking_context": false,
+      "status": "core_equivalent",
+      "matched_articles": [
+        {
+          "id": "31433301850770",
+          "url": "https://support.dayuse.com/hc/en-us/articles/31433301850770-Where-can-I-find-my-previous-bookings",
+          "topic": "booking"
+        }
+      ],
+      "review_note": "Same-ID English MCP translation preserves the central French guidance in this source comparison. Current validity, localization in the answer and successful retrieval remain unverified.",
+      "agent_behavior": "not_scored_by_source_mapping",
+      "source_comparison": {
+        "legacy_guidance_sha256": "aee7514654bad3c4aae77325d339a18b5b2923623fc14118734051e712ca4a08",
+        "mcp_body_sha256": "f765b3782409bcea7497671fb46e536c5a85e1b8752cd04167096cf2db6b3b8d",
+        "basis": "captured source text only, not current policy validation"
+      }
+    },
+    {
+      "legacy_id": "31200587905170",
+      "language": "fr",
+      "question": "Où trouver les coordonnées de l'hôtel ?",
+      "requires_booking_context": false,
+      "status": "core_equivalent",
+      "matched_articles": [
+        {
+          "id": "31200587905170",
+          "url": "https://support.dayuse.com/hc/en-us/articles/31200587905170-Where-can-I-find-the-hotel-s-contact-details",
+          "topic": "support"
+        }
+      ],
+      "review_note": "Same-ID English MCP translation preserves the central French guidance in this source comparison. Current validity, localization in the answer and successful retrieval remain unverified.",
+      "agent_behavior": "not_scored_by_source_mapping",
+      "source_comparison": {
+        "legacy_guidance_sha256": "96848910821348a04dde87a6b6147fee7f3a2275da0e3169e0132f81532d1f5b",
+        "mcp_body_sha256": "1db023fdfdd65631dae57ed8cb35b85b0b928f90c25e12476621334f9cb20e41",
+        "basis": "captured source text only, not current policy validation"
+      }
+    },
+    {
+      "legacy_id": "31195724131346",
+      "language": "fr",
+      "question": "Peut-on annuler ou rembourser une carte cadeau ?",
+      "requires_booking_context": false,
+      "status": "core_equivalent",
+      "matched_articles": [
+        {
+          "id": "31195724131346",
+          "url": "https://support.dayuse.com/hc/en-us/articles/31195724131346-Can-a-gift-card-be-cancelled-or-refunded",
+          "topic": "cancellation"
+        }
+      ],
+      "review_note": "Same-ID English MCP translation preserves the central French guidance in this source comparison. Current validity, localization in the answer and successful retrieval remain unverified.",
+      "agent_behavior": "not_scored_by_source_mapping",
+      "source_comparison": {
+        "legacy_guidance_sha256": "883fb0852b0dc5b86913b2efd3b5a2ca7b24e3c19eaef8718f7223fbf0992bd8",
+        "mcp_body_sha256": "de2cabcfe18f895e1a40c3dd1ed327f071cfa02c9ddda4c7f51b19150091f310",
+        "basis": "captured source text only, not current policy validation"
+      }
+    },
+    {
+      "legacy_id": "31195715053714",
+      "language": "fr",
+      "question": "Peut-on annuler une réservation payée avec une carte cadeau ?",
+      "requires_booking_context": false,
+      "status": "core_equivalent",
+      "matched_articles": [
+        {
+          "id": "31195715053714",
+          "url": "https://support.dayuse.com/hc/en-us/articles/31195715053714-Can-a-booking-paid-with-a-gift-card-be-cancelled",
+          "topic": "cancellation"
+        }
+      ],
+      "review_note": "Same-ID English MCP translation preserves the central French guidance in this source comparison. Current validity, localization in the answer and successful retrieval remain unverified.",
+      "agent_behavior": "not_scored_by_source_mapping",
+      "source_comparison": {
+        "legacy_guidance_sha256": "2f7b82fc74b53ff3ba10353c3b6c434ce96c776a3f2c97b51b2a918ff1436c74",
+        "mcp_body_sha256": "34ccf439f0949258ee63e9f30108e18e40d9d28834ffc09a022690d253ef3e96",
+        "basis": "captured source text only, not current policy validation"
+      }
+    },
+    {
+      "legacy_id": "31477767590162",
+      "language": "fr",
+      "question": "Politique de confidentialité",
+      "requires_booking_context": false,
+      "status": "partial_coverage",
+      "matched_articles": [
+        {
+          "id": "31195413994514",
+          "url": "https://support.dayuse.com/hc/en-us/articles/31195413994514-How-to-create-a-booking-step-by-step",
+          "topic": "booking"
+        }
+      ],
+      "review_note": "Limited booking-data sharing is discussed, but full privacy/legal exceptions are not preserved by this article.",
+      "agent_behavior": "not_scored_by_source_mapping"
+    },
+    {
+      "legacy_id": "31596757512594",
+      "language": "fr",
+      "question": "Pourquoi certaines offres ne sont-elles plus disponibles ?",
+      "requires_booking_context": false,
+      "status": "not_found_in_observed_catalog",
+      "matched_articles": [],
+      "review_note": "No matched unavailable-offers explanation; actual availability must come from search results.",
+      "agent_behavior": "not_scored_by_source_mapping"
+    },
+    {
+      "legacy_id": "31669984125970",
+      "language": "fr",
+      "question": "Puis je décorer la chambre?",
+      "requires_booking_context": false,
+      "status": "not_found_in_observed_catalog",
+      "matched_articles": [],
+      "review_note": "No matched room-decoration/candle policy. Do not infer universal permission or charges.",
+      "agent_behavior": "not_scored_by_source_mapping"
+    },
+    {
+      "legacy_id": "31228236031122",
+      "language": "fr",
+      "question": "Puis-je apporter de la nourriture ou des boissons ?",
+      "requires_booking_context": false,
+      "status": "not_found_in_observed_catalog",
+      "matched_articles": [],
+      "review_note": "No matched outside-food/drink policy. Check applicable hotel conditions.",
+      "agent_behavior": "not_scored_by_source_mapping"
+    },
+    {
+      "legacy_id": "31200494514066",
+      "language": "fr",
+      "question": "Puis-je arriver en avance ou partir plus tard ?",
+      "requires_booking_context": false,
+      "status": "core_equivalent",
+      "matched_articles": [
+        {
+          "id": "31200494514066",
+          "url": "https://support.dayuse.com/hc/en-us/articles/31200494514066-Can-I-arrive-early-or-leave-later",
+          "topic": "booking"
+        }
+      ],
+      "review_note": "Same-ID English MCP translation preserves the central French guidance in this source comparison. Current validity, localization in the answer and successful retrieval remain unverified.",
+      "agent_behavior": "not_scored_by_source_mapping",
+      "source_comparison": {
+        "legacy_guidance_sha256": "cc03e90de06327134c806233dccbcc5dff4f7113388615cc31cd703e1507a095",
+        "mcp_body_sha256": "2648876bc5e19e83218f1158a382cb91e1a49e32ae967d568a221d6c6e2ce555",
+        "basis": "captured source text only, not current policy validation"
+      }
+    },
+    {
+      "legacy_id": "31196527104402",
+      "language": "fr",
+      "question": "Puis-je changer la date ou l’hôtel de ma réservation ?",
+      "requires_booking_context": false,
+      "status": "core_equivalent",
+      "matched_articles": [
+        {
+          "id": "31196527104402",
+          "url": "https://support.dayuse.com/hc/en-us/articles/31196527104402-Can-I-change-the-date-or-the-hotel",
+          "topic": "cancellation"
+        }
+      ],
+      "review_note": "Same-ID English MCP translation preserves the central French guidance in this source comparison. Current validity, localization in the answer and successful retrieval remain unverified.",
+      "agent_behavior": "not_scored_by_source_mapping",
+      "source_comparison": {
+        "legacy_guidance_sha256": "c36454506bc0fe25b9f9bcde7fa051ca230cfbbbee250092bc5995033ce9bb73",
+        "mcp_body_sha256": "d502d1c1022fbd42f9d36c6ba98294012f99d71292b3555ec1767db25a590e9f",
+        "basis": "captured source text only, not current policy validation"
+      }
+    },
+    {
+      "legacy_id": "31477881086866",
+      "language": "fr",
+      "question": "Puis-je faire une demande spéciale (étage élevé, lit bébé, chambre PMR, spa, etc.) ?",
+      "requires_booking_context": false,
+      "status": "partial_coverage",
+      "matched_articles": [
+        {
+          "id": "360020362880",
+          "url": "https://support.dayuse.com/hc/en-us/articles/360020362880-Room-amenities",
+          "topic": "booking"
+        }
+      ],
+      "review_note": "Comment field and availability retained; essential accessibility requests and fee guidance are only partially covered.",
+      "agent_behavior": "not_scored_by_source_mapping"
+    },
+    {
+      "legacy_id": "31200729627922",
+      "language": "fr",
+      "question": "Puis-je fumer dans la chambre ?",
+      "requires_booking_context": false,
+      "status": "not_found_in_observed_catalog",
+      "matched_articles": [],
+      "review_note": "No matched general smoking/cleaning-charge policy; hotel-specific rules need their own source.",
+      "agent_behavior": "not_scored_by_source_mapping"
+    },
+    {
+      "legacy_id": "31196609062674",
+      "language": "fr",
+      "question": "Puis-je modifier ma réservation plutôt que l'annuler ?",
+      "requires_booking_context": false,
+      "status": "core_equivalent",
+      "matched_articles": [
+        {
+          "id": "31196609062674",
+          "url": "https://support.dayuse.com/hc/en-us/articles/31196609062674-Can-I-modify-my-booking-instead-of-cancelling-it",
+          "topic": "cancellation"
+        }
+      ],
+      "review_note": "Same-ID English MCP translation preserves the central French guidance in this source comparison. Current validity, localization in the answer and successful retrieval remain unverified.",
+      "agent_behavior": "not_scored_by_source_mapping",
+      "source_comparison": {
+        "legacy_guidance_sha256": "d18a6814f7d4e62cb4af1be174e161b5b10089e20817aa7a4dfa5f478f164837",
+        "mcp_body_sha256": "0fab333dd8d639e275cc2ff1754c7d3bc0eb7af1f4f9207fef6b4fdeb5a08778",
+        "basis": "captured source text only, not current policy validation"
+      }
+    },
+    {
+      "legacy_id": "31477794674194",
+      "language": "fr",
+      "question": "Puis-je modifier mes préférences de communication ?",
+      "requires_booking_context": false,
+      "status": "partial_coverage",
+      "matched_articles": [
+        {
+          "id": "31229410102546",
+          "url": "https://support.dayuse.com/hc/en-us/articles/31229410102546-How-can-I-delete-or-modify-my-personal-information",
+          "topic": "cancellation"
+        }
+      ],
+      "review_note": "Generic preferences editing does not preserve the unsubscribe procedure or transactional-email distinction.",
+      "agent_behavior": "not_scored_by_source_mapping"
+    },
+    {
+      "legacy_id": "31196239153938",
+      "language": "fr",
+      "question": "Puis-je payer directement à l'hôtel ?",
+      "requires_booking_context": false,
+      "status": "core_equivalent",
+      "matched_articles": [
+        {
+          "id": "31196239153938",
+          "url": "https://support.dayuse.com/hc/en-us/articles/31196239153938-Can-I-pay-directly-at-the-hotel",
+          "topic": "payment"
+        }
+      ],
+      "review_note": "Same-ID English MCP translation preserves the central French guidance in this source comparison. Current validity, localization in the answer and successful retrieval remain unverified.",
+      "agent_behavior": "not_scored_by_source_mapping",
+      "source_comparison": {
+        "legacy_guidance_sha256": "3a3fdabcc050e0583aca5328cce6bd3e946eb8776c664e38b49df89cd9f25bf2",
+        "mcp_body_sha256": "22586805c637f997db46cca56835d1ba843a4cda0d4422d02815b7cf597ffe45",
+        "basis": "captured source text only, not current policy validation"
+      }
+    },
+    {
+      "legacy_id": "31200672425362",
+      "language": "fr",
+      "question": "Puis-je prendre des photos à usage commercial dans les hôtels ?",
+      "requires_booking_context": false,
+      "status": "partial_coverage",
+      "matched_articles": [
+        {
+          "id": "360020363300",
+          "url": "https://support.dayuse.com/hc/en-us/articles/360020363300-Is-it-possible-to-book-a-dayuse-for-a-photo-shoot",
+          "topic": "booking"
+        }
+      ],
+      "review_note": "Prior hotel consent is covered; explicit written consent, commercial-use scope and restrictions are not fully stated.",
+      "agent_behavior": "not_scored_by_source_mapping"
+    },
+    {
+      "legacy_id": "31195419885074",
+      "language": "fr",
+      "question": "Puis-je réserver pour aujourd'hui ?",
+      "requires_booking_context": false,
+      "status": "core_equivalent",
+      "matched_articles": [
+        {
+          "id": "31195419885074",
+          "url": "https://support.dayuse.com/hc/en-us/articles/31195419885074-Can-I-book-for-today",
+          "topic": "booking"
+        }
+      ],
+      "review_note": "Same-ID English MCP translation preserves the central French guidance in this source comparison. Current validity, localization in the answer and successful retrieval remain unverified.",
+      "agent_behavior": "not_scored_by_source_mapping",
+      "source_comparison": {
+        "legacy_guidance_sha256": "a41babf67fc3fc7c7f06426e0655b513065e7d22d1c46652595ad67d3b80dc18",
+        "mcp_body_sha256": "376f7fdffee044f85b0f2408de2eb6df0ab3a968616d3555573425eea338a44b",
+        "basis": "captured source text only, not current policy validation"
+      }
+    },
+    {
+      "legacy_id": "31596779803666",
+      "language": "fr",
+      "question": "Puis-je réserver pour quelqu'un d'autre ?",
+      "requires_booking_context": false,
+      "status": "core_equivalent",
+      "matched_articles": [
+        {
+          "id": "31596779803666",
+          "url": "https://support.dayuse.com/hc/en-us/articles/31596779803666-Can-I-book-for-someone-else",
+          "topic": "booking"
+        }
+      ],
+      "review_note": "Same-ID English MCP translation preserves the central French guidance in this source comparison. Current validity, localization in the answer and successful retrieval remain unverified.",
+      "agent_behavior": "not_scored_by_source_mapping",
+      "source_comparison": {
+        "legacy_guidance_sha256": "1c1d36f6d84643206042094e545ac500a7da1945260588ce67c35858546df956",
+        "mcp_body_sha256": "df509e85dc673d5cc46a8d9e224e7a497845cd9aedd4fddb40c960d5e4352843",
+        "basis": "captured source text only, not current policy validation"
+      }
+    },
+    {
+      "legacy_id": "31200767481490",
+      "language": "fr",
+      "question": "Puis-je venir accompagné(e) ?",
+      "requires_booking_context": false,
+      "status": "partial_coverage",
+      "matched_articles": [
+        {
+          "id": "360020362260",
+          "url": "https://support.dayuse.com/hc/en-us/articles/360020362260-How-can-I-book-a-hotel-with-my-family",
+          "topic": "booking"
+        },
+        {
+          "id": "31200583352338",
+          "url": "https://support.dayuse.com/hc/en-us/articles/31200583352338-Requirement-for-Identification-Documents",
+          "topic": "booking"
+        }
+      ],
+      "review_note": "Family/ID guidance does not establish room occupancy or a universal relationship-verification requirement.",
+      "agent_behavior": "not_scored_by_source_mapping"
+    },
+    {
+      "legacy_id": "31192476799122",
+      "language": "fr",
+      "question": "Qu'est-ce que Dayuse ?",
+      "requires_booking_context": false,
+      "status": "partial_coverage",
+      "matched_articles": [
+        {
+          "id": "31195291334674",
+          "url": "https://support.dayuse.com/hc/en-us/articles/31195291334674-What-are-the-benefits-of-booking-with-Dayuse",
+          "topic": "booking"
+        },
+        {
+          "id": "31195413994514",
+          "url": "https://support.dayuse.com/hc/en-us/articles/31195413994514-How-to-create-a-booking-step-by-step",
+          "topic": "booking"
+        }
+      ],
+      "review_note": "Daytime booking and benefits exist; full concept and hotel-dependent service inclusions need additional coverage.",
+      "agent_behavior": "not_scored_by_source_mapping"
+    },
+    {
+      "legacy_id": "31196597993362",
+      "language": "fr",
+      "question": "Quand vais-je recevoir mon remboursement ?",
+      "requires_booking_context": false,
+      "status": "core_equivalent",
+      "matched_articles": [
+        {
+          "id": "31196597993362",
+          "url": "https://support.dayuse.com/hc/en-us/articles/31196597993362-When-will-I-receive-my-refund",
+          "topic": "cancellation"
+        }
+      ],
+      "review_note": "Same-ID English MCP translation preserves the central French guidance in this source comparison. Current validity, localization in the answer and successful retrieval remain unverified.",
+      "agent_behavior": "not_scored_by_source_mapping",
+      "source_comparison": {
+        "legacy_guidance_sha256": "5286e6c2807fa95732563afc4febb6565cde6e7a11f8f06c9d41bd7b77fdbf19",
+        "mcp_body_sha256": "efb504780bea1eec197186c24ae58d0f7ddbd98592f644686c19e85de3b256eb",
+        "basis": "captured source text only, not current policy validation"
+      }
+    },
+    {
+      "legacy_id": "31195846858898",
+      "language": "fr",
+      "question": "Que comprend le prix de ma réservation ?",
+      "requires_booking_context": false,
+      "status": "core_equivalent",
+      "matched_articles": [
+        {
+          "id": "31195846858898",
+          "url": "https://support.dayuse.com/hc/en-us/articles/31195846858898-What-does-the-price-of-my-booking-include",
+          "topic": "booking"
+        }
+      ],
+      "review_note": "Same-ID English MCP translation preserves the central French guidance in this source comparison. Current validity, localization in the answer and successful retrieval remain unverified.",
+      "agent_behavior": "not_scored_by_source_mapping",
+      "source_comparison": {
+        "legacy_guidance_sha256": "90c4f8a857db6e8d61021847b2a8b446dc51bc4fa2bda80bd6af632c56412357",
+        "mcp_body_sha256": "5c22aa169a1940df008de847b59f315a59fefdc92e57e58852889f8e58a6bdfd",
+        "basis": "captured source text only, not current policy validation"
+      }
+    },
+    {
+      "legacy_id": "31200533371666",
+      "language": "fr",
+      "question": "Que dois-je présenter à mon arrivée ?",
+      "requires_booking_context": false,
+      "status": "core_equivalent",
+      "matched_articles": [
+        {
+          "id": "31200533371666",
+          "url": "https://support.dayuse.com/hc/en-us/articles/31200533371666-What-should-I-present-upon-arrival",
+          "topic": "booking"
+        }
+      ],
+      "review_note": "Same-ID English MCP translation preserves the central French guidance in this source comparison. Current validity, localization in the answer and successful retrieval remain unverified.",
+      "agent_behavior": "not_scored_by_source_mapping",
+      "source_comparison": {
+        "legacy_guidance_sha256": "5cfd1fd5e43d11ea095ee52b1edd52f9cfe47fd196aac4d0bc6185d2fcaf377a",
+        "mcp_body_sha256": "4a0ccf9f4515ef5e5b49a454068f4674399b3cafba78928442c907e9f955b788",
+        "basis": "captured source text only, not current policy validation"
+      }
+    },
+    {
+      "legacy_id": "31229546709650",
+      "language": "fr",
+      "question": "Que faire en cas de problème à l’hôtel ?",
+      "requires_booking_context": false,
+      "status": "core_equivalent",
+      "matched_articles": [
+        {
+          "id": "31229546709650",
+          "url": "https://support.dayuse.com/hc/en-us/articles/31229546709650-What-should-I-do-if-I-encounter-a-problem-at-the-hotel",
+          "topic": "booking"
+        }
+      ],
+      "review_note": "Same-ID English MCP translation preserves the central French guidance in this source comparison. Current validity, localization in the answer and successful retrieval remain unverified.",
+      "agent_behavior": "not_scored_by_source_mapping",
+      "source_comparison": {
+        "legacy_guidance_sha256": "8395248f7f03ae94136e6646a5a25cff084c328f53c817d3eda7caeed4370018",
+        "mcp_body_sha256": "22b464aaba99d1ac8b5ecbbb04408ea6df4ef3acd269c510aade8cca4e66842c",
+        "basis": "captured source text only, not current policy validation"
+      }
+    },
+    {
+      "legacy_id": "31195775500690",
+      "language": "fr",
+      "question": "Que faire si je perds ma carte cadeau ?",
+      "requires_booking_context": false,
+      "status": "core_equivalent",
+      "matched_articles": [
+        {
+          "id": "31195775500690",
+          "url": "https://support.dayuse.com/hc/en-us/articles/31195775500690-What-should-I-do-if-I-lose-my-gift-card",
+          "topic": "payment"
+        }
+      ],
+      "review_note": "Same-ID English MCP translation preserves the central French guidance in this source comparison. Current validity, localization in the answer and successful retrieval remain unverified.",
+      "agent_behavior": "not_scored_by_source_mapping",
+      "source_comparison": {
+        "legacy_guidance_sha256": "4bf9e13fac5be89f769a8603477c4e1ccf122447ccc965c32da36a2594411368",
+        "mcp_body_sha256": "ed80ec97b7c36a0df883c2dd64403fa5613069c3b3dbf8f3bfe4a247d7921dd9",
+        "basis": "captured source text only, not current policy validation"
+      }
+    },
+    {
+      "legacy_id": "31195648617746",
+      "language": "fr",
+      "question": "Que faire si le montant de ma réservation est inférieur à la valeur de ma carte cadeau?",
+      "requires_booking_context": false,
+      "status": "core_equivalent",
+      "matched_articles": [
+        {
+          "id": "31195648617746",
+          "url": "https://support.dayuse.com/hc/en-us/articles/31195648617746-What-should-I-do-if-the-amount-of-my-booking-is-less-than-the-value-of-my-gift-card",
+          "topic": "payment"
+        }
+      ],
+      "review_note": "Same-ID English MCP translation preserves the central French guidance in this source comparison. Current validity, localization in the answer and successful retrieval remain unverified.",
+      "agent_behavior": "not_scored_by_source_mapping",
+      "source_comparison": {
+        "legacy_guidance_sha256": "6877ce4fb6d327bd48d058d8b13b8221419c099acbca81690837d335313f4cb7",
+        "mcp_body_sha256": "fa18247e199e61e77cd23ed95dfa9b6b586767c534555886c11e1e7f9484148e",
+        "basis": "captured source text only, not current policy validation"
+      }
+    },
+    {
+      "legacy_id": "31195585685394",
+      "language": "fr",
+      "question": "Que se passe-t-il si le montant de ma réservation est supérieure à la valeur de ma carte cadeau ?",
+      "requires_booking_context": false,
+      "status": "core_equivalent",
+      "matched_articles": [
+        {
+          "id": "31195585685394",
+          "url": "https://support.dayuse.com/hc/en-us/articles/31195585685394-What-happens-if-the-amount-of-my-booking-is-higher-than-the-value-of-my-gift-card",
+          "topic": "payment"
+        }
+      ],
+      "review_note": "Same-ID English MCP translation preserves the central French guidance in this source comparison. Current validity, localization in the answer and successful retrieval remain unverified.",
+      "agent_behavior": "not_scored_by_source_mapping",
+      "source_comparison": {
+        "legacy_guidance_sha256": "3ff2e88b83dddf246c38df967ae3dea0124da412f2e9413e52e1c3dd7f794e64",
+        "mcp_body_sha256": "f49e05979ba93314bec23eeb2339b6538fc4d66a5efe8161566c6a62c81a4459",
+        "basis": "captured source text only, not current policy validation"
+      }
+    },
+    {
+      "legacy_id": "31196347009426",
+      "language": "fr",
+      "question": "Quels moyens de paiement sont acceptés ?",
+      "requires_booking_context": false,
+      "status": "changed_details",
+      "matched_articles": [
+        {
+          "id": "31196347009426",
+          "url": "https://support.dayuse.com/hc/en-us/articles/31196347009426-What-payment-methods-are-accepted",
+          "topic": "payment"
+        }
+      ],
+      "review_note": "Alternative-payment exclusion changes from PayPal/Apple Pay/etc. to Apple Pay/Google Pay; omission is not evidence that PayPal is now supported.",
+      "agent_behavior": "not_scored_by_source_mapping",
+      "source_comparison": {
+        "legacy_guidance_sha256": "d9f8aa0f86b73a08f8f471aead036644f2982e677a7f79ef192bd3d0b685b0e0",
+        "mcp_body_sha256": "676fcf51acc6a4ba40e6bfb61314bb14607b83a0489c1e2b2fee21ea5ca3b82b",
+        "basis": "captured source text only, not current policy validation"
+      }
+    },
+    {
+      "legacy_id": "31195778068754",
+      "language": "fr",
+      "question": "Quels sont les modes de paiement acceptés sur Dayuse?",
+      "requires_booking_context": false,
+      "status": "not_found_in_observed_catalog",
+      "matched_articles": [],
+      "review_note": "Legacy body concerns gift-card purchase despite its broad title. General hotel payment methods cannot establish gift-card payment methods.",
+      "agent_behavior": "not_scored_by_source_mapping"
+    },
+    {
+      "legacy_id": "31208376963474",
+      "language": "fr",
+      "question": "Qui sommes- nous ?",
+      "requires_booking_context": false,
+      "status": "partial_coverage",
+      "matched_articles": [
+        {
+          "id": "31195291334674",
+          "url": "https://support.dayuse.com/hc/en-us/articles/31195291334674-What-are-the-benefits-of-booking-with-Dayuse",
+          "topic": "booking"
+        },
+        {
+          "id": "31195413994514",
+          "url": "https://support.dayuse.com/hc/en-us/articles/31195413994514-How-to-create-a-booking-step-by-step",
+          "topic": "booking"
+        }
+      ],
+      "review_note": "Booking/benefits are present but do not establish the full company and audience description.",
+      "agent_behavior": "not_scored_by_source_mapping"
+    },
+    {
+      "legacy_id": "31195453781394",
+      "language": "fr",
+      "question": "Qu’est-ce qu’une carte cadeau Dayuse?",
+      "requires_booking_context": false,
+      "status": "core_equivalent",
+      "matched_articles": [
+        {
+          "id": "31195453781394",
+          "url": "https://support.dayuse.com/hc/en-us/articles/31195453781394-What-is-a-Dayuse-gift-card",
+          "topic": "payment"
+        }
+      ],
+      "review_note": "Same-ID English MCP translation preserves the central French guidance in this source comparison. Current validity, localization in the answer and successful retrieval remain unverified.",
+      "agent_behavior": "not_scored_by_source_mapping",
+      "source_comparison": {
+        "legacy_guidance_sha256": "277eef0c9309bafc1501f1f5847bbf898f0a813c324e60dc6690b5f1bf7d248c",
+        "mcp_body_sha256": "095f409f39e05bda8a0cc34dba16f889e605cdafc4cf103162c2834238200b86",
+        "basis": "captured source text only, not current policy validation"
+      }
+    },
+    {
+      "legacy_id": "31196631499154",
+      "language": "fr",
+      "question": "Si j’ai payé en ligne, comment suis-je remboursé ?",
+      "requires_booking_context": false,
+      "status": "core_equivalent",
+      "matched_articles": [
+        {
+          "id": "31196631499154",
+          "url": "https://support.dayuse.com/hc/en-us/articles/31196631499154-If-I-paid-online-how-am-I-refunded",
+          "topic": "cancellation"
+        }
+      ],
+      "review_note": "Same-ID English MCP translation preserves the central French guidance in this source comparison. Current validity, localization in the answer and successful retrieval remain unverified.",
+      "agent_behavior": "not_scored_by_source_mapping",
+      "source_comparison": {
+        "legacy_guidance_sha256": "045798d888f154bf73615d0332ee390d1bc9f98c8510b70e0e65faa4c74e4406",
+        "mcp_body_sha256": "d1474d859a8b7f9433a05d5461f12577a1d70c0cf9690febb16526abbcc25190",
+        "basis": "captured source text only, not current policy validation"
+      },
+      "source_conflict": "Captured articles generalize most offers as freely cancellable versus mostly non-refundable; offer-specific terms must take precedence."
+    },
+    {
+      "legacy_id": "31200457770130",
+      "language": "fr",
+      "question": "À quelle heure puis-je arriver ou partir ?",
+      "requires_booking_context": false,
+      "status": "core_equivalent",
+      "matched_articles": [
+        {
+          "id": "31200457770130",
+          "url": "https://support.dayuse.com/hc/en-us/articles/31200457770130-What-time-can-I-arrive-or-depart",
+          "topic": "booking"
+        }
+      ],
+      "review_note": "Same-ID English MCP translation preserves the central French guidance in this source comparison. Current validity, localization in the answer and successful retrieval remain unverified.",
+      "agent_behavior": "not_scored_by_source_mapping",
+      "source_comparison": {
+        "legacy_guidance_sha256": "9635287a5237a9ddd77dd8f613ead4588e8ca54097346db7bc53d66f3b9838ce",
+        "mcp_body_sha256": "865da9c8b039ef24c1a39a7bddafbf4389262f9ea013788aa09942013bb9fbe9",
+        "basis": "captured source text only, not current policy validation"
+      }
+    }
+  ],
+  "hardcoded_coverage": {
+    "source_path": "src/application/agent/tools/faq_tool.py",
+    "source_sha256": "2b5c541b2650e25c82c9f90667dcda2d58d4382fc798797d8a9a484d8d37fe34",
+    "counts": {
+      "conflicting_guidance": 3,
+      "core_equivalent": 5,
+      "partial_coverage": 3,
+      "not_found_in_observed_catalog": 2
+    },
+    "entries": [
+      {
+        "legacy_id": "what_is_dayuse",
+        "question": "What is Dayuse?",
+        "status": "conflicting_guidance",
+        "legacy_answer_sha256": "a01fb22cb05a9dc166f7866ecf1d051628fef1d6a181a5f042a4e9750074d59f",
+        "matched_articles": [
+          {
+            "id": "360020362900",
+            "url": "https://support.dayuse.com/hc/en-us/articles/360020362900-Can-I-book-a-night-on-Dayuse-com"
+          },
+          {
+            "id": "360020362880",
+            "url": "https://support.dayuse.com/hc/en-us/articles/360020362880-Room-amenities"
+          }
+        ],
+        "review_note": "Legacy excludes overnight stays and promises all amenities. Captured MCP permits marked night offers and makes room facilities conditional. Preserve the concept, not these blanket claims.",
+        "agent_behavior": "not_scored_by_source_mapping"
+      },
+      {
+        "legacy_id": "how_booking_works",
+        "question": "How do I book a hotel?",
+        "status": "core_equivalent",
+        "legacy_answer_sha256": "4f38e748d90c66af92e91ce5da40d6090c5c8c3024f2908d987409bb2fdd3446",
+        "matched_articles": [
+          {
+            "id": "31195413994514",
+            "url": "https://support.dayuse.com/hc/en-us/articles/31195413994514-How-to-create-a-booking-step-by-step"
+          },
+          {
+            "id": "31596573415186",
+            "url": "https://support.dayuse.com/hc/en-us/articles/31596573415186-How-to-book-a-room-on-Dayuse"
+          },
+          {
+            "id": "31196171044370",
+            "url": "https://support.dayuse.com/hc/en-us/articles/31196171044370-When-should-I-pay-for-my-booking"
+          }
+        ],
+        "review_note": "Search, offer selection and confirmation steps are covered across articles. Payment details are offer-dependent, not a universal required booking step.",
+        "agent_behavior": "not_scored_by_source_mapping"
+      },
+      {
+        "legacy_id": "age_requirements",
+        "question": "Can I book if I am 18 years old?",
+        "status": "core_equivalent",
+        "legacy_answer_sha256": "d10fd8cc02c982c651275321ed348c305d0e021a439d175cdb6aa3a4c3d23ca0",
+        "matched_articles": [
+          {
+            "id": "31200583352338",
+            "url": "https://support.dayuse.com/hc/en-us/articles/31200583352338-Requirement-for-Identification-Documents"
+          },
+          {
+            "id": "31200533371666",
+            "url": "https://support.dayuse.com/hc/en-us/articles/31200533371666-What-should-I-present-upon-arrival"
+          }
+        ],
+        "review_note": "Adult/ID and typical US 21+ cautions are retained. This does not establish eligibility for any particular hotel.",
+        "agent_behavior": "not_scored_by_source_mapping"
+      },
+      {
+        "legacy_id": "cancellation_policy",
+        "question": "What is the cancellation policy?",
+        "status": "conflicting_guidance",
+        "legacy_answer_sha256": "353e7246a6e1b1bcea1a4569cfb333021138d555c3fe72a2c029e1aa2fe5287f",
+        "matched_articles": [
+          {
+            "id": "360020402499",
+            "url": "https://support.dayuse.com/hc/en-us/articles/360020402499-What-is-your-cancellation-policy"
+          },
+          {
+            "id": "31196000167826",
+            "url": "https://support.dayuse.com/hc/en-us/articles/31196000167826-How-to-cancel-a-booking"
+          }
+        ],
+        "review_note": "Hardcoded before-slot deadline remains in captured MCP but conflicts with confirmation-deadline guidance observed in the published article; other captured articles use two hours or last minute. Booking-specific terms prevail.",
+        "agent_behavior": "not_scored_by_source_mapping"
+      },
+      {
+        "legacy_id": "modify_booking",
+        "question": "Can I modify my booking?",
+        "status": "partial_coverage",
+        "legacy_answer_sha256": "bdd68655afc3160e658631d57e0b7ff0af8e6ac323f40ad92af3f0c0fb07f66e",
+        "matched_articles": [
+          {
+            "id": "31196016300306",
+            "url": "https://support.dayuse.com/hc/en-us/articles/31196016300306-How-can-I-modify-my-booking"
+          },
+          {
+            "id": "31196527104402",
+            "url": "https://support.dayuse.com/hc/en-us/articles/31196527104402-Can-I-change-the-date-or-the-hotel"
+          }
+        ],
+        "review_note": "Account/email modification flow is covered, but another article prohibits directly changing hotel/date and requires eligible cancellation/rebooking. Do not promise the legacy choose-new-date flow for every booking.",
+        "agent_behavior": "not_scored_by_source_mapping"
+      },
+      {
+        "legacy_id": "payment_methods",
+        "question": "What payment methods are accepted?",
+        "status": "core_equivalent",
+        "legacy_answer_sha256": "26b6e1fadcf50c9f905803dfa197083a3fd14f172f13bc1fefdbe590e1ae897c",
+        "matched_articles": [
+          {
+            "id": "31196347009426",
+            "url": "https://support.dayuse.com/hc/en-us/articles/31196347009426-What-payment-methods-are-accepted"
+          },
+          {
+            "id": "360020403159",
+            "url": "https://support.dayuse.com/hc/en-us/articles/360020403159-Why-does-the-hotel-I-want-to-book-require-a-credit-card-payment"
+          },
+          {
+            "id": "31196239153938",
+            "url": "https://support.dayuse.com/hc/en-us/articles/31196239153938-Can-I-pay-directly-at-the-hotel"
+          }
+        ],
+        "review_note": "Common cards, pay-at-hotel, guarantee fee and prepayment distinctions are present across captured articles. Historic fee values are not independently verified.",
+        "agent_behavior": "not_scored_by_source_mapping"
+      },
+      {
+        "legacy_id": "when_charged",
+        "question": "When am I charged?",
+        "status": "core_equivalent",
+        "legacy_answer_sha256": "d3b75701e0fc61849e98e83e4960c11ca4195b7df144d3e69bf2abf0e1baa69d",
+        "matched_articles": [
+          {
+            "id": "31196171044370",
+            "url": "https://support.dayuse.com/hc/en-us/articles/31196171044370-When-should-I-pay-for-my-booking"
+          },
+          {
+            "id": "360020403159",
+            "url": "https://support.dayuse.com/hc/en-us/articles/360020403159-Why-does-the-hotel-I-want-to-book-require-a-credit-card-payment"
+          }
+        ],
+        "review_note": "Payment timing and booking-fee/guarantee distinction are present across captured articles, subject to offer conditions.",
+        "agent_behavior": "not_scored_by_source_mapping"
+      },
+      {
+        "legacy_id": "time_slots",
+        "question": "How long can I stay?",
+        "status": "partial_coverage",
+        "legacy_answer_sha256": "20f4f66495a6b9fa19885511d916f4a1dda23d00e287c443505a1b7fa5d686d4",
+        "matched_articles": [
+          {
+            "id": "31200457770130",
+            "url": "https://support.dayuse.com/hc/en-us/articles/31200457770130-What-time-can-I-arrive-or-depart"
+          },
+          {
+            "id": "31200494514066",
+            "url": "https://support.dayuse.com/hc/en-us/articles/31200494514066-Can-I-arrive-early-or-leave-later"
+          }
+        ],
+        "review_note": "Hotel-defined slot limits are covered; hardcoded 3–12-hour and half/full-day numerical ranges are not established by these articles.",
+        "agent_behavior": "not_scored_by_source_mapping"
+      },
+      {
+        "legacy_id": "early_late",
+        "question": "Can I arrive early or leave late?",
+        "status": "conflicting_guidance",
+        "legacy_answer_sha256": "b52d114972b642927b08910d3d1a3e89a648ac4a0190e1f43f0277081ca7013d",
+        "matched_articles": [
+          {
+            "id": "31200494514066",
+            "url": "https://support.dayuse.com/hc/en-us/articles/31200494514066-Can-I-arrive-early-or-leave-later"
+          }
+        ],
+        "review_note": "Legacy suggests early entry may be arranged when ready; captured article states no availability before the booked slot. Both constrain departure. Resolve policy before restoring an early-entry promise.",
+        "agent_behavior": "not_scored_by_source_mapping"
+      },
+      {
+        "legacy_id": "amenities_access",
+        "question": "What amenities are included?",
+        "status": "partial_coverage",
+        "legacy_answer_sha256": "85e1b02d97653abf1f697ab869f1c140c9704db0d5b9a9301db5f996ceacca7c",
+        "matched_articles": [
+          {
+            "id": "360020362880",
+            "url": "https://support.dayuse.com/hc/en-us/articles/360020362880-Room-amenities"
+          },
+          {
+            "id": "360020362440",
+            "url": "https://support.dayuse.com/hc/en-us/articles/360020362440-What-is-included-in-the-price"
+          }
+        ],
+        "review_note": "Offer-specific facilities and charges are covered, but the legacy checklist should not guarantee pool/gym or particular room equipment for an unverified offer.",
+        "agent_behavior": "not_scored_by_source_mapping"
+      },
+      {
+        "legacy_id": "contact_support",
+        "question": "How do I contact support?",
+        "status": "core_equivalent",
+        "legacy_answer_sha256": "05535c876ff2e60a71c170f8a4692e607b6bb53f006b7155f9c914118fa4a49d",
+        "matched_articles": [
+          {
+            "id": "31229242178962",
+            "url": "https://support.dayuse.com/hc/en-us/articles/31229242178962-How-can-I-contact-Dayuse-customer-service"
+          },
+          {
+            "id": "31200587905170",
+            "url": "https://support.dayuse.com/hc/en-us/articles/31200587905170-Where-can-I-find-the-hotel-s-contact-details"
+          }
+        ],
+        "review_note": "Support email/contact channels and hotel-contact guidance are present. Availability and response-time guarantees are not inferred.",
+        "agent_behavior": "not_scored_by_source_mapping"
+      },
+      {
+        "legacy_id": "become_partner",
+        "question": "How do I list my hotel / become a Dayuse partner?",
+        "status": "not_found_in_observed_catalog",
+        "legacy_answer_sha256": "8a1279de16a6ea93e7b98a35deee836a852cb6c01c9456d810e7402451a9760a",
+        "matched_articles": [],
+        "review_note": "No partner-onboarding article found among the 77 captured FAQs. The legacy partner redirect is an explicit routing requirement; absence from these FAQ probes does not establish product unavailability.",
+        "agent_behavior": "not_scored_by_source_mapping"
+      },
+      {
+        "legacy_id": "us_cities",
+        "question": "Which US cities have Dayuse hotels?",
+        "status": "not_found_in_observed_catalog",
+        "legacy_answer_sha256": "73d47c4043f91f1a3f370ee8e3372a7a85ba81418803f581e7dd58b35f804ad4",
+        "matched_articles": [],
+        "review_note": "No matching fixed US-city list found in the captured FAQs. Live search inventory is the appropriate evidence; old city-level counts are not automatically restored.",
+        "agent_behavior": "not_scored_by_source_mapping"
+      }
+    ]
+  }
+}

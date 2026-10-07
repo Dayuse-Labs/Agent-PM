@@ -4,6 +4,20 @@
 
 > 📋 **Pour savoir QUOI faire ensuite, ouvrir [`CHANTIERS.md`](CHANTIERS.md)** (état vérifié au 2026-09-14) : la liste des chantiers ouverts, chacun avec sa preuve, ses actions et un prompt prêt à coller — plus la liste de ce qu'il ne faut **pas** relancer parce que c'est déjà livré. `tasks/todo.md` est périmé et ne doit plus servir de référence.
 
+## ✅ 2026-10-07 (ter) — #121 de Victor découpée en 3 PR rebasées sur `main` (référence = main post-#126)
+
+**Fait** (comparaison #121/#123 vs MR de Mathias, puis extraction de ce qui n'est pas déjà sur `main`) :
+1. `fix/bare-budget-reaches-mcp` — un budget nu (« 60 ») reconnu par le triage atteint enfin `priceRangeMax` (sur `main`, `inject_profile_budget` réappliquait l'ancien 150). pytest 1 986 ✅.
+2. `fix/faq-followup-context` — suivis SAV : 3 derniers messages utilisateur → triage, feuille FAQ, synthèse (tours faq) ; règles « pas de recherche/annulation de réservation ». pytest 1 979 ✅.
+3. `evals/production-replay-harness` (cette PR) — banc de rejeu apparié legacy-prod vs AgentB2C ; job CI `eval` = batterie 32 scénarios au lieu de `adk eval` (plus d'extra `google-adk[eval]`). pytest 2 123 ✅.
+
+**Écarté de #121** (déjà sur `main`, ou en conflit avec) : la règle créneau à la minute (`main` = règle site de #122, `slot_covers_window`) ; la divulgation devise sur FAQ (#126).
+
+**Reste** :
+- #123 (contexte géo multi-tour) **non porté** : il déplace l'extraction du lieu de la feuille vers le triage (schéma JSON strict + `gpt-4.1-mini` figé dans le Dockerfile) — décision d'architecture à trancher avant tout portage. Seul le budget nu en a été repris (identique à #121).
+- `scripts/eval_ranking.py` : miroir du filtre créneau, cite encore `_offer_fits_exact_window` (renommé `_offer_covers_window` sur `main`) et ne fait pas l'arrondi à l'heure de `slot_covers_window`.
+- #121 et #123 restent ouvertes côté Victor : à fermer en renvoyant vers ces PR.
+
 ## ✅ 2026-10-07 (bis) — mcp-dayuse#4 : compteur et réserve parking (le reste du ticket était déjà livré)
 
 **Fait** (branche `fix/mcp-4-parking-reserve-page-count`, sur `main` à `d973775` ; gates : pytest **1 976 passés / 1 skippé**, ruff, mypy, guardrails **verts**). Ticket https://gitlab.com/dayuse/dayuse/mcp-dayuse/-/work_items/4. Points 1, 2, 3, 5 du correctif immédiat déjà sur `main` (#122, mcp-dayuse#8) — vérifiés dans le code et en live (Lyon 12h–13h : plus de « exactement » ; Lyon 6h–16h : « aucune offre ne couvre tout le créneau ; voici les plus proches »).

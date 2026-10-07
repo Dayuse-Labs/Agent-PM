@@ -4,8 +4,9 @@
 # Secrets requis :
 # - FLEET_READ_TOKEN : PAT fine-grained en LECTURE sur Dayuse-Labs/dayuse-agent-fleet
 #   (dayuse-agent-common est une dépendance git pinnée vers ce repo privé).
-# - OPENAI_API_KEY (optionnel) : active le job eval + le job langfuse-experiments ; sans lui,
-#   les deux sont sautés.
+# - OPENAI_API_KEY + MCP_B2C_URL + MCP_B2C_AUTH_TOKEN + MAPBOX_ACCESS_TOKEN
+#   (optionnels) : nécessaires aux évaluations live. Sans eux, statut explicite
+#   « non exécuté » dans le résumé ; un job ignoré n'est pas une mesure de qualité.
 # - LANGFUSE_PUBLIC_KEY / LANGFUSE_SECRET_KEY / LANGFUSE_BASE_URL (optionnels) : activent le job
 #   langfuse-experiments (OBS6) ; sans eux, le job est sauté.
 name: ci
@@ -42,23 +43,39 @@ jobs:
       - name: Guardrails statiques Dayuse (zéro lock-in)
         run: bash scripts/dayuse_guardrails.sh .
 
-  # adk eval du concierge sur l'evalset v0 (32 scénarios). Échecs fonctionnels
-  # TOLÉRÉS à ce stade (le squelette dégrade honnêtement) : le job ne bloque pas.
+  # Batterie existante S08 : mêmes 32 scénarios canoniques, judge LiteLLM.
+  # L'ancien extra google-adk[eval] impose un litellm incompatible avec le runtime.
+  # Rapport exploratoire non bloquant ; ni succès du job ni score judge ne vaut GO.
   eval:
     runs-on: ubuntu-latest
     needs: checks
     continue-on-error: true
     env:
       OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
+      MCP_B2C_URL: ${{ secrets.MCP_B2C_URL }}
+      MCP_B2C_AUTH_TOKEN: ${{ secrets.MCP_B2C_AUTH_TOKEN }}
+      MAPBOX_ACCESS_TOKEN: ${{ secrets.MAPBOX_ACCESS_TOKEN }}
+      DAYUSE_MODEL: gpt-4o-mini
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-python@v5
         with:
           python-version: "3.12"
-      - name: Skip si OPENAI_API_KEY absent
+      - name: Vérifier la configuration live sans afficher de secret
         id: gate
         run: |
-          if [ -z "$OPENAI_API_KEY" ]; then echo "run=false" >> "$GITHUB_OUTPUT"; else echo "run=true" >> "$GITHUB_OUTPUT"; fi
+          missing=()
+          for key in OPENAI_API_KEY MCP_B2C_URL MCP_B2C_AUTH_TOKEN MAPBOX_ACCESS_TOKEN; do
+            if [ -z "${!key}" ]; then missing+=("$key"); fi
+          done
+          if [ "${#missing[@]}" -gt 0 ]; then
+            echo "run=false" >> "$GITHUB_OUTPUT"
+            echo "::warning::Batterie live non exécutée : configuration absente (${missing[*]})."
+            echo "### Batterie live : non exécutée" >> "$GITHUB_STEP_SUMMARY"
+            echo "Configuration absente : ${missing[*]}. Aucun scénario ni score qualité produit." >> "$GITHUB_STEP_SUMMARY"
+          else
+            echo "run=true" >> "$GITHUB_OUTPUT"
+          fi
       - name: Autoriser pip à résoudre la dépendance fleet (repo privé)
         if: steps.gate.outputs.run == 'true'
         run: |
@@ -69,18 +86,25 @@ jobs:
           pip install -r agents/hotel_search_agent/requirements.txt \
                       -r agents/faq_agent/requirements.txt \
                       -r agents/b2c_concierge/requirements.txt \
+                      -r requirements-dev.txt \
                       -e libs/b2c_common
-          # Second install, on purpose: the eval extra needs litellm<1.86 while the
-          # agents pin litellm==1.90.2, so one resolution is unsatisfiable. This job's
-          # venv is throwaway (CLAUDE.md): let pip downgrade litellm here only.
-          pip install "google-adk[eval]==2.4.0"
-      - name: Boot des 3 services + adk eval (score libre à ce stade)
+      - name: Boot des services + batterie de 32 scénarios (rapport exploratoire)
         if: steps.gate.outputs.run == 'true'
         run: |
+          trap 'bash scripts/run_local.sh stop' EXIT
           bash scripts/run_local.sh
-          adk eval agents/b2c_concierge/b2c_concierge evalset/evalset-v0.adk.json \
-            --config_file_path evalset/test_config.json || true
-          bash scripts/run_local.sh stop
+          python scripts/run_dynamic_conversation_regression.py --output evals/reports/ci-battery.json
+          python - <<'PY'
+          import json, os
+          from pathlib import Path
+          summary = json.loads(Path("evals/reports/ci-battery.json").read_text())["summary"]
+          if summary["total"] != 32:
+              raise SystemExit("Batterie incomplète : 32 scénarios attendus")
+          with open(os.environ["GITHUB_STEP_SUMMARY"], "a") as report:
+              report.write("### Batterie live exécutée — pas de validation de lancement\n")
+              report.write(f"Judge : {summary['passed']}/32 scénarios satisfaits. ")
+              report.write("Le budget du runner compte des phases logiques, pas les appels LLM réels.\n")
+          PY
 
   # OBS6 — datasets + experiments Langfuse (evals/langfuse_experiment.py, D-OBS-3 :
   # évaluateurs Python déterministes, zéro judge LLM ici). NON BLOQUANT ce tour-ci : on pose
@@ -100,17 +124,27 @@ jobs:
       LANGFUSE_PUBLIC_KEY: ${{ secrets.LANGFUSE_PUBLIC_KEY }}
       LANGFUSE_SECRET_KEY: ${{ secrets.LANGFUSE_SECRET_KEY }}
       LANGFUSE_BASE_URL: ${{ secrets.LANGFUSE_BASE_URL }}
+      MCP_B2C_URL: ${{ secrets.MCP_B2C_URL }}
+      MCP_B2C_AUTH_TOKEN: ${{ secrets.MCP_B2C_AUTH_TOKEN }}
+      MAPBOX_ACCESS_TOKEN: ${{ secrets.MAPBOX_ACCESS_TOKEN }}
       RUN_LANGFUSE_EXPERIMENT_GATE: "1"
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-python@v5
         with:
           python-version: "3.12"
-      - name: Skip si les clés Langfuse ou OPENAI_API_KEY sont absentes
+      - name: Vérifier les prérequis live et Langfuse
         id: gate
         run: |
-          if [ -z "$OPENAI_API_KEY" ] || [ -z "$LANGFUSE_PUBLIC_KEY" ] || [ -z "$LANGFUSE_SECRET_KEY" ]; then
+          missing=()
+          for key in OPENAI_API_KEY LANGFUSE_PUBLIC_KEY LANGFUSE_SECRET_KEY LANGFUSE_BASE_URL MCP_B2C_URL MCP_B2C_AUTH_TOKEN MAPBOX_ACCESS_TOKEN; do
+            if [ -z "${!key}" ]; then missing+=("$key"); fi
+          done
+          if [ "${#missing[@]}" -gt 0 ]; then
             echo "run=false" >> "$GITHUB_OUTPUT"
+            echo "::warning::Experiment Langfuse non exécuté : configuration absente (${missing[*]})."
+            echo "### Langfuse : non exécuté" >> "$GITHUB_STEP_SUMMARY"
+            echo "Configuration absente : ${missing[*]}. Aucun experiment validé." >> "$GITHUB_STEP_SUMMARY"
           else
             echo "run=true" >> "$GITHUB_OUTPUT"
           fi
@@ -126,14 +160,12 @@ jobs:
                       -r agents/b2c_concierge/requirements.txt \
                       -r requirements-dev.txt \
                       -e libs/b2c_common
-      - name: Seed les datasets hébergés (upsert idempotent)
-        if: steps.gate.outputs.run == 'true'
-        run: |
-          python scripts/langfuse_seed_datasets.py
-          python scripts/langfuse_import_dataset.py
+      # Les datasets hébergés peuvent contenir des corrections humaines.
+      # Ne pas réimporter les fichiers locaux ici : l'upsert remplace les items
+      # de même ID. Le test lit le dataset existant et échoue s'il est absent.
       - name: Boot des 3 services + experiment sur b2c/geo-poi
         if: steps.gate.outputs.run == 'true'
         run: |
+          trap 'bash scripts/run_local.sh stop' EXIT
           bash scripts/run_local.sh
           pytest -q evals/tests/test_langfuse_experiment_gate.py
-          bash scripts/run_local.sh stop

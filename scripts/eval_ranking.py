@@ -149,8 +149,8 @@ def filter_pool_exact_window(
 ) -> list[dict[str, Any]]:
     """Mirror of the leaf's strict-then-fallback behavior (verbatim
     re-derivation of _offer_fits_exact_window + the A4-c fallback, never an
-    agents/** import): keep hotels with at least one offer fitting ENTIRELY
-    inside the exact window; if the strict cut empties a non-empty pool, fall
+    agents/** import): keep hotels with at least one offer covering the ENTIRE
+    requested stay; if the strict cut empties a non-empty pool, fall
     back to the unfiltered pool — exactly what the leaf shows in that case."""
     if window is None:
         return pool
@@ -158,10 +158,10 @@ def filter_pool_exact_window(
 
     def _fits(offer: dict[str, Any]) -> bool:
         offer_start = _offer_minutes(offer, "startHour", "startMinute")
-        if offer_start is None or offer_start < start_total:
+        if offer_start is None or offer_start > start_total:
             return False
         offer_end = _offer_minutes(offer, "endHour", "endMinute")
-        return offer_end is not None and offer_end <= end_total
+        return offer_end is not None and start_total < end_total <= offer_end
 
     strict = [
         h for h in pool
