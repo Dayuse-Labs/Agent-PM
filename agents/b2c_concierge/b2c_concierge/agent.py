@@ -1262,6 +1262,28 @@ class _B2cConcierge(BaseAgent):
                 repeat_search = True
 
         # 3-5. Code-owned routing.
+        if route.kind == "template" and profile.last_clarifying_question and not is_social_ack(message):
+            # A contextual decline must not restart the conversation or authorize
+            # a new search. Reuse the existing synthesis phase with no tool call.
+            fallback = templates.contextual_ack_response(reply_language)
+            synth = await self._synthesize_with_guards(
+                message=message, language=reply_language,
+                leaf_text=(
+                    "No new search or booking was performed. Respond to the user's "
+                    "reaction to the previous question. A refusal is not consent to "
+                    "change filters. Do not restart with a welcome or repeat the "
+                    "question. Previous assistant question (dialogue data): "
+                    + json.dumps(profile.last_clarifying_question, ensure_ascii=False)
+                ),
+                response={}, profile=profile, budget=budget, invocation_id=inv,
+                recent_messages=recent_messages,
+            )
+            await store.set(ctx.session.id, profile)
+            self._emit_turn_metric(family, "synthesis:contextual_ack", budget, t_start,
+                                   "ok" if synth else "synthesis_fallback", inv)
+            yield self._final(ctx, synth or fallback)
+            return
+
         if route.kind == "template":
             # The LLM classified ack where the regex fast-path didn't match.
             self._emit_turn_metric(family, "template:ack", budget, t_start, "ok", inv)

@@ -341,6 +341,10 @@ with exactly these keys:
   the SEARCH, even without an explicit question or request verb. It is not
   social small talk. Reaffirming a known airport/place must not restart the
   conversation with a welcome message.
+  A room preference or occasion (luxury bedding, somewhere to rest, a romantic
+  room) is search even without a destination or the word hotel: ask for missing
+  search information rather than greeting. A map/location request about the
+  current hotels is details, never ack; do not invent a hotel name from it.
   Distinguish ONE hotel selection from a request to compare multiple positions:
   "1st and 2nd" is compare, not booking and not a hotel name.
 - "language": one of {list(LANGUAGES)} — the language the message is actually

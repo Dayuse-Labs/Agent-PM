@@ -570,11 +570,11 @@ def test_a_clarify_delta_never_erases_what_the_turn_already_resolved():
     }
 
 
-def test_capture_geocode_other_errors_stash_no_clarify_question():
+def test_rejected_place_is_a_clarification_not_an_outage():
     ctx = _Ctx()
     resp = {"ok": False, "error": "geocode_echo_mismatch", "diagnostics": {"query": "x"}}
     capture_after_tool(_Tool("geocode_location"), {}, ctx, resp)
-    assert "temp:hotel_search_clarify_question" not in ctx.state
+    assert "verify that location" in ctx.state["temp:hotel_search_clarify_question"]
 
 
 def test_emit_flags_requires_clarification_when_no_search_ran():

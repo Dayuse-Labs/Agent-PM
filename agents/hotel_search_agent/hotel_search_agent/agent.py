@@ -67,6 +67,7 @@ from hotel_search_agent.response_bridge import (
     emit_search_datapart,
     inject_landmark_radius,
     inject_pagination_offset,
+    inject_verified_named_hotel,
     skip_final_generation,
     stamp_turn_start,
 )
@@ -373,6 +374,7 @@ root_agent = Agent(
         enforce_equipment_filters,
         inject_profile_occupancy,
         inject_profile_budget,
+        inject_verified_named_hotel,
         inject_profile_geo_context,
         inject_pagination_offset,
         inject_landmark_radius,

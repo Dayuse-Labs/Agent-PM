@@ -562,3 +562,16 @@ def overnight_unsupported_response(language: str) -> str:
         "pt": "Posso procurar ofertas diurnas, mas não confirmar uma estadia durante a noite aqui. Uma estadia durante o dia serviria?",
         "nl": "Ik kan dagaanbiedingen zoeken, maar hier geen overnachting bevestigen. Zou een verblijf overdag passen?",
     }.get(language, "I can search day-use offers, but cannot confirm an overnight stay here.")
+
+
+def contextual_ack_response(language: str) -> str:
+    """Acknowledge a contextual reaction without changing the search."""
+    return {
+        "fr": "D’accord, je garde vos critères actuels.",
+        "en": "Understood, I’ll keep your current criteria.",
+        "es": "De acuerdo, mantengo tus criterios actuales.",
+        "de": "Verstanden, ich behalte Ihre aktuellen Kriterien bei.",
+        "it": "Va bene, mantengo i tuoi criteri attuali.",
+        "pt": "Entendido, mantenho os seus critérios atuais.",
+        "nl": "Begrepen, ik behoud uw huidige criteria.",
+    }.get(language, "Understood, I’ll keep your current criteria.")

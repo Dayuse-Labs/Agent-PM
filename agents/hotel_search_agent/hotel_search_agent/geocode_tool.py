@@ -120,6 +120,24 @@ def _echoes(place_name: str, *, city: str | None, zone: str | None, state_hint: 
     return geocode_echo_matches(place_name, city=city, zone=zone, state_hint=state_hint)
 
 
+def _within_region_extent(candidate: GeocodeCandidate, region: str, country: str, language: str | None) -> bool:
+    """Provider region extent corroborates a named city, not a legal boundary.
+
+    Some county requests resolve to a municipality whose provider address uses
+    a unitary authority instead. Never replace that provider address with the
+    user's region; only accept a same-country, exact-name city inside its extent.
+    """
+    regions = get_mapbox_client().geocode_candidates(region, country=country, language=language,
+                                                    types="district,region")
+    for place in regions:
+        if place.country_code != country or place.name.casefold() != region.casefold() or not place.bbox:
+            continue
+        west, south, east, north = place.bbox
+        if west <= candidate.longitude <= east and south <= candidate.latitude <= north:
+            return True
+    return False
+
+
 #: How far a tier-2 POI may sit from THIS turn's anchor before the 14th guard
 #: (`poi_anchor_coherence`, 2026-08-26) throws it away.
 #:
@@ -756,7 +774,13 @@ def geocode_location(
              or chosen.name.casefold() == (effective_zone or "").casefold())
             and specific_name_matches(chosen.name, effective_zone or "")
         )
-        if zone_matches and _echoes(chosen.place_name, city=echo_city, zone=effective_zone, state_hint=state_hint):
+        echoes = _echoes(chosen.place_name, city=echo_city, zone=effective_zone, state_hint=state_hint)
+        if (not echoes and state_hint and effective_country_code and not effective_zone
+                and chosen.name.casefold() == (echo_city or "").casefold()
+                and chosen.country_code == effective_country_code
+                and _within_region_extent(chosen, state_hint, effective_country_code, lang)):
+            echoes = _echoes(chosen.place_name, city=echo_city, zone=None, state_hint=None)
+        if zone_matches and echoes:
             profile_delta = _anchor_state(
                 city=effective_city,
                 raw_user_message=raw_user_message,

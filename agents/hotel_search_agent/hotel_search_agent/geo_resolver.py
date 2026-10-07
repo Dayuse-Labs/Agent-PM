@@ -469,6 +469,11 @@ def resolve(
     if country_hint:
         ch = country_hint.upper()
         survivors = [c for c in survivors if c.country_code == ch]
+    exact = [c for c in survivors if requested_name and _name_fold(c.name) == _name_fold(requested_name)]
+    if exact:
+        # Inventory density cannot turn a different settlement into the one
+        # named by the user. Keep genuine exact-name homonyms for clarification.
+        survivors = exact
     if region_hint:
         matched = [c for c in survivors if _region_matches(c, region_hint)]
         # Only apply the region filter when it actually matches something —

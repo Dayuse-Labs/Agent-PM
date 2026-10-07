@@ -1290,3 +1290,22 @@ class TestProductionFollowupContracts:
         _run_turn(runner,session.id,'60')
         assert 'LANG: en' in llm.calls[-1]['messages'][1]['content']
         assert asyncio.run(fake_profile_store.get(session.id)).language == 'en'
+
+
+def test_contextual_decline_keeps_filters_without_search_or_welcome(monkeypatch, fake_leg, fake_profile_store):
+    runner = InMemoryRunner(root_agent)
+    session = _new_session(runner)
+    asyncio.run(fake_profile_store.set(session.id, SessionProfile(
+        city="Paris", language="en", budget_max=60,
+        last_clarifying_question="Would you like to increase your budget?",
+    )))
+    llm = _scripted_llm(monkeypatch,
+        '{"family":"ack","language":"en","affirmative":false}',
+        "Understood, I’ll keep your current criteria.",
+    )
+    answer = _run_turn(runner, session.id, "No")
+    assert fake_leg.call_count == 0
+    assert len(llm.calls) == 2
+    assert "Previous assistant question" in llm.calls[-1]["messages"][1]["content"]
+    assert "current criteria" in answer
+    assert asyncio.run(fake_profile_store.get(session.id)).budget_max == 60

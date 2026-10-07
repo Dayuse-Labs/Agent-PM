@@ -67,3 +67,29 @@ def test_ordering_honors_the_requested_property_without_inventing_missing_values
         assert [h['hotel_id'] for h in order_returned_offers(rows,priority)] == [2,1,3]
     assert order_returned_offers(rows,'rating') == rows
     assert order_returned_offers(rows,None) is rows
+
+
+def test_region_extent_reconciles_provider_county_labels_without_accepting_distant_homonyms(monkeypatch):
+    from hotel_search_agent import geocode_tool
+    county = replace(place('Kent',kind='district'),country_code='GB',bbox=(0.03,50.89,1.47,51.48))
+    client = SimpleNamespace(geocode_candidates=lambda *a, **k: [county])
+    monkeypatch.setattr(geocode_tool,'get_mapbox_client',lambda:client)
+    medway = replace(place('Gillingham',kind='place'),latitude=51.387,longitude=0.546,country_code='GB',region='England')
+    assert geocode_tool._within_region_extent(medway,'Kent','GB','en')
+    dorset = replace(medway,latitude=51.038,longitude=-2.276)
+    assert not geocode_tool._within_region_extent(dorset,'Kent','GB','en')
+    assert not geocode_tool._within_region_extent(medway,'Kent','US','en')
+
+
+def test_verified_named_hotel_uses_provider_city_key_and_new_names_do_not_inherit_it():
+    from google.genai import types
+    from hotel_search_agent.response_bridge import encode_datapart,inject_verified_named_hotel
+    known = {'hotel_id':11370,'name':'Rambler Oasis Hotel','city_name':'new-territories','source':'mcp_name_lookup'}
+    ctx=SimpleNamespace(user_content=types.Content(parts=[encode_datapart({'query_params':{'named_hotel':known}})]))
+    tool=SimpleNamespace(name='find_hotel_by_name')
+    args={'name':'Rambler Oasis Hotel','cityName':'Hong Kong'}
+    inject_verified_named_hotel(tool,args,ctx)
+    assert args['cityName']=='new-territories'
+    other={'name':'Other hotel','cityName':'London'}
+    inject_verified_named_hotel(tool,other,ctx)
+    assert other['cityName']=='London'
