@@ -4,9 +4,9 @@
 
 > 📋 **Pour savoir QUOI faire ensuite, ouvrir [`CHANTIERS.md`](CHANTIERS.md)** (état vérifié au 2026-09-14) : la liste des chantiers ouverts, chacun avec sa preuve, ses actions et un prompt prêt à coller — plus la liste de ce qu'il ne faut **pas** relancer parce que c'est déjà livré. `tasks/todo.md` est périmé et ne doit plus servir de référence.
 
-## 2026-10-07 — Harnais empilé sur la PR applicative #123
+## 2026-10-07 — Intégration évaluée, lancement non validé
 
-La branche reprend exactement le code applicatif de #123 (`40dd0c6`, main intégré `9b2ec69`). Le diff de #121 cible maintenant cette branche pour éviter deux versions concurrentes des correctifs. Ordre de review : #123 puis #121. Suite complète : **2 212 tests passent, 1 ignoré** ; Ruff/mypy/guardrails verts. Les tests comprennent ceux de l’application : ne pas additionner les deux suites. Le replay v15 de 417 tours est en cours, distinct de la campagne v14 déjà archivée et de son juge invalidé pour le classement. Aucun merge vers main ni déploiement.
+Runtime `40dd0c6` intégrant main `9b2ec69`. Les 5 lots v15 sont complets : 148 exécutions/417 tours candidats, références archivées, ancien holdout déjà vu. 2 058 tests application et 2 212 harnais passent (1 skip chacun ; suites se recouvrant). Ruff/mypy/guardrails verts. Géographie : 18 conservés, 5 partiels, 1 échec. Coûts cumulés 39.30 USD observés + 1 USD provisionnés, plafond 60, aucun lot en attente. Défaillances métier et preuves explicitement conservées ; juge antérieur exclu du classement. PR #123 puis #121 empilée, aucun merge vers main ni déploiement. [Résultats intégrés et limites](docs/evaluations/production-preservation-integration-2026-10-07.md).
 
 ## 2026-10-07 — Préservation complète évaluée, validation de lancement non acquise
 

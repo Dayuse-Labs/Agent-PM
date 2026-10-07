@@ -1,0 +1,112 @@
+{
+  "runtime_sha": "40dd0c626069d773f7d7b099340eafea37d28ccb",
+  "legacy_sha": "a08a7792ed95dedca6255b5c588a80a504dd6249",
+  "models": {
+    "candidate": "triage gpt-4.1-mini; leaves/synthesis gpt-4o-mini",
+    "reference": "gpt-5.2"
+  },
+  "release_approved": false,
+  "tests": {
+    "application_passed": 2058,
+    "application_skipped": 1,
+    "harness_passed": 2212,
+    "harness_skipped": 1
+  },
+  "campaign_cost_usd": "39.30196720933699950883",
+  "unpriced_call_reserve_usd": "1",
+  "budget_committed_usd": "40.30196720933699950883",
+  "campaign_ceiling_usd": 60,
+  "dispatch_stop_usd": 42,
+  "reserve_usd": 18,
+  "integration_main_sha": "9b2ec696cbba41c31be8e8274a2f5b5474593690",
+  "judge_status": "Not executed for v15. v14 preferences excluded from quality ranking after incorrect-grounding counterexample.",
+  "card_check_counts": {
+    "reference:displayed_offer_covers_stay": {
+      "fail": 22,
+      "pass": 2,
+      "skipped": 9
+    },
+    "candidate:displayed_offer_covers_stay": {
+      "skipped": 22,
+      "fail": 8,
+      "pass": 3
+    },
+    "reference:cheaper_option": {
+      "fail": 3,
+      "pass": 2
+    },
+    "candidate:cheaper_option": {
+      "skipped": 1,
+      "fail": 3,
+      "pass": 1
+    },
+    "reference:displayed_offer_budget": {
+      "fail": 2,
+      "pass": 12,
+      "skipped": 3
+    },
+    "candidate:displayed_offer_budget": {
+      "pass": 5,
+      "skipped": 12
+    },
+    "reference:displayed_priced_stay": {
+      "fail": 2
+    },
+    "candidate:displayed_priced_stay": {
+      "skipped": 2
+    }
+  },
+  "turn_statuses": {
+    "ok": 406,
+    "degraded": 11
+  },
+  "cohorts": {
+    "full": {
+      "sequences": 125,
+      "turns": 348
+    },
+    "holdout": {
+      "sequences": 12,
+      "turns": 43
+    },
+    "common": {
+      "sequences": 4,
+      "turns": 14
+    },
+    "support": {
+      "sequences": 6,
+      "turns": 8
+    },
+    "cancellation": {
+      "sequences": 1,
+      "turns": 4
+    }
+  },
+  "geo_criteria": {
+    "preserved": 18,
+    "partial": 5,
+    "failed": 1
+  },
+  "common_evidence": {
+    "scope": "Displayed hotel identities and each displayed offer window/price checked against same captured hotel record. This does not prove ranking, recall, or complete business-rule parity.",
+    "counts": {
+      "production:cards": 43,
+      "production:offer_checks": 107,
+      "new_main:cards": 27,
+      "new_main:offer_checks": 27
+    },
+    "mismatches": [],
+    "control_receipt_outcomes": {
+      "served": 12,
+      "unsupported": 2
+    }
+  },
+  "limitations": [
+    "Archived references, different model/source/clock. Fixed user turns, not an interactive user simulator.",
+    "Production-origin records; individual customer/QA origin unclassified.",
+    "Former v14 holdout has been inspected; v15 has no new unseen holdout.",
+    "Targeted Codex review is not independent human gold. No validated aggregate ranking.",
+    "Index of 1707 legacy tests is provenance, not proof all behaviors were ported."
+  ],
+  "all_business_evals_passed": false
+}

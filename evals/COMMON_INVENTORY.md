@@ -1,5 +1,12 @@
 # Contrôle de migration à inventaire commun
 
+## Intégration finale v15 — 7 octobre 2026
+
+#121 est empilée sur #123 ; le code applicatif est identique au runtime évalué `40dd0c6`. 2 212 tests passent, 1 ignoré (incluant l’application). [Résultats complets](https://github.com/Dayuse-Labs/AgentB2C/blob/f93cb6d45154c2e1698b3938ab2315839cfa7afb/docs/evaluations/production-preservation-integration-2026-10-07.md). Cinq lots complets, 417 tours candidats ; références archivées, ancien holdout déjà vu. Géographie : 18 critères conservés, 5 partiels, 1 échec, pas de score global. Coût cumulé 39,30 USD observés + 1 USD provisionné, plafond 60 USD.
+
+Le contrôle commun vérifie 107 couples prix/créneau legacy et 27 candidat sans écart au snapshot. Deux sondes D+1 Milano sont hors périmètre. Référence v14 archivée et candidat plus tard sans horloge figée : les échéances peuvent différer ; pas de comparaison causale de disponibilité. Aucun nouveau juge, classement v14 exclu de la décision. Les défauts géographiques, dates, devises, pertinence et SAV empêchent une validation de lancement.
+
+
 Le replay sur `https://ai.dayuse.com/v3/chat` conserve la valeur de la production réelle : son code, ses six mois de conversations, Postgres/Qdrant et son export de disponibilités. Il ne permet pas d’attribuer un hôtel manquant au raisonnement du nouvel agent : les données et le classement diffèrent du MCP.
 
 `common_inventory.py` fournit donc un deuxième contrôle, volontairement borné. Un instantané réel MCP est lu par deux adaptateurs : repository + cache de disponibilités du legacy, et serveur MCP local pour AgentB2C. Les identités, coordonnées, prix EUR frais inclus, heures et échéances viennent du même document immuable. Le cache legacy indique explicitement indisponible après l’échéance, et le serveur MCP applique la même règle. Les annulations, emails, bases de production et paiements restent déconnectés.

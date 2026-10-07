@@ -1,7 +1,7 @@
 {
   "schema_version": 1,
   "legacy_sha": "a08a7792ed95dedca6255b5c588a80a504dd6249",
-  "candidate_runtime_sha": "1be89742ae3b013ef2531bfe3e3996528bfca664",
+  "candidate_runtime_sha": "40dd0c626069d773f7d7b099340eafea37d28ccb",
   "meaning": "Traceability of 32 requirements, not 32 passed requirements. Individual historical tests remain indexed separately.",
   "rules": [
     {
@@ -19,7 +19,7 @@
       ],
       "scope": "Date requests persist; historical stock and client timezone still need independent evidence.",
       "coverage": "offline_contracts_and_live_review",
-      "live_result": "See final 2026-10-07 validation; no blanket pass."
+      "live_result": "Open: Italian stay-duration wording became day_after_tomorrow in a real replay (Langfuse verified)."
     },
     {
       "id": "M02",
@@ -34,9 +34,9 @@
         "agents/hotel_search_agent/tests/test_response_bridge.py",
         "tests/api/test_search_state_ownership.py"
       ],
-      "scope": "Exact windows and explicit alternatives; MCP overlap semantics remain different from full coverage.",
+      "scope": "Integrated main uses site containment with nearest-hour rounding, and soft overlap for dayparts. Historical minute-exact expectations are retained separately; disclosed alternatives do not count as exact matches.",
       "coverage": "offline_contracts_and_live_review",
-      "live_result": "See final 2026-10-07 validation; no blanket pass."
+      "live_result": "See integrated v15 validation on 2026-10-07; no blanket pass."
     },
     {
       "id": "M03",
@@ -51,7 +51,7 @@
       ],
       "scope": "No GPS invented when absent from recorded browser context; real GPS trajectories not replayed.",
       "coverage": "offline_contracts_and_live_review",
-      "live_result": "See final 2026-10-07 validation; no blanket pass."
+      "live_result": "See integrated v15 validation on 2026-10-07; no blanket pass."
     },
     {
       "id": "M04",
@@ -66,7 +66,7 @@
       ],
       "scope": "Verified provider location reused through concierge-owned state.",
       "coverage": "offline_contracts_and_live_review",
-      "live_result": "See final 2026-10-07 validation; no blanket pass."
+      "live_result": "See integrated v15 validation on 2026-10-07; no blanket pass."
     },
     {
       "id": "M05",
@@ -80,7 +80,7 @@
       ],
       "scope": "Agreement/refusal contracts covered; complete dialogue loops require live review.",
       "coverage": "offline_contracts_and_live_review",
-      "live_result": "See final 2026-10-07 validation; no blanket pass."
+      "live_result": "See integrated v15 validation on 2026-10-07; no blanket pass."
     },
     {
       "id": "M06",
@@ -96,7 +96,7 @@
       ],
       "scope": "Exact named settlements and provider country/region evidence; no copied city catalogue.",
       "coverage": "offline_contracts_and_live_review",
-      "live_result": "See final 2026-10-07 validation; no blanket pass."
+      "live_result": "See integrated v15 validation on 2026-10-07; no blanket pass."
     },
     {
       "id": "M07",
@@ -110,7 +110,7 @@
       ],
       "scope": "Stay duration is not a price or arrival hour; semantic triage has live variance.",
       "coverage": "offline_contracts_and_live_review",
-      "live_result": "See final 2026-10-07 validation; no blanket pass."
+      "live_result": "See integrated v15 validation on 2026-10-07; no blanket pass."
     },
     {
       "id": "M08",
@@ -125,7 +125,7 @@
       ],
       "scope": "No fabricated FX; cross-currency budget comparison remains limited.",
       "coverage": "offline_contracts_and_live_review",
-      "live_result": "See final 2026-10-07 validation; no blanket pass."
+      "live_result": "See integrated v15 validation on 2026-10-07; no blanket pass."
     },
     {
       "id": "M09",
@@ -140,7 +140,7 @@
       ],
       "scope": "Bare budget and ordinal roles have counterexamples; multipicks are not new reservations.",
       "coverage": "offline_contracts_and_live_review",
-      "live_result": "See final 2026-10-07 validation; no blanket pass."
+      "live_result": "See integrated v15 validation on 2026-10-07; no blanket pass."
     },
     {
       "id": "M10",
@@ -155,7 +155,7 @@
       ],
       "scope": "Identity-only and geographic clarification cannot become verified availability; prose still needs review.",
       "coverage": "offline_contracts_and_live_review",
-      "live_result": "See final 2026-10-07 validation; no blanket pass."
+      "live_result": "See integrated v15 validation on 2026-10-07; no blanket pass."
     },
     {
       "id": "M11",
@@ -170,7 +170,7 @@
       ],
       "scope": "Existing bounded widening/exhaustion; no claim of full loop elimination.",
       "coverage": "offline_contracts_and_live_review",
-      "live_result": "See final 2026-10-07 validation; no blanket pass."
+      "live_result": "See integrated v15 validation on 2026-10-07; no blanket pass."
     },
     {
       "id": "M12",
@@ -186,7 +186,7 @@
       ],
       "scope": "Provider IDs and explicit removal protected; source coverage differs from legacy.",
       "coverage": "offline_contracts_and_live_review",
-      "live_result": "See final 2026-10-07 validation; no blanket pass."
+      "live_result": "See integrated v15 validation on 2026-10-07; no blanket pass."
     },
     {
       "id": "M13",
@@ -202,7 +202,7 @@
       ],
       "scope": "Cards/count plumbing exists; browse-link query fidelity remains a product gap.",
       "coverage": "offline_contracts_and_live_review",
-      "live_result": "See final 2026-10-07 validation; no blanket pass."
+      "live_result": "See integrated v15 validation on 2026-10-07; no blanket pass."
     },
     {
       "id": "M14",
@@ -219,7 +219,7 @@
       ],
       "scope": "Provider categories gate landmarks and administrative areas; uncertain places stay uncertain.",
       "coverage": "offline_contracts_and_live_review",
-      "live_result": "See final 2026-10-07 validation; no blanket pass."
+      "live_result": "See integrated v15 validation on 2026-10-07; no blanket pass."
     },
     {
       "id": "M15",
@@ -234,7 +234,7 @@
       ],
       "scope": "Session TTL is an intentional product contract; old/new expiration parity not established.",
       "coverage": "offline_contracts_and_live_review",
-      "live_result": "See final 2026-10-07 validation; no blanket pass."
+      "live_result": "See integrated v15 validation on 2026-10-07; no blanket pass."
     },
     {
       "id": "M16",
@@ -250,7 +250,7 @@
       ],
       "scope": "Explicit replace/retain and session shortlist selection; tests include unresolvable references.",
       "coverage": "offline_contracts_and_live_review",
-      "live_result": "See final 2026-10-07 validation; no blanket pass."
+      "live_result": "See integrated v15 validation on 2026-10-07; no blanket pass."
     },
     {
       "id": "M17",
@@ -265,7 +265,7 @@
       ],
       "scope": "Counts injected into MCP; ages/minor policy not proven by numeric capacity.",
       "coverage": "offline_contracts_and_live_review",
-      "live_result": "See final 2026-10-07 validation; no blanket pass."
+      "live_result": "See integrated v15 validation on 2026-10-07; no blanket pass."
     },
     {
       "id": "M18",
@@ -278,7 +278,7 @@
       "candidate_tests": [],
       "scope": "Business policy and age-specific evidence remain unresolved; never infer eligibility from available rooms.",
       "coverage": "open_business_or_capability_gap",
-      "live_result": "See final 2026-10-07 validation; no blanket pass."
+      "live_result": "See integrated v15 validation on 2026-10-07; no blanket pass."
     },
     {
       "id": "F01",
@@ -294,7 +294,7 @@
       ],
       "scope": "Existing-booking support is distinct from new booking and hotel search.",
       "coverage": "offline_contracts_and_live_review",
-      "live_result": "See final 2026-10-07 validation; no blanket pass."
+      "live_result": "See integrated v15 validation on 2026-10-07; no blanket pass."
     },
     {
       "id": "F02",
@@ -309,7 +309,7 @@
       ],
       "scope": "FAQ schema contract; policy correctness is source-dependent, not proved by schema.",
       "coverage": "offline_contracts_and_live_review",
-      "live_result": "See final 2026-10-07 validation; no blanket pass."
+      "live_result": "See integrated v15 validation on 2026-10-07; no blanket pass."
     },
     {
       "id": "F03",
@@ -325,7 +325,7 @@
       ],
       "scope": "Offer-specific restrictions must survive generic FAQ answers; no general refund parity claim.",
       "coverage": "offline_contracts_and_live_review",
-      "live_result": "See final 2026-10-07 validation; no blanket pass."
+      "live_result": "See integrated v15 validation on 2026-10-07; no blanket pass."
     },
     {
       "id": "F04",
@@ -339,7 +339,7 @@
       "candidate_tests": [],
       "scope": "Conflicting FAQ/public articles require business source arbitration.",
       "coverage": "open_business_or_capability_gap",
-      "live_result": "See final 2026-10-07 validation; no blanket pass."
+      "live_result": "See integrated v15 validation on 2026-10-07; no blanket pass."
     },
     {
       "id": "F05",
@@ -354,7 +354,7 @@
       ],
       "scope": "Market/hotel/offer context propagation; no authenticated booking state in B2C MCP.",
       "coverage": "offline_contracts_and_live_review",
-      "live_result": "See final 2026-10-07 validation; no blanket pass."
+      "live_result": "See integrated v15 validation on 2026-10-07; no blanket pass."
     },
     {
       "id": "F06",
@@ -366,7 +366,7 @@
       "candidate_tests": [],
       "scope": "Gift-card purchase versus use remains a semantic coverage requirement.",
       "coverage": "open_business_or_capability_gap",
-      "live_result": "See final 2026-10-07 validation; no blanket pass."
+      "live_result": "See integrated v15 validation on 2026-10-07; no blanket pass."
     },
     {
       "id": "F07",
@@ -379,7 +379,7 @@
       "candidate_tests": [],
       "scope": "Modification/cancellation/rebooking guidance requires business arbitration.",
       "coverage": "open_business_or_capability_gap",
-      "live_result": "See final 2026-10-07 validation; no blanket pass."
+      "live_result": "See integrated v15 validation on 2026-10-07; no blanket pass."
     },
     {
       "id": "F08",
@@ -392,7 +392,7 @@
       "candidate_tests": [],
       "scope": "Late arrival/no-show policies need dated source review.",
       "coverage": "open_business_or_capability_gap",
-      "live_result": "See final 2026-10-07 validation; no blanket pass."
+      "live_result": "See integrated v15 validation on 2026-10-07; no blanket pass."
     },
     {
       "id": "F09",
@@ -407,7 +407,7 @@
       ],
       "scope": "FAQ interruption and language retained in concierge state; live dialogues remain decisive.",
       "coverage": "offline_contracts_and_live_review",
-      "live_result": "See final 2026-10-07 validation; no blanket pass."
+      "live_result": "See integrated v15 validation on 2026-10-07; no blanket pass."
     },
     {
       "id": "F10",
@@ -422,7 +422,7 @@
       ],
       "scope": "Timeouts, missing evidence and rejected geography cannot be reported as actual empty stock.",
       "coverage": "offline_contracts_and_live_review",
-      "live_result": "See final 2026-10-07 validation; no blanket pass."
+      "live_result": "See integrated v15 validation on 2026-10-07; no blanket pass."
     },
     {
       "id": "F11",
@@ -437,7 +437,7 @@
       ],
       "scope": "Missing booking management must be stated; dedicated isolated CS dialogues are rerun.",
       "coverage": "offline_contracts_and_live_review",
-      "live_result": "See final 2026-10-07 validation; no blanket pass."
+      "live_result": "See integrated v15 validation on 2026-10-07; no blanket pass."
     },
     {
       "id": "F12",
@@ -451,7 +451,7 @@
       "candidate_tests": [],
       "scope": "Legacy ownership-gated CS capability is absent from new B2C MCP; do not simulate authenticated access.",
       "coverage": "open_business_or_capability_gap",
-      "live_result": "See final 2026-10-07 validation; no blanket pass."
+      "live_result": "See integrated v15 validation on 2026-10-07; no blanket pass."
     },
     {
       "id": "F13",
@@ -467,7 +467,7 @@
       ],
       "scope": "Booking-link confirmation is not cancellation; synthetic cancellation tests are separate from actual action parity.",
       "coverage": "offline_contracts_and_live_review",
-      "live_result": "See final 2026-10-07 validation; no blanket pass."
+      "live_result": "See integrated v15 validation on 2026-10-07; no blanket pass."
     },
     {
       "id": "F14",
@@ -480,9 +480,9 @@
       "candidate_tests": [],
       "scope": "FAQ inventory indexed, semantic completeness not established by this patch.",
       "coverage": "open_business_or_capability_gap",
-      "live_result": "See final 2026-10-07 validation; no blanket pass."
+      "live_result": "See integrated v15 validation on 2026-10-07; no blanket pass."
     }
   ],
-  "final_validation": "https://github.com/Dayuse-Labs/AgentB2C/blob/7d8ff171e51dd3c0613a304ac181d82399b3bdb5/docs/evaluations/production-preservation-2026-10-07.md",
+  "final_validation": "https://github.com/Dayuse-Labs/AgentB2C/blob/f93cb6d45154c2e1698b3938ab2315839cfa7afb/docs/evaluations/production-preservation-integration-2026-10-07.md",
   "all_requirements_passed": false
 }
