@@ -39,10 +39,15 @@ def parse_search_update(value: Any, message: str) -> dict:
     return out
 
 
-def apply_search_update(profile: SessionProfile, update: dict | None) -> None:
+def apply_search_update(profile: SessionProfile, update: dict | None, budget_action: str | None = None) -> None:
     if not update:
         return
-    if "budget_max" in update and profile.display_currency in (None, "EUR"):
+    budget_edit_allowed = budget_action not in {"retain", "cheaper"}
+    if budget_action == "set" and update.get("budget_max") is None:
+        budget_edit_allowed = False
+    if budget_action == "clear" and update.get("budget_max") is not None:
+        budget_edit_allowed = False
+    if budget_edit_allowed and "budget_max" in update and profile.display_currency in (None, "EUR"):
         profile.budget_max = update["budget_max"]
         profile.budget_request_source = BUDGET_SOURCE_EXPLICIT
     if "timeslot_start" in update or "timeslot_end" in update:

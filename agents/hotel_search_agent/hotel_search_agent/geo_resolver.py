@@ -375,6 +375,7 @@ def rank_landmark(
     proximity: tuple[float, float] | None = None,
     city_anchor: tuple[float, float] | None = None,
     radius_km: float = DEFAULT_RADIUS_KM,
+    location_kind: str | None = None,
 ) -> GeocodeCandidate | None:
     """Pick the best Search-Box candidate for a named landmark, or None.
 
@@ -389,10 +390,25 @@ def rank_landmark(
     Ranking the whole list on signals Mapbox cannot know — our inventory, the
     exact name asked for — is what makes the outcome ours and reproducible.
     """
-    if not candidates:
-        return None
     wanted = _landmark_key(requested_zone)
     wanted_tokens = set(wanted)
+    if location_kind == "area":
+        candidates = [c for c in candidates if c.feature_type in {"neighborhood", "locality", "district"}]
+    elif location_kind == "landmark":
+        # A business merely named after a landmark is not that landmark.
+        # Unknown categories need an exact identity match; provider IATA or
+        # attraction/station categories can back a longer official name.
+        landmark_categories = {"airport", "airport_terminal", "train_station", "railway_station", "metro_station",
+                               "subway_station", "theme_park", "tourist_attraction", "museum", "monument", "park"}
+        candidates = [c for c in candidates if (
+            (c.iata_code and c.iata_code.lower() in wanted_tokens)
+            or (_landmark_key(c.name) == wanted and not set(c.poi_categories).intersection(
+                {"hotel", "lodging", "taxi", "parking_lot", "storage", "shopping", "restaurant"}))
+            or (set(c.poi_categories).intersection(landmark_categories)
+                and wanted_tokens.intersection(_landmark_key(c.name)))
+        )]
+    if not candidates:
+        return None
 
     def score(candidate: GeocodeCandidate) -> float:
         count = inventory.count_near(candidate.latitude, candidate.longitude, radius_km=radius_km)

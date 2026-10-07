@@ -551,3 +551,14 @@ def service_degraded_response(language: str) -> str:
     inner degradation net, so the step that failed is unknown — generic
     honest wording, invents nothing, never a raw 500/dead stream."""
     return _pick(language, _SERVICE_DEGRADED)
+def overnight_unsupported_response(language: str) -> str:
+    """No day-use offer can establish availability across an overnight stay."""
+    return {
+        "en": "I can search day-use offers, but I cannot confirm an overnight stay here. Would a daytime stay work for you?",
+        "fr": "Je peux rechercher des offres à la journée, mais pas confirmer un séjour de nuit ici. Un séjour en journée vous conviendrait-il ?",
+        "es": "Puedo buscar ofertas de día, pero no confirmar una estancia nocturna aquí. ¿Te serviría una estancia durante el día?",
+        "it": "Posso cercare offerte diurne, ma non confermare un pernottamento qui. Ti andrebbe bene un soggiorno durante il giorno?",
+        "de": "Ich kann Tagesangebote suchen, hier aber keine Übernachtung bestätigen. Wäre ein Aufenthalt tagsüber passend?",
+        "pt": "Posso procurar ofertas diurnas, mas não confirmar uma estadia durante a noite aqui. Uma estadia durante o dia serviria?",
+        "nl": "Ik kan dagaanbiedingen zoeken, maar hier geen overnachting bevestigen. Zou een verblijf overdag passen?",
+    }.get(language, "I can search day-use offers, but cannot confirm an overnight stay here.")

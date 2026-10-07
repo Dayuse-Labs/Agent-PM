@@ -1064,7 +1064,7 @@ class TestSynthesisAnglePlumbing:
         _run_turn(runner, session.id, "un hotel a paris")
 
         user_prompt = llm.calls[-1]["messages"][1]["content"]
-        assert "ANGLE (lead on this, in your own words):" in user_prompt
+        assert "ANGLE (optional; the current request takes priority):" in user_prompt
         assert "outside the centre" in user_prompt
 
     def test_no_angle_block_when_the_shortlist_is_unremarkable(
@@ -1248,3 +1248,45 @@ def test_search_request_survives_leaf_timeout_and_reaches_next_turn(monkeypatch,
     assert seen[1][1]['query_params']['recent_user_messages'] == ['Milford ct']
     stored = asyncio.run(fake_profile_store.get(session.id))
     assert stored.city is None and stored.search_location_request['city'] == 'Milford'
+
+class TestProductionFollowupContracts:
+    def test_overnight_never_fetches_day_offers(self, monkeypatch, fake_leg, fake_profile_store):
+        _scripted_llm(monkeypatch, '{"family":"search","language":"en","stay_kind":"overnight"}')
+        runner = InMemoryRunner(root_agent)
+        session = _new_session(runner)
+        answer = _run_turn(runner, session.id, 'Overnight use')
+        assert fake_leg.call_count == 0
+        assert 'overnight' in str(answer)
+        stored = asyncio.run(fake_profile_store.get(session.id))
+        assert stored.stay_kind == 'overnight'
+        assert stored.last_clarifying_question
+
+    def test_daytime_agreement_resumes_search_instead_of_greeting(self, monkeypatch, fake_leg, fake_profile_store):
+        runner = InMemoryRunner(root_agent)
+        session = _new_session(runner)
+        profile = SessionProfile(city='Singapore',language='en',stay_kind='overnight',
+                                 last_clarifying_question='Would a daytime stay work for you?')
+        asyncio.run(fake_profile_store.set(session.id,profile))
+        _scripted_llm(monkeypatch, '{"family":"ack","language":"en","affirmative":true,"stay_kind":"day_use"}', 'Day-use offers only.')
+        _run_turn(runner,session.id,'yes')
+        assert fake_leg.call_count == 1
+        assert asyncio.run(fake_profile_store.get(session.id)).stay_kind == 'day_use'
+
+    def test_unresolved_position_never_calls_any_tool(self, monkeypatch, fake_leg, fake_profile_store):
+        runner = InMemoryRunner(root_agent)
+        session = _new_session(runner)
+        _scripted_llm(monkeypatch, '{"family":"booking","language":"en","pick":"position","pick_position":1,"hotel_name":"Invented Hotel"}')
+        async def forbidden(*args,**kwargs):
+            pytest.fail('An unresolved ordinal must never call a catalogue or booking tool')
+        monkeypatch.setattr(agent_module.inline_tools,'generate_booking_link',forbidden)
+        _run_turn(runner,session.id,'the first one')
+        assert fake_leg.call_count == 0
+
+    def test_bare_budget_preserves_established_language(self, monkeypatch, fake_leg, fake_profile_store):
+        runner = InMemoryRunner(root_agent)
+        session = _new_session(runner)
+        asyncio.run(fake_profile_store.set(session.id,SessionProfile(city='London',language='en',locale='fr-FR')))
+        llm = _scripted_llm(monkeypatch, '{"family":"search","language":"fr","bare_budget_value":60}', 'No offers within that budget.')
+        _run_turn(runner,session.id,'60')
+        assert 'LANG: en' in llm.calls[-1]['messages'][1]['content']
+        assert asyncio.run(fake_profile_store.get(session.id)).language == 'en'

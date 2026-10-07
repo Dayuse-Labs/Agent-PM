@@ -178,6 +178,7 @@ class SearchBoxClient:
                     rank=rank,
                     iata_code=SearchBoxClient._iata_code(props),
                     provider_place_id=props.get("mapbox_id") or feature.get("id"),
+                    poi_categories=tuple(x for x in (props.get("poi_category_ids") or []) if isinstance(x, str)),
                 )
             )
         return candidates

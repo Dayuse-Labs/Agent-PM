@@ -583,6 +583,7 @@ def geocode_location(
                 requested_zone=effective_zone or "",
                 inventory=get_inventory(),
                 proximity=proximity_tuple,
+                location_kind=location_kind,
             )
             if landmark is not None and _echoes(
                 landmark.place_name, city=None, zone=effective_zone, state_hint=None
@@ -855,6 +856,7 @@ def geocode_location(
             inventory=get_inventory(),
             proximity=proximity_tuple,
             city_anchor=city_anchor,
+            location_kind=location_kind,
         )
         if (poi is not None and (not location_kind or specific_name_matches(
             f"{poi.name} {poi.iata_code or ''}", effective_zone or effective_city or effective_metro or ""

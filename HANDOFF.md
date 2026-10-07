@@ -4,6 +4,10 @@
 
 > 📋 **Pour savoir QUOI faire ensuite, ouvrir [`CHANTIERS.md`](CHANTIERS.md)** (état vérifié au 2026-09-14) : la liste des chantiers ouverts, chacun avec sa preuve, ses actions et un prompt prêt à coller — plus la liste de ce qu'il ne faut **pas** relancer parce que c'est déjà livré. `tasks/todo.md` est périmé et ne doit plus servir de référence.
 
+## 2026-10-07 — Préservation des conversations réelles, validation en cours
+
+Correctifs en cours de validation : budget comparatif distinct d’une suppression, garde sur sélection sans shortlist, langue conservée sur montant isolé, nuit explicitement non confirmable, reprise après accord, hôtel nommé transmis entre tours, priorité de recherche et contrôle des homonymes POI via les catégories du fournisseur. Aucun nouvel appel regex. Les replays précédents restent historiques ; ne pas les attribuer à ce nouveau runtime. Résultats et coûts finaux à compléter avant publication de cette révision.
+
 ## 2026-10-06 — Suite : état de production adapté au concierge, sources distinguées
 
 **Fait** : production Railway réellement relue (`a08a7792`), Postgres/Qdrant + cache d’export S3, `AVAILABILITY_STRICT_EXPORT=false`. Snapshot de lieu lié à la demande, contexte durable de triage, corrections explicites budget/horaires persistées avant la feuille, schéma strict, avertissement d’alternative et timeouts Redis. Concierge seul propriétaire de l’état ; feuilles A2A stateless et outils MCP conservés. Triage évalué `gpt-4.1-mini` (défaut du Dockerfile concierge), feuilles/synthèse `gpt-4o-mini`. Aucun nouvel appel regex.

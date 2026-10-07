@@ -425,7 +425,7 @@ OUTCOME returned by one internal source (hotel search, or Dayuse FAQ/policies).
 The internal source may itself answer in English regardless of the user's own
 language — that is irrelevant to your output language.
 
-Write ONE reply to the user in the LANGUAGE given by the LANG marker (fr or en),
+Write ONE reply to the user in the LANGUAGE given by the LANG marker,
 even when the OUTCOME text is in a different language (e.g. English).
 
 The following carousel rules apply to HOTEL RESULTS only, not FAQ/support.
@@ -447,8 +447,13 @@ Therefore:
 - Do NOT narrate the interface: never "click the button", "use the link",
   "select a card". The buttons label themselves. A next step is something the
   user can ask YOU for — a different time, a closer district, a lower price.
-- When an ANGLE block is present, it is the fact to lead on. Write it in your
-  own words; never quote it back.
+- Answer the CURRENT request first, using recent context to resolve follow-ups.
+  An ANGLE is optional supporting evidence, never a reason to ignore a request
+  for closer/cheaper hotels, a particular facility, capacity or a named hotel.
+  If the requested improvement is not demonstrated, say so. Never describe a
+  repeated distant shortlist as closer, or a day offer as an overnight stay.
+  Distances are straight-line distances from the GROUND TRUTH origin, never
+  walking/driving times and never from another city mentioned in conversation.
 A long reply is a defect even when every word in it is true.
 
 For FAQ/support with no hotel results, answer the actual question and provide
@@ -661,7 +666,7 @@ class _B2cConcierge(BaseAgent):
         if search_context:
             user += f"\n\nSEARCH CONTEXT (what you understood — restate briefly): {search_context}"
         if angle:
-            user += f"\n\nANGLE (lead on this, in your own words): {angle}"
+            user += f"\n\nANGLE (optional; the current request takes priority): {angle}"
         t0 = time.monotonic()
         try:
             resp = await _get_synthesis_router(model_slug).acompletion(
@@ -732,6 +737,8 @@ class _B2cConcierge(BaseAgent):
         # angle is excluded, so two searches that keep the same top hotel don't
         # produce the same sentence twice (seen in the browser 2026-07-29).
         angle_key, angle = synthesis_angle(response, profile.last_synthesis_angle or "")
+        if profile.search_priority and profile.search_priority != "relevance":
+            angle_key, angle = "", ""
         profile.last_synthesis_angle = angle_key or None
         widen_note = None
         if profile.auto_widen_disclosure:
@@ -743,6 +750,8 @@ class _B2cConcierge(BaseAgent):
         profile.auto_widen_disclosure = None  # surfaced at most once, regardless of outcome below
         # Transparency: let the reply restate the understood search params (S9+).
         search_context = search_context_line(profile)
+        if profile.search_priority:
+            search_context += f" Priority: {profile.search_priority}; ordering only covers returned offers, not the entire catalogue."
         # Provenance honesty (S12 audit 2026-07-20): a non-explicit budget/
         # timeslot must never be claimed as user-requested (rule 8) — this
         # is independent of auto-widen, so it fires from turn 1 whenever a
@@ -1073,7 +1082,7 @@ class _B2cConcierge(BaseAgent):
         # regression — closing it means touching a proven regex, not this gate.
         refinement_signal = is_search_refinement_signal(message, profile)
         booking_signal = is_booking_confirmation_signal(message, profile)
-        if is_social_ack(message) and not refinement_signal and not booking_signal:
+        if is_social_ack(message) and not refinement_signal and not booking_signal and not profile.last_clarifying_question:
             self._emit_turn_metric("ack", "template:ack", budget, t_start, "ok", inv)
             # S-CX2 (audit F5): a bare "ok" carries no language signal — the
             # conversation's established language / client locale beat the guess.
@@ -1119,7 +1128,11 @@ class _B2cConcierge(BaseAgent):
         # or the synthesis prompt is fed — see triage.response_language for
         # why this stays a choke point rather than reading `triage.language`
         # directly at each call site.
-        reply_language = response_language(triage.language)
+        language_neutral = triage.bare_budget_value is not None or triage.pick != "none"
+        reply_language = (
+            template_language(profile.language, profile.locale, message)
+            if language_neutral else response_language(triage.language)
+        )
         # Code-owned overrides (LLM never routes). A pending-offer confirmation
         # wins; otherwise a refinement of a PRIOR search re-routes to a fresh
         # search REGARDLESS of what triage guessed — a terse "le 28"/"moins cher"
@@ -1163,8 +1176,16 @@ class _B2cConcierge(BaseAgent):
         # (all 7) — `triage.classify` already validates `language` against
         # LANGUAGES, so this check is a defensive choke point, not a filter
         # that fires in practice.
-        if clicked_id is None and triage.language in TEMPLATE_LANGUAGES:
-            profile.language = triage.language
+        if clicked_id is None and reply_language in TEMPLATE_LANGUAGES:
+            profile.language = reply_language
+
+        # A reference must resolve within this session's shortlist. Never turn
+        # an unresolved ordinal into a named hotel lookup against the catalogue.
+        if triage.pick != "none" and picked is None and not booking_signal:
+            await store.set(ctx.session.id, profile)
+            self._emit_turn_metric(family, "template:unresolved_pick", budget, t_start, "ok", inv)
+            yield self._final(ctx, templates.inline_unresolved_response("get_hotel_details", reply_language))
+            return
 
         if booking_signal:
             family, route = "booking", ROUTES["booking"]
@@ -1187,6 +1208,9 @@ class _B2cConcierge(BaseAgent):
             # mis-triages as search and dead-ends ("I can't reach hotel search").
             family, route = "booking", ROUTES["booking"]
         elif family != "faq" and refinement_signal:
+            family, route = "search", ROUTES["search"]
+
+        if family == "ack" and triage.affirmative and profile.last_clarifying_question:
             family, route = "search", ROUTES["search"]
 
         currency = resolve_currency_request(triage.display_currency, profile.last_results)
@@ -1312,7 +1336,19 @@ class _B2cConcierge(BaseAgent):
             # Triage already recognized the amount. Put it in profile_in so
             # the real MCP budget-injection callback can enforce it even if
             # the stateless leaf model does not repeat the bare-number intent.
-            apply_search_update(profile, triage.search_update)
+            apply_search_update(profile, triage.search_update, triage.budget_action)
+            if triage.stay_kind is not None:
+                profile.stay_kind = triage.stay_kind
+            if triage.search_priority is not None:
+                profile.search_priority = triage.search_priority
+            if profile.stay_kind == "overnight":
+                prepare_search_context(profile, triage.location_update)
+                reply = templates.overnight_unsupported_response(reply_language)
+                profile.last_clarifying_question = extract_final_question(reply)
+                await store.set(ctx.session.id, profile)
+                self._emit_turn_metric(family, "template:overnight_unsupported", budget, t_start, "ok", inv)
+                yield self._final(ctx, reply)
+                return
             recognized_budget = apply_recognized_bare_budget(profile, message, triage.bare_budget_value, budget.fired)
 
         # Leaf leg (search / faq): charge the leaf's 0-1 internal LLM slot, then
@@ -1331,6 +1367,8 @@ class _B2cConcierge(BaseAgent):
                 profile, {"action": "retain"} if repeat_search or recognized_budget else triage.location_update
             )
             search_view["constraint_edits_managed"] = triage.search_update is not None
+            if profile.named_hotel and (triage.location_update or {}).get("action") != "replace":
+                leaf_kwargs.setdefault("query_params", {})["named_hotel"] = profile.named_hotel
             # Persist the request before remote work: a timeout must not erase
             # the destination the user just supplied. It is still unverified.
             await store.set(ctx.session.id, profile)

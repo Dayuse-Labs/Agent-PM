@@ -261,6 +261,8 @@ class SessionProfile:
     # Unverified semantic request, retained even if the leaf times out.
     search_location_request: dict[str, Any] | None = None
     resolved_search_location: dict[str, Any] | None = None
+    stay_kind: str | None = None
+    search_priority: str | None = None
 
     def to_dict(self) -> dict[str, Any]:
         return {
@@ -305,6 +307,8 @@ class SessionProfile:
             "display_currency": self.display_currency,
             "search_location_request": self.search_location_request,
             "resolved_search_location": self.resolved_search_location,
+            "stay_kind": self.stay_kind,
+            "search_priority": self.search_priority,
             "schema_version": PROFILE_SCHEMA_VERSION,
         }
 

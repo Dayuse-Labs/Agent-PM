@@ -166,6 +166,9 @@ class Triage:
     display_currency: str | None = None
     location_update: dict | None = None
     search_update: dict | None = None
+    budget_action: str | None = None
+    stay_kind: str | None = None
+    search_priority: str | None = None
 
 
 def is_social_ack(message: str) -> bool:
@@ -330,10 +333,22 @@ with exactly these keys:
   An agreement ("sure", "yes") continuing support for an EXISTING reservation
   remains `faq`; it is not permission to create a new booking. `booking` needs
   an identifiable new-booking intent, not just a reservation mentioned earlier.
+  An answer to the last assistant question continues that task: capacity,
+  date, time, destination, "yes" to a proposed search, or a requested refinement
+  are NEVER greetings. "Cancel" alone is faq. After a named hotel search,
+  a city clarification keeps that hotel as the subject; do not start over.
+  A complaint or challenge about the destination already provided continues
+  the SEARCH, even without an explicit question or request verb. It is not
+  social small talk. Reaffirming a known airport/place must not restart the
+  conversation with a welcome message.
+  Distinguish ONE hotel selection from a request to compare multiple positions:
+  "1st and 2nd" is compare, not booking and not a hotel name.
 - "language": one of {list(LANGUAGES)} — the language the message is actually
   written in. Report what you SEE: never fall back to "en" because the language
   is not French, and never let a single borrowed word decide (a Spanish message
   containing "hotel" is still "es").
+  For a number, name, airport code or ambiguous agreement with no reliable
+  language evidence, KEEP the language in CURRENT SEARCH STATE, then locale.
 - "pick": one of {list(PICKS)} — whether the message points at ONE of the hotels
   ALREADY PROPOSED, by a property rather than by name or position.
     cheapest = the user wants the least expensive of the hotels just shown
@@ -409,6 +424,19 @@ with exactly these keys:
   Copy evidence literally without adding punctuation or JSON delimiters.
   Example: "under 80 euros after 14:30" means budget_max value=80, evidence=
   "80 euros", currency="EUR"; timeslot_start value="14:30", evidence="14:30".
+- "budget_action": "retain", "set", "clear" or "cheaper". "cheaper" means
+  find less expensive options WITHIN the existing cap; never clear or raise it.
+  "clear" ONLY if the user explicitly removes the price limit (e.g. no budget
+  limit / any price). A search with no budget information is "retain".
+  On retain/cheaper set search_update.budget_max=null (no edit).
+- "stay_kind": "overnight" only for an explicit request spanning a night;
+  "day_use" for an explicit daytime correction; otherwise null (carry over).
+  An agreement to the last question offering a daytime stay sets day_use.
+  A flight/arrival at night alone is not an overnight hotel request. A stay
+  from 22:00 to 06:00 IS overnight. Never turn a night into a daytime window.
+- "search_priority": "price" for cheaper options, "distance" for closer or
+  walking-distance options, "rating" for best rated, "relevance" for an
+  explicit reset; otherwise null (carry over). No invented numeric constraint.
 - "location_evidence": exact short quote copied from the CURRENT message that
   names or corrects the location, null when this turn names no location. Never
   copy a place from recent history as evidence for a new edit.
@@ -586,6 +614,9 @@ async def classify(message: str, budget: TurnBudget, invocation_id: str = "",
         location_update=_ground_location_update(data, message),
         search_update=(parse_search_update(data["search_update"], message)
                        if isinstance(data.get("search_update"), dict) else None),
+        budget_action=data.get("budget_action") if data.get("budget_action") in {"retain", "set", "clear", "cheaper"} else None,
+        stay_kind=data.get("stay_kind") if data.get("stay_kind") in {"overnight", "day_use"} else None,
+        search_priority=data.get("search_priority") if data.get("search_priority") in {"price", "distance", "rating", "relevance"} else None,
     )
 
 

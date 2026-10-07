@@ -40,6 +40,8 @@ def prepare_search_context(profile: SessionProfile, update: dict | None) -> dict
 def triage_search_context(profile: SessionProfile) -> dict:
     """Bounded durable state; history may have scrolled past the first request."""
     return {
+        "language": profile.language, "locale": profile.locale,
+        "stay_kind": profile.stay_kind, "search_priority": profile.search_priority,
         "requested_location": profile.search_location_request,
         "verified_location": {"city": profile.city, "region": profile.state_anchor,
                               "country_code": profile.country_anchor, "zone": profile.zone},

@@ -152,6 +152,10 @@ policy source. Current explicit changes and structured profile state win.
 Never treat an amenity as a destination. A city supplied after a clarification
 answers that clarification. Geocode before search_offers, in separate steps;
 search coordinates must come from this turn's successful geocode.
+When query_params.named_hotel is present, it identifies the hotel already
+verified by MCP. A city answer refines that named-hotel lookup; keep its name
+when calling find_hotel_by_name, and use the city as a disambiguator. Do not
+search for a hotel literally named after the user's short city answer.
 
 How to act, frugally (at most ONE reasoning pass — no tool-call loops):
 - A destination/area search → FIRST call geocode_location (pass the city/zone/

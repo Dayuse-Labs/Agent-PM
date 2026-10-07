@@ -1035,6 +1035,11 @@ def capture_after_tool(
             if isinstance(start_total, int) and isinstance(end_total, int):
                 strict_window = (start_total, end_total)
     results = normalize_search_results(structured, exclude_ids, strict_window)
+    if name == "find_hotel_by_name" and len(results) == 1:
+        hotel = results[0]
+        tool_context.state["temp:verified_named_hotel"] = {
+            "hotel_id": hotel.get("hotel_id"), "name": hotel.get("name"), "source": "mcp_name_lookup",
+        }
     timeslot_fallback = False
     if strict_window is not None and not results:
         # The exact-minute filter emptied the set: fall back to the coarser
@@ -1130,6 +1135,8 @@ def capture_after_tool(
             int("budget_max" in budget_timeslot),
             int("timeslot_start" in budget_timeslot or "timeslot_end" in budget_timeslot),
         )
+    if name == "search_offers":
+        results = order_returned_offers(results, read_profile_in(tool_context).get("search_priority"))
     tool_context.state[_STATE_RESULTS_KEY] = results
 
     if name != "search_offers":
@@ -1141,6 +1148,21 @@ def capture_after_tool(
         "total": structured.get("total"),
         "hotels": results,
     }
+
+
+def order_returned_offers(results: list[dict], priority: str | None) -> list[dict]:
+    """Order this returned page only; never claim catalogue-wide optimality."""
+    field = {"price": "price_eur_cents", "distance": "distance_km", "rating": "rating"}.get(priority or "")
+    if field is None:
+        return results
+
+    def key(hotel: dict) -> tuple[bool, float]:
+        value = hotel.get(field)
+        if not isinstance(value, (float, int)) or isinstance(value, bool) or not math.isfinite(value):
+            return (True, 0.0)
+        return (False, -float(value) if priority == "rating" else float(value))
+
+    return sorted(results, key=key)
 
 
 def _op_set(value: Any) -> dict[str, Any]:
@@ -1479,6 +1501,8 @@ def emit_search_datapart(callback_context: Any) -> genai_types.Content | None:
         profile_delta["zone"] = _op_set(raw_delta["zone"])
     if "metro" in raw_delta:
         profile_delta["metro"] = _op_set(raw_delta["metro"])
+    if state.get("temp:verified_named_hotel"):
+        profile_delta["named_hotel"] = _op_set(state["temp:verified_named_hotel"])
     # S-G6: a FRESH date label this turn (datetime_resolver.resolve_search_date)
     # — only-when-present. When the model extracted no date this turn, nothing
     # is stashed here at all (the code-computed search still used the

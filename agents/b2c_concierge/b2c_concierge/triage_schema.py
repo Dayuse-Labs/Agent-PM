@@ -24,6 +24,9 @@ def response_format(families: tuple, languages: tuple, picks: tuple, confirmatio
         "bare_budget_value": _nullable({"type": "number"}),
         "hotel_name": _nullable(text),
         "display_currency": _nullable(text),
+        "budget_action": {"type": "string", "enum": ["retain", "set", "clear", "cheaper"]},
+        "stay_kind": _nullable({"type": "string", "enum": ["overnight", "day_use"]}),
+        "search_priority": _nullable({"type": "string", "enum": ["price", "distance", "rating", "relevance"]}),
         "search_update": _object({
             "budget_max": _nullable(_object({"value": _nullable({"type": "number"}), "evidence": text, "currency": _nullable(text)})),
             "timeslot_start": _nullable(edit),
