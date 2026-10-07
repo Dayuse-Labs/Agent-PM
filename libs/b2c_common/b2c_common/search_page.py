@@ -4,17 +4,17 @@ tout" (mcp-dayuse#5, decision Mathias 2026-10-06).
 "Voir tout" used to open the country page (`/s/france`, `/s/united-states`)
 whatever was searched. The site's own search for Lyon is
 `/s/france/auvergne-rhone-alpes/rhone/lyon?checkinDate=…&checkinTime=6am&checkoutTime=4pm`.
-The path is never built here: MCP_B2C exposes each hotel's `searchPages`, the
-`/s/…` items of its indexed breadcrumb (country first, most precise last), and
-this module only CHOOSES one of them. Verified on the live site 2026-10-06:
-the paths are the same on every Dayuse domain, `/s/san-francisco` alone 404s
-(the flat slug needs a placeId) while the breadcrumb path works, and the page
-reads `checkinDate`, `checkinTime`, `checkoutTime` and `selectedAddress`.
+The path is never built here: `search_offers` returns `searchPage` (mcp-dayuse
+!32), the site's page covering the searched point, elected from the nearest
+active hotels — `{slug, label, countryCode}`, or null. Verified on the live
+site 2026-10-06: the paths are the same on every Dayuse domain,
+`/s/san-francisco` alone 404s (the flat slug needs a placeId) while the
+canonical path works, and the page reads `checkinDate`, `checkinTime`,
+`checkoutTime` and `selectedAddress`.
 """
 from __future__ import annotations
 
 import re
-import unicodedata
 from typing import Any
 from urllib.parse import urlencode
 
@@ -25,45 +25,21 @@ from .timeslot import parse_hhmm, requested_hours
 _PATH_RE = re.compile(r"/s(?:/[a-z0-9]+(?:-[a-z0-9]+)*)+")
 
 
-def _fold(name: Any) -> str:
-    if not isinstance(name, str):
-        return ""
-    value = unicodedata.normalize("NFKD", name).encode("ascii", "ignore").decode("ascii")
-    return re.sub(r"[^a-z0-9]+", " ", value.lower()).strip()
-
-
-def _pages(hotel: Any) -> list[dict[str, str]]:
-    pages = hotel.get("searchPages") if isinstance(hotel, dict) else None
-    return [
-        {"name": page["name"], "path": page["path"]}
-        for page in pages or []
-        if isinstance(page, dict)
-        and isinstance(page.get("name"), str)
-        and isinstance(page.get("path"), str)
-        and _PATH_RE.fullmatch(page["path"])
-    ]
-
-
-def pick_search_page(hotels: list[Any] | None, place_names: list[Any]) -> dict[str, str] | None:
-    """The page of the place searched: the most precise page, across the
-    hotels found, whose name is one of `place_names` (zone first, then city).
-    Else the most precise page EVERY hotel sits in, below the country. None
-    when neither exists — the caller keeps the country page."""
-    per_hotel = [pages for pages in (_pages(h) for h in hotels or []) if pages]
-    if not per_hotel:
+def search_page_from(search_offers: Any) -> dict[str, Any] | None:
+    """`{name, path, country_code}` from a `search_offers` response's
+    `searchPage`, or None (absent, null, or a slug that is not one)."""
+    page = search_offers.get("searchPage") if isinstance(search_offers, dict) else None
+    if not isinstance(page, dict) or not isinstance(page.get("slug"), str):
         return None
-    for name in place_names:
-        wanted = _fold(name)
-        if not wanted:
-            continue
-        matches = [p for pages in per_hotel for p in pages if _fold(p["name"]) == wanted]
-        if matches:
-            return max(matches, key=lambda p: p["path"].count("/"))
-    common = [p for p in per_hotel[0] if all(p in pages for pages in per_hotel[1:])]
-    deepest = max(common, key=lambda p: p["path"].count("/"), default=None)
-    if deepest is None or deepest["path"].count("/") <= 2:
+    path = f"/s/{page['slug'].strip('/')}"
+    if not _PATH_RE.fullmatch(path):
         return None
-    return deepest
+    label = page.get("label")
+    return {
+        "name": label if isinstance(label, str) and label else None,
+        "path": path,
+        "country_code": page.get("countryCode"),
+    }
 
 
 def _site_hour(hour: int) -> str:

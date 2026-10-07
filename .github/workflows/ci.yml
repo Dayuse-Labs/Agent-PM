@@ -69,8 +69,11 @@ jobs:
           pip install -r agents/hotel_search_agent/requirements.txt \
                       -r agents/faq_agent/requirements.txt \
                       -r agents/b2c_concierge/requirements.txt \
-                      -e libs/b2c_common \
-                      "google-adk[eval]==2.4.0"
+                      -e libs/b2c_common
+          # Second install, on purpose: the eval extra needs litellm<1.86 while the
+          # agents pin litellm==1.90.2, so one resolution is unsatisfiable. This job's
+          # venv is throwaway (CLAUDE.md): let pip downgrade litellm here only.
+          pip install "google-adk[eval]==2.4.0"
       - name: Boot des 3 services + adk eval (score libre à ce stade)
         if: steps.gate.outputs.run == 'true'
         run: |
