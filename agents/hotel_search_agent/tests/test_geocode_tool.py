@@ -136,7 +136,7 @@ class TestSuccess:
         result = geocode_location(city="Miami", zone="Hollywood")
 
         assert result["ok"] is True
-        assert fake.calls == [("Hollywood, Miami", None)]
+        assert fake.calls == [("Hollywood, Miami", None), ("Miami", None)]
 
 
 class TestGenericCityDemotion:
@@ -1740,3 +1740,46 @@ def test_borough_fallback_requires_verified_country_and_nearby_anchor(
         assert result["longitude"] == -73.8283
         assert result["profile_delta"]["zone"] == "Queens"
         assert result["distance_origin_type"] == "poi"
+
+
+class TestTierOneLandmarkCoordinates:
+    """The Ontario replay accepted a same-country landmark 1,700 km away."""
+
+    @pytest.mark.parametrize("inventory_count", [0, 8])
+    @pytest.mark.parametrize("recover", [False, True])
+    def test_wrong_province_landmark_is_never_accepted(self, monkeypatch, inventory_count, recover):
+        london = _c("London", "CA", "Ontario", lat=42.9849, lon=-81.2453)
+        wrong = _c("East Village", "CA", "Nova Scotia", lat=45.446644, lon=-63.557625)
+        client = _QueryAwareClient({"Old East Village, London": [wrong], "London": [london]})
+        monkeypatch.setattr(geocode_tool, "get_mapbox_client", lambda: client)
+        monkeypatch.setattr(geocode_tool, "get_inventory", lambda: _FakeInventory({42.9849: inventory_count}))
+        if recover:
+            right = GeocodeResult(42.991, -81.225, "Old East Village, London, Ontario, Canada", "CA", "Ontario")
+            monkeypatch.setattr(geocode_tool, "get_searchbox_client", lambda: _FakeSearchBox(right))
+        result = geocode_location(city="London", zone="Old East Village", country_code="CA",
+                                  raw_user_message="London, Ontario near Old East Village")
+        assert result["ok"] is recover
+        assert "poi_anchor_coherence" in result["guards_fired"]
+        if recover:
+            assert result["latitude"] == 42.991
+            assert result["longitude"] == -81.225
+        assert client.calls.count(("London", "CA")) == 1
+
+    def test_zero_inventory_municipality_still_anchors_nearby_landmark(self, monkeypatch):
+        london = _c("London", "CA", "Ontario", lat=42.9849, lon=-81.2453)
+        zone = _c("Old East Village", "CA", "Ontario", ftype="neighborhood", lat=42.991, lon=-81.225)
+        client = _QueryAwareClient({"Old East Village, London": [zone], "London": [london]})
+        monkeypatch.setattr(geocode_tool, "get_mapbox_client", lambda: client)
+        monkeypatch.setattr(geocode_tool, "get_inventory", lambda: _FakeInventory({}))
+        result = geocode_location(city="London", zone="Old East Village", country_code="CA")
+        assert result["ok"] is True
+        assert result["latitude"] == 42.991
+        assert ("London", "CA") in client.calls
+
+    def test_near_tied_municipalities_are_not_an_authoritative_anchor(self, monkeypatch):
+        towns = [_c("London", "CA", "Ontario", lat=42.9849, lon=-81.2453),
+                 _c("London", "CA", "Alberta", rank=1, lat=52.3, lon=-113.8)]
+        client = _QueryAwareClient({"London": towns})
+        monkeypatch.setattr(geocode_tool, "get_mapbox_client", lambda: client)
+        monkeypatch.setattr(geocode_tool, "get_inventory", lambda: _FakeInventory({}))
+        assert geocode_tool._city_candidate("London", country="CA", locale_country="CA", language="en") is None

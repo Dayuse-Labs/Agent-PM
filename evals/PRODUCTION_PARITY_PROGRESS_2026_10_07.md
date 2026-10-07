@@ -1,3 +1,57 @@
+## 2026-10-08 — v24 : cohérence géographique et nouveaux suivis réels
+
+**Pas de GO remplacement.** Le contrôle de distance s’applique désormais aussi
+aux résultats Mapbox v6 avant leur acceptation. Quand la requête ville + quartier
+ne fournit aucune ancre crédible de la ville, la résolution indépendante de la
+ville intervient avant cette acceptation, au plus une fois. Une municipalité
+exacte sélectionnée sans ambiguïté peut servir d’ancre même sans inventaire ; un
+quartier homonyme de ville conserve le seuil de crédibilité par inventaire.
+Aucun regex ni appel LLM ajouté. Les requêtes déjà ancrées évitent cet appel.
+
+Six tests ajoutés : cinq échouaient avant le correctif. **2 303 tests passés,
+un ignoré**, ruff, mypy (60 fichiers), guardrails. L’attente d’un ancien test
+Hollywood/Miami intègre désormais la vérification indépendante de Miami ; son
+assertion de succès reste inchangée.
+
+**13 réponses correctives, 4 revues manuelles**, dont London Ontario → London UK
+→ Waterloo → moins cher. L’appel MCP du premier tour est maintenant près de
+42.987/-81.223, au lieu de 45.447/-63.558 en Nouvelle-Écosse. Mapbox renvoie
+le bureau Old East Village BIA : point dans la bonne ville, pas preuve d’une
+frontière exhaustive du quartier. Date, 10:30–17:00 et CAD sont conservés.
+23 cartes jointes aux reçus MCP, zéro erreur de prix/expiration/jointure.
+Aucune carte plafonnée : pas de nouvelle preuve sur les budgets.
+
+Les autres parcours restent imparfaits : East London résout encore le centre
+London ; Bromley est correctement envoyé au MCP mais distance_origin peut rester
+ancien dans la réponse vide ; Brescia et province réduit la zone à un rayon de
+ville, avec jacuzzi hôtel ne prouvant pas une baignoire privative en chambre.
+Le corridor Waterloo/New Malden/Wimbledon n’est pas représenté correctement.
+
+Export SQL rafraîchi : 33 278 lignes, 2 000 récentes. Sept nouveaux messages hors
+IDs de nos campagnes ; deux sessions déjà vues prolongées et une nouvelle.
+Rejeu complet de leurs contextes : 11 messages × 3 bras = **33 réponses et
+9 revues manuelles**. Dix messages associés exactement aux extractions Langfuse ;
+le dernier utilise un autre chemin, associé par Latest message dans la génération
+du contrat géographique. Fuseau de ce dernier tour absent : champ omis et limite
+signalée, sans inventer sa requête originale. Provenance organique non certifiée.
+
+Résultats : contexte South Carolina perdu puis zone « somewhere special »
+conservée ; ambiguïté Conway/Floride inutile. À NYC, la candidate répond à la FAQ
+et résout la ville, mais **ignore la piscine après jacuzzi** : tours 4–6 avec
+hotelEquipmentIds=[41] uniquement, profil amenities=[jacuzzi]. Paiement à la
+réception et anniversaire prolongent le même résultat vide. Ce défaut est
+avéré dans les reçus, pas déduit d’une simple différence d’inventaire.
+Cinq cartes candidates supplémentaires vérifiées ; aucun plafond à contrôler.
+Les notes A des trois bras concernent uniquement la clarification initiale
+rooftop en portugais, pas une recherche réussie. Pas de taux global extrapolé.
+
+Coût de l’étape : **0,44492 USD**, cumul **85,40179 / 110 USD**, provisions
+11,10 USD incluses, réserve 10 USD. Aucun runner payant restant. Source distante
+main revérifiée : cbe88b9. Rapport privé new-prod-v24-review.private.html et
+geo-v24-summary.private.json. Prochain travail : état géographique typé et
+multi-zone, mise à jour effective des équipements au suivi, conditions par offre,
+puis couverture historique/FAQ/widget restante. Aucun merge ni déploiement.
+
 # Audit historique et correctifs v18 — 7 octobre 2026
 
 ## 2026-10-08 — v23 : dates client et nouvelle comparaison de production

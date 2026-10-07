@@ -212,37 +212,13 @@ def _city_candidate(
     locale_country: str | None,
     language: str | None,
 ) -> GeocodeCandidate | None:
-    """The verified candidate for a city the user NAMED, geocoded on purpose.
+    """Resolve the named city independently of a fuzzy city + landmark query.
 
-    2026-08-26, found while auditing why "aéroport de nice" resolved to a
-    shuttle company on the Promenade des Anglais, 6 km from the airport, while
-    every Paris landmark resolved cleanly. The `city_anchor` loop below is
-    SCAVENGING: it only yields a coordinate when one of the v6 candidates for
-    THIS turn's combined query ("aéroport de nice, Nice") happens to echo the
-    city AND carry real inventory. When none does, the city is demoted to a
-    query STRING (`_searchbox_query`), which buys the position and loses the
-    label — and it loses more than the label. Measured:
-      `"aéroport de nice, Nice"`  → 10 businesses, no airport (winner: a
-                                    sandwich shop AT the airport)
-      `"champs élysées, Paris"`   → 10 businesses, no avenue (winner: a
-                                    competitor HOTEL, 1,2 km off)
-    The clean feature is not out-ranked, it is ABSENT from the list, so no
-    ranker can recover it. Paris only ever looked safe because its turns take
-    the anchored path; nothing in the code favours it.
-
-    A city NAME with no coordinate is a gap we can just close: geocoding the
-    bare city is the same v6 operation this tool already performs for a city
-    search, and it hands back the very `proximity` that lets the query stay
-    bare. Measured on the failing case: Nice → (43.7101, 7.2618), after which
-    Search Box does return "Aéroport de Nice, 06200 Nice" and the exact-name
-    bonus wins it outright (7.57, against 4.67 for the sandwich shop).
-
-    `in_inventory_tier` stays the credibility test, for exactly the reason the
-    scavenging loop has it (S-G9): the bare-city lookup for "Paris" also
-    returns the neighbourhood literally named Paris in ROANNE, and an anchor
-    that aims a lookup and vetoes its result must be credible on its own.
-    Verified on this path: Paris proper (783 hotels) passes, Roanne (2) does
-    not."""
+    An exact municipality can anchor geography even without Dayuse inventory.
+    A neighborhood named after a city cannot: keep the inventory credibility
+    requirement for those candidates (the Paris/Roanne regression). An ambiguous
+    resolution supplies no authoritative anchor.
+    """
     candidates = get_mapbox_client().geocode_candidates(
         # A localized combined query can omit the named city's canonical
         # candidate entirely (London + French labels returned only Canada).
@@ -260,11 +236,20 @@ def _city_candidate(
         requested_name=city,
         language=language,
     )
+    if resolution.decision != "select" or resolution.chosen is None:
+        return None
+    chosen = resolution.chosen
     for scored in resolution.scored:
-        if not scored.in_inventory_tier:
+        if scored.candidate != chosen:
             continue
-        if _echoes(scored.candidate.place_name, city=city, zone=None, state_hint=None):
-            return scored.candidate
+        municipality = (
+            chosen.feature_type == "place"
+            and _echo_fold(chosen.name) == _echo_fold(city)
+        )
+        if (scored.in_inventory_tier or municipality) and _echoes(
+            chosen.place_name, city=city, zone=None, state_hint=None
+        ):
+            return chosen
     return None
 
 
@@ -744,6 +729,20 @@ def geocode_location(
     # when the destination has no verified city anchor.
     poi_anchor: tuple[float, float] | None = city_anchor or proximity_tuple
 
+    # Tier 1 can also return a landmark homonym in another province. Establish
+    # the city anchor before accepting either provider, at most once per call.
+    if echo_city and effective_zone and city_anchor is None:
+        city_candidate = _city_candidate(
+            echo_city,
+            country=effective_country_code,
+            locale_country=guess_iso or _locale_country(locale),
+            language=lang,
+        )
+        if city_candidate is not None:
+            city_anchor = (city_candidate.latitude, city_candidate.longitude)
+            city_country = city_candidate.country_code
+        poi_anchor = city_anchor or proximity_tuple
+
     clarify_response: dict | None = None
     if resolution.decision == "clarify":
         mark_level("WARNING", status_message="geocode_ambiguous")
@@ -779,7 +778,13 @@ def geocode_location(
 
     if resolution.decision == "select" and resolution.chosen is not None:
         chosen = resolution.chosen
-        if _echoes(chosen.place_name, city=echo_city, zone=effective_zone, state_hint=state_hint):
+        incoherent = bool(effective_zone) and _poi_anchor_incoherent(chosen, anchor=poi_anchor)
+        if incoherent:
+            guards_fired.append("poi_anchor_coherence")
+            mark_level("WARNING", status_message="poi_anchor_incoherent")
+        if not incoherent and _echoes(
+            chosen.place_name, city=echo_city, zone=effective_zone, state_hint=state_hint
+        ):
             profile_delta = _anchor_state(
                 city=effective_city,
                 raw_user_message=raw_user_message,
@@ -829,23 +834,6 @@ def geocode_location(
     # "Champs-Élysées" neighborhood; `"les champs élysées, Paris"` → 10
     # businesses, top one "Onitsuka Tiger Champs Elysées, Paris Flagship".
     # Same 0.1-0.3 km position, very different label.
-    # Resolve a named city independently before the landmark lookup. A combined
-    # city+zone query can omit the intended city entirely, and language-specific
-    # names can promote a homonym. This bounded tier-2 lookup supplies both a
-    # verified coordinate and its country; tier-1 successes already returned.
-    # An explicit destination outranks the device's current position.
-    if echo_city and effective_zone:
-        city_candidate = _city_candidate(
-            echo_city,
-            country=effective_country_code,
-            locale_country=guess_iso or _locale_country(locale),
-            language=lang,
-        )
-        if city_candidate is not None:
-            city_anchor = (city_candidate.latitude, city_candidate.longitude)
-            city_country = city_candidate.country_code
-        poi_anchor = city_anchor or proximity_tuple
-
     searchbox_proximity = (
         f"{poi_anchor[1]},{poi_anchor[0]}" if poi_anchor is not None else None
     )
