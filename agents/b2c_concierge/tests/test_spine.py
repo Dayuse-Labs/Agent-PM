@@ -1387,3 +1387,51 @@ class TestP1ForeignAffirmativeThroughTheSpine:
         _drive_in(runner, session.id, "Bonjour !")
         assert llm.calls == []
         assert _turn_metric(caplog)["llm_calls"] == "0"
+
+
+@pytest.mark.parametrize("window,expected", [
+    (["11:30", "16:45"], ("11:30", "16:45", "range")),
+    ([None, "17:30"], (None, "17:30", "end_only")),
+    ([], (None, None, None)),
+])
+def test_semantic_window_survives_leaf_failure(
+    monkeypatch, scripted, fake_profile_store, window, expected
+):
+    runner, session = _new_session()
+    asyncio.run(fake_profile_store.set(session.id, SessionProfile(
+        timeslot_start="09:00", timeslot_end="12:00", daypart="morning"
+    )))
+    scripted(json.dumps({"family": "search", "language": "fr", "requested_window": ({"start": window[0], "end": window[1], "evidence": "11h30 à 16h45"} if window else {"clear": True, "evidence": "11h30 à 16h45"})}))
+    seen = []
+
+    async def failed_leaf(leaf, ctx, profile_in, **kwargs):
+        persisted = await fake_profile_store.get(session.id)
+        seen.append((persisted.timeslot_start, persisted.timeslot_end, persisted.timeslot_mode))
+        assert profile_in["timeslot_start"] == expected[0]
+        assert profile_in["timeslot_end"] == expected[1]
+        return None, {}
+
+    monkeypatch.setattr(agent_module, "_run_leaf", failed_leaf)
+    _drive_in(runner, session.id, "Je cherche près de cet aéroport de 11h30 à 16h45")
+    assert seen == [expected]
+    stored = asyncio.run(fake_profile_store.get(session.id))
+    assert stored.daypart is None
+
+
+def test_collective_hotel_question_uses_shown_lookup(monkeypatch, scripted, fake_profile_store):
+    runner, session = _new_session()
+    asyncio.run(fake_profile_store.set(session.id, SessionProfile(
+        last_results=[{"hotel_id": 12, "name": "Airport Hotel"}]
+    )))
+    llm, leaves = scripted(
+        '{"family":"details","language":"fr","hotel_scope":"shown"}',
+        "Les informations disponibles ne confirment pas les massages."
+    )
+    lookup = _recording_async_result({"ok": True, "hotels": [
+        {"id": 12, "name": "Airport Hotel", "amenities": []}
+    ]})
+    monkeypatch.setattr(agent_module.inline_tools, "get_shown_hotel_details", lookup)
+    _drive_in(runner, session.id, "Y a-t-il des massages dans les hôtels proposés ?")
+    assert len(lookup.calls) == 1
+    assert leaves == []
+    assert len(llm.calls) == 2

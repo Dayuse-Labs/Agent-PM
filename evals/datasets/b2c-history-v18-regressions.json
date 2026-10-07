@@ -1,0 +1,169 @@
+{
+  "status": "Development regression specification; no scored adaptive run of this new file yet. Fixed real-transcript replays are separately recorded in the campaign report.",
+  "cases": [
+    {
+      "id": "pescara-city",
+      "initial": "Cerco una camera di giorno a Pescara domani",
+      "persona": "You mean the Adriatic city Pescara, not a locality near Perugia. If asked clarify Abruzzo, Italy. Ask for the closest option.",
+      "requirements": [
+        "Search coordinates identify Pescara on the Adriatic coast",
+        "Distances use that verified origin",
+        "No Perugia offer presented as nearby"
+      ],
+      "max_turns": 5,
+      "context": {
+        "locale": "it-IT",
+        "domain": "dayuse.it",
+        "client_timezone": "Europe/Rome"
+      },
+      "origin": "Synthetic regression goal derived from the October7 historical/fresh audit; not a customer transcript.",
+      "split": "development"
+    },
+    {
+      "id": "brooklyn-borough",
+      "initial": "A day room in Brooklyn tomorrow please",
+      "persona": "You mean Brooklyn New York. Answer any homonym clarification with New York. Once cards actually exist, ask about the first one; never reference a nonexistent list.",
+      "requirements": [
+        "A borough is not discarded solely because another homonym is a municipality",
+        "Clarify rather than silently selecting Maryland",
+        "First option refers to actual last displayed shortlist"
+      ],
+      "max_turns": 5,
+      "context": {
+        "locale": "en-US",
+        "domain": "dayuse.com",
+        "client_timezone": "America/New_York"
+      },
+      "origin": "Synthetic regression goal derived from the October7 historical/fresh audit; not a customer transcript.",
+      "split": "development"
+    },
+    {
+      "id": "orlando-indifference-usd",
+      "initial": "A quiet day room in Orlando tomorrow, under US$100",
+      "persona": "Keep a hard total budget of US$100. If asked about area, say any neighborhood is fine. Ask for 11am to4pm and then the cheapest eligible room.",
+      "requirements": [
+        "US$100 is not EUR100",
+        "Indifference continues search without a generic greeting or repeated area question",
+        "Cheapest is total eligible price, not maximum discount to nightly rate"
+      ],
+      "max_turns": 5,
+      "context": {
+        "locale": "en-US",
+        "domain": "dayuse.com",
+        "client_timezone": "America/New_York"
+      },
+      "origin": "Synthetic regression goal derived from the October7 historical/fresh audit; not a customer transcript.",
+      "split": "development"
+    },
+    {
+      "id": "contextual-budget",
+      "initial": "I want the least expensive day room in San Diego tomorrow",
+      "persona": "When asked budget answer Around sixty dollars. Then ask until8pm. Keep the budget and ask if a cheaper option exists.",
+      "requirements": [
+        "Contextual budget reply persists",
+        "Until20:00 persists on later search",
+        "No silent budget relaxation or currency substitution"
+      ],
+      "max_turns": 5,
+      "context": {
+        "locale": "en-US",
+        "domain": "dayuse.com",
+        "client_timezone": "America/Los_Angeles"
+      },
+      "origin": "Synthetic regression goal derived from the October7 historical/fresh audit; not a customer transcript.",
+      "split": "development"
+    },
+    {
+      "id": "hourly-budget",
+      "initial": "Any day room under ten dollars per hour near Manhattan tomorrow?",
+      "persona": "You need four hours, 11am to3pm. Clarify that ten dollars is hourly, not the entire stay.",
+      "requirements": [
+        "Duration is not a total budget",
+        "Hourly amount is not sent as EUR10 total",
+        "Total offer price and fees disclosed for eligible stay"
+      ],
+      "max_turns": 5,
+      "context": {
+        "locale": "en-US",
+        "domain": "dayuse.com",
+        "client_timezone": "America/New_York"
+      },
+      "origin": "Synthetic regression goal derived from the October7 historical/fresh audit; not a customer transcript.",
+      "split": "development"
+    },
+    {
+      "id": "airport-city-explicit",
+      "initial": "Un hôtel à Londres près de Heathrow Terminal3 demain de11h à16h",
+      "persona": "You explicitly mean London UK, Terminal3 at Heathrow. Keep these hours and ask for something less expensive, then ask whether the shown hotels offer massages.",
+      "requirements": [
+        "Explicit city not dropped from airport extraction",
+        "Terminal identity verified",
+        "Clock window persists",
+        "Collective details use shown hotelIDs and same dated offer"
+      ],
+      "max_turns": 5,
+      "context": {
+        "locale": "fr-FR",
+        "domain": "dayuse.fr",
+        "client_timezone": "Europe/London"
+      },
+      "origin": "Synthetic regression goal derived from the October7 historical/fresh audit; not a customer transcript.",
+      "split": "development"
+    },
+    {
+      "id": "cinema-missing-city",
+      "initial": "A room near a cinema until5pm please",
+      "persona": "Initially omit city. If asked provide Birmingham UK. Then state an arrival at11am and a total budget GBP80.",
+      "requirements": [
+        "No invented cinema or location before clarification",
+        "End17:00 not inverted into arrival17:00",
+        "Hours andGBPbudget survive destination clarification"
+      ],
+      "max_turns": 5,
+      "context": {
+        "locale": "en-GB",
+        "domain": "dayuse.co.uk",
+        "client_timezone": "Europe/London"
+      },
+      "origin": "Synthetic regression goal derived from the October7 historical/fresh audit; not a customer transcript.",
+      "split": "development"
+    },
+    {
+      "id": "ripley-adults-only",
+      "initial": "A day room near Ripley Mississippi tomorrow",
+      "persona": "You can drive up to four hours. You want a large bathtub in the room and an adults-only property. Ask whether these conditions are verified.",
+      "requirements": [
+        "Mississippi qualifier remains with city",
+        "Drive time not invented from straight-line distance",
+        "Two adult occupants do not establish an adults-only hotel",
+        "Hotel-level hot tub does not establish private room bathtub or included access"
+      ],
+      "max_turns": 5,
+      "context": {
+        "locale": "en-US",
+        "domain": "dayuse.com",
+        "client_timezone": "America/Chicago"
+      },
+      "origin": "Synthetic regression goal derived from the October7 historical/fresh audit; not a customer transcript.",
+      "split": "development"
+    },
+    {
+      "id": "spa-followup",
+      "initial": "Vorrei passare domani pomeriggio in una spa",
+      "persona": "When asked destination say Rome Italy, for two adults. Ask whether the quoted room price includes spa access; do not make a reservation.",
+      "requirements": [
+        "Spa and daypart survive city clarification",
+        "Room amenity availability not equated with included spa access",
+        "Offer-level entitlement uncertainty disclosed"
+      ],
+      "max_turns": 5,
+      "context": {
+        "locale": "it-IT",
+        "domain": "dayuse.it",
+        "client_timezone": "Europe/Rome"
+      },
+      "origin": "Synthetic regression goal derived from the October7 historical/fresh audit; not a customer transcript.",
+      "split": "development"
+    }
+  ]
+}

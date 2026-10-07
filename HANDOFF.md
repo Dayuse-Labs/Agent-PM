@@ -5,6 +5,40 @@
 > 📋 **Pour savoir QUOI faire ensuite, ouvrir [`CHANTIERS.md`](CHANTIERS.md)** (état vérifié au 2026-09-14) : la liste des chantiers ouverts, chacun avec sa preuve, ses actions et un prompt prêt à coller — plus la liste de ce qu'il ne faut **pas** relancer parce que c'est déjà livré. `tasks/todo.md` est périmé et ne doit plus servir de référence.
 
 
+
+## 2026-10-07 — v18 : rejeux réels, contre-exemples et correctifs ciblés
+
+Voir `evals/PRODUCTION_PARITY_PROGRESS_2026_10_07.md`. **Pas de GO** : devises,
+intentions géographiques, relances et services inclus/privés restent insuffisants.
+VPN restauré. Pas de merge/deploy ; modèles Railway inchangés.
+
+- Export : 32 822 tours / 13 340 sessions ; 72 développement, 36 validation non lues.
+  Zéro doublon textuel exact entre lots (pas de garantie sur quasi-doublons).
+- Langfuse : 48 sessions historiques jointes, 12 traces fraîches ciblées. Notes
+  automatiques A/B retirées du verdict après découverte de faux négatifs majeurs.
+- Comparaison fraîche : 14 séquences / 44 tours par bras legacy prod, B2C déployé,
+  candidat v3 (132 réponses). Candidats v4/v5/v6 rejoués chacun sur 44 tours.
+  Adjudication v6 : 8 défauts significatifs constatés, 6 partiels/non évaluables,
+  jamais assimilés à des succès. Jeux et preuves privés, pas de données client Git.
+- Contre-exemples conservés : préférence municipale trop large cassait Brooklyn ;
+  réponse assistant injectée dans la feuille inventait downtown. Règles resserrées,
+  dernier texte assistant limité au triage. Pas de nouveau regex.
+- Candidat v8 : horaires persistés, fiches de même offre/date, détails collectifs,
+  contrôles géo/IATA/terminal/quartier, enum MCP et rétraction enfants 0 adaptés.
+  Rejeu ciblé 8 tours : aucun rejet MCP ; enfants 1→0→0 et fenêtre 10h–17h conservés.
+  Cela ne valide pas tout le parcours (budget supposé encore présent).
+- **2 201 tests passés / 1 ignoré**, ruff/mypy/guardrails/diff verts localement.
+  Source runtime figée : `context-candidate-v8-source.json`.
+- Coût engagé **70.4099 USD**, observé **61.3099 USD**, provisions
+  **9.10 USD** (dont 2 USD CI à venir), plafond 110 USD, réserve d’arrêt 10 USD.
+  Aucun lot payant pending. Vérifier coûts et CI avant le prochain lot.
+
+Prochaine étape : budget montant/devise/unité et persistance des contraintes ;
+rejouer les cas et contre-exemples, puis suites historiques/FAQ/adaptatives,
+validation des 36 sessions et widget. Ne pas publier un taux global sur ces diagnostics.
+Artefacts privés `reports/audit_eval_mcp_20261006/production_parity_v18/` dans le
+workspace legacy ; scripts `/tmp/dayuse-v18-scripts/`, ledger commun v17.
+
 ## 2026-10-07 — audit prod / MCP et candidat de contexte + proximité
 
 Branche `codex/production-context-and-proximity`, base `cbe88b9`. Voir

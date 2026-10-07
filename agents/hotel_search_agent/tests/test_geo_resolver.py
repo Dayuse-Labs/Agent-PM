@@ -411,3 +411,55 @@ class TestRankLandmark:
             inventory=FakeInventory({48.871: 784, 48.870: 783}),
         )
         assert got is clean
+
+
+def test_city_is_not_replaced_by_same_name_locality_with_more_inventory():
+    city = cand("Pescara", "IT", "Pescara", lat=42.47, lon=14.20)
+    hamlet = cand("Pescara", "IT", "Perugia", lat=43.02, lon=12.41,
+                  ftype="locality", rank=4)
+    result = geo_resolver.resolve([city, hamlet], requested_name="Pescara", prefer_municipality=True,
+                                  inventory=FakeInventory({42.47: 1, 43.02: 10}))
+    assert result.chosen is city
+
+
+def test_explicit_region_can_select_a_same_name_locality():
+    city = cand("Pescara", "IT", "Pescara", lat=42.47)
+    hamlet = cand("Pescara", "IT", "Perugia", lat=43.02, ftype="locality", rank=4)
+    result = geo_resolver.resolve([city, hamlet], requested_name="Pescara", prefer_municipality=True, region_hint="Perugia",
+                                  inventory=FakeInventory({42.47: 10, 43.02: 1}))
+    assert result.chosen is hamlet
+
+
+def test_municipality_homonyms_still_clarify():
+    a = cand("Davenport", "US", "Florida", lat=28.16, lon=-81.60)
+    b = cand("Davenport", "US", "Iowa", lat=41.52, lon=-90.57, rank=1)
+    result = geo_resolver.resolve([a, b], requested_name="Davenport",
+                                  inventory=FakeInventory({28.16: 5, 41.52: 5}))
+    assert result.decision == "clarify"
+
+
+def test_city_is_not_replaced_by_inventory_rich_fuzzy_locality():
+    city = cand("Pescara", "IT", "Pescara", lat=42.47, lon=14.20)
+    fuzzy = cand("Pescaia", "IT", "Arezzo", lat=43.30, lon=11.81, ftype="locality", rank=7)
+    result = geo_resolver.resolve([city, fuzzy], requested_name="Pescara", prefer_municipality=True,
+                                  inventory=FakeInventory({42.47: 1, 43.30: 10}))
+    assert result.chosen is city
+
+
+def test_landmark_query_retains_locality_candidates():
+    city = cand("Pescara", "IT", "Pescara", lat=42.47)
+    hamlet = cand("Pescara", "IT", "Perugia", lat=43.02, ftype="locality")
+    result = geo_resolver.resolve([city, hamlet], requested_name="Pescara",
+                                  inventory=FakeInventory({42.47: 1, 43.02: 10}))
+    assert result.chosen is hamlet
+
+
+def test_better_ranked_borough_survives_a_municipality_homonym():
+    # Brooklyn NY is a locality; Brooklyn MD is a place. A municipality
+    # preference cannot erase the geocoder's leading borough candidate.
+    ny = cand("Brooklyn", "US", "New York", lat=40.65, lon=-73.95, ftype="locality", rank=0)
+    md = cand("Brooklyn", "US", "Maryland", lat=39.23, lon=-76.60, rank=1)
+    result = geo_resolver.resolve([ny, md], requested_name="Brooklyn", prefer_municipality=True,
+                                  inventory=FakeInventory({40.65: 30, 39.23: 30}))
+    assert result.decision == "clarify"
+    assert set(c.region for c in result.options) == {"New York", "Maryland"}

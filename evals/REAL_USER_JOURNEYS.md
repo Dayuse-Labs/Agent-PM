@@ -70,3 +70,19 @@ found seven such scores in total (five production, two development), with every
 score joined to its exact trace. This is diagnostic feedback, not a satisfaction
 rate or proof of organic customer traffic. Dates are adapted to tomorrow and
 browser currency, domain and timezone are supplied explicitly.
+
+## October 7 historical audit additions
+
+`datasets/b2c-history-v18-regressions.json` adds nine **development-only synthetic
+goals** from fresh historical failures: municipality/borough homonyms, contextual
+budget replies, currency and hourly units, indifference to a neighborhood, explicit
+airport cities, arrival/departure preservation, private spa access and adults-only
+policies. This new adaptive file is a regression specification, **not a completed
+scored run**. The verbatim 14-conversation replays and their candidate revisions
+are documented separately in `PRODUCTION_PARITY_PROGRESS_2026_10_07.md`.
+
+Do not continue an ordinal-selection scenario until the actual agent has produced
+a shortlist. Answer necessary location clarifications first. A clock-compatible
+offer need not have exactly equal endpoints. Hotel amenities alone do not prove
+private/included services. Model grades are provisional until evidence review: the
+October audit found major defects even among automatically graded A/B responses.

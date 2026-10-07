@@ -163,3 +163,50 @@ class TestOtherToolsAreNeverGivenOccupancy:
             _Tool("get_hotel_details"), args, _ctx_with_profile(adults=2, children=1)
         )
         assert args == {"hotel_id": 42}
+
+
+def test_zero_children_is_omitted_on_wire_but_persists_after_search():
+    from hotel_search_agent.response_bridge import capture_after_tool, emit_search_datapart, find_datapart
+
+    ctx = _ctx_with_profile(adults=2, children=2)
+    args = {"lat": 32.735623, "lon": -97.107108, "children": 0}
+    inject_profile_occupancy(_Tool("search_offers"), args, ctx)
+    assert "children" not in args
+    assert args["adults"] == 2
+    capture_after_tool(_Tool("search_offers"), args, ctx, {"structuredContent": {"results": []}, "isError": False})
+    payload = find_datapart(emit_search_datapart(ctx).parts)
+    assert payload["profile_delta"]["children"] == 0
+    # A subsequent positive request must replace the temporary zero too.
+    args = {"children": 1}
+    inject_profile_occupancy(_Tool("search_offers"), args, ctx)
+    capture_after_tool(_Tool("search_offers"), args, ctx, {"structuredContent": {"results": []}, "isError": False})
+    payload = find_datapart(emit_search_datapart(ctx).parts)
+    assert args["children"] == 1
+    assert payload["profile_delta"]["children"] == 1
+
+
+def test_carried_zero_children_does_not_violate_mcp_schema():
+    from hotel_search_agent.response_bridge import STATE_ZERO_CHILDREN_KEY
+
+    ctx = _ctx_with_profile(children=0)
+    args = {}
+    inject_profile_occupancy(_Tool("search_offers"), args, ctx)
+    assert "children" not in args
+    assert ctx.state[STATE_ZERO_CHILDREN_KEY] is True
+
+
+def test_virtual_zero_child_declaration_keeps_native_schema_immutable():
+    from types import SimpleNamespace
+    from hotel_search_agent.occupancy import inject_occupancy_declaration
+
+    native = {"type": "object", "properties": {"children": {"type": "integer", "minimum": 1, "maximum": 20}}}
+    decl = SimpleNamespace(name="search_offers", parameters_json_schema=native)
+    request = SimpleNamespace(config=SimpleNamespace(tools=[SimpleNamespace(function_declarations=[decl])]))
+    inject_occupancy_declaration(None, request)
+    assert native["properties"]["children"]["minimum"] == 1
+    assert decl.parameters_json_schema["properties"]["children"]["minimum"] == 0
+    assert decl.parameters_json_schema["properties"]["children"]["maximum"] == 20
+    widened = decl.parameters_json_schema
+    inject_occupancy_declaration(None, request)
+    assert decl.parameters_json_schema == widened
+    inject_occupancy_declaration(None, SimpleNamespace(config=None))

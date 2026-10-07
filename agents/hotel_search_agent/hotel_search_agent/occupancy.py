@@ -8,7 +8,10 @@ opposite (`HANDOFF.md`, 2026-07-30): `search_offers_args_include` for
 adults/children was already at **75-78 % on a single turn** — MCP_B2C's own
 `search_offers` schema documents both fields ("minimum adult/children capacity
 the offer must accommodate"), which is enough for gpt-4o-mini to emit them
-unprompted. There is therefore no declaration to enrich here.
+unprompted. The later October7 replay exposed a separate retraction gap:
+MCP rejects children=0, so its positive-only schema makes the model omit a
+removal and carry the old count. A virtual zero value now expresses that
+removal; only positive values reach the MCP capacity filter.
 
 What was measured at **0 %** is everything downstream of that emission:
 
@@ -43,10 +46,11 @@ the wire format and the capture; this module owns only the before-tool carryover
 
 from __future__ import annotations
 
+import copy
 import logging
 from typing import Any
 
-from hotel_search_agent.response_bridge import find_datapart, party_count
+from hotel_search_agent.response_bridge import STATE_ZERO_CHILDREN_KEY, find_datapart, party_count
 
 _metrics_logger = logging.getLogger("dayuse.metrics")
 
@@ -94,6 +98,7 @@ def inject_profile_occupancy(
             args.pop(arg_name, None)
         return None
 
+    tool_context.state[STATE_ZERO_CHILDREN_KEY] = False
     profile_occupancy = _profile_occupancy(tool_context)
     carried = 0
     for arg_name in _ARG_TO_SLOT:
@@ -112,6 +117,13 @@ def inject_profile_occupancy(
             args[arg_name] = profile_occupancy[arg_name]
             carried += 1
 
+    # MCP accepts positive minimum capacities only. Zero children imposes no
+    # restriction, so omit the wire filter but preserve the explicit zero for
+    # response/profile capture (do not revive an earlier positive child count).
+    if args.get("children") == 0:
+        args.pop("children")
+        tool_context.state[STATE_ZERO_CHILDREN_KEY] = True
+
     # Content-free counter (flags only): says whether the party size came from
     # this message or from the profile — i.e. whether the carryover is working.
     if any(arg_name in args for arg_name in _ARG_TO_SLOT):
@@ -123,3 +135,35 @@ def inject_profile_occupancy(
             carried,
         )
     return None
+
+
+def inject_occupancy_declaration(callback_context: Any, llm_request: Any) -> None:
+    """Expose zero as a semantic child-count retraction, never an MCP filter.
+
+    The native schema only accepts positive minimum capacities. The adapter
+    removes zero on the wire and retains it for the concierge's profile delta.
+    Deep-copy declarations just like the date/amenity adapters do.
+    """
+    config = getattr(llm_request, "config", None)
+    for tool_entry in getattr(config, "tools", None) or []:
+        for decl in getattr(tool_entry, "function_declarations", None) or []:
+            if getattr(decl, "name", None) != "search_offers":
+                continue
+            schema = getattr(decl, "parameters_json_schema", None)
+            if not isinstance(schema, dict):
+                return
+            child = schema.get("properties", {}).get("children")
+            if not isinstance(child, dict):
+                return
+            widened = copy.deepcopy(schema)
+            child = widened["properties"]["children"]
+            child["minimum"] = 0
+            child.pop("exclusiveMinimum", None)
+            child["description"] = (
+                "Number of children in the customer's party, only when explicitly stated. "
+                "Use 0 when the user removes children from the party (even after an earlier "
+                "positive count); the adapter removes the MCP capacity filter. Omit when "
+                "unchanged. An adults-only hotel policy is not a party-size statement."
+            )
+            decl.parameters_json_schema = widened
+            return

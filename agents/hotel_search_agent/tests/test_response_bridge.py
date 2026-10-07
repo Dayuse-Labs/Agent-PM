@@ -2191,3 +2191,23 @@ class TestVerifiedSearchOrigin:
         args = {"name": "Rambler Oasis"}
         assert enforce_resolved_search_origin(_Tool("find_hotel_by_name"), args, ctx) is None
         assert args == {"name": "Rambler Oasis"}
+
+
+def test_metadata_only_datapart_preserves_current_leaf_diagnostic():
+    from types import SimpleNamespace
+    from google.adk.events import Event
+
+    ctx = _Ctx(state={"temp:hotel_search_guards_fired": ["geocode_echo_back"]})
+    ctx.invocation_id = "now"
+    ctx.agent_name = "hotel_search_agent"
+    diagnostic = "I could not identify that location. Which nearby city do you mean?"
+    def event(text, invocation="now", author="hotel_search_agent", thought=False):
+        return Event(invocation_id=invocation, author=author,
+                     content=genai_types.Content(role="model", parts=[genai_types.Part(text=text, thought=thought)]))
+    ctx.session = SimpleNamespace(events=[event("stale", invocation="old"), event(diagnostic),
+                                           event("reasoning", thought=True), event("tool", author="tool")])
+    content = emit_search_datapart(ctx)
+    assert [p.text for p in content.parts if p.text] == [diagnostic]
+    assert _decode(content)["guards_fired"] == ["geocode_echo_back"]
+    ctx.session.events = [event("stale", invocation="old")]
+    assert not any(p.text for p in emit_search_datapart(ctx).parts)

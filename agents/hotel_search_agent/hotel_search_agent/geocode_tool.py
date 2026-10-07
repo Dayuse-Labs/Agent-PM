@@ -29,6 +29,7 @@ import os
 from b2c_common.observability import mark_level
 from hotel_search_agent import geo_resolver
 from hotel_search_agent.geo_guards import (
+    _echo_fold,
     anchor_state_context,
     demote_generic_city,
     geocode_echo_matches,
@@ -115,14 +116,49 @@ def _soft_country(
     return named or _iso2(guess) or _locale_country(locale)
 
 
+_AIRPORT_WORDS = frozenset({"airport", "airports", "aeroport", "aeroports", "aeropuerto", "aeroporto", "flughafen", "luchthaven"})
+
+
+def _place_words(value: str) -> list[str]:
+    """Tokenize a place label without regular expressions."""
+    return "".join(ch if ch.isalnum() else " " for ch in _echo_fold(value)).split()
+
+
+def _landmark_query(zone: str) -> str:
+    # Search Box does not reliably understand a translated generic category
+    # alongside an IATA identifier (e.g. French 'aéroport JFK' returns nothing).
+    # Preserve the actual identifier and terminal number, not a guessed place.
+    words = zone.split()
+    kept = [word for word in words if _echo_fold(word) not in _AIRPORT_WORDS]
+    has_identifier = (
+        len(kept) == 1 and len(kept[0]) == 3 and kept[0].isalpha()
+    ) or any(len(word) == 3 and word.isalpha() and word.isupper() for word in kept)
+    return " ".join(kept) if kept and has_identifier else zone
+
+
 def _echoes(place_name: str, *, city: str | None, zone: str | None, state_hint: str | None) -> bool:
     # Matching only the parent city must not turn its centroid into a named
     # landmark. Reuse the existing validator on the zone independently, then
     # let the normal city/state check and POI anchor guard do their work.
     if zone and not is_generic_location_token(zone):
-        if not geocode_echo_matches(place_name, city=None, zone=zone, state_hint=None):
+        zone_words = _place_words(_landmark_query(zone))
+        place_words = _place_words(place_name)
+        # A terminal number is part of the landmark identity, not a weak hint.
+        if any(word.isdigit() and word not in place_words for word in zone_words):
             return False
-    return geocode_echo_matches(place_name, city=city, zone=zone, state_hint=state_hint)
+        letters = [word for word in zone_words if word.isalpha()]
+        if len(letters) == 1 and len(letters[0]) <= 3:
+            code = letters[0]
+            initials = "".join(word[0] for word in place_words if word.isalpha())
+            if code not in place_words and not initials.startswith(code):
+                return False
+        elif not geocode_echo_matches(
+            place_name, city=None, zone=_landmark_query(zone), state_hint=None
+        ):
+            return False
+    return geocode_echo_matches(
+        place_name, city=city, zone=_landmark_query(zone) if zone else None, state_hint=state_hint
+    )
 
 
 #: How far a tier-2 POI may sit from THIS turn's anchor before the 14th guard
@@ -143,7 +179,7 @@ def _echoes(place_name: str, *, city: str | None, zone: str | None, state_hint: 
 #: says Beauvais.
 #:
 #: This applies to EVERY anchor, the device GPS fix included — not only to the
-#: city coordinate `_city_coordinate` introduces below.
+#: city coordinate `_city_candidate` introduces below.
 _POI_ANCHOR_MAX_KM = 40.0
 
 
@@ -169,14 +205,14 @@ def _poi_anchor_incoherent(
     return haversine_km(anchor[0], anchor[1], poi.latitude, poi.longitude) > _POI_ANCHOR_MAX_KM
 
 
-def _city_coordinate(
+def _city_candidate(
     city: str,
     *,
     country: str | None,
     locale_country: str | None,
     language: str | None,
-) -> tuple[float, float] | None:
-    """The coordinate of a city the user NAMED, geocoded on purpose.
+) -> GeocodeCandidate | None:
+    """The verified candidate for a city the user NAMED, geocoded on purpose.
 
     2026-08-26, found while auditing why "aéroport de nice" resolved to a
     shuttle company on the Promenade des Anglais, 6 km from the airport, while
@@ -208,7 +244,11 @@ def _city_coordinate(
     Verified on this path: Paris proper (783 hotels) passes, Roanne (2) does
     not."""
     candidates = get_mapbox_client().geocode_candidates(
-        city, country=country, language=language, proximity=None
+        # A localized combined query can omit the named city's canonical
+        # candidate entirely (London + French labels returned only Canada).
+        # This dedicated lookup keeps the customer's place string and uses
+        # neutral labels; locale remains a bounded prior in the resolver.
+        city, country=country, language=None, proximity=None
     )
     resolution = geo_resolver.resolve(
         candidates,
@@ -224,7 +264,7 @@ def _city_coordinate(
         if not scored.in_inventory_tier:
             continue
         if _echoes(scored.candidate.place_name, city=city, zone=None, state_hint=None):
-            return (scored.candidate.latitude, scored.candidate.longitude)
+            return scored.candidate
     return None
 
 
@@ -655,6 +695,7 @@ def geocode_location(
         locale_country=guess_iso or _locale_country(locale),
         proximity=proximity_tuple,
         requested_name=effective_city or effective_metro,
+        prefer_municipality=bool(effective_city) and not effective_zone,
         # S-CX2: the clarify question can reach the customer verbatim — ask it
         # in the conversation language (same 2-letter hint Mapbox already got).
         language=lang,
@@ -690,14 +731,18 @@ def geocode_location(
     # No credible candidate ⇒ no anchor, and the city falls back to being
     # folded into the query — which is what resolves this case correctly.
     city_anchor: tuple[float, float] | None = None
+    city_country: str | None = None
     if echo_city:
         for scored in resolution.scored:
             if not scored.in_inventory_tier:
                 continue
             if _echoes(scored.candidate.place_name, city=echo_city, zone=None, state_hint=None):
                 city_anchor = (scored.candidate.latitude, scored.candidate.longitude)
+                city_country = scored.candidate.country_code
                 break
-    poi_anchor: tuple[float, float] | None = proximity_tuple or city_anchor
+    # A named destination outranks device location. GPS remains the fallback
+    # when the destination has no verified city anchor.
+    poi_anchor: tuple[float, float] | None = city_anchor or proximity_tuple
 
     clarify_response: dict | None = None
     if resolution.decision == "clarify":
@@ -771,8 +816,8 @@ def geocode_location(
     # does NOT mean "unbiased": Mapbox then biases by our egress IP, which is
     # what resolved "les champs élysées" to a shop in Toulon. So we always give
     # it a bias WE chose when we have one, in this order:
-    #   1. `poi_anchor` — the device GPS fix, or the v6 candidate that echoed
-    #      the city the user named. A coordinate, so the query stays the BARE
+    #   1. `poi_anchor` — the verified named city, otherwise the device fix.
+    #      The city has priority over the current device position. A coordinate, so the query stays the BARE
     #      landmark, which is what keeps the clean feature in the list.
     #   2. no coordinate but a city STRING → fold the city into the query
     #      (`_searchbox_query`). Last resort: it does fix the position, but it
@@ -784,28 +829,28 @@ def geocode_location(
     # "Champs-Élysées" neighborhood; `"les champs élysées, Paris"` → 10
     # businesses, top one "Onitsuka Tiger Champs Elysées, Paris Flagship".
     # Same 0.1-0.3 km position, very different label.
-    # A city NAME with no city COORDINATE means the scavenging loop above found
-    # nothing credible among THIS turn's candidates. Rather than fall straight
-    # to folding the city into the query — which measurably drops the clean
-    # feature out of the candidate list entirely (`_city_coordinate`) — ask v6
-    # for the city itself. One extra call, only on this path (a turn resolved by
-    # tier 1 has already returned above), and it converts the lossy fallback
-    # into the anchored path that works. Guard #14 also stops being a no-op
-    # here: with an anchor it can finally reject a POI in the wrong place.
-    if poi_anchor is None and echo_city and effective_zone:
-        city_anchor = _city_coordinate(
+    # Resolve a named city independently before the landmark lookup. A combined
+    # city+zone query can omit the intended city entirely, and language-specific
+    # names can promote a homonym. This bounded tier-2 lookup supplies both a
+    # verified coordinate and its country; tier-1 successes already returned.
+    # An explicit destination outranks the device's current position.
+    if echo_city and effective_zone:
+        city_candidate = _city_candidate(
             echo_city,
             country=effective_country_code,
             locale_country=guess_iso or _locale_country(locale),
             language=lang,
         )
-        poi_anchor = city_anchor
+        if city_candidate is not None:
+            city_anchor = (city_candidate.latitude, city_candidate.longitude)
+            city_country = city_candidate.country_code
+        poi_anchor = city_anchor or proximity_tuple
 
     searchbox_proximity = (
         f"{poi_anchor[1]},{poi_anchor[0]}" if poi_anchor is not None else None
     )
     if searchbox_proximity is not None:
-        searchbox_query = effective_zone or effective_city or effective_metro or ""
+        searchbox_query = _landmark_query(effective_zone) if effective_zone else effective_city or effective_metro or ""
     else:
         searchbox_query = _searchbox_query(effective_zone, effective_city, effective_metro)
     if not effective_zone and candidates:
@@ -815,7 +860,12 @@ def geocode_location(
     if searchbox_query:
         poi_candidates = get_searchbox_client().forward_candidates(
             searchbox_query,
-            country=_soft_country(effective_country_code, country_guess, locale),
+            # A verified destination is stronger than UI language or a model
+            # guess. Otherwise a French visitor searching New York can send
+            # JFK to Search Box with country=FR after geocoding NYC correctly.
+            country=_iso2(effective_country_code) or city_country or _soft_country(
+                None, country_guess, locale
+            ),
             language=lang,
             proximity=searchbox_proximity,
         )
@@ -852,6 +902,38 @@ def geocode_location(
                     metro=effective_metro,
                     guards_fired=guards_fired,
                 )
+
+    # Administrative districts can be absent from Search Box while the combined
+    # v6 city+district query returns only the parent city. One bounded district
+    # lookup recovers that feature, scoped to a verified destination country and
+    # coordinate. Never accept a same-name distant district or a business POI.
+    if effective_zone and city_anchor is not None and city_country:
+        districts = get_mapbox_client().geocode_candidates(
+            effective_zone, country=city_country, language=lang,
+            proximity=f"{city_anchor[1]},{city_anchor[0]}",
+        )
+        districts = [c for c in districts if
+                     c.feature_type in {"place", "locality", "neighborhood", "district"}
+                     and c.country_code == city_country
+                     and _echoes(c.place_name, city=echo_city, zone=effective_zone, state_hint=state_hint)
+                     and not _poi_anchor_incoherent(c, anchor=city_anchor)]
+        district_resolution = geo_resolver.resolve(
+            districts, inventory=get_inventory(), country_hint=city_country,
+            region_hint=state_hint, locale_country=city_country, proximity=city_anchor,
+            requested_name=effective_zone, language=lang,
+        )
+        district = district_resolution.chosen
+        if district_resolution.decision == "select" and district is not None:
+            return _ok(
+                district.as_result(), feature_type=district.feature_type,
+                profile_delta=_anchor_state(
+                    city=effective_city, raw_user_message=raw_user_message,
+                    profile_state_context=profile_state_context,
+                    profile_location_hint=profile_location_hint, guards_fired=guards_fired,
+                ),
+                distance_origin_type="poi", zone=effective_zone, metro=effective_metro,
+                guards_fired=guards_fired,
+            )
 
     # Tier 2 missed too — a pending clarify (homonym near-tie) is the honest
     # outcome now, ahead of the generic diagnostics below.

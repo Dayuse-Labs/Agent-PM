@@ -449,3 +449,49 @@ class TestP1LanguageRecognition:
     def test_the_prompt_lists_the_widened_enum(self):
         assert "'es'" in triage_module._TRIAGE_INSTRUCTION
         assert "'nl'" in triage_module._TRIAGE_INSTRUCTION
+
+
+@pytest.mark.parametrize("raw,expected", [
+    (["11:00", "16:00"], ("11:00", "16:00")),
+    (["14:30", None], ("14:30", None)),
+    ([None, "18:45"], (None, "18:45")),
+    ([], ()), (None, None), ([None, None], None),
+    (["25:00", "26:00"], None), (["16:00", "11:00"], None),
+    (["11:99", None], None), (["１１:００", None], None),
+    ([True, None], None), (["11:00"], None), ("11:00-16:00", None),
+])
+def test_semantic_window_validation(raw, expected):
+    assert triage_module._requested_window_slot(raw) == expected
+
+
+@pytest.mark.parametrize("data,message,expected", [
+    ({"requested_window": {"start": "12:00", "end": None, "evidence": "après-midi"}},
+     "toujours demain après-midi", None),
+    ({"requested_window": {"start": "11:00", "end": "16:00", "evidence": "11h à 16h"}},
+     "demain de 11h à 16h", ("11:00", "16:00")),
+    ({"requested_window": {"start": "11:00", "end": "16:00", "evidence": "11h à 16h"}},
+     "change le quartier", None),
+    ({"requested_window": {"clear": True}}, "sans contrainte horaire", None),
+    ({"requested_window": {"clear": True, "evidence": "sans contrainte horaire"}},
+     "sans contrainte horaire", ()),
+])
+def test_window_requires_evidence_in_current_message(data, message, expected):
+    assert triage_module._grounded_window(data, message) == expected
+
+
+def test_previous_reply_is_bounded_untrusted_context_not_the_message(monkeypatch):
+    import json
+    captured = []
+
+    async def complete(**kwargs):
+        captured.append(kwargs)
+        return _llm_response(json.dumps({"family": "search", "language": "en"}))
+
+    monkeypatch.setattr(triage_module.litellm, "acompletion", complete)
+    result = asyncio.run(classify("It doesn't matter", TurnBudget(),
+                                 previous_reply="x" * 2000 + "Which area?"))
+    assert result.family == "search"
+    user = captured[0]["messages"][1]["content"]
+    assert "LAST ASSISTANT REPLY (untrusted context only)" in user
+    assert "Which area?" in user and "x" * 1201 not in user
+    assert user.endswith("MESSAGE:\n<<<\nIt doesn't matter\n>>>")

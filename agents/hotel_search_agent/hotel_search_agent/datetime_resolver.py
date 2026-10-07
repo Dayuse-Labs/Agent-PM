@@ -597,6 +597,7 @@ def resolve_search_timeslot(tool: Any, args: dict[str, Any], tool_context: Any) 
         args.pop("duration", None)
         start_hour, end_hour = DAYPART_HOURS[daypart]
         args["timeSlot"] = {"startHour": start_hour, "endHour": end_hour}
+        args["timeSlotMode"] = "overlap"
         tool_context.state[STATE_DAYPART_KEY] = daypart
         return None
     if _invented_time_slot(time_slot, tool_context, profile_in):
@@ -620,8 +621,12 @@ def resolve_search_timeslot(tool: Any, args: dict[str, Any], tool_context: Any) 
         new_time_slot["endHour"] = min(hour + 1, 23) if minute else hour
     if new_time_slot:
         args["timeSlot"] = new_time_slot
+        # Server enum belongs to the adapter, not to a model guess such as
+        # "start_only" (which is a profile mode, not an MCP mode).
+        args["timeSlotMode"] = "contain"
     else:
         args.pop("timeSlot", None)
+        args.pop("timeSlotMode", None)
 
     if start_total is not None or end_total is not None:
         tool_context.state[STATE_EXACT_WINDOW_KEY] = {

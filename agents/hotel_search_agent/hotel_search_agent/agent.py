@@ -56,7 +56,7 @@ from hotel_search_agent.equipment_ids import (
 )
 from hotel_search_agent.geocode_tool import geocode_location, inject_profile_geo_context
 from hotel_search_agent.budget_injection import inject_profile_budget
-from hotel_search_agent.occupancy import inject_profile_occupancy
+from hotel_search_agent.occupancy import inject_occupancy_declaration, inject_profile_occupancy
 from hotel_search_agent.mcp_guard import (
     mcp_circuit_after_tool,
     mcp_circuit_before_tool,
@@ -166,13 +166,12 @@ How to act, frugally (at most ONE reasoning pass — no tool-call loops):
   failed, recover the customer's explicit place from recent_user_messages.
   Keep location types distinct: a municipality belongs in `city`, its state
   qualifier stays attached to that city, and an amenity is never a `zone`.
+  When the customer supplies BOTH a city and a district/landmark, populate BOTH
+  fields in the SAME call: city is the municipality, zone is the specific area.
+  Do not drop the district after extracting its parent city, and do not leave
+  city blank when it is explicitly stated alongside an airport or station.
   Preserve a landmark's full identity including its qualifiers: an airport
   terminal must include the airport name, not only a generic terminal number.
-- `query_params.repeat_previous_search` true → the user only changed how prices
-  are DISPLAYED (e.g. "show the prices in the local currency"). Repeat the
-  previous search as-is: call geocode_location with city blank, then
-  search_offers with no new filter — the destination, date and filters come back
-  from profile_in automatically. Never ask a question on such a turn.
   Put a LANDMARK or a named district ("les champs élysées", "gare de lyon",
   "times square", "la sagrada familia") in `zone` — a landmark is not a city,
   and the tool has a dedicated lookup for it. Pass the city that landmark sits
@@ -184,6 +183,9 @@ How to act, frugally (at most ONE reasoning pass — no tool-call loops):
   right city, and it verifies it rather than trusting it, so a wrong guess costs
   a rank and nothing more. Without it the lookup can only aim at where the
   SERVER happens to be, and a same-named shop hundreds of km away wins.
+  If the user explicitly gives a city together with a station or airport, keep
+  that explicit city even when the landmark name mentions another city. The
+  exception below applies only when the customer did NOT specify the city.
   ONE EXCEPTION, narrow, for the few places NAMED AFTER A CITY THEY ARE NOT IN:
   "gare de lyon" is a station in PARIS, named after where its trains go. When
   you know the place is NOT in the city its own name mentions, that name is a
@@ -211,6 +213,11 @@ How to act, frugally (at most ONE reasoning pass — no tool-call loops):
   honestly instead (never invent coordinates or guess a nearby city).
   If it returns ok=True, call search_offers with its latitude/longitude plus
   the rest of the query params, and fold its profile_delta into your own.
+- `query_params.repeat_previous_search` true → the user only changed how prices
+  are DISPLAYED (e.g. "show the prices in the local currency"). Repeat the
+  previous search as-is: call geocode_location with city blank, then
+  search_offers with no new filter — the destination, date and filters come back
+  from profile_in automatically. Never ask a question on such a turn.
 - Pass search_offers an `amenities` argument ONLY when the user asked FOR one
   or more amenities, using ONLY these canonical keys: {amenity_keys}. Include
   ONLY what the user asked for — never any other key from the list. A negated
@@ -246,6 +253,9 @@ How to act, frugally (at most ONE reasoning pass — no tool-call loops):
   "avec ma femme"/"with my wife" is adults=2 (them plus one), "moi et mes deux
   amis" is adults=3 — a named companion is an ADDITIONAL adult, never the only
   one. A baby or an infant is children=1, never an adult.
+  If the customer removes children from their party, emit children=0 explicitly;
+  omitting the key would preserve the previous count. An adults-only PROPERTY is
+  a policy request, not evidence of party size or a supported hotel policy filter.
   NEVER invent a party size the user did not state —
   when nobody is mentioned, OMIT both arguments: these are MINIMUM-capacity
   filters, so a guessed `adults=1` silently hides offers the user never
@@ -346,7 +356,8 @@ root_agent = Agent(
     # only (S-G6: it must never compute a date/window itself — see the
     # function's own docstring). inject_amenities_declaration /
     # inject_datetime_declaration widen the search_offers declaration with the
-    # virtual `amenities`/`date`/`duration`/timeSlot-minutes params
+    # virtual `amenities`/`date`/`duration`/timeSlot-minutes params; occupancy
+    # also admits zero children for retraction, stripped before the MCP call.
     # (skip_final_generation staying first means a short-circuited final call
     # correctly skips both injections too).
     before_model_callback=[
@@ -355,6 +366,7 @@ root_agent = Agent(
         inject_today_before_model,
         inject_amenities_declaration,
         inject_datetime_declaration,
+        inject_occupancy_declaration,
     ],
     after_model_callback=[llm_timing_after],
     on_model_error_callback=llm_error_metric,

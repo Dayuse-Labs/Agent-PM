@@ -821,3 +821,25 @@ def test_stated_clock_times_are_recognised():
         assert _CLOCK_TIME_RE.search(text), text
     for text in ["l'après-midi", "por la tarde", "in the evening", "demain matin", "pour 2 personnes"]:
         assert not _CLOCK_TIME_RE.search(text), text
+
+
+def test_clock_request_replaces_invalid_model_mode_with_mcp_contract_enum():
+    ctx = _ctx_with_profile({}, "demain de 11h à 16h")
+    args = {"timeSlot": {"startHour": 11, "endHour": 16}, "timeSlotMode": "start_only"}
+    resolve_search_timeslot(_Tool("search_offers"), args, ctx)
+    assert args["timeSlotMode"] == "contain"
+    assert args["timeSlot"] == {"startHour": 11, "endHour": 16}
+
+
+def test_daypart_uses_overlap_even_when_model_requests_containment():
+    ctx = _ctx_with_profile({}, "demain après-midi")
+    args = {"timeSlot": {"startHour": 12, "endHour": 18}, "timeSlotMode": "contain"}
+    resolve_search_timeslot(_Tool("search_offers"), args, ctx)
+    assert args["timeSlotMode"] == "overlap"
+
+
+def test_no_clock_request_removes_dangling_mode():
+    ctx = _ctx_with_profile({}, "un hôtel à Paris")
+    args = {"timeSlotMode": "invalid"}
+    resolve_search_timeslot(_Tool("search_offers"), args, ctx)
+    assert "timeSlotMode" not in args

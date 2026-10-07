@@ -329,6 +329,10 @@ def _normalize_hotel_for_display(hotel: dict[str, Any], best_offer: dict[str, An
     if url:
         normalized["url"] = url
     if best_offer:
+        start = _hhmm(best_offer.get("startHour"), best_offer.get("startMinute"))
+        end = _hhmm(best_offer.get("endHour"), best_offer.get("endMinute"))
+        if start and end:
+            normalized["timeslots"] = [{"start": start, "end": end}]
         shown_price = display_price_euro(best_offer, hotel)
         normalized["price"] = _format_price_eur_cents(shown_price)
         normalized["price_eur_cents"] = _price_eur_cents(shown_price)
@@ -376,12 +380,24 @@ async def get_hotel_details(
                     guards_fired.append("named_hotel_lookup")
                 if hotel_id is None:
                     return {"ok": False, "error": "hotel not found", "guards_fired": guards_fired}
-                result = await _call_tool(session, "get_hotel_details", {"hotelId": hotel_id})
+                args: dict[str, Any] = {"hotelId": hotel_id}
+                if profile.date:
+                    args["date"] = profile.date
+                result = await _call_tool(session, "get_hotel_details", args)
                 if not result["ok"]:
                     return {**result, "guards_fired": guards_fired}
                 data = result["data"]
                 hotel = data.get("hotel") or {}
                 offers = data.get("offers") or []
+                if profile.date:
+                    offers = [o for o in offers if o.get("availabilityDate") == profile.date]
+                shown = _shortlist_offer(hotel_id, profile)
+                if shown is not None:
+                    # A details question keeps the formula already displayed.
+                    # If it disappeared, report hotel facts without another price.
+                    offers = [o for o in offers if
+                              o.get("ratePlanUuid") == shown.get("offer_id")
+                              and o.get("availabilityDate") == shown.get("offer_date")]
                 normalized = _normalize_hotel_for_display(hotel, offers[0] if offers else None)
                 # Same rule as the search leaf's cards: `profile.date` only ever
                 # holds a user-given date (or the same-day cutoff swap), so the
@@ -391,6 +407,23 @@ async def get_hotel_details(
                 return {"ok": True, "hotel": normalized, "guards_fired": guards_fired}
     except Exception as exc:  # noqa: BLE001 — degrade honestly, never crash the turn
         return {"ok": False, "error": f"get_hotel_details failed: {type(exc).__name__}"}
+
+
+async def get_shown_hotel_details(profile: SessionProfile) -> dict[str, Any]:
+    """Bounded read-only lookup of verified shortlist IDs, never a name guess."""
+    ids: list[int] = []
+    for hotel in profile.last_results or []:
+        candidate = hotel.get("hotel_id") if isinstance(hotel, dict) else None
+        if type(candidate) is int and candidate > 0 and candidate not in ids:
+            ids.append(candidate)
+    if not ids:
+        return {"ok": False, "error": "no displayed hotels"}
+    results = await asyncio.gather(*(
+        get_hotel_details("", profile, picked_hotel_id=hotel_id) for hotel_id in ids[:5]
+    ))
+    if not all(result.get("ok") for result in results):
+        return {"ok": False, "error": "displayed hotel details unavailable"}
+    return {"ok": True, "hotels": [result["hotel"] for result in results]}
 
 
 async def compare_hotels(message: str, profile: SessionProfile) -> dict[str, Any]:

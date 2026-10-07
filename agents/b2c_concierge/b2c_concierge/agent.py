@@ -113,7 +113,7 @@ from .a2a_datapart import encode_datapart, find_datapart
 from .amenity_guard import apply_amenity_truthfulness
 from .budget import TurnBudget
 from .currency_guard import enforce_currency_disclosure
-from .dialogue_context import recent_user_messages
+from .dialogue_context import last_assistant_message, recent_user_messages
 from .date_format import humanize_iso_dates
 from .fallback_text import enforce_parking_reserve, synthesis_fallback_text
 from .display_currency import (
@@ -915,6 +915,7 @@ class _B2cConcierge(BaseAgent):
         family: str, language: str, route: Any, budget: TurnBudget, t_start: float, inv: str,
         picked_hotel_id: int | None = None,
         llm_hotel_name: str | None = None,
+        hotel_scope: str | None = None,
     ) -> AsyncGenerator[Event, None]:
         """details / compare: the real MCP_B2C call is a CODE decision
         (route.kind == "inline" was already resolved by triage + the routing
@@ -925,7 +926,12 @@ class _B2cConcierge(BaseAgent):
         ground-truth block and the amenity claim verifier (item 3) apply
         identically, no matter the source. Named-hotel lookup (item 4) lives
         in inline_tools.py's hotel resolver."""
-        if route.target == "get_hotel_details":
+        if (route.target == "get_hotel_details" and hotel_scope == "shown"
+                and picked_hotel_id is None and llm_hotel_name is None):
+            result = await inline_tools.get_shown_hotel_details(profile)
+            hotels = result.get("hotels") or [] if result.get("ok") else []
+            leaf_text = "Verified details of the displayed hotels." if hotels else ""
+        elif route.target == "get_hotel_details":
             result = await inline_tools.get_hotel_details(
                 message, profile, picked_hotel_id=picked_hotel_id,
                 llm_hotel_name=llm_hotel_name,
@@ -1130,7 +1136,10 @@ class _B2cConcierge(BaseAgent):
 
         # 2. Triage (ONE economy LLM + regex fallback). Off the session/stream.
         recent_messages = recent_user_messages(ctx.session.events, message)
-        triage = await classify(message, budget, inv, recent_messages=recent_messages)
+        previous_reply = last_assistant_message(ctx.session.events, author=self.name)
+        triage = await classify(
+            message, budget, inv, recent_messages=recent_messages, previous_reply=previous_reply
+        )
         family = triage.family
         route = ROUTES[family]
         # P1-1: the two code-owned override signals are RE-derived here, now fed
@@ -1316,6 +1325,7 @@ class _B2cConcierge(BaseAgent):
                 ctx, profile, store, message, family, reply_language, route, budget, t_start, inv,
                 picked_hotel_id=picked.get("hotel_id") if picked else None,
                 llm_hotel_name=triage.hotel_name,
+                hotel_scope=triage.hotel_scope,
             ):
                 yield event
             return
@@ -1353,6 +1363,19 @@ class _B2cConcierge(BaseAgent):
             # the user had just seen (prod 2026-07-27: "book the cheapest"
             # returned pricier ones because the cheap five were on screen).
             reset_search_cursor(profile)
+
+        if route.target == LEAF_HOTEL_SEARCH and triage.requested_window is not None:
+            # Persist semantic clock extraction before any leaf clarification.
+            # Empty tuple is an explicit retraction; absent signal is carryover.
+            requested_window = triage.requested_window
+            profile.timeslot = None
+            profile.daypart = None
+            profile.timeslot_start = requested_window[0] if requested_window else None
+            profile.timeslot_end = requested_window[1] if requested_window else None
+            profile.timeslot_mode = (
+                "range" if all(requested_window) else "start_only" if requested_window[0] else "end_only"
+            ) if requested_window else None
+            profile.timeslot_request_source = BUDGET_SOURCE_EXPLICIT if requested_window else None
 
         if route.target == LEAF_HOTEL_SEARCH:
             # Triage already recognized the amount. Put it in profile_in so

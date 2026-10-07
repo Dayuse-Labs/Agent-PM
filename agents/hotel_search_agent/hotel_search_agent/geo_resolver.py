@@ -430,6 +430,7 @@ def resolve(
     radius_km: float = DEFAULT_RADIUS_KM,
     requested_name: str | None = None,
     language: str | None = None,
+    prefer_municipality: bool = False,
 ) -> Resolution:
     """Re-rank `candidates` and decide select / clarify / none. Pure and
     deterministic given the injected `inventory` provider.
@@ -458,6 +459,22 @@ def resolve(
 
     if not survivors:
         return Resolution(decision="none")
+
+    # A bare city's inventory must not move it to a distant neighborhood (even
+    # one with a fuzzy name match). Only lower-ranked subdivisions are removed:
+    # a leading borough (Brooklyn NY) must survive a later municipality homonym.
+    # Landmark queries retain their own candidates.
+    # Apply after explicit country/region restrictions: a user who names the
+    # neighborhood's region can still select it. Keep municipality homonyms for
+    # the existing ambiguity rules; this is no city-name exception list.
+    requested_fold = _name_fold(requested_name)
+    exact_places = [c for c in survivors if c.feature_type == "place"
+                    and requested_fold and _name_fold(c.name) == requested_fold]
+    if prefer_municipality and exact_places:
+        survivors = [c for c in survivors if not (
+            c.feature_type != "place"
+            and any(p.country_code == c.country_code and p.rank < c.rank for p in exact_places)
+        )]
 
     # 2-5 — score every survivor.
     scored: list[ScoredCandidate] = []

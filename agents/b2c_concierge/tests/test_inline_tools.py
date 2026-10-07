@@ -1676,3 +1676,57 @@ class TestP1HotelNameSlot:
         )
         assert result["ok"] is True
         assert [c[0] for c in session.calls] == ["get_hotel_details"]
+
+
+def test_shown_details_never_looks_up_question_as_hotel_name(monkeypatch):
+    session = _install(monkeypatch, {"get_hotel_details": FakeResult(HOTEL_DETAILS_RESPONSE)})
+    result = _run(inline_tools.get_shown_hotel_details(SessionProfile(
+        date="2026-07-21", last_results=SHORTLIST + SHORTLIST
+    )))
+    assert result["ok"]
+    assert session.calls == [("get_hotel_details", {"hotelId": 22293, "date": "2026-07-21"})]
+    # The fixture only contains an offer for July 20: never attach it to July 21.
+    assert "price" not in result["hotels"][0]
+    assert result["hotels"][0]["amenities"] == ["Free WiFi", "Spa"]
+
+
+def test_empty_shown_details_has_no_network_call(monkeypatch):
+    session = _install(monkeypatch, {})
+    assert not _run(inline_tools.get_shown_hotel_details(SessionProfile()))["ok"]
+    assert session.calls == []
+
+
+def test_shown_details_failure_is_not_reported_as_all_hotels_verified(monkeypatch):
+    _install(monkeypatch, {"get_hotel_details": RuntimeError("unavailable")})
+    assert not _run(inline_tools.get_shown_hotel_details(SessionProfile(last_results=SHORTLIST)))["ok"]
+
+
+def test_details_keeps_the_displayed_formula_and_its_own_clock(monkeypatch):
+    selected = dict(HOTEL_DETAILS_RESPONSE["offers"][0], ratePlanUuid="selected", startHour=10,
+                    startMinute=30, endHour=16, priceEuro=8000)
+    session = _install(monkeypatch, {"get_hotel_details": FakeResult({
+        "hotel": HOTEL_DETAILS_RESPONSE["hotel"],
+        "offers": HOTEL_DETAILS_RESPONSE["offers"] + [selected],
+    })})
+    profile = SessionProfile(date="2026-07-20", last_results=[{
+        "hotel_id": 22293, "name": "Villa Paris Orly", "offer_id": "selected",
+        "offer_date": "2026-07-20",
+    }])
+    hotel = _run(inline_tools.get_hotel_details("", profile, picked_hotel_id=22293))["hotel"]
+    assert hotel["offer_id"] == "selected"
+    assert hotel["price_eur_cents"] == 8000
+    assert hotel["timeslots"] == [{"start": "10:30", "end": "16:00"}]
+    assert session.calls == [("get_hotel_details", {"hotelId": 22293, "date": "2026-07-20"})]
+
+
+def test_details_does_not_silently_replace_unavailable_displayed_formula(monkeypatch):
+    _install(monkeypatch, {"get_hotel_details": FakeResult(HOTEL_DETAILS_RESPONSE)})
+    profile = SessionProfile(date="2026-07-20", last_results=[{
+        "hotel_id": 22293, "name": "Villa Paris Orly", "offer_id": "no-longer-available",
+        "offer_date": "2026-07-20",
+    }])
+    hotel = _run(inline_tools.get_hotel_details("", profile, picked_hotel_id=22293))["hotel"]
+    assert "price" not in hotel
+    assert "offer_id" not in hotel
+    assert "timeslots" not in hotel
+    assert hotel["amenities"]

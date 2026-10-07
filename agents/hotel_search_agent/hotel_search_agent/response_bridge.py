@@ -107,6 +107,7 @@ _STATE_NAMED_NOT_FOUND_KEY = "temp:hotel_search_named_not_found"
 # auto-widen/exhaustion, provenance) finally run on real traffic (S9/S12 gap).
 _STATE_BUDGET_TIMESLOT_KEY = "temp:hotel_search_budget_timeslot"
 _STATE_RADIUS_KEY = "temp:hotel_search_radius_km"
+STATE_ZERO_CHILDREN_KEY = "temp:hotel_search_zero_children"
 _STATE_SEARCH_PAGE_KEY = "temp:hotel_search_search_page"
 # Public (unlike the keys above): written by equipment_ids.enforce_equipment_filters,
 # read back here for card stamping + the profile_delta — same cross-callback
@@ -1189,6 +1190,10 @@ def capture_after_tool(
         # until this capture existed nothing read them, so they never reached
         # the profile and could not survive to the next turn.
         budget_timeslot.update(occupancy_from_args(args))
+        if tool_context.state.get(STATE_ZERO_CHILDREN_KEY) is True:
+            # Zero means no child-capacity filter, which MCP represents by
+            # omitting children. Keep the customer's update in the profile.
+            budget_timeslot["children"] = 0
         if budget_timeslot:
             tool_context.state[_STATE_BUDGET_TIMESLOT_KEY] = budget_timeslot
         # Content-free counter (flags only): lets a live run confirm whether the
@@ -1754,6 +1759,27 @@ def emit_search_datapart(callback_context: Any) -> genai_types.Content | None:
         # Same replace-the-model's-text mechanics as the clarify path: the
         # deterministic honest line wins over whatever the model improvised.
         parts.append(genai_types.Part(text=_search_unavailable_text(language)))
+    else:
+        # A metadata-only event replaces the model's last event on the A2A
+        # boundary too. Preserve this invocation's diagnostic/clarification
+        # text; otherwise guards telemetry turns a geocode miss into a false
+        # hotel-search outage in the concierge. Never copy older turns, tools,
+        # partial streams, or thought text.
+        session = getattr(callback_context, "session", None)
+        invocation_id = getattr(callback_context, "invocation_id", None)
+        agent_name = getattr(callback_context, "agent_name", None)
+        for event in reversed(getattr(session, "events", []) or []):
+            content = getattr(event, "content", None)
+            if (not invocation_id or not agent_name
+                    or getattr(event, "invocation_id", None) != invocation_id
+                    or getattr(event, "author", None) != agent_name
+                    or getattr(event, "partial", False)
+                    or content is None or content.role != "model"):
+                continue
+            text = "\n".join(p.text for p in content.parts or [] if p.text and not p.thought)
+            if text.strip():
+                parts.append(genai_types.Part(text=text))
+                break
     parts.append(encode_datapart(payload))
     return genai_types.Content(role="model", parts=parts)
 

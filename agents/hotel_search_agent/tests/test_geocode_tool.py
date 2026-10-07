@@ -1163,7 +1163,7 @@ class TestSearchBoxProximityIsNeverLeftToMapbox:
         assert box.calls[-1][0] == "les champs élysées, Paris"
         assert box.proximities[-1] is None
 
-    def test_a_gps_fix_still_wins_over_the_city_coordinate(self, monkeypatch):
+    def test_named_city_anchor_is_used_even_with_device_gps(self, monkeypatch):
         paris = _c("Paris", "FR", "Île-de-France", lat=48.8566, lon=2.3522)
         _patch_multi(monkeypatch, [paris], inventory={48.8566: 780})
         poi = GeocodeResult(48.8698, 2.3078, "Champs-Élysées, 75008 Paris, France", "FR", "IdF")
@@ -1175,7 +1175,7 @@ class TestSearchBoxProximityIsNeverLeftToMapbox:
                                   proximity_lat=48.87, proximity_lon=2.31)
 
         assert result["ok"] is True
-        assert box.proximities[-1] == "2.31,48.87"
+        assert box.proximities[-1] == "2.3522,48.8566"
 
 
 class TestPoiAnchorCoherenceGuard:
@@ -1601,3 +1601,87 @@ def test_named_zone_cannot_resolve_to_its_city_centroid(monkeypatch, with_landma
     else:
         assert result["ok"] is False
         assert "latitude" not in result
+
+
+class TestDestinationOverridesClientBias:
+    def test_foreign_destination_uses_verified_country_not_ui_locale(self, monkeypatch):
+        london = _c("London", "GB", "England", lat=51.5073, lon=-0.127647)
+        _patch_multi(monkeypatch, [london], inventory={51.5073: 200})
+        airport = GeocodeResult(51.4724, -0.4554, "Heathrow Terminal 3, London, UK", "GB", "England")
+        box = _FakeSearchBox(airport)
+        monkeypatch.setattr(geocode_tool, "get_searchbox_client", lambda: box)
+
+        result = geocode_location(city="London", zone="Heathrow Terminal 3", locale="fr-FR")
+
+        assert result["ok"] is True
+        assert box.calls[-1] == ("Heathrow Terminal 3", "GB")
+        assert box.proximities[-1] == "-0.127647,51.5073"
+
+    def test_distant_device_cannot_veto_named_destination(self, monkeypatch):
+        london = _c("London", "GB", "England", lat=51.5073, lon=-0.127647)
+        _patch_multi(monkeypatch, [london], inventory={51.5073: 200})
+        airport = GeocodeResult(51.4724, -0.4554, "Heathrow Terminal 3, London, UK", "GB", "England")
+        box = _FakeSearchBox(airport)
+        monkeypatch.setattr(geocode_tool, "get_searchbox_client", lambda: box)
+
+        result = geocode_location(
+            city="London", zone="Heathrow Terminal 3", locale="fr-FR",
+            proximity_lat=48.8566, proximity_lon=2.3522,
+        )
+
+        assert result["ok"] is True
+        assert box.proximities[-1] == "-0.127647,51.5073"
+        assert "poi_anchor_coherence" not in result.get("guards_fired", [])
+
+    def test_dedicated_city_lookup_retains_country_for_searchbox(self, monkeypatch):
+        city = _c("London", "GB", "England", lat=51.5073, lon=-0.127647)
+        client = _QueryAwareClient({"Heathrow Terminal 3, London": [], "London": [city]})
+        monkeypatch.setattr(geocode_tool, "get_mapbox_client", lambda: client)
+        monkeypatch.setattr(geocode_tool, "get_inventory", lambda: _FakeInventory({51.5073: 200}))
+        box = _FakeSearchBox(GeocodeResult(51.4724, -0.4554, "Heathrow Terminal 3, London, UK", "GB", "England"))
+        monkeypatch.setattr(geocode_tool, "get_searchbox_client", lambda: box)
+
+        result = geocode_location(city="London", zone="Heathrow Terminal 3", locale="fr-FR")
+
+        assert result["ok"] is True
+        assert box.calls[-1][1] == "GB"
+
+
+class TestLandmarkIdentityWithoutRegex:
+    def test_iata_code_cannot_validate_a_city_centroid(self):
+        assert not geocode_tool._echoes("New York, New York, US", city="New York", zone="JFK", state_hint=None)
+        assert geocode_tool._echoes("John F. Kennedy International Airport, New York, US", city="New York", zone="aéroport JFK", state_hint=None)
+
+    def test_terminal_number_must_match(self):
+        assert not geocode_tool._echoes("Heathrow Terminal 4, London, UK", city="London", zone="Heathrow Terminal 3", state_hint=None)
+        assert geocode_tool._echoes("Heathrow Terminal 3, London, UK", city="London", zone="Heathrow Terminal 3", state_hint=None)
+
+    def test_query_keeps_identifier_and_terminal(self):
+        assert geocode_tool._landmark_query("aéroport JFK") == "JFK"
+        assert geocode_tool._landmark_query("JFK Airport Terminal 3") == "JFK Terminal 3"
+        assert geocode_tool._landmark_query("aéroport de Nice") == "aéroport de Nice"
+        assert geocode_tool._landmark_query("Gare de Lyon") == "Gare de Lyon"
+
+
+@pytest.mark.parametrize("district_lat, country, success", [
+    (40.7135, "US", True), (48.0, "US", False), (40.7135, "CA", False),
+])
+def test_borough_fallback_requires_verified_country_and_nearby_anchor(
+    monkeypatch, district_lat, country, success
+):
+    city = _c("New York City, New York, United States", "US", "New York",
+              lat=40.7128, lon=-74.006)
+    district = _c("Queens, New York, United States", country, "New York", ftype="locality",
+                  lat=district_lat, lon=-73.8283)
+    client = _QueryAwareClient({
+        "Queens, New York, New York": [city], "New York": [city], "Queens": [district],
+    })
+    monkeypatch.setattr(geocode_tool, "get_mapbox_client", lambda: client)
+    monkeypatch.setattr(geocode_tool, "get_inventory", lambda: _FakeInventory({40.7128: 300, district_lat: 30}))
+    result = geocode_location(city="New York", zone="Queens", country_code="US")
+    assert result["ok"] is success
+    if success:
+        assert result["latitude"] == district_lat
+        assert result["longitude"] == -73.8283
+        assert result["profile_delta"]["zone"] == "Queens"
+        assert result["distance_origin_type"] == "poi"
