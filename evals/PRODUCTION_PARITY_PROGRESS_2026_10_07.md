@@ -4,6 +4,53 @@
 ont repris. Des gains ciblés sont établis, mais plusieurs défauts importants
 restent ouverts. Aucun merge, déploiement ou changement des modèles Railway.
 
+## 2026-10-07 — validation historique v19 collectée, revue des notes incomplète
+
+**Pas de GO.** La version runtime `d1eb29e` est restée identique pendant les
+36 conversations historiques réservées : **104 messages originaux par bras,
+312 réponses** legacy production / B2C déployé / candidat. Inventaire MCP frais,
+aucune action de réservation ou annulation. Le lot coûte **3,1526 USD**.
+
+Les 47 cartes du candidat sont jointes aux reçus MCP par hôtel, UUID de formule,
+date et créneau à la minute : **0 écart de prix, 0 offre expirée, 0 non jointe**.
+Seulement 3 cartes ont un budget total vérifiable ; toutes respectent ce plafond,
+frais de réservation inclus. Cela ne prouve ni le rappel ni les droits d'accès
+aux équipements. Les heures/dates historiques rejouées aujourd'hui limitent la
+comparaison de disponibilité, particulièrement après fermeture des créneaux.
+
+Langfuse historique retrouvé pour 23 sessions ; 22 couvrent les messages SQL
+via leurs appels d'extraction, une n'est attestée que partiellement. Une trace
+supplémentaire répète le premier message d'une session, sans message client
+manquant identifié. Un fuseau de l'appareil apparaît dans 22 sessions, absent
+de l'export SQL ; il n'a pas été ajouté rétroactivement aux entrées figées.
+
+**108 notes assistées reçues, mais pas de taux de réussite utilisable.** Le juge
+commet notamment des faux A (pays explicite ignoré), des reproches fondés sur un
+budget fourni plus tard et des erreurs de containment horaire. 14 annotations
+ont été revues manuellement, avec corrections séparées et notes originales
+conservées. La revue complète doit précéder toute affirmation de supériorité.
+Notation : A parfait / B mineur / C significatif / D majeur / F critique.
+
+Défauts observés à traiter : rôle des nombres (code postal devenu budget),
+matin transformé en minuit, minutes perdues au tour suivant une clarification
+géographique, pays/homonymes et comté confondu avec quartier, critères d'accès
+ascenseur/baignoire mal interprétés. Le contrôle du delta v19 protège seulement
+les minutes du message courant, pas encore celles des tours antérieurs.
+
+Coût notation **1,3107 USD** ; cumul comptabilisé **83,1334 USD / 110 USD**, dont
+11,10 USD de provisions, réserve 10 USD. Aucun runner payant actif à ce point.
+Code inchangé : **2 232 tests passés, 1 ignoré**, CI37687522548 réussie, étapes
+live ignorées par configuration. Les fichiers privés restent hors Git.
+
+Suite : terminer la revue des 108 parcours notés, corriger les causes sans
+nouveau regex, comparer les modèles étape par étape, rejouer les défauts avec
+contexte natif retrouvé et dates futures dans un lot distinct. Les 36 sessions
+sont désormais exposées : leurs rejeux futurs ne sont plus un holdout inédit.
+FAQ/annulation informative, widget et preuve complète des correctifs restent
+à terminer. Ni merge, ni déploiement, ni changement Railway.
+
+> Les sections suivantes sont des checkpoints historiques ; le dernier état ci-dessus prévaut.
+
 ## Rejeu adaptatif terminé et corrections v19
 
 9 objectifs synthétiques historiques × 3 agents = **135 réponses**, coût
