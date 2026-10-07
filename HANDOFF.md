@@ -4,6 +4,25 @@
 
 > 📋 **Pour savoir QUOI faire ensuite, ouvrir [`CHANTIERS.md`](CHANTIERS.md)** (état vérifié au 2026-09-14) : la liste des chantiers ouverts, chacun avec sa preuve, ses actions et un prompt prêt à coller — plus la liste de ce qu'il ne faut **pas** relancer parce que c'est déjà livré. `tasks/todo.md` est périmé et ne doit plus servir de référence.
 
+## ✅ 2026-10-07 (bis) — mcp-dayuse#4 : compteur et réserve parking (le reste du ticket était déjà livré)
+
+**Fait** (branche `fix/mcp-4-parking-reserve-page-count`, sur `main` à `d973775` ; gates : pytest **1 976 passés / 1 skippé**, ruff, mypy, guardrails **verts**). Ticket https://gitlab.com/dayuse/dayuse/mcp-dayuse/-/work_items/4. Points 1, 2, 3, 5 du correctif immédiat déjà sur `main` (#122, mcp-dayuse#8) — vérifiés dans le code et en live (Lyon 12h–13h : plus de « exactement » ; Lyon 6h–16h : « aucune offre ne couvre tout le créneau ; voici les plus proches »).
+
+1. **Compteur (point 4)** — la ligne de la feuille disait « 5 offre(s) de jour trouvée(s) » = taille de page (`MAX_RESULTS`). Elle ne porte plus de nombre (« Offres de jour affichées : … », 7 langues) et la synthèse a la consigne de ne jamais annoncer un nombre trouvé. Un vrai décompte (offres couvrantes sur toutes les pages, `total` réservable) dépend du MCP #1.
+2. **Réserve parking (point 6)** — reproduite en live : « parking et piscine » → « toutes avec piscine », rien sur le parking. `fallback_text.enforce_parking_reserve` est maintenant appliquée à toute réponse de recherche avec cartes (plus seulement au repli), jamais en double. Revérifiée en live après correctif. Métrique `concierge_metric=parking_reserve`.
+
+Contrôle négatif : les nouveaux tests tombent avec `agent.py` / `response_bridge.py` de `main` (9 échecs).
+
+**Reste** :
+- La réserve parking lit le message du tour : un parking demandé au tour 1 n'est pas rappelé au tour 2 (« moins cher »).
+- Côté MCP (#1) : `timeSlot` par contenance, `total` réservable, groupes OU (parking, rooftop, navette, sauna).
+- Id piscine 3001 absent de `list_amenities` : laissé tel quel (sans effet en OU, exception documentée dans `tests/test_mcp_contract.py`).
+
+🪤 **Pièges découverts** :
+- Dans le shell de session, `cat` est un alias vers `bat` (non installé) : un `cat >> fichier <<EOF` n'écrit RIEN et ne renvoie qu'un message sur stderr. Ajouter du texte avec Edit/Write.
+- zsh ne découpe pas une variable non quotée (`pytest $T` = un seul argument) : écrire les chemins en clair.
+- `main` a été pull dans le worktree principal pendant la session (autre session) : vérifier `git log` avant de brancher.
+
 ## ✅ 2026-10-07 — « Voir tout » branché sur le `searchPage` du MCP mergé
 
 **Fait** (branche `fix/see-all-search-page-contract`). Le #2 côté MCP a été mergé par une autre branche (!32) avec un autre contrat que celui de #126 : `search_offers` renvoie un **`searchPage` unique** `{slug, label, countryCode}` (élu parmi les hôtels actifs proches, indépendant de la date et des filtres, `null` sinon), pas des `searchPages` par hôtel. Avec #126 seul, « Voir tout » retombait toujours, sans erreur, sur la page pays (reproduit en live contre mcp-dayuse `main`). `b2c_common.search_page.search_page_from` lit ce champ (slug validé, sinon rien) ; le choix par nom de lieu (`pick_search_page`) est supprimé ; l'URL garde date, heures et `selectedAddress`, hôte du marché de `countryCode`. Live : Lyon, Lyon 6h–16h (0 offre : la page existe quand même), San Francisco 10h–14h, Gare du Nord, Londres → 5 URLs en 200 ; widget vérifié en SSE. Ma branche MCP `feature/14707-search-page-breadcrumb` est **abandonnée** (jamais proposée en MR).
@@ -25,7 +44,7 @@
 - **Déployer le MCP d'abord** (sinon pas de `searchPages` → repli page pays, sans erreur).
 - Londres → page « Greater London » (aucun nœud « London » dans le fil d'Ariane des hôtels rendus) ; Monaco → pas de lien (marché absent de `_MARKET`).
 - Un moment de la journée (« l'après-midi ») n'envoie pas d'heures au site.
-- Compteur (taille de page présentée comme nombre d'offres) : hors périmètre, tickets #4 / MCP #1.
+- ~~Compteur (taille de page présentée comme nombre d'offres) : hors périmètre, tickets #4 / MCP #1.~~ Fait côté agent le 2026-10-07 (bis) ; le `total` réservable reste au MCP #1.
 - État vide sans hôtel : « Voir tout » reste la page pays (pas d'hôtel → pas de fil d'Ariane).
 
 🪤 **Pièges découverts** :
@@ -50,7 +69,7 @@
 **Reste** :
 - **Score configs Langfuse** (Fabien) : `guard_date_served`, `guard_window_match`, `fallback_synthesis`, `fallback_mcp_error`, `fallback_named_hotel_not_found` émettent sans `config_id` tant que les configs n'existent pas dans l'instance (puis les ajouter à `_SCORE_CONFIG_IDS` et `score-configs.json`). Le score `degraded` CATÉGORIEL n'a pas été étendu exprès : sa config fige la liste des catégories.
 - Seed Langfuse du nouveau dataset : `scripts/langfuse_seed_datasets.py --only b2c-qa-2026-09-30`.
-- Hors périmètre, à ticketer : « Nice » seul → salutation en anglais (« nice ») ; « Je veux réserver au Grand Hôtel X à Lyon » → parcours réservation au lieu d'une recherche ; compteur/`total` et groupes OU d'équipements (#4, #1) ; réserve parking dans la synthèse normale (seul le repli la porte).
+- Hors périmètre, à ticketer : « Nice » seul → salutation en anglais (« nice ») ; « Je veux réserver au Grand Hôtel X à Lyon » → parcours réservation au lieu d'une recherche ; `total` et groupes OU d'équipements (MCP #1). Compteur et réserve parking dans la synthèse normale : faits le 2026-10-07 (bis).
 - Bornes des moments de la journée (6-12 / 12-18 / 18-23) choisies par défaut : à valider par le produit (`DAYPART_HOURS`). `active_filters` n'expose pas encore le moment de la journée (pas de puce dans le widget).
 
 🪤 **Pièges découverts** :

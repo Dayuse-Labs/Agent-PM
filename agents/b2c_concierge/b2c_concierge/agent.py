@@ -114,7 +114,7 @@ from .amenity_guard import apply_amenity_truthfulness
 from .budget import TurnBudget
 from .currency_guard import enforce_currency_disclosure
 from .date_format import humanize_iso_dates
-from .fallback_text import synthesis_fallback_text
+from .fallback_text import enforce_parking_reserve, synthesis_fallback_text
 from .display_currency import (
     HOTEL,
     already_message,
@@ -440,6 +440,8 @@ Therefore:
   2026-07-29: 930 characters restating the five cards on screen).
 - Name at most TWO hotels, and only to say something about them the card
   does not already show.
+- NEVER state how many hotels or offers were found: the cards are one page
+  of the results, not their total.
 - Aim for 2 short sentences, 40 words maximum: what this shortlist means for
   THIS request, then ONE concrete next step. Brevity is not curtness here —
   the cards carry the detail, you carry the judgement.
@@ -1558,6 +1560,12 @@ class _B2cConcierge(BaseAgent):
             final_text = f"{no_offers}\n\n{rest}" if rest else no_offers
         if window_fallback:
             final_text, _ = enforce_window_disclosure(final_text, window_fallback, reply_language)
+        if route.target == LEAF_HOTEL_SEARCH and response.get("results"):
+            final_text, parking_reserved = enforce_parking_reserve(
+                final_text, message, reply_language
+            )
+            if parking_reserved:
+                metrics_logger.info("concierge_metric=parking_reserve appended=1")
         if date_notice:
             final_text = f"{final_text.rstrip()}\n\n{date_notice}"
         if currency_notice:
