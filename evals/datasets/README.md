@@ -13,6 +13,7 @@ session OBS6 (qui possède les experiments, les évaluateurs et le gate CI), pas
 | `b2c-language-robustness.jsonl` | `b2c/language-robustness` | 13 |
 | `b2c-prod-regressions.jsonl` | `b2c/prod-regressions` | 6 — **importé** (`source_trace_id`), pas semé — voir OBS6 §5 |
 | `b2c-qa-2026-09-30.jsonl` | `b2c/qa-2026-09-30` | 10 — retours QA du 30/09 (mcp-dayuse#8), attendus calculés par code |
+| `b2c-dialogue-state.jsonl` | `b2c/dialogue-state` | 9 — état de dialogue multi-tours (mcp-dayuse#6) : critères conservés après une question, « oui » seul, créneau remplacé, affinage sans effet |
 | `b2c-geo-class-2026-10-06.jsonl` | `b2c/geo-class-2026-10-06` | 10 — classe géographique (mcp-dayuse#7) : hôtel nommé, quartier, homonyme |
 
 Import (crée les datasets hébergés + upsert des items, idempotent — les `id` sont déterministes) :

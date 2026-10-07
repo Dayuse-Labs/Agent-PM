@@ -7,7 +7,7 @@ import { state, resetState, applyMarketFromResponse } from '../state.js';
 import { appendAmplitudeIdToUrl, trackEvent } from '../tracking.js';
 import { getMarketFallbackLink } from './responses.js';
 import { replaceHotelIdTags, handleContextUpdate, hasEffectiveTimeslot, getNativeContext, getClientTimeContext } from '../utils.js';
-import { addMessage, showTypingIndicator, hideTypingIndicator, createBookingCard, attachFeedbackControl } from '../ui/messages.js';
+import { addMessage, addNotice, showTypingIndicator, hideTypingIndicator, createBookingCard, attachFeedbackControl } from '../ui/messages.js';
 import { createThinkingSteps, hideThinkingAnimation } from '../ui/thinking.js';
 import { createHotelCarousel } from '../hotels/carousel.js';
 import { addFollowUpMessage } from '../filters/search.js';
@@ -717,6 +717,12 @@ export async function sendMessage() {
             applyRuntimeLanguageLabels();
         }
         hideTypingIndicator();
+
+        // mcp-dayuse#6: the server profile expired (30 min idle) while this
+        // page lived on — mark the break before the answer that starts over.
+        if (rawData.session_expired) {
+            addNotice(t('session_expired'));
+        }
 
         if (data.error) {
             addMessage(`${t('search_error')} ${data.error}`);

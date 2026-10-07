@@ -463,3 +463,56 @@ def test_json_and_stream_agree_on_the_same_turn(monkeypatch, client):
         if key in ("turn_id", "session_id", "conversation_id"):
             continue
         assert json_resp[key] == done[key], key
+
+
+# --- mcp-dayuse#6: an expired profile is said, not silently reset ----------------------------
+def _expire(store, session_id):
+    import asyncio
+
+    asyncio.run(store.delete(session_id))
+
+
+def test_a_greeting_turn_keeps_the_profile_alive(client, store):
+    import asyncio
+
+    client.post("/v3/chat", json={"message": "Bonjour !"}, headers={"X-Client-Session-Id": "alive-1"})
+    assert asyncio.run(store.exists("alive-1")) is True
+
+
+def test_an_expired_profile_mid_conversation_is_announced(client, store):
+    headers = {"X-Client-Session-Id": "expired-1"}
+    first = client.post("/v3/chat", json={"message": "Bonjour !"}, headers=headers).json()
+    assert first["session_expired"] is False
+    _expire(store, "expired-1")  # the 30 min Redis TTL ran out
+
+    second = client.post("/v3/chat", json={"message": "Merci !"}, headers=headers).json()
+
+    assert second["session_expired"] is True
+    notice = templates.session_expired_notice("fr", 30)
+    assert second["message"] == f"{notice}\n\n{templates.ack_response('fr')}"
+    third = client.post("/v3/chat", json={"message": "Merci !"}, headers=headers).json()
+    assert third["session_expired"] is False
+
+
+def test_the_stream_done_frame_carries_the_expiry(client, store):
+    headers = {"X-Client-Session-Id": "expired-2"}
+    client.post("/v3/chat", json={"message": "Bonjour !"}, headers=headers)
+    _expire(store, "expired-2")
+
+    r = client.post("/v3/chat/stream", json={"message": "Bonjour !"}, headers=headers)
+    done = [json.loads(b.split("data: ", 1)[1]) for b in r.text.split("\n\n") if b.startswith("event: done")]
+
+    assert done[-1]["session_expired"] is True
+    assert done[-1]["message"].startswith(templates.session_expired_notice("fr", 30))
+
+
+def test_a_redis_outage_is_not_an_expiry(monkeypatch, client, store):
+    headers = {"X-Client-Session-Id": "outage-1"}
+    client.post("/v3/chat", json={"message": "Bonjour !"}, headers=headers)
+
+    async def _down(session_id):
+        return None
+
+    monkeypatch.setattr(store, "exists", _down)
+    second = client.post("/v3/chat", json={"message": "Merci !"}, headers=headers).json()
+    assert second["session_expired"] is False

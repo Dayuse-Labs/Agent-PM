@@ -96,6 +96,8 @@ class TestContractKeysUntouched:
                 # vendored widget already renders — adopting its name is what
                 # makes the card work with zero frontend change.
                 "hotel_picks", "booking_card",
+                # mcp-dayuse#6 (2026-10-06): the profile expired mid-conversation.
+                "session_expired",
             }
         )
 

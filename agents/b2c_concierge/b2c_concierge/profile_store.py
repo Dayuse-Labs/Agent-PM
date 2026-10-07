@@ -23,6 +23,10 @@ _KEY_PREFIX = "b2c_concierge:profile:"
 _DEFAULT_TTL_SECONDS = 1800  # 30 min of session inactivity
 
 
+def ttl_minutes() -> int:
+    return _ttl_seconds() // 60
+
+
 def _ttl_seconds() -> int:
     return int(os.environ.get("CONCIERGE_PROFILE_TTL_SECONDS", str(_DEFAULT_TTL_SECONDS)))
 
@@ -59,6 +63,28 @@ class ProfileStore:
             await self._client.set(_key(session_id), json.dumps(profile.to_dict()), ex=_ttl_seconds())
         except Exception as exc:  # noqa: BLE001 — Redis outage must not crash the turn
             logger.warning("b2c_concierge: profile store unreachable (set), not persisted: %s", exc)
+
+    async def exists(self, session_id: str) -> bool | None:
+        """Whether the session still has a profile — None when Redis cannot
+        say (an outage is not an expiry)."""
+        try:
+            return bool(await self._client.exists(_key(session_id)))
+        except Exception as exc:  # noqa: BLE001 — Redis outage must not crash the turn
+            logger.warning("b2c_concierge: profile store unreachable (exists): %s", exc)
+            return None
+
+    async def touch(self, session_id: str) -> None:
+        """Every turn keeps the profile alive, a zero-write one (greeting)
+        included: its absence on a later turn then means the TTL ran out
+        (mcp-dayuse#6), never "nothing was ever stored"."""
+        try:
+            if not await self._client.expire(_key(session_id), _ttl_seconds()):
+                await self._client.set(
+                    _key(session_id), json.dumps(SessionProfile().to_dict()),
+                    ex=_ttl_seconds(), nx=True,
+                )
+        except Exception as exc:  # noqa: BLE001 — Redis outage must not crash the turn
+            logger.warning("b2c_concierge: profile store unreachable (touch): %s", exc)
 
     async def delete(self, session_id: str) -> None:
         """Drop a session's profile (S09 reset). Best-effort like get/set: a

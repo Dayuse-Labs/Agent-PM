@@ -63,6 +63,67 @@ def ack_response(language: str) -> str:
     return _pick(language, _ACK_RESPONSE)
 
 
+# mcp-dayuse#6 (Mathias 2026-10-06): a bare "oui"/"ok" that answers no
+# question is never a greeting — the conversation is under way.
+_AFFIRMATIVE_RELAUNCH: dict[str, str] = {
+    "fr": "Dites-moi la ville et la date, et je vous cherche un hôtel en journée.",
+    "en": "Tell me the city and the date, and I'll find you a day-use hotel.",
+    "es": "Dime la ciudad y la fecha, y te busco un hotel de día.",
+    "it": "Dimmi la città e la data, e ti cerco un hotel per il giorno.",
+    "de": "Sag mir die Stadt und das Datum, und ich suche dir ein Tageshotel.",
+    "pt": "Diga-me a cidade e a data, e procuro-lhe um hotel de dia.",
+    "nl": "Vertel me de stad en de datum, dan zoek ik een daghotel voor je.",
+}
+_AFFIRMATIVE_REFINE: dict[str, str] = {
+    "fr": "Très bien ! Je peux aussi chercher à une autre date, à un autre horaire, avec un budget ou ailleurs.",
+    "en": "Great! I can also search another date, another time slot, with a budget or somewhere else.",
+    "es": "¡Perfecto! También puedo buscar otra fecha, otra franja, con un presupuesto o en otro sitio.",
+    "it": "Perfetto! Posso anche cercare un'altra data, un'altra fascia oraria, con un budget o altrove.",
+    "de": "Gut! Ich kann auch ein anderes Datum, ein anderes Zeitfenster, mit Budget oder woanders suchen.",
+    "pt": "Muito bem! Também posso pesquisar outra data, outro horário, com um orçamento ou noutro lugar.",
+    "nl": "Prima! Ik kan ook zoeken op een andere datum, een ander tijdslot, met een budget of ergens anders.",
+}
+
+
+# mcp-dayuse#6: the profile expired mid-conversation (Redis TTL, RGPD
+# retention) — said before the answer, which then starts from scratch.
+_SESSION_EXPIRED: dict[str, str] = {
+    "fr": "Notre conversation a expiré après {minutes} minutes d'inactivité : je repars de zéro.",
+    "en": "Our conversation expired after {minutes} minutes of inactivity, so I'm starting over.",
+    "es": "Nuestra conversación caducó tras {minutes} minutos de inactividad: empiezo de cero.",
+    "it": "La nostra conversazione è scaduta dopo {minutes} minuti di inattività: riparto da zero.",
+    "de": "Unser Gespräch ist nach {minutes} Minuten Inaktivität abgelaufen, ich fange von vorne an.",
+    "pt": "A nossa conversa expirou após {minutes} minutos de inatividade: recomeço do zero.",
+    "nl": "Ons gesprek is verlopen na {minutes} minuten inactiviteit, dus ik begin opnieuw.",
+}
+
+
+def session_expired_notice(language: str, minutes: int) -> str:
+    return _pick(language, _SESSION_EXPIRED).format(minutes=minutes)
+
+
+# mcp-dayuse#6: a follow-up that put back the very same offers says so.
+_REFINEMENT_UNCHANGED: dict[str, str] = {
+    "fr": "Ce changement ne modifie pas les résultats : ce sont les mêmes offres qu'avant.",
+    "en": "That change does not alter the results: these are the same offers as before.",
+    "es": "Este cambio no modifica los resultados: son las mismas ofertas que antes.",
+    "it": "Questa modifica non cambia i risultati: sono le stesse offerte di prima.",
+    "de": "Diese Änderung ändert nichts an den Ergebnissen: Es sind dieselben Angebote wie vorher.",
+    "pt": "Esta alteração não muda os resultados: são as mesmas ofertas de antes.",
+    "nl": "Deze wijziging verandert niets aan de resultaten: het zijn dezelfde aanbiedingen als eerder.",
+}
+
+
+def refinement_unchanged_notice(language: str) -> str:
+    return _pick(language, _REFINEMENT_UNCHANGED)
+
+
+def affirmative_relaunch_response(language: str, searched: bool) -> str:
+    """The answer to a bare "oui" with no question pending: what to give next,
+    or — once a search has run — how it can be refined."""
+    return _pick(language, _AFFIRMATIVE_REFINE if searched else _AFFIRMATIVE_RELAUNCH)
+
+
 # --- S07: inline tools (real MCP wiring) — zero-LLM honest degradation ------
 
 _INLINE_UNRESOLVED: dict[str, dict[str, str]] = {
