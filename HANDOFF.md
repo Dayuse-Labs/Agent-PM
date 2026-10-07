@@ -6,6 +6,53 @@
 
 
 
+## 2026-10-08 — v22 : changements de destination et maintien des horaires
+
+**Pas de GO remplacement.** Trois conversations SQL récentes, neuf messages
+associés exactement aux extractions Langfuse, ont été rejouées sur les trois bras
+(27 réponses). Les neuf conversations ont une revue manuelle sourcée avec
+empreinte des fichiers. Devise/locale/fuseau restaurés ; GPS/favoris exacts
+manquants dans un parcours. Provenance organique non certifiée par cette API.
+
+Le rejeu reproduit le quartier East London conservé à Bromley. Le pont vers le
+géocodeur ne recopie désormais zone/metro/pays que si la destination reste la
+même. Au changement de destination, un quartier identique à l'ancien recopié par
+le modèle exige sa présence dans le message client réel ; le raw_user_message du
+modèle ne sert pas de preuve. Les nouvelles zones distinctes restent admises.
+Le reducer invalide aussi l'ancien contexte au changement de pays d'une ville
+homonyme. Aucun regex ni appel LLM ajouté.
+
+Le contrôle London Canada → London Royaume-Uni a révélé une seconde cause : une
+extraction rejetée de « mêmes horaires » supprimait les bornes. Seule une opération
+`replace` explicite et citée peut désormais confier une nouvelle préférence
+horaire au spécialiste. Deux attentes de tests ont été corrigées : une extraction
+numérique sans preuve numérique ne vaut plus implicitement remplacement ; le cas
+`replace=true` conserve sa validation de changement vers le matin.
+
+Deux lots correctifs : **28 réponses**, dont **15 sur le dernier code**. Neuf
+contrôles d'état ciblés passent : changement de pays, suppression ancien quartier,
+maintien date/10:30–17:00/deviseCAD, Waterloo conservé au suivi moins cher, Bromley
+sans East London (parcours réel et contrôle explicite). **30 cartes** jointes aux
+reçus MCP par hôtel/formule/date/minutes, zéro écart prix/expiration/non-jointure.
+Aucun plafond vérifiable parmi elles ; aucun taux global de réussite revendiqué.
+
+**Restent bloquants** : multi-lieux Waterloo/Wimbledon ; East London ancré au
+centre de Londres ; date inventée par le modèle sans demande, puis reportée à
+2027 autour de minuit (TODAY serveurUTC différent du jour client) ; phrase
+« no offers » arrondissant10:30 à11:00 ; synthèse confondant parfois couverture
+horaire et arrivée exacte ; jacuzzi privé/inclus et couverture provinciale non
+prouvés ; réponse walk-in indirecte. Les nouveaux échecs sont conservés, pas
+reclassés en succès. Rejeux exposés et variabilité modèle, pas validation aveugle.
+
+Validation : **2 286 tests passés, 1 ignoré**, 301 ciblés ; ruff, mypy60,
+guardrails et diff propres. main refetch inchangé cbe88b9 ; CI190d39a réussie.
+Étape comparative+correctifs : **0,4647USD**, cumul **84,1637USD** provisions incluses
+(plafond110, réserve10). Aucun merge/déploiement/changement Railway.
+Rapports privés locaux geo-v22-summary.private.json et geo-v22-review.private.html ;
+messages et reçus ne sont pas versionnés. Nouveau contrôle SQL :33248lignes,
+2000exportées ; hors nos IDs connus,23nouveaux messages dans7sessions à vérifier
+avec Langfuse avant le prochain lot (départements, arrondissements, équipements).
+
 ## 2026-10-08 — v21 : revue des 108 notes terminée, nombres et contexte corrigés
 
 **Toujours pas de GO remplacement.** Les 108 annotations du lot historique v19

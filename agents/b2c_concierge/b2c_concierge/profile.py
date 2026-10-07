@@ -642,20 +642,25 @@ def apply_profile_delta(
     if profile.requested_budget is not None:
         clears.difference_update({"budget_max", "budget_request_source"})
 
-    # City change clears the geo anchors/zone/metro/search-anchor (S04 +
+    # Destination change clears the geo anchors/zone/metro/search-anchor (S04 +
     # S-G1) and resets the pagination state — unless the SAME delta also
-    # carries a fresh anchor/zone, applied right after.
+    # carries a fresh anchor/zone, applied right after. A homonymous city in
+    # another country is also a new destination (London CA -> London GB).
+    city_changed = bool(values.get("city") and profile.city and values["city"] != profile.city)
+    country_changed = bool(
+        values.get("country_anchor") and profile.country_anchor
+        and values["country_anchor"] != profile.country_anchor
+    )
+    if city_changed or country_changed:
+        profile.state_anchor = None
+        profile.country_anchor = None
+        profile.zone = None
+        profile.metro = None
+        profile.search_anchor = None
+        profile.shown_hotel_ids = []
+        profile.search_cursor = 0
     if values.get("city"):
-        new_city = values["city"]
-        if profile.city and new_city != profile.city:
-            profile.state_anchor = None
-            profile.country_anchor = None
-            profile.zone = None
-            profile.metro = None
-            profile.search_anchor = None
-            profile.shown_hotel_ids = []
-            profile.search_cursor = 0
-        profile.city = new_city
+        profile.city = values["city"]
     if "state_anchor" in values:
         profile.state_anchor = values["state_anchor"]
     if "country_anchor" in values:

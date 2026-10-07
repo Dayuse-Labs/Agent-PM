@@ -478,6 +478,7 @@ Optional keys, extracted from MESSAGE ONLY, never copied from recent messages:
   Omit the whole object for no change, hotel opening hours,
   or questions about the offer's times.
   "afternoon" is NOT evidence for "12:00". Never copy times from recent messages.
+  "Keep the same hours" is NO change: omit requested_window entirely.
   Extract a stated clock window even if the destination still needs clarification.
 - "hotel_scope": "shown" ONLY for a question about the already proposed hotels
   collectively ("do these hotels offer massages?", "les hôtels proposés ont-ils
@@ -725,13 +726,10 @@ def _window_replacement(data: dict, message: str) -> bool:
         return False
     if raw.get("replace") is True:
         return raw.get("start") is None and raw.get("end") is None
-    # The model sometimes labels "morning instead" as 06:00–12:00. Reject
-    # those invented bounds, but let the specialist interpret the quoted new
-    # preference; retaining yesterday's exact evening range would defeat it.
-    return (
-        _requested_window_slot([raw.get("start"), raw.get("end")]) is not None
-        and not any(c.isascii() and c.isdigit() for c in evidence)
-    )
+    # A rejected clock extraction is not a semantic change: it may be a
+    # copy of "keep the same hours". Only the explicit replacement operation
+    # above can release an owned range for the specialist to reinterpret.
+    return False
 
 
 def _grounded_duration(data: dict, message: str) -> int | None:

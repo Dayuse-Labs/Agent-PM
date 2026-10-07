@@ -485,7 +485,7 @@ def test_window_requires_evidence_in_current_message(data, message, expected):
     ({'replace': True}, False),
     ({'replace': True, 'start': '10:00', 'evidence': 'in the morning instead'}, False),
     ({'replace': True, 'clear': True, 'evidence': 'in the morning instead'}, False),
-    ({'start': '06:00', 'end': '12:00', 'evidence': 'in the morning instead'}, True),
+    ({'start': '06:00', 'end': '12:00', 'evidence': 'in the morning instead'}, False),
     ({'start': '06:00', 'end': '12:00', 'evidence': 'yesterday'}, False),
 ])
 def test_window_replacement_is_exclusive_and_grounded(raw, expected):

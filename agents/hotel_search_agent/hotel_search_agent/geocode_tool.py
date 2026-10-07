@@ -974,8 +974,9 @@ def inject_profile_geo_context(tool: object, args: dict, tool_context: object) -
     `profile_location_hint`/`profile_state_context` itself (the audit's P0 #4
     — "the model stops being a copy machine" is this fix). Precedence:
     - `city`/`zone`/`metro`/`country_code`: a value the model DID extract for
-      THIS turn always wins; a blank one is filled from `profile_in` (the
-      city-reuse case the leaf's instruction used to spell out in prose).
+      THIS turn always wins; a blank one is filled from `profile_in` only
+      while the destination is unchanged. A new city/country must not inherit
+      the previous city's area, metro, or hard country restriction.
       Never rewrites a fresh extraction.
     - `profile_state_context`/`profile_location_hint`: PURE profile lookups by
       definition (an earlier turn's anchor, never something extracted from
@@ -998,14 +999,39 @@ def inject_profile_geo_context(tool: object, args: dict, tool_context: object) -
         return None
     profile_in = read_profile_in(tool_context)
 
+    city, prior_city = args.get("city"), profile_in.get("city")
+    city_changed = (
+        isinstance(city, str) and bool(city.strip())
+        and isinstance(prior_city, str) and bool(prior_city.strip())
+        and _echo_fold(city.strip()) != _echo_fold(prior_city.strip())
+    )
+    country, prior_country = _iso2(args.get("country_code")), _iso2(profile_in.get("country_anchor"))
+    destination_changed = city_changed or bool(country and prior_country and country != prior_country)
     if _is_blank(args.get("city")) and profile_in.get("city"):
         args["city"] = profile_in["city"]
-    if _is_blank(args.get("zone")) and profile_in.get("zone"):
-        args["zone"] = profile_in["zone"]
-    if _is_blank(args.get("metro")) and profile_in.get("metro"):
-        args["metro"] = profile_in["metro"]
-    if _is_blank(args.get("country_code")) and profile_in.get("country_anchor"):
-        args["country_code"] = profile_in["country_anchor"]
+    if destination_changed:
+        # The model can copy an old area into its fresh args too. A repeated
+        # name belongs to the new destination only when the actual current
+        # customer message says it; do not trust raw_user_message supplied by
+        # the model as proof of that. Fresh, different areas remain untouched.
+        content = getattr(tool_context, "user_content", None)
+        message = " ".join(
+            part.text for part in (getattr(content, "parts", None) or [])
+            if isinstance(getattr(part, "text", None), str)
+        )
+        for field in ("zone", "metro"):
+            value, prior = args.get(field), profile_in.get(field)
+            if (isinstance(value, str) and value.strip() and isinstance(prior, str)
+                    and _echo_fold(value) == _echo_fold(prior)
+                    and _echo_fold(value) not in _echo_fold(message)):
+                args.pop(field, None)
+    if not destination_changed:
+        if _is_blank(args.get("zone")) and profile_in.get("zone"):
+            args["zone"] = profile_in["zone"]
+        if _is_blank(args.get("metro")) and profile_in.get("metro"):
+            args["metro"] = profile_in["metro"]
+        if _is_blank(args.get("country_code")) and profile_in.get("country_anchor"):
+            args["country_code"] = profile_in["country_anchor"]
 
     if profile_in.get("state_anchor"):
         args["profile_state_context"] = profile_in["state_anchor"]

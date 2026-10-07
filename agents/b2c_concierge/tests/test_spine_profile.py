@@ -1639,8 +1639,10 @@ def test_duration_uses_only_a_grounded_arrival(
      {'timeslot_start': '18:00', 'timeslot_end': '21:00'}, (None, None, None)),
     ({'replace': True, 'evidence': 'in the morning instead'},
      {'daypart': 'morning'}, (None, None, 'morning')),
+    # Invalid numeric extraction cannot revoke an owned range. The explicit
+    # replace operation above remains the supported route for a new daypart.
     ({'start': '06:00', 'end': '12:00', 'evidence': 'in the morning instead'},
-     {'daypart': 'morning'}, (None, None, 'morning')),
+     {'daypart': 'morning'}, ('18:30', '21:00', None)),
     ({'duration_minutes': 120, 'evidence': 'for two hours instead'},
      {'timeslot_start': '18:00', 'timeslot_end': '21:00'}, ('18:30', '20:30', None)),
     ({'start': '22:00', 'evidence': 'from 10pm instead'},
@@ -1666,3 +1668,31 @@ def test_user_can_replace_a_persisted_clock_window(
     _run_turn(runner, session.id, update['evidence'])
     saved = asyncio.run(fake_profile_store.get(session.id))
     assert (saved.timeslot_start, saved.timeslot_end, saved.daypart) == expected
+
+
+@pytest.mark.parametrize('followup', [
+    'Actually London, England. Keep the same date and hours.',
+    'Même date et mêmes horaires, mais à Paris.',
+])
+def test_copied_window_without_new_clock_evidence_preserves_owned_hours(
+    monkeypatch, fake_leg, fake_profile_store, followup
+):
+    import json
+
+    fake_leg.response_payload = {'results': [], 'profile_delta': {}}
+    _scripted_llm(monkeypatch, json.dumps({
+        'family': 'search', 'language': 'en',
+        'requested_window': {'start': '10:30', 'end': '17:00', 'evidence': followup},
+    }), 'Here are the options.')
+    runner = InMemoryRunner(root_agent)
+    session = _new_session(runner)
+    asyncio.run(fake_profile_store.set(session.id, SessionProfile(
+        city='London', country_anchor='CA',
+        requested_window={'start': '10:30', 'end': '17:00'},
+        timeslot_start='10:30', timeslot_end='17:00', timeslot_request_source='explicit',
+    )))
+    _run_turn(runner, session.id, followup)
+    outgoing = find_datapart(fake_leg.seen_outgoing_parts)['profile_in']
+    assert outgoing['requested_window'] == {'start': '10:30', 'end': '17:00'}
+    saved = asyncio.run(fake_profile_store.get(session.id))
+    assert (saved.timeslot_start, saved.timeslot_end) == ('10:30', '17:00')

@@ -722,6 +722,61 @@ class TestInjectProfileGeoContext:
         inject_profile_geo_context(_Tool("geocode_location"), args, ctx)
         assert args["city"] == "Lisbon"
 
+    def test_new_city_does_not_inherit_old_area_or_hard_country(self):
+        args = {"city": "Bromley", "zone": None}
+        ctx = _Ctx(user_content=_user_content_with_profile_in({
+            "city": "London", "zone": "East London", "metro": "London",
+            "country_anchor": "GB",
+        }))
+        inject_profile_geo_context(_Tool("geocode_location"), args, ctx)
+        assert not args.get("zone")
+        assert not args.get("metro")
+        assert not args.get("country_code")
+        assert args["profile_location_hint"] == "London"
+
+    def test_same_city_normalization_keeps_subcity_followup(self):
+        args = {"city": " london "}
+        ctx = _Ctx(user_content=_user_content_with_profile_in({
+            "city": "London", "zone": "East London", "country_anchor": "GB",
+        }))
+        inject_profile_geo_context(_Tool("geocode_location"), args, ctx)
+        assert args["zone"] == "East London"
+        assert args["country_code"] == "GB"
+
+    def test_same_city_name_in_new_country_clears_local_context(self):
+        args = {"city": "London", "country_code": "GB"}
+        ctx = _Ctx(user_content=_user_content_with_profile_in({
+            "city": "London", "zone": "Old East Village", "metro": "London Ontario",
+            "country_anchor": "CA",
+        }))
+        inject_profile_geo_context(_Tool("geocode_location"), args, ctx)
+        assert args["country_code"] == "GB"
+        assert not args.get("zone")
+        assert not args.get("metro")
+
+    @pytest.mark.parametrize("message,expected", [
+        ("Actually London, England. Keep the same date and hours.", None),
+        ("London England, near Old East Village", "Old East Village"),
+    ])
+    def test_country_switch_drops_model_copied_area_unless_user_restates_it(self, message, expected):
+        args = {"city": "London", "country_code": "GB", "zone": "Old East Village",
+                "raw_user_message": "London England, near Old East Village"}
+        content = _user_content_with_profile_in({
+            "city": "London", "country_anchor": "CA", "zone": "Old East Village",
+        })
+        content.parts[0].text = message
+        inject_profile_geo_context(_Tool("geocode_location"), args, _Ctx(user_content=content))
+        assert args.get("zone") == expected
+
+    def test_destination_switch_preserves_new_explicit_area(self):
+        args = {"city": "Paris", "zone": "Montmartre", "country_code": "FR"}
+        ctx = _Ctx(user_content=_user_content_with_profile_in({
+            "city": "London", "zone": "East London", "country_anchor": "GB",
+        }))
+        inject_profile_geo_context(_Tool("geocode_location"), args, ctx)
+        assert args["zone"] == "Montmartre"
+        assert args["country_code"] == "FR"
+
     def test_blank_city_filled_from_profile(self):
         for blank_city in ("", "   "):
             args = {"city": blank_city}

@@ -1272,6 +1272,23 @@ class TestNamedHotelSetClear:
 
 
 class TestCityChangeInvalidationV2:
+    @pytest.mark.parametrize("country_delta", ["GB", {"op": "set", "value": "GB"}])
+    def test_country_change_invalidates_homonymous_city_context(self, country_delta):
+        profile = SessionProfile(
+            city="London", country_anchor="CA", state_anchor="ON",
+            zone="Old East Village", metro="London Ontario", shown_hotel_ids=[7],
+            search_cursor=2, date="2026-10-10", amenities=["pool"],
+            requested_budget={"amount":100,"currency":"CAD","unit":"total"},
+            requested_window={"start":"09:30","end":"17:00"},
+        )
+        apply_profile_delta(profile, {"city":"London", "country_anchor":country_delta}, "London, England")
+        assert profile.city == "London" and profile.country_anchor == "GB"
+        assert profile.zone is None and profile.metro is None and profile.state_anchor is None
+        assert profile.shown_hotel_ids == [] and profile.search_cursor == 0
+        assert profile.date == "2026-10-10" and profile.amenities == ["pool"]
+        assert profile.requested_budget == {"amount":100,"currency":"CAD","unit":"total"}
+        assert profile.timeslot_start == "09:30" and profile.timeslot_end == "17:00"
+
     def test_city_change_clears_zone_metro_and_search_anchor(self):
         profile = SessionProfile(
             city="Miami", zone="Miami", metro="Miami-Dade",
