@@ -1,5 +1,5 @@
 {
-  "status": "Development regression specification; no scored adaptive run of this new file yet. Fixed real-transcript replays are separately recorded in the campaign report.",
+  "status": "Development goals executed in adaptive-historical-v17 with explicit synthetic market currencies added: 9 goals, 135 responses across legacy/B2C/candidate. Manual fidelity exclusions required; not a clean aggregate pass-rate. See PRODUCTION_PARITY_PROGRESS_2026_10_07.md. Source frozen v17; subsequent corrections require separate replays.",
   "cases": [
     {
       "id": "pescara-city",

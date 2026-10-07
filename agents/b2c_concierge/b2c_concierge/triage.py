@@ -309,7 +309,7 @@ incoming end-user message. Return ONLY a JSON object (no prose, no code fence)
 with these keys (omit the optional keys when there is no signal):
 - "family": one of {list(FAMILIES)} —
     search  = looking for a day-use hotel (destination, area, dates, filters, or a hotel named by the user),
-    faq     = a question about Dayuse conditions / policies / how it works (cancellation, refund, check-in/out, payment),
+    faq     = asking about Dayuse conditions / policies / how it works (cancellation, refund, check-in/out, payment, gift cards or vouchers),
     details = asking for more information about one specific hotel already in play (amenities, description, photos),
     compare = asking to compare several hotels,
     booking = asking for the booking link / to proceed with a booking,
@@ -319,7 +319,12 @@ with these keys (omit the optional keys when there is no signal):
   greets AND asks something is NOT `ack`. A follow-up that ADJUSTS a previous
   search — a new date ("pour le 28", "plutôt demain"), a cheaper budget, another
   area/zone — is `search`, NEVER `booking`; `booking` is only an explicit request
-  to get the link / proceed with a specific hotel already chosen. Asking to SEE
+  to get the link / proceed with a specific hotel already chosen. Checking
+  availability for a new stay is `search`, even when the hotel is named:
+  "please check availability from 11am to 4pm" is not consent to book.
+  Questions about the available times of a displayed offer are `details`;
+  general rules for changing the times of an EXISTING booking are `faq`.
+  Asking to SEE
   the prices in a currency ("donne le prix en SGD", "dans la monnaie de l'hôtel",
   "en devise locale") is `details`, NEVER `faq`; only a question about PAYING
   ("je peux payer en SGD ?", "quelles devises acceptez-vous ?") is `faq`.
@@ -335,6 +340,9 @@ with these keys (omit the optional keys when there is no signal):
   date or budget preference is a `search` continuation, not a social `ack`.
   A duration or price answer to that question also continues the search.
   Do not infer booking consent from the assistant's wording.
+  A short substantive topic without a question mark still expresses a request:
+  "Gift card", "Cancellation fees", or "bon cadeau" is `faq`, not `ack`.
+  Route the topic to the FAQ source without assuming what its policy says.
   An agreement ("sure", "yes") continuing support for an EXISTING reservation
   remains `faq`; it is not permission to create a new booking. `booking` needs
   an identifiable new-booking intent, not just a reservation mentioned earlier.

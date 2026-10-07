@@ -1143,8 +1143,9 @@ class TestSynthesisAnglePlumbing:
         _run_turn(runner, session.id, "un hotel a paris")
 
         user_prompt = llm.calls[-1]["messages"][1]["content"]
-        assert "ANGLE (lead on this, in your own words):" in user_prompt
-        assert "outside the centre" in user_prompt
+        assert "ANGLE (optional facts; use only if relevant to the user's request):" in user_prompt
+        assert "9-14 km from the search origin" in user_prompt
+        assert "outside the centre" not in user_prompt
 
     def test_no_angle_block_when_the_shortlist_is_unremarkable(
         self, monkeypatch, fake_leg, fake_profile_store
@@ -1353,6 +1354,30 @@ def test_resolved_search_uses_profile_not_stale_user_budget_history(monkeypatch,
     assert "recent_user_messages" not in envelope["query_params"]
 
 
+def test_search_synthesis_gets_answered_question_without_contaminating_leaf(
+    monkeypatch, fake_leg, fake_profile_store
+):
+    question = "Would you prefer the airport or the parks?"
+    llm = _scripted_llm(
+        monkeypatch,
+        '{"family":"search","language":"en"}', question,
+        '{"family":"search","language":"en"}', "Both areas remain options.",
+    )
+    runner = InMemoryRunner(root_agent)
+    session = _new_session(runner)
+    asyncio.run(fake_profile_store.set(session.id, SessionProfile(city="Orlando")))
+    _run_turn(runner, session.id, "A quiet room in Orlando tomorrow")
+    _run_turn(runner, session.id, "It does not matter")
+    synthesis_input = llm.calls[-1]["messages"][1]["content"]
+    assert "LAST ASSISTANT REPLY" in synthesis_input
+    assert question in synthesis_input
+    assert "A quiet room in Orlando tomorrow" in synthesis_input
+    envelope = find_datapart(fake_leg.seen_outgoing_parts)
+    assert question not in str(envelope)
+    assert "recent_user_messages" not in envelope["query_params"]
+    assert len(llm.calls) == 4  # Same triage + synthesis phases on both turns.
+
+
 class TestTypedBudgetThroughSpine:
     def test_usd_survives_leaf_delta_and_later_refinement(self, monkeypatch, fake_leg, fake_profile_store):
         fake_leg.response_payload = {"results": [], "profile_delta": {"city": "Orlando", "country_anchor": "US", "budget_max": 100}}
@@ -1410,3 +1435,85 @@ def test_currency_answer_completes_budget_without_switching_display(monkeypatch,
     assert profile.requested_budget == {"amount": 50.0, "currency": "USD", "unit": "total"}
     assert profile.display_currency is None and profile.requested_currency is None
     assert fake_leg.call_count == 1
+
+
+@pytest.mark.parametrize('family', ['search', 'booking'])
+def test_new_clock_window_precedes_old_cheapest_pick(
+    monkeypatch, fake_leg, fake_profile_store, family
+):
+    """Adaptive replay: cheapest11–16 must not choose the old10–14 offer."""
+    import json
+
+    diverted = []
+
+    async def inline_spy(self, *args, **kwargs):
+        diverted.append('inline')
+        if False:
+            yield
+
+    monkeypatch.setattr(type(root_agent), '_run_inline_lookup', inline_spy)
+    monkeypatch.setattr(type(root_agent), '_run_booking', inline_spy)
+    fake_leg.response_payload = {
+        'results': TestCheapestPickThroughTheSpine.SEARCH_RESULTS,
+        'profile_delta': {'city': 'Paris', 'date': '2026-07-28'},
+    }
+    _scripted_llm(monkeypatch,
+        '{"family":"search","language":"en","requested_budget":null}',
+        'Here are the options for tomorrow.',
+        json.dumps({'family': family, 'language': 'en', 'pick': 'cheapest',
+                    'requested_budget': None,
+                    'requested_window': {'start': '11:00', 'end': '16:00',
+                                         'evidence': '11am to 4pm'}}),
+        'Here are the options for the new window.',
+    )
+    runner = InMemoryRunner(root_agent)
+    session = _new_session(runner)
+    _run_turn(runner, session.id, 'A day room in Paris tomorrow')
+    _run_turn(runner, session.id, 'Show the cheapest available from 11am to 4pm')
+    assert not diverted
+    assert fake_leg.call_count == 2
+    outgoing = find_datapart(fake_leg.seen_outgoing_parts)['profile_in']
+    assert outgoing['timeslot_start'] == '11:00'
+    assert outgoing['timeslot_end'] == '16:00'
+
+
+def test_arrival_answer_preserves_previously_requested_departure(
+    monkeypatch, fake_leg, fake_profile_store
+):
+    """Cinema journey: until17, city clarification, then arrival11."""
+    fake_leg.response_payload = {'results': [], 'profile_delta': {}}
+    _scripted_llm(monkeypatch,
+        '{"family":"search","language":"en","requested_budget":null,'
+        '"requested_window":{"start":null,"end":"17:00","evidence":"until5pm"}}',
+        'Which city?',
+        '{"family":"search","language":"en","requested_budget":null,'
+        '"requested_window":{"start":"11:00","end":null,"evidence":"at11am"}}',
+        'Searching Birmingham.',
+    )
+    runner = InMemoryRunner(root_agent)
+    session = _new_session(runner)
+    _run_turn(runner, session.id, 'A room near a cinema until5pm')
+    _run_turn(runner, session.id, 'Birmingham UK, arriving at11am')
+    outgoing = find_datapart(fake_leg.seen_outgoing_parts)['profile_in']
+    assert outgoing['timeslot_start'] == '11:00'
+    assert outgoing['timeslot_end'] == '17:00'
+
+
+def test_leaf_rounded_delta_cannot_erase_current_user_minutes(
+    monkeypatch, fake_leg, fake_profile_store
+):
+    fake_leg.response_payload = {'results': [], 'profile_delta': {
+        'timeslot_start': '11:00', 'timeslot_end': '15:00', 'timeslot': '11:00-15:00',
+    }}
+    _scripted_llm(monkeypatch,
+        '{"family":"search","language":"en","requested_budget":null,'
+        '"requested_window":{"start":"11:00","end":"15:30","evidence":"11am to 3:30pm"}}',
+        'No matching offer.',
+    )
+    runner = InMemoryRunner(root_agent)
+    session = _new_session(runner)
+    _run_turn(runner, session.id, 'Brooklyn tomorrow, from 11am to 3:30pm')
+    saved = asyncio.run(fake_profile_store.get(session.id))
+    assert saved.timeslot_start == '11:00'
+    assert saved.timeslot_end == '15:30'
+    assert saved.timeslot is None  # no stale rounded free-text label

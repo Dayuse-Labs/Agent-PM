@@ -13,6 +13,7 @@ applies to the "no results" branch, never alongside a real shortlist.
 """
 from __future__ import annotations
 
+from datetime import date, time
 from typing import Any
 
 from b2c_common import minor_units
@@ -129,6 +130,31 @@ def _hotel_line(hotel: dict[str, Any]) -> str:
         line += f" ({place})"
     if price:
         line += f" — {price}"
+    # Expose the same dated slot the card shows. A requested profile window
+    # is not proof of an available offer, and must never fill missing data.
+    offered_date = hotel.get("offer_date")
+    if isinstance(offered_date, str):
+        try:
+            date.fromisoformat(offered_date)
+        except ValueError:
+            pass
+        else:
+            line += f" — offer date: {offered_date}"
+    slots = []
+    for slot in (hotel.get("timeslots") or [])[:5]:
+        if not isinstance(slot, dict):
+            continue
+        start, end = slot.get("start"), slot.get("end")
+        if not isinstance(start, str) or not isinstance(end, str) or len(start) != 5 or len(end) != 5:
+            continue
+        try:
+            time.fromisoformat(start)
+            time.fromisoformat(end)
+        except ValueError:
+            continue
+        slots.append(f"{start}–{end}")
+    if slots:
+        line += " — offered times: " + ", ".join(slots)
     line += f" — amenities: {amenity_text}"
     rating = hotel.get("rating")
     if isinstance(rating, (int, float)):
@@ -194,8 +220,10 @@ def synthesis_angle(response: dict[str, Any] | None, exclude: str = "") -> tuple
     if len(hotels) == 1:
         candidates.append((
             "single",
-            "Only ONE hotel matches this request. Say so plainly (it is not a "
-            "shortlist) and offer one concrete way to widen the search.",
+            "The current result contains one hotel. This can be a selected "
+            "hotel's details or one page of a search, not exhaustive inventory. "
+            "Do not claim it is the only matching hotel or push wider filters "
+            "merely because one card is present.",
         ))
 
     # Out-of-centre: the single most useful thing the cards bury — each card
@@ -206,9 +234,11 @@ def synthesis_angle(response: dict[str, Any] | None, exclude: str = "") -> tuple
     if len(distances) >= 2 and min(distances) >= 6:
         candidates.append((
             "distance",
-            f"EVERY option is outside the centre ({min(distances):.0f}-"
-            f"{max(distances):.0f} km out). Lead with that honestly — the user "
-            "asked for the city, not its outskirts — and offer to search closer in.",
+            f"The displayed distances are {min(distances):.0f}-"
+            f"{max(distances):.0f} km from the search origin. This does not prove "
+            "the hotels are outside the city, quiet, or unsuitable. The origin "
+            "may be a landmark, not the centre. Offer a closer search only if "
+            "the customer's stated preference calls for it.",
         ))
 
     # Deep discount: commercially the strongest line, and the badge on the card
@@ -225,8 +255,9 @@ def synthesis_angle(response: dict[str, Any] | None, exclude: str = "") -> tuple
         if best_pct >= 40:
             candidates.append((
                 "discount",
-                f"The standout is the saving: {best_name} is about {best_pct}% "
-                "below its night rate. Lead with that, naming the hotel.",
+                f"{best_name} is about {best_pct}% below its night rate. "
+                "This is a relative discount, not proof it is the cheapest "
+                "or the best fit for the customer's purpose. Use only if relevant.",
             ))
 
     # Price spread: "the cheapest" is answerable by eye on the cards, but how
@@ -239,8 +270,8 @@ def synthesis_angle(response: dict[str, Any] | None, exclude: str = "") -> tuple
         candidates.append((
             "spread",
             f"Wide price spread: {int(min(prices))}-{int(max(prices))} {unit} "
-            "across the shortlist. Lead on what the extra buys, so the cheapest "
-            "does not just look like the only sensible pick.",
+            "across the shortlist. A higher price alone does not prove better "
+            "location, quality or included services. Respect a lowest-price request.",
         ))
 
     # Thin review base: an honesty caveat, and the one the card cannot make.

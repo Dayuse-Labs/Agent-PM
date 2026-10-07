@@ -6,6 +6,94 @@
 
 
 
+## 2026-10-07 — v19 : corrections des frais et du suivi prêtes à la revue
+
+Remplace l'état « en cours » des blocs v16/v17 ci-dessous. PR134 reste brouillon.
+Dernier lot adaptatif v17 terminé : 9 objectifs / 135 réponses / 3 bras, coût
+2,0701 USD. Les dérives du simulateur sont explicitement exclues : aucun taux
+global calculable. Rapports privés `adaptive-historical-v17` et annotations.
+
+Correctifs v18/v19 supplémentaires : le bloc de synthèse expose la date et les
+créneaux réels de la carte ; un nouveau créneau précède une sélection ancienne ;
+une réponse partielle complète l'autre borne explicitement demandée, sans
+réutiliser un horaire par défaut ; le delta feuille ne peut pas arrondir les
+minutes validées du message courant. Pas de nouveau regex ni appel LLM.
+
+Validation finale : **2 232 tests passés, 1 ignoré**, ruff/mypy/guardrails verts.
+Le test existant avec fenêtre implicite reste inchangé : il a détecté le report
+abusif d'un horaire par défaut et le code a été corrigé. Les nouveaux tests ont
+reproduit les défauts avant correction, notamment choix ancien et départ perdu.
+
+Live v19 : 5 parcours synthétiques / 15 tours terminés, empreintes figées,
+MCP sans cache. Brooklyn conserve15:30 et décrit la formule11–15:30 ; Orlando
+recherche11–16 avant le choix. 9 cartes plafonnées vérifiées frais inclus,
+0 dépassement/0 non vérifiée. Audit général25cartes de recherche jointes,
+0écart de prix/0expiration ;6cartes de détails hors portée de cet audit.
+
+**Pas de GO** : indifférence encore suivie de questions optionnelles ; SanDiego
+ajoute10h à une demande « jusqu'à20h » ; Birmingham/cinéma échoue, et une citation
+at11am réécrite par le triage est rejetée. Budget en lettres, adults-only,
+bain privé/spa inclus, politiques FAQ extrapolées et exhaustion restent ouverts.
+Les36sessions de validation et widget restent à exécuter. Coût78,6701USD engagé,
+dont11,10 de provisions, plafond110 réserve10. Aucun runner payant actif à ce
+checkpoint. Sources/rapports dans `production_parity_v18/continuation.json` privé.
+
+## 2026-10-07 — v17 local : frais obligatoires, synthèse, rejeu adaptatif
+
+Code local non poussé après `0bc9f37` : budget vérifié sur le total de la même
+formule **avec booking fees**, même si la carte masque ces frais. Total absent =
+abordabilité non prouvée. Les anciens contrôles de prix affiché ne prouvent pas
+le budget total : Arlington45+6=51 dépasse50 dans le lot v15 de réponses courtes.
+PR134 porte un avertissement explicite tant que le correctif n'est pas publié.
+
+Suppression des directives de synthèse qui confondaient une carte avec tout
+l'inventaire, distance à un POI avec distance au centre, et réduction avec prix
+le plus bas. FAQ cartes cadeaux dirigée vers `payment`, distinction d'émetteur
+explicitée. Ce dernier prompt n'empêche pas encore la feuille d'inventer une
+interdiction des cartes propres aux hôtels : la source n'en parle pas.
+
+Tests finaux v17 : **2 226 passés, 1 ignoré**, ruff/mypy/guardrails verts.
+Rejeu ciblé terminé :9séquences/27tours candidat, MCP frais ;18cartes plafonnées
+jointes à la même formule/date/créneau,0dépassement frais inclus,0non vérifiée.
+Ceci ne prouve ni rappel inventaire ni qualité de conversation complète.
+
+Lot adaptatif9objectifs ×3bras en cours (handle89836). Ne pas changer les sources
+runtime ni lancer un autre lot payant avant fin/rapprochement du ledger.
+Premiers défauts établis : les créneaux présents dans les cartes sont omis du
+bloc de preuve de synthèse ; `pick=cheapest` détourne une demande de nouveaux
+horaires vers details avant application du créneau ; demande de disponibilité
+parfois triée booking ; montants en lettres refusés par grounding numérique.
+Le simulateur a aussi divergé (choix d'un quartier alors que persona indifférente,
+date changée) : exclure ces exigences du score, conserver les coûts et preuves.
+Annotations privées : adaptive-historical-v17/manual-review.private.json.
+
+État exact : production_parity_v18/continuation.json. Pas de GO. Après analyse,
+rejouer les corrections et le holdout36 non utilisé avant proposition finale.
+
+## 2026-10-07 — v16 local : contexte de synthèse et sujets FAQ courts
+
+v15 est poussé dans PR134 au commit `0bc9f37`, CI37681820960 verte. Les étapes
+live CI sont ignorées par configuration ; seuls les rejeux décrits font preuve.
+
+v16 reste local, non poussé : la synthèse des recherches reçoit désormais les
+3 derniers messages utilisateur bornés et la dernière réponse du concierge,
+explicitement non fiables et uniquement utiles pour comprendre la question à
+laquelle le client répond. Ce contexte assistant n'est transmis ni à la feuille
+ni à la synthèse FAQ. Le test existant d'exclusion FAQ reste inchangé et passe.
+Le triage reconnaît les sujets substantiels courts de politique/carte cadeau
+comme FAQ ; il n'invente pas la politique. Aucun appel LLM ni regex ajouté.
+
+**2 225 tests / 1 ignoré**, targeted49 et ruff/mypy/guardrails verts. Runtime
+figé `context-candidate-v16-source.json`. Lot `live-context-v16` en cours :
+3 conversations réelles avec devise attestée et4parcours synthétiques,20tours
+par bras legacy/B2C/candidat. MCP sans cache d'inventaire. Ne pas attribuer au
+v16 les résultats v15 ; contrôler le manifest avant toute relance payante.
+État/processus/ledger : `production_parity_v18/continuation.json` privé.
+
+Reste : analyser le live, régler les budgets écrits en lettres et les autres
+régressions, puis historique/FAQ/adaptatif,36sessions tenues à l'écart et widget.
+Le but demeure la préservation complète des usages ; **pas de GO**.
+
 ## 2026-10-07 — v15 : devise historique rétablie, comparaison sans cache terminée
 
 Correctif budget ajouté après `e3e1a25` : montant/devise/unité,

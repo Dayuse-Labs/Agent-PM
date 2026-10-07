@@ -39,6 +39,22 @@ class TestEmptyScreenNote:
 
 
 class TestShortlistRendering:
+    def test_actual_offer_date_and_slot_reach_synthesis(self):
+        block = shortlist_ground_truth_block({"results": [{
+            "name": "Day room", "offer_date": "2026-10-08", "price": "€75.05",
+            "timeslots": [{"start": "11:00", "end": "15:30"}],
+        }]}, _profile(date="2026-10-09", timeslot_start="10:00", timeslot_end="18:00"))
+        assert "2026-10-08" in block
+        assert "11:00–15:30" in block
+        assert "10:00–18:00" not in block  # requested window is not an offered slot
+
+    def test_missing_or_malformed_slot_is_not_fabricated_from_request(self):
+        block = shortlist_ground_truth_block({"results": [{
+            "name": "Day room", "timeslots": [{"start": "unknown", "end": "25:00"}],
+        }]}, _profile(timeslot_start="11:00", timeslot_end="16:00"))
+        assert "11:00–16:00" not in block
+        assert "unknown–25:00" not in block
+
     def test_lists_hotel_name_place_price_and_amenities(self):
         block = shortlist_ground_truth_block(
             {
@@ -157,18 +173,22 @@ class TestSynthesisAngle:
         assert synthesis_angle({"results": []})[1] == ""
         assert synthesis_angle(None)[1] == ""
 
-    def test_single_result_is_called_out_as_not_a_shortlist(self):
+    def test_single_result_does_not_prove_exhaustive_inventory(self):
         angle = synthesis_angle({"results": [self._hotel()]})[1]
-        assert "Only ONE hotel" in angle
+        assert "current result contains one hotel" in angle
+        assert "not exhaustive inventory" in angle
+        assert "Only ONE hotel matches" not in angle
 
-    def test_all_options_out_of_centre_wins_over_price_signals(self):
+    def test_distance_fact_does_not_invent_centrality_or_preference(self):
         # Also carries a wide price spread — distance must take precedence.
         hotels = [
             self._hotel(name="A", price_eur_cents=6000, distance_km=9.0),
             self._hotel(name="B", price_eur_cents=15000, distance_km=14.0),
         ]
         angle = synthesis_angle({"results": hotels})[1]
-        assert "outside the centre" in angle
+        assert "from the search origin" in angle
+        assert "origin may be a landmark" in angle
+        assert "customer's stated preference" in angle
         assert "9-14 km" in angle
 
     def test_one_central_option_defeats_the_distance_angle(self):
@@ -176,7 +196,7 @@ class TestSynthesisAngle:
             self._hotel(name="A", price_eur_cents=9000, distance_km=1.0),
             self._hotel(name="B", price_eur_cents=9100, distance_km=14.0),
         ]
-        assert "outside the centre" not in synthesis_angle({"results": hotels})[1]
+        assert synthesis_angle({"results": hotels})[0] != "distance"
 
     def test_deep_discount_is_named_with_its_hotel(self):
         hotels = [

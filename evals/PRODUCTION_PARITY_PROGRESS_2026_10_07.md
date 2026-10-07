@@ -4,6 +4,70 @@
 ont repris. Des gains ciblés sont établis, mais plusieurs défauts importants
 restent ouverts. Aucun merge, déploiement ou changement des modèles Railway.
 
+## Rejeu adaptatif terminé et corrections v19
+
+9 objectifs synthétiques historiques × 3 agents = **135 réponses**, coût
+supplémentaire **2,0701 USD**. Exclusions manuelles des objectifs non respectés
+par le client simulé ; pas de moyenne de succès. Les annotations A/B/C/D/F sont
+limitées aux critères réellement exercés. Pescara reste sur l'Adriatique dans
+le préfixe candidat ; legacy dérive vers Vérone et B2C vers Pérouse. Heathrow
+est résolu côté candidat alors que B2C redemande Londres sur cinq tours.
+Ces gains ne compensent pas les autres parcours majeurs en échec.
+
+Le code v19 transmet maintenant à la synthèse les **créneaux et la date de la
+carte**, recherche avant de sélectionner « le moins cher » lorsque les heures
+changent, complète les bornes explicitement demandées et protège les minutes
+du tour contre un delta feuille arrondi. Aucun regex/appel LLM supplémentaire.
+**2 232 tests passés, 1 ignoré**, ruff/mypy/guardrails verts. Un test préexistant
+avait détecté un report abusif d'horaire implicite : corrigé dans le code,
+assertion conservée.
+
+Rejeu `live-followup-v19` : **5 parcours / 15 réponses**, candidat seul, inventaire
+frais. Brooklyn cite la formule11–15:30 et conserve15:30 au tour suivant ; Orlando
+recherche11–16 avant le choix. **9 cartes sous plafond frais inclus,0dépassement,
+0non vérifiée**. Audit brut général :25cartes de recherche jointes,0écart de prix,
+0expiration ;6cartes de détails non jointes par cet audit limité aux recherches.
+Ces contrôles ne prouvent pas le rappel ou l'ensemble des conversations.
+
+Défauts encore constatés dans cette version : questions de quartier après
+indifférence (Orlando), début10h ajouté sans demande (SanDiego), échec Birmingham,
+quote at11am modifiée par le modèle et rejetée ; la variante avec espace conserve
+11–17 mais échoue aussi sur la recherche. La note du dernier parcours est B
+pour Brooklyn, C pour Orlando/SanDiego, D pour les deux variantes cinéma.
+Pas de score global ni de GO. Les montants en lettres, FAQ/conditions exactes,
+adults-only/bains privés/spa inclus, exhausted-list et validation36 restent
+incomplets. Coût cumulé **78,6701 USD**, dont11,10 de provisions, plafond110.
+
+## Mise à jour v17 : total avec frais et limites conversationnelles
+
+Les mentions « sous plafond » ci-dessous dans v15 décrivent le **prix affiché**.
+L'audit indépendant ultérieur du lot `live-budget-answers-v15` trouve une offre
+Arlington45USD +6USD de booking fees, soit51USD pour un plafond50USD.
+`live-context-v16` confirme4cartes en dépassement frais inclus. Ces lots ne sont
+pas une preuve de respect des budgets totaux, malgré leurs prix affichés valides.
+
+Le correctif local v17 vérifie `*WithBookingFees` sur la même offre ; pas de
+repli sur un prix hors frais manquants. `live-context-v17`,9séquences27tours,
+présente18cartes plafonnées toutes vérifiées par hôtel/UUID/date/créneau :
+**0dépassement frais inclus,0non vérifiée**. Aucun appel ni regex ajouté.
+2 226 tests passent,1ignoré. Ces corrections sont incluses dans le checkpoint v19 de PR134.
+
+La synthèse ne doit plus prendre une carte pour tout l'inventaire, une distance
+au POI pour une distance au centre ou une grosse remise pour le prix le plus bas.
+La FAQ utilise désormais payment pour les cartes cadeaux. Reste un défaut
+significatif : malgré ce meilleur contexte,4o-mini extrapole les règles Dayuse
+aux cartes cadeaux propres aux hôtels. Les articles eux-mêmes divergent sur
+les pays éligibles (France seule versus5pays) : pas de règle universelle établie.
+
+Le lot adaptatif historique v17 est en cours. Premiers résultats : Pescara
+reste sur l'Adriatique côté candidat, mais des demandes de nouveaux créneaux avec
+« cheapest » sont détournées vers details ; la synthèse n'a pas les horaires des
+cartes et demande des dates déjà connues. Des disponibilités sont mal triées en
+booking. Les montants en lettres ne sont pas conservés. Ce sont des défauts
+bloquants pour le remplacement. Certains clients simulés changent leur objectif :
+ces segments sont exclus de la notation des exigences concernées, sans effacer
+les traces ni les coûts. Aucun taux de succès global n'est calculé à ce stade.
+
 ## Correction du protocole de devise — candidat v15 rejoué
 
 La revue du code effectivement déployé (`a08a7792`) et du champ historique
@@ -58,9 +122,8 @@ suppléments facultatifs ni la qualité complète d'une conversation.
 `live-budget-answers-v15` : **2 parcours adaptés / 7 tours**, sans cache également.
 « USD » et « US dollars » complètent bien les plafonds50/60, conservés ensuite.
 La fenêtre09h–17h et la borne de départ20h persistent. Arlington trouve une offre
-sous50USD puis aucune offre vérifiable sur09h–17h ; San Diego ne trouve pas de
-formule vérifiable sous60USD. Le candidat ne réintroduit pas une offre hors
-budget. Sa phrase « only one matches » reste trop générale pour une page de
+affichée sous50USD mais à51USD frais inclus, puis aucune offre vérifiable sur09h–17h ; San Diego ne trouve pas de
+formule vérifiable sous60USD. Le contrôle du prix affiché seul était insuffisant pour ce lot. Sa phrase « only one matches » reste trop générale pour une page de
 résultats : ne pas la considérer comme une preuve d'exhaustivité.
 
 Les traces fraîches déployées montrent priceRangeMax100EUR pour le clientUSD100.

@@ -8,7 +8,7 @@ from __future__ import annotations
 from decimal import Decimal, InvalidOperation
 from typing import Any
 
-from .pricing import display_price_euro, display_price_hotel, minor_units
+from .pricing import minor_units
 
 
 def _positive(value: Any) -> Decimal | None:
@@ -171,19 +171,20 @@ def native_eur_cap(request: Any) -> float | None:
 
 
 def offer_within_budget(offer: dict, hotel: dict, request: dict) -> bool:
-    """True only for a usable SAME-offer quote <= cap, in the requested currency.
+    """Verify the SAME offer's total including mandatory booking fees.
 
-    Prices follow the site's display-fee rule, shared with card normalization.
-    This does not prove all optional extras are included in that quote.
+    A hotel's choice to hide fees on its card must not weaken a customer's
+    total budget. Missing fee-inclusive quotes cannot prove affordability.
+    Optional extras remain outside this indexed total.
     """
     amount = _positive(request.get("amount"))
     currency = request.get("currency")
     if amount is None or not currency or request.get("unit") != "total":
         return False
     if currency == "EUR":
-        price = display_price_euro(offer, hotel)
+        price = offer.get("priceEuroWithBookingFees")
     elif offer.get("hotelCurrency") == currency:
-        price = display_price_hotel(offer, hotel)
+        price = offer.get("hotelPriceWithBookingFees")
     else:
         return False
     # The MCP contract provides minor-unit integer quotes. Reject NaN, booleans,
@@ -226,13 +227,13 @@ def budget_question(request: Any, language: str, *, after_search: bool = False) 
 
 
 _NOTICES = {
-    "fr": ("Budget {amount} {currency} au total : contrôle sur le prix affiché de la même formule, parmi les offres récupérées. Les suppléments éventuels restent à vérifier.", "Parmi les offres récupérées, aucune formule n'a un prix vérifiable de {amount} {currency} maximum. Cela ne prouve pas l'absence d'autres offres dans ce budget."),
-    "en": ("Total budget {amount} {currency}: checked against the same package's displayed price among retrieved offers. Any extras still need checking.", "Among the retrieved offers, no package has a verifiable price at or below {amount} {currency}. This does not establish that no other offers fit the budget."),
-    "es": ("Presupuesto total {amount} {currency}: comprobado con el precio mostrado del mismo paquete entre las ofertas recuperadas. Los extras deben verificarse.", "Entre las ofertas recuperadas, ningún paquete tiene un precio verificable de hasta {amount} {currency}. Esto no demuestra que no existan otras ofertas dentro del presupuesto."),
-    "it": ("Budget totale {amount} {currency}: verificato sul prezzo mostrato dello stesso pacchetto tra le offerte recuperate. Gli extra restano da verificare.", "Tra le offerte recuperate, nessun pacchetto ha un prezzo verificabile entro {amount} {currency}. Questo non dimostra l'assenza di altre offerte nel budget."),
-    "de": ("Gesamtbudget {amount} {currency}: anhand des angezeigten Preises desselben Pakets unter den abgerufenen Angeboten geprüft. Zusatzkosten bleiben zu prüfen.", "Unter den abgerufenen Angeboten hat kein Paket einen verifizierbaren Preis bis {amount} {currency}. Andere passende Angebote sind damit nicht ausgeschlossen."),
-    "pt": ("Orçamento total {amount} {currency}: verificado no preço apresentado do mesmo pacote entre as ofertas obtidas. Extras ainda precisam ser verificados.", "Entre as ofertas obtidas, nenhum pacote tem preço verificável até {amount} {currency}. Isso não prova que não existam outras ofertas no orçamento."),
-    "nl": ("Totaalbudget {amount} {currency}: gecontroleerd op de getoonde prijs van hetzelfde pakket binnen de opgehaalde aanbiedingen. Extra kosten moeten nog worden gecontroleerd.", "Binnen de opgehaalde aanbiedingen heeft geen pakket een controleerbare prijs tot {amount} {currency}. Dit sluit andere passende aanbiedingen niet uit."),
+    'fr': ('Les offres affichées respectent votre plafond de {amount} {currency}, frais de réservation compris. Les extras éventuels restent à vérifier.', 'Je n’ai pas trouvé de formule dont le total soit vérifiable à {amount} {currency} maximum, frais de réservation compris.'),
+    'en': ('The displayed offers fit your {amount} {currency} budget, including booking fees. Any extras still need checking.', 'I haven’t found a package with a verifiable total at or below {amount} {currency}, including booking fees.'),
+    'es': ('Las ofertas mostradas respetan su presupuesto de {amount} {currency}, incluidos los gastos de reserva. Los extras deben verificarse.', 'No he encontrado un paquete con un total verificable de hasta {amount} {currency}, incluidos los gastos de reserva.'),
+    'it': ('Le offerte mostrate rispettano il budget di {amount} {currency}, incluse le spese di prenotazione. Gli extra restano da verificare.', 'Non ho trovato un pacchetto con un totale verificabile entro {amount} {currency}, incluse le spese di prenotazione.'),
+    'de': ('Die angezeigten Angebote liegen einschließlich Buchungsgebühren innerhalb Ihres Budgets von {amount} {currency}. Extras müssen noch geprüft werden.', 'Ich habe kein Paket mit einem überprüfbaren Gesamtpreis bis {amount} {currency} einschließlich Buchungsgebühren gefunden.'),
+    'pt': ('As ofertas apresentadas respeitam o orçamento de {amount} {currency}, incluindo taxas de reserva. Os extras ainda precisam ser verificados.', 'Não encontrei um pacote com total verificável até {amount} {currency}, incluindo taxas de reserva.'),
+    'nl': ('De getoonde aanbiedingen passen binnen uw budget van {amount} {currency}, inclusief boekingskosten. Extra kosten moeten nog worden gecontroleerd.', 'Ik heb geen pakket gevonden met een controleerbaar totaal tot {amount} {currency}, inclusief boekingskosten.'),
 }
 
 

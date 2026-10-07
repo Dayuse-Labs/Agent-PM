@@ -72,15 +72,26 @@ def test_orlando_eur_95_is_not_within_usd_100_if_indexed_usd_104():
     assert not offer_within_budget(offer(5000, 9000, "CAD"), {}, cap())
 
 
-def test_minor_units_and_display_fee_rule():
+def test_minor_units_and_mandatory_fees_ignore_display_preference():
     assert offer_within_budget(offer(3000, 1600, "JPY"), {}, cap(1600, "JPY"))
     assert not offer_within_budget(offer(3000, 1601, "JPY"), {}, cap(1600, "JPY"))
     assert offer_within_budget(offer(3000, 20500, "KWD"), {}, cap(20.5, "KWD"))
     o = offer(8500, 9900, hotelPriceWithBookingFees=10400)
     assert not offer_within_budget(o, {}, cap())
-    assert offer_within_budget(o, {"showPricesWithoutBookingFees": True}, cap())
+    assert not offer_within_budget(o, {"showPricesWithoutBookingFees": True}, cap())
+    assert offer_within_budget(o, {"showPricesWithoutBookingFees": True}, cap(104))
+    assert not offer_within_budget(offer(8500, 9900, hotelPriceWithBookingFees=None), {}, cap())
+    assert not offer_within_budget(offer(9900, 9000, priceEuroWithBookingFees=10400),
+                                   {"showPricesWithoutBookingFees": True}, cap(100, "EUR"))
     assert not offer_within_budget(offer(9000, True), {}, cap())
     assert not offer_within_budget(offer(9000, None), {}, cap())
+
+
+def test_live_arlington_display45_total51_cannot_fit_budget50():
+    h = {"hotelId": 22589, "showPricesWithoutBookingFees": True,
+         "offers": [offer(4000, 4500, hotelPriceWithBookingFees=5100)]}
+    assert not normalize_search_results({"results": [h]}, requested_budget=cap(50))
+    assert normalize_search_results({"results": [h]}, requested_budget=cap(51))[0]["hotel_price_minor"] == 4500
 
 
 def test_filter_precedes_best_offer_and_top_five_and_preserves_input():
