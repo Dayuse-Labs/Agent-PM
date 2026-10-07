@@ -191,6 +191,9 @@ class SessionProfile:
     country_anchor: str | None = None
     budget_max: float | None = None
     budget_request_source: str | None = None
+    # None = old scalar session; {} = no requested cap; typed dict = user cap.
+    # Distinct from the native MCP EUR filter and from display preferences.
+    requested_budget: dict[str, Any] | None = None
     timeslot: str | None = None
     timeslot_start: str | None = None
     timeslot_end: str | None = None
@@ -276,6 +279,7 @@ class SessionProfile:
             "country_anchor": self.country_anchor,
             "budget_max": self.budget_max,
             "budget_request_source": self.budget_request_source,
+            "requested_budget": self.requested_budget,
             "timeslot": self.timeslot,
             "timeslot_start": self.timeslot_start,
             "timeslot_end": self.timeslot_end,
@@ -609,6 +613,11 @@ def apply_profile_delta(
     replacement apart from a fragment to merge."""
     values, clears, explicit_sets = _normalize_delta(dict(delta))
     known_fields = set(SessionProfile.__dataclass_fields__)
+    # Requested money is concierge-owned, never writable by a leaf delta.
+    values.pop("requested_budget", None)
+    clears.discard("requested_budget")
+    if profile.requested_budget is not None:
+        clears.difference_update({"budget_max", "budget_request_source"})
 
     # City change clears the geo anchors/zone/metro/search-anchor (S04 +
     # S-G1) and resets the pagination state — unless the SAME delta also
@@ -633,7 +642,7 @@ def apply_profile_delta(
     # the delta's own source claim says. A number that looks time/distance-
     # derived ("less than 20 minutes away") is never persisted as a budget at
     # all (S12 audit 2026-07-20) — profile.budget_max is simply left as-is.
-    if values.get("budget_max") is not None:
+    if profile.requested_budget is None and values.get("budget_max") is not None:
         new_budget = float(values["budget_max"])
         if _looks_like_time_derived_budget(user_message, new_budget):
             if fired is not None:
@@ -961,7 +970,10 @@ def search_context_line(profile: SessionProfile) -> str:
     bits: list[str] = []
     if profile.city:
         bits.append(f"destination: {profile.city}")
-    if profile.budget_max:
+    if profile.requested_budget:
+        cap = profile.requested_budget
+        bits.append(f"requested budget max: {cap['amount']} {cap.get('currency') or 'currency unknown'} / {cap['unit']}")
+    elif profile.budget_max:
         bits.append(f"budget max: €{profile.budget_max:.0f}")
     slot = _timeslot_label(profile) or profile.daypart
     if slot:

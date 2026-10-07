@@ -35,6 +35,8 @@ closing the S9/S12 gap that left the concierge's budget/timeslot guards dormant)
 """
 from __future__ import annotations
 
+from b2c_common.search_budget import offer_within_budget, resolve_budget_currency
+
 import json
 import logging
 import math
@@ -685,6 +687,7 @@ def normalize_search_results(
     structured: Any,
     exclude_ids: set[Any] | None = None,
     exact_window: Window | None = None,
+    requested_budget: dict[str, Any] | None = None,
 ) -> list[dict[str, Any]]:
     """Top-5 compact cards from a tool's structuredContent. Handles the
     `search_offers` envelope (`{"results": [...]}`, confirmed live) and the
@@ -716,6 +719,14 @@ def normalize_search_results(
     for item in items or []:
         if not isinstance(item, dict):
             continue
+        if requested_budget:
+            # Filter every offer before selecting a card or truncating hotels.
+            # Never compare an EUR amount to a cap in another currency.
+            offers = [o for o in (item.get("offers") or [])
+                      if isinstance(o, dict) and offer_within_budget(o, item, requested_budget)]
+            if not offers:
+                continue
+            item = {**item, "offers": offers}
         if exact_window is not None:
             fits_any = any(
                 isinstance(o, dict) and _offer_matches(o, exact_window)
@@ -1096,12 +1107,14 @@ def capture_after_tool(
         daypart = tool_context.state.get(STATE_DAYPART_KEY)
         if daypart in DAYPART_HOURS:
             strict_window = daypart
-    results = normalize_search_results(structured, exclude_ids, strict_window)
+    requested_budget = read_profile_in(tool_context).get("requested_budget") if name == "search_offers" else None
+    requested_budget = resolve_budget_currency(requested_budget, tool_context.state.get(_STATE_COUNTRY_KEY))
+    results = normalize_search_results(structured, exclude_ids, strict_window, requested_budget)
     timeslot_fallback = False
     if strict_window is not None and not results:
         # The exact-minute filter emptied the set: fall back to the coarser
         # hour-rounded results (never a silent 0) — the outcome text discloses it.
-        fallback_results = normalize_search_results(structured, exclude_ids, None)
+        fallback_results = normalize_search_results(structured, exclude_ids, None, requested_budget)
         if fallback_results:
             results = fallback_results
             timeslot_fallback = True
@@ -1115,9 +1128,9 @@ def capture_after_tool(
         stashed = tool_context.state.get(STATE_DATE_FALLBACK_KEY)
         payload = stashed.get("payload") if isinstance(stashed, dict) else None
         if isinstance(payload, dict):
-            swapped = normalize_search_results(payload, exclude_ids, strict_window)
+            swapped = normalize_search_results(payload, exclude_ids, strict_window, requested_budget)
             if not swapped and strict_window is not None:
-                swapped = normalize_search_results(payload, exclude_ids, None)
+                swapped = normalize_search_results(payload, exclude_ids, None, requested_budget)
                 timeslot_fallback = bool(swapped)
             if swapped:
                 results = swapped

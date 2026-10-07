@@ -6,6 +6,45 @@
 
 
 
+## 2026-10-07 — v15 : devise historique rétablie, comparaison sans cache terminée
+
+Correctif budget ajouté après `e3e1a25` : montant/devise/unité,
+priorité à la devise explicite puis au contexte natif, prix de la même offre,
+réponse courte de devise, pas de regex ni appel LLM supplémentaire. Local :
+**2 224 tests passés / 1 ignoré**, ruff/mypy/guardrails verts.
+
+La revue du code legacy déployé et de `detected_market` a révélé que le banc
+omettait la devise. Lot corrigé terminé : 14 séquences, 132 réponses / trois bras ;
+11 séquences avec devise explicitement attestée, 3 limitées au contexte domaine.
+Ne pas convertir un marché USD par défaut en choix explicite. Les anciens lots
+restent des diagnostics sans ce contexte, pas des preuves de parité native.
+
+Autre limite vérifiée : cache MCP journalier périmé. Dans `fresh-native-v15`,
+46 cartes candidat jointes à la même offre/date brute, aucun écart de prix ;
+22 étaient déjà expirées lors de la réponse. Les 12 cartes avec plafond vérifiable
+le respectent, mais **aucun verdict de disponibilité actuelle** sur ce lot.
+Comparaison `live-native-v15` terminée : 14 séquences / 132 réponses, MCP lecture
+seule sans cache d'inventaire ni dates décalées ; runtime v15 inchangé. Consulter son manifest
+et le ledger avant toute relance (pas de double lancement payant).
+
+Langfuse : 9 traces fraîches cinéma/Orlando lues. B2C déployé transforme GBP70 en
+EUR70 et envoie priceRangeMax100 EUR malgré USD100. Candidat conserve ces unités,
+mais redemande encore un quartier après indifférence ; 22h reste ambigu/perdu,
+une réponse vide Tours se termine par un fragment, accès jacuzzi privé/inclus
+non prouvé. Ces parcours ne sont pas des succès globaux.
+
+Live : 27 cartes jointes à la même offre/date MCP, zéro écart de prix et zéro
+offre expirée. 12 cartes sous leur plafond vérifiable. Deux parcours adaptés /
+7 tours confirment les réponses USD/US dollars et les horaires09h–17h / jusqu’à20h.
+Leurs résultats vides ne prouvent pas une absence globale d’offres.
+
+Coût engagé après les lots : **75.5730 USD**, dont **11.10 USD de provisions**.
+Plafond110, réserve10 ; ledger v17 fait foi. Ne pas dupliquer la provision CI.
+Rapport détaillé : `evals/PRODUCTION_PARITY_PROGRESS_2026_10_07.md` ; état exact
+privé : `production_parity_v18/continuation.json`. Aucun lot payant pending. Reste : corriger les défauts de relance/FAQ,
+vérifier les montants écrits en lettres, puis historique,
+FAQ/adaptatif, validation36 et widget. **Pas de GO, merge ou déploiement.**
+
 ## 2026-10-07 — v18 : rejeux réels, contre-exemples et correctifs ciblés
 
 Voir `evals/PRODUCTION_PARITY_PROGRESS_2026_10_07.md`. **Pas de GO** : devises,

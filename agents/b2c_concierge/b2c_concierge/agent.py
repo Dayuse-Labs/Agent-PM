@@ -68,6 +68,8 @@ Logs carry NO message content (GDPR) — only family/route/timings/counters.
 """
 from __future__ import annotations
 
+from b2c_common.search_budget import budget_notice, budget_question, currency_answer, merge_budget, native_eur_cap, resolve_budget_currency
+
 import asyncio
 import json
 import logging
@@ -770,6 +772,12 @@ class _B2cConcierge(BaseAgent):
         profile.auto_widen_disclosure = None  # surfaced at most once, regardless of outcome below
         # Transparency: let the reply restate the understood search params (S9+).
         search_context = search_context_line(profile)
+        if profile.requested_budget and "results" in response:
+            search_context += "; BUDGET VERIFICATION: " + budget_notice(
+                profile.requested_budget, bool(response["results"]), language
+            )
+        elif profile.requested_budget == {}:
+            search_context += "; No numeric budget was established: never claim any numerical cap or affordability threshold."
         # Provenance honesty (S12 audit 2026-07-20): a non-explicit budget/
         # timeslot must never be claimed as user-requested (rule 8) — this
         # is independent of auto-widen, so it fires from turn 1 whenever a
@@ -1242,9 +1250,24 @@ class _B2cConcierge(BaseAgent):
         elif family != "faq" and refinement_signal:
             family, route = "search", ROUTES["search"]
 
-        currency = resolve_currency_request(triage.display_currency, profile.last_results)
-        if triage.display_currency:
-            profile.requested_currency = triage.display_currency
+        budget_update = triage.requested_budget
+        if profile.requested_budget and not profile.requested_budget.get("currency"):
+            literal_currency = currency_answer(message)
+            if literal_currency is not None:
+                budget_update = literal_currency
+                budget.fired.add("budget_integrity")
+        budget_answer = (
+            bool(profile.requested_budget)
+            and bool(budget_question(profile.requested_budget, reply_language, after_search=True))
+            and budget_update is not None and not booking_signal and picked is None
+            and family != "faq"
+        )
+        if budget_answer:
+            family, route = "search", ROUTES["search"]
+        display_request = None if budget_answer else triage.display_currency
+        currency = resolve_currency_request(display_request, profile.last_results)
+        if display_request:
+            profile.requested_currency = display_request
         repeat_search = False
         currency_notice: str | None = None
         # A code the hotels on screen don't use may still be the currency of the
@@ -1378,6 +1401,32 @@ class _B2cConcierge(BaseAgent):
             profile.timeslot_request_source = BUDGET_SOURCE_EXPLICIT if requested_window else None
 
         if route.target == LEAF_HOTEL_SEARCH:
+            if budget_update is not None:
+                # Same context the production widget sends every turn. A UI
+                # currency is a unit for an otherwise unspecified numeric budget,
+                # not a request to change B2C's default EUR price display.
+                native_currency = profile.currency
+                if profile.requested_currency and profile.requested_currency != HOTEL:
+                    native_currency = profile.requested_currency
+                elif profile.requested_currency == HOTEL:
+                    currencies = shortlist_currencies(profile.last_results)
+                    native_currency = currencies[0] if len(currencies) == 1 else None
+                requested = merge_budget(profile.requested_budget, budget_update, native_currency)
+                if requested is not None:
+                    profile.requested_budget = requested
+                    profile.budget_max = native_eur_cap(requested)
+                    profile.budget_request_source = BUDGET_SOURCE_EXPLICIT if requested else None
+                    profile.auto_widen_disclosure = None
+            elif triage.budget_checked and profile.requested_budget is None and profile.budget_max is None:
+                profile.requested_budget = {}  # no invented cap on "cheaper"
+            clarification = budget_question(profile.requested_budget, reply_language)
+            if clarification:
+                await store.set(ctx.session.id, profile)
+                self._emit_turn_metric(family, "template:budget_clarification", budget, t_start, "ok", inv)
+                yield self._final(ctx, clarification)
+                return
+
+        if route.target == LEAF_HOTEL_SEARCH and profile.requested_budget is None:
             # Triage already recognized the amount. Put it in profile_in so
             # the real MCP budget-injection callback can enforce it even if
             # the stateless leaf model does not repeat the bare-number intent.
@@ -1464,6 +1513,16 @@ class _B2cConcierge(BaseAgent):
         delta = response.get("profile_delta") or {}
         if delta:
             apply_profile_delta(profile, delta, message, budget.fired)
+        if route.target == LEAF_HOTEL_SEARCH and profile.requested_budget:
+            profile.requested_budget = resolve_budget_currency(profile.requested_budget, profile.country_anchor)
+            clarification = budget_question(profile.requested_budget, reply_language, after_search=True)
+            if clarification:
+                # Geocode did not establish a dollar market. Do not describe
+                # unknown-price filtering as an inventory shortage.
+                await store.set(ctx.session.id, profile)
+                self._emit_turn_metric(family, "template:budget_clarification", budget, t_start, "ok", inv)
+                yield self._final(ctx, clarification)
+                return
         date_notice: str | None = None
         search_date_part = response.get("search_date")
         if expected_date and isinstance(search_date_part, dict):
@@ -1530,7 +1589,7 @@ class _B2cConcierge(BaseAgent):
             search_context = response.get("search_context")
             page = search_context.get("search_page") if isinstance(search_context, dict) else None
             profile.search_page = page if isinstance(page, dict) and page.get("url") else None
-            if results_count == 0:
+            if results_count == 0 and not profile.requested_budget:
                 # mcp-dayuse#5: the criteria of the search that actually ran,
                 # cited in code — never what the model remembers of the request.
                 no_offers = no_offers_line(response.get("search_context"), reply_language)
@@ -1553,7 +1612,7 @@ class _B2cConcierge(BaseAgent):
                 same_day_dead_end=same_day_dead_end,
             )
             record_search_shortlist(profile, response["results"])  # S07: named-hotel lookup guard
-            if more_options and results_count == 0:
+            if more_options and results_count == 0 and not profile.requested_budget:
                 # S-G5: pagination pool exhausted for the CURRENT filters (the
                 # leaf already excluded shown_hotel_ids before returning) —
                 # extend S12's exhaustion flag/template (never a parallel
@@ -1586,6 +1645,14 @@ class _B2cConcierge(BaseAgent):
         yield self._hotels_event(
             ctx, response, reply_language, build_hotel_picks(profile), profile.search_page
         )
+
+        if profile.requested_budget and response.get("results") == []:
+            # A capped, paginated retrieval proves only this pool. Avoid an LLM
+            # rewriting an unverifiable currency price as global unavailability.
+            await store.set(ctx.session.id, profile)
+            self._emit_turn_metric(family, "template:budget_no_verified_offer", budget, t_start, "ok", inv)
+            yield self._final(ctx, budget_notice(profile.requested_budget, False, reply_language))
+            return
 
         synth = await self._synthesize_with_guards(
             message=message, language=reply_language, leaf_text=leaf_text, response=response,
@@ -1632,6 +1699,8 @@ class _B2cConcierge(BaseAgent):
                 metrics_logger.info("concierge_metric=parking_reserve appended=1")
         if date_notice:
             final_text = f"{final_text.rstrip()}\n\n{date_notice}"
+        if profile.requested_budget and "results" in response:
+            final_text = f"{final_text.rstrip()}\n\n{budget_notice(profile.requested_budget, bool(response['results']), reply_language)}"
         if currency_notice:
             final_text = f"{final_text.rstrip()}\n\n{currency_notice}"
         for chunk in _chunk_text(final_text):

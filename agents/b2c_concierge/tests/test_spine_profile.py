@@ -1351,3 +1351,62 @@ def test_resolved_search_uses_profile_not_stale_user_budget_history(monkeypatch,
     _run_turn(runner, session.id, "under $80 total")
     envelope = find_datapart(fake_leg.seen_outgoing_parts)
     assert "recent_user_messages" not in envelope["query_params"]
+
+
+class TestTypedBudgetThroughSpine:
+    def test_usd_survives_leaf_delta_and_later_refinement(self, monkeypatch, fake_leg, fake_profile_store):
+        fake_leg.response_payload = {"results": [], "profile_delta": {"city": "Orlando", "country_anchor": "US", "budget_max": 100}}
+        _scripted_llm(
+            monkeypatch,
+            '{"family":"search","language":"en","requested_budget":{"amount":100,"currency":"USD","unit":"total","evidence":"under $100"}}',
+            '{"family":"search","language":"en","requested_budget":null}',
+        )
+        runner = InMemoryRunner(agent=root_agent)
+        session = _new_session(runner)
+        _run_turn(runner, session.id, "Orlando under $100")
+        _run_turn(runner, session.id, "Any area is fine")
+        profile = asyncio.run(fake_profile_store.get(session.id))
+        assert profile.requested_budget == {"amount": 100.0, "currency": "USD", "unit": "total"}
+        assert profile.budget_max is None
+        outgoing = find_datapart(fake_leg.seen_outgoing_parts)
+        assert outgoing["profile_in"]["requested_budget"] == profile.requested_budget
+        assert outgoing["profile_in"]["budget_max"] is None
+
+    def test_hourly_budget_is_not_searched_as_total(self, monkeypatch, fake_leg, fake_profile_store):
+        llm = _scripted_llm(monkeypatch,
+            '{"family":"search","language":"en","requested_budget":{"amount":10,"currency":"USD","unit":"hour","evidence":"10 dollars per hour"}}')
+        runner = InMemoryRunner(agent=root_agent)
+        session = _new_session(runner)
+        text = _run_turn(runner, session.id, "Dallas for 10 dollars per hour")
+        assert "maximum total" in text
+        assert fake_leg.call_count == 0
+        assert len(llm.calls) == 1
+        profile = asyncio.run(fake_profile_store.get(session.id))
+        assert profile.requested_budget["unit"] == "hour"
+        assert profile.budget_max is None
+
+    def test_no_cap_signal_blocks_default_on_cheaper(self, monkeypatch, fake_leg, fake_profile_store):
+        fake_leg.response_payload = {"results": [], "profile_delta": {"budget_max": 100}}
+        _scripted_llm(monkeypatch, '{"family":"search","language":"fr","requested_budget":null}', "Voici les offres.")
+        runner = InMemoryRunner(agent=root_agent)
+        session = _new_session(runner)
+        _run_turn(runner, session.id, "Paris moins cher")
+        profile = asyncio.run(fake_profile_store.get(session.id))
+        assert profile.requested_budget == {}
+        assert profile.budget_max is None
+
+
+def test_currency_answer_completes_budget_without_switching_display(monkeypatch, fake_leg, fake_profile_store):
+    fake_leg.response_payload = {"results": [], "profile_delta": {"city": "Arlington", "country_anchor": "US"}}
+    _scripted_llm(monkeypatch,
+        '{"family":"search","language":"en","requested_budget":{"amount":50,"currency":"EUR","unit":"total","evidence":"50"}}',
+        '{"family":"details","language":"en","display_currency":"USD","requested_budget":{"amount":50,"currency":"USD","unit":"total","evidence":"50"}}')
+    runner = InMemoryRunner(agent=root_agent)
+    session = _new_session(runner)
+    text = _run_turn(runner, session.id, "Arlington Texas 50")
+    assert "Which currency" in text and fake_leg.call_count == 0
+    _run_turn(runner, session.id, "USD")
+    profile = asyncio.run(fake_profile_store.get(session.id))
+    assert profile.requested_budget == {"amount": 50.0, "currency": "USD", "unit": "total"}
+    assert profile.display_currency is None and profile.requested_currency is None
+    assert fake_leg.call_count == 1

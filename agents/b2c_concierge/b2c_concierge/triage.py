@@ -23,6 +23,8 @@ for zero upside. Kept as-is; not a gap.
 """
 from __future__ import annotations
 
+from b2c_common.search_budget import grounded_budget
+
 import json
 import logging
 import os
@@ -164,6 +166,8 @@ class Triage:
     # None = no usable change; () = explicit removal of the requested window.
     requested_window: tuple[str | None, ...] | None = None
     hotel_scope: str | None = None
+    requested_budget: dict | None = None
+    budget_checked: bool = False
 
 
 def is_social_ack(message: str) -> bool:
@@ -401,6 +405,32 @@ with these keys (omit the optional keys when there is no signal):
   A currency mentioned in a paid fee, refund or payment question is also null:
   "will I lose the $10 booking fee?" asks about policy, not display currency.
 
+Required key (always present, null if no budget change):
+- "requested_budget": for a numeric maximum the customer states for the search,
+  {{"amount":80,"currency":"EUR","unit":"total","evidence":"80 euros"}}.
+  This currency is the BUDGET currency, independent of display_currency.
+  A budget "80 euros" has currency="EUR" even though display_currency is null.
+  "under $100" in Canada has currency="CAD", not USD.
+  Currency is ISO code or null when ambiguous; unit is total, hour, person, or
+  unknown. Use conversational context to understand a numeric answer to a budget
+  question ("Like 60"), but NEVER take a number from the assistant's suggestions.
+  Bare "$" needs a known dollar market/currency: Canada uses CAD, Australia AUD,
+  the US USD. Do not assume USD worldwide; no known market means currency=null.
+  A bare amount may inherit the previous budget's currency, never invent EUR.
+  "10 dollars per hour" is unit=hour, NOT a total of 10. Duration, distance, party
+  count, hotel position, cancellation fees, payment questions are NOT budgets.
+  "cheaper" alone invents no amount: requested_budget=null.
+  If LAST ASSISTANT REPLY asks to clarify a pending budget, a short answer
+  can supply just its currency or unit: "USD" -> {{"currency":"USD","evidence":"USD"}},
+  "dollars" -> {{"currency":"USD","evidence":"dollars"}},
+  "au total" -> {{"unit":"total","evidence":"au total"}}. Do NOT copy the
+  old amount into this object; code already has it. These are family=search,
+  display_currency=null. A request only to DISPLAY prices still is not a budget.
+  Explicit removal: {{"clear":true,"evidence":"exact removal words"}}.
+  Keep evidence SHORT and verbatim from MESSAGE, including the amount when set.
+  Budget changes are family=search, not a request to change display_currency.
+  Always include family, language, and requested_budget (null when no change).
+  Omit other optional keys and null-valued fields when unused; keep JSON compact.
 Optional keys, extracted from MESSAGE ONLY, never copied from recent messages:
 - "requested_window": an object ONLY when MESSAGE changes the requested hours.
   For numeric clock times: {{"start":"HH:MM" or null,"end":"HH:MM" or null,
@@ -555,6 +585,8 @@ async def classify(message: str, budget: TurnBudget, invocation_id: str = "",
         display_currency=_display_currency_slot(data.get("display_currency")),
         requested_window=_grounded_window(data, message),
         hotel_scope="shown" if data.get("hotel_scope") == "shown" else None,
+        requested_budget=grounded_budget(data.get("requested_budget"), message),
+        budget_checked="requested_budget" in data,
     )
 
 

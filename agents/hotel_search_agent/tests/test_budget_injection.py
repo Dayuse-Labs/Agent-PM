@@ -125,3 +125,23 @@ class TestOtherToolsAreNeverGivenABudget:
             _Tool("find_hotel_by_name"), args, _ctx_with_profile(budget_max=80.0)
         )
         assert args == {"name": "Hilton"}
+
+
+class TestTypedRequest:
+    def test_usd_cap_does_not_turn_into_native_euros(self):
+        args = {"priceRangeMax": 100, "priceRangeMin": 50}
+        ctx = _ctx_with_profile(requested_budget={"amount": 100, "currency": "USD", "unit": "total"})
+        inject_profile_budget(_Tool("search_offers"), args, ctx)
+        assert args == {}
+
+    def test_user_eur_cap_cannot_be_widened_by_model(self):
+        args = {"priceRangeMax": 120}
+        ctx = _ctx_with_profile(requested_budget={"amount": 80, "currency": "EUR", "unit": "total"})
+        inject_profile_budget(_Tool("search_offers"), args, ctx)
+        assert args == {"priceRangeMax": 80.0}
+
+    def test_cheaper_does_not_invent_cap_and_retraction_does_not_restore_scalar(self):
+        args = {"priceRangeMax": 100}
+        ctx = _ctx_with_profile(requested_budget={}, budget_max=80)
+        inject_profile_budget(_Tool("search_offers"), args, ctx)
+        assert args == {}

@@ -4,6 +4,86 @@
 ont repris. Des gains ciblés sont établis, mais plusieurs défauts importants
 restent ouverts. Aucun merge, déploiement ou changement des modèles Railway.
 
+## Correction du protocole de devise — candidat v15 rejoué
+
+La revue du code effectivement déployé (`a08a7792`) et du champ historique
+`detected_market` a révélé une omission du banc : les 14 séquences fraîches
+précédentes ne transmettaient pas la devise enregistrée. **Les lots v3 à v6 ne
+prouvent donc pas une parité avec le contexte natif du widget.** Ils restent des
+diagnostics avec contexte de devise retiré ; leurs coûts et contre-exemples sont
+conservés. Les constats ci-dessous décrivent les entrées de ces lots, pas tous les
+parcours de production.
+
+Le nouveau lot `fresh-native-v15` compare les trois bras. Pour 11 séquences / 32
+tours, une devise explicite est attestée dans les diagnostics URL historiques et
+restaurée. Pour 3 séquences / 12 tours (Arlington, San Diego, Paris tardif), seule
+la devise du marché résolu est attestée : elle **n'est pas transformée en choix
+explicite**. Le domaine et la locale initiaux sont conservés ; ces cas restent
+limités par l'absence de la requête widget brute. Le legacy peut remplacer un
+faible défaut USD par la devise du pays de l'hôtel, contrairement à un choix
+explicite. Cette distinction est nécessaire pour interpréter les résultats.
+
+Le candidat v15 ajoute un budget montant/devise/unité, persistant et validé sur
+une citation du message courant. La devise native fournit l'unité d'un montant
+nu sans changer le mode d'affichage du nouveau B2C. Le filtre MCP en EUR est
+réservé aux budgets EUR ; les autres unités sont vérifiées sur le prix de la
+même offre. Aucune conversion de change inventée, aucun appel LLM ni regex ajouté.
+Une réponse composée uniquement d'une devise peut compléter un budget en attente.
+Les limites de rappel sur la page récupérée et les suppléments restent explicites.
+
+**Limite supplémentaire vérifiée pendant le lot :** le cache MCP journalier peut
+contenir des offres dont la limite de réservation est passée. Une lecture directe
+sans cache le 7 octobre à 20:00 UTC à Arlington a renvoyé des offres différentes.
+Les résultats de `fresh-native-v15` restent donc des diagnostics de contraintes
+sur instantanés ; ils ne valident pas la disponibilité actuelle. Le contrôle
+suivant utilise un transport MCP lecture seule sans cache d'inventaire ni décalage
+de date. Les anciennes sorties restent conservées et facturées.
+
+Validation locale v15 : **2 224 tests passés, 1 ignoré**. Ruff, mypy et guardrails
+passent. La comparaison live et le rejeu des réponses courtes sont terminés ;
+aucun succès global n'est déduit des tests locaux. Les résultats v11/v12/v13 sont
+des diagnostics intermédiaires, pas des résultats rétroactifs du candidat v15.
+
+## Résultats v15 avec inventaire frais
+
+`live-native-v15` : **14 séquences / 132 réponses**, trois bras terminés avec
+sessions séparées. MCP candidat sans cache d'inventaire ni décalage de date,
+Mapbox en cache statique. **27 cartes** jointes par hôtel + UUID de formule +
+date à la réponse MCP brute : aucun écart de prix, aucune limite de réservation
+passée à l'heure de la réponse. **12 cartes avec plafond vérifiable**, toutes
+sous ce plafond dans la bonne unité ; aucun filtre MCP EUR pour ces budgets
+étrangers. Ces contrôles ne mesurent ni le rappel de l'inventaire ni les
+suppléments facultatifs ni la qualité complète d'une conversation.
+
+`live-budget-answers-v15` : **2 parcours adaptés / 7 tours**, sans cache également.
+« USD » et « US dollars » complètent bien les plafonds50/60, conservés ensuite.
+La fenêtre09h–17h et la borne de départ20h persistent. Arlington trouve une offre
+sous50USD puis aucune offre vérifiable sur09h–17h ; San Diego ne trouve pas de
+formule vérifiable sous60USD. Le candidat ne réintroduit pas une offre hors
+budget. Sa phrase « only one matches » reste trop générale pour une page de
+résultats : ne pas la considérer comme une preuve d'exhaustivité.
+
+Les traces fraîches déployées montrent priceRangeMax100EUR pour le clientUSD100.
+Le candidat le corrige. Les défauts sémantiques établis restent **C** sur les
+segments concernés : Orlando redemande la zone après indifférence ; Paris perd
+la clarification22h ; carte cadeau est classée ack et reçoit un accueil ;
+Ripley confond le filtre d'occupation2adultes avec une demande adults-only sans
+vérification de politique. **Les autres cas partiels ne deviennent pas A/B.**
+Brooklyn/Davenport nécessitent des réponses adaptées aux clarifications ; trois
+séquences restent limitées par la devise native non explicitement attestée.
+
+Pescara est vérifiée sur la côte adriatique (42.47194,14.206623), Tours conserve
+starRatings5, Rome/Milan conservent leurs équipements. Les résultats vides du MCP
+frais en fin de journée ne prouvent pas une régression face à l'export legacy.
+L'absence de fuseau natif à Singapour empêche un verdict de disponibilité.
+La normalisation des montants écrits en lettres reste une limite à évaluer :
+le nouveau validateur exige actuellement une représentation numérique citée.
+
+Coût après ces deux lots : **75.5730USD engagés**, **64.4730USD observés** et
+**11.10USD de provisions**, aucun lot modèle pending. La provisionCI existante
+est réutilisée pour le prochain push ; les étapes live du précédent run avaient
+été ignorées par leurs gardes de configuration. Aucun changement de modèle.
+
 ## Données et fiabilité de la mesure
 
 - Export frais via l’API SQL en lecture : **32 822 tours / 13 340 sessions**, du
@@ -131,8 +211,8 @@ restent dans les artefacts et dans les coûts.
 ## Travail encore nécessaire
 
 1. Revue de la PR brouillon : correctifs ciblés, pas une autorisation de bascule.
-2. Budget typé montant/devise/unité ; filtrer sur prix de la même offre sans
-   conversion inventée. MCP priceRangeMax est en EUR : copier100USD n’est pas valide.
+2. Étendre la validation du budget typé livré en v15 : montants écrits en lettres,
+   autres devises, portée du rappel et formulation non exhaustive des résultats.
 3. Lever les pertes restantes de ville explicite, les relances redondantes, les
    fenêtres ambiguës et les affirmations adultes-only / accès spa privé ou inclus.
 4. Repasser suites historiques, FAQ/annulations informatives et objectifs adaptatifs
@@ -146,7 +226,7 @@ restent dans les artefacts et dans les coûts.
 Artefacts privés : campagne `production_parity_v18` du workspace legacy, manifests,
 entrées/sorties, outils, traces, factures et adjudications. Aucune donnée client ou
 clé dans Git. Ledger commun v17, plafond 110 USD et réserve d’arrêt 10 USD. Les timeouts
-et pilotes invalides restent facturés/provisionnés. Coût cumulé engagé :
+et pilotes invalides restent facturés/provisionnés. Coût au checkpoint v8 (historique, remplacé par le coût v15 plus haut) :
 **70.4099 USD**, dont **9.10 USD de provisions** et **61.3099 USD
 observés**. Les provisions incluent 2 USD pour la CI de cette mise à jour ; cette
 somme n’est pas une consommation observée. Aucun lot modèle pending à ce checkpoint.

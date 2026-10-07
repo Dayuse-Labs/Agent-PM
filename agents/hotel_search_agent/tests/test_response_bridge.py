@@ -2211,3 +2211,16 @@ def test_metadata_only_datapart_preserves_current_leaf_diagnostic():
     assert _decode(content)["guards_fired"] == ["geocode_echo_back"]
     ctx.session.events = [event("stale", invocation="old")]
     assert not any(p.text for p in emit_search_datapart(ctx).parts)
+
+
+def test_window_fallback_never_reintroduces_offer_over_currency_budget():
+    ctx = _Ctx(state={STATE_EXACT_WINDOW_KEY: {"start_total": 600, "end_total": 1020}},
+               user_content=_user_content_with_profile_in({
+                   "requested_budget": {"amount": 100, "currency": "USD", "unit": "total"}}))
+    expensive = _hotel(1, 9000)
+    for offer in expensive["offers"]:
+        offer.update(hotelCurrency="USD", hotelPrice=10400, hotelPriceWithBookingFees=10400,
+                     startHour=18, endHour=22)
+    returned = capture_after_tool(_Tool("search_offers"), {}, ctx,
+                                  {"structuredContent": {"results": [expensive]}})
+    assert returned["hotels"] == []
