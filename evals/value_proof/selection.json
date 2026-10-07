@@ -1,0 +1,19 @@
+{
+  "selected": [
+    "test_recognized_bare_budget_reaches_actual_search_arguments",
+    "test_bare_shortlist_position_does_not_become_a_budget",
+    "test_search_request_survives_leaf_timeout_and_reaches_next_turn",
+    "test_contextual_decline_keeps_filters_without_search_or_welcome",
+    "test_geo_rejection_cannot_be_synthesized_into_no_inventory",
+    "test_hotel_identity_cannot_claim_a_verified_offer",
+    "test_contextual_decline_without_extracted_question_does_not_restart",
+    "test_first_cheapest_search_without_shortlist_still_reaches_search",
+    "test_travel_time_never_comes_from_an_unverified_faq_or_distance",
+    "test_walking_distance_request_is_not_a_travel_duration_block",
+    "test_support_followup_context_reaches_triage_faq_and_final_answer_but_not_another_session",
+    "test_overnight_never_fetches_day_offers",
+    "test_unresolved_position_never_calls_any_tool",
+    "test_bare_budget_preserves_established_language"
+  ],
+  "scope": "Identical externally scripted triage and leaf facts, deterministic integration controls; no live-model pass rate. Additional LLM attempts return a neutral string instead of raising a harness IndexError."
+}

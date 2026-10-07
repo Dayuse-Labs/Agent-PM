@@ -35,3 +35,7 @@ La comptabilité peut réserver explicitement 1 USD pour une génération échou
 ## Résultat du 7 octobre
 
 [Résultats et limites du runtime 1be8974](https://github.com/Dayuse-Labs/AgentB2C/blob/7d8ff171e51dd3c0613a304ac181d82399b3bdb5/docs/evaluations/production-preservation-2026-10-07.md). Les quatre dialogues du contrôle ont été exécutés ; 134 couples prix/créneau affichés correspondent à l’instantané. Deux sondes D+1 dépassent le périmètre sur Milano : cette séquence est exclue de l’agrégat du juge. Le classement du juge GPT‑4.1 est invalidé pour la décision de qualité après contre-vérification d’une localisation inventée ; les résultats bruts restent des pistes de revue. Aucun score automatique de lancement.
+
+## 2026-10-07 — Current-main versus PR audit
+
+The incremental audit is a distinct experiment: main fee667d versus main+PR 2bdca9a, same models and application clock, shared exact-argument MCP/Mapbox response cache. It does not reuse the finite 57-hotel snapshot as if it were current stock. 278 primary paired turns plus 32 repeated turns; four unresolved PR blockers and remaining coverage gaps are documented in docs/evaluations/pr-incremental-value-2026-10-07.md. The evals/value_proof directory retains the 18 zero-cost counterfactual controls. No quality ranking by an LLM judge.
