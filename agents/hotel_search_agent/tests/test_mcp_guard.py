@@ -156,3 +156,35 @@ class TestRecovery:
         clock.advance(30.0)
 
         assert mcp_circuit_before_tool(SEARCH_TOOL, {}, None) is None
+
+
+def test_rejected_traffic_does_not_extend_recovery_deadline(clock):
+    for _ in range(3):
+        mcp_circuit_after_tool(SEARCH_TOOL, {}, None, {"error": "transport timeout"})
+    for elapsed in (1, 9, 19):
+        clock.advance(elapsed)
+        response = mcp_circuit_before_tool(SEARCH_TOOL, {}, None)
+        assert response is not None
+        mcp_circuit_after_tool(SEARCH_TOOL, {}, None, response)
+    clock.advance(1)
+    assert mcp_circuit_before_tool(SEARCH_TOOL, {}, None) is None
+    mcp_circuit_after_tool(SEARCH_TOOL, {}, None, {"ok": True})
+    assert mcp_circuit_before_tool(NAMED_LOOKUP_TOOL, {}, None) is None
+
+
+def test_budget_rejection_does_not_clear_real_failure_streak(fresh_breaker):
+    for _ in range(2):
+        mcp_circuit_after_tool(SEARCH_TOOL, {}, None, {"error": "transport timeout"})
+    mcp_circuit_after_tool(SEARCH_TOOL, {}, None, {"error": "TOOL BUDGET EXHAUSTED"})
+    assert fresh_breaker.allow()
+    mcp_circuit_after_tool(SEARCH_TOOL, {}, None, {"error": "transport timeout"})
+    assert not fresh_breaker.allow()
+
+
+def test_raised_error_observed_afterwards_counts_only_once(fresh_breaker):
+    for _ in range(2):
+        response = mcp_circuit_on_error(SEARCH_TOOL, {}, None, ConnectionError("down"))
+        mcp_circuit_after_tool(SEARCH_TOOL, {}, None, response)
+        assert fresh_breaker.allow()
+    mcp_circuit_on_error(SEARCH_TOOL, {}, None, ConnectionError("down"))
+    assert not fresh_breaker.allow()
