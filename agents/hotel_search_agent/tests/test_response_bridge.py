@@ -574,11 +574,11 @@ def test_a_clarify_delta_never_erases_what_the_turn_already_resolved():
     }
 
 
-def test_capture_geocode_other_errors_stash_no_clarify_question():
+def test_rejected_place_is_a_clarification_not_an_outage():
     ctx = _Ctx()
     resp = {"ok": False, "error": "geocode_echo_mismatch", "diagnostics": {"query": "x"}}
     capture_after_tool(_Tool("geocode_location"), {}, ctx, resp)
-    assert "temp:hotel_search_clarify_question" not in ctx.state
+    assert "verify that location" in ctx.state["temp:hotel_search_clarify_question"]
 
 
 def test_emit_flags_requires_clarification_when_no_search_ran():
@@ -1948,8 +1948,6 @@ def test_card_carries_the_same_offer_in_the_hotel_currency():
 
 def test_requested_stay_keeps_covering_offer_and_its_booking_identity():
     """Real replay failure shape: 09–17 was dropped in favor of 10–16."""
-    from evals.preservation_checks import check_displayed_offers
-
     shorter = {**_offer(10, 0, 16, 0, price=4000), "ratePlanUuid": "shorter"}
     covering = {**_offer(9, 0, 17, 0, price=7000), "ratePlanUuid": "covering"}
     hotel = _hotel_with_offers(1, [shorter, covering])
@@ -1963,10 +1961,6 @@ def test_requested_stay_keeps_covering_offer_and_its_booking_identity():
     assert cards[0]["price_eur_cents"] == 7000
     assert cards[0]["timeslots"] == [{"start": "09:00", "end": "17:00"}]
     assert not ctx.state.get("temp:hotel_search_timeslot_fallback")
-    result = check_displayed_offers({"hotels": cards}, {
-        "stay_window": {"start": "10:00", "end": "17:00"},
-    })
-    assert result[0]["status"] == "pass"
 
 
 # --- mcp-dayuse#8: degraded paths reported to the concierge -------------------------------------

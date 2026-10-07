@@ -68,6 +68,7 @@ from hotel_search_agent.response_bridge import (
     emit_search_datapart,
     inject_landmark_radius,
     inject_pagination_offset,
+    inject_verified_named_hotel,
     skip_final_generation,
     stamp_turn_start,
 )
@@ -153,6 +154,10 @@ policy source. Current explicit changes and structured profile state win.
 Never treat an amenity as a destination. A city supplied after a clarification
 answers that clarification. Geocode before search_offers, in separate steps;
 search coordinates must come from this turn's successful geocode.
+When query_params.named_hotel is present, it identifies the hotel already
+verified by MCP. A city answer refines that named-hotel lookup; keep its name
+when calling find_hotel_by_name, and use the city as a disambiguator. Do not
+search for a hotel literally named after the user's short city answer.
 
 How to act, frugally (at most ONE reasoning pass — no tool-call loops):
 - A destination/area search → FIRST call geocode_location (pass the city/zone/
@@ -370,6 +375,7 @@ root_agent = Agent(
         enforce_equipment_filters,
         inject_profile_occupancy,
         inject_profile_budget,
+        inject_verified_named_hotel,
         inject_profile_geo_context,
         inject_pagination_offset,
         inject_landmark_radius,

@@ -375,6 +375,7 @@ def rank_landmark(
     proximity: tuple[float, float] | None = None,
     city_anchor: tuple[float, float] | None = None,
     radius_km: float = DEFAULT_RADIUS_KM,
+    location_kind: str | None = None,
 ) -> GeocodeCandidate | None:
     """Pick the best Search-Box candidate for a named landmark, or None.
 
@@ -389,10 +390,29 @@ def rank_landmark(
     Ranking the whole list on signals Mapbox cannot know — our inventory, the
     exact name asked for — is what makes the outcome ours and reproducible.
     """
-    if not candidates:
-        return None
     wanted = _landmark_key(requested_zone)
     wanted_tokens = set(wanted)
+    if location_kind == "area":
+        transit_categories = {"public_transportation_station", "railway_station", "light_rail_station", "bus_station", "bus_stop"}
+        candidates = [c for c in candidates if (
+            c.feature_type in {"neighborhood", "locality", "district"}
+            or (_landmark_key(c.name) == wanted and set(c.poi_categories).intersection(transit_categories))
+        )]
+    elif location_kind == "landmark":
+        # A business merely named after a landmark is not that landmark.
+        # Unknown categories need an exact identity match; provider IATA or
+        # attraction/station categories can back a longer official name.
+        landmark_categories = {"airport", "airport_terminal", "train_station", "railway_station", "metro_station",
+                               "subway_station", "theme_park", "tourist_attraction", "museum", "monument", "park"}
+        candidates = [c for c in candidates if (
+            (c.iata_code and c.iata_code.lower() in wanted_tokens)
+            or (_landmark_key(c.name) == wanted and not set(c.poi_categories).intersection(
+                {"hotel", "lodging", "taxi", "parking_lot", "storage", "shopping", "restaurant"}))
+            or (set(c.poi_categories).intersection(landmark_categories)
+                and wanted_tokens.intersection(_landmark_key(c.name)))
+        )]
+    if not candidates:
+        return None
 
     def score(candidate: GeocodeCandidate) -> float:
         count = inventory.count_near(candidate.latitude, candidate.longitude, radius_km=radius_km)
@@ -453,6 +473,17 @@ def resolve(
     if country_hint:
         ch = country_hint.upper()
         survivors = [c for c in survivors if c.country_code == ch]
+    requested_words = _tokens(_name_fold(requested_name))
+    exact = [c for c in survivors if requested_words and (
+        _tokens(_name_fold(c.name)) == requested_words
+        or (c.feature_type == "place" and _tokens(_name_fold(c.name)) in (
+            requested_words + ["city"], ["city", "of"] + requested_words,
+        ))
+    )]
+    if exact:
+        # Inventory density cannot turn a different settlement into the one
+        # named by the user. Keep genuine exact-name homonyms for clarification.
+        survivors = exact
     if region_hint:
         matched = [c for c in survivors if _region_matches(c, region_hint)]
         # Only apply the region filter when it actually matches something —

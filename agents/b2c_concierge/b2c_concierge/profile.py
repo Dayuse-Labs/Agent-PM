@@ -260,6 +260,9 @@ class SessionProfile:
     display_currency: str | None = None
     # Unverified semantic request, retained even if the leaf times out.
     search_location_request: dict[str, Any] | None = None
+    resolved_search_location: dict[str, Any] | None = None
+    stay_kind: str | None = None
+    search_priority: str | None = None
     # Last currency the user asked for ("EUR", "HOTEL" or an ISO code), None
     # until they mention one: the EUR disclosure is only owed after that
     # (mcp-dayuse#5 — the widget's own currency is not a request).
@@ -313,6 +316,9 @@ class SessionProfile:
             "children": self.children,
             "display_currency": self.display_currency,
             "search_location_request": self.search_location_request,
+            "resolved_search_location": self.resolved_search_location,
+            "stay_kind": self.stay_kind,
+            "search_priority": self.search_priority,
             "requested_currency": self.requested_currency,
             "search_page": self.search_page,
             "daypart": self.daypart,
@@ -345,6 +351,7 @@ _CONCIERGE_ONLY_KEYS = (
     "picked_hotel_id",
     "display_currency",
     "search_location_request",
+    "resolved_search_location",
     "requested_currency",
     "search_page",
 )
@@ -413,8 +420,10 @@ def apply_recognized_bare_budget(
     """
     if value is None or profile.display_currency not in (None, "EUR") or not _has_prior_search_context(profile):
         return False
-    match = re.fullmatch(r"\s*€?\s*(\d+(?:[.,]\d+)?)\s*€?\s*", message)
-    if not match or float(match.group(1).replace(",", ".")) != value or value <= 0:
+    literal = message.strip().removeprefix("€").removesuffix("€").strip().replace(",", ".")
+    parts = literal.split(".")
+    if (len(parts) > 2 or not all(part.isdecimal() for part in parts)
+            or float(literal) != value or value <= 0):
         return False
     apply_profile_delta(profile, {
         "budget_max": value, "budget_request_source": BUDGET_SOURCE_EXPLICIT,

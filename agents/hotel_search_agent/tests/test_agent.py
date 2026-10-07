@@ -149,18 +149,19 @@ class TestMetricsWiring:
         from hotel_search_agent.response_bridge import (
             inject_landmark_radius,
             inject_pagination_offset,
+            inject_verified_named_hotel,
         )
 
         before = self._as_list(root_agent.before_tool_callback)
         # timing FIRST (budget short-circuits the rest of the list), budget
-        # second, the MCP circuit guard (S4) third, then the 7 args-mutating
+        # second, the MCP circuit guard (S4) third, then the args-mutating
         # bridges LAST (S-G5/S-G6/P0-1/P0-2/UX1-followup) — each only runs
         # when the call proceeds, order among them is immaterial (disjoint
         # tool names/keys), EXCEPT that inject_landmark_radius must follow
         # the geocode's after_tool stash, which it does by construction
         # (different phase).
         assert before[0] is tool_timing_before
-        assert len(before) == 12
+        assert len(before) == 13
         # mcp-dayuse#8: the schema guard must see the args every other
         # callback has finished rewriting.
         assert before[-1] is drop_args_outside_schema
@@ -170,9 +171,10 @@ class TestMetricsWiring:
         assert before[3] is enforce_equipment_filters
         assert before[4] is inject_profile_occupancy
         assert before[5] is inject_profile_budget
-        assert before[6] is inject_profile_geo_context
-        assert before[7] is inject_pagination_offset
-        assert before[8] is inject_landmark_radius
+        assert before[6] is inject_verified_named_hotel
+        assert before[7] is inject_profile_geo_context
+        assert before[8] is inject_pagination_offset
+        assert before[9] is inject_landmark_radius
         assert tool_timing_after in self._as_list(root_agent.after_tool_callback)
         assert mcp_circuit_after_tool in self._as_list(root_agent.after_tool_callback)
         assert tool_error_metric in self._as_list(root_agent.on_tool_error_callback)

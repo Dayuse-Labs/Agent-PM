@@ -1,0 +1,232 @@
+{
+  "runtime_sha": "1be89742ae3b013ef2531bfe3e3996528bfca664",
+  "legacy_sha": "a08a7792ed95dedca6255b5c588a80a504dd6249",
+  "models": {
+    "candidate": "triage gpt-4.1-mini; leaves/synthesis gpt-4o-mini",
+    "reference": "gpt-5.2"
+  },
+  "release_approved": false,
+  "tests": {
+    "application_passed": 1877,
+    "application_skipped": 1,
+    "harness_passed": 193,
+    "harness_skipped": 1
+  },
+  "campaign_cost_usd": "37.60457130933699957038",
+  "unpriced_call_reserve_usd": "1",
+  "budget_committed_usd": "38.60457130933699957038",
+  "campaign_ceiling_usd": 60,
+  "dispatch_stop_usd": 40,
+  "reserve_usd": 20,
+  "card_check_counts": {
+    "reference:displayed_offer_covers_stay": {
+      "fail": 22,
+      "pass": 2,
+      "skipped": 9
+    },
+    "candidate:displayed_offer_covers_stay": {
+      "skipped": 20,
+      "fail": 6,
+      "pass": 7
+    },
+    "reference:cheaper_option": {
+      "fail": 3,
+      "pass": 2
+    },
+    "candidate:cheaper_option": {
+      "fail": 3,
+      "skipped": 1,
+      "pass": 1
+    },
+    "reference:displayed_offer_budget": {
+      "fail": 2,
+      "pass": 12,
+      "skipped": 3
+    },
+    "candidate:displayed_offer_budget": {
+      "pass": 6,
+      "skipped": 10,
+      "fail": 1
+    },
+    "reference:displayed_priced_stay": {
+      "fail": 2
+    },
+    "candidate:displayed_priced_stay": {
+      "skipped": 2
+    }
+  },
+  "turn_statuses": {
+    "ok": 396,
+    "degraded": 7
+  },
+  "source_provenance": {
+    "selected_sessions": 125,
+    "selected_turns": 348,
+    "traffic_labels": {
+      "unclassified": 125
+    },
+    "source_clock_min": "2026-03-21T17:59:38.195756+00:00",
+    "source_clock_max": "2026-10-06T04:39:40.629110+00:00",
+    "matched_source_log_rows": 348,
+    "source_fields": [
+      "active_filters",
+      "assistant_message",
+      "client_domain",
+      "created_at",
+      "detected_market",
+      "hotels",
+      "id",
+      "response_language",
+      "session_id",
+      "turn_index",
+      "user_message"
+    ],
+    "origin_limit": "No is_synthetic/customer-origin field in log schema. Explicit test prefixes excluded at selection; remaining sessions not certified organic."
+  },
+  "cohorts": {
+    "full": {
+      "sessions": 125,
+      "turns_per_agent": 348,
+      "scope": "125 conversations enregistrées dans le service de production, déjà utilisées en développement. Origine client versus QA non certifiée pour chaque cas. Candidat rejoué le 7 octobre ; réponses de la production réelle archivées du 6 octobre. Stock, date et modèles différents : comparaison descriptive, pas mesure causale.",
+      "variants": {
+        "reference": {
+          "cost_usd": "6.463262409850",
+          "turns_with_cards": 190,
+          "median_seconds": 11.01
+        },
+        "candidate": {
+          "cost_usd": "1.40982964999999994494",
+          "turns_with_cards": 132,
+          "median_seconds": 5.08
+        }
+      }
+    },
+    "holdout": {
+      "sessions": 12,
+      "turns_per_agent": 43,
+      "scope": "12 cas enregistrés en production, origine client versus QA non certifiée, réservés après sélection, dont six partiellement exécutés sur v12 invalidée par le coupe-circuit. Seule la correction technique de reprise a été ajoutée ensuite. Entrées relues uniquement pour isoler les demandes de SAV avant exécution. Neuf références via la production réelle, trois via son code isolé et un fournisseur SAV fictif. Aucun ajustement sur leurs sorties.",
+      "variants": {
+        "reference": {
+          "cost_usd": "0.847472099983",
+          "turns_with_cards": 22,
+          "median_seconds": 9.5
+        },
+        "candidate": {
+          "cost_usd": "0.15717034999999999449",
+          "turns_with_cards": 10,
+          "median_seconds": 5.75
+        }
+      }
+    },
+    "common": {
+      "sessions": 4,
+      "turns_per_agent": 14,
+      "scope": "Quatre conversations, même catalogue fermé de 57 hôtels / 142 offres capturées. Même EUR et même jour, mêmes échéances de réservation. Adaptateurs différents, classement Elasticsearch et scores Qdrant non reproduits ; équipements et notes hors contrôle. Deux sondes au lendemain sur le sixième tour de Milano sont hors périmètre ; cette séquence est exclue du bilan comparatif du juge. Les quatre dialogues restent consultables.",
+      "variants": {
+        "reference": {
+          "cost_usd": "0.322060549990",
+          "turns_with_cards": 11,
+          "median_seconds": 12.54
+        },
+        "candidate": {
+          "cost_usd": "0.06516489999999999749",
+          "turns_with_cards": 9,
+          "median_seconds": 5.72
+        }
+      }
+    },
+    "support": {
+      "sessions": 6,
+      "turns_per_agent": 8,
+      "scope": "Six conversations historiques SAV, code legacy isolé avec fournisseur fictif ; ne prouve pas la gestion de réservations réelles.",
+      "variants": {
+        "reference": {
+          "cost_usd": "0.080577699996",
+          "turns_with_cards": 0,
+          "median_seconds": 5.98
+        },
+        "candidate": {
+          "cost_usd": "0.01830734999999999879",
+          "turns_with_cards": 0,
+          "median_seconds": 4.79
+        }
+      }
+    },
+    "cancellation": {
+      "sessions": 1,
+      "turns_per_agent": 4,
+      "scope": "Un scénario entièrement fictif, quatre tours. Seules les réponses confirmées du fournisseur fictif peuvent prouver une action. Aucune annulation de réservation réelle possible.",
+      "variants": {
+        "reference": {
+          "cost_usd": "0.035205799997",
+          "turns_with_cards": 0,
+          "median_seconds": 4.8
+        },
+        "candidate": {
+          "cost_usd": "0.01038399999999999913",
+          "turns_with_cards": 0,
+          "median_seconds": 4.24
+        }
+      }
+    }
+  },
+  "geo": {
+    "counts": {
+      "production": {
+        "preserved": 17,
+        "failed": 2,
+        "partial": 5
+      },
+      "candidate": {
+        "preserved": 16,
+        "partial": 6,
+        "failed": 2
+      }
+    },
+    "scope": "Codex criterion-specific review of all 24 historical sequences (72 turns), not human gold and not an overall quality score. Reference production annotations remain those of the actual Oct 6 v6 replay; source/time/model differ."
+  },
+  "common_inventory": {
+    "scope": "Displayed hotel identities and each displayed offer window/price checked against same captured hotel record. This does not prove ranking, recall, or complete business-rule parity.",
+    "counts": {
+      "production:cards": 43,
+      "production:offer_checks": 107,
+      "new_main:cards": 27,
+      "new_main:offer_checks": 27
+    },
+    "mismatches": [],
+    "control_receipt_outcomes": {
+      "served": 12,
+      "unsupported": 2
+    },
+    "exclusion_reason": "Two D+1 probes at turn 6 exceed one-day snapshot; no parity conclusion on this sequence."
+  },
+  "judge": {
+    "model": "gpt-4.1",
+    "reviews_completed": {
+      "calibration": 10,
+      "full": 125,
+      "holdout": 12,
+      "common": 3
+    },
+    "valid_for_quality_ranking": false,
+    "preference_order_consistency": "5/5",
+    "criterion_order_consistency": "51/60",
+    "reason": "Manual counterexample review found preference for an invented location without user-provided city/GPS; raw rankings excluded from quality verdict. Three sanity controls and one duplicate-card control pass; original extra-card control retained as confounded by a budget violation. Human calibration remains required."
+  },
+  "cancellation": {
+    "synthetic_scenario_turns": 4,
+    "synthetic_provider_calls": 0,
+    "cancel_booking_calls": 0,
+    "real_booking_actions_possible": false,
+    "end_to_end_success": false
+  },
+  "verification": {
+    "application_pytest": "1877 passed, 1 skipped",
+    "harness_pytest": "193 passed, 1 skipped",
+    "ruff": "passed",
+    "mypy": "58 source files passed",
+    "guardrails": "passed",
+    "new_regex_calls": 0,
+    "hosted_ci": "pending final push"
+  }
+}

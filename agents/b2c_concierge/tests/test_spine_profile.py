@@ -1155,7 +1155,7 @@ class TestSynthesisAnglePlumbing:
         _run_turn(runner, session.id, "un hotel a paris")
 
         user_prompt = llm.calls[-1]["messages"][1]["content"]
-        assert "ANGLE (lead on this, in your own words):" in user_prompt
+        assert "ANGLE (optional; the current request takes priority):" in user_prompt
         assert "outside the centre" in user_prompt
 
     def test_no_angle_block_when_the_shortlist_is_unremarkable(
@@ -1324,7 +1324,7 @@ def test_search_request_survives_leaf_timeout_and_reaches_next_turn(monkeypatch,
 
     monkeypatch.setattr(agent_module, '_run_leaf', unavailable)
     llm = _scripted_llm(monkeypatch,
-        json.dumps({'family':'search','language':'en','location_update':{
+        json.dumps({'family':'search','language':'en','location_evidence':'Milford ct','location_update':{
             'action':'replace','city':'Milford','region':'Connecticut','country_code':'US'}}),
         json.dumps({'family':'search','language':'en','bare_budget_value':110,
                     'location_update':{'action':'retain'}}))
@@ -1339,3 +1339,132 @@ def test_search_request_survives_leaf_timeout_and_reaches_next_turn(monkeypatch,
     assert seen[1][1]['query_params']['recent_user_messages'] == ['Milford ct']
     stored = asyncio.run(fake_profile_store.get(session.id))
     assert stored.city is None and stored.search_location_request['city'] == 'Milford'
+
+class TestProductionFollowupContracts:
+    def test_overnight_never_fetches_day_offers(self, monkeypatch, fake_leg, fake_profile_store):
+        _scripted_llm(monkeypatch, '{"family":"search","language":"en","stay_kind":"overnight"}')
+        runner = InMemoryRunner(root_agent)
+        session = _new_session(runner)
+        answer = _run_turn(runner, session.id, 'Overnight use')
+        assert fake_leg.call_count == 0
+        assert 'overnight' in str(answer)
+        stored = asyncio.run(fake_profile_store.get(session.id))
+        assert stored.stay_kind == 'overnight'
+        assert stored.last_clarifying_question
+
+    def test_daytime_agreement_resumes_search_instead_of_greeting(self, monkeypatch, fake_leg, fake_profile_store):
+        runner = InMemoryRunner(root_agent)
+        session = _new_session(runner)
+        profile = SessionProfile(city='Singapore',language='en',stay_kind='overnight',
+                                 last_clarifying_question='Would a daytime stay work for you?')
+        asyncio.run(fake_profile_store.set(session.id,profile))
+        _scripted_llm(monkeypatch, '{"family":"ack","language":"en","affirmative":true,"stay_kind":"day_use"}', 'Day-use offers only.')
+        _run_turn(runner,session.id,'yes')
+        assert fake_leg.call_count == 1
+        assert asyncio.run(fake_profile_store.get(session.id)).stay_kind == 'day_use'
+
+    def test_unresolved_position_never_calls_any_tool(self, monkeypatch, fake_leg, fake_profile_store):
+        runner = InMemoryRunner(root_agent)
+        session = _new_session(runner)
+        _scripted_llm(monkeypatch, '{"family":"booking","language":"en","pick":"position","pick_position":1,"hotel_name":"Invented Hotel"}')
+        async def forbidden(*args,**kwargs):
+            pytest.fail('An unresolved ordinal must never call a catalogue or booking tool')
+        monkeypatch.setattr(agent_module.inline_tools,'generate_booking_link',forbidden)
+        _run_turn(runner,session.id,'the first one')
+        assert fake_leg.call_count == 0
+
+    def test_bare_budget_preserves_established_language(self, monkeypatch, fake_leg, fake_profile_store):
+        runner = InMemoryRunner(root_agent)
+        session = _new_session(runner)
+        asyncio.run(fake_profile_store.set(session.id,SessionProfile(city='London',language='en',locale='fr-FR')))
+        llm = _scripted_llm(monkeypatch, '{"family":"search","language":"fr","bare_budget_value":60}', 'No offers within that budget.')
+        _run_turn(runner,session.id,'60')
+        assert 'LANG: en' in llm.calls[-1]['messages'][1]['content']
+        assert asyncio.run(fake_profile_store.get(session.id)).language == 'en'
+
+
+def test_contextual_decline_keeps_filters_without_search_or_welcome(monkeypatch, fake_leg, fake_profile_store):
+    runner = InMemoryRunner(root_agent)
+    session = _new_session(runner)
+    asyncio.run(fake_profile_store.set(session.id, SessionProfile(
+        city="Paris", language="en", budget_max=60,
+        last_clarifying_question="Would you like to increase your budget?",
+    )))
+    llm = _scripted_llm(monkeypatch,
+        '{"family":"ack","language":"en","affirmative":false}',
+        "Understood, I’ll keep your current criteria.",
+    )
+    answer = _run_turn(runner, session.id, "No")
+    assert fake_leg.call_count == 0
+    assert len(llm.calls) == 2
+    assert "Previous assistant question" in llm.calls[-1]["messages"][1]["content"]
+    assert "current criteria" in answer
+    assert asyncio.run(fake_profile_store.get(session.id)).budget_max == 60
+
+
+def test_geo_rejection_cannot_be_synthesized_into_no_inventory(monkeypatch, fake_leg, fake_profile_store):
+    fake_leg.response_payload = {"requires_clarification": True}
+    fake_leg.text = "Could you provide the exact address?"
+    llm = _scripted_llm(monkeypatch, '{"family":"search","language":"en"}')
+    runner = InMemoryRunner(root_agent)
+    session = _new_session(runner)
+    answer = _run_turn(runner, session.id, "An ambiguous district")
+    assert answer == fake_leg.text
+    assert len(llm.calls) == 1
+    assert asyncio.run(fake_profile_store.get(session.id)).last_clarifying_question
+
+
+def test_hotel_identity_cannot_claim_a_verified_offer(monkeypatch, fake_leg, fake_profile_store):
+    fake_leg.response_payload = {"identity_only": True, "results": [{"hotel_id": 7, "name": "Known Hotel"}]}
+    fake_leg.text = "I found an available offer!"
+    llm = _scripted_llm(monkeypatch, '{"family":"search","language":"en"}')
+    runner = InMemoryRunner(root_agent)
+    session = _new_session(runner)
+    answer = _run_turn(runner, session.id, "Known Hotel")
+    assert "not been verified" in answer
+    assert len(llm.calls) == 1
+
+
+def test_contextual_decline_without_extracted_question_does_not_restart(monkeypatch, fake_leg, fake_profile_store):
+    runner = InMemoryRunner(root_agent)
+    session = _new_session(runner)
+    asyncio.run(fake_profile_store.set(session.id, SessionProfile(
+        city="Paris", language="en", budget_max=60,
+    )))
+    _scripted_llm(monkeypatch, '{"family":"ack","language":"en","affirmative":false}',
+                  "Understood, I’ll keep your current criteria.")
+    answer = _run_turn(runner, session.id, "No")
+    assert fake_leg.call_count == 0
+    assert "current criteria" in answer
+
+
+def test_first_cheapest_search_without_shortlist_still_reaches_search(monkeypatch, fake_leg, fake_profile_store):
+    fake_leg.response_payload = {"requires_clarification": True}
+    fake_leg.text = "Which city should I search?"
+    _scripted_llm(monkeypatch, '{"family":"search","language":"en","pick":"cheapest"}')
+    runner = InMemoryRunner(root_agent)
+    session = _new_session(runner)
+    answer = _run_turn(runner, session.id, "Cheapest hotels near me")
+    assert fake_leg.call_count == 1
+    assert "Which city" in answer
+
+
+def test_travel_time_never_comes_from_an_unverified_faq_or_distance(monkeypatch, fake_leg, fake_profile_store):
+    llm = _scripted_llm(monkeypatch, '{"family":"faq","language":"en","travel_measure":"duration"}')
+    runner = InMemoryRunner(root_agent)
+    session = _new_session(runner)
+    answer = _run_turn(runner, session.id, "How long does it take to get from the station to the hotel?")
+    assert fake_leg.call_count == 0
+    assert len(llm.calls) == 1
+    assert "can’t verify travel time" in answer
+
+
+def test_walking_distance_request_is_not_a_travel_duration_block(monkeypatch, fake_leg, fake_profile_store):
+    fake_leg.response_payload = {"requires_clarification": True}
+    fake_leg.text = "Which park do you mean?"
+    _scripted_llm(monkeypatch, '{"family":"search","language":"en","travel_measure":"distance"}')
+    runner = InMemoryRunner(root_agent)
+    session = _new_session(runner)
+    answer = _run_turn(runner, session.id, "A hotel within walking distance of the park")
+    assert fake_leg.call_count == 1
+    assert answer == fake_leg.text

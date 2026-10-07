@@ -610,3 +610,52 @@ def service_degraded_response(language: str) -> str:
     inner degradation net, so the step that failed is unknown — generic
     honest wording, invents nothing, never a raw 500/dead stream."""
     return _pick(language, _SERVICE_DEGRADED)
+def overnight_unsupported_response(language: str) -> str:
+    """No day-use offer can establish availability across an overnight stay."""
+    return {
+        "en": "I can search day-use offers, but I cannot confirm an overnight stay here. Would a daytime stay work for you?",
+        "fr": "Je peux rechercher des offres à la journée, mais pas confirmer un séjour de nuit ici. Un séjour en journée vous conviendrait-il ?",
+        "es": "Puedo buscar ofertas de día, pero no confirmar una estancia nocturna aquí. ¿Te serviría una estancia durante el día?",
+        "it": "Posso cercare offerte diurne, ma non confermare un pernottamento qui. Ti andrebbe bene un soggiorno durante il giorno?",
+        "de": "Ich kann Tagesangebote suchen, hier aber keine Übernachtung bestätigen. Wäre ein Aufenthalt tagsüber passend?",
+        "pt": "Posso procurar ofertas diurnas, mas não confirmar uma estadia durante a noite aqui. Uma estadia durante o dia serviria?",
+        "nl": "Ik kan dagaanbiedingen zoeken, maar hier geen overnachting bevestigen. Zou een verblijf overdag passen?",
+    }.get(language, "I can search day-use offers, but cannot confirm an overnight stay here.")
+
+
+def contextual_ack_response(language: str) -> str:
+    """Acknowledge a contextual reaction without changing the search."""
+    return {
+        "fr": "D’accord, je garde vos critères actuels.",
+        "en": "Understood, I’ll keep your current criteria.",
+        "es": "De acuerdo, mantengo tus criterios actuales.",
+        "de": "Verstanden, ich behalte Ihre aktuellen Kriterien bei.",
+        "it": "Va bene, mantengo i tuoi criteri attuali.",
+        "pt": "Entendido, mantenho os seus critérios atuais.",
+        "nl": "Begrepen, ik behoud uw huidige criteria.",
+    }.get(language, "Understood, I’ll keep your current criteria.")
+
+
+def identity_only_response(language: str) -> str:
+    """A catalogue match proves identity, never a bookable rate."""
+    return _pick(language, {
+        "fr": "J’ai identifié cet hôtel, mais ses disponibilités et tarifs ne sont pas encore vérifiés. Pour quelle date et quel créneau souhaitez-vous réserver ?",
+        "en": "I found this hotel, but availability and prices have not been verified yet. What date and time window would you like?",
+        "es": "He identificado este hotel, pero aún no se han verificado disponibilidad ni precios. ¿Qué fecha y horario te interesan?",
+        "de": "Ich habe dieses Hotel gefunden, aber Verfügbarkeit und Preise sind noch nicht geprüft. Für welches Datum und welchen Zeitraum suchst du?",
+        "it": "Ho identificato questo hotel, ma disponibilità e prezzi non sono ancora verificati. Per quale data e fascia oraria?",
+        "pt": "Identifiquei este hotel, mas a disponibilidade e os preços ainda não foram verificados. Para que data e horário pretende reservar?",
+        "nl": "Ik heb dit hotel gevonden, maar beschikbaarheid en prijzen zijn nog niet gecontroleerd. Welke datum en welk tijdvak zoekt u?",
+    })
+
+
+def travel_time_unverified_response(language: str) -> str:
+    return _pick(language, {
+        "fr": "Je ne peux pas vérifier la durée de ce trajet ici. Consultez une application d’itinéraire avec les deux adresses et votre moyen de transport ; les distances des hôtels ne donnent pas un temps de trajet.",
+        "en": "I can’t verify travel time here. Please check a directions app with both addresses and your mode of transport; hotel distances do not establish journey times.",
+        "es": "No puedo verificar aquí la duración del trayecto. Consulta una aplicación de rutas con ambas direcciones y tu medio de transporte; la distancia del hotel no indica el tiempo de viaje.",
+        "de": "Ich kann die Fahr- oder Gehzeit hier nicht prüfen. Nutze eine Routen-App mit beiden Adressen und deinem Verkehrsmittel; Hotelentfernungen belegen keine Reisezeit.",
+        "it": "Non posso verificare qui la durata del tragitto. Consulta un’app di percorsi con entrambi gli indirizzi e il mezzo di trasporto; la distanza dell’hotel non determina il tempo di viaggio.",
+        "pt": "Não consigo verificar aqui o tempo de viagem. Consulte uma aplicação de trajetos com as duas moradas e o meio de transporte; a distância do hotel não determina a duração.",
+        "nl": "Ik kan de reistijd hier niet controleren. Raadpleeg een route-app met beide adressen en uw vervoermiddel; hotelafstanden bepalen de reistijd niet.",
+    })

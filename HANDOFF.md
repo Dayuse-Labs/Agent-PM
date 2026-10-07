@@ -4,6 +4,36 @@
 
 > 📋 **Pour savoir QUOI faire ensuite, ouvrir [`CHANTIERS.md`](CHANTIERS.md)** (état vérifié au 2026-09-14) : la liste des chantiers ouverts, chacun avec sa preuve, ses actions et un prompt prêt à coller — plus la liste de ce qu'il ne faut **pas** relancer parce que c'est déjà livré. `tasks/todo.md` est périmé et ne doit plus servir de référence.
 
+## 2026-10-07 — Harnais empilé sur la PR applicative #123
+
+La branche reprend exactement le code applicatif de #123 (`40dd0c6`, main intégré `9b2ec69`). Le diff de #121 cible maintenant cette branche pour éviter deux versions concurrentes des correctifs. Ordre de review : #123 puis #121. Suite complète : **2 212 tests passent, 1 ignoré** ; Ruff/mypy/guardrails verts. Les tests comprennent ceux de l’application : ne pas additionner les deux suites. Le replay v15 de 417 tours est en cours, distinct de la campagne v14 déjà archivée et de son juge invalidé pour le classement. Aucun merge vers main ni déploiement.
+
+## 2026-10-07 — Préservation complète évaluée, validation de lancement non acquise
+
+Runtime `1be89742` : budget/lieu/identité hôtel persistés, nuits et disponibilité distinguées, priorités et garde-fous géographiques, reprise du coupe-circuit corrigée. Concierge seul propriétaire de Redis, feuilles stateless A2A et MCP conservés, LiteLLM uniquement, aucun nouvel appel regex. Profil : triage GPT‑4.1 mini ; feuilles/synthèse GPT‑4o mini.
+
+**Exécuté** : 125 séquences principales/348 tours, 12 cas réservés/43 tours, 4 contrôles d'inventaire/14 tours, 6 SAV/8 tours, 1 annulation fictive/4 tours. 1 877 tests app + 193 harnais passent (1 skip par suite), contrôles statiques verts. Géographie : 16 conservés, 6 partiels, 2 échecs. Modèles : 37.60 USD observés + 1 USD de provision, plafond 60 USD, ledger rapproché.
+
+**À ne pas surinterpréter** : référence principale = réponses de la vraie prod du 6 octobre ; nouveau lot frais = 9 cas production + 3 isolés. Sources et modèles diffèrent. 140 revues GPT‑4.1 terminées mais classement invalidé par contre-exemple de ville inventée ; pas de taux global fiable. Le registre de 1 707 tests legacy ne signifie pas tous les comportements portés. Annulation fictive : zéro appel fournisseur, aucun succès.
+
+**Bloquants conservés** : lieux composés/clarifications, hôtel nommé au troisième tour, négations de zone et priorités, questions de capacité, faux positif durée de séjour→trajet, devises, incohérences FAQ et capacité SAV manquante. PR #123 et harnais #121 restent en draft, pas de lancement. [Preuves, résultats et limites](docs/evaluations/production-preservation-2026-10-07.md).
+
+## 2026-10-06 — Suite : état de production adapté au concierge, sources distinguées
+
+**Fait** : production Railway réellement relue (`a08a7792`), Postgres/Qdrant + cache d’export S3, `AVAILABILITY_STRICT_EXPORT=false`. Snapshot de lieu lié à la demande, contexte durable de triage, corrections explicites budget/horaires persistées avant la feuille, schéma strict, avertissement d’alternative et timeouts Redis. Concierge seul propriétaire de l’état ; feuilles A2A stateless et outils MCP conservés. Triage évalué `gpt-4.1-mini` (défaut du Dockerfile concierge), feuilles/synthèse `gpt-4o-mini`. Aucun nouvel appel regex.
+
+**Vérifié avant mise à jour de la PR #123** : runtime `1853c94`, 125 conversations / 348 tours par agent contre la prod, 6 SAV / 8 tours isolés, 1 annulation synthétique / 4 tours. 1 847 tests passent, 1 ignoré ; Ruff/mypy/garde-fous verts. Modèle : coût cumulé **27.98 USD / 60 USD**, itérations et échecs inclus, rapprochement terminé. Contrôle à faits identiques : synthèse AgentB2C main→PR sur quatre fixtures, pas legacy contre MCP.
+
+**Reste / pièges** : snapshot fournisseur ≠ bon lieu (Disneyland, Rennes sud) ; plafond supprimé à tort sur cheaper ; références ordinales sans shortlist ; pertinence/proximité, langues et nuits ; réservation existante non annulable par le candidat. 15/24 critères géographiques conservés côté candidat contre 17/24 en prod ; ce n’est pas un score global. L’export/Qdrant et le MCP dev ne sont pas à inventaire égal. [Mécanismes, preuves et limites](docs/evaluations/production-state-transfer-2026-10-06.md). PR maintenue en draft, aucun merge/déploiement.
+
+## 2026-10-06 — Première révision (historique) : préserver l’intention multi-tour
+
+Demande : reprendre les mécanismes éprouvés du legacy et ses conversations réelles, sans nouvelle regex. Cette branche contient les changements applicatifs ; le harnais et le registre historique sont dans la PR #121.
+
+Le triage déjà payé émet un changement de lieu validé (`retain` / `replace` / `refine`). La demande non vérifiée est conservée séparément du profil résolu ; un timeout ne perd plus le lieu. La recherche reçoit le contexte utilisateur borné et ne peut utiliser que le point géocodé au tour courant. Une zone correctement typée doit correspondre au nom géographique ; les erreurs de typage ville/quartier restent ouvertes. Les codes IATA sont lus dans les identifiants du fournisseur et priment sur les commerces homonymes. Aucun catalogue géographique ajouté. Les correctifs FAQ, budget explicite et couverture complète du créneau issus du replay précédent sont inclus.
+
+La référence live reste `ai.dayuse.com`, legacy `a08a7792`. Replay final exécuté avant PR : 125 conversations distinctes / 348 tours par agent contre la production réelle, plus 6 SAV / 8 tours isolés, 2 reproductions / 4 tours et 1 annulation synthétique / 4 tours. Coût cumulé 17.10 USD / 60 USD après rapprochement, aucun juge payant. Candidat runtime `032e9e3`, code applicatif identique à cette branche ; 1 828 tests passent, 1 ignoré, Ruff/mypy/garde-fous verts. Sur les 22 critères géographiques communs, 6 → 12 conservés ; des défauts de multi-tour restent confirmés par Langfuse. [Protocole, résultats et limites](docs/evaluations/search-intent-preservation-2026-10-06.md). Données utilisateur et clés non commitées. PR pour review, aucun feu vert de lancement.
+
 ## 2026-10-06 — Arrêt du replay v3 puis verrouillage des identifiants géographiques
 
 `636cebd` : suite 1 969 passés / un skip. Pilote six conversations et six autres conversations géo terminés (35 tours par agent au total), puis arrêt avant les lots de validation : la relecture des outils montrait encore JFK résolu sur East New York et Milford sur un hôtel homonyme. Toutes les tentatives sont conservées, coût cumulé rapproché à 8,9822 $, aucun pending.

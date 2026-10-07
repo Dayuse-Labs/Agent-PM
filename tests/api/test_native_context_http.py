@@ -29,7 +29,7 @@ def _fake_search_leaf(city: str):
 
 
 def _install_search_turn(monkeypatch, city: str):
-    async def fake_classify(message, budget, invocation_id="", *, recent_messages=None):
+    async def fake_classify(message, budget, invocation_id="", *, recent_messages=None, search_context=None):
         budget.charge("triage")
         return Triage("search", "fr", used_llm=False)
 

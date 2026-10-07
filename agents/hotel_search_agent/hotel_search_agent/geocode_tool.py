@@ -120,6 +120,24 @@ def _echoes(place_name: str, *, city: str | None, zone: str | None, state_hint: 
     return geocode_echo_matches(place_name, city=city, zone=zone, state_hint=state_hint)
 
 
+def _within_region_extent(candidate: GeocodeCandidate, region: str, country: str, language: str | None) -> bool:
+    """Provider region extent corroborates a named city, not a legal boundary.
+
+    Some county requests resolve to a municipality whose provider address uses
+    a unitary authority instead. Never replace that provider address with the
+    user's region; only accept a same-country, exact-name city inside its extent.
+    """
+    regions = get_mapbox_client().geocode_candidates(region, country=country, language=language,
+                                                    types="district,region")
+    for place in regions:
+        if place.country_code != country or place.name.casefold() != region.casefold() or not place.bbox:
+            continue
+        west, south, east, north = place.bbox
+        if west <= candidate.longitude <= east and south <= candidate.latitude <= north:
+            return True
+    return False
+
+
 #: How far a tier-2 POI may sit from THIS turn's anchor before the 14th guard
 #: (`poi_anchor_coherence`, 2026-08-26) throws it away.
 #:
@@ -313,6 +331,9 @@ def _ok(
     # lost across turns"). Only-when-present: no zone/metro this turn is
     # carryover at the concierge (S-G1), never a clear.
     delta = dict(profile_delta)
+    if result.provider_place_id:
+        # The resolved provider region outranks words in a negated user phrase.
+        delta["last_state_context"] = result.region or None
     if zone:
         delta["zone"] = zone
     if metro:
@@ -325,6 +346,7 @@ def _ok(
         "resolved_feature_type": feature_type,
         "distance_origin_type": distance_origin_type,
         "country_code": result.country_code,
+        "provider_place_id": result.provider_place_id,
         "profile_delta": delta,
     }
     # OBS3: which deterministic guards actually fired this turn, so the
@@ -579,6 +601,7 @@ def geocode_location(
                 requested_zone=effective_zone or "",
                 inventory=get_inventory(),
                 proximity=proximity_tuple,
+                location_kind=location_kind,
             )
             if landmark is not None and _echoes(
                 landmark.place_name, city=None, zone=effective_zone, state_hint=None
@@ -633,6 +656,9 @@ def geocode_location(
         profile_state_context=profile_state_context,
         country_code=effective_country_code,
     )
+
+    if location_kind is not None:
+        state_hint = profile_state_context
 
     query = ", ".join(
         part for part in (effective_zone, effective_city or effective_metro, state_hint) if part
@@ -697,12 +723,14 @@ def geocode_location(
     # No credible candidate ⇒ no anchor, and the city falls back to being
     # folded into the query — which is what resolves this case correctly.
     city_anchor: tuple[float, float] | None = None
+    city_anchor_country: str | None = None
     if echo_city:
         for scored in resolution.scored:
             if not scored.in_inventory_tier:
                 continue
             if _echoes(scored.candidate.place_name, city=echo_city, zone=None, state_hint=None):
                 city_anchor = (scored.candidate.latitude, scored.candidate.longitude)
+                city_anchor_country = scored.candidate.country_code
                 break
     poi_anchor: tuple[float, float] | None = proximity_tuple or city_anchor
 
@@ -748,7 +776,13 @@ def geocode_location(
              or chosen.name.casefold() == (effective_zone or "").casefold())
             and specific_name_matches(chosen.name, effective_zone or "")
         )
-        if zone_matches and _echoes(chosen.place_name, city=echo_city, zone=effective_zone, state_hint=state_hint):
+        echoes = _echoes(chosen.place_name, city=echo_city, zone=effective_zone, state_hint=state_hint)
+        if (not echoes and state_hint and effective_country_code and not effective_zone
+                and chosen.name.casefold() == (echo_city or "").casefold()
+                and chosen.country_code == effective_country_code
+                and _within_region_extent(chosen, state_hint, effective_country_code, lang)):
+            echoes = _echoes(chosen.place_name, city=echo_city, zone=None, state_hint=None)
+        if zone_matches and echoes:
             profile_delta = _anchor_state(
                 city=effective_city,
                 raw_user_message=raw_user_message,
@@ -829,7 +863,11 @@ def geocode_location(
     if searchbox_query:
         poi_candidates = get_searchbox_client().forward_candidates(
             searchbox_query,
-            country=_soft_country(effective_country_code, country_guess, locale),
+            # A verified destination outranks the browser's default market.
+            # If only coordinates are verified, proximity + the spatial guard
+            # are safer than hard-filtering to the locale's unrelated country.
+            country=_soft_country(effective_country_code, city_anchor_country or country_guess,
+                                  None if city_anchor is not None else locale),
             language=lang,
             proximity=searchbox_proximity,
         )
@@ -848,6 +886,7 @@ def geocode_location(
             inventory=get_inventory(),
             proximity=proximity_tuple,
             city_anchor=city_anchor,
+            location_kind=location_kind,
         )
         if (poi is not None and (not location_kind or specific_name_matches(
             f"{poi.name} {poi.iata_code or ''}", effective_zone or effective_city or effective_metro or ""
@@ -909,7 +948,7 @@ def _is_blank(value: object) -> bool:
     return value is None or (isinstance(value, str) and not value.strip())
 
 
-def inject_profile_geo_context(tool: object, args: dict, tool_context: object) -> None:
+def inject_profile_geo_context(tool: object, args: dict, tool_context: object) -> dict | None:
     """`before_tool_callback` (P0 #4 fix, S-G5) — the deterministic
     profile→tool-args bridge for `geocode_location`, same pattern as
     `equipment_ids.enforce_equipment_filters`: the leaf's own instruction used
@@ -943,6 +982,11 @@ def inject_profile_geo_context(tool: object, args: dict, tool_context: object) -
 
     request = profile_in.get("search_location_request")
     if isinstance(request, dict):
+        from b2c_common.resolved_location import verified_resolution
+
+        cached = verified_resolution(profile_in.get("resolved_search_location"), request)
+        if cached:
+            return cached
         # The orchestrator already interpreted the location edit. Do not let a
         # second model turn a municipality into a neighbourhood or drop a POI.
         for key in ("city", "zone", "metro", "country_code"):

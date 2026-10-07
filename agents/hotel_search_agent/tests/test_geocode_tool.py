@@ -1671,3 +1671,14 @@ def test_provider_iata_identity_beats_hotel_named_after_airport(monkeypatch):
     monkeypatch.setattr(geocode_tool,'get_searchbox_client',lambda:Candidates())
     result = geocode_location(city='New York',zone='JFK Airport',country_code='US',location_kind='landmark')
     assert result['ok'] is True and result['latitude'] == 40.6413
+
+
+def test_verified_city_country_overrides_unrelated_browser_market_for_landmark(monkeypatch):
+    _patch_client(monkeypatch, GeocodeResult(51.5074,-0.1276,'London, England, United Kingdom','GB','England'))
+    monkeypatch.setattr(geocode_tool, 'get_inventory', lambda: _FakeInventory({51.5074: 100, 51.471: 20}))
+    box = _FakeSearchBox(GeocodeResult(51.471,-0.456,'Heathrow Terminal 3, London, United Kingdom','GB','England'))
+    monkeypatch.setattr(geocode_tool, 'get_searchbox_client', lambda: box)
+    result = geocode_location(city='London',zone='Heathrow Terminal 3',location_kind='landmark',
+                              raw_user_message='London Heathrow terminal 3',locale='en-US')
+    assert result['ok'] is True
+    assert box.calls[0][1] == 'GB'

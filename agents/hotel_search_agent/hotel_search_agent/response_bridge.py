@@ -307,6 +307,26 @@ def read_profile_in(tool_context: Any) -> dict[str, Any]:
     return {}
 
 
+def inject_verified_named_hotel(tool: Any, args: dict, tool_context: Any) -> None:
+    """A carried hotel identity uses the city key returned by that same MCP.
+
+    Human municipality names and MCP market slugs need not be interchangeable.
+    A new hotel/destination is not supplied this carried identity by the spine.
+    """
+    if getattr(tool, "name", "") != "find_hotel_by_name":
+        return
+    content = getattr(tool_context, "user_content", None)
+    data = find_datapart(getattr(content, "parts", None)) or {}
+    known = (data.get("query_params") or {}).get("named_hotel")
+    if not isinstance(known, dict) or known.get("source") != "mcp_name_lookup":
+        return
+    if str(args.get("name") or "").casefold() != str(known.get("name") or "").casefold():
+        return
+    city = known.get("city_name")
+    if isinstance(city, str) and city:
+        args["cityName"] = city
+
+
 # --- display normalization (mirrors b2c_concierge.inline_tools shape, S07) -------------------
 def _flatten_amenities(raw: Any) -> list[str]:
     names: list[str] = []
@@ -961,6 +981,7 @@ def capture_after_tool(
                 record_guards_fired(tool_context, fired)
         if isinstance(tool_response, dict) and tool_response.get("ok"):
             resolved_delta = dict(tool_response.get("profile_delta") or {})
+            tool_context.state["temp:resolved_search_location"] = dict(tool_response)
             request = read_profile_in(tool_context).get("search_location_request")
             if isinstance(request, dict):
                 # Only a successful resolution may promote the requested
@@ -1001,6 +1022,20 @@ def capture_after_tool(
             question = (tool_response.get("diagnostics") or {}).get("question")
             if isinstance(question, str) and question.strip():
                 tool_context.state[_STATE_CLARIFY_QUESTION_KEY] = question.strip()
+        elif isinstance(tool_response, dict) and tool_response.get("error") in {"geocode_echo_mismatch", "no_geocodable_location"}:
+            # A rejected place is not a hotel-search outage. End this bounded
+            # lookup with a clarification instead of retrying the same place.
+            language = _profile_language(tool_context)
+            questions = {
+                "en": "I couldn't verify that location. Which city or nearby address should I use?",
+                "fr": "Je n'ai pas pu vérifier ce lieu. Quelle ville ou adresse à proximité dois-je utiliser ?",
+                "es": "No he podido verificar ese lugar. ¿Qué ciudad o dirección cercana debo usar?",
+                "it": "Non ho potuto verificare quel luogo. Quale città o indirizzo vicino devo usare?",
+                "de": "Ich konnte diesen Ort nicht verifizieren. Welche Stadt oder nahe Adresse soll ich verwenden?",
+                "pt": "Não consegui verificar esse local. Que cidade ou endereço próximo devo usar?",
+                "nl": "Ik kon die locatie niet verifiëren. Welke stad of nabijgelegen adres moet ik gebruiken?",
+            }
+            tool_context.state[_STATE_CLARIFY_QUESTION_KEY] = questions.get(language, questions["en"])
         return None
 
     if name not in _TARGET_TOOLS or not isinstance(tool_response, dict):
@@ -1063,6 +1098,13 @@ def capture_after_tool(
         if daypart in DAYPART_HOURS:
             strict_window = daypart
     results = normalize_search_results(structured, exclude_ids, strict_window)
+    if name == "find_hotel_by_name" and len(results) == 1:
+        hotel = results[0]
+        identity = structured.get("hotel") or {}
+        tool_context.state["temp:verified_named_hotel"] = {
+            "hotel_id": hotel.get("hotel_id"), "name": hotel.get("name"), "source": "mcp_name_lookup",
+            "city_name": identity.get("cityName"), "country_code": identity.get("countryCode"),
+        }
     timeslot_fallback = False
     if strict_window is not None and not results:
         # The exact-minute filter emptied the set: fall back to the coarser
@@ -1172,6 +1214,8 @@ def capture_after_tool(
             int("budget_max" in budget_timeslot),
             int("timeslot_start" in budget_timeslot or "timeslot_end" in budget_timeslot),
         )
+    if name == "search_offers":
+        results = order_returned_offers(results, read_profile_in(tool_context).get("search_priority"))
     tool_context.state[_STATE_RESULTS_KEY] = results
 
     if name != "search_offers":
@@ -1183,6 +1227,21 @@ def capture_after_tool(
         "total": structured.get("total"),
         "hotels": results,
     }
+
+
+def order_returned_offers(results: list[dict], priority: str | None) -> list[dict]:
+    """Order this returned page only; never claim catalogue-wide optimality."""
+    field = {"price": "price_eur_cents", "distance": "distance_km", "rating": "rating"}.get(priority or "")
+    if field is None:
+        return results
+
+    def key(hotel: dict) -> tuple[bool, float]:
+        value = hotel.get(field)
+        if not isinstance(value, (float, int)) or isinstance(value, bool) or not math.isfinite(value):
+            return (True, 0.0)
+        return (False, -float(value) if priority == "rating" else float(value))
+
+    return sorted(results, key=key)
 
 
 def _op_set(value: Any) -> dict[str, Any]:
@@ -1559,6 +1618,8 @@ def emit_search_datapart(callback_context: Any) -> genai_types.Content | None:
         profile_delta["zone"] = _op_set(raw_delta["zone"])
     if "metro" in raw_delta:
         profile_delta["metro"] = _op_set(raw_delta["metro"])
+    if state.get("temp:verified_named_hotel"):
+        profile_delta["named_hotel"] = _op_set(state["temp:verified_named_hotel"])
     # S-G6: a FRESH date label this turn (datetime_resolver.resolve_search_date)
     # — only-when-present. When the model extracted no date this turn, nothing
     # is stashed here at all (the code-computed search still used the
@@ -1646,8 +1707,12 @@ def emit_search_datapart(callback_context: Any) -> genai_types.Content | None:
     )
 
     payload: dict[str, Any] = {}
+    if state.get("temp:resolved_search_location"):
+        payload["resolved_location"] = state["temp:resolved_search_location"]
     if results is not None:  # a search ran (even 0 results is a real outcome)
         payload["results"] = results
+        if state.get("temp:verified_named_hotel") and results and not any(r.get("price_eur_cents") is not None for r in results):
+            payload["identity_only"] = True
         # S-CX6: WHICH day these results (or this dead end) are about, and
         # whether that day is the session's today. The concierge cannot derive
         # it — a carried-over/default date is deliberately never persisted to
@@ -1752,6 +1817,9 @@ def skip_final_generation(callback_context: Any, llm_request: Any) -> LlmRespons
     `after_model_callback` runs, so `llm_timing_after` never fires — placing this
     first means `llm_timing_before` never stamps an orphaned timer for a call that
     won't happen."""
+    question = callback_context.state.get(_STATE_CLARIFY_QUESTION_KEY)
+    if question and callback_context.state.get(_STATE_RESULTS_KEY) is None:
+        return LlmResponse(content=genai_types.Content(role="model", parts=[genai_types.Part(text=question)]))
     if callback_context.state.get(_STATE_SEARCH_UNAVAILABLE_KEY):
         # S-CX2: the breaker already short-circuited an MCP search call this
         # turn — a final prose pass could only echo the failure diagnostic (or

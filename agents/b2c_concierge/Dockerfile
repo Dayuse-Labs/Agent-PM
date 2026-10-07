@@ -31,7 +31,10 @@ RUN set -eu; \
     rm -f /root/.gitconfig
 COPY agents/b2c_concierge/ /app/
 
-ENV PORT=8100
+# Structured search edits need more than the former closed routing enum.
+# Keep this role independently configurable; leaves/synthesis keep their model.
+ENV PORT=8100 \
+    DAYUSE_MODEL_TRIAGE=gpt-4.1-mini
 EXPOSE 8100
 RUN useradd --create-home --uid 10001 appuser
 USER appuser
