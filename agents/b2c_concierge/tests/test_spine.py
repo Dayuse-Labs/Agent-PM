@@ -692,6 +692,7 @@ class TestInternalEvents:
                 # S-PERF4 + S-CX9: no pick for this result — it carries no
                 # hotel_id, so it never was bookable and its card gets no CTA.
                 "hotel_picks": [],
+                "search_page": None,
             }
         ]
         assert _marker_index(events, "hotels") < _final_index(events)
@@ -722,6 +723,7 @@ class TestInternalEvents:
                 # details/compare never touch `last_results`, and no search ran
                 # in this session — same empty list `build_chat_payload` returns.
                 "hotel_picks": [],
+                "search_page": None,
             }
         ]
 

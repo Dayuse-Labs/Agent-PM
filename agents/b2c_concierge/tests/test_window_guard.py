@@ -61,7 +61,7 @@ class TestSpine:
         hotels: list[list[dict]] = []
         original = agent_module._B2cConcierge._hotels_event
 
-        def spy(self, ctx, resp, language, picks):
+        def spy(self, ctx, resp, language, picks, search_page=None):
             hotels.append(list(resp.get("results") or []))
             return original(self, ctx, resp, language, picks)
 

@@ -1,0 +1,75 @@
+"""mcp-dayuse#5: the "no offers" sentence cites the search that actually ran."""
+from __future__ import annotations
+
+import pytest
+
+from b2c_concierge.no_offers import drop_restated, no_offers_line
+
+_LYON = {
+    "city": "Lyon", "zone": None, "date": "2026-10-07", "daypart": None,
+    "timeslot_start": "06:00", "timeslot_end": "16:00", "budget_max": 20.0,
+    "amenities": ["spa", "pool"], "adults": None, "children": None, "radius_km": 20,
+}
+
+
+def test_every_applied_criterion_is_cited():
+    assert no_offers_line(_LYON, "fr") == (
+        "Aucune offre à Lyon le mercredi 7 octobre 2026, de 6h à 16h, à moins de 20 €, avec spa et piscine."
+    )
+
+
+def test_a_zone_is_cited_with_its_city():
+    """Live 2026-10-06: "Gare du Nord" and 7h–9h vanished from the LLM's version."""
+    context = {
+        **_LYON, "city": "Paris", "zone": "Gare du Nord", "timeslot_start": "07:00",
+        "timeslot_end": "09:00", "budget_max": 30.0, "amenities": ["sauna"],
+    }
+    assert no_offers_line(context, "en") == (
+        "No offers around Gare du Nord, Paris on Wednesday, October 7, 2026, "
+        "from 7:00 to 9:00, under €30, with a sauna."
+    )
+
+
+def test_a_daypart_replaces_the_window():
+    context = {**_LYON, "daypart": "afternoon", "timeslot_start": None, "timeslot_end": None,
+               "budget_max": None, "amenities": []}
+    assert no_offers_line(context, "fr") == "Aucune offre à Lyon le mercredi 7 octobre 2026, l'après-midi."
+
+
+def test_minutes_round_to_the_nearest_hour_like_the_filter():
+    context = {**_LYON, "timeslot_start": "22:01", "timeslot_end": "23:01", "budget_max": None, "amenities": []}
+    assert "de 22h à 23h" in no_offers_line(context, "fr")
+
+
+@pytest.mark.parametrize("language", ["fr", "en", "es", "it", "de", "pt", "nl"])
+def test_every_language_cites_the_same_facts(language):
+    line = no_offers_line({**_LYON, "adults": 3}, language)
+    assert "Lyon" in line and "2026" in line and "20" in line and "3" in line
+    assert "{" not in line and line.endswith(".")
+
+
+def test_a_restated_sentence_is_dropped_and_the_next_step_kept():
+    """Live 2026-10-06: shown the sentence, the synthesis copied it anyway."""
+    line = no_offers_line(_LYON, "fr")
+    text = (
+        "Aucune offre à Lyon le mercredi 7 octobre 2026, à moins de 20 €, avec spa et piscine. "
+        "Je vous recommande d'augmenter votre budget ou de changer de date."
+    )
+    assert drop_restated(text, line) == "Je vous recommande d'augmenter votre budget ou de changer de date."
+
+
+def test_a_german_date_does_not_split_the_restated_sentence():
+    line = no_offers_line(_LYON, "de")
+    text = f"{line} Versuchen Sie ein anderes Datum."
+    assert drop_restated(text, line) == "Versuchen Sie ein anderes Datum."
+
+
+def test_an_unrelated_answer_is_left_alone():
+    line = no_offers_line(_LYON, "fr")
+    text = "Essayez une autre date.\n\nOu une zone plus large."
+    assert drop_restated(text, line) == text
+
+
+def test_nothing_to_cite_gives_no_sentence():
+    assert no_offers_line(None, "fr") == ""
+    assert no_offers_line({}, "fr") == ""

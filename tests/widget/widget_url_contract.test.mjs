@@ -197,3 +197,9 @@ test('no country on the hotels means no results market — the caller falls back
     assert.equal(markets.getResultsMarketMeta([]), null);
     assert.equal(markets.getResultsMarketMeta(null), null);
 });
+
+test('the search page URL of « Voir tout » passes the allowlist intact (mcp-dayuse#5)', () => {
+    const url = 'https://www.dayuse.fr/s/france/auvergne-rhone-alpes/rhone/lyon'
+        + '?selectedAddress=Lyon&checkinDate=2026-10-07&checkinTime=6am&checkoutTime=4pm';
+    assert.equal(sanitizeDayuseUrl(url), url);
+});

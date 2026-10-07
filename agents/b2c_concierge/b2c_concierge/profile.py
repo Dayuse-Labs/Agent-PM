@@ -258,6 +258,13 @@ class SessionProfile:
     # currency ("HOTEL"), kept for the rest of the conversation until they ask
     # for euros again (product decision 2026-09-25).
     display_currency: str | None = None
+    # Last currency the user asked for ("EUR", "HOTEL" or an ISO code), None
+    # until they mention one: the EUR disclosure is only owed after that
+    # (mcp-dayuse#5 — the widget's own currency is not a request).
+    requested_currency: str | None = None
+    # The site's search page for the last search that ran ({"name", "url"}),
+    # the target of the widget's "Voir tout" (mcp-dayuse#5); None = country page.
+    search_page: dict[str, str] | None = None
     # mcp-dayuse#8, option B: "morning" | "afternoon" | "evening" — a soft
     # time filter read in code by the leaf, exclusive with a clock window.
     daypart: str | None = None
@@ -303,6 +310,8 @@ class SessionProfile:
             "adults": self.adults,
             "children": self.children,
             "display_currency": self.display_currency,
+            "requested_currency": self.requested_currency,
+            "search_page": self.search_page,
             "daypart": self.daypart,
             "schema_version": PROFILE_SCHEMA_VERSION,
         }
@@ -332,6 +341,8 @@ _CONCIERGE_ONLY_KEYS = (
     "distance_origin",
     "picked_hotel_id",
     "display_currency",
+    "requested_currency",
+    "search_page",
 )
 
 
@@ -400,6 +411,13 @@ def _looks_like_time_derived_budget(message: str, budget_max: float) -> bool:
         return False
     unit = rf"\b{token}\s*(?:am|pm|h|hours?|hrs?|minutes?|mins?|kilometers?|kilometres?|km|miles?|mi)\b"
     return bool(re.search(unit, text))
+
+
+def _states_amount(message: str, budget_max: float) -> bool:
+    """The message itself contains the budget figure ("moins de 120 euros",
+    "under $90"): the user said it, it is not a default."""
+    token = re.escape(str(int(budget_max)) if float(budget_max).is_integer() else str(budget_max))
+    return bool(re.search(rf"(?<![\d.,]){token}(?![\d])", message or ""))
 
 
 def maybe_auto_widen(profile: SessionProfile) -> bool:
@@ -599,12 +617,18 @@ def apply_profile_delta(
             if fired is not None:
                 fired.add("budget_integrity")
         else:
+            carried_explicit = (
+                profile.budget_max == new_budget
+                and profile.budget_request_source == BUDGET_SOURCE_EXPLICIT
+            )
             profile.budget_max = new_budget
             source = values.get("budget_request_source")
             if _bare_number_value(user_message) == new_budget:
                 source = BUDGET_SOURCE_EXPLICIT
                 if fired is not None:
                     fired.add("budget_integrity")
+            elif carried_explicit or _states_amount(user_message, new_budget):
+                source = BUDGET_SOURCE_EXPLICIT
             if source is not None:
                 profile.budget_request_source = source
 
@@ -626,6 +650,11 @@ def apply_profile_delta(
 
     start_candidate = values.get("timeslot_start")
     end_candidate = values.get("timeslot_end")
+    window_carried_explicit = (
+        profile.timeslot_request_source == BUDGET_SOURCE_EXPLICIT
+        and (start_candidate or None, end_candidate or None)
+        == (profile.timeslot_start, profile.timeslot_end)
+    )
     reject_start = bool(
         start_candidate
         and profile.timeslot_mode == "end_only"
@@ -652,7 +681,14 @@ def apply_profile_delta(
         elif profile.timeslot_end:
             profile.timeslot_mode = "end_only"
     if "timeslot_request_source" in values:
-        profile.timeslot_request_source = values["timeslot_request_source"]
+        # The leaf always says "flexible_default": the hours are the user's own
+        # when this message states a time, or when the same window is carried.
+        stated = (start_candidate or end_candidate) and (
+            _mentions_explicit_time(user_message) or window_carried_explicit
+        )
+        profile.timeslot_request_source = (
+            BUDGET_SOURCE_EXPLICIT if stated else values["timeslot_request_source"]
+        )
 
     # UX1 — the amenity filter is the one slot the user must be able to SHRINK
     # ("enleve le spa"). A typed `{"op": "set"}` from the leaf carries the

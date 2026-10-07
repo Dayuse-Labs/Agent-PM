@@ -153,6 +153,7 @@ from .profile import (
 )
 from .profile_store import get_profile_store
 from .requested_date import date_served_notice, expected_search_date, reference_today
+from .no_offers import drop_restated, no_offers_line
 from .window_guard import enforce_window_disclosure, enforce_window_match, window_label
 from .routing import LEAF_FAQ, LEAF_HOTEL_SEARCH, ROUTES, bearer_token, card_url
 from .triage import (
@@ -469,6 +470,8 @@ ABSOLUTE RULES — a violation is a defect:
    there are NO results: say plainly "no day-use offers in <place> for <date>"
    and offer one concrete next step (change the date, widen the area, or adjust
    the budget) — never leave the user unsure whether it's a display glitch.
+   When a NO OFFERS sentence is present, it is already shown above your reply:
+   do not repeat the place, date or filters — go straight to that next step.
 8. If a PROVENANCE note is present, never claim the user requested the
    budget/timeslot values it names — they came from a system default, not
    something the user said; state them, if at all, only as your own
@@ -528,6 +531,7 @@ class _B2cConcierge(BaseAgent):
         response: dict[str, Any],
         language: str,
         picks: list[dict[str, Any]] | None = None,
+        search_page: dict[str, str] | None = None,
     ) -> Event:
         return self._marker_event(
             ctx,
@@ -550,6 +554,8 @@ class _B2cConcierge(BaseAgent):
                 # mode. Same `build_hotel_picks(profile)` the `done` payload
                 # calls, over the same profile: equal by construction.
                 "hotel_picks": picks or [],
+                # mcp-dayuse#5: the site's page for this search, for "Voir tout".
+                "search_page": search_page,
             },
         )
 
@@ -599,7 +605,7 @@ class _B2cConcierge(BaseAgent):
         self, *, message: str, language: str, leaf_text: str, ground_truth_block: str,
         widen_note: str | None, invocation_id: str, extra_instruction: str = "",
         search_context: str = "", provenance_note: str = "", currency_note: str = "",
-        angle: str = "",
+        angle: str = "", no_offers: str = "",
     ) -> str | None:
         """ONE litellm call producing a candidate synthesis text, or None on
         failure. The system prompt's STATIC prefix never changes (cache); only
@@ -640,7 +646,9 @@ class _B2cConcierge(BaseAgent):
             user += f"\n\nPROVENANCE: {provenance_note}"
         if currency_note:
             user += f"\n\nCURRENCY: {currency_note}"
-        if search_context:
+        if no_offers:
+            user += f"\n\nNO OFFERS (already shown above your reply, in code): {no_offers}"
+        elif search_context:
             user += f"\n\nSEARCH CONTEXT (what you understood — restate briefly): {search_context}"
         if angle:
             user += f"\n\nANGLE (lead on this, in your own words): {angle}"
@@ -698,7 +706,7 @@ class _B2cConcierge(BaseAgent):
     async def _synthesize_with_guards(
         self, *, message: str, language: str, leaf_text: str, response: dict[str, Any],
         profile: SessionProfile, budget: TurnBudget, invocation_id: str,
-        leaf_text_is_user_facing: bool = True,
+        leaf_text_is_user_facing: bool = True, no_offers: str = "",
     ) -> str | None:
         """ONE charged "synthesis" budget slot (internal retries below are an
         implementation detail of this ONE phase — same precedent as the
@@ -756,32 +764,33 @@ class _B2cConcierge(BaseAgent):
         provenance_note = "; ".join(prov_bits)
 
         # Currency honesty (S-G7, A6-a: display stays EUR, never an invented
-        # conversion — this is the disclosure, not the pricing). Two
-        # independent triggers, either alone is enough: (a) the user's own
-        # native-context currency (profile.currency, S-G1/S-G2) differs from
-        # EUR; (b) a hotel actually shown this turn has its OWN currency
-        # (`currency_code`, live-probed 2026-07-23 — MCP sends it, but never a
-        # converted price) that differs from EUR — a fact independent of
-        # whatever the user's client currency happens to be.
+        # conversion — this is the disclosure, not the pricing). Owed only once
+        # the user has asked for a currency other than EUR (mcp-dayuse#5,
+        # decision Mathias 2026-10-06): the widget's own currency is not a
+        # request, and a note on every non-EUR market was noise (22 of 29
+        # traces). Then: the requested code is not what the cards show, or a
+        # shown hotel has its OWN non-EUR currency and no card switched to it.
         currency_bits: list[str] = []
-        # Prices already shown in each hotel's own currency: an "EUR, no
-        # conversion" disclosure would contradict the cards.
-        eur_displayed = profile.display_currency != HOTEL
-        if eur_displayed and profile.currency and profile.currency.upper() != "EUR":
-            currency_bits.append(f"user's own currency: {profile.currency}")
-        # In hotel-currency mode the disclosure's generic "prices in EUR" is only
-        # true when NO card could switch; on a mixed list the € on the card says it.
-        hotels = shortlist_hotels(response)
-        any_switched = any(h.get("display_currency") for h in hotels)
-        hotel_currencies = sorted(
-            {
-                h["currency_code"]
-                for h in hotels
-                if isinstance(h.get("currency_code"), str) and h["currency_code"].upper() != "EUR"
-            }
-        )
-        if hotel_currencies and not any_switched:
-            currency_bits.append(f"hotel's own currency: {', '.join(hotel_currencies)}")
+        requested = profile.requested_currency
+        if requested not in (None, "EUR"):
+            # Prices already shown in each hotel's own currency: an "EUR, no
+            # conversion" disclosure would contradict the cards.
+            eur_displayed = profile.display_currency != HOTEL
+            if eur_displayed and requested != HOTEL:
+                currency_bits.append(f"user asked for: {requested}")
+            # In hotel-currency mode the disclosure's generic "prices in EUR" is only
+            # true when NO card could switch; on a mixed list the € on the card says it.
+            hotels = shortlist_hotels(response)
+            any_switched = any(h.get("display_currency") for h in hotels)
+            hotel_currencies = sorted(
+                {
+                    h["currency_code"]
+                    for h in hotels
+                    if isinstance(h.get("currency_code"), str) and h["currency_code"].upper() != "EUR"
+                }
+            )
+            if hotel_currencies and not any_switched:
+                currency_bits.append(f"hotel's own currency: {', '.join(hotel_currencies)}")
         currency_note = "; ".join(currency_bits)
 
         candidate = await self._generate_once(
@@ -789,7 +798,7 @@ class _B2cConcierge(BaseAgent):
             ground_truth_block=ground_truth_block, widen_note=widen_note,
             invocation_id=invocation_id, search_context=search_context,
             provenance_note=provenance_note, currency_note=currency_note,
-            angle=angle,
+            angle=angle, no_offers=no_offers,
         )
 
         def fallback() -> str | None:
@@ -816,7 +825,7 @@ class _B2cConcierge(BaseAgent):
                     ground_truth_block=ground_truth_block, widen_note=widen_note,
                     invocation_id=invocation_id, extra_instruction=directive,
                     search_context=search_context, provenance_note=provenance_note,
-                    currency_note=currency_note, angle=angle,
+                    currency_note=currency_note, angle=angle, no_offers=no_offers,
                 )
                 if retry is not None:
                     candidate = retry
@@ -1200,6 +1209,8 @@ class _B2cConcierge(BaseAgent):
             family, route = "search", ROUTES["search"]
 
         currency = resolve_currency_request(triage.display_currency, profile.last_results)
+        if triage.display_currency:
+            profile.requested_currency = triage.display_currency
         repeat_search = False
         currency_notice: str | None = None
         # A code the hotels on screen don't use may still be the currency of the
@@ -1422,6 +1433,7 @@ class _B2cConcierge(BaseAgent):
             )
             return
         window_fallback: str | None = None
+        no_offers = ""
         if route.target == LEAF_HOTEL_SEARCH and "results" in response:
             # guard_window_match (mcp-dayuse#8): what reaches the screen as a
             # match covers the slot, by the site rule the leaf filters with.
@@ -1450,6 +1462,13 @@ class _B2cConcierge(BaseAgent):
             if profile.display_currency == HOTEL:
                 apply_hotel_currency(response["results"])
             results_count = len(response["results"])
+            search_context = response.get("search_context")
+            page = search_context.get("search_page") if isinstance(search_context, dict) else None
+            profile.search_page = page if isinstance(page, dict) and page.get("url") else None
+            if results_count == 0:
+                # mcp-dayuse#5: the criteria of the search that actually ran,
+                # cited in code — never what the model remembers of the request.
+                no_offers = no_offers_line(response.get("search_context"), reply_language)
             # S-CX6: today's booking window closed on a market that DOES have
             # matching hotels (leaf-owned `cutoff_closed`; it already probed the
             # next day and found nothing usable either). The chips must then
@@ -1499,11 +1518,13 @@ class _B2cConcierge(BaseAgent):
         # turns (`search_unavailable`, pagination exhausted) where the frame
         # carried `hotels: []` — nothing to paint — and the payload's `hotels`
         # is None either way (`normalize_hotels(x) if x else None`).
-        yield self._hotels_event(ctx, response, reply_language, build_hotel_picks(profile))
+        yield self._hotels_event(
+            ctx, response, reply_language, build_hotel_picks(profile), profile.search_page
+        )
 
         synth = await self._synthesize_with_guards(
             message=message, language=reply_language, leaf_text=leaf_text, response=response,
-            profile=profile, budget=budget, invocation_id=inv,
+            profile=profile, budget=budget, invocation_id=inv, no_offers=no_offers,
         )
         await store.set(ctx.session.id, profile)
 
@@ -1532,6 +1553,9 @@ class _B2cConcierge(BaseAgent):
                 templates.named_hotel_not_found_notice(named_not_found, reply_language, profile.city)
                 + f"\n\n{final_text}"
             )
+        if no_offers:
+            rest = drop_restated(final_text, no_offers)
+            final_text = f"{no_offers}\n\n{rest}" if rest else no_offers
         if window_fallback:
             final_text, _ = enforce_window_disclosure(final_text, window_fallback, reply_language)
         if date_notice:

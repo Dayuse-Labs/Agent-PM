@@ -493,7 +493,12 @@ def build_chat_payload(
         "requires_clarification": requires_clarification,
         "profile_status": _profile_status(profile),
         "active_filters": build_active_filters(profile),
-        "market": {"country_code": market_country} if market_country else {},
+        # mcp-dayuse#5: `search_page` ({name, url}) is the site's page for the
+        # search that ran — "Voir tout" opens it instead of the country page.
+        "market": {
+            **({"country_code": market_country} if market_country else {}),
+            **({"search_page": profile.search_page} if profile.search_page else {}),
+        },
         "market_country": market_country,
         "entry_market_country": market_country,
         "search_country": market_country,
@@ -919,6 +924,7 @@ async def chat_stream(request: Request) -> Response:
                                     "requires_clarification": requires_clarification,
                                     "response_language": data.get("response_language") or "",
                                     "hotel_picks": data.get("hotel_picks") or [],
+                                    "search_page": data.get("search_page"),
                                 })
                             elif kind == "booking":
                                 booking_card = data.get("booking_card") or None
