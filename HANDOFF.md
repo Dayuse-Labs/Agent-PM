@@ -4,9 +4,15 @@
 
 > 📋 **Pour savoir QUOI faire ensuite, ouvrir [`CHANTIERS.md`](CHANTIERS.md)** (état vérifié au 2026-09-14) : la liste des chantiers ouverts, chacun avec sa preuve, ses actions et un prompt prêt à coller — plus la liste de ce qu'il ne faut **pas** relancer parce que c'est déjà livré. `tasks/todo.md` est périmé et ne doit plus servir de référence.
 
-## 2026-10-07 — Préservation des conversations réelles, validation en cours
+## 2026-10-07 — Préservation complète évaluée, validation de lancement non acquise
 
-Correctifs en cours de validation : budget comparatif distinct d’une suppression, garde sur sélection sans shortlist, langue conservée sur montant isolé, nuit explicitement non confirmable, reprise après accord, hôtel nommé transmis entre tours, priorité de recherche et contrôle des homonymes POI via les catégories du fournisseur. Aucun nouvel appel regex. Les replays précédents restent historiques ; ne pas les attribuer à ce nouveau runtime. Correction de résilience ajoutée : les réponses locales `mcp_circuit_open`, `geocode_required` et `TOOL BUDGET` ne réarment ni ne réinitialisent le coupe-circuit ; reprise après 30 s prouvée sous trafic continu. La passe v12 reste conservée mais invalide pour juger la qualité conversationnelle à cause de ce verrouillage. Résultats et coûts finaux à compléter avant publication de cette révision.
+Runtime `1be89742` : budget/lieu/identité hôtel persistés, nuits et disponibilité distinguées, priorités et garde-fous géographiques, reprise du coupe-circuit corrigée. Concierge seul propriétaire de Redis, feuilles stateless A2A et MCP conservés, LiteLLM uniquement, aucun nouvel appel regex. Profil : triage GPT‑4.1 mini ; feuilles/synthèse GPT‑4o mini.
+
+**Exécuté** : 125 séquences principales/348 tours, 12 cas réservés/43 tours, 4 contrôles d'inventaire/14 tours, 6 SAV/8 tours, 1 annulation fictive/4 tours. 1 877 tests app + 193 harnais passent (1 skip par suite), contrôles statiques verts. Géographie : 16 conservés, 6 partiels, 2 échecs. Modèles : 37.60 USD observés + 1 USD de provision, plafond 60 USD, ledger rapproché.
+
+**À ne pas surinterpréter** : référence principale = réponses de la vraie prod du 6 octobre ; nouveau lot frais = 9 cas production + 3 isolés. Sources et modèles diffèrent. 140 revues GPT‑4.1 terminées mais classement invalidé par contre-exemple de ville inventée ; pas de taux global fiable. Le registre de 1 707 tests legacy ne signifie pas tous les comportements portés. Annulation fictive : zéro appel fournisseur, aucun succès.
+
+**Bloquants conservés** : lieux composés/clarifications, hôtel nommé au troisième tour, négations de zone et priorités, questions de capacité, faux positif durée de séjour→trajet, devises, incohérences FAQ et capacité SAV manquante. PR #123 et harnais #121 restent en draft, pas de lancement. [Preuves, résultats et limites](docs/evaluations/production-preservation-2026-10-07.md).
 
 ## 2026-10-06 — Suite : état de production adapté au concierge, sources distinguées
 
