@@ -12,6 +12,8 @@ safe part: verify each referenced trace still exists (never import a dead
 reference silently), pull `input.messages` from the trace's OWN recorded
 input (single source of truth — never a hand-transcription that could drift
 from what actually happened), and upsert into the hosted dataset.
+Upsert can overwrite hosted corrections for those ids. Export and reconcile
+hosted annotations before maintenance imports; CI must not run this script.
 
 A prod trace is a single completed turn, not a fixture: it never carries a
 `profile` (turn_index 0 in every curated case so far) — a future item

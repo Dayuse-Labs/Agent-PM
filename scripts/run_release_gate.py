@@ -87,7 +87,7 @@ def run_units() -> dict:
     tail = proc.stdout.strip().splitlines()[-1] if proc.stdout.strip() else ""
     counts = {kind: int(n) for n, kind in _PYTEST_COUNT_RE.findall(proc.stdout)}
     failed = counts.get("failed", 0) + counts.get("error", 0) + counts.get("errors", 0)
-    return {"passed": counts.get("passed", 0), "failed": failed, "line": tail}
+    return {"passed": counts.get("passed", 0), "failed": failed, "line": tail, "exit_code": proc.returncode}
 
 
 def run_battery(label: str) -> dict | None:
@@ -117,6 +117,11 @@ def evaluate(units: dict, battery: dict | None, baselines: dict, *, quick: bool)
     """Return the list of failure strings (empty == green)."""
     failures: list[str] = []
 
+    if (units.get("exit_code", 0) not in (0, 1)
+            or (units.get("exit_code") == 1 and units.get("failed", 0) == 0)
+            or units.get("passed", 0) + units.get("failed", 0) == 0):
+        failures.append("units: suite did not complete or collected no tests")
+
     base_units = baselines.get("units", {})
     max_failed = base_units.get("max_failed", 0)
     if units["failed"] > max_failed:
@@ -124,8 +129,10 @@ def evaluate(units: dict, battery: dict | None, baselines: dict, *, quick: bool)
             f"units: {units['failed']} failed > baseline max {max_failed} ({units['line']})"
         )
 
-    if quick or battery is None:
+    if quick:
         return failures
+    if battery is None:
+        return failures + ["conversation: battery unavailable; full gate cannot pass"]
 
     summary = battery["summary"]
     base_budget = baselines.get("budget", {})
@@ -144,6 +151,15 @@ def evaluate(units: dict, battery: dict | None, baselines: dict, *, quick: bool)
         )
 
     base_conv = baselines.get("conversation", {})
+    expected_total = base_conv.get("total")
+    if expected_total is None or summary.get("total") != expected_total:
+        failures.append(
+            f"conversation coverage: {summary.get('total')} cases, expected {expected_total}; recalibrate explicitly"
+        )
+    for family, expected in base_conv.get("by_family", {}).items():
+        actual = summary.get("by_family", {}).get(family, {}).get("count")
+        if actual != expected.get("count"):
+            failures.append(f"conversation coverage: family {family} has {actual} cases, expected {expected.get('count')}")
     min_passed = base_conv.get("min_passed")
     tolerance = base_conv.get("tolerance", CONVERSATION_VARIANCE_TOLERANCE)
     if min_passed is not None and summary["passed"] < min_passed - tolerance:
