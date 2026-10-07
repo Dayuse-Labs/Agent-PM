@@ -4,6 +4,10 @@
 
 > 📋 **Pour savoir QUOI faire ensuite, ouvrir [`CHANTIERS.md`](CHANTIERS.md)** (état vérifié au 2026-09-14) : la liste des chantiers ouverts, chacun avec sa preuve, ses actions et un prompt prêt à coller — plus la liste de ce qu'il ne faut **pas** relancer parce que c'est déjà livré. `tasks/todo.md` est périmé et ne doit plus servir de référence.
 
+## 2026-10-07 — Intégration du main courant, contrôle séparé v15
+
+Main `9b2ec69` intégré : dates, fenêtres horaires et moments souples, notes devise sur demande, états vides, Voir tout, contrat MCP. Les slots de contexte et la reprise du coupe-circuit de cette PR sont conservés. Pas de nouvelle regex ajoutée par cette intégration au-delà du code déjà présent sur main. Test de câblage mis à jour pour le dernier guard de schéma. 2 057 tests passent à la première suite, un test de cardinalité corrigé puis ses 18 tests repassés ; mypy 65 fichiers, Ruff et guardrails verts. Rejeu v15 en cours sur runtime `40dd0c6`, preuves v14 conservées distinctes. Pas de lancement. Budget utilisateur toujours 60 USD, seuil interne 42 USD / réserve 18 USD pour contrôler cette intégration.
+
 ## 2026-10-07 — Préservation complète évaluée, validation de lancement non acquise
 
 Runtime `1be89742` : budget/lieu/identité hôtel persistés, nuits et disponibilité distinguées, priorités et garde-fous géographiques, reprise du coupe-circuit corrigée. Concierge seul propriétaire de Redis, feuilles stateless A2A et MCP conservés, LiteLLM uniquement, aucun nouvel appel regex. Profil : triage GPT‑4.1 mini ; feuilles/synthèse GPT‑4o mini.
