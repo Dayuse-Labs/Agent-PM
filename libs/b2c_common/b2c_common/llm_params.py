@@ -49,7 +49,9 @@ _MAX_TOKENS_DEFAULTS = {
     # JSON (truncation loses every triage slot, not only geography).
     "TRIAGE": 650,
     # Synthesis replies are ~150-300 tokens; same reasoning-token headroom.
-    "SYNTHESIS": 1000,
+    # 1000 was all spent on reasoning once (QA trace 62207822, gpt-5.2:
+    # finish_reason=length, empty content) — 2000 per ticket mcp-dayuse#8.
+    "SYNTHESIS": 2000,
 }
 
 

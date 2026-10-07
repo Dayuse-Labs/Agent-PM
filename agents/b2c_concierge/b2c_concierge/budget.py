@@ -29,11 +29,15 @@ class TurnBudget:
     `fired` (OBS3): the set of `GUARD_SCORE_NAMES` entries whose trigger
     condition was met THIS turn — accumulated at each guard's own call site
     (agent.py, profile.py, inline_tools.py) and read once, at the turn's
-    single emission point (`_emit_turn_metric`), into `score_guards`."""
+    single emission point (`_emit_turn_metric`), into `score_guards`.
+
+    `fallbacks`: same mechanics for `FALLBACK_SCORE_NAMES` — the degraded
+    paths that still answered this turn, read into `score_fallbacks`."""
 
     llm_calls: int = 0
     phases: list[str] = field(default_factory=list)
     fired: set[str] = field(default_factory=set)
+    fallbacks: set[str] = field(default_factory=set)
 
     def charge(self, phase: str) -> None:
         if self.llm_calls >= MAX_LLM_CALLS_PER_TURN:

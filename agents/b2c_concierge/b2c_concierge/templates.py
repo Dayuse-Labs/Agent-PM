@@ -428,6 +428,65 @@ def leaf_degraded_response(family: str, language: str, city: str | None = None) 
     return degraded + suffix
 
 
+# mcp-dayuse#8 (QA trace 9bc5feb6): the search service ANSWERED and refused
+# this request — "retry in a moment" would only fail the same way.
+_SEARCH_REJECTED: dict[str, str] = {
+    "fr": "Je n'ai pas pu lancer cette recherche telle quelle. Pouvez-vous la reformuler "
+    "(ville, date, créneau) ?",
+    "en": "I couldn't run that search as it stands. Could you rephrase it (city, date, time slot)?",
+    "es": "No he podido lanzar esta búsqueda tal cual. ¿Puedes reformularla (ciudad, fecha, franja horaria)?",
+    "it": "Non sono riuscito a lanciare questa ricerca così com'è. Puoi riformularla "
+    "(città, data, fascia oraria)?",
+    "de": "Ich konnte diese Suche so nicht starten. Kannst du sie umformulieren (Stadt, Datum, Zeitfenster)?",
+    "pt": "Não consegui fazer esta pesquisa assim. Pode reformulá-la (cidade, data, horário)?",
+    "nl": "Ik kon deze zoekopdracht zo niet uitvoeren. Kun je hem anders formuleren (stad, datum, tijdslot)?",
+}
+
+
+def search_rejected_response(language: str) -> str:
+    return _pick(language, _SEARCH_REJECTED)
+
+
+_NAMED_NOT_FOUND: dict[str, str] = {
+    "fr": "Je n'ai pas trouvé l'hôtel « {name} » sur Dayuse : voici d'autres hôtels{where}.",
+    "en": "I couldn't find the hotel \"{name}\" on Dayuse: here are other hotels{where}.",
+    "es": "No he encontrado el hotel «{name}» en Dayuse: aquí tienes otros hoteles{where}.",
+    "it": "Non ho trovato l'hotel «{name}» su Dayuse: ecco altri hotel{where}.",
+    "de": "Ich habe das Hotel „{name}“ auf Dayuse nicht gefunden: Hier sind andere Hotels{where}.",
+    "pt": "Não encontrei o hotel «{name}» na Dayuse: aqui estão outros hotéis{where}.",
+    "nl": "Ik heb het hotel \"{name}\" niet gevonden op Dayuse: hier zijn andere hotels{where}.",
+}
+
+
+_NAMED_NOT_FOUND_ALONE: dict[str, str] = {
+    "fr": "Je n'ai pas trouvé l'hôtel « {name} » sur Dayuse. Vérifiez son nom, ou dites-moi "
+    "la ville et je vous propose d'autres hôtels.",
+    "en": "I couldn't find the hotel \"{name}\" on Dayuse. Check its name, or tell me the city "
+    "and I'll suggest other hotels.",
+    "es": "No he encontrado el hotel «{name}» en Dayuse. Comprueba su nombre o dime la ciudad "
+    "y te propongo otros hoteles.",
+    "it": "Non ho trovato l'hotel «{name}» su Dayuse. Controlla il nome, oppure dimmi la città "
+    "e ti propongo altri hotel.",
+    "de": "Ich habe das Hotel „{name}“ auf Dayuse nicht gefunden. Prüfe den Namen oder nenne mir "
+    "die Stadt, dann schlage ich andere Hotels vor.",
+    "pt": "Não encontrei o hotel «{name}» na Dayuse. Verifique o nome ou diga-me a cidade "
+    "e proponho outros hotéis.",
+    "nl": "Ik heb het hotel \"{name}\" niet gevonden op Dayuse. Controleer de naam, of noem de stad "
+    "en ik stel andere hotels voor.",
+}
+
+
+def named_hotel_not_found_response(name: str, language: str) -> str:
+    """The named hotel was not found and nothing else was searched."""
+    return _pick(language, _NAMED_NOT_FOUND_ALONE).format(name=name)
+
+
+def named_hotel_not_found_notice(name: str, language: str, city: str | None) -> str:
+    """mcp-dayuse#8 (QA trace 6ef04c80): a named hotel was not found and the
+    turn shows other hotels — said first, never left implicit."""
+    return _pick(language, _NAMED_NOT_FOUND).format(name=name, where=_where(language, city))
+
+
 _SEARCH_EXHAUSTED_PAGINATION: dict[str, str] = {
     "fr": (
         "Vous avez vu tous les hôtels correspondant à vos critères{where}. Voulez-vous "

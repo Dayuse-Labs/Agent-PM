@@ -58,6 +58,42 @@ def _business_error_envelope(tool_response: dict) -> dict | None:
     return None
 
 
+# The MCP SDK's own schema check ("MCP error -32602: Input validation error:
+# Invalid arguments for tool search_offers: Unrecognized key(s) in object:
+# 'currency'") carries no typed envelope. The server answered: the REQUEST was
+# wrong (QA trace 9bc5feb6, "affiche en dollars"), not the dependency.
+_INVALID_PARAMS_MARKERS = ("-32602", "Input validation error")
+
+
+def _error_text(tool_response: dict) -> str:
+    content = tool_response.get("content")
+    if isinstance(content, list):
+        return " ".join(
+            str(item.get("text", "")) for item in content if isinstance(item, dict)
+        )
+    return ""
+
+
+def classify_mcp_error(tool_response: Any) -> str | None:
+    """None for a response that is not an error, else:
+    - "not_found": `find_hotel_by_name` found no hotel by that name;
+    - "rejected": the server refused this request (typed business error or
+      invalid arguments) — retrying the same call cannot help;
+    - "failed": the dependency itself failed."""
+    if not isinstance(tool_response, dict):
+        return None
+    envelope = _business_error_envelope(tool_response)
+    if envelope is not None:
+        return "not_found" if envelope.get("kind") == "HotelNotFoundError" else "rejected"
+    if tool_response.get("isError") and any(
+        marker in _error_text(tool_response) for marker in _INVALID_PARAMS_MARKERS
+    ):
+        return "rejected"
+    if _is_tool_failure(tool_response):
+        return "failed"
+    return None
+
+
 def _is_tool_failure(tool_response: Any) -> bool:
     """Classify a completed (non-raising) MCP tool response as success/failure.
 
@@ -77,6 +113,10 @@ def _is_tool_failure(tool_response: Any) -> bool:
     if error_text.startswith("TOOL BUDGET"):
         return False  # control flow (tool_budget stop), not an MCP failure
     if _business_error_envelope(tool_response) is not None:
+        return False
+    if tool_response.get("isError") and any(
+        marker in _error_text(tool_response) for marker in _INVALID_PARAMS_MARKERS
+    ):
         return False
     if tool_response.get("isError"):
         return True

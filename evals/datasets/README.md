@@ -12,6 +12,7 @@ session OBS6 (qui possède les experiments, les évaluateurs et le gate CI), pas
 | `b2c-occupancy.jsonl` | `b2c/occupancy` | 14 |
 | `b2c-language-robustness.jsonl` | `b2c/language-robustness` | 13 |
 | `b2c-prod-regressions.jsonl` | `b2c/prod-regressions` | 6 — **importé** (`source_trace_id`), pas semé — voir OBS6 §5 |
+| `b2c-qa-2026-09-30.jsonl` | `b2c/qa-2026-09-30` | 10 — retours QA du 30/09 (mcp-dayuse#8), attendus calculés par code |
 
 Import (crée les datasets hébergés + upsert des items, idempotent — les `id` sont déterministes) :
 
@@ -62,6 +63,9 @@ Pensé pour des évaluateurs Python déterministes (D-OBS-3), en deux niveaux.
 | `must_ask_city` | la réponse demande la ville (guard mots génériques) |
 | `message_must_contain_any` / `message_must_not_contain_any` | garde-fous textuels (faibles, en dernier recours) |
 | `party_total` | somme adultes+enfants attendue quand la répartition est libre |
+| `cards_cover_window {start, end}` | chaque carte couvre le créneau selon la règle du site (`b2c_common.timeslot`, l'oracle partagé) — ou aucune ne le couvre et la réponse les annonce comme « les plus proches » |
+| `offers_on_date {month, day}` / `{days_ahead}` | chaque carte est une offre du jour demandé (prochaine occurrence, Europe/Paris) |
+| `no_iso_date_in_message` | aucune date ISO dans le texte (hors URL) |
 
 **Niveau trace** (`expected_output.trace`) — nécessite la trace Langfuse du run (args réels des tools,
 route de triage). À brancher en évaluateur second temps (OBS6/OBS7) ; le réflexe consigné au HANDOFF :
