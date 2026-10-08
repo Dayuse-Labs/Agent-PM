@@ -1,5 +1,39 @@
 # HANDOFF — AgentB2C
 
+## 2026-10-08 — v53 : intention de lieu précis avant le géocodage
+
+**Pas de GO remplacement.** Trace réelle Vienne : le triage écrivait l’aéroport
+comme municipality ; le fournisseur choisissait le centre de Schwechat. Nouveau
+requested_landmark dans le même appel de triage : nom et éventuelle ville cités
+dans le message courant, country_guess seulement indicatif, aucune coordonnée.
+Le concierge efface l’ancien périmètre, transmet ville/zone et un marqueur A2A ;
+la feuille ne peut plus remplacer cette demande par municipality ou device.
+Le GPS natif reste un biais fournisseur, jamais l’identité du lieu. Les autres
+contraintes sont conservées. Aucun nouveau regex, lexique ou appel modèle.
+
+Premier rejeu v53 C : ville omise et redemandée, puis bon aéroport au suivi.
+Consigne précisée pour reprendre une ville déjà présente dans le nom. V53b C :
+aéroport résolu immédiatement, Moxy à proximité ; identifiant/coordonnées/rayon3km
+identiques au suivi13–18, sans offre compatible. Sept contrôles géographiques
+passent. La note reste C : la synthèse propose d’allonger une plage à couvrir,
+ce qui est plus restrictif et doit encore être corrigé. Pas de prétention à une
+supériorité générale sur la prod.
+
+Export relu33695 lignes ;9nouvelles lignes hors campagne,6sessions. Deux sessions
+sélectionnées,3messages exacts retrouvés dansLangfuse et rejoués : jacuzzi→Cph B
+(conserve jacuzzi et demandeconfirmation), SeaWorld+espèces B (demande site/ville,
+paiement pas encore vérifié). GPS natif de SeaWorld non récupéré : comparaison
+contrôlée avec la réponse historiqueSeattle impossible. Provenance organique
+non certifiée. La traceprod marque le POI non résolu, résultat au centreville.
+
+2652tests passent,1ignoré ;ruff/mypy69/guardrails verts.9réponses/4revues,
+une carteMCP sans erreurprix/jointure/expiration. V53c final conserve en plus le
+GPS natif ; test intégré horsligne, services encorev53b. Aucun replay de cette
+étape n’avait deGPS récupéré ; ne pas attribuer leurs réponses à v53c.
+Coût0,064065USD ; cumul99,361517968335/110USD, provisions12,10 et réserve10,
+aucun appel en attente. Restent suggestionhoraire, holdout32familles, périmètres
+fins, multi-villes, sarcasme, repas et politiques. Aucun merge/déploiement/acteclient.
+
 ## 2026-10-08 — v52 : conservation des POI résolus par le fournisseur
 
 **Pas de GO remplacement.** Le parseur Search Box conservait les coordonnées

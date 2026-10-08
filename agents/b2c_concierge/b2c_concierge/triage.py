@@ -182,6 +182,7 @@ class Triage:
     information_source: str | None = None
     location_intent: dict | None = None
     comparison_positions: tuple[int, ...] | None = None
+    requested_landmark: dict | None = None
 
 
 def is_social_ack(message: str) -> bool:
@@ -513,6 +514,20 @@ Required key (always present, null if no budget change):
   Omit other optional keys and null-valued fields when unused. Return compact
   JSON on one line; do not indent. Never repeat old slots that MESSAGE did not change.
 Optional keys, extracted from MESSAGE ONLY, never copied from recent messages:
+- "requested_landmark": when searching NEAR a named airport, station, monument
+  or other point of interest, emit {{"query":"verbatim full landmark name",
+  "city":"municipality named in MESSAGE or the landmark name, otherwise null","country_guess":"ISO2 or null",
+  "evidence":"short verbatim current quote containing the full query"}}.
+  The landmark is NOT a municipality or an administrative subarea. Keep its
+  full name/terminal qualifiers in query; never reduce it to the containing city.
+  Use requested_areas=null for this request. If the landmark name includes a city,
+  put that city in city as well: "Toronto Pearson Airport" has
+  query="Toronto Pearson Airport", city="Toronto". Do not leave city null just
+  because it is embedded in the landmark name. If no city is named anywhere in
+  MESSAGE, leave city null; do not invent one.
+  country_guess is a soft provider hint, never proof of the place or coordinates.
+  A named HOTEL uses hotel_name instead. Ordinary cities, device position,
+  amenities, an unnamed airport or a non-geographic follow-up emit null.
 - "requested_areas": when MESSAGE names an administrative search area or a
   choice of multiple municipalities, a list of up to three objects:
   {{"query":"full area name","kind":"administrative" or "municipality",
@@ -640,7 +655,7 @@ async def classify(message: str, budget: TurnBudget, invocation_id: str = "",
     (an attempt consumes the slot). Any failure falls back to regex — never
     a retry, never a hard fail. Emits one llm_call metric row (phase=triage,
     counters only — never the message, GDPR)."""
-    from b2c_common.confirmed_location import location_intent
+    from b2c_common.confirmed_location import grounded_landmark, location_intent
 
     budget.charge("triage")
     model_slug = role_model("TRIAGE")
@@ -795,6 +810,8 @@ async def classify(message: str, budget: TurnBudget, invocation_id: str = "",
         language,
         used_llm=True,
         location_intent=location_intent(data.get("location_intent"), message, location_context),
+        requested_landmark=(grounded_landmark(data.get("requested_landmark"), message)
+                            if family in {"search", "booking"} else None),
         comparison_positions=_comparison_positions(data.get("comparison_positions"), message),
         pick=pick,
         pick_position=position,

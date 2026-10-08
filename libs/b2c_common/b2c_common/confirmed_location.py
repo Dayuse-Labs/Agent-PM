@@ -12,6 +12,26 @@ CLARIFICATION_KEY = "temp:hotel_search_location_clarification"
 RESOLVED_PLACE_KEY = "temp:hotel_search_resolved_place"
 
 
+def grounded_landmark(value: Any, message: str) -> dict | None:
+    """Validate an existing model extraction, never infer intent or coordinates."""
+    if not isinstance(value, dict):
+        return None
+    query, evidence = value.get("query"), value.get("evidence")
+    if (not isinstance(query, str) or not query.strip() or len(query) > 200
+            or not isinstance(evidence, str) or not evidence.strip() or evidence not in message
+            or query.strip().casefold() not in evidence.casefold()):
+        return None
+    city = value.get("city")
+    if city is not None and (not isinstance(city, str) or not city.strip()
+                             or city.strip().casefold() not in message.casefold()):
+        return None
+    guess = value.get("country_guess")
+    if guess is not None and (not isinstance(guess, str) or len(guess) != 2 or not guess.isascii() or not guess.isalpha()):
+        return None
+    return {"query": query.strip(), "city": city.strip() if city else None,
+            "country_guess": guess.upper() if guess else None}
+
+
 def verified_place(value: Any) -> dict[str, Any] | None:
     if not isinstance(value, dict):
         return None

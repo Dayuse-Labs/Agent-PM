@@ -1060,6 +1060,13 @@ def inject_profile_geo_context(tool: object, args: dict, tool_context: object) -
     from b2c_common.confirmed_location import verified_place
     content = getattr(tool_context, "user_content", None)
     envelope = find_datapart(getattr(content, "parts", None)) or {}
+    if (envelope.get("query_params") or {}).get("landmark_authoritative") is True:
+        # The concierge validated the current landmark quote. The leaf cannot
+        # reinterpret it as a municipality, strict area, or device position.
+        for key in ("city", "zone", "metro", "country_code", "areas"):
+            args.pop(key, None)
+        args.update(city=profile_in.get("city") or "", zone=profile_in.get("zone"),
+                    origin="destination", country_guess=(envelope["query_params"].get("landmark_country_guess")))
     place = verified_place(profile_in.get("confirmed_location"))
     scope = (place or {}).get("search_context") or {}
     is_poi = bool(place and place["feature_type"] == "poi")

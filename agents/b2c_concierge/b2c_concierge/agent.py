@@ -1329,8 +1329,9 @@ class _B2cConcierge(BaseAgent):
         # offer selection. Search first; otherwise "cheapest, but 11–16" picks
         # yesterday's/earlier window before the update below can be applied.
         # Partial clock answers retain the other bound; explicit clear is ().
-        area_update = None if location_choice else preserve_area_boundary(profile.search_areas, triage.requested_areas)
-        if (area_update is None and triage.requested_subarea and profile.search_areas
+        landmark_update = triage.requested_landmark if not location_choice else None
+        area_update = None if location_choice or landmark_update else preserve_area_boundary(profile.search_areas, triage.requested_areas)
+        if (not landmark_update and area_update is None and triage.requested_subarea and profile.search_areas
                 and len(profile.search_areas) == 1 and profile.search_areas[0].get("subarea")
                 and (triage.subarea_parent is None or triage.subarea_parent.casefold() == profile.search_areas[0]["query"].casefold())):
             area_update = [{**profile.search_areas[0], "subarea": triage.requested_subarea}]
@@ -1377,7 +1378,7 @@ class _B2cConcierge(BaseAgent):
                               next_window != (profile.timeslot_start, profile.timeslot_end)
                               or (not requested_window and bool(profile.timeslot or profile.daypart))
                           )))
-        if (window_changed or amenities_changed or area_update is not None) and family != "faq" and clicked_id is None:
+        if (window_changed or amenities_changed or area_update is not None or landmark_update) and family != "faq" and clicked_id is None:
             family, route = "search", ROUTES["search"]
             picked = None
             booking_signal = False
@@ -1522,6 +1523,20 @@ class _B2cConcierge(BaseAgent):
         # must NOT relaunch the leaf — it costs only the triage call already
         # spent above. Any non-bare-affirmative message (a new city, a new
         # budget, anything substantive) clears the flags and searches again.
+        if route.target == LEAF_HOTEL_SEARCH and landmark_update:
+            profile.city, profile.zone = landmark_update["city"], landmark_update["query"]
+            for field in ("search_areas", "state_anchor", "country_anchor", "metro", "distance_origin", "confirmed_location", "pending_location"):
+                setattr(profile, field, None)
+            # A native device fix remains a soft provider bias, never the
+            # landmark's identity. Keep it when the new POI has no named city.
+            if not profile.search_anchor or profile.search_anchor.get("type") != "gps":
+                profile.search_anchor = None
+            profile.search_exhausted = False
+            profile.consecutive_empty_searches = 0
+            profile.widen_attempt_count = 0
+            profile.auto_widen_disclosure = None
+            reset_search_cursor(profile)
+
         if route.target == LEAF_HOTEL_SEARCH and area_update is not None:
             profile.search_areas = area_update if requires_area_membership(area_update) else None
             profile.city = " / ".join(a["query"] for a in area_update)
@@ -1671,6 +1686,9 @@ class _B2cConcierge(BaseAgent):
 
         budget.charge("leaf_llm")
         query_params: dict[str, Any] = {}
+        if route.target == LEAF_HOTEL_SEARCH and landmark_update:
+            query_params["landmark_authoritative"] = True
+            query_params["landmark_country_guess"] = landmark_update["country_guess"]
         if route.target == LEAF_HOTEL_SEARCH and profile.confirmed_location and (
                 location_choice or location_action == "preserve"):
             query_params["reuse_confirmed_location"] = True
