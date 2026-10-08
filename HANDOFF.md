@@ -1,5 +1,45 @@
 # HANDOFF — AgentB2C
 
+## 2026-10-08 — v48 : résultat courant et expiration des créneaux de nuit
+
+**Pas de GO remplacement.** Une réponse sans résultat courant ne réutilise plus
+une ancienne recherche vide pour affirmer une absence d’offres. Les clarifications
+sont distinguées des recherches réussies. Deux complétions sur le même contexte
+et modèle, avec uniquement le bloc de faits changé, suppriment la fausse absence ;
+le lieu reste toutefois à clarifier. La pagination parle des résultats vérifiés,
+pas de tout l’inventaire (sept langues, branche non exercée dans ce dernier live).
+
+Le nouveau rejeu Chicago a révélé un faux «23–08déjà passé» le jour d’arrivée.
+L’expiration reçoit désormais le début et compare le départ au lendemain local
+quand la fenêtre traverse minuit. Aucune modification de la date demandée ou des
+outils d’inventaire. Test intégré rouge avant,21tests ciblés verts après, puis
+rejeu complet sept tours : faux message supprimé mais conversation toujoursD
+(Yes mal repris, No11amcheckin mal interprété, libellé de repli23–24tronqué).
+
+Vérifications :2593tests passés,1ignoré ;ruff/mypy67/guardrails verts.43réponses
+live sur deux versions (36v48,7v48b),9revues A/B/C/D/F,58cartes candidates
+rapprochées des reçus MCP sans erreur de prix/jointure/expiration. Aucune garantie
+sur la pertinence géographique ou l’adéquation des horaires par cet audit brut.
+SQL33621/2000récentes :2nouvelles sessions,9messages retrouvés dansLangfuse,
+GPS arrondis reconstruits ; contexte natif incomplet, provenance organique non
+certifiée. Chicago :prodD/B2CD/candidatD ;Chambéry→Le12 :B/D/C. Région→prèsde
+moi :D(GPS oublié malgré le filtre spa conservé) ;ManhattanUSD :C(Brooklyn horszone).
+
+Diagnostic modèle :8complétions,4contextes identiques, aucun outil exécuté.
+5.2choisit origin=device sur le contexte régional où4o-mini l’omet ; preuve
+insuffisante pour changer le modèle par défaut ou annoncer un gain E2E.
+Cumul97,895088USD/110,provisions12,10incluses,réserve10conservée. Aucun ajout
+regex, phase modèle en production, action client, merge ou déploiement.
+
+**Reste prioritaire** : lieu confirmé et candidats de clarification persistés
+par le concierge, réponse consommée une fois, identité fournisseur réutilisée.
+Le main legacy a08a7792a été refetché : ce contrat existe en prod ; B2C ne
+transmet encore que la question, pas ses candidats typés. GPS/destination et
+périmètres fins restent instables. Nuits, corrections11am, FAQâge/navette/piscine
+privée et preuve finale des32familles historiques restent ouverts. EURpar défaut
+B2C est une décision produit, pas une perte du champ devise natif.
+Données, logs, manifestes et rapport v48 restent locaux horsGit.
+
 ## 2026-10-08 — v47 : prix comparatif et filtres après appels parallèles
 
 **Pas de GO remplacement.** « Moins cher » n’est plus une pagination : le

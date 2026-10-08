@@ -40,6 +40,42 @@ def test_unknown_and_mixed_destinations_do_not_prove_whole_request_expired():
                      "2026-10-08", "14:00", now=NOW)
 
 
+@pytest.mark.parametrize(("day", "instant", "expected"), [
+    ("2026-10-08", "2026-10-08T18:00:00+00:00", False),
+    ("2026-10-08", "2026-10-09T12:59:00+00:00", False),
+    ("2026-10-08", "2026-10-09T13:00:00+00:00", True),
+    ("2026-10-08", "2026-10-09T14:00:00+00:00", True),
+    ("2026-12-31", "2027-01-01T13:59:00+00:00", False),
+    ("2026-12-31", "2027-01-01T14:00:00+00:00", True),
+])
+def test_overnight_request_expires_on_departure_day(day, instant, expected):
+    assert guard.requested_window_has_ended(
+        [{**CARD, "timezone": "America/Chicago"}], day, "08:00",
+        requested_start="23:00", now=datetime.fromisoformat(instant),
+    ) is expected
+
+
+def test_overnight_request_does_not_trigger_past_window_question(scripted, monkeypatch):  # noqa: F811
+    class Clock:
+        @staticmethod
+        def now(tz):
+            return datetime(2026, 10, 8, 18, tzinfo=UTC).astimezone(tz)
+
+    monkeypatch.setattr(guard, "datetime", Clock)
+    llm, leaves = scripted('{"family":"search","language":"en"}',
+                          "These are the closest offers, not an overnight match.", response={
+        "results": [{**CARD, "timezone": "America/Chicago"}],
+        "search_date": {"date": "2026-10-08"},
+        "profile_delta": {"city": "Chicago", "timeslot_start": "23:00", "timeslot_end": "08:00"},
+    })
+    events = _drive_events("11pm-8am")
+    final = " ".join(p.text for e in events if not e.partial for p in e.content.parts if p.text)
+    assert "already ended" not in final
+    assert "closest offers" in final
+    assert len(llm.calls) == 2
+    assert len(leaves) == 1
+
+
 @pytest.mark.parametrize("normalizer", [normalize_hotel, lambda h: _normalize_hotel_for_display(h, None)])
 def test_both_mcp_paths_preserve_hotel_timezone(normalizer):
     assert normalizer({"hotelId": 1, "timezone": "Australia/Melbourne"})["timezone"] == "Australia/Melbourne"

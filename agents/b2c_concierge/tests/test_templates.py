@@ -157,8 +157,8 @@ class TestFrenchAndEnglishUnchanged:
             "Essayez une autre ville, ou dites-moi ce que je peux ajuster (date, quartier)."
         )
         assert templates.search_exhausted_response("en", "Paris", reason="pagination") == (
-            "You've now seen every hotel matching your criteria in Paris. Want me to "
-            "widen the budget, the area, or drop a filter?"
+            "I haven't found additional hotels matching your criteria in Paris "
+            "in the results checked. Want me to widen the budget, the area, or drop a filter?"
         )
 
     def test_leaf_degraded_response(self):

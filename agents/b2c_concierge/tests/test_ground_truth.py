@@ -33,9 +33,21 @@ class TestEmptyScreenNote:
         )
         assert "ZERO results" in block
 
-    def test_missing_results_key_with_streak_also_flags_it(self):
+    def test_missing_results_key_does_not_turn_old_empty_page_into_current_search(self):
         block = shortlist_ground_truth_block({}, _profile(consecutive_empty_searches=3))
-        assert "ZERO results" in block
+        assert "No verified hotel search result" in block
+        assert "ZERO results" not in block
+
+    def test_location_clarification_overrides_old_empty_search_without_losing_constraints(self):
+        profile = _profile(city="New York", consecutive_empty_searches=1,
+                           requested_budget={"amount": 200, "currency": "USD", "unit": "total"},
+                           requested_window={"start": "14:30", "end": "16:30"})
+        block = shortlist_ground_truth_block({"requires_clarification": True}, profile)
+        assert "No hotel search completed" in block
+        assert "UNKNOWN" in block and "unresolved location question" in block
+        assert "ZERO results" not in block and "SEARCH DATE" not in block
+        assert profile.requested_budget["currency"] == "USD"
+        assert profile.requested_window == {"start": "14:30", "end": "16:30"}
 
 
 class TestShortlistRendering:

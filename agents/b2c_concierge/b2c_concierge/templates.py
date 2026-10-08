@@ -516,31 +516,38 @@ def named_hotel_not_found_notice(name: str, language: str, city: str | None) -> 
 
 _SEARCH_EXHAUSTED_PAGINATION: dict[str, str] = {
     "fr": (
-        "Vous avez vu tous les hôtels correspondant à vos critères{where}. Voulez-vous "
+        "Je n'ai pas trouvé d'autres hôtels correspondant à vos critères{where} "
+        "dans les résultats consultés. Voulez-vous "
         "que j'élargisse le budget, la zone, ou que je retire un filtre ?"
     ),
     "en": (
-        "You've now seen every hotel matching your criteria{where}. Want me to widen "
+        "I haven't found additional hotels matching your criteria{where} "
+        "in the results checked. Want me to widen "
         "the budget, the area, or drop a filter?"
     ),
     "es": (
-        "Ya has visto todos los hoteles que coinciden con tus criterios{where}. "
+        "No he encontrado más hoteles que coincidan con tus criterios{where} "
+        "en los resultados consultados. "
         "¿Quieres que amplíe el presupuesto, la zona, o que quite un filtro?"
     ),
     "it": (
-        "Hai visto tutti gli hotel che corrispondono ai tuoi criteri{where}. Vuoi che "
+        "Non ho trovato altri hotel che corrispondano ai tuoi criteri{where} "
+        "nei risultati consultati. Vuoi che "
         "amplii il budget, la zona, o che rimuova un filtro?"
     ),
     "de": (
-        "Du hast jetzt jedes Hotel{where} gesehen, das zu deinen Kriterien passt. Soll "
+        "In den geprüften Ergebnissen habe ich keine weiteren Hotels{where} "
+        "gefunden, die deinen Kriterien entsprechen. Soll "
         "ich das Budget erweitern, das Gebiet vergrößern, oder einen Filter entfernen?"
     ),
     "pt": (
-        "Já viu todos os hotéis que correspondem aos seus critérios{where}. Quer que "
+        "Não encontrei outros hotéis que correspondam aos seus critérios{where} "
+        "nos resultados consultados. Quer que "
         "eu aumente o orçamento, alargue a zona, ou retire um filtro?"
     ),
     "nl": (
-        "Je hebt nu elk hotel{where} gezien dat aan je criteria voldoet. Wil je dat ik "
+        "In de bekeken resultaten heb ik geen andere hotels{where} gevonden "
+        "die aan je criteria voldoen. Wil je dat ik "
         "het budget verruim, het gebied vergroot, of een filter verwijder?"
     ),
 }
@@ -587,7 +594,7 @@ def search_exhausted_response(
       uncapped widen loop never told the user it had given up) — auto-widening
       was tried and still came back empty;
     - "pagination" (S-G5) — an "other options" request came back with zero
-      NEW hotels: every match for the current filters has already been shown,
+      NEW hotels in the bounded retrieved sample, not proof of all inventory,
       so the message proposes relaxing ONE named constraint instead of the
       generic "try another city".
     Never a retry; the spine's pre-leaf gate only reaches here on a bare

@@ -1775,6 +1775,7 @@ class _B2cConcierge(BaseAgent):
         if (route.target == LEAF_HOTEL_SEARCH and isinstance(search_date_part, dict)
                 and requested_window_has_ended(
                     response.get("results") or [], search_date_part.get("date"), profile.timeslot_end,
+                    requested_start=profile.timeslot_start,
                 )):
             profile.pending_booking = None
             profile.search_cursor = 0

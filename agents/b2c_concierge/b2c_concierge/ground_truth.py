@@ -380,6 +380,28 @@ def shortlist_ground_truth_block(
     outcome. Empty string when there is nothing to ground (no leaf results and
     no empty-search streak yet) — never adds an empty section to the prompt."""
     hotels = shortlist_hotels(response)
+    # A previous empty page is not evidence about this invocation. In the
+    # USD replay, changing the budget failed geocoding but the old streak
+    # injected "search returned ZERO results", inventing an inventory check.
+    if not isinstance((response or {}).get("results"), list):
+        if (response or {}).get("requires_clarification") is True:
+            return (
+                "\n\n## CURRENT LOCATION STATUS (GROUND TRUTH)\n"
+                "The location still requires clarification. No hotel search completed "
+                "for this request, so availability and matching prices are UNKNOWN. "
+                "Do not say you searched, found no offers, or exhausted the inventory. "
+                "Ask only the unresolved location question from the current tool outcome; "
+                "keep the already stated date, hours, budget and other preferences. "
+                "An earlier empty page or shortlist does not answer this request.\n"
+            )
+        if profile.consecutive_empty_searches > 0:
+            return (
+                "\n\n## CURRENT SEARCH STATUS (GROUND TRUTH)\n"
+                "No verified hotel search result was returned for this request. "
+                "The previous empty-search count concerns earlier requests only. "
+                "Do not claim current unavailability or that a search completed. "
+                "Explain the current tool outcome and the step needed to continue.\n"
+            )
     date_block = date_context_block(response, language)
     # Current tool evidence only. A GPS stored on the profile does not prove a
     # named-destination search used it; coordinates themselves need not enter

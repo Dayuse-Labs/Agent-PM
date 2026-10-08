@@ -10,7 +10,7 @@ disclosure the synthesis is known to drop.
 from __future__ import annotations
 
 import re
-from datetime import UTC, date, datetime
+from datetime import UTC, date, datetime, timedelta
 from typing import Any
 from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
@@ -74,7 +74,7 @@ def enforce_window_disclosure(text: str, window: str, language: str) -> tuple[st
 
 def requested_window_has_ended(
     cards: list[dict[str, Any]], served_date: Any, requested_end: str | None,
-    *, now: datetime | None = None,
+    *, requested_start: str | None = None, now: datetime | None = None,
 ) -> bool:
     """Prove the requested departure is past at every returned destination.
 
@@ -90,6 +90,11 @@ def requested_window_has_ended(
         day = date.fromisoformat(served_date)
     except ValueError:
         return False
+    start = parse_hhmm(requested_start)
+    # A departure before arrival belongs to the following local calendar day.
+    # Keep the requested arrival date intact; this only evaluates expiration.
+    if start is not None and start <= 1440 and end < start:
+        day += timedelta(days=1)
     instant = now or datetime.now(UTC)
     if instant.tzinfo is None:
         return False

@@ -2045,3 +2045,31 @@ def test_new_budget_or_price_retraction_clears_only_relative_constraint(monkeypa
     _run_turn(runner,session.id,message)
     outgoing=find_datapart(fake_leg.seen_outgoing_parts)['profile_in']
     assert outgoing['price_comparison'] is None and outgoing['amenities']==['spa']
+
+
+def test_budget_followup_clarification_does_not_reuse_old_empty_inventory_claim(monkeypatch, fake_leg, fake_profile_store):
+    # Exact v47 path: a cheaper page was empty; new200USD request failed geo.
+    # Exercise the actual profile store/A2A decode/synthesis construction.
+    llm = _scripted_llm(monkeypatch,
+        '{"family":"search","language":"en","requested_budget":{"amount":200,"currency":"USD","unit":"total","evidence":"200 USD"}}',
+        'I could not confirm the search location. Which address in New York should I use?')
+    runner = InMemoryRunner(root_agent)
+    session = _new_session(runner)
+    profile = SessionProfile(city='New York', country_anchor='US', consecutive_empty_searches=1,
+                             search_exhausted=True, requested_budget={},
+                             requested_window={'start':'14:30','end':'16:30'},
+                             price_comparison={'relation':'lower','currency':'USD','reference_minor':8500},
+                             date='2026-10-09')
+    asyncio.run(fake_profile_store.set(session.id,profile))
+    fake_leg.text = 'Which city or address should I search near?'
+    fake_leg.response_payload = {'requires_clarification':True}
+    _run_turn(runner,session.id,'Actually my maximum is 200 USD total')
+    prompt = llm.calls[-1]['messages'][1]['content']
+    assert 'No hotel search completed' in prompt and 'availability and matching prices are UNKNOWN' in prompt
+    assert 'returned ZERO results' not in prompt and 'NO OFFERS' not in prompt
+    assert fake_leg.call_count == 1 and len(llm.calls) == 2
+    stored = asyncio.run(fake_profile_store.get(session.id))
+    assert stored.requested_budget == {'amount':200,'currency':'USD','unit':'total'}
+    assert stored.price_comparison is None
+    assert stored.requested_window == {'start':'14:30','end':'16:30'}
+    assert stored.date == '2026-10-09' and stored.city == 'New York'
