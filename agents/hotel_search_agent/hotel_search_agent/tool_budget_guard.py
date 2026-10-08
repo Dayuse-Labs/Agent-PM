@@ -43,6 +43,7 @@ STOP_MESSAGE = (
 
 _INV_KEY = "_per_tool_budget_inv"
 _COUNTS_KEY = "_per_tool_budget_counts"
+_READS_KEY = "_per_tool_read_counts"
 _LIMITS_KEY = "_per_tool_budget_limits"
 _DEFAULT_KEY = "_per_tool_budget_default"
 
@@ -63,6 +64,7 @@ def make_per_tool_budget_callback(
         if state.get(_INV_KEY) != tool_context.invocation_id:
             state[_INV_KEY] = tool_context.invocation_id
             state[_COUNTS_KEY] = {}
+            state[_READS_KEY] = {}
             state[_LIMITS_KEY] = dict(limits)
             state[_DEFAULT_KEY] = default_limit
         name = str(getattr(tool, "name", "") or "")
@@ -75,7 +77,8 @@ def make_per_tool_budget_callback(
         counts = dict(state.get(_COUNTS_KEY) or {})
         counts[name] = counts.get(name, 0) + 1
         state[_COUNTS_KEY] = counts
-        if counts[name] > limits.get(name, default_limit):
+        limit = limits.get(name, default_limit)
+        if counts[name] > limit or (state.get(_READS_KEY) or {}).get(name, 0) >= limit:
             mark_level("WARNING", status_message="tool_budget_exhausted")
             return {"ok": False, "error": stop_message}
         return None
@@ -83,19 +86,21 @@ def make_per_tool_budget_callback(
     return before_tool
 
 
-def reserve_additional_call(tool_context: Any, name: str) -> bool:
-    """Charge a deterministic extra read against the SAME per-turn tool quota.
+def reserve_mcp_read(tool_context: Any, name: str) -> bool:
+    """Reserve a dispatch under the same per-tool limit as model attempts.
 
-    Never starts a new budget or enlarges an operator's limit. No reservation
-    means the caller returns its current sample without another network call.
+    Local precondition rejections consume an attempt, but never a network read.
+    Count the primary read and each deterministic extra page here, after the
+    argument/origin guards. Both attempts and reads stay independently bounded;
+    an exhausted read quota also blocks later model tool requests.
     """
     state = tool_context.state
     if state.get(_INV_KEY) != tool_context.invocation_id:
         return False
-    counts = dict(state.get(_COUNTS_KEY) or {})
+    counts = dict(state.get(_READS_KEY) or {})
     limit = (state.get(_LIMITS_KEY) or {}).get(name, state.get(_DEFAULT_KEY, 0))
     if counts.get(name, 0) >= limit:
         return False
     counts[name] = counts.get(name, 0) + 1
-    state[_COUNTS_KEY] = counts
+    state[_READS_KEY] = counts
     return True

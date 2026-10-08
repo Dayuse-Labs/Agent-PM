@@ -17,12 +17,17 @@ from hotel_search_agent.response_bridge import (
     read_profile_in,
     read_structured_payload,
 )
-from hotel_search_agent.tool_budget_guard import reserve_additional_call
+from hotel_search_agent.tool_budget_guard import STOP_MESSAGE, reserve_mcp_read
 
 
-def search_budget_pages_before_tool(tool: Any, args: dict[str, Any], tool_context: Any) -> Awaitable[dict] | None:
+def search_budget_pages_before_tool(tool: Any, args: dict[str, Any], tool_context: Any) -> Awaitable[dict] | dict | None:
     if getattr(tool, "name", "") != "search_offers" or tool_context.state.get(STATE_AREAS):
         return None  # Area searches already own their bounded retrieval batch.
+    # This callback is after all local argument/origin guards. Reserve every
+    # real search dispatch, even without a cap, so a second model call cannot
+    # bypass pages already consumed by a deterministic budget search.
+    if not reserve_mcp_read(tool_context, "search_offers"):
+        return {"ok": False, "error": STOP_MESSAGE}
     profile = read_profile_in(tool_context)
     cap = profile.get("requested_budget")
     if not isinstance(cap, dict) or cap.get("unit") != "total":
@@ -52,7 +57,7 @@ async def _search(tool: Any, args: dict[str, Any], ctx: Any, cap: dict, profile:
     if (payload.get("has_more") is not True or not payload["results"]
             or isinstance(offset, bool) or not isinstance(offset, int)
             or not isinstance(current, int) or offset != current + 5
-            or not reserve_additional_call(ctx, "search_offers")):
+            or not reserve_mcp_read(ctx, "search_offers")):
         return first
     second = await tool.run_async(args={**query, "from": offset}, tool_context=ctx)
     next_payload = read_structured_payload(second)

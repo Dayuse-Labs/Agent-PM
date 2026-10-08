@@ -120,17 +120,18 @@ def test_cannot_merge_pages_from_different_dates():
 
 
 def test_reservation_does_not_create_new_quota():
-    from hotel_search_agent.tool_budget_guard import reserve_additional_call
+    from hotel_search_agent.tool_budget_guard import reserve_mcp_read
     ctx = _ctx_with_profile()
     ctx.invocation_id = 'no-initial-call'
-    assert reserve_additional_call(ctx, 'search_offers') is False
+    assert reserve_mcp_read(ctx, 'search_offers') is False
     ctx, guard = context()
-    assert reserve_additional_call(ctx, 'search_offers') is True
-    assert reserve_additional_call(ctx, 'search_offers') is False
+    assert reserve_mcp_read(ctx, 'search_offers') is True
+    assert reserve_mcp_read(ctx, 'search_offers') is True
+    assert reserve_mcp_read(ctx, 'search_offers') is False
     ctx.invocation_id = 'next-turn'
-    assert reserve_additional_call(ctx, 'search_offers') is False
+    assert reserve_mcp_read(ctx, 'search_offers') is False
     assert guard(SimpleNamespace(name='search_offers'), {}, ctx) is None
-    assert reserve_additional_call(ctx, 'search_offers') is True
+    assert reserve_mcp_read(ctx, 'search_offers') is True
 
 
 def test_area_batch_keeps_its_existing_retrieval_owner():
@@ -139,3 +140,42 @@ def test_area_batch_keeps_its_existing_retrieval_owner():
     ctx, _ = context()
     ctx.state[STATE_AREAS] = [{'latitude': 1, 'longitude': 2}]
     assert search_budget_pages_before_tool(PagedTool(), {}, ctx) is None
+
+
+def test_local_origin_rejection_does_not_spend_the_two_mcp_reads():
+    from hotel_search_agent.response_bridge import enforce_resolved_search_origin
+    ctx, guard = context()
+    tool = PagedTool()
+    args = {'lat':0, 'lon':0, 'date':'2026-10-08', 'from':0}
+    # First model attempt has already been charged by context(); it is rejected
+    # before any MCP dispatch because no geocode result exists yet.
+    assert enforce_resolved_search_origin(tool, args, ctx)['status'] == 'geocode_required'
+    assert tool.calls == []
+    ctx.state['temp:hotel_search_anchor'] = {'latitude':25.07,'longitude':55.12,'type':'gps'}
+    assert guard(tool, args, ctx) is None  # second and final model attempt
+    assert enforce_resolved_search_origin(tool, args, ctx) is None
+    raw = run_callbacks(tool, ctx, args)
+    cap = {'amount':150,'currency':'AED','unit':'total'}
+    assert [h['hotel_id'] for h in normalize_search_results(read_structured_payload(raw), requested_budget=cap)] == [9]
+    assert len(tool.calls) == 2
+    assert guard(tool, args, ctx)['ok'] is False
+
+
+def test_rejected_attempts_remain_bounded_without_any_network_read():
+    ctx, guard = context()
+    tool = PagedTool()
+    assert guard(tool, {}, ctx) is None
+    assert guard(tool, {}, ctx)['ok'] is False
+    assert tool.calls == []
+
+
+def test_two_pages_block_a_second_model_search_dispatch():
+    ctx, guard = context()
+    tool = PagedTool()
+    run_callbacks(tool, ctx, {'date':'2026-10-08','from':0})
+    assert len(tool.calls) == 2
+    assert guard(tool, {}, ctx)['ok'] is False
+    # Even a direct dispatch callback cannot bypass the read limit.
+    result = run_callbacks(tool, ctx, {'date':'2026-10-08','from':10})
+    assert result['ok'] is False
+    assert len(tool.calls) == 2

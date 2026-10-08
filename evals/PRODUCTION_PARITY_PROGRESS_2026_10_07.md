@@ -1,3 +1,65 @@
+## 2026-10-08 — v36 : tentatives locales et lectures MCP bornées
+
+**Pas de GO remplacement.** Une recherche lancée avant le géocodage est rejetée
+localement, mais consommait le quota nécessaire à la seconde page budgétaire.
+Le correctif distingue les tentatives modèle des lectures réseau : chaque
+compteur garde la même limite opérateur. Pour une recherche ordinaire,
+une tentative locale refusée ne consomme aucune lecture MCP ; la première
+lecture et la page supplémentaire sont réservées après les guards. Une fois
+les lectures épuisées, un nouvel appel modèle est aussi bloqué. Aucun relèvement
+de limite, boucle libre, nouvelle phase LLM ou regex. Les batches multi-zone
+existants conservent leur traitement séparé.
+
+Un test causal reproduisait `geocode_required` → géocodage → première page trop
+chère, avec seconde page empêchée. Il passe après correction. Trois nouveaux
+tests protègent ce cas et les limites cumulées ; le test de réservation couvre
+le changement de tour. **2 451 tests passés, un ignoré**, ruff, mypy (66 fichiers),
+guardrails. Le code final ne change pas le triage ni les modèles.
+
+**12 réponses comparatives** sur un nouveau parcours de production de quatre
+tours : restaurant nommé → question sur un code pays → même lieu → correction
+explicite vers Marietta, GA. Legacy, B2C déployé et candidat v35 sont tous **D**.
+Legacy part au Vietnam, B2C conserve un pays erroné après correction ; le candidat
+propose Manhattan malgré un GPS en Géorgie, puis récupère Marietta. Les traces
+montrent une municipalité inventée par le triage qui efface le GPS, puis une
+correspondance partielle du nom de restaurant acceptée par le géocodeur.
+
+**Neuf réponses sur le code final** : cinq tours Dubai et quatre du nouveau
+parcours. Les deux parcours complets restent **D**. À Dubai, les tours 3 et 4
+retrouvent une offre à **135,25 AED**, frais compris, couvrant 09:00. Le tour 3
+montre bien un rejet local puis deux lectures MCP (`from=0`, `from=5`) avec les
+mêmes critères. Le blocage Marina/JLT/Al Barsha et les questions redondantes
+restent ouverts. Sur le restaurant, Manhattan est encore proposé ; Marietta
+est récupéré au dernier tour. **22 cartes tarifées** du code final vérifiées
+contre les reçus MCP, zéro écart prix/jointure/expiration : ce contrôle ne prouve
+pas la pertinence du lieu.
+
+Deux expériences GPS intermédiaires, **18 réponses**, ont été retirées avant
+le dernier rejeu et ne sont pas dans ce commit. Un champ sémantique optionnel
+était omis par 4o-mini ; rendu obligatoire, il classait parfois un lieu nommé
+comme « près de moi ». Ne pas réintroduire ce raccourci comme correctif GPS.
+Leurs sources/revues sont archivées hors Git ; elles comptent dans le coût,
+pas dans la validation du code final.
+
+Export revérifié : 33 414 lignes / 2 000 récentes. Les quatre nouveaux messages
+sont retrouvés dans quatre traces Langfuse ; quatre GPS arrondis sont adaptés
+au contrat de chaque agent. Permission du fixture B2C synthétique, payload
+original complet et provenance organique non certifiés. Inventaire legacy
+export/Qdrant vs MCP préproduction live, dates inchangées ; comparaisons
+séquentielles et variabilité modèle. `main` refetché, toujours `cbe88b9`.
+
+**Reste prioritaire :** identité des POIs (correspondance partielle insuffisante),
+GPS comme biais distinct d'une destination explicite, quartiers vs municipalités,
+rayon et créneau sur multi-zone. Puis les familles déjà ouvertes : occupation,
+lit bébé, besoins libres/pagination, âge durable, FAQ/caution/annulation,
+provinces/corridors et langues. Les 32 familles restent incomplètes.
+
+Étape, expériences incluses : **0,36406993 USD**, dont dernier rejeu **0,08748670**.
+Cumul **91,12013914/110 USD**, provisions 11,10 incluses, réserve 10 conservée.
+Tous les lots réglés, aucun runner payant actif. Pas de merge, déploiement ou
+réglage Railway. Rapports privés v36-summary/v36-review et reads-v36c-diagnostic.
+CI du nouveau commit à observer séparément ; étapes live ignorées ≠ évaluation.
+
 ## 2026-10-08 — v35 : budget natif et première page trop chère
 
 **Pas de GO remplacement.** Une recherche proche peut renvoyer cinq hôtels tous
