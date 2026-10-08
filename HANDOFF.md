@@ -1,5 +1,35 @@
 # HANDOFF — AgentB2C
 
+## 2026-10-08 — v52 : conservation des POI résolus par le fournisseur
+
+**Pas de GO remplacement.** Le parseur Search Box conservait les coordonnées
+mais jetait mapbox_id. Les retours POI ne fournissaient pas de resolved_location ;
+le contrat de confirmation ne supportait que place/locality. Un POI effectivement
+résolu transmet maintenant son identité fournisseur et son contexte ville/zone/metro
+par A2A. Le concierge conserve ces champs séparément : l'aéroport ne devient pas
+le nom de la ville. Le suivi réutilise les coordonnées et le rayon POI existant
+(3 km) sans nouvelle résolution ; changement de ville, zone, pays ou mode GPS
+sans preserve autorisé suit la résolution normale. Les limites administratives
+strictes restent traitées par leur contrat séparé. Un identifiant absent ou un
+contexte incomplet ne peuvent pas produire une confirmation. Aucune nouvelle
+regex, phase modèle, liste lexicale ou modification du modèle par défaut.
+
+Six tests échouent avant correction sur l'absence du reçu POI. Après correction :
+2644 tests passent, un ignoré ; 147 tests ciblés passent après les derniers
+ajustements ; ruff, mypy69 et guardrails verts. Le test traverse le parseur
+fournisseur, les vrais convertisseurs A2A, le profil du concierge et le rayon.
+Un test du runner vérifie horaires 13–18 puis changement vers Paris.
+Fixtures synthétiques hors réseau : aucun nouveau score conversationnel/live.
+L'extraction initiale du vrai cas Vienne vers Schwechat n'est PAS corrigée par
+ce changement. Les résultats live v51 restent ceux de leurs versions précédentes.
+Services locaux non redémarrés ; ne pas attribuer leur comportement à v52.
+
+Coût supplémentaire 0 USD ; ledger relu : 99,297452668335/110 USD,
+provisions12,10 et réserve10 conservées, aucun appel en attente. Restent
+l'intention POI/aéroport initiale, GPS, périmètres fins, multi-villes, sarcasme,
+repas/politiques et le holdout indépendant des 32 familles. Aucun déploiement,
+merge ou acte client. Rapports privés locaux hors Git.
+
 ## 2026-10-08 — v51 : comparaison des offres et témoins horaires
 
 **Pas de GO remplacement.** Une comparaison datée revalide les offres déjà

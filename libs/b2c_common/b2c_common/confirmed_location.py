@@ -18,8 +18,16 @@ def verified_place(value: Any) -> dict[str, Any] | None:
     strings = ("provider_id", "name", "label", "country_code", "feature_type")
     if any(not isinstance(value.get(k), str) or not value[k].strip() for k in strings):
         return None
-    if value["feature_type"] not in {"place", "locality"}:
-        return None  # POI/area boundaries retain their existing resolution contract.
+    if value["feature_type"] not in {"place", "locality", "poi"}:
+        return None  # Administrative boundaries retain their resolution contract.
+    search_context = None
+    if value["feature_type"] == "poi":
+        context = value.get("search_context")
+        if not isinstance(context, dict) or not isinstance(context.get("zone"), str) or not context["zone"].strip():
+            return None
+        if any(context.get(k) is not None and not isinstance(context[k], str) for k in ("city", "metro")):
+            return None
+        search_context = {k: (context.get(k) or "").strip() or None for k in ("city", "zone", "metro")}
     country = value["country_code"].upper()
     if len(country) != 2 or not country.isascii() or not country.isalpha():
         return None
@@ -27,7 +35,8 @@ def verified_place(value: Any) -> dict[str, Any] | None:
         n = value.get(key)
         if isinstance(n, bool) or not isinstance(n, (int, float)) or not math.isfinite(n) or abs(n) > bound:
             return None
-    return {**({"administrative_code": value["administrative_code"]} if isinstance(value.get("administrative_code"), str) and value["administrative_code"] else {}),
+    return {**({"search_context": search_context} if search_context else {}),
+            **({"administrative_code": value["administrative_code"]} if isinstance(value.get("administrative_code"), str) and value["administrative_code"] else {}),
             **{k: value[k].strip() for k in strings}, "country_code": country,
             "latitude": float(value["latitude"]), "longitude": float(value["longitude"]),
             "region": value.get("region") if isinstance(value.get("region"), str) else ""}

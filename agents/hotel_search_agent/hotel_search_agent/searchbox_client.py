@@ -176,6 +176,7 @@ class SearchBoxClient:
                     place_name=place_name,
                     place_formatted=str(props.get("place_formatted") or full_address),
                     feature_type=str(props.get("feature_type") or "poi"),
+                    mapbox_id=str(props.get("mapbox_id") or ""),
                     country_code=str(country_ctx.get("country_code") or "").upper(),
                     region=str(region_ctx.get("name") or region_ctx.get("region_code") or ""),
                     bbox=None,

@@ -15,6 +15,42 @@ VALENCE = {"provider_id": "mapbox:valence-26", "name": "Valence", "label": "Vale
 SPAIN = {**VALENCE, "provider_id": "mapbox:valencia-es", "label": "Valence, Espagne", "country_code": "ES", "region": "V", "latitude": 39.47, "longitude": -0.38}
 PENDING = {"question": "Valence dans la Drôme ou en Espagne ?", "options": [VALENCE, SPAIN]}
 
+AIRPORT = {"provider_id": "provider:airport-vienna", "name": "Vienna International Airport",
+           "label": "Vienna International Airport, Schwechat, Austria", "feature_type": "poi",
+           "country_code": "AT", "region": "Lower Austria", "latitude": 48.1103, "longitude": 16.5697,
+           "search_context": {"city": "Schwechat", "zone": "Vienna International Airport", "metro": None}}
+
+
+def test_resolved_airport_survives_hour_followup_then_changes_destination(scripted, monkeypatch, fake_profile_store):  # noqa: F811
+    from b2c_concierge.location_state import receive_location
+    profile = SessionProfile(date="2026-11-01")
+    receive_location(profile, {"resolved_location": AIRPORT})
+    runner, session = _new_session()
+    asyncio.run(fake_profile_store.set(session.id, profile))
+    seen = []
+
+    async def leaf(leaf, ctx, profile_in, **kwargs):
+        seen.append((profile_in, kwargs))
+        return "No offers", {"results": []}
+
+    scripted(json.dumps({"family": "search", "language": "en",
+        "requested_window": {"start": "13:00", "end": "18:00", "evidence": "1300 to 1800"},
+        "location_intent": {"action": "preserve", "evidence": "1300 to 1800"}}), "No offers.")
+    monkeypatch.setattr(agent_module, "_run_leaf", leaf)
+    _drive_in(runner, session.id, "1300 to 1800")
+    stored = asyncio.run(fake_profile_store.get(session.id))
+    assert stored.confirmed_location == AIRPORT and stored.city == "Schwechat"
+    assert stored.zone == AIRPORT["name"]
+    assert (stored.timeslot_start, stored.timeslot_end) == ("13:00", "18:00")
+    assert seen[0][1]["query_params"]["reuse_confirmed_location"] is True
+    scripted(json.dumps({"family": "search", "language": "en",
+        "location_intent": {"action": "change", "evidence": "Paris"},
+        "requested_areas": [{"query": "Paris", "kind": "municipality", "country": "FR", "evidence": "Paris"}]}), "No offers.")
+    monkeypatch.setattr(agent_module, "_run_leaf", leaf)
+    _drive_in(runner, session.id, "Paris instead")
+    assert seen[-1][0]["confirmed_location"] is None
+    assert not seen[-1][1].get("query_params", {}).get("reuse_confirmed_location")
+
 
 @pytest.mark.parametrize("patch", [{"latitude": True}, {"longitude": float('nan')}, {"provider_id": ""}, {"feature_type": "poi"}])
 def test_place_requires_provider_identity_and_valid_coordinates(patch):

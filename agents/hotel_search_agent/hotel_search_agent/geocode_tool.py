@@ -334,9 +334,12 @@ def _fail(
     return payload
 
 
-def _provider_place(candidate: GeocodeCandidate) -> dict | None:
+def _provider_place(candidate: GeocodeCandidate, *, city: str | None = None,
+                    zone: str | None = None, metro: str | None = None) -> dict | None:
     from b2c_common.confirmed_location import verified_place
     return verified_place({
+        **({"search_context": {"city": city, "zone": zone or candidate.name, "metro": metro}}
+           if candidate.feature_type == "poi" else {}),
         "provider_id": candidate.mapbox_id, "name": candidate.name,
         "label": candidate.place_name, "country_code": candidate.country_code,
         "feature_type": candidate.feature_type, "region": candidate.region,
@@ -668,6 +671,8 @@ def geocode_location(
                 else:
                     return _ok(
                         landmark.as_result(),
+                        resolved_location=(_provider_place(landmark, zone=effective_zone)
+                                           if landmark.feature_type == "poi" else None),
                         feature_type=landmark.feature_type,
                         profile_delta={},
                         distance_origin_type="poi",
@@ -947,6 +952,8 @@ def geocode_location(
                 )
                 return _ok(
                     poi.as_result(),
+                    resolved_location=(_provider_place(poi, city=effective_city, zone=effective_zone, metro=effective_metro)
+                                       if poi.feature_type == "poi" else None),
                     feature_type=poi.feature_type,
                     profile_delta=profile_delta,
                     distance_origin_type="poi",
@@ -1054,22 +1061,30 @@ def inject_profile_geo_context(tool: object, args: dict, tool_context: object) -
     content = getattr(tool_context, "user_content", None)
     envelope = find_datapart(getattr(content, "parts", None)) or {}
     place = verified_place(profile_in.get("confirmed_location"))
+    scope = (place or {}).get("search_context") or {}
+    is_poi = bool(place and place["feature_type"] == "poi")
+    expected_city = scope.get("city") if is_poi else (place or {}).get("name")
+    same_scope = all(not args.get(k) or str(args[k]).casefold() == str(scope.get(k) or "").casefold()
+                     for k in ("zone", "metro")) if is_poi else not args.get("zone") and not args.get("metro")
+    profile_scope_matches = all((profile_in.get(k) or "").casefold() == (scope.get(k) or "").casefold()
+                                for k in ("city", "zone", "metro")) if is_poi else not profile_in.get("zone")
     # Repeating the same geocoder key cannot choose a different homonym merely
     # because the model omitted a redundant preserve flag or changed language.
     # Fresh destinations/scopes are cleared by the concierge, and explicit leaf
     # city/country/zone/device changes continue through ordinary resolution.
     same_identity = bool(place and args.get("origin") != "device"
-                         and not args.get("zone") and not args.get("metro")
-                         and (not args.get("city") or str(args["city"]).casefold() == place["name"].casefold())
+                         and same_scope
+                         and (not args.get("city") or str(args["city"]).casefold() == str(expected_city or "").casefold())
                          and (not args.get("country_code") or str(args["country_code"]).upper() == place["country_code"]))
     if (((envelope.get("query_params") or {}).get("reuse_confirmed_location") is True or same_identity)
             and place and not requires_area_membership(validate_areas(profile_in.get("search_areas")))
-            and not profile_in.get("zone")):
+            and profile_scope_matches):
         return _ok(
             GeocodeResult(latitude=place["latitude"], longitude=place["longitude"],
                           place_name=place["label"], country_code=place["country_code"], region=place["region"]),
-            feature_type=place["feature_type"], distance_origin_type="city_centroid",
-            resolved_location=place, profile_delta={"last_city": place["name"]},
+            feature_type=place["feature_type"], distance_origin_type="poi" if is_poi else "city_centroid",
+            resolved_location=place, profile_delta={"last_city": expected_city} if expected_city else {},
+            zone=scope.get("zone"), metro=scope.get("metro"),
         )
 
     city, prior_city = args.get("city"), profile_in.get("city")

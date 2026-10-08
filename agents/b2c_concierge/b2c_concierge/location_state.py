@@ -33,7 +33,10 @@ def selected_place(profile: SessionProfile, intent: dict | None, areas: list[dic
 def commit_place(profile: SessionProfile, place: dict) -> None:
     profile.confirmed_location = dict(place)
     profile.pending_location = None
-    profile.city = place["name"]
+    scope = place.get("search_context") if place["feature_type"] == "poi" else None
+    profile.city = scope.get("city") if scope else place["name"]
+    if scope:
+        profile.zone, profile.metro = scope["zone"], scope.get("metro")
     profile.country_anchor = place["country_code"]
     # A foreign province code is not a US state.
     profile.state_anchor = place["region"] if place["country_code"] == "US" else None
@@ -52,7 +55,10 @@ def receive_location(profile: SessionProfile, response: dict) -> None:
         commit_place(profile, place)
     elif profile.confirmed_location:
         old = verified_place(profile.confirmed_location)
-        if (not old or (profile.city or "").casefold() != old["name"].casefold()
+        scope = (old or {}).get("search_context")
+        changed = (any((getattr(profile, k) or "").casefold() != (scope.get(k) or "").casefold()
+                       for k in ("city", "zone", "metro")) if scope
+                   else (profile.city or "").casefold() != (old or {}).get("name", "").casefold())
+        if (not old or changed
                 or (profile.country_anchor and profile.country_anchor != old["country_code"])):
             profile.confirmed_location = None
-
