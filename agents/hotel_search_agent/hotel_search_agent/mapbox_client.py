@@ -72,6 +72,7 @@ class GeocodeCandidate:
     rank: int
     mapbox_id: str = ""
     administrative_code: str = ""
+    wikidata_id: str = ""
 
     def as_result(self) -> GeocodeResult:
         return GeocodeResult(
@@ -207,6 +208,9 @@ class MapboxClient:
             identifier = value.get("mapbox_id")
             if isinstance(identifier, str) and identifier:
                 ids.add(identifier)
+            wikidata = value.get("wikidata_id")
+            if isinstance(wikidata, str) and wikidata.startswith("Q") and wikidata[1:].isascii() and wikidata[1:].isdigit():
+                ids.add("wikidata:" + wikidata)
             for item in value.values():
                 if isinstance(item, dict):
                     collect(item)
@@ -316,6 +320,8 @@ class MapboxClient:
                     rank=rank,
                     mapbox_id=str(props.get("mapbox_id") or ""),
                     administrative_code=str(region_ctx.get("region_code") or ""),
+                    wikidata_id=str(props.get("wikidata_id") or
+                                    (context.get(props.get("feature_type")) or {}).get("wikidata_id") or ""),
                 )
             )
         return out

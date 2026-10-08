@@ -48,43 +48,61 @@ def _same_area_name(query: str, label: str, administrative: bool) -> bool:
     return bool(words) and words == _identity_words(label, administrative)
 
 
+def _resolve_area(item: dict[str, str], client: MapboxClient, language: str | None) -> dict:
+    types = "region,district" if item["kind"] == "administrative" else "place,locality"
+    candidates = client.geocode_candidates(item["query"], country=item["country"], types=types, language=language)
+    matches = [c for c in candidates if c.feature_type in types.split(",")
+               and c.country_code == item["country"] and c.mapbox_id
+               and ((item.get("code") and c.administrative_code.casefold() == item["code"].casefold())
+                    or (not item.get("code") and _same_area_name(item["query"], c.name, item["kind"] == "administrative")))]
+    unique = {c.mapbox_id: c for c in matches}
+    if len(unique) != 1:
+        return {"ok": False, "error": "area_unresolved", "diagnostics": {
+            "reason": "The requested area could not be resolved uniquely; do not substitute its parent city.",
+            "area": item["query"],
+        }}
+    candidate = next(iter(unique.values()))
+    bbox = candidate.bbox
+    if (bbox is None or not all(math.isfinite(x) for x in bbox)
+            or not -180 <= bbox[0] < bbox[2] <= 180
+            or not -90 <= bbox[1] < bbox[3] <= 90):
+        return {"ok": False, "error": "area_boundary_unavailable", "diagnostics": {"area": candidate.name}}
+    lon, lat = (bbox[0] + bbox[2]) / 2, (bbox[1] + bbox[3]) / 2
+    radius = math.ceil(max(haversine_km(lat, lon, y, x) for x in (bbox[0], bbox[2]) for y in (bbox[1], bbox[3]))) + 1
+    if radius > 200:
+        return {"ok": False, "error": "area_exceeds_search_radius", "diagnostics": {
+            "area": candidate.name, "reason": "This whole area exceeds the MCP's 200 km radius. Ask for a narrower part without discarding the requested region.",
+        }}
+    identities = [candidate.mapbox_id]
+    # Forward and reverse Mapbox IDs can differ for the same administrative
+    # entity. Only an explicit provider semantic ID can establish equivalence;
+    # labels, bounding boxes and postal prefixes are never membership evidence.
+    wikidata = candidate.wikidata_id
+    if wikidata.startswith("Q") and wikidata[1:].isascii() and wikidata[1:].isdigit():
+        identities.append("wikidata:" + wikidata)
+    return {"ok": True, "area": {"id": candidate.mapbox_id, "identities": identities, "label": candidate.name,
+            "country": candidate.country_code, "latitude": lat, "longitude": lon, "radius_km": radius}}
+
+
 def resolve_areas(requests: list[dict[str, str]], client: MapboxClient, language: str | None = None) -> dict:
-    resolved: list[dict[str, Any]] = []
-    for item in requests:
-        types = "region,district" if item["kind"] == "administrative" else "place,locality"
-        candidates = client.geocode_candidates(item["query"], country=item["country"], types=types, language=language)
-        # Typed identity, country and name/code all agree. Never select an
-        # attractive city merely because its inventory is denser than a region.
-        matches = [c for c in candidates if c.feature_type in types.split(",")
-                   and c.country_code == item["country"] and c.mapbox_id
-                   and ((item.get("code") and c.administrative_code.casefold() == item["code"].casefold())
-                        or (not item.get("code") and _same_area_name(item["query"], c.name, item["kind"] == "administrative")))]
-        unique = {c.mapbox_id: c for c in matches}
-        if len(unique) != 1:
-            return {"ok": False, "error": "area_unresolved", "diagnostics": {
-                "reason": "The requested area could not be resolved uniquely; do not substitute its parent city.",
-                "area": item["query"],
-            }}
-        candidate = next(iter(unique.values()))
-        bbox = candidate.bbox
-        if (bbox is None or not all(math.isfinite(x) for x in bbox)
-                or not -180 <= bbox[0] < bbox[2] <= 180
-                or not -90 <= bbox[1] < bbox[3] <= 90):
-            return {"ok": False, "error": "area_boundary_unavailable", "diagnostics": {"area": candidate.name}}
-        lon, lat = (bbox[0] + bbox[2]) / 2, (bbox[1] + bbox[3]) / 2
-        radius = math.ceil(max(haversine_km(lat, lon, y, x) for x in (bbox[0], bbox[2]) for y in (bbox[1], bbox[3]))) + 1
-        if radius > 200:
-            return {"ok": False, "error": "area_exceeds_search_radius", "diagnostics": {
-                "area": candidate.name, "reason": "This whole area exceeds the MCP's 200 km radius. Ask for a narrower part without discarding the requested region.",
-            }, "profile_delta": {"search_areas": requests, "last_city": candidate.name}}
-        resolved.append({"id": candidate.mapbox_id, "label": candidate.name,
-                         "country": candidate.country_code, "latitude": lat, "longitude": lon,
-                         "radius_km": radius})
+    # These are alternative areas, never an intersection. A failed alternative
+    # must stay visible, but cannot erase valid membership in another requested
+    # area. No substitution, radius expansion or extra provider call is needed.
+    outcomes = [_resolve_area(item, client, language) for item in requests]
+    resolved = [outcome["area"] for outcome in outcomes if outcome["ok"]]
+    unresolved = [{"query": item["query"], "error": outcome["error"]}
+                  for item, outcome in zip(requests, outcomes, strict=True) if not outcome["ok"]]
+    if not resolved:
+        failure = dict(outcomes[0])
+        if failure["error"] == "area_exceeds_search_radius":
+            failure["profile_delta"] = {"search_areas": requests, "last_city": failure["diagnostics"]["area"]}
+        return {**failure, "unresolved_areas": unresolved}
     first = resolved[0]
     label = " / ".join(a["label"] for a in resolved)
-    countries = {a["country"] for a in resolved}
+    countries = {item["country"] for item in requests}
     return {"ok": True, "latitude": first["latitude"], "longitude": first["longitude"],
             "resolved_place": label, "distance_origin_type": "area", "search_areas": resolved,
+            "unresolved_areas": unresolved,
             "country_code": first["country"] if len(countries) == 1 else None,
             "profile_delta": {"last_city": label, "search_areas": requests,
                               "zone": {"op": "clear"}, "metro": {"op": "clear"},
@@ -153,7 +171,7 @@ async def _search_areas(tool: Any, args: dict[str, Any], tool_context: Any, area
         identifiers = await asyncio.to_thread(client.containing_area_ids, lat, lon)
         if identifiers is None:
             return None, True
-        matching = [a for a in areas if a["id"] in identifiers]
+        matching = [a for a in areas if identifiers.intersection(a.get("identities") or [a["id"]])]
         if not matching:
             return None, False
         return {**hotel, "verifiedSearchAreas": [a["label"] for a in matching],
@@ -161,7 +179,9 @@ async def _search_areas(tool: Any, args: dict[str, Any], tool_context: Any, area
 
     checked = await asyncio.gather(*(verify(h) for h in hotels))
     valid = [hotel for hotel, _ in checked if hotel is not None]
+    unresolved = (tool_context.state.get(STATE_RESOLUTION) or {}).get("unresolved_areas", [])
     coverage = {"areas": [a["label"] for a in areas], "exhaustive": False,
+                "unresolved_areas": [item["query"] for item in unresolved],
                 "retrieved": len(hotels), "verified": len(valid),
                 "unverified": sum(unknown for _, unknown in checked),
                 "failed_areas": sum(p is None for p in payloads),

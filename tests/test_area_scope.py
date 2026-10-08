@@ -22,6 +22,46 @@ AREAS = [
 ]
 
 
+@pytest.mark.parametrize("query,message,country", [
+    ("Île-de-France", "En île de France avec spa", "FR"),
+    ("Hauts-de-Seine", "dans les Hauts de Seine", "FR"),
+    ("São Paulo", "Sao Paulo seulement", "BR"),
+])
+def test_area_identity_allows_typography_with_current_literal_evidence(query, message, country):
+    area = {"query": query, "kind": "administrative", "country": country, "evidence": message}
+    assert validate_areas([area], message) == [area]
+
+
+@pytest.mark.parametrize("query,message", [("York", "Yorkshire"), ("Paris", "Parish"), ("", "Paris")])
+def test_area_identity_requires_whole_name_not_a_substring(query, message):
+    area = {"query": query, "kind": "municipality", "country": "GB", "evidence": message}
+    assert validate_areas([area], message) is None
+
+
+@pytest.mark.parametrize("city,zone", [("Arcadia City", "City"), ("Ho Chi Minh City", "City"), ("Paris", "Paris")])
+def test_owned_city_component_does_not_become_a_separate_landmark(city, zone):
+    ctx = context({'city': city, 'country_anchor': 'US'}, 'a room in ' + city)
+    ctx.user_content.parts[1] = encode_datapart({
+        'profile_in': {'city': city, 'country_anchor': 'US'},
+        'query_params': {'areas_authoritative': True},
+    })
+    args = {'city': city, 'zone': zone}
+    assert inject_profile_geo_context(SimpleNamespace(name='geocode_location'), args, ctx) is None
+    assert args['city'] == city
+    assert 'zone' not in args
+
+
+@pytest.mark.parametrize('model_message', [None, 'Arcadia', 'Arcadia in Michigan'])
+def test_geocoder_receives_actual_message_including_explicit_state(model_message):
+    message = 'A room in Arcadia City, California'
+    ctx = context({'city': 'Arcadia City', 'country_anchor': 'US'}, message)
+    args = {'city': 'Arcadia City'}
+    if model_message is not None:
+        args['raw_user_message'] = model_message
+    inject_profile_geo_context(SimpleNamespace(name='geocode_location'), args, ctx)
+    assert args['raw_user_message'] == message
+
+
 def candidate(name="Yvelines", code="78", ident="area78", **kwargs):
     return GeocodeCandidate(48.8, 1.8, name, name, "France", "region", "FR", name,
                             (1.44, 48.43, 2.23, 49.09), 0, ident, code, **kwargs)
@@ -59,6 +99,30 @@ def test_state_too_large_is_not_silently_clipped_to_200km():
     result = resolve_areas(AREAS[:1], fake)
     assert result["error"] == "area_exceeds_search_radius"
     assert result["profile_delta"]["search_areas"] == AREAS[:1]
+
+
+def test_unresolved_alternative_does_not_discard_a_verified_requested_area():
+    requests = [AREAS[0], {"query": "near Yvelines", "kind": "administrative",
+                          "country": "FR", "evidence": "near Yvelines"}]
+    provider = SimpleNamespace(geocode_candidates=lambda query, **kw: [candidate()] if query == "Yvelines" else [])
+    result = resolve_areas(requests, provider)
+    assert result['ok']
+    assert [a['id'] for a in result['search_areas']] == ['area78']
+    assert result['unresolved_areas'] == [{'query': 'near Yvelines', 'error': 'area_unresolved'}]
+    assert result['profile_delta']['search_areas'] == requests
+
+
+def test_partial_area_search_keeps_unresolved_scope_in_coverage(monkeypatch):
+    from hotel_search_agent.area_scope import STATE_RESOLUTION
+    ctx = context(state={STATE_AREAS: [{'id': 'area78', 'label': 'Yvelines', 'country': 'FR',
+                                       'latitude': 48.8, 'longitude': 1.8, 'radius_km': 70}],
+                         STATE_RESOLUTION: {'unresolved_areas': [{'query': 'near Yvelines', 'error': 'area_unresolved'}]}})
+    monkeypatch.setattr('hotel_search_agent.geocode_tool.get_mapbox_client', lambda: SimpleNamespace())
+    async def run_async(*, args, tool_context):
+        return {'structuredContent': {'results': []}}
+    result = asyncio.run(search_areas_before_tool(SimpleNamespace(name='search_offers', run_async=run_async), {}, ctx))
+    assert result['structuredContent']['areaCoverage']['unresolved_areas'] == ['near Yvelines']
+    assert ctx.state[STATE_COVERAGE]['exhaustive'] is False
 
 
 @pytest.mark.parametrize("value", [None, [], AREAS * 2, [{**AREAS[0], "latitude": "48"}],
@@ -111,6 +175,38 @@ def test_reverse_membership_uses_provider_ids_including_alternate_levels():
         }}}]})
     c = MapboxClient("test", client=httpx.Client(transport=httpx.MockTransport(handle)))
     assert c.containing_area_ids(48.8, 2.1) == {"place", "area78", "idf"}
+
+
+def test_reverse_membership_keeps_provider_semantic_identity_without_name_fallback():
+    payload = {'features': [{'properties': {'mapbox_id': 'different-reverse-id',
+                  'context': {'region': {'mapbox_id': 'department', 'alternate': {
+                      'mapbox_id': 'alternate-region-id', 'name': 'Same Region', 'wikidata_id': 'Q123'}}}}}]}
+    c = MapboxClient('test', client=httpx.Client(transport=httpx.MockTransport(
+        lambda request: httpx.Response(200, json=payload))))
+    assert 'wikidata:Q123' in c.containing_area_ids(48.8, 2.1)
+
+
+@pytest.mark.parametrize('own_context,expected', [({'wikidata_id': 'Q123'}, 'Q123'), ({}, '')])
+def test_forward_identity_comes_from_the_feature_itself_not_its_parent_country(own_context, expected):
+    payload = {'features': [{'geometry': {'coordinates': [2.1, 48.8]}, 'properties': {
+        'name': 'Region', 'feature_type': 'region', 'mapbox_id': 'forward',
+        'context': {'region': own_context, 'country': {'country_code': 'FR', 'wikidata_id': 'Q142'}}}}]}
+    assert MapboxClient._parse_candidates(payload)[0].wikidata_id == expected
+
+
+def test_provider_semantic_identity_joins_forward_and_reverse_variants(monkeypatch):
+    from dataclasses import asdict
+    forward = SimpleNamespace(**{**asdict(candidate()), 'wikidata_id': 'Q123'})
+    resolved = resolve_areas(AREAS[:1], SimpleNamespace(geocode_candidates=lambda *a, **kw: [forward]))
+    ctx = context()
+    capture_after_tool(SimpleNamespace(name='geocode_location'), {}, ctx, resolved)
+    reverse = SimpleNamespace(containing_area_ids=lambda lat, lon: {'different-id', 'wikidata:Q123' if lat == 48.8 else 'wikidata:Q999'})
+    monkeypatch.setattr('hotel_search_agent.geocode_tool.get_mapbox_client', lambda: reverse)
+    async def run_async(*, args, tool_context):
+        return {'structuredContent': {'results': [{'hotelId': 1, 'lat': 48.8, 'lon': 2.1},
+                                                  {'hotelId': 2, 'lat': 47.8, 'lon': 2.1}]}}
+    result = asyncio.run(search_areas_before_tool(SimpleNamespace(name='search_offers', run_async=run_async), {}, ctx))
+    assert [h['hotelId'] for h in result['structuredContent']['results']] == [1]
 
 
 def test_batch_filters_paris_and_unknowns_keeps_both_areas_and_all_filters(monkeypatch):

@@ -1,8 +1,27 @@
 """Closed geographic intent shared by the profile owner and stateless search leaf."""
 from typing import Any, Literal
+import unicodedata
 from pydantic import BaseModel, ConfigDict, Field
 
 MAX_AREAS = 3
+
+
+def area_name_in_text(name: str, text: str) -> bool:
+    """Match whole name tokens despite typography, without interpreting intent.
+
+    Evidence must still be a literal current-message quote. Provider identity,
+    country and membership checks remain responsible for geographic validity.
+    """
+    def words(value: str) -> list[str]:
+        folded = "".join(c for c in unicodedata.normalize("NFKD", value.casefold())
+                         if not unicodedata.combining(c))
+        return "".join(c if c.isalnum() else " " for c in folded).split()
+
+    name_words, text_words = words(name), words(text)
+    return bool(name_words) and any(
+        text_words[i:i + len(name_words)] == name_words
+        for i in range(len(text_words) - len(name_words) + 1)
+    )
 
 class AreaRequest(BaseModel):
     """Closed tool schema: names/intent only; geometry always comes from provider."""
@@ -56,7 +75,7 @@ def validate_areas(value: Any, message: str | None = None) -> list[dict[str, str
             return None
         if message is not None:
             words = "".join(c if c.isalnum() else " " for c in message.casefold()).split()
-            named = clean["query"].casefold() in message.casefold()
+            named = area_name_in_text(clean["query"], message)
             coded = bool(clean.get("code") and clean["code"].casefold() in words)
             if not named and not coded:
                 return None  # "all", "cheaper", etc. cannot invent a new area identity

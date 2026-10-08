@@ -1,5 +1,54 @@
 # HANDOFF — AgentB2C
 
+## 2026-10-08 — v41 : provenance et identité géographiques
+
+**Pas de GO remplacement.** Les noms de zones acceptent les variantes de
+ponctuation/accents avec une citation littérale du message courant ; les noms
+restent des mots entiers, pas des sous-chaînes. Un composant du nom de la ville
+validée ne devient plus un quartier distinct. Le géocodeur reçoit directement
+le message A2A réel : une copie absente ou tronquée par le modèle ne peut plus
+faire disparaître un État explicitement donné.
+
+Les zones du plan sont des alternatives. Une alternative non résolue reste
+conservée et divulguée, sans bloquer la recherche dans une autre zone demandée
+et vérifiée. Aucun élargissement ni remplacement par une ville parente. La
+réponse annonce par le code les périmètres restant à préciser, même si la
+synthèse oublie la portée partielle. Les limites d’outils et de rayon restent.
+
+Mapbox renvoie parfois des identifiants différents en forward et reverse pour
+la même région. Le contrôle d’appartenance accepte maintenant aussi une identité
+Wikidata explicitement fournie par Mapbox sur l’entité elle-même. Pas de recherche
+Wikidata externe, rapprochement par nom, préfixe postal ou géométrie inventée.
+Preuve live IDF : cinq hôtels récupérés et zéro vérifié avant, cinq sur cinq après.
+Les identifiants sémantiques différents restent rejetés et un identifiant de pays
+parent n’est jamais pris pour l’identité de la région recherchée.
+
+**2 525 tests passés, un ignoré**, ruff, mypy66 et guardrails verts ; dix-neuf
+nouveaux tests. Aucun ajout de regex, modèle ou phase LLM. **28 réponses et
+11 revues** sur trois versions de cas déjà exposés. Première variante : régression
+Arcadia vers Michigan ; message réel absent au géocodeur, corrigé avant publication.
+Version finale : Arcadia deux pages de cinq hôtels en Californie, C pour pertinence ;
+IDF seize cartes sur quatre tours, détails et moins cher fonctionnels, C pour GPS
+et formulation des horaires. Paris rive droite reste D : commune vérifiée mais
+hôtel rive gauche. Texas4h reste C : heure conservée, FortWorth recherché, Arlington
+etDallas non résolus et signalés. Aucun taux de succès global ou nouveau holdout.
+
+**44 cartes** vérifiées contre MCP, dont28 sur la version finale, aucun écart de
+prix/date/minutes ou expiration. Ce contrôle n’a pas empêché les mauvaises cartes
+géographiques de la première variante : les deux dimensions restent séparées.
+Export réactualisé :33532lignes,2000récentes ; aucune nouvelle conversation hors
+campagne depuis v40c. Main fetched inchangé cbe88b9. Corpus natif reconstruit avec
+ses limites documentées, export legacy et inventaire MCP live distincts.
+
+Suite : restrictions géographiques composées et intersections (rive droite),
+ambigüités multi-villes, GPS/proximité et ranking ; minutes dans le résumé vide ;
+FAQ, remboursement, prestations incluses, occupation/âge/lit bébé et autres
+familles historiques. Toutes les32familles restent incomplètes. Données brutes
+horsGit, aucun booking/cancel/refund, merge ou déploiement.
+
+Étape : 0.24310319999999999690 USD ; cumul 93.89318477842699898265/110 USD, provisions11,10 déjà incluses, réserve10 conservée.
+
+
 ## 2026-10-08 — v40 : durée, minuit et bornes indépendantes
 
 **Pas de GO remplacement.** Le concierge conserve désormais une durée demandée

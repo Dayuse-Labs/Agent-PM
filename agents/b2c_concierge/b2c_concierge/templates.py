@@ -637,3 +637,15 @@ def service_degraded_response(language: str) -> str:
     inner degradation net, so the step that failed is unknown — generic
     honest wording, invents nothing, never a raw 500/dead stream."""
     return _pick(language, _SERVICE_DEGRADED)
+def unresolved_areas_notice(names: list[str], language: str) -> str:
+    """Keep partial geographic coverage visible even after synthesis failure."""
+    templates = {
+        "fr": "La recherche couvre les zones identifiées. Périmètres encore à préciser : {}.",
+        "en": "The search covers the identified areas. Areas still requiring clarification: {}.",
+        "es": "La búsqueda cubre las zonas identificadas. Zonas aún por precisar: {}.",
+        "it": "La ricerca copre le aree identificate. Aree ancora da precisare: {}.",
+        "de": "Die Suche umfasst die identifizierten Gebiete. Noch zu klärende Gebiete: {}.",
+        "pt": "A pesquisa abrange as áreas identificadas. Áreas ainda por esclarecer: {}.",
+        "nl": "De zoekopdracht omvat de geïdentificeerde gebieden. Nog te verduidelijken gebieden: {}.",
+    }
+    return templates.get(language, templates["en"]).format(" / ".join(names)) if names else ""

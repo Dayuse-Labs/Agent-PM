@@ -28,7 +28,9 @@ import os
 
 from b2c_common.observability import mark_level
 from hotel_search_agent import geo_resolver
-from b2c_common.search_areas import AreaRequest, preserve_area_boundary, requires_area_membership, validate_areas
+from b2c_common.search_areas import (
+    AreaRequest, area_name_in_text, preserve_area_boundary, requires_area_membership, validate_areas,
+)
 from hotel_search_agent.area_scope import STATE_FAILED, resolve_areas
 from hotel_search_agent.geo_guards import (
     _echo_fold,
@@ -1035,6 +1037,10 @@ def inject_profile_geo_context(tool: object, args: dict, tool_context: object) -
     content = getattr(tool_context, "user_content", None)
     message = " ".join(part.text for part in (getattr(content, "parts", None) or [])
                        if isinstance(getattr(part, "text", None), str))
+    if message:
+        # The actual A2A message owns this context. A model may omit or shorten
+        # its copy, losing an explicitly stated state before homonym resolution.
+        args["raw_user_message"] = message
     failed_scope = getattr(tool_context, "state", {}).get(STATE_FAILED)
     if failed_scope:
         return failed_scope
@@ -1079,7 +1085,10 @@ def inject_profile_geo_context(tool: object, args: dict, tool_context: object) -
             args["country_code"] = profile_in.get("country_anchor")
             for field in ("zone", "metro"):
                 value = args.get(field)
-                if not isinstance(value, str) or _echo_fold(value) not in _echo_fold(message):
+                if (not isinstance(value, str) or _echo_fold(value) not in _echo_fold(message)
+                        or area_name_in_text(value, profile_in["city"])):
+                    # A component of the owned municipality name is not an
+                    # independent landmark. Keep genuinely distinct named zones.
                     args.pop(field, None)
             destination_changed = False  # Owned profile already cleared old scope.
     if scoped and not requires_area_membership(scoped):

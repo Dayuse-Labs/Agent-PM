@@ -25,6 +25,18 @@ from b2c_concierge.profile import (
 )
 
 
+def test_partial_area_resolution_is_disclosed_even_when_synthesis_omits_it(monkeypatch, fake_leg):
+    fake_leg.response_payload = {'results': [], 'profile_delta': {},
+                                 'area_coverage': {'areas': ['Yvelines'], 'exhaustive': False,
+                                                   'unresolved_areas': ['near Yvelines']}}
+    _scripted_llm(monkeypatch, '{"family":"search","language":"en"}', 'No offers in the searched area.')
+    runner = InMemoryRunner(root_agent)
+    session = _new_session(runner)
+    text = _run_turn(runner, session.id, 'Yvelines or near Yvelines')
+    assert 'near Yvelines' in text
+    assert 'clarification' in text
+
+
 def _llm_response(text: str):
     return SimpleNamespace(choices=[SimpleNamespace(message=SimpleNamespace(content=text))])
 

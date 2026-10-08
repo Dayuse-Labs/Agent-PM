@@ -1913,6 +1913,9 @@ class _B2cConcierge(BaseAgent):
             final_text = f"{final_text.rstrip()}\n\n{budget_notice(profile.requested_budget, bool(response['results']), reply_language)}"
         if currency_notice:
             final_text = f"{final_text.rstrip()}\n\n{currency_notice}"
+        unresolved = (response.get("area_coverage") or {}).get("unresolved_areas")
+        if isinstance(unresolved, list) and unresolved and all(isinstance(name, str) for name in unresolved):
+            final_text = f"{final_text.rstrip()}\n\n{templates.unresolved_areas_notice(unresolved, reply_language)}"
         for chunk in _chunk_text(final_text):
             yield self._chunk_event(ctx, chunk)
         yield self._final(ctx, final_text)
