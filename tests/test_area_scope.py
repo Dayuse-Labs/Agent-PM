@@ -351,3 +351,40 @@ def test_narrowing_known_area_union_preserves_member_type():
     assert preserve_area_boundary(AREAS, update) == [AREAS[1]]
     bounded = [{**update[0], 'boundary_evidence': 'within the city limits'}]
     assert preserve_area_boundary(AREAS, bounded) == bounded
+
+
+def test_owned_area_plan_precedes_a_premature_search(monkeypatch):
+    from hotel_search_agent.response_bridge import prepare_owned_area_plan, enforce_resolved_search_origin
+    monkeypatch.setattr('hotel_search_agent.geocode_tool.get_mapbox_client', client)
+    ctx = context({'search_areas': AREAS, 'city': 'Yvelines / Hauts-de-Seine'})
+    ctx.user_content.parts[-1] = encode_datapart({'profile_in': {'search_areas': AREAS},
+                                                'query_params': {'areas_authoritative': True}})
+    assert asyncio.run(prepare_owned_area_plan(ctx)) is None
+    args = {'lat': 1, 'lon': 2}
+    assert enforce_resolved_search_origin(SimpleNamespace(name='search_offers'), args, ctx) is None
+    assert args['lat'] != 1 and args['lon'] != 2
+    assert len(ctx.state[STATE_AREAS]) == 2
+    assert ctx.state['temp:hotel_search_anchor']['type'] == 'area'
+
+
+def test_carried_area_alone_does_not_preempt_fresh_leaf_destination(monkeypatch):
+    from hotel_search_agent.response_bridge import prepare_owned_area_plan
+    def unexpected():
+        raise AssertionError('no pre-resolution without current authoritative intent')
+    monkeypatch.setattr('hotel_search_agent.geocode_tool.get_mapbox_client', unexpected)
+    ctx = context({'search_areas': AREAS}, 'Et à Lyon ?')
+    assert asyncio.run(prepare_owned_area_plan(ctx)) is None
+    assert not ctx.state.get(STATE_AREAS)
+
+
+def test_failed_owned_area_plan_cannot_search_model_coordinates(monkeypatch):
+    from hotel_search_agent.response_bridge import prepare_owned_area_plan, enforce_resolved_search_origin
+    monkeypatch.setattr('hotel_search_agent.geocode_tool.get_mapbox_client',
+                        lambda: SimpleNamespace(geocode_candidates=lambda *a, **kw: []))
+    ctx = context()
+    ctx.user_content.parts[-1] = encode_datapart({'profile_in': {'search_areas': AREAS},
+                                                'query_params': {'areas_authoritative': True}})
+    asyncio.run(prepare_owned_area_plan(ctx))
+    result = enforce_resolved_search_origin(SimpleNamespace(name='search_offers'), {'lat': 1, 'lon': 2}, ctx)
+    assert result['error'] == 'area_unresolved'
+    assert not ctx.state.get(STATE_AREAS)

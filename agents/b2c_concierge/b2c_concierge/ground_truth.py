@@ -80,7 +80,25 @@ def date_context_block(response: dict[str, Any] | None, language: str = "en") ->
     into user-facing replies ("Pour demain (2026-09-24)…", QA 2026-09-08)."""
     search_date = (response or {}).get("search_date")
     if not isinstance(search_date, dict):
-        return ""
+        # Inline named-hotel/details results do not always carry the leaf's
+        # search_date envelope. Only actual dated offers can establish it;
+        # a property identity or the requested profile date is not evidence.
+        hotels = shortlist_hotels(response)
+        dates = [h.get("offer_date") for h in hotels
+                 if h.get("offer_id") and h.get("timeslots")]
+        if not hotels or len(dates) != len(hotels) or not all(isinstance(d, str) for d in dates):
+            return ""
+        unique_dates = set(dates)
+        if len(unique_dates) != 1:
+            return ""
+        offered_date = dates[0]
+        if not isinstance(offered_date, str):
+            return ""
+        try:
+            date.fromisoformat(offered_date)
+        except (ValueError, TypeError):
+            return ""
+        search_date = {"date": offered_date}
     offered = search_date.get("date")
     if not isinstance(offered, str) or not offered:
         return ""
@@ -98,7 +116,8 @@ def date_context_block(response: dict[str, Any] | None, language: str = "en") ->
         return _SAME_DAY_CLOSED_NOTE.format(date=offered_human)
     return (
         f"SEARCH DATE: these results are for {offered_human}. State that date "
-        "in this written-out form — never as YYYY-MM-DD.\n"
+        "in this written-out form — never as YYYY-MM-DD. State it even on a "
+        "named-hotel follow-up: the previous search may have served another day.\n"
     )
 
 _HEADER = (

@@ -40,10 +40,12 @@ from hotel_search_agent.area_scope import STATE_AREAS, STATE_COVERAGE, STATE_RAN
 
 from b2c_common.search_budget import offer_within_budget, resolve_budget_currency
 
+import asyncio
 import json
 import logging
 import math
 import time
+from types import SimpleNamespace
 from typing import Any, Iterable
 
 from a2a import types as a2a_types
@@ -807,6 +809,8 @@ def enforce_resolved_search_origin(
         return None
     if name != "search_offers":
         return None
+    if tool_context.state.get(STATE_FAILED):
+        return tool_context.state[STATE_FAILED]
     origin = tool_context.state.get(_STATE_ANCHOR_KEY)
     lat = _coord(origin.get("latitude")) if isinstance(origin, dict) else None
     lon = _coord(origin.get("longitude")) if isinstance(origin, dict) else None
@@ -1510,6 +1514,48 @@ def stamp_turn_start(callback_context: Any) -> None:
     callback_context.state[_STATE_ANCHOR_KEY] = None
     for key in (STATE_AREAS, STATE_COVERAGE, STATE_RAN, STATE_FAILED, STATE_RESOLUTION):
         callback_context.state[key] = None
+    return None
+
+
+async def prepare_owned_area_plan(callback_context: Any) -> None:
+    """Resolve current concierge-owned areas before the model can search.
+
+    Carried areas alone do not authorize this shortcut: the current request may
+    change destination in a way the leaf still needs to interpret. There is no
+    inventory call, model phase or persistent leaf state here.
+    """
+    from b2c_common.search_areas import requires_area_membership, validate_areas
+    from hotel_search_agent.area_scope import resolve_areas
+    from hotel_search_agent.geocode_tool import get_mapbox_client
+
+    content = getattr(callback_context, "user_content", None)
+    envelope = find_datapart(getattr(content, "parts", None)) or {}
+    if (envelope.get("query_params") or {}).get("areas_authoritative") is not True:
+        return None
+    profile = read_profile_in(callback_context)
+    areas = validate_areas(profile.get("search_areas"))
+    if not requires_area_membership(areas) or not areas:
+        return None
+    language = str(profile.get("locale") or profile.get("language") or "en")[:2]
+    result = await asyncio.to_thread(resolve_areas, areas, get_mapbox_client(), language)
+    if not result.get("ok"):
+        callback_context.state[STATE_FAILED] = result
+    capture_after_tool(SimpleNamespace(name="geocode_location"), {}, callback_context, result)
+    return None
+
+
+def inject_owned_area_plan(callback_context: Any, llm_request: Any) -> None:
+    plan = callback_context.state.get(STATE_RESOLUTION)
+    if isinstance(plan, dict) and plan.get("ok"):
+        llm_request.append_instructions([
+            "The current requested areas have ALREADY been geocoded and verified in code. "
+            "Skip geocode_location. Call search_offers ONCE for the whole area plan; "
+            "code searches every area and verifies membership. Do not issue one call per "
+            "area or add an areas parameter to search_offers. Use these initial coordinates "
+            f"(code binds them to the verified plan): lat={plan['latitude']}, lon={plan['longitude']}. "
+            "Only label the other filters from the current message; established profile "
+            "filters are carried automatically."
+        ])
     return None
 
 

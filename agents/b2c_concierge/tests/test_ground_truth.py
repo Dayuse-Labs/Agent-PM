@@ -422,3 +422,23 @@ class TestExactWindowEvidence:
             _profile(requested_window={"start": "10:30", "end": None}),
         )
         assert "minute coverage" not in block
+
+
+class TestNamedOfferDateEvidence:
+    def test_inline_named_offer_date_is_explicit_without_search_metadata(self):
+        from b2c_concierge.ground_truth import date_context_block
+        block = date_context_block({'results': [{'name': 'Named hotel', 'offer_id': 'verified-offer',
+                                               'offer_date': '2026-10-08',
+                                               'timeslots': [{'start': '10:00', 'end': '17:00'}]}]}, 'en')
+        assert 'SEARCH DATE' in block and 'October' in block and '2026' in block
+
+    def test_identity_card_does_not_prove_dated_availability(self):
+        from b2c_concierge.ground_truth import date_context_block
+        assert date_context_block({'results': [{'name': 'Named hotel', 'offer_date': '2026-10-08'}]}) == ''
+
+    def test_different_offer_dates_cannot_be_collapsed_into_one_day(self):
+        from b2c_concierge.ground_truth import date_context_block
+        results = [{'name': 'Hotel', 'offer_id': str(i), 'offer_date': day,
+                    'timeslots': [{'start': '10:00', 'end': '17:00'}]}
+                   for i, day in enumerate(('2026-10-08', '2026-10-09'))]
+        assert date_context_block({'results': results}) == ''

@@ -68,6 +68,8 @@ from hotel_search_agent.response_bridge import (
     capture_after_tool,
     read_profile_in,
     enforce_resolved_search_origin,
+    prepare_owned_area_plan,
+    inject_owned_area_plan,
     emit_search_datapart,
     inject_landmark_radius,
     inject_origin_sort,
@@ -376,7 +378,7 @@ root_agent = Agent(
     # A2aTurnObservation in serve.py) the inbound request as its input, and
     # mirrors the inbound A2A dayuse_trace_id as the Langfuse session id
     # (no-op unless tracing is enabled in serve.py).
-    before_agent_callback=[stamp_turn_start, stamp_a2a_turn],
+    before_agent_callback=[stamp_turn_start, stamp_a2a_turn, prepare_owned_area_plan],
     # skip_final_generation is FIRST: once the search tool has run, it short-circuits
     # the model's wasted final-prose call (emit_search_datapart overwrites that prose
     # and the orchestrator re-synthesizes anyway) — 3 → 2 internal LLM calls. Being
@@ -394,6 +396,7 @@ root_agent = Agent(
         skip_final_generation,
         llm_timing_before,
         inject_today_before_model,
+        inject_owned_area_plan,
         inject_amenities_declaration,
         inject_datetime_declaration,
         inject_occupancy_declaration,

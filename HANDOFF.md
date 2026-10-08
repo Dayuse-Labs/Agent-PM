@@ -1,5 +1,62 @@
 # HANDOFF — AgentB2C
 
+## 2026-10-08 — v29 : préparer la géographie et dater les offres nommées
+
+**Pas de GO remplacement.** Deux corrections sans nouvelle regex, appel modèle
+supplémentaire ni augmentation du quota d’outils :
+
+- Le concierge a déjà identifié les périmètres du tour : la feuille les résout
+  avant son premier appel modèle. Cette préparation ne s’applique pas au seul
+  profil hérité, qui pourrait précéder un changement de destination. Le géocodage
+  fournit les coordonnées vérifiées et le même traitement borné recherche chaque
+  zone. Les appels redondants réutilisent le plan ; un échec interdit les coordonnées
+  inventées. Feuille toujours stateless, profil entrant/sortant A2A, LiteLLM conservé.
+- Une réponse hôtel nommé contenant une offre datée dispose désormais du contexte
+  de date pour la synthèse, même sans l’enveloppe `search_date` de la feuille.
+  Une carte d’identité ne prouve pas une disponibilité ; plusieurs dates ne sont
+  pas réduites à un seul jour. Le dernier rejeu annonce le 8 octobre après une
+  recherche du 7 octobre, au lieu de masquer la date de l’offre Royal Sonesta.
+
+Précision sur l’échec précédent décrit comme « appels mal formés » : les reçus
+v28d montrent surtout deux recherches **avant géocodage**, consommant le quota
+avant la recherche correctement ancrée. Sur v29, le premier tour devient un appel
+modèle search_offers suivi de deux requêtes MCP en code, sans épuisement du quota.
+Les deux contrôles de cinq suivis conservent date, minutes, 150 EUR, retrait jacuzzi,
+restriction au 92 puis Lyon. Les formulations restent perfectibles (notes B).
+
+**40 réponses / 13 revues manuelles A/B/C/D/F**, dont 15 réponses sur deux nouvelles
+sessions comparées ancien prod/B2C/candidat. Trois réponses utilisent la source
+finale ; huit autres utilisent la même logique avant une garde de type redondante.
+**69 cartes / 35 plafonds** vérifiés contre reçus MCP : zéro écart prix/jointure/
+expiration. Les quatre cartes hors province Bergamo restent des échecs géographiques.
+
+**2 395 tests passés, un ignoré**, puis tests ciblés après correction du typage,
+ruff, mypy (63 fichiers) et guardrails. Six nouveaux cas couvrent plan autoritaire, absence
+ou échec de plan, date d’offre nommée, identité sans disponibilité et dates mixtes.
+CI du commit à observer séparément ; aucun statut live déduit des jobs ignorés.
+
+Export SQL actualisé : 33 324 lignes / 2 000 récentes. Deux sessions, cinq messages
+retrouvés dans Langfuse. Les deux ont un GPS natif signalé, mais son payload exact
+manque : comparaison texte/contexte attesté seulement, sans note de personnalisation.
+L’ordre réel est âge 19 puis « Show Brooklyn », et romantique → Houston → hôtel nommé.
+Ne pas le reconstruire d’après une narration plus plausible. Provenance organique
+non certifiée par l’API SQL ; aucune donnée native inventée.
+
+Échecs maintenus : le candidat répète Brooklyn NY/Maryland ; B2C déployé oublie
+l’âge au suivi. Le romantique reste peu étayé. 4o-mini peut toujours confondre
+province et ville, et cite « même date » comme fausse preuve de frontière pour
+Verona. North Brisbane/East London, corridors, équipements privatifs/inclus, FAQ,
+occupation, exhaustivité et widget/devise ne sont pas validés par cette étape.
+
+Inventaire historique étendu : **256 commits**, 134 chemins de tests modifiés,
+**2 088 tests nommés présents**, un fichier absent au commit prod. Ce catalogue
+privé de métadonnées n’est ni 256 bugs distincts ni une preuve de portage. Les
+32 familles restent prioritaires et non exhaustives ; le lien assertion→rejeu
+reste à compléter. Aucun modèle par défaut modifié.
+
+Étape **0.35549 USD** ; cumul **88.47687/110 USD**, provisions 11,10 incluses, réserve 10. Aucun runner payant actif. Rapports privés v29-summary/v29-review et historical-fix-inventory-v29. Aucun merge, déploiement ou écriture Railway.
+
+
 ## 2026-10-08 — v28 : frontières, créneaux et demandes de lien
 
 **Pas de GO remplacement ; aucun changement de modèle par défaut.**
