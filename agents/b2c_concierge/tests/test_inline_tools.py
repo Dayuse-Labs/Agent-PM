@@ -1730,3 +1730,24 @@ def test_details_does_not_silently_replace_unavailable_displayed_formula(monkeyp
     assert "offer_id" not in hotel
     assert "timeslots" not in hotel
     assert hotel["amenities"]
+
+
+def test_hotel_details_preserve_property_conditions_without_inventing_age(monkeypatch):
+    conditions = 'Photo ID required. Minimum check-in age: 21. Deposit payable at reception.'
+    _install(monkeypatch, {'get_hotel_details': FakeResult({
+        'hotel': {'hotelId': 12, 'name': 'Example Hotel', 'conditions': conditions,
+                  'commonConditions': 'A matching photo ID may be required.'},
+        'offers': [],
+    })})
+    result = asyncio.run(inline_tools.get_hotel_details('', SessionProfile(), picked_hotel_id=12))
+    assert result['hotel']['hotel_conditions'] == conditions
+    assert result['hotel']['general_conditions'] == 'A matching photo ID may be required.'
+    assert 'minimum_age' not in result['hotel']
+    assert 'offer_id' not in result['hotel']
+
+
+def test_missing_or_malformed_property_conditions_are_not_policy_evidence():
+    for conditions in (None, '', [], {'minimumAge': 18}):
+        result = inline_tools._normalize_hotel_for_display({'id': 1, 'conditions': conditions, 'commonConditions': conditions}, None)
+        assert 'hotel_conditions' not in result
+        assert 'general_conditions' not in result

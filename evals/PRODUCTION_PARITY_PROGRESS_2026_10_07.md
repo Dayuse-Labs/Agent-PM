@@ -1,5 +1,65 @@
 ## 2026-10-08 — v25 : équipements au suivi et comparaison de modèle
 
+## 2026-10-08 — v30 : conditions sourcées et suivis âge/FAQ
+
+**Pas de GO remplacement ; modèle par défaut inchangé.** Le rejeu adaptatif
+part des deux vrais messages Brooklyn/19 ans, répond aux clarifications, accepte
+le lendemain et demande les conditions d’un hôtel réellement affiché. Les
+extensions sont synthétiques et identifiées. Une nouvelle session arrivée de vol
+→ Anaheim est extraite de SQL et retrouvée dans Langfuse (deux messages).
+
+Corrections sans nouvelle regex, appel LLM ni outil supplémentaire :
+- Détails/compare reçoivent le contexte récent et la dernière question de l’agent.
+- Les champs MCP `conditions` et `commonConditions` survivent à la normalisation,
+  avec portée propriété/générale distincte et extraits bornés signalés si tronqués.
+- La FAQ transporte ses résultats MCP originaux en DataPart A2A, via état `temp:`
+  limité au tour. Le résumé intermédiaire est supprimé : une génération de moins
+  sur ce chemin, aucun changement du routage ou de l’allowlist. Les preuves FAQ
+  ne deviennent pas des cartes hôtel ; aucune dépendance au Redis de la feuille.
+- La synthèse distingue les recommandations nationales des règles d’une propriété.
+  La note interne ne fuit pas lors d’un échec de synthèse. Une ancienne recherche
+  vide ne contamine plus les preuves d’une réponse FAQ.
+
+**64 réponses / 16 revues A/B/C/D/F, dont 6 réponses sur la source finale.**
+Sources v30/v30b/v30c/v30d explicites ; les précédentes ne constituent pas une
+validation intégrale du dernier code. **47 cartes tarifées** reliées aux reçus,
+zéro écart prix/jointure/expiration, et quatre cartes d’identité séparées sans
+preuve de disponibilité. Les retours comportent encore des C/D, conservés.
+
+Langfuse montre l’erreur de portée : « généralement 21 ans aux USA » devenait
+« Tillary exige généralement 21 ». Les conditions propres à l’hôtel indiquent
+250 $ de caution, aucun âge. La première correction de prompt seule échoue encore ;
+le passage des sources brutes permet enfin de distinguer ces faits dans les
+rejeux FAQ, avec 4o-mini et 4.1-mini au triage.
+
+**Échecs ouverts :** 4o-mini transforme « demain me va » en pagination, écartant
+Brooklyn au profit de cinq hôtels ailleurs. La mémoire récente ne couvre que
+trois messages et peut oublier l’âge. Une identité hôtel est encore décrite
+comme une offre disponible demain. Certaines réponses supposent le moment du
+prélèvement de caution sans preuve. North Brisbane/East London, corridors,
+provinces, occupation, équipements inclus et les autres familles restent ouverts.
+4.1-mini améliore certaines décisions, pas la totalité du parcours. Aucun choix
+modèle global déduit de ces contrôles exposés.
+
+**2 407 tests passés, un ignoré**, ruff, mypy (64 fichiers), guardrails.
+Douze nouveaux tests depuis v29, incluant transport FAQ, scopes, erreurs, contexte
+inline et dégradation. Un nom de module de test FAQ entrait en collision avec
+celui de la recherche : renommé ; le run incomplet à 2 205 tests est invalidé,
+les suites finales à 2 407 ont bien récupéré les tests de recherche.
+
+Export : 33 331 lignes / 2 000 récentes. Brooklyn a un GPS natif signalé mais
+payload exact absent, aucune parité complète de personnalisation revendiquée.
+Anaheim n’a pas de contexte natif signalé ; devise/locale/fuseau sont attestés.
+Provenance organique non certifiée. Cinq comportements de tests historiques ont
+été lus et liés aux limites des rejeux ; mineurs et familles restent non validés.
+Les 32 familles prioritaires et l’inventaire de 256 commits restent incomplets.
+
+Étape **0.67701 USD** ; cumul comptabilisé **89.15388/110 USD**, provisions11,10
+incluses, réserve10 conservée. Rapports privés v30-summary/v30-review et
+historical-policy-mapping-v30 ; aucun message brut dans Git. Aucun merge,
+déploiement ou changement Railway. CI du commit à observer séparément.
+
+
 ## 2026-10-08 — v27 : challenge triage et preuves d’extraction
 
 **Pas de GO remplacement ; aucun changement de modèle par défaut.**

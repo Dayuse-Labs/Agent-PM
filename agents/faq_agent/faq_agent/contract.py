@@ -36,6 +36,11 @@ class FaqResponse(BaseModel):
         default_factory=list,
         description="Conditions/policy content as returned by get_faq_conditions (never fabricated).",
     )
+    faq_evidence: list[dict] = Field(
+        default_factory=list,
+        description="Original MCP policy payloads, preserving general and property scope.",
+    )
+
     profile_delta: dict = Field(
         default_factory=dict,
         description="Only the NEW profile facts learned this turn; empty if none — schema fixed in S5.",

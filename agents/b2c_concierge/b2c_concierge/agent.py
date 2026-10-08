@@ -130,7 +130,7 @@ from .display_currency import (
     shortlist_display_mode,
     unsupported_currency_message,
 )
-from .ground_truth import shortlist_ground_truth_block, shortlist_hotels, synthesis_angle
+from .ground_truth import faq_ground_truth_block, shortlist_ground_truth_block, shortlist_hotels, synthesis_angle
 from .leg import StatelessLeafLeg
 from .link_guard import enforce_hotel_link_truthfulness
 from .profile import (
@@ -468,6 +468,13 @@ Therefore:
   window already supplied and still present in the current request.
 A long reply is a defect even when every word in it is true.
 
+Preserve an age or other eligibility constraint already stated in the dialogue.
+A search result does not prove eligibility. Do not promise to filter by check-in
+age when the search source has no such filter or verified condition. A general
+country FAQ (for example, "typically 21") is not a confirmed minimum for a named
+hotel. Attribute such guidance to its general scope and say when that hotel's
+specific age rule remains unverified; never invent exceptions or permission.
+
 For FAQ/support with no hotel results, answer the actual question and provide
 the supported next step from the OUTCOME, including a verified support link
 or self-service instructions when useful. Do not discuss a nonexistent hotel
@@ -779,7 +786,9 @@ class _B2cConcierge(BaseAgent):
         profile.
         """
         budget.charge("synthesis")
-        ground_truth_block = shortlist_ground_truth_block(response, profile, language)
+        # A prior empty hotel search is not evidence about this FAQ answer.
+        ground_truth_block = (faq_ground_truth_block(response)
+                              or shortlist_ground_truth_block(response, profile, language))
         if response.get("area_coverage"):
             ground_truth_block += "\nAREA SEARCH COVERAGE: " + json.dumps(response["area_coverage"], ensure_ascii=False)
             ground_truth_block += ("\nDescribe these as verified examples in the requested areas. "
@@ -1018,6 +1027,10 @@ class _B2cConcierge(BaseAgent):
         synth = await self._synthesize_with_guards(
             message=message, language=language, leaf_text=leaf_text, response=response,
             profile=profile, budget=budget, invocation_id=inv,
+            # Details/compare need the same bounded dialogue as leaf replies:
+            # "can I check in there?" may refer to an age stated last turn.
+            recent_messages=recent_user_messages(ctx.session.events, message),
+            previous_reply=last_assistant_message(ctx.session.events, author=self.name),
             # The inline leaf_text is an internal English note, never shown.
             leaf_text_is_user_facing=False,
         )
@@ -1781,6 +1794,7 @@ class _B2cConcierge(BaseAgent):
             profile=profile, budget=budget, invocation_id=inv, no_offers=no_offers,
             recent_messages=recent_messages,
             previous_reply=previous_reply if family == "search" else None,
+            leaf_text_is_user_facing=not bool(response.get("faq_evidence")),
         )
         await store.set(ctx.session.id, profile)
 

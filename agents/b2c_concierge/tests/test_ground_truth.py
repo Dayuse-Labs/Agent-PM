@@ -442,3 +442,38 @@ class TestNamedOfferDateEvidence:
                     'timeslots': [{'start': '10:00', 'end': '17:00'}]}
                    for i, day in enumerate(('2026-10-08', '2026-10-09'))]
         assert date_context_block({'results': results}) == ''
+
+
+def test_property_conditions_reach_synthesis_with_hotel_scope():
+    from b2c_concierge.ground_truth import shortlist_ground_truth_block
+    from b2c_concierge.profile import SessionProfile
+
+    text = shortlist_ground_truth_block({'results': [
+        {'id': 1, 'name': 'Example Hotel', 'hotel_conditions': 'Minimum check-in age: 21.'},
+        {'id': 2, 'name': 'Another Hotel'},
+    ]}, SessionProfile())
+    assert 'Minimum check-in age: 21.' in text
+    assert 'property only' in text
+    assert 'does not establish' in text
+
+
+def test_long_property_conditions_are_marked_incomplete():
+    from b2c_concierge.ground_truth import shortlist_ground_truth_block
+    from b2c_concierge.profile import SessionProfile
+
+    text = shortlist_ground_truth_block({'results': [
+        {'id': 1, 'name': 'Example Hotel', 'hotel_conditions': 'x' * 10000 + ' Minimum age: 21.'},
+    ]}, SessionProfile())
+    assert 'truncated' in text
+    assert len(text) < 7500
+
+
+def test_faq_evidence_keeps_general_and_property_policy_scopes_separate():
+    from b2c_concierge.ground_truth import faq_ground_truth_block
+
+    text = faq_ground_truth_block({'faq_evidence': [{'hotel': {'hotelId': 12},
+        'sections': {'hotelConditions': 'Deposit $250.'},
+        'generalFaq': [{'body': 'US booking age is typically 21.'}]}]})
+    assert 'Deposit $250.' in text and 'US booking age is typically 21.' in text
+    assert 'not a property-specific' in text
+    assert faq_ground_truth_block({}) == ''

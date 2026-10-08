@@ -1436,3 +1436,51 @@ def test_collective_hotel_question_uses_shown_lookup(monkeypatch, scripted, fake
     assert len(lookup.calls) == 1
     assert leaves == []
     assert len(llm.calls) == 2
+
+
+def test_inline_details_retains_user_context_and_last_clarification(scripted, monkeypatch):
+    runner, session = _new_session()
+    llm, _ = scripted(
+        '{"family":"faq","language":"en"}',
+        'Which hotel would you like me to check?',
+        '{"family":"details","language":"en","hotel_name":"Example Hotel"}',
+        'The hotel conditions do not specify the minimum check-in age.',
+    )
+    monkeypatch.setattr(agent_module.inline_tools, 'get_hotel_details', _async_result({
+        'ok': True, 'hotel': {'id': 12, 'name': 'Example Hotel', 'amenities': []},
+    }))
+    _drive_in(runner, session.id, 'I am 19 and need a hotel that accepts me at check-in.')
+    _drive_in(runner, session.id, 'What about Example Hotel?')
+    prompt = llm.calls[-1]['messages'][-1]['content']
+    assert 'I am 19 and need a hotel that accepts me at check-in.' in prompt
+    assert 'Which hotel would you like me to check?' in prompt
+    assert len(llm.calls) == 4
+
+
+def test_faq_raw_policy_evidence_reaches_synthesis_without_hotel_cards(scripted, fake_profile_store):
+    llm, _ = scripted(
+        '{"family":"faq","language":"en"}',
+        'The property age rule is unverified. Its deposit is $250.',
+        leaf_text='Official FAQ sources retrieved. Use their original scopes in FAQ EVIDENCE.',
+        response={'faq_evidence': [{'sections': {'hotelConditions': 'Deposit $250.'},
+                                   'generalFaq': [{'body': 'US booking age typically 21.'}]}]},
+    )
+    runner, session = _new_session()
+    asyncio.run(fake_profile_store.set(session.id, SessionProfile(consecutive_empty_searches=2)))
+    events = _drive_in(runner, session.id, 'Can I check in at this hotel at 19?')
+    prompt = llm.calls[-1]['messages'][-1]['content']
+    assert 'Deposit $250.' in prompt and 'US booking age typically 21.' in prompt
+    assert 'MOST RECENT search returned ZERO' not in prompt
+    assert 'not a property-specific' in prompt
+    assert all(not payload.get('hotels') for payload in _marker_payloads(events))
+
+
+def test_faq_evidence_internal_note_never_leaks_on_synthesis_failure(scripted):
+    scripted(
+        '{"family":"faq","language":"fr"}', RuntimeError('synthesis offline'),
+        leaf_text='Official FAQ sources retrieved. Use their original scopes in FAQ EVIDENCE.',
+        response={'faq_evidence': [{'sections': {'hotelConditions': 'Deposit $250.'}}]},
+    )
+    answer = _drive('Puis-je arriver à 19 ans ?')
+    assert 'FAQ EVIDENCE' not in answer and 'Official FAQ' not in answer
+    assert answer == templates.leaf_degraded_response('faq', 'fr', None)

@@ -26,6 +26,8 @@ from __future__ import annotations
 
 import os
 
+from .response_bridge import capture_policy_evidence, emit_policy_evidence, skip_policy_summary
+
 from b2c_common.observability import stamp_a2a_turn
 from dayuse_agent_common import (
     build_model,
@@ -122,6 +124,14 @@ How to act, frugally (at most ONE reasoning pass — no tool-call loops):
   Without those verified conditions, do not promise free cancellation, a
   deadline, a refund amount or a refund delay. Keep booking fees distinct from
   the room price; cancellation eligibility does not prove fees are refundable.
+- Preserve policy scope: generalFaq/generalPolicies are general guidance;
+  hotelConditions applies to the identified property only. A country-level
+  statement such as "typically 21" does not verify a named hotel's minimum
+  check-in age. Distinguish age to book from age to check in. If the property's
+  conditions omit age, say its specific rule is unverified, mention general
+  guidance with its scope if relevant, and suggest confirming with the hotel.
+  Neither an available offer nor the absence of a restriction proves admission.
+  Do not invent exceptions for younger guests or claim an age filter exists.
 - Then return the outcome as structured data matching the response contract:
   `results` (the conditions/policy content as returned by the tool),
   `profile_delta` (only the NEW facts this turn taught about the user; empty
@@ -152,12 +162,13 @@ root_agent = Agent(
     # mirrors the inbound A2A dayuse_trace_id as the Langfuse session id
     # (no-op unless tracing is enabled in serve.py).
     before_agent_callback=[stamp_a2a_turn],
-    before_model_callback=[llm_timing_before],
+    before_model_callback=[skip_policy_summary, llm_timing_before],
     after_model_callback=[llm_timing_after],
     on_model_error_callback=llm_error_metric,
     # timing before budget: budget-stopped calls still get a t0 (the budget callback
     # is the only one returning non-None, which short-circuits the rest of the list).
     before_tool_callback=[tool_timing_before, make_tool_budget_callback(MAX_TOOL_CALLS)],
-    after_tool_callback=[tool_timing_after],
+    after_tool_callback=[tool_timing_after, capture_policy_evidence],
+    after_agent_callback=[emit_policy_evidence],
     on_tool_error_callback=tool_error_metric,
 )

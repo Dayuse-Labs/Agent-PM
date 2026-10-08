@@ -313,6 +313,13 @@ def _normalize_hotel_for_display(hotel: dict[str, Any], best_offer: dict[str, An
         "stars": hotel.get("starRating"),
         "amenities": _flatten_amenities(hotel.get("amenities")),
     }
+    # Preserve the two MCP policy scopes. Common text is not evidence of a
+    # property's exception, and absence of an age rule never implies admission.
+    for source, target in (("conditions", "hotel_conditions"),
+                           ("commonConditions", "general_conditions")):
+        value = hotel.get(source)
+        if isinstance(value, str) and value.strip():
+            normalized[target] = value.strip()
     photo = _photo_url(hotel.get("mainPhotoNormal"))
     if photo:
         normalized["image_urls"] = [photo]
