@@ -6,6 +6,8 @@ from typing import Any
 AMENITY_KEYS = (
     "pool", "spa", "gym", "jacuzzi", "sauna", "restaurant", "breakfast",
     "pet_friendly", "shuttle",
+    "bathtub", "shower", "air_conditioning", "room_service", "elevator",
+    "rooftop_bar",
 )
 
 
@@ -13,7 +15,8 @@ def grounded_amenity_update(value: Any, message: str) -> dict[str, Any] | None:
     """Validate the semantic extraction, without parsing customer prose.
 
     The literal quotation proves provenance only, not semantic correctness.
-    Unknown operations/keys or absent evidence cannot erase existing filters.
+    Unknown operations or absent evidence cannot erase existing filters.
+    An unsupported key must not discard a separately supported requirement.
     """
     if not isinstance(value, dict) or set(value) - {"add", "remove", "evidence"}:
         return None
@@ -24,10 +27,10 @@ def grounded_amenity_update(value: Any, message: str) -> dict[str, Any] | None:
     for key in ("add", "remove"):
         items = value.get(key, [])
         if not isinstance(items, list) or any(
-            not isinstance(item, str) or item not in AMENITY_KEYS for item in items
+            not isinstance(item, str) for item in items
         ):
             return None
-        result[key] = list(dict.fromkeys(items))
+        result[key] = list(dict.fromkeys(item for item in items if item in AMENITY_KEYS))
     if not result["add"] and not result["remove"]:
         return None
     # An internally contradictory extraction must not silently choose a side.

@@ -1,5 +1,25 @@
 # HANDOFF — AgentB2C
 
+## 2026-10-09 — v60 préparé : portée des équipements et conservation multi-tour
+
+Lot issu des traces v59 et du catalogue MCP lu par scope : baignoire, douche,
+climatisation et room service filtrent la chambre offerte ; ascenseur et rooftop
+bar filtrent l'hôtel. Un équipement inconnu n'annule plus une autre contrainte
+supportée. Le concierge conserve la propriété des critères validés, y compris
+après clarification géographique et après retrait du dernier critère ; une
+extraction ou un delta de feuille ne peut plus les remplacer par jacuzzi.
+Aucune nouvelle regex, aucun appel LLM additionnel. Les types de lit,
+l'insonorisation et l'inclusion tarifaire ne sont pas prouvés par ces filtres.
+Catalogue par scope figé dans `contracts/mcp_equipment_scopes.json`.
+
+Validation hors ligne : 2707 tests passent, 1 ignoré ; 87 ciblés ; ruff,
+mypy (70 fichiers) et guardrails passent. Contrefactuel avant/après sur les mêmes
+extractions : ancienne validation rejette douche+lit non supporté et baignoire,
+nouvelle validation conserve les exigences supportées. Main cbe88b9 inchangé.
+Rejeu complet v60 des mêmes 56 conversations/156 tours à lancer avant mise à jour
+PR. Modèles locaux inchangés (triage 4.1-mini, recherche 4o-mini, synthèse 5.2),
+FAQ/annulations phase 2. Pas de résultat live v60 ni de GO à ce stade.
+
 ## 2026-10-09 — v59 : rejeu complet des deux corrections, pas de GO
 
 Runtime `f05be56` : 56 conversations /156réponses, 5A18B24C0D/F9nonnotées.

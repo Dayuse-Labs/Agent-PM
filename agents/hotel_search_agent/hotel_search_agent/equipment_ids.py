@@ -10,11 +10,11 @@ returns zero offers while looking like a perfectly healthy search
 Split of responsibility (spine invariant — the LLM never writes a filter value):
 - `inject_amenities_declaration` (before_model) widens the `search_offers`
   declaration THE MODEL SEES with a virtual `amenities` param whose enum is
-  closed to `EQUIPMENT_IDS`' keys — the model only ever extracts INTENT.
+  closed to `AMENITY_KEYS` — the model only ever extracts INTENT.
 - `enforce_equipment_filters` (before_tool) pops that virtual param before the
   MCP server (whose real schema forbids it) can see it, validates every key
   against the table, unions with the accumulated `profile_in.amenities` from
-  the request DataPart, and re-writes `hotelEquipmentIds` deterministically —
+  the request DataPart, and re-writes the hotel/room equipment IDs deterministically —
   after unconditionally dropping whatever the model put there.
 
 UX1 (2026-08-27) — the retraction channel. The union above is deliberate
@@ -30,25 +30,21 @@ spa") and a negation in a fresh request ("un hotel sans piscine"). Precedence
 when a key arrives in BOTH fields: the request wins — see
 `enforce_equipment_filters`.
 
-ID provenance — MCP_B2C's own referential (read 2026-07-20):
-`src/shared/reference/hotel-equipment.json` + `pool-equipment-ids.ts`.
-Server filter semantics: pool ids are OR-grouped (any pool satisfies), every
-other id is AND-required individually. That asymmetry decides the table:
-- "pool" maps to exactly the server's `HOTEL_POOL_EQUIPMENT_IDS` OR-group.
-- Multi-variant non-pool families CANNOT express "any of": parking (22 valet /
-  23 free / 24 paid / 25 garage / 2948 close-by) and rooftop (2981 bar vs 2982
-  pool — and 2982 is already reachable through the pool group) stay UNMAPPED:
-  the search runs unfiltered and the concierge's amenity claim guard hedges,
-  which is honest. Sauna keeps only the modern 2951 (40 legacy combined and
-  2952 Hammam would AND), shuttle only 2949 (2950 fees / 2980 local would AND).
-- Room-level ids (`roomEquipmentIds`, pool group [2966, 2968]) are out of v1:
-  always popped, never set.
+ID provenance: original hotel IDs from the MCP referential (2026-07-20),
+room IDs and added hotel facilities from live list_amenities scoped calls
+(2026-10-09), frozen in contracts/mcp_equipment_scopes.json. Room requirements
+are written only to roomEquipmentIds. A bathtub is not the hotel's hot tub;
+a facility alone proves neither inclusion in the price nor opening hours.
+Generic parking/rooftop remain unmapped; rooftop_bar has its own exact ID.
+
 """
 from __future__ import annotations
 
 import copy
 import logging
 from typing import Any
+
+from b2c_common.amenities import AMENITY_KEYS
 
 from hotel_search_agent.response_bridge import (
     STATE_APPLIED_AMENITIES_KEY,
@@ -66,13 +62,24 @@ EQUIPMENT_IDS: dict[str, tuple[int, ...]] = {
     "breakfast": (2992,),  # Breakfast Area
     "pet_friendly": (2956,),  # "Pets allowed", slug "pet-friendly"
     "shuttle": (2949,),  # Free airport shuttle
+    "elevator": (20,),
+    "rooftop_bar": (2981,),
+}
+
+# Live list_amenities(scope="room"), 2026-10-09. These IDs constrain the
+# offered room/rate plan, not merely an amenity somewhere in the hotel.
+ROOM_EQUIPMENT_IDS: dict[str, tuple[int, ...]] = {
+    "bathtub": (11,),
+    "shower": (12,),
+    "air_conditioning": (3,),
+    "room_service": (4,),
 }
 
 # The virtual params the model sees on search_offers. The enum closes the world:
 # nothing the model can emit is un-honorable by the table below.
 _AMENITIES_PROPERTY: dict[str, Any] = {
     "type": "array",
-    "items": {"type": "string", "enum": list(EQUIPMENT_IDS)},
+    "items": {"type": "string", "enum": list(AMENITY_KEYS)},
     "description": (
         "Canonical keys of amenities the user explicitly asked the hotel to "
         "HAVE in this request. Include ONLY requested amenities — never the "
@@ -86,7 +93,7 @@ _AMENITIES_PROPERTY: dict[str, Any] = {
 # filter key cannot retract one.
 _AMENITIES_REMOVED_PROPERTY: dict[str, Any] = {
     "type": "array",
-    "items": {"type": "string", "enum": list(EQUIPMENT_IDS)},
+    "items": {"type": "string", "enum": list(AMENITY_KEYS)},
     "description": (
         "Canonical keys of amenities the user does NOT want filtered on in "
         "this request — either because they are dropping a constraint they "
@@ -127,7 +134,7 @@ def _canonical_keys(values: Any) -> list[str]:
         if not isinstance(value, str):
             continue
         key = value.strip().lower()
-        if key in EQUIPMENT_IDS and key not in keys:
+        if key in AMENITY_KEYS and key not in keys:
             keys.append(key)
     return keys
 
@@ -232,6 +239,11 @@ def enforce_equipment_filters(
         )
 
     ids = equipment_ids_for(requested)
+    room_ids = list(dict.fromkeys(
+        equipment_id for key in requested for equipment_id in ROOM_EQUIPMENT_IDS.get(key, ())
+    ))
+    if room_ids:
+        args["roomEquipmentIds"] = room_ids
     if ids:
         args["hotelEquipmentIds"] = ids
         _metrics_logger.info(

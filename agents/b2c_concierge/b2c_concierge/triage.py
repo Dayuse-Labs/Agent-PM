@@ -590,7 +590,13 @@ Optional keys, extracted from MESSAGE ONLY, never copied from recent messages:
 - "requested_amenities": for a SEARCH constraint in the CURRENT MESSAGE, an
   object {{"add": [...], "remove": [...], "evidence": "verbatim current quote"}}.
   Keys: pool, spa, gym, jacuzzi, sauna, restaurant, breakfast, pet_friendly,
-  shuttle. Always include requested_amenities, null if no change. Extract the
+  shuttle, bathtub, shower, air_conditioning, room_service, elevator, rooftop_bar.
+  Bathtub and shower refer to the ROOM; jacuzzi is a HOTEL hot tub and does not
+  prove a private in-room jacuzzi. A double bed or soundproofing has no supported
+  key: do not replace it with another amenity or drop a separate supported need.
+  A meal/lunch is not breakfast; a hotel facility does not prove inclusion in
+  the room price or its availability at a particular hour.
+  Always include requested_amenities, null if no change. Extract the
   CURRENT requested addition, not just a filter from earlier context: after
   jacuzzi, "Get a room with pool access" adds pool, it does not add jacuzzi.
   Only an explicit removal/replacement removes an old filter: "pool instead of

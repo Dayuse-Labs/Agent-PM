@@ -8,18 +8,19 @@ import pytest
 from b2c_common.amenities import AMENITY_KEYS, apply_amenity_update, grounded_amenity_update
 from b2c_concierge.budget import TurnBudget
 from b2c_concierge.triage import classify
-from hotel_search_agent.equipment_ids import EQUIPMENT_IDS
+from hotel_search_agent.equipment_ids import EQUIPMENT_IDS, ROOM_EQUIPMENT_IDS
 
 
 def test_shared_keys_match_supported_mcp_filter_families():
-    assert set(AMENITY_KEYS) == set(EQUIPMENT_IDS)
+    assert set(AMENITY_KEYS) == set(EQUIPMENT_IDS) | set(ROOM_EQUIPMENT_IDS)
+    assert not set(EQUIPMENT_IDS) & set(ROOM_EQUIPMENT_IDS)
 
 
 @pytest.mark.parametrize('value', [
     None, [], {'add': ['pool']},
     {'add': ['pool'], 'evidence': 'old pool request'},
     {'add': 'pool', 'evidence': 'pool'},
-    {'add': ['bathtub'], 'evidence': 'pool'},
+    {'add': ['unsupported_feature'], 'evidence': 'pool'},
     {'remove': [None], 'evidence': 'pool'},
     {'add': [], 'remove': [], 'evidence': 'pool'},
     {'add': ['pool'], 'remove': ['pool'], 'evidence': 'pool'},
@@ -52,3 +53,19 @@ def test_triage_exposes_only_search_constraint_updates(monkeypatch, family, acce
     monkeypatch.setattr('b2c_concierge.triage.litellm.acompletion', completion)
     result = asyncio.run(classify(message, TurnBudget()))
     assert result.requested_amenities == (update if accepted else None)
+
+
+def test_unsupported_bed_key_cannot_discard_supported_shower():
+    update = grounded_amenity_update({
+        'add': ['matrimonial_bed', 'shower'], 'remove': [], 'evidence': 'shower and double bed',
+    }, 'Near the airport, shower and double bed')
+    assert update == {'add': ['shower'], 'remove': [], 'evidence': 'shower and double bed'}
+
+
+def test_owned_amenities_survive_redis_roundtrip_and_untrusted_delta():
+    from b2c_concierge.profile import SessionProfile, apply_profile_delta
+    for amenities in (['bathtub'], []):
+        profile = SessionProfile.from_dict(SessionProfile(amenities=amenities, amenities_owned=True).to_dict())
+        apply_profile_delta(profile, {'set': {'amenities': ['jacuzzi']}}, 'Hong Kong')
+        assert profile.amenities == amenities
+        assert profile.amenities_owned is True

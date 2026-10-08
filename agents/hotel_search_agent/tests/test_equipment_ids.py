@@ -15,6 +15,7 @@ from a2a import types as a2a_types
 from google.adk.a2a.converters.part_converter import convert_a2a_part_to_genai_part
 from google.adk.models.llm_request import LlmRequest
 from google.genai import types as genai_types
+from b2c_common.amenities import AMENITY_KEYS
 
 from hotel_search_agent.equipment_ids import (
     EQUIPMENT_IDS,
@@ -120,7 +121,7 @@ def test_inject_adds_amenities_enum_to_search_offers_declaration():
     decl = request.config.tools[0].function_declarations[1]
     prop = decl.parameters_json_schema["properties"]["amenities"]
     assert prop["type"] == "array"
-    assert prop["items"]["enum"] == list(EQUIPMENT_IDS)  # the closed world
+    assert prop["items"]["enum"] == list(AMENITY_KEYS)  # the closed world
     # the rest of the MCP schema is untouched
     assert decl.parameters_json_schema["required"] == ["lat", "lon", "date"]
     assert decl.parameters_json_schema["additionalProperties"] is False
@@ -158,7 +159,7 @@ def test_inject_is_idempotent_per_request():
     inject_amenities_declaration(None, request)
     decl = request.config.tools[0].function_declarations[1]
     assert decl.parameters_json_schema["properties"]["amenities"]["items"]["enum"] == list(
-        EQUIPMENT_IDS
+        AMENITY_KEYS
     )
 
 
@@ -258,8 +259,8 @@ def test_inject_adds_the_removal_param_with_the_same_closed_enum():
     request = _llm_request(copy.deepcopy(_MCP_SCHEMA))
     inject_amenities_declaration(None, request)
     props = request.config.tools[0].function_declarations[1].parameters_json_schema["properties"]
-    assert props["amenities_removed"]["items"]["enum"] == list(EQUIPMENT_IDS)
-    assert props["amenities"]["items"]["enum"] == list(EQUIPMENT_IDS)
+    assert props["amenities_removed"]["items"]["enum"] == list(AMENITY_KEYS)
+    assert props["amenities"]["items"]["enum"] == list(AMENITY_KEYS)
 
 
 def test_enforce_subtracts_a_removed_key_from_the_profile_filter():
@@ -393,3 +394,34 @@ def test_current_concierge_amenities_cannot_be_replaced_by_stale_leaf_extraction
     enforce_equipment_filters(_Tool('search_offers'), args, ctx)
     assert args == {'hotelEquipmentIds': [33, 34, 2982, 3000, 3001]}
     assert ctx.state[STATE_APPLIED_AMENITIES_KEY] == ['pool']
+
+
+def test_mixed_hotel_and_room_filters_use_the_provider_scopes():
+    ctx = _Ctx(user_content=_user_content_with_profile(['shower', 'air_conditioning', 'elevator']))
+    args = {'amenities': ['bathtub', 'spa'], 'hotelEquipmentIds': [11], 'roomEquipmentIds': [41]}
+    enforce_equipment_filters(_Tool('search_offers'), args, ctx)
+    assert args == {'hotelEquipmentIds': [20, 35], 'roomEquipmentIds': [12, 3, 11]}
+
+
+def test_room_filter_retraction_preserves_other_hotel_and_room_constraints():
+    ctx = _Ctx(user_content=_user_content_with_profile(['shower', 'air_conditioning', 'spa']))
+    args = {'amenities_removed': ['shower']}
+    enforce_equipment_filters(_Tool('search_offers'), args, ctx)
+    assert args == {'hotelEquipmentIds': [35], 'roomEquipmentIds': [3]}
+    assert ctx.state[STATE_APPLIED_AMENITIES_KEY] == ['air_conditioning', 'spa']
+
+
+def test_room_mapping_matches_scoped_live_catalogue():
+    import json
+    from pathlib import Path
+    from hotel_search_agent.equipment_ids import ROOM_EQUIPMENT_IDS
+    contract = json.loads((Path(__file__).resolve().parents[3] / 'contracts/mcp_equipment_scopes.json').read_text())
+    for scope, mapping, param in [('hotel', EQUIPMENT_IDS, 'hotelEquipmentIds'),
+                                   ('room', ROOM_EQUIPMENT_IDS, 'roomEquipmentIds')]:
+        catalogue = {item['id']: item for item in contract['scopes'][scope]}
+        for ids in mapping.values():
+            for equipment_id in ids:
+                if equipment_id == 3001:  # Existing documented pool-group exception.
+                    continue
+                assert catalogue[equipment_id]['scope'] == scope
+                assert catalogue[equipment_id]['searchParam'] == param

@@ -1,0 +1,370 @@
+{
+  "verified_at": "2026-10-09",
+  "source": "live list_amenities(scope=hotel), list_amenities(scope=room)",
+  "scopes": {
+    "hotel": [
+      {
+        "id": 14,
+        "label": "Restaurant",
+        "scope": "hotel",
+        "searchParam": "hotelEquipmentIds",
+        "isPool": false
+      },
+      {
+        "id": 15,
+        "label": "Bar / Café",
+        "scope": "hotel",
+        "searchParam": "hotelEquipmentIds",
+        "isPool": false
+      },
+      {
+        "id": 18,
+        "label": "Terrace",
+        "scope": "hotel",
+        "searchParam": "hotelEquipmentIds",
+        "isPool": false
+      },
+      {
+        "id": 19,
+        "label": "Garden",
+        "scope": "hotel",
+        "searchParam": "hotelEquipmentIds",
+        "isPool": false
+      },
+      {
+        "id": 20,
+        "label": "Elevator",
+        "scope": "hotel",
+        "searchParam": "hotelEquipmentIds",
+        "isPool": false
+      },
+      {
+        "id": 21,
+        "label": "Wheelchair accessible rooms",
+        "scope": "hotel",
+        "searchParam": "hotelEquipmentIds",
+        "isPool": false
+      },
+      {
+        "id": 22,
+        "label": "Valet parking",
+        "scope": "hotel",
+        "searchParam": "hotelEquipmentIds",
+        "isPool": false,
+        "group": "parking"
+      },
+      {
+        "id": 23,
+        "label": "Free parking",
+        "scope": "hotel",
+        "searchParam": "hotelEquipmentIds",
+        "isPool": false,
+        "group": "parking"
+      },
+      {
+        "id": 24,
+        "label": "Parking",
+        "scope": "hotel",
+        "searchParam": "hotelEquipmentIds",
+        "isPool": false,
+        "group": "parking"
+      },
+      {
+        "id": 27,
+        "label": "WiFi (fees apply)",
+        "scope": "hotel",
+        "searchParam": "hotelEquipmentIds",
+        "isPool": false
+      },
+      {
+        "id": 28,
+        "label": "Free WiFi",
+        "scope": "hotel",
+        "searchParam": "hotelEquipmentIds",
+        "isPool": false
+      },
+      {
+        "id": 29,
+        "label": "Business center",
+        "scope": "hotel",
+        "searchParam": "hotelEquipmentIds",
+        "isPool": false
+      },
+      {
+        "id": 30,
+        "label": "Meeting room",
+        "scope": "hotel",
+        "searchParam": "hotelEquipmentIds",
+        "isPool": false
+      },
+      {
+        "id": 32,
+        "label": "Beach access",
+        "scope": "hotel",
+        "searchParam": "hotelEquipmentIds",
+        "isPool": false
+      },
+      {
+        "id": 33,
+        "label": "Outdoor pool",
+        "scope": "hotel",
+        "searchParam": "hotelEquipmentIds",
+        "isPool": true,
+        "group": "pool"
+      },
+      {
+        "id": 34,
+        "label": "Indoor pool",
+        "scope": "hotel",
+        "searchParam": "hotelEquipmentIds",
+        "isPool": true,
+        "group": "pool"
+      },
+      {
+        "id": 35,
+        "label": "Spa",
+        "scope": "hotel",
+        "searchParam": "hotelEquipmentIds",
+        "isPool": false
+      },
+      {
+        "id": 36,
+        "label": "Beauty center",
+        "scope": "hotel",
+        "searchParam": "hotelEquipmentIds",
+        "isPool": false
+      },
+      {
+        "id": 38,
+        "label": "Fitness room",
+        "scope": "hotel",
+        "searchParam": "hotelEquipmentIds",
+        "isPool": false
+      },
+      {
+        "id": 39,
+        "label": "Massage",
+        "scope": "hotel",
+        "searchParam": "hotelEquipmentIds",
+        "isPool": false
+      },
+      {
+        "id": 41,
+        "label": "Hot tub",
+        "scope": "hotel",
+        "searchParam": "hotelEquipmentIds",
+        "isPool": false
+      },
+      {
+        "id": 2945,
+        "label": "Express dry cleaning",
+        "scope": "hotel",
+        "searchParam": "hotelEquipmentIds",
+        "isPool": false
+      },
+      {
+        "id": 2948,
+        "label": "Parking close by",
+        "scope": "hotel",
+        "searchParam": "hotelEquipmentIds",
+        "isPool": false,
+        "group": "parking"
+      },
+      {
+        "id": 2949,
+        "label": "Free airport shuttle",
+        "scope": "hotel",
+        "searchParam": "hotelEquipmentIds",
+        "isPool": false,
+        "group": "shuttle"
+      },
+      {
+        "id": 2950,
+        "label": "Airport shuttle (fees apply)",
+        "scope": "hotel",
+        "searchParam": "hotelEquipmentIds",
+        "isPool": false,
+        "group": "shuttle"
+      },
+      {
+        "id": 2951,
+        "label": "Sauna",
+        "scope": "hotel",
+        "searchParam": "hotelEquipmentIds",
+        "isPool": false
+      },
+      {
+        "id": 2952,
+        "label": "Hammam / Steam room",
+        "scope": "hotel",
+        "searchParam": "hotelEquipmentIds",
+        "isPool": false
+      },
+      {
+        "id": 2956,
+        "label": "Pets allowed",
+        "scope": "hotel",
+        "searchParam": "hotelEquipmentIds",
+        "isPool": false
+      },
+      {
+        "id": 2979,
+        "label": "Designated smoking area",
+        "scope": "hotel",
+        "searchParam": "hotelEquipmentIds",
+        "isPool": false
+      },
+      {
+        "id": 2981,
+        "label": "Rooftop bar",
+        "scope": "hotel",
+        "searchParam": "hotelEquipmentIds",
+        "isPool": false
+      },
+      {
+        "id": 2982,
+        "label": "Rooftop pool",
+        "scope": "hotel",
+        "searchParam": "hotelEquipmentIds",
+        "isPool": true,
+        "group": "pool"
+      },
+      {
+        "id": 2988,
+        "label": "Concierge service",
+        "scope": "hotel",
+        "searchParam": "hotelEquipmentIds",
+        "isPool": false
+      },
+      {
+        "id": 2990,
+        "label": "Laundry",
+        "scope": "hotel",
+        "searchParam": "hotelEquipmentIds",
+        "isPool": false
+      },
+      {
+        "id": 2991,
+        "label": "Charging station for electric vehicles",
+        "scope": "hotel",
+        "searchParam": "hotelEquipmentIds",
+        "isPool": false
+      },
+      {
+        "id": 2992,
+        "label": "Breakfast area",
+        "scope": "hotel",
+        "searchParam": "hotelEquipmentIds",
+        "isPool": false
+      },
+      {
+        "id": 2993,
+        "label": "Sports ground",
+        "scope": "hotel",
+        "searchParam": "hotelEquipmentIds",
+        "isPool": false
+      },
+      {
+        "id": 2996,
+        "label": "Family rooms",
+        "scope": "hotel",
+        "searchParam": "hotelEquipmentIds",
+        "isPool": false
+      },
+      {
+        "id": 2997,
+        "label": "Vending machines",
+        "scope": "hotel",
+        "searchParam": "hotelEquipmentIds",
+        "isPool": false
+      },
+      {
+        "id": 2998,
+        "label": "ATM",
+        "scope": "hotel",
+        "searchParam": "hotelEquipmentIds",
+        "isPool": false
+      },
+      {
+        "id": 2999,
+        "label": "Minimarket on site",
+        "scope": "hotel",
+        "searchParam": "hotelEquipmentIds",
+        "isPool": false
+      },
+      {
+        "id": 3000,
+        "label": "Pool bar",
+        "scope": "hotel",
+        "searchParam": "hotelEquipmentIds",
+        "isPool": true,
+        "group": "pool"
+      }
+    ],
+    "room": [
+      {
+        "id": 3,
+        "label": "Air conditioning",
+        "scope": "room",
+        "searchParam": "roomEquipmentIds",
+        "isPool": false
+      },
+      {
+        "id": 4,
+        "label": "Room service",
+        "scope": "room",
+        "searchParam": "roomEquipmentIds",
+        "isPool": false
+      },
+      {
+        "id": 5,
+        "label": "Minibar (extra charge)",
+        "scope": "room",
+        "searchParam": "roomEquipmentIds",
+        "isPool": false
+      },
+      {
+        "id": 7,
+        "label": "Tea & coffee facilities",
+        "scope": "room",
+        "searchParam": "roomEquipmentIds",
+        "isPool": false
+      },
+      {
+        "id": 8,
+        "label": "Flat-screen TV",
+        "scope": "room",
+        "searchParam": "roomEquipmentIds",
+        "isPool": false
+      },
+      {
+        "id": 11,
+        "label": "Bathtub",
+        "scope": "room",
+        "searchParam": "roomEquipmentIds",
+        "isPool": false
+      },
+      {
+        "id": 12,
+        "label": "Shower",
+        "scope": "room",
+        "searchParam": "roomEquipmentIds",
+        "isPool": false
+      },
+      {
+        "id": 13,
+        "label": "Hairdryer",
+        "scope": "room",
+        "searchParam": "roomEquipmentIds",
+        "isPool": false
+      },
+      {
+        "id": 43,
+        "label": "Courtesy tray",
+        "scope": "room",
+        "searchParam": "roomEquipmentIds",
+        "isPool": false
+      }
+    ]
+  }
+}

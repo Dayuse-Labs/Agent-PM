@@ -50,8 +50,8 @@ from hotel_search_agent.datetime_resolver import (
     resolve_search_date,
     resolve_search_timeslot,
 )
+from b2c_common.amenities import AMENITY_KEYS
 from hotel_search_agent.equipment_ids import (
-    EQUIPMENT_IDS,
     enforce_equipment_filters,
     inject_amenities_declaration,
 )
@@ -330,7 +330,7 @@ How to act, frugally (at most ONE reasoning pass — no tool-call loops):
 
 Never fabricate hotels, prices, availability, or coordinates: only report what
 the tools returned. If the request lacks enough to search, say so plainly
-instead of guessing.""".format(amenity_keys=", ".join(EQUIPMENT_IDS))
+instead of guessing.""".format(amenity_keys=", ".join(AMENITY_KEYS))
 # ^ .format at module level: the instruction stays a plain str (the A2A card
 #   builder rejects a callable) and can never drift from the enum the model
 #   is offered in the widened search_offers declaration.

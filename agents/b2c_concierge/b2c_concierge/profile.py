@@ -207,6 +207,7 @@ class SessionProfile:
     timeslot_request_source: str | None = None
     timeslot_mode: str | None = None  # "start_only" | "end_only" | "range"
     amenities: list[str] = field(default_factory=list)
+    amenities_owned: bool = False  # Validated concierge intent, including an empty retraction.
     language: str | None = None
     consecutive_empty_searches: int = 0
     auto_widen_disclosure: dict[str, float] | None = None
@@ -302,6 +303,7 @@ class SessionProfile:
             "timeslot_request_source": self.timeslot_request_source,
             "timeslot_mode": self.timeslot_mode,
             "amenities": list(self.amenities),
+            "amenities_owned": self.amenities_owned,
             "language": self.language,
             "consecutive_empty_searches": self.consecutive_empty_searches,
             "auto_widen_disclosure": self.auto_widen_disclosure,
@@ -369,6 +371,7 @@ class SessionProfile:
 # `last_suggestions` also carry message-derived content that has no business
 # shipping to the leaf (GDPR: data minimization).
 _CONCIERGE_ONLY_KEYS = (
+    "amenities_owned",
     "pending_booking",
     "pending_location",
     "last_suggestions",
@@ -770,7 +773,10 @@ def apply_profile_delta(
     # append-only: it is an explicit contract of `_normalize_delta` ("today's
     # plain `{key: value}` leaf format") that existing callers and tests rely
     # on, and a plain list genuinely is a fragment with no authority to wipe.
-    if "amenities" in explicit_sets:
+    if profile.amenities_owned:
+        # A leaf cannot relax or replace concierge-validated intent.
+        pass
+    elif "amenities" in explicit_sets:
         profile.amenities = list(values.get("amenities") or [])
     elif values.get("amenities"):
         merged = list(profile.amenities)

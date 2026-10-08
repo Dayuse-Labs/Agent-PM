@@ -207,3 +207,28 @@ def test_facility_followup_cannot_override_confirmed_city_with_device_origin(scr
     assert observed[0]['ok'] is True
     assert observed[0]['resolved_location']['provider_id'] == 'verified-dublin'
     assert observed[0]['distance_origin_type'] == 'city_centroid'
+
+
+def test_room_requirement_remains_owned_after_location_reply_and_retraction(scripted, monkeypatch, fake_profile_store):  # noqa: F811
+    from hotel_search_agent.equipment_ids import enforce_equipment_filters
+    runner, session = _new_session()
+    asyncio.run(fake_profile_store.set(session.id, SessionProfile(city='Paris')))
+    observed = []
+    async def leaf(leaf, ctx, profile_in, **kwargs):
+        envelope = {'profile_in': profile_in, 'query_params': kwargs.get('query_params', {})}
+        tool_ctx = SimpleNamespace(state={}, user_content=types.Content(role='user', parts=[encode_datapart(envelope)]))
+        args = {'amenities': ['jacuzzi'], 'roomEquipmentIds': [41]}
+        enforce_equipment_filters(SimpleNamespace(name='search_offers'), args, tool_ctx)
+        observed.append((args, envelope['query_params'].get('amenities_authoritative')))
+        return 'No offers', {'results': [], 'profile_delta': {'set': {'amenities': ['jacuzzi']}}}
+    turns = [
+        ('Avec baignoire', {'add': ['bathtub'], 'evidence': 'baignoire'}),
+        ('Paris', None),
+        ('Enlève la baignoire', {'remove': ['bathtub'], 'evidence': 'Enlève la baignoire'}),
+        ('Paris', None),
+    ]
+    for message, update in turns:
+        scripted(json.dumps({'family': 'search', 'language': 'fr', 'requested_amenities': update}), 'No matching offers.')
+        monkeypatch.setattr(agent_module, '_run_leaf', leaf)
+        _drive_in(runner, session.id, message)
+    assert observed == [({'roomEquipmentIds': [11]}, True), ({'roomEquipmentIds': [11]}, True), ({}, True), ({}, True)]

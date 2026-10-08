@@ -1583,6 +1583,7 @@ class _B2cConcierge(BaseAgent):
             if any(key not in next_amenities for key in profile.amenities):
                 budget.fired.add("filter_relaxation_honored")
             profile.amenities = list(next_amenities)
+            profile.amenities_owned = True
             if amenities_changed:
                 profile.search_exhausted = False
                 profile.widen_attempt_count = 0
@@ -1738,9 +1739,8 @@ class _B2cConcierge(BaseAgent):
         if route.target == LEAF_HOTEL_SEARCH and (area_update is not None or
                 (profile.search_areas and any(a.get("subarea") for a in profile.search_areas))):
             query_params["areas_authoritative"] = True
-        if route.target == LEAF_HOTEL_SEARCH and amenity_update is not None:
-            # Current intent has already been applied by the state owner.
-            # The leaf must not replace it with a copied stale extraction.
+        if route.target == LEAF_HOTEL_SEARCH and profile.amenities_owned:
+            # Ownership survives location/budget replies and empty retractions.
             query_params["amenities_authoritative"] = True
         if repeat_search:
             query_params["repeat_previous_search"] = True
