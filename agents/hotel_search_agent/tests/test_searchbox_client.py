@@ -81,3 +81,10 @@ def test_result_is_cached():
     client.forward("La Défense", country="fr")
     client.forward("La Défense", country="fr")
     assert calls["n"] == 1
+
+
+def test_missing_provider_name_cannot_be_filled_from_the_customer_query():
+    payload = {'features':[{'geometry':{'coordinates':[-73.99,40.75]},
+                           'properties':{'feature_type':'poi'}}]}
+    client = _client(lambda request: httpx.Response(200,json=payload))
+    assert client.forward_candidates('Solar Pizza') == []

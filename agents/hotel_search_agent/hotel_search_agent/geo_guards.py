@@ -340,6 +340,7 @@ def geocode_echo_matches(
     city: str | None,
     zone: str | None,
     state_hint: str | None,
+    require_all_tokens: bool = False,
 ) -> bool:
     """Validate that a geocoding result echoes the requested location.
 
@@ -349,7 +350,7 @@ def geocode_echo_matches(
     """
     place = " " + re.sub(r"[^a-z0-9]+", " ", _echo_fold(place_name)) + " "
     if not place.strip():
-        return True
+        return not require_all_tokens
     if state_hint:
         state_l = _echo_fold(state_hint)
         abbrev = next(
@@ -398,6 +399,11 @@ def geocode_echo_matches(
         if tok.startswith("st") and len(tok) > 4 and tok.replace("st", "saint", 1) in compact_place:
             return True
         return False
+
+    if require_all_tokens:
+        # A named POI is an identity, not a broad city hint. All distinctive
+        # words must survive; existing noise words/exonyms still apply.
+        return all(_token_matches(tok) for tok in request_tokens)
 
     # The MOST distinctive token (the longest) must echo — any-token matching
     # would accept "South Port, Florida" for "port canaveral" (a Mapbox fuzz

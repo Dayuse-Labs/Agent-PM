@@ -252,6 +252,17 @@ class MapboxClient:
             return float(pc["latitude"]), float(pc["longitude"])
         return None
 
+    @staticmethod
+    def _provider_place_name(props: dict) -> str:
+        # Localized full_address may use another script than the provider's
+        # canonical name. Both are evidence from the same feature; retain them
+        # so name validation does not require an invented translation/alias.
+        name = str(props.get("name") or "").strip()
+        address = str(props.get("full_address") or "").strip()
+        if name and address and name.casefold() not in address.casefold():
+            return f"{name}, {address}"
+        return address or name
+
     @classmethod
     def _parse_one(cls, data: dict, *, fallback: str) -> GeocodeResult | None:
         features = data.get("features") or []
@@ -269,7 +280,7 @@ class MapboxClient:
         return GeocodeResult(
             latitude=lat,
             longitude=lng,
-            place_name=str(props.get("full_address") or props.get("name") or fallback),
+            place_name=cls._provider_place_name(props) or fallback,
             country_code=str(country_ctx.get("country_code") or "").upper(),
             region=str(region_ctx.get("region_code") or region_ctx.get("name") or ""),
         )
@@ -296,7 +307,7 @@ class MapboxClient:
                     latitude=lat,
                     longitude=lng,
                     name=name,
-                    place_name=str(props.get("full_address") or name),
+                    place_name=cls._provider_place_name(props),
                     place_formatted=str(props.get("place_formatted") or props.get("full_address") or name),
                     feature_type=str(props.get("feature_type") or ""),
                     country_code=str(country_ctx.get("country_code") or "").upper(),

@@ -155,7 +155,8 @@ def _echoes(place_name: str, *, city: str | None, zone: str | None, state_hint: 
             if code not in place_words and not initials.startswith(code):
                 return False
         elif not geocode_echo_matches(
-            place_name, city=None, zone=_landmark_query(zone), state_hint=None
+            place_name, city=None, zone=_landmark_query(zone), state_hint=None,
+            require_all_tokens=True,
         ):
             return False
     return geocode_echo_matches(
@@ -617,6 +618,11 @@ def geocode_location(
                 language=lang,
                 proximity=proximity_str,
             )
+            # Identity is an eligibility condition, before inventory/rank
+            # scoring: a busy unrelated restaurant cannot hide a real match.
+            landmark_candidates = [c for c in landmark_candidates if _echoes(
+                c.place_name, city=None, zone=effective_zone, state_hint=None
+            )]
             landmark = geo_resolver.rank_landmark(
                 landmark_candidates,
                 requested_zone=effective_zone or "",
@@ -873,6 +879,12 @@ def geocode_location(
             language=lang,
             proximity=searchbox_proximity,
         )
+        # Search Box returns named features even when the model put the
+        # name in city/metro. A field choice must not bypass POI identity.
+        identity_query = effective_zone or effective_city or effective_metro
+        poi_candidates = [c for c in poi_candidates if _echoes(
+            c.place_name, city=echo_city, zone=identity_query, state_hint=state_hint
+        )]
         poi = geo_resolver.rank_landmark(
             poi_candidates,
             requested_zone=effective_zone or effective_city or effective_metro or "",
@@ -881,7 +893,7 @@ def geocode_location(
             city_anchor=city_anchor,
         )
         if poi is not None and _echoes(
-            poi.place_name, city=echo_city, zone=effective_zone, state_hint=state_hint
+            poi.place_name, city=echo_city, zone=identity_query, state_hint=state_hint
         ):
             # Guard #14 (`poi_anchor_coherence`): the echo above proved the NAME,
             # this proves the PLACE. Rejecting falls through to the honest

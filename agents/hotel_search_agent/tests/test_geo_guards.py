@@ -392,3 +392,12 @@ class TestGenericTokensAreArticleInsensitive:
         assert is_generic_location_token("gare") is True
         assert is_generic_location_token("airport") is True
         assert is_generic_location_token("terminal 2") is True
+
+
+def test_poi_strict_identity_preserves_city_partial_echo_and_exonyms():
+    assert geocode_echo_matches('Kingston, England',city='Kingston upon Thames',zone=None,state_hint=None)
+    assert geocode_echo_matches('Palace Rome, Italy',city=None,zone='Palace Roma',state_hint=None,require_all_tokens=True)
+
+
+def test_missing_name_does_not_prove_strict_poi_identity():
+    assert not geocode_echo_matches('',city=None,zone='Solar Pizza',state_hint=None,require_all_tokens=True)

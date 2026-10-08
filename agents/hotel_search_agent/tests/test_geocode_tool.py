@@ -1783,3 +1783,37 @@ class TestTierOneLandmarkCoordinates:
         monkeypatch.setattr(geocode_tool, "get_mapbox_client", lambda: client)
         monkeypatch.setattr(geocode_tool, "get_inventory", lambda: _FakeInventory({}))
         assert geocode_tool._city_candidate("London", country="CA", locale_country="CA", language="en") is None
+
+
+def test_named_landmark_rejects_another_business_sharing_only_one_word(monkeypatch):
+    # Same nearby coordinates isolate name identity from the distance guard.
+    # Two five-letter tokens used to tie and let either half stand for the name.
+    _patch_multi(monkeypatch, [], inventory={40.75: 50})
+    wrong = GeocodeResult(40.75, -73.99, 'NY Pizza Suprema, New York, United States', 'US', 'NY')
+    monkeypatch.setattr(geocode_tool, 'get_searchbox_client', lambda: _FakeSearchBox(wrong))
+    result = geocode_location(zone='solar pizza', country_code='US',
+                              proximity_lat=40.75, proximity_lon=-73.99)
+    assert result['ok'] is False
+
+
+def test_real_named_landmark_is_not_hidden_by_unrelated_high_inventory_candidate(monkeypatch):
+    wrong = _as_candidate(GeocodeResult(40.75, -73.99, 'NY Pizza Suprema, New York', 'US', 'NY'))
+    right = _as_candidate(GeocodeResult(40.76, -73.98, 'Solar Pizza, New York', 'US', 'NY'), rank=8)
+    _patch_multi(monkeypatch, [], inventory={40.75: 300, 40.76: 0})
+    class Box:
+        def forward_candidates(self, *args, **kwargs):
+            return [wrong, right]
+    monkeypatch.setattr(geocode_tool, 'get_searchbox_client', lambda: Box())
+    result = geocode_location(zone='solar pizza', country_code='US',
+                              proximity_lat=40.75, proximity_lon=-73.99)
+    assert result['ok'] is True
+    assert result['latitude'] == 40.76
+
+
+@pytest.mark.parametrize('requested,returned', [
+    ('nova pizza','Famous Pizza, New York'),
+    ('Victoria Palace','Victoria Park, London'),
+    ('Starlight Market','Starlight Theatre, London'),
+])
+def test_named_landmark_requires_all_distinctive_name_tokens(requested, returned):
+    assert not geocode_tool._echoes(returned, city=None, zone=requested, state_hint=None)

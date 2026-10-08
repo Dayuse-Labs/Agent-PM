@@ -158,17 +158,21 @@ class SearchBoxClient:
             # named. Prefix the POI name so the SAME echo-back guard the caller
             # runs on a tier-1 result validates this one ("La Défense" must
             # appear in place_name).
-            name = str(props.get("name") or "")
+            name = str(props.get("name") or "").strip()
+            if not name:
+                # The query is not provider evidence for a feature's identity.
+                # Never manufacture an exact-name match from our own fallback.
+                continue
             full_address = str(props.get("full_address") or "")
             if name and full_address and name.lower() not in full_address.lower():
                 place_name = f"{name}, {full_address}"
             else:
-                place_name = full_address or name or fallback
+                place_name = full_address or name
             candidates.append(
                 GeocodeCandidate(
                     latitude=lat,
                     longitude=lng,
-                    name=name or fallback,
+                    name=name,
                     place_name=place_name,
                     place_formatted=str(props.get("place_formatted") or full_address),
                     feature_type=str(props.get("feature_type") or "poi"),

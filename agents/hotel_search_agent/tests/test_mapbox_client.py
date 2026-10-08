@@ -304,3 +304,19 @@ class TestGeocodeCandidates:
         assert isinstance(single, GeocodeResult)
         assert single.place_name == "Victoria, British Columbia, Canada"
         assert len(cands) == 3
+
+
+def test_localized_address_keeps_provider_name_for_identity():
+    from hotel_search_agent.geo_guards import geocode_echo_matches
+
+    for name, address in (("Hong Kong", "香港"), ("Kifisia", "Κηφισιά, Αττική")):
+        payload = {"features": [{"geometry": {"coordinates": [114.16, 22.28]},
+                                "properties": {"name": name, "full_address": address}}]}
+        client = _client_with(lambda request: httpx.Response(200, json=payload))
+        single = client.geocode(name, language="zh")
+        candidates = client.geocode_candidates(name, language="zh")
+        assert single is not None and len(candidates) == 1
+        for result in (single, candidates[0]):
+            assert name in result.place_name and address in result.place_name
+            assert geocode_echo_matches(result.place_name, city=None, zone=name,
+                                        state_hint=None, require_all_tokens=True)

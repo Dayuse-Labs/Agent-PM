@@ -1,5 +1,64 @@
 # HANDOFF — AgentB2C
 
+## 2026-10-08 — v37 : identité des lieux et libellés multilingues
+
+**Pas de GO remplacement.** Le garde de lieu nommé acceptait seulement le mot
+le plus long, avec correspondance partielle en cas d’égalité. Il exige maintenant
+tous les mots distinctifs, avec les normalisations/exonymes existants. Les
+candidats Search Box sont filtrés avant classement par inventaire ; une réponse
+sans nom fournisseur ne reçoit plus artificiellement le nom demandé.
+Le parser Mapbox conserve aussi le nom canonique et l’adresse localisée de la
+même feature : l’adresse chinoise seule faisait perdre la correspondance latine.
+Aucune nouvelle regex, traduction inventée, table de lieux ou phase LLM.
+
+Neuf tests ajoutés, dont échecs causaux avant correction. **2 460 tests passés,
+un ignoré**, ruff, mypy (66 fichiers), guardrails. Les règles de ville existantes
+restent distinctes de la vérification renforcée des POIs ; les libellés traduits
+sans alias fournisseur restent une limite.
+
+**30 réponses comparatives** sur cinq nouveaux parcours (10 messages SQL reliés
+à Langfuse), plus quatre tours correctifs du parcours restaurant déjà exposé.
+JFK : legacy D, B2C déployé B, candidat D. Hong Kong : C/C/D avant correction du
+parser. Melbourne 10h–14h : D/D/D, car la fenêtre demandée est déjà passée à
+16h locale dans ce rejeu sans date explicite. Escale seul : B/B/B sur un seul
+tour, aucune conclusion sur la suite. Escale puis San Francisco : B/C/C, le
+candidat et B2C mélangent aéroport, centre, Berkeley et Emeryville. Les prix du
+MCP et l’export legacy ne sont pas assimilés à un inventaire strictement identique.
+
+Le parcours restaurant résout maintenant un POI cohérent à Marietta au premier
+tour, avec zéro offre MCP dans 3 km ; ce n’est pas un repli sur le GPS. Au tour
+suivant de recherche, le nom traité comme ville produit encore une clarification
+Tolar/Olar ; la correction explicite Marietta est récupérée. Parcours toujours D.
+
+**Quatre réponses après correction du parser**, JFK et Hong Kong : Hong Kong
+retrouve cinq offres, mais reste C (anglais malgré locale zh/message chinois).
+JFK reste D : cinq cartes Californie, avec avertissement de la synthèse. Les
+logs montrent le nom court « JFK area » accepté comme Brea et des options de
+clarification proposées avant validation du nom. Variabilité modèle : ne pas
+attribuer cette différence au parser sans contrôle causal.
+**30 cartes candidat** vérifiées contre les reçus MCP, zéro écart prix/jointure/
+expiration ; dix sur la source finale, dont cinq géographiquement inadaptées.
+La conformité des cartes aux reçus ne prouve pas leur pertinence.
+
+Export : 33 428 lignes, 2 000 récentes. Dix nouveaux messages hors campagne,
+cinq sessions, mêmes messages retrouvés dans Langfuse. Deux GPS observés sur
+ces dix messages, arrondis à quatre décimales et adaptés au contrat de chaque
+agent ; payload complet/permission/provenance organique non certifiés. Devise,
+locale et fuseau repris seulement si attestés. Pas de décalage de date ; la
+fenêtre passée Melbourne est un résultat du rejeu actuel, pas une accusation
+sur l’heure de la conversation historique. `main` refetché, toujours `cbe88b9`.
+
+Reste prioritaire : options de clarification et identifiants courts validés avant
+présentation ; POI/aéroport forcé en municipalité ; localisation et langue ;
+fenêtre déjà passée sans date ; pertinence réelle des escales. Puis les autres
+familles déjà ouvertes (multi-zone/rayon, occupation/lit bébé, pagination,
+FAQ/caution/annulation, âge, provinces/corridors). Les 32 familles restent
+incomplètes. Aucun changement de modèle ni GO global sur ces lots ciblés.
+
+Étape : **0.33583874 USD**, cumul **91.45597788/110 USD**, provisions 11,10 incluses,
+réserve 10 conservée. 38 réponses, 18 revues ; 34 réponses avant l’ajout final
+des libellés et quatre après. Aucun merge/déploiement. Traces et dialogues hors Git.
+
 ## 2026-10-08 — v36 : tentatives locales et lectures MCP bornées
 
 **Pas de GO remplacement.** Une recherche lancée avant le géocodage est rejetée
