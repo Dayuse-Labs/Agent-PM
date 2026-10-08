@@ -70,6 +70,14 @@ def _eur(amount: Any, language: str) -> str:
     return f"€{value}" if language == "en" else f"{value} €"
 
 
+def auto_widen_notice(widen: dict[str, Any] | None, language: str) -> str:
+    if not widen or widen.get("from") is None or widen.get("to") is None:
+        return ""
+    return _pick(_WIDEN_LINE, language).format(
+        from_=_eur(widen["from"], language), to=_eur(widen["to"], language)
+    )
+
+
 def synthesis_fallback_text(
     leaf_text: str,
     *,
@@ -84,10 +92,8 @@ def synthesis_fallback_text(
     if not text:
         return ""
     lines = [text]
-    if widen and widen.get("from") is not None and widen.get("to") is not None:
-        lines.append(_pick(_WIDEN_LINE, language).format(
-            from_=_eur(widen["from"], language), to=_eur(widen["to"], language)
-        ))
+    if notice := auto_widen_notice(widen, language):
+        lines.append(notice)
     text, _ = enforce_parking_reserve("\n\n".join(lines), message, language)
     text, _ = enforce_currency_disclosure(text, currency_note, language)
     return text

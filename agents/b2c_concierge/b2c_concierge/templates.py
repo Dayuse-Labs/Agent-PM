@@ -20,6 +20,20 @@ from __future__ import annotations
 from .date_format import format_date_human
 
 
+def empty_window_next_step(language: str) -> str:
+    """A shorter required stay relaxes containment; no unverified clock offers."""
+    replies = {
+        "en": "I can check a wider area or another date while keeping these hours. If your hours are flexible, tell me a later arrival or earlier departure that would work for you.",
+        "fr": "Je peux vérifier une zone plus large ou une autre date en gardant ces horaires. Si tes horaires sont flexibles, indique-moi une arrivée plus tardive ou un départ plus tôt qui te conviendrait.",
+        "de": "Ich kann einen größeren Umkreis oder ein anderes Datum mit denselben Uhrzeiten prüfen. Falls du zeitlich flexibel bist, nenne mir eine spätere Ankunft oder eine frühere Abreise, die für dich passt.",
+        "es": "Puedo comprobar una zona más amplia u otra fecha manteniendo este horario. Si tienes flexibilidad, dime una hora de llegada más tarde o de salida más temprano que te convenga.",
+        "it": "Posso verificare una zona più ampia o un’altra data mantenendo questi orari. Se sei flessibile, indicami un arrivo più tardi o una partenza prima che ti vada bene.",
+        "pt": "Posso verificar uma área mais ampla ou outra data mantendo estes horários. Se tiver flexibilidade, indique uma chegada mais tarde ou uma saída mais cedo que lhe convenha.",
+        "nl": "Ik kan een groter gebied of een andere datum controleren met dezelfde tijden. Als je flexibel bent, geef dan een latere aankomst of een eerder vertrek door dat voor je past.",
+    }
+    return replies.get(language, replies["en"])
+
+
 def named_availability_response(name: str, date: str, language: str, *, verified: bool) -> str:
     """Identity succeeded; no verified offer or inventory lookup unavailable."""
     checked = {

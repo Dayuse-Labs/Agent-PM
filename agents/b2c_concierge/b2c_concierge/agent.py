@@ -120,7 +120,7 @@ from .currency_guard import enforce_currency_disclosure
 from b2c_common.search_areas import preserve_area_boundary, requires_area_membership
 from .dialogue_context import last_assistant_message, recent_user_messages
 from .date_format import humanize_iso_dates
-from .fallback_text import enforce_parking_reserve, synthesis_fallback_text
+from .fallback_text import auto_widen_notice, enforce_parking_reserve, synthesis_fallback_text
 from .display_currency import (
     HOTEL,
     already_message,
@@ -518,6 +518,13 @@ ABSOLUTE RULES — a violation is a defect:
    the budget) — never leave the user unsure whether it's a display glitch.
    When a NO OFFERS sentence is present, it is already shown above your reply:
    do not repeat the place, date or filters — go straight to that next step.
+   For a stay that must be covered in full, an earlier arrival or later departure
+   makes the requirement MORE restrictive. Never suggest extending that stay or
+   widening its hours as a way to find more offers. You may ask whether a shorter
+   stay (later arrival or earlier departure), another date or a wider geographic
+   area is acceptable. Do not invent alternative clock times or promise that an
+   unsearched alternative is available. Keep the current constraints until the
+   customer agrees to a change.
 8. If a PROVENANCE note is present, never claim the user requested the
    budget/timeslot values it names — they came from a system default, not
    something the user said; state them, if at all, only as your own
@@ -1958,13 +1965,27 @@ class _B2cConcierge(BaseAgent):
             yield self._final(ctx, budget_notice(profile.requested_budget, False, reply_language))
             return
 
-        synth = await self._synthesize_with_guards(
-            message=message, language=reply_language, leaf_text=leaf_text, response=response,
-            profile=profile, budget=budget, invocation_id=inv, no_offers=no_offers,
-            recent_messages=recent_messages,
-            previous_reply=previous_reply if family == "search" else None,
-            leaf_text_is_user_facing="faq_evidence" not in response,
-        )
+        requested_stay = profile.requested_window or {}
+        synth: str | None
+        if no_offers and requested_stay.get("start") and requested_stay.get("end"):
+            # Full-stay containment: longer hours cannot recover an empty
+            # result. Keep this bounded next step in code, without inventing
+            # availability or changing the customer's profile. Existing final
+            # disclosures still run below; FAQ/clarifications never set no_offers.
+            synth = templates.empty_window_next_step(reply_language)
+            if notice := auto_widen_notice(profile.auto_widen_disclosure, reply_language):
+                synth = f"{notice}\n\n{synth}"
+            profile.auto_widen_disclosure = None
+            profile.last_clarifying_question = None
+            profile.last_synthesis_angle = None
+        else:
+            synth = await self._synthesize_with_guards(
+                message=message, language=reply_language, leaf_text=leaf_text, response=response,
+                profile=profile, budget=budget, invocation_id=inv, no_offers=no_offers,
+                recent_messages=recent_messages,
+                previous_reply=previous_reply if family == "search" else None,
+                leaf_text_is_user_facing="faq_evidence" not in response,
+            )
         await store.set(ctx.session.id, profile)
 
         self._emit_turn_metric(

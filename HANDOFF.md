@@ -1,5 +1,36 @@
 # HANDOFF — AgentB2C
 
+## 2026-10-08 — v54 : reprise après une recherche horaire vide
+
+**Pas de GO remplacement.** Le rejeu Vienne restait C car la synthèse proposait
+un séjour plus long comme assouplissement de13–18. Une consigne explicite seule
+(v54) échoue encore malgré sa présence vérifiée dans la requête5.2. Pour une
+recherche réussie sans offre, avec fenêtre explicite complète et no_offers,
+le concierge utilise maintenant un conseil traduit en7langues : autre date/zone,
+ou arrivée plus tardive/départ plus tôt. Pas de nouvel horaire, disponibilité
+promise ou mutation des critères ; pas d’appel synthèse sur cette branche.
+FAQ, clarifications, budget chiffré et couverture partielle gardent leurs voies.
+Les disclosures finaux restent appliqués ; une éventuelle augmentation auto du
+budget utilise le même formateur qu’avant et est consommée une seule fois.
+
+Test runner rouge avantfix sur12–19, puis vert ; contrôle FAQ et disclosurebudget.
+2655tests passent,1ignoré ;109ciblés,ruff/mypy69/guardrails verts. Deux replays
+Vienne3tours : v54 C, v54b B. Le dernier conserve identifiantPOI/coordonnées/rayon3km,
+13–18 puis conseil correct sans synthèse. Huit assertions live passent ; deux
+cartes rapprochées de leurs reçus MCP sans erreurprix/jointure/expiration.
+Source finale ajoute uniquement une annotation de type aprèslivev54b.
+Coût0,03599805USD ; cumul99,397516018335/110USD,provisions12,10/réserve10,
+aucun appel en attente, acteclient, merge ou déploiement. Aucun nouveau regex.
+
+Audit historique repris sur les assertions du fichier prod25septembre :8tests
+mappés,2preuveshorslignebornées/2partiels/4sanspreuvedirecteretrouvée.
+Dublin CityCentre, noms de villes non scindés, distinction hôtel/ville et typo
+restent à compléter ; traces de correspondance locales horsGit. Inventaire
+complet :256commits/2088symboles, pas2088preuves. Les32familles restent non
+validées globalement. Restent aussi POI/IATA, GPS/périmètres, multi-villes,
+sarcasme, repas et politiques âge/annulation/paiement. Plafond dispatch100 avec
+réserve10 inchangé ;0,602484USD avant ce plafond, vérifier le budget avantlotlarge.
+
 ## 2026-10-08 — v53 : intention de lieu précis avant le géocodage
 
 **Pas de GO remplacement.** Trace réelle Vienne : le triage écrivait l’aéroport
