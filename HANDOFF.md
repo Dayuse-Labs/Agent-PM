@@ -1,5 +1,27 @@
 # HANDOFF — AgentB2C
 
+## 2026-10-09 — v60 terminé : 56 conversations, PR à actualiser, pas de GO
+
+Runtime `27362ee` : 56 conversations / 156 réponses, **4 A, 21 B, 21 C,
+aucun D/F, 10 non notées**. Revue complète Codex ; FAQ/annulations phase 2.
+151 cartes rapprochées du même reçu MCP, zéro jointure manquante/prix/expiration,
+15 capacités vérifiées, détails Kimpton/Biltmore/Aloft/Varennes vérifiés.
+Deux créneaux à 10h30 restent admis par la règle site pour 10h demandé, sans
+annonce de l'écart. Pas de couverture à la minute garantie.
+
+Baignoire Hong Kong et spa/rooftop Rome traversent correctement le pipeline et
+les bons scopes MCP. Douche atteint le filtre chambre mais le triage ajoute
+baignoire : le défaut sémantique reste C. 23rd Street et Milano montrent encore
+la variabilité géographique ; synthèse pagination et départ 20h restent fragiles.
+Le document `evals/PRODUCTION_PARITY_PROGRESS_2026_10_07.md` décrit le bilan
+courant et les limites de comparaison avec la prod enregistrée.
+
+Tests : 2707 passent / 1 ignoré ; ruff, mypy 70, guardrails verts. Coût v60
+1,3512553 USD ; cumul 107,8330605 / 110 USD dont 8,10 de provisions conservées.
+Réconciliation terminale sans coût tardif ; services locaux de ce lot arrêtés.
+Aucun changement Railway. PR draft uniquement, pas de validation de lancement.
+Le bloc préparatoire ci-dessous est historique et précède ce rejeu complet.
+
 ## 2026-10-09 — v60 préparé : portée des équipements et conservation multi-tour
 
 Lot issu des traces v59 et du catalogue MCP lu par scope : baignoire, douche,
