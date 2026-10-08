@@ -1,3 +1,69 @@
+## 2026-10-08 — v35 : budget natif et première page trop chère
+
+**Pas de GO remplacement.** Une recherche proche peut renvoyer cinq hôtels tous
+au-dessus du plafond local, malgré des offres compatibles dans les pages
+suivantes. Le MCP filtre les prix en EUR ; le contrôle du plafond natif doit
+rester lié à chaque offre et inclure les frais obligatoires.
+
+La feuille lit désormais au plus une seconde page de cinq hôtels lorsque le
+premier échantillon n'a aucun résultat vérifiable dans le budget. Elle reprend
+exactement les arguments déjà contrôlés, avec seulement un nouvel offset MCP.
+La lecture est débitée du quota existant du même outil, sans phase LLM ajoutée,
+sans élargissement de critères ni nouvelle regex. Les recherches multi-zone
+gardent leur propriétaire de batch existant. Les cartes restent limitées à cinq.
+Une seconde page en erreur n'est pas transformée en preuve d'absence d'offres.
+Ce mécanisme reste un échantillon borné, pas une recherche exhaustive.
+
+Onze nouveaux tests couvrent récupération, quota, offset incohérent, absence de
+page, panne et date divergente. Le test causal échoue quand le nouveau callback
+est retiré et passe lorsqu'il est activé (fixture corrigée pour inclure la devise
+au niveau offre, conformément au MCP). Test de câblage adapté. **2 448 tests
+passés, un ignoré**, ruff, mypy (66 fichiers), guardrails.
+
+**26 réponses / dix revues :** trois conversations de production, sept messages
+SQL retrouvés dans Langfuse, comparés sur legacy, B2C déployé et candidat v34 ;
+puis cinq tours Dubai rejoués sur v35. Grille historique A/B/C/D/F conservée.
+
+| Parcours | Legacy | B2C déployé | Candidat v34 | Candidat v35 |
+|---|---|---|---|---|
+| Dubai, budget/horaires/proximité sur cinq tours | D | D | D | D |
+| Chaîne près de moi, nom mal orthographié | B | C | C | non rejoué |
+| Quatre adultes et deux enfants après croisière | D | C | C | non rejoué |
+
+Le B2C déployé transforme un plafond local en EUR. Le candidat conserve AED.
+Avec v35, le quatrième tour retrouve une offre à **135,25 AED**, frais compris,
+qui couvre 09:00. Mais au troisième tour, une tentative de recherche avant le
+geocoding a déjà consommé une unité du quota : pas de seconde page disponible.
+Le premier tour redemande le lieu malgré GPS et le cinquième bloque sur les
+quartiers autour de Marina, avec perte du créneau. Ces nouveaux tirages incluent
+la variabilité modèle : ne pas attribuer ces écarts au callback sans preuve.
+
+**16 cartes tarifées** vérifiées contre les reçus MCP, zéro écart prix/jointure/
+expiration. Six des sept messages ont un GPS observé dans la même trace,
+arrondi à quatre décimales ; il est adapté au contrat de chaque agent. Le flag
+permission du fixture B2C est synthétique, la permission originale et le payload
+complet sont inconnus. Ce n'est pas une fidélité native complète. Legacy utilise
+export/Qdrant, les nouveaux agents le MCP préproduction live ; dates inchangées.
+
+Une anomalie amont est documentée pour Carlton Downtown : le point MCP diffère
+d'environ 22 km du centre de carte de sa page officielle contact/location.
+La distance calculée par l'agent est cohérente avec le point reçu ; aucune
+correction spéciale par hôtel n'a été ajoutée. À investiguer côté inventaire.
+
+Export réactualisé : 33 414 lignes / 2 000 récentes. Sept lignes de nos propres
+évaluations exclues ; quatre nouveaux messages d'une autre session récupérés
+avec quatre traces Langfuse (lieu nommé, pays erroné, correction explicite).
+Ils ne sont pas encore rejoués, contexte/provenance encore à vérifier.
+
+**Reste :** GPS et ordre des outils, quartiers/rayon multi-zone et maintien
+horaire, chaîne vs lieu, capacité famille, lit bébé, besoins libres/pagination,
+FAQ/caution/annulation, âge durable, géographies historiques et langues. Les
+32 familles prioritaires restent incomplètes et non exhaustives. Aucun modèle
+par défaut changé. Étape **0,34623881 USD**, dont rejeu correctif **0,04350375** ;
+cumul **90,75606921/110 USD**, provisions 11,10 incluses, réserve 10 conservée.
+Tous les lots réglés, aucun runner payant actif. Sources et reçus privés hors Git.
+Pas de merge, déploiement ou changement Railway. CI du nouveau commit à observer.
+
 ## 2026-10-08 — v34 : source FAQ et recherche par nom sans identité
 
 **Pas de GO remplacement.** Le triage indique la source nécessaire à une question

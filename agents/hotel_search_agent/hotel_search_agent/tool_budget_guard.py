@@ -43,6 +43,8 @@ STOP_MESSAGE = (
 
 _INV_KEY = "_per_tool_budget_inv"
 _COUNTS_KEY = "_per_tool_budget_counts"
+_LIMITS_KEY = "_per_tool_budget_limits"
+_DEFAULT_KEY = "_per_tool_budget_default"
 
 
 def make_per_tool_budget_callback(
@@ -61,6 +63,8 @@ def make_per_tool_budget_callback(
         if state.get(_INV_KEY) != tool_context.invocation_id:
             state[_INV_KEY] = tool_context.invocation_id
             state[_COUNTS_KEY] = {}
+            state[_LIMITS_KEY] = dict(limits)
+            state[_DEFAULT_KEY] = default_limit
         name = str(getattr(tool, "name", "") or "")
         if name == "geocode_location" and state.get(STATE_RESOLUTION):
             # One user turn has one verified area plan. Repeated/parallel
@@ -77,3 +81,21 @@ def make_per_tool_budget_callback(
         return None
 
     return before_tool
+
+
+def reserve_additional_call(tool_context: Any, name: str) -> bool:
+    """Charge a deterministic extra read against the SAME per-turn tool quota.
+
+    Never starts a new budget or enlarges an operator's limit. No reservation
+    means the caller returns its current sample without another network call.
+    """
+    state = tool_context.state
+    if state.get(_INV_KEY) != tool_context.invocation_id:
+        return False
+    counts = dict(state.get(_COUNTS_KEY) or {})
+    limit = (state.get(_LIMITS_KEY) or {}).get(name, state.get(_DEFAULT_KEY, 0))
+    if counts.get(name, 0) >= limit:
+        return False
+    counts[name] = counts.get(name, 0) + 1
+    state[_COUNTS_KEY] = counts
+    return True
