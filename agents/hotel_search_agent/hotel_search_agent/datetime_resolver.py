@@ -493,7 +493,9 @@ def _minutes_of_day(hour: Any, minute: Any = 0) -> int | None:
     return h * 60 + m if (0 <= h <= 23 and 0 <= m <= 59) else None
 
 
-def _parse_hhmm_to_minutes(value: Any) -> int | None:
+def _parse_hhmm_to_minutes(value: Any, *, end_of_day: bool = False) -> int | None:
+    if end_of_day and value == "24:00":
+        return 1440
     if not isinstance(value, str):
         return None
     match = re.match(r"^(\d{1,2}):(\d{2})$", value.strip())
@@ -526,7 +528,7 @@ def _is_carried_slot(time_slot: dict[str, Any], profile_in: dict[str, Any]) -> b
     follow-up turn: "et à Villeurbanne ?")."""
     carried = (
         _parse_hhmm_to_minutes(profile_in.get("timeslot_start")),
-        _parse_hhmm_to_minutes(profile_in.get("timeslot_end")),
+        _parse_hhmm_to_minutes(profile_in.get("timeslot_end"), end_of_day=True),
     )
     if carried == (None, None):
         return False
@@ -615,14 +617,21 @@ def resolve_search_timeslot(tool: Any, args: dict[str, Any], tool_context: Any) 
         # Only the concierge writes this field. Preserve precise bounds across
         # follow-ups, including an explicit clear, regardless of model args.
         start_total = _parse_hhmm_to_minutes(owned_window.get("start"))
-        end_total = _parse_hhmm_to_minutes(owned_window.get("end"))
+        end_total = _parse_hhmm_to_minutes(owned_window.get("end"), end_of_day=True)
 
     new_time_slot: dict[str, int] = {}
     if start_total is not None:
         new_time_slot["startHour"] = start_total // 60
     if end_total is not None:
         hour, minute = divmod(end_total, 60)
-        new_time_slot["endHour"] = min(hour + 1, 23) if minute else hour
+        # MCP accepts at most23. This is a retrieval superset, never the
+        # requested departure: exact1440 remains in state for card filtering.
+        new_time_slot["endHour"] = min(hour + (1 if minute else 0), 23)
+        if end_total == 1440 and start_total is None:
+            # An end-only MCP request defaults start to end-2. With end23 it
+            # would wrongly exclude22–midnight offers; explicit23 is a superset
+            # of the site's end-only23–24 window. Do not persist this as arrival.
+            new_time_slot["startHour"] = 23
     if new_time_slot:
         args["timeSlot"] = new_time_slot
         # Server enum belongs to the adapter, not to a model guess such as

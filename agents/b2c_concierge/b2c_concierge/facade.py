@@ -377,6 +377,7 @@ def build_active_filters(profile: SessionProfile) -> dict[str, Any]:
         "timeslot": _synth_timeslot(profile),
         "timeslot_start": profile.timeslot_start,
         "timeslot_end": profile.timeslot_end,
+        "requested_duration_minutes": profile.requested_duration_minutes,
         "budget_max": profile.budget_max,
         "requested_budget": profile.requested_budget,
         "amenities": list(profile.amenities or []),

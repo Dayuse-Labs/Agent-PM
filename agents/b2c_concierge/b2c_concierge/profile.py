@@ -199,6 +199,7 @@ class SessionProfile:
     # Concierge-grounded clock bounds, distinct from a leaf's source claim.
     # None = legacy/delegated extraction; {} = explicitly no clock constraint.
     requested_window: dict[str, str | None] | None = None
+    requested_duration_minutes: int | None = None
     timeslot: str | None = None
     timeslot_start: str | None = None
     timeslot_end: str | None = None
@@ -287,6 +288,7 @@ class SessionProfile:
             "budget_request_source": self.budget_request_source,
             "requested_budget": self.requested_budget,
             "requested_window": self.requested_window,
+            "requested_duration_minutes": self.requested_duration_minutes,
             "timeslot": self.timeslot,
             "timeslot_start": self.timeslot_start,
             "timeslot_end": self.timeslot_end,
@@ -639,7 +641,7 @@ def apply_profile_delta(
     values, clears, explicit_sets = _normalize_delta(dict(delta))
     known_fields = set(SessionProfile.__dataclass_fields__)
     # User-grounded constraints are concierge-owned, including typed clears.
-    for owned_slot in ("requested_budget", "requested_window"):
+    for owned_slot in ("requested_budget", "requested_window", "requested_duration_minutes"):
         values.pop(owned_slot, None)
         clears.discard(owned_slot)
     if profile.requested_budget is not None:
@@ -1014,6 +1016,8 @@ def search_context_line(profile: SessionProfile) -> str:
     slot = _timeslot_label(profile) or profile.daypart
     if slot:
         bits.append(f"time of day: {slot}")
+    if profile.requested_duration_minutes is not None:
+        bits.append(f"requested stay duration: {profile.requested_duration_minutes} minutes; arrival must not be invented")
     if profile.amenities:
         bits.append("amenities: " + ", ".join(profile.amenities))
     return "; ".join(bits)
@@ -1239,7 +1243,7 @@ def pagination_search_key(profile: SessionProfile) -> str:
         name: getattr(profile, name)
         for name in (
             "city", "search_areas", "state_anchor", "country_anchor", "zone", "metro",
-            "date", "budget_max", "timeslot", "timeslot_start", "timeslot_end",
+            "date", "budget_max", "timeslot", "timeslot_start", "timeslot_end", "requested_duration_minutes",
             "timeslot_mode", "daypart", "adults", "children",
         )
     }

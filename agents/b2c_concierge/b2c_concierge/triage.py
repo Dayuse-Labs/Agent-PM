@@ -538,6 +538,13 @@ Optional keys, extracted from MESSAGE ONLY, never copied from recent messages:
   For numeric clock times: {{"start":"HH:MM" or null,"end":"HH:MM" or null,
   "evidence":"exact substring of MESSAGE containing the numeric times"}}.
   Example "de 11h à 16h" -> {{"start":"11:00","end":"16:00","evidence":"de 11h à 16h"}}.
+  For a departure at midnight/end of day, use end="24:00" as the semantic
+  end-of-day value (00:00 is accepted only with "end_boundary":"end_of_day"). Quote the user's
+  actual timing words in evidence, including written midnight in their language.
+  This label means the END of the stay date, not a midnight arrival, a date,
+  a hotel closing time, or an invented overnight stay. Never replace midnight
+  with 23:00. Example "21 fino a mezzanotte" -> start="21:00", end="24:00",
+  evidence="21 fino a mezzanotte". A missing arrival stays null, never 00:00.
   For explicit removal of the time restriction: {{"clear":true,"evidence":"exact
   substring requesting removal"}}. Never use [null,null] or an empty array.
   The evidence MUST be included inside this object; without it the update is
@@ -547,6 +554,9 @@ Optional keys, extracted from MESSAGE ONLY, never copied from recent messages:
   the search specialist interpret it. Never invent numeric bounds for a daypart.
   For a duration change use {{"duration_minutes":120,"evidence":"for two hours"}};
   include start/end only when actually stated, never invent a start for a duration.
+  Extract duration even BEFORE the city is known. Duration alone requires
+  duration_minutes; start/end null without duration_minutes loses the request.
+  Never write the string "null"; omitted bounds or JSON null mean unknown.
   When an arrival AND duration are stated, BOTH are required in the same object:
   "from 10:15am for 90 minutes" -> {{"start":"10:15","duration_minutes":90,
   "evidence":"from 10:15am for 90 minutes"}}. This includes written durations
@@ -763,7 +773,7 @@ def _requested_window_slot(value: Any) -> tuple[str | None, ...] | None:
         return ()
     if len(value) != 2 or value == [None, None]:
         return None
-    for clock in value:
+    for index, clock in enumerate(value):
         if clock is None:
             continue
         if not isinstance(clock, str) or len(clock) != 5 or clock[2] != ":":
@@ -771,6 +781,8 @@ def _requested_window_slot(value: Any) -> tuple[str | None, ...] | None:
         parts = clock.split(":")
         if not all(p.isascii() and p.isdigit() for p in parts):
             return None
+        if index == 1 and clock == "24:00":
+            continue
         if int(parts[0]) > 23 or int(parts[1]) > 59:
             return None
     if value[0] is not None and value[1] is not None and value[0] >= value[1]:
@@ -826,18 +838,31 @@ def _grounded_window(data: dict, message: str) -> tuple[str | None, ...] | None:
             return None
         window: tuple[str | None, ...] | None = ()
     else:
-        window = _requested_window_slot([raw.get("start"), raw.get("end")])
+        end = raw.get("end")
+        if raw.get("end_boundary") == "end_of_day":
+            if end not in ("00:00", "24:00"):
+                return None
+            end = "24:00"
+        window = _requested_window_slot([raw.get("start"), end])
     evidence = raw.get("evidence")
     if window is None or not isinstance(evidence, str) or not evidence.strip():
         return None
     if evidence not in message:
         return None
-    # Numeric-clock evidence is required for this optional fast extraction.
-    # Written-out times still go through the search leaf's existing extraction.
-    if window and not all(_clock_numbers_in_evidence(clock, evidence)
-                          for clock in window if clock is not None):
-        return None
-    return window
+    if not window:
+        return window
+    # Validate each endpoint independently: an invented arrival must not erase
+    # a supported departure. 24:00 is the semantic end-of-day value, just as a
+    # duration is semantically extracted; the current-message quote is required.
+    # Other written-out clocks remain delegated to the specialist.
+    grounded = [
+        clock if clock is not None and (
+            (index == 1 and clock == "24:00")
+            or _clock_numbers_in_evidence(clock, evidence)
+        ) else None
+        for index, clock in enumerate(window)
+    ]
+    return _requested_window_slot(grounded)
 
 
 def _window_replacement(data: dict, message: str) -> bool:

@@ -1,5 +1,58 @@
 # HANDOFF — AgentB2C
 
+## 2026-10-08 — v40 : durée, minuit et bornes indépendantes
+
+**Pas de GO remplacement.** Le concierge conserve désormais une durée demandée
+avant la précision de la ville, puis calcule la fin quand l’arrivée est connue.
+Une nouvelle fin, suppression ou préférence horaire remplace la durée précédente.
+Minuit est conservé comme 24:00 ; le MCP accepte au maximum 23, donc la requête
+utilise un sur-ensemble valide puis les cartes sont vérifiées contre la borne exacte.
+Le départ seul à minuit ne crée pas une arrivée utilisateur à 23 h. Une borne
+numérique inventée ne fait plus perdre l’autre borne justifiée. Le sens de minuit
+reste extrait par le modèle avec citation du message courant, sans lexique ni regex.
+
+**2 506 tests passés, un ignoré**, ruff, mypy66 et guardrails verts. Vingt tests
+ajoutés dans cette étape ; les quatre derniers défauts de bornes échouaient avant
+correction. Aucun changement d’architecture, de modèle par défaut ou de Railway.
+
+**107 réponses / 45 revues de parcours**, sans taux global : 58 réponses avant
+la dernière correction, 22 réponses ciblées après, puis 27 réponses sur cinq
+nouvelles sessions (neuf messages réels) après gel du code. Modèle alternatif :
+seul triage4.1-mini varie, corps de requêtes contrôlés ; search/FAQ4o et synthèse5.2
+inchangés. Son avantage d’extraction horaire disparaît sur les cas ciblés après
+correction ; les difficultés géographiques persistent. Pas de justification pour
+un changement global de modèle.
+
+Durée à Hannover : 120 minutes conservées avant la ville, puis 14:30–16:30.
+Naples : 21–24 conservé dans les alternatives, créneaux partiels annoncés.
+IDF : fin20 conservée ; triage4.1 reste bloqué par les preuves de géocodage de zone,
+pas une panne MCP. Candidat4o demande encore des précisions déjà données et traite
+parfois moins cher comme pagination épuisée. Résumé sans résultats arrondit encore
+14:30–16:30 à15–17 : profil corrigé ne signifie pas réponse entièrement correcte.
+
+Nouveau contrôle, notes legacy/B2C/candidat : Paris rive droite et plafond100EUR
+D/D/D ; escale Istanbul C/C/B ; arrivée4h puis plusieurs villes Texas B/D/C ;
+escale NZD un seul tour B/B/B ; jacuzzi Bruxelles B/D/C. Langfuse confirme que
+B2C cherche Paris autour d’Évry et perd le créneau4h après clarification. Candidat
+conserve4h et jacuzzi41, mais réduit rive droite àParis et propose un hôtel du7e.
+Arlington reste ambigu malgré les autres villes Texas. Jacuzzi hôtel ne prouve
+pas jacuzzi privatif en chambre ; accès spa et remboursement restent trop généraux.
+
+**96 cartes tarifées** reliées aux reçus MCP du même tour, zéro écart de prix,
+date/minutes de carte ou expiration. Cela ne prouve ni périmètre ni services inclus.
+Export actualisé : 33 523 lignes, 2 000 récentes ; neuf nouveaux messages/cinq
+sessions/neuf traces Langfuse exactes. Un GPS arrondi récupéré ; payload natif
+complet, permission et provenance organique non certifiés. Export legacy vs MCP
+préproduction live : différences d’inventaire et de fraîcheur non attribuées au modèle.
+
+Toutes les 32 familles restent incomplètes. Priorités : limites géographiques
+composées, quartier générique, clarifications, affichage des minutes, FAQ/remboursement
+et prestations de l’offre ; occupation/âge/lit bébé et autres familles à poursuivre.
+Les rapports, traces et messages bruts restent hors Git. Aucun booking/cancel exécuté.
+
+Étape : 1.06990760997899998620 USD ; cumul 93.65008157842699898575/110 USD, provisions11,10 incluses et réserve10 conservée.
+
+
 ## 2026-10-08 — v39 : créneau déjà passé et nouveaux suivis réels
 
 **Pas de GO remplacement.** Une offre encore réservable jusqu’à 20 h ne prouve

@@ -1327,17 +1327,30 @@ class _B2cConcierge(BaseAgent):
             # An updated arrival beyond the old departure (or the converse)
             # invalidates the carried bound; never invent an overnight range.
             next_window = (requested_window[0], requested_window[1])
+        next_duration = profile.requested_duration_minutes
+        if triage.replace_window or requested_window == () or (requested_window and requested_window[1]):
+            next_duration = None  # new departure/daypart/clear supersedes the old length
         if triage.requested_duration_minutes is not None:
+            next_duration = triage.requested_duration_minutes
+        if next_duration is not None and (
+            triage.requested_duration_minutes is not None
+            or (requested_window and requested_window[0] and not requested_window[1])
+        ):
             start = next_window[0] if next_window else carried_window.get("start")
             if start:
                 hour, minute = (int(part) for part in start.split(":"))
-                end_minutes = hour * 60 + minute + triage.requested_duration_minutes
-                if end_minutes < 1440:
-                    next_window = (start, f"{end_minutes // 60:02d}:{end_minutes % 60:02d}")
-        window_changed = triage.replace_window or (next_window is not None and (
-            next_window != (profile.timeslot_start, profile.timeslot_end)
-            or (not requested_window and bool(profile.timeslot or profile.daypart))
-        ))
+                end_minutes = hour * 60 + minute + next_duration
+                next_window = (
+                    (start, f"{end_minutes // 60:02d}:{end_minutes % 60:02d}")
+                    if end_minutes <= 1440 else (start, None)
+                )
+            else:
+                next_window = (None, None)  # owned unknown arrival; the leaf cannot invent midnight
+        window_changed = (triage.replace_window or next_duration != profile.requested_duration_minutes
+                          or (next_window is not None and (
+                              next_window != (profile.timeslot_start, profile.timeslot_end)
+                              or (not requested_window and bool(profile.timeslot or profile.daypart))
+                          )))
         if (window_changed or amenities_changed or area_update is not None) and family != "faq" and clicked_id is None:
             family, route = "search", ROUTES["search"]
             picked = None
@@ -1507,9 +1520,9 @@ class _B2cConcierge(BaseAgent):
                 yield self._final(ctx, templates.search_exhausted_response(reply_language, profile.city))
                 return
 
-        if route.target == LEAF_HOTEL_SEARCH and (
-            triage.replace_window or (triage.requested_duration_minutes is not None and next_window is None)
-        ):
+        if route.target == LEAF_HOTEL_SEARCH:
+            profile.requested_duration_minutes = next_duration
+        if route.target == LEAF_HOTEL_SEARCH and triage.replace_window:
             # A new daypart/written clock preference must not inherit a prior
             # exact range. The leaf interprets the new preference this turn.
             profile.requested_window = {}

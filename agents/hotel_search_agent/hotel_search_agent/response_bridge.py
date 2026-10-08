@@ -361,12 +361,12 @@ def _hhmm(hour: Any, minute: Any) -> str | None:
 
 
 def _hhmm_from_total(total_minutes: Any) -> str | None:
-    """S-G6: the inverse of a minutes-of-day int (0-1439) back to "HH:MM" —
+    """S-G6: the inverse of a minutes-of-day int (0-1440) back to "HH:MM" —
     used to recover the EXACT requested timeslot bound after the before_tool
     callback has already rounded `args["timeSlot"]` to whole hours for MCP."""
     if not isinstance(total_minutes, int) or isinstance(total_minutes, bool):
         return None
-    if not 0 <= total_minutes < 24 * 60:
+    if not 0 <= total_minutes <= 24 * 60:
         return None
     hour, minute = divmod(total_minutes, 60)
     return f"{hour:02d}:{minute:02d}"
@@ -1216,8 +1216,12 @@ def capture_after_tool(
             end_hhmm = _hhmm_from_total(exact_window_state.get("end_total"))
             if start_hhmm:
                 budget_timeslot["timeslot_start"] = start_hhmm
+            else:
+                budget_timeslot.pop("timeslot_start", None)
             if end_hhmm:
                 budget_timeslot["timeslot_end"] = end_hhmm
+            else:
+                budget_timeslot.pop("timeslot_end", None)
         # P0-1: same only-when-present contract, from the SAME real args. The
         # model already emits adults/children ~78% of the turns they are stated;
         # until this capture existed nothing read them, so they never reached
