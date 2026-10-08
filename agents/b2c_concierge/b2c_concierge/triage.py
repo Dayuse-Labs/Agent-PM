@@ -536,7 +536,8 @@ Optional keys, extracted from MESSAGE ONLY, never copied from recent messages:
   put that city in city as well: "Toronto Pearson Airport" has
   query="Toronto Pearson Airport", city="Toronto". Do not leave city null just
   because it is embedded in the landmark name. If no city is named anywhere in
-  MESSAGE, leave city null; do not invent one.
+  MESSAGE, only reuse the identical confirmed_city in LOCATION CONTEXT if
+  this landmark refines that same destination; otherwise leave city null.
   country_guess is a soft provider hint, never proof of the place or coordinates.
   A specific street address or postal code also uses requested_landmark: keep
   the exact query, city null until supplied, and never infer a budget from it.
@@ -842,7 +843,9 @@ async def classify(message: str, budget: TurnBudget, invocation_id: str = "",
         language,
         used_llm=True,
         location_intent=location_intent(data.get("location_intent"), message, location_context),
-        requested_landmark=(grounded_landmark(data.get("requested_landmark"), message)
+        requested_landmark=(grounded_landmark(data.get("requested_landmark"), message,
+                            confirmed_city=(location_context or {}).get("confirmed_city"),
+                            confirmed_country=(location_context or {}).get("country"))
                             if family in {"search", "booking"} else None),
         comparison_positions=_comparison_positions(data.get("comparison_positions"), message),
         pick=pick,

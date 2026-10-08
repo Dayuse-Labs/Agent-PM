@@ -30,7 +30,7 @@ from typing import Literal
 from b2c_common.observability import mark_level
 from hotel_search_agent import geo_resolver
 from b2c_common.search_areas import (
-    AreaRequest, area_name_in_text, preserve_area_boundary, requires_area_membership, validate_areas,
+    AreaRequest, preserve_area_boundary, requires_area_membership, validate_areas,
 )
 from hotel_search_agent.area_scope import STATE_FAILED, resolve_areas
 from hotel_search_agent.geo_guards import (
@@ -1156,26 +1156,17 @@ def inject_profile_geo_context(tool: object, args: dict, tool_context: object) -
         # The concierge interpreted a single ordinary city. A stateless leaf
         # cannot turn that into strict city limits or revive an old destination.
         if profile_in.get("city"):
-            parent_refinement = bool(
-                isinstance(args.get("city"), str) and args["city"].strip()
-                and _echo_fold(args.get("zone") or "") == _echo_fold(profile_in["city"])
-                and _echo_fold(args["city"]) != _echo_fold(profile_in["city"])
-                and area_name_in_text(args["zone"], message)
-            )
-            if not parent_refinement:
-                args["city"] = profile_in["city"]
+            args["city"] = profile_in["city"]
             args["country_code"] = profile_in.get("country_anchor")
+            args["origin"] = "destination"
             for field in ("zone", "metro"):
-                if parent_refinement and field == "zone":
-                    continue
                 if (envelope.get("query_params") or {}).get("pending_request_refinement") is True and profile_in.get(field):
                     args[field] = profile_in[field]
-                    continue
-                value = args.get(field)
-                if (not isinstance(value, str) or _echo_fold(value) not in _echo_fold(message)
-                        or area_name_in_text(value, profile_in["city"])):
-                    # A component of the owned municipality name is not an
-                    # independent landmark. Keep genuinely distinct named zones.
+                else:
+                    # A city interpretation does not authorize a second POI.
+                    # Literal overlap alone can match a business named after
+                    # a generic vicinity word. Explicit landmarks have their
+                    # own authoritative branch above.
                     args.pop(field, None)
             destination_changed = False  # Owned profile already cleared old scope.
     if scoped and not requires_area_membership(scoped):

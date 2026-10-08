@@ -12,7 +12,8 @@ CLARIFICATION_KEY = "temp:hotel_search_location_clarification"
 RESOLVED_PLACE_KEY = "temp:hotel_search_resolved_place"
 
 
-def grounded_landmark(value: Any, message: str) -> dict | None:
+def grounded_landmark(value: Any, message: str, *, confirmed_city: str | None = None,
+                      confirmed_country: str | None = None) -> dict | None:
     """Validate an existing model extraction, never infer intent or coordinates."""
     if not isinstance(value, dict):
         return None
@@ -24,9 +25,13 @@ def grounded_landmark(value: Any, message: str) -> dict | None:
     city = value.get("city")
     if city is not None and (not isinstance(city, str) or not city.strip()):
         return None
-    if city and city.strip().casefold() not in message.casefold():
-        # Keep the grounded landmark query; an inferred parent is not authority.
-        # The provider can resolve an acronym without a model-invented city.
+    inherited_parent = bool(
+        city and confirmed_city and city.strip().casefold() == confirmed_city.casefold()
+        and (not value.get("country_guess") or str(value["country_guess"]).upper() == confirmed_country)
+    )
+    if city and city.strip().casefold() not in message.casefold() and not inherited_parent:
+        # An invented parent is not authority. Only the identical, already
+        # provider-confirmed city can supply a missing current-message parent.
         city = None
     guess = value.get("country_guess")
     if guess is not None and (not isinstance(guess, str) or len(guess) != 2 or not guess.isascii() or not guess.isalpha()):
@@ -88,7 +93,9 @@ def context_for_triage(pending: Any, confirmed: Any, *, unresolved: dict | None 
             for i, o in enumerate(p["options"], 1)
         ]}
     if c:
-        return {"confirmed_place": c["label"], "region": c["region"],
+        return {"confirmed_place": c["label"],
+                "confirmed_city": c["name"] if c["feature_type"] in {"place", "locality"} else None,
+                "region": c["region"],
                 "country": c["country_code"], "administrative_code": c.get("administrative_code")}
     context: dict[str, Any] = {}
     if unresolved is not None:

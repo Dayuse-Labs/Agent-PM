@@ -402,11 +402,13 @@ def test_repeating_bounded_city_does_not_release_its_explicit_boundary():
 
 
 @pytest.mark.parametrize('authoritative', [False, True])
-def test_ordinary_city_keeps_a_new_explicit_neighbourhood(authoritative):
+def test_explicit_neighbourhood_uses_owned_landmark_contract_when_authoritative(authoritative):
     profile = {'city': 'Lyon' if authoritative else 'Paris', 'country_anchor': 'FR'}
+    if authoritative:
+        profile['zone'] = 'Part-Dieu'
     ctx = context(profile, 'Un hôtel à Lyon près de Part-Dieu')
     ctx.user_content.parts[-1] = encode_datapart({'profile_in': profile,
-        'query_params': {'areas_authoritative': authoritative}})
+        'query_params': {'landmark_authoritative': authoritative}})
     args = {'zone': 'Part-Dieu', 'areas': [{'query': 'Lyon', 'kind': 'municipality',
                                            'country': 'FR', 'evidence': 'Lyon'}]}
     assert inject_profile_geo_context(SimpleNamespace(name='geocode_location'), args, ctx) is None

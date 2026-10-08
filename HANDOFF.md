@@ -1,5 +1,46 @@
 # HANDOFF — AgentB2C
 
+## 2026-10-09 — v58 : autorité géographique après rejeu global v57
+
+**Pas de GO remplacement. FAQ/annulations restent en phase 2.**
+V57 (93b68d9) terminé : 56 parcours,156 réponses, tous revus ;5 A,24 B,20 C,
+2 D,5 non notés.169 cartes jointes aux reçus MCP sans erreur prix/identité/
+expiration. Piscine Kimpton et huit créneaux Biltmore vérifiés dans les reçus
+MCP du même tour ; minuit Singapore et soirée Farnborough maintenant conservés.
+Les parcours non comparables ne deviennent pas des passes. Origine temporelle/
+inventaire diffèrent entre campagnes ; pas de taux de victoire sur la prod.
+
+Les logs montrent une cause commune à plusieurs échecs : la feuille réinterprète
+l'origine ou le lieu malgré l'état du concierge. Strasbourg : origin=device sur
+ville explicite, puis quota épuisé. Dublin/piscine : requêtes avant géocodage,
+mauvais origin, puis quota. Milan : le mot environs devient un commerce homonyme.
+
+Lot v58 sans nouvelle regex ni appel modèle : une ville ordinaire détenue force
+origin=destination. La feuille ne peut pas y ajouter un POI non détenu ; les
+vrais lieux précis gardent leur contrat landmark_authoritative, et les adresses
+en clarification restent conservées. La promotion parent/quartier expérimentée
+en v57 est retirée : le live Manhattan l'avait transformée en POI et laissé
+passer Brooklyn. Aucun succès Manhattan revendiqué, résolution restant à prouver.
+Le lieu déjà confirmé est réutilisé au suivi sans exiger que le triage répète un
+flag preserve. Changement de ville, action GPS ou nouveau landmark continuent
+à invalider cette réutilisation. Pour LAX après Los Angeles, un parent non cité
+dans le message courant est accepté seulement s'il est exactement la ville
+fournisseur déjà confirmée, sans contradiction de pays. Aucune coordonnée LLM.
+
+Vérifications :2686 tests passent,1 ignoré ;102 ciblés,ruff/mypy69/guardrails
+verts. Rejeu live v58 à exécuter, aucune validation anticipée. Les tests de quartier explicite utilisent
+maintenant le contrat landmark détenu ; assertion Part-Dieu conservée. Nouveaux
+contrôles : faux POI environs, GPS contradictoire, Dublin/piscine avec lieu
+confirmé, parent LAX limité à la ville/pays déjà vérifiés.
+
+Cumul avant v58 :107,24086088822/110 USD, provisions12,10 conservées, aucun appel
+en attente après rapprochement tardif. Dernier passage complet prévu :cap1,60USD,
+réserve interne0,75USD (plafond110 inchangé), puis cinq conversations SQL/Langfuse
+réservées si marge disponible. Aucun changement Railway/modèle par défaut ;
+triage4.1-mini local, feuille4o-mini et synthèse5.2. Le diagnostic feuille4.1
+préparé n'a pas été exécuté : priorité au rejeu du code et à la validation réservée.
+Aucun merge, déploiement, réservation ou acte client.
+
 ## 2026-10-08 — v57 : second lot recherche, faits et clarifications
 
 **Pas de GO remplacement. FAQ/annulations restent en phase 2.**

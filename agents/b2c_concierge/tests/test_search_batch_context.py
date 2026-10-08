@@ -100,10 +100,10 @@ def test_pending_empty_location_is_explicit_in_triage_context():
 
 
 @pytest.mark.parametrize("city,zone,expected_city,expected_zone", [
-    ("New York City", "Manhattan", "New York City", "Manhattan"),
+    ("New York City", "Manhattan", "Manhattan", None),
     ("Chicago", "copied district", "Manhattan", None),
 ])
-def test_leaf_can_resolve_a_quoted_district_to_its_parent_not_an_unrelated_city(city, zone, expected_city, expected_zone):
+def test_leaf_cannot_promote_owned_municipality_into_unverified_poi(city, zone, expected_city, expected_zone):
     context = SimpleNamespace(state={}, user_content=types.Content(role="user", parts=[
         types.Part(text="Manhattan, New York, USA"), encode_datapart({
             "profile_in": {"city": "Manhattan", "country_anchor": "US"},
@@ -162,3 +162,48 @@ def test_currency_waits_for_actual_inventory_and_survives_city_answer(scripted, 
     saved = asyncio.run(fake_profile_store.get(session.id))
     assert saved.requested_currency == 'USD' and saved.display_currency == 'HOTEL'
     assert saved.last_results[0]['price'] == 'USD 100.00'
+
+
+@pytest.mark.parametrize('city,zone', [('Milano', 'dintorni'), ('Strasbourg', None)])
+def test_owned_city_controls_origin_and_does_not_create_an_unowned_poi(city, zone):
+    context = SimpleNamespace(state={}, user_content=types.Content(role='user', parts=[
+        types.Part(text=f'{city} {zone or ""}'), encode_datapart({
+            'profile_in': {'city': city, 'country_anchor': 'IT' if city == 'Milano' else 'FR'},
+            'query_params': {'areas_authoritative': True}})]))
+    args = {'city': city, 'zone': zone, 'origin': 'device'}
+    result = inject_profile_geo_context(SimpleNamespace(name='geocode_location'), args, context)
+    assert result is None  # Continue to ordinary provider resolution, no fabricated result.
+    assert args['origin'] == 'destination' and args['city'] == city
+    assert 'zone' not in args
+
+
+def test_landmark_parent_can_only_reuse_identical_provider_confirmed_city():
+    from b2c_common.confirmed_location import grounded_landmark
+    raw = {'query': 'LAX airport', 'city': 'Los Angeles', 'country_guess': 'US', 'evidence': 'LAX airport'}
+    assert grounded_landmark(raw, 'Near LAX airport')['city'] is None
+    assert grounded_landmark(raw, 'Near LAX airport', confirmed_city='Los Angeles', confirmed_country='US')['city'] == 'Los Angeles'
+    assert grounded_landmark(raw, 'Near LAX airport', confirmed_city='Paris', confirmed_country='FR')['city'] is None
+    assert grounded_landmark({**raw, 'country_guess': 'CA'}, 'Near LAX airport',
+                             confirmed_city='Los Angeles', confirmed_country='US')['city'] is None
+
+
+def test_facility_followup_cannot_override_confirmed_city_with_device_origin(scripted, monkeypatch, fake_profile_store):  # noqa: F811
+    runner, session = _new_session()
+    place = {'provider_id': 'verified-dublin', 'name': 'Dublin', 'label': 'Dublin, Ireland', 'country_code': 'IE',
+             'feature_type': 'place', 'latitude': 53.34938, 'longitude': -6.260559, 'region': 'Dublin'}
+    asyncio.run(fake_profile_store.set(session.id, SessionProfile(city='Dublin', confirmed_location=place)))
+    scripted('{"family":"search","language":"en","requested_amenities":{"add":["pool"],"remove":[],"evidence":"pool"}}',
+             'No matching offers.')
+    observed = []
+    async def leaf(leaf, ctx, profile_in, **kwargs):
+        envelope = {'profile_in': profile_in, 'query_params': kwargs['query_params']}
+        tool_ctx = SimpleNamespace(state={}, user_content=types.Content(role='user', parts=[
+            types.Part(text='With a pool'), encode_datapart(envelope)]))
+        result = inject_profile_geo_context(SimpleNamespace(name='geocode_location'), {'city': 'Dublin', 'origin': 'device'}, tool_ctx)
+        observed.append(result)
+        return 'No offers', {'results': []}
+    monkeypatch.setattr(agent_module, '_run_leaf', leaf)
+    _drive_in(runner, session.id, 'With a pool')
+    assert observed[0]['ok'] is True
+    assert observed[0]['resolved_location']['provider_id'] == 'verified-dublin'
+    assert observed[0]['distance_origin_type'] == 'city_centroid'

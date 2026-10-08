@@ -1732,7 +1732,8 @@ class _B2cConcierge(BaseAgent):
             query_params["landmark_authoritative"] = True
             query_params["landmark_country_guess"] = landmark_update["country_guess"]
         if route.target == LEAF_HOTEL_SEARCH and profile.confirmed_location and (
-                location_choice or location_action == "preserve"):
+                location_choice or (location_action not in {"change", "device"}
+                                    and area_update is None and landmark_update is None)):
             query_params["reuse_confirmed_location"] = True
         if route.target == LEAF_HOTEL_SEARCH and (area_update is not None or
                 (profile.search_areas and any(a.get("subarea") for a in profile.search_areas))):
