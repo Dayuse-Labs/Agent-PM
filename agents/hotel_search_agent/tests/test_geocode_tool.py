@@ -515,7 +515,7 @@ class TestSearchBoxTier2:
         assert result["distance_origin_type"] == "poi"
         assert box.calls  # the fallback was actually invoked
 
-    def test_no_zone_never_calls_search_box(self, monkeypatch):
+    def test_no_valid_city_tries_one_bounded_searchbox_lookup(self, monkeypatch):
         junk = _c("Al Ain", "AE", "Abu Dhabi", ftype="neighborhood", lat=24.2, rank=0)
         _patch_multi(monkeypatch, [junk], inventory={24.2: 0})
         box = _FakeSearchBox(None)
@@ -525,7 +525,7 @@ class TestSearchBoxTier2:
 
         assert result["ok"] is False
         assert result["error"] == "geocode_echo_mismatch"
-        assert box.calls == []  # never invoked without a zone/landmark
+        assert box.calls == [("Budapestttt", None)]
 
     def test_bare_poi_destination_with_zero_candidates_falls_back_to_search_box(self, monkeypatch):
         # S-G11 "Layover in JFK": an airport used AS the destination is a POI —
@@ -551,9 +551,9 @@ class TestSearchBoxTier2:
         assert result["country_code"] == "US"
         assert box.calls == [("JFK", None)]
 
-    def test_bare_city_miss_with_candidates_still_never_calls_search_box(self, monkeypatch):
-        # The SKU-cost rule is unchanged: when v6 HAS candidates (they just
-        # fail the echo), a bare-city request must not hit Search Box.
+    def test_unrelated_city_candidates_do_not_suppress_searchbox(self, monkeypatch):
+        # Fuzzy v6 candidates are not a valid city result. Permit the same
+        # single POI fallback as an empty v6 result, never an unbounded retry.
         junk = _c("Al Ain", "AE", "Abu Dhabi", ftype="neighborhood", lat=24.2, rank=0)
         _patch_multi(monkeypatch, [junk], inventory={24.2: 0})
         box = _FakeSearchBox(None)
@@ -562,7 +562,7 @@ class TestSearchBoxTier2:
         result = geocode_location(city="Budapestttt", raw_user_message="hotel budapestttt")
 
         assert result["error"] == "geocode_echo_mismatch"
-        assert box.calls == []
+        assert box.calls == [("Budapestttt", None)]
 
     def test_clarify_with_a_zone_tries_search_box_before_asking(self, monkeypatch):
         # S-G10: a named landmark can make v6's whole list fuzzy homonyms in a
@@ -587,7 +587,7 @@ class TestSearchBoxTier2:
         assert result["country_code"] == "FR"
         assert result["distance_origin_type"] == "poi"
 
-    def test_clarify_surfaces_when_search_box_misses_too(self, monkeypatch):
+    def test_unrelated_clarify_options_are_rejected_when_searchbox_misses(self, monkeypatch):
         co = _c("La Defensa", "CO", "Vichada", ftype="locality", lat=5.58, rank=0)
         ae = _c("Defense", "AE", "Abu Dhabi", ftype="neighborhood", lat=23.64, rank=2)
         _patch_multi(monkeypatch, [co, ae], inventory={5.58: 0, 23.64: 1})
@@ -597,7 +597,8 @@ class TestSearchBoxTier2:
         result = geocode_location(city="Paris", zone="La Défense", raw_user_message="hotel la défense")
 
         assert result["ok"] is False
-        assert result["error"] == "geocode_ambiguous"
+        assert result["error"] == "geocode_echo_mismatch"
+        assert not result.get("diagnostics", {}).get("options")
         assert box.calls  # tier 2 was tried first
 
 
@@ -1817,3 +1818,33 @@ def test_real_named_landmark_is_not_hidden_by_unrelated_high_inventory_candidate
 ])
 def test_named_landmark_requires_all_distinctive_name_tokens(requested, returned):
     assert not geocode_tool._echoes(returned, city=None, zone=requested, state_hint=None)
+
+
+@pytest.mark.parametrize('query', ['JFK area', 'Solar Pizza'])
+def test_fuzzy_city_candidates_cannot_hide_named_place_in_searchbox(monkeypatch, query):
+    wrong = [_c('Brea', 'US', 'California', lat=33.918, rank=0),
+             _c('Aiea', 'US', 'Hawaii', lat=21.386, rank=1)]
+    _patch_multi(monkeypatch, wrong, inventory={33.918: 20, 21.386: 15})
+    name = ('John F. Kennedy International Airport, New York, US' if query == 'JFK area'
+            else 'Solar Slice Pizza, Marietta, Georgia, US')
+    point = (40.64, -73.78) if query == 'JFK area' else (33.94, -84.51)
+    box = _FakeSearchBox(GeocodeResult(*point, name, 'US', ''))
+    monkeypatch.setattr(geocode_tool, 'get_searchbox_client', lambda: box)
+    result = geocode_location(city=query, raw_user_message=query, country_code='US')
+    assert result['ok'] is True
+    assert result['resolved_place'] == name
+    assert result['distance_origin_type'] == 'poi'
+    assert len(box.calls) == 1
+
+
+def test_fuzzy_city_candidates_are_not_offered_as_real_homonyms(monkeypatch):
+    _patch_multi(monkeypatch, [_c('Brea', 'US', 'California', lat=33.918, rank=0),
+                              _c('Aiea', 'US', 'Hawaii', lat=21.386, rank=1)],
+                 inventory={33.918: 20, 21.386: 15})
+    box = _FakeSearchBox(None)
+    monkeypatch.setattr(geocode_tool, 'get_searchbox_client', lambda: box)
+    result = geocode_location(city='JFK area', raw_user_message='JFK area', country_code='US')
+    assert result['ok'] is False
+    assert result['error'] != 'geocode_ambiguous'
+    assert not result.get('diagnostics', {}).get('options')
+    assert len(box.calls) == 1

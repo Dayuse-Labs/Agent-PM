@@ -765,8 +765,15 @@ def geocode_location(
             city_country = city_candidate.country_code
         poi_anchor = city_anchor or proximity_tuple
 
+    # Fuzzy matches are not legitimate homonyms to offer as clarifications.
+    # Do not turn a rejected member of an ambiguous set into certainty about
+    # the remaining member: the bounded POI lookup must resolve the identity.
+    eligible_candidates = [c for c in candidates if _echoes(
+        c.place_name, city=echo_city, zone=effective_zone, state_hint=state_hint
+    )]
+    valid_options = [c for c in resolution.options if c in eligible_candidates]
     clarify_response: dict | None = None
-    if resolution.decision == "clarify":
+    if resolution.decision == "clarify" and len(valid_options) == len(resolution.options):
         mark_level("WARNING", status_message="geocode_ambiguous")
         clarify_response = _fail(
             "geocode_ambiguous",
@@ -863,9 +870,9 @@ def geocode_location(
         searchbox_query = _landmark_query(effective_zone) if effective_zone else effective_city or effective_metro or ""
     else:
         searchbox_query = _searchbox_query(effective_zone, effective_city, effective_metro)
-    if not effective_zone and candidates:
-        # A bare-city miss that HAS v6 candidates still never reaches Search Box
-        # (worse for cities, separate SKU) — unchanged.
+    if not effective_zone and eligible_candidates:
+        # Real city candidates keep the city resolver's decision. A list of
+        # unrelated fuzzy names must not suppress the one bounded POI lookup.
         searchbox_query = ""
     if searchbox_query:
         poi_candidates = get_searchbox_client().forward_candidates(

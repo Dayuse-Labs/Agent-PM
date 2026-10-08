@@ -1,5 +1,79 @@
 # HANDOFF — AgentB2C
 
+## 2026-10-08 — v38 : noms courts et clarifications géographiques validées
+
+**Pas de GO remplacement.** Le vérificateur ignorait les noms de moins de
+quatre caractères : « JFK area » pouvait valider Brea. Les noms courts exigent
+maintenant un mot ou des initiales cohérents avec le libellé fournisseur. NYC
+reste accepté via le vrai libellé fournisseur New York City / NYC, plutôt que
+par une validation vide. Les options d’une clarification sont vérifiées avant
+présentation. Un ensemble ambigu partiellement rejeté ne devient pas une
+certitude sur le candidat restant ; un seul recours Search Box est permis
+quand les candidats v6 n’ont pas de nom valide. Pas de regex, table de lieux,
+phase LLM ou relèvement de quota ajouté.
+
+**2 472 tests passés, un ignoré**, ruff, mypy (66 fichiers), guardrails. Douze
+tests ajoutés, dont huit échecs causaux avant correction. Quatre assertions
+historiques changent de contrat : libellé NYC effectivement attesté, recours
+borné après ville incorrecte, et refus de fausses clarifications. Les vrais
+homonymes Victoria, les villes traduites et les aéroports restent couverts.
+
+**Huit réponses correctives** : JFK passe de D à B, avec hôtels à 1,8–2,9 km
+sur deux tours. Le restaurant ne produit plus Tolar/Olar ; POI Marietta résolu,
+zéro offre à 3 km, puis cinq cartes à 7–20 km après correction de ville. Ce
+parcours reste C, peu proactif après le zéro résultat. Hong Kong conserve ses
+cinq offres, mais reste C pour la langue anglaise malgré le premier message
+chinois et locale zh.
+
+**27 réponses comparatives sur cinq nouveaux parcours** (neuf messages SQL,
+Langfuse exact). Düsseldorf/équipement particulier : legacy B, B2C D, candidat B.
+Arrivée matinale en portugais : B/A/A. Piscine + spa Manchester : C/D/B ; Roma :
+C/D/B. Langfuse confirme que le B2C déployé omet hotelEquipmentIds au suivi de
+ville, tandis que le candidat conserve les deux familles de filtres. Le contrat
+MCP est OR au sein du groupe piscine, AND avec spa. Cela prouve les équipements
+hôtel filtrés, pas l’accès inclus dans chaque formule. Kowloon/baignoire : D/D/C ;
+legacy et B2C gardent des cartes hors lieu, le candidat demande une précision.
+Les deux fournisseurs géographiques renvoient effectivement zéro feature avec
+Kowloon/country=HK ; ne pas en déduire une panne ou une absence d’inventaire MCP.
+
+**Comparaison triage seule, 17 réponses corrigées** : mêmes corps de requête
+que le candidat, vérifiés avant ET après appel (seuls les identifiants changent).
+4.1-mini n’apporte pas de gain net sur ces huit parcours et répond en français
+au premier tour JFK malgré le contexte anglais. Coût des seuls appels triage :
+4o-mini 0,01226415 USD / 4.1-mini 0,03326360 USD, cache observé inclus. Aucun
+changement de modèle par défaut, aucune conclusion statistique globale.
+
+Un premier lot de 17 réponses 4.1-mini manquait du GPS sur sept requêtes :
+l’adaptateur utilisait le nom du bras au lieu du contrat candidat. Ce lot est
+**écarté des conclusions**, mais ses coûts sont conservés. Les fixtures corrigées
+et les 17 égalités avec les requêtes réellement envoyées sont archivées hors Git.
+**73 cartes tarifées des lots valides** reliées aux reçus MCP du même tour,
+sans écart prix/jointure/expiration. L’audit inclut les deux journaux (feuille et
+concierge inline), dont cinq get_hotel_details du suivi équipement particulier.
+
+Export : 33 447 lignes, 2 000 récentes ; neuf nouveaux messages hors campagne,
+cinq sessions, neuf traces Langfuse correspondantes. Un GPS arrondi sur ces neuf
+messages, adapté au contrat ; payload original complet et permission inconnus,
+flag B2C synthétique. Devise/locale/fuseau seulement si attestés. Conversations
+figées : une question historique comme VN n’est plus forcément causée par la
+réponse du candidat ; ajouter des suivis adaptatifs fondés sur ses propres
+cartes, sans remplacer ces régressions. Dates non décalées, données legacy
+export/Qdrant vs MCP préproduction live, fraîcheurs distinctes.
+
+Railway revérifié en lecture seule : valeurs complètes des variables des six
+services inchangées (legacy prod/préprod, B2C concierge/search/FAQ/widget), derniers
+déploiements réussis inchangés. `main` refetché, toujours `cbe88b9`.
+
+Restent : Kowloon et variantes géographiques, GPS comme biais distinct de la
+destination, langue, accès inclus/privatif et baignoire/jacuzzi, fenêtre déjà
+passée Melbourne, Marina/multi-zone/rayon, occupation/lit bébé/âge, FAQ/caution/
+annulation, provinces/corridors. Les **32 familles restent incomplètes**.
+
+Étape : **0.63107011 USD**, cumul **92.08704799/110 USD**, provisions 11,10 incluses,
+réserve 10 conservée. 69 réponses au total, dont 17 de contexte invalide exclues ;
+52 réponses exploitables et 26 revues. Aucun merge/déploiement. Triage 4.1 local
+arrêté après comparaison ; dialogues, traces et GPS hors Git.
+
 ## 2026-10-08 — v37 : identité des lieux et libellés multilingues
 
 **Pas de GO remplacement.** Le garde de lieu nommé acceptait seulement le mot

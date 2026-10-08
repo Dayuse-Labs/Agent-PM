@@ -359,11 +359,8 @@ def geocode_echo_matches(
         )
         if f" {state_l} " not in place and (not abbrev or f" {abbrev} " not in place):
             return False
-    request_tokens = {
-        tok
-        for tok in re.split(r"[^a-z0-9]+", _echo_fold(f"{zone or ''} {city or ''}"))
-        if len(tok) >= 4
-    }
+    all_request_tokens = set(re.split(r"[^a-z0-9]+", _echo_fold(f"{zone or ''} {city or ''}")))
+    request_tokens = {tok for tok in all_request_tokens if len(tok) >= 4}
     # State words and generic location words don't identify the place.
     request_tokens -= set(US_STATE_NAME_TO_CANONICAL)
     request_tokens -= _ECHO_NOISE_WORDS
@@ -373,7 +370,7 @@ def geocode_echo_matches(
         # Latin place_name. Returning True here would vacuously accept a US
         # homonym (prod 57c626f5: "Κηφισιά, Αττική" → Buffalo NY). When the
         # request HAS letters but none are Latin, treat it as unvalidated and
-        # discard. (Empty / all-short-Latin requests keep the lenient pass.)
+        # discard. Short Latin identifiers are validated below.
         _raw_request = f"{zone or ''} {city or ''}"
         _has_letters = any(ch.isalpha() for ch in _raw_request)
         _has_latin = bool(re.search(r"[a-z]", _raw_request.lower()))
@@ -385,6 +382,14 @@ def geocode_echo_matches(
         _digits = re.sub(r"\D", "", _raw_request)
         if _digits and len(_digits) <= 3 and _digits not in place.replace(" ", ""):
             return False
+        short_tokens = {tok for tok in all_request_tokens if tok.isalpha() and len(tok) <= 3}
+        if short_tokens:
+            # A short identifier still carries identity (JFK, Rio, NY).
+            # Reuse the POI initials rule; never accept an unrelated place
+            # merely because all distinctive words were shorter than four.
+            place_words = place.split()
+            initials = "".join(word[0] for word in place_words if word.isalpha())
+            return all(tok in place_words or initials.startswith(tok) for tok in short_tokens)
         return True
     compact_place = place.replace(" ", "")
 

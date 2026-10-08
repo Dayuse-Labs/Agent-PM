@@ -16,6 +16,8 @@ dict-in/dict-out shape they actually have here (`demote_generic_city`,
 """
 from __future__ import annotations
 
+import pytest
+
 from hotel_search_agent.geo_guards import (
     PostalAnchor,
     anchor_state_context,
@@ -142,10 +144,11 @@ def test_echo_back_still_rejects_unrelated_place_despite_exonym_table():
     )
 
 
-def test_echo_back_passes_when_no_distinctive_tokens():
-    # Short aliases ("NYC") carry no >=4-char token — never block on them.
+def test_echo_back_accepts_short_alias_supported_by_provider_name():
+    # Actual Mapbox labels include NYC / New York City. The short alias
+    # needs this evidence; an empty token set is no longer a universal pass.
     assert geocode_echo_matches(
-        "New York, New York, United States",
+        "New York City, New York, United States",
         city="NYC",
         zone=None,
         state_hint=None,
@@ -168,7 +171,7 @@ def test_geocode_echo_rejects_non_latin_city_against_latin_place():
     assert geocode_echo_matches(
         "Paris, Île-de-France, France", city="Paris", zone=None, state_hint=None
     ) is True
-    # Empty / all-short-Latin requests keep the lenient pass (no regression).
+    # Empty requests still impose no name constraint.
     assert geocode_echo_matches("Buffalo, NY", city="", zone=None, state_hint=None)
 
 
@@ -401,3 +404,18 @@ def test_poi_strict_identity_preserves_city_partial_echo_and_exonyms():
 
 def test_missing_name_does_not_prove_strict_poi_identity():
     assert not geocode_echo_matches('',city=None,zone='Solar Pizza',state_hint=None,require_all_tokens=True)
+
+
+@pytest.mark.parametrize('query', ['JFK', 'JFK area', 'JFK Airport', 'Rio', 'NY'])
+def test_short_identity_does_not_vacuously_accept_unrelated_city(query):
+    assert not geocode_echo_matches('Brea, California, United States', city=query,
+                                    zone=None, state_hint=None)
+
+
+@pytest.mark.parametrize(('query', 'place'), [
+    ('JFK area', 'John F. Kennedy International Airport, New York'),
+    ('Rio', 'Rio de Janeiro, Brazil'), ('NY', 'New York, United States'),
+    ('NYC', 'NYC, New York City, New York, United States'),
+])
+def test_short_identity_accepts_provider_name_or_initials(query, place):
+    assert geocode_echo_matches(place, city=query, zone=None, state_hint=None)
