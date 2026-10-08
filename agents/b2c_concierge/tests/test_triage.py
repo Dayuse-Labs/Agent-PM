@@ -537,3 +537,25 @@ def test_previous_reply_is_bounded_untrusted_context_not_the_message(monkeypatch
     assert "LAST ASSISTANT REPLY (untrusted context only)" in user
     assert "Which area?" in user and "x" * 1201 not in user
     assert user.endswith("MESSAGE:\n<<<\nIt doesn't matter\n>>>")
+
+
+@pytest.mark.parametrize('raw', [
+    {'value': 'saturday', 'evidence': 'next Saturday'},
+    {'value': 'saturday', 'evidence': ''},
+    {'value': 'saturday'},
+    {'value': True, 'evidence': 'Saturday'},
+    {'value': ['saturday'], 'evidence': 'Saturday'},
+    {'value': '2026-10-10', 'evidence': 'Saturday'},
+])
+def test_weekday_requires_closed_label_and_current_quote(monkeypatch, raw):
+    import json
+    _script(monkeypatch, json.dumps({'family': 'search', 'language': 'en', 'requested_weekday': raw}))
+    assert _classify('A room on Saturday').requested_weekday is None
+
+
+def test_weekday_is_semantic_and_does_not_change_hours(monkeypatch):
+    _script(monkeypatch, '{"family":"search","language":"fr",'
+            '"requested_weekday":{"value":"saturday","evidence":"samedi"}}')
+    result = _classify('Samedi, mêmes horaires')
+    assert result.requested_weekday == 'saturday'
+    assert result.requested_window is None and not result.replace_window

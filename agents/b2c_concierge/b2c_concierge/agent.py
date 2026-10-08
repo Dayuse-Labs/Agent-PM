@@ -1552,7 +1552,7 @@ class _B2cConcierge(BaseAgent):
         expected_date: str | None = None
         if route.target == LEAF_HOTEL_SEARCH:
             expected_date, from_message = expected_search_date(
-                message, profile.date, reference_today(profile.client_timezone)
+                message, profile.date, reference_today(profile.client_timezone), weekday=triage.requested_weekday
             )
             if expected_date and from_message:
                 profile.date = expected_date

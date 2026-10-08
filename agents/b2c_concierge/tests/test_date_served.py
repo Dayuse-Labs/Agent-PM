@@ -199,3 +199,45 @@ class TestGuardDateServed:
         )
         assert answer == "Voici Hotel A."
         assert "date_served" not in scored[-1]
+
+
+@pytest.mark.parametrize('quote,weekday,today,expected', [
+    ('Saturday', 'saturday', date(2026, 10, 7), '2026-10-10'),
+    ('samedi', 'saturday', date(2026, 10, 10), '2026-10-17'),
+])
+def test_weekday_survives_clarification_and_faq_without_being_repeated(
+    monkeypatch, leg, fake_profile_store, quote, weekday, today, expected
+):
+    import json
+
+    monkeypatch.setattr(agent_module, 'reference_today', lambda _: today)
+    runner = InMemoryRunner(root_agent)
+    session = _new_session(runner)
+    leg.response_payload = {'profile_delta': {}}
+    leg.text = 'Which Orange County?'
+    _scripted_llm(monkeypatch, json.dumps({
+        'family': 'search', 'language': 'en',
+        'requested_weekday': {'value': weekday, 'evidence': quote},
+        'requested_window': {'start': '15:00', 'evidence': '3pm'},
+    }), 'Which Orange County?')
+    _run_turn(runner, session.id, f'I need to check in at 3pm on {quote} in Orange County')
+    assert _sent_profile(leg)['date'] == expected
+    assert asyncio.run(fake_profile_store.get(session.id)).date == expected
+
+    # A policy question must not replace the search day with its own weekday.
+    _scripted_llm(monkeypatch, json.dumps({
+        'family': 'faq', 'language': 'en',
+        'requested_weekday': {'value': 'sunday', 'evidence': 'Sunday'},
+    }), 'Arrival is during the booked slot.')
+    _run_turn(runner, session.id, 'Does the same arrival policy apply on Sunday?')
+    assert asyncio.run(fake_profile_store.get(session.id)).date == expected
+
+    for followup in ('Orange County, California.', 'Anaheim is fine.'):
+        _scripted_llm(monkeypatch, '{"family":"search","language":"en"}', 'Searching.')
+        _run_turn(runner, session.id, followup)
+        assert _sent_profile(leg)['date'] == expected
+        assert _sent_profile(leg)['timeslot_start'] == '15:00'
+
+
+def test_explicit_calendar_date_outranks_conflicting_weekday_label():
+    assert expected_search_date('Saturday 2026-10-10', None, TODAY, weekday='sunday') == ('2026-10-10', True)

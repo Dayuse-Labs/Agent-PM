@@ -51,6 +51,7 @@ from datetime import date, datetime, timedelta
 from typing import Any
 from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
+from b2c_common.date_labels import resolve_relative_day as _resolve_relative
 from b2c_common.observability import mark_level
 from b2c_common.timeslot import DAYPART_HOURS, daypart_in
 from hotel_search_agent.response_bridge import (
@@ -178,27 +179,9 @@ def reference_today(profile_in: dict[str, Any]) -> date:
 
 # --- date label resolution ----------------------------------------------------------------------
 
-_RELATIVE_WEEKDAYS = {
-    "monday": 0, "tuesday": 1, "wednesday": 2, "thursday": 3,
-    "friday": 4, "saturday": 5, "sunday": 6,
-}
-
 _ISO_DATE_RE = re.compile(r"^(\d{4})-(\d{2})-(\d{2})$")
 _MONTH_DAY_RE = re.compile(r"^(\d{2})-(\d{2})$")
 
-
-def _resolve_relative(value: Any, today: date) -> date | None:
-    v = str(value or "").strip().lower()
-    if v == "today":
-        return today
-    if v == "tomorrow":
-        return today + timedelta(days=1)
-    if v == "day_after_tomorrow":
-        return today + timedelta(days=2)
-    if v in _RELATIVE_WEEKDAYS:
-        delta = (_RELATIVE_WEEKDAYS[v] - today.weekday()) % 7
-        return today + timedelta(days=delta or 7)  # "next X" excludes today itself
-    return None
 
 
 def _next_occurrence(month: int, day: int, today: date) -> date | None:

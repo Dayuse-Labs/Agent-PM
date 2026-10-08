@@ -1,5 +1,55 @@
 # HANDOFF — AgentB2C
 
+## 2026-10-08 — v33 : conserver le jour de semaine avant clarification
+
+**Pas de GO remplacement.** Le triage existant extrait un jour de semaine demandé
+pour la recherche et une citation du message courant. Le code valide le label
+fermé et la citation, puis calcule la date avant l’appel A2A, même si la feuille
+ne fait que demander une précision géographique. La règle de calendrier de la
+feuille est déplacée sans changement dans `b2c_common.date_labels` : prochaine
+occurrence strictement après aujourd’hui. Pas de nouvelle regex, phase LLM,
+dépendance ni changement de modèle. Une date calendaire explicite garde priorité ;
+les questions de politique ne modifient pas le jour recherché.
+
+Deux tests multi-tours échouaient avant correction (date absente) et passent :
+jour anglais/français, date de référence un jour identique, question FAQ portant
+sur un autre jour, deux clarifications sans répéter date/heure. Validation du
+label, citation absente/hors message et priorité de la date explicite couvertes.
+**2 429 tests passés, un ignoré**, ruff, mypy (65 fichiers), guardrails.
+
+**12 nouvelles réponses / trois revues manuelles**, même parcours de quatre tours
+rejoué sur legacy/B2C/candidat. Deux messages réels corroborés SQL/Langfuse puis
+deux suivis synthétiques, déjà exposés v32. Aucun nouveau holdout revendiqué.
+Le candidat conserve **10 octobre et 15 h sur les quatre tours** ; le reçu MCP
+final porte bien cette date et l’arrivée15h. **Cinq cartes** correspondent aux
+reçus, couvrent15h et ne présentent aucun écart prix/jointure/expiration.
+
+Notes : **legacy C, B2C D, candidat C**. Le B2C déployé sert encore le mercredi
+7 octobre et redemande les horaires. Legacy maintient samedi en prose mais le
+prix Staybridge99USD appartient au créneau08–14, celui couvrant15h coûte110USD ;
+la disponibilité future sur export n’est pas vérifiée. Le candidat corrige le
+jour, mais le triage classe la FAQ d’arrivée comme `details` et envoie la question
+entière à `find_hotel_by_name` : réponse hors sujet. La clarification du county
+qualifié reste répétée et les villes proches ne valident pas la pertinence Anaheim.
+
+Export actualisé : 33 392 lignes, 2 000 récentes ; MCP direct huit outils joignables.
+Aucun incident réseau pendant ce lot ; un ancien502 au compteur du proxy. Les
+différences export/Qdrant et MCP préproduction restent explicites. La nouvelle
+extraction sémantique reste faillible ; dates ambiguës, plages et semaines plus
+lointaines ne sont pas validées par ce contrôle ciblé.
+
+**Reste prioritaire :** ne pas traiter une question générale comme un nom d’hôtel,
+séparer lit bébé et capacité enfants, mémoriser les besoins libres pour pagination,
+préserver âge et politiques sourcées. Les32familles historiques, géographies,
+corridors/provinces, équipements privés/inclus, langues et contexte natif restent
+incomplètes. Aucun nouveau challenger4.1mini sur cette étape.
+
+Étape **0,17236440USD** ; cumul **90,23203565/110USD**, provisions11,10 incluses,
+réserve10 conservée. Aucun runner payant actif, merge, déploiement ou écriture
+Railway. Sources figées65hashes, reçus et revues privés v33-summary/v33-review.
+CI v32 `39354f2` réussie (37722834006), étapes live/Langfuse ignorées ; CI du
+nouveau commit à vérifier séparément des tests et rejeux locaux.
+
 ## 2026-10-08 — v32 : disponibilité réelle des hôtels nommés et suivis historiques
 
 **Pas de GO remplacement.** Une recherche par nom transmet maintenant une identité

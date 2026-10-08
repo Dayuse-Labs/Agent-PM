@@ -36,6 +36,7 @@ from typing import Any
 import litellm
 from b2c_common import max_tokens_for, reasoning_kwargs_for, role_model, temperature_kwargs_for
 from b2c_common.amenities import grounded_amenity_update
+from b2c_common.date_labels import WEEKDAYS
 from b2c_common.search_areas import validate_areas
 from dayuse_agent_common import (
     cost_from_tokens,
@@ -174,6 +175,7 @@ class Triage:
     budget_checked: bool = False
     requested_amenities: dict | None = None
     requested_areas: list[dict[str, str]] | None = None
+    requested_weekday: str | None = None
 
 
 def is_social_ack(message: str) -> bool:
@@ -511,6 +513,15 @@ Optional keys, extracted from MESSAGE ONLY, never copied from recent messages:
   or a general policy into a search update. Do not guess an unsupported key or
   equate a private bathtub with a hotel hot tub. Evidence must quote MESSAGE,
   never earlier messages. This object describes intent, not equipment IDs.
+- "requested_weekday": ONLY a single, unambiguous weekday requested for the
+  SEARCH in MESSAGE: {{"value":"monday" through "sunday",
+  "evidence":"verbatim current date expression"}}. Translate the weekday label,
+  never calculate an ISO date. Code uses the next occurrence (strictly after
+  today, as in the search tool). Extract even when the location needs clarification.
+  Omit for no date change, previous context, a hotel's name/opening days, policy
+  questions, alternatives/ranges, or a specified later week that this label cannot
+  represent. Absolute dates and today/tomorrow are handled separately.
+  A day change alone NEVER clears or replaces the requested hours.
 - "requested_window": an object ONLY when MESSAGE changes the requested hours.
   For numeric clock times: {{"start":"HH:MM" or null,"end":"HH:MM" or null,
   "evidence":"exact substring of MESSAGE containing the numeric times"}}.
@@ -685,6 +696,8 @@ async def classify(message: str, budget: TurnBudget, invocation_id: str = "",
         hotel_name=_hotel_name_slot(data.get("hotel_name")),
         display_currency=_display_currency_slot(data.get("display_currency")),
         requested_window=_grounded_window(data, message),
+        requested_weekday=(_grounded_weekday(data.get("requested_weekday"), message)
+                           if family == "search" else None),
         replace_window=_window_replacement(data, message),
         requested_duration_minutes=_grounded_duration(data, message),
         hotel_scope="shown" if data.get("hotel_scope") == "shown" else None,
@@ -839,3 +852,16 @@ def _grounded_duration(data: dict, message: str) -> int | None:
             and isinstance(evidence, str) and evidence.strip() and evidence in message):
         return duration
     return None
+
+
+def _grounded_weekday(raw: Any, message: str) -> str | None:
+    """Validate the semantic label and a current-message quote; no prose parser."""
+    if not isinstance(raw, dict):
+        return None
+    value, evidence = raw.get("value"), raw.get("evidence")
+    if not isinstance(value, str) or value not in WEEKDAYS:
+        return None
+    if (not isinstance(evidence, str) or not evidence.strip() or len(evidence) > 160
+            or evidence.casefold() not in message.casefold()):
+        return None
+    return value

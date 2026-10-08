@@ -9,7 +9,8 @@ that ends on a clarification never stored the date. Reproduced locally on
 `parse_requested_date` reads an UNAMBIGUOUS date from the message — relative
 day, "10 octobre" / "October 10", ISO — in the 7 reply languages. Anything it
 is not sure about (weekdays, a bare "le 3", two different dates) is None: it
-is the FACT the guard checks against, so it must never guess.
+is the FACT the guard checks against, so it must never guess. Grounded semantic
+weekday labels from triage supplement it in `expected_search_date`.
 """
 from __future__ import annotations
 
@@ -18,6 +19,8 @@ import unicodedata
 from datetime import date, datetime, timedelta
 from typing import Any
 from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
+
+from b2c_common.date_labels import resolve_relative_day
 
 from .date_format import _MONTHS, _WEEKDAYS, format_date_human
 
@@ -193,7 +196,7 @@ def date_served_notice(requested: str, served: str, language: str) -> str:
 
 
 def expected_search_date(
-    message: str, carried: str | None, today: date
+    message: str, carried: str | None, today: date, *, weekday: str | None = None
 ) -> tuple[str | None, bool]:
     """`(expected_iso, from_this_message)`: the day this turn's search must run
     on, or None when code cannot know it. From this message when it names one
@@ -202,6 +205,12 @@ def expected_search_date(
     requested = parse_requested_date(message, today)
     if requested is not None:
         return (requested.isoformat(), True) if requested >= today else (None, True)
+    # Semantic triage supplies an evidence-grounded weekday before the leaf can
+    # ask for a place clarification. Share its calendar rule with the leaf.
+    if weekday is not None:
+        resolved = resolve_relative_day(weekday, today)
+        if resolved is not None:
+            return resolved.isoformat(), True
     if carried and not mentions_a_date(message, today):
         try:
             if date.fromisoformat(carried) >= today:
