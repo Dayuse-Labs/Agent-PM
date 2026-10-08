@@ -91,7 +91,7 @@ def context_for_triage(pending: Any, confirmed: Any, *, unresolved: dict | None 
         return {"confirmed_place": c["label"], "region": c["region"],
                 "country": c["country_code"], "administrative_code": c.get("administrative_code")}
     context: dict[str, Any] = {}
-    if unresolved and any(unresolved.values()):
+    if unresolved is not None:
         context["unresolved_request"] = {k: v for k, v in unresolved.items() if v}
     if areas:
         context["requested_areas"] = areas

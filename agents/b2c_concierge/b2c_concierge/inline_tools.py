@@ -423,6 +423,17 @@ async def get_hotel_details(
                 if (for_search or preserve_shown_offer) and hotel.get("hotelId", hotel.get("id")) != hotel_id:
                     return {"ok": False, "error": "details returned a different hotel identity"}
                 offers = data.get("offers") or []
+                available_offers = []
+                if requested_date:
+                    day_profile = replace(profile, date=requested_date)
+                    for offer in offers:
+                        if _search_offer([offer], hotel, day_profile) is None:
+                            continue
+                        normalized_offer = _normalize_hotel_for_display(hotel, offer)
+                        available_offers.append({k: normalized_offer[k] for k in
+                            ("offer_id", "offer_date", "timeslots", "price", "offer_totals",
+                             "hotel_price", "hotel_price_minor", "hotel_currency_code")
+                            if k in normalized_offer})
                 if profile.date:
                     offers = [o for o in offers if o.get("availabilityDate") == profile.date]
                 if shown is not None and not for_search:
@@ -439,6 +450,9 @@ async def get_hotel_details(
                 else:
                     best = _search_offer(offers, hotel, profile) if for_search else (offers[0] if offers else None)
                 normalized = _normalize_hotel_for_display(hotel, best)
+                if available_offers:
+                    normalized["available_offers"] = available_offers[:20]
+                    normalized["available_offers_truncated"] = len(available_offers) > 20
                 if preserve_shown_offer and best is None:
                     normalized["shown_offer_unavailable"] = True
                 if for_search and best:

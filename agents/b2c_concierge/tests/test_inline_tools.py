@@ -1840,3 +1840,43 @@ def test_strict_name_mode_keeps_extracted_named_lookup(monkeypatch):
     ))
     assert result['ok']
     assert session.calls[0] == ('find_hotel_by_name', {'name': 'Villa Paris Orly'})
+
+
+def test_details_gives_synthesis_all_valid_formulas_without_changing_selected_offer(monkeypatch):
+    from b2c_concierge.ground_truth import shortlist_ground_truth_block
+    from b2c_concierge.display_currency import apply_hotel_currency
+    make = TestNamedAvailabilitySearch()._offer
+    selected = make(ratePlanUuid='selected', startHour=9, endHour=16)
+    alternative = make(ratePlanUuid='afternoon', startHour=12, endHour=20,
+                       priceEuroWithBookingFees=10000, hotelPriceWithBookingFees=8500)
+    hotel = {**HOTEL_DETAILS_RESPONSE['hotel'], 'amenities': [
+        {'name': 'Facility '+str(i)} for i in range(12)] + [{'name': 'Outdoor pool'}]}
+    _install(monkeypatch, {'get_hotel_details': FakeResult({'hotel': hotel, 'offers': [
+        selected, alternative, make(ratePlanUuid='expired', cutoffDeadlineUtc='2000-01-01T12:00:00Z'),
+        make(ratePlanUuid='wrong-day', availabilityDate='2030-10-10'),
+        make(ratePlanUuid='over-budget', hotelPriceWithBookingFees=10000),
+        make(ratePlanUuid='too-small', capacity=1),
+        make(ratePlanUuid='morning-only', startHour=8, endHour=10)]})})
+    profile = SessionProfile(date='2030-10-09', adults=2, daypart='afternoon',
+        requested_budget={'amount': 90, 'currency': 'USD', 'unit': 'total'},
+        last_results=[{'hotel_id': 22293, 'offer_id': 'selected', 'offer_date': '2030-10-09'}])
+    result = _run(inline_tools.get_hotel_details('', profile, picked_hotel_id=22293))
+    card = result['hotel']
+    assert card['offer_id'] == 'selected' and card['price'] == '€95.00'
+    assert [o['offer_id'] for o in card['available_offers']] == ['selected', 'afternoon']
+    block = shortlist_ground_truth_block({'results': [card]}, profile)
+    assert 'Outdoor pool' in block and '09:00–16:00 €95.00' in block and '12:00–20:00 €100.00' in block
+    apply_hotel_currency([card])
+    block = shortlist_ground_truth_block({'results': [card]}, profile)
+    assert '09:00–16:00 USD 80.00' in block and '12:00–20:00 USD 85.00' in block
+    assert card['offer_id'] == 'selected'
+
+
+def test_details_alternatives_still_apply_requested_clock(monkeypatch):
+    make = TestNamedAvailabilitySearch()._offer
+    _install(monkeypatch, {'get_hotel_details': FakeResult({'hotel': HOTEL_DETAILS_RESPONSE['hotel'],
+        'offers': [make(ratePlanUuid='covers', startHour=9, endHour=18),
+                   make(ratePlanUuid='starts-late', startHour=13, endHour=20)]})})
+    profile = SessionProfile(date='2030-10-09', timeslot_start='11:00', timeslot_end='16:00')
+    card = _run(inline_tools.get_hotel_details('', profile, picked_hotel_id=22293, for_search=True))['hotel']
+    assert [o['offer_id'] for o in card['available_offers']] == ['covers']

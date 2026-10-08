@@ -1249,6 +1249,9 @@ class _B2cConcierge(BaseAgent):
         )
         location_choice = selected_place(profile, triage.location_intent, triage.requested_areas)
         location_action = (triage.location_intent or {}).get("action")
+        pending_refinement = bool(unresolved_request and location_action not in {"change", "device"}
+                                  and (location_action == "refine" or missing_destination_before_triage
+                                       or (recent_messages and previous_reply)))
         family = "search" if location_choice or (profile.pending_location and triage.family == "ack") else triage.family
         route = ROUTES[family]
         # P1-1: the two code-owned override signals are RE-derived here, now fed
@@ -1387,7 +1390,9 @@ class _B2cConcierge(BaseAgent):
                 )
             else:
                 next_window = (None, None)  # owned unknown arrival; the leaf cannot invent midnight
-        window_changed = (triage.replace_window or next_duration != profile.requested_duration_minutes
+        daypart_update = triage.requested_daypart if requested_window is None or triage.replace_window else None
+        daypart_changed = bool(daypart_update and (daypart_update != profile.daypart or profile.timeslot_start or profile.timeslot_end))
+        window_changed = (daypart_changed or triage.replace_window or next_duration != profile.requested_duration_minutes
                           or (next_window is not None and (
                               next_window != (profile.timeslot_start, profile.timeslot_end)
                               or (not requested_window and bool(profile.timeslot or profile.daypart))
@@ -1450,7 +1455,10 @@ class _B2cConcierge(BaseAgent):
         # A code the hotels on screen don't use may still be the currency of the
         # hotels a NEW search is about to return ("un hôtel à Tokyo en yens"):
         # decided once the results are in.
-        pending_currency: str | None = None
+        pending_currency: str | None = (
+            profile.requested_currency if family == "search"
+            and profile.requested_currency not in (None, "EUR", HOTEL) else None
+        )
         if currency.kind == "unsupported":
             if family == "search":
                 pending_currency = currency.requested
@@ -1555,7 +1563,7 @@ class _B2cConcierge(BaseAgent):
             profile.search_areas = area_update if requires_area_membership(area_update) else None
             profile.city = " / ".join(a["query"] for a in area_update)
             for field in ("state_anchor", "country_anchor", "zone", "metro", "distance_origin"):
-                if unresolved_request and location_action == "refine" and field in {"zone", "metro"}:
+                if pending_refinement and field in {"zone", "metro"}:
                     continue
                 setattr(profile, field, None)
             # Native GPS remains a provider bias, never the new destination.
@@ -1604,6 +1612,13 @@ class _B2cConcierge(BaseAgent):
             assert next_window is not None
             profile.requested_window = {"start": next_window[0], "end": next_window[1]} if any(next_window) else {}
             profile.restore_requested_window()
+
+        if route.target == LEAF_HOTEL_SEARCH and daypart_update:
+            profile.requested_window = None
+            profile.timeslot_start = profile.timeslot_end = profile.timeslot = None
+            profile.timeslot_mode = profile.timeslot_request_source = None
+            profile.requested_duration_minutes = None
+            profile.daypart = daypart_update
 
         if route.target == LEAF_HOTEL_SEARCH:
             if budget_update is not None:
@@ -1711,7 +1726,7 @@ class _B2cConcierge(BaseAgent):
         query_params: dict[str, Any] = {}
         if route.target == LEAF_HOTEL_SEARCH and location_action == "device":
             query_params["device_authoritative"] = True
-        if route.target == LEAF_HOTEL_SEARCH and unresolved_request and location_action == "refine":
+        if route.target == LEAF_HOTEL_SEARCH and pending_refinement and (profile.zone or profile.metro):
             query_params["pending_request_refinement"] = True
         if route.target == LEAF_HOTEL_SEARCH and landmark_update:
             query_params["landmark_authoritative"] = True
@@ -1906,7 +1921,7 @@ class _B2cConcierge(BaseAgent):
                         window_fallback = window  # none covers: label them closest
                     else:
                         response["results"] = kept
-            if pending_currency is not None:
+            if pending_currency is not None and response["results"]:
                 decided = resolve_currency_request(pending_currency, response["results"])
                 if decided.kind == "set":
                     profile.display_currency = HOTEL
@@ -2020,12 +2035,8 @@ class _B2cConcierge(BaseAgent):
         final_text = synth or templates.leaf_degraded_response(
             family, reply_language, profile.city
         )
-        if pending_currency is not None and currency_notice is None and "results" not in response:
-            # No hotels came back (e.g. the leaf asked "where?"): the request must
-            # not vanish — answer it with the generic choices.
-            currency_notice = unsupported_currency_message(
-                resolve_currency_request(pending_currency, None), reply_language
-            )
+        # No results cannot establish the destination currency. The request
+        # remains in the profile and is resolved on the next populated search.
         if (
             isinstance(named_not_found, str)
             and response.get("results")

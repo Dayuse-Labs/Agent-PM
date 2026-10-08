@@ -475,7 +475,7 @@ class TestSecondReviewFixes:
         assert "CURRENCY" not in llm.calls[-1]["messages"][1]["content"]
         assert "Prix affichés en euros" not in reply
 
-    def test_an_unavailable_currency_is_answered_even_without_results(
+    def test_unknown_destination_currency_is_deferred_without_results(
         self, monkeypatch, fake_leg, fake_profile_store
     ):
         runner = InMemoryRunner(root_agent)
@@ -490,4 +490,6 @@ class TestSecondReviewFixes:
 
         reply = _run_turn(runner, session.id, "un hôtel en zlotys")
 
-        assert reply.endswith(unsupported_currency_message(resolve_currency_request("PLN", None), "fr"))
+        assert "Je ne peux pas encore afficher" not in reply
+        saved = asyncio.run(fake_profile_store.get(session.id))
+        assert saved.requested_currency == "PLN"

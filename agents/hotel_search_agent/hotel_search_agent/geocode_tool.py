@@ -1156,9 +1156,18 @@ def inject_profile_geo_context(tool: object, args: dict, tool_context: object) -
         # The concierge interpreted a single ordinary city. A stateless leaf
         # cannot turn that into strict city limits or revive an old destination.
         if profile_in.get("city"):
-            args["city"] = profile_in["city"]
+            parent_refinement = bool(
+                isinstance(args.get("city"), str) and args["city"].strip()
+                and _echo_fold(args.get("zone") or "") == _echo_fold(profile_in["city"])
+                and _echo_fold(args["city"]) != _echo_fold(profile_in["city"])
+                and area_name_in_text(args["zone"], message)
+            )
+            if not parent_refinement:
+                args["city"] = profile_in["city"]
             args["country_code"] = profile_in.get("country_anchor")
             for field in ("zone", "metro"):
+                if parent_refinement and field == "zone":
+                    continue
                 if (envelope.get("query_params") or {}).get("pending_request_refinement") is True and profile_in.get(field):
                     args[field] = profile_in[field]
                     continue

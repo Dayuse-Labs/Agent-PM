@@ -57,7 +57,7 @@ def test_region_and_native_origin_are_visible_without_exposing_coordinates():
     assert context == {"requested_areas": [{"query": "Yvelines"}], "device_available": True}
 
 
-@pytest.mark.parametrize("action,expected_zone", [("refine", "al mankool"), ("change", None)])
+@pytest.mark.parametrize("action,expected_zone", [("refine", "al mankool"), (None, "al mankool"), ("change", None)])
 def test_city_clarification_preserves_unresolved_zone_but_new_destination_clears_it(scripted, monkeypatch, fake_profile_store, action, expected_zone):  # noqa: F811
     runner, session = _new_session()
     asyncio.run(fake_profile_store.set(session.id, SessionProfile(zone="al mankool", date="2026-11-01", timeslot_start="13:00")))
@@ -93,3 +93,72 @@ def test_backend_sorts_verified_city_and_landmark_before_pagination(origin, expe
     inject_origin_sort(SimpleNamespace(name="search_offers"), args, SimpleNamespace(state={"temp:hotel_search_anchor": origin}))
     assert args.get("sortBy") == expected
     assert args["from"] == 5 and args["date"] == "2026-11-01" and args["priceMax"] == 20000
+
+
+def test_pending_empty_location_is_explicit_in_triage_context():
+    assert context_for_triage(None, None, unresolved={}) == {"unresolved_request": {}}
+
+
+@pytest.mark.parametrize("city,zone,expected_city,expected_zone", [
+    ("New York City", "Manhattan", "New York City", "Manhattan"),
+    ("Chicago", "copied district", "Manhattan", None),
+])
+def test_leaf_can_resolve_a_quoted_district_to_its_parent_not_an_unrelated_city(city, zone, expected_city, expected_zone):
+    context = SimpleNamespace(state={}, user_content=types.Content(role="user", parts=[
+        types.Part(text="Manhattan, New York, USA"), encode_datapart({
+            "profile_in": {"city": "Manhattan", "country_anchor": "US"},
+            "query_params": {"areas_authoritative": True}})]))
+    args = {"city": city, "zone": zone, "country_code": "CA"}
+    inject_profile_geo_context(SimpleNamespace(name="geocode_location"), args, context)
+    assert args["city"] == expected_city and args.get("zone") == expected_zone
+    assert args["country_code"] == "US"
+
+
+def test_daypart_survives_city_clarification_and_replaces_old_clock(scripted, monkeypatch, fake_profile_store):  # noqa: F811
+    runner, session = _new_session()
+    asyncio.run(fake_profile_store.set(session.id, SessionProfile(timeslot_start="09:00", timeslot_end="12:00",
+        requested_window={"start": "09:00", "end": "12:00"}, requested_duration_minutes=180)))
+    seen = []
+    async def leaf(leaf, ctx, profile_in, **kwargs):
+        seen.append(profile_in.copy())
+        return "Which town?", {"requires_clarification": True}
+    llm = scripted(json.dumps({"family": "search", "language": "en", "requested_daypart": {"value": "evening", "evidence": "evening"}}),
+                   "Which town?", json.dumps({"family": "search", "language": "en", "requested_areas": [
+                       {"query": "Farnborough", "kind": "municipality", "country": "GB", "evidence": "Farnborough"}]}), "Checking Farnborough.")
+    monkeypatch.setattr(agent_module, "_run_leaf", leaf)
+    _drive_in(runner, session.id, "I need an evening room instead")
+    _drive_in(runner, session.id, "Farnborough")
+    assert len(seen) == 2
+    for profile in seen:
+        assert profile["daypart"] == "evening"
+        assert profile["timeslot_start"] is None and profile["timeslot_end"] is None
+        assert profile["requested_duration_minutes"] is None
+    assert llm[0].calls[0]["response_format"] == {"type": "json_object"}
+
+
+def test_daypart_requires_current_quote_and_supported_value():
+    from b2c_concierge.triage import _grounded_daypart
+    assert _grounded_daypart({"value": "evening", "evidence": "soirée"}, "En soirée svp") == "evening"
+    assert _grounded_daypart({"value": "evening", "evidence": "evening"}, "Farnborough") is None
+    assert _grounded_daypart({"value": "midnight", "evidence": "midnight"}, "midnight") is None
+
+
+def test_currency_waits_for_actual_inventory_and_survives_city_answer(scripted, monkeypatch, fake_profile_store):  # noqa: F811
+    from .test_spine import _answer
+    runner, session = _new_session()
+    scripted('{"family":"search","language":"en","display_currency":"USD"}', 'Which city?',
+             '{"family":"search","language":"en"}', 'Here is an offer in dollars.')
+    seen = []
+    async def leaf(leaf, ctx, profile_in, **kwargs):
+        seen.append(profile_in)
+        if len(seen) == 1:
+            return 'Which city?', {'results': [], 'requires_clarification': True}
+        return 'Found an offer', {'results': [{'id': 77, 'name': 'Example Hotel', 'price': '€90.00',
+             'hotel_price': 'USD 100.00', 'hotel_price_minor': 10000, 'hotel_currency_code': 'USD'}]}
+    monkeypatch.setattr(agent_module, '_run_leaf', leaf)
+    first = _answer(_drive_in(runner, session.id, 'A room tomorrow with prices in USD'))
+    assert "can't show prices in USD" not in first
+    _drive_in(runner, session.id, 'New York')
+    saved = asyncio.run(fake_profile_store.get(session.id))
+    assert saved.requested_currency == 'USD' and saved.display_currency == 'HOTEL'
+    assert saved.last_results[0]['price'] == 'USD 100.00'

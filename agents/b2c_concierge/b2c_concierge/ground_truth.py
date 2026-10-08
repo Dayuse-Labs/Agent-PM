@@ -27,7 +27,7 @@ from .profile import SessionProfile
 # cache-friendly (S06 phase spec): the leaf's own instruction already asks for
 # a top-5, small payload; this is the deterministic backstop.
 MAX_HOTELS = 5
-MAX_AMENITIES = 8
+MAX_AMENITIES = 48
 
 _EMPTY_SCREEN_NOTE = (
     "NOTE: the MOST RECENT search returned ZERO results, so the user "
@@ -184,6 +184,8 @@ def _hotel_line(hotel: dict[str, Any], window: dict[str, str | None] | None = No
     price = str(hotel.get("price") or "").strip()
     amenities = [str(a) for a in (hotel.get("amenities") or []) if str(a).strip()][:MAX_AMENITIES]
     amenity_text = ", ".join(amenities) or "none listed"
+    if len(hotel.get("amenities") or []) > MAX_AMENITIES:
+        amenity_text += " (partial list: omitted facilities are unknown, not absent)"
     line = f"- {name}"
     if place:
         line += f" ({place})"
@@ -214,6 +216,21 @@ def _hotel_line(hotel: dict[str, Any], window: dict[str, str | None] | None = No
         slots.append(f"{start}–{end}")
     if slots:
         line += " — offered times: " + ", ".join(slots)
+    alternatives = hotel.get("available_offers") or []
+    if alternatives:
+        # These dated formulas passed the same budget/window/capacity/cutoff
+        # checks as the chosen offer. Each price belongs to its own formula.
+        rows = []
+        for offer in alternatives[:20]:
+            if not isinstance(offer, dict):
+                continue
+            for slot in (offer.get("timeslots") or [])[:5]:
+                if not isinstance(slot, dict):
+                    continue
+                rows.append(f"{slot.get('start')}–{slot.get('end')} {offer.get('price')} (date {offer.get('offer_date')})")
+        line += " — other verified formulas (do not reuse the selected card price): " + "; ".join(dict.fromkeys(rows))
+        if hotel.get("available_offers_truncated"):
+            line += " (partial list; additional formulas may exist)"
     line += _minute_coverage(hotel, window)
     line += f" — amenities: {amenity_text}"
     rating = hotel.get("rating")

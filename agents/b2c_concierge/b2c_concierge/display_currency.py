@@ -72,6 +72,10 @@ def apply_hotel_currency(cards: list[Any] | None) -> None:
     for card in cards or []:
         if not isinstance(card, dict) or not isinstance(card.get("hotel_price"), str):
             continue
+        # Dated alternative formulas keep their own indexed hotel prices too.
+        for offer in (card.get("available_offers") or [])[:20]:
+            if isinstance(offer, dict) and isinstance(offer.get("hotel_price"), str):
+                offer["price"] = offer["hotel_price"]
         card["price"] = card["hotel_price"]
         card["display_currency"] = card.get("hotel_currency_code")
         card["display_price_minor"] = card.get("hotel_price_minor")

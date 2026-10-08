@@ -37,6 +37,7 @@ import litellm
 from b2c_common import max_tokens_for, reasoning_kwargs_for, role_model, temperature_kwargs_for
 from b2c_common.amenities import grounded_amenity_update
 from b2c_common.date_labels import WEEKDAYS, grounded_calendar
+from b2c_common.timeslot import DAYPART_HOURS
 from b2c_common.search_areas import validate_areas
 from dayuse_agent_common import (
     cost_from_tokens,
@@ -180,6 +181,7 @@ class Triage:
     subarea_parent: str | None = None
     requested_weekday: str | None = None
     requested_calendar: dict | None = None
+    requested_daypart: str | None = None
     information_source: str | None = None
     location_intent: dict | None = None
     comparison_positions: tuple[int, ...] | None = None
@@ -444,6 +446,9 @@ with these keys (omit the optional keys when there is no signal):
   A duration, date, address, postal code or distance is NEVER a budget.
   A number alone at the start of a conversation has no established budget role:
   "78240" / "75008" may be postal codes; family=search, no budget amount.
+  A bare desired check-in time, including midnight, is a SEARCH preference,
+  even when the city/date is not yet known. A statement of desired arrival is
+  not a general question about changing a hotel's booking rules.
   A request to FIND hotels with a facility, meal or room feature is search,
   including when phrased as a question and before any city is known. A question
   about an ALREADY SHOWN hotel's features is details; a general service rule is
@@ -533,6 +538,8 @@ Optional keys, extracted from MESSAGE ONLY, never copied from recent messages:
   because it is embedded in the landmark name. If no city is named anywhere in
   MESSAGE, leave city null; do not invent one.
   country_guess is a soft provider hint, never proof of the place or coordinates.
+  A specific street address or postal code also uses requested_landmark: keep
+  the exact query, city null until supplied, and never infer a budget from it.
   A named HOTEL uses hotel_name instead. Ordinary cities, device position,
   amenities, an unnamed airport or a non-geographic follow-up emit null.
 - "requested_areas": when MESSAGE names an administrative search area or a
@@ -591,6 +598,11 @@ Optional keys, extracted from MESSAGE ONLY, never copied from recent messages:
   or a general policy into a search update. Do not guess an unsupported key or
   equate a private bathtub with a hotel hot tub. Evidence must quote MESSAGE,
   never earlier messages. This object describes intent, not equipment IDs.
+- "requested_daypart": for a CURRENT search preference such as morning,
+  afternoon or evening, {{"value": one of {list(DAYPART_HOURS)},
+  "evidence": "short verbatim preference"}}. Omit for explicit clock times,
+  an unrestricted day, a property's opening hours, or a non-time followup.
+  Extract before a location clarification: the preference must survive it.
 - "requested_calendar": a CURRENT explicit calendar date, including a day of
   month without a month: {{"day": integer, "month": integer or null,
   "year": integer or null, "evidence": "short exact date quote"}}.
@@ -736,6 +748,7 @@ async def classify(message: str, budget: TurnBudget, invocation_id: str = "",
                        + json.dumps(location_context, ensure_ascii=False) + "\n\n")
                       if location_context else "") + f"MESSAGE:\n<<<\n{message}\n>>>"},
             ],
+            response_format={"type": "json_object"},
             timeout=_TRIAGE_TIMEOUT,
             **extra_params,
         )
@@ -842,6 +855,7 @@ async def classify(message: str, budget: TurnBudget, invocation_id: str = "",
         information_source=_information_source(data.get("information_source"), message),
         display_currency=_display_currency_slot(data.get("display_currency")),
         requested_window=_grounded_window(data, message),
+        requested_daypart=_grounded_daypart(data.get("requested_daypart"), message),
         requested_calendar=(grounded_calendar(data.get("requested_calendar"), message)
                             if family == "search" else None),
         requested_weekday=(_grounded_weekday(data.get("requested_weekday"), message)
@@ -1059,6 +1073,17 @@ def _grounded_duration(data: dict, message: str) -> int | None:
             and isinstance(evidence, str) and evidence.strip() and evidence in message):
         return duration
     return None
+
+
+def _grounded_daypart(raw: Any, message: str) -> str | None:
+    if not isinstance(raw, dict):
+        return None
+    value, evidence = raw.get("value"), raw.get("evidence")
+    if (not isinstance(value, str) or value not in DAYPART_HOURS
+            or not isinstance(evidence, str) or not evidence.strip()
+            or evidence.casefold() not in message.casefold()):
+        return None
+    return value
 
 
 def _grounded_weekday(raw: Any, message: str) -> str | None:

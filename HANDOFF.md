@@ -1,12 +1,55 @@
 # HANDOFF — AgentB2C
 
+## 2026-10-08 — v57 : second lot recherche, faits et clarifications
+
+**Pas de GO remplacement. FAQ/annulations restent en phase 2.**
+Le passage complet v56 (20e0e17, triage 4.1-mini LOCAL) est terminé : 56 parcours,
+156 réponses, revue de chaque parcours : 3 A, 24 B, 20 C, 1 D, 8 non notés.
+145 cartes rapprochées des reçus MCP, zéro erreur de prix/jointure/expiration.
+Cela ne valide pas la pertinence, les dates demandées ou toute la couverture.
+La baseline v55, après examen des faits hôtel bruts, est 3 A, 16 B, 25 C,
+5 D et 9 non notés (les deux détails hôtel précédemment B deviennent C).
+Aucun taux de victoire : horaires/inventaire et certaines branches diffèrent.
+
+Lot v57, sans nouvelle regex ni appel modèle supplémentaire :
+- Un quartier/adresse en attente reste détenu pendant une clarification réelle,
+  même si le triage omet l'action refine. Un changement explicite l'efface ;
+  un profil sans historique n'est pas à lui seul preuve de clarification.
+- La feuille peut proposer le parent d'un quartier cité (Manhattan → New York
+  City + zone Manhattan), sans contourner les contrôles fournisseur/pays.
+- Le même triage demande du JSON structuré et un daypart avec preuve littérale.
+  La préférence survit à la question de ville, remplace l'ancien horaire,
+  et invalide une ancienne sélection comme toute contrainte horaire nouvelle.
+- La synthèse reçoit jusqu'à 48 équipements (liste partielle explicitement
+  marquée au-delà) et les formules datées vérifiées de get_hotel_details,
+  bornées à 20. Même filtre date/cutoff/capacité/budget/plage horaire ; chaque
+  formule garde son propre prix. L'offre sélectionnée ne change pas.
+  La devise locale utilise les prix natifs indexés, aucune conversion inventée.
+- Une recherche vide ne prouve plus qu'une devise est indisponible ; la demande
+  persiste jusqu'aux résultats suivants. Les refus sur une devise réellement
+  différente de celle des hôtels restent inchangés.
+
+Tests d'intégration avec vrai runner/mocks : clarification, changement de ville,
+parent de quartier, préférence soirée multi-tour, devise après recherche vide,
+piscine au-delà du huitième équipement et formules/prix filtrés. Les mocks HTTP
+acceptent le contexte existant de classify ; assertions de transport conservées.
+Vérifications : 2682 tests passent, 1 ignoré ; ruff/mypy 69 fichiers et
+guardrails verts. Rejeu live v57 encore à exécuter ; aucun résultat anticipé.
+
+Cumul avant v57 : 105,74727908822/110 USD, dont 12,10 de provisions non tarifées.
+Budget proposé pour le passage complet : cap additionnel 1,85 USD, réserve
+interne 2 USD ; plafond utilisateur 110 inchangé. Conversations récentes gardées
+à part pour validation. 4.1-mini triage local seulement, défauts source/Railway
+inchangés ; aucune supériorité globale du modèle déduite des douze contextes.
+Pas de merge, déploiement, modification Railway, réservation ou acte client.
+
 ## 2026-10-08 — v56 : lot de corrections après campagne globale recherche
 
 **Pas de GO remplacement. FAQ/annulations reportées en phase 2 par l'utilisateur.**
 Campagne v55 figée a740dd7 : 58 conversations, 320 réponses prod/candidat,
 182 cartes rapprochées des reçus MCP sans erreur de jointure/prix/expiration.
 Ce contrôle ne prouve pas la date demandée ni la pertinence : revue des 58 parcours,
-49 candidats notés (3 A, 18 B, 23 C, 5 D), 9 non notés. Dénominateurs et branches
+49 candidats notés (3 A, 16 B, 25 C, 5 D), 9 non notés. Dénominateurs et branches
 conversationnelles différents : aucun taux de victoire global. Sources privées hors Git.
 
 Lot cohérent sans nouvelle regex : contexte géographique non résolu exposé au
