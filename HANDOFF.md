@@ -1,5 +1,56 @@
 # HANDOFF — AgentB2C
 
+## 2026-10-08 — v31 : pagination après critères et cinq conversations fraîches
+
+**Pas de GO remplacement.** La pagination est maintenant décidée après les mises
+à jour de date, créneau et budget. Elle exige des résultats précédents et des
+critères identiques ; sinon le curseur revient à zéro. L'instantané des critères
+exclut la langue, les métadonnées de provenance et l'ordre des équipements.
+Aucune nouvelle regex, phase modèle, dépendance ou modification Railway.
+
+Quatre régressions échouaient avant le correctif et passent ensuite : nouvelle
+date avec/sans résultats précédents, « plus » après zéro résultat, nouveau budget
+avec intention « plus ». Les tests de pagination ordinaire restent verts.
+**2 411 tests passés, un ignoré**, ruff, mypy (64 fichiers), guardrails.
+
+**37 réponses / 16 revues manuelles**, dont 15 réponses du candidat sur la source
+v31 : quatre tours Brooklyn (deux messages réels puis deux extensions synthétiques)
+et cinq nouvelles sessions SQL, 11 messages, comparées legacy/B2C/candidat.
+**25 cartes tarifées** reliées aux reçus MCP, aucun écart prix/jointure/expiration.
+Le rejeu Brooklyn retrouve Tillary en première page. Limite causale : ce tirage
+live ne répète pas le flag erroné de triage ; les quatre tests forcés prouvent
+le correctif. Le parcours reste C pour l'âge redemandé et le faux filtrage d'âge.
+
+Les cinq sessions couvrent près de moi, six tours château/Ezanville/créneaux/nuit,
+chinois romantique, Morrisville sous 80 USD, congélateur puis Prague. Les échecs
+sont conservés : descriptions prises pour des noms d'hôtel, style peu pertinent,
+langue chinoise perdue. Le candidat conserve le besoin de congélateur au suivi,
+le B2C déployé l'oublie. La FAQ brute corrige aussi un défaut de la prod historique :
+la page officielle https://support.dayuse.com/hc/en-us/articles/360020362900-Can-I-book-a-night-on-Dayuse-com
+confirme des offres nuit marquées d'une lune ; le refus global de la prod est
+incorrect. Cela ne prouve aucune offre de nuit dans la zone demandée ni la
+capacité du MCP à la chercher. Le candidat ajoute une question restaurant non demandée.
+
+Export préflight : 33 349 lignes, 2 000 récentes ; cinq sessions nouvelles
+corroborées par Langfuse. GPS original absent sur trois sessions ; Morrisville
+avait aussi un historique de réservations/horaires non reconstruit. Les A de
+clarification sans GPS ou sur l'homonyme Morrisville ne valident ni la recherche
+ni le plafond après clarification. Provenance organique non certifiée.
+Les écarts export/Qdrant et MCP préproduction restent séparés des défauts agent.
+
+**Reste prioritaire :** identité d'hôtel présentée comme offre disponible ;
+style descriptif confondu avec nom ; mémoire d'âge durable ; dates qui effacent
+un créneau (triage `clear` observé sur une acceptation de demain, sans ancien
+créneau dans ce rejeu) ; pertinence, chinois, géographies/provinces/corridors,
+occupation et équipements privés/inclus ; conditions d'annulation/caution.
+Les 32 familles historiques restent incomplètes. Aucun nouveau challenger modèle.
+
+Étape **0,38134428 USD**, cumul comptabilisé **89,53522283/110 USD**,
+provisions 11,10 incluses et réserve 10 conservée. Aucun runner payant restant.
+Preuves privées : `production_parity_v18/v31-summary.private.json`,
+`v31-review.private.html`, `pagination-v31-diagnostic.private.json`,
+`v31-fidelity-addendum.private.json`. Aucune donnée brute dans Git.
+
 ## 2026-10-08 — v30 : conditions sourcées et suivis âge/FAQ
 
 **Pas de GO remplacement ; modèle par défaut inchangé.** Le rejeu adaptatif

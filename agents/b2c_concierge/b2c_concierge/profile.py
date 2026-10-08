@@ -69,6 +69,7 @@ keeps everything else (date/timeslot/budget/amenities) — the audit's
 """
 from __future__ import annotations
 
+import json
 import logging
 import re
 from dataclasses import MISSING, dataclass, field
@@ -1226,6 +1227,33 @@ def _accumulate_shown_hotel_ids(profile: SessionProfile, hotel_ids: list[Any]) -
             merged.remove(hotel_id)
         merged.append(hotel_id)
     profile.shown_hotel_ids = merged[-MAX_SHOWN_HOTEL_IDS:]
+
+
+def pagination_search_key(profile: SessionProfile) -> str:
+    """Snapshot retrieval criteria before a turn, excluding provenance/UI state.
+
+    A request for more results only continues a page when these criteria stay
+    unchanged. Serialize now so later mutations cannot alter the snapshot.
+    """
+    criteria = {
+        name: getattr(profile, name)
+        for name in (
+            "city", "search_areas", "state_anchor", "country_anchor", "zone", "metro",
+            "date", "budget_max", "timeslot", "timeslot_start", "timeslot_end",
+            "timeslot_mode", "daypart", "adults", "children",
+        )
+    }
+    criteria["amenities"] = sorted(profile.amenities)
+    criteria["requested_budget"] = {
+        key: (profile.requested_budget or {}).get(key)
+        for key in ("amount", "currency", "unit")
+    }
+    for name in ("search_anchor", "distance_origin"):
+        anchor = getattr(profile, name) or {}
+        criteria[name] = {
+            key: anchor.get(key) for key in ("type", "lat", "lon", "latitude", "longitude")
+        }
+    return json.dumps(criteria, sort_keys=True, ensure_ascii=False)
 
 
 def advance_search_cursor(profile: SessionProfile) -> None:

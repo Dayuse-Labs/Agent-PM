@@ -1788,3 +1788,52 @@ def test_one_municipality_is_bounded_only_with_explicit_boundary_intent(
     assert saved.city == 'Brescia' and saved.zone is None
     assert saved.date == '2026-10-10' and saved.requested_budget['amount'] == 150
     assert saved.requested_window == {'start': '10:30', 'end': '17:00'}
+
+
+@pytest.mark.parametrize('has_results', [False, True])
+def test_new_date_restarts_search_despite_more_options_triage(monkeypatch, fake_leg, fake_profile_store, has_results):
+    from datetime import date
+
+    monkeypatch.setattr(agent_module, 'reference_today', lambda _: date(2026, 10, 8))
+    _scripted_llm(monkeypatch, '{"family":"search","language":"en","wants_more_options":true}',
+                  'Here are the offers for tomorrow.')
+    runner = InMemoryRunner(root_agent)
+    session = _new_session(runner)
+    asyncio.run(fake_profile_store.set(session.id, SessionProfile(
+        city='Brooklyn', date='2026-10-08', search_cursor=2,
+        last_results=[{'hotel_id': 12, 'name': 'Example'}] if has_results else [],
+    )))
+    fake_leg.response_payload = {'results': [{'id': 12, 'name': 'Example'}]}
+    _run_turn(runner, session.id, 'Tomorrow is fine. Show me day rooms in Brooklyn, New York.')
+    profile = find_datapart(fake_leg.seen_outgoing_parts)['profile_in']
+    assert profile['date'] == '2026-10-09'
+    assert profile['search_cursor'] == 0
+
+
+def test_more_after_empty_search_retries_first_page(monkeypatch, fake_leg, fake_profile_store):
+    _scripted_llm(monkeypatch, '{"family":"search","language":"en","wants_more_options":true}',
+                  'Here are some options.')
+    runner = InMemoryRunner(root_agent)
+    session = _new_session(runner)
+    asyncio.run(fake_profile_store.set(session.id, SessionProfile(city='Brooklyn', last_results=[])))
+    fake_leg.response_payload = {'results': [{'id': 12, 'name': 'Example'}]}
+    _run_turn(runner, session.id, 'Can you show more options?')
+    assert find_datapart(fake_leg.seen_outgoing_parts)['profile_in']['search_cursor'] == 0
+
+
+def test_more_with_changed_budget_restarts_first_page(monkeypatch, fake_leg, fake_profile_store):
+    _scripted_llm(monkeypatch,
+                  '{"family":"search","language":"en","wants_more_options":true,"requested_budget":{"amount":80,"currency":"USD","unit":"total","evidence":"under $80"}}',
+                  'Here are matching options.')
+    runner = InMemoryRunner(root_agent)
+    session = _new_session(runner)
+    asyncio.run(fake_profile_store.set(session.id, SessionProfile(
+        city='Brooklyn', currency='USD', search_cursor=1,
+        requested_budget={'amount': 150, 'currency': 'USD', 'unit': 'total'},
+        last_results=[{'hotel_id': 12, 'name': 'Example'}],
+    )))
+    fake_leg.response_payload = {'results': [{'id': 12, 'name': 'Example'}]}
+    _run_turn(runner, session.id, 'More options but under $80 this time.')
+    profile = find_datapart(fake_leg.seen_outgoing_parts)['profile_in']
+    assert profile['requested_budget']['amount'] == 80
+    assert profile['search_cursor'] == 0

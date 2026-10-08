@@ -148,6 +148,7 @@ from .profile import (
     is_search_refinement_signal,
     leaf_profile_view,
     maybe_auto_widen,
+    pagination_search_key,
     questions_equivalent,
     record_search_outcome,
     record_search_shortlist,
@@ -1164,6 +1165,9 @@ class _B2cConcierge(BaseAgent):
         # BEFORE the ack fast-path decision, not just before the leaf call.
         store = get_profile_store()
         profile = await store.get(ctx.session.id)
+        previous_search_key = pagination_search_key(profile)
+        previous_search_cursor = profile.search_cursor
+        had_search_results = bool(profile.last_results)
 
         # 1. Ack fast-path: zero LLM, template only — UNLESS the profile
         # signals a search refinement (a bare "ok" after an empty search must
@@ -1489,26 +1493,6 @@ class _B2cConcierge(BaseAgent):
                 yield self._final(ctx, templates.search_exhausted_response(reply_language, profile.city))
                 return
 
-        # S-G5: "other options" pagination — advance the cursor deterministically
-        # (never LLM-decided) so profile_in.search_cursor reaches the leaf's
-        # search_offers call via its code-owned `from`-offset bridge
-        # (hotel_search_agent.response_bridge.inject_pagination_offset).
-        # shown_hotel_ids stays the belt-and-suspenders exclusion filter
-        # regardless of what the cursor computes.
-        more_options = route.target == LEAF_HOTEL_SEARCH and is_more_options_signal(
-            message, triage.wants_more_options
-        )
-        if more_options:
-            advance_search_cursor(profile)
-        elif route.target == LEAF_HOTEL_SEARCH:
-            # S-CX5: every other search restarts at page 1. The cursor is what
-            # tells the leaf to hide already-shown hotels, and it used to
-            # survive every turn until a city change — so a single "other
-            # options" made a later REFINED search silently skip the hotels
-            # the user had just seen (prod 2026-07-27: "book the cheapest"
-            # returned pricier ones because the cheap five were on screen).
-            reset_search_cursor(profile)
-
         if route.target == LEAF_HOTEL_SEARCH and (
             triage.replace_window or (triage.requested_duration_minutes is not None and next_window is None)
         ):
@@ -1575,6 +1559,21 @@ class _B2cConcierge(BaseAgent):
                 profile.date_reference = {"resolved_from": "concierge"}
                 if profile.client_timezone:
                     profile.date_reference["client_tz"] = profile.client_timezone
+
+        # Apply date/window/budget changes BEFORE deciding whether this is
+        # another page. A triage "more" flag alone used to skip the first
+        # five hotels for "tomorrow is fine", even after an empty search.
+        more_options = (
+            route.target == LEAF_HOTEL_SEARCH
+            and had_search_results
+            and previous_search_key == pagination_search_key(profile)
+            and is_more_options_signal(message, triage.wants_more_options)
+        )
+        if more_options:
+            profile.search_cursor = previous_search_cursor
+            advance_search_cursor(profile)
+        elif route.target == LEAF_HOTEL_SEARCH:
+            reset_search_cursor(profile)
 
         if route.target == LEAF_HOTEL_SEARCH:
             # Keep customer changes even when the remote leaf times out or
