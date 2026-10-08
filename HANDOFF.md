@@ -1,5 +1,57 @@
 # HANDOFF — AgentB2C
 
+## 2026-10-08 — v39 : créneau déjà passé et nouveaux suivis réels
+
+**Pas de GO remplacement.** Une offre encore réservable jusqu’à 20 h ne prouve
+pas la possibilité de satisfaire 10 h–14 h à 16 h. Les deux normalisations MCP
+conservent maintenant le fuseau hôtel ; le concierge demande la date avant
+cartes/synthèse si le départ demandé est passé dans toutes les destinations
+retournées. Pas de déduction depuis le téléphone, pas de lendemain inventé,
+pas de nouvelle regex. Date/fuseau hôtel/fin et résultats sont nécessaires ;
+absence de résultats ou de fuseau, départ seul et overnight restent hors preuve.
+La règle produit de couverture en heures entières reste inchangée.
+
+**2 486 tests passés, un ignoré**, ruff, mypy (66 fichiers), guardrails. Quatorze tests ajoutés,
+dont treize rouges avant correction. Les tests vérifient fuseau destination,
+dates futures, limite de fin, minuit à 24 h, données inconnues, normalisations et
+suivi demain conservant le créneau sans enregistrer les cartes rejetées.
+
+**12 réponses Melbourne**, deux variantes de six tours : trois messages
+historiques puis demain, détails et annulation synthétiques. Le créneau passé
+est refusé ; demain conserve 10 h–14 h. Premier suivi détails avec nom explicite :
+C pour condition sanitaire ancienne fournie par MCP et remboursement trop général.
+Second suivi ordinal seul : deuxième hôtel effectivement retrouvé sans nom
+fourni dans la requête, B pour une clarification inutile après résolution.
+La FAQ devient plus prudente, sans preuve de politique propre à l’offre.
+
+**36 réponses comparatives**, trois nouveaux parcours complets issusSQL/Langfuse :
+Paris/petite couronne/prix/caution/21h : legacyC, B2CD, candidatD. Candidat etB2C
+restent bloqués à préciser le périmètre. Hannover/jacuzzi/deux heures : C/D/C ;
+Langfuse montre Whirlpool géocodé comme zone dans B2C, aucun filtre équipement.
+Candidat préserve jacuzzi et envoie [41], mais la durée seule se perd avant la ville.
+Naples/21 h–minuit/alternatives : C/D/C. B2C envoie seulement startHour=21 ; candidat
+signale les limites 23 h/23 h 30 mais conserve àtort21–23 dans le profil. Sa génération
+triage avait bien produit 21:00–00:00 : rejet par validation puis 23 h inventé dans
+la feuille. Pas de justification pour changer 4o-mini sur cette cause.
+
+**36 cartes tarifées candidat** reliées aux reçus MCP du même tour, aucun écart
+prix/date/créneau de carte ou expiration. Ce contrôle ne prouve pas que la
+recherche conserve le besoin jusqu’à minuit. Aucun booking/cancel exécuté.
+
+Source réactualisée : 33 490 lignes SQL, 2 000 récentes, 34 nouveaux messages hors campagne,
+14 sessions et 34 traces Langfuse. 16 GPS arrondis récupérés ; une contradiction laissée
+inconnue. Payload natif complet/permission/provenance organique non certifiés.
+Trois parcours ont été rejoués ici ; les onze autres restent à traiter. Identifiants
+réels d’annulation restent privés et ne doivent pas déclencher d’action de prod.
+Dates non décalées, devises/locales/fuseaux seulement si attestés. Export legacy
+vs MCP préproduction live : fraîcheurs distinctes. Main toujours `cbe88b9`.
+
+Toutes les 32 familles restent incomplètes. Priorités : minuit, durée seule,
+périmètres proches/clarifications, FAQ/remboursement/caution, occupation/lit bébé/
+âge et autres familles ouvertes. Rapports/données brutes restent hors Git.
+
+Étape : 0.49312598 USD ; cumul 92.58017397/110 USD, provisions 11,10 incluses, réserve 10 conservée. Aucun déploiement/merge.
+
 ## 2026-10-08 — v38 : noms courts et clarifications géographiques validées
 
 **Pas de GO remplacement.** Le vérificateur ignorait les noms de moins de

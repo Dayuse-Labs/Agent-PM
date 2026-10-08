@@ -335,6 +335,9 @@ def _normalize_hotel_for_display(hotel: dict[str, Any], best_offer: dict[str, An
     photo = _photo_url(hotel.get("mainPhotoNormal"))
     if photo:
         normalized["image_urls"] = [photo]
+    # Provider clock for destination-local request expiry; never infer from the device.
+    if isinstance(hotel.get("timezone"), str) and hotel["timezone"].strip():
+        normalized["timezone"] = hotel["timezone"].strip()
     currency_code = _iso_currency(hotel.get("currencyCode"))
     if currency_code:
         normalized["currency_code"] = currency_code

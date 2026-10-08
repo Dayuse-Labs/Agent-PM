@@ -161,7 +161,13 @@ from .profile import (
 from .profile_store import get_profile_store
 from .requested_date import date_served_notice, expected_search_date, reference_today
 from .no_offers import drop_restated, no_offers_line
-from .window_guard import enforce_window_disclosure, enforce_window_match, window_label
+from .window_guard import (
+    enforce_window_disclosure,
+    enforce_window_match,
+    past_window_question,
+    requested_window_has_ended,
+    window_label,
+)
 from .routing import LEAF_FAQ, LEAF_HOTEL_SEARCH, ROUTES, bearer_token, card_url
 from .triage import (
     SERVICE,
@@ -1727,6 +1733,20 @@ class _B2cConcierge(BaseAgent):
                 if response.get("unavailable_reason") == "rejected"
                 else templates.leaf_degraded_response(family, reply_language, profile.city),
             )
+            return
+        # A live broad offer can outlast the user's requested departure.
+        # Ask for a date before emitting cards or letting synthesis claim a fit.
+        if (route.target == LEAF_HOTEL_SEARCH and isinstance(search_date_part, dict)
+                and requested_window_has_ended(
+                    response.get("results") or [], search_date_part.get("date"), profile.timeslot_end,
+                )):
+            profile.pending_booking = None
+            profile.search_cursor = 0
+            await store.set(ctx.session.id, profile)
+            self._emit_turn_metric(family, "template:past_requested_window", budget, t_start, "ok", inv)
+            yield self._final(ctx, past_window_question(
+                profile.timeslot_start, profile.timeslot_end or "", search_date_part["date"], reply_language,
+            ))
             return
         window_fallback: str | None = None
         no_offers = ""

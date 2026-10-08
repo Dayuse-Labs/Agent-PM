@@ -625,6 +625,9 @@ def normalize_hotel(
     # S-G7: the hotel's own local currency (display-only, see `_iso_currency`) —
     # `search_offers` sends this directly per hotel (probed live 2026-07-23),
     # unlike country_code above which it never sends.
+    # Provider clock for destination-local request expiry; never infer from the device.
+    if isinstance(hotel.get("timezone"), str) and hotel["timezone"].strip():
+        card["timezone"] = hotel["timezone"].strip()
     currency_code = _iso_currency(hotel.get("currencyCode"))
     if currency_code:
         card["currency_code"] = currency_code

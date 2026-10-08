@@ -10,7 +10,9 @@ disclosure the synthesis is known to drop.
 from __future__ import annotations
 
 import re
+from datetime import UTC, date, datetime
 from typing import Any
+from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
 from b2c_common.timeslot import parse_hhmm, requested_hours, slot_covers_window, window_fallback_line
 
@@ -68,3 +70,57 @@ def enforce_window_disclosure(text: str, window: str, language: str) -> tuple[st
     if not text or _ALREADY_SAID_RE.search(text):
         return text, False
     return f"{text.rstrip()}\n\n{window_fallback_line(window, language)}", True
+
+
+def requested_window_has_ended(
+    cards: list[dict[str, Any]], served_date: Any, requested_end: str | None,
+    *, now: datetime | None = None,
+) -> bool:
+    """Prove the requested departure is past at every returned destination.
+
+    An 08–20 offer can still be bookable at 16:10, but cannot satisfy a user's
+    10–14 request today. Use the provider's hotel timezone, never the device's
+    timezone or a country guess. Missing evidence does not establish expiry.
+    This does not reject a still-usable slot just because its start is past.
+    """
+    end = parse_hhmm(requested_end)
+    if not cards or end is None or end > 1440 or not isinstance(served_date, str):
+        return False
+    try:
+        day = date.fromisoformat(served_date)
+    except ValueError:
+        return False
+    instant = now or datetime.now(UTC)
+    if instant.tzinfo is None:
+        return False
+    for card in cards:
+        zone = card.get("timezone") if isinstance(card, dict) else None
+        if not isinstance(zone, str) or not zone:
+            return False
+        try:
+            local = instant.astimezone(ZoneInfo(zone))
+        except (ValueError, ZoneInfoNotFoundError):
+            return False
+        if day > local.date() or (day == local.date() and end > local.hour * 60 + local.minute):
+            return False
+    return True
+
+
+_PAST_WINDOW: dict[str, str] = {
+    "en": "The requested time slot {window} on {day} has already ended at the destination. Which date would you like?",
+    "fr": "Le créneau demandé {window} du {day} est déjà passé à destination. Pour quelle date souhaitez-vous chercher ?",
+    "es": "La franja solicitada {window} del {day} ya ha terminado en el destino. ¿Para qué fecha quieres buscar?",
+    "it": "La fascia richiesta {window} del {day} è già terminata a destinazione. Per quale data vuoi cercare?",
+    "de": "Das gewünschte Zeitfenster {window} am {day} ist am Zielort bereits vorbei. Für welches Datum möchten Sie suchen?",
+    "pt": "O horário solicitado {window} de {day} já terminou no destino. Para que data pretende pesquisar?",
+    "nl": "Het gevraagde tijdslot {window} op {day} is op de bestemming al voorbij. Voor welke datum wil je zoeken?",
+}
+
+
+def past_window_question(start: str | None, end: str, day: str, language: str) -> str:
+    from .date_format import format_date_human
+
+    window = f"{start}–{end}" if start else end
+    return _PAST_WINDOW.get(language, _PAST_WINDOW["en"]).format(
+        window=window, day=format_date_human(day, language),
+    )
