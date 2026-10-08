@@ -2,7 +2,7 @@ import json
 from types import SimpleNamespace
 
 from b2c_concierge.a2a_datapart import find_datapart
-from faq_agent.response_bridge import capture_policy_evidence, emit_policy_evidence, skip_policy_summary
+from faq_agent.response_bridge import capture_policy_evidence, emit_policy_evidence, skip_policy_summary, mark_policy_attempt
 
 
 def capture(ctx, payload, error=False):
@@ -31,7 +31,7 @@ def test_failed_or_unrelated_payload_never_becomes_policy_evidence():
                            ({'error': 'unavailable'}, False), ({'message': 'hello'}, False)]:
         ctx = SimpleNamespace(state={})
         capture(ctx, payload, error)
-        assert emit_policy_evidence(ctx) is None
+        assert find_datapart(emit_policy_evidence(ctx).parts)['faq_evidence'] == []
         assert skip_policy_summary(ctx, None) is None
 
 
@@ -40,7 +40,7 @@ def test_policy_capture_is_invocation_scoped_and_does_not_mutate_payload():
     raw = {'market': 'US', 'sections': {'hotelConditions': 'ID required.'}}
     capture(first, raw)
     assert raw == {'market': 'US', 'sections': {'hotelConditions': 'ID required.'}}
-    assert emit_policy_evidence(second) is None
+    assert find_datapart(emit_policy_evidence(second).parts)['faq_evidence'] == []
     assert all(key.startswith('temp:') for key in first.state)
 
 
@@ -50,3 +50,49 @@ def test_structured_mcp_policy_output_is_supported():
     capture_policy_evidence(tool=SimpleNamespace(name='get_faq_conditions'), args={}, tool_context=ctx,
                             tool_response={'isError': False, 'structuredContent': payload, 'content': []})
     assert find_datapart(emit_policy_evidence(ctx).parts)['faq_evidence'] == [payload]
+
+
+def test_failed_lookup_ends_model_loop_and_sends_unverified_diagnostic():
+    ctx = SimpleNamespace(state={})
+    mark_policy_attempt(SimpleNamespace(name='get_faq_conditions'), {}, ctx)
+    capture(ctx, {'error': 'upstream unavailable'}, error=True)
+    end = skip_policy_summary(ctx, None)
+    assert end is not None and not end.content.parts[0].function_call
+    payload = find_datapart(emit_policy_evidence(ctx).parts)
+    assert payload['faq_evidence'] == []
+    assert payload['faq_diagnostics']['source_verified'] is False
+
+
+def test_model_prose_without_lookup_cannot_be_exposed_as_verified_faq():
+    ctx = SimpleNamespace(state={})
+    result = emit_policy_evidence(ctx)
+    assert result is not None
+    assert find_datapart(result.parts)['faq_diagnostics']['source_verified'] is False
+    assert 'could not be checked' in result.parts[0].text
+
+
+def test_faq_lookup_requirement_reaches_litellm_transport(monkeypatch):
+    import asyncio
+    from google.adk.models.lite_llm import LiteLLMClient
+    from google.adk.models.llm_request import LlmRequest
+    from google.genai import types
+    from litellm import ModelResponse
+    from faq_agent.agent import MODEL
+    requests = []
+    class Client(LiteLLMClient):
+        async def acompletion(self, **kwargs):
+            requests.append(kwargs)
+            return ModelResponse(model="gpt-4o-mini", choices=[{
+                "message": {"role": "assistant", "content": None, "tool_calls": [{
+                    "id": "call_faq", "type": "function", "function": {
+                        "name": "get_faq_conditions", "arguments": '{"market":"FR"}'}}]},
+                "finish_reason": "tool_calls"}])
+    monkeypatch.setattr(MODEL, 'llm_client', Client())
+    request = LlmRequest(contents=[types.Content(role='user', parts=[types.Part(text='Question')])],
+                         config=types.GenerateContentConfig(tools=[types.Tool(function_declarations=[
+                             types.FunctionDeclaration(name='get_faq_conditions')])]))
+    async def run():
+        return [event async for event in MODEL.generate_content_async(request)]
+    events = asyncio.run(run())
+    assert events and requests[0]['tool_choice'] == 'required'
+    assert requests[0]['tools'][0]['function']['name'] == 'get_faq_conditions'

@@ -477,3 +477,11 @@ def test_faq_evidence_keeps_general_and_property_policy_scopes_separate():
     assert 'Deposit $250.' in text and 'US booking age is typically 21.' in text
     assert 'not a property-specific' in text
     assert faq_ground_truth_block({}) == ''
+
+
+def test_empty_faq_evidence_exposes_missing_source_instead_of_policy_authority():
+    from b2c_concierge.ground_truth import faq_ground_truth_block
+    assert faq_ground_truth_block({}) == ''
+    block = faq_ground_truth_block({'faq_evidence': [], 'faq_diagnostics': {'source_verified': False}})
+    assert 'No verified policy source' in block
+    assert 'original successful tool results' not in block

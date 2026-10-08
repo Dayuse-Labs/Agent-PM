@@ -1299,8 +1299,9 @@ class _B2cConcierge(BaseAgent):
             profile.language = reply_language
 
         # A general policy needs the FAQ source even if triage's coarse family
-        # said details. It is not a hotel identity or a change to the stay.
-        if (family in {"details", "faq"} and triage.information_source == "dayuse_policy"
+        # said details, search or booking. It is not a hotel identity, an
+        # action authorization or a change to the stay.
+        if (family in {"details", "faq", "booking", "search"} and triage.information_source == "dayuse_policy"
                 and triage.hotel_name is None and picked is None and clicked_id is None):
             family, route = "faq", ROUTES["faq"]
 
@@ -1873,7 +1874,7 @@ class _B2cConcierge(BaseAgent):
             profile=profile, budget=budget, invocation_id=inv, no_offers=no_offers,
             recent_messages=recent_messages,
             previous_reply=previous_reply if family == "search" else None,
-            leaf_text_is_user_facing=not bool(response.get("faq_evidence")),
+            leaf_text_is_user_facing="faq_evidence" not in response,
         )
         await store.set(ctx.session.id, profile)
 

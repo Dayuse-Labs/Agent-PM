@@ -1894,7 +1894,8 @@ def test_named_identity_without_available_offer_cannot_claim_availability(monkey
     assert ('no verified offer' in reply.lower()) if ok else ('could not verify' in reply.lower())
 
 
-def test_general_policy_source_routes_faq_without_clearing_search_window(monkeypatch, fake_leg, fake_profile_store):
+@pytest.mark.parametrize("initial_family", ["details", "booking", "search"])
+def test_general_policy_source_routes_faq_without_clearing_search_window(monkeypatch, fake_leg, fake_profile_store, initial_family):
     import json
     from b2c_concierge import inline_tools
     message = 'Can I arrive later if I lose some hours?'
@@ -1906,7 +1907,7 @@ def test_general_policy_source_routes_faq_without_clearing_search_window(monkeyp
     fake_leg.response_payload = {'faq_data': {'answer': 'Arrival during the booked slot.'}}
     fake_leg.text = 'Arrival during the booked slot.'
     _scripted_llm(monkeypatch, json.dumps({
-        'family': 'details', 'language': 'en',
+        'family': initial_family, 'language': 'en',
         'information_source': {'value': 'dayuse_policy', 'evidence': message},
         'requested_window': {'clear': True, 'evidence': message},
     }), 'You can arrive within the booked slot.')

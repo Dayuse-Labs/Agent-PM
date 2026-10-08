@@ -26,7 +26,7 @@ from __future__ import annotations
 
 import os
 
-from .response_bridge import capture_policy_evidence, emit_policy_evidence, skip_policy_summary
+from .response_bridge import capture_policy_evidence, emit_policy_evidence, skip_policy_summary, mark_policy_attempt
 
 from b2c_common.observability import stamp_a2a_turn
 from dayuse_agent_common import (
@@ -52,9 +52,15 @@ ALLOWED_MCP_TOOLS = [
 # its OWN departure default (iso-model comparison vs agent-usa): the lib's
 # DEFAULT_MODEL is an OpenRouter slug and must never silently take over.
 MODEL = build_model(os.environ.get("DAYUSE_MODEL", "gpt-4o-mini"))
+# The pinned ADK LiteLLM adapter does not forward GenerateContentConfig's
+# tool_config. Keep the shared factory/reasoning configuration and add the
+# portable LiteLLM completion argument once, before any request is served.
+# skip_policy_summary ends the leaf after this one attempt, including errors.
+MODEL._additional_args = {**MODEL._additional_args, "tool_choice": "required"}
 
-# Hard cap on real tool calls per turn (one FAQ lookup; 2 leaves margin for a
-# refined retry the model may attempt). Beyond it: deterministic short-circuit.
+
+# Operator cap retained for tool admission. The policy bridge ends the leaf
+# after the first attempted lookup, including failures; no model retry loop.
 MAX_TOOL_CALLS = int(os.environ.get("FAQ_MAX_TOOL_CALLS", "2"))
 
 
@@ -167,7 +173,7 @@ root_agent = Agent(
     on_model_error_callback=llm_error_metric,
     # timing before budget: budget-stopped calls still get a t0 (the budget callback
     # is the only one returning non-None, which short-circuits the rest of the list).
-    before_tool_callback=[tool_timing_before, make_tool_budget_callback(MAX_TOOL_CALLS)],
+    before_tool_callback=[tool_timing_before, mark_policy_attempt, make_tool_budget_callback(MAX_TOOL_CALLS)],
     after_tool_callback=[tool_timing_after, capture_policy_evidence],
     after_agent_callback=[emit_policy_evidence],
     on_tool_error_callback=tool_error_metric,

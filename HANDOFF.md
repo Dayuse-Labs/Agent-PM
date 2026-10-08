@@ -1,5 +1,54 @@
 # HANDOFF — AgentB2C
 
+## 2026-10-08 — v43 : consultation FAQ obligatoire et portée des preuves
+
+**Pas de GO remplacement.** Une question de politique générale peut rejoindre
+la FAQ depuis details/search/booking, sans effacer le créneau existant ni
+autoriser une réservation. Deux régressions causales de routage corrigées.
+La feuille FAQ impose le premier appel via le paramètre LiteLLM tool_choice
+required, ajouté une fois au modèle issu de la factory partagée. L’adaptateur
+ADK épinglé ignore tool_config de GenerateContentConfig ; test du transport
+effectif ajouté. Après tentative, succès ou erreur, la feuille termine sans
+boucle modèle et transmet les preuves ou un diagnostic explicite non vérifié.
+Le concierge ne traite jamais la prose non sourcée comme politique confirmée.
+Une catégorie de produit ne prouve pas quantité, durée ou disponibilité.
+
+**Erratum v42 : deux nuits A/B/D devient C/C/D.** La FAQ officielle indique
+que des offres de nuit existent ; le refus général de la prod n’était pas un
+attendu valide. Elle ne confirme pas deux nuits consécutives. Le bloc v42 est
+historique et sa notation A/B est remplacée par cet erratum.
+
+2 543 tests passés, un ignoré ; six nouveaux cas, ruff/mypy66/guardrails verts.
+29 réponses /22 revues, trois versions candidates. Dernière version : quatre
+réponses /trois parcours FAQ exposés, dont contrôles synthétiques ; 4/4 appels
+MCP réels, un par tour. Deux nuits C (première réponse encore trop affirmative),
+frais B, mineur C (condition d’accompagnement omise). Ce n’est pas une preuve
+de correction globale des politiques. 37 cartes candidates/modèle alternatif
+jointes aux reçus MCP : aucun écart prix/date/minutes ou expiration ; cela ne
+prouve pas leur pertinence géographique.
+
+Essai GPS par consigne échoué et retiré. Recherche 4.1-mini échoue aussi ;
+triage amont indépendant a produit des plans différents, donc comparaison
+non causale à entrée feuille identique. GPS D, Gare de Lyon explicite D,
+Heathrow B, sans GPS A. Modèles par défaut conservés. Aucune nouvelle regex.
+Une erreur d’adaptateur de comparaison a été arrêtée avant l’appel alternatif,
+puis le seul bras manquant repris avec même baseline/coût, sans double rejeu.
+
+Export SQL 33545 lignes,2000 récentes : une nouvelle session/message hors
+campagne, trace Langfuse exacte et GPS arrondi récupéré. Comparaison quatre
+bras sur v43b : hôtel partiellement nommé, B/B/B/B avec identité non tranchée.
+Payload natif incomplet et origine organique non certifiée. Données hors Git.
+Prod main a08a779 vérifié : clarification, choix confirmé, conservation sur
+suivis non géographiques ; ne pas porter ses élargissements vers la ville
+pour une restriction stricte. Concierge propriétaire de l’état, feuilles
+stateless, sans recopier les lexiques/regex de prod.
+
+Coût étape 0.29694564999799999387 USD ; cumul 94.53219974841699897132/110 USD,
+provisions 11,10 incluses, réserve10 conservée. Aucun acte client, merge ou
+déploiement. Les32familles restent non prouvées. Suite : GPS sémantique et
+continuité de l’ancre, fausses ambiguïtés explicites, portée FAQ, rejeu final.
+
+
 ## 2026-10-08 — v42 : secteurs intérieurs et clarification persistante
 
 **Pas de GO remplacement.** La prod Railway et son main sont a08a779 ;

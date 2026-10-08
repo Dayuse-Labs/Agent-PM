@@ -368,6 +368,13 @@ with these keys (omit the optional keys when there is no signal):
   An agreement ("sure", "yes") continuing support for an EXISTING reservation
   remains `faq`; it is not permission to create a new booking. `booking` needs
   an identifiable new-booking intent, not just a reservation mentioned earlier.
+  A question about what stays the service supports is `faq`, even when phrased
+  with a booking verb. Asking whether an overnight or multi-night stay is
+  possible asks about the product's scope; it does not select an offer or
+  authorize a reservation. Emit information_source=dayuse_policy with the exact
+  question as evidence. Likewise distinguish eligibility/conditions questions
+  from a request to proceed with a specific displayed offer. Let the FAQ source
+  supply the answer; do not infer policy from the classifier's own knowledge.
 - "language": one of {list(LANGUAGES)} — the language the message is actually
   written in. Report what you SEE: never fall back to "en" because the language
   is not French, and never let a single borrowed word decide (a Spanish message

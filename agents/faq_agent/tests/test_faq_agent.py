@@ -121,9 +121,11 @@ class TestMetricsWiring:
         from dayuse_agent_common import tool_error_metric, tool_timing_after, tool_timing_before
 
         before = self._as_list(root_agent.before_tool_callback)
-        # timing FIRST (budget short-circuits the rest of the list), budget second.
+        # Timing first; mark the attempted lookup before a possible budget rejection.
         assert before[0] is tool_timing_before
-        assert len(before) == 2
+        from faq_agent.response_bridge import mark_policy_attempt
+        assert before[1] is mark_policy_attempt
+        assert len(before) == 3
         assert tool_timing_after in self._as_list(root_agent.after_tool_callback)
         assert tool_error_metric in self._as_list(root_agent.on_tool_error_callback)
 

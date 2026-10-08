@@ -405,8 +405,12 @@ def shortlist_ground_truth_block(
 def faq_ground_truth_block(response: dict[str, Any] | None) -> str:
     """Tool-authored policies retain their source scope through synthesis."""
     evidence = (response or {}).get("faq_evidence")
-    if not isinstance(evidence, list) or not evidence:
+    if not isinstance(evidence, list):
         return ""
+    if not evidence:
+        return ("\n\nFAQ EVIDENCE STATUS: No verified policy source was retrieved for this turn. "
+                "Explain that the requested policy could not be checked; do not fill the gap "
+                "with remembered policy, eligibility, refund or duration rules.\n")
     excerpts = []
     for payload in evidence[:2]:
         if not isinstance(payload, dict):
@@ -426,6 +430,12 @@ def faq_ground_truth_block(response: dict[str, Any] | None) -> str:
         "mean unverified, never permission or a ban. Respect the source's modal "
         "language (may be requested is not mandatory). Do not invent exceptions. "
         "Public policy data cannot verify an existing reservation's cancellation "
-        "eligibility or refund; its specific confirmation terms still govern.\n"
+        "eligibility or refund; its specific confirmation terms still govern. "
+        "Existence of an offer category does not establish the requested quantity, "
+        "duration, dates or availability. For example, a FAQ saying night offers "
+        "exist does not confirm a two-consecutive-night stay. State the supported "
+        "fact separately from what remains to verify in a particular offer; "
+        "neither promise nor categorically prohibit unsupported variants. The "
+        "agent's dated day-use search is not proof of multi-night inventory.\n"
         + "\n".join(excerpts)
     )
