@@ -1,5 +1,26 @@
 # HANDOFF — AgentB2C
 
+## 2026-10-09 — v59 : rejeu complet des deux corrections, pas de GO
+
+Runtime `f05be56` : 56 conversations /156réponses, 5A18B24C0D/F9nonnotées.
+151cartes rapprochées aux reçus sans écart prix/jointure/expiration ; capacités
+confirmées sur les15cartes du parcours enfants. Deux offres10h30 ne couvrent
+pas littéralement la demande10h, bien que la règle site en heures les admette.
+Manhattan géocodé et suivi moinscher après rétraction débloqué, mais parcours
+encore C (alternatives hors quartier/prose et précision horaire respectivement).
+FAQ/annulations phase2. Rapport/protocole actuels dans le document de progression.
+
+2701tests/1ignoré,177ciblés,ruff,mypy70,guardrails verts. Coût passage1,34571410USD ;
+cumul106,48180523/110USD après retrait de4USD de provisions CI : les deux entrées
+concernaient PR134, dont41runs avec toutes étapes payantes ignorées. Autres8,10USD
+provisionnés conservés. Ne pas utiliser l'ancienne estimation109,14USD ni supposer
+que la demande optionnelle de5USD a été acceptée. Plafond reste110USD.
+
+Arrêt comptable après cas9 résolu avec preuve de clarification déterministe sans
+modèle ; observation du bypass ajoutée au lanceur d'évaluation, application figée.
+Reprise cas10, aucun rejeu des neuf premiers. Notes v58 restent historiques.
+Les blocs de préparation locale ci-dessous décrivent l'état AVANT ce rejeu.
+
 ## 2026-10-09 — Même lot local : identité de quartier avant préférence de ville
 
 **Toujours non poussé et non évalué en live.** La PR distante et les notes v58
