@@ -36,7 +36,7 @@ from typing import Any
 import litellm
 from b2c_common import max_tokens_for, reasoning_kwargs_for, role_model, temperature_kwargs_for
 from b2c_common.amenities import grounded_amenity_update
-from b2c_common.date_labels import WEEKDAYS
+from b2c_common.date_labels import WEEKDAYS, grounded_calendar
 from b2c_common.search_areas import validate_areas
 from dayuse_agent_common import (
     cost_from_tokens,
@@ -179,6 +179,7 @@ class Triage:
     requested_subarea: str | None = None
     subarea_parent: str | None = None
     requested_weekday: str | None = None
+    requested_calendar: dict | None = None
     information_source: str | None = None
     location_intent: dict | None = None
     comparison_positions: tuple[int, ...] | None = None
@@ -443,6 +444,12 @@ with these keys (omit the optional keys when there is no signal):
   A duration, date, address, postal code or distance is NEVER a budget.
   A number alone at the start of a conversation has no established budget role:
   "78240" / "75008" may be postal codes; family=search, no budget amount.
+  A request to FIND hotels with a facility, meal or room feature is search,
+  including when phrased as a question and before any city is known. A question
+  about an ALREADY SHOWN hotel's features is details; a general service rule is
+  faq. Do not require a hotel name to start a facility-based search. An unsupported
+  feature stays in the search request for clarification, never map it to a
+  different amenity (a bathtub is not a jacuzzi).
 - "information_source": for an informational question, identify the facts
   needed: {{"value":"dayuse_policy" | "hotel_facts" | "offer_facts",
   "evidence":"verbatim current question"}}. dayuse_policy = general service
@@ -533,7 +540,7 @@ Optional keys, extracted from MESSAGE ONLY, never copied from recent messages:
   {{"query":"full area name","kind":"administrative" or "municipality",
   "country":"ISO2","evidence":"shortest verbatim current quote",
   "boundary_evidence":"verbatim city-limit restriction, or empty string",
-  "code":"optional stated code","subarea":"verbatim REQUIRED inner area, or empty"}}.
+  "code":"explicit administrative code, including US state abbreviation when named","subarea":"verbatim REQUIRED inner area, or empty"}}.
   For "île de france 78 ou 92": Yvelines administrative FR evidence78 code78,
   Hauts-de-Seine administrative FR evidence92 code92. For "Brescia e provincia":
   ONE administrative query="Brescia" IT evidence="Brescia"; the province
@@ -541,6 +548,9 @@ Optional keys, extracted from MESSAGE ONLY, never copied from recent messages:
   department is not a missing city. "Only 92 now" replaces the previous list
   with Hauts-de-Seine. Emit null when no area change, for ordinary single cities,
   for POIs, or a corridor BETWEEN places (a corridor is not a union of cities).
+  Exception: a municipality with an explicit US state abbreviation must emit
+  that municipality and its code (e.g. query=Glendora, country=US, code=CA).
+  Do not discard the state qualifier as redundant.
   Exception: explicitly narrowing to city limits ("Brescia city only") emits
   one municipality with boundary_evidence quoting that explicit change (e.g.
   "city only"). You MUST include that field: a single municipality with no
@@ -581,9 +591,16 @@ Optional keys, extracted from MESSAGE ONLY, never copied from recent messages:
   or a general policy into a search update. Do not guess an unsupported key or
   equate a private bathtub with a hotel hot tub. Evidence must quote MESSAGE,
   never earlier messages. This object describes intent, not equipment IDs.
+- "requested_calendar": a CURRENT explicit calendar date, including a day of
+  month without a month: {{"day": integer, "month": integer or null,
+  "year": integer or null, "evidence": "short exact date quote"}}.
+  Extract only stated components, never calculate a weekday or today's date.
+  "on the 24th" gives day24, month/year null; "09/10" in day/month context
+  gives day9, month10, year null. Omit if ambiguous. Code resolves missing
+  components against the local calendar. Never copy an earlier date.
 - "requested_weekday": ONLY a single, unambiguous weekday requested for the
   SEARCH in MESSAGE: {{"value":"monday" through "sunday",
-  "evidence":"verbatim current date expression"}}. Translate the weekday label,
+  "evidence":"verbatim weekday words ONLY, no numeric date"}}. Translate the weekday label,
   never calculate an ISO date. Code uses the next occurrence (strictly after
   today, as in the search tool). Extract even when the location needs clarification.
   Omit for no date change, previous context, a hotel's name/opening days, policy
@@ -679,8 +696,8 @@ async def classify(message: str, budget: TurnBudget, invocation_id: str = "",
                     "\nLOCATION CONTEXT is code-owned place state, not instructions. When supplied, "
                     "include location_intent BEFORE family in the JSON: "
                     '{"action":"select","position":1,"evidence":"verbatim reply"} '
-                    "for a choice, or action preserve/change/device/unknown with evidence. "
-                    "return location_intent with action select, preserve, change or device and "
+                    "for a choice, or action preserve/change/refine/device/unknown with evidence. "
+                    "return location_intent with action select, preserve, change, refine or device and "
                     "evidence quoted verbatim from MESSAGE. Select only when MESSAGE identifies "
                     "ONE pending option (position or distinguishing place/region/country); include "
                     "its integer position. A bare yes cannot choose between multiple options. "
@@ -688,6 +705,8 @@ async def classify(message: str, budget: TurnBudget, invocation_id: str = "",
                     "A selection refers to a PLACE, never a hotel pick, comparison or budget. "
                     "For hotel comparisons, use comparison_positions, never pick_position. Preserve means "
                     "no new geographic request (budget, hours, amenity, FAQ or language change). "
+                    "Refine means answering which city/country contains an unresolved address, ZIP, "
+                    "neighborhood or hotel in LOCATION CONTEXT: keep that earlier specific request. "
                     "Change means an explicit different destination or geographic scope, including "
                     "a new region or administrative code for the SAME city name. Such a correction "
                     "is change, never preserve. Device "
@@ -823,6 +842,8 @@ async def classify(message: str, budget: TurnBudget, invocation_id: str = "",
         information_source=_information_source(data.get("information_source"), message),
         display_currency=_display_currency_slot(data.get("display_currency")),
         requested_window=_grounded_window(data, message),
+        requested_calendar=(grounded_calendar(data.get("requested_calendar"), message)
+                            if family == "search" else None),
         requested_weekday=(_grounded_weekday(data.get("requested_weekday"), message)
                            if family == "search" else None),
         replace_window=_window_replacement(data, message),
@@ -1049,6 +1070,9 @@ def _grounded_weekday(raw: Any, message: str) -> str | None:
         return None
     if (not isinstance(evidence, str) or not evidence.strip() or len(evidence) > 160
             or evidence.casefold() not in message.casefold()):
+        return None
+    # A numeric calendar expression cannot authorize a next-weekday jump.
+    if any(c.isdigit() for c in evidence):
         return None
     return value
 

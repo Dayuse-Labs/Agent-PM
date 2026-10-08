@@ -21,7 +21,7 @@ INTENT = {"query": "Flughafen Wien Schwechat", "city": "Wien", "country_guess": 
 
 
 @pytest.mark.parametrize("patch", [{"query": "Paris airport"}, {"evidence": "old message"},
-                                    {"city": "Paris"}, {"country_guess": "Austria"},
+                                    {"country_guess": "Austria"},
                                     {"query": ""}, {"city": 3}])
 def test_landmark_must_be_grounded_in_current_request(patch):
     assert grounded_landmark({**INTENT, **patch}, MESSAGE) is None
@@ -65,3 +65,10 @@ def test_airport_intent_overrides_wrong_municipality_and_leaf_device_call(script
     assert args["proximity_lat"] == 48.15 and args["proximity_lon"] == 16.47
     assert not args.get("areas") and not args.get("country_code")
     assert kwargs["query_params"]["landmark_authoritative"] is True
+
+
+def test_valid_landmark_discards_inferred_parent_instead_of_losing_query():
+    result = grounded_landmark({"query": "LAX airport", "city": "Los Angeles",
+                               "country_guess": "US", "evidence": "LAX airport"}, "Near LAX airport")
+    assert result == {"query": "LAX airport", "city": None, "country_guess": "US"}
+    assert grounded_landmark({**INTENT, "city": "Paris"}, MESSAGE)["city"] is None

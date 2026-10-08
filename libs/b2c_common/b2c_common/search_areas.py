@@ -82,7 +82,12 @@ def validate_areas(value: Any, message: str | None = None) -> list[dict[str, str
             words = "".join(c if c.isalnum() else " " for c in message.casefold()).split()
             named = area_name_in_text(clean["query"], message)
             coded = bool(clean.get("code") and clean["code"].casefold() in words)
-            if not named and not coded:
+            compact_query = "".join(c for c in clean["query"].casefold() if c.isalnum())
+            compact_evidence = "".join(c for c in clean["evidence"].casefold() if c.isalnum())
+            normalized_name = bool(compact_query and compact_query == compact_evidence)
+            if clean.get("code") and not coded:
+                return None
+            if not named and not coded and not normalized_name:
                 return None  # "all", "cheaper", etc. cannot invent a new area identity
 
         if clean not in result:

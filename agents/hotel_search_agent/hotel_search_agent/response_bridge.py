@@ -843,17 +843,17 @@ def enforce_resolved_search_origin(
 
 
 def inject_origin_sort(tool: Any, args: dict[str, Any], tool_context: Any) -> None:
-    """Ask MCP for nearest-first results around a verified precise origin.
+    """Ask MCP for nearest-first results around a verified search origin.
 
-    The MCP contract distinguishes city-wide relevance from proximity to a
-    landmark/address/neighbourhood or device location. Sorting only the returned
+    Default relevance can fill a city page with suburbs despite central offers.
+    Resolve geography first; ask MCP to rank around that verified origin. Sorting only the returned
     five cards cannot recover nearer offers omitted by the backend's first page.
     The final schema guard still drops this optional argument on older servers.
     """
     if getattr(tool, "name", "") != "search_offers":
         return None
     origin = tool_context.state.get(_STATE_ANCHOR_KEY)
-    if isinstance(origin, dict) and origin.get("type") in {"poi", "gps"}:
+    if isinstance(origin, dict) and origin.get("type") in {"poi", "gps", "city_centroid"}:
         args["sortBy"] = "distance"
     return None
 

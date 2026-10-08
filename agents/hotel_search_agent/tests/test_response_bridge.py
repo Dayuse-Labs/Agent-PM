@@ -2123,14 +2123,14 @@ class TestVerifiedSearchOrigin:
         inject_origin_sort(_Tool("search_offers"), args, ctx)
         assert args == {"sortBy": "distance", "from": 5, "date": "2026-10-08"}
 
-    @pytest.mark.parametrize("origin", [None, {"type": "city_centroid"}])
-    def test_city_search_keeps_its_existing_order(self, origin):
+    @pytest.mark.parametrize("origin,expected", [(None, "relevance"), ({"type": "city_centroid"}, "distance")])
+    def test_unresolved_search_keeps_order_and_resolved_city_prefers_proximity(self, origin, expected):
         from hotel_search_agent.response_bridge import inject_origin_sort
 
         ctx = _Ctx(state={"temp:hotel_search_anchor": origin})
         args = {"sortBy": "relevance"}
         inject_origin_sort(_Tool("search_offers"), args, ctx)
-        assert args == {"sortBy": "relevance"}
+        assert args == {"sortBy": expected}
 
     def test_sort_does_not_leak_into_named_lookup(self):
         from hotel_search_agent.response_bridge import inject_origin_sort

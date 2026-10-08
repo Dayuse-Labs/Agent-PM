@@ -1235,7 +1235,14 @@ class _B2cConcierge(BaseAgent):
         # 2. Triage (ONE economy LLM + regex fallback). Off the session/stream.
         recent_messages = recent_user_messages(ctx.session.events, message)
         previous_reply = last_assistant_message(ctx.session.events, author=self.name)
-        location_context = context_for_triage(profile.pending_location, profile.confirmed_location)
+        missing_destination_before_triage = not profile.city
+        unresolved_request = not profile.confirmed_location and not profile.distance_origin and not profile.last_results
+        location_context = context_for_triage(
+            profile.pending_location, profile.confirmed_location,
+            unresolved={k: getattr(profile, k) for k in ("city", "zone", "metro", "named_hotel")}
+            if unresolved_request else None,
+            areas=profile.search_areas, device_available=bool(profile.search_anchor and profile.search_anchor.get("type") == "gps"),
+        )
         location_kwargs = {"location_context": location_context} if location_context else {}
         triage = await classify(
             message, budget, inv, recent_messages=recent_messages, previous_reply=previous_reply, **location_kwargs
@@ -1547,10 +1554,17 @@ class _B2cConcierge(BaseAgent):
         if route.target == LEAF_HOTEL_SEARCH and area_update is not None:
             profile.search_areas = area_update if requires_area_membership(area_update) else None
             profile.city = " / ".join(a["query"] for a in area_update)
-            for field in ("state_anchor", "country_anchor", "zone", "metro", "search_anchor", "distance_origin"):
+            for field in ("state_anchor", "country_anchor", "zone", "metro", "distance_origin"):
+                if unresolved_request and location_action == "refine" and field in {"zone", "metro"}:
+                    continue
                 setattr(profile, field, None)
+            # Native GPS remains a provider bias, never the new destination.
+            if not profile.search_anchor or profile.search_anchor.get("type") != "gps":
+                profile.search_anchor = None
             if profile.search_areas is None:
                 profile.country_anchor = area_update[0]["country"]
+                if area_update[0]["country"] == "US" and area_update[0].get("code"):
+                    profile.state_anchor = area_update[0]["code"]
             profile.search_exhausted = False
             profile.consecutive_empty_searches = 0
             profile.widen_attempt_count = 0
@@ -1646,7 +1660,9 @@ class _B2cConcierge(BaseAgent):
         expected_date: str | None = None
         if route.target == LEAF_HOTEL_SEARCH:
             expected_date, from_message = expected_search_date(
-                "" if location_choice and numeric_reply else message, profile.date, reference_today(profile.client_timezone), weekday=triage.requested_weekday
+                "" if location_choice and numeric_reply else message, profile.date, reference_today(profile.client_timezone),
+                weekday=None if location_choice and numeric_reply else triage.requested_weekday,
+                calendar=None if location_choice and numeric_reply else triage.requested_calendar,
             )
             if expected_date and from_message:
                 profile.date = expected_date
@@ -1693,6 +1709,10 @@ class _B2cConcierge(BaseAgent):
 
         budget.charge("leaf_llm")
         query_params: dict[str, Any] = {}
+        if route.target == LEAF_HOTEL_SEARCH and location_action == "device":
+            query_params["device_authoritative"] = True
+        if route.target == LEAF_HOTEL_SEARCH and unresolved_request and location_action == "refine":
+            query_params["pending_request_refinement"] = True
         if route.target == LEAF_HOTEL_SEARCH and landmark_update:
             query_params["landmark_authoritative"] = True
             query_params["landmark_country_guess"] = landmark_update["country_guess"]
@@ -1708,10 +1728,12 @@ class _B2cConcierge(BaseAgent):
             query_params["amenities_authoritative"] = True
         if repeat_search:
             query_params["repeat_previous_search"] = True
-        if recent_messages and (family == "faq" or not profile.city):
+        if recent_messages and (family == "faq" or not profile.city or
+                                (unresolved_request and (location_action == "refine" or
+                                 (missing_destination_before_triage and location_action not in {"change", "device"})))):
             # Recover a place/constraint lost before the first resolved search.
-            # Once the city is known, the profile is authoritative: replaying
-            # older words can revive a budget or filter already replaced.
+            # Only unresolved city intake or an explicit refinement may use
+            # history; an established search keeps its authoritative profile.
             query_params["recent_user_messages"] = recent_messages
         leaf_kwargs: dict[str, Any] = {"query_params": query_params} if query_params else {}
         leaf_text, response = await _run_leaf(

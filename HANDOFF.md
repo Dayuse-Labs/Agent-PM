@@ -1,5 +1,46 @@
 # HANDOFF — AgentB2C
 
+## 2026-10-08 — v56 : lot de corrections après campagne globale recherche
+
+**Pas de GO remplacement. FAQ/annulations reportées en phase 2 par l'utilisateur.**
+Campagne v55 figée a740dd7 : 58 conversations, 320 réponses prod/candidat,
+182 cartes rapprochées des reçus MCP sans erreur de jointure/prix/expiration.
+Ce contrôle ne prouve pas la date demandée ni la pertinence : revue des 58 parcours,
+49 candidats notés (3 A, 18 B, 23 C, 5 D), 9 non notés. Dénominateurs et branches
+conversationnelles différents : aucun taux de victoire global. Sources privées hors Git.
+
+Lot cohérent sans nouvelle regex : contexte géographique non résolu exposé au
+triage ; action refine distincte d'un changement de destination ; quartier conservé
+quand la ville le précise, historique borné sans réactiver les vieux budgets.
+GPS régional transmis comme action détenue par le concierge ; la feuille ne peut
+pas le remplacer par son centre géographique. Noms normalisés Tuenmun/Tuen Mun
+acceptés seulement avec preuve littérale équivalente ; état US explicitement cité
+transmis. Un parent de POI inventé est écarté sans perdre le nom de POI prouvé.
+Dates : composants calendaires extraits, calcul dans le code ; une date numérique
+ne peut plus autoriser un saut au prochain jour de semaine. Une sélection numérique
+de lieu ne change pas la date. Villes résolues triées par distance AVANT pagination
+MCP : le contrôle Paris montre des offres centrales masquées par la pertinence.
+
+Vérifications : 2673 tests passent, 1 ignoré ; après dernier garde de sélection
+numérique, 63 tests ciblés passent ; ruff, mypy 69 fichiers, guardrails verts.
+Les attentes de tri de ville changent intentionnellement ; les mocks HTTP acceptent
+le contexte existant du classifieur sans retirer les assertions de confidentialité.
+
+Diagnostic 12 entrées triage × 2 modèles × 2 tirages : 0,0336108 USD. 4.1-mini
+améliore plusieurs interprétations brutes, mais ne corrige pas tout et une bonne
+extraction JSON ne prouve pas le parcours. Prochain rejeu : code figé de ce lot +
+TRIAGE 4.1-mini LOCAL, feuille 4o-mini/synthèse 5.2 inchangées. Défaut modèle et
+Railway restent inchangés ; résultat combiné, pas attribution causale au modèle seul.
+56 parcours recherche (156 tours), deux cas purement politiques différés ; baseline
+prod v55 conservée pour éviter son coût répété. Revue live et conversations réservées
+encore à faire avant push/actualisation PR. Ne pas annoncer le lot validé en live.
+
+Cumul comptabilisé 104,31279944/110 USD, dont 12,10 de provisions non tarifées.
+Réserve interne réallouée de 5 à 3 USD pour ce rejeu (plafond utilisateur inchangé),
+cap du lot 2,30 USD. Restent notamment récupération géo multilingue London/Canada,
+faits hôtel/créneaux complets, résultats vides et couverture indépendante. Aucun
+merge, déploiement, réservation ou acte client.
+
 ## 2026-10-08 — v54 : reprise après une recherche horaire vide
 
 **Pas de GO remplacement.** Le rejeu Vienne restait C car la synthèse proposait

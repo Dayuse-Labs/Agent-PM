@@ -22,9 +22,12 @@ def grounded_landmark(value: Any, message: str) -> dict | None:
             or query.strip().casefold() not in evidence.casefold()):
         return None
     city = value.get("city")
-    if city is not None and (not isinstance(city, str) or not city.strip()
-                             or city.strip().casefold() not in message.casefold()):
+    if city is not None and (not isinstance(city, str) or not city.strip()):
         return None
+    if city and city.strip().casefold() not in message.casefold():
+        # Keep the grounded landmark query; an inferred parent is not authority.
+        # The provider can resolve an acronym without a model-invented city.
+        city = None
     guess = value.get("country_guess")
     if guess is not None and (not isinstance(guess, str) or len(guess) != 2 or not guess.isascii() or not guess.isalpha()):
         return None
@@ -76,7 +79,8 @@ def pending_location(value: Any) -> dict[str, Any] | None:
     return {"question": value["question"].strip(), "options": valid}
 
 
-def context_for_triage(pending: Any, confirmed: Any) -> dict[str, Any] | None:
+def context_for_triage(pending: Any, confirmed: Any, *, unresolved: dict | None = None,
+                       areas: list | None = None, device_available: bool = False) -> dict[str, Any] | None:
     p, c = pending_location(pending), verified_place(confirmed)
     if p:
         return {"question": p["question"], "options": [
@@ -86,7 +90,14 @@ def context_for_triage(pending: Any, confirmed: Any) -> dict[str, Any] | None:
     if c:
         return {"confirmed_place": c["label"], "region": c["region"],
                 "country": c["country_code"], "administrative_code": c.get("administrative_code")}
-    return None
+    context: dict[str, Any] = {}
+    if unresolved and any(unresolved.values()):
+        context["unresolved_request"] = {k: v for k, v in unresolved.items() if v}
+    if areas:
+        context["requested_areas"] = areas
+    if device_available:
+        context["device_available"] = True  # No coordinates in the triage prompt.
+    return context or None
 
 
 def location_intent(value: Any, message: str, context: dict | None) -> dict | None:
@@ -102,6 +113,6 @@ def location_intent(value: Any, message: str, context: dict | None) -> dict | No
         if isinstance(n, bool) or not isinstance(n, int) or not 1 <= n <= len(options):
             return None
         return {"action": action, "position": n}
-    if action in {"preserve", "change", "device"}:
+    if action in {"preserve", "change", "device", "refine"}:
         return {"action": action}
     return None

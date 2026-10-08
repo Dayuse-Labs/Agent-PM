@@ -20,7 +20,7 @@ from datetime import date, datetime, timedelta
 from typing import Any
 from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
-from b2c_common.date_labels import resolve_relative_day
+from b2c_common.date_labels import resolve_relative_day, resolve_calendar
 
 from .date_format import _MONTHS, _WEEKDAYS, format_date_human
 
@@ -196,7 +196,7 @@ def date_served_notice(requested: str, served: str, language: str) -> str:
 
 
 def expected_search_date(
-    message: str, carried: str | None, today: date, *, weekday: str | None = None
+    message: str, carried: str | None, today: date, *, weekday: str | None = None, calendar: dict | None = None
 ) -> tuple[str | None, bool]:
     """`(expected_iso, from_this_message)`: the day this turn's search must run
     on, or None when code cannot know it. From this message when it names one
@@ -205,6 +205,10 @@ def expected_search_date(
     requested = parse_requested_date(message, today)
     if requested is not None:
         return (requested.isoformat(), True) if requested >= today else (None, True)
+    if calendar is not None:
+        resolved = resolve_calendar(calendar, today)
+        if resolved is not None:
+            return (resolved.isoformat(), True) if resolved >= today else (None, True)
     # Semantic triage supplies an evidence-grounded weekday before the leaf can
     # ask for a place clarification. Share its calendar rule with the leaf.
     if weekday is not None:

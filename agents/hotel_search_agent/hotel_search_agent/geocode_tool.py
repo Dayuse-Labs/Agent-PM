@@ -1067,6 +1067,11 @@ def inject_profile_geo_context(tool: object, args: dict, tool_context: object) -
             args.pop(key, None)
         args.update(city=profile_in.get("city") or "", zone=profile_in.get("zone"),
                     origin="destination", country_guess=(envelope["query_params"].get("landmark_country_guess")))
+    if (envelope.get("query_params") or {}).get("device_authoritative") is True:
+        # Owned semantic action; never let copied leaf destination arguments win.
+        args["origin"] = "device"
+        for key in ("city", "zone", "metro", "country_code", "areas"):
+            args.pop(key, None)
     place = verified_place(profile_in.get("confirmed_location"))
     scope = (place or {}).get("search_context") or {}
     is_poi = bool(place and place["feature_type"] == "poi")
@@ -1154,6 +1159,9 @@ def inject_profile_geo_context(tool: object, args: dict, tool_context: object) -
             args["city"] = profile_in["city"]
             args["country_code"] = profile_in.get("country_anchor")
             for field in ("zone", "metro"):
+                if (envelope.get("query_params") or {}).get("pending_request_refinement") is True and profile_in.get(field):
+                    args[field] = profile_in[field]
+                    continue
                 value = args.get(field)
                 if (not isinstance(value, str) or _echo_fold(value) not in _echo_fold(message)
                         or area_name_in_text(value, profile_in["city"])):
