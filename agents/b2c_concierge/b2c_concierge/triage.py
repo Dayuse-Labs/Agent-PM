@@ -172,6 +172,7 @@ class Triage:
     requested_duration_minutes: int | None = None
     hotel_scope: str | None = None
     requested_budget: dict | None = None
+    price_comparison: str | None = None
     budget_checked: bool = False
     requested_amenities: dict | None = None
     requested_areas: list[dict[str, str]] | None = None
@@ -425,6 +426,12 @@ with these keys (omit the optional keys when there is no signal):
   Also false for an answer accepting any of the preferences just asked by the
   assistant: "all" / "tutte" after a question about morning/afternoon/evening
   accepts any time of day; it does not ask for the next page of hotels.
+- "price_comparison": {{"value":"lower" | "clear", "evidence":"verbatim current phrase"}}
+  when asking for cheaper alternatives than the displayed offers, or explicitly
+  removing that price preference. "Cheaper" is lower even without a number;
+  wants_more_options=false. "The cheapest of these" selects an existing offer,
+  not lower. Omit for neutral more-results requests and numeric budget changes.
+  Code computes the reference from verified offers; never invent an amount.
 - "bare_budget_value": when the message answers a BUDGET question with JUST a
   number, or gives an explicit currency amount ("€120"), that number.
   Otherwise null. "moins de 80 euros" is a sentence, not a bare number → null.
@@ -732,6 +739,7 @@ async def classify(message: str, budget: TurnBudget, invocation_id: str = "",
     if booking_confirmation not in BOOKING_CONFIRMATIONS:
         booking_confirmation = None
     requested_budget = _contextual_budget(data.get("requested_budget"), message, previous_reply)
+    from b2c_common.price_comparison import grounded_price_comparison
     subarea = data.get("requested_subarea")
     subarea_parent = None
     raw_areas = data.get("requested_areas")
@@ -766,6 +774,8 @@ async def classify(message: str, budget: TurnBudget, invocation_id: str = "",
         requested_duration_minutes=_grounded_duration(data, message),
         hotel_scope="shown" if data.get("hotel_scope") == "shown" else None,
         requested_budget=requested_budget,
+        price_comparison=(grounded_price_comparison(data.get("price_comparison"), message)
+                          if family == "search" else None),
         budget_checked="requested_budget" in data or numeric_only_message(message),
         requested_subarea=subarea,
         subarea_parent=subarea_parent if isinstance(subarea_parent, str) else None,
@@ -894,6 +904,12 @@ def _grounded_window(data: dict, message: str) -> tuple[str | None, ...] | None:
         return None
     if not window:
         return window
+    # A model's default 00:00–24:00 for a generic day-room phrase is not a
+    # stated clock window. Do not drop its unsupported start and accidentally
+    # promote the remaining 24:00 into a new departure replacing the old one.
+    if (window == ("00:00", "24:00") and raw.get("end_boundary") != "end_of_day"
+            and not any(_clock_numbers_in_evidence(clock, evidence) for clock in window)):
+        return None
     # Validate each endpoint independently: an invented arrival must not erase
     # a supported departure. 24:00 is the semantic end-of-day value, just as a
     # duration is semantically extracted; the current-message quote is required.

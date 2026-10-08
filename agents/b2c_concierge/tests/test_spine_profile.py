@@ -1990,3 +1990,58 @@ def test_new_destination_replaces_strict_subarea_without_losing_budget(
     assert outgoing['profile_in']['search_areas'] is None
     assert outgoing['profile_in']['city'] == 'Lyon'
     assert outgoing['profile_in']['requested_budget']['amount'] == 100
+
+
+def test_cheaper_overrides_more_flag_and_persists_separate_from_user_budget(monkeypatch, fake_leg, fake_profile_store):
+    import json
+    _scripted_llm(monkeypatch, json.dumps({'family':'search','language':'en','wants_more_options':True,
+                   'price_comparison':{'value':'lower','evidence':'cheaper'},'requested_budget':None}),
+                  'Here are lower-priced alternatives.',
+                  json.dumps({'family':'search','language':'en','wants_more_options':True,'requested_budget':None}),
+                  'Here is another matching option.')
+    runner=InMemoryRunner(root_agent)
+    session=_new_session(runner)
+    origin={'type':'gps','latitude':48.6,'longitude':1.6}
+    asyncio.run(fake_profile_store.set(session.id,SessionProfile(
+        city='Yvelines',date='2026-10-10',amenities=['spa'],distance_origin=origin,search_cursor=2,
+        search_anchor={'type':'gps','lat':48.6,'lon':1.6},requested_budget={},
+        requested_window={'start':'14:30','end':'16:30'},
+        last_results=[{'hotel_id':12,'name':'Example','offer_id':'shown','offer_date':'2026-10-10','offer_totals':{'EUR':11700}}],
+    )))
+    fake_leg.response_payload={'results':[{'id':13,'name':'Lower','offer_id':'lower','offer_date':'2026-10-10','offer_totals':{'EUR':9900}}]}
+    _run_turn(runner,session.id,'Anything cheaper?')
+    outgoing=find_datapart(fake_leg.seen_outgoing_parts)['profile_in']
+    assert outgoing['search_cursor']==0
+    assert outgoing['price_comparison']['reference_minor']==11700
+    assert outgoing['requested_budget']=={}
+    assert outgoing['distance_origin']==origin
+    assert outgoing['requested_window']=={'start':'14:30','end':'16:30'} and outgoing['amenities']==['spa']
+    _run_turn(runner,session.id,'Show other options')
+    outgoing=find_datapart(fake_leg.seen_outgoing_parts)['profile_in']
+    assert outgoing['search_cursor']==1
+    assert outgoing['price_comparison']['reference_minor']==11700
+
+
+def test_price_reference_missing_stops_before_search(monkeypatch, fake_leg, fake_profile_store):
+    _scripted_llm(monkeypatch,'{"family":"search","language":"en","price_comparison":{"value":"lower","evidence":"cheaper"}}')
+    runner=InMemoryRunner(root_agent)
+    session=_new_session(runner)
+    asyncio.run(fake_profile_store.set(session.id,SessionProfile(city='Paris',last_results=[{'hotel_id':12,'name':'Unpriced'}])))
+    answer=_run_turn(runner,session.id,'Anything cheaper?')
+    assert fake_leg.call_count==0 and 'verified total' in answer
+
+
+@pytest.mark.parametrize('update,message', [
+    ('"requested_budget":{"amount":150,"currency":"EUR","unit":"total","evidence":"150 EUR"}', 'max 150 EUR'),
+    ('"price_comparison":{"value":"clear","evidence":"any price"}', 'any price'),
+])
+def test_new_budget_or_price_retraction_clears_only_relative_constraint(monkeypatch,fake_leg,fake_profile_store,update,message):
+    _scripted_llm(monkeypatch,'{"family":"search","language":"en",'+update+'}', 'Matching offers.')
+    runner=InMemoryRunner(root_agent)
+    session=_new_session(runner)
+    asyncio.run(fake_profile_store.set(session.id,SessionProfile(city='Paris',requested_budget={},amenities=['spa'],
+        price_comparison={'relation':'lower','currency':'EUR','reference_minor':11700})))
+    fake_leg.response_payload={'results':[{'id':13,'name':'Example'}]}
+    _run_turn(runner,session.id,message)
+    outgoing=find_datapart(fake_leg.seen_outgoing_parts)['profile_in']
+    assert outgoing['price_comparison'] is None and outgoing['amenities']==['spa']

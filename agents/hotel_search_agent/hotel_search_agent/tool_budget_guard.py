@@ -30,7 +30,7 @@ from __future__ import annotations
 from typing import Any, Callable, Mapping, Optional
 
 from b2c_common.observability import mark_level
-from hotel_search_agent.area_scope import STATE_RESOLUTION
+from hotel_search_agent.area_scope import STATE_RAN, STATE_RESOLUTION
 
 # Same "TOOL BUDGET" prefix as the fleet's directive — `metrics.tool_metric_after`
 # flags `budget_stopped` on exactly that prefix. Wording names the ONE tool that
@@ -68,6 +68,12 @@ def make_per_tool_budget_callback(
             state[_LIMITS_KEY] = dict(limits)
             state[_DEFAULT_KEY] = default_limit
         name = str(getattr(tool, "name", "") or "")
+        if name == "search_offers" and state.get(STATE_RAN):
+            # Reserve the area batch before awaiting its reads. A parallel
+            # duplicate must stop BEFORE filter callbacks mutate shared state;
+            # otherwise a rejected call can erase the successful call's spa,
+            # date or occupancy and persist that loss on the next user turn.
+            return {"ok": False, "error": "Area search already completed; answer from this turn's retrieved sample."}
         if name == "geocode_location" and state.get(STATE_RESOLUTION):
             # One user turn has one verified area plan. Repeated/parallel
             # model geocode calls reuse it rather than spending the geocode

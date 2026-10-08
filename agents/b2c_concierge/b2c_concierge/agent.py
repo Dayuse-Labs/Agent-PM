@@ -69,6 +69,7 @@ Logs carry NO message content (GDPR) — only family/route/timings/counters.
 from __future__ import annotations
 
 from b2c_common.amenities import apply_amenity_update
+from b2c_common.price_comparison import cheaper_reference, comparison_context, reference_question
 from b2c_common.search_budget import budget_notice, budget_question, currency_answer, merge_budget, native_eur_cap, resolve_budget_currency
 
 import asyncio
@@ -829,12 +830,15 @@ class _B2cConcierge(BaseAgent):
                 "not hotels guaranteed to lack it. If results are present, the "
                 "updated search has already run; do not offer to perform it again."
             )
-        if profile.requested_budget and "results" in response:
+        if (profile.requested_budget and "results" in response
+                and (response["results"] or not response.get("price_comparison"))):
             search_context += "; BUDGET VERIFICATION: " + budget_notice(
                 profile.requested_budget, bool(response["results"]), language
             )
-        elif profile.requested_budget == {}:
+        elif profile.requested_budget == {} and not profile.price_comparison:
             search_context += "; No numeric budget was established: never claim any numerical cap or affordability threshold."
+        if response.get("price_comparison") and "results" in response:
+            search_context += "; " + comparison_context(response["price_comparison"], response["results"])
         # Provenance honesty (S12 audit 2026-07-20): a non-explicit budget/
         # timeslot must never be claimed as user-requested (rule 8) — this
         # is independent of auto-widen, so it fires from turn 1 whenever a
@@ -1555,11 +1559,22 @@ class _B2cConcierge(BaseAgent):
                 requested = merge_budget(profile.requested_budget, budget_update, native_currency)
                 if requested is not None:
                     profile.requested_budget = requested
+                    profile.price_comparison = None
                     profile.budget_max = native_eur_cap(requested)
                     profile.budget_request_source = BUDGET_SOURCE_EXPLICIT if requested else None
                     profile.auto_widen_disclosure = None
             elif triage.budget_checked and profile.requested_budget is None and profile.budget_max is None:
                 profile.requested_budget = {}  # no invented cap on "cheaper"
+            if triage.price_comparison == "clear":
+                profile.price_comparison = None
+            elif triage.price_comparison == "lower":
+                reference = cheaper_reference(profile.last_results, profile.display_currency)
+                if reference is None:
+                    await store.set(ctx.session.id, profile)
+                    self._emit_turn_metric(family, "template:price_reference_missing", budget, t_start, "ok", inv)
+                    yield self._final(ctx, reference_question(reply_language))
+                    return
+                profile.price_comparison = reference
             clarification = budget_question(profile.requested_budget, reply_language)
             if clarification:
                 await store.set(ctx.session.id, profile)
@@ -1599,6 +1614,7 @@ class _B2cConcierge(BaseAgent):
         more_options = (
             route.target == LEAF_HOTEL_SEARCH
             and had_search_results
+            and triage.price_comparison is None
             and previous_search_key == pagination_search_key(profile)
             and is_more_options_signal(message, triage.wants_more_options)
         )
@@ -1801,7 +1817,7 @@ class _B2cConcierge(BaseAgent):
             search_context = response.get("search_context")
             page = search_context.get("search_page") if isinstance(search_context, dict) else None
             profile.search_page = page if isinstance(page, dict) and page.get("url") else None
-            if results_count == 0 and not profile.requested_budget and not response.get("area_coverage"):
+            if results_count == 0 and not profile.requested_budget and not profile.price_comparison and not response.get("area_coverage"):
                 # mcp-dayuse#5: the criteria of the search that actually ran,
                 # cited in code — never what the model remembers of the request.
                 no_offers = no_offers_line(response.get("search_context"), reply_language)
@@ -1843,7 +1859,8 @@ class _B2cConcierge(BaseAgent):
                     ),
                 )
                 return
-            maybe_auto_widen(profile)
+            if not profile.price_comparison:
+                maybe_auto_widen(profile)
 
         # `hotels` marker — still before the synthesis, which is the whole point
         # (S06): the shortlist reaches a streaming client ~4-5 s before the text.
@@ -1861,7 +1878,7 @@ class _B2cConcierge(BaseAgent):
             ctx, response, reply_language, build_hotel_picks(profile), profile.search_page
         )
 
-        if profile.requested_budget and response.get("results") == []:
+        if profile.requested_budget and not profile.price_comparison and response.get("results") == []:
             # A capped, paginated retrieval proves only this pool. Avoid an LLM
             # rewriting an unverifiable currency price as global unavailability.
             await store.set(ctx.session.id, profile)
@@ -1916,7 +1933,7 @@ class _B2cConcierge(BaseAgent):
                 metrics_logger.info("concierge_metric=parking_reserve appended=1")
         if date_notice:
             final_text = f"{final_text.rstrip()}\n\n{date_notice}"
-        if profile.requested_budget and "results" in response:
+        if profile.requested_budget and "results" in response and (response["results"] or not profile.price_comparison):
             final_text = f"{final_text.rstrip()}\n\n{budget_notice(profile.requested_budget, bool(response['results']), reply_language)}"
         if currency_notice:
             final_text = f"{final_text.rstrip()}\n\n{currency_notice}"

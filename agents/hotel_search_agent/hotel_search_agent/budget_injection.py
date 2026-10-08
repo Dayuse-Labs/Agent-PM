@@ -23,6 +23,7 @@ import logging
 from typing import Any
 
 from b2c_common.search_budget import native_eur_cap
+from b2c_common.price_comparison import comparison_budget
 
 from hotel_search_agent.response_bridge import find_datapart, positive_budget
 
@@ -68,6 +69,9 @@ def inject_profile_budget(tool: Any, args: dict[str, Any], tool_context: Any) ->
         cap = native_eur_cap(profile["requested_budget"])
         if cap is not None:
             args["priceRangeMax"] = cap
+        relative_cap = native_eur_cap(comparison_budget(profile.get("price_comparison")))
+        if relative_cap is not None:
+            args["priceRangeMax"] = min(cap, relative_cap) if cap is not None else relative_cap
         return None
 
     sent = positive_budget(args.get("priceRangeMax"))
@@ -81,6 +85,9 @@ def inject_profile_budget(tool: Any, args: dict[str, Any], tool_context: Any) ->
             args["priceRangeMax"] = profile_budget
             carried = True
 
+    relative_cap = native_eur_cap(comparison_budget(profile.get("price_comparison"))) if isinstance(profile, dict) else None
+    if relative_cap is not None:
+        args["priceRangeMax"] = min(args.get("priceRangeMax", relative_cap), relative_cap)
     if "priceRangeMax" in args:
         # Content-free counter (flag only): whether the budget came from this
         # message or was carried from the profile.

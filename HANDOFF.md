@@ -1,5 +1,59 @@
 # HANDOFF — AgentB2C
 
+## 2026-10-08 — v47 : prix comparatif et filtres après appels parallèles
+
+**Pas de GO remplacement.** « Moins cher » n’est plus une pagination : le
+triage existant fournit une intention citée, puis le concierge calcule une
+référence sur les totaux indexés des offres précédemment affichées, frais
+compris. Filtrage strict dans la même devise, unités monétaires respectées,
+aucun tauxFX inventé. La contrainte relative reste distincte du budget chiffré ;
+un nouveau budget explicite ou une rétraction la retire. Deux pages maximum
+sous le quota existant ; les zones conservent leur batch borné. La synthèse
+reçoit le résultat calculé et l’économie, sans phase modèle supplémentaire.
+
+Le rejeu a découvert une perte du spa : le modèle émettait deux appels parallèles
+(spa puis massage, clé non prise en charge). Le second était refusé par le batch
+régional APRÈS avoir écrit un filtre vide dans l’état partagé. Le garde bloque
+maintenant ce doublon AVANT les callbacks qui modifient les filtres. Même séquence
+rejouée hors ligne sur HEAD précédent : spa effacé ; code corrigé : profil A2A
+émis puis prochain tour conservent spa. Les intentions non prises en charge ne
+sont pas inventées. Le choix spa/massage complet reste une couverture partielle.
+
+Autres corrections vérifiées : la fenêtre modèle par défaut00:00–24:00 sans
+heure citée ne remplace plus20h ; distance_origin, auparavant filtrée par la vue
+A2A, atteint effectivement la feuille. Aucun ajout de regex ni changement de
+modèle. État Redis dans le concierge, feuilles stateless et LiteLLM conservés.
+
+Rejeu final régional : GPS/date10octobre/spa/20h conservés ;117EUR puis105EUR,
+gain12EUR annoncé correctement. Conversation entière encoreC : formulation
+horaire contradictoire et proximité39–45km seulement. ContrôleUSD explicite :
+prix relatif exercé sansFX, mais parcoursD (horsManhattan, faux origin=device
+au changement de budget, absence affirmée sans recherche). Contrôle neutre
+« autres hôtels / pas forcément moins cher » B, trois pages avec200EUR etminutes.
+
+Étape :61réponses/22revues manuelles A/B/C/D/F sur plusieurs versions.
+Version finale :45réponses, dont33comparant les trois agents sur5nouvelles
+sessions/11messages SQL retrouvés dansLangfuse. Dernier export33601/2000récentes.
+Un GPS arrondi reconstruit depuis la trace, permission de fixture explicitée ;
+requêtes natives incomplètes, origine organique non certifiée. Résultats
+prod/B2C/candidat : piscine privéeHamburg C/D/C ; Zamora B/B/C ; navetteNashville
+C/C/C ; luxe italien A/A/A (un seul tour) ; Pearson8h–14h espèces C/D/D.
+La comparaison utilise l’export legacy et le MCPpréproduction, pas le même
+transport/fraîcheur. Elle ne prouve pas un gain global ni statistique.
+
+2 584tests passés, un ignoré ;18cas supplémentaires depuisv46, ruff/mypy67 et
+contrôles statiques verts.85cartes candidates jointes aux reçusMCP, zéro erreur
+prix/jointure/expiration détectée ; ce contrôle ne prouve pas leur pertinence.
+Coût étape0,576234USD ; cumul97,226945/110USD, provisions12,10 incluses, réserve10
+conservée. Runners payants terminés, aucune action client, merge ou déploiement.
+
+Restent : lieu confirmé sur suivi de budget, Manhattan/Paris18/Gare de Lyon,
+confusionPearson/YYZ/YTZ dans la prose, cartesEUR malgré currencyUSD native,
+navette et piscine privée, faux épuisement global après page vide, échec de
+géocodage présenté comme absence d’offres, FAQ nuits/mineurs et32familles.
+Aucun holdout final. Rapport détaillé privé local, aucune conversation brute
+committée. PR134 reste une correction partielle à reviewer.
+
 ## 2026-10-08 — v46 : origine GPS dans une région et preuves pour la synthèse
 
 **Pas de GO remplacement.** Un suivi « près de moi » reprenait le centre de la

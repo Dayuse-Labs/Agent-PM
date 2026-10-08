@@ -5,6 +5,8 @@ import json
 from types import SimpleNamespace
 
 import pytest
+
+
 from google.adk.runners import InMemoryRunner
 from google.genai import types as genai_types
 
@@ -214,3 +216,13 @@ def test_departure_only_midnight_does_not_exclude_late_starts_or_invent_arrival(
     captured = ctx.state['temp:hotel_search_budget_timeslot']
     assert captured['timeslot_end'] == '24:00'
     assert 'timeslot_start' not in captured
+
+
+def test_unsupported_full_day_placeholder_cannot_overwrite_saved_departure():
+    from b2c_concierge.triage import _grounded_window
+    assert _grounded_window({'requested_window': {
+        'start': '00:00', 'end': '24:00', 'evidence': 'en journée',
+    }}, 'Chambre en journée près de moi') is None
+    assert _grounded_window({'requested_window': {
+        'start': '00:00', 'end': '24:00', 'evidence': '00:00–24:00',
+    }}, '00:00–24:00') == ('00:00', '24:00')

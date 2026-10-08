@@ -568,3 +568,59 @@ def test_subarea_homonym_in_another_city_cannot_resolve_under_parent():
                 for c in original(query, **kw)]
     result = resolve_areas([SUBAREA], SimpleNamespace(geocode_candidates=geocode))
     assert result['error'] == 'area_subarea_unresolved'
+
+
+def test_parallel_rejected_area_call_cannot_erase_applied_spa_on_next_turn(monkeypatch):
+    async def scenario():
+        # Actual v47 failure: triage rejected unknown massage, leaf emitted two
+        # parallel calls: spa, then massage. Only the spa batch read inventory.
+        from inspect import isawaitable
+        from hotel_search_agent.agent import root_agent
+        from hotel_search_agent.equipment_ids import enforce_equipment_filters
+        from hotel_search_agent.response_bridge import STATE_APPLIED_AMENITIES_KEY
+
+        ctx = context()
+        ctx.invocation_id = 'area-parallel-regression'
+        ctx.state[STATE_AREAS] = resolve_areas(AREAS[:1], client())['search_areas']
+        gate = next(cb for cb in root_agent.before_tool_callback if cb.__module__.endswith('tool_budget_guard'))
+        assert root_agent.before_tool_callback.index(gate) < root_agent.before_tool_callback.index(enforce_equipment_filters)
+        released = asyncio.Event()
+        dispatched = asyncio.Event()
+        reads = []
+
+        async def run_async(*, args, tool_context):
+            reads.append(dict(args))
+            dispatched.set()
+            await released.wait()
+            return {'structuredContent': {'results': [], 'total': 0}}
+
+        monkeypatch.setattr('hotel_search_agent.geocode_tool.get_mapbox_client', lambda: SimpleNamespace())
+        tool = SimpleNamespace(name='search_offers', run_async=run_async)
+
+        async def dispatch(args):
+            for callback in (gate, enforce_equipment_filters, search_areas_before_tool):
+                response = callback(tool, args, ctx)
+                if isawaitable(response):
+                    response = await response
+                if response is not None:
+                    capture_after_tool(tool, args, ctx, response)
+                    return response
+            raise AssertionError('Area plan must own dispatch')
+
+        first = asyncio.create_task(dispatch({'amenities': ['spa'], 'date': '2026-10-10'}))
+        await dispatched.wait()
+        second = await dispatch({'amenities': ['massage'], 'date': '2026-10-11'})
+        released.set()
+        await first
+        assert second['ok'] is False and len(reads) == 1
+        assert reads[0]['hotelEquipmentIds'] == [35]
+        assert ctx.state[STATE_APPLIED_AMENITIES_KEY] == ['spa']
+        payload = decode_datapart(emit_search_datapart(ctx).parts[-1])
+        profile = SessionProfile()
+        apply_profile_delta(profile, payload['profile_delta'], 'first search')
+        # The same real envelope the next GPS/budget/time follow-up sends.
+        following = context(SessionProfile.from_dict(profile.to_dict()).to_dict(), 'Near me')
+        args = {}
+        enforce_equipment_filters(tool, args, following)
+        assert args['hotelEquipmentIds'] == [35]
+    asyncio.run(scenario())

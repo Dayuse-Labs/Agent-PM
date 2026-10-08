@@ -196,6 +196,7 @@ class SessionProfile:
     # None = old scalar session; {} = no requested cap; typed dict = user cap.
     # Distinct from the native MCP EUR filter and from display preferences.
     requested_budget: dict[str, Any] | None = None
+    price_comparison: dict[str, Any] | None = None
     # Concierge-grounded clock bounds, distinct from a leaf's source claim.
     # None = legacy/delegated extraction; {} = explicitly no clock constraint.
     requested_window: dict[str, str | None] | None = None
@@ -287,6 +288,7 @@ class SessionProfile:
             "budget_max": self.budget_max,
             "budget_request_source": self.budget_request_source,
             "requested_budget": self.requested_budget,
+            "price_comparison": self.price_comparison,
             "requested_window": self.requested_window,
             "requested_duration_minutes": self.requested_duration_minutes,
             "timeslot": self.timeslot,
@@ -369,7 +371,6 @@ _CONCIERGE_ONLY_KEYS = (
     "last_synthesis_angle",
     "auto_widen_disclosure",
     "named_hotel",
-    "distance_origin",
     "picked_hotel_id",
     "display_currency",
     "requested_currency",
@@ -641,7 +642,7 @@ def apply_profile_delta(
     values, clears, explicit_sets = _normalize_delta(dict(delta))
     known_fields = set(SessionProfile.__dataclass_fields__)
     # User-grounded constraints are concierge-owned, including typed clears.
-    for owned_slot in ("requested_budget", "requested_window", "requested_duration_minutes"):
+    for owned_slot in ("requested_budget", "price_comparison", "requested_window", "requested_duration_minutes"):
         values.pop(owned_slot, None)
         clears.discard(owned_slot)
     if profile.requested_budget is not None:
@@ -1166,6 +1167,7 @@ def record_search_shortlist(profile: SessionProfile, results: list[dict[str, Any
             "offer_id", "offer_date", "price", "price_eur_cents",
             "image_urls", "url", "city", "rating", "rating_count", "stars",
             "hotel_currency_code",
+            "offer_totals",
         ):
             if hotel.get(key) is not None:
                 entry[key] = hotel[key]
@@ -1248,6 +1250,7 @@ def pagination_search_key(profile: SessionProfile) -> str:
         )
     }
     criteria["amenities"] = sorted(profile.amenities)
+    criteria["price_comparison"] = profile.price_comparison
     criteria["requested_budget"] = {
         key: (profile.requested_budget or {}).get(key)
         for key in ("amount", "currency", "unit")

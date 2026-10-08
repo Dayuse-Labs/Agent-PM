@@ -10,6 +10,7 @@ from __future__ import annotations
 
 import math
 from typing import Any, Awaitable
+from b2c_common.price_comparison import comparison_budget
 
 from hotel_search_agent.area_scope import STATE_AREAS
 from hotel_search_agent.response_bridge import (
@@ -29,7 +30,7 @@ def search_budget_pages_before_tool(tool: Any, args: dict[str, Any], tool_contex
     if not reserve_mcp_read(tool_context, "search_offers"):
         return {"ok": False, "error": STOP_MESSAGE}
     profile = read_profile_in(tool_context)
-    cap = profile.get("requested_budget")
+    cap = profile.get("requested_budget") or comparison_budget(profile.get("price_comparison"))
     if not isinstance(cap, dict) or cap.get("unit") != "total":
         return None
     amount, currency = cap.get("amount"), cap.get("currency")
@@ -50,7 +51,7 @@ async def _search(tool: Any, args: dict[str, Any], ctx: Any, cap: dict, profile:
     if not isinstance(payload, dict) or not isinstance(payload.get("results"), list):
         return first
     excluded = set(profile.get("shown_hotel_ids") or []) if profile.get("search_cursor") else None
-    if normalize_search_results(payload, excluded, requested_budget=cap):
+    if normalize_search_results(payload, excluded, requested_budget=cap, price_comparison=profile.get("price_comparison")):
         return first
     offset = payload.get("next_offset")
     current = query.get("from", 0)

@@ -39,6 +39,7 @@ from hotel_search_agent.area_scope import STATE_AREAS, STATE_COVERAGE, STATE_RAN
 
 
 from b2c_common.search_budget import offer_within_budget, resolve_budget_currency
+from b2c_common.price_comparison import offer_totals, offer_below_reference
 
 import asyncio
 import json
@@ -114,6 +115,7 @@ _STATE_NAMED_NOT_FOUND_KEY = "temp:hotel_search_named_not_found"
 # emit. This is what lets the concierge's S12 guards (budget-vs-duration,
 # auto-widen/exhaustion, provenance) finally run on real traffic (S9/S12 gap).
 _STATE_BUDGET_TIMESLOT_KEY = "temp:hotel_search_budget_timeslot"
+_STATE_PRICE_COMPARISON_KEY = "temp:hotel_search_price_comparison"
 _STATE_RADIUS_KEY = "temp:hotel_search_radius_km"
 STATE_ZERO_CHILDREN_KEY = "temp:hotel_search_zero_children"
 _STATE_SEARCH_PAGE_KEY = "temp:hotel_search_search_page"
@@ -636,6 +638,9 @@ def normalize_hotel(
         offers = [o for o in offers if isinstance(o, dict) and _offer_matches(o, exact_window)]
     best = _best_offer(offers, hotel)
     if best:
+        totals = offer_totals(best)
+        if totals:
+            card["offer_totals"] = totals
         shown_price = display_price_euro(best, hotel)
         price = _format_price_eur_cents(shown_price)
         if price:
@@ -699,6 +704,7 @@ def normalize_search_results(
     exclude_ids: set[Any] | None = None,
     exact_window: Window | None = None,
     requested_budget: dict[str, Any] | None = None,
+    price_comparison: dict[str, Any] | None = None,
 ) -> list[dict[str, Any]]:
     """Top-5 compact cards from a tool's structuredContent. Handles the
     `search_offers` envelope (`{"results": [...]}`, confirmed live) and the
@@ -730,11 +736,13 @@ def normalize_search_results(
     for item in items or []:
         if not isinstance(item, dict):
             continue
-        if requested_budget:
+        if requested_budget or price_comparison:
             # Filter every offer before selecting a card or truncating hotels.
             # Never compare an EUR amount to a cap in another currency.
             offers = [o for o in (item.get("offers") or [])
-                      if isinstance(o, dict) and offer_within_budget(o, item, requested_budget)]
+                      if isinstance(o, dict)
+                      and (not requested_budget or offer_within_budget(o, item, requested_budget))
+                      and (not price_comparison or offer_below_reference(o, item, price_comparison))]
             if not offers:
                 continue
             item = {**item, "offers": offers}
@@ -1130,13 +1138,16 @@ def capture_after_tool(
         if daypart in DAYPART_HOURS:
             strict_window = daypart
     requested_budget = read_profile_in(tool_context).get("requested_budget") if name == "search_offers" else None
+    price_comparison = read_profile_in(tool_context).get("price_comparison") if name == "search_offers" else None
+    if name == "search_offers":
+        tool_context.state[_STATE_PRICE_COMPARISON_KEY] = price_comparison
     requested_budget = resolve_budget_currency(requested_budget, tool_context.state.get(_STATE_COUNTRY_KEY))
-    results = normalize_search_results(structured, exclude_ids, strict_window, requested_budget)
+    results = normalize_search_results(structured, exclude_ids, strict_window, requested_budget, price_comparison)
     timeslot_fallback = False
     if strict_window is not None and not results:
         # The exact-minute filter emptied the set: fall back to the coarser
         # hour-rounded results (never a silent 0) — the outcome text discloses it.
-        fallback_results = normalize_search_results(structured, exclude_ids, None, requested_budget)
+        fallback_results = normalize_search_results(structured, exclude_ids, None, requested_budget, price_comparison)
         if fallback_results:
             results = fallback_results
             timeslot_fallback = True
@@ -1150,9 +1161,9 @@ def capture_after_tool(
         stashed = tool_context.state.get(STATE_DATE_FALLBACK_KEY)
         payload = stashed.get("payload") if isinstance(stashed, dict) else None
         if isinstance(payload, dict):
-            swapped = normalize_search_results(payload, exclude_ids, strict_window, requested_budget)
+            swapped = normalize_search_results(payload, exclude_ids, strict_window, requested_budget, price_comparison)
             if not swapped and strict_window is not None:
-                swapped = normalize_search_results(payload, exclude_ids, None, requested_budget)
+                swapped = normalize_search_results(payload, exclude_ids, None, requested_budget, price_comparison)
                 timeslot_fallback = bool(swapped)
             if swapped:
                 results = swapped
@@ -1528,6 +1539,7 @@ def stamp_turn_start(callback_context: Any) -> None:
     / geocode-fail) — `emit_search_datapart` reads it back unconditionally."""
     callback_context.state[_STATE_TURN_T0_KEY] = time.monotonic()
     callback_context.state[_STATE_ANCHOR_KEY] = None
+    callback_context.state[_STATE_PRICE_COMPARISON_KEY] = None
     for key in (STATE_AREAS, STATE_COVERAGE, STATE_RAN, STATE_FAILED, STATE_RESOLUTION):
         callback_context.state[key] = None
     return None
@@ -1793,6 +1805,8 @@ def emit_search_datapart(callback_context: Any) -> genai_types.Content | None:
         payload["area_coverage"] = state[STATE_COVERAGE]
     if results is not None:  # a search ran (even 0 results is a real outcome)
         payload["results"] = results
+        if state.get(_STATE_PRICE_COMPARISON_KEY):
+            payload["price_comparison"] = state[_STATE_PRICE_COMPARISON_KEY]
         if state.get(_STATE_NAMED_ID_KEY) is not None:
             payload["named_hotel_id"] = state[_STATE_NAMED_ID_KEY]
         # S-CX6: WHICH day these results (or this dead end) are about, and

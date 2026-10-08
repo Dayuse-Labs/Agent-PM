@@ -1485,7 +1485,6 @@ class TestLeafProfileView:
             "amenity_claim_corrections",
             "auto_widen_disclosure",
             "named_hotel",
-            "distance_origin",
             "picked_hotel_id",
         ):
             assert key not in view
@@ -1499,6 +1498,7 @@ class TestLeafProfileView:
             "search_anchor", "locale", "language", "client_timezone", "date",
             "timeslot_start", "amenities", "search_cursor", "shown_hotel_ids",
             "budget_max", "timeslot_end", "timeslot", "schema_version",
+            "distance_origin", "price_comparison",
         ):
             assert key in view, f"leaf-consumed or model-visible slot {key!r} missing"
         assert view["search_cursor"] == 5
