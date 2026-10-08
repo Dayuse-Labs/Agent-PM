@@ -1057,8 +1057,8 @@ def inject_profile_geo_context(tool: object, args: dict, tool_context: object) -
     # old area name to appear in "cheaper" or "remove the jacuzzi".
     copied = validate_areas(fresh_areas)
     same_identity = bool(copied and carried and
-        [{k: a.get(k, "") for k in ("query", "kind", "country", "code")} for a in copied]
-        == [{k: a.get(k, "") for k in ("query", "kind", "country", "code")} for a in carried])
+        [{k: a.get(k, "") for k in ("query", "kind", "country", "code", "subarea")} for a in copied]
+        == [{k: a.get(k, "") for k in ("query", "kind", "country", "code", "subarea")} for a in carried])
     if authoritative or (same_identity and not destination_changed):
         scoped = carried
     elif fresh_areas is not None:

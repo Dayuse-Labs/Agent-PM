@@ -31,6 +31,7 @@ class AreaRequest(BaseModel):
     country: str = Field(description="ISO2 country of the requested area, e.g. FR, IT, GB.")
     evidence: str = Field(description="Shortest exact quote from the CURRENT user message naming this area, e.g. 78 or Brescia. Never add words.")
     boundary_evidence: str = Field(default="", description="Exact CURRENT words requiring city limits, e.g. 'only within city limits'. REQUIRED for a single bounded municipality, even on the first turn. Empty for an ordinary city name or country clarification; those use normal city search.")
+    subarea: str = Field(default="", description="Verbatim named geographic subset required INSIDE this area, e.g. rive droite or Le Marais. Preserve the entire subset if composite. Empty only when the whole parent area is allowed; never replace a strict subset with its parent.")
     code: str = Field(default="", description="Administrative code explicitly named, e.g. 78. Omit when only the name was stated.")
 
 
@@ -46,7 +47,7 @@ def validate_areas(value: Any, message: str | None = None) -> list[dict[str, str
     for item in value:
         if isinstance(item, AreaRequest):
             item = item.model_dump(exclude_defaults=True)
-        if not isinstance(item, dict) or set(item) - {"query", "kind", "country", "code", "evidence", "boundary_evidence"}:
+        if not isinstance(item, dict) or set(item) - {"query", "kind", "country", "code", "evidence", "boundary_evidence", "subarea"}:
             return None
         if any(not isinstance(item.get(k), str) or not item[k].strip() for k in ("query", "kind", "country", "evidence")):
             return None
@@ -73,6 +74,10 @@ def validate_areas(value: Any, message: str | None = None) -> list[dict[str, str
             return None
         if clean.get("boundary_evidence") and message is not None and clean["boundary_evidence"].casefold() not in message.casefold():
             return None
+        if item.get("subarea") is not None and not isinstance(item["subarea"], str):
+            return None
+        if clean.get("subarea") and message is not None and clean["subarea"].casefold() not in message.casefold():
+            return None
         if message is not None:
             words = "".join(c if c.isalnum() else " " for c in message.casefold()).split()
             named = area_name_in_text(clean["query"], message)
@@ -92,7 +97,7 @@ def requires_area_membership(areas: list[dict[str, str]] | None) -> bool:
     retain verified membership. This consumes typed intent, never user prose.
     """
     return bool(areas and (len(areas) > 1 or areas[0]["kind"] == "administrative"
-                          or areas[0].get("boundary_evidence")))
+                          or areas[0].get("boundary_evidence") or areas[0].get("subarea")))
 
 
 
@@ -109,9 +114,9 @@ def preserve_area_boundary(previous: list[dict[str, str]] | None,
             old = next((area for area in previous
                         if area.get("query", "").casefold() == new.get("query", "").casefold()
                         and area.get("country") == new.get("country")), None)
-            if (old and (old.get("kind") == "administrative" or old.get("boundary_evidence"))
+            if (old and (old.get("kind") == "administrative" or old.get("boundary_evidence") or old.get("subarea"))
                 and new.get("kind") == "municipality"
-                and not new.get("boundary_evidence")):
+                and not new.get("boundary_evidence") and not new.get("subarea")):
                 retained.append(old)
             else:
                 retained.append(new)

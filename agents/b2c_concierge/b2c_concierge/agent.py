@@ -1309,6 +1309,11 @@ class _B2cConcierge(BaseAgent):
         # yesterday's/earlier window before the update below can be applied.
         # Partial clock answers retain the other bound; explicit clear is ().
         area_update = preserve_area_boundary(profile.search_areas, triage.requested_areas)
+        if (area_update is None and triage.requested_subarea and profile.search_areas
+                and len(profile.search_areas) == 1 and profile.search_areas[0].get("subarea")
+                and (triage.subarea_parent is None or triage.subarea_parent.casefold() == profile.search_areas[0]["query"].casefold())):
+            area_update = [{**profile.search_areas[0], "subarea": triage.requested_subarea}]
+
         amenity_update = triage.requested_amenities
         next_amenities = (
             apply_amenity_update(profile.amenities, amenity_update)
@@ -1609,7 +1614,8 @@ class _B2cConcierge(BaseAgent):
 
         budget.charge("leaf_llm")
         query_params: dict[str, Any] = {}
-        if route.target == LEAF_HOTEL_SEARCH and area_update is not None:
+        if route.target == LEAF_HOTEL_SEARCH and (area_update is not None or
+                (profile.search_areas and any(a.get("subarea") for a in profile.search_areas))):
             query_params["areas_authoritative"] = True
         if route.target == LEAF_HOTEL_SEARCH and amenity_update is not None:
             # Current intent has already been applied by the state owner.

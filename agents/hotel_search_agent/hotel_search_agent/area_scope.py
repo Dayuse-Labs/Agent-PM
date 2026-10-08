@@ -48,13 +48,18 @@ def _same_area_name(query: str, label: str, administrative: bool) -> bool:
     return bool(words) and words == _identity_words(label, administrative)
 
 
-def _resolve_area(item: dict[str, str], client: MapboxClient, language: str | None) -> dict:
+def _resolve_area(item: dict[str, str], client: MapboxClient, language: str | None,
+                  parent: dict | None = None) -> dict:
     types = "region,district" if item["kind"] == "administrative" else "place,locality"
-    candidates = client.geocode_candidates(item["query"], country=item["country"], types=types, language=language)
+    if parent is not None:
+        types = "locality,neighborhood"
+    query = f'{item["subarea"]}, {item["query"]}' if parent is not None else item["query"]
+    candidates = client.geocode_candidates(query, country=item["country"], types=types, language=language)
     matches = [c for c in candidates if c.feature_type in types.split(",")
                and c.country_code == item["country"] and c.mapbox_id
-               and ((item.get("code") and c.administrative_code.casefold() == item["code"].casefold())
-                    or (not item.get("code") and _same_area_name(item["query"], c.name, item["kind"] == "administrative")))]
+               and (parent is None or parent["id"] in c.parent_ids)
+               and ((item.get("code") and parent is None and c.administrative_code.casefold() == item["code"].casefold())
+                    or ((parent is not None or not item.get("code")) and _same_area_name(item["subarea"] if parent is not None else item["query"], c.name, parent is None and item["kind"] == "administrative")))]
     unique = {c.mapbox_id: c for c in matches}
     if len(unique) != 1:
         return {"ok": False, "error": "area_unresolved", "diagnostics": {
@@ -62,6 +67,19 @@ def _resolve_area(item: dict[str, str], client: MapboxClient, language: str | No
             "area": item["query"],
         }}
     candidate = next(iter(unique.values()))
+    if parent is None and item.get("subarea"):
+        # Identity of the parent is required, but its bounding disc need not
+        # fit MCP when the actual requested subset is smaller.
+        child = _resolve_area(item, client, language, parent={"id": candidate.mapbox_id})
+        if not child["ok"]:
+            return {"ok": False, "error": "area_subarea_unresolved", "diagnostics": {
+                "area": item["query"], "subarea": item["subarea"],
+                "reason": "The parent is resolved but the required subset is not verified. Ask for a named neighborhood or precise address inside that subset. Do not ask yes/no confirmation of the same unresolved words or show parent-city hotels as compliant.",
+                "provider_error": child["error"],
+            }}
+        child["area"]["required_parent_id"] = candidate.mapbox_id
+        child["area"]["label"] = item["query"] + " — " + item["subarea"]
+        return child
     bbox = candidate.bbox
     if (bbox is None or not all(math.isfinite(x) for x in bbox)
             or not -180 <= bbox[0] < bbox[2] <= 180
@@ -90,11 +108,11 @@ def resolve_areas(requests: list[dict[str, str]], client: MapboxClient, language
     # area. No substitution, radius expansion or extra provider call is needed.
     outcomes = [_resolve_area(item, client, language) for item in requests]
     resolved = [outcome["area"] for outcome in outcomes if outcome["ok"]]
-    unresolved = [{"query": item["query"], "error": outcome["error"]}
+    unresolved = [{"query": item["query"] + (" — " + item["subarea"] if item.get("subarea") else ""), "error": outcome["error"]}
                   for item, outcome in zip(requests, outcomes, strict=True) if not outcome["ok"]]
     if not resolved:
         failure = dict(outcomes[0])
-        if failure["error"] == "area_exceeds_search_radius":
+        if failure["error"] in {"area_exceeds_search_radius", "area_subarea_unresolved"}:
             failure["profile_delta"] = {"search_areas": requests, "last_city": failure["diagnostics"]["area"]}
         return {**failure, "unresolved_areas": unresolved}
     first = resolved[0]
@@ -136,7 +154,8 @@ async def _search_areas(tool: Any, args: dict[str, Any], tool_context: Any, area
     # coordinates/radius can alter the provider-derived retrieval geometry.
     async def retrieve(area: dict) -> dict | None:
         query = {**args, "lat": area["latitude"], "lon": area["longitude"],
-                 "radiusKm": area["radius_km"], "size": PAGE_SIZE, "sortBy": "relevance"}
+                 "radiusKm": area["radius_km"], "size": PAGE_SIZE,
+                 "sortBy": "distance" if area.get("required_parent_id") else "relevance"}
         try:
             raw = await tool.run_async(args=query, tool_context=tool_context)
         except Exception:
@@ -171,7 +190,8 @@ async def _search_areas(tool: Any, args: dict[str, Any], tool_context: Any, area
         identifiers = await asyncio.to_thread(client.containing_area_ids, lat, lon)
         if identifiers is None:
             return None, True
-        matching = [a for a in areas if identifiers.intersection(a.get("identities") or [a["id"]])]
+        matching = [a for a in areas if identifiers.intersection(a.get("identities") or [a["id"]])
+                    and (not a.get("required_parent_id") or a["required_parent_id"] in identifiers)]
         if not matching:
             return None, False
         return {**hotel, "verifiedSearchAreas": [a["label"] for a in matching],

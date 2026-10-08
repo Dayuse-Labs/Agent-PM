@@ -484,3 +484,87 @@ def test_failed_owned_area_plan_cannot_search_model_coordinates(monkeypatch):
     result = enforce_resolved_search_origin(SimpleNamespace(name='search_offers'), {'lat': 1, 'lon': 2}, ctx)
     assert result['error'] == 'area_unresolved'
     assert not ctx.state.get(STATE_AREAS)
+
+
+def test_strict_subarea_is_grounded_and_survives_parent_confirmation():
+    from b2c_common.search_areas import preserve_area_boundary
+    scope = {'query': 'Paris', 'kind': 'municipality', 'country': 'FR',
+             'evidence': 'Paris', 'boundary_evidence': 'seulement', 'subarea': 'rive droite'}
+    assert validate_areas([scope], 'Paris rive droite seulement') == [scope]
+    assert validate_areas([scope], 'Paris seulement') is None
+    repeated = [{k: v for k, v in scope.items() if k not in ('subarea', 'boundary_evidence')}]
+    assert preserve_area_boundary([scope], repeated) == [scope]
+    widened = [{**repeated[0], 'boundary_evidence': 'toute la ville'}]
+    assert preserve_area_boundary([scope], widened) == widened
+
+
+def _subarea_provider(*, child=True):
+    parent = replace(candidate('Paris', '', 'paris'), feature_type='place', bbox=(2.22, 48.81, 2.42, 48.90))
+    subset = replace(candidate('Le Marais', '', 'marais'), feature_type='neighborhood', parent_ids=('paris',), bbox=(2.35, 48.85, 2.37, 48.87))
+    calls = []
+    def geocode(query, **kwargs):
+        calls.append(query)
+        return [parent] if query == 'Paris' else [subset] if child else []
+    return SimpleNamespace(geocode_candidates=geocode), calls
+
+
+SUBAREA = {'query': 'Paris', 'kind': 'municipality', 'country': 'FR',
+           'evidence': 'Paris', 'boundary_evidence': 'only', 'subarea': 'Le Marais'}
+
+
+def test_unresolved_inner_area_never_becomes_verified_parent():
+    provider, calls = _subarea_provider(child=False)
+    result = resolve_areas([SUBAREA], provider)
+    assert result['ok'] is False
+    assert result['error'] == 'area_subarea_unresolved'
+    assert result['diagnostics']['subarea'] == 'Le Marais'
+    assert result['profile_delta']['search_areas'] == [SUBAREA]
+    assert calls == ['Paris', 'Le Marais, Paris']
+
+
+def test_partial_alternative_keeps_unresolved_inner_area_label():
+    provider, _ = _subarea_provider(child=False)
+    other = {k: v for k, v in SUBAREA.items() if k != 'subarea'}
+    result = resolve_areas([SUBAREA, other], provider)
+    assert result['ok']
+    assert result['unresolved_areas'][0]['query'] == 'Paris — Le Marais'
+    assert len(result['search_areas']) == 1
+
+
+def test_area_membership_requires_parent_and_subarea_not_either(monkeypatch):
+    provider, _ = _subarea_provider()
+    resolved = resolve_areas([SUBAREA], provider)
+    assert resolved['ok']
+    area = resolved['search_areas'][0]
+    assert area['label'] == 'Paris — Le Marais'
+    assert area['radius_km'] < 5
+    ctx = context()
+    capture_after_tool(SimpleNamespace(name='geocode_location'), {}, ctx, resolved)
+    ids = {1: {'paris'}, 2: {'marais'}, 3: {'paris', 'marais'}, 4: None}
+    reverse = SimpleNamespace(containing_area_ids=lambda lat, lon: ids[int(lat)])
+    monkeypatch.setattr('hotel_search_agent.geocode_tool.get_mapbox_client', lambda: reverse)
+    async def run_async(*, args, tool_context):
+        assert args['sortBy'] == 'distance'
+        return {'structuredContent': {'results': [{'hotelId': i, 'lat': i, 'lon': 2} for i in ids]}}
+    result = asyncio.run(search_areas_before_tool(SimpleNamespace(name='search_offers', run_async=run_async), {}, ctx))
+    assert [h['hotelId'] for h in result['structuredContent']['results']] == [3]
+    assert ctx.state[STATE_COVERAGE]['unverified'] == 1
+
+
+def test_forward_subarea_parent_identity_is_not_its_own_id():
+    payload = {'features': [{'geometry': {'coordinates': [2.1, 48.8]}, 'properties': {
+        'name': 'Quarter', 'feature_type': 'neighborhood', 'mapbox_id': 'quarter',
+        'context': {'neighborhood': {'mapbox_id': 'quarter'}, 'place': {'mapbox_id': 'parent'},
+                    'country': {'country_code': 'FR', 'mapbox_id': 'country'}}}}]}
+    parsed = MapboxClient._parse_candidates(payload)[0]
+    assert 'parent' in parsed.parent_ids and 'quarter' not in parsed.parent_ids
+
+
+def test_subarea_homonym_in_another_city_cannot_resolve_under_parent():
+    provider, _ = _subarea_provider()
+    original = provider.geocode_candidates
+    def geocode(query, **kw):
+        return [replace(c, parent_ids=('other-city',)) if c.feature_type == 'neighborhood' else c
+                for c in original(query, **kw)]
+    result = resolve_areas([SUBAREA], SimpleNamespace(geocode_candidates=geocode))
+    assert result['error'] == 'area_subarea_unresolved'

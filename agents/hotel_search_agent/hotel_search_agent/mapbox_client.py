@@ -73,6 +73,7 @@ class GeocodeCandidate:
     mapbox_id: str = ""
     administrative_code: str = ""
     wikidata_id: str = ""
+    parent_ids: tuple[str, ...] = ()
 
     def as_result(self) -> GeocodeResult:
         return GeocodeResult(
@@ -196,7 +197,7 @@ class MapboxClient:
             return self._cache[key]
         data = self._request({
             "latitude": str(latitude), "longitude": str(longitude),
-            "types": "region,district,place,locality", "access_token": self._token,
+            "types": "region,district,place,locality,neighborhood", "access_token": self._token,
         }, reverse=True)
         if data is None:
             return None  # do not cache transient verification failures
@@ -320,6 +321,11 @@ class MapboxClient:
                     rank=rank,
                     mapbox_id=str(props.get("mapbox_id") or ""),
                     administrative_code=str(region_ctx.get("region_code") or ""),
+                    parent_ids=tuple(sorted({
+                        str(value["mapbox_id"])
+                        for key, value in context.items()
+                        if key != props.get("feature_type") and isinstance(value, dict) and value.get("mapbox_id")
+                    })),
                     wikidata_id=str(props.get("wikidata_id") or
                                     (context.get(props.get("feature_type")) or {}).get("wikidata_id") or ""),
                 )

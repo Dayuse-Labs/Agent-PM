@@ -175,6 +175,8 @@ class Triage:
     budget_checked: bool = False
     requested_amenities: dict | None = None
     requested_areas: list[dict[str, str]] | None = None
+    requested_subarea: str | None = None
+    subarea_parent: str | None = None
     requested_weekday: str | None = None
     information_source: str | None = None
 
@@ -492,7 +494,7 @@ Optional keys, extracted from MESSAGE ONLY, never copied from recent messages:
   {{"query":"full area name","kind":"administrative" or "municipality",
   "country":"ISO2","evidence":"shortest verbatim current quote",
   "boundary_evidence":"verbatim city-limit restriction, or empty string",
-  "code":"optional stated code"}}.
+  "code":"optional stated code","subarea":"verbatim REQUIRED inner area, or empty"}}.
   For "île de france 78 ou 92": Yvelines administrative FR evidence78 code78,
   Hauts-de-Seine administrative FR evidence92 code92. For "Brescia e provincia":
   ONE administrative query="Brescia" IT evidence="Brescia"; the province
@@ -507,7 +509,22 @@ Optional keys, extracted from MESSAGE ONLY, never copied from recent messages:
   Example MESSAGE="Solo entro i confini della città di Brescia, non in provincia."
   -> requested_areas=[{{"query":"Brescia","kind":"municipality","country":"IT",
   "evidence":"Brescia","boundary_evidence":"Solo entro i confini della città"}}].
+  When REPLACING an already restricted inner area with a new ordinary city,
+  emit that new municipality with empty boundary_evidence and empty subarea,
+  so the previous restriction is removed. Only actual named places are areas:
+  a reference to the user's own position is NOT a municipality name. Leave
+  requested_areas null for such references; device location is supplied by code.
+  A restriction INSIDE a city is not satisfied by that city's boundary.
+  For a strict neighborhood/bank/district requirement, emit the parent area
+  AND subarea with the complete verbatim inner-area constraint. Never discard
+  any part of a composite subset: preserve it even if it may not be geocodable.
+  Example "Paris rive droite seulement": query Paris, municipality FR,
+  evidence Paris, boundary_evidence seulement, subarea "rive droite".
   Apply the restriction this turn; do not wait for another confirmation.
+  "requested_subarea": when answering a question asking to specify a neighborhood
+  INSIDE the current restricted area, quote the named neighborhood from MESSAGE.
+  This refines the carried area, not a new city. Null for budget/time replies,
+  repeated confirmations, unrestricted POI searches or a new destination.
   Repeating a place name or adding its country is NOT a boundary
   change: preserve the province and emit null in that case.
   Do not copy old area names into evidence for a non-geographic follow-up.
@@ -705,6 +722,20 @@ async def classify(message: str, budget: TurnBudget, invocation_id: str = "",
     if booking_confirmation not in BOOKING_CONFIRMATIONS:
         booking_confirmation = None
     requested_budget = _contextual_budget(data.get("requested_budget"), message, previous_reply)
+    subarea = data.get("requested_subarea")
+    subarea_parent = None
+    raw_areas = data.get("requested_areas")
+    # A clarification often repeats the old parent in the model's object. Its
+    # name is not in this message, so it cannot be a NEW destination; preserve
+    # only the literal subset, conditional on the concierge's existing parent.
+    if not subarea and isinstance(raw_areas, list) and len(raw_areas) == 1 and isinstance(raw_areas[0], dict):
+        subarea = raw_areas[0].get("subarea")
+        subarea_parent = raw_areas[0].get("query")
+    if (family != "search" or not isinstance(subarea, str) or not subarea.strip()
+            or subarea.strip().casefold() not in message.casefold()):
+        subarea = None
+    else:
+        subarea = subarea.strip()
     return Triage(
         family,
         language,
@@ -726,6 +757,8 @@ async def classify(message: str, budget: TurnBudget, invocation_id: str = "",
         hotel_scope="shown" if data.get("hotel_scope") == "shown" else None,
         requested_budget=requested_budget,
         budget_checked="requested_budget" in data or numeric_only_message(message),
+        requested_subarea=subarea,
+        subarea_parent=subarea_parent if isinstance(subarea_parent, str) else None,
         requested_areas=(validate_areas(data.get("requested_areas"), message)
                          if family in {"search", "booking"} else None),
         requested_amenities=(

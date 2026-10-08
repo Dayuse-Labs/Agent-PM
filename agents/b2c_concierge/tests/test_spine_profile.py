@@ -1920,3 +1920,72 @@ def test_general_policy_source_routes_faq_without_clearing_search_window(monkeyp
     assert fake_leg.call_count == 1
     saved = asyncio.run(fake_profile_store.get(session.id))
     assert saved.timeslot_start == '15:00' and saved.date == '2026-10-10'
+
+
+@pytest.mark.parametrize('message,subarea,expected', [
+    ('Le Marais', 'Le Marais', 'Le Marais'),
+    ('Moins cher', None, 'rive droite'),
+    ('À 14h', 'Le Marais', 'rive droite'),
+])
+def test_strict_subarea_clarification_keeps_parent_and_other_filters(
+    monkeypatch, fake_leg, fake_profile_store, message, subarea, expected
+):
+    import json
+    area = {'query': 'Paris', 'kind': 'municipality', 'country': 'FR', 'evidence': 'Paris',
+            'boundary_evidence': 'seulement', 'subarea': 'rive droite'}
+    fake_leg.response_payload = {'results': [], 'profile_delta': {}}
+    _scripted_llm(monkeypatch, json.dumps({'family': 'search', 'language': 'fr',
+                                          'requested_subarea': subarea}), 'No verified offers.')
+    runner = InMemoryRunner(root_agent)
+    session = _new_session(runner)
+    asyncio.run(fake_profile_store.set(session.id, SessionProfile(
+        city='Paris', search_areas=[area], date='2026-10-10',
+        requested_budget={'amount': 100, 'currency': 'EUR', 'unit': 'total'},
+    )))
+    _run_turn(runner, session.id, message)
+    outgoing = find_datapart(fake_leg.seen_outgoing_parts)
+    assert outgoing['profile_in']['search_areas'] == [{**area, 'subarea': expected}]
+    saved = asyncio.run(fake_profile_store.get(session.id))
+    assert saved.search_areas == [{**area, 'subarea': expected}]
+    assert saved.date == '2026-10-10' and saved.requested_budget['amount'] == 100
+
+
+@pytest.mark.parametrize('parent,expected', [('Paris', 'Le Marais'), ('Lyon', 'rive droite')])
+def test_clarification_model_repeated_parent_never_becomes_new_destination(
+    monkeypatch, fake_leg, fake_profile_store, parent, expected
+):
+    import json
+    area = {'query': 'Paris', 'kind': 'municipality', 'country': 'FR', 'evidence': 'Paris',
+            'boundary_evidence': 'seulement', 'subarea': 'rive droite'}
+    raw = {**area, 'query': parent, 'subarea': 'Le Marais', 'evidence': 'Le Marais'}
+    fake_leg.response_payload = {'results': [], 'profile_delta': {}}
+    _scripted_llm(monkeypatch, json.dumps({'family': 'search', 'language': 'fr',
+                                          'requested_areas': [raw]}), 'No verified offers.')
+    runner = InMemoryRunner(root_agent)
+    session = _new_session(runner)
+    asyncio.run(fake_profile_store.set(session.id, SessionProfile(city='Paris', search_areas=[area])))
+    _run_turn(runner, session.id, 'Le Marais')
+    outgoing = find_datapart(fake_leg.seen_outgoing_parts)
+    assert outgoing['profile_in']['search_areas'] == [{**area, 'subarea': expected}]
+    assert outgoing['query_params']['areas_authoritative'] is True
+
+
+def test_new_destination_replaces_strict_subarea_without_losing_budget(
+    monkeypatch, fake_leg, fake_profile_store
+):
+    import json
+    old = {'query': 'Paris', 'kind': 'municipality', 'country': 'FR', 'evidence': 'Paris',
+           'boundary_evidence': 'seulement', 'subarea': 'rive droite'}
+    new = {'query': 'Lyon', 'kind': 'municipality', 'country': 'FR', 'evidence': 'Lyon'}
+    fake_leg.response_payload = {'results': [], 'profile_delta': {}}
+    _scripted_llm(monkeypatch, json.dumps({'family': 'search', 'language': 'fr',
+                                          'requested_areas': [new]}), 'Search completed.')
+    runner = InMemoryRunner(root_agent)
+    session = _new_session(runner)
+    asyncio.run(fake_profile_store.set(session.id, SessionProfile(city='Paris', search_areas=[old],
+        requested_budget={'amount': 100, 'currency': 'EUR', 'unit': 'total'})))
+    _run_turn(runner, session.id, 'Finalement Lyon')
+    outgoing = find_datapart(fake_leg.seen_outgoing_parts)
+    assert outgoing['profile_in']['search_areas'] is None
+    assert outgoing['profile_in']['city'] == 'Lyon'
+    assert outgoing['profile_in']['requested_budget']['amount'] == 100

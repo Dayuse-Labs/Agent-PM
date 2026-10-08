@@ -1,5 +1,52 @@
 # HANDOFF — AgentB2C
 
+## 2026-10-08 — v42 : secteurs intérieurs et clarification persistante
+
+**Pas de GO remplacement.** La prod Railway et son main sont a08a779 ;
+USE_LOCATION_RESOLVER=true, LOCATION_RESOLVER_MODE=authoritative. Son contrat
+résoudre/vérifier/clarifier/mémoriser inspire la séparation concierge/feuille :
+la ville seule ne prouve plus une restriction à un secteur intérieur.
+
+AreaRequest.subarea conserve la citation de la zone requise. Identité du parent
+et du secteur sont contrôlées au géocodage puis ensemble au reverse de chaque
+hôtel. Un homonyme dans une autre ville est rejeté. Un parent non résolu ne peut
+pas être remplacé ; secteur non résolu demande une précision exploitable.
+Le concierge consomme une précision de quartier dans le parent déjà conservé,
+maintient le périmètre sur les suivis et le remplace sur une nouvelle ville.
+Tri distance MCP pour les quartiers précis ; géométrie fournisseur, pas de
+polygone inventé. Jusqu’à deux forward par zone bornée et quinze reverse,
+sans nouvelle phase LLM, regex ou dépendance. Aucun changement de modèle.
+
+**2 537 tests passés, un ignoré**, ruff/mypy66/guardrails verts ; douze nouveaux
+tests. **45 réponses /23 revues**, quatre versions candidates. La comparaison
+sur cinq nouvelles sessions/six messages réels comprend18réponses sur les trois
+agents, version candidatev42c. Version finalev42d :7réponses/3cas exposés ; pas de
+nouveau holdout. Paris ajoute3tours synthétiques de diagnostic, non historiques.
+Premier rejeu perdait le secteur après précision ; corrigé. Puis tri relevance
+ne récupérait que des hôtels hors Marais ; distance retrouve Jacques de Molay.
+Dernier rejeu : restriction/100EUR conservés, hôtel vérifié au3e tour ; page
+suivante sans carte hors quartier au4e ; Lyon remplace Paris au5e. NoteC : rive
+droite complète non résolue, clarification nécessaire, réponse vide perfectible.
+IDF et Arcadia restentC sur contrôlesv42b. 59cartes candidates vérifiées sur
+les cinq lots, dont6finales ; zéro écart prix/date/minutes ou expiration.
+
+Comparaison nouvelle legacy/B2C/candidat : TorontoB/B/B ; deux nuitsA/B/D ;
+romantique sans villeA/A/A ; GPS italienC/C/D ; near-me sans GPSA/A/A.
+Le triage candidat classait me comme municipalité, supprimant le GPS ; corrigé
+avant publication. Rejeu : GPS conservé, mais la feuille géocode camera a uso
+diurno comme zone et échoue. Ce défaut resteD. Deux nuits : family=booking,
+template ville/date sans expliquer la limite produit, resteD. À traiter ensuite
+avec contrat sémantique, jamais ajout de listes de mots ou regex.
+
+Export33538lignes/2000récentes,6messages nouveaux/5sessions/6tracesLangfuse exactes,
+2GPS arrondis récupérés. Payload natif et provenance organique non certifiés ;
+permission GPS reconstruite explicitement. Exportlegacy vs MCPpréproductionlive
+restent distincts. MainB2C fetched inchangécbe88b9. Données brutes horsGit.
+Les32familles restent incomplètes ; aucune supériorité globale démontrée.
+Coût étape0.34206931999199999480USD ; cumul94.23525409841899897745/110, provisions11,10 incluses,
+réserve10 conservée. Aucun booking/cancel/refund, merge ou déploiement.
+
+
 ## 2026-10-08 — v41 : provenance et identité géographiques
 
 **Pas de GO remplacement.** Les noms de zones acceptent les variantes de
