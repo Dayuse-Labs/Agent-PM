@@ -1,5 +1,53 @@
 # HANDOFF — AgentB2C
 
+## 2026-10-08 — v27 : challenge triage et preuves d’extraction
+
+**Pas de GO remplacement ; aucun changement de modèle par défaut.**
+65 nouvelles réponses / 33 revues manuelles A/B/C/D/F : comparaison de triage
+4o-mini / 4.1-mini sur le même code (32 réponses), quatre ouvertures SQL rejouées
+sur ancien prod / B2C déployé / candidat (12), puis corrections/rejeux (21).
+13 réponses utilisent la source finale. Les cas de modèles sont exposés, un
+passage par configuration : aucun taux populationnel ni supériorité générale.
+
+Deux corrections sans regex ni appel LLM supplémentaire : un code administratif
+optionnel `null` ne supprime plus toute la zone nommée ; les chiffres des heures
+et minutes extraites doivent avoir une preuve dans leur citation. Une date seule
+créait 00:00–23:59 et éliminait les offres. Le dernier rejeu capture la MÊME
+extraction erronée de 4o-mini, désormais rejetée ; la province retourne une offre.
+Ce contrôle numérique est nécessaire, pas un oracle sémantique date/heure.
+
+**2 370 tests passés, un ignoré**, ruff, mypy (63 fichiers) et guardrails verts. 12 nouveaux
+cas ; quatre échecs reproduits avant correction (code null + trois horaires
+sans preuve). La fixture du test de conservation horaire a été alignée : une
+réponse 17:30 cite maintenant 17h30, et une suppression cite une suppression ;
+les assertions de conservation/échec feuille restent inchangées.
+
+4.1-mini préserve la province dans le parcours réel, mais échoue aussi à appliquer
+la restriction explicite à la ville. Les deux modèles peuvent transformer Paris
+en périmètre municipal strict et ne rien afficher. Le parcours de restriction
+reste D, la ville simple C, le contrôle de cinq suivis final B. La frontière
+explicite, les corridors, équipements privatifs/inclus, synthèse des créneaux,
+conditions/âge, occupation, FAQ/annulations et matrice historique restent ouverts.
+
+**72 cartes** jointes aux reçus MCP, zéro écart prix/jointure/expiration ;
+**43 plafonds frais compris** vérifiés. Sur source finale :17 cartes / 11 plafonds.
+Ces chiffres ne valident pas la pertinence : des cartes hors ville explicitement
+requise sont conservées comme échecs. L’audit administratif initial comprend
+quatre cartes sans reçu inverse : absence de preuve, pas preuve hors province.
+
+Export SQL : 33 301 lignes / 2 000 récents, quatre nouvelles sessions hors IDs campagne et
+quatre traces Langfuse retrouvées. Deux sessions mobiles ont un payload natif
+original manquant ; leur rejeu est explicitement partiel, sans note de parité
+GPS/favoris/habitudes. Bloc rendu Langfuse conservé en privé, pas réinjecté comme
+requête exacte. Provenance organique non certifiée par l’API SQL.
+
+Étape **0,58934 USD** ; cumul **86,92876 / 110 USD**, provisions 11,10 incluses,
+réserve 10. Seize appels de triage par modèle coûtent respectivement 0,01034 USD
+et 0,02815 USD : économie insuffisante pour justifier une baisse de qualité,
+mais ce petit échantillon ne valide aucun remplacement global. Aucun runner
+payant actif. Rapports privés v27-summary/v27-review et source avec 63 empreintes.
+Aucun merge, déploiement ou écriture Railway.
+
 ## 2026-10-08 — v26 : périmètres administratifs et suivis
 
 **Pas de GO remplacement.** Le concierge conserve maintenant les demandes de

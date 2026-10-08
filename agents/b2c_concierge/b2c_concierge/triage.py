@@ -733,6 +733,43 @@ def _requested_window_slot(value: Any) -> tuple[str | None, ...] | None:
     return tuple(value)
 
 
+def _clock_numbers_in_evidence(clock: str, evidence: str) -> bool:
+    """Require a numeric hour/minute witness, without interpreting user intent.
+
+    This is a necessary check, not a semantic date/time classifier. Both 12h
+    and 24h representations are allowed. Adjacent colon/h/dot minutes belong
+    to their own hour; digits elsewhere in a date cannot invent a full day.
+    Written-out expressions remain delegated to the existing search leaf.
+    """
+    runs: list[tuple[int, int]] = []
+    start: int | None = None
+    for index, char in enumerate(evidence + " "):
+        if char.isascii() and char.isdigit():
+            if start is None:
+                start = index
+        elif start is not None:
+            runs.append((start, index))
+            start = None
+    hour, minute = (int(part) for part in clock.split(":"))
+    for index, (begin, end) in enumerate(runs):
+        if end - begin > 2:
+            continue
+        if index and evidence[runs[index - 1][1]:begin].strip().casefold() in {":", "h", "."}:
+            continue  # This run supplies the preceding hour's minutes.
+        if int(evidence[begin:end]) not in {hour, hour % 12 or 12}:
+            continue
+        stated_minute = 0
+        if index + 1 < len(runs):
+            next_begin, next_end = runs[index + 1]
+            if evidence[end:next_begin].strip().casefold() in {":", "h", "."}:
+                if next_end - next_begin > 2:
+                    continue
+                stated_minute = int(evidence[next_begin:next_end])
+        if stated_minute == minute:
+            return True
+    return False
+
+
 def _grounded_window(data: dict, message: str) -> tuple[str | None, ...] | None:
     raw = data.get("requested_window")
     if not isinstance(raw, dict):
@@ -752,7 +789,8 @@ def _grounded_window(data: dict, message: str) -> tuple[str | None, ...] | None:
         return None
     # Numeric-clock evidence is required for this optional fast extraction.
     # Written-out times still go through the search leaf's existing extraction.
-    if window and not any(c.isascii() and c.isdigit() for c in evidence):
+    if window and not all(_clock_numbers_in_evidence(clock, evidence)
+                          for clock in window if clock is not None):
         return None
     return window
 

@@ -479,6 +479,22 @@ def test_window_requires_evidence_in_current_message(data, message, expected):
     assert triage_module._grounded_window(data, message) == expected
 
 
+@pytest.mark.parametrize("evidence,start,end,expected", [
+    ("per il 10 ottobre", "00:00", "23:59", None),
+    ("October 10", "09:00", "18:00", None),
+    ("10h30 à 17h", "10:00", "17:30", None),
+    ("10h30 à 17h", "10:30", "17:00", ("10:30", "17:00")),
+    ("2:30pm to 8pm", "14:30", "20:00", ("14:30", "20:00")),
+    ("until 6pm", None, "18:00", (None, "18:00")),
+    ("00:00–23:59", "00:00", "23:59", ("00:00", "23:59")),
+    ("10:17", None, "17:00", None),
+    ("9" * 5000, "09:00", None, None),
+])
+def test_extracted_clock_endpoints_must_appear_in_their_evidence(evidence, start, end, expected):
+    data = {"requested_window": {"start": start, "end": end, "evidence": evidence}}
+    assert triage_module._grounded_window(data, evidence) == expected
+
+
 @pytest.mark.parametrize('raw,expected', [
     ({'replace': True, 'evidence': 'in the morning instead'}, True),
     ({'replace': True, 'evidence': 'yesterday'}, False),

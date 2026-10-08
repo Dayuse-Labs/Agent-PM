@@ -67,6 +67,24 @@ def test_invalid_or_unquoted_area_cannot_set_scope(value):
     assert validate_areas(value, "78 ou 92") is None
 
 
+def test_null_optional_code_keeps_named_province_and_provider_resolution():
+    # Triage can emit JSON null for an optional code on a named province.
+    # Discarding the entire extraction silently sends the leaf to a city search.
+    area = {"query": "Brescia", "kind": "administrative", "country": "IT",
+            "evidence": "Brescia e provincia", "code": None}
+    validated = validate_areas([area], "Un hotel a Brescia e provincia")
+    assert validated == [{k: v for k, v in area.items() if k != "code"}]
+    provider = SimpleNamespace(geocode_candidates=lambda *a, **kw: [
+        replace(candidate(), name="Brescia", country_code="IT", mapbox_id="province-bs")
+    ])
+    assert resolve_areas(validated, provider)["search_areas"][0]["id"] == "province-bs"
+
+
+@pytest.mark.parametrize("code", [78, False])
+def test_non_string_non_null_code_still_rejected(code):
+    assert validate_areas([{**AREAS[0], "code": code}], "78") is None
+
+
 def test_area_roundtrip_and_city_change_preserve_budget_date_and_amenities():
     profile = SessionProfile(search_areas=AREAS, city="Yvelines / Hauts-de-Seine", date="2026-10-10", amenities=["jacuzzi"], budget_max=150)
     assert SessionProfile.from_dict(profile.to_dict()).search_areas == AREAS

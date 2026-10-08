@@ -47,7 +47,10 @@ def validate_areas(value: Any, message: str | None = None) -> list[dict[str, str
             if clean.get("code") and clean["code"] != clean["evidence"]:
                 return None
             clean["code"] = clean["evidence"]
-        if "code" in item and not isinstance(item["code"], str):
+        # JSON null means no optional code was supplied, just like omission.
+        # Named provinces still require provider identity; a stated numeric
+        # code remains mandatory/matching through the evidence guard above.
+        if item.get("code") is not None and not isinstance(item["code"], str):
             return None
         if clean.get("boundary_evidence") and message is not None and clean["boundary_evidence"].casefold() not in message.casefold():
             return None

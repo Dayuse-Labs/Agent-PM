@@ -1401,7 +1401,8 @@ def test_semantic_window_survives_leaf_failure(
     asyncio.run(fake_profile_store.set(session.id, SessionProfile(
         timeslot_start="09:00", timeslot_end="12:00", daypart="morning"
     )))
-    scripted(json.dumps({"family": "search", "language": "fr", "requested_window": ({"start": window[0], "end": window[1], "evidence": "11h30 à 16h45"} if window else {"clear": True, "evidence": "11h30 à 16h45"})}))
+    evidence = "11h30 à 16h45" if window and window[0] else "jusqu'à 17h30" if window else "sans contrainte horaire"
+    scripted(json.dumps({"family": "search", "language": "fr", "requested_window": ({"start": window[0], "end": window[1], "evidence": evidence} if window else {"clear": True, "evidence": evidence})}))
     seen = []
 
     async def failed_leaf(leaf, ctx, profile_in, **kwargs):
@@ -1412,7 +1413,7 @@ def test_semantic_window_survives_leaf_failure(
         return None, {}
 
     monkeypatch.setattr(agent_module, "_run_leaf", failed_leaf)
-    _drive_in(runner, session.id, "Je cherche près de cet aéroport de 11h30 à 16h45")
+    _drive_in(runner, session.id, "Je cherche près de cet aéroport " + evidence)
     assert seen == [expected]
     stored = asyncio.run(fake_profile_store.get(session.id))
     assert stored.daypart is None
