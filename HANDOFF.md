@@ -1,5 +1,50 @@
 # HANDOFF — AgentB2C
 
+## 2026-10-08 — v44 : suivi ordinal et reprise FAQ après réponse trop grosse
+
+**Pas de GO remplacement.** Nouveau SQL :33563 lignes/2000récentes, sept
+sessions/17messages hors campagne, chacun retrouvé dans Langfuse. Aucun GPS
+récupérable, aucun inventé ; payload natif et provenance organique non certifiés.
+Comparaison prod/B2C/candidat :51réponses sur code c45902f figé. Londres14h/spa
+C/B/B ; discrétion-LausanneC/B/C ; portugaisA/A/A ; Dubai17h150AED puis détails
+D/D/C ; Chantilly-jacuzzi-weekendC/D/B ; discrétion anglaiseC/B/B ; trois villes
+piscine/spaC/C/B. Scores conversationnels manuels, pas taux global.
+
+Dubai candidat respectait150AED/17h mais perdait pick_position=1 parce que
+le tag redondant pick manquait. Ce nombre déjà validé implique maintenant
+position uniquement lorsque le tag est ABSENT ; tag contradictoire explicite
+reste rejeté. Aucune lecture de prose par regex. Rejeu avec EXACTEMENT la même
+sortie partielle : détails du premier hôtel La Quinta corrects, contraintes
+conservées. Cela ne donne aucune autorisation de réserver.
+
+FAQ CH topic all renvoyait ResultTooLargeError,69037caractères pour limite50000.
+Une seule reprise avec topic précis est désormais permise sur ce type d’erreur
+structurée, sous le quota existant. Même marché/hôtel exigé, all répété bloqué,
+second échec termine sans boucle. Autres erreurs ne relancent pas. Peut ajouter
+une tentative modèle dans ce chemin exceptionnel ; normal toujours une lecture.
+Rejeu discrétion réussi mais choisit booking immédiatement : branche recovery
+prouvée en tests causaux, NON exercée live. Sources officielles seules transmises.
+
+2 550 tests passés, un ignoré ; sept cas nouveaux, trois échecs avant fix.
+Ruff/mypy66/guardrails verts. Rejeu corrigé :7réponses/3parcours exposés, B/B/B,
+sept cartes vérifiées. Étape entière70réponses/32revues, deux sources distinctes.
+Challenge triage4.1-mini (12réponses) : conserve Paris pour Gare de Lyon, B
+contreD avec4o-mini ; GPS toujoursD dans les deux. Aucun modèle par défaut changé.
+Les essais GPS précédents restent rejetés ; pas de nouvelle règle par mots.
+
+60 cartes candidats/triage41 jointes aux reçus, zéro prix/jointure faux.
+Une offre Lausanne valide à l’événement cartes expire1,47s avant fin du texte ;
+ne pas annoncer zéro expiration ni confondre avec carte déjà expirée à l’envoi.
+Les inventaires legacy exporté et MCP live restent distincts. Deux préflights
+arrêtés AVANT paiement ; pause locale96 après cinq cas soldés, puis seulement
+deux cas restants après revue, sans double rejeu. Coût étape1.64475002998399999174USD dont1USD
+nouvelle provision faute métrique de coût triage ; cumul96.17694977840099896306/110,
+réserve10 conservée. Données brutes hors Git, aucun acte client ni déploiement.
+
+Reste : GPS et sémantique parent/repère, portée FAQ âge/nuits, couverture finale
+des32familles. Les nouvelles conversations ci-dessus sont désormais exposées.
+
+
 ## 2026-10-08 — v43 : consultation FAQ obligatoire et portée des preuves
 
 **Pas de GO remplacement.** Une question de politique générale peut rejoindre

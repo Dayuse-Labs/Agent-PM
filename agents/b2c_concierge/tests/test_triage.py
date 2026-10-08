@@ -213,6 +213,18 @@ class TestPickClassification:
         self._with_llm(monkeypatch, '{"family": "search", "language": "fr"}')
         assert _classify("un hôtel à Paris").pick == FALLBACK_PICK
 
+    def test_explicit_position_survives_an_omitted_redundant_pick_tag(self, monkeypatch):
+        self._with_llm(monkeypatch, '{"family":"details","language":"en","pick_position":1}')
+        result = _classify("Tell me more about the first option")
+        assert (result.pick, result.pick_position) == ("position", 1)
+
+    @pytest.mark.parametrize("pick", ["none", "most_luxurious", None])
+    def test_position_does_not_override_an_explicit_conflicting_pick_tag(self, monkeypatch, pick):
+        import json
+        self._with_llm(monkeypatch, json.dumps({"family":"details", "language":"en", "pick":pick, "pick_position":1}))
+        result = _classify("Tell me more")
+        assert (result.pick, result.pick_position) == (FALLBACK_PICK, None)
+
     def test_a_value_outside_the_enum_is_rejected(self, monkeypatch):
         self._with_llm(
             monkeypatch, '{"family": "search", "language": "fr", "pick": "most_luxurious"}'

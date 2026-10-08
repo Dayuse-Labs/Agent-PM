@@ -55,12 +55,13 @@ MODEL = build_model(os.environ.get("DAYUSE_MODEL", "gpt-4o-mini"))
 # The pinned ADK LiteLLM adapter does not forward GenerateContentConfig's
 # tool_config. Keep the shared factory/reasoning configuration and add the
 # portable LiteLLM completion argument once, before any request is served.
-# skip_policy_summary ends the leaf after this one attempt, including errors.
+# The bridge ends after evidence or failure, with one bounded narrower
+# lookup allowed for an oversized all-topic response.
 MODEL._additional_args = {**MODEL._additional_args, "tool_choice": "required"}
 
 
-# Operator cap retained for tool admission. The policy bridge ends the leaf
-# after the first attempted lookup, including failures; no model retry loop.
+# Operator cap retained for tool admission. Normal policy lookup uses one
+# read; an oversized all-topic result permits one narrower attempt, then stops.
 MAX_TOOL_CALLS = int(os.environ.get("FAQ_MAX_TOOL_CALLS", "2"))
 
 

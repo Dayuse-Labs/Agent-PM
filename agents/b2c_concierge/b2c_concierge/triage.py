@@ -710,12 +710,15 @@ async def classify(message: str, budget: TurnBudget, invocation_id: str = "",
         # fallback and not the source. An unrecognized language degrades to the
         # old behaviour, never to a language we then have to clamp anyway.
         language = guess_language(message)
-    # Closed enum, validated here: an unknown/absent value is "none", never
-    # trusted through. A model that skips the key simply doesn't pick.
+    # A validated ordinal already names the selection operation when the
+    # redundant tag is absent. An explicit conflicting/invalid tag still wins
+    # by degrading to no pick; never infer a position from customer text here.
+    position = _positive_position(data.get("pick_position"))
     pick = data.get("pick")
+    if "pick" not in data and position is not None:
+        pick = "position"
     if pick not in PICKS:
         pick = FALLBACK_PICK
-    position = _positive_position(data.get("pick_position"))
     if pick == "position" and position is None:
         # "position" without a usable number resolves to nothing — degrade to
         # no pick rather than guess which entry was meant.

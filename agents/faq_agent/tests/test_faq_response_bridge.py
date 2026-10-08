@@ -96,3 +96,46 @@ def test_faq_lookup_requirement_reaches_litellm_transport(monkeypatch):
     events = asyncio.run(run())
     assert events and requests[0]['tool_choice'] == 'required'
     assert requests[0]['tools'][0]['function']['name'] == 'get_faq_conditions'
+
+
+def oversized_lookup(ctx):
+    tool = SimpleNamespace(name='get_faq_conditions')
+    args = {'market': 'CH', 'topic': 'all'}
+    mark_policy_attempt(tool, args, ctx)
+    capture_policy_evidence(tool, args, ctx, {
+        'isError': True, 'structuredContent': {
+            'error': {'kind': 'ResultTooLargeError', 'length': 69037}}})
+    return tool
+
+
+def test_oversized_all_topics_can_narrow_once_and_preserve_source_scope():
+    ctx = SimpleNamespace(state={})
+    tool = oversized_lookup(ctx)
+    assert skip_policy_summary(ctx, None) is None
+    args = {'market': 'CH', 'topic': 'booking'}
+    assert mark_policy_attempt(tool, args, ctx) is None
+    payload = {'market': 'CH', 'generalFaq': [{'title': 'Privacy', 'body': 'Official rule'}]}
+    capture_policy_evidence(tool, args, ctx, {'structuredContent': payload})
+    assert skip_policy_summary(ctx, None) is not None
+    assert find_datapart(emit_policy_evidence(ctx).parts)['faq_evidence'] == [payload]
+
+
+def test_oversized_retry_cannot_repeat_all_topics_or_switch_market():
+    for args in [{'market': 'CH', 'topic': 'all'}, {'market': 'FR', 'topic': 'booking'}]:
+        ctx = SimpleNamespace(state={})
+        tool = oversized_lookup(ctx)
+        blocked = mark_policy_attempt(tool, args, ctx)
+        assert blocked is not None and blocked['isError'] is True
+        assert skip_policy_summary(ctx, None) is not None
+        assert not find_datapart(emit_policy_evidence(ctx).parts)['faq_diagnostics']['source_verified']
+
+
+def test_second_oversized_result_ends_without_retry_loop():
+    ctx = SimpleNamespace(state={})
+    tool = oversized_lookup(ctx)
+    args = {'market': 'CH', 'topic': 'booking'}
+    mark_policy_attempt(tool, args, ctx)
+    capture_policy_evidence(tool, args, ctx, {'isError': True, 'structuredContent': {
+        'error': {'kind': 'ResultTooLargeError'}}})
+    assert skip_policy_summary(ctx, None) is not None
+    assert find_datapart(emit_policy_evidence(ctx).parts)['faq_evidence'] == []
