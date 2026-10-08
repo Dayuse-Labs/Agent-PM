@@ -334,12 +334,24 @@ def _fail(
     return payload
 
 
+def _provider_place(candidate: GeocodeCandidate) -> dict | None:
+    from b2c_common.confirmed_location import verified_place
+    return verified_place({
+        "provider_id": candidate.mapbox_id, "name": candidate.name,
+        "label": candidate.place_name, "country_code": candidate.country_code,
+        "feature_type": candidate.feature_type, "region": candidate.region,
+        "administrative_code": candidate.administrative_code,
+        "latitude": candidate.latitude, "longitude": candidate.longitude,
+    })
+
+
 def _ok(
     result: GeocodeResult,
     *,
     feature_type: str,
     profile_delta: dict,
     distance_origin_type: str,
+    resolved_location: dict | None = None,
     zone: str | None = None,
     metro: str | None = None,
     guards_fired: list[str] | None = None,
@@ -363,6 +375,8 @@ def _ok(
         "country_code": result.country_code,
         "profile_delta": delta,
     }
+    if resolved_location:
+        payload["resolved_location"] = resolved_location
     # OBS3: which deterministic guards actually fired this turn, so the
     # concierge can score them (`response_bridge` stashes this, the spine folds
     # it into `budget.fired`). Only-when-non-empty: the model never needs to
@@ -794,6 +808,7 @@ def geocode_location(
                 "question": resolution.question,
                 "options": [
                     {
+                        **(_provider_place(c) or {}),
                         "name": c.name,
                         "country_code": c.country_code,
                         "region": c.region,
@@ -836,6 +851,7 @@ def geocode_location(
             )
             return _ok(
                 chosen.as_result(),
+                resolved_location=_provider_place(chosen) if not effective_zone else None,
                 feature_type=chosen.feature_type,
                 profile_delta=profile_delta,
                 # S4: a named specific zone means "around X" even when it was v6
@@ -1034,6 +1050,27 @@ def inject_profile_geo_context(tool: object, args: dict, tool_context: object) -
     if getattr(tool, "name", "") != "geocode_location":
         return None
     profile_in = read_profile_in(tool_context)
+    from b2c_common.confirmed_location import verified_place
+    content = getattr(tool_context, "user_content", None)
+    envelope = find_datapart(getattr(content, "parts", None)) or {}
+    place = verified_place(profile_in.get("confirmed_location"))
+    # Repeating the same geocoder key cannot choose a different homonym merely
+    # because the model omitted a redundant preserve flag or changed language.
+    # Fresh destinations/scopes are cleared by the concierge, and explicit leaf
+    # city/country/zone/device changes continue through ordinary resolution.
+    same_identity = bool(place and args.get("origin") != "device"
+                         and not args.get("zone") and not args.get("metro")
+                         and (not args.get("city") or str(args["city"]).casefold() == place["name"].casefold())
+                         and (not args.get("country_code") or str(args["country_code"]).upper() == place["country_code"]))
+    if (((envelope.get("query_params") or {}).get("reuse_confirmed_location") is True or same_identity)
+            and place and not requires_area_membership(validate_areas(profile_in.get("search_areas")))
+            and not profile_in.get("zone")):
+        return _ok(
+            GeocodeResult(latitude=place["latitude"], longitude=place["longitude"],
+                          place_name=place["label"], country_code=place["country_code"], region=place["region"]),
+            feature_type=place["feature_type"], distance_origin_type="city_centroid",
+            resolved_location=place, profile_delta={"last_city": place["name"]},
+        )
 
     city, prior_city = args.get("city"), profile_in.get("city")
     city_changed = (

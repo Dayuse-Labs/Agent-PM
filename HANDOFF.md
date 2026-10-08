@@ -1,5 +1,52 @@
 # HANDOFF — AgentB2C
 
+## 2026-10-08 — v49 : choix et conservation du lieu géographique
+
+**Pas de GO remplacement.** Le concierge conserve désormais les candidats de
+clarification (identité fournisseur, coordonnées, pays/région/code administratif)
+et le lieu retenu. Les objets traversent le vrai convertisseur A2A ; les feuilles
+restent stateless. La réponse choisit seulement dans cette liste, via le triage
+existant ou son extraction de zone déjà validée, sans second appel modèle ni
+nouvelle regex. Une sélection numérique ne devient pas budget/date/choix d’hôtel.
+
+La clarification termine le tour de recherche ; une réponse qui ne choisit pas
+un lieu conserve ses nouvelles contraintes mais ne lance pas une ville au hasard.
+Le même géocodage réutilise ensuite l’identité validée, même si le modèle omet le
+champ redondant preserve. Une nouvelle destination invalide la confirmation ; les
+changements de zone/GPS poursuivent leur résolution propre. Ce contrat couvre les
+villes/localités ; les POI et périmètres stricts restent à vérifier séparément.
+
+Cause Valence reproduite : Talence gagnait par inventaire puis était rejetée par
+le contrôle du nom. Les villes exactes précèdent désormais les villes approchantes.
+Un avantage d’inventaire sur un autre homonyme exact éloigné ne tranche pas seul
+contre le premier candidat fournisseur : une clarification est demandée. Une
+régression de l’ordre des options selon le pays a été détectée hors ligne pendant
+l’itération, puis corrigée en exigeant un réel avantage d’inventaire.
+
+Rejeu final Valence → 26 → budget90 → horaires13–17 → Lyon : Drôme choisie et
+conservée sans re-question, puis Lyon remplace le lieu. Note B pour les réponses
+répétitives aux recherches vides. L’ensemble reste insuffisant : contrôleUSD C
+(car Cheaper please devient parfois choix du moins cher déjà affiché), Chambéry B.
+Quatre nouvelles sessions SQL, sept messages avec preuve Langfuse : Milan
+jacuzzi/date14octobre C/D/C (prod/B2C/candidat), déjeuner inclus A/D/D, escale à
+Vienne puis1300–1800 C/D/D, romantique portugais A/B/B. Pas de GPS inventé.
+
+2611 tests passent, un ignoré ; ruff/mypy69/guardrails verts. 74 réponses sur cinq
+versions,25revues ; version finale19réponses candidates et14comparatrices.
+133 cartes rapprochées des reçus MCP, sans erreur prix/jointure/expiration.
+Coût étape 0.611006 USD ; cumul 98.506093/110 USD,
+provisions12,10 incluses et réserve10 conservée. Aucun modèle par défaut modifié,
+acte client, merge ou déploiement. Données et rapports v49 locaux hors Git.
+
+**Prochaine priorité fondée sur la trace fraîche Vienne** : le modèle extrait
+13:00–18:00 depuis1300–1800, mais la validation numérique rejette cette forme.
+Son preserve cite en outre le message précédent : rejet légitime de la preuve,
+puis deux geocodes origin=device sans demandeGPS font redemander la ville.
+L’ancre enregistrée est Schwechat, pas l’aéroport. Restent aussi repas inclus,
+périmètres Manhattan/Paris18/Gare de Lyon, comparaison moins chère, nuits/11am,
+FAQ âge/annulation/paiement et preuve indépendante des32familles historiques.
+EUR par défaut B2C reste une décision produit intentionnelle.
+
 ## 2026-10-08 — v48 : résultat courant et expiration des créneaux de nuit
 
 **Pas de GO remplacement.** Une réponse sans résultat courant ne réutilise plus

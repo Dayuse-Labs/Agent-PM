@@ -279,8 +279,13 @@ class SessionProfile:
     # time filter read in code by the leaf, exclusive with a clock window.
     daypart: str | None = None
 
+    pending_location: dict[str, Any] | None = None
+    confirmed_location: dict[str, Any] | None = None
+
     def to_dict(self) -> dict[str, Any]:
         return {
+            "pending_location": self.pending_location,
+            "confirmed_location": self.confirmed_location,
             "city": self.city,
             "search_areas": self.search_areas,
             "state_anchor": self.state_anchor,
@@ -365,6 +370,7 @@ class SessionProfile:
 # shipping to the leaf (GDPR: data minimization).
 _CONCIERGE_ONLY_KEYS = (
     "pending_booking",
+    "pending_location",
     "last_suggestions",
     "last_clarifying_question",
     "amenity_claim_corrections",
@@ -642,7 +648,7 @@ def apply_profile_delta(
     values, clears, explicit_sets = _normalize_delta(dict(delta))
     known_fields = set(SessionProfile.__dataclass_fields__)
     # User-grounded constraints are concierge-owned, including typed clears.
-    for owned_slot in ("requested_budget", "price_comparison", "requested_window", "requested_duration_minutes"):
+    for owned_slot in ("pending_location", "confirmed_location", "requested_budget", "price_comparison", "requested_window", "requested_duration_minutes"):
         values.pop(owned_slot, None)
         clears.discard(owned_slot)
     if profile.requested_budget is not None:

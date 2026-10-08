@@ -463,3 +463,27 @@ def test_better_ranked_borough_survives_a_municipality_homonym():
                                   inventory=FakeInventory({40.65: 30, 39.23: 30}))
     assert result.decision == "clarify"
     assert set(c.region for c in result.options) == {"New York", "Maryland"}
+
+
+def test_exact_municipality_identity_precedes_fuzzy_city_inventory():
+    # Actual v49 receipt: Mapbox returns three Valence places, then Talence.
+    # Talence's larger inventory made it win, then the echo guard rejected it,
+    # leaving the conversation stuck despite valid Valence candidates.
+    valence = cand("Valence", "FR", "Drôme", lat=44.9329, lon=4.8914, rank=0)
+    homonym = cand("Valence", "FR", "Tarn-et-Garonne", lat=44.1086, lon=0.8907, rank=1)
+    fuzzy = cand("Talence", "FR", "Gironde", lat=44.8125, lon=-0.5907, rank=3)
+    result = geo_resolver.resolve([valence, homonym, fuzzy],
+        inventory=FakeInventory({44.9329: 1, 44.1086: 0, 44.8125: 30}),
+        requested_name="Valence", prefer_municipality=True, country_hint="FR")
+    assert fuzzy not in [s.candidate for s in result.scored]
+    assert result.chosen in (None, valence, homonym)
+
+
+def test_inventory_cannot_silently_replace_leading_exact_homonym():
+    first = cand("Valence", "FR", "Drôme", lat=44.9329, lon=4.8914, rank=0)
+    inventory_winner = cand("Valence", "FR", "Tarn-et-Garonne", lat=44.1086, lon=0.8907, rank=1)
+    result = geo_resolver.resolve([first, inventory_winner],
+        inventory=FakeInventory({44.9329: 0, 44.1086: 5}),
+        requested_name="Valence", prefer_municipality=True, country_hint="FR")
+    assert result.decision == "clarify"
+    assert result.options == [first, inventory_winner]

@@ -38,6 +38,9 @@ from __future__ import annotations
 from hotel_search_agent.area_scope import STATE_AREAS, STATE_COVERAGE, STATE_RAN, STATE_FAILED, STATE_RESOLUTION
 
 
+from b2c_common.confirmed_location import (
+    CLARIFICATION_KEY, RESOLVED_PLACE_KEY, pending_location, verified_place,
+)
 from b2c_common.search_budget import offer_within_budget, resolve_budget_currency
 from b2c_common.price_comparison import offer_totals, offer_below_reference
 
@@ -816,6 +819,7 @@ def enforce_resolved_search_origin(
     """
     name = getattr(tool, "name", "")
     if name == "geocode_location":
+        tool_context.state[RESOLVED_PLACE_KEY] = None
         tool_context.state[_STATE_ANCHOR_KEY] = None
         tool_context.state[STATE_AREAS] = None
         return None
@@ -1036,6 +1040,9 @@ def capture_after_tool(
             if isinstance(fired, list):
                 record_guards_fired(tool_context, fired)
         if isinstance(tool_response, dict) and tool_response.get("ok"):
+            place = verified_place(tool_response.get("resolved_location"))
+            if place:
+                tool_context.state[RESOLVED_PLACE_KEY] = place
             tool_context.state[STATE_AREAS] = tool_response.get("search_areas")
             if tool_response.get("search_areas"):
                 tool_context.state[STATE_RESOLUTION] = tool_response
@@ -1073,11 +1080,18 @@ def capture_after_tool(
             # S-G10 (D3): remember the clarify question — emit_search_datapart
             # turns it into a deterministic `requires_clarification` flag when
             # no search ends up running this turn.
+            pending = pending_location(tool_response.get("diagnostics"))
+            if pending:
+                tool_context.state[CLARIFICATION_KEY] = pending
+                tool_context.state[_STATE_RESULTS_KEY] = None
+                tool_context.state[RESOLVED_PLACE_KEY] = None
             question = (tool_response.get("diagnostics") or {}).get("question")
             if isinstance(question, str) and question.strip():
                 tool_context.state[_STATE_CLARIFY_QUESTION_KEY] = question.strip()
         return None
 
+    if name in _TARGET_TOOLS and tool_context.state.get(CLARIFICATION_KEY):
+        return None  # A concurrent result cannot answer an unresolved place.
     if name not in _TARGET_TOOLS or not isinstance(tool_response, dict):
         return None
     if tool_response.get("error") == "mcp_circuit_open":
@@ -1539,6 +1553,8 @@ def stamp_turn_start(callback_context: Any) -> None:
     / geocode-fail) — `emit_search_datapart` reads it back unconditionally."""
     callback_context.state[_STATE_TURN_T0_KEY] = time.monotonic()
     callback_context.state[_STATE_ANCHOR_KEY] = None
+    callback_context.state[CLARIFICATION_KEY] = None
+    callback_context.state[RESOLVED_PLACE_KEY] = None
     callback_context.state[_STATE_PRICE_COMPARISON_KEY] = None
     for key in (STATE_AREAS, STATE_COVERAGE, STATE_RAN, STATE_FAILED, STATE_RESOLUTION):
         callback_context.state[key] = None
@@ -1801,6 +1817,10 @@ def emit_search_datapart(callback_context: Any) -> genai_types.Content | None:
     )
 
     payload: dict[str, Any] = {}
+    if state.get(RESOLVED_PLACE_KEY):
+        payload["resolved_location"] = state[RESOLVED_PLACE_KEY]
+    if state.get(CLARIFICATION_KEY):
+        payload["location_clarification"] = state[CLARIFICATION_KEY]
     if state.get(STATE_COVERAGE):
         payload["area_coverage"] = state[STATE_COVERAGE]
     if results is not None:  # a search ran (even 0 results is a real outcome)
@@ -1934,6 +1954,11 @@ def skip_final_generation(callback_context: Any, llm_request: Any) -> LlmRespons
     `after_model_callback` runs, so `llm_timing_after` never fires — placing this
     first means `llm_timing_before` never stamps an orphaned timer for a call that
     won't happen."""
+    pending = pending_location(callback_context.state.get(CLARIFICATION_KEY))
+    if pending:
+        return LlmResponse(content=genai_types.Content(role="model", parts=[
+            genai_types.Part(text=pending["question"]),
+        ]))
     if callback_context.state.get(_STATE_SEARCH_UNAVAILABLE_KEY):
         # S-CX2: the breaker already short-circuited an MCP search call this
         # turn — a final prose pass could only echo the failure diagnostic (or

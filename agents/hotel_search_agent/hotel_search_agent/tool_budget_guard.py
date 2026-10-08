@@ -29,6 +29,7 @@ from __future__ import annotations
 
 from typing import Any, Callable, Mapping, Optional
 
+from b2c_common.confirmed_location import CLARIFICATION_KEY
 from b2c_common.observability import mark_level
 from hotel_search_agent.area_scope import STATE_RAN, STATE_RESOLUTION
 
@@ -68,6 +69,9 @@ def make_per_tool_budget_callback(
             state[_LIMITS_KEY] = dict(limits)
             state[_DEFAULT_KEY] = default_limit
         name = str(getattr(tool, "name", "") or "")
+        if state.get(CLARIFICATION_KEY):
+            return {"ok": False, "error": "location_requires_clarification",
+                    "diagnostics": state[CLARIFICATION_KEY]}
         if name == "search_offers" and state.get(STATE_RAN):
             # Reserve the area batch before awaiting its reads. A parallel
             # duplicate must stop BEFORE filter callbacks mutate shared state;

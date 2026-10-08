@@ -1,0 +1,78 @@
+"""Provider-backed place identity and bounded clarification transport.
+
+The concierge owns persistence. These pure validators never infer a place from
+customer text, execute a search, or trust coordinates proposed by the model.
+"""
+from __future__ import annotations
+
+import math
+from typing import Any
+
+CLARIFICATION_KEY = "temp:hotel_search_location_clarification"
+RESOLVED_PLACE_KEY = "temp:hotel_search_resolved_place"
+
+
+def verified_place(value: Any) -> dict[str, Any] | None:
+    if not isinstance(value, dict):
+        return None
+    strings = ("provider_id", "name", "label", "country_code", "feature_type")
+    if any(not isinstance(value.get(k), str) or not value[k].strip() for k in strings):
+        return None
+    if value["feature_type"] not in {"place", "locality"}:
+        return None  # POI/area boundaries retain their existing resolution contract.
+    country = value["country_code"].upper()
+    if len(country) != 2 or not country.isascii() or not country.isalpha():
+        return None
+    for key, bound in (("latitude", 90), ("longitude", 180)):
+        n = value.get(key)
+        if isinstance(n, bool) or not isinstance(n, (int, float)) or not math.isfinite(n) or abs(n) > bound:
+            return None
+    return {**({"administrative_code": value["administrative_code"]} if isinstance(value.get("administrative_code"), str) and value["administrative_code"] else {}),
+            **{k: value[k].strip() for k in strings}, "country_code": country,
+            "latitude": float(value["latitude"]), "longitude": float(value["longitude"]),
+            "region": value.get("region") if isinstance(value.get("region"), str) else ""}
+
+
+def pending_location(value: Any) -> dict[str, Any] | None:
+    if not isinstance(value, dict) or not isinstance(value.get("question"), str):
+        return None
+    options = value.get("options")
+    if not isinstance(options, list) or not 2 <= len(options) <= 3 or not value["question"].strip():
+        return None
+    valid = [verified_place(o) for o in options]
+    if any(o is None for o in valid):
+        return None  # Never renumber an incomplete list the customer already saw.
+    if len({o["provider_id"] for o in valid if o}) != len(valid):
+        return None
+    return {"question": value["question"].strip(), "options": valid}
+
+
+def context_for_triage(pending: Any, confirmed: Any) -> dict[str, Any] | None:
+    p, c = pending_location(pending), verified_place(confirmed)
+    if p:
+        return {"question": p["question"], "options": [
+            {"position": i, "label": o["label"], "region": o["region"], "country": o["country_code"], **({"administrative_code": o["administrative_code"]} if o.get("administrative_code") else {})}
+            for i, o in enumerate(p["options"], 1)
+        ]}
+    if c:
+        return {"confirmed_place": c["label"], "region": c["region"],
+                "country": c["country_code"], "administrative_code": c.get("administrative_code")}
+    return None
+
+
+def location_intent(value: Any, message: str, context: dict | None) -> dict | None:
+    if not context or not isinstance(value, dict):
+        return None
+    evidence = value.get("evidence")
+    if not isinstance(evidence, str) or not evidence.strip() or evidence not in message:
+        return None
+    action = value.get("action")
+    if action == "select":
+        n = value.get("position")
+        options = context.get("options") or []
+        if isinstance(n, bool) or not isinstance(n, int) or not 1 <= n <= len(options):
+            return None
+        return {"action": action, "position": n}
+    if action in {"preserve", "change", "device"}:
+        return {"action": action}
+    return None

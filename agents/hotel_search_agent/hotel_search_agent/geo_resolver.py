@@ -476,6 +476,12 @@ def resolve(
             and any(p.country_code == c.country_code and p.rank < c.rank for p in exact_places)
         )]
 
+    # Inventory may rank homonyms, never substitute a different municipality
+    # when the provider already returned the requested exact city identity.
+    # Valence used to lose to Talence's larger inventory, then fail echo review.
+    if prefer_municipality and exact_places:
+        survivors = [c for c in survivors if _name_fold(c.name) == requested_fold]
+
     # 2-5 — score every survivor.
     scored: list[ScoredCandidate] = []
     for c in survivors:
@@ -492,6 +498,18 @@ def resolve(
     scored.sort(key=lambda s: (s.in_inventory_tier, s.score), reverse=True)
 
     top = scored[0]
+    if prefer_municipality and exact_places:
+        leading = min(survivors, key=lambda candidate: candidate.rank)
+        winner = top.candidate
+        leading_inventory = next(s.inventory for s in scored if s.candidate == leading)
+        if (leading != winner and top.inventory > leading_inventory and _differs_by_place(leading, winner)
+                and haversine_km(leading.latitude, leading.longitude, winner.latitude, winner.longitude)
+                >= _MIN_CLARIFY_SEPARATION_KM):
+            # Coverage is not geographic intent. The provider's leading exact
+            # place and the inventory winner disagree: let the user choose.
+            options = [leading, winner]
+            return Resolution(decision="clarify", options=options,
+                              question=_clarify_question(options, language), scored=scored)
     if len(scored) == 1:
         return Resolution(decision="select", chosen=top.candidate, scored=scored)
 

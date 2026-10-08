@@ -1201,9 +1201,12 @@ class _B2cConcierge(BaseAgent):
         # agreement tokens `_AFFIRMATIVE_RE` does not ("top", "génial"), so
         # those alone after an empty search still reach the ack template. Not a
         # regression — closing it means touching a proven regex, not this gate.
+        from b2c_common.confirmed_location import context_for_triage, pending_location
+        from .location_state import commit_place, receive_location, selected_place
+
         refinement_signal = is_search_refinement_signal(message, profile)
         booking_signal = is_booking_confirmation_signal(message, profile)
-        if is_social_ack(message) and not refinement_signal and not booking_signal:
+        if is_social_ack(message) and not refinement_signal and not booking_signal and not profile.pending_location:
             self._emit_turn_metric("ack", "template:ack", budget, t_start, "ok", inv)
             # S-CX2 (audit F5): a bare "ok" carries no language signal — the
             # conversation's established language / client locale beat the guess.
@@ -1216,10 +1219,14 @@ class _B2cConcierge(BaseAgent):
         # 2. Triage (ONE economy LLM + regex fallback). Off the session/stream.
         recent_messages = recent_user_messages(ctx.session.events, message)
         previous_reply = last_assistant_message(ctx.session.events, author=self.name)
+        location_context = context_for_triage(profile.pending_location, profile.confirmed_location)
+        location_kwargs = {"location_context": location_context} if location_context else {}
         triage = await classify(
-            message, budget, inv, recent_messages=recent_messages, previous_reply=previous_reply
+            message, budget, inv, recent_messages=recent_messages, previous_reply=previous_reply, **location_kwargs
         )
-        family = triage.family
+        location_choice = selected_place(profile, triage.location_intent, triage.requested_areas)
+        location_action = (triage.location_intent or {}).get("action")
+        family = "search" if location_choice or (profile.pending_location and triage.family == "ack") else triage.family
         route = ROUTES[family]
         # P1-1: the two code-owned override signals are RE-derived here, now fed
         # by triage's slots on top of their own regexes (the slots ADD coverage
@@ -1313,7 +1320,7 @@ class _B2cConcierge(BaseAgent):
         # offer selection. Search first; otherwise "cheapest, but 11–16" picks
         # yesterday's/earlier window before the update below can be applied.
         # Partial clock answers retain the other bound; explicit clear is ().
-        area_update = preserve_area_boundary(profile.search_areas, triage.requested_areas)
+        area_update = None if location_choice else preserve_area_boundary(profile.search_areas, triage.requested_areas)
         if (area_update is None and triage.requested_subarea and profile.search_areas
                 and len(profile.search_areas) == 1 and profile.search_areas[0].get("subarea")
                 and (triage.subarea_parent is None or triage.subarea_parent.casefold() == profile.search_areas[0]["query"].casefold())):
@@ -1366,6 +1373,9 @@ class _B2cConcierge(BaseAgent):
             picked = None
             booking_signal = False
             profile.pending_booking = None
+        elif location_choice is not None:
+            picked = None
+            family, route = "search", ROUTES["search"]
         elif booking_signal:
             family, route = "booking", ROUTES["booking"]
         elif picked is not None:
@@ -1389,7 +1399,7 @@ class _B2cConcierge(BaseAgent):
         elif family != "faq" and refinement_signal:
             family, route = "search", ROUTES["search"]
 
-        budget_update = triage.requested_budget
+        budget_update = None if location_choice else triage.requested_budget
         if profile.requested_budget and not profile.requested_budget.get("currency"):
             literal_currency = currency_answer(message)
             if literal_currency is not None:
@@ -1582,7 +1592,7 @@ class _B2cConcierge(BaseAgent):
                 yield self._final(ctx, clarification)
                 return
 
-        if route.target == LEAF_HOTEL_SEARCH and profile.requested_budget is None:
+        if route.target == LEAF_HOTEL_SEARCH and profile.requested_budget is None and not location_choice:
             # Triage already recognized the amount. Put it in profile_in so
             # the real MCP budget-injection callback can enforce it even if
             # the stateless leaf model does not repeat the bare-number intent.
@@ -1600,13 +1610,29 @@ class _B2cConcierge(BaseAgent):
         expected_date: str | None = None
         if route.target == LEAF_HOTEL_SEARCH:
             expected_date, from_message = expected_search_date(
-                message, profile.date, reference_today(profile.client_timezone), weekday=triage.requested_weekday
+                "" if location_choice and numeric_reply else message, profile.date, reference_today(profile.client_timezone), weekday=triage.requested_weekday
             )
             if expected_date and from_message:
                 profile.date = expected_date
                 profile.date_reference = {"resolved_from": "concierge"}
                 if profile.client_timezone:
                     profile.date_reference["client_tz"] = profile.client_timezone
+
+        if route.target == LEAF_HOTEL_SEARCH:
+            if location_action in {"change", "device"} or (area_update is not None and not location_choice):
+                profile.pending_location = None
+                profile.confirmed_location = None
+            if location_choice:
+                commit_place(profile, location_choice)
+            pending = pending_location(profile.pending_location)
+            if pending:
+                # A date/budget answer cannot choose an arbitrary homonym.
+                # Keep its updated constraints, but await a place selection.
+                await store.set(ctx.session.id, profile)
+                yield self._hotels_event(ctx, {"requires_clarification": True}, reply_language)
+                self._emit_turn_metric(family, "template:location_clarification", budget, t_start, "ok", inv)
+                yield self._final(ctx, pending["question"])
+                return
 
         # Apply date/window/budget changes BEFORE deciding whether this is
         # another page. A triage "more" flag alone used to skip the first
@@ -1631,6 +1657,9 @@ class _B2cConcierge(BaseAgent):
 
         budget.charge("leaf_llm")
         query_params: dict[str, Any] = {}
+        if route.target == LEAF_HOTEL_SEARCH and profile.confirmed_location and (
+                location_choice or location_action == "preserve"):
+            query_params["reuse_confirmed_location"] = True
         if route.target == LEAF_HOTEL_SEARCH and (area_update is not None or
                 (profile.search_areas and any(a.get("subarea") for a in profile.search_areas))):
             query_params["areas_authoritative"] = True
@@ -1691,9 +1720,19 @@ class _B2cConcierge(BaseAgent):
 
         delta = response.get("profile_delta") or {}
         if delta:
-            apply_profile_delta(profile, delta, message, budget.fired)
+            apply_profile_delta(profile, delta, "" if location_choice and numeric_reply else message, budget.fired)
+        if route.target == LEAF_HOTEL_SEARCH:
+            receive_location(profile, response)
         if numeric_reply:
             profile.language = reply_language
+        pending = pending_location(profile.pending_location)
+        if route.target == LEAF_HOTEL_SEARCH and pending and response.get("requires_clarification"):
+            profile.last_clarifying_question = pending["question"]
+            await store.set(ctx.session.id, profile)
+            yield self._hotels_event(ctx, {"requires_clarification": True}, reply_language)
+            self._emit_turn_metric(family, "template:location_clarification", budget, t_start, "ok", inv)
+            yield self._final(ctx, pending["question"])
+            return
         if route.target == LEAF_HOTEL_SEARCH and profile.requested_budget:
             profile.requested_budget = resolve_budget_currency(profile.requested_budget, profile.country_anchor)
             clarification = budget_question(profile.requested_budget, reply_language, after_search=True)
