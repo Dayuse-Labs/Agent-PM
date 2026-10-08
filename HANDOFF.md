@@ -48,9 +48,11 @@ Coût étape0,576234USD ; cumul97,226945/110USD, provisions12,10 incluses, rése
 conservée. Runners payants terminés, aucune action client, merge ou déploiement.
 
 Restent : lieu confirmé sur suivi de budget, Manhattan/Paris18/Gare de Lyon,
-confusionPearson/YYZ/YTZ dans la prose, cartesEUR malgré currencyUSD native,
-navette et piscine privée, faux épuisement global après page vide, échec de
+confusionPearson/YYZ/YTZ dans la prose, navette et piscine privée, faux épuisement global après page vide, échec de
 géocodage présenté comme absence d’offres, FAQ nuits/mineurs et32familles.
+Devise native : EUR par défaut malgré currencyUSD est un choix produit B2C
+documenté (25septembre, mcp-dayuse#5), pas une perte technique du champ. Cet
+écart avec la prod reste à prendre en compte ; aucune modification implicite.
 Aucun holdout final. Rapport détaillé privé local, aucune conversation brute
 committée. PR134 reste une correction partielle à reviewer.
 
