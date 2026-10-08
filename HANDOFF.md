@@ -1,5 +1,30 @@
 # HANDOFF — AgentB2C
 
+## 2026-10-09 — Même lot local : identité de quartier avant préférence de ville
+
+**Toujours non poussé et non évalué en live.** La PR distante et les notes v58
+restent inchangées. Dans le reçu fournisseur enregistré pour Manhattan/New York,
+le quartier exact était premier ; le prior `place` faisait gagner New York City,
+puis le garde d'écho refusait ce parent. Le classement conserve maintenant les
+identités exactes `place/locality/neighborhood` après les restrictions pays/État
+et la protection existante contre les petits homonymes de villes. Les commerces
+homonymes ne deviennent pas des destinations. Un conflit inventaire/homonyme
+éloigné reste une clarification, y compris pour les localités.
+
+Contre-épreuve hors réseau avec le vrai reçu Mapbox et le snapshot d'inventaire :
+`geocode_echo_mismatch` avant, coordonnées Manhattan correctes après. Cela ne
+prouve ni la pertinence des cartes suivantes ni la réussite de la conversation.
+Cinq tests ajoutés, dont trois échouaient avant correction ; contrôles pays,
+commerce homonyme et précédents cas Pescara/Brooklyn conservés.
+
+Autre diagnostic : la perte de 23rd Street au tour « New York, ny, usa » vient
+aussi du triage qui étiquette cette précision `change` sans structure de lieu.
+Déplacer un drapeau de raffinement ne corrige pas cette cause. Ce cas reste ouvert.
+FAQ/annulations phase 2 ; aucune nouvelle regex, appel modèle ou dépense.
+Validation du lot local : 2701 tests passent / 1 ignoré, 177 ciblés, ruff,
+mypy (70 fichiers) et guardrails verts. MCP répond de nouveau : catalogue
+authentifié de 8 outils, sans appel de recherche ni modèle. Budget inchangé.
+
 ## 2026-10-09 — Préparation locale suivante : origine avant ordonnancement des outils
 
 **Non poussée, non évaluée en live.** La PR distante reste sur `0419f6b`

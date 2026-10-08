@@ -2,7 +2,11 @@
 
 **Suite locale non poussée :** préparation de l'origine détenue avant le modèle
 pour éviter l'épuisement du quota par des recherches prématurées. Dix tests
-ajoutés et contre-épreuve hors réseau des appels v58 ; aucune nouvelle note live.
+ajoutés et contre-épreuve hors réseau des appels v58. Le même lot protège aussi
+l'identité exacte d'un quartier contre sa ville parente : cinq tests ajoutés et
+rejeu du reçu fournisseur Manhattan avec le snapshot d'inventaire. Aucun appel
+payant, aucune nouvelle note live. La perte de rue lors d'une clarification de
+ville reste ouverte ; le triage la classe parfois comme changement de destination.
 Les résultats ci-dessous concernent toujours exclusivement `d1320bc`.
 
 **Décision : pas de GO remplacement. PR 134 conservée en draft pour revue technique.**

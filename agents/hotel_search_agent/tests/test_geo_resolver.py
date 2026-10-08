@@ -487,3 +487,51 @@ def test_inventory_cannot_silently_replace_leading_exact_homonym():
         requested_name="Valence", prefer_municipality=True, country_hint="FR")
     assert result.decision == "clarify"
     assert result.options == [first, inventory_winner]
+
+
+def test_exact_borough_is_not_replaced_by_its_parent_city():
+    # Recorded provider response to Manhattan, New York: the requested locality
+    # precedes NYC, but the place-type prior used to promote the parent.
+    borough = cand("Manhattan", "US", "New York", ftype="locality",
+                   lat=40.789352, lon=-73.95709)
+    parent = cand("New York City", "US", "New York", rank=1,
+                  lat=40.712749, lon=-74.005994)
+    result = geo_resolver.resolve([borough, parent], requested_name="Manhattan",
+        prefer_municipality=True, country_hint="US", region_hint="New York",
+        inventory=FakeInventory({40.7894: 30, 40.7127: 30}))
+    assert result.chosen is borough
+
+
+def test_exact_neighborhood_survives_parent_with_more_inventory():
+    neighborhood = cand("Montmartre", "FR", "Île-de-France", ftype="neighborhood",
+                        lat=48.887, lon=2.338, rank=1)
+    parent = cand("Paris", "FR", "Île-de-France", lat=48.8566, lon=2.3522)
+    result = geo_resolver.resolve([parent, neighborhood], requested_name="Montmartre",
+        prefer_municipality=True, inventory=FakeInventory({48.887: 1, 48.8566: 30}))
+    assert result.chosen is neighborhood
+
+
+def test_exact_locality_homonyms_require_choice_when_inventory_disagrees():
+    first = cand("Manhattan", "US", "New York", ftype="locality",
+                 lat=40.789352, lon=-73.95709)
+    homonym = cand("Manhattan", "US", "Pennsylvania", ftype="locality",
+                   lat=41.747444, lon=-77.53773, rank=1)
+    result = geo_resolver.resolve([first, homonym], requested_name="Manhattan",
+        prefer_municipality=True, inventory=FakeInventory({40.7894: 0, 41.7474: 5}))
+    assert result.decision == "clarify"
+    assert result.options == [first, homonym]
+
+
+def test_exact_locality_cannot_override_explicit_country():
+    borough = cand("Manhattan", "US", "New York", ftype="locality", lat=40.789352)
+    result = geo_resolver.resolve([borough], requested_name="Manhattan",
+        prefer_municipality=True, country_hint="FR", inventory=FakeInventory({40.7894: 30}))
+    assert result.decision == "none"
+
+
+def test_bare_city_does_not_select_same_name_business():
+    parent = cand("New York City", "US", "New York", lat=40.712749)
+    business = cand("Manhattan", "US", "New York", ftype="poi", lat=40.71417667, rank=1)
+    result = geo_resolver.resolve([parent, business], requested_name="Manhattan",
+        prefer_municipality=True, inventory=FakeInventory({40.7127: 30, 40.7142: 30}))
+    assert result.chosen is parent  # The caller's echo guard must reject this.

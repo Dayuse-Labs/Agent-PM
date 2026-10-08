@@ -476,11 +476,16 @@ def resolve(
             and any(p.country_code == c.country_code and p.rank < c.rank for p in exact_places)
         )]
 
-    # Inventory may rank homonyms, never substitute a different municipality
-    # when the provider already returned the requested exact city identity.
-    # Valence used to lose to Talence's larger inventory, then fail echo review.
-    if prefer_municipality and exact_places:
-        survivors = [c for c in survivors if _name_fold(c.name) == requested_fold]
+    # A destination can be a borough/neighborhood in the provider taxonomy.
+    # Its parent city must not win merely on type or inventory, then fail echo
+    # review. Keep actual geographic identities, never same-name businesses.
+    # Country/region filters and municipality/homonym protection above still
+    # apply before this selection; without an exact identity keep fuzzy ranking.
+    exact_destinations = [c for c in survivors if requested_fold
+                          and c.feature_type in {"place", "locality", "neighborhood"}
+                          and _name_fold(c.name) == requested_fold]
+    if prefer_municipality and exact_destinations:
+        survivors = exact_destinations
 
     # 2-5 — score every survivor.
     scored: list[ScoredCandidate] = []
@@ -498,7 +503,7 @@ def resolve(
     scored.sort(key=lambda s: (s.in_inventory_tier, s.score), reverse=True)
 
     top = scored[0]
-    if prefer_municipality and exact_places:
+    if prefer_municipality and exact_destinations:
         leading = min(survivors, key=lambda candidate: candidate.rank)
         winner = top.candidate
         leading_inventory = next(s.inventory for s in scored if s.candidate == leading)
