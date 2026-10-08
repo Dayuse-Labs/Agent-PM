@@ -70,6 +70,8 @@ class GeocodeCandidate:
     region: str
     bbox: tuple[float, float, float, float] | None
     rank: int
+    mapbox_id: str = ""
+    administrative_code: str = ""
 
     def as_result(self) -> GeocodeResult:
         return GeocodeResult(
@@ -180,6 +182,40 @@ class MapboxClient:
         self._remember(key, candidates)
         return list(candidates)
 
+    def containing_area_ids(self, latitude: float, longitude: float) -> set[str] | None:
+        """Provider administrative membership; None means verification unavailable.
+
+        A bounding box/circle is retrieval geometry, never membership proof.
+        Match provider IDs, including alternate administrative levels, rather
+        than translated labels or postal-code prefixes.
+        """
+        key = ("reverse", latitude, longitude)
+        if key in self._cache:
+            self._cache.move_to_end(key)
+            return self._cache[key]
+        data = self._request({
+            "latitude": str(latitude), "longitude": str(longitude),
+            "types": "region,district,place,locality", "access_token": self._token,
+        }, reverse=True)
+        if data is None:
+            return None  # do not cache transient verification failures
+        ids: set[str] = set()
+
+        def collect(value: object) -> None:
+            if not isinstance(value, dict):
+                return
+            identifier = value.get("mapbox_id")
+            if isinstance(identifier, str) and identifier:
+                ids.add(identifier)
+            for item in value.values():
+                if isinstance(item, dict):
+                    collect(item)
+
+        for feature in data.get("features") or []:
+            collect(feature.get("properties"))
+        self._remember(key, ids)
+        return ids
+
     # --- shared HTTP + parsing --------------------------------------------------------------
     def _remember(self, key: tuple, value: object) -> None:
         self._cache[key] = value
@@ -187,13 +223,14 @@ class MapboxClient:
         while len(self._cache) > self._cache_maxsize:
             self._cache.popitem(last=False)
 
-    def _request(self, params: dict[str, str | int]) -> dict | None:
+    def _request(self, params: dict[str, str | int], *, reverse: bool = False) -> dict | None:
         """1 initial call + 1 retry, each bounded by the timeout. Returns the
         parsed JSON, or None on a failure that survived the retry."""
         attempts = 2
         for attempt in range(attempts):
             try:
-                response = self._client.get(GEOCODE_URL, params=params, timeout=self._timeout)
+                endpoint = GEOCODE_URL.replace("/forward", "/reverse") if reverse else GEOCODE_URL
+                response = self._client.get(endpoint, params=params, timeout=self._timeout)
                 response.raise_for_status()
             except httpx.HTTPError:
                 if attempt == attempts - 1:
@@ -266,6 +303,8 @@ class MapboxClient:
                     region=str(region_ctx.get("name") or region_ctx.get("region_code") or ""),
                     bbox=bbox,
                     rank=rank,
+                    mapbox_id=str(props.get("mapbox_id") or ""),
+                    administrative_code=str(region_ctx.get("region_code") or ""),
                 )
             )
         return out

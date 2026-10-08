@@ -45,9 +45,10 @@ _DISABLE_SPELLINGS = {"none", "off", "false", "0", "disabled", "disable"}
 _OPENAI_REASONING_PREFIXES = ("gpt-5", "o1", "o3", "o4")
 
 _MAX_TOKENS_DEFAULTS = {
-    # Triage answers ~40 tokens of JSON; headroom covers reasoning tokens
-    # (they count against max_tokens on OpenAI reasoning models).
-    "TRIAGE": 200,
+    # Budget, minute window, amenities and up to three area identities can
+    # exceed 200 tokens together. A truncated JSON silently loses ALL slots.
+    # Still one bounded call; explicit operator overrides remain respected.
+    "TRIAGE": 768,
     # Synthesis replies are ~150-300 tokens; same reasoning-token headroom.
     # 1000 was all spent on reasoning once (QA trace 62207822, gpt-5.2:
     # finish_reason=length, empty content) — 2000 per ticket mcp-dayuse#8.

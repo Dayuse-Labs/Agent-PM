@@ -28,6 +28,8 @@ import os
 
 from b2c_common.observability import mark_level
 from hotel_search_agent import geo_resolver
+from b2c_common.search_areas import AreaRequest, preserve_area_boundary, validate_areas
+from hotel_search_agent.area_scope import STATE_FAILED, resolve_areas
 from hotel_search_agent.geo_guards import (
     _echo_fold,
     anchor_state_context,
@@ -39,7 +41,7 @@ from hotel_search_agent.geo_guards import (
 )
 from hotel_search_agent.inventory import get_inventory, haversine_km
 from hotel_search_agent.mapbox_client import GeocodeCandidate, GeocodeResult, MapboxClient
-from hotel_search_agent.response_bridge import read_profile_in
+from hotel_search_agent.response_bridge import find_datapart, read_profile_in
 from hotel_search_agent.searchbox_client import SearchBoxClient
 
 _client: MapboxClient | None = None
@@ -379,6 +381,7 @@ def geocode_location(
     proximity_lat: float | None = None,
     proximity_lon: float | None = None,
     country_guess: str | None = None,
+    areas: list[AreaRequest] | None = None,
 ) -> dict:
     """Resolve a destination to coordinates for `search_offers`, guarded.
 
@@ -456,6 +459,12 @@ def geocode_location(
             `inject_profile_geo_context` before_tool_callback — never expected
             from the model itself (it has no real GPS awareness).
         proximity_lon: paired with `proximity_lat`; either alone is ignored.
+        areas: For administrative destinations or multiple alternative cities,
+            up to three objects with query (full area name), kind (administrative
+            or municipality), country (ISO2), evidence (literal customer quote),
+            and optional code (department/state code explicitly given). Example:
+            78 or 92 in France means Yvelines code 78 and Hauts-de-Seine code 92.
+            Never supply coordinates. Omit for an ordinary single-city/POI search.
 
     Returns a dict — NEVER raises. On success:
         {"ok": True, "latitude", "longitude", "resolved_place",
@@ -469,6 +478,11 @@ def geocode_location(
     On any guard rejection or geocoder failure, a clean diagnostic:
         {"ok": False, "error": "<reason>", "diagnostics": {...}}
     """
+    if areas is not None:
+        validated = validate_areas(areas, raw_user_message)
+        if validated is None:
+            return _fail("invalid_area_request", {"reason": "Area identity needs literal current-message evidence."})
+        return resolve_areas(validated, get_mapbox_client(), (locale or language_hint or "en")[:2])
     guards_fired: list[str] = []
     demoted = demote_generic_city({"city": city, "zone": zone, "metro": metro})
     effective_city: str | None = demoted.get("city")
@@ -954,7 +968,7 @@ def _is_blank(value: object) -> bool:
     return value is None or (isinstance(value, str) and not value.strip())
 
 
-def inject_profile_geo_context(tool: object, args: dict, tool_context: object) -> None:
+def inject_profile_geo_context(tool: object, args: dict, tool_context: object) -> dict | None:
     """`before_tool_callback` (P0 #4 fix, S-G5) — the deterministic
     profile→tool-args bridge for `geocode_location`, same pattern as
     `equipment_ids.enforce_equipment_filters`: the leaf's own instruction used
@@ -995,6 +1009,43 @@ def inject_profile_geo_context(tool: object, args: dict, tool_context: object) -
     )
     country, prior_country = _iso2(args.get("country_code")), _iso2(profile_in.get("country_anchor"))
     destination_changed = city_changed or bool(country and prior_country and country != prior_country)
+    # Virtual area extraction is verified against the actual A2A customer text,
+    # never the model's raw_user_message argument. Carryover is profile-owned.
+    content = getattr(tool_context, "user_content", None)
+    message = " ".join(part.text for part in (getattr(content, "parts", None) or [])
+                       if isinstance(getattr(part, "text", None), str))
+    failed_scope = getattr(tool_context, "state", {}).get(STATE_FAILED)
+    if failed_scope:
+        return failed_scope
+    fresh_areas = args.pop("areas", None)
+    envelope = find_datapart(getattr(content, "parts", None)) or {}
+    authoritative = (envelope.get("query_params") or {}).get("areas_authoritative") is True
+    carried = validate_areas(profile_in.get("search_areas"))
+    # A copied prior extraction is carryover, not a new claim requiring the
+    # old area name to appear in "cheaper" or "remove the jacuzzi".
+    copied = validate_areas(fresh_areas)
+    same_identity = bool(copied and carried and
+        [{k: a.get(k, "") for k in ("query", "kind", "country", "code")} for a in copied]
+        == [{k: a.get(k, "") for k in ("query", "kind", "country", "code")} for a in carried])
+    if authoritative or (same_identity and not destination_changed):
+        scoped = carried
+    elif fresh_areas is not None:
+        scoped = validate_areas(fresh_areas, message)
+        if scoped is None:
+            failed = _fail("invalid_area_request", {"reason": "Area identity needs literal current-message evidence; do not replace the requested areas with their parent city."})
+            getattr(tool_context, "state", {})[STATE_FAILED] = failed
+            return failed
+    else:
+        # A new explicit city/zone replaces a previously broad area request.
+        new_place = destination_changed or bool(args.get("zone") or args.get("metro"))
+        scoped = None if new_place else validate_areas(profile_in.get("search_areas"))
+    scoped = preserve_area_boundary(carried, scoped)
+    if scoped:
+        resolved = resolve_areas(scoped, get_mapbox_client(), str(profile_in.get("locale") or profile_in.get("language") or "en")[:2])
+        if not resolved.get("ok"):
+            getattr(tool_context, "state", {})[STATE_FAILED] = resolved
+        return resolved
+
     if _is_blank(args.get("city")) and profile_in.get("city"):
         args["city"] = profile_in["city"]
     if destination_changed:

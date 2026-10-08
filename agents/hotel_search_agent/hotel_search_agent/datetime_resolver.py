@@ -417,6 +417,8 @@ async def probe_next_day_after_tool(
     only, measured ~600 ms, inside the orchestrator's 10 s leaf budget. Any
     failure is swallowed — a rescue probe must never turn an honest empty
     answer into a broken turn."""
+    if tool_context.state.get("temp:search_areas"):
+        return None  # a raw D+1 disc would bypass area-membership verification
     if getattr(tool, "name", "") != "search_offers":
         return None
     if not isinstance(tool_response, dict) or tool_response.get("isError"):

@@ -36,6 +36,7 @@ from typing import Any
 import litellm
 from b2c_common import max_tokens_for, reasoning_kwargs_for, role_model, temperature_kwargs_for
 from b2c_common.amenities import grounded_amenity_update
+from b2c_common.search_areas import validate_areas
 from dayuse_agent_common import (
     cost_from_tokens,
     enqueue_metric_event,
@@ -172,6 +173,7 @@ class Triage:
     requested_budget: dict | None = None
     budget_checked: bool = False
     requested_amenities: dict | None = None
+    requested_areas: list[dict[str, str]] | None = None
 
 
 def is_social_ack(message: str) -> bool:
@@ -457,8 +459,27 @@ Required key (always present, null if no budget change):
   Keep evidence SHORT and verbatim from MESSAGE, including the amount when set.
   Budget changes are family=search, not a request to change display_currency.
   Always include family, language, and requested_budget (null when no change).
-  Omit other optional keys and null-valued fields when unused; keep JSON compact.
+  Omit other optional keys and null-valued fields when unused. Return compact
+  JSON on one line; do not indent. Never repeat old slots that MESSAGE did not change.
 Optional keys, extracted from MESSAGE ONLY, never copied from recent messages:
+- "requested_areas": when MESSAGE names an administrative search area or a
+  choice of multiple municipalities, a list of up to three objects:
+  {{"query":"full area name","kind":"administrative" or "municipality",
+  "country":"ISO2","evidence":"shortest verbatim current quote","code":"optional stated code"}}.
+  For "île de france 78 ou 92": Yvelines administrative FR evidence78 code78,
+  Hauts-de-Seine administrative FR evidence92 code92. For "Brescia e provincia":
+  ONE administrative query="Brescia" IT evidence="Brescia"; the province
+  includes the city, so do NOT narrow it to municipality. A state/county or
+  department is not a missing city. "Only 92 now" replaces the previous list
+  with Hauts-de-Seine. Emit null when no area change, for ordinary single cities,
+  for POIs, or a corridor BETWEEN places (a corridor is not a union of cities).
+  Exception: explicitly narrowing to city limits ("Brescia city only") emits
+  one municipality with boundary_evidence quoting that explicit change (e.g.
+  "city only"). Repeating a place name or adding its country is NOT a boundary
+  change: preserve the province and emit null in that case.
+  Do not copy old area names into evidence for a non-geographic follow-up.
+  This is search intent, not a policy question; family=search. Coordinates are
+  forbidden here and will be resolved/verified by the existing geocoder.
 - "requested_amenities": for a SEARCH constraint in the CURRENT MESSAGE, an
   object {{"add": [...], "remove": [...], "evidence": "verbatim current quote"}}.
   Keys: pool, spa, gym, jacuzzi, sauna, restaurant, breakfast, pet_friendly,
@@ -650,6 +671,8 @@ async def classify(message: str, budget: TurnBudget, invocation_id: str = "",
         hotel_scope="shown" if data.get("hotel_scope") == "shown" else None,
         requested_budget=requested_budget,
         budget_checked="requested_budget" in data or numeric_only_message(message),
+        requested_areas=(validate_areas(data.get("requested_areas"), message)
+                         if family in {"search", "booking"} else None),
         requested_amenities=(
             grounded_amenity_update(data.get("requested_amenities"), message)
             if family in {"search", "booking"} else None

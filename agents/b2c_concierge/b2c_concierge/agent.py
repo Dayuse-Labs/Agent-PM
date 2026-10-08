@@ -116,6 +116,7 @@ from .a2a_datapart import encode_datapart, find_datapart
 from .amenity_guard import apply_amenity_truthfulness
 from .budget import TurnBudget
 from .currency_guard import enforce_currency_disclosure
+from b2c_common.search_areas import preserve_area_boundary
 from .dialogue_context import last_assistant_message, recent_user_messages
 from .date_format import humanize_iso_dates
 from .fallback_text import enforce_parking_reserve, synthesis_fallback_text
@@ -779,6 +780,12 @@ class _B2cConcierge(BaseAgent):
         """
         budget.charge("synthesis")
         ground_truth_block = shortlist_ground_truth_block(response, profile, language)
+        if response.get("area_coverage"):
+            ground_truth_block += "\nAREA SEARCH COVERAGE: " + json.dumps(response["area_coverage"], ensure_ascii=False)
+            ground_truth_block += ("\nDescribe these as verified examples in the requested areas. "
+                                   "Never claim exhaustive coverage, no availability anywhere, or that a city "
+                                   "must be supplied when the administrative areas already resolved. "
+                                   "If failed_areas or unverified is nonzero, disclose incomplete verification.")
         # The one fact worth leading on, decided in CODE from this turn's data
         # (ground_truth.synthesis_angle): the variety the reply was missing has
         # to come from the shortlist, not from temperature. Empty when the data
@@ -1271,6 +1278,7 @@ class _B2cConcierge(BaseAgent):
         # offer selection. Search first; otherwise "cheapest, but 11–16" picks
         # yesterday's/earlier window before the update below can be applied.
         # Partial clock answers retain the other bound; explicit clear is ().
+        area_update = preserve_area_boundary(profile.search_areas, triage.requested_areas)
         amenity_update = triage.requested_amenities
         next_amenities = (
             apply_amenity_update(profile.amenities, amenity_update)
@@ -1300,7 +1308,7 @@ class _B2cConcierge(BaseAgent):
             next_window != (profile.timeslot_start, profile.timeslot_end)
             or (not requested_window and bool(profile.timeslot or profile.daypart))
         ))
-        if (window_changed or amenities_changed) and family != "faq" and clicked_id is None:
+        if (window_changed or amenities_changed or area_update is not None) and family != "faq" and clicked_id is None:
             family, route = "search", ROUTES["search"]
             picked = None
             booking_signal = False
@@ -1436,6 +1444,17 @@ class _B2cConcierge(BaseAgent):
         # must NOT relaunch the leaf — it costs only the triage call already
         # spent above. Any non-bare-affirmative message (a new city, a new
         # budget, anything substantive) clears the flags and searches again.
+        if route.target == LEAF_HOTEL_SEARCH and area_update is not None:
+            profile.search_areas = area_update
+            profile.city = " / ".join(a["query"] for a in area_update)
+            for field in ("state_anchor", "country_anchor", "zone", "metro", "search_anchor", "distance_origin"):
+                setattr(profile, field, None)
+            profile.search_exhausted = False
+            profile.consecutive_empty_searches = 0
+            profile.widen_attempt_count = 0
+            profile.auto_widen_disclosure = None
+            reset_search_cursor(profile)
+
         if route.target == LEAF_HOTEL_SEARCH and amenity_update is not None:
             if any(key not in next_amenities for key in profile.amenities):
                 budget.fired.add("filter_relaxation_honored")
@@ -1549,6 +1568,8 @@ class _B2cConcierge(BaseAgent):
 
         budget.charge("leaf_llm")
         query_params: dict[str, Any] = {}
+        if route.target == LEAF_HOTEL_SEARCH and area_update is not None:
+            query_params["areas_authoritative"] = True
         if route.target == LEAF_HOTEL_SEARCH and amenity_update is not None:
             # Current intent has already been applied by the state owner.
             # The leaf must not replace it with a copied stale extraction.
@@ -1685,7 +1706,7 @@ class _B2cConcierge(BaseAgent):
             search_context = response.get("search_context")
             page = search_context.get("search_page") if isinstance(search_context, dict) else None
             profile.search_page = page if isinstance(page, dict) and page.get("url") else None
-            if results_count == 0 and not profile.requested_budget:
+            if results_count == 0 and not profile.requested_budget and not response.get("area_coverage"):
                 # mcp-dayuse#5: the criteria of the search that actually ran,
                 # cited in code — never what the model remembers of the request.
                 no_offers = no_offers_line(response.get("search_context"), reply_language)
@@ -1707,8 +1728,11 @@ class _B2cConcierge(BaseAgent):
                 language=reply_language,
                 same_day_dead_end=same_day_dead_end,
             )
+            if response.get("area_coverage"):
+                profile.search_exhausted = False
+                profile.consecutive_empty_searches = 0
             record_search_shortlist(profile, response["results"])  # S07: named-hotel lookup guard
-            if more_options and results_count == 0 and not profile.requested_budget:
+            if more_options and results_count == 0 and not profile.requested_budget and not response.get("area_coverage"):
                 # S-G5: pagination pool exhausted for the CURRENT filters (the
                 # leaf already excluded shown_hotel_ids before returning) —
                 # extend S12's exhaustion flag/template (never a parallel

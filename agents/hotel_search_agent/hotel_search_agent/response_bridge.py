@@ -35,6 +35,9 @@ closing the S9/S12 gap that left the concierge's budget/timeslot guards dormant)
 """
 from __future__ import annotations
 
+from hotel_search_agent.area_scope import STATE_AREAS, STATE_COVERAGE, STATE_RAN, STATE_FAILED, STATE_RESOLUTION
+
+
 from b2c_common.search_budget import offer_within_budget, resolve_budget_currency
 
 import json
@@ -592,6 +595,8 @@ def normalize_hotel(
     if lat is not None and lon is not None:
         card["latitude"] = lat
         card["longitude"] = lon
+    if hotel.get("verifiedSearchAreas"):
+        card["verified_search_areas"] = hotel["verifiedSearchAreas"]
     photo = _photo_url(hotel.get("mainPhotoNormal"))
     if photo:
         card["image_urls"] = [photo]
@@ -798,6 +803,7 @@ def enforce_resolved_search_origin(
     name = getattr(tool, "name", "")
     if name == "geocode_location":
         tool_context.state[_STATE_ANCHOR_KEY] = None
+        tool_context.state[STATE_AREAS] = None
         return None
     if name != "search_offers":
         return None
@@ -1005,6 +1011,7 @@ def capture_after_tool(
     if name == "geocode_location":
         # A failed refinement must not leave an earlier successful origin usable.
         tool_context.state[_STATE_ANCHOR_KEY] = None
+        tool_context.state[STATE_AREAS] = None
         # Guards are recorded on EVERY outcome, not just the successful ones: a
         # guard that fired and then made the turn fail honestly is exactly what
         # OBS3 needs to see.
@@ -1013,6 +1020,9 @@ def capture_after_tool(
             if isinstance(fired, list):
                 record_guards_fired(tool_context, fired)
         if isinstance(tool_response, dict) and tool_response.get("ok"):
+            tool_context.state[STATE_AREAS] = tool_response.get("search_areas")
+            if tool_response.get("search_areas"):
+                tool_context.state[STATE_RESOLUTION] = tool_response
             delta = tool_response.get("profile_delta")
             if isinstance(delta, dict) and delta:
                 tool_context.state[_STATE_DELTA_KEY] = delta
@@ -1028,6 +1038,8 @@ def capture_after_tool(
                     "label": tool_response.get("resolved_place"),
                     "type": tool_response.get("distance_origin_type") or "city_centroid",
                 }
+        elif isinstance(tool_response, dict) and tool_response.get("error") == "area_exceeds_search_radius":
+            tool_context.state[_STATE_DELTA_KEY] = tool_response.get("profile_delta") or {}
         elif isinstance(tool_response, dict) and tool_response.get("error") == "geocode_ambiguous":
             # 2026-08-26: a clarify carries a profile delta too, and it has to be
             # stashed like the ok-path's — otherwise the subject of the question
@@ -1151,7 +1163,7 @@ def capture_after_tool(
             a_lat, a_lon = _coord(args.get("lat")), _coord(args.get("lon"))
             if a_lat is not None and a_lon is not None:
                 origin = {"latitude": a_lat, "longitude": a_lon, "label": None, "type": "search_coordinate"}
-        if origin and results:
+        if origin and results and origin.get("type") != "area":
             _stamp_distances(results, origin)
             tool_context.state[_STATE_DISTANCE_ORIGIN_KEY] = origin
         # The search ran at the geocoded coordinates, so the geocoded country is
@@ -1496,6 +1508,8 @@ def stamp_turn_start(callback_context: Any) -> None:
     / geocode-fail) — `emit_search_datapart` reads it back unconditionally."""
     callback_context.state[_STATE_TURN_T0_KEY] = time.monotonic()
     callback_context.state[_STATE_ANCHOR_KEY] = None
+    for key in (STATE_AREAS, STATE_COVERAGE, STATE_RAN, STATE_FAILED, STATE_RESOLUTION):
+        callback_context.state[key] = None
     return None
 
 
@@ -1598,15 +1612,21 @@ def emit_search_datapart(callback_context: Any) -> genai_types.Content | None:
     country_code = state.get(_STATE_COUNTRY_KEY)
     if country_code:  # only-when-present — the orchestrator's city-change wipe
         profile_delta["country_anchor"] = _op_set(country_code)  # handles staleness
+    if "search_areas" in raw_delta:
+        profile_delta["search_areas"] = _op_set(raw_delta["search_areas"])
+        for slot in ("zone", "metro", "distance_origin", "search_anchor", "state_anchor"):
+            profile_delta[slot] = {"op": "clear"}
+    elif state.get(_STATE_ANCHOR_KEY) and read_profile_in(callback_context).get("search_areas"):
+        profile_delta["search_areas"] = {"op": "clear"}
     # Zone/metro (S-G5, typed ops): the geocode branch's EFFECTIVE zone/metro
     # for THIS turn — previously never persisted at all (audit gap: "zone is
     # lost across turns", zone accepted by geocode_tool/validated by the echo
     # guard but never reaching the profile). Only-when-present: no zone/metro
     # mention this turn is carryover, not a clear (a zone-only change
     # deliberately keeps everything else, S-G1's invalidation rule).
-    if raw_delta.get("zone"):
+    if raw_delta.get("zone") and "search_areas" not in raw_delta:
         profile_delta["zone"] = _op_set(raw_delta["zone"])
-    if raw_delta.get("metro"):
+    if raw_delta.get("metro") and "search_areas" not in raw_delta:
         profile_delta["metro"] = _op_set(raw_delta["metro"])
     # S-G6: a FRESH date label this turn (datetime_resolver.resolve_search_date)
     # — only-when-present. When the model extracted no date this turn, nothing
@@ -1695,6 +1715,8 @@ def emit_search_datapart(callback_context: Any) -> genai_types.Content | None:
     )
 
     payload: dict[str, Any] = {}
+    if state.get(STATE_COVERAGE):
+        payload["area_coverage"] = state[STATE_COVERAGE]
     if results is not None:  # a search ran (even 0 results is a real outcome)
         payload["results"] = results
         # S-CX6: WHICH day these results (or this dead end) are about, and

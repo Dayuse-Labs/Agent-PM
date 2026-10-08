@@ -30,6 +30,7 @@ from __future__ import annotations
 from typing import Any, Callable, Mapping, Optional
 
 from b2c_common.observability import mark_level
+from hotel_search_agent.area_scope import STATE_RESOLUTION
 
 # Same "TOOL BUDGET" prefix as the fleet's directive — `metrics.tool_metric_after`
 # flags `budget_stopped` on exactly that prefix. Wording names the ONE tool that
@@ -61,6 +62,11 @@ def make_per_tool_budget_callback(
             state[_INV_KEY] = tool_context.invocation_id
             state[_COUNTS_KEY] = {}
         name = str(getattr(tool, "name", "") or "")
+        if name == "geocode_location" and state.get(STATE_RESOLUTION):
+            # One user turn has one verified area plan. Repeated/parallel
+            # model geocode calls reuse it rather than spending the geocode
+            # budget and then erasing the successful search origin.
+            return state[STATE_RESOLUTION]
         # Reassigned (not mutated in place): ADK state tracks writes by key.
         counts = dict(state.get(_COUNTS_KEY) or {})
         counts[name] = counts.get(name, 0) + 1

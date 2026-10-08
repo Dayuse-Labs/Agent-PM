@@ -1,5 +1,69 @@
 # HANDOFF — AgentB2C
 
+## 2026-10-08 — v26 : périmètres administratifs et suivis
+
+**Pas de GO remplacement.** Le concierge conserve maintenant les demandes de
+périmètres administratifs / municipalités alternatives, extraites par le triage
+existant. La feuille résout leurs identités typées avec Mapbox ; un disque MCP
+par zone récupère cinq candidats, puis le géocodage inverse vérifie chaque hôtel
+par identifiant administratif avant affichage. Trois zones / quinze candidats
+au maximum, sans nouvel appel LLM ni regex. L’échantillon reste non exhaustif :
+une page vide ne prouve pas une absence dans tout le département. Les périmètres
+nécessitant un rayon supérieur à 200 km sont refusés sans réduction silencieuse.
+
+Le profil et les champs de périmètre survivent aux suivis, retraits d’équipements
+et erreurs. Le schéma d’outil est fermé ; les codes numériques cités sont
+vérifiés contre le fournisseur. Les noms administratifs localisés sont normalisés
+sans perdre les qualificatifs directionnels. Les géocodages redondants du même
+tour réutilisent le résultat vérifié : un appel ensuite bloqué par le quota ne
+peut plus effacer cette ancre. Une répétition du nom / pays ne doit pas réduire
+une province à la ville ; une citation de changement de limites lève ce maintien.
+
+Les logs ont montré des JSON de triage coupés à **200 tokens**, perdant budget,
+horaires et équipements. Le défaut de sortie passe à **768 tokens** ; les
+surcharges opérateur restent respectées. Un seul appel, mêmes modèles et aucune
+écriture Railway. Le lot final ne comporte aucune troncature de triage.
+
+**2 358 tests passés, un ignoré** ; 110 ciblés, ruff, mypy (63 fichiers) et
+guardrails verts. 32 tests ajoutés ; quatre erreurs d’interface reproduites en
+rouge avant correction (code numérique omis, citation reformulée, schéma libre,
+repli vers une ville après échec de résolution d’une zone). Le test de câblage
+compte le nouveau callback après validation du schéma MCP. Le test de plafond
+attend maintenant 768 ; le contrôle des surcharges et de la désactivation demeure.
+
+**60 réponses correctives / 20 revues A/B/C/D/F**, sur cinq versions exposées ;
+**12 réponses sur la source finale**. 78/92 aboutit à un hôtel vérifié à Clichy.
+Le contrôle synthétique conserve 150 EUR total, 10:30–17, le 10 octobre, puis
+retire le jacuzzi, limite au 92 et passe à Lyon. Sur la source finale :
+**15 cartes** jointes aux reçus MCP, **11 plafonds frais compris vérifiés**,
+zéro écart de prix, expiration ou jointure. Neuf cartes sont dans les zones
+attendues selon les réponses brutes Mapbox ; cela ne prouve pas la portée de la
+recherche : **trois écarts de portée du profil à Brescia persistent**.
+
+**Échec conservé :** 4o-mini choisit encore parfois la municipalité pour une
+province explicitement demandée. Des versions intermédiaires résolvent la province,
+mais le dernier tirage ne valide pas cette extraction. Le corridor londonien
+reste en clarification. Les demandes de chambre avec jacuzzi n’ont toujours pas
+la preuve d’un accès privatif/inclus. Note finale : C pour les deux parcours réels
+jacuzzi et le corridor ; B pour le contrôle de suivi (question horaire inutile).
+Aucun taux global ni nouvelle comparaison de population ; holdout v19 sur autre code.
+
+Les municipalités seules peuvent également être extraites malgré la consigne de
+réserver ce chemin aux alternatives / limites explicites : vérifier ce changement
+de portée par rapport au rayon de ville avant lancement. Pagination multi-zone,
+provinces larges, quartiers, contraintes chambre, âge/conditions, synthèse et
+matrice historique complète restent ouverts. Prochaine investigation utile :
+challenge E2E du modèle de triage, à source et paramètres identiques, plutôt que
+conclure à partir d’une seule extraction ou changer globalement le modèle.
+
+Nouvel export SQL : **33 298 lignes**, 2 000 récentes ; une nouvelle ouverture
+hors IDs de campagne conservée, pas encore enrichie Langfuse/rejouée. Provenance
+organique non certifiée. Traces et conversations hors Git. Étape **0,54902 USD**,
+cumul **86,33942 / 110 USD**, provisions 11,10 incluses et réserve 10. Aucun runner
+payant actif. Rapports privés `area-v26-summary` / `area-v26-review` et empreintes
+`area-candidate-v26e-source` (63 fichiers). Aucun merge ou déploiement.
+
+
 État du chantier pour reprise en session fraîche. **Lire en entier avant d'agir ; ne pas reconstruire ce qui existe.** Mettre à jour en fin de CHAQUE session (bloc daté en tête).
 
 > 📋 **Pour savoir QUOI faire ensuite, ouvrir [`CHANTIERS.md`](CHANTIERS.md)** (état vérifié au 2026-09-14) : la liste des chantiers ouverts, chacun avec sa preuve, ses actions et un prompt prêt à coller — plus la liste de ce qu'il ne faut **pas** relancer parce que c'est déjà livré. `tasks/todo.md` est périmé et ne doit plus servir de référence.

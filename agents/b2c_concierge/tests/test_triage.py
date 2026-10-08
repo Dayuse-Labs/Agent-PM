@@ -255,7 +255,7 @@ class TestPerRoleLlmParams:
         assert "extra_body" not in captured
         assert captured["temperature"] == 0.0  # unchanged from pre-audit behaviour
         # The default cap is the one deliberate change: bounded triage output.
-        assert captured["max_tokens"] == 200
+        assert captured["max_tokens"] == 768
 
     def test_role_model_beats_the_shared_slug(self, monkeypatch):
         monkeypatch.setenv("DAYUSE_MODEL", "gpt-5.2")

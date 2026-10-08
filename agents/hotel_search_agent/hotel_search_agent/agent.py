@@ -54,6 +54,7 @@ from hotel_search_agent.equipment_ids import (
     enforce_equipment_filters,
     inject_amenities_declaration,
 )
+from hotel_search_agent.area_scope import search_areas_before_tool
 from hotel_search_agent.geocode_tool import geocode_location, inject_profile_geo_context
 from hotel_search_agent.budget_injection import inject_profile_budget
 from hotel_search_agent.occupancy import inject_occupancy_declaration, inject_profile_occupancy
@@ -214,6 +215,18 @@ How to act, frugally (at most ONE reasoning pass — no tool-call loops):
   honestly instead (never invent coordinates or guess a nearby city).
   If it returns ok=True, call search_offers with its latitude/longitude plus
   the rest of the query params, and fold its profile_delta into your own.
+- Administrative areas (departments, provinces, states/counties) and alternative
+  municipalities are real destinations, not missing cities. Call geocode_location
+  with `areas`: one object per alternative, with full query name, kind
+  administrative/municipality, ISO2 country, literal evidence from the customer,
+  and code when explicitly supplied. For "78 ou 92" in Île-de-France, use
+  Yvelines/78 and Hauts-de-Seine/92; the provider verifies these codes. For
+  "Brescia e provincia", use administrative Brescia, not the city centroid.
+  Then call search_offers ONCE: code searches each verified area and excludes
+  hotels outside its boundaries. No city clarification is needed just because
+  the request names a department. For an unchanged follow-up, omit areas/city;
+  the stored areas are carried automatically. A new single city replaces them.
+  If the requested area is too large/unresolved, relay that precise limitation.
 - `query_params.repeat_previous_search` true → the user only changed how prices
   are DISPLAYED (e.g. "show the prices in the local currency"). Repeat the
   previous search as-is: call geocode_location with city blank, then
@@ -409,6 +422,7 @@ root_agent = Agent(
         # LAST: the virtual params are gone by now; anything else the tool's
         # published schema does not declare would make MCP refuse the call.
         drop_args_outside_schema,
+        search_areas_before_tool,
     ],
     # capture_after_tool is LAST: it may return a truncated payload (which breaks
     # the after-tool chain), so it must never run before mcp_circuit_after_tool

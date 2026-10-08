@@ -1731,3 +1731,34 @@ def test_current_amenities_reach_leaf_and_survive_empty_response(
     if update['remove']:
         assert 'AMENITY FILTER REMOVED' in llm.calls[-1]['messages'][1]['content']
         assert 'does NOT exclude hotels' in llm.calls[-1]['messages'][1]['content']
+
+
+@pytest.mark.parametrize('message,areas', [
+    ('île de france 78 ou 92', [
+        {'query': 'Yvelines', 'kind': 'administrative', 'country': 'FR', 'evidence': '78', 'code': '78'},
+        {'query': 'Hauts-de-Seine', 'kind': 'administrative', 'country': 'FR', 'evidence': '92', 'code': '92'},
+    ]),
+    ('Brescia e provincia', [
+        {'query': 'Brescia', 'kind': 'administrative', 'country': 'IT', 'evidence': 'Brescia e provincia'},
+    ]),
+])
+def test_area_intent_is_owned_before_leaf_even_when_leaf_returns_nothing(
+    monkeypatch, fake_leg, fake_profile_store, message, areas
+):
+    import json
+    fake_leg.response_payload = {'results': [], 'profile_delta': {}}
+    _scripted_llm(monkeypatch, json.dumps({'family': 'search', 'language': 'fr', 'requested_areas': areas}), 'No verified offers.')
+    runner = InMemoryRunner(root_agent)
+    session = _new_session(runner)
+    asyncio.run(fake_profile_store.set(session.id, SessionProfile(
+        city='Paris', zone='Centre', amenities=['jacuzzi'], date='2026-10-10',
+        requested_budget={'amount': 150, 'currency': 'EUR', 'unit': 'total'},
+    )))
+    _run_turn(runner, session.id, message)
+    outgoing = find_datapart(fake_leg.seen_outgoing_parts)
+    assert outgoing['profile_in']['search_areas'] == areas
+    assert outgoing['query_params']['areas_authoritative'] is True
+    saved = asyncio.run(fake_profile_store.get(session.id))
+    assert saved.search_areas == areas and saved.zone is None
+    assert saved.amenities == ['jacuzzi'] and saved.date == '2026-10-10'
+    assert saved.requested_budget['amount'] == 150

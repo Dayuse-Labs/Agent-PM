@@ -187,6 +187,7 @@ class SessionProfile:
     state; the leaves never store this (stateless contract, decision B3)."""
 
     city: str | None = None
+    search_areas: list[dict[str, str]] | None = None
     state_anchor: str | None = None
     country_anchor: str | None = None
     budget_max: float | None = None
@@ -278,6 +279,7 @@ class SessionProfile:
     def to_dict(self) -> dict[str, Any]:
         return {
             "city": self.city,
+            "search_areas": self.search_areas,
             "state_anchor": self.state_anchor,
             "country_anchor": self.country_anchor,
             "budget_max": self.budget_max,
@@ -653,6 +655,7 @@ def apply_profile_delta(
     )
     if city_changed or country_changed:
         profile.state_anchor = None
+        profile.search_areas = None
         profile.country_anchor = None
         profile.zone = None
         profile.metro = None
@@ -790,6 +793,8 @@ def apply_profile_delta(
         profile.locale = values["locale"]
     if "domain" in values:
         profile.domain = values["domain"]
+    if "search_areas" in values:
+        profile.search_areas = values["search_areas"]
     if "search_anchor" in values:
         profile.search_anchor = values["search_anchor"]
     if "distance_origin" in values:

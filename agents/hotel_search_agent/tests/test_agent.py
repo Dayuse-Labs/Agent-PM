@@ -162,10 +162,12 @@ class TestMetricsWiring:
         # the geocode's after_tool stash, which it does by construction
         # (different phase).
         assert before[0] is tool_timing_before
-        assert len(before) == 14
+        assert len(before) == 15
         # mcp-dayuse#8: the schema guard must see the args every other
         # callback has finished rewriting.
-        assert before[-1] is drop_args_outside_schema
+        from hotel_search_agent.area_scope import search_areas_before_tool
+        assert before[-2] is drop_args_outside_schema
+        assert before[-1] is search_areas_before_tool
         assert resolve_search_date in before
         assert resolve_search_timeslot in before
         assert before[2] is mcp_circuit_before_tool
