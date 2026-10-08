@@ -42,6 +42,7 @@ from google.adk.agents import Agent
 from google.adk.tools.mcp_tool import McpToolset, StreamableHTTPConnectionParams
 
 from hotel_search_agent.tool_budget_guard import make_per_tool_budget_callback
+from hotel_search_agent.owned_origin_plan import prepare_owned_origin, reuse_owned_origin, inject_owned_origin
 from hotel_search_agent.datetime_resolver import (
     inject_datetime_declaration,
     probe_next_day_after_tool,
@@ -380,11 +381,13 @@ root_agent = Agent(
     tools=[build_mcp_toolset(), geocode_location],
     # S-G4: stamps t0 for the turn's total-ms counter (emit_search_datapart logs
     # it) — runs before anything else so it covers every path, not just search.
+    # Owned destinations are prepared through the existing geocode guards before
+    # model scheduling can spend search attempts on missing-origin rejections.
     # stamp_a2a_turn gives the leaf's root observation (opened by
     # A2aTurnObservation in serve.py) the inbound request as its input, and
     # mirrors the inbound A2A dayuse_trace_id as the Langfuse session id
     # (no-op unless tracing is enabled in serve.py).
-    before_agent_callback=[stamp_turn_start, stamp_a2a_turn, prepare_owned_area_plan],
+    before_agent_callback=[stamp_turn_start, stamp_a2a_turn, prepare_owned_area_plan, prepare_owned_origin],
     # skip_final_generation is FIRST: once the search tool has run, it short-circuits
     # the model's wasted final-prose call (emit_search_datapart overwrites that prose
     # and the orchestrator re-synthesizes anyway) — 3 → 2 internal LLM calls. Being
@@ -403,6 +406,7 @@ root_agent = Agent(
         llm_timing_before,
         inject_today_before_model,
         inject_owned_area_plan,
+        inject_owned_origin,
         inject_amenities_declaration,
         inject_datetime_declaration,
         inject_occupancy_declaration,
@@ -423,6 +427,7 @@ root_agent = Agent(
         tool_timing_before,
         make_per_tool_budget_callback(PER_TOOL_CALL_LIMITS, MAX_TOOL_CALLS),
         mcp_circuit_before_tool,
+        reuse_owned_origin,
         enforce_resolved_search_origin,
         enforce_equipment_filters,
         inject_profile_occupancy,

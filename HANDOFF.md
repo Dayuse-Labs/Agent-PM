@@ -1,5 +1,33 @@
 # HANDOFF — AgentB2C
 
+## 2026-10-09 — Préparation locale suivante : origine avant ordonnancement des outils
+
+**Non poussée, non évaluée en live.** La PR distante reste sur `0419f6b`
+(runtime évalué `d1320bc`). Ne pas attribuer les notes v58 à ce nouveau code.
+
+Les traces v58 montrent deux `search_offers` émis avant `geocode_location` :
+les refus locaux consomment les deux tentatives et la recherche utile ne part
+jamais. Le nouveau `owned_origin_plan.py` prépare la décision géographique
+explicitement détenue par le concierge avant le modèle, via les mêmes gardes
+et fournisseurs. Une identité confirmée se réutilise sans requête fournisseur.
+Les appels géocode répétés réutilisent le résultat après le contrôle de quota.
+Les limites de tentatives et de lectures MCP ne sont pas augmentées.
+
+Un profil seul ne suffit pas : il faut une autorité courante. Une origine GPS
+absente/invalide ou un géocodage refusé ne devient pas une origine de secours.
+Une région avec GPS, sans choix explicite de ce GPS comme origine, reste dans
+le chemin existant : la frontière administrative ne choisit pas l'origine.
+Pas de regex, phase LLM supplémentaire, configuration Railway ou action client.
+
+Rejeu hors réseau des vrais appels enregistrés, mêmes arguments/A2A, MCP simulé
+vide : 0 lecture avant / 2 après, lieu/date/10–17/deux adultes/sans enfant
+conservés. Cela valide l'ordonnancement, pas la qualité utilisateur ou l'offre.
+Dix tests ajoutés ; deux échouaient sur le code précédent. Le test de câblage
+historique conserve ses assertions, avec le nouveau callback inséré après quota.
+Vérifications finales : 2696 tests passent / 1 ignoré, 101 ciblés, ruff,
+mypy (70 fichiers) et guardrails verts. Aucun nouveau GO live.
+Budget inchangé :109,13609113/110USD. Aucun nouveau rejeu payant automatique.
+
 ## 2026-10-09 — PR 134 : lots recherche et rejeu complet terminés
 
 **Pas de GO remplacement ; draft pour revue. FAQ/annulations en phase 2.**

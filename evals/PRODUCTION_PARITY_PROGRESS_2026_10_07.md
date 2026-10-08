@@ -1,5 +1,10 @@
 # Évaluation recherche avant remplacement de la production — 9 octobre 2026
 
+**Suite locale non poussée :** préparation de l'origine détenue avant le modèle
+pour éviter l'épuisement du quota par des recherches prématurées. Dix tests
+ajoutés et contre-épreuve hors réseau des appels v58 ; aucune nouvelle note live.
+Les résultats ci-dessous concernent toujours exclusivement `d1320bc`.
+
 **Décision : pas de GO remplacement. PR 134 conservée en draft pour revue technique.**
 La PR corrige des défauts démontrés, mais le dernier rejeu complet contient encore
 23 parcours C et un D. Aucun résultat ne prouve la conservation exhaustive des
