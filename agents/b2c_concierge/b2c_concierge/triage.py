@@ -666,7 +666,10 @@ async def classify(message: str, budget: TurnBudget, invocation_id: str = "",
                     "a new region or administrative code for the SAME city name. Such a correction "
                     "is change, never preserve. Device "
                     "means explicitly near the customer’s current position, never merely a price "
-                    "or time change. If uncertain, omit location_intent. Do not invent a selection."
+                    "or time change. For preserve, quote the CURRENT non-geographic request "
+                    "(such as its hours or budget), NOT the earlier destination. Evidence from "
+                    "history or LOCATION CONTEXT is invalid even when that place is preserved. "
+                    "If uncertain, omit location_intent. Do not invent a selection."
                     if location_context else ""
                 ) + (
                     "\n\nThis MESSAGE contains only a number. Its role must come from "
@@ -885,6 +888,14 @@ def _clock_numbers_in_evidence(clock: str, evidence: str) -> bool:
             start = None
     hour, minute = (int(part) for part in clock.split(":"))
     for index, (begin, end) in enumerate(runs):
+        # Compact 24-hour notation is a numeric witness for an already
+        # classified clock, not an intent parser. Match the complete token:
+        # 0930 can support 09:30, but neither an ID nor 13:30 supports 13:00.
+        if (end - begin == 4
+                and (begin == 0 or not evidence[begin - 1].isalnum())
+                and (end == len(evidence) or not evidence[end].isalnum())
+                and evidence[begin:end] == f"{hour:02d}{minute:02d}"):
+            return True
         if end - begin > 2:
             continue
         if index and evidence[runs[index - 1][1]:begin].strip().casefold() in {":", "h", "."}:

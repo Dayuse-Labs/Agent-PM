@@ -124,3 +124,40 @@ def test_existing_grounded_area_answer_selects_without_redundant_flag():
     assert selected_place(p, None, [{"query": "Valence", "country": "FR", "code": "26"}])["provider_id"] == VALENCE["provider_id"]
     assert selected_place(p, None, [{"query": "Valence", "country": "FR"}]) is None
     assert selected_place(p, None, [{"query": "Valence", "country": "FR", "code": "99"}]) is None
+
+
+def test_compact_hours_reach_leaf_with_confirmed_place(scripted, monkeypatch, fake_profile_store):  # noqa: F811
+    from types import SimpleNamespace
+
+    from google.genai import types
+    from b2c_concierge.a2a_datapart import encode_datapart
+    from hotel_search_agent.datetime_resolver import resolve_search_timeslot
+    from hotel_search_agent.geocode_tool import inject_profile_geo_context
+    from hotel_search_agent.response_bridge import STATE_EXACT_WINDOW_KEY
+
+    runner, session = _new_session()
+    asyncio.run(fake_profile_store.set(session.id, SessionProfile(city="Valence", confirmed_location=VALENCE)))
+    seen = []
+
+    async def leaf(leaf, ctx, profile_in, **kwargs):
+        wire = {"profile_in": profile_in, "query_params": kwargs["query_params"]}
+        tool_ctx = SimpleNamespace(state={}, user_content=types.Content(role="user", parts=[
+            types.Part(text="1300 - 1800"), encode_datapart(wire),
+        ]))
+        # A leaf's erroneous device mode cannot override the validated preserving
+        # turn. No GPS was supplied and no provider request is needed.
+        result = inject_profile_geo_context(SimpleNamespace(name="geocode_location"),
+                                            {"city": "", "origin": "device"}, tool_ctx)
+        assert result["resolved_location"] == VALENCE
+        args = {}
+        resolve_search_timeslot(SimpleNamespace(name="search_offers"), args, tool_ctx)
+        assert tool_ctx.state[STATE_EXACT_WINDOW_KEY] == {"start_total": 780, "end_total": 1080}
+        seen.append(profile_in)
+        return "No offers", {"results": [], "resolved_location": VALENCE}
+
+    scripted(json.dumps({"location_intent": {"action": "preserve", "evidence": "1300 - 1800"},
+        "family": "search", "language": "de", "requested_window": {
+            "start": "13:00", "end": "18:00", "evidence": "1300 - 1800"}}), "Keine Angebote.")
+    monkeypatch.setattr(agent_module, "_run_leaf", leaf)
+    _drive_in(runner, session.id, "1300 - 1800")
+    assert len(seen) == 1 and seen[0]["requested_window"] == {"start": "13:00", "end": "18:00"}

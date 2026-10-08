@@ -74,6 +74,22 @@ def test_midnight_canonical_value_cannot_copy_prior_turn_evidence():
     ) is None
 
 
+@pytest.mark.parametrize("message,start,end,expected", [
+    ("1300 - 1800", "13:00", "18:00", ("13:00", "18:00")),
+    ("0930–1745", "09:30", "17:45", ("09:30", "17:45")),
+    ("1300 - 1800", "13:30", "18:00", (None, "18:00")),
+    ("1300 - 1800", "01:00", "18:00", (None, "18:00")),
+    ("13001800", "13:00", "18:00", None),
+    ("AB1300 CD1800", "13:00", "18:00", None),
+])
+def test_compact_clock_witness_requires_exact_complete_numeric_token(message, start, end, expected):
+    # The model owns intent; code only validates its claimed clock against the
+    # actual quoted numbers. Never split IDs or reinterpret 24h as 12h.
+    assert _grounded_window({"requested_window": {
+        "start": start, "end": end, "evidence": message,
+    }}, message) == expected
+
+
 @pytest.mark.parametrize(
     "raw,message",
     [

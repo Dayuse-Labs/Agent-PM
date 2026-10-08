@@ -1,5 +1,45 @@
 # HANDOFF — AgentB2C
 
+## 2026-10-08 — v50 : horaires compacts, nouvelles conversations et comparaison
+
+**Pas de GO remplacement.** Une extraction horaire du modèle peut maintenant
+être justifiée par un token HHMM complet (1300–1800, 0930–1745), sans regex,
+ni découpage d’identifiants, ni conversion implicite 24h/12h. Quatre cas rouges
+avant correction ; test intégré jusqu’au créneau transmis à la feuille.
+La consigne preserve exige une citation du message courant, mais le live
+4o-mini cite encore un ancien horaire : amélioration de consigne non prouvée.
+
+Rejeu Vienne trois tours : 13–18 conservé et offre compatible, note C car
+l’ancre reste le centre de Schwechat, pas l’aéroport. Un appel device erroné
+est réparé dans ce tirage ; aucune garantie de correction du mode GPS.
+Même code/requêtes avec triage4.1-mini seul : D, Schwechat devient une sous-zone
+stricte de Wien. Autres modèles inchangés ; aucun changement par défaut.
+
+Export SQL33658, cinq sessions nouvelles ou poursuivies, quinze messages
+retrouvés dans Langfuse ; un GPS arrondi récupéré au second tour DFW seulement.
+Contexte natif incomplet et provenance organique non certifiée. Notes
+prod/B2C/candidat : navette→DFW A/D/A ; Singapour minuit puis comparaison D/D/D ;
+jacuzziDenBosch puis sarcasme D/C/D ; prèsdemoi13octobre06–16sansGPS A/A/A ;
+PortugalLisbonneouPorto D/C/C. Le candidat conserve navette/minuit/date mais
+perd la plainte néerlandaise (ack) et ne recherche qu’une des deux villes.
+
+**Cause prioritaire révélée** : compare_hotels reçoit seulement hotelIds,
+retourne bestOffer sans date demandée, puis inline_tools.py:517 normalise ces
+offres en remplacement des offres affichées. Singapour : cinq offres changées,
+quatre cartes au12octobre au lieu9, cinq hôtels au lieu des deux premiers,
+ordre MCP pris comme ordre utilisateur. Le contrôle prix/jointure peut passer
+tout en violant la date et l’horaire. Il faut conserver l’identité datée des
+offres choisies, enrichir seulement les faits hôtel, et sélectionner les
+positions demandées via le triage existant, sans regex ni phase supplémentaire.
+
+2618tests passés,1ignoré ; ruff/mypy69/guardrails verts.51réponses/17revues ;
+24cartes rapprochées des reçus MCP sans erreur prix/jointure/expiration, avec
+l’audit comparaison étendu. Cela ne valide pas les contraintes utilisateur.
+Coût étape0,439711USD ; cumul98,945805/110USD, provisions12,10 incluses et
+réserve10 conservée ; aucun appel non soldé. Aucune action client, déploiement
+ou merge. Rapports et traces locaux horsGit. Restent les POI/aéroports typés,
+GPS, comparaisons, sarcasme, alternatives et preuve finale des32familles.
+
 ## 2026-10-08 — v49 : choix et conservation du lieu géographique
 
 **Pas de GO remplacement.** Le concierge conserve désormais les candidats de
