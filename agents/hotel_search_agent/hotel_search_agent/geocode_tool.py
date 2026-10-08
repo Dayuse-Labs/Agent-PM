@@ -25,6 +25,7 @@ turn's `profile_in` by whoever owns the session (the orchestrator, S5).
 from __future__ import annotations
 
 import os
+from typing import Literal
 
 from b2c_common.observability import mark_level
 from hotel_search_agent import geo_resolver
@@ -385,6 +386,7 @@ def geocode_location(
     proximity_lon: float | None = None,
     country_guess: str | None = None,
     areas: list[AreaRequest] | None = None,
+    origin: Literal["destination", "device"] = "destination",
 ) -> dict:
     """Resolve a destination to coordinates for `search_offers`, guarded.
 
@@ -468,6 +470,11 @@ def geocode_location(
             and optional code (department/state code explicitly given). Example:
             78 or 92 in France means Yvelines code 78 and Hauts-de-Seine code 92.
             Never supply coordinates. Omit for an ordinary single-city/POI search.
+        origin: Use device when the customer requests their own current position,
+            including a follow-up inside an existing region. Omit city/zone/metro
+            in that case. The callback reads trusted device coordinates; never
+            supply them yourself. Use destination for a named place or an
+            unchanged destination on a non-geographic follow-up.
 
     Returns a dict — NEVER raises. On success:
         {"ok": True, "latitude", "longitude", "resolved_place",
@@ -481,6 +488,10 @@ def geocode_location(
     On any guard rejection or geocoder failure, a clean diagnostic:
         {"ok": False, "error": "<reason>", "diagnostics": {...}}
     """
+    if origin == "device":
+        # Only the A2A callback can authorize device coordinates. Direct calls
+        # with model-supplied proximity values cannot establish this provenance.
+        return _fail("device_context_required", {"question": "Which city or address should I search near?"})
     if areas is not None:
         validated = validate_areas(areas, raw_user_message)
         if validated is None:
@@ -1102,10 +1113,39 @@ def inject_profile_geo_context(tool: object, args: dict, tool_context: object) -
                     args.pop(field, None)
         scoped = None
     if scoped:
+        device_requested = args.get("origin") == "device"
+        previous_origin = profile_in.get("distance_origin") or {}
+        owned_labels = {_echo_fold(a["query"]) for a in scoped}
+        owned_labels.add(_echo_fold(prior_city or ""))
+        distinct_place = any(
+            args.get(k) and _echo_fold(args[k]) not in owned_labels
+            for k in ("city", "zone", "metro")
+        )
+        device_carried = (
+            not authoritative and not destination_changed
+            and not distinct_place
+            and previous_origin.get("type") == "gps"
+        )
         resolved = resolve_areas(scoped, get_mapbox_client(), str(profile_in.get("locale") or profile_in.get("language") or "en")[:2])
+        if resolved.get("ok") and (device_requested or device_carried):
+            from hotel_search_agent.area_scope import use_device_origin
+            if distinct_place:
+                return _fail("conflicting_location_origin", {"reason": "A named destination must use origin=destination; device mode cannot replace it."})
+            resolved = use_device_origin(resolved, profile_in.get("search_anchor"), get_mapbox_client())
         if not resolved.get("ok"):
             getattr(tool_context, "state", {})[STATE_FAILED] = resolved
         return resolved
+
+    if args.get("origin") == "device":
+        from hotel_search_agent.area_scope import trusted_device_coordinates
+        if any(args.get(k) for k in ("city", "zone", "metro")) or authoritative:
+            return _fail("conflicting_location_origin", {"reason": "A named destination must use origin=destination; device mode cannot replace it."})
+        coords = trusted_device_coordinates(profile_in.get("search_anchor"))
+        if coords is None:
+            return _fail("device_location_unavailable", {"question": "Which city or address should I search near?"})
+        device_lat, device_lon = coords
+        return _ok(GeocodeResult(latitude=device_lat, longitude=device_lon, place_name="your current location", country_code="", region=""),
+                   feature_type="gps", distance_origin_type="gps", profile_delta={"device_origin": True})
 
     if _is_blank(args.get("city")) and profile_in.get("city"):
         args["city"] = profile_in["city"]

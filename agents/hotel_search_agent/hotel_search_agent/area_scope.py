@@ -99,7 +99,55 @@ def _resolve_area(item: dict[str, str], client: MapboxClient, language: str | No
     if wikidata.startswith("Q") and wikidata[1:].isascii() and wikidata[1:].isdigit():
         identities.append("wikidata:" + wikidata)
     return {"ok": True, "area": {"id": candidate.mapbox_id, "identities": identities, "label": candidate.name,
-            "country": candidate.country_code, "latitude": lat, "longitude": lon, "radius_km": radius}}
+            "country": candidate.country_code, "latitude": lat, "longitude": lon, "radius_km": radius,
+            "bbox": list(bbox)}}
+
+
+def trusted_device_coordinates(anchor: Any) -> tuple[float, float] | None:
+    if not isinstance(anchor, dict) or anchor.get("type") != "gps":
+        return None
+    lat, lon = anchor.get("lat"), anchor.get("lon")
+    if (isinstance(lat, bool) or isinstance(lon, bool)
+            or not isinstance(lat, (float, int)) or not isinstance(lon, (float, int))
+            or not -90 <= lat <= 90 or not -180 <= lon <= 180):
+        return None
+    return float(lat), float(lon)
+
+
+def use_device_origin(resolution: dict, anchor: Any, client: MapboxClient) -> dict:
+    """Retain verified area membership, retrieving nearest to trusted GPS.
+
+    One reverse lookup verifies the device belongs to a requested area. The
+    discs still cover every area's full provider bbox; no silent narrowing or
+    acceptance of model coordinates. Each hotel's membership remains checked.
+    """
+    coords = trusted_device_coordinates(anchor)
+    if coords is None:
+        return {"ok": False, "error": "device_location_unavailable", "diagnostics": {
+            "question": "Which city or address inside the requested area should I search near?"}}
+    lat, lon = coords
+    areas = resolution["search_areas"]
+    identities = client.containing_area_ids(lat, lon)
+    if identities is None or not any(
+        identities.intersection(a.get("identities") or [a["id"]])
+        and (not a.get("required_parent_id") or a["required_parent_id"] in identities)
+        for a in areas
+    ):
+        return {"ok": False, "error": "device_area_conflict", "diagnostics": {
+            "question": "Your position is not verified inside the requested area. Should I keep that area or search around your position?"}}
+    shifted = []
+    for area in areas:
+        bbox = area["bbox"]
+        radius = math.ceil(max(haversine_km(lat, lon, y, x)
+                              for x in (bbox[0], bbox[2]) for y in (bbox[1], bbox[3]))) + 1
+        if radius > 200:
+            return {"ok": False, "error": "area_exceeds_search_radius", "diagnostics": {
+                "question": "Which part of the requested area should I keep? Its full extent exceeds the search radius from your position."}}
+        shifted.append({**area, "latitude": lat, "longitude": lon, "radius_km": radius,
+                        "sort_by": "distance"})
+    return {**resolution, "latitude": lat, "longitude": lon, "resolved_place": "your current location",
+            "distance_origin_type": "gps", "search_areas": shifted,
+            "profile_delta": {**resolution["profile_delta"], "device_origin": True}}
 
 
 def resolve_areas(requests: list[dict[str, str]], client: MapboxClient, language: str | None = None) -> dict:
@@ -155,7 +203,7 @@ async def _search_areas(tool: Any, args: dict[str, Any], tool_context: Any, area
     async def retrieve(area: dict) -> dict | None:
         query = {**args, "lat": area["latitude"], "lon": area["longitude"],
                  "radiusKm": area["radius_km"], "size": PAGE_SIZE,
-                 "sortBy": "distance" if area.get("required_parent_id") else "relevance"}
+                 "sortBy": area.get("sort_by") or ("distance" if area.get("required_parent_id") else "relevance")}
         try:
             raw = await tool.run_async(args=query, tool_context=tool_context)
         except Exception:

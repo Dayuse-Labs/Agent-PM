@@ -1,5 +1,48 @@
 # HANDOFF — AgentB2C
 
+## 2026-10-08 — v46 : origine GPS dans une région et preuves pour la synthèse
+
+**Pas de GO remplacement.** Un suivi « près de moi » reprenait le centre de la
+région conservée. Le tool existant reçoit maintenant un choix typé d’origine,
+le callback lit uniquement le GPS A2A validé, vérifie son appartenance à la
+région, puis conserve les identités et limites fournisseur. Le rayon couvre
+encore toute la bbox depuis le GPS (maximum200km inchangé), tri distance et
+vérification de chaque hôtel maintenus. Une copie du nom de la région dans
+city/zone ne remplace pas cette intention ; un lieu distinct reste protégé.
+Un seul reverse Mapbox supplémentaire pour vérifier le GPS, aucun nouveau
+MCP/LLM ou regex. État durable dans le concierge, feuille toujours stateless.
+
+La synthèse ne recevait ni origine GPS ni distances individuelles. Elle reçoit
+maintenant les preuves de CE tour, sans coordonnées brutes. Un ancien GPS de
+profil ne prouve jamais l’origine d’une nouvelle recherche de lieu nommé.
+Tests causaux sur même profil/arguments : ancien callback centre régional,
+candidat GPS et mêmes identités régionales ; ancien prompt sans preuves,
+candidat avec origine et distances. Ce n’est pas une comparaison modèle causale.
+
+Étapes v45–v46 :52réponses/23revues, versions distinctes. Le feedback seul v45
+est retiré : deux continuations contrôlées géocodent toutes deux, aucun gain
+causal démontré. Rejeu finalv46c :4réponses sur un parcours historique exposé,
+GPS conservé après détails et suivi, date10octobre/spa/20h conservés, distances
+39–45km divulguées sans redemander la ville. **Parcours entier encoreC** : la
+demande moins cher affiche ensuite un minimum144EUR contre117EUR auparavant.
+Ne pas confondre correction géographique et réussite complète du follow-up.
+Contrôlesv46b : italien GPS/budget80EUR/14h30–16h30 B, sansGPS A, Heathrow B,
+Gare de Lyon explicite D. Aucun modèle par défaut changé.
+
+Export SQL33585/2000récentes :3nouvelles sessions/5messages, tous retrouvés dans
+Langfuse, aucun GPS récupérable. Comparaison15réponses prod/B2C/candidatv46b :
+Paris18 B/C/C ;4heures autour de minuit puis Londres D/D/C ; Brabant ou
+Zuid-Holland C/C/B. Payload natif incomplet, origine organique non certifiée.
+Paris18 est mal typé municipality puis ramené à Paris centre ; demande minuit
+non satisfaite par les cartes de journée. Ces défauts restent ouverts.
+
+2 566 tests passés, un ignoré ;16nouveaux cas, ruff/mypy66/guardrails verts.
+118cartes candidates jointes aux reçus MCP : zéro erreur prix/jointure ou
+expiration ; cela ne prouve pas la pertinence. Coût v45–v46 0.47376083999699999440USD ; cumul
+96.65071061839799895746/110USD, provisions12,10 incluses, réserve10 intacte.
+Tous les runners payants terminés, données brutes hors Git. Pas de déploiement,
+merge ou acte client.32familles toujours non prouvées, aucun holdout final.
+
 ## 2026-10-08 — v44 : suivi ordinal et reprise FAQ après réponse trop grosse
 
 **Pas de GO remplacement.** Nouveau SQL :33563 lignes/2000récentes, sept

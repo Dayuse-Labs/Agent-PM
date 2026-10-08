@@ -160,6 +160,11 @@ filter the customer has replaced or removed. When profile_in already contains
 the destination, let the tools inherit it as described below.
 
 How to act, frugally (at most ONE reasoning pass — no tool-call loops):
+- For the customer's own current position, call geocode_location(origin="device")
+  FIRST, without city/zone/metro or coordinates. This also applies after a
+  regional search: code retains its boundaries and uses trusted GPS for distance.
+  For an explicitly named destination use origin="destination"; it takes priority
+  over device position. Do not turn accommodation types into geographic places.
 - A destination/area search → FIRST call geocode_location (pass the city/zone/
   metro/country_code you extracted from THIS message, plus the raw user
   message). It is a deterministic, guarded tool — never geocode a destination

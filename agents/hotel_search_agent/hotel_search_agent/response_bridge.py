@@ -1048,7 +1048,9 @@ def capture_after_tool(
                 }
         elif isinstance(tool_response, dict) and tool_response.get("error") == "area_exceeds_search_radius":
             tool_context.state[_STATE_DELTA_KEY] = tool_response.get("profile_delta") or {}
-        elif isinstance(tool_response, dict) and tool_response.get("error") == "geocode_ambiguous":
+        elif isinstance(tool_response, dict) and tool_response.get("error") in {
+            "geocode_ambiguous", "device_location_unavailable", "device_area_conflict",
+        }:
             # 2026-08-26: a clarify carries a profile delta too, and it has to be
             # stashed like the ok-path's — otherwise the subject of the question
             # dies with the turn. Verified in prod: asked "gare de lyon — which
@@ -1547,6 +1549,11 @@ async def prepare_owned_area_plan(callback_context: Any) -> None:
     if (envelope.get("query_params") or {}).get("areas_authoritative") is not True:
         return None
     profile = read_profile_in(callback_context)
+    # A GPS follow-up may change the origin inside a retained region. Let the
+    # existing tool call declare that choice before committing its center.
+    from hotel_search_agent.area_scope import trusted_device_coordinates
+    if trusted_device_coordinates(profile.get("search_anchor")) is not None:
+        return None
     areas = validate_areas(profile.get("search_areas"))
     if not requires_area_membership(areas) or not areas:
         return None
@@ -1678,6 +1685,11 @@ def emit_search_datapart(callback_context: Any) -> genai_types.Content | None:
             profile_delta[slot] = {"op": "clear"}
     elif state.get(_STATE_ANCHOR_KEY) and read_profile_in(callback_context).get("search_areas"):
         profile_delta["search_areas"] = {"op": "clear"}
+    if raw_delta.get("device_origin"):
+        profile_delta["search_anchor"] = read_profile_in(callback_context)["search_anchor"]
+        if "search_areas" not in raw_delta:
+            for slot in ("city", "zone", "metro", "state_anchor", "country_anchor"):
+                profile_delta[slot] = {"op": "clear"}
     # Zone/metro (S-G5, typed ops): the geocode branch's EFFECTIVE zone/metro
     # for THIS turn — previously never persisted at all (audit gap: "zone is
     # lost across turns", zone accepted by geocode_tool/validated by the echo
@@ -1755,7 +1767,9 @@ def emit_search_datapart(callback_context: Any) -> genai_types.Content | None:
     # only ever reads `profile_delta` off the wire (agent.py), so a top-level
     # sibling key silently never reaches the profile (S-G9 finding 1).
     distance_origin = state.get(_STATE_DISTANCE_ORIGIN_KEY)
-    if distance_origin and results:
+    if raw_delta.get("device_origin"):
+        distance_origin = state.get(_STATE_ANCHOR_KEY)
+    if distance_origin and (results or raw_delta.get("device_origin")):
         profile_delta["distance_origin"] = distance_origin
 
     clarify_question = state.get(_STATE_CLARIFY_QUESTION_KEY)

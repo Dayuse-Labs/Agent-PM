@@ -219,6 +219,9 @@ def _hotel_line(hotel: dict[str, Any], window: dict[str, str | None] | None = No
     rating = hotel.get("rating")
     if isinstance(rating, (int, float)):
         line += f" — rating {float(rating):.1f}/5"
+    distance = hotel.get("distance_km")
+    if isinstance(distance, (int, float)) and not isinstance(distance, bool) and 0 <= distance < float("inf"):
+        line += f" — straight-line distance from this search's origin: {distance:.1f} km"
     url = hotel.get("url")
     if isinstance(url, str) and url.startswith("https://"):
         line += f" — url: {url}"
@@ -378,13 +381,28 @@ def shortlist_ground_truth_block(
     no empty-search streak yet) — never adds an empty section to the prompt."""
     hotels = shortlist_hotels(response)
     date_block = date_context_block(response, language)
+    # Current tool evidence only. A GPS stored on the profile does not prove a
+    # named-destination search used it; coordinates themselves need not enter
+    # the synthesis prompt. Keep provenance alongside the per-hotel distances.
+    origin = ((response or {}).get("profile_delta") or {}).get("distance_origin")
+    location_note = ""
+    if (isinstance((response or {}).get("results"), list) and isinstance(origin, dict)
+            and origin.get("type") == "gps"):
+        location_note = (
+            "SEARCH ORIGIN: This search used the customer's device position. "
+            "Their position is already available; do not ask for their city or "
+            "address to establish it again. Report large distances honestly: "
+            "these are straight-line distances, not walking or driving times. "
+            "Keeping a region boundary does not make every result close to the "
+            "customer. Ask permission before relaxing other requested filters.\n"
+        )
     if not hotels:
         if profile.consecutive_empty_searches > 0:
             # Date block LAST on this path: it is the authoritative cause and
             # must override the generic note's "widen the area / adjust the
             # budget" menu when the real reason is a closed same-day window.
-            return "\n\n## CURRENT RESULTS (GROUND TRUTH)\n" + _EMPTY_SCREEN_NOTE + date_block
-        return ""
+            return "\n\n## CURRENT RESULTS (GROUND TRUTH)\n" + _EMPTY_SCREEN_NOTE + date_block + location_note
+        return location_note
     lines = [_hotel_line(hotel, profile.requested_window) for hotel in hotels]
     window_note = (
         "TIME WINDOWS: minute coverage is calculated from a single listed offer. "
@@ -398,7 +416,7 @@ def shortlist_ground_truth_block(
     )
     return (
         "\n\n## CURRENT SHORTLIST (GROUND TRUTH)\n"
-        + date_block + _HEADER + window_note + "\n".join(lines)
+        + date_block + location_note + _HEADER + window_note + "\n".join(lines)
     )
 
 

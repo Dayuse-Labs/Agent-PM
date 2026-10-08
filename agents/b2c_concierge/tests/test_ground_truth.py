@@ -485,3 +485,24 @@ def test_empty_faq_evidence_exposes_missing_source_instead_of_policy_authority()
     block = faq_ground_truth_block({'faq_evidence': [], 'faq_diagnostics': {'source_verified': False}})
     assert 'No verified policy source' in block
     assert 'original successful tool results' not in block
+
+
+def test_device_origin_reaches_synthesis_only_as_current_search_evidence():
+    hotel = {"name": "Nearby example", "distance_km": 39.4}
+    current = {"results": [hotel], "profile_delta": {"distance_origin": {
+        "type": "gps", "latitude": 12.3456, "longitude": 23.4567,
+    }}}
+    block = shortlist_ground_truth_block(current, _profile())
+    assert "This search used the customer's device position" in block
+    assert "39.4 km" in block
+    assert "12.3456" not in block and "23.4567" not in block
+    old_gps = _profile(distance_origin=current["profile_delta"]["distance_origin"])
+    named = {"results": [hotel], "profile_delta": {"distance_origin": {"type": "poi"}}}
+    assert "This search used the customer's device position" not in shortlist_ground_truth_block(named, old_gps)
+    assert "This search used the customer's device position" not in shortlist_ground_truth_block({"results": [hotel]}, old_gps)
+
+
+def test_empty_device_search_keeps_origin_evidence_but_unexecuted_search_does_not():
+    delta = {"distance_origin": {"type": "gps"}}
+    assert "device position" in shortlist_ground_truth_block({"results": [], "profile_delta": delta}, _profile())
+    assert "device position" not in shortlist_ground_truth_block({"profile_delta": delta}, _profile())
