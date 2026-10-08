@@ -1,5 +1,59 @@
 # HANDOFF — AgentB2C
 
+## 2026-10-08 — v34 : source FAQ et recherche par nom sans identité
+
+**Pas de GO remplacement.** Le triage indique la source nécessaire à une question
+(règles Dayuse, faits hôtel ou offre), avec citation du message courant. Une
+question générale classée `details` rejoint la FAQ lorsque cette source est
+validée et qu’aucun hôtel n’est explicitement choisi/nommé. Elle ne retire pas
+les contraintes de recherche. Les règles d’arrivée concernent aussi les
+utilisateurs qui n’ont pas encore réservé : le prompt ne limite plus ces règles
+aux réservations existantes.
+
+Après un triage réussi sans nom reconnu, le chemin détails ne transforme plus
+la phrase entière en nom MCP. Les choix de carte, correspondances fortes de la
+shortlist et noms extraits restent utilisables. Les autres appels (booking,
+compare, fallback sans triage) gardent leur contrat existant : pas de migration
+globale revendiquée. Aucune nouvelle regex, phase modèle ni dépendance.
+
+Un test de routage/mémoire échouait avant correction. Huit nouveaux cas couvrent
+ce routage, la conservation du créneau, absence de requête par nom sans identité,
+shortlist, nom extrait, et validation du label/citation. **2 437 tests passés,
+un ignoré**, ruff, mypy (65 fichiers), guardrails.
+
+**14 réponses / quatre revues**, deux contrôles exposés comparant seulement le
+triage 4o-mini et 4.1-mini, mêmes sources et autres rôles conservés. Orange County
+→ FAQ → California → Anaheim : **4o C, 4.1 B**. Les deux répondent à la FAQ et
+conservent samedi/15 h ; 4o redemande encore la date et propose une arrivée plus
+tôt. Le county qualifié nécessite encore une ville. Hôtel nommé → âge/caution
+→ annulation : **C pour les deux** ; offre datée et caution 250 USD conservées,
+mais traitement de la caution avant arrivée encore inféré sans preuve.
+
+**12 cartes tarifées** reliées aux reçus MCP : zéro écart prix/jointure/expiration.
+Les deux modèles choisissent directement `faq` en live : le test forcé établit
+le correctif de routage, ce tirage ne l’exerce pas causalement. La citation de
+4o reformule « when ever » en « whenever » et est donc rejetée ; la famille FAQ
+suffit ici. Les différences de synthèse incluent de la variabilité de génération.
+Sept appels triage par modèle : **0,00515550 USD** (4o) et **0,01400640 USD** (4.1).
+Échantillon trop petit pour changer le modèle par défaut ; aucun réglage Railway.
+
+Export actualisé : 33 403 lignes / 2 000 récentes. Sept nouveaux messages, trois
+sessions, retrouvés exactement dans Langfuse et préparés pour le prochain rejeu :
+Dubai (cinq tours, horaires/budget/rayon autour de Marina, changement de langue),
+Miami après croisière (quatre adultes/deux enfants), recherche de chaîne près de
+moi. Ces sept messages **ne sont pas encore rejoués**. Les manques de contexte
+natif/fuseau sont consignés par tour ; aucune donnée GPS inventée, provenance
+organique non certifiée par l’API SQL.
+
+**Reste :** lit bébé vs capacité, besoins libres/pagination, caution/annulation,
+questions déjà résolues dans la synthèse, géographies historiques, âge durable,
+langues et fidélité native. Les 32 familles restent incomplètes et non exhaustives.
+Étape **0,17779475 USD** ; cumul **90,40983040/110 USD**, provisions 11,10 incluses,
+réserve 10 conservée. Challenger arrêté, aucun runner payant actif. Rapports privés
+v34-summary/v34-review, information-v34-diagnostic, new-prod-v34-inputs. Aucun
+merge ni déploiement. CI du nouveau commit à observer séparément ; les anciens
+jobs live/Langfuse ignorés ne prouvent aucun rejeu.
+
 ## 2026-10-08 — v33 : conserver le jour de semaine avant clarification
 
 **Pas de GO remplacement.** Le triage existant extrait un jour de semaine demandé

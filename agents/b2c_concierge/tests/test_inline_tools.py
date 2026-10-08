@@ -1809,3 +1809,34 @@ class TestNamedAvailabilitySearch:
         result = _run(inline_tools.get_hotel_details('', SessionProfile(date='2030-10-09'),
                                                    picked_hotel_id=22293, for_search=True))
         assert result['ok'] is False
+
+
+def test_semantically_unidentified_question_never_becomes_mcp_hotel_name(monkeypatch):
+    session = _install(monkeypatch, {})
+    result = _run(inline_tools.get_hotel_details(
+        'Can I arrive later if I lose some hours?', SessionProfile(city='Anaheim'), allow_text_name=False,
+    ))
+    assert not result['ok']
+    assert session.calls == []
+
+
+def test_strict_name_mode_keeps_verified_shortlist_match(monkeypatch):
+    session = _install(monkeypatch, {'get_hotel_details': FakeResult(HOTEL_DETAILS_RESPONSE)})
+    result = _run(inline_tools.get_hotel_details(
+        'Villa Paris Orly', SessionProfile(last_results=SHORTLIST), allow_text_name=False,
+    ))
+    assert result['ok']
+    assert [name for name, args in session.calls] == ['get_hotel_details']
+
+
+def test_strict_name_mode_keeps_extracted_named_lookup(monkeypatch):
+    session = _install(monkeypatch, {
+        'find_hotel_by_name': FakeResult({'hotel': {'hotelId': 22293, 'name': 'Villa Paris Orly'}}),
+        'get_hotel_details': FakeResult(HOTEL_DETAILS_RESPONSE),
+    })
+    result = _run(inline_tools.get_hotel_details(
+        'Tell me about Villa Paris Orly', SessionProfile(),
+        llm_hotel_name='Villa Paris Orly', allow_text_name=False,
+    ))
+    assert result['ok']
+    assert session.calls[0] == ('find_hotel_by_name', {'name': 'Villa Paris Orly'})

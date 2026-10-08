@@ -1145,13 +1145,14 @@ class TestNamedHotelLookupThroughTheSpine:
         recorded: list[str] = []
 
         async def _fake_get_hotel_details(
-            hotel_reference, profile_arg, picked_hotel_id=None, llm_hotel_name=None
+            hotel_reference, profile_arg, picked_hotel_id=None, llm_hotel_name=None, allow_text_name=True
         ):
             recorded.append(hotel_reference)
             assert profile_arg.last_results[0]["hotel_id"] == 4242
             # P1-1: the triage `hotel_name` slot rides along to the resolver.
             # The scripted classify below emits no such key, so it must arrive
-            # as None — the resolver then falls back to its phrase-stripper.
+            # as None — the resolver can still match the verified shortlist.
+            assert allow_text_name is False
             assert llm_hotel_name is None
             return {"ok": True, "hotel": {"id": 4242, "name": "Kimpton - Hotel Palomar South Beach"}}
 

@@ -559,3 +559,15 @@ def test_weekday_is_semantic_and_does_not_change_hours(monkeypatch):
     result = _classify('Samedi, mêmes horaires')
     assert result.requested_weekday == 'saturday'
     assert result.requested_window is None and not result.replace_window
+
+
+@pytest.mark.parametrize('raw', [
+    {'value': 'dayuse_policy', 'evidence': 'Where is the hotel?'},
+    {'value': 'dayuse_policy'},
+    {'value': 'hotel_name', 'evidence': 'Can I arrive later?'},
+    {'value': True, 'evidence': 'Can I arrive later?'},
+])
+def test_information_source_needs_current_quote_and_closed_value(monkeypatch, raw):
+    import json
+    _script(monkeypatch, json.dumps({'family': 'details', 'language': 'en', 'information_source': raw}))
+    assert _classify('Can I arrive later?').information_source is None

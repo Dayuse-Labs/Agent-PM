@@ -977,6 +977,7 @@ class _B2cConcierge(BaseAgent):
         picked_hotel_id: int | None = None,
         llm_hotel_name: str | None = None,
         hotel_scope: str | None = None,
+        allow_text_name: bool = True,
     ) -> AsyncGenerator[Event, None]:
         """details / compare: the real MCP_B2C call is a CODE decision
         (route.kind == "inline" was already resolved by triage + the routing
@@ -995,7 +996,7 @@ class _B2cConcierge(BaseAgent):
         elif route.target == "get_hotel_details":
             result = await inline_tools.get_hotel_details(
                 message, profile, picked_hotel_id=picked_hotel_id,
-                llm_hotel_name=llm_hotel_name,
+                llm_hotel_name=llm_hotel_name, allow_text_name=allow_text_name,
             )
             hotels = [result["hotel"]] if result.get("ok") else []
             leaf_text = f"Hotel details retrieved for {hotels[0].get('name')}." if hotels else ""
@@ -1291,6 +1292,12 @@ class _B2cConcierge(BaseAgent):
         if clicked_id is None and triage.language in TEMPLATE_LANGUAGES:
             profile.language = reply_language
 
+        # A general policy needs the FAQ source even if triage's coarse family
+        # said details. It is not a hotel identity or a change to the stay.
+        if (family in {"details", "faq"} and triage.information_source == "dayuse_policy"
+                and triage.hotel_name is None and picked is None and clicked_id is None):
+            family, route = "faq", ROUTES["faq"]
+
         # A changed, user-grounded clock constraint invalidates the previous
         # offer selection. Search first; otherwise "cheapest, but 11–16" picks
         # yesterday's/earlier window before the update below can be applied.
@@ -1452,6 +1459,7 @@ class _B2cConcierge(BaseAgent):
                 picked_hotel_id=picked.get("hotel_id") if picked else None,
                 llm_hotel_name=triage.hotel_name,
                 hotel_scope=triage.hotel_scope,
+                allow_text_name=not triage.used_llm,
             ):
                 yield event
             return

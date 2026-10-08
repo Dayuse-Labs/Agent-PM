@@ -176,6 +176,7 @@ class Triage:
     requested_amenities: dict | None = None
     requested_areas: list[dict[str, str]] | None = None
     requested_weekday: str | None = None
+    information_source: str | None = None
 
 
 def is_social_ack(message: str) -> bool:
@@ -338,8 +339,11 @@ with these keys (omit the optional keys when there is no signal):
   availability problem with the proposed hotel: route to `search` for an
   alternative or clarification of which hotel/date. It does not imply the
   user owns a reservation or wants cancellation/refund policy.
-  Questions about the available times of a displayed offer are `details`;
-  general rules for changing the times of an EXISTING booking are `faq`.
+  Questions about the actual times of a specific displayed offer are `details`.
+  General rules about arriving within/after a slot, leaving early, payment,
+  cancellation or changing times are `faq`, including BEFORE any booking or
+  hotel selection. "My hotel" alone does not identify a property. Asking how
+  slots work does not withdraw previously requested arrival/departure times.
   Asking to SEE
   the prices in a currency ("donne le prix en SGD", "dans la monnaie de l'hôtel",
   "en devise locale") is `details`, NEVER `faq`; only a question about PAYING
@@ -418,6 +422,14 @@ with these keys (omit the optional keys when there is no signal):
   A duration, date, address, postal code or distance is NEVER a budget.
   A number alone at the start of a conversation has no established budget role:
   "78240" / "75008" may be postal codes; family=search, no budget amount.
+- "information_source": for an informational question, identify the facts
+  needed: {{"value":"dayuse_policy" | "hotel_facts" | "offer_facts",
+  "evidence":"verbatim current question"}}. dayuse_policy = general service
+  rules (arrival during a slot, late arrival, cancellations, payment), even
+  when no booking exists. hotel_facts = a property's facilities or conditions;
+  offer_facts = the actual hours/price/terms of a particular formula. Do not
+  infer a specific property from "my hotel" alone. Omit when uncertain or not
+  an informational question. General policy does not change search constraints.
 - "hotel_name": the hotel name the user names, stripped of the request phrasing
   around it ("book the Villa Paris Orly for me" → "Villa Paris Orly", "détails
   sur l'Ibis Lyon Gare" → "Ibis Lyon Gare"). Null when no hotel is named by
@@ -694,6 +706,7 @@ async def classify(message: str, budget: TurnBudget, invocation_id: str = "",
         wants_more_options=_bool_slot(data.get("wants_more_options")),
         bare_budget_value=_budget_slot(data.get("bare_budget_value")),
         hotel_name=_hotel_name_slot(data.get("hotel_name")),
+        information_source=_information_source(data.get("information_source"), message),
         display_currency=_display_currency_slot(data.get("display_currency")),
         requested_window=_grounded_window(data, message),
         requested_weekday=(_grounded_weekday(data.get("requested_weekday"), message)
@@ -862,6 +875,19 @@ def _grounded_weekday(raw: Any, message: str) -> str | None:
     if not isinstance(value, str) or value not in WEEKDAYS:
         return None
     if (not isinstance(evidence, str) or not evidence.strip() or len(evidence) > 160
+            or evidence.casefold() not in message.casefold()):
+        return None
+    return value
+
+
+def _information_source(raw: Any, message: str) -> str | None:
+    """A grounded source requirement, distinct from a hotel identity or search edit."""
+    if not isinstance(raw, dict):
+        return None
+    value, evidence = raw.get("value"), raw.get("evidence")
+    if not isinstance(value, str) or value not in {"dayuse_policy", "hotel_facts", "offer_facts"}:
+        return None
+    if (not isinstance(evidence, str) or not evidence.strip() or len(evidence) > 500
             or evidence.casefold() not in message.casefold()):
         return None
     return value

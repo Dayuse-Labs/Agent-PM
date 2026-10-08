@@ -1880,3 +1880,31 @@ def test_named_identity_without_available_offer_cannot_claim_availability(monkey
     assert 'UNVERIFIED offer' not in reply
     assert 'Example' in reply
     assert ('no verified offer' in reply.lower()) if ok else ('could not verify' in reply.lower())
+
+
+def test_general_policy_source_routes_faq_without_clearing_search_window(monkeypatch, fake_leg, fake_profile_store):
+    import json
+    from b2c_concierge import inline_tools
+    message = 'Can I arrive later if I lose some hours?'
+    called = []
+    async def lookup(*args, **kwargs):
+        called.append(args)
+        return {'ok': False, 'error': 'hotel not found'}
+    monkeypatch.setattr(inline_tools, 'get_hotel_details', lookup)
+    fake_leg.response_payload = {'faq_data': {'answer': 'Arrival during the booked slot.'}}
+    fake_leg.text = 'Arrival during the booked slot.'
+    _scripted_llm(monkeypatch, json.dumps({
+        'family': 'details', 'language': 'en',
+        'information_source': {'value': 'dayuse_policy', 'evidence': message},
+        'requested_window': {'clear': True, 'evidence': message},
+    }), 'You can arrive within the booked slot.')
+    runner = InMemoryRunner(root_agent)
+    session = _new_session(runner)
+    asyncio.run(fake_profile_store.set(session.id, SessionProfile(
+        city='Anaheim', date='2026-10-10', timeslot_start='15:00', requested_window={'start': '15:00'},
+    )))
+    _run_turn(runner, session.id, message)
+    assert not called
+    assert fake_leg.call_count == 1
+    saved = asyncio.run(fake_profile_store.get(session.id))
+    assert saved.timeslot_start == '15:00' and saved.date == '2026-10-10'

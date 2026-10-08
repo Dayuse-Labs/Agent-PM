@@ -153,9 +153,10 @@ async def _resolve_hotel_id(
     reference: str,
     profile: SessionProfile,
     llm_hotel_name: str | None = None,
+    allow_text_name: bool = True,
 ) -> tuple[int | None, str | None]:
     with observation(as_type="guardrail", name="resolve-named-hotel"):
-        return await _resolve_hotel_id_impl(session, reference, profile, llm_hotel_name)
+        return await _resolve_hotel_id_impl(session, reference, profile, llm_hotel_name, allow_text_name)
 
 
 async def _resolve_hotel_id_impl(
@@ -163,6 +164,7 @@ async def _resolve_hotel_id_impl(
     reference: str,
     profile: SessionProfile,
     llm_hotel_name: str | None = None,
+    allow_text_name: bool = True,
 ) -> tuple[int | None, str | None]:
     """Named-hotel lookup guard (item 4, hardened S12 audit 2026-07-20): a
     STRONG shortlist hit (exact/substring name match) resolves immediately,
@@ -187,6 +189,12 @@ async def _resolve_hotel_id_impl(
     strong_hit = resolve_hotel_reference_strict(reference, profile.last_results)
     if strong_hit is not None and strong_hit.get("hotel_id") is not None:
         return int(strong_hit["hotel_id"]), str(strong_hit["name"])
+
+    # A successful semantic extraction with no name is not permission to use
+    # the entire question as a name. Already matched shortlist identities above
+    # remain valid. Other callers retain the existing fallback contract.
+    if not llm_hotel_name and not allow_text_name:
+        return None, None
 
     # P1-1: triage's `hotel_name` slot is the PRIMARY extraction now — it read
     # the same message and can strip request phrasing in any language, which the
@@ -371,6 +379,7 @@ async def get_hotel_details(
     picked_hotel_id: int | None = None,
     llm_hotel_name: str | None = None,
     for_search: bool = False,
+    allow_text_name: bool = True,
 ) -> dict[str, Any]:
     """Real MCP_B2C `get_hotel_details`, hotel resolved via the named-hotel
     lookup guard — or taken straight from `picked_hotel_id` when the spine
@@ -387,7 +396,7 @@ async def get_hotel_details(
                 guards_fired: list[str] = []
                 if hotel_id is None:
                     hotel_id, _ = await _resolve_hotel_id(
-                        session, hotel_reference, profile, llm_hotel_name
+                        session, hotel_reference, profile, llm_hotel_name, allow_text_name
                     )
                     guards_fired.append("named_hotel_lookup")
                 if hotel_id is None:
