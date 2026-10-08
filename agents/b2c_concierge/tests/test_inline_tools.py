@@ -1751,3 +1751,61 @@ def test_missing_or_malformed_property_conditions_are_not_policy_evidence():
         result = inline_tools._normalize_hotel_for_display({'id': 1, 'conditions': conditions, 'commonConditions': conditions}, None)
         assert 'hotel_conditions' not in result
         assert 'general_conditions' not in result
+
+
+class TestNamedAvailabilitySearch:
+    def _offer(self, **changes):
+        return {**HOTEL_DETAILS_RESPONSE['offers'][0], 'availabilityDate': '2030-10-09',
+                'startHour': 10, 'endHour': 18, 'priceEuro': 9000,
+                'priceEuroWithBookingFees': 9500, 'hotelPriceWithBookingFees': 8000,
+                'hotelCurrency': 'USD', 'capacity': 2, 'childrenCapacity': 1, **changes}
+
+    def test_selects_offer_for_new_date_window_budget_and_party_not_first_or_old_formula(self, monkeypatch):
+        offers = [self._offer(availabilityDate='2030-10-08'),
+                  self._offer(ratePlanUuid='late', startHour=17),
+                  self._offer(ratePlanUuid='expensive', hotelPriceWithBookingFees=9000),
+                  self._offer(ratePlanUuid='too-small', capacity=1),
+                  self._offer(ratePlanUuid='missing-child-proof', childrenCapacity=None),
+                  self._offer(ratePlanUuid='correct')]
+        session = _install(monkeypatch, {'get_hotel_details': FakeResult({
+            'hotel': HOTEL_DETAILS_RESPONSE['hotel'], 'offers': offers})})
+        profile = SessionProfile(date='2030-10-09', timeslot_start='11:30', timeslot_end='16:00',
+                                 adults=2, children=1, requested_budget={'amount': 80, 'currency': 'USD', 'unit': 'total'},
+                                 last_results=[{'hotel_id': 22293, 'name': 'Villa Paris Orly',
+                                                'offer_id': 'old-formula', 'offer_date': '2030-10-08'}])
+        result = _run(inline_tools.get_hotel_details('', profile, picked_hotel_id=22293, for_search=True))
+        assert result['ok'] is True
+        assert result['hotel']['offer_id'] == 'correct'
+        assert result['hotel']['offer_date'] == '2030-10-09'
+        assert result['hotel']['capacity'] == 2
+        assert result['hotel']['children_capacity'] == 1
+        assert session.calls[0][0:2] == ('get_hotel_details', {'hotelId': 22293, 'date': '2030-10-09'})
+
+    def test_expired_and_wrong_day_offers_do_not_prove_availability(self, monkeypatch):
+        _install(monkeypatch, {'get_hotel_details': FakeResult({
+            'hotel': HOTEL_DETAILS_RESPONSE['hotel'],
+            'offers': [self._offer(cutoffDeadlineUtc='2000-01-01T12:00:00Z'),
+                       self._offer(availabilityDate='2030-10-10')]})})
+        result = _run(inline_tools.get_hotel_details('', SessionProfile(date='2030-10-09'),
+                                                   picked_hotel_id=22293, for_search=True))
+        assert result['ok'] is True
+        assert 'offer_id' not in result['hotel']
+        assert 'price' not in result['hotel']
+        assert result['hotel']['name'] == 'Villa Paris Orly'
+
+    def test_selects_cheapest_matching_offer_instead_of_first(self, monkeypatch):
+        _install(monkeypatch, {'get_hotel_details': FakeResult({
+            'hotel': HOTEL_DETAILS_RESPONSE['hotel'],
+            'offers': [self._offer(ratePlanUuid='pricey', priceEuroWithBookingFees=12000),
+                       self._offer(ratePlanUuid='cheaper', priceEuroWithBookingFees=6000)]})})
+        result = _run(inline_tools.get_hotel_details('', SessionProfile(date='2030-10-09'),
+                                                   picked_hotel_id=22293, for_search=True))
+        assert result['hotel']['offer_id'] == 'cheaper'
+        assert result['hotel']['price_eur_cents'] == 6000
+
+    def test_details_for_another_hotel_cannot_be_attached_to_the_named_identity(self, monkeypatch):
+        _install(monkeypatch, {'get_hotel_details': FakeResult({
+            'hotel': {**HOTEL_DETAILS_RESPONSE['hotel'], 'hotelId': 999}, 'offers': [self._offer()]})})
+        result = _run(inline_tools.get_hotel_details('', SessionProfile(date='2030-10-09'),
+                                                   picked_hotel_id=22293, for_search=True))
+        assert result['ok'] is False

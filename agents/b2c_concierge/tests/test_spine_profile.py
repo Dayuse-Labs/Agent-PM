@@ -1837,3 +1837,46 @@ def test_more_with_changed_budget_restarts_first_page(monkeypatch, fake_leg, fak
     profile = find_datapart(fake_leg.seen_outgoing_parts)['profile_in']
     assert profile['requested_budget']['amount'] == 80
     assert profile['search_cursor'] == 0
+
+
+def test_named_identity_search_checks_dated_availability_before_synthesis(monkeypatch, fake_leg, fake_profile_store):
+    from datetime import date
+
+    monkeypatch.setattr(agent_module, 'reference_today', lambda _: date(2026, 10, 8))
+    llm = _scripted_llm(monkeypatch, '{"family":"search","language":"en","hotel_name":"Example"}',
+                        'Example has a verified offer for tomorrow.')
+    fake_leg.response_payload = {'results': [{'hotel_id': 12, 'name': 'Example'}], 'named_hotel_id': 12}
+    seen = []
+
+    async def details(reference, profile, **kwargs):
+        seen.append((profile.date, kwargs))
+        return {'ok': True, 'hotel': {'id': 12, 'name': 'Example', 'offer_id': 'rp1',
+                'offer_date': '2026-10-09', 'price': '€90.00', 'timeslots': [{'start': '10:00', 'end': '18:00'}]}}
+
+    monkeypatch.setattr(agent_module.inline_tools, 'get_hotel_details', details)
+    runner = InMemoryRunner(root_agent)
+    session = _new_session(runner)
+    _run_turn(runner, session.id, 'Show me Example for tomorrow')
+    assert seen == [('2026-10-09', {'picked_hotel_id': 12, 'for_search': True})]
+    assert '€90.00' in llm.calls[-1]['messages'][1]['content']
+    stored = asyncio.run(fake_profile_store.get(session.id))
+    assert stored.last_results[0]['offer_id'] == 'rp1'
+
+
+@pytest.mark.parametrize('ok', [True, False])
+def test_named_identity_without_available_offer_cannot_claim_availability(monkeypatch, fake_leg, ok):
+    llm = _scripted_llm(monkeypatch, '{"family":"search","language":"en"}',
+                        'UNVERIFIED offer is available tomorrow!')
+    fake_leg.response_payload = {'results': [{'hotel_id': 12, 'name': 'Example'}], 'named_hotel_id': 12}
+
+    async def details(*args, **kwargs):
+        return {'ok': ok, 'hotel': {'id': 12, 'name': 'Example'}}
+
+    monkeypatch.setattr(agent_module.inline_tools, 'get_hotel_details', details)
+    runner = InMemoryRunner(root_agent)
+    session = _new_session(runner)
+    reply = _run_turn(runner, session.id, 'Show me Example tomorrow')
+    assert len(llm.calls) == 1
+    assert 'UNVERIFIED offer' not in reply
+    assert 'Example' in reply
+    assert ('no verified offer' in reply.lower()) if ok else ('could not verify' in reply.lower())

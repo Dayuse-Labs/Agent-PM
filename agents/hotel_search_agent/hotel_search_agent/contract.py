@@ -34,6 +34,10 @@ class SearchResponse(BaseModel):
         default_factory=list,
         description="Offers/hotels as returned by the MCP_B2C tools (never fabricated).",
     )
+    named_hotel_id: int | None = Field(
+        default=None,
+        description="Verified identity from find_hotel_by_name; availability still needs an inline details lookup.",
+    )
     profile_delta: dict = Field(
         default_factory=dict,
         description="Only the NEW profile facts learned this turn; empty if none — schema fixed in S5.",

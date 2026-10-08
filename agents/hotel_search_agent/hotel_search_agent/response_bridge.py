@@ -80,6 +80,7 @@ _TARGET_TOOLS = {"search_offers", "find_hotel_by_name"}
 
 # temp: → invocation-scoped, discarded after the turn (leaf stays stateless).
 _STATE_RESULTS_KEY = "temp:hotel_search_results"
+_STATE_NAMED_ID_KEY = "temp:hotel_search_named_id"
 _STATE_DELTA_KEY = "temp:hotel_search_profile_delta"
 _STATE_COUNTRY_KEY = "temp:hotel_search_country_code"
 # The resolved geocode anchor (lat/lon/label/type) stashed by the geocode branch,
@@ -1234,6 +1235,12 @@ def capture_after_tool(
             int("timeslot_start" in budget_timeslot or "timeslot_end" in budget_timeslot),
         )
     tool_context.state[_STATE_RESULTS_KEY] = results
+    # A name lookup proves identity only. The concierge owns the existing
+    # get_hotel_details tool and must check dated offers before presenting one.
+    named_id = results[0].get("hotel_id") if name == "find_hotel_by_name" and len(results) == 1 else None
+    tool_context.state[_STATE_NAMED_ID_KEY] = (
+        named_id if isinstance(named_id, int) and not isinstance(named_id, bool) and named_id > 0 else None
+    )
 
     if name != "search_offers":
         return None  # find_hotel_by_name payload is already small: stash only
@@ -1765,6 +1772,8 @@ def emit_search_datapart(callback_context: Any) -> genai_types.Content | None:
         payload["area_coverage"] = state[STATE_COVERAGE]
     if results is not None:  # a search ran (even 0 results is a real outcome)
         payload["results"] = results
+        if state.get(_STATE_NAMED_ID_KEY) is not None:
+            payload["named_hotel_id"] = state[_STATE_NAMED_ID_KEY]
         # S-CX6: WHICH day these results (or this dead end) are about, and
         # whether that day is the session's today. The concierge cannot derive
         # it — a carried-over/default date is deliberately never persisted to

@@ -1654,6 +1654,39 @@ class _B2cConcierge(BaseAgent):
                 self._emit_turn_metric(family, "template:budget_clarification", budget, t_start, "ok", inv)
                 yield self._final(ctx, clarification)
                 return
+        if route.target == LEAF_HOTEL_SEARCH and response.get("named_hotel_id") is not None:
+            identity = response.get("results") or []
+            hotel_id = response["named_hotel_id"]
+            if (len(identity) != 1 or not isinstance(hotel_id, int) or isinstance(hotel_id, bool)
+                    or identity[0].get("hotel_id", identity[0].get("id")) != hotel_id):
+                yield self._final(ctx, templates.leaf_degraded_response(family, reply_language, profile.city))
+                return
+            profile.date = expected_date or profile.date or reference_today(profile.client_timezone).isoformat()
+            result = await inline_tools.get_hotel_details(
+                "", profile, picked_hotel_id=hotel_id, for_search=True,
+            )
+            budget.fired.update(result.get("guards_fired") or [])
+            hotel = result.get("hotel") if result.get("ok") else None
+            if not hotel or not hotel.get("offer_id"):
+                # Identity remains useful for policy questions, but never
+                # becomes an available offer through model wording or retries.
+                response["results"] = [hotel] if hotel else identity
+                profile.pending_booking = None
+                profile.search_cursor = 0
+                record_search_shortlist(profile, response["results"])
+                await store.set(ctx.session.id, profile)
+                yield self._hotels_event(ctx, response, reply_language, build_hotel_picks(profile))
+                self._emit_turn_metric(family, "inline:named_availability", budget, t_start,
+                                       "ok" if result.get("ok") else "degraded", inv)
+                yield self._final(ctx, templates.named_availability_response(
+                    str(identity[0].get("name") or ""), profile.date, reply_language,
+                    verified=bool(result.get("ok")),
+                ))
+                return
+            response["results"] = [hotel]
+            response["search_date"] = {"date": profile.date}
+            leaf_text = "A dated offer was verified for this named hotel."
+
         date_notice: str | None = None
         search_date_part = response.get("search_date")
         if expected_date and isinstance(search_date_part, dict):

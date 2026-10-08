@@ -17,6 +17,33 @@ informal except pt which stays formal — pt-PT, not pt-BR) and the vocabulary
 """
 from __future__ import annotations
 
+from .date_format import format_date_human
+
+
+def named_availability_response(name: str, date: str, language: str, *, verified: bool) -> str:
+    """Identity succeeded; no verified offer or inventory lookup unavailable."""
+    checked = {
+        "en": "I found {name}, but no verified offer for {date} matching your request. Would you like another date or hotel?",
+        "fr": "J’ai trouvé {name}, mais aucune offre vérifiée pour le {date} correspondant à votre demande. Voulez-vous une autre date ou un autre hôtel ?",
+        "es": "He encontrado {name}, pero ninguna oferta verificada para el {date} que corresponda a tu búsqueda. ¿Prefieres otra fecha u otro hotel?",
+        "it": "Ho trovato {name}, ma nessuna offerta verificata per il {date} che corrisponda alla tua richiesta. Preferisci un’altra data o un altro hotel?",
+        "de": "Ich habe {name} gefunden, aber kein bestätigtes Angebot für {date} passend zu deiner Anfrage. Möchtest du ein anderes Datum oder Hotel?",
+        "pt": "Encontrei {name}, mas nenhuma oferta verificada para {date} que corresponda ao seu pedido. Prefere outra data ou outro hotel?",
+        "nl": "Ik heb {name} gevonden, maar geen geverifieerd aanbod voor {date} dat bij je aanvraag past. Wil je een andere datum of een ander hotel?",
+    }
+    unavailable = {
+        "en": "I found {name}, but could not verify its availability for {date}. Please check its hotel page or try again shortly.",
+        "fr": "J’ai trouvé {name}, mais je n’ai pas pu vérifier sa disponibilité pour le {date}. Consultez sa fiche ou réessayez dans un instant.",
+        "es": "He encontrado {name}, pero no he podido comprobar su disponibilidad para el {date}. Consulta su ficha o vuelve a intentarlo en un momento.",
+        "it": "Ho trovato {name}, ma non ho potuto verificarne la disponibilità per il {date}. Consulta la pagina dell’hotel o riprova tra poco.",
+        "de": "Ich habe {name} gefunden, konnte die Verfügbarkeit für {date} aber nicht prüfen. Schau auf der Hotelseite nach oder versuche es gleich erneut.",
+        "pt": "Encontrei {name}, mas não consegui verificar a disponibilidade para {date}. Consulte a página do hotel ou tente novamente dentro de instantes.",
+        "nl": "Ik heb {name} gevonden, maar kon de beschikbaarheid voor {date} niet controleren. Bekijk de hotelpagina of probeer het zo nog eens.",
+    }
+    return _pick(language, checked if verified else unavailable).format(
+        name=name, date=format_date_human(date, language),
+    )
+
 
 def _pick(language: str, table: dict[str, str]) -> str:
     """Language-table lookup with an EN fallback (`table["en"]` must always be

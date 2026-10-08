@@ -1,5 +1,62 @@
 # HANDOFF — AgentB2C
 
+## 2026-10-08 — v32 : disponibilité réelle des hôtels nommés et suivis historiques
+
+**Pas de GO remplacement.** Une recherche par nom transmet maintenant une identité
+explicite par DataPart A2A. Le concierge vérifie l’offre via son outil MCP existant
+`get_hotel_details`, avant synthèse : date, UUID de formule, créneau, prix fini,
+expiration et contraintes déjà présentes dans le profil (budget frais compris,
+capacité et plage horaire). La formule la moins chère qui convient est retenue.
+Une nouvelle recherche ne reste pas bloquée sur l’ancienne formule sélectionnée.
+Sans offre vérifiée, une réponse déterministe distingue absence et erreur de
+vérification ; l’identité reste utilisable pour les questions de politique hôtel.
+Aucune nouvelle regex, phase LLM ou dépendance ; feuilles stateless conservées.
+Les routes ordinaires de détails/compare ne sont pas globalement migrées.
+
+Quatre tests causaux échouaient avant correction. Huit nouveaux cas couvrent le
+pont A2A, le chemin concierge, absence/erreur, sélection date/créneau/budget/capacité,
+expiration, formule moins chère et mauvaise identité. **2 419 tests passés, un
+ignoré**, ruff, mypy (64 fichiers), guardrails. Sources figées avant rejeu : 64 hashes.
+
+**45 nouvelles réponses / 18 revues manuelles A/B/C/D/F**, dont **15 réponses du
+candidat** sur cette source. Contrôle nommé/âge/caution/annulation : neuf réponses ;
+trois sessions SQL de dix messages : trente réponses ; deux suivis synthétiques
+Orange County puis Anaheim : six réponses, dans les mêmes sessions. Les premiers
+messages Prague étaient déjà exposés ; aucun holdout inédit global revendiqué.
+**22 cartes tarifées** reliées aux reçus MCP, zéro écart prix/jointure/expiration.
+Cela ne vérifie pas que la date de l’offre répond à la demande utilisateur.
+
+Le contrôle nommé récupère une vraie offre pour le lendemain et reste à trois
+phases LLM. Le parcours garde C : le moment du prélèvement de caution est encore
+inféré sans preuve. Melbourne reste C pour pertinence et pagination après un
+nouveau besoin non structuré. Prague : legacy D, B2C D, candidat C ; le candidat
+conserve le congélateur mais transforme le besoin de lit bébé en `children=1`,
+faisant passer les résultats MCP de 15 à zéro. Cela ne prouve pas l’absence de
+lit bébé dans les hôtels. Le legacy confond Prague et Präg dans ce rejeu incomplet.
+
+Orange County : la clarification California puis Anaheim garde l’heure de 15 h
+mais perd samedi. Le candidat sert une offre du mercredi 7 octobre au lieu du
+samedi 10 octobre : D, malgré une jointure MCP exacte. B2C annonce que tous les
+hôtels ont été vus sans en avoir montré : D. Legacy conserve samedi en prose mais
+une carte présente le prix d’une formule finissant avant l’arrivée : C ; sa
+disponibilité future sur export reste non vérifiée.
+
+Export actualisé : 33 368 lignes, 2 000 récentes ; dix messages des trois sessions
+retrouvés dans Langfuse. GPS original Prague non disponible, un fuseau non attesté
+omis ; aucune donnée native inventée. Provenance organique non certifiée. Les
+écarts export/Qdrant et MCP préproduction restent distincts des défauts agent.
+
+**Priorité suivante :** persister la date sémantique avant clarification du lieu,
+sans regex ni appel modèle supplémentaire. Restent aussi occupation/équipements,
+pagination sur besoins libres, géographies/provinces/corridors, âge durable,
+caution/annulation, langue et couverture historique. Aucun challenger modèle
+sur cette étape ni changement du modèle par défaut.
+
+Étape **0,52444842 USD** ; cumul **90,05967125/110 USD**, provisions 11,10 incluses,
+réserve 10 conservée. Aucun runner payant actif, merge, déploiement ou écriture
+Railway. Rapports privés v32-summary/v32-review et diagnostics : nommé, lit bébé,
+date. CI du nouveau commit à observer séparément des tests et rejeux locaux.
+
 ## 2026-10-08 — v31 : pagination après critères et cinq conversations fraîches
 
 **Pas de GO remplacement.** La pagination est maintenant décidée après les mises

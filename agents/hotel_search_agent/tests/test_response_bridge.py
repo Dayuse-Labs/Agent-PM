@@ -2224,3 +2224,13 @@ def test_window_fallback_never_reintroduces_offer_over_currency_budget():
     returned = capture_after_tool(_Tool("search_offers"), {}, ctx,
                                   {"structuredContent": {"results": [expensive]}})
     assert returned["hotels"] == []
+
+
+def test_named_hotel_identity_is_tagged_for_concierge_availability_check():
+    ctx = _Ctx()
+    capture_after_tool(_Tool('find_hotel_by_name'), {'name': 'Example'}, ctx,
+                       {'structuredContent': {'hotel': {'hotelId': 12, 'name': 'Example'}}, 'isError': False})
+    assert _decode(emit_search_datapart(ctx))['named_hotel_id'] == 12
+    capture_after_tool(_Tool('search_offers'), {}, ctx,
+                       {'structuredContent': {'results': []}, 'isError': False})
+    assert 'named_hotel_id' not in _decode(emit_search_datapart(ctx))
