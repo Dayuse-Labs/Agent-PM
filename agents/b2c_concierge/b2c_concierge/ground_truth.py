@@ -17,6 +17,7 @@ from datetime import date, time
 from typing import Any
 
 from b2c_common import minor_units
+from b2c_common.timeslot import parse_hhmm
 
 from .date_format import format_date_human
 from .profile import SessionProfile
@@ -119,7 +120,39 @@ _HEADER = (
 )
 
 
-def _hotel_line(hotel: dict[str, Any]) -> str:
+def _minute_coverage(hotel: dict[str, Any], window: dict[str, str | None] | None) -> str:
+    """Evidence for wording only; never override the site's rounded-hour filter."""
+    def clock(value: Any) -> int | None:
+        if not isinstance(value, str) or len(value) != 5:
+            return None
+        minutes = parse_hhmm(value)
+        return minutes if minutes is not None and minutes <= 1440 else None
+
+    window = window or {}
+    start, end = clock(window.get("start")), clock(window.get("end"))
+    if start is None or end is None:
+        return ""
+    if end == 0 and start > 0:
+        end = 1440
+    if end <= start:
+        return ""  # No inferred overnight date or duration.
+    valid_slots = []
+    for slot in (hotel.get("timeslots") or [])[:5]:
+        if not isinstance(slot, dict):
+            continue
+        left, right = clock(slot.get("start")), clock(slot.get("end"))
+        if left is None or right is None:
+            continue
+        if right == 0 and left > 0:
+            right = 1440
+        if right > left:
+            valid_slots.append((left, right))
+    covers = any(left <= start and right >= end for left, right in valid_slots)
+    verdict = "covered" if covers else "not covered" if valid_slots else "unknown"
+    return f" — minute coverage of {window['start']}–{window['end']}: {verdict}"
+
+
+def _hotel_line(hotel: dict[str, Any], window: dict[str, str | None] | None = None) -> str:
     name = str(hotel.get("name") or "").strip() or "?"
     place = str(hotel.get("city") or hotel.get("address") or "").strip()
     price = str(hotel.get("price") or "").strip()
@@ -155,6 +188,7 @@ def _hotel_line(hotel: dict[str, Any]) -> str:
         slots.append(f"{start}–{end}")
     if slots:
         line += " — offered times: " + ", ".join(slots)
+    line += _minute_coverage(hotel, window)
     line += f" — amenities: {amenity_text}"
     rating = hotel.get("rating")
     if isinstance(rating, (int, float)):
@@ -317,5 +351,18 @@ def shortlist_ground_truth_block(
             # budget" menu when the real reason is a closed same-day window.
             return "\n\n## CURRENT RESULTS (GROUND TRUTH)\n" + _EMPTY_SCREEN_NOTE + date_block
         return ""
-    lines = [_hotel_line(hotel) for hotel in hotels]
-    return "\n\n## CURRENT SHORTLIST (GROUND TRUTH)\n" + date_block + _HEADER + "\n".join(lines)
+    lines = [_hotel_line(hotel, profile.requested_window) for hotel in hotels]
+    window_note = (
+        "TIME WINDOWS: minute coverage is calculated from a single listed offer. "
+        "A covered window does not require arriving earlier or leaving later: "
+        "10:00–18:00 covers a requested stay of 10:30–17:00. Do not ask the user "
+        "to accept different hours when coverage is confirmed. Not covered means "
+        "the listed slots do not contain the full exact request, even if the site's "
+        "rounded-hour search accepted them. Unknown proves no coverage. Never "
+        "combine separate offers into a longer stay or infer extension/refund terms.\n"
+        if any("minute coverage" in line for line in lines) else ""
+    )
+    return (
+        "\n\n## CURRENT SHORTLIST (GROUND TRUTH)\n"
+        + date_block + _HEADER + window_note + "\n".join(lines)
+    )

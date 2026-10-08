@@ -258,3 +258,96 @@ def test_boundary_requires_explicit_change_but_a_new_city_is_allowed():
     assert preserve_area_boundary(old, narrowed) == narrowed
     lyon = [{'query': 'Lyon', 'kind': 'municipality', 'country': 'FR', 'evidence': 'Lyon'}]
     assert preserve_area_boundary(old, lyon) == lyon
+
+
+def test_single_city_without_boundary_quote_uses_normal_city_geocoding():
+    args = {'areas': [{'query': 'Paris', 'kind': 'municipality', 'country': 'FR', 'evidence': 'Paris'}]}
+    result = inject_profile_geo_context(SimpleNamespace(name='geocode_location'), args, context(message='Un hôtel à Paris'))
+    assert result is None
+    assert args['city'] == 'Paris' and args['country_code'] == 'FR'
+    assert 'areas' not in args
+
+
+def test_authoritative_ordinary_city_cannot_be_replaced_by_leaf_boundary():
+    ctx = context({'city': 'Paris', 'country_anchor': 'FR'}, 'Paris')
+    ctx.user_content.parts[-1] = encode_datapart({
+        'profile_in': {'city': 'Paris', 'country_anchor': 'FR'},
+        'query_params': {'areas_authoritative': True},
+    })
+    args = {'city': 'Rome', 'country_code': 'IT', 'zone': 'Centre',
+            'areas': [{'query': 'Rome', 'kind': 'municipality', 'country': 'IT', 'evidence': 'Rome'}]}
+    assert inject_profile_geo_context(SimpleNamespace(name='geocode_location'), args, ctx) is None
+    assert args['city'] == 'Paris' and args['country_code'] == 'FR'
+    assert 'zone' not in args
+
+
+def test_explicit_city_boundary_replaces_province_in_actual_leaf_callback(monkeypatch):
+    old = [{'query': 'Brescia', 'kind': 'administrative', 'country': 'IT', 'evidence': 'Brescia e provincia'}]
+    new = [{'query': 'Brescia', 'kind': 'municipality', 'country': 'IT', 'evidence': 'Brescia',
+            'boundary_evidence': 'solo entro i confini della città'}]
+    provider = SimpleNamespace(geocode_candidates=lambda *a, **kw: [
+        replace(candidate(), name='Brescia', country_code='IT', feature_type='place', mapbox_id='city-bs')
+    ])
+    monkeypatch.setattr('hotel_search_agent.geocode_tool.get_mapbox_client', lambda: provider)
+    ctx = context({'city': 'provincia di Brescia', 'search_areas': old}, 'Brescia, solo entro i confini della città')
+    result = inject_profile_geo_context(SimpleNamespace(name='geocode_location'), {'areas': new}, ctx)
+    assert result['ok'] and result['search_areas'][0]['id'] == 'city-bs'
+    assert result['profile_delta']['search_areas'] == new
+
+
+def test_repeating_bounded_city_does_not_release_its_explicit_boundary():
+    from b2c_common.search_areas import preserve_area_boundary
+    old = [{'query': 'Bergamo', 'kind': 'municipality', 'country': 'IT', 'evidence': 'Bergamo',
+            'boundary_evidence': 'solo nel comune'}]
+    repeated = [{'query': 'Bergamo', 'kind': 'municipality', 'country': 'IT', 'evidence': 'Bergamo Italia'}]
+    assert preserve_area_boundary(old, repeated) == old
+    broadened = [{**repeated[0], 'kind': 'administrative', 'evidence': 'Bergamo e provincia'}]
+    assert preserve_area_boundary(old, broadened) == broadened
+
+
+@pytest.mark.parametrize('authoritative', [False, True])
+def test_ordinary_city_keeps_a_new_explicit_neighbourhood(authoritative):
+    profile = {'city': 'Lyon' if authoritative else 'Paris', 'country_anchor': 'FR'}
+    ctx = context(profile, 'Un hôtel à Lyon près de Part-Dieu')
+    ctx.user_content.parts[-1] = encode_datapart({'profile_in': profile,
+        'query_params': {'areas_authoritative': authoritative}})
+    args = {'zone': 'Part-Dieu', 'areas': [{'query': 'Lyon', 'kind': 'municipality',
+                                           'country': 'FR', 'evidence': 'Lyon'}]}
+    assert inject_profile_geo_context(SimpleNamespace(name='geocode_location'), args, ctx) is None
+    assert args['city'] == 'Lyon' and args['zone'] == 'Part-Dieu'
+
+
+@pytest.mark.parametrize('copied_zone', ['provincia di Brescia', None])
+@pytest.mark.parametrize('profile_city', ['Brescia', 'provincia di Brescia'])
+def test_generic_followup_keeps_province_despite_leaf_copied_zone(monkeypatch, copied_zone, profile_city):
+    areas = [{'query': 'Brescia', 'kind': 'administrative', 'country': 'IT',
+              'evidence': 'Brescia e provincia'}]
+    provider = SimpleNamespace(geocode_candidates=lambda *a, **kw: [
+        replace(candidate(), name='Brescia', country_code='IT', mapbox_id='province-bs')
+    ])
+    monkeypatch.setattr('hotel_search_agent.geocode_tool.get_mapbox_client', lambda: provider)
+    args = {'city': 'Brescia', 'country_code': 'IT', 'raw_user_message': 'provincia di Brescia'}
+    if copied_zone:
+        args['zone'] = copied_zone
+    ctx = context({'search_areas': areas, 'city': profile_city, 'country_anchor': 'IT'}, 'Tutte')
+    result = inject_profile_geo_context(SimpleNamespace(name='geocode_location'), args, ctx)
+    assert result and result['ok']
+    assert result['profile_delta']['search_areas'] == areas
+
+
+def test_explicit_neighborhood_can_refine_carried_province():
+    areas = [{'query': 'Brescia', 'kind': 'administrative', 'country': 'IT',
+              'evidence': 'Brescia e provincia'}]
+    ctx = context({'search_areas': areas, 'city': 'Brescia', 'country_anchor': 'IT'},
+                  'Vicino alla stazione di Brescia')
+    args = {'city': 'Brescia', 'country_code': 'IT', 'zone': 'stazione di Brescia'}
+    assert inject_profile_geo_context(SimpleNamespace(name='geocode_location'), args, ctx) is None
+    assert args['zone'] == 'stazione di Brescia'
+
+
+def test_narrowing_known_area_union_preserves_member_type():
+    from b2c_common.search_areas import preserve_area_boundary
+    update = [{**AREAS[1], 'kind': 'municipality', 'evidence': 'dans le 92'}]
+    assert preserve_area_boundary(AREAS, update) == [AREAS[1]]
+    bounded = [{**update[0], 'boundary_evidence': 'within the city limits'}]
+    assert preserve_area_boundary(AREAS, bounded) == bounded

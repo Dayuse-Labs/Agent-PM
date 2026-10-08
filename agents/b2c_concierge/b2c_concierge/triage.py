@@ -316,7 +316,7 @@ with these keys (omit the optional keys when there is no signal):
 - "family": one of {list(FAMILIES)} —
     search  = looking for a day-use hotel (destination, area, dates, filters, or a hotel named by the user),
     faq     = asking about Dayuse conditions / policies / how it works (cancellation, refund, check-in/out, payment, gift cards or vouchers),
-    details = asking for more information about one specific hotel already in play (amenities, description, photos),
+    details = asking for more information about one specific hotel already in play (amenities, description, photos, its hotel page URL),
     compare = asking to compare several hotels,
     booking = asking for the booking link / to proceed with a booking,
     ack     = a purely social message (greeting, thanks, goodbye) with no request in it.
@@ -325,9 +325,17 @@ with these keys (omit the optional keys when there is no signal):
   greets AND asks something is NOT `ack`. A follow-up that ADJUSTS a previous
   search — a new date ("pour le 28", "plutôt demain"), a cheaper budget, another
   area/zone — is `search`, NEVER `booking`; `booking` is only an explicit request
-  to get the link / proceed with a specific hotel already chosen. Checking
+  to get a checkout/booking link or proceed with a specific hotel already chosen. Checking
   availability for a new stay is `search`, even when the hotel is named:
   "please check availability from 11am to 4pm" is not consent to book.
+  A missing hotel page link ("you didn't give me a link to that hotel",
+  "can I see its page?") is `details`: sharing a verified hotel URL is not
+  starting a booking and does not require booking confirmation. Keep `booking`
+  for an explicit request to reserve or open checkout, not the word "link" alone.
+  "This one is booked out" / "sold out" after search results means an
+  availability problem with the proposed hotel: route to `search` for an
+  alternative or clarification of which hotel/date. It does not imply the
+  user owns a reservation or wants cancellation/refund policy.
   Questions about the available times of a displayed offer are `details`;
   general rules for changing the times of an EXISTING booking are `faq`.
   Asking to SEE
@@ -399,6 +407,9 @@ with these keys (omit the optional keys when there is no signal):
   "show me more", "otras opciones", "altre opzioni", "noch andere", "what else").
   False when it carries a new constraint ("moins cher", "plutôt demain") — that
   is a refinement, not pagination.
+  Also false for an answer accepting any of the preferences just asked by the
+  assistant: "all" / "tutte" after a question about morning/afternoon/evening
+  accepts any time of day; it does not ask for the next page of hotels.
 - "bare_budget_value": when the message answers a BUDGET question with JUST a
   number, or gives an explicit currency amount ("€120"), that number.
   Otherwise null. "moins de 80 euros" is a sentence, not a bare number → null.
@@ -465,7 +476,9 @@ Optional keys, extracted from MESSAGE ONLY, never copied from recent messages:
 - "requested_areas": when MESSAGE names an administrative search area or a
   choice of multiple municipalities, a list of up to three objects:
   {{"query":"full area name","kind":"administrative" or "municipality",
-  "country":"ISO2","evidence":"shortest verbatim current quote","code":"optional stated code"}}.
+  "country":"ISO2","evidence":"shortest verbatim current quote",
+  "boundary_evidence":"verbatim city-limit restriction, or empty string",
+  "code":"optional stated code"}}.
   For "île de france 78 ou 92": Yvelines administrative FR evidence78 code78,
   Hauts-de-Seine administrative FR evidence92 code92. For "Brescia e provincia":
   ONE administrative query="Brescia" IT evidence="Brescia"; the province
@@ -475,7 +488,13 @@ Optional keys, extracted from MESSAGE ONLY, never copied from recent messages:
   for POIs, or a corridor BETWEEN places (a corridor is not a union of cities).
   Exception: explicitly narrowing to city limits ("Brescia city only") emits
   one municipality with boundary_evidence quoting that explicit change (e.g.
-  "city only"). Repeating a place name or adding its country is NOT a boundary
+  "city only"). You MUST include that field: a single municipality with no
+  boundary_evidence is an ordinary city search, not a city-limit restriction.
+  Example MESSAGE="Solo entro i confini della città di Brescia, non in provincia."
+  -> requested_areas=[{{"query":"Brescia","kind":"municipality","country":"IT",
+  "evidence":"Brescia","boundary_evidence":"Solo entro i confini della città"}}].
+  Apply the restriction this turn; do not wait for another confirmation.
+  Repeating a place name or adding its country is NOT a boundary
   change: preserve the province and emit null in that case.
   Do not copy old area names into evidence for a non-geographic follow-up.
   This is search intent, not a policy question; family=search. Coordinates are

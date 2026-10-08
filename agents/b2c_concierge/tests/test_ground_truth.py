@@ -383,3 +383,42 @@ class TestSameDayCutoff:
         assert "SEARCH DATE" not in shortlist_ground_truth_block(
             {"results": [{"name": "Villa"}]}, _profile()
         )
+
+
+class TestExactWindowEvidence:
+    def test_wider_offer_covers_requested_minutes(self):
+        block = shortlist_ground_truth_block(
+            {"results": [{"name": "Example", "timeslots": [{"start": "10:00", "end": "18:00"}]}]},
+            _profile(requested_window={"start": "10:30", "end": "17:00"}),
+        )
+        assert "10:30–17:00: covered" in block
+        assert "does not require arriving earlier" in block
+
+    def test_rounded_site_match_does_not_prove_minute_coverage(self):
+        block = shortlist_ground_truth_block(
+            {"results": [{"name": "Example", "timeslots": [{"start": "10:00", "end": "17:00"}]}]},
+            _profile(requested_window={"start": "10:30", "end": "17:15"}),
+        )
+        assert "10:30–17:15: not covered" in block
+
+    def test_multiple_offers_must_not_be_stitched_together(self):
+        block = shortlist_ground_truth_block(
+            {"results": [{"name": "Example", "timeslots": [
+                {"start": "10:00", "end": "13:00"}, {"start": "13:00", "end": "18:00"}
+            ]}]}, _profile(requested_window={"start": "10:30", "end": "17:00"}),
+        )
+        assert "10:30–17:00: not covered" in block
+
+    def test_missing_offer_times_are_unknown(self):
+        block = shortlist_ground_truth_block(
+            {"results": [{"name": "Example"}]},
+            _profile(requested_window={"start": "10:30", "end": "17:00"}),
+        )
+        assert "10:30–17:00: unknown" in block
+
+    def test_missing_request_bound_does_not_invent_full_window(self):
+        block = shortlist_ground_truth_block(
+            {"results": [{"name": "Example", "timeslots": [{"start": "10:00", "end": "18:00"}]}]},
+            _profile(requested_window={"start": "10:30", "end": None}),
+        )
+        assert "minute coverage" not in block

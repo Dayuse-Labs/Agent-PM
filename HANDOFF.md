@@ -1,5 +1,54 @@
 # HANDOFF — AgentB2C
 
+## 2026-10-08 — v28 : frontières, créneaux et demandes de lien
+
+**Pas de GO remplacement ; aucun changement de modèle par défaut.**
+124 réponses / 39 revues manuelles A/B/C/D/F sur plusieurs versions :
+20 premières corrections, 21 réponses comparant deux nouvelles conversations
+sur ancien prod / B2C / candidat, 42 réponses comparant uniquement les modèles
+de triage, puis 41 réponses correctives. **Neuf réponses sur la source finale.**
+Cas exposés, aucune statistique de population ni validation globale du nouvel agent.
+
+Corrections sans nouvelle regex ni appel LLM supplémentaire :
+- Une ville simple garde la recherche habituelle ; une limite municipale explicite
+  déclenche la vérification d’appartenance. Province → ville et répétition du pays
+  sont distinguées. Une restriction parmi des zones connues conserve leur type.
+- Une zone recopiée sans preuve dans le message courant ne supprime plus le périmètre.
+  Le libellé fournisseur « provincia di Brescia » reste lié à l’identité Brescia.
+  Le dernier rejeu conserve enfin la province aux deux suivis, avec triage 4.1-mini.
+- La synthèse reçoit une preuve de couverture à la minute :10–18 couvre 10 h 30–17 h.
+  Aucun assemblage d’offres, aucune modification du filtre horaire arrondi du site.
+- Le triage distingue URL de fiche hôtel et passage au checkout. Le rejeu réel
+  fournit le lien vérifié sans confirmation de réservation ; « booked out » reste
+  une recherche d’alternative, sans dérive vers FAQ/annulation.
+
+**2 389 tests passés, un ignoré**, ruff, mypy (63 fichiers) et guardrails verts : 19 nouveaux
+cas depuis v27, plusieurs erreurs reproduites en rouge avant correction. Les
+contrôles couvrent aussi les libellés fournisseur et les raffinements de quartier.
+
+Le challenge à code identique comprend 21 appels de triage par modèle. 4.1-mini
+extrait mieux les provinces sur ces cas ; les défauts de suivi dans le code
+l’affectaient aussi. Ce petit lot ne justifie pas un changement global de modèle.
+
+**Échecs conservés :** 4o-mini traite encore des provinces comme des villes.
+Les coordonnées confirment deux hôtels hors province de Bergamo aux T1/T2 : D,
+pas une absence de preuve. Les trois réponses anciennes concernées restent D.
+North Brisbane retourne des hôtels du CBD ; corridor Waterloo non résolu. Des appels
+outils malformés épuisent le quota puis sont présentés comme une indisponibilité.
+La synthèse confond parfois suppression du filtre jacuzzi et exclusion des hôtels
+avec jacuzzi. Pagination/exhaustivité, accès privatif/inclus, âge/conditions FAQ,
+occupation, widget et matrice historique restent ouverts.
+
+Deux nouvelles sessions SQL, sept tours retrouvés dans Langfuse, contexte attesté
+rejoué sans inventer de payload natif. Export 33 312 lignes/2 000 récentes ; même
+provenance organique non certifiée. Les inventaires export et MCP diffèrent ;
+les écarts de liste ne sont pas automatiquement des erreurs de modèle.
+
+Audit : **219 cartes / 98 plafonds frais compris**, zéro écart de prix/jointure/expiration ; source finale **18 cartes / 15 plafonds**. Huit appartenances géographiques vérifiées sur source finale, zéro écart de portée pour ces deux parcours. Cela ne valide pas les autres familles.
+
+Étape **1.19263 USD** ; cumul **88.12138/110 USD**, provisions 11,10 incluses, réserve 10. Aucun runner payant actif ; triage41 arrêté après mesure. Aucun merge/déploiement/écriture Railway. Rapports privés v28-summary/v28-review, reçus et messages hors Git.
+
+
 ## 2026-10-08 — v27 : challenge triage et preuves d’extraction
 
 **Pas de GO remplacement ; aucun changement de modèle par défaut.**
@@ -173,7 +222,7 @@ borne demandée et la borne arrondie du matching. Cinq cartes candidates vérifi
 Ne pas changer la règle de matching du site pour masquer ce défaut de formulation.
 
 Étape complète : **39 réponses, 15 revues manuelles, 0,38861 USD**. Cumul
-**85,79040 / 110 USD**, provisions11,10 incluses, réserve10. Aucun runner payant
+**85,79040 / 110 USD**, provisions 11,10 incluses, réserve 10. Aucun runner payant
 actif. Comparaison fraîche effectuée avant la dernière précision du retrait ;
 son protocole conserve cette version, sans prétendre que tout tournait sur la
 source finale. Rapports privés amenity-v25-summary, model-v25-review et
@@ -331,7 +380,7 @@ reclassés en succès. Rejeux exposés et variabilité modèle, pas validation a
 Validation : **2 286 tests passés, 1 ignoré**, 301 ciblés ; ruff, mypy60,
 guardrails et diff propres. main refetch inchangé cbe88b9 ; CI190d39a réussie.
 Étape comparative+correctifs : **0,4647USD**, cumul **84,1637USD** provisions incluses
-(plafond110, réserve10). Aucun merge/déploiement/changement Railway.
+(plafond110, réserve 10). Aucun merge/déploiement/changement Railway.
 Rapports privés locaux geo-v22-summary.private.json et geo-v22-review.private.html ;
 messages et reçus ne sont pas versionnés. Nouveau contrôle SQL :33248lignes,
 2000exportées ; hors nos IDs connus,23nouveaux messages dans7sessions à vérifier
@@ -517,7 +566,7 @@ ajoute10h à une demande « jusqu'à20h » ; Birmingham/cinéma échoue, et une 
 at11am réécrite par le triage est rejetée. Budget en lettres, adults-only,
 bain privé/spa inclus, politiques FAQ extrapolées et exhaustion restent ouverts.
 Les36sessions de validation et widget restent à exécuter. Coût78,6701USD engagé,
-dont11,10 de provisions, plafond110 réserve10. Aucun runner payant actif à ce
+dont11,10 de provisions, plafond110 réserve 10. Aucun runner payant actif à ce
 checkpoint. Sources/rapports dans `production_parity_v18/continuation.json` privé.
 
 ## 2026-10-07 — v17 local : frais obligatoires, synthèse, rejeu adaptatif
@@ -609,7 +658,7 @@ offre expirée. 12 cartes sous leur plafond vérifiable. Deux parcours adaptés 
 Leurs résultats vides ne prouvent pas une absence globale d’offres.
 
 Coût engagé après les lots : **75.5730 USD**, dont **11.10 USD de provisions**.
-Plafond110, réserve10 ; ledger v17 fait foi. Ne pas dupliquer la provision CI.
+Plafond110, réserve 10 ; ledger v17 fait foi. Ne pas dupliquer la provision CI.
 Rapport détaillé : `evals/PRODUCTION_PARITY_PROGRESS_2026_10_07.md` ; état exact
 privé : `production_parity_v18/continuation.json`. Aucun lot payant pending. Reste : corriger les défauts de relance/FAQ,
 vérifier les montants écrits en lettres, puis historique,

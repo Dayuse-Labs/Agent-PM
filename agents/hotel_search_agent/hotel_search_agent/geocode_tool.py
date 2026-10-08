@@ -28,7 +28,7 @@ import os
 
 from b2c_common.observability import mark_level
 from hotel_search_agent import geo_resolver
-from b2c_common.search_areas import AreaRequest, preserve_area_boundary, validate_areas
+from b2c_common.search_areas import AreaRequest, preserve_area_boundary, requires_area_membership, validate_areas
 from hotel_search_agent.area_scope import STATE_FAILED, resolve_areas
 from hotel_search_agent.geo_guards import (
     _echo_fold,
@@ -482,7 +482,9 @@ def geocode_location(
         validated = validate_areas(areas, raw_user_message)
         if validated is None:
             return _fail("invalid_area_request", {"reason": "Area identity needs literal current-message evidence."})
-        return resolve_areas(validated, get_mapbox_client(), (locale or language_hint or "en")[:2])
+        if requires_area_membership(validated):
+            return resolve_areas(validated, get_mapbox_client(), (locale or language_hint or "en")[:2])
+        city, country_code = validated[0]["query"], validated[0]["country"]
     guards_fired: list[str] = []
     demoted = demote_generic_city({"city": city, "zone": zone, "metro": metro})
     effective_city: str | None = demoted.get("city")
@@ -1021,6 +1023,11 @@ def inject_profile_geo_context(tool: object, args: dict, tool_context: object) -
     envelope = find_datapart(getattr(content, "parts", None)) or {}
     authoritative = (envelope.get("query_params") or {}).get("areas_authoritative") is True
     carried = validate_areas(profile_in.get("search_areas"))
+    if carried and any(_echo_fold(area["query"]) == _echo_fold(city or "") for area in carried):
+        # Provider display labels ("provincia di Brescia") and the owned query
+        # ("Brescia") identify the same carried destination. A copied leaf city
+        # cannot narrow the area or one member of a union on a generic follow-up.
+        destination_changed = bool(country and prior_country and country != prior_country)
     # A copied prior extraction is carryover, not a new claim requiring the
     # old area name to appear in "cheaper" or "remove the jacuzzi".
     copied = validate_areas(fresh_areas)
@@ -1037,9 +1044,35 @@ def inject_profile_geo_context(tool: object, args: dict, tool_context: object) -
             return failed
     else:
         # A new explicit city/zone replaces a previously broad area request.
-        new_place = destination_changed or bool(args.get("zone") or args.get("metro"))
+        fresh_zone = any(
+            isinstance(args.get(field), str) and args[field].strip()
+            and _echo_fold(args[field]) in _echo_fold(message)
+            for field in ("zone", "metro")
+        )
+        new_place = destination_changed or fresh_zone
         scoped = None if new_place else validate_areas(profile_in.get("search_areas"))
     scoped = preserve_area_boundary(carried, scoped)
+    if authoritative and not carried:
+        # The concierge interpreted a single ordinary city. A stateless leaf
+        # cannot turn that into strict city limits or revive an old destination.
+        if profile_in.get("city"):
+            args["city"] = profile_in["city"]
+            args["country_code"] = profile_in.get("country_anchor")
+            for field in ("zone", "metro"):
+                value = args.get(field)
+                if not isinstance(value, str) or _echo_fold(value) not in _echo_fold(message):
+                    args.pop(field, None)
+            destination_changed = False  # Owned profile already cleared old scope.
+    if scoped and not requires_area_membership(scoped):
+        args["city"], args["country_code"] = scoped[0]["query"], scoped[0]["country"]
+        destination_changed = (_echo_fold(args["city"]) != _echo_fold(prior_city or "")
+                               or args["country_code"] != prior_country)
+        if destination_changed:
+            for field in ("zone", "metro"):
+                value = args.get(field)
+                if not isinstance(value, str) or _echo_fold(value) not in _echo_fold(message):
+                    args.pop(field, None)
+        scoped = None
     if scoped:
         resolved = resolve_areas(scoped, get_mapbox_client(), str(profile_in.get("locale") or profile_in.get("language") or "en")[:2])
         if not resolved.get("ok"):

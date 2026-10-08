@@ -1762,3 +1762,29 @@ def test_area_intent_is_owned_before_leaf_even_when_leaf_returns_nothing(
     assert saved.search_areas == areas and saved.zone is None
     assert saved.amenities == ['jacuzzi'] and saved.date == '2026-10-10'
     assert saved.requested_budget['amount'] == 150
+
+
+@pytest.mark.parametrize('boundary', ['', 'solo entro i confini della città'])
+def test_one_municipality_is_bounded_only_with_explicit_boundary_intent(
+    monkeypatch, fake_leg, fake_profile_store, boundary
+):
+    import json
+    area = {'query': 'Brescia', 'kind': 'municipality', 'country': 'IT',
+            'evidence': 'Brescia', 'boundary_evidence': boundary}
+    fake_leg.response_payload = {'results': [], 'profile_delta': {}}
+    _scripted_llm(monkeypatch, json.dumps({'family': 'search', 'language': 'it', 'requested_areas': [area]}), 'Search completed.')
+    runner = InMemoryRunner(root_agent)
+    session = _new_session(runner)
+    asyncio.run(fake_profile_store.set(session.id, SessionProfile(
+        city='Paris', zone='Centre', date='2026-10-10',
+        requested_window={'start': '10:30', 'end': '17:00'},
+        requested_budget={'amount': 150, 'currency': 'EUR', 'unit': 'total'},
+    )))
+    _run_turn(runner, session.id, 'Brescia ' + boundary)
+    outgoing = find_datapart(fake_leg.seen_outgoing_parts)
+    saved = asyncio.run(fake_profile_store.get(session.id))
+    assert outgoing['query_params']['areas_authoritative'] is True
+    assert outgoing['profile_in']['search_areas'] == ([area] if boundary else None)
+    assert saved.city == 'Brescia' and saved.zone is None
+    assert saved.date == '2026-10-10' and saved.requested_budget['amount'] == 150
+    assert saved.requested_window == {'start': '10:30', 'end': '17:00'}

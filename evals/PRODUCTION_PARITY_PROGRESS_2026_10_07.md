@@ -780,3 +780,52 @@ et pilotes invalides restent facturés/provisionnés. Coût au checkpoint v8 (hi
 observés**. Les provisions incluent 2 USD pour la CI de cette mise à jour ; cette
 somme n’est pas une consommation observée. Aucun lot modèle pending à ce checkpoint.
 Aucun GO ni déploiement implicite.
+
+
+## 2026-10-08 — v28 : frontières, créneaux et demandes de lien
+
+**Pas de GO remplacement ; aucun changement de modèle par défaut.**
+124 réponses / 39 revues manuelles A/B/C/D/F sur plusieurs versions :
+20 premières corrections, 21 réponses comparant deux nouvelles conversations
+sur ancien prod / B2C / candidat, 42 réponses comparant uniquement les modèles
+de triage, puis 41 réponses correctives. **Neuf réponses sur la source finale.**
+Cas exposés, aucune statistique de population ni validation globale du nouvel agent.
+
+Corrections sans nouvelle regex ni appel LLM supplémentaire :
+- Une ville simple garde la recherche habituelle ; une limite municipale explicite
+  déclenche la vérification d’appartenance. Province → ville et répétition du pays
+  sont distinguées. Une restriction parmi des zones connues conserve leur type.
+- Une zone recopiée sans preuve dans le message courant ne supprime plus le périmètre.
+  Le libellé fournisseur « provincia di Brescia » reste lié à l’identité Brescia.
+  Le dernier rejeu conserve enfin la province aux deux suivis, avec triage 4.1-mini.
+- La synthèse reçoit une preuve de couverture à la minute :10–18 couvre 10 h 30–17 h.
+  Aucun assemblage d’offres, aucune modification du filtre horaire arrondi du site.
+- Le triage distingue URL de fiche hôtel et passage au checkout. Le rejeu réel
+  fournit le lien vérifié sans confirmation de réservation ; « booked out » reste
+  une recherche d’alternative, sans dérive vers FAQ/annulation.
+
+**2 389 tests passés, un ignoré**, ruff, mypy (63 fichiers) et guardrails verts : 19 nouveaux
+cas depuis v27, plusieurs erreurs reproduites en rouge avant correction. Les
+contrôles couvrent aussi les libellés fournisseur et les raffinements de quartier.
+
+Le challenge à code identique comprend 21 appels de triage par modèle. 4.1-mini
+extrait mieux les provinces sur ces cas ; les défauts de suivi dans le code
+l’affectaient aussi. Ce petit lot ne justifie pas un changement global de modèle.
+
+**Échecs conservés :** 4o-mini traite encore des provinces comme des villes.
+Les coordonnées confirment deux hôtels hors province de Bergamo aux T1/T2 : D,
+pas une absence de preuve. Les trois réponses anciennes concernées restent D.
+North Brisbane retourne des hôtels du CBD ; corridor Waterloo non résolu. Des appels
+outils malformés épuisent le quota puis sont présentés comme une indisponibilité.
+La synthèse confond parfois suppression du filtre jacuzzi et exclusion des hôtels
+avec jacuzzi. Pagination/exhaustivité, accès privatif/inclus, âge/conditions FAQ,
+occupation, widget et matrice historique restent ouverts.
+
+Deux nouvelles sessions SQL, sept tours retrouvés dans Langfuse, contexte attesté
+rejoué sans inventer de payload natif. Export 33 312 lignes/2 000 récentes ; même
+provenance organique non certifiée. Les inventaires export et MCP diffèrent ;
+les écarts de liste ne sont pas automatiquement des erreurs de modèle.
+
+Audit : **219 cartes / 98 plafonds frais compris**, zéro écart de prix/jointure/expiration ; source finale **18 cartes / 15 plafonds**. Huit appartenances géographiques vérifiées sur source finale, zéro écart de portée pour ces deux parcours. Cela ne valide pas les autres familles.
+
+Étape **1.19263 USD** ; cumul **88.12138/110 USD**, provisions 11,10 incluses, réserve 10. Aucun runner payant actif ; triage41 arrêté après mesure. Aucun merge/déploiement/écriture Railway. Rapports privés v28-summary/v28-review, reçus et messages hors Git.

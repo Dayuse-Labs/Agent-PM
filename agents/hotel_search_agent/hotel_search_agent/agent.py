@@ -222,6 +222,11 @@ How to act, frugally (at most ONE reasoning pass — no tool-call loops):
   and code when explicitly supplied. For "78 ou 92" in Île-de-France, use
   Yvelines/78 and Hauts-de-Seine/92; the provider verifies these codes. For
   "Brescia e provincia", use administrative Brescia, not the city centroid.
+  For explicit city limits, a single municipality MUST include
+  `boundary_evidence` quoting the current restriction (e.g. "only within the
+  city limits"). Apply this change now, without requesting reconfirmation.
+  A single municipality without that evidence means ordinary city search,
+  preserving its usual nearby-hotel coverage. It does not impose city limits.
   Then call search_offers ONCE: code searches each verified area and excludes
   hotels outside its boundaries. No city clarification is needed just because
   the request names a department. For an unchanged follow-up, omit areas/city;

@@ -116,7 +116,7 @@ from .a2a_datapart import encode_datapart, find_datapart
 from .amenity_guard import apply_amenity_truthfulness
 from .budget import TurnBudget
 from .currency_guard import enforce_currency_disclosure
-from b2c_common.search_areas import preserve_area_boundary
+from b2c_common.search_areas import preserve_area_boundary, requires_area_membership
 from .dialogue_context import last_assistant_message, recent_user_messages
 from .date_format import humanize_iso_dates
 from .fallback_text import enforce_parking_reserve, synthesis_fallback_text
@@ -1445,10 +1445,12 @@ class _B2cConcierge(BaseAgent):
         # spent above. Any non-bare-affirmative message (a new city, a new
         # budget, anything substantive) clears the flags and searches again.
         if route.target == LEAF_HOTEL_SEARCH and area_update is not None:
-            profile.search_areas = area_update
+            profile.search_areas = area_update if requires_area_membership(area_update) else None
             profile.city = " / ".join(a["query"] for a in area_update)
             for field in ("state_anchor", "country_anchor", "zone", "metro", "search_anchor", "distance_origin"):
                 setattr(profile, field, None)
+            if profile.search_areas is None:
+                profile.country_anchor = area_update[0]["country"]
             profile.search_exhausted = False
             profile.consecutive_empty_searches = 0
             profile.widen_attempt_count = 0

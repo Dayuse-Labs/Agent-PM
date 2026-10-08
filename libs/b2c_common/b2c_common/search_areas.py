@@ -11,7 +11,7 @@ class AreaRequest(BaseModel):
     kind: Literal["administrative", "municipality"]
     country: str = Field(description="ISO2 country of the requested area, e.g. FR, IT, GB.")
     evidence: str = Field(description="Shortest exact quote from the CURRENT user message naming this area, e.g. 78 or Brescia. Never add words.")
-    boundary_evidence: str = Field(default="", description="Exact current words explicitly changing administrative boundary to city limits; omit for a repeated place name or country clarification.")
+    boundary_evidence: str = Field(default="", description="Exact CURRENT words requiring city limits, e.g. 'only within city limits'. REQUIRED for a single bounded municipality, even on the first turn. Empty for an ordinary city name or country clarification; those use normal city search.")
     code: str = Field(default="", description="Administrative code explicitly named, e.g. 78. Omit when only the name was stated.")
 
 
@@ -66,6 +66,16 @@ def validate_areas(value: Any, message: str | None = None) -> list[dict[str, str
     return result
 
 
+def requires_area_membership(areas: list[dict[str, str]] | None) -> bool:
+    """A single city name alone does not demand an administrative boundary.
+
+    Explicit boundary evidence and administrative/alternative destinations
+    retain verified membership. This consumes typed intent, never user prose.
+    """
+    return bool(areas and (len(areas) > 1 or areas[0]["kind"] == "administrative"
+                          or areas[0].get("boundary_evidence")))
+
+
 
 def preserve_area_boundary(previous: list[dict[str, str]] | None,
                            update: list[dict[str, str]] | None) -> list[dict[str, str]] | None:
@@ -74,10 +84,17 @@ def preserve_area_boundary(previous: list[dict[str, str]] | None,
     A new city, changed alternatives or explicit boundary-change quote still
     replaces the scope. Language understanding stays in the typed extraction.
     """
-    if previous and update and len(previous) == len(update) == 1:
-        old, new = previous[0], update[0]
-        if (old.get("kind") == "administrative" and new.get("kind") == "municipality"
-                and old.get("query", "").casefold() == new.get("query", "").casefold()
-                and old.get("country") == new.get("country") and not new.get("boundary_evidence")):
-            return previous
+    if previous and update:
+        retained = []
+        for new in update:
+            old = next((area for area in previous
+                        if area.get("query", "").casefold() == new.get("query", "").casefold()
+                        and area.get("country") == new.get("country")), None)
+            if (old and (old.get("kind") == "administrative" or old.get("boundary_evidence"))
+                and new.get("kind") == "municipality"
+                and not new.get("boundary_evidence")):
+                retained.append(old)
+            else:
+                retained.append(new)
+        return retained
     return update
