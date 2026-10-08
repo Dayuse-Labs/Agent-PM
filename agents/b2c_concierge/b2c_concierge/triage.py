@@ -181,6 +181,7 @@ class Triage:
     requested_weekday: str | None = None
     information_source: str | None = None
     location_intent: dict | None = None
+    comparison_positions: tuple[int, ...] | None = None
 
 
 def is_social_ack(message: str) -> bool:
@@ -324,7 +325,9 @@ with these keys (omit the optional keys when there is no signal):
     search  = looking for a day-use hotel (destination, area, dates, filters, or a hotel named by the user),
     faq     = asking about Dayuse conditions / policies / how it works (cancellation, refund, check-in/out, payment, gift cards or vouchers),
     details = asking for more information about one specific hotel already in play (amenities, description, photos, its hotel page URL),
-    compare = asking to compare several hotels,
+    compare = asking to compare several hotels. Return comparison_positions
+              BEFORE family when positions are specified; never substitute a
+              single pick_position for a multi-hotel comparison,
     booking = asking for the booking link / to proceed with a booking,
     ack     = a purely social message (greeting, thanks, goodbye) with no request in it.
   DISAMBIGUATION (decide by INTENT): "annuler ma réservation" / "quelles conditions
@@ -452,6 +455,12 @@ with these keys (omit the optional keys when there is no signal):
   sur l'Ibis Lyon Gare" → "Ibis Lyon Gare"). Null when no hotel is named by
   name — a position or a superlative is NOT a name ("le premier", "le moins
   cher" → null, that is what "pick" is for), and never echo the whole message.
+- "comparison_positions": when comparing particular positions in the displayed
+  list, emit the integer array [1,2]. This is a plural selection, like pick_position
+  for a single hotel; never return hotel IDs or calculate a price here.
+  Positions are 1-based, preserve requested order. "The first two" means [1,2],
+  "the third and first" means [3,1]. family=compare, not a single-hotel pick.
+  Null for comparing all displayed hotels or hotels identified only by name.
 - "display_currency": the currency the user asks to SEE PRICES in, otherwise null.
     "HOTEL" = the hotel's own / local currency ("en devise locale", "dans la
               monnaie de l'hôtel", "in the local currency", "en moneda local").
@@ -660,7 +669,9 @@ async def classify(message: str, budget: TurnBudget, invocation_id: str = "",
                     "evidence quoted verbatim from MESSAGE. Select only when MESSAGE identifies "
                     "ONE pending option (position or distinguishing place/region/country); include "
                     "its integer position. A bare yes cannot choose between multiple options. "
-                    "A selection refers to a PLACE, never a hotel pick or budget. Preserve means "
+                    "Select is impossible without pending options in LOCATION CONTEXT. "
+                    "A selection refers to a PLACE, never a hotel pick, comparison or budget. "
+                    "For hotel comparisons, use comparison_positions, never pick_position. Preserve means "
                     "no new geographic request (budget, hours, amenity, FAQ or language change). "
                     "Change means an explicit different destination or geographic scope, including "
                     "a new region or administrative code for the SAME city name. Such a correction "
@@ -784,6 +795,7 @@ async def classify(message: str, budget: TurnBudget, invocation_id: str = "",
         language,
         used_llm=True,
         location_intent=location_intent(data.get("location_intent"), message, location_context),
+        comparison_positions=_comparison_positions(data.get("comparison_positions"), message),
         pick=pick,
         pick_position=position,
         affirmative=_bool_slot(data.get("affirmative")),
@@ -844,6 +856,23 @@ def _display_currency_slot(value: Any) -> str | None:
     return None
 
 
+def _comparison_positions(value: Any, message: str) -> tuple[int, ...] | None:
+    if value is None:
+        return None
+    # Same typed selection contract as pick_position, extended to several
+    # positions. Bound against the actual visible list again before any call.
+    positions = value
+    if isinstance(value, dict):
+        positions, evidence = value.get("positions"), value.get("evidence")
+        if not isinstance(evidence, str) or not evidence.strip() or evidence not in message:
+            return ()
+    if (not isinstance(positions, list) or not 2 <= len(positions) <= 5
+            or any(type(n) is not int or not 1 <= n <= 5 for n in positions)
+            or len(set(positions)) != len(positions)):
+        return ()  # An invalid selection cannot become "compare everything".
+    return tuple(positions)
+
+
 def _requested_window_slot(value: Any) -> tuple[str | None, ...] | None:
     """Validate structured clock values, never parse customer prose."""
     if not isinstance(value, list):
@@ -887,7 +916,14 @@ def _clock_numbers_in_evidence(clock: str, evidence: str) -> bool:
             runs.append((start, index))
             start = None
     hour, minute = (int(part) for part in clock.split(":"))
+
+    def hour_suffix(end: int) -> bool:
+        return (evidence[end:end + 1].casefold() == "h"
+                and (end + 1 == len(evidence) or not evidence[end + 1].isalpha()))
+
     for index, (begin, end) in enumerate(runs):
+        if evidence[:begin].rstrip().endswith("/") or evidence[end:].lstrip().startswith("/"):
+            continue  # A slash-delimited date component cannot justify a clock.
         # Compact 24-hour notation is a numeric witness for an already
         # classified clock, not an intent parser. Match the complete token:
         # 0930 can support 09:30, but neither an ID nor 13:30 supports 13:00.
@@ -898,14 +934,16 @@ def _clock_numbers_in_evidence(clock: str, evidence: str) -> bool:
             return True
         if end - begin > 2:
             continue
-        if index and evidence[runs[index - 1][1]:begin].strip().casefold() in {":", "h", "."}:
-            continue  # This run supplies the preceding hour's minutes.
+        previous_separator = evidence[runs[index - 1][1]:begin].strip().casefold() if index else ""
+        if previous_separator in {":", "h", "."} and not (previous_separator == "h" and hour_suffix(end)):
+            continue  # Minutes, except a separate hour: "21h 22h".
         if int(evidence[begin:end]) not in {hour, hour % 12 or 12}:
             continue
         stated_minute = 0
         if index + 1 < len(runs):
             next_begin, next_end = runs[index + 1]
-            if evidence[end:next_begin].strip().casefold() in {":", "h", "."}:
+            separator = evidence[end:next_begin].strip().casefold()
+            if separator in {":", "h", "."} and not (separator == "h" and hour_suffix(next_end)):
                 if next_end - next_begin > 2:
                     continue
                 stated_minute = int(evidence[next_begin:next_end])

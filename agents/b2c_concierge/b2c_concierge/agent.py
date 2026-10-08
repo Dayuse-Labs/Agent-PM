@@ -988,6 +988,7 @@ class _B2cConcierge(BaseAgent):
         llm_hotel_name: str | None = None,
         hotel_scope: str | None = None,
         allow_text_name: bool = True,
+        comparison_positions: tuple[int, ...] | None = None,
     ) -> AsyncGenerator[Event, None]:
         """details / compare: the real MCP_B2C call is a CODE decision
         (route.kind == "inline" was already resolved by triage + the routing
@@ -1011,10 +1012,14 @@ class _B2cConcierge(BaseAgent):
             hotels = [result["hotel"]] if result.get("ok") else []
             leaf_text = f"Hotel details retrieved for {hotels[0].get('name')}." if hotels else ""
         else:
-            result = await inline_tools.compare_hotels(message, profile)
+            comparison_kwargs = {"comparison_positions": comparison_positions} if comparison_positions is not None else {}
+            result = await inline_tools.compare_hotels(message, profile, **comparison_kwargs)
             hotels = result.get("hotels") or [] if result.get("ok") else []
             names = ", ".join(str(h.get("name")) for h in hotels)
             leaf_text = f"Comparison retrieved for: {names}." if hotels else ""
+            if any(h.get("shown_offer_unavailable") for h in hotels):
+                unavailable = ", ".join(str(h.get("name")) for h in hotels if h.get("shown_offer_unavailable"))
+                leaf_text += f" The previously displayed offer could not be revalidated for: {unavailable}. Compare their property facts only and explicitly disclose this; do not invent another date, slot, price or availability."
         budget.fired.update(result.get("guards_fired") or [])
         if result.get("error") == "hotel not found":
             budget.fallbacks.add("named_hotel_not_found")
@@ -1030,10 +1035,14 @@ class _B2cConcierge(BaseAgent):
         if profile.display_currency == HOTEL:
             apply_hotel_currency(hotels)
         response = {"results": hotels}
-        # Same picks the `done` payload will carry: details/compare do NOT touch
-        # `last_results`, so this reads the shortlist a previous search left —
-        # exactly what `build_chat_payload` does a moment later. Parity with the
-        # blocking path is the goal here, not a better answer.
+        if route.target == "compare_hotels":
+            # These cards replace the visible list. Later ordinals and pick
+            # buttons must use the same order, including an explicitly reversed
+            # comparison; an unavailable formula must not remain bookable state.
+            record_search_shortlist(profile, hotels)
+            profile.pending_booking = None
+        # Same persisted order as the done payload. A comparison has just
+        # replaced the visible list; a single details lookup retains its context.
         yield self._hotels_event(ctx, response, language, build_hotel_picks(profile))
 
         synth = await self._synthesize_with_guards(
@@ -1378,6 +1387,10 @@ class _B2cConcierge(BaseAgent):
             family, route = "search", ROUTES["search"]
         elif booking_signal:
             family, route = "booking", ROUTES["booking"]
+        elif family == "compare" and clicked_id is None:
+            # A single-position extraction cannot collapse an explicit
+            # comparison into a details lookup for only one hotel.
+            picked = None
         elif picked is not None:
             # A pick with a BOOKING intent hands off (a link, guarded below);
             # a pick with any other intent ("montre-moi le moins cher") is a
@@ -1499,6 +1512,7 @@ class _B2cConcierge(BaseAgent):
                 llm_hotel_name=triage.hotel_name,
                 hotel_scope=triage.hotel_scope,
                 allow_text_name=not triage.used_llm,
+                comparison_positions=triage.comparison_positions,
             ):
                 yield event
             return

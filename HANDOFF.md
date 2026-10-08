@@ -1,5 +1,45 @@
 # HANDOFF — AgentB2C
 
+## 2026-10-08 — v51 : comparaison des offres et témoins horaires
+
+**Pas de GO remplacement.** Une comparaison datée revalide les offres déjà
+montrées via get_hotel_details avec leur date ; compare_hotels sans date ne
+peut plus imposer son bestOffer d’un autre jour. Au plus cinq appels lecture
+seule en parallèle, sous le timeout inline existant, sans retry ni phase LLM
+ajoutée. Identités hôtel/offre/date/horaires et cutoff vérifiés ; une formule
+absente/expirée/modifiée donne des faits hôtel seuls et une réserve nommée.
+Le triage existant produit une liste de positions bornée, jamais des IDs.
+Compare n’est plus détourné vers un détail par pick_position. L’ordre visible
+est persisté pour les boutons et le prochain ordinal ; la quote précédente
+est invalidée et les totaux frais compris restent disponibles pour moinscher.
+
+Deux essais ratés conservés : v51 sélection unique +09/10 lu comme09h ;
+v51b tableau[1,2] refusé car objet attendu. Contrat simplifié en tableau borné
+comme pick_position ; les objets cités déjà valides restent acceptés.
+Rejeu v51c Singapour5tours B : exactement les deux premiers, mêmes offres9oct,
+00–08/09 ; conditions de chaque ficheMCP vérifiées. Formulation générique
+sur minuit et parking dit non confirmé malgré source restent perfectibles.
+
+Source fraîcheSQL33679,2sessions nouvelles/poursuivies,7messages exactLangfuse,
+3GPS arrondis reconstruits (pas payload original complet). Barking06–16
+13oct→moinscher : prodC/B2CD/candidatB, sans offre ni référenceprixinventée.
+Prèsdemoi→12h21h22h→piscinedemain→chercheencore : D/C/D avantfix ; code
+rejetait22h comme minutes de21h. Deux tests rouges puis correctif du témoin
+numérique sansregex,14h30reste14:30. Rejeu v51d4tours B : GPS/date/piscine/
+12–22 conservés, toutes cartes couvrent les heures, puis épuisement honnête.
+Les fragments de date séparés par / ne justifient plus une heure (09/10).
+
+2637tests passés,1ignoré ;ruff/mypy69/guardrails verts.40réponses/10revues sur
+plusieurs versions,53cartes rapprochées des reçus sans erreurprix/jointure/
+expiration. Deux audits de contrat séparés passent (comparaisonv51c et GPSv51d).
+Version finalev51d n’a changé que le témoin horaire depuisv51c ; comparaison
+retestée horsligne. Coût étape0,351648USD ; cumul99,297453/110USD, provisions
+12,10incluses et réserve10préservée. Softstop99,5 pour les lots finis, plafond
+effectif100 inchangé. Aucun appel non soldé, modèle par défaut modifié, acte
+client, merge ou déploiement. Données/rapports locaux horsGit. MainB2C refetché
+cbe88b9 déjà ancêtre. Restent POI/aéroports/périmètres fins/intentionGPS,
+sarcasme/alternativesvilles/repas, politiques et holdout indépendant32familles.
+
 ## 2026-10-08 — v50 : horaires compacts, nouvelles conversations et comparaison
 
 **Pas de GO remplacement.** Une extraction horaire du modèle peut maintenant

@@ -35,6 +35,7 @@ import asyncio
 import math
 import os
 import re
+from dataclasses import replace
 from contextlib import asynccontextmanager
 from datetime import UTC, datetime
 from typing import Any, AsyncIterator
@@ -49,6 +50,7 @@ from b2c_common import (
     with_checkin_date,
 )
 from b2c_common.observability import mark_level, observation, trace_context_carrier
+from b2c_common.price_comparison import offer_totals
 from b2c_common.search_budget import offer_within_budget
 from b2c_common.timeslot import parse_hhmm, slot_covers_window, slot_overlaps_daypart
 from mcp import ClientSession
@@ -351,6 +353,9 @@ def _normalize_hotel_for_display(hotel: dict[str, Any], best_offer: dict[str, An
     if url:
         normalized["url"] = url
     if best_offer:
+        totals = offer_totals(best_offer)
+        if totals:
+            normalized["offer_totals"] = totals
         start = _hhmm(best_offer.get("startHour"), best_offer.get("startMinute"))
         end = _hhmm(best_offer.get("endHour"), best_offer.get("endMinute"))
         if start and end:
@@ -383,6 +388,7 @@ async def get_hotel_details(
     llm_hotel_name: str | None = None,
     for_search: bool = False,
     allow_text_name: bool = True,
+    preserve_shown_offer: bool = False,
 ) -> dict[str, Any]:
     """Real MCP_B2C `get_hotel_details`, hotel resolved via the named-hotel
     lookup guard — or taken straight from `picked_hotel_id` when the spine
@@ -405,27 +411,36 @@ async def get_hotel_details(
                 if hotel_id is None:
                     return {"ok": False, "error": "hotel not found", "guards_fired": guards_fired}
                 args: dict[str, Any] = {"hotelId": hotel_id}
-                if profile.date:
-                    args["date"] = profile.date
+                shown = _shortlist_offer(hotel_id, profile)
+                requested_date = profile.date or (shown.get("offer_date") if shown else None)
+                if requested_date:
+                    args["date"] = requested_date
                 result = await _call_tool(session, "get_hotel_details", args)
                 if not result["ok"]:
                     return {**result, "guards_fired": guards_fired}
                 data = result["data"]
                 hotel = data.get("hotel") or {}
-                if for_search and hotel.get("hotelId", hotel.get("id")) != hotel_id:
+                if (for_search or preserve_shown_offer) and hotel.get("hotelId", hotel.get("id")) != hotel_id:
                     return {"ok": False, "error": "details returned a different hotel identity"}
                 offers = data.get("offers") or []
                 if profile.date:
                     offers = [o for o in offers if o.get("availabilityDate") == profile.date]
-                shown = _shortlist_offer(hotel_id, profile)
                 if shown is not None and not for_search:
                     # A details question keeps the formula already displayed.
                     # If it disappeared, report hotel facts without another price.
                     offers = [o for o in offers if
                               o.get("ratePlanUuid") == shown.get("offer_id")
                               and o.get("availabilityDate") == shown.get("offer_date")]
-                best = _search_offer(offers, hotel, profile) if for_search else (offers[0] if offers else None)
+                if preserve_shown_offer:
+                    offers = [o for o in offers if shown
+                              and _hhmm(o.get("startHour"), o.get("startMinute")) == shown.get("start_time")
+                              and _hhmm(o.get("endHour"), o.get("endMinute")) == shown.get("end_time")]
+                    best = _search_offer(offers, hotel, replace(profile, date=requested_date))
+                else:
+                    best = _search_offer(offers, hotel, profile) if for_search else (offers[0] if offers else None)
                 normalized = _normalize_hotel_for_display(hotel, best)
+                if preserve_shown_offer and best is None:
+                    normalized["shown_offer_unavailable"] = True
                 if for_search and best:
                     for target, source in (("capacity", "capacity"), ("children_capacity", "childrenCapacity")):
                         value = best.get(source)
@@ -514,7 +529,8 @@ async def get_shown_hotel_details(profile: SessionProfile) -> dict[str, Any]:
     return {"ok": True, "hotels": [result["hotel"] for result in results]}
 
 
-async def compare_hotels(message: str, profile: SessionProfile) -> dict[str, Any]:
+async def compare_hotels(message: str, profile: SessionProfile,
+                         comparison_positions: tuple[int, ...] | None = None) -> dict[str, Any]:
     """Real MCP_B2C `compare_hotels` — works OFF THE SHORTLIST only (phase
     scope, item 1: "travaillent sur la shortlist du tour"), never MCP
     `find_hotel_by_name` — comparing a hotel the session hasn't shown yet is
@@ -526,12 +542,21 @@ async def compare_hotels(message: str, profile: SessionProfile) -> dict[str, Any
     no explicit naming right after a search."""
     hotel_ids: list[int] = []
     seen: set[int] = set()
-    for hotel in resolve_hotel_references(message, profile.last_results):
+    shortlist = profile.last_results or []
+    if comparison_positions is not None:
+        if (not 2 <= len(comparison_positions) <= 5
+                or any(type(n) is not int or not 1 <= n <= len(shortlist) for n in comparison_positions)
+                or len(set(comparison_positions)) != len(comparison_positions)):
+            return {"ok": False, "error": "invalid comparison selection"}
+        selected = [shortlist[n - 1] for n in comparison_positions]
+    else:
+        selected = resolve_hotel_references(message, profile.last_results)
+    for hotel in selected:
         candidate = hotel.get("hotel_id")
         if candidate is not None and int(candidate) not in seen:
             seen.add(int(candidate))
             hotel_ids.append(int(candidate))
-    if len(hotel_ids) < 2:
+    if len(hotel_ids) < 2 and comparison_positions is None:
         for hotel in profile.last_results or []:
             candidate = hotel.get("hotel_id")
             if candidate is not None and int(candidate) not in seen:
@@ -541,15 +566,28 @@ async def compare_hotels(message: str, profile: SessionProfile) -> dict[str, Any
         return {"ok": False, "error": "need at least 2 hotels to compare"}
     try:
         async with asyncio.timeout(_INLINE_MCP_TIMEOUT):
+            if profile.date or any(_shortlist_offer(i, profile) for i in hotel_ids):
+                # compare_hotels has no date parameter and its bestOffer can
+                # belong to another day. Revalidate ONLY the displayed offers
+                # through the existing dated details tool; never replace them.
+                # At most five read-only calls, concurrent under one timeout.
+                details = await asyncio.gather(*(
+                    get_hotel_details("", profile, picked_hotel_id=i, preserve_shown_offer=True)
+                    for i in hotel_ids[:5]
+                ))
+                if not all(r.get("ok") for r in details):
+                    return {"ok": False, "error": "comparison details unavailable"}
+                return {"ok": True, "hotels": [r["hotel"] for r in details], "best_by": {}}
             async with _mcp_session() as session:
                 result = await _call_tool(session, "compare_hotels", {"hotelIds": hotel_ids[:10]})
                 if not result["ok"]:
                     return result
                 data = result["data"]
-                hotels = [
-                    _normalize_hotel_for_display(entry, entry.get("bestOffer"))
-                    for entry in data.get("hotels") or []
-                ]
+                entries = {entry.get("hotelId"): entry for entry in data.get("hotels") or []}
+                if any(i not in entries for i in hotel_ids[:10]):
+                    return {"ok": False, "error": "comparison hotel missing"}
+                hotels = [_normalize_hotel_for_display(entries[i], entries[i].get("bestOffer"))
+                          for i in hotel_ids[:10]]
                 return {"ok": True, "hotels": hotels, "best_by": data.get("bestBy") or {}}
     except Exception as exc:  # noqa: BLE001
         return {"ok": False, "error": f"compare_hotels failed: {type(exc).__name__}"}

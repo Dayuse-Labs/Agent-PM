@@ -61,6 +61,12 @@ def test_semantic_end_of_day_keeps_midnight(end):
         ({"start": "21:00", "end": "24:00"}, "21 fino a mezzanotte", ("21:00", "24:00")),
         ({"end": "24:00"}, "hasta medianoche", (None, "24:00")),
         ({"start": "00:00", "end": "20:00"}, "en journée", None),
+        ({"start": "00:00", "end": "09:00"}, "12am 09/10 check in", ("00:00", None)),
+        ({"start": "09:00", "end": "10:00"}, "09/10", None),
+        ({"start": "12:00", "end": "22:00"}, "entre 12h et 21h 22h", ("12:00", "22:00")),
+        ({"start": "12:00", "end": "21:00"}, "entre 12h et 21h 22h", ("12:00", "21:00")),
+        ({"start": "14:30", "end": "21:22"}, "14h30 à 21h22", ("14:30", "21:22")),
+        ({"start": "14:00", "end": "21:00"}, "14h30 à 21h22", None),
     ],
 )
 def test_keep_supported_endpoint_without_invented_other_bound(raw, message, expected):
