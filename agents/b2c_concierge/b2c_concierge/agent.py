@@ -1680,7 +1680,7 @@ class _B2cConcierge(BaseAgent):
             reset_search_cursor(profile)
 
         if route.target == LEAF_HOTEL_SEARCH and landmark_update:
-            profile.requested_destination = DestinationRequest(kind="landmark", **landmark_update).model_dump(exclude_none=True)
+            profile.requested_destination = DestinationRequest.model_validate({"kind": "landmark", **landmark_update}).model_dump(exclude_none=True)
             # A landmark refinement inside the provider-confirmed parent must
             # not discard that parent's country and select a foreign homonym.
             # New/conflicting destinations do not inherit this authority.
@@ -2053,6 +2053,17 @@ class _B2cConcierge(BaseAgent):
                 self._emit_turn_metric(family, "template:landmark_context", budget, t_start, "ok", inv)
                 yield self._final(ctx, question)
                 return
+        if (route.target == LEAF_HOTEL_SEARCH and owned_destination and owned_destination.kind == "address"
+                and response.get("requires_clarification") and not response.get("results")
+                and response.get("destination_clarification") == {"kind": "address_context", "query": owned_destination.query}):
+            from b2c_common.destination_request import address_context_question
+            question = address_context_question(owned_destination.query or "", reply_language)
+            profile.last_clarifying_question = question
+            await store.set(ctx.session.id, profile)
+            yield self._hotels_event(ctx, {"requires_clarification": True}, reply_language)
+            self._emit_turn_metric(family, "template:address_context", budget, t_start, "ok", inv)
+            yield self._final(ctx, question)
+            return
         pending = pending_location(profile.pending_location)
         if route.target == LEAF_HOTEL_SEARCH and pending and response.get("requires_clarification"):
             profile.last_clarifying_question = pending["question"]

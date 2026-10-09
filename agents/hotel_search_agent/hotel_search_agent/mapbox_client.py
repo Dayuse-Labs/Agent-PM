@@ -28,8 +28,8 @@ from b2c_common.observability import mark_level
 
 GEOCODE_URL = "https://api.mapbox.com/search/geocode/v6/forward"
 
-# Types Dayuse cares about: no addresses/POIs — a destination search resolves
-# to a place, not a street number. `geocode_candidates` widens this to also
+# Default city searches exclude addresses/POIs. Typed street-address requests
+# explicitly use types=address. `geocode_candidates` widens the default to also
 # include district/region so county-type ("Orange County" → district, probed
 # live) and state-type destinations survive tier-1 (POIs stay Search-Box turf).
 DEFAULT_TYPES = "place,locality,neighborhood"
@@ -77,6 +77,9 @@ class GeocodeCandidate:
     parent_city_name: str = ""
     parent_city_id: str = ""
     airport_iata: str = ""
+    address_confidence: str = ""
+    address_number_match: str = ""
+    street_match: str = ""
 
     def as_result(self) -> GeocodeResult:
         return GeocodeResult(
@@ -318,6 +321,9 @@ class MapboxClient:
                     place_name=cls._provider_place_name(props),
                     place_formatted=str(props.get("place_formatted") or props.get("full_address") or name),
                     feature_type=str(props.get("feature_type") or ""),
+                    address_confidence=str((props.get("match_code") or {}).get("confidence") or ""),
+                    address_number_match=str((props.get("match_code") or {}).get("address_number") or ""),
+                    street_match=str((props.get("match_code") or {}).get("street") or ""),
                     country_code=str(country_ctx.get("country_code") or "").upper(),
                     region=str(region_ctx.get("name") or region_ctx.get("region_code") or ""),
                     bbox=bbox,

@@ -1,3 +1,35 @@
+## 2026-10-09 · v88 adresses typées — correctif local, rejeu requis
+
+Le contrat de destination distingue maintenant address des landmarks. L'adresse
+littérale traverse triage/profil/A2A ; une ville de clarification affine cette
+adresse au lieu de la remplacer. Le géocodeur v6 reçoit types=address ; une seule
+identité fournisseur, confiance exact/high, numéro ET rue matched sont requis.
+Ni centre-ville ni POI ne servent de repli. L'identité address conserve son
+search_context et se réutilise aux tours budget/horaires. Une résolution incertaine
+transmet une clarification typée au concierge qui demande de vérifier numéro,
+rue et code postal, sans synthèse la remplaçant par une nouvelle question de ville.
+Aucun regex, dictionnaire de lieux ni phase modèle supplémentaire.
+
+Probe fournisseur privé de cinq adresses : la requête réelle de Voorhees renvoie
+une autre rue malgré confidence=high (street=unmatched). Elle doit donc rester
+incertaine ; le fournisseur ne prouve pas son point exact. Contrôle positif sur
+une adresse complète distincte : exact/numéro+rue matched. Limite explicite :
+des adresses incomplètes plausibles peuvent rester low et demandent une précision.
+Documentation du contrat : https://docs.mapbox.com/api/search/geocoding/.
+
+Tests ciblés :13 nouveaux passent, couvrant mauvais numéro/rue, ville, ambiguïté,
+scope possédé, réutilisation de coordonnées et clarification multi-tour réelle du
+concierge. Suite complète :3018 passent/1 gate live ignorée/1 incident ENOSPC au
+teardown d'un test existant. Ce test relancé seul passe ; bilan effectif3019/1.
+Ruff/mypy77/guardrails/diff verts. Logs /tmp/dayuse-v88-full.log et
+/tmp/dayuse-v88-retry.log. Seuls caches .pyc générés du checkout et du venv de
+travail supprimés pour libérer44Mo ; aucun transcript ou reçu supprimé.
+
+Rejeu groupé prévu : adresse réelle, JFK10h30, Biltmore, contrôle synthétique
+adresse→budget→horaires ; quatre conversations/neuf tours, plafond1USD sous le
+budget autorisé. Pas encore exécuté à ce commit. PR134 reste draft7139df5,
+aucun push/merge/déploiement. Remplacement toujours NO GO.
+
 ## 2026-10-09 · v87 diagnostic Langfuse et affichage exact des minutes
 
 Le texte sans offres utilisait requested_hours (règle métier du filtre) pour
@@ -8,7 +40,7 @@ MCP modifiés. Aucun regex, dictionnaire de lieux ou appel modèle ajouté.
 
 Validation :3005 tests passent/2 ignorés dans le lancement sans shell login ;
 le test widget ignoré faute de Node dans PATH a été rejoué avec Node disponible
-et passe (1 test). Bilan effectif3006 réussites/1 fixture externe absente.
+et passe (1 test). Bilan effectif3006 réussites/1 gate live non exécutée.
 Ruff, mypy77 sans cache, guardrails et diff check passent. Logs privés :
 `/tmp/dayuse-v87-full.log`, `/tmp/dayuse-v87-widget.log`. Pas de nouveau rejeu
 utilisateur : la note JFK et le bilan4B4C dev86 ne sont pas requalifiés.

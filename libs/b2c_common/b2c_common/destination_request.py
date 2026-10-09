@@ -33,7 +33,7 @@ class LandmarkRequest(BaseModel):
 
 class DestinationRequest(BaseModel):
     model_config = ConfigDict(extra="forbid", strict=True)
-    kind: Literal["landmark", "landmarks", "hotel", "areas", "device"]
+    kind: Literal["landmark", "landmarks", "address", "hotel", "areas", "device"]
     query: str | None = Field(default=None, max_length=200)
     city: str | None = Field(default=None, max_length=200)
     country_guess: str | None = None
@@ -47,7 +47,7 @@ class DestinationRequest(BaseModel):
         if self.kind == "landmarks":
             if not self.landmarks or any((self.query, self.city, self.country_guess, self.areas)):
                 raise ValueError("Alternative landmarks retain their separate requests")
-        elif self.kind in {"landmark", "hotel"}:
+        elif self.kind in {"landmark", "address", "hotel"}:
             if not self.query or not self.query.strip() or self.areas is not None:
                 raise ValueError("A landmark needs a requested name, not area geometry")
             if self.city is not None and not self.city.strip():
@@ -77,7 +77,7 @@ def requested_parent(value: Any) -> str | None:
     request = destination_request(value)
     if request is None:
         return None
-    if request.kind in {"landmark", "hotel"}:
+    if request.kind in {"landmark", "address", "hotel"}:
         return request.city
     if request.kind == "areas" and request.areas and len(request.areas) == 1:
         area = request.areas[0]
@@ -99,9 +99,23 @@ def refine_landmark(update: dict | None, previous: Any, action: str | None,
         if not result.get("city") and action in {"correct", "refine"}:
             result["city"] = parent_city or requested_parent(previous)
         return result
-    if request and request.kind == "landmark" and action == "refine" and parent_city:
-        return {"query": request.query, "city": parent_city, "country_guess": None}
+    if request and request.kind in {"landmark", "address"} and action == "refine" and parent_city:
+        return {"query": request.query, "city": parent_city, "country_guess": None,
+                **({"kind": "address"} if request.kind == "address" else {})}
     return None
+
+
+def address_context_question(query: str, language: str) -> str:
+    questions = {
+        "fr": "Je n’arrive pas à confirmer l’adresse « {address} ». Peux-tu vérifier le numéro, la rue et le code postal ?",
+        "en": "I can’t confirm the address “{address}”. Could you check the street number, street name and postcode?",
+        "de": "Ich kann die Adresse „{address}“ nicht bestätigen. Kannst du Hausnummer, Straße und Postleitzahl prüfen?",
+        "es": "No puedo confirmar la dirección «{address}». ¿Puedes comprobar el número, la calle y el código postal?",
+        "it": "Non riesco a confermare l’indirizzo «{address}». Puoi verificare il numero civico, la via e il codice postale?",
+        "pt": "Não consigo confirmar o endereço «{address}». Podes verificar o número, a rua e o código postal?",
+        "nl": "Ik kan het adres ‘{address}’ niet bevestigen. Kun je het huisnummer, de straat en de postcode controleren?",
+    }
+    return questions.get(language, questions["en"]).format(address=query)
 
 
 def refine_hotel(name: str | None, previous: Any, action: str | None,

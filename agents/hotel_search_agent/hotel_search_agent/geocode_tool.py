@@ -368,6 +368,39 @@ def _provider_place(candidate: GeocodeCandidate, *, city: str | None = None,
     })
 
 
+def _resolve_address(query: str, *, city: str | None, country: str | None, language: str) -> dict:
+    """Use provider address components, never a city/POI fallback or fuzzy top-1.
+
+    Mapbox match_code is address-only. A high overall score can still mean a
+    different street (observed live); both number and street must match too.
+    Missing/weak confidence stays a clarification, not an invented exact point.
+    """
+    from b2c_common.destination_request import address_context_question
+    full_query = query
+    if city and city.casefold() not in query.casefold():
+        full_query = f"{query}, {city}"
+    candidates = get_mapbox_client().geocode_candidates(
+        full_query, types="address", country=country, language=language,
+    )
+    accepted = {
+        c.mapbox_id: c for c in candidates
+        if c.feature_type == "address" and c.mapbox_id
+        and c.address_confidence in {"exact", "high"}
+        and c.address_number_match == "matched" and c.street_match == "matched"
+        and (not country or c.country_code.upper() == country.upper())
+        and _provider_place(c, city=city, zone=query) is not None
+    }
+    if len(accepted) == 1:
+        chosen = next(iter(accepted.values()))
+        return _ok(chosen.as_result(), feature_type="address", profile_delta={},
+                   distance_origin_type="poi", zone=query,
+                   resolved_location=_provider_place(chosen, city=city, zone=query))
+    return _fail("geocode_ambiguous", {
+        "question": address_context_question(query, language), "options": [],
+        "reason": "address_not_uniquely_verified", "query": full_query,
+    }, ["geocode_echo_back"], {"zone": query})
+
+
 def _ok(
     result: GeocodeResult,
     *,
@@ -424,7 +457,7 @@ def geocode_location(
     country_guess: str | None = None,
     areas: list[AreaRequest] | None = None,
     origin: Literal["destination", "device"] = "destination",
-    place_kind: Literal["unspecified", "municipality"] = "unspecified",
+    place_kind: Literal["unspecified", "municipality", "address"] = "unspecified",
 ) -> dict:
     """Resolve a destination to coordinates for `search_offers`, guarded.
 
@@ -530,6 +563,9 @@ def geocode_location(
         # Only the A2A callback can authorize device coordinates. Direct calls
         # with model-supplied proximity values cannot establish this provenance.
         return _fail("device_context_required", {"question": "Which city or address should I search near?"})
+    if place_kind == "address":
+        return _resolve_address(zone or city, city=city if zone else None,
+                                country=_iso2(country_code), language=(language_hint or locale or "en")[:2])
     if areas is not None:
         validated = validate_areas(areas, raw_user_message)
         if validated is None:
@@ -1134,9 +1170,11 @@ def inject_profile_geo_context(tool: object, args: dict, tool_context: object) -
         profile_in = dict(profile_in)
         params = dict(envelope.get("query_params") or {})
         envelope = {**envelope, "query_params": params}
-        if request.kind == "landmark":
+        if request.kind in {"landmark", "address"}:
             profile_in.update(city=request.city, zone=request.query, metro=None, search_areas=None)
             params.update(landmark_authoritative=True, landmark_country_guess=request.country_guess)
+            if request.kind == "address":
+                args["place_kind"] = "address"
         elif request.kind == "areas" and request.areas:
             for key in ("city", "zone", "metro", "country_code", "areas"):
                 args.pop(key, None)

@@ -1924,6 +1924,8 @@ def emit_search_datapart(callback_context: Any) -> genai_types.Content | None:
             payload["destination_clarification"] = {
                 "kind": "landmark_context", "queries": [p.query for p in request.landmarks or []],
             }
+        elif request and request.kind == "address":
+            payload["destination_clarification"] = {"kind": "address_context", "query": request.query}
     fallbacks = state.get(_STATE_FALLBACKS_KEY)
     if isinstance(fallbacks, list) and fallbacks:
         payload["fallbacks_fired"] = list(fallbacks)

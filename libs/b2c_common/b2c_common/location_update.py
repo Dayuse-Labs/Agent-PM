@@ -14,7 +14,7 @@ Destination changes use ONLY location_update (do not also emit location_intent,
 requested_landmark, requested_areas or requested_subarea):
 {"action":"preserve|change|refine|correct|device|select|missing|unknown",
  "evidence":"exact current message quote", "parent_city":"optional exact containing city",
- "position":1, "targets":[{"kind":"city|region|neighborhood|landmark|hotel",
+ "position":1, "targets":[{"kind":"city|region|neighborhood|landmark|address|hotel",
  "query":"place name only", "country":"ISO2", "evidence":"exact current place quote",
  "scope":"nearby|inside", "region":"optional verbatim containing state/province",
  "code":"optional explicitly stated administrative code"}]}
@@ -43,7 +43,12 @@ For a new landmark within the confirmed city, retain that confirmed parent_city
 unless the user states another city. Do not ask again for an already confirmed parent.
 A city is a municipality; a region is a state/county/province; a neighborhood is a
 sub-city district. Never label a neighborhood as a state or county. An airport,
-station, street address or postcode is a landmark, not an administrative region.
+station or standalone postcode is a landmark, not an administrative region.
+A numbered street address uses address kind. Keep its full literal street number,
+street, city, state and postcode together in query; never convert it to a landmark
+or split it into alternative destinations. A complete address does not require
+an additional parent_city to be resolved. If the address is questioned, a city-only
+answer refines it; a replacement street address uses correct with address kind.
 Keep airport codes, terminals and street numbers in query. A hotel uses hotel kind.
 Query contains the actual named place only, excluding words meaning nearby,
 surroundings or instead. Copy its spelling from MESSAGE; the provider resolves it.
@@ -98,7 +103,7 @@ def adapt_location_update(data: dict[str, Any], message: str, context: dict | No
         # to repeat it for every target discards otherwise grounded destinations.
         # An explicitly supplied invalid quote still fails validation below.
         quote = target.get('evidence', evidence)
-        if kind not in {'city', 'region', 'neighborhood', 'landmark', 'hotel'}:
+        if kind not in {'city', 'region', 'neighborhood', 'landmark', 'address', 'hotel'}:
             return result
         if (not isinstance(query, str) or not query.strip() or len(query) > 200
                 or not isinstance(quote, str) or not quote.strip() or quote not in message
@@ -124,7 +129,7 @@ def adapt_location_update(data: dict[str, Any], message: str, context: dict | No
     if len(clean) == 1 and clean[0]['kind'] == 'hotel':
         result['hotel_name'] = clean[0]['query']
         return result
-    if len(clean) == 1 and (clean[0]['kind'] == 'landmark' or
+    if len(clean) == 1 and (clean[0]['kind'] in {'landmark', 'address'} or
                            (clean[0]['kind'] == 'neighborhood' and clean[0]['scope'] == 'nearby')):
         target = clean[0]
         parent = raw.get('parent_city')
@@ -134,7 +139,8 @@ def adapt_location_update(data: dict[str, Any], message: str, context: dict | No
                 raw.get('parent_city') == confirmed or area_name_in_text(confirmed, message)
                 or action in {'correct', 'refine'}) else None
         result['requested_landmark'] = {'query': target['query'], 'city': parent,
-                                       'country_guess': target['country'], 'evidence': target['evidence']}
+                                       'country_guess': target['country'], 'evidence': target['evidence'],
+                                       **({'kind': 'address'} if target['kind'] == 'address' else {})}
         return result
     if len(clean) > 1 and all(t['kind'] == 'landmark' for t in clean):
         parent = raw.get('parent_city')

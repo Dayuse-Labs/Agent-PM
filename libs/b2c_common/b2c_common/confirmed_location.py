@@ -36,7 +36,10 @@ def grounded_landmark(value: Any, message: str, *, confirmed_city: str | None = 
     guess = value.get("country_guess")
     if guess is not None and (not isinstance(guess, str) or len(guess) != 2 or not guess.isascii() or not guess.isalpha()):
         return None
+    if value.get("kind") not in (None, "landmark", "address"):
+        return None
     return {"query": query.strip(), "city": city.strip() if city else None,
+            **({"kind": "address"} if value.get("kind") == "address" else {}),
             "country_guess": guess.upper() if guess else None}
 
 
@@ -46,10 +49,10 @@ def verified_place(value: Any) -> dict[str, Any] | None:
     strings = ("provider_id", "name", "label", "country_code", "feature_type")
     if any(not isinstance(value.get(k), str) or not value[k].strip() for k in strings):
         return None
-    if value["feature_type"] not in {"place", "locality", "poi"}:
+    if value["feature_type"] not in {"place", "locality", "poi", "address"}:
         return None  # Administrative boundaries retain their resolution contract.
     search_context = None
-    if value["feature_type"] == "poi" or value.get("search_context") is not None:
+    if value["feature_type"] in {"poi", "address"} or value.get("search_context") is not None:
         # A provider place/locality can also answer a scoped zone request.
         # Keep that scope without relabelling the provider feature as a POI.
         context = value.get("search_context")
