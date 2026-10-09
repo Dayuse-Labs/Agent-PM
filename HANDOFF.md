@@ -1,3 +1,27 @@
+## 2026-10-09 · v88 rejoué — point adresse vérifié, limites visibles
+
+Runtime a41da0e :4conversations/9tours,1B3C ; trois cas exposés de v86 et un
+contrôle synthétique. Pas de gain global prouvé, dernier lot complet100/280v78.
+Adresse de contrôle : véritable feature address fournisseur, même point sur3
+recherches ;5cartes puis3sous150USD frais inclus. Au dernier tour, créneau exact
+10:30–19conservé, MCP0résultat ; réponse incorrectement centrée sur le budget,
+sans citer le créneau. C maintenu malgré le bon transport de l'adresse.
+
+Voorhees : vraie adresse conservée, rue fournisseur différente refusée ; question
+sur numéro/rue/code postal affichée. La réponse de commune ne débloque pas la
+recherche : C. JFK :10h30 affiché correctement, mais contestation suivante reçoit
+une clarification générique au lieu d'explication : C. Biltmore : huit créneaux
+vérifiés, B.10cartes jointes aux reçus MCP exacts,0écart prix/jointure/expiration ;
+3cartes budget frais compris,0dépassement.77fichiers runtime inchangés pendant lot.
+
+Coût0,1623516USD ; cumul148,24543114/150USD dont7,10 provisionnés ; headroom
+après réserve1,25456886USD. Ledger sans pending ;3services possédés arrêtés.
+Rapport privé `production_parity_v18/batch-v88/replay_review.html` et reçus privés.
+Le bilan remplace « rejeu requis » du bloc précédent. Aucun push/merge/déploiement ;
+PR134 reste draft7139df5. NO GO maintenu, objectif complet toujours non atteint.
+Prochaine correction groupée : explication des recherches sans résultats sous
+budget+horaires, traduction exacte→heures MCP et alternatives hôtel/ville.
+
 ## 2026-10-09 · v88 adresses typées — correctif local, rejeu requis
 
 Le contrat de destination distingue maintenant address des landmarks. L'adresse
