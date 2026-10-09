@@ -1,3 +1,14 @@
+## 2026-10-09 · complément v81 — omission géographique au suivi hôtel
+
+Le rejeu v80 a montré que la question horaires omet parfois location_update,
+au lieu d'émettre preserve. La reprise de l'unique hôtel affiché accepte cette
+absence uniquement pour offer_facts, sans nouvelle extraction géographique,
+autre nom ni ambiguïté géographique en attente. Change/unknown restent exclus.
+Le chemin booking demeure séparé, aucune sélection persistée.30 cas ciblés passent.
+Le rejeu v80 reste conservé (2B/5C ;0,3857USD) : aucune amélioration globale
+à en déduire. Budapest/Annapolis et Rambler montrent l'instabilité sémantique.
+Dernier rejeu7/21 à effectuer avant publication du complément ; NO GO maintenu.
+
 ## 2026-10-09 · complément v80 — continuité des faits sur un hôtel unique
 
 Après le rejeu v79 (5 conversations/17 tours,0,3283USD), les trois villes simples

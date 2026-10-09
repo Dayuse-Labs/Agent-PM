@@ -52,6 +52,7 @@ def _decision(action, kind, evidence, parent_city=None):
             "parent_city": parent_city, "position": None}
 
 
+@pytest.mark.parametrize('location_action', [None, 'preserve', 'unknown', 'change', 'pending'])
 @pytest.mark.parametrize('hotels,source,hotel_name,expected_id', [
     ([{'hotel_id': 14566, 'name': 'The Biltmore Los Angeles'}], 'offer_facts', None, 14566),
     ([], 'offer_facts', None, None),
@@ -61,14 +62,16 @@ def _decision(action, kind, evidence, parent_city=None):
     ([{'hotel_id': True, 'name': 'Malformed'}], 'offer_facts', None, None),
 ])
 def test_offer_facts_can_use_only_one_displayed_identity_without_selecting_a_booking(
-    scripted, monkeypatch, fake_profile_store, hotels, source, hotel_name, expected_id,  # noqa: F811
+    scripted, monkeypatch, fake_profile_store, hotels, source, hotel_name, expected_id, location_action,  # noqa: F811
 ):
     runner, session = _new_session()
-    asyncio.run(fake_profile_store.set(session.id, SessionProfile(last_results=hotels)))
+    asyncio.run(fake_profile_store.set(session.id, SessionProfile(
+        last_results=hotels, pending_location={'reason': 'unresolved_destination'} if location_action == 'pending' else None)))
     message = 'What hours are available?' if hotel_name is None else 'What hours are available at Other Hotel?'
     data = {'family': 'details', 'language': 'en', 'pick': 'none', 'hotel_name': hotel_name,
-            'information_source': {'value': source, 'evidence': message},
-            'location_intent': {'action': 'preserve'}}
+            'information_source': {'value': source, 'evidence': message}}
+    if location_action not in {None, 'pending'}:
+        data['location_intent'] = {'action': location_action, 'evidence': message}
     scripted(json.dumps(data))
     seen = []
 
@@ -78,7 +81,8 @@ def test_offer_facts_can_use_only_one_displayed_identity_without_selecting_a_boo
 
     monkeypatch.setattr(agent_module.inline_tools, 'get_hotel_details', details)
     _drive_in(runner, session.id, message)
-    assert len(seen) == 1 and seen[0]['picked_hotel_id'] == expected_id
+    assert len(seen) == 1
+    assert seen[0]['picked_hotel_id'] == (expected_id if location_action in {None, 'preserve'} else None)
     profile = asyncio.run(fake_profile_store.get(session.id))
     assert profile.picked_hotel_id is None and profile.pending_booking is None
 

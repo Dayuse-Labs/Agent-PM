@@ -1605,7 +1605,10 @@ class _B2cConcierge(BaseAgent):
             shown_hotels = profile.last_results or []
             if (route.target == "get_hotel_details" and picked is None
                     and triage.hotel_name is None and triage.information_source == "offer_facts"
-                    and location_action == "preserve" and len(shown_hotels) == 1):
+                    and location_action in {None, "preserve"}
+                    and not (triage.requested_landmark or triage.requested_areas or triage.requested_subarea)
+                    and not profile.pending_location
+                    and len(shown_hotels) == 1):
                 # A fact question after one displayed hotel has one owned
                 # referent, even when triage emits no redundant ordinal.
                 # This is below the booking branch: it grants read authority
