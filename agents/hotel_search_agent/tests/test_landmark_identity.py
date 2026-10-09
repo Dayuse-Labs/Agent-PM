@@ -77,3 +77,60 @@ def test_poi_without_provider_id_or_search_context_cannot_be_committed(monkeypat
     assert place
     assert verified_place({**place, "provider_id": ""}) is None
     assert verified_place({**place, "search_context": None}) is None
+
+
+@pytest.mark.parametrize('parser', ['geocoding', 'searchbox'])
+def test_provider_parent_survives_poi_storage_and_authorizes_street_refinement(parser):
+    import copy
+    from b2c_common.confirmed_location import context_for_triage, grounded_landmark
+    from hotel_search_agent.mapbox_client import MapboxClient
+    payload = copy.deepcopy(PAYLOAD)
+    payload['features'][0]['properties']['context']['place'] = {'id': 'provider:schwechat', 'name': 'Schwechat'}
+    if parser == 'geocoding':
+        candidate = MapboxClient._parse_candidates(payload)[0]
+    else:
+        candidate = SearchBoxClient._parse(payload, fallback='ignored')[0]
+    place = geocode_tool._provider_place(candidate, city='Vienna', zone=candidate.name)
+    assert place['provider_city'] == {'name': 'Schwechat', 'provider_id': 'provider:schwechat'}
+    profile = SessionProfile()
+    receive_location(profile, {'resolved_location': place})
+    stored = SessionProfile.from_dict(profile.to_dict())
+    context = context_for_triage(None, stored.confirmed_location)
+    assert context['confirmed_city'] == 'Schwechat'  # Provider parent, not request city Vienna.
+    update = grounded_landmark({'query': 'Main Street', 'city': 'Schwechat',
+        'country_guess': 'AT', 'evidence': 'Main Street'}, 'Main Street',
+        confirmed_city=context['confirmed_city'], confirmed_country=context['country'])
+    assert update['city'] == 'Schwechat'
+    assert grounded_landmark({'query': 'Main Street', 'city': 'Vienna',
+        'country_guess': 'AT', 'evidence': 'Main Street'}, 'Main Street',
+        confirmed_city=context['confirmed_city'], confirmed_country=context['country'])['city'] is None
+
+
+@pytest.mark.parametrize('parent', [None, {}, {'name': 'Schwechat'}, {'name': 'Schwechat', 'provider_id': ''}])
+def test_unproven_poi_parent_does_not_authorize_city_inheritance(parent):
+    from b2c_common.confirmed_location import context_for_triage
+    place = {'provider_id': 'provider:airport', 'name': 'Airport', 'label': 'Airport, Vienna, Austria',
+        'country_code': 'AT', 'feature_type': 'poi', 'latitude': 48.1, 'longitude': 16.5,
+        'search_context': {'city': 'Vienna', 'zone': 'Airport'}, 'provider_city': parent}
+    assert context_for_triage(None, place)['confirmed_city'] is None
+
+
+def test_owned_municipality_fallback_retains_geographic_type(monkeypatch):
+    from hotel_search_agent.mapbox_client import GeocodeCandidate
+    common = dict(latitude=48.1, longitude=16.5, place_formatted='Austria', country_code='AT', region='', bbox=None)
+    business = GeocodeCandidate(**common, name='Schwechat', place_name='Schwechat Business, Austria',
+                                feature_type='poi', rank=0, mapbox_id='provider:business')
+    city = GeocodeCandidate(**common, name='Schwechat', place_name='Schwechat, Austria',
+                            feature_type='place', rank=1, mapbox_id='provider:city')
+    monkeypatch.setattr(geocode_tool, 'get_mapbox_client', lambda: SimpleNamespace(geocode_candidates=lambda *a, **kw: []))
+    monkeypatch.setattr(geocode_tool, 'get_searchbox_client', lambda: SimpleNamespace(forward_candidates=lambda *a, **kw: [business, city]))
+    result = geocode_tool.geocode_location(city='Schwechat', country_code='AT', place_kind='municipality')
+    assert result['ok'] and result['resolved_location']['provider_id'] == 'provider:city'
+    assert result['distance_origin_type'] == 'city_centroid'
+    monkeypatch.setattr(geocode_tool, 'get_searchbox_client', lambda: SimpleNamespace(forward_candidates=lambda *a, **kw: [business]))
+    assert geocode_tool.geocode_location(city='Schwechat', country_code='AT', place_kind='municipality')['ok'] is False
+    # A real landmark request still uses the same provider business taxonomy.
+    from dataclasses import replace
+    airport = replace(business, name='Vienna International Airport', place_name='Vienna International Airport, Schwechat, Austria')
+    monkeypatch.setattr(geocode_tool, 'get_searchbox_client', lambda: SimpleNamespace(forward_candidates=lambda *a, **kw: [airport]))
+    assert geocode_tool.geocode_location(city='Schwechat', zone=airport.name, country_code='AT')['ok'] is True

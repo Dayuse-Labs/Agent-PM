@@ -179,6 +179,10 @@ class SearchBoxClient:
                     mapbox_id=str(props.get("mapbox_id") or ""),
                     country_code=str(country_ctx.get("country_code") or "").upper(),
                     region=str(region_ctx.get("name") or region_ctx.get("region_code") or ""),
+                    administrative_code=str(region_ctx.get("region_code") or ""),
+                    parent_city_name=str((context.get("place") or {}).get("name") or ""),
+                    parent_city_id=str((context.get("place") or {}).get("mapbox_id")
+                                       or (context.get("place") or {}).get("id") or ""),
                     bbox=None,
                     rank=rank,
                 )

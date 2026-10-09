@@ -549,6 +549,10 @@ Optional keys, extracted from MESSAGE ONLY, never copied from recent messages:
   "country":"ISO2","evidence":"shortest verbatim current quote",
   "boundary_evidence":"verbatim city-limit restriction, or empty string",
   "code":"explicit administrative code, including US state abbreviation when named","subarea":"verbatim REQUIRED inner area, or empty"}}.
+  query is the geographic proper name only. Vicinity/distance preferences are
+  not part of that name: preserve a complete compound place name, but exclude
+  words meaning nearby or surroundings. Never include an amenity or hotel brand
+  in a municipality query. Keep the full user's wording only in evidence.
   For "île de france 78 ou 92": Yvelines administrative FR evidence78 code78,
   Hauts-de-Seine administrative FR evidence92 code92. For "Brescia e provincia":
   ONE administrative query="Brescia" IT evidence="Brescia"; the province
@@ -726,6 +730,10 @@ async def classify(message: str, budget: TurnBudget, invocation_id: str = "",
                     "no new geographic request (budget, hours, amenity, FAQ or language change). "
                     "Refine means answering which city/country contains an unresolved address, ZIP, "
                     "neighborhood or hotel in LOCATION CONTEXT: keep that earlier specific request. "
+                    "Naming its containing city/state/country is refine even when the earlier "
+                    "parent label was a borough or neighborhood. Emit requested_areas for that "
+                    "new parent, retaining the unresolved street/landmark. A different string "
+                    "alone is not evidence that the customer abandoned the pending target. "
                     "Change means an explicit different destination or geographic scope, including "
                     "a new region or administrative code for the SAME city name. Such a correction "
                     "is change, never preserve. Device "

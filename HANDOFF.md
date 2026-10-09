@@ -1,5 +1,23 @@
 # HANDOFF — AgentB2C
 
+## 2026-10-09 — v61 préparé : conservation des parents géographiques vérifiés
+
+Lot cohérent issu des conversations v60 : parent ville/identifiant du fournisseur
+conservé pour les POI, puis réutilisé pour une précision de rue ; le texte de
+recherche ne constitue pas une preuve de parent. Une municipalité demandée par
+le concierge ne peut plus devenir un commerce homonyme au fallback Search Box.
+Le triage distingue la précision du parent d'un changement de destination et
+sépare le nom géographique des préférences de proximité. Aucune nouvelle regex
+ni phase modèle. Les codes postaux numériques restent un défaut connu.
+
+Validation hors ligne : 2714 tests passent, 1 ignoré ; ruff, mypy (70 fichiers)
+et guardrails verts. Diagnostic triage 8 appels / 0,0082392 USD : résultats
+encourageants sur trois causes, pas une validation des dialogues complets.
+Le rejeu complet v61 reste à faire avant publication de ce lot : 56 conversations
+historiques + 2 conversations récentes (quartiers de Rio, jacuzzi privé et soirée
+à Philadelphie), modèle et source figés. FAQ/annulations phase 2. Langfuse et SQL
+consultés en lecture seule ; contexte navigateur absent non inventé. Pas de GO.
+
 ## 2026-10-09 — v60 terminé : 56 conversations, PR à actualiser, pas de GO
 
 Runtime `27362ee` : 56 conversations / 156 réponses, **4 A, 21 B, 21 C,

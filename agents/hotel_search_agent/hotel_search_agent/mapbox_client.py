@@ -74,6 +74,8 @@ class GeocodeCandidate:
     administrative_code: str = ""
     wikidata_id: str = ""
     parent_ids: tuple[str, ...] = ()
+    parent_city_name: str = ""
+    parent_city_id: str = ""
 
     def as_result(self) -> GeocodeResult:
         return GeocodeResult(
@@ -321,6 +323,9 @@ class MapboxClient:
                     rank=rank,
                     mapbox_id=str(props.get("mapbox_id") or ""),
                     administrative_code=str(region_ctx.get("region_code") or ""),
+                    parent_city_name=str((context.get("place") or {}).get("name") or ""),
+                    parent_city_id=str((context.get("place") or {}).get("mapbox_id")
+                                       or (context.get("place") or {}).get("id") or ""),
                     parent_ids=tuple(sorted({
                         str(value["mapbox_id"])
                         for key, value in context.items()

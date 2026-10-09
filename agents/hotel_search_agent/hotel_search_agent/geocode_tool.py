@@ -338,6 +338,7 @@ def _provider_place(candidate: GeocodeCandidate, *, city: str | None = None,
                     zone: str | None = None, metro: str | None = None) -> dict | None:
     from b2c_common.confirmed_location import verified_place
     return verified_place({
+        "provider_city": {"name": candidate.parent_city_name, "provider_id": candidate.parent_city_id},
         **({"search_context": {"city": city, "zone": zone or candidate.name, "metro": metro}}
            if candidate.feature_type == "poi" else {}),
         "provider_id": candidate.mapbox_id, "name": candidate.name,
@@ -404,6 +405,7 @@ def geocode_location(
     country_guess: str | None = None,
     areas: list[AreaRequest] | None = None,
     origin: Literal["destination", "device"] = "destination",
+    place_kind: Literal["unspecified", "municipality"] = "unspecified",
 ) -> dict:
     """Resolve a destination to coordinates for `search_offers`, guarded.
 
@@ -721,6 +723,10 @@ def geocode_location(
     candidates = get_mapbox_client().geocode_candidates(
         query, country=effective_country_code, language=lang, proximity=proximity_str
     )
+    if place_kind == "municipality":
+        # Concierge-owned geographic type survives provider fallback. A business
+        # bearing the query in its name is not a municipality, even with stock.
+        candidates = [c for c in candidates if c.feature_type in {"place", "locality", "neighborhood"}]
 
     resolution = geo_resolver.resolve(
         candidates,
@@ -920,6 +926,8 @@ def geocode_location(
             language=lang,
             proximity=searchbox_proximity,
         )
+        if place_kind == "municipality":
+            poi_candidates = [c for c in poi_candidates if c.feature_type in {"place", "locality", "neighborhood"}]
         # Search Box returns named features even when the model put the
         # name in city/metro. A field choice must not bypass POI identity.
         identity_query = effective_zone or effective_city or effective_metro
@@ -953,10 +961,10 @@ def geocode_location(
                 return _ok(
                     poi.as_result(),
                     resolved_location=(_provider_place(poi, city=effective_city, zone=effective_zone, metro=effective_metro)
-                                       if poi.feature_type == "poi" else None),
+                                       if poi.feature_type == "poi" or place_kind == "municipality" else None),
                     feature_type=poi.feature_type,
                     profile_delta=profile_delta,
-                    distance_origin_type="poi",
+                    distance_origin_type="city_centroid" if place_kind == "municipality" else "poi",
                     zone=effective_zone,
                     metro=effective_metro,
                     guards_fired=guards_fired,
@@ -1056,6 +1064,7 @@ def inject_profile_geo_context(tool: object, args: dict, tool_context: object) -
     exactly as the model wrote them."""
     if getattr(tool, "name", "") != "geocode_location":
         return None
+    args.pop("place_kind", None)  # The leaf model cannot choose provider scope.
     profile_in = read_profile_in(tool_context)
     from b2c_common.confirmed_location import verified_place
     content = getattr(tool_context, "user_content", None)
@@ -1168,6 +1177,8 @@ def inject_profile_geo_context(tool: object, args: dict, tool_context: object) -
                     # a generic vicinity word. Explicit landmarks have their
                     # own authoritative branch above.
                     args.pop(field, None)
+            if not args.get("zone") and not args.get("metro"):
+                args["place_kind"] = "municipality"
             destination_changed = False  # Owned profile already cleared old scope.
     if scoped and not requires_area_membership(scoped):
         args["city"], args["country_code"] = scoped[0]["query"], scoped[0]["country"]

@@ -59,11 +59,17 @@ def verified_place(value: Any) -> dict[str, Any] | None:
     country = value["country_code"].upper()
     if len(country) != 2 or not country.isascii() or not country.isalpha():
         return None
+    provider_city = value.get("provider_city")
+    parent = ({k: provider_city[k].strip() for k in ("name", "provider_id")}
+              if isinstance(provider_city, dict) and all(
+                  isinstance(provider_city.get(k), str) and provider_city[k].strip()
+                  for k in ("name", "provider_id")) else None)
     for key, bound in (("latitude", 90), ("longitude", 180)):
         n = value.get(key)
         if isinstance(n, bool) or not isinstance(n, (int, float)) or not math.isfinite(n) or abs(n) > bound:
             return None
     return {**({"search_context": search_context} if search_context else {}),
+            **({"provider_city": parent} if parent else {}),
             **({"administrative_code": value["administrative_code"]} if isinstance(value.get("administrative_code"), str) and value["administrative_code"] else {}),
             **{k: value[k].strip() for k in strings}, "country_code": country,
             "latitude": float(value["latitude"]), "longitude": float(value["longitude"]),
@@ -94,7 +100,11 @@ def context_for_triage(pending: Any, confirmed: Any, *, unresolved: dict | None 
         ]}
     if c:
         return {"confirmed_place": c["label"],
-                "confirmed_city": c["name"] if c["feature_type"] in {"place", "locality"} else None,
+                # A POI's display name is not its city. Only the structured
+                # provider parent can authorize a later street/landmark reply;
+                # search_context.city is a request string, not that evidence.
+                "confirmed_city": (c["name"] if c["feature_type"] in {"place", "locality"}
+                                   else (c.get("provider_city") or {}).get("name")),
                 "region": c["region"],
                 "country": c["country_code"], "administrative_code": c.get("administrative_code")}
     context: dict[str, Any] = {}
