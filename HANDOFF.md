@@ -1,34 +1,57 @@
-## 2026-10-09 · v75 — base triage v72 restaurée ; nouveau rejeu à effectuer
+## 2026-10-09 · v75 — rejeu complet, remplacement toujours non validé
 
-Le contrôle contrefactuel utilise les requêtes EXACTES du triage v72, avec
-les18contextes v73 inchangés :18appels4.1-mini,0,0221972USD. Il retrouve les
-budgets explicites et certains repères, mais ne prouve pas la résolution des
-quartiers, exclusions, unions ou précisions d'aéroport. Ces blocages restent
-à mesurer dans les conversations, pas à déclarer corrigés sur le diagnostic.
+Runtime évalué : 177448ad44bc515d93246dde7c2704eccf6e03f8. Les 74 fichiers
+runtime sont restés identiques pendant les cinq lots. 100 parcours / 280 tours
+terminés, tous revus par Codex ; ce n'est pas une validation humaine indépendante.
+Lot principal 58 : 8 A, 26 B, 21 C, 3 non notables. Géographie historique 24 :
+12 préservés, 10 partiels, 2 échecs (verdict géographique, pas note globale).
+Trois compléments : 1 B / 2 C ; dix exposés : 3 B / 5 C / 2 NN ; cinq derniers
+parcours : 1 B / 4 C. Quatre dernières sessions sont entièrement nouvelles ;
+la cinquième prolonge une session dont le premier tour était déjà exposé.
 
-Le runtime conserve les corrections v73 indépendantes (lookup nommé, parents,
-écarts de minutes) et le no-op géographique v74. La requête triage revient
-exactement au prompt/format v72 ; le préambule imposant un kind est retiré.
-Le reducer ignore les mises à jour géographiques contradictoires d'un preserve,
-avec ou sans kind, sans aucun regex ajouté ni appel modèle supplémentaire.
-Les modèles restent triage4.1-mini/recherche4o-mini/synthèse5.2 localement.
+376 cartes reliées aux reçus MCP : zéro carte non reliée, erreur de prix ou
+expiration détectée. 62 cartes avec plafond enregistré : zéro dépassement frais
+compris. 353 distances : zéro écart arithmétique, sans preuve que l'origine est
+le bon lieu. Deux écarts de minutes explicitement révélés, mais une offre
+incompatible reste mise en avant comme la moins chère. Prix nul William Vale
+présent dans le MCP : conformité au reçu ne prouve pas gratuité commerciale.
 
-Validation : suite complète2861passés/1ignoré(gate Langfuse live opt-in), puis
-27tests ciblés passent, dont3nouveaux cas de preserve sans kind ; ruff,mypy74,
-guardrails et diffcheck verts. Aucun changement runtime entre ces deux tests.
+Défauts groupés documentés dans batch-v75/main-root-cause-evidence.private.json
+et triage-root-cause.private.json (privés, jamais committés) :
+- action preserve en conflit avec nouveau repère airport ; repère écarté ;
+- quartier/zone souple transformés en périmètres stricts, unions perdues quand
+  l'utilisateur précise la ville parente ;
+- durée non extraite, bornes horaires effacées au suivi evening, nuit traversant
+  minuit non conservée ;
+- clarification de devise avant géocodage, bloquant la recherche même après lieu ;
+- noms de lieu ignorés (Mons), identité fournisseur de repère incorrecte
+  (convention centre Auckland), hôtel nommé perdu au suivi Hongkong.
+Pas de nouvelle série de variantes de prompt : prochaine étape = correction
+cohérente de mise à jour du profil et résolution, inspirée du comportement prod
+(zone souple/stricte, raffinement vs changement, rejet explicite), puis replays.
+Ne pas modifier les attentes pour rendre la suite verte ; aucun regex ajouté.
 
-main revérifié :cbe88b9 inchangé. Export applicatif production rafraîchi à
-11:48UTC :34363lignes totales,2000retournées,21nouveaux tours sur7sessions.
-Sélection de5parcours selon leurs métadonnées AVANT lecture :20tours, dont
-un premier tour déjà exposé en v73 et19nouveaux. Aucun GPS/devise/fuseau inventé.
-Nouveau rejeu prévu :58principaux/163tours,24geo/72,3supplémentaires/7,
-10anciens compléments/18,5nouveaux parcours/20 :100parcours/280tours.
+Le retour au contrat triage v72 a récupéré certaines régressions v73 mais n'est
+pas une preuve de supériorité face à la prod. Les modèles locaux restent triage
+4.1-mini / recherche 4o-mini / synthèse 5.2 ; Railway triage 4o-mini diffère.
+Avant campagne : suite 2861 passés / 1 ignoré (gate Langfuse live opt-in), puis
+27 tests ciblés dont 3 nouveaux ; ruff, mypy74, guardrails, diffcheck verts.
+Aucun changement runtime depuis ces vérifications.
 
-Cumul avant rejeu132,555349588112USD, dont6,10de provisions ; pending nul,
-plafond150USD/réserve0,50. Scripts et preuves sous batch-v75. Le rapport visible
-reste celui du rejeu complet v73. La comparaison contrôle la régression du
-contrat, sans prétendre que la géographie est réglée. PR134 reste v69 publiée ;
-aucun push, merge ou déploiement. Objectif actif, FAQ phase2.
+Coût v75 : 2,67757335 USD. Cumul 135,232922938112 USD dont 6,10 de provisions.
+Pending nul, plafond150 / réserve0,50 ; environ14,267 USD mobilisables.
+Processus10702 terminé exit0 ; les trois services possédés arrêtés, ports fermés.
+Proxy9571/Redis9569 partagés laissés intacts. Rapport complet current_evaluation
+mis à jour, HTML source vérifiée sans rendu navigateur (ne pas contourner le
+refus précédent de rendu local). Manifestes, hashes, notes et audits privés sous
+production_parity_v18/batch-v75 ; sources exactes conservées.
+
+main vérifié cbe88b9 au gel. Export applicatif production 11:48UTC :34363lignes,
+2000retournées ; ce n'est pas un nouveau dump SQL. GPS/devise/fuseau absents des
+nouveaux exports non reconstruits ; anciennes fixtures GPS/synthétiques annotées.
+PR134 reste v69 publiée ; aucun push, merge, déploiement ou changement Railway.
+Objectif actif, FAQ/annulations/SAV phase2. La prochaine correction doit être
+validée sur les parcours défaillants puis sur les régressions avant publication.
 
 ## v74 — diagnostic local ; pas de remplacement validé
 
