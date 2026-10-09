@@ -1930,3 +1930,75 @@ def test_provider_alias_does_not_bypass_city_anchor_distance(monkeypatch):
     result = geocode_location(city="Los Angeles", zone="LAX airport", country_code="US")
     assert result["ok"] is False
     assert "poi_anchor_coherence" in result["guards_fired"]
+
+
+@pytest.mark.parametrize('provider', ['geocoding', 'searchbox'])
+def test_owned_municipality_excludes_neighborhood_homonym_before_clarification(monkeypatch, provider):
+    from types import SimpleNamespace
+    from hotel_search_agent.inventory import SnapshotInventory
+
+    # Shape recorded for Budapest: a real city, a same-name US neighborhood,
+    # and a lower-ranked locality. The neighborhood cannot be persisted as a
+    # city clarification option, so admitting it loses the question next turn.
+    candidates = [
+        GeocodeCandidate(47.497879, 19.040238, 'Budapest', 'Budapest, Hungary', 'Hungary',
+                         'place', 'HU', 'Budapest', None, 0, 'city-hu'),
+        GeocodeCandidate(33.7, -85.1, 'Budapest', 'Budapest, Bremen, Georgia, United States',
+                         'Bremen, Georgia, United States', 'neighborhood', 'US', 'Georgia', None, 1, 'district-us'),
+        GeocodeCandidate(36.7, -90.8, 'Budapest', 'Budapest, Missouri, United States',
+                         'Missouri, United States', 'locality', 'US', 'Missouri', None, 2, 'locality-us'),
+    ]
+    monkeypatch.setattr(geocode_tool, 'get_inventory', lambda: SnapshotInventory([(33.7, -85.1)]))
+    monkeypatch.setattr(geocode_tool, 'get_mapbox_client', lambda: SimpleNamespace(
+        geocode_candidates=lambda *a, **kw: candidates if provider == 'geocoding' else []))
+    monkeypatch.setattr(geocode_tool, 'get_searchbox_client', lambda: SimpleNamespace(
+        forward_candidates=lambda *a, **kw: candidates if provider == 'searchbox' else []))
+    result = geocode_location(city='Budapest', place_kind='municipality', raw_user_message='Budapest')
+    assert result['ok'] and result['country_code'] == 'HU'
+    assert result['resolved_location']['provider_id'] == 'city-hu'
+
+
+def test_owned_city_scope_does_not_promote_fuzzy_municipalities_after_rejecting_rueil_district(monkeypatch):
+    from types import SimpleNamespace
+    from hotel_search_agent.inventory import SnapshotInventory
+
+    candidates = [
+        GeocodeCandidate(48.823532, 2.139653, 'Rueil', 'Rueil, Le Chesnay, Yvelines, France',
+                         'Le Chesnay, Yvelines, France', 'neighborhood', 'FR', 'Yvelines', None, 0, 'rueil-district'),
+        GeocodeCandidate(48.932010, 1.440396, 'Bueil', 'Bueil, Eure, France',
+                         'Eure, France', 'place', 'FR', 'Eure', None, 1, 'bueil-city'),
+        GeocodeCandidate(49.086981, 3.812289, 'Reuil', 'Reuil, Marne, France',
+                         'Marne, France', 'place', 'FR', 'Marne', None, 2, 'reuil-city'),
+    ]
+    monkeypatch.setattr(geocode_tool, 'get_inventory', lambda: SnapshotInventory([]))
+    monkeypatch.setattr(geocode_tool, 'get_mapbox_client', lambda: SimpleNamespace(
+        geocode_candidates=lambda *a, **kw: candidates))
+    result = geocode_location(city='Rueil', country_code='FR', place_kind='municipality', raw_user_message='Rueil')
+    assert not result['ok']
+    assert not result.get('resolved_location')
+    assert not (result.get('diagnostics') or {}).get('options')
+
+
+@pytest.mark.parametrize('provider', ['geocoding', 'searchbox'])
+def test_both_city_providers_preserve_selectable_homonym_options(monkeypatch, provider):
+    from types import SimpleNamespace
+    from b2c_common.confirmed_location import pending_location
+    from hotel_search_agent.inventory import SnapshotInventory
+
+    candidates = [
+        GeocodeCandidate(28.16, -81.60, 'Davenport', 'Davenport, Florida, United States',
+                         'Florida, United States', 'place', 'US', 'Florida', None, 0, 'davenport-fl'),
+        GeocodeCandidate(41.52, -90.57, 'Davenport', 'Davenport, Iowa, United States',
+                         'Iowa, United States', 'place', 'US', 'Iowa', None, 1, 'davenport-ia'),
+    ]
+    monkeypatch.setattr(geocode_tool, 'get_inventory', lambda: SnapshotInventory([]))
+    monkeypatch.setattr(geocode_tool, 'get_mapbox_client', lambda: SimpleNamespace(
+        geocode_candidates=lambda *a, **kw: candidates if provider == 'geocoding' else []))
+    monkeypatch.setattr(geocode_tool, 'get_searchbox_client', lambda: SimpleNamespace(
+        forward_candidates=lambda *a, **kw: candidates if provider == 'searchbox' else []))
+    result = geocode_location(city='Davenport', country_code='US', place_kind='municipality',
+                              raw_user_message='Davenport')
+    assert not result['ok'] and result['error'] == 'geocode_ambiguous'
+    pending = pending_location(result['diagnostics'])
+    assert pending is not None
+    assert [o['provider_id'] for o in pending['options']] == ['davenport-fl', 'davenport-ia']

@@ -735,8 +735,9 @@ def geocode_location(
     )
     if place_kind == "municipality":
         # Concierge-owned geographic type survives provider fallback. A business
-        # bearing the query in its name is not a municipality, even with stock.
-        candidates = [c for c in candidates if c.feature_type in {"place", "locality", "neighborhood"}]
+        # or neighborhood bearing its name is not a municipality. Both providers
+        # must return the place/locality identities the clarification transport accepts.
+        candidates = [c for c in candidates if c.feature_type in {"place", "locality"}]
 
     resolution = geo_resolver.resolve(
         candidates,
@@ -937,7 +938,7 @@ def geocode_location(
             proximity=searchbox_proximity,
         )
         if place_kind == "municipality":
-            poi_candidates = [c for c in poi_candidates if c.feature_type in {"place", "locality", "neighborhood"}]
+            poi_candidates = [c for c in poi_candidates if c.feature_type in {"place", "locality"}]
         # Search Box returns named features even when the model put the
         # name in city/metro. A field choice must not bypass POI identity.
         identity_query = effective_zone or effective_city or effective_metro
@@ -945,13 +946,29 @@ def geocode_location(
             c.place_name, city=echo_city, zone=identity_query, state_hint=state_hint,
             airport_iata=c.airport_iata
         )]
-        poi = geo_resolver.rank_landmark(
-            poi_candidates,
-            requested_zone=effective_zone or effective_city or effective_metro or "",
-            inventory=get_inventory(),
-            proximity=proximity_tuple,
-            city_anchor=city_anchor,
-        )
+        if place_kind == "municipality":
+            # A fallback provider must not change the semantic ranking policy:
+            # landmark ranking can prefer a tiny locality over the named city.
+            city_resolution = geo_resolver.resolve(
+                poi_candidates, inventory=get_inventory(), country_hint=effective_country_code,
+                region_hint=state_hint, locale_country=guess_iso or _locale_country(locale),
+                proximity=proximity_tuple, requested_name=effective_city or effective_metro,
+                prefer_municipality=True, language=lang,
+            )
+            if city_resolution.decision == "clarify":
+                return _fail("geocode_ambiguous", {
+                    "question": city_resolution.question,
+                    "options": [_provider_place(c) for c in city_resolution.options],
+                }, guards_fired)
+            poi = city_resolution.chosen
+        else:
+            poi = geo_resolver.rank_landmark(
+                poi_candidates,
+                requested_zone=effective_zone or effective_city or effective_metro or "",
+                inventory=get_inventory(),
+                proximity=proximity_tuple,
+                city_anchor=city_anchor,
+            )
         if poi is not None and _echoes(
             poi.place_name, city=echo_city, zone=identity_query, state_hint=state_hint,
             airport_iata=poi.airport_iata

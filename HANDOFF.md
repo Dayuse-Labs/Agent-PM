@@ -1,3 +1,29 @@
+## 2026-10-09 · suivi local v82, séparé de la livraison publiée
+
+Branche locale `codex/geo-scope-contract-followup`, créée depuis `7139df5`.
+La PR134 reste figée à ce commit, CI verte et NO GO ; aucun push de ce suivi.
+Diagnostic à partir des générations et réponses fournisseur enregistrées : une
+option Budapest-US de type quartier rendait la clarification non persistable.
+Le budget du tour suivant déclenchait alors une nouvelle interprétation HU.
+La recherche d'inventaire a bien eu lieu ; ne pas décrire ce cas comme une
+réponse sans interrogation de stock.
+
+Pour une demande typée municipality, les deux fournisseurs retiennent seulement
+place/locality, compatibles avec le contrat de profil. Le fournisseur de secours
+utilise aussi le résolveur de villes, et non le classement des points d'intérêt.
+Les vrais homonymes restent des choix persistables. Le cas Rueil ne doit pas
+promouvoir les villes aux noms voisins Bueil/Reuil après exclusion du quartier.
+Aucun regex, dictionnaire de lieux ni appel supplémentaire.
+
+Diagnostic offline : 114 requêtes en cache pour 49 noms de villes, trois sorties
+modifiées (Budapest en deux langues et Rueil). Biais de locale/proximité/pays
+souple omis dans les deux variantes : ce n'est pas un rejeu utilisateur complet.
+227 tests pertinents passent, puis cinq régressions directes ; ruff/mypy75 et
+guardrails verts. Suite complète : 2937 tests passent, 1 gate live ignoré ; log `/tmp/dayuse-v82-tests.log`.
+Aucun appel payant : cumul inchangé145,2605/150USD. Pas encore de rejeu live de
+ce suivi ; ne pas remplacer les scores100/280 ou7/21 de la livraison publiée.
+Preuves privées dans `production_parity_v18/batch-v82`.
+
 ## Complément final — correctifs localisés, NO GO maintenu
 
 Runtime `e4b5c37` : les noms de ville explicitement demandés ne sont plus perdus
