@@ -45,7 +45,7 @@ alternative may still be useful: this is not an overall response-quality grade.
     required = _window(expected.get("stay_window"))
     if "stay_window" in expected and required is None:
         raise ValueError("stay_window requires increasing same-day HH:MM interval")
-    values = []
+    values: list[bool | None] = []
     for card in _cards(response):
         if not isinstance(card, dict):
             values.append(None)
@@ -54,7 +54,7 @@ alternative may still be useful: this is not an overall response-quality grade.
         if not isinstance(slots, list) or not slots:
             values.append(None)
             continue
-        offers = []
+        offers: list[bool | None] = []
         for slot in slots:
             if not isinstance(slot, dict):
                 offers.append(None)

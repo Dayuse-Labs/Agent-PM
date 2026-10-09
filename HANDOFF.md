@@ -1,3 +1,61 @@
+## 2026-10-09 · v96 — référence de production mise à jour, comparaison à financer
+
+Railway relu sur les six services/environnements de référence. L'ancien agent
+prod est maintenant **3093647**, déployé le 9 octobre à **18:31 UTC**, contre
+`a08a7792` lors du dernier grand comparatif. Les changements incluent les hôtels
+nommés, des codes aéroport, une ville homonyme d'État, et la possibilité de rafraîchir
+les plans tarifaires au démarrage via RevOps. La connexion RevOps est configurée,
+mais le succès effectif du rafraîchissement n'a pas été vérifié ; ajout de nouveaux
+hôtels non activé explicitement. Ne pas assimiler cette configuration à une preuve
+d'inventaire identique au MCP. `AVAILABILITY_STRICT_EXPORT=false` en prod.
+
+Main AgentB2C reste `cbe88b9`. Les images B2C Railway du 7 octobre n'exposent pas
+leur commit dans les métadonnées consultées. Configuration actuelle confirmée :
+ancien agent GPT-5.2 ; nouveau concierge triage4o-mini/synthèse5.2, recherche4o-mini.
+Le candidat local reste triage5.2/recherche4o-mini/synthèse5.2 ; différence explicite.
+
+Lecture ciblée des deux nouvelles spécifications de régression de production,
+sans lecture globale du legacy ni copie de son dictionnaire d'aéroports. Le jeu
+préparé contient **126 parcours / 345 tours par agent**, soit **690 tours appariés** :
+100 parcours/280 tours de l'ancienne suite, 5 régressions/23 tours, 3 parcours frais/
+6 tours, et 18 contrôles synthétiques/36 tours dérivés des correctifs prod. Il ne
+s'agit pas de 126 conversations clients historiques ni d'un holdout aveugle.
+Messages connus et fixes, deux suivis synthétiques dans les cinq régressions.
+Sources privées figées avec hashes dans `batch-v96/final-pack` ; aucune exécution.
+
+D'abord comparer les 26 parcours diagnostiques, puis relire les erreurs avant
+le passage complet des 100 autres. Vérifier versions/configurations avant/après,
+conserver les messages et le contexte natif, joindre les reçus par offre, et noter
+A/B/C/D/F par conversation ; preuve absente ou branche incompatible non notée.
+Un jeu adaptatif séparé reste à préparer. La préparation seule n'autorise aucun GO.
+
+Nouveaux contrôles indépendants dans `evals/date_plan_checks.py` : date d'offre
+comprise dans une période, et date/créneau/prix liés au même séjour. Aucun parseur
+de prose ni import de logique de l'agent. **87 tests d'évaluation liés passent**, dont
+14 nouveaux ; ruff/typecheck du module et guardrails verts. Le runtime est inchangé
+par rapport à v95, dont la dernière suite complète compte 3 110 tests passants.
+Les 5 cartes erronées de v94 sont détectées hors période. Les cartes non datées
+du legacy restent non vérifiables pour les deux dates, même si le texte les cite.
+
+Langfuse : 2 traces / 30 observations pour le parcours récent à deux séjours.
+Deux appels réels `search_hotels` ont des fenêtres différentes (09–15 et 08–14),
+sans date dans leurs arguments. Préserver cette orchestration utile, sans reprendre
+une prétention de disponibilité future non prouvée. La nouvelle architecture doit
+encore traiter explicitement les paires date/créneau et la comparaison multi-date.
+
+Aucun nouvel appel payant. Cumul toujours **149,3555 / 150 USD**, dont 7,10
+provisionnés ; reliquat après réserve **0,1445 USD**. Estimation appariée sur les
+coûts observés : **6,53 USD candidat + 7,09 USD prod = 13,62 USD**, prévoir 14–17 USD
+hors jeu adaptatif/ablation. **20 USD supplémentaires demandés (plafond total 170),
+non accordés**, remplaçant la demande précédente de 10 USD devenue insuffisante.
+Ledger sans pending, aucun évaluateur payant actif. CI toujours bloquée par
+facturation avant exécution sur le head précédent, sans relance identique.
+
+**NO GO.** Il faut maintenant observer le runtime figé sur les deux agents actuels,
+avant d'empiler de nouvelles corrections non rejouées. Rapport de complétude privé
+`batch-v96/completion-audit.private.json` : objectif non atteint, budget insuffisant
+constaté sur trois tours consécutifs. Aucun merge/déploiement/Railway write.
+
 ## 2026-10-09 · v95 — corrections groupées, validation hors ligne uniquement
 
 Les quatre défauts du parcours v94 ont conduit à un lot commun :
