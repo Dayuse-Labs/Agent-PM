@@ -49,7 +49,9 @@ def verified_place(value: Any) -> dict[str, Any] | None:
     if value["feature_type"] not in {"place", "locality", "poi"}:
         return None  # Administrative boundaries retain their resolution contract.
     search_context = None
-    if value["feature_type"] == "poi":
+    if value["feature_type"] == "poi" or value.get("search_context") is not None:
+        # A provider place/locality can also answer a scoped zone request.
+        # Keep that scope without relabelling the provider feature as a POI.
         context = value.get("search_context")
         if not isinstance(context, dict) or not isinstance(context.get("zone"), str) or not context["zone"].strip():
             return None

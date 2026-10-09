@@ -1,5 +1,33 @@
 # HANDOFF — AgentB2C
 
+## 2026-10-09 — v69 local : identité fournisseur des recherches par zone
+
+Le tour précédent a publié0531075 après rejeu v68 et CI37895790815 réussie ;
+étapes live CI ignorées, aucun coût modèle ajouté. Cette reprise reste active.
+Trace San Bruno : première réponse géographique acceptée avec feature_type=place
+et zone, mais resolved_location supprimé par le bridge du géocodeur. Le profil
+n'avait donc aucune identité confirmée ; au suivi budget, la feuille proposait
+origin=device, refusé à juste titre. Ce n'était ni un VPN ni une panne Mapbox.
+
+Le fournisseur conserve désormais son type place/locality et son search_context
+validé même pour une recherche par zone. L'identité traverse A2A et le concierge,
+puis prépare l'origine du prochain tour sans réinterprétation par la feuille.
+Un changement de zone invalide cette réutilisation. Les frontières administratives
+conservent leur contrat ; aucune regex, nouvelle phase ou coordonnées inventées.
+
+2799 tests passent/1ignoré, ruff/mypy71/guardrails verts. Contre-factuel sur le
+vrai reçu Mapbox San Bruno v68 : identité et coordonnées conservées jusqu'à la
+recherche suivante, réseau bloqué. Cela ne prouve pas le futur rejeu live.
+Lot local non poussé ; rejeu complet avant publication. PR134 reste0531075.
+
+Lecture fraîche de2000 lignes API des logs prod :124 nouvelles lignes dans51
+sessions hors préfixe de nos replays depuis l'export v61. Absence de flag synthétique
+sur cet endpoint : ne pas certifier ce trafic organique. Trois parcours récents
+Rothrist/Auckland/Rome rapprochés de Langfuse (7traces), réservés à un contrôle
+supplémentaire sans inventer le contexte navigateur. Pas encore rejoués.
+Budget119,739203/150USD, provisions6,10 et réserve0,50 maintenues, aucun appel
+modèle supplémentaire à ce stade. FAQ phase2, remplacement production NO GO.
+
 ## 2026-10-09 — v68 évalué : revue technique possible, remplacement NO GO
 
 État courant : runtime83a640a, maincbe88b9. 58 conversations/163 réponses sur

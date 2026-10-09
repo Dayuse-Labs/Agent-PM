@@ -349,7 +349,7 @@ def _provider_place(candidate: GeocodeCandidate, *, city: str | None = None,
     return verified_place({
         "provider_city": {"name": candidate.parent_city_name, "provider_id": candidate.parent_city_id},
         **({"search_context": {"city": city, "zone": zone or candidate.name, "metro": metro}}
-           if candidate.feature_type == "poi" else {}),
+           if candidate.feature_type == "poi" or zone else {}),
         "provider_id": candidate.mapbox_id, "name": candidate.name,
         "label": candidate.place_name, "country_code": candidate.country_code,
         "feature_type": candidate.feature_type, "region": candidate.region,
@@ -872,7 +872,7 @@ def geocode_location(
             )
             return _ok(
                 chosen.as_result(),
-                resolved_location=_provider_place(chosen) if not effective_zone else None,
+                resolved_location=_provider_place(chosen, city=effective_city, zone=effective_zone, metro=effective_metro),
                 feature_type=chosen.feature_type,
                 profile_delta=profile_delta,
                 # S4: a named specific zone means "around X" even when it was v6
@@ -973,7 +973,7 @@ def geocode_location(
                 return _ok(
                     poi.as_result(),
                     resolved_location=(_provider_place(poi, city=effective_city, zone=effective_zone, metro=effective_metro)
-                                       if poi.feature_type == "poi" or place_kind == "municipality" else None),
+                                       if poi.feature_type in {"poi", "place", "locality"} else None),
                     feature_type=poi.feature_type,
                     profile_delta=profile_delta,
                     distance_origin_type="city_centroid" if place_kind == "municipality" else "poi",
@@ -1095,12 +1095,12 @@ def inject_profile_geo_context(tool: object, args: dict, tool_context: object) -
             args.pop(key, None)
     place = verified_place(profile_in.get("confirmed_location"))
     scope = (place or {}).get("search_context") or {}
-    is_poi = bool(place and place["feature_type"] == "poi")
-    expected_city = scope.get("city") if is_poi else (place or {}).get("name")
+    has_scope = bool(scope)
+    expected_city = scope.get("city") if has_scope else (place or {}).get("name")
     same_scope = all(not args.get(k) or str(args[k]).casefold() == str(scope.get(k) or "").casefold()
-                     for k in ("zone", "metro")) if is_poi else not args.get("zone") and not args.get("metro")
+                     for k in ("zone", "metro")) if has_scope else not args.get("zone") and not args.get("metro")
     profile_scope_matches = all((profile_in.get(k) or "").casefold() == (scope.get(k) or "").casefold()
-                                for k in ("city", "zone", "metro")) if is_poi else not profile_in.get("zone")
+                                for k in ("city", "zone", "metro")) if has_scope else not profile_in.get("zone")
     # Repeating the same geocoder key cannot choose a different homonym merely
     # because the model omitted a redundant preserve flag or changed language.
     # Fresh destinations/scopes are cleared by the concierge, and explicit leaf
@@ -1115,7 +1115,7 @@ def inject_profile_geo_context(tool: object, args: dict, tool_context: object) -
         return _ok(
             GeocodeResult(latitude=place["latitude"], longitude=place["longitude"],
                           place_name=place["label"], country_code=place["country_code"], region=place["region"]),
-            feature_type=place["feature_type"], distance_origin_type="poi" if is_poi else "city_centroid",
+            feature_type=place["feature_type"], distance_origin_type="poi" if has_scope else "city_centroid",
             resolved_location=place, profile_delta={"last_city": expected_city} if expected_city else {},
             zone=scope.get("zone"), metro=scope.get("metro"),
         )

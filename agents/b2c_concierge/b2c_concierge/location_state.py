@@ -33,7 +33,7 @@ def selected_place(profile: SessionProfile, intent: dict | None, areas: list[dic
 def commit_place(profile: SessionProfile, place: dict) -> None:
     profile.confirmed_location = dict(place)
     profile.pending_location = None
-    scope = place.get("search_context") if place["feature_type"] == "poi" else None
+    scope = place.get("search_context")
     profile.city = scope.get("city") if scope else place["name"]
     if scope:
         profile.zone, profile.metro = scope["zone"], scope.get("metro")
