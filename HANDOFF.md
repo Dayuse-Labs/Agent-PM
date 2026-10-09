@@ -1,3 +1,29 @@
+## 2026-10-09 · livraison finale de revue v78 — NO GO
+
+Runtime `71fdbf6`, main `cbe88b9` : 100 conversations / 280 réponses terminées et revues,
+75 empreintes runtime identiques sur les cinq lots. Principal58 : 7A/19B/30C/2NN,
+contre13A/22B/18C/5NN pour la PR v69 publiée auparavant. La dernière variante
+régresse globalement sur ce corpus ; ne pas la présenter comme prête à fusionner.
+Geo24 : 12 préservés/8 partiels/4 échecs, critères géographiques seuls.
+Les progrès horaires/durée/Rambler/union de quartiers ne compensent pas les
+régressions aéroports/quartiers et détails d'hôtel. Les détails et toutes les
+limites sont dans [le bilan final](evals/PRODUCTION_PARITY_FINAL_2026_10_09.md).
+
+2892 tests passent,1 gate live ignoré ; ruff/mypy75/guardrails verts.
+300 cartes reçus MCP,0 prix/expiration/jointure erronés ; 34 cartes sous plafond,
+0 dépassement vérifiable. Ces chiffres ne prouvent ni pertinence ni contraintes
+perdues. Deux écarts de minutes restent explicités sans être filtrés.
+
+Configuration testée5.2-low/2048/15s pour triage, search4o-mini/synthèse5.2 ;
+Railway reste triage4o-mini. Aucun modèle déployé ni preuve de supériorité isolée.
+Coût final5.3015USD ; fenêtre8.9202USD ; cumul144.1531/150USD,
+dont7.10provisionnés ; pending nul. v77 interrompu conservé dans le budget.
+FAQ/annulations/SAV phase2. PR draft pour revue uniquement ; aucun merge/déploiement.
+
+Ce bilan remplace les statuts provisoires ci-dessous. Le diagnostic « devise
+avant géocodage » doit se lire comme masquage possible de la clarification
+geo après échec du leaf. Les100parcours sont désormais tous exposés.
+
 ## 2026-10-09 · v75 — rejeu complet, remplacement toujours non validé
 
 Runtime évalué : 177448ad44bc515d93246dde7c2704eccf6e03f8. Les 74 fichiers
