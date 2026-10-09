@@ -1,3 +1,37 @@
+## 2026-10-09 · v87 diagnostic Langfuse et affichage exact des minutes
+
+Le texte sans offres utilisait requested_hours (règle métier du filtre) pour
+afficher la demande :10h30 devenait11h. Il formate désormais les minutes exactes
+de search_context dans les sept langues, y compris borne seule, fenêtre courte
+et minuit. Formats d'heures pleines conservés ; ni filtre métier ni paramètres
+MCP modifiés. Aucun regex, dictionnaire de lieux ou appel modèle ajouté.
+
+Validation :3005 tests passent/2 ignorés dans le lancement sans shell login ;
+le test widget ignoré faute de Node dans PATH a été rejoué avec Node disponible
+et passe (1 test). Bilan effectif3006 réussites/1 fixture externe absente.
+Ruff, mypy77 sans cache, guardrails et diff check passent. Logs privés :
+`/tmp/dayuse-v87-full.log`, `/tmp/dayuse-v87-widget.log`. Pas de nouveau rejeu
+utilisateur : la note JFK et le bilan4B4C dev86 ne sont pas requalifiés.
+
+Langfuse prod :4 traces/84 observations lues pour les deux sessions fraîches.
+Adresse : contrat initial de type address, échec canonical_label_conflict ;
+au tour suivant la prod passe à une commune et retourne5 cartes depuis son
+centre. Ce n'est pas une résolution du point précis. Le candidatv86 conserve
+l'adresse mais bloque son identité ; ne pas accepter un centre comme adresse.
+Cascais : prod extrait2h et transmet stay_duration_hours2 avec fenêtre10–17,
+plafond200 et retourne5 cartes/12 candidats ; candidatv86 garde120min et cite
+l'unique offre MCP16–22. Origine géographique identique, contrats de recherche
+différents : le nombre de cartes ne prouve pas la supériorité de l'un ou l'autre.
+Seuls les spans du chemin servi soutiennent ces constats, pas les spans shadow.
+
+Rapport privé `production_parity_v18/batch-v87/langfuse_diagnostic.html` ; aucune
+nouvelle dépense modèle. Budget148,08307954/150USD, dont7,10 provisionnés ;
+headroom après réserve1,41692046USD. Services candidat arrêtés. Correctif local
+non poussé ; PR134 reste draft7139df5. Dernier runtime live c7e2f9e/v86 ;
+dernier lot complet100/280v78. NO GO maintenu. Reste : adresse précise,
+alternatives d'hôtels, examen de la traduction fenêtre exacte→MCP, puis rejeu
+borné des corrections groupées. Aucun merge/déploiement.
+
 ## 2026-10-09 · v86 terminé — clarification améliorée, NO GO maintenu
 
 Runtime `c7e2f9e` :8 conversations/19tours,4B4C ; six cas repris dev85 donnent

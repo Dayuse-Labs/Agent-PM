@@ -36,9 +36,31 @@ def test_a_daypart_replaces_the_window():
     assert no_offers_line(context, "fr") == "Aucune offre à Lyon le mercredi 7 octobre 2026, l'après-midi."
 
 
-def test_minutes_round_to_the_nearest_hour_like_the_filter():
+def test_minutes_are_not_rounded_in_the_displayed_request():
     context = {**_LYON, "timeslot_start": "22:01", "timeslot_end": "23:01", "budget_max": None, "amenities": []}
-    assert "de 22h à 23h" in no_offers_line(context, "fr")
+    assert "de 22h01 à 23h01" in no_offers_line(context, "fr")
+
+
+@pytest.mark.parametrize(("language", "expected"), [
+    ("fr", "de 10h30 à 19h"), ("en", "from 10:30 to 19:00"),
+    ("es", "de 10:30 a 19:00"), ("it", "dalle 10:30 alle 19"),
+    ("de", "von 10:30 bis 19 Uhr"), ("pt", "das 10h30 às 19h"),
+    ("nl", "van 10.30 tot 19.00 uur"),
+])
+def test_jfk_half_hour_request_is_preserved_in_every_language(language, expected):
+    context = {**_LYON, "timeslot_start": "10:30", "timeslot_end": "19:00"}
+    assert expected in no_offers_line(context, language)
+
+
+@pytest.mark.parametrize(("start", "end", "expected"), [
+    ("10:30", None, "from 10:30"),
+    (None, "19:45", "until 19:45"),
+    ("23:30", "24:00", "from 23:30 to 24:00"),
+    ("10:15", "10:45", "from 10:15 to 10:45"),
+])
+def test_one_sided_and_short_windows_do_not_invent_or_shift_bounds(start, end, expected):
+    context = {**_LYON, "timeslot_start": start, "timeslot_end": end}
+    assert expected in no_offers_line(context, "en")
 
 
 @pytest.mark.parametrize("language", ["fr", "en", "es", "it", "de", "pt", "nl"])

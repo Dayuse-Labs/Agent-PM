@@ -13,7 +13,7 @@ import re
 import unicodedata
 from typing import Any
 
-from b2c_common.timeslot import parse_hhmm, requested_hours
+from b2c_common.timeslot import parse_hhmm
 
 from .date_format import format_date_human
 
@@ -37,16 +37,16 @@ _ON: dict[str, str] = {
     "fr": "le {}", "en": "on {}", "es": "el {}", "it": "il {}", "de": "am {}", "pt": "em {}", "nl": "op {}",
 }
 _WINDOW: dict[str, str] = {
-    "fr": "de {}h à {}h", "en": "from {}:00 to {}:00", "es": "de {}:00 a {}:00", "it": "dalle {} alle {}",
-    "de": "von {} bis {} Uhr", "pt": "das {}h às {}h", "nl": "van {}.00 tot {}.00 uur",
+    "fr": "de {} à {}", "en": "from {} to {}", "es": "de {} a {}", "it": "dalle {} alle {}",
+    "de": "von {} bis {} Uhr", "pt": "das {} às {}", "nl": "van {} tot {} uur",
 }
 _FROM: dict[str, str] = {
-    "fr": "à partir de {}h", "en": "from {}:00", "es": "desde las {}:00", "it": "dalle {}",
-    "de": "ab {} Uhr", "pt": "a partir das {}h", "nl": "vanaf {}.00 uur",
+    "fr": "à partir de {}", "en": "from {}", "es": "desde las {}", "it": "dalle {}",
+    "de": "ab {} Uhr", "pt": "a partir das {}", "nl": "vanaf {} uur",
 }
 _UNTIL: dict[str, str] = {
-    "fr": "jusqu'à {}h", "en": "until {}:00", "es": "hasta las {}:00", "it": "fino alle {}",
-    "de": "bis {} Uhr", "pt": "até às {}h", "nl": "tot {}.00 uur",
+    "fr": "jusqu'à {}", "en": "until {}", "es": "hasta las {}", "it": "fino alle {}",
+    "de": "bis {} Uhr", "pt": "até às {}", "nl": "tot {} uur",
 }
 _DAYPART: dict[str, dict[str, str]] = {
     "fr": {"morning": "le matin", "afternoon": "l'après-midi", "evening": "en soirée"},
@@ -109,13 +109,26 @@ def _place(context: dict[str, Any], lang: str) -> str:
     return ""
 
 
+def _clock_label(minutes: int, lang: str) -> str:
+    """Display the exact request, independently of the site's hour-based filter."""
+    hour, minute = divmod(minutes, 60)
+    if lang in {"fr", "pt"}:
+        return f"{hour}h{minute:02d}" if minute else f"{hour}h"
+    if lang == "nl":
+        return f"{hour}.{minute:02d}"
+    if lang in {"de", "it"} and not minute:
+        return str(hour)
+    return f"{hour}:{minute:02d}"
+
+
 def _time(context: dict[str, Any], lang: str) -> str:
     daypart = context.get("daypart")
     if daypart in _DAYPART[lang]:
         return _DAYPART[lang][daypart]
-    arrival, departure = requested_hours(
-        parse_hhmm(context.get("timeslot_start")), parse_hhmm(context.get("timeslot_end"))
-    )
+    start = parse_hhmm(context.get("timeslot_start"))
+    end = parse_hhmm(context.get("timeslot_end"))
+    arrival = _clock_label(start, lang) if start is not None else None
+    departure = _clock_label(end, lang) if end is not None else None
     if arrival is not None and departure is not None:
         return _WINDOW[lang].format(arrival, departure)
     if arrival is not None:
