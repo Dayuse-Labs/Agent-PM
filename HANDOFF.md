@@ -1,5 +1,27 @@
 # HANDOFF — AgentB2C
 
+## 2026-10-09 — v61 terminé : 58 conversations / 163 réponses, pas de GO
+
+Runtime `f90e368` : 56 historiques = 7 A / 20 B / 23 C / 6 non notés ;
+2 sessions SQL récentes = 1 C / 1 non notée. Aucun D/F. Revue complète Codex,
+pas validation indépendante. 23rd Street conservée après New York ; parent
+fournisseur prouvé hors réseau, mais Halm échoue encore sans identité résolue.
+Milano évite le commerce homonyme mais reste bloqué en clarification. Rio perd
+ses quartiers au suivi. FAQ/annulations phase 2 ; aucun ajout FAQ dans v61.
+
+269 cartes concordent aux reçus, zéro erreur prix carte/jointure/expiration ;
+245 distances concordent à l'origine stockée. 15 capacités enfants vérifiées.
+Deux offres 10h30 pour 10h restent admises par la règle site et mal expliquées.
+Londres piscine incluse réellement prouvée ; rooftop Rome mal appliqué en soirée.
+Budget nu, périmètres, jacuzzi privé et restitution restent des défauts ouverts.
+
+2714 tests / 1 ignoré, ruff, mypy70, guardrails verts. Rejeu 1,5629836 USD ;
+diagnostic 0,0082392 USD ; cumul conservateur 109,4042833 / 110, dont 8,10
+provisionnés. Réserve interne 0,50, aucun coût tardif ni requête en attente.
+Services locaux arrêtés. Ne pas relancer une campagne payante automatiquement.
+PR draft à actualiser avec le bilan ; CI exacte à contrôler après push.
+Le document de progression remplace les anciens chiffres comme état courant.
+
 ## 2026-10-09 — v61 préparé : conservation des parents géographiques vérifiés
 
 Lot cohérent issu des conversations v60 : parent ville/identifiant du fournisseur

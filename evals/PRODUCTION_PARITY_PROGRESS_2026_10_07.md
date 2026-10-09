@@ -1,111 +1,136 @@
 # Évaluation recherche avant remplacement de la production — 9 octobre 2026
 
 **Pas de GO remplacement. PR 134 en draft pour revue technique.**
-Dernier runtime évalué : `27362ee5394b69bf0268908f8c6a433b16a43ec5` (v60),
-base main `cbe88b9`. FAQ, annulations et actions SAV en phase 2.
+Runtime évalué : `f90e3681e0a7fd7f92b92b5c793e5267e53c2698` (v61),
+base main `cbe88b9`, fetchée à nouveau et inchangée. FAQ, annulations et SAV
+restent en phase 2 ; aucune correction FAQ ajoutée dans le lot v61.
+Des modifications FAQ antérieures existent dans le diff cumulé : ce verdict
+recherche ne les valide pas pour lancement.
 
-## Dernier passage complet
+## Passage complet et méthode
 
-56 conversations / 156 réponses relues : **4 A, 21 B, 21 C, aucun D/F,
-10 non notées**. A = satisfaisant sur le parcours observé ; B = mineur ;
-C = significatif ; D = majeur ; F = critique. Revue Codex avec preuves,
-pas validation humaine indépendante ni supériorité statistique.
+**58 conversations, 163 réponses**, relues en entier avec cartes, profils,
+appels d'outils et générations. Modèles/code/entrées figés durant tout le passage.
+Aucun rejeu automatique payant, aucune modification Railway ou trafic client.
 
-47 parcours référencent des messages SQL de production ; 9 contrôles sont
-synthétiques. 132 tours portent un identifiant de ligne source. 52 références
-à des fichiers sources ont leur empreinte revérifiée ; quatre autres cas sont
-des spécifications de contrôle explicites. Les 33 conversations historiques
-initiales couvrent mai–octobre. Le corpus est exposé, pas un test réservé.
+| Cohorte | A | B | C | D/F | Non notés |
+|---|---:|---:|---:|---:|---:|
+| 56 historiques exposés | 7 | 20 | 23 | 0 | 6 |
+| 2 sessions récentes | 0 | 0 | 1 | 0 | 1 |
+| Total | 7 | 20 | 24 | 0 | 7 |
 
-151 cartes rapprochées par hôtel, offre, date et créneau aux reçus MCP du même
-tour : aucun écart de prix, jointure manquante ou offre expirée à la réponse.
-Aucun dépassement des plafonds vérifiables en devise native/EUR. Les capacités
-adulte/enfant des 15 cartes du parcours de rétractation sont suffisantes.
-Piscine extérieure Kimpton, huit créneaux Biltmore, équipements Aloft et préavis
-massage de 48 heures confirmés au reçu détails.
+A = satisfaisant sur le parcours observé ; B = mineur ; C = significatif ;
+D = majeur ; F = critique. Revue Codex, pas validation humaine indépendante.
+Une branche conditionnelle devenue incohérente est non notée, jamais comptée
+comme un succès. La grille reste historique A/B/C/D/F.
 
-**Limite horaire :** deux offres commencent à 10h30 pour une demande 10h–17h.
-La règle site compare les heures entières et les admet ; la couverture littérale
-à la minute n'est pas garantie et l'écart n'est pas annoncé. Le parcours reste C.
+Les 56 cas précédents sont identiques à v60 : 47 parcours avec références SQL,
+9 contrôles synthétiques. Les conversations initiales couvrent mai–octobre.
+Deux sessions du dernier export SQL sont ajoutées séparément : quartiers de Rio
+puis précision de ville, et jacuzzi privé/soirée à Philadelphie. Leurs 7 messages
+et domaines sont vérifiés octet pour octet contre la source, avec empreinte.
+Les traces Langfuse des sessions ont été lues ; le contexte navigateur manquant
+n'a pas été inventé. Ce sont des observations récentes déjà lues, pas un holdout
+aveugle. L'API SQL ne fournit pas le drapeau synthétique ; les sessions de test
+identifiables ont été exclues, sans prétendre certifier tous les visiteurs.
 
-## Valeur du lot v60
+## Valeur et limites du lot géographique
 
-Le catalogue MCP lu par scope confirme que douche, baignoire, climatisation et
-room service sont des équipements de chambre. Le code les ignorait et supprimait
-les `roomEquipmentIds`. Le lot les traduit désormais dans le bon filtre, distingue
-ascenseur/rooftop bar côté hôtel, conserve une exigence supportée même si une autre
-clé est inconnue, et maintient la propriété des critères au concierge après
-clarification ou rétractation. Les feuilles restent stateless.
+Le provider renvoie un parent ville avec identifiant ; ce parent était perdu
+pour les POI. Le lot le conserve dans les adaptateurs et le profil du concierge,
+puis autorise un raffinement de rue depuis cette preuve. Le texte de requête
+n'est pas accepté comme parent vérifié. Un contrefactuel hors réseau, sur la
+même identité et le même reçu réel v60, montre le rejet de San Antonio avant
+et sa conservation après. Cela ne prouve pas la réussite de toute conversation.
 
-- Baignoire → Hong Kong : critère conservé, requête `roomEquipmentIds=[11]`,
-  aucun jacuzzi substitué. Aucun résultat disponible sur la date du passage.
-- Spa puis rooftop le soir → Rome : `hotelEquipmentIds=[35,2981]`, critères
-  conservés et aucune restriction « evening » ajoutée au créneau de chambre.
-  L'inclusion tarifaire et les horaires du rooftop restent non prouvés.
-- Douche + lit double : le transfert du filtre de chambre fonctionne, mais le
-  triage ajoute aussi baignoire sans demande. Cas toujours C ; le lit reste
-  explicitement non vérifié. Élargir le vocabulaire ne corrige pas cette erreur
-  d'interprétation. Pas de filtre spécifique au lit ou à l'insonorisation.
-- Déjeuner : aucun filtre petit-déjeuner ajouté sur ce passage, mais un seul
-  tour sans recherche repas aboutie. Ce n'est pas une validation de bout en bout.
+Le type municipalité décidé par le concierge persiste au fallback fournisseur :
+un commerce homonyme ne peut pas devenir cette destination. Le triage sépare
+nom propre et préférence de proximité, et précise les règles de raffinement.
+Aucune nouvelle regex ou phase modèle. LiteLLM, A2A, feuilles stateless et Redis
+au concierge sont conservés.
 
-2707 tests passent, 1 ignoré ; 87 ciblés ; ruff, mypy (70 fichiers) et guardrails
-passent. Contrefactuel hors réseau sur les mêmes extractions avant/après et tests
-multi-tour de conservation/rétractation. Aucune nouvelle regex, phase modèle ou
-hausse de quota. Code figé pendant tout le passage.
+- **23rd Street → New York :** rue conservée et résolue, cinq offres à
+  0,5–1,3 km couvrent 18h30–21h. B, avec clarification initiale encore évitable.
+- **La Quinta → Halm Blvd :** reste C. Le premier tour ne résout cette fois
+  aucune identité ; la correction du parent fournisseur n'a donc pas de parent
+  vérifié à transporter. Halm est mal extrait comme municipalité. Pas «corrigé».
+- **Milano e dintorni :** plus de commerce/association homonyme, mais une
+  clarification redondante bloque encore la recherche. C, pas un succès global.
+- **Quartiers de Rio → Rio :** nouvelle observation C ; union reconnue puis
+  perdue après précision de la ville. Les hôtels effectivement à Barra ne
+  prouvent pas que les deux quartiers restent correctement recherchés.
 
-## Défauts ouverts
+2714 tests passent, 1 ignoré ; ruff, mypy (70 fichiers), guardrails verts.
+Les tests couvrent parent réel vs texte de recherche, stockage et retour A2A,
+refus du parent sans identifiant et fallback ville/commerces/POI légitimes.
 
-- Interprétation : ajout baignoire à douche, journée entière devenue matin,
-  jacuzzi hôtel présenté comme chambre avec jacuzzi privé.
-- Géographie : LAX, codes postaux, rues et unions de villes ; 23rd Street perdue
-  après New York sur ce passage, Halm Blvd perd San Antonio, « Milano e dintorni »
-  résolu comme une association. « Près de l'aéroport » peut garder le centre-ville.
-- Périmètre : alternatives Bronx/Queens annoncées comme Manhattan ; Lisbonne ou
-  Porto réduit à Porto ; pont perdu après précision de région.
-- Dialogue : critique/sarcasme déclenche un accueil ; pagination affichant bien
-  de nouvelles cartes mais texte demandant d'élargir. Fin de formule à 23h
-  présentée comme un problème pour un départ souhaité à 20h.
-- Données : contextes navigateur absents, branches conditionnelles différentes,
-  dates historiques et disponibilité actuelle limitent plusieurs comparaisons.
+## Vérification factuelle indépendante des notes
 
-## Comparaison et modèle
+269 cartes rapprochées à l'offre exacte du même tour (hôtel, UUID, date,
+créneau) : **0 jointure manquante, 0 écart de prix carte/reçu, 0 expiration**.
+Aucun dépassement de plafond vérifiable en devise native/EUR. Ce contrôle ne
+valide ni la prose de prix ni la pertinence géographique.
 
-| Candidat | A | B | C | D | Non notés | Réponses |
-|---|---:|---:|---:|---:|---:|---:|
-| v55 | 3 | 16 | 25 | 5 | 9 | 160 |
-| v58 | 5 | 19 | 23 | 1 | 8 | 156 |
-| v59 | 5 | 18 | 24 | 0 | 9 | 156 |
-| v60 | 4 | 21 | 21 | 0 | 10 | 156 |
+245 distances affichées correspondent à la distance à vol d'oiseau depuis
+l'origine enregistrée. Cela ne valide pas le choix de cette origine, ni un
+trajet à pied/voiture. Les 15 capacités du parcours enfant/rétractation sont
+confirmées sur les offres sources. Sur 54 cartes avec occupation demandée,
+53 portent une capacité suffisante ; une carte détails n'expose pas ce champ,
+donc ce contrôle local est indéterminé, pas une insuffisance prouvée.
 
-Ces changements de notes ne prouvent pas un gain causal global : horloge,
-inventaire, variabilité des modèles et branches non comparables diffèrent.
-Les corrections antérieures d'origine préparée et d'identité exacte Manhattan
-restent fonctionnelles ; les suivis USD, moins cher, plafond et détails aboutissent,
-ainsi que le retrait d'enfant. La qualité de tout le dialogue reste insuffisante.
+Les cinq offres de Londres mentionnent explicitement la piscine incluse ;
+le parcours journée entière est A sur ce passage. Hong Kong conserve baignoire
+avec `roomEquipmentIds=[11]`. Piscine extérieure Kimpton et huit créneaux
+Biltmore vérifiés au reçu détails. Les cartes n'affichent toutefois qu'un créneau,
+contrairement à certaines phrases de synthèse. Spa/rooftop Rome conserve les
+équipements, mais applique cette fois la soirée à la chambre : C.
 
-La vraie prod rejouée en v55 (export/Qdrant) reste visible face au candidat via
-MCP préproduction, décrit comme reflet de la prod par l'utilisateur. Fraîcheur et
-retrieval diffèrent : les anciens hôtels/prix ne sont pas un attendu universel.
-Le petit lot réservé v58 (cinq conversations, 28 réponses prod/candidat) n'est
-pas attribué à v60 et est désormais exposé.
+**Deux offres commencent 10h30 pour 10h demandé**, sans annonce claire.
+La règle site en heures les admet ; la couverture littérale à la minute n'est
+pas garantie. Ce parcours reste C.
 
-Modèles locaux inchangés depuis v58 : triage 4.1-mini, recherche 4o-mini,
-synthèse 5.2. Des erreurs persistent même au triage 4.1-mini et dans la synthèse ;
-aucune justification ici pour promettre qu'un remplacement de 4o-mini suffira.
-Aucune variable Railway modifiée, aucun déploiement ni merge.
+## Défauts à traiter avant remplacement
 
-## Budget et preuves
+1. **État géographique et clarifications :** ZIP numériques, LAX, correction
+   de rue/numéro, pont après précision de comté, unions de villes/quartiers,
+   aéroport remplacé par une origine centre-ville. Bronx/Queens mal annoncés
+   comme Manhattan. La disponibilité de stock ne valide pas le périmètre.
+2. **Portée des contraintes :** chambre vs hôtel/jacuzzi privé, chambre en
+   journée vs rooftop le soir, montants nus et devise, alternatives «ou».
+   Le bon filtre ne suffit pas si la contrainte a été mal interprétée.
+3. **Restitution :** nouvelles pages annoncées comme une absence d'autres
+   choix, sarcasme/objection déclenchant un accueil, départ 20h opposé à une
+   formule finissant 23h, prix avec frais comparé à une carte hors frais sans
+   explication, détails source présentés comme déjà visibles sur la carte.
 
-v60 : **1,3512553 USD** ; cumul conservateur **107,8330605 / 110 USD**, dont
-8,10 USD de provisions non tarifées maintenues. Réserve interne : 0,75 USD.
-Toutes les générations physiques réconciliées ; aucune écriture de budget en
-attente, aucun rejeu actif. Les étapes live des précédentes CI étaient ignorées :
-leur succès n'est pas une mesure de qualité et leurs provisions ont été rapprochées
-séparément sur preuves. La nouvelle CI doit être contrôlée sur le commit publié.
+Philadelphie récente finit par annoncer honnêtement qu'aucune offre ne couvre
+la soirée et que le jacuzzi privé n'est pas confirmé. Pas de faux match garanti,
+mais le tour «another one» n'a pas de carte de référence dans la branche obtenue :
+non noté globalement. Limite 35 minutes en voiture non vérifiée.
 
-Les conversations, reçus, coordonnées, générations, revues signées par empreintes,
-matrices comparatives et ledger sont privés, hors Git, dans le rapport v60.
-Prochaine étape de qualité : un lot cohérent sur interprétation de contraintes,
-raffinement géographique et restitution des alternatives, puis un nouveau contrôle
-non réservé à ces seuls cas. Ce document n'autorise pas le basculement en production.
+## Comparaison avec la prod et coût
+
+v60 avait 4 A / 21 B / 21 C / 10 non notés sur les mêmes 56 entrées.
+Les notes v61 ne prouvent pas un gain causal global : changement de date,
+inventaire et tirages modèle rendent davantage de suites comparables.
+La vraie prod rejouée en v55 reste visible dans la matrice, ainsi que les réponses
+SQL des deux nouvelles sessions. Legacy export/Qdrant contre MCP préproduction
+(reflet de la prod selon l'utilisateur) : comparer les obligations utilisateur
+et les reçus, pas exiger la même liste d'hôtels ou le même prix à des dates différentes.
+
+Modèles locaux inchangés : triage 4.1-mini, recherche 4o-mini, synthèse 5.2.
+523 générations physiques comptabilisées : triage 0,4558 USD ; 4o-mini
+0,3142 USD ; synthèse 0,7930 USD. Les erreurs traversent ces trois rôles :
+aucune preuve qu'un remplacement de 4o-mini suffise.
+
+**Rejeu v61 : 1,5629836 USD**, plus 0,0082392 USD pour le diagnostic préalable.
+**Cumul conservateur : 109,4042833 / 110 USD**, dont 8,10 USD de provisions
+non tarifées conservées. Réserve de dispatch interne passée de 0,75 à 0,50 USD,
+sans hausse du plafond ni suppression de dette inconnue. Aucun coût tardif,
+aucune écriture en attente ; trois services de rejeu arrêtés.
+
+Pas de nouvelle campagne payante automatique. La CI distante doit être vérifiée
+sur le commit publié ; les prérequis live sont actuellement absents selon les
+métadonnées de secrets, donc un succès des contrôles ne vaut pas une évaluation
+conversationnelle. Messages, reçus, traces, GPS, matrices et ledger restent privés,
+hors Git, dans `production_parity_v18/batch-v61`.
