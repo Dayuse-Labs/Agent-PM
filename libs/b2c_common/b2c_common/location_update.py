@@ -131,6 +131,16 @@ def adapt_location_update(data: dict[str, Any], message: str, context: dict | No
         clean.append({**target, 'query': query.strip(), 'evidence': quote,
                       'country': country.upper() if country else None,
                       'region': region, 'scope': scope})
+        # A model may supply an administrative code from its knowledge or
+        # earlier context alongside a currently named place. That optional
+        # hint is not a new user constraint. Retain the independently quoted
+        # name and let the provider verify it; literal codes still go through
+        # validate_areas' mandatory provider-code matching contract.
+        code = target.get('code')
+        if (isinstance(code, str) and code.strip()
+                and not area_name_in_text(code, message)
+                and not query.strip().isdigit()):
+            clean[-1].pop('code', None)
     # A parent may be repeated as a target by extraction. Collapse it ONLY
     # when the structured relations explicitly identify that same city as the
     # parent of every other target. Merely listing a city beside a POI does not

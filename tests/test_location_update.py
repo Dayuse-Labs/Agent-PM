@@ -253,3 +253,21 @@ def test_single_landmark_parent_is_grounded_even_when_emitted_on_its_target():
     assert adapt_location_update(raw, message, None)['requested_landmark']['city'] == 'Example City'
     raw['location_update']['targets'][0]['parent_city'] = 'Invented City'
     assert adapt_location_update(raw, message, None)['requested_landmark']['city'] is None
+
+
+def test_named_area_survives_an_optional_code_not_in_current_message():
+    from b2c_common.search_areas import validate_areas
+    message = 'I mean Example Province'
+    got = adapt_location_update({'location_update': {'action': 'correct', 'evidence': message,
+        'targets': [{'kind': 'region', 'query': 'Example Province', 'country': 'GB', 'code': '12'}]}}, message, None)
+    areas = validate_areas(got['requested_areas'], message)
+    assert areas and areas[0]['query'] == 'Example Province' and 'code' not in areas[0]
+
+
+def test_explicit_numeric_area_code_is_not_discarded_or_replaced_by_a_hint():
+    from b2c_common.search_areas import validate_areas
+    for code, accepted in [('12', True), ('13', False)]:
+        got = adapt_location_update({'location_update': {'action': 'change', 'evidence': '12',
+            'targets': [{'kind': 'region', 'query': '12', 'country': 'GB', 'code': code}]}}, '12', None)
+        assert got['requested_areas'][0]['code'] == code
+        assert bool(validate_areas(got['requested_areas'], '12')) is accepted

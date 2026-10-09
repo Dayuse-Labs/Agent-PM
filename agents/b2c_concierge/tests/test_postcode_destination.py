@@ -104,3 +104,24 @@ def test_numeric_postcode_reaches_leaf_without_becoming_budget(scripted, monkeyp
     assert seen[0].get('budget_max') is None and not seen[0].get('requested_budget')
     answer = ' '.join(p.text for e in events if e.content for p in e.content.parts if p.text)
     assert postcode_context_question('78240', 'en') in answer
+
+
+def test_named_region_correction_replaces_unverified_postcode_even_with_unstated_code_hint(scripted, monkeypatch, fake_profile_store):  # noqa: F811
+    from b2c_concierge.profile import SessionProfile
+    runner, session = _new_session()
+    asyncio.run(fake_profile_store.set(session.id, SessionProfile(
+        requested_destination={'kind': 'postcode', 'query': '12'}, adults=2, children=0)))
+    message = 'I mean Example Province'
+    scripted(json.dumps({'family': 'search', 'language': 'en', 'location_update': {
+        'action': 'correct', 'evidence': message, 'targets': [
+            {'kind': 'region', 'query': 'Example Province', 'country': 'GB', 'code': '12'}]}}))
+    seen = []
+    async def leaf(leaf, ctx, profile_in, **kwargs):
+        seen.append(profile_in)
+        return 'No inventory', {'results': []}
+    monkeypatch.setattr(concierge, '_run_leaf', leaf)
+    _drive_in(runner, session.id, message)
+    request = seen[0]['requested_destination']
+    assert request['kind'] == 'areas' and request['areas'][0]['query'] == 'Example Province'
+    assert 'code' not in request['areas'][0]
+    assert seen[0]['adults'] == 2 and seen[0]['children'] == 0

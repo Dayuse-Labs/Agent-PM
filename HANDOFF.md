@@ -1,3 +1,30 @@
+## 2026-10-09 · v93 correction de lieu nommé — hors ligne vert
+
+Le suivi v92 montre une correction explicite vers un département nommé. Le
+triage extrait correctement region, mais ajoute un code ancien absent du
+message courant. La validation littérale rejetait alors toute l'aire et
+conservait le mauvais postcode. L'adaptateur retire désormais ce code optionnel
+non cité quand le nom est indépendamment ancré ; un code numérique explicite
+reste obligatoire et vérifié, un code contradictoire n'est pas supprimé pour
+faire passer la requête. Identité fournisseur toujours requise, aucune table
+locale ni regex. Contexte voyageurs/budget conservé lors du changement de type.
+
+48tests ciblés puis3077tests complets passent,1gate Langfuse payante ignorée.
+Ruff/mypy78/guardrails/diff verts. Contrôle hors ligne de572sorties triage
+sauvegardées (pas572conversations uniques) :3normalisations changent, toutes
+auparavant rejetées et désormais valides ;0nouveau rejet. Deux cas concernent
+d'anciens suivis de villes, le troisième le département. ContexteNone identique
+dans les deux adaptateurs : ce contrôle local n'est pas un rejeu utilisateur.
+
+v92 (48dd03f) :2tours source +2réponses synthétiques adaptatives, toujoursC.
+Nombre reconnu comme lieu, aucun budget inventé,2adultes/0enfant conservés ;
+correction de département rejetée comme décrit ci-dessus. Coût0,06232485USD,
+cumul149,04821769/150 ; disponible après réserve0,45178231. Services arrêtés,
+ledger sans pending. v93 doit rejouer exactement ces4tours, désormais fixes,
+dont seuls les2premiers sont historiques. Plafond lot0,30USD, budget global
+inchangé ; extension10USD non accordée. NO GO et gros passage historique requis.
+Aucun merge/déploiement, code v93 non encore rejoué. Sources privées hors Git.
+
 ## 2026-10-09 · v92 garde-fou numérique — hors ligne vert, rejeu requis
 
 Après le rejeu groupév91 (runtimee9fd132,4parcours/14tours,2B2C contre4C),
