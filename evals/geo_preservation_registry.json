@@ -1,8 +1,8 @@
 {
-  "version": 1,
+  "version": 2,
   "reference_sha": "a08a7792ed95dedca6255b5c588a80a504dd6249",
-  "candidate_sha": "6857706",
-  "scope": "24 targeted development conversations /72 turns, full historical user sequences kept privately. Not an exhaustive or representative geo suite.",
+  "candidate_sha": "83a640a8a51ac4b3692dc1ce6f36ac60c6bcbfe4",
+  "scope": "24 historical targeted conversations /72 turns, final v68 replay; geographic expectations only, not exhaustive or representative. No fresh paired production arm for this extension.",
   "entries": [
     {
       "case_id": "7d09cb854a6ccf3f1c15758f",
@@ -10,12 +10,18 @@
       "turns": 2,
       "legacy_test": "tests/unit/application/test_distance_anchor_fixes_2026_07_09.py",
       "expected": "Conserver East Brunswick NJ au budget300, ne pas remplacer par Princeton.",
-      "live_status": "reviewed",
+      "live_status": "reviewed_v68",
       "result": {
+        "candidate": "preserved",
+        "production": "not_replayed_in_v68_extension",
+        "finding": "East Brunswick NJ reste l’origine exacte après plafond 300 USD ; pas de déplacement à Princeton."
+      },
+      "previous_result": {
         "production": "partial",
         "candidate": "transport_unscored",
         "finding": "Prod conserve East Brunswick et annonce les offres éloignées ; mentionne recherche région Princeton, distances source à vérifier avant preuve d’ancre exacte. Les deux réponses candidat échouent pendant la coupure VPN : géographie non évaluable."
-      }
+      },
+      "previous_live_status": "reviewed"
     },
     {
       "case_id": "dd788becaecdeec0a39e6fe4",
@@ -23,12 +29,18 @@
       "turns": 3,
       "legacy_test": "tests/unit/application/test_distance_anchor_fixes_2026_07_09.py",
       "expected": "Halton/Peel au Canada, pas homonyme britannique ; conserver région au suivi piscine.",
-      "live_status": "reviewed",
+      "live_status": "reviewed_v68",
       "result": {
+        "candidate": "failed",
+        "production": "not_replayed_in_v68_extension",
+        "finding": "Halton/Peel reste non résolu et le suivi piscine demande un budget sans résoudre les régions canadiennes."
+      },
+      "previous_result": {
         "production": "preserved",
         "candidate": "transport_unscored",
         "finding": "Prod résout Halton/Peel vers Toronto/Mississauga et signale élargissement ; conserve Canada au suivi piscine. Trois réponses candidat dégradées pendant la coupure VPN, non scorées."
-      }
+      },
+      "previous_live_status": "reviewed"
     },
     {
       "case_id": "4d1f63c464e406916d285fed",
@@ -36,12 +48,18 @@
       "turns": 2,
       "legacy_test": "tests/unit/regression/test_foreign_city_collisions.py",
       "expected": "Berlin Mitte Allemagne, pas Hartford/Connecticut.",
-      "live_status": "reviewed",
+      "live_status": "reviewed_v68",
       "result": {
+        "candidate": "failed",
+        "production": "not_replayed_in_v68_extension",
+        "finding": "Berlin Mitte n’est pas résolu ; aucune collision Connecticut, mais aucune recherche utilisateur aboutie."
+      },
+      "previous_result": {
         "production": "partial",
         "candidate": "failed",
         "finding": "Prod résout Berlin en Allemagne et distingue Mitte de l’aéroport mais affiche aussi trois cartes Schönefeld éloignées. Le candidat redemande dans quelle ville se trouve Berlin Mitte, sans offres : pas de collision US observée mais résolution utilisateur non aboutie."
-      }
+      },
+      "previous_live_status": "reviewed"
     },
     {
       "case_id": "23e38cfb928e94d55095fbbe",
@@ -49,12 +67,18 @@
       "turns": 2,
       "legacy_test": "tests/unit/application/test_foreign_region_is_not_a_us_state_2026_08_24.py",
       "expected": "Abu Dhabi reste AE après piscine enfants ; AZ ne devient pas Arizona.",
-      "live_status": "reviewed",
+      "live_status": "reviewed_v68",
       "result": {
+        "candidate": "preserved",
+        "production": "not_replayed_in_v68_extension",
+        "finding": "Abu Dhabi AE conservé après piscine enfants ; pas Arizona. Verdict géographique uniquement, capacité enfant non résolue."
+      },
+      "previous_result": {
         "production": "preserved",
         "candidate": "preserved",
         "finding": "Les deux conservent Abu Dhabi/AE après Wantpoolforkids ; cartes auxÉmirats, pas Arizona. Le candidat change de langue et décale au lendemain explicitement ; adéquation des piscines auxenfants non prouvée par les coordonnées. Verdict limité à la géographie."
-      }
+      },
+      "previous_live_status": "reviewed"
     },
     {
       "case_id": "129597a4c6fbc73b1da6a887",
@@ -62,12 +86,18 @@
       "turns": 3,
       "legacy_test": "tests/unit/application/test_foreign_region_is_not_a_us_state_2026_08_24.py",
       "expected": "Milano reste Italie, MI ne devient pas Michigan ; suivre piscine et question quartier.",
-      "live_status": "reviewed",
+      "live_status": "reviewed_v68",
       "result": {
+        "candidate": "partial",
+        "production": "not_replayed_in_v68_extension",
+        "finding": "Milano Italie conservé après piscine ; la demande de quartier finit en indisponibilité technique. Pas de Michigan, suivi incomplet."
+      },
+      "previous_result": {
         "production": "preserved",
         "candidate": "preserved",
         "finding": "Les deux gardent Milano/Italie au suivi de quartier, pas Michigan. Candidat identifie Trezzano pour sa propre carte ; première demande piscine interprétée comme nomhôtel et réponse espagnole constituent d’autres défauts, distincts du pays."
-      }
+      },
+      "previous_live_status": "reviewed"
     },
     {
       "case_id": "a4ded214b420767da49db48c",
@@ -75,12 +105,18 @@
       "turns": 2,
       "legacy_test": "tests/unit/application/test_landmark_country_scoping_2026_08_25.py",
       "expected": "La Défense/Courbevoie France, pas Los Angeles ni Pays-Bas ; conserver au suivi95/18h.",
-      "live_status": "reviewed",
+      "live_status": "reviewed_v68",
       "result": {
+        "candidate": "partial",
+        "production": "not_replayed_in_v68_extension",
+        "finding": "La Défense non résolue au premier tour, puis bon POI Puteaux France au suivi 95 EUR/18 h. Récupération effective, parcours encore hésitant."
+      },
+      "previous_result": {
         "production": "preserved",
         "candidate": "failed",
         "finding": "Prod propose Puteaux/Courbevoie puis conserve La Défense au budget/18 h. Candidat redemande une ville auxdeux tours. Le correctif historique La Défense n’est pas préservé en résolution utilisateur, même sans hôtels du mauvais pays."
-      }
+      },
+      "previous_live_status": "reviewed"
     },
     {
       "case_id": "913422e4259c5fdcf1eb9ac4",
@@ -88,12 +124,18 @@
       "turns": 6,
       "legacy_test": "tests/unit/regression/test_geo_golden_dataset.py",
       "expected": "Disneyland sans pays est ambigu : clarification admise ; une fois établi garder le même parc, traiter proximité à pied et ne pas perdre lieu aprèsNo.",
-      "live_status": "reviewed",
+      "live_status": "reviewed_v68",
       "result": {
+        "candidate": "unscored",
+        "production": "not_replayed_in_v68_extension",
+        "finding": "Disneyland reste ambigu sans pays/ville/GPS. Clarifications conservées même après No, sans inventer un parc ; proximité à pied non évaluable."
+      },
+      "previous_result": {
         "production": "failed",
         "candidate": "partial",
         "finding": "Sans parc/pays explicite, demander quel Disneyland est légitime. Prod impose Inde puis répète indisponibilité ; candidat demande la ville et conserve Disneyland sur presque tous les suivis. Son tour No revient à un accueil générique : maintien du contexte imparfait, aucune proximité à pied vérifiable sans parc résolu."
-      }
+      },
+      "previous_live_status": "reviewed"
     },
     {
       "case_id": "1e63f95653548cff4ec124d0",
@@ -101,12 +143,18 @@
       "turns": 2,
       "legacy_test": "tests/unit/regression/test_geo_golden_dataset.py",
       "expected": "JFK = aéroport New York ; ne pas demander une autre ville après le code.",
-      "live_status": "reviewed",
+      "live_status": "reviewed_v68",
       "result": {
+        "candidate": "failed",
+        "production": "not_replayed_in_v68_extension",
+        "finding": "JFK est nommé et reconnu dans la prose, mais la ville reste redemandée aux deux tours sans résolution fournisseur."
+      },
+      "previous_result": {
         "production": "preserved",
         "candidate": "failed",
         "finding": "Prod reconnaît JFK/New York et annonce que ses cartes Manhattan/Brooklyn ne sont pas près des terminaux. Candidat redemande la ville, même après objection explicite sur JFK. Date août passée et absence de stock ne permettent pas de conclure au rappel hôtel ; défaut de résolution conversationnelle manifeste."
-      }
+      },
+      "previous_live_status": "reviewed"
     },
     {
       "case_id": "0d079383afa07f70848756a8",
@@ -114,12 +162,18 @@
       "turns": 2,
       "legacy_test": "tests/unit/regression/test_geo_golden_dataset.py",
       "expected": "Conserver Heathrow terminal3 après demande horaire plus tard/court ; ne pas utiliser centre Londres comme preuve de proximité terminal.",
-      "live_status": "reviewed",
+      "live_status": "reviewed_v68",
       "result": {
+        "candidate": "preserved",
+        "production": "not_replayed_in_v68_extension",
+        "finding": "Heathrow Terminal 3 reste l’origine fournisseur aux deux tours, distances depuis ce terminal. Demande de créneau plus court encore à préciser."
+      },
+      "previous_result": {
         "production": "preserved",
         "candidate": "failed",
         "finding": "Prod conserve Heathrow T 3 au suivi horaires, avec hôtels autour des terminaux. Candidat propose Kingston puis Wembley sans expliquer un éloignement de l’aéroport. Ses distances affichées 16,1/12,1 km ne prouvent pas une ancre Heathrow ; géographie demandée nonpréservée."
-      }
+      },
+      "previous_live_status": "reviewed"
     },
     {
       "case_id": "3e7a9a654476d66aafabbec1",
@@ -127,12 +181,18 @@
       "turns": 3,
       "legacy_test": "tests/unit/application/test_foreign_region_is_not_a_us_state_2026_08_24.py",
       "expected": "Milford Connecticut conservé après110 ; ni Boston ni autre Milford.",
-      "live_status": "reviewed",
+      "live_status": "reviewed_v68",
       "result": {
+        "candidate": "preserved",
+        "production": "not_replayed_in_v68_extension",
+        "finding": "Appel MCP ancré à Milford Connecticut (41.222399,-73.056719) ; lieu conservé après 110 et clarification de devise, pas Boston/autre Milford. Aucun stock jacuzzi n’est inventé."
+      },
+      "previous_result": {
         "production": "preserved",
         "candidate": "failed",
         "finding": "Prod conserve Milford CT et annonce élargissement New Haven, jacuzzi non confirmé. Candidat redemande une ville prèsde Milford même après l’État CT, puis au budget 110. Pas de mauvaise ville affichée, mais résolution/continuité nonabouties."
-      }
+      },
+      "previous_live_status": "reviewed"
     },
     {
       "case_id": "0b064ad3909b78b2aef380d5",
@@ -140,12 +200,18 @@
       "turns": 3,
       "legacy_test": "tests/unit/regression/test_geo_golden_dataset.py",
       "expected": "Conserver Queens NYC et piscine après130 ; hors quartier annoncé comme alternative.",
-      "live_status": "reviewed",
+      "live_status": "reviewed_v68",
       "result": {
+        "candidate": "preserved",
+        "production": "not_replayed_in_v68_extension",
+        "finding": "Queens NYC et piscine conservés après 130 ; alternatives hors Queens explicitement annoncées. Une carte fournisseur à 0 EUR requiert une investigation prix distincte."
+      },
+      "previous_result": {
         "production": "preserved",
         "candidate": "unverified",
         "finding": "Prod reste Queens/East Elmhurst au budget 130, malgré un texte fallback disant à tort ne rien trouver directement Queens. Candidat retourne une erreur de recherche au tour Queens puis perd destination au budget. La résolution géographique n’est pas observable à ce tour ; échec opérationnel et perte de contexte conservés, pas classés comme coordonnées erronées."
-      }
+      },
+      "previous_live_status": "reviewed"
     },
     {
       "case_id": "9c745eeb730bb978f8398325",
@@ -153,12 +219,18 @@
       "turns": 3,
       "legacy_test": "tests/unit/application/test_geo_disambiguation.py",
       "expected": "South Plainfield NJ ; après correction explicite ne pas proposer NYC comme conforme, conserver horaires/budget120.",
-      "live_status": "reviewed",
+      "live_status": "reviewed_v68",
       "result": {
+        "candidate": "partial",
+        "production": "not_replayed_in_v68_extension",
+        "finding": "South Plainfield et 8 h 30–17 h conservés, pas de carte NYC ; budget 120 sans devise déclenche clarification. La correction historique these are in New York ne correspond pas à ce parcours vide."
+      },
+      "previous_result": {
         "production": "failed",
         "candidate": "failed",
         "finding": "Prod conserve South Plainfield aux deux premiers tours puis cherche New York malgré exclusion explicite NYC. Candidat redemande une ville prèsde South Plainfield NJ à chaque tour. Les deux échouent, par mécanismes différents. La plainte historique New York ne correspond pas auxcartes Edison du replay précédent : divergence conversationnelle signalée, exclusion finale néanmoins explicite."
-      }
+      },
+      "previous_live_status": "reviewed"
     },
     {
       "case_id": "1807871a1357bd29473ed0d3",
@@ -166,12 +238,18 @@
       "turns": 3,
       "legacy_test": "tests/unit/application/test_search_tool_country_grounding.py",
       "expected": "Melbourne Australie avec contexteAUD ; conserver au suivi moins cher, pas Florida.",
-      "live_status": "reviewed",
+      "live_status": "reviewed_v68",
       "result": {
+        "candidate": "preserved",
+        "production": "not_replayed_in_v68_extension",
+        "finding": "Melbourne Australie reste l’origine au suivi moins cher ; pas Melbourne Florida."
+      },
+      "previous_result": {
         "production": "preserved",
         "candidate": "preserved",
         "finding": "Les deux résolvent Melbourne en Australie et conservent cette destination au suivi moinscher. Candidat affiche EUR et lendemain annoncé ; pas de preuve du meilleurprix global, mais pas de dérive vers Florida."
-      }
+      },
+      "previous_live_status": "reviewed"
     },
     {
       "case_id": "017c123e641b33995279162d",
@@ -179,12 +257,18 @@
       "turns": 2,
       "legacy_test": "tests/unit/application/test_geo_obvious_city_2026_08_24.py",
       "expected": "Hongkong = Hong Kong ; conserver hôtel Rambler Oasis demandé au tour précédent.",
-      "live_status": "reviewed",
+      "live_status": "reviewed_v68",
       "result": {
+        "candidate": "partial",
+        "production": "not_replayed_in_v68_extension",
+        "finding": "Hongkong résout Hong Kong, mais la recherche générale remplace l’hôtel Rambler Oasis explicitement demandé au tour précédent."
+      },
+      "previous_result": {
         "production": "preserved",
         "candidate": "partial",
         "finding": "Hongkong est correctement résolu Hong Kong des deux côtés. Prod conserve l’hôtel Rambler Oasis demandé ; candidat élargit àcinq hôtels et recommande Page 148, même si Rambler reste dans les cartes. Identité géographique conservée mais référenthôtel moins bien conservé."
-      }
+      },
+      "previous_live_status": "reviewed"
     },
     {
       "case_id": "3c8bdc919f44753662b55478",
@@ -192,12 +276,18 @@
       "turns": 2,
       "legacy_test": "tests/unit/application/test_current_geo_cancellation_fixes.py",
       "expected": "Singaporw doit être interprété Singapore ou clarifié ; nuit hors produit ne doit pas déplacer lieu.",
-      "live_status": "reviewed",
+      "live_status": "reviewed_v68",
       "result": {
+        "candidate": "preserved",
+        "production": "not_replayed_in_v68_extension",
+        "finding": "Singaporw corrigé Singapore ; lieu conservé au suivi overnight. Réponse FAQ sur nuit non évaluée dans cette phase."
+      },
+      "previous_result": {
         "production": "preserved",
         "candidate": "preserved",
         "finding": "Les deux corrigent Singaporw en Singapore et gardent la destination au suivi nuit. Candidat présente à tort ses offres comme séjourovernight et distances au centre non vérifiées ; réussite limitée à normalisation et pays, pas au produit ni à proximité."
-      }
+      },
+      "previous_live_status": "reviewed"
     },
     {
       "case_id": "115feab9f6871061cf090f93",
@@ -205,12 +295,18 @@
       "turns": 5,
       "legacy_test": "tests/unit/application/test_search_tool_country_grounding.py",
       "expected": "Clarification Courbevoie puis La Defense pas USA doit ancrer France sans reboucler vers États-Unis.",
-      "live_status": "reviewed",
+      "live_status": "reviewed_v68",
       "result": {
+        "candidate": "failed",
+        "production": "not_replayed_in_v68_extension",
+        "finding": "Courbevoie puis La Défense France sont compris dans la prose, mais la zone initiale fautive reste imposée et empêche la résolution jusqu’au cinquième tour."
+      },
+      "previous_result": {
         "production": "preserved",
         "candidate": "failed",
         "finding": "Après clarification Courbevoie, prod ancre France et explique élargissements. Candidat sait Courbevoie au tour 3 mais redemande quellevilleprèsde Courbevoie au budget puis au rappel La Défensepas USA : la clarification fournie n’est pas durablement conservée."
-      }
+      },
+      "previous_live_status": "reviewed"
     },
     {
       "case_id": "38d6a346fc6f99fbb922552e",
@@ -218,12 +314,18 @@
       "turns": 4,
       "legacy_test": "tests/unit/regression/test_city_drift_and_no_reset.py",
       "expected": "Après Newark puis Manhattan, adopter Manhattan ; ne pas conserver aéroport contre demande explicite.",
-      "live_status": "reviewed",
+      "live_status": "reviewed_v68",
       "result": {
+        "candidate": "partial",
+        "production": "not_replayed_in_v68_extension",
+        "finding": "Abandon de Newark effectué, mais Manhattan NYC est redemandé face à Illinois malgré le contexte New York ; pas d’offre dans la nouvelle destination."
+      },
+      "previous_result": {
         "production": "partial",
         "candidate": "failed",
         "finding": "Prod répète inutilement questionaéroport après Newark, puis adopte correctement Manhattan au changement explicite. Candidat demande uneville dans Manhattan malgré NYC antérieur et ne résout pas le changement. Critère final satisfaitprod, parcours complet imparfait."
-      }
+      },
+      "previous_live_status": "reviewed"
     },
     {
       "case_id": "d4afbb901c4eb45f5c72310f",
@@ -231,12 +333,18 @@
       "turns": 2,
       "legacy_test": "tests/unit/application/test_search_tool_country_grounding.py",
       "expected": "GBP fournit indiceUK pour Halifax ; clarification acceptable, Canada automatique injustifié ; garderlieu au suivi budget.",
-      "live_status": "reviewed",
+      "live_status": "reviewed_v68",
       "result": {
+        "candidate": "unscored",
+        "production": "not_replayed_in_v68_extension",
+        "finding": "Halifax est clarifié entre Canada et Royaume-Uni puis conservé après no budget ; aucune réponse géographique ne permet de valider la destination finale."
+      },
+      "previous_result": {
         "production": "unverified",
         "candidate": "unverified",
         "finding": "Les deux choisissent Halifax Canada malgré devise GBP, puis maintiennent ce choix. La devise est un indice, pas une preuve du pays souhaité : l’entrée seule ne permet pas de certifier UK ou Canada. Ancien contrat de désambiguïsation non démontré ; ne pas noter Canada factuellement faux sans confirmation utilisateur."
-      }
+      },
+      "previous_live_status": "reviewed"
     },
     {
       "case_id": "79c582c6f2d5f826704b2233",
@@ -244,12 +352,18 @@
       "turns": 5,
       "legacy_test": "tests/unit/application/test_search_tool_country_grounding.py",
       "expected": "Après Westminster UK, ancrer Royaume-Uni ; conserver au suivi moins cher.",
-      "live_status": "reviewed",
+      "live_status": "reviewed_v68",
       "result": {
+        "candidate": "partial",
+        "production": "not_replayed_in_v68_extension",
+        "finding": "Westminster UK conservé jusqu’au moins cher, mais hôtels à 15 km affichés comme autour de Westminster avant de demander accord pour élargir."
+      },
+      "previous_result": {
         "production": "preserved",
         "candidate": "failed",
         "finding": "Prod reste Westminster/Londres aux 5 tours. Candidat demande encore uneville après Westminster UK, puis auxsuivis AC/moinscher. La précision pays et lecontexte ne débloquent pas la recherche."
-      }
+      },
+      "previous_live_status": "reviewed"
     },
     {
       "case_id": "36d12b6610773cbb2675bf9d",
@@ -257,12 +371,18 @@
       "turns": 4,
       "legacy_test": "tests/unit/application/test_search_tool_country_grounding.py",
       "expected": "Kent/Gillingham UK etGBP ; pas Kent Washington ; garder lieu aux durées.",
-      "live_status": "reviewed",
+      "live_status": "reviewed_v68",
       "result": {
+        "candidate": "partial",
+        "production": "not_replayed_in_v68_extension",
+        "finding": "Kent est bien au Royaume-Uni et les horaires persistent ; Gillingham reste non résolu, alternatives Dover/Maidstone explicitement signalées."
+      },
+      "previous_result": {
         "production": "failed",
         "candidate": "preserved",
         "finding": "Prod propose Kentmere/Kentallen/etc au lieu de Gillingham Kent puis bloque surles durées. Candidat résout la régionbritannique et la conserve, en signalant hôtels horscentre au dernier tour. Les distances changent sans nouveau lieu : stabilité exacte de l’ancre non prouvée malgré coordonnéeshôtels inchangées."
-      }
+      },
+      "previous_live_status": "reviewed"
     },
     {
       "case_id": "2430f96e7d5c30f17f233871",
@@ -270,12 +390,18 @@
       "turns": 2,
       "legacy_test": "tests/unit/regression/test_geo_golden_dataset.py",
       "expected": "Brooklyn NYC conservé au budget/horaires ; alternatives extérieures clairement signalées.",
-      "live_status": "reviewed",
+      "live_status": "reviewed_v68",
       "result": {
+        "candidate": "unscored",
+        "production": "not_replayed_in_v68_extension",
+        "finding": "Brooklyn reste ambigu entre Maryland et New York ; le suivi répond budget et heures sans lever l’ambiguïté. Pas de mauvais lieu imposé, résolution finale non mesurable."
+      },
+      "previous_result": {
         "production": "partial",
         "candidate": "partial",
         "finding": "Brooklyn sans État reste ambigu : clarification NY/MD du candidat est légitime, mais au budget il oublie Brooklyn et demande toute destination. Prod suppose NYC et conserve Brooklyn en annonçant offres horsquartier. L’intention NYC n’est pas explicitement prouvée par l’entrée ; pas de faute géographique certaine pour la clarification initiale."
-      }
+      },
+      "previous_live_status": "reviewed"
     },
     {
       "case_id": "7af75169b77565449f4e71d5",
@@ -283,12 +409,18 @@
       "turns": 3,
       "legacy_test": "tests/unit/application/test_distance_anchor_fixes_2026_07_09.py",
       "expected": "Paris Bercy comme ancre de proximité ; conserver après demain12–18 ; pas autre pays.",
-      "live_status": "reviewed",
+      "live_status": "reviewed_v68",
       "result": {
+        "candidate": "preserved",
+        "production": "not_replayed_in_v68_extension",
+        "finding": "Paris Bercy reste l’origine POI après demain 12–18 h ; hôtels du bon secteur et distances depuis Bercy."
+      },
+      "previous_result": {
         "production": "partial",
         "candidate": "failed",
         "finding": "Prod garde Bercy et signale alternatives ; ses petitesdistances semblent relatives à Bercy Village, pas une preuve de mesure depuis la gare précise. Candidat élargit à Paris 14/10/8 sans reconnaître Bercy, puis propose D’Amiens au suivi 12–18. Pays conservé mais proximité demandée perdue."
-      }
+      },
+      "previous_live_status": "reviewed"
     },
     {
       "case_id": "242824991304d2617f2181d7",
@@ -296,12 +428,18 @@
       "turns": 4,
       "legacy_test": "tests/unit/application/test_distance_anchor_fixes_2026_07_09.py",
       "expected": "Question distance Metro Park Edison → Hampton Princeton doit utiliser ces deux points, pas distance au centre-ville. Date historique séparée.",
-      "live_status": "reviewed",
+      "live_status": "reviewed_v68",
       "result": {
+        "candidate": "failed",
+        "production": "not_replayed_in_v68_extension",
+        "finding": "Edison demeure non résolu et la question autonome Metropark–Hampton Princeton ne trouve pas l’hôtel. Refus honnête d’inventer un trajet, mais fonctionnalité historique non préservée."
+      },
+      "previous_result": {
         "production": "unverified",
         "candidate": "partial",
         "finding": "Prod conserve les deux extrémités Metropark Edison/Hampton Princeton et donne 20–25 miles/25–40 min ; ces estimations ne sont pas vérifiées par un itinéraire sourcé. Candidat perd Edison puis ne retrouve pas l’hôtel nommé, avant d’estimer 20–30 min. Ancre exacte ettemps de route non démontrés ; date historique passée distincte."
-      }
+      },
+      "previous_live_status": "reviewed"
     },
     {
       "case_id": "04859997b6b1cfbccce0bd24",
@@ -309,12 +447,18 @@
       "turns": 3,
       "legacy_test": "tests/unit/regression/test_city_token_validation.py",
       "expected": "Nice adjectif pas ville ; London England Paddington ancre explicite, conserver au choix meilleure note.",
-      "live_status": "reviewed",
+      "live_status": "reviewed_v68",
       "result": {
+        "candidate": "preserved",
+        "production": "not_replayed_in_v68_extension",
+        "finding": "Nice n’est pas transformé en ville ; Paddington Londres est ensuite résolu et conservé au classement. Premier tour mal routé hôtel nommé, hors verdict géographique."
+      },
+      "previous_result": {
         "production": "preserved",
         "candidate": "preserved",
         "finding": "Les deux traitent Nice comme adjectif, résolvent London England/Paddington et utilisent leurs propres cartes pour meilleure note. Candidat conserve Londres mais choisit Treehouse à 2,4 km plutôt que Paddingtonimmédiat : demande de meilleure note autorise ce choix parmi ses cartes ; pas de dérive de pays."
-      }
+      },
+      "previous_live_status": "reviewed"
     }
   ],
   "additional_contracts": [
@@ -343,5 +487,52 @@
     "initial_transport_cases": 2,
     "all_reviewed": true,
     "finished": true
+  },
+  "previous_verification": {
+    "version": 1,
+    "reference_sha": "a08a7792ed95dedca6255b5c588a80a504dd6249",
+    "candidate_sha": "6857706",
+    "scope": "24 targeted development conversations /72 turns, full historical user sequences kept privately. Not an exhaustive or representative geo suite.",
+    "additional_contracts": [
+      {
+        "name": "GPS origin retained across follow-up",
+        "legacy_test": "tests/unit/application/test_near_me_origin_carryover_2026_09_24.py",
+        "status": "legacy_offline_tested; live_not_tested_missing_recorded_GPS"
+      },
+      {
+        "name": "Dublin City Centre and committed Milano without regeocoding",
+        "legacy_test": "tests/unit/application/test_audit_fixes_2026_09_25.py",
+        "status": "legacy_offline_tested; dedicated_B2C_live_not_tested"
+      }
+    ],
+    "limitations": [
+      "Different local suites cannot establish cross-agent parity.",
+      "Eight legacy skips and one expected failure are not passes; one XPASS is recorded separately.",
+      "First local legacy run lacked sparse-checkout data; rerun after restoring exact committed data, original log limitation recorded.",
+      "Live MCP transport timed out before authentication; both first candidate conversations returned degraded search-unavailable answers. No retry masking.",
+      "No candidate application changes based on validation outputs."
+    ],
+    "live_execution": {
+      "completed_after_vpn": 22,
+      "expected_after_vpn": 22,
+      "completed_turns_after_vpn": 67,
+      "initial_transport_cases": 2,
+      "all_reviewed": true,
+      "finished": true
+    }
+  },
+  "current_verification": {
+    "cases": 24,
+    "turns": 72,
+    "counts": {
+      "preserved": 9,
+      "failed": 5,
+      "partial": 7,
+      "unscored": 3
+    },
+    "source_hashes_match": true,
+    "head": "83a640a8a51ac4b3692dc1ce6f36ac60c6bcbfe4",
+    "additional_cost_usd": "0.68872519999999998310",
+    "scope": "Geographic preservation expectations only; not product grades; no fresh paired production arm.24 targeted historical cases72 real messages; no overlap of SQL row IDs with main58."
   }
 }

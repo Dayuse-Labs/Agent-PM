@@ -1,32 +1,47 @@
 # HANDOFF — AgentB2C
 
-## 2026-10-09 — v68 local : pays du parent et nombres sans rôle validé
+## 2026-10-09 — v68 évalué : revue technique possible, remplacement NO GO
 
-v67 a terminé 58 conversations / 163 réponses pour1,59163690 USD : 267 cartes
-reliées au reçu exact, aucun écart de prix/plafond vérifiable/expiration ; 241
-distances cohérentes avec leur origine. Revue ciblée uniquement, aucune nouvelle
-distribution globale de notes revendiquée. Retrait enfant confirmé en réel,
-children=0 conservé au suivi moins cher. LAX échoue encore : le changement de
-landmark efface le pays US déjà prouvé, puis un homonyme peut fournir l’ancre.
-Un200 sans objet budget extrait traverse également le garde précédent et devient
-à tort EUR200 dans la synthèse. Les omissions d’horaires restent ouvertes.
+État courant : runtime83a640a, maincbe88b9. 58 conversations/163 réponses sur
+le candidat et sur la production réelle a08a7792. Candidat12A/21B/18C/7NN ;
+production2A/21B/28C/2D/5NN. Paires :24 mieux,5 moins bien,19 identiques,
+10 non comparables. Revue Codex de cas exposés, pas supériorité globale prouvée.
+262 cartes liées au reçu exact ; aucun écart prix/plafond vérifiable/expiration.
+238 distances cohérentes avec l'origine stockée, sans prouver sa pertinence.
 
-v68 conserve le pays du parent seulement si la ville reste celle confirmée par
-le fournisseur, sans indice de pays contradictoire. Le nouveau POI doit toujours
-être géocodé et validé. Un nombre sans rôle sémantique validé déclenche une question
-sur sa signification avant recherche/synthèse. Horaires, dates, occupations,
-lieux et budgets reconnus gardent leur circuit ; aucune regex ou nouvelle phase.
-Le test de récupération sur recherche horaire vide fournit désormais le signal
-horaire validé, afin de tester ce circuit distinct de la clarification numérique.
-Assertions historiques conservées. 2792 tests passent /1ignoré ; ruff, mypy71,
-guardrails verts. Architecture LiteLLM/A2A, feuilles stateless, Redis concierge.
+24 parcours geo historiques supplémentaires/72tours :9 préservés,7 partiels,
+5 échecs,3 non évaluables. Registre actualisé avec anciens résultats archivés.
+5 diagnostics/15tours : LAX/DFW récupèrent après ville explicite ; Londres et
+Denver reprennent le budget explicite. Denver omet toutefois8h dans ce rejeu.
+Venise ne reproduit pas sa fausse panne : le C original est conservé.
 
-Rejeu v68 complet et suivis adaptatifs encore à effectuer avant de publier.
-Budget cumul117,34141009/150 USD, réserve0,50 et provisions6,10 maintenues.
-Langfuse production relu deux fois : coût stable3,41923931USD, aucun retard
-comptable supplémentaire. Les correctifs historiques de pays conservé et de
-clarification non annulée ont guidé l’adaptation, sans importer les regex legacy.
-FAQ phase2. Pas de GO remplacement, aucun merge/déploiement/Railway modifié.
+Corrections : pays fournisseur conservé pour landmark dans même parent, IATA
+structuré sans contourner guards, rue conservée lors de précision de ville,
+participants explicites imposés jusqu'au MCP (retrait enfant confirmé), faits
+liés à la formule sélectionnée, clarification des nombres sans rôle validé.
+Aucune nouvelle regex ni phase modèle ; LiteLLM/A2A, feuilles stateless, Redis
+concierge. Ancien bare_budget_value reste une limite de provenance connue.
+
+2792 tests passent/1ignoré, ruff/mypy71/guardrails verts.71 empreintes runtime
+inchangées pendant les trois campagnes finales. Local triage4.1-mini, search
+4o-mini, synthèse5.2 ; Railway B2C garde triage4o-mini, configuration différente.
+108 diagnostics modèles ne justifient pas un upgrade global vers5.2.
+
+Blocages : JFK/Berlin/Halton et corrections de zone, ZIP, limites de quartiers,
+Philadelphia aéroport centré ville, horaires omis, critiques/relances, accès
+privé/inclus et réponses feuille sans résultat structuré. Une formule MCP à
+0EUR/0USD a été affichée : prix fournisseur anormal à traiter, pas séjour gratuit.
+FAQ phase2 ; anciens changements FAQ du diff cumulé non validés par ce bilan.
+
+Supplément consommé10,766096USD sur autorisation+40EUR (cap conservateur+40USD).
+Cumul119,739203/150USD, réserve0,50, provisions6,10 maintenues. Langfuse prod
+réconcilié deux fois :3,41923931USD stable, pas de coût tardif. Ledger sans pending,
+trois services agents locaux arrêtés. Aucun merge, déploiement ou écriture Railway.
+Rapport : evals/PRODUCTION_PARITY_PROGRESS_2026_10_07.md ; preuves privées batch-v68.
+Publication draft PR134 après évaluation, CI du nouveau head à vérifier.
+
+Les blocs suivants constituent le journal historique ; leurs mentions « local »,
+« pas encore rejoué » et anciens budgets ne décrivent plus l'état courant.
 
 ## 2026-10-09 — v67 local : identité IATA et retrait d’occupation
 
