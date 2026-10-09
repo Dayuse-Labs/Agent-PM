@@ -1,3 +1,26 @@
+## 2026-10-09 · v93 rejoué — correction nommée vérifiée, NO GO
+
+Runtime7f20e59 :2messages historiques puis2messages synthétiques repris du
+suivi adaptatifv92, maintenant fixes. Le dernier tour remplace le postcode par
+une aire administrative et affiche1offre vérifiée dans celle-ci, avec2adultes/
+0enfant conservés, aucun budget inventé. Reçu exact :0écart prix/jointure/expiration.
+Le nombre77reste instable : triageunknown au2e tour, puis question générique.
+ParcoursC maintenu ; branche différentev92/v93, aucune amélioration globale
+causale déduite. Ne pas annoncer le problème77résolu. Prochaine piste : type
+persistant de clarification attendue, plutôt qu'un rôle numérique générique.
+
+3077tests passent,1gate Langfuse payante ignorée ;ruff/mypy78/guardrails verts.
+78hashes inchangés, services arrêtés, ledger sans pending. Coûtv93 0.07097100USD,
+v91–v93 0.42495765USD ; cumul149.11918869/150,
+dont7,10provisionnés. Disponible après réserve0,50 :0.38081131USD.
+Extension10USD non accordée. Aucune autre campagne payante active.
+
+Dernier lot4conversations/14tours :v91,2B2C contre4C ; ne pas attribuer ce
+score au headv93. Dernier complet100/280:v78. Gros passage et adaptatif séparé
+restent requis. Rapport privé batch-v93/replay_review.html. Aucun nouveau regex,
+merge,déploiement ou changementRailway. PR134 doit recevoir ces commits pour
+revue ; sources privées horsGit. Objectif global non atteint.
+
 ## 2026-10-09 · v93 correction de lieu nommé — hors ligne vert
 
 Le suivi v92 montre une correction explicite vers un département nommé. Le

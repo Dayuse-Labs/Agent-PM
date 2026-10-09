@@ -1,5 +1,30 @@
 # Bilan final du 9 octobre 2026 — revue de PR, remplacement refusé
 
+## État actuel — v93 : NO GO maintenu
+
+Runtime `7f20e59` : la correction explicite vers un département nommé aboutit
+à une offre reliée au reçu MCP exact, avec voyageurs conservés et aucun budget
+inventé. Le nombre géographique seul reste instable : triage `unknown` lors de
+ce rejeu. **Parcours C maintenu** ; ne pas annoncer le problème numérique résolu.
+
+2messages historiques +2messages synthétiques choisis après les réponsesv92,
+puis rejoués à l'identiquev93. Ce ne sont pas4messages historiques ni une nouvelle
+simulation adaptativev93 ; les branches de clarification diffèrent.1carte vérifiée,
+0écart prix/jointure/expiration ;0carte budget évaluée faute de plafond demandé.
+
+**3077tests passent /1gate Langfuse payante ignorée** ;ruff,mypy78,guardrails verts.
+78empreintes runtime stables. Le dernier lot groupé estv91 (**2B2C contre4C**),
+le dernier complet100/280restev78. Aucun gain global prouvé ; corpus exposé et
+review manuelle non indépendante. Modèles locaux5.2/4o-mini/5.2, différents du
+triage Railway4o-mini. Sources brutes conservées privées.
+
+Coûtv93 **0.0710USD** ; complémentsv91–v93 **0.4250USD**.
+Cumul **149.1192/150USD**, dont7,10provisionnés ; disponible après réserve
+**0.3808USD**. Services arrêtés, ledger sans pending. Extension10USD
+non autorisée à ce stade. Restent clarification numérique, recovery, passage
+historique complet et jeu adaptatif séparé. Aucun merge/déploiement.
+
+
 ## Dernier rejeu groupé — v91, 9 octobre
 
 Runtime `e9fd132` : **4 conversations / 14 tours, 2 B / 2 C contre 4 C**
