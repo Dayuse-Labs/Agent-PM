@@ -67,3 +67,19 @@ def test_missing_optional_budget_key_cannot_reactivate_legacy_numeric_cap(monkey
     assert result.requested_budget is None
     assert result.budget_checked
     assert not result.budget_interpretation_unverified
+
+
+@pytest.mark.parametrize('query,expected_unclassified', [('78240', False), ('unmentioned place', True)])
+def test_grounded_numeric_postcode_is_a_location_role_not_a_spending_intent(monkeypatch, query, expected_unclassified):
+    async def completion(**kwargs):
+        payload = {'family': 'search', 'language': 'en', 'requested_budget': None,
+            'location_update': {'action': 'change', 'evidence': '78240',
+                'targets': [{'kind': 'postcode', 'query': query}]}}
+        return SimpleNamespace(choices=[SimpleNamespace(message=SimpleNamespace(content=json.dumps(payload)))])
+    monkeypatch.setattr('b2c_concierge.triage.litellm.acompletion', completion)
+    result = asyncio.run(classify('78240', TurnBudget(), previous_reply='Which city or postal code?'))
+    assert result.unclassified_numeric_input is expected_unclassified
+    assert result.budget_checked and result.requested_budget is None
+    if not expected_unclassified:
+        assert result.requested_landmark['kind'] == 'postcode'
+        assert result.requested_landmark['query'] == '78240'

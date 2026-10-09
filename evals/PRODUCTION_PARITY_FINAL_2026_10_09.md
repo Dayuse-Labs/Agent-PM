@@ -1,5 +1,39 @@
 # Bilan final du 9 octobre 2026 — revue de PR, remplacement refusé
 
+## Dernier rejeu groupé — v91, 9 octobre
+
+Runtime `e9fd132` : **4 conversations / 14 tours, 2 B / 2 C contre 4 C**
+sur les mêmes messages en v90. **NO GO maintenu** : aucun nouveau passage
+complet historique ni preuve de supériorité globale.
+
+- Code postal : résolution fournisseur typée, parent conservé, même point
+  recherché après la réponse de ville. Plus de confusion entre pays. Reçus
+  MCP vides pour la date du jour : le classement « moins cher » n'est pas évalué.
+- Distance : permission de30km effectivement envoyée à MCP. Fin24:00 gardée ;
+  cinq offres jusqu'à23:00/23:30 affichées comme alternatives non conformes
+  à la borne exacte. Rayon à vol d'oiseau et horaires différents explicités.
+- Repères alternatifs : recherchés ensemble dès la première destination
+  explicite, sans obligation de choisir un seul. Les relances restent peu
+  utiles sur huit tours sans offre ; inventaire vide et recovery à distinguer.
+- Nombre géographique : question du lieu mieux priorisée, mais le garde-fou
+  numérique oublie encore une destination typée pourtant reconnue au triage.
+  Aucun budget inventé ; parcours toujours C et correctif complémentaire requis.
+
+5 cartes reliées aux reçus MCP exacts,0écart prix/jointure/expiration.
+Aucun plafond demandé :0carte budget évaluée.78empreintes runtime stables.
+3070tests passent/2ignorés ; contrôle Node ensuite relancé :16tests du fichier
+passent, incluant le contrat JS. Gate Langfuse payante non exécutée. Ruff,
+mypy78,guardrails verts. Services possédés arrêtés, aucune dépense en attente.
+
+Coût **0,2917USD**, cumul **148,9859/150USD**, dont7,10provisionnés ; disponible
+après réserve0,50 :0,5141USD. Extension10USD demandée, pas encore autorisée.
+Revue Codex non indépendante, cas exposés et trajectoires fixes ; contexte natif
+identique, inventaire frais susceptible de changer. GPS absent non inventé.
+Configuration locale triage5.2/recherche4o-mini/synthèse5.2, distincte du triage
+Railway4o-mini. Dernier passage complet100/280toujoursv78. Aucun merge/déploiement.
+
+Les sections suivantes sont des campagnes historiques sur leurs propres runtimes.
+
 ## Dernier complément — v90, conversations fraîches
 
 Commit `2f3c9d4`, runtime identique à `9991aa1` : **4 conversations /14 tours,

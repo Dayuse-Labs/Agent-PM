@@ -822,15 +822,16 @@ async def classify(message: str, budget: TurnBudget, invocation_id: str = "",
         subarea = None
     else:
         subarea = subarea.strip()
+    requested_landmark = (grounded_landmark(data.get("requested_landmark"), message,
+                            confirmed_city=(location_context or {}).get("confirmed_city"),
+                            confirmed_country=(location_context or {}).get("country"))
+                         if family in {"search", "booking"} else None)
     return Triage(
         family,
         language,
         used_llm=True,
         location_intent=geographic_intent,
-        requested_landmark=(grounded_landmark(data.get("requested_landmark"), message,
-                            confirmed_city=(location_context or {}).get("confirmed_city"),
-                            confirmed_country=(location_context or {}).get("country"))
-                            if family in {"search", "booking"} else None),
+        requested_landmark=requested_landmark,
         requested_landmarks=(data.get("requested_landmarks")
                              if family in {"search", "booking"} and "location_update" in data else None),
         comparison_positions=_comparison_positions(data.get("comparison_positions"), message),
@@ -870,6 +871,7 @@ async def classify(message: str, budget: TurnBudget, invocation_id: str = "",
             and grounded_calendar(data.get("requested_calendar"), message) is None
             and _grounded_occupancy(data.get("requested_occupancy"), message) is None
             and validate_areas(data.get("requested_areas"), message) is None
+            and requested_landmark is None
         ),
         budget_checked="requested_budget" in data or numeric_only_message(message),
         requested_subarea=subarea,

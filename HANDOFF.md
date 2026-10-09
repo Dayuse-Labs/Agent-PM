@@ -1,3 +1,31 @@
+## 2026-10-09 · v92 garde-fou numérique — hors ligne vert, rejeu requis
+
+Après le rejeu groupév91 (runtimee9fd132,4parcours/14tours,2B2C contre4C),
+la génération du cas numérique reconnaît un postcode, mais le garde-fou ne
+considérait que les aires parmi les rôles géographiques. Il partage maintenant
+la destination déjà validée par grounded_landmark ; aucun rôle inventé depuis
+les chiffres. Une destination non citée reste refusée et un budget sans preuve
+reste bloqué. Pas de nouveau prompt, regex, appel modèle ou changement de modèle.
+
+75tests ciblés puis3074tests complets passent,1gate Langfuse live ignorée ;
+Node inclus dans ce second passage. Ruff/mypy78/guardrails/diff verts. Rejeu
+source numérique2tours prévu, puis au plus2réponses synthétiques choisies après
+lecture de la réponse pour contrôler le suivi. Ces extensions ne sont pas des
+messages historiques et seront évaluées séparément. Code v92 non encore rejoué.
+
+v91 validé : W4 résolu comme postcode et même point après London ; Milan30km
+présent dans les vrais argumentsMCP,24:00 conservé et5offres23:00/23:30 annoncées
+comme alternatives non conformes à minuit.5cartes jointes,0écart prix/jointure/
+expiration ; aucun budget demandé donc0carte budget évaluée. Madrid recherche
+les2repères dès le premier tour explicite mais recovery encoreC. NumériqueC.
+Inventaire frais différent : zéro offre n'est pas une preuve de régression.
+
+Coûtv91 0,29166180USD ; cumul148,98589284/150, dont7,10provisionnés ; disponible
+après réserve0,51410716. Servicesv91 arrêtés, ledger sans pending. Nouvelle
+dépense bornée au reliquat, extension10USD toujours non accordée. PR134 encore
+publiée à16cc2b7 ; NO GO, historique100/280 et adaptatif complet toujours requis.
+Rapport privé batch-v91/replay_review.html. Aucun merge/déploiement.
+
 ## 2026-10-09 · v91 correctif groupé — validation hors ligne, rejeu requis
 
 Codes postaux typés : recherche fournisseur postcode, identité exacte unique,

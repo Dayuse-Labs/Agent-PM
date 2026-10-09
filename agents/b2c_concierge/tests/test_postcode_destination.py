@@ -86,3 +86,21 @@ def test_city_clarification_does_not_replace_the_postcode(scripted, monkeypatch,
     profile = asyncio.run(fake_profile_store.get(session.id))
     assert profile.requested_destination == {'kind': 'postcode', 'query': CODE, 'city': 'Example City'}
     assert all(p['requested_destination']['kind'] == 'postcode' for p in seen)
+
+
+def test_numeric_postcode_reaches_leaf_without_becoming_budget(scripted, monkeypatch, fake_profile_store):  # noqa: F811
+    runner, session = _new_session()
+    scripted(json.dumps({'family': 'search', 'language': 'en', 'requested_budget': None,
+        'location_update': {'action': 'change', 'evidence': '78240', 'targets': [
+            {'kind': 'postcode', 'query': '78240'}]}}))
+    seen = []
+    async def leaf(leaf, ctx, profile_in, **kwargs):
+        seen.append(profile_in)
+        return 'Unresolved', {'results': [], 'requires_clarification': True,
+            'destination_clarification': {'kind': 'postcode_context', 'query': '78240'}}
+    monkeypatch.setattr(concierge, '_run_leaf', leaf)
+    events = _drive_in(runner, session.id, '78240')
+    assert len(seen) == 1 and seen[0]['requested_destination']['query'] == '78240'
+    assert seen[0].get('budget_max') is None and not seen[0].get('requested_budget')
+    answer = ' '.join(p.text for e in events if e.content for p in e.content.parts if p.text)
+    assert postcode_context_question('78240', 'en') in answer
