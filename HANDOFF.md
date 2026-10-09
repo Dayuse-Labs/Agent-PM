@@ -1,3 +1,18 @@
+## 2026-10-09 · complément v79 — validation géographique, rejeu ciblé à effectuer
+
+Les générations brutes locales de v78 sont disponibles : l'ancien diagnostic
+qui les disait absentes était erroné. Sur les 280 sorties triage exactes, le
+correctif récupère six transactions dans cinq conversations, 274 inchangées.
+Une preuve globale littérale peut justifier le lieu sans citation dupliquée ;
+une région optionnelle non mentionnée est écartée sans perdre la ville demandée.
+Une preuve de cible explicitement invalide reste refusée. Aucun regex, prompt,
+modèle ou appel supplémentaire. Coordonnées et identité restent fournisseur.
+
+2899 tests passent / 1 ignoré, puis 3 nouveaux tests du vrai spine passent ;
+ruff/mypy75/guardrails/diff-check verts. Les 5 trajectoires /17 tours concernés
+seront rejoués intégralement avec un plafond de1,50USD. Ce complément ne valide
+pas les autres blocages ni un remplacement ; bilan complet v78 conservé.
+
 ## 2026-10-09 · livraison finale de revue v78 — NO GO
 
 Runtime `71fdbf6`, main `cbe88b9` : 100 conversations / 280 réponses terminées et revues,

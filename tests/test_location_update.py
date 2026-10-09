@@ -165,3 +165,39 @@ def test_bounded_city_provider_must_match_its_parent_region():
     assert queries == ['Glendora, CA']
     wrong = replace(c, place_name='Glendora, Mississippi, United States', region='Mississippi')
     assert not resolve_areas([area], SimpleNamespace(geocode_candidates=lambda *a, **kw: [wrong]))['ok']
+
+
+def test_recorded_budapest_transaction_needs_only_one_literal_quote():
+    message = 'Budapest'
+    raw = {'location_update': {'action': 'change', 'evidence': message, 'targets': [
+        {'kind': 'city', 'query': 'Budapest', 'scope': 'nearby'}]}}
+    got = adapt_location_update(raw, message, None)
+    assert validate_areas(got['requested_areas'], message) == [
+        {'query': 'Budapest', 'kind': 'municipality', 'country': '', 'evidence': message}]
+    assert got['location_intent']['action'] == 'change'
+
+
+@pytest.mark.parametrize('message,query,country,inferred_region', [
+    ('Near San Bruno', 'San Bruno', 'US', 'California'),
+    ('Red deer', 'Red Deer', 'CA', 'Alberta'),
+])
+def test_recorded_city_is_retained_without_inferred_region(message, query, country, inferred_region):
+    raw = transaction(message, query=query, region=inferred_region)
+    raw['location_update']['targets'][0].update(country=country, evidence=message)
+    got = adapt_location_update(raw, message, None)
+    areas = validate_areas(got['requested_areas'], message)
+    assert areas == [{'query': query, 'kind': 'municipality', 'country': country, 'evidence': message}]
+    assert not requires_area_membership(areas)
+
+
+@pytest.mark.parametrize('target', [
+    {'kind': 'city', 'query': 'Rome'},
+    {'kind': 'city', 'query': 'Budapest', 'evidence': 'earlier Budapest'},
+    {'kind': 'city', 'query': 'Budapest', 'evidence': None},
+    {'kind': 'city', 'query': 'Budapest', 'evidence': ''},
+])
+def test_transaction_quote_cannot_rescue_ungrounded_target_or_invalid_explicit_quote(target):
+    raw = {'location_update': {'action': 'change', 'evidence': 'Budapest', 'targets': [target]}}
+    got = adapt_location_update(raw, 'Budapest', None)
+    assert got['location_intent']['action'] == 'unknown'
+    assert got['requested_areas'] is None

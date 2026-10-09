@@ -15,6 +15,38 @@ from b2c_concierge.profile import SessionProfile
 from .test_spine import _answer, _drive_in, _new_session, scripted  # noqa: F401
 
 
+@pytest.mark.parametrize('message,target', [
+    ('Budapest', {'kind': 'city', 'query': 'Budapest', 'scope': 'nearby'}),
+    ('Near San Bruno', {'kind': 'city', 'query': 'San Bruno', 'country': 'US',
+                       'evidence': 'San Bruno', 'scope': 'nearby', 'region': 'California'}),
+    ('Red deer', {'kind': 'city', 'query': 'Red Deer', 'country': 'CA',
+                  'evidence': 'Red deer', 'scope': 'nearby', 'region': 'Alberta'}),
+])
+def test_recorded_city_extraction_reaches_leaf_and_persists_without_inferred_region(
+    scripted, monkeypatch, fake_profile_store, message, target,  # noqa: F811
+):
+    runner, session = _new_session()
+    asyncio.run(fake_profile_store.set(session.id, SessionProfile(date='2030-11-01')))
+    seen = []
+
+    async def leaf(leaf, ctx, profile_in, **kwargs):
+        seen.append(profile_in)
+        return 'No offers', {'results': []}
+
+    scripted(json.dumps({'family': 'search', 'language': 'en', 'location_update': {
+        'action': 'change', 'evidence': message, 'targets': [target]}}), 'No offers')
+    monkeypatch.setattr(agent_module, '_run_leaf', leaf)
+    _drive_in(runner, session.id, message)
+    profile = asyncio.run(fake_profile_store.get(session.id))
+    assert len(seen) == 1
+    assert seen[0]['city'] == target['query']
+    assert seen[0]['search_areas'] is None  # Nearby cities do not create strict boundaries.
+    assert seen[0]['state_anchor'] is None
+    assert profile.requested_destination['areas'][0]['query'] == target['query']
+    assert 'region' not in profile.requested_destination['areas'][0]
+    assert profile.confirmed_location is None  # A quoted name is not provider geometry.
+
+
 def _decision(action, kind, evidence, parent_city=None):
     return {"action": action, "kind": kind, "evidence": evidence,
             "parent_city": parent_city, "position": None}

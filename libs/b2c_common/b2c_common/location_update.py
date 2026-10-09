@@ -88,7 +88,11 @@ def adapt_location_update(data: dict[str, Any], message: str, context: dict | No
     for target in targets:
         if not isinstance(target, dict):
             return result
-        kind, query, quote = target.get('kind'), target.get('query'), target.get('evidence')
+        kind, query = target.get('kind'), target.get('query')
+        # The transaction already carries a literal quote. Requiring the model
+        # to repeat it for every target discards otherwise grounded destinations.
+        # An explicitly supplied invalid quote still fails validation below.
+        quote = target.get('evidence', evidence)
         if kind not in {'city', 'region', 'neighborhood', 'landmark', 'hotel'}:
             return result
         if (not isinstance(query, str) or not query.strip() or len(query) > 200
@@ -102,11 +106,15 @@ def adapt_location_update(data: dict[str, Any], message: str, context: dict | No
         region = target.get('region')
         if region is not None and (not isinstance(region, str) or not region.strip()
                                    or not area_name_in_text(region, message)):
-            return result
+            # Optional model knowledge is not a user constraint. Discard it
+            # without discarding the independently grounded destination name.
+            region = None
         scope = target.get('scope', 'nearby' if kind == 'city' else 'inside')
         if scope not in {'nearby', 'inside'}:
             return result
-        clean.append({**target, 'query': query.strip(), 'country': country.upper() if country else None, 'scope': scope})
+        clean.append({**target, 'query': query.strip(), 'evidence': quote,
+                      'country': country.upper() if country else None,
+                      'region': region, 'scope': scope})
     result['location_intent'] = {'action': action, 'evidence': evidence}
     if len(clean) == 1 and clean[0]['kind'] == 'hotel':
         result['hotel_name'] = clean[0]['query']
