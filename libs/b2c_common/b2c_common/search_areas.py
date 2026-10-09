@@ -28,7 +28,7 @@ class AreaRequest(BaseModel):
     model_config = ConfigDict(extra="forbid")
     query: str = Field(description="Full area name for geocoding, for example Yvelines or Brescia.")
     kind: Literal["administrative", "municipality", "neighborhood"]
-    country: str = Field(description="ISO2 country of the requested area, e.g. FR, IT, GB.")
+    country: str = Field(description="ISO2 country when known, e.g. FR, IT, GB; empty string preserves an unresolved request.")
     evidence: str = Field(description="Shortest exact quote from the CURRENT user message naming this area, e.g. 78 or Brescia. Never add words.")
     boundary_evidence: str = Field(default="", description="Exact CURRENT words requiring city limits, e.g. 'only within city limits'. REQUIRED for a single bounded municipality, even on the first turn. Empty for an ordinary city name or country clarification; those use normal city search.")
     subarea: str = Field(default="", description="Verbatim named geographic subset required INSIDE this area, e.g. rive droite or Le Marais. Preserve the entire subset if composite. Empty only when the whole parent area is allowed; never replace a strict subset with its parent.")
@@ -49,12 +49,14 @@ def validate_areas(value: Any, message: str | None = None) -> list[dict[str, str
             item = item.model_dump(exclude_defaults=True)
         if not isinstance(item, dict) or set(item) - {"query", "kind", "country", "code", "evidence", "boundary_evidence", "subarea"}:
             return None
-        if any(not isinstance(item.get(k), str) or not item[k].strip() for k in ("query", "kind", "country", "evidence")):
+        if any(not isinstance(item.get(k), str) or not item[k].strip() for k in ("query", "kind", "evidence")):
             return None
         clean = {k: v.strip() for k, v in item.items() if isinstance(v, str)}
         if clean["kind"] not in {"administrative", "municipality", "neighborhood"}:
             return None
-        if len(clean["country"]) != 2 or not clean["country"].isascii() or not clean["country"].isalpha():
+        if not isinstance(item.get("country"), str):
+            return None
+        if clean["country"] and (len(clean["country"]) != 2 or not clean["country"].isascii() or not clean["country"].isalpha()):
             return None
         clean["country"] = clean["country"].upper()
         if message is not None and clean["evidence"].casefold() not in message.casefold():

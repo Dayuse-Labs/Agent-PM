@@ -2010,6 +2010,13 @@ class _B2cConcierge(BaseAgent):
                     or identity[0].get("hotel_id", identity[0].get("id")) != hotel_id):
                 yield self._final(ctx, templates.leaf_degraded_response(family, reply_language, profile.city))
                 return
+            # A provider-identified hotel literally named this turn is also
+            # customer intent when the leaf performed the name lookup. Keep
+            # it even if triage omitted the optional name field. Neither an
+            # unrelated result nor a fuzzy provider name can invent intent.
+            named_request = refine_hotel(identity[0].get("name"), None, None, None, message)
+            if named_request:
+                profile.requested_destination = named_request
             profile.date = expected_date or profile.date or reference_today(profile.client_timezone).isoformat()
             result = await inline_tools.get_hotel_details(
                 "", profile, picked_hotel_id=hotel_id, for_search=True,

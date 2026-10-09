@@ -2183,3 +2183,50 @@ def test_overnight_constraint_persists_until_explicit_same_day_replacement(monke
     assert saved.overnight_window is None
     assert saved.requested_window == {'start': '14:00', 'end': '18:00'}
     assert fake_leg.call_count == 1
+
+
+def test_countryless_city_transaction_reaches_leaf_as_owned_request(monkeypatch, fake_leg, fake_profile_store):
+    _scripted_llm(monkeypatch,
+        '{"family":"search","language":"it","location_update":{"action":"change","evidence":"Milano e dintorni","targets":[{"kind":"city","query":"Milano","evidence":"Milano","scope":"nearby"}]}}',
+        'Verifico le offerte a Milano.')
+    fake_leg.response_payload = {'results': [], 'profile_delta': {'city': 'Sapori e Dintorni', 'zone': 'e dintorni'}}
+    runner = InMemoryRunner(root_agent)
+    session = _new_session(runner)
+    _run_turn(runner, session.id, 'Milano e dintorni')
+    outgoing = find_datapart(fake_leg.seen_outgoing_parts)
+    assert outgoing['profile_in']['requested_destination']['areas'][0]['query'] == 'Milano'
+    assert outgoing['query_params']['destination_authoritative'] is True
+    saved = asyncio.run(fake_profile_store.get(session.id))
+    assert saved.city == 'Milano' and saved.zone is None
+
+
+def test_countryless_neighborhood_union_survives_parent_answer(monkeypatch, fake_leg, fake_profile_store):
+    _scripted_llm(monkeypatch,
+        '{"family":"search","language":"pt","location_update":{"action":"change","evidence":"Barra ou Recreio","targets":[{"kind":"neighborhood","query":"Barra","evidence":"Barra"},{"kind":"neighborhood","query":"Recreio","evidence":"Recreio"}]}}',
+        'Em qual cidade?',
+        '{"family":"search","language":"pt","location_update":{"action":"refine","evidence":"Rio de Janeiro","parent_city":"Rio de Janeiro"}}',
+        'Verifico ambos os bairros.')
+    fake_leg.response_payload = {'requires_clarification': True, 'location_resolution_failed': True}
+    runner = InMemoryRunner(root_agent)
+    session = _new_session(runner)
+    _run_turn(runner, session.id, 'Barra ou Recreio')
+    saved = asyncio.run(fake_profile_store.get(session.id))
+    assert [a['query'] for a in saved.search_areas] == ['Barra', 'Recreio']
+    _run_turn(runner, session.id, 'Rio de Janeiro')
+    saved = asyncio.run(fake_profile_store.get(session.id))
+    assert [a['subarea'] for a in saved.search_areas] == ['Barra', 'Recreio']
+    assert all(a['query'] == 'Rio de Janeiro' for a in saved.search_areas)
+
+
+def test_leaf_verified_literal_named_hotel_becomes_persistent_request(monkeypatch, fake_leg, fake_profile_store):
+    _scripted_llm(monkeypatch, '{"family":"search","language":"en"}')
+    fake_leg.response_payload = {'named_hotel_id': 12, 'results': [{'hotel_id': 12, 'name': 'Example Hotel'}]}
+    async def details(*args, **kwargs):
+        return {'ok': True, 'hotel': {'hotel_id': 12, 'name': 'Example Hotel'}}
+    monkeypatch.setattr(agent_module.inline_tools, 'get_hotel_details', details)
+    runner = InMemoryRunner(root_agent)
+    session = _new_session(runner)
+    _run_turn(runner, session.id, 'Example Hotel')
+    saved = asyncio.run(fake_profile_store.get(session.id))
+    assert saved.requested_destination == {'kind': 'hotel', 'query': 'Example Hotel'}
+    assert saved.pending_booking is None

@@ -100,17 +100,19 @@ def adapt_location_update(data: dict[str, Any], message: str, context: dict | No
         target = clean[0]
         parent = raw.get('parent_city')
         if not isinstance(parent, str) or not area_name_in_text(parent, message):
-            parent = (context or {}).get('confirmed_city') if raw.get('parent_city') == (context or {}).get('confirmed_city') or action in {'correct', 'refine'} else None
+            confirmed = (context or {}).get('confirmed_city')
+            parent = confirmed if isinstance(confirmed, str) and (
+                raw.get('parent_city') == confirmed or area_name_in_text(confirmed, message)
+                or action in {'correct', 'refine'}) else None
         result['requested_landmark'] = {'query': target['query'], 'city': parent,
                                        'country_guess': target['country'], 'evidence': target['evidence']}
         return result
-    if any(t['kind'] not in {'city', 'region', 'neighborhood'} or not t['country'] for t in clean):
-        # An ordinary city with no country remains available to the existing
-        # leaf extraction. No geometry/country is manufactured by this adapter.
+    if any(t['kind'] not in {'city', 'region', 'neighborhood'} for t in clean):
+        # Mixed incompatible target kinds need clarification.
         return result
     result['requested_areas'] = [
         {'query': t['query'], 'kind': {'city': 'municipality', 'region': 'administrative', 'neighborhood': 'neighborhood'}[t['kind']],
-         'country': t['country'], 'evidence': t['evidence'],
+         'country': t['country'] or '', 'evidence': t['evidence'],
          **({'boundary_evidence': evidence} if t['kind'] == 'city' and t['scope'] == 'inside' else {}),
          **({'code': t['code']} if t.get('code') else {})}
         for t in clean

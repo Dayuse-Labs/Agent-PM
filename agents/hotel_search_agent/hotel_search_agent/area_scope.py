@@ -50,14 +50,22 @@ def _same_area_name(query: str, label: str, administrative: bool) -> bool:
 
 def _resolve_area(item: dict[str, str], client: MapboxClient, language: str | None,
                   parent: dict | None = None) -> dict:
+    if not item["country"] and item["kind"] in {"administrative", "neighborhood"} and parent is None:
+        # Retain unresolved names but never pick a globally IP-biased district.
+        # A containing-city refinement is represented as municipality+subarea
+        # and can establish the parent through the normal provider lookup.
+        return {"ok": False, "error": "area_parent_needed", "diagnostics": {
+            "area": item["query"],
+            "reason": "Which containing city and country does this requested area belong to? Keep every requested alternative while clarifying; do not substitute another destination.",
+        }}
     types = {"administrative": "region,district", "municipality": "place,locality",
              "neighborhood": "locality,neighborhood"}[item["kind"]]
     if parent is not None:
         types = "locality,neighborhood"
     query = f'{item["subarea"]}, {item["query"]}' if parent is not None else item["query"]
-    candidates = client.geocode_candidates(query, country=item["country"], types=types, language=language)
+    candidates = client.geocode_candidates(query, country=item["country"] or None, types=types, language=language)
     matches = [c for c in candidates if c.feature_type in types.split(",")
-               and c.country_code == item["country"] and c.mapbox_id
+               and c.country_code and (not item["country"] or c.country_code == item["country"]) and c.mapbox_id
                and (parent is None or parent["id"] in c.parent_ids)
                and ((item.get("code") and parent is None and c.administrative_code.casefold() == item["code"].casefold())
                     or ((parent is not None or not item.get("code")) and _same_area_name(item["subarea"] if parent is not None else item["query"], c.name, parent is None and item["kind"] == "administrative")))]

@@ -91,3 +91,39 @@ def test_neighborhood_resolution_requires_provider_type_identity_and_bbox():
     for changed in [{'feature_type': 'place'}, {'country_code': 'FR'}, {'name': 'Milano'}, {'bbox': None}]:
         fake = SimpleNamespace(geocode_candidates=lambda *args, **kw: [replace(c, **changed)])
         assert not resolve_areas([area], fake)['ok']
+
+
+def test_unknown_country_preserves_owned_city_instead_of_letting_leaf_reinterpret_vicinity():
+    message = 'Milano e dintorni'
+    raw = transaction(message)
+    raw['location_update']['targets'][0].pop('country')
+    got = adapt_location_update(raw, message, None)
+    areas = validate_areas(got['requested_areas'], message)
+    assert areas == [{'query': 'Milano', 'kind': 'municipality', 'country': '', 'evidence': 'Milano'}]
+    assert not requires_area_membership(areas)
+
+
+def test_unresolved_alternative_neighborhoods_are_kept_before_parent_clarification():
+    message = 'Barra ou Recreio'
+    raw = {'location_update': {'action': 'change', 'evidence': message, 'targets': [
+        {'kind': 'neighborhood', 'query': name, 'evidence': name} for name in ['Barra', 'Recreio']]}}
+    got = adapt_location_update(raw, message, None)
+    areas = validate_areas(got['requested_areas'], message)
+    assert len(areas) == 2
+    def no_global_district_lookup(*args, **kwargs):
+        pytest.fail('Unknown neighborhood must ask its parent, not use an IP-biased provider result')
+    unresolved = resolve_areas(areas, SimpleNamespace(geocode_candidates=no_global_district_lookup))
+    assert not unresolved['ok'] and len(unresolved['unresolved_areas']) == 2
+    refined = preserve_area_boundary(areas, None, parent_refinement=True, parent_city='Rio de Janeiro')
+    assert [a['subarea'] for a in refined] == ['Barra', 'Recreio']
+    assert all(a['query'] == 'Rio de Janeiro' and a['country'] == '' for a in refined)
+
+
+def test_current_mention_of_confirmed_parent_can_ground_airport_parent_without_invention():
+    message = 'In Philadelphia near airport'
+    got = adapt_location_update(transaction(message, kind='landmark', query='airport'), message,
+                                {'confirmed_city': 'Philadelphia'})
+    assert got['requested_landmark']['city'] == 'Philadelphia'
+    got = adapt_location_update(transaction('near airport', kind='landmark', query='airport'), 'near airport',
+                                {'confirmed_city': 'Philadelphia'})
+    assert got['requested_landmark']['city'] is None
