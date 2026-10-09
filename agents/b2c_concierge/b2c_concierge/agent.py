@@ -1455,16 +1455,18 @@ class _B2cConcierge(BaseAgent):
         if budget_answer:
             family, route = "search", ROUTES["search"]
         if (route.target == LEAF_HOTEL_SEARCH and not location_choice
-                and triage.budget_interpretation_unverified):
-            # The model proposed an amount but failed to ground its role in
-            # the previous question. Do not send those digits to search or
-            # synthesis where they can become an invented budget/currency.
+                and (triage.budget_interpretation_unverified or triage.unclassified_numeric_input)):
+            # The proposed budget failed provenance validation, or no supported
+            # semantic role was extracted. Do not send those digits to search
+            # or synthesis where they can become an invented budget/currency.
             # Keep existing constraints; a complete budget reply can use the
             # ordinary explicit-budget path on the next turn.
             await store.set(ctx.session.id, profile)
             budget.fired.add("budget_integrity")
             self._emit_turn_metric(family, "template:budget_role_clarification", budget, t_start, "ok", inv)
-            yield self._final(ctx, templates.numeric_budget_clarification(reply_language))
+            yield self._final(ctx, (templates.numeric_budget_clarification(reply_language)
+                                   if triage.budget_interpretation_unverified
+                                   else templates.numeric_role_clarification(reply_language)))
             return
         display_request = None if budget_answer else triage.display_currency
         currency = resolve_currency_request(display_request, profile.last_results)
@@ -1566,9 +1568,21 @@ class _B2cConcierge(BaseAgent):
         # spent above. Any non-bare-affirmative message (a new city, a new
         # budget, anything substantive) clears the flags and searches again.
         if route.target == LEAF_HOTEL_SEARCH and landmark_update:
+            # A landmark refinement inside the provider-confirmed parent must
+            # not discard that parent's country and select a foreign homonym.
+            # New/conflicting destinations do not inherit this authority.
+            parent = location_context or {}
+            parent_country = (
+                parent.get("country")
+                if landmark_update.get("city") and parent.get("confirmed_city")
+                and landmark_update["city"].casefold() == parent["confirmed_city"].casefold()
+                and landmark_update.get("country_guess") in (None, parent.get("country"))
+                else None
+            )
             profile.city, profile.zone = landmark_update["city"], landmark_update["query"]
             for field in ("search_areas", "state_anchor", "country_anchor", "metro", "distance_origin", "confirmed_location", "pending_location"):
                 setattr(profile, field, None)
+            profile.country_anchor = parent_country
             # A native device fix remains a soft provider bias, never the
             # landmark's identity. Keep it when the new POI has no named city.
             if not profile.search_anchor or profile.search_anchor.get("type") != "gps":

@@ -188,6 +188,7 @@ class Triage:
     requested_landmark: dict | None = None
     budget_interpretation_unverified: bool = False
     requested_occupancy: dict[str, int] | None = None
+    unclassified_numeric_input: bool = False
 
 
 def is_social_ack(message: str) -> bool:
@@ -899,6 +900,14 @@ async def classify(message: str, budget: TurnBudget, invocation_id: str = "",
         ),
         price_comparison=(grounded_price_comparison(data.get("price_comparison"), message)
                           if family == "search" else None),
+        unclassified_numeric_input=(
+            numeric_only_message(message) and requested_budget is None
+            and _budget_slot(data.get("bare_budget_value")) is None
+            and _grounded_window(data, message) is None
+            and grounded_calendar(data.get("requested_calendar"), message) is None
+            and _grounded_occupancy(data.get("requested_occupancy"), message) is None
+            and validate_areas(data.get("requested_areas"), message) is None
+        ),
         budget_checked="requested_budget" in data or numeric_only_message(message),
         requested_subarea=subarea,
         subarea_parent=subarea_parent if isinstance(subarea_parent, str) else None,

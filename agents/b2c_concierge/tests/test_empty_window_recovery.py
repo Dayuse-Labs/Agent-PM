@@ -14,7 +14,10 @@ def test_empty_full_stay_uses_bounded_recovery_without_inventing_times(scripted,
     asyncio.run(fake_profile_store.set(session.id, SessionProfile(city="Wien", date="2026-11-01", language="de", locale="de",
         auto_widen_disclosure=widen,
         timeslot_start="13:00", timeslot_end="18:00", requested_window={"start": "13:00", "end": "18:00"})))
-    llm, _ = scripted('{"family":"search","language":"de","requested_budget":null}',
+    # This test exercises recovery AFTER a recognized time request. Numeric
+    # input with no validated role now has its own clarification-path tests.
+    llm, _ = scripted('{"family":"search","language":"de","requested_budget":null,'
+                      '"requested_window":{"start":"13:00","end":"18:00","evidence":"1300 - 1800"}}',
         'Versuche 12:00–19:00.', response={"results": [], "search_date": {"date": "2026-11-01"},
         "search_context": {"city": "Wien", "date": "2026-11-01", "timeslot_start": "13:00", "timeslot_end": "18:00"}})
     answer = _answer(_drive_in(runner, session.id, "1300 - 1800"))

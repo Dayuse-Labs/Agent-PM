@@ -683,3 +683,15 @@ def numeric_budget_clarification(language: str) -> str:
         "pt": "Esse número corresponde ao seu orçamento? Se sim, pode indicar o valor e a moeda juntos?",
         "nl": "Is dat je budget? Zo ja, kun je het bedrag en de valuta samen aangeven?",
     })
+
+
+def numeric_role_clarification(language: str) -> str:
+    return {
+        "en": "What does this number refer to: a location, a time, or a budget? For a budget, please include the currency.",
+        "fr": "Ce nombre désigne-t-il un lieu, un horaire ou un budget ? Pour un budget, précisez aussi la devise.",
+        "es": "¿Este número se refiere a un lugar, un horario o un presupuesto? Para un presupuesto, indique también la moneda.",
+        "it": "Questo numero indica un luogo, un orario o un budget? Per un budget, indica anche la valuta.",
+        "de": "Bezieht sich diese Zahl auf einen Ort, eine Uhrzeit oder ein Budget? Bitte nennen Sie beim Budget auch die Währung.",
+        "nl": "Verwijst dit getal naar een locatie, een tijd of een budget? Vermeld bij een budget ook de valuta.",
+        "pt": "Este número refere-se a um local, um horário ou um orçamento? Para um orçamento, indique também a moeda.",
+    }.get(language, "What does this number refer to: a location, a time, or a budget? For a budget, please include the currency.")

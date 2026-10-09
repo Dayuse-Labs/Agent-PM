@@ -1,5 +1,33 @@
 # HANDOFF — AgentB2C
 
+## 2026-10-09 — v68 local : pays du parent et nombres sans rôle validé
+
+v67 a terminé 58 conversations / 163 réponses pour1,59163690 USD : 267 cartes
+reliées au reçu exact, aucun écart de prix/plafond vérifiable/expiration ; 241
+distances cohérentes avec leur origine. Revue ciblée uniquement, aucune nouvelle
+distribution globale de notes revendiquée. Retrait enfant confirmé en réel,
+children=0 conservé au suivi moins cher. LAX échoue encore : le changement de
+landmark efface le pays US déjà prouvé, puis un homonyme peut fournir l’ancre.
+Un200 sans objet budget extrait traverse également le garde précédent et devient
+à tort EUR200 dans la synthèse. Les omissions d’horaires restent ouvertes.
+
+v68 conserve le pays du parent seulement si la ville reste celle confirmée par
+le fournisseur, sans indice de pays contradictoire. Le nouveau POI doit toujours
+être géocodé et validé. Un nombre sans rôle sémantique validé déclenche une question
+sur sa signification avant recherche/synthèse. Horaires, dates, occupations,
+lieux et budgets reconnus gardent leur circuit ; aucune regex ou nouvelle phase.
+Le test de récupération sur recherche horaire vide fournit désormais le signal
+horaire validé, afin de tester ce circuit distinct de la clarification numérique.
+Assertions historiques conservées. 2792 tests passent /1ignoré ; ruff, mypy71,
+guardrails verts. Architecture LiteLLM/A2A, feuilles stateless, Redis concierge.
+
+Rejeu v68 complet et suivis adaptatifs encore à effectuer avant de publier.
+Budget cumul117,34141009/150 USD, réserve0,50 et provisions6,10 maintenues.
+Langfuse production relu deux fois : coût stable3,41923931USD, aucun retard
+comptable supplémentaire. Les correctifs historiques de pays conservé et de
+clarification non annulée ont guidé l’adaptation, sans importer les regex legacy.
+FAQ phase2. Pas de GO remplacement, aucun merge/déploiement/Railway modifié.
+
 ## 2026-10-09 — v67 local : identité IATA et retrait d’occupation
 
 v66 terminé : 58 conversations / 163 réponses, 8 A / 23 B / 20 C / 7 non notées.

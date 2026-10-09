@@ -376,3 +376,51 @@ def test_pagination_delivery_is_owned_by_concierge_not_leaf(scripted, monkeypatc
     stored = asyncio.run(fake_profile_store.get(session.id))
     assert stored.last_results[0]['hotel_id'] == 2
     assert len(llm.calls) == 2  # Triage and synthesis, no corrective model phase.
+
+
+@pytest.mark.parametrize("message,landmark,expected_country", [
+    ("near LAX airport", {"query": "LAX airport", "city": "Los Angeles", "country_guess": "US", "evidence": "LAX airport"}, "US"),
+    ("near LAX airport", {"query": "LAX airport", "city": "Los Angeles", "country_guess": "CA", "evidence": "LAX airport"}, None),
+    ("near Charles de Gaulle in Paris", {"query": "Charles de Gaulle", "city": "Paris", "country_guess": "FR", "evidence": "Charles de Gaulle"}, None),
+])
+def test_landmark_refinement_keeps_only_verified_parent_country(scripted, monkeypatch, fake_profile_store, message, landmark, expected_country):  # noqa: F811
+    runner, session = _new_session()
+    place = {"provider_id": "provider-LA", "name": "Los Angeles", "label": "Los Angeles, California, United States",
+             "country_code": "US", "feature_type": "place", "latitude": 34.048051,
+             "longitude": -118.254187, "region": "California"}
+    asyncio.run(fake_profile_store.set(session.id, SessionProfile(city="Los Angeles", country_anchor="US", confirmed_location=place,
+        adults=2, date="2030-10-09", requested_window={"start": "09:00", "end": "18:00"}, timeslot_start="09:00", timeslot_end="18:00")))
+    observed = []
+    async def leaf(leaf, ctx, profile_in, **kwargs):
+        context = SimpleNamespace(state={}, user_content=types.Content(role="user", parts=[
+            types.Part(text=message), encode_datapart({"profile_in": profile_in, "query_params": kwargs["query_params"]})]))
+        args = {"city": "Copied city", "zone": "Wrong copied landmark", "country_code": "ES"}
+        inject_profile_geo_context(SimpleNamespace(name="geocode_location"), args, context)
+        observed.append((profile_in, args))
+        return "Unresolved", {"requires_clarification": True}
+    scripted(json.dumps({"family": "search", "language": "en", "requested_landmark": landmark}), "Need more detail.")
+    monkeypatch.setattr(agent_module, "_run_leaf", leaf)
+    _drive_in(runner, session.id, message)
+    profile, args = observed[0]
+    assert profile["country_anchor"] == expected_country
+    assert args.get("country_code") == expected_country
+    assert args["zone"] == landmark["query"]
+    assert profile["adults"] == 2 and profile["timeslot_end"] == "18:00"
+    assert profile["confirmed_location"] is None  # The new POI still needs provider proof.
+
+
+@pytest.mark.parametrize("message", ["200", "45-65", "78240"])
+def test_unclassified_number_cannot_reach_leaf_or_synthesis(scripted, monkeypatch, fake_profile_store, message):  # noqa: F811
+    from b2c_concierge import templates
+    from .test_spine import _answer
+    runner, session = _new_session()
+    asyncio.run(fake_profile_store.set(session.id, SessionProfile(city="Manhattan", zone="Lower Manhattan")))
+    llm, _ = scripted(json.dumps({"family": "search", "language": "en", "requested_budget": None}))
+    async def forbidden(*args, **kwargs):
+        raise AssertionError("An unclassified number must not reach search")
+    monkeypatch.setattr(agent_module, "_run_leaf", forbidden)
+    answer = _answer(_drive_in(runner, session.id, message))
+    assert answer == templates.numeric_role_clarification("en")
+    saved = asyncio.run(fake_profile_store.get(session.id))
+    assert saved.city == "Manhattan" and saved.zone == "Lower Manhattan"
+    assert not saved.requested_budget and len(llm.calls) == 1
