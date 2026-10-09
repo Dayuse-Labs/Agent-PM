@@ -1,8 +1,8 @@
 # Production knowledge preservation replay — 2026-10-06
 
 > Mise à jour du 9 octobre : voir `PRODUCTION_PARITY_PROGRESS_2026_10_07.md`
-> pour la comparaison avec la production actuelle et le rejeu v68. Le registre
-> géographique porte désormais les résultats v68 ; les chiffres ci-dessous sont
+> pour la comparaison avec la production actuelle et le rejeu v69. Le registre
+> géographique porte désormais les résultats v69 ; les chiffres ci-dessous sont
 > ceux des campagnes historiques, conservés pour traçabilité.
 
 ## Completed $60 campaign and geographic extension

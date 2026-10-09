@@ -1,3 +1,10 @@
+## 2026-10-09 — v69 terminé, avant publication
+
+Runtime a02b2e0 : identité fournisseur place/locality avec contexte de zone conservée au suivi. 2799 tests passent, 1 ignoré ; lint/types/guardrails verts.
+Rejeux figés terminés : 58/163 principal (13A22B18C5NN), 24/72 geo (9 préservés7partiels5échecs3nonévaluables), 3/7 récents (1B2C). Témoin prod v65 :26mieux5moinsbons19identiques8noncomparables. SanBruno125USD corrigé ; pas de GO prod. Rapport evals/PRODUCTION_PARITY_PROGRESS_2026_10_07.md.
+MCP502 interrompu après9réponses, reprise seulement des tours manquants avec profils/identités/processus conservés. Coût v69 total2.3546812USD ; ledger122.093883788112USD, +40EUR consommés13.1207775099USD, provisions6.10USD conservées. Aucun pending, trois services agents locaux arrêtés. Runtimeinchangé sur71empreintes.
+Prochain lot : correction par familles des mises à jour géographiques/clarifications, horaires mixtes, sémantique repas/équipements et prix nuls ; pas de regex ni exceptions de villes. FAQphase2. Ne pas confondre publication PR et objectif atteint.
+
 # HANDOFF — AgentB2C
 
 ## 2026-10-09 — v69 local : identité fournisseur des recherches par zone
