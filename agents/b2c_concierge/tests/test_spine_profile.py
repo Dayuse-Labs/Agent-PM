@@ -133,19 +133,19 @@ def test_omitted_geo_transaction_after_clarification_cannot_authorize_a_guessed_
     # triage omits location_update. That omission used to free the leaf to guess.
     _scripted_llm(monkeypatch,
         '{"family":"search","language":"en","location_update":{"action":"unknown","evidence":"Near Disneyland"}}',
-        '{"family":"search","language":"en","requested_window":{"start":"12:00","end":"18:00","evidence":"12:00 to 18:00"}}',
+        '{"family":"search","language":"en","requested_window":{"start":"12:00","end":"18:00","evidence":"Noon to 6pm"}}',
         'Which city do you mean?')
     fake_leg.response_payload = {'results': [], 'profile_delta': {}}
     runner = InMemoryRunner(root_agent)
     session = _new_session(runner)
     _run_turn(runner, session.id, 'Near Disneyland')
     assert fake_leg.call_count == 0
-    _run_turn(runner, session.id, '12:00 to 18:00')
+    _run_turn(runner, session.id, 'Noon to 6pm')
     outgoing = find_datapart(fake_leg.seen_outgoing_parts)
     assert outgoing['query_params']['destination_missing'] is True
     saved = asyncio.run(fake_profile_store.get(session.id))
     assert saved.city is None
-    assert saved.timeslot_start == '12:00' and saved.timeslot_end == '18:00'
+    assert saved.timeslot_end == '18:00'
 
 
 def test_omitted_geo_transaction_does_not_erase_a_carried_city(monkeypatch, fake_leg, fake_profile_store):

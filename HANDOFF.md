@@ -1,4 +1,27 @@
-## 2026-10-09 · rejeu v82 terminé ; correctifs de transmission en cours
+## 2026-10-09 · complément v83 terminé — NO GO maintenu
+
+Runtime `520b48c` : 7 conversations complètes /19 tours,2B5C, coût0,37092175USD.
+JFK minuscule est résolu dès le premier tour via son IATA et son identité
+fournisseur, puis conservé. Aucun résultat inventé ; texte horaire arrondi à11h
+alors que profil10h30 et rechercheMCP10h persistent (défaut distinct).
+Disneyland reste en clarification sans Anaheim arbitraire sur ce tirage ; son
+triage initial diffère de v82, donc ne pas attribuer causalement tout ce gain au
+garde. Le test de transmission rejoue séparément la sortie enregistrée exacte
+« Noon to 6pm », vérifie destination_missing et préservation de18h ; midi n'est
+toujours pas persisté. Trois tests de ce contrat passent après cet ajustement.
+Heathrow sans parent, Orly/Roissy alternatifs et jacuzzi privé restent C.
+Occupation2+1 correcte cette fois sans changement du code d'occupation : pas de
+garantie de correction. Biltmore garde hôtel14566/date et les huit créneaux MCP.
+
+17 cartes jointes exactement aux reçusMCP, zéro écart de prix/non-jointure/offre
+expirée.5 cartes sous budget frais compris, aucun dépassement. Rapport privé :
+`production_parity_v18/batch-v83/replay_review.html`, lié depuis le rapport courant.
+Les notes32/94 du lotv82 restent séparées. Cumul147,39407284/150USD,7,10provisionnés,
+ledger sans pending, servicesv83 arrêtés. Dépense de ces deux replays2,13359210USD.
+Main refetch:cbe88b9 inchangé. PR134 toujours draft7139df5 ; suivi local non poussé.
+Objectif remplacement incomplet. Aucun merge/déploiement/action client.
+
+## 2026-10-09 · rejeu v82 terminé ; correctifs de transmission testés ensuite en v83
 
 Runtime `5577837`, 32 conversations/94 tours : 11B,18C,1D,2NN, tous relus
 par Codex. Sur les 24 parcours géographiques : 10 préservés,9 partiels,5 échecs
