@@ -1,5 +1,35 @@
 # HANDOFF — AgentB2C
 
+## 2026-10-09 — v62 rejoué : gains de restitution, géographie toujours insuffisante
+
+Runtime 6832426, main cbe88b9 fetchée et inchangée. 58 conversations / 163 réponses
+rejouées et relues : 10 A / 19 B / 23 C / 6 non notées. Sur les mêmes 56 cas
+historiques : 10 A / 19 B / 21 C / 6 non notées, contre 7/20/23/6 en v61.
+Deux sessions SQL récentes = 2 C ; Philadelphie devient notée C sur sa demande
+finale autonome (jacuzzi privé affirmé sans preuve), pas sur son suivi conditionnel.
+
+Gains observés : pagination Paris, départ 20h malgré fin de formule à 23h,
+prix USD carte/total avec frais, formules alternatives Kimpton/Biltmore. Recul
+23rd Street : précision New York perd la rue. Rio perd encore les quartiers :
+le triage omet location_intent, donc le correctif parent_refinement ne s'active
+pas. Le contre-factuel local prouvait le traitement d'un refine présent, pas
+que le modèle le fournirait. Pas de GO remplacement, aucune supériorité globale.
+
+260 cartes vérifiées contre l'offre exacte du même reçu MCP, zéro erreur de
+jointure/prix carte/expiration/plafond vérifiable. 236 distances correspondent
+à l'origine stockée, sans prouver qu'elle est pertinente. Deux offres commencent
+à 10h30 pour 10h demandé, écart encore mal expliqué. Capacités présentes suffisantes,
+une capacité inconnue sur une carte détail. 2726 tests / 1 ignoré, ruff, mypy70,
+guardrails verts sur le runtime évalué ; 522 générations physiques sans erreur.
+
+Rejeu 1,56882295 USD ; cumul conservateur 108,97310628 / 110, dont 6,10 provisionnés.
+Deux provisions de démarrage (2 USD) levées après preuve de refus réseau sur
+la fiche A2A AVANT tout appel feuille ; les cinq triages déjà facturés restent
+comptés. Les autres provisions restent intactes. Réserve interne 0,50 ; coût
+terminal réconcilié, services arrêtés. Pas de nouveau rejeu complet abordable.
+PR draft à actualiser avec ce bilan, puis contrôler la CI du commit exact.
+FAQ/annulations phase 2 ; aucun ajout FAQ, regex ou phase modèle dans v62.
+
 ## 2026-10-09 — v62 local : suivi géographique et cohérence cartes/texte
 
 Lot préparé après revue des échecs v61, sans nouvelle regex ni appel modèle.
