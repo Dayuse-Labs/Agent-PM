@@ -1,3 +1,40 @@
+## Complément final — correctifs localisés, NO GO maintenu
+
+Runtime `e4b5c37` : les noms de ville explicitement demandés ne sont plus perdus
+si la preuve globale suffit ou si une région optionnelle non mentionnée a été
+ajoutée. Les preuves de cible explicitement invalides restent refusées. Sur les
+280 sorties triage enregistrées du passage complet, six transactions changent,
+274 restent identiques. Ce contrôle offline n'est pas un nouveau rejeu utilisateur.
+
+Une question sur les offres reprend l'unique hôtel affiché si aucun autre nom,
+changement de lieu ni clarification géographique en attente ne contredit cette
+référence. Le suivi Biltmore donne maintenant les huit créneaux du bon hôtel et
+de la bonne date, vérifiés contre MCP. Cette référence sert uniquement aux
+faits : aucune sélection ou confirmation de réservation n'est créée.
+Aucun champ, regex, prompt, modèle ou appel LLM supplémentaire ajouté.
+
+**7 conversations /21 tours rejoués intégralement : 4B/3C**, revue Codex non
+indépendante. Ce sous-ensemble exposé ne remplace pas les scores du dernier
+rejeu complet v78 ci-dessous. Budapest/San Bruno/Red Deer et le suivi horaires
+Biltmore fonctionnent sur ce passage ; Edison reste partiel, Annapolis ambigu,
+le parcours enfants/jacuzzi insuffisant et le suivi Rambler instable. Les essais
+intermédiaires sont conservés : v79 cinq parcours3B/2C, v80 sept parcours2B/5C.
+Une réussite isolée n'est pas une preuve de stabilité ni de supériorité sur la prod.
+
+**2932 tests passent /1 gate live ignoré**, ruff/mypy75/guardrails/diff-check verts.
+32 cartes exactes MCP,0 anomalie de jointure/prix/expiration ;4 cartes sous
+plafond conformes frais compris. Ces contrôles ne certifient pas la pertinence.
+Les75 fichiers runtime sont restés figés pendant le dernier passage.
+
+Trois rejeux complémentaires : **1.1074USD**, dernier passage
+**0.3934USD**. Fenêtre totale **10.0276USD** ; cumul
+**145.2605/150USD**, dont7,10provisionnés, ledger sans pending. Aucun service
+Railway modifié, aucun merge/déploiement ; services d'évaluation possédés arrêtés.
+Le rapport HTML privé présente toutes les réponses avant/après. Aucun transcript
+client ajouté au dépôt. Main revérifié : `cbe88b9`.
+
+Ce complément remplace les statuts « à effectuer » ci-dessous.
+
 ## 2026-10-09 · complément v81 — omission géographique au suivi hôtel
 
 Le rejeu v80 a montré que la question horaires omet parfois location_update,

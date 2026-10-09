@@ -1,8 +1,43 @@
 # Bilan final du 9 octobre 2026 — revue de PR, remplacement refusé
 
-**NO GO pour fusion/déploiement en remplacement de la production.** Le candidat final présente encore des défauts de géographie et de suivi, et régresse par rapport à la version v69 publiée précédemment. Les protections et les tests ont une valeur technique, mais cette branche complète ne constitue pas une amélioration globale validée. La PR reste draft ; aucune modification Railway, fusion ni action client.
+## Complément final — correctifs localisés, NO GO maintenu
 
-Runtime évalué : `71fdbf69ba47ac58f7ee8f19095029a2beda7a4c` ; main au gel : `cbe88b9963f28fbea932ac2a6ce23d22112f2b76`. Les **75 fichiers runtime** sont identiques sur les cinq lots. Le commit de livraison ajoute seulement ce bilan et le handoff après les évaluations.
+Runtime `e4b5c37` : les noms de ville explicitement demandés ne sont plus perdus
+si la preuve globale suffit ou si une région optionnelle non mentionnée a été
+ajoutée. Les preuves de cible explicitement invalides restent refusées. Sur les
+280 sorties triage enregistrées du passage complet, six transactions changent,
+274 restent identiques. Ce contrôle offline n'est pas un nouveau rejeu utilisateur.
+
+Une question sur les offres reprend l'unique hôtel affiché si aucun autre nom,
+changement de lieu ni clarification géographique en attente ne contredit cette
+référence. Le suivi Biltmore donne maintenant les huit créneaux du bon hôtel et
+de la bonne date, vérifiés contre MCP. Cette référence sert uniquement aux
+faits : aucune sélection ou confirmation de réservation n'est créée.
+Aucun champ, regex, prompt, modèle ou appel LLM supplémentaire ajouté.
+
+**7 conversations /21 tours rejoués intégralement : 4B/3C**, revue Codex non
+indépendante. Ce sous-ensemble exposé ne remplace pas les scores du dernier
+rejeu complet v78 ci-dessous. Budapest/San Bruno/Red Deer et le suivi horaires
+Biltmore fonctionnent sur ce passage ; Edison reste partiel, Annapolis ambigu,
+le parcours enfants/jacuzzi insuffisant et le suivi Rambler instable. Les essais
+intermédiaires sont conservés : v79 cinq parcours3B/2C, v80 sept parcours2B/5C.
+Une réussite isolée n'est pas une preuve de stabilité ni de supériorité sur la prod.
+
+**2932 tests passent /1 gate live ignoré**, ruff/mypy75/guardrails/diff-check verts.
+32 cartes exactes MCP,0 anomalie de jointure/prix/expiration ;4 cartes sous
+plafond conformes frais compris. Ces contrôles ne certifient pas la pertinence.
+Les75 fichiers runtime sont restés figés pendant le dernier passage.
+
+Trois rejeux complémentaires : **1.1074USD**, dernier passage
+**0.3934USD**. Fenêtre totale **10.0276USD** ; cumul
+**145.2605/150USD**, dont7,10provisionnés, ledger sans pending. Aucun service
+Railway modifié, aucun merge/déploiement ; services d'évaluation possédés arrêtés.
+Le rapport HTML privé présente toutes les réponses avant/après. Aucun transcript
+client ajouté au dépôt. Main revérifié : `cbe88b9`.
+
+**NO GO pour fusion/déploiement en remplacement de la production.** Le candidat du dernier rejeu complet présente encore des défauts de géographie et de suivi, et régresse par rapport à la version v69 publiée précédemment. Les protections et les tests ont une valeur technique, mais cette branche complète ne constitue pas une amélioration globale validée. La PR reste draft ; aucune modification Railway, fusion ni action client.
+
+Runtime évalué : `71fdbf69ba47ac58f7ee8f19095029a2beda7a4c` ; main au gel : `cbe88b9963f28fbea932ac2a6ce23d22112f2b76`. Les **75 fichiers runtime** sont identiques sur les cinq lots. Ce runtime désigne le passage complet v78 ; les correctifs ultérieurs et leur validation ciblée sont décrits ci-dessus.
 
 ## Évaluation effectuée
 
@@ -13,7 +48,7 @@ Runtime évalué : `71fdbf69ba47ac58f7ee8f19095029a2beda7a4c` ; main au gel : `c
 | Production déployée | 2 | 21 | 28 | 2 | 0 | 5 |
 | PR précédemment publiée v69 | 13 | 22 | 18 | 0 | 0 | 5 |
 | Candidat v75 avant cette fenêtre | 8 | 26 | 21 | 0 | 0 | 3 |
-| Candidat final v78 | 7 | 19 | 30 | 0 | 0 | 2 |
+| Dernier rejeu complet v78 | 7 | 19 | 30 | 0 | 0 | 2 |
 
 A = parfait, B = défaut mineur, C = significatif, D = majeur, F = critique. Les notes portent sur la conversation complète ; absence d'offre n'est pas à elle seule un échec. Les tours devenus non comparables après une branche différente sont signalés dans les preuves privées.
 
