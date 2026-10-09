@@ -1,3 +1,32 @@
+## 2026-10-09 · v85 évalué — NO GO, clarification encore à corriger
+
+Runtime `00a7f82`, six conversations/quinze tours terminés :2B4C. Quatre
+trajectoires réelles exposées et deux scénarios synthétiques, sans comparateur
+prod pour ces derniers. Coût0,30823455USD ; cumul147,70230739/150USD dont7,10
+provisionnés. Budget de dispatch restant après réserve :1,79769261USD.
+
+JFK/EWR : deux destinations distinctes dans le profil et six recherches MCP
+(deux par tour) avec les mêmes dates/filtres ; budget150USD filtré conformément
+au contrat monétaire, horaires10–17 conservés. Les24 cartes du lot sont liées
+aux reçus exacts, aucun écart de prix/expiration/jointure ;12 cartes sous plafond
+frais compris, zéro dépassement. Biltmore conserve14566/date et huit créneaux
+exactement présents dans le reçu get_hotel_details.2974 tests passent/1 gate live
+ignoré, ruff/mypy76/guardrails verts.76 fichiers runtime restés figés.
+
+Échecs persistants : Orly/Roissy restent tous deux dans le profil, mais la synthèse
+transforme la clarification de ville en demande de choisir un aéroport. Dans le
+scénario synthétique, « Paris » devient alors une nouvelle recherche centrale.
+L'extraction produit encore3 adultes en conservant1 enfant pour un total demandé3.
+Le mélange hôtel/ville est bloqué honnêtement mais pas correctement traité.
+Aucun gain global prouvé, aucun GO, aucun changement de modèle justifié par cela.
+
+Prochaine correction : transmettre la clarification de parent sans changement
+de sens et tester sa réponse réelle ; puis occupation totale et combinaisons
+hôtel/ville. Rapport privé `production_parity_v18/batch-v85/replay_review.html`.
+Ledger sans pending, trois services possédés arrêtés. PR134 reste7139df5/draft ;
+ce complément est local, pas poussé. Ce bilan remplace le statut « rejeu requis »
+ci-dessous. Pas de merge, déploiement ou action client.
+
 ## 2026-10-09 · destinations alternatives — correctif local, rejeu requis
 
 Le diagnostic Langfuse de deux sessions de production (5 traces/67 observations)
