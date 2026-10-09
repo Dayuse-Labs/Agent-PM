@@ -1496,6 +1496,37 @@ def test_empty_results_keep_budget_authority_in_synthesis(monkeypatch, fake_leg,
     assert asyncio.run(fake_profile_store.get(session.id)).budget_max is None
 
 
+@pytest.mark.parametrize("numeric,amount", [("120", 120), ("45-65", 65)])
+def test_unverified_budget_asks_then_accepts_explicit_reply_without_losing_search(
+    monkeypatch, fake_leg, fake_profile_store, numeric, amount
+):
+    import json
+
+    fake_leg.response_payload = {"results": [], "profile_delta": {"city": "Denver", "country_anchor": "US"}}
+    llm = _scripted_llm(monkeypatch,
+        '{"family":"search","language":"en","requested_budget":null}', "Do you need a pool?",
+        json.dumps({"family": "search", "language": "fr", "requested_budget": {
+            "amount": amount, "unit": "total", "evidence": numeric,
+            "answer_to": "What is your maximum budget?"}}),
+        json.dumps({"family": "search", "language": "en", "requested_budget": {
+            "amount": amount, "currency": "USD", "unit": "total", "evidence": f"max {amount} USD"}}),
+        "No matching offers.")
+    runner = InMemoryRunner(root_agent)
+    session = _new_session(runner)
+    _run_turn(runner, session.id, "Denver")
+    before = asyncio.run(fake_profile_store.get(session.id))
+    text = _run_turn(runner, session.id, numeric)
+    assert "Is that your budget?" in text and "currency" in text
+    assert fake_leg.call_count == 1 and len(llm.calls) == 3
+    profile = asyncio.run(fake_profile_store.get(session.id))
+    assert profile.city == before.city and profile.requested_budget == before.requested_budget
+    assert profile.budget_max is None
+    _run_turn(runner, session.id, f"max {amount} USD")
+    profile = asyncio.run(fake_profile_store.get(session.id))
+    assert profile.requested_budget == {"amount": float(amount), "currency": "USD", "unit": "total"}
+    assert profile.city == "Denver" and fake_leg.call_count == 2
+
+
 @pytest.mark.parametrize('family', ['search', 'booking'])
 def test_new_clock_window_precedes_old_cheapest_pick(
     monkeypatch, fake_leg, fake_profile_store, family

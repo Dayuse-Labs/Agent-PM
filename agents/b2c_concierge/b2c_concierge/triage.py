@@ -186,6 +186,7 @@ class Triage:
     location_intent: dict | None = None
     comparison_positions: tuple[int, ...] | None = None
     requested_landmark: dict | None = None
+    budget_interpretation_unverified: bool = False
 
 
 def is_social_ack(message: str) -> bool:
@@ -881,6 +882,10 @@ async def classify(message: str, budget: TurnBudget, invocation_id: str = "",
         requested_duration_minutes=_grounded_duration(data, message),
         hotel_scope="shown" if data.get("hotel_scope") == "shown" else None,
         requested_budget=requested_budget,
+        budget_interpretation_unverified=(
+            numeric_only_message(message) and requested_budget is None
+            and "amount" in (grounded_budget(data.get("requested_budget"), message) or {})
+        ),
         price_comparison=(grounded_price_comparison(data.get("price_comparison"), message)
                           if family == "search" else None),
         budget_checked="requested_budget" in data or numeric_only_message(message),

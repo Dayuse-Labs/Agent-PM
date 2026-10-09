@@ -19,6 +19,8 @@ from __future__ import annotations
 
 import re
 
+from b2c_common.offer_facts import matching_offer_facts
+
 from .amenity_synonyms import amenity_present
 
 # Claim patterns are limited to amenities amenity_synonyms.py can verify.
@@ -113,6 +115,11 @@ def amenity_claim_violations(message: str, hotels: list[dict] | None) -> dict[st
                 if re.search(pattern, name_l, re.IGNORECASE):
                     continue
                 if amenity_present(key, hotel.get("amenities")):
+                    continue
+                # The same selected-offer evidence used by synthesis must
+                # reach this guard. Stale hotel/formula/date facts are rejected
+                # centrally; presence alone proves neither privacy nor fees.
+                if amenity_present(key, matching_offer_facts(hotel).get("provider_listed_amenities")):
                     continue
                 violations.setdefault(name, set()).add(key)
     return violations

@@ -1450,6 +1450,18 @@ class _B2cConcierge(BaseAgent):
         )
         if budget_answer:
             family, route = "search", ROUTES["search"]
+        if (route.target == LEAF_HOTEL_SEARCH and not location_choice
+                and triage.budget_interpretation_unverified):
+            # The model proposed an amount but failed to ground its role in
+            # the previous question. Do not send those digits to search or
+            # synthesis where they can become an invented budget/currency.
+            # Keep existing constraints; a complete budget reply can use the
+            # ordinary explicit-budget path on the next turn.
+            await store.set(ctx.session.id, profile)
+            budget.fired.add("budget_integrity")
+            self._emit_turn_metric(family, "template:budget_role_clarification", budget, t_start, "ok", inv)
+            yield self._final(ctx, templates.numeric_budget_clarification(reply_language))
+            return
         display_request = None if budget_answer else triage.display_currency
         currency = resolve_currency_request(display_request, profile.last_results)
         if display_request:

@@ -20,6 +20,13 @@ def selected_offer_facts(hotel: dict[str, Any], offer: dict[str, Any]) -> dict[s
         value = _text(offer.get(source))
         if value:
             facts[target] = value
+    # The provider has separate adult/child capacity fields. Keep zero (no
+    # child capacity) and reject booleans/strings rather than guessing occupancy
+    # from a commercial room name or a bedding code.
+    for source, target in (("capacity", "capacity"), ("childrenCapacity", "children_capacity")):
+        value = offer.get(source)
+        if isinstance(value, int) and not isinstance(value, bool) and value >= 0:
+            facts[target] = value
     inclusions = offer.get("includedAmenities")
     if isinstance(inclusions, list):
         labels = list(dict.fromkeys(label for item in inclusions if (label := _text(item))))
@@ -43,6 +50,7 @@ def matching_offer_facts(card: dict[str, Any]) -> dict[str, Any]:
         "ratePlanUuid": facts["offer_id"], "availabilityDate": facts["offer_date"],
         "ratePlanName": facts.get("name"), "bedding": facts.get("bedding"),
         "roomType": facts.get("room_type"), "includedAmenities": facts.get("provider_listed_amenities"),
+        "capacity": facts.get("capacity"), "childrenCapacity": facts.get("children_capacity"),
     })
     if normalized and facts.get("amenities_truncated") is True:
         normalized["amenities_truncated"] = True

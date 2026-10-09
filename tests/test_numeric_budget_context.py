@@ -25,6 +25,7 @@ def test_ungrounded_bare_number_is_not_a_budget(monkeypatch, message):
     })
     assert result.requested_budget is None
     assert result.budget_checked  # no fallback leaf cap may take over
+    assert result.budget_interpretation_unverified
 
 
 @pytest.mark.parametrize("answer_to", [None, "", "What is your max budget?"])
@@ -42,6 +43,7 @@ def test_budget_question_keeps_real_bare_answer_and_has_no_arbitrary_amount_ceil
     }, question)
     assert result.requested_budget["amount"] == 78240
     assert result.requested_budget["currency"] is None  # resolved separately from trusted native context
+    assert not result.budget_interpretation_unverified
 
 
 @pytest.mark.parametrize("message", ["$40", "40 USD", "under 40", "max 78240 JPY"])
@@ -51,6 +53,7 @@ def test_explicit_budget_is_not_blocked_by_numeric_only_guard(monkeypatch, messa
         "amount": amount, "unit": "total", "evidence": message,
     })
     assert result.requested_budget["amount"] == amount
+    assert not result.budget_interpretation_unverified
 
 
 def test_missing_optional_budget_key_cannot_reactivate_legacy_numeric_cap(monkeypatch):
@@ -63,3 +66,4 @@ def test_missing_optional_budget_key_cannot_reactivate_legacy_numeric_cap(monkey
     result = asyncio.run(classify("78240", TurnBudget()))
     assert result.requested_budget is None
     assert result.budget_checked
+    assert not result.budget_interpretation_unverified

@@ -670,3 +670,16 @@ def unresolved_areas_notice(names: list[str], language: str) -> str:
         "nl": "De zoekopdracht omvat de geïdentificeerde gebieden. Nog te verduidelijken gebieden: {}.",
     }
     return templates.get(language, templates["en"]).format(" / ".join(names)) if names else ""
+
+
+def numeric_budget_clarification(language: str) -> str:
+    """Ask about an unverified numeric interpretation without adopting it."""
+    return _pick(language, {
+        "fr": "Ce nombre correspond-il à ton budget ? Si oui, peux-tu préciser le montant et la devise ensemble ?",
+        "en": "Is that your budget? If so, could you give the amount and currency together?",
+        "es": "¿Ese número corresponde a tu presupuesto? Si es así, ¿puedes indicar el importe y la moneda juntos?",
+        "it": "Quel numero è il tuo budget? Se sì, puoi indicare insieme l'importo e la valuta?",
+        "de": "Ist das dein Budget? Wenn ja, kannst du Betrag und Währung zusammen angeben?",
+        "pt": "Esse número corresponde ao seu orçamento? Se sim, pode indicar o valor e a moeda juntos?",
+        "nl": "Is dat je budget? Zo ja, kun je het bedrag en de valuta samen aangeven?",
+    })

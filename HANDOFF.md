@@ -1,5 +1,36 @@
 # HANDOFF — AgentB2C
 
+## 2026-10-09 — v66 local : preuves de formule et clarification des budgets ambigus
+
+Le rejeu v65 est terminé : 58 conversations, 163 réponses, 8 A / 22 B / 21 C /
+7 non notées. 266 cartes jointes à leur reçu MCP exact, zéro erreur de prix ou
+plafond vérifiable ; 247 distances cohérentes avec l'origine stockée (cela ne
+valide pas cette origine). Coût v65 : 1,59519475 USD. Rue 23rd Street conservée
+après précision de ville ; jacuzzi privé et plusieurs suivis géographiques
+restent insuffisants. Ne pas annoncer de supériorité globale.
+
+Lot local suivant : le contrôle des équipements lit les mêmes faits de formule
+que la synthèse, après validation hôtel/UUID/date. Les capacités adultes/enfants
+proviennent de cette formule ; zéro reste explicite, champs invalides inconnus.
+Un nombre interprété comme budget sans question antérieure vérifiable provoque
+une clarification déterministe ; il ne part plus en recherche/synthèse. Le suivi
+avec montant+devise reprend le contexte. Aucun nouveau motif regex, phase modèle,
+changement MCP, FAQ ou Railway. Tests de régression du chemin réel et des preuves
+périmées : 2762 passent, 1 ignoré ; ruff, mypy71 et guardrails verts.
+
+Ce lot n'est PAS encore rejoué en réel ni poussé. Le même corpus tourne en ce
+moment sur https://ai.dayuse.com (production déployée a08a7792, configuration
+Railway et accès Langfuse vérifiés). Les résultats partiels ne sont pas un bilan.
+Budget supplémentaire humain +40 EUR : plafond opérationnel conservateur total
+150 USD, réserve 0,50, provisions non chiffrées 6,10 maintenues. Le ledger privé
+fait foi pour le coût courant, qui évolue pendant le rejeu production.
+
+Reste : finir et relire le témoin production ; challenger le triage sur contextes
+identiques ; rejeu complet du lot corrigé, analyse/rejeu des échecs avant publication.
+Les suivis Rio/ZIP/aéroports, la pertinence géographique et le jacuzzi en chambre
+restent ouverts. FAQ/annulations phase 2. PR 134 draft inchangée au head 2772d9f,
+pas de GO remplacement de production. Preuves privées batch-v65 puis batch-v66.
+
 ## 2026-10-09 — v64 local : portée des équipements et faits de la formule affichée
 
 Le dernier rejeu affirmait un jacuzzi dans la chambre à Philadelphie sans
