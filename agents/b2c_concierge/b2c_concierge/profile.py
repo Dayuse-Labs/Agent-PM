@@ -226,6 +226,7 @@ class SessionProfile:
     search_exhausted: bool = False
     last_suggestions: list[str] | None = None
     last_clarifying_question: str | None = None
+    pending_clarification: dict[str, str] | None = None
     last_results: list[dict[str, Any]] | None = None
     pending_booking: dict[str, Any] | None = None
     amenity_claim_corrections: dict[str, list[str]] | None = None
@@ -329,6 +330,7 @@ class SessionProfile:
             "search_exhausted": self.search_exhausted,
             "last_suggestions": self.last_suggestions,
             "last_clarifying_question": self.last_clarifying_question,
+            "pending_clarification": self.pending_clarification,
             "last_results": self.last_results,
             "pending_booking": self.pending_booking,
             "amenity_claim_corrections": self.amenity_claim_corrections,
@@ -390,6 +392,7 @@ class SessionProfile:
 # `last_suggestions` also carry message-derived content that has no business
 # shipping to the leaf (GDPR: data minimization).
 _CONCIERGE_ONLY_KEYS = (
+    "pending_clarification",
     "pending_party_total",
     "pending_proximity",
     "amenities_owned",
@@ -672,7 +675,7 @@ def apply_profile_delta(
     values, clears, explicit_sets = _normalize_delta(dict(delta))
     known_fields = set(SessionProfile.__dataclass_fields__)
     # User-grounded constraints are concierge-owned, including typed clears.
-    for owned_slot in ("pending_proximity", "pending_location", "confirmed_location", "requested_destination", "requested_budget", "price_comparison", "requested_window", "requested_duration_minutes", "overnight_window"):
+    for owned_slot in ("pending_clarification", "pending_proximity", "pending_location", "confirmed_location", "requested_destination", "requested_budget", "price_comparison", "requested_window", "requested_duration_minutes", "overnight_window"):
         values.pop(owned_slot, None)
         clears.discard(owned_slot)
     from b2c_common.destination_request import destination_request

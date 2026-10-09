@@ -1235,6 +1235,7 @@ class _B2cConcierge(BaseAgent):
         from b2c_common.confirmed_location import context_for_triage, pending_location
         from b2c_common.destination_request import DestinationRequest, destination_request, refine_landmark, refine_hotel
         from .location_state import commit_place, receive_location, selected_place
+        from .clarification_state import location_reply_context, remember_location_question
 
         refinement_signal = is_search_refinement_signal(message, profile)
         booking_signal = is_booking_confirmation_signal(message, profile)
@@ -1255,6 +1256,9 @@ class _B2cConcierge(BaseAgent):
         # 2. Triage (ONE economy LLM + regex fallback). Off the session/stream.
         recent_messages = recent_user_messages(ctx.session.events, message)
         previous_reply = last_assistant_message(ctx.session.events, author=self.name)
+        expected_location = location_reply_context(profile, previous_reply)
+        profile.pending_clarification = None  # Each new answer must establish its own question.
+        numeric_reply = numeric_only_message(message)
         missing_destination_before_triage = not profile.city
         unresolved_request = not profile.confirmed_location and not profile.distance_origin and not profile.last_results
         location_context = context_for_triage(
@@ -1264,6 +1268,8 @@ class _B2cConcierge(BaseAgent):
             areas=profile.search_areas, device_available=bool(profile.search_anchor and profile.search_anchor.get("type") == "gps"),
             requested=profile.requested_destination,
         )
+        if expected_location:
+            location_context = {**(location_context or {}), "pending_clarification": expected_location}
         location_kwargs = {"location_context": location_context} if location_context else {}
         triage = await classify(
             message, budget, inv, recent_messages=recent_messages, previous_reply=previous_reply, **location_kwargs
@@ -1274,6 +1280,8 @@ class _B2cConcierge(BaseAgent):
                                   and (location_action == "refine" or missing_destination_before_triage
                                        or (recent_messages and previous_reply)))
         family = "search" if location_choice or (profile.pending_location and triage.family == "ack") else triage.family
+        if expected_location and numeric_reply:
+            family = "search"
         route = ROUTES[family]
         # P1-1: the two code-owned override signals are RE-derived here, now fed
         # by triage's slots on top of their own regexes (the slots ADD coverage
@@ -1297,6 +1305,8 @@ class _B2cConcierge(BaseAgent):
         booking_signal = is_booking_confirmation_signal(
             message, profile, llm_booking_confirmation=triage.booking_confirmation
         )
+        if expected_location and numeric_reply:
+            booking_signal = False
         if refinement_signal:
             budget.fired.add("recovery_ack")
         # P1-2/UX2: `triage.language` is one of the 7 recognized languages, all
@@ -1305,7 +1315,6 @@ class _B2cConcierge(BaseAgent):
         # or the synthesis prompt is fed — see triage.response_language for
         # why this stays a choke point rather than reading `triage.language`
         # directly at each call site.
-        numeric_reply = numeric_only_message(message)
         reply_language = (
             template_language(profile.language, profile.locale, message)
             if numeric_reply else response_language(triage.language)
@@ -1495,6 +1504,10 @@ class _B2cConcierge(BaseAgent):
             # A single-position extraction cannot collapse an explicit
             # comparison into a details lookup for only one hotel.
             picked = None
+        elif expected_location and numeric_reply and clicked_id is None:
+            family, route = "search", ROUTES["search"]
+            picked = None
+            booking_signal = False
         elif picked is not None:
             # A pick with a BOOKING intent hands off (a link, guarded below);
             # a pick with any other intent ("montre-moi le moins cher") is a
@@ -1532,6 +1545,13 @@ class _B2cConcierge(BaseAgent):
             family, route = "search", ROUTES["search"]
         if (route.target == LEAF_HOTEL_SEARCH and not location_choice
                 and (triage.budget_interpretation_unverified or triage.unclassified_numeric_input)):
+            if expected_location and numeric_reply:
+                question = templates.numeric_location_clarification(message.strip(), reply_language)
+                remember_location_question(profile, question, message.strip())
+                await store.set(ctx.session.id, profile)
+                self._emit_turn_metric(family, "template:location_number_clarification", budget, t_start, "ok", inv)
+                yield self._final(ctx, question)
+                return
             # The proposed budget failed provenance validation, or no supported
             # semantic role was extracted. Do not send those digits to search
             # or synthesis where they can become an invented budget/currency.
@@ -1895,7 +1915,7 @@ class _B2cConcierge(BaseAgent):
 
         if route.target == LEAF_HOTEL_SEARCH and profile.pending_proximity is not None:
             question = templates.proximity_origin_question(reply_language)
-            profile.last_clarifying_question = question
+            remember_location_question(profile, question)
             await store.set(ctx.session.id, profile)
             yield self._hotels_event(ctx, {"requires_clarification": True}, reply_language)
             self._emit_turn_metric(family, "template:proximity_origin", budget, t_start, "ok", inv)
@@ -1913,6 +1933,8 @@ class _B2cConcierge(BaseAgent):
             question = (party_composition_question(profile.pending_party_total, reply_language)
                         if destination_known else templates.missing_destination_question(reply_language))
             profile.last_clarifying_question = question
+            if not destination_known:
+                remember_location_question(profile, question)
             await store.set(ctx.session.id, profile)
             yield self._hotels_event(ctx, {"requires_clarification": True}, reply_language)
             self._emit_turn_metric(family, "template:party_clarification", budget, t_start, "ok", inv)
@@ -1921,7 +1943,7 @@ class _B2cConcierge(BaseAgent):
 
         if route.target == LEAF_HOTEL_SEARCH and location_action == "unknown":
             question = templates.destination_update_clarification(reply_language)
-            profile.last_clarifying_question = question
+            remember_location_question(profile, question)
             await store.set(ctx.session.id, profile)
             self._emit_turn_metric(family, "template:location_clarification", budget, t_start, "ok", inv)
             yield self._final(ctx, question)
@@ -2094,7 +2116,7 @@ class _B2cConcierge(BaseAgent):
                 # The question already has the correct semantic target. A
                 # second synthesis must not turn it into choosing one airport.
                 question = landmark_context_question(owned_destination, reply_language)
-                profile.last_clarifying_question = question
+                remember_location_question(profile, question)
                 await store.set(ctx.session.id, profile)
                 yield self._hotels_event(ctx, {"requires_clarification": True}, reply_language)
                 self._emit_turn_metric(family, "template:landmark_context", budget, t_start, "ok", inv)
@@ -2106,7 +2128,7 @@ class _B2cConcierge(BaseAgent):
             from b2c_common.destination_request import address_context_question, postcode_context_question
             formatter = postcode_context_question if owned_destination.kind == "postcode" else address_context_question
             question = formatter(owned_destination.query or "", reply_language)
-            profile.last_clarifying_question = question
+            remember_location_question(profile, question)
             await store.set(ctx.session.id, profile)
             yield self._hotels_event(ctx, {"requires_clarification": True}, reply_language)
             self._emit_turn_metric(family, "template:" + owned_destination.kind + "_context", budget, t_start, "ok", inv)
@@ -2114,7 +2136,7 @@ class _B2cConcierge(BaseAgent):
             return
         pending = pending_location(profile.pending_location)
         if route.target == LEAF_HOTEL_SEARCH and pending and response.get("requires_clarification"):
-            profile.last_clarifying_question = pending["question"]
+            remember_location_question(profile, pending["question"])
             await store.set(ctx.session.id, profile)
             yield self._hotels_event(ctx, {"requires_clarification": True}, reply_language)
             self._emit_turn_metric(family, "template:location_clarification", budget, t_start, "ok", inv)
@@ -2417,6 +2439,12 @@ class _B2cConcierge(BaseAgent):
         unresolved = (response.get("area_coverage") or {}).get("unresolved_areas")
         if isinstance(unresolved, list) and unresolved and all(isinstance(name, str) for name in unresolved):
             final_text = f"{final_text.rstrip()}\n\n{templates.unresolved_areas_notice(unresolved, reply_language)}"
+        if (route.target == LEAF_HOTEL_SEARCH and response.get("requires_clarification")
+                and (response.get("location_resolution_failed") or location_action in {"missing", "unknown"}
+                     or not any((profile.city, profile.zone, profile.metro, profile.requested_destination,
+                                 profile.confirmed_location, profile.search_anchor)))):
+            remember_location_question(profile, final_text)
+            await store.set(ctx.session.id, profile)
         for chunk in _chunk_text(final_text):
             yield self._chunk_event(ctx, chunk)
         yield self._final(ctx, final_text)

@@ -1,3 +1,37 @@
+## 2026-10-09 · v94 portée de clarification persistante — validation locale
+
+Le concierge conserve désormais le type de question géographique posée, lié
+au texte exact de sa dernière réponse. Une réponse numérique reste dans cette
+portée : elle ne devient ni budget ni sélection d'un ancien hôtel. Si le lieu
+reste ambigu, une question géographique conserve le nombre sans inventer son
+identité. Le triage reçoit la portée via son contexte existant. La question
+expire après une autre réponse ; un budget explicitement formulé reste accepté.
+Questions de lieu, adresse/postcode, repères et origine d'un rayon couvertes.
+État privé du concierge, exclu des feuilles et protégé de leurs deltas. Aucun
+regex ni phase modèle ajouté, aucune affectation automatique de coordonnées.
+
+3086tests passent,1gate Langfuse payante ignorée ;ruff/mypy79/guardrails/diff
+verts. Les tests couvrent une question périmée, un changement de sujet, le faux
+budget modèle, l'ancien hôtel sélectionnable et la conservation heures/groupe/
+équipements/plafond. Code pas encore rejoué à ce stade.
+
+Production fraîche18:55UTC :34nouveaux échanges/9sessions relus, statut organique
+non vérifié. Langfuse7traces/141observations d'un parcours GPS canadien : point
+initial device_gps en Ontario ; une relance widen re-géocode le nom homonyme
+sans province et recherche réellement en Nouvelle-Écosse. Les coordonnées natives
+sont attestées par requested_source=device_gps, distinctes du centre géocodé.
+Cela permet un rejeu avec contexte GPS reconstitué, explicitement documenté.
+Autres enjeux frais : alternatives géographiques, nuit18–10, moins cher versus
+hôtels répétés, heures exactes et date future. Sources privées batch-v94.
+
+Cumul149,11918869/150USD ; disponible après réserve0,38081131. Aucun coût en
+attente. Extension10USD non accordée, CI GitHub bloquée avant exécution par
+facturation/plafond Actions (run37975668283), pas de relance identique. v94
+prévoit un dernier lot borné au reliquat : parcours numérique et parcours GPS
+frais, sans nouveau modèle. NO GO ; historique complet100/280 toujours requis.
+Le tour précédent est classé progrès (code,rejeux,preuves,PR), pas simple attente.
+Aucun merge/déploiement. PR134 publiée à9ec4ad3 avant ce complément.
+
 ## 2026-10-09 · v93 rejoué — correction nommée vérifiée, NO GO
 
 Runtime7f20e59 :2messages historiques puis2messages synthétiques repris du

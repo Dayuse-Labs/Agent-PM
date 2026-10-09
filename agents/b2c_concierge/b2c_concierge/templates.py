@@ -768,3 +768,16 @@ def proximity_origin_question(language: str) -> str:
         "pt": "Mantenho a distância pedida. A partir de que cidade, endereço ou lugar devo medi-la?",
         "nl": "Ik behoud de gevraagde afstand. Vanaf welke stad, welk adres of welke plek moet ik die meten?",
     }.get(language, "I’m keeping your requested distance. From which city, address or place should I measure it?")
+
+
+def numeric_location_clarification(value: str, language: str) -> str:
+    labels = {
+        'fr': 'Pour localiser « {value} », peux-tu préciser le nom de la commune ou de la zone recherchée ?',
+        'en': 'To locate “{value}”, could you give the name of the town or area you mean?',
+        'es': 'Para localizar «{value}», ¿puedes indicar el nombre de la localidad o zona que buscas?',
+        'it': 'Per localizzare «{value}», puoi indicare il nome della città o della zona che cerchi?',
+        'de': 'Welchen Ort oder welches Gebiet meinst du mit „{value}“?',
+        'pt': 'Para localizar «{value}», podes indicar o nome da localidade ou da zona pretendida?',
+        'nl': 'Welke plaats of welk gebied bedoel je met ‘{value}’?',
+    }
+    return labels.get(language, labels['en']).format(value=value)

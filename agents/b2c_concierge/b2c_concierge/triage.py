@@ -759,6 +759,11 @@ async def classify(message: str, budget: TurnBudget, invocation_id: str = "",
     )
     data = _parse_triage_json(resp.choices[0].message.content or "") or {}
     data = adapt_location_update(data, message, location_context)
+    if (numeric_only_message(message)
+            and ((location_context or {}).get("pending_clarification") or {}).get("kind") == "location"):
+        # The previous code-owned question asked for a place, not a spending
+        # limit. A numeric reply cannot gain budget provenance by quoting it.
+        data = {**data, "requested_budget": None, "bare_budget_value": None}
     family = data.get("family")
     if family not in FAMILIES:
         family = fallback_family(message)

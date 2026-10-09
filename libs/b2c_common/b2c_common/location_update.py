@@ -67,6 +67,10 @@ cannot be recovered from context. Do not infer coordinates, travel times or radi
 country is a soft geographic hint, not a claim of user confirmation: use geographic
 knowledge of the named place/region when clear; the provider will verify it. If
 uncertain, omit it. Never infer a destination country from language or locale.
+When LOCATION CONTEXT has pending_clarification.kind=location, the last question
+asked for a place. Interpret a numeric reply in that scope, not as a budget or
+hotel selection. If its geographic identity is unclear, use unknown; never
+invent coordinates, a containing city, or an administrative name to force a match.
 '''
 
 
