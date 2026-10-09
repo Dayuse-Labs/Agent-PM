@@ -127,3 +127,41 @@ def test_current_mention_of_confirmed_parent_can_ground_airport_parent_without_i
     got = adapt_location_update(transaction('near airport', kind='landmark', query='airport'), 'near airport',
                                 {'confirmed_city': 'Philadelphia'})
     assert got['requested_landmark']['city'] is None
+
+
+@pytest.mark.parametrize('city,region', [('Glendora', 'CA'), ('San Antonio', 'Texas'), ('Fayetteville', 'nc')])
+def test_city_and_parent_region_are_one_destination(city, region):
+    message = f'{city}, {region}'
+    raw = transaction(message, query=city, region=region)
+    raw['location_update']['targets'][0]['country'] = 'US'
+    got = adapt_location_update(raw, message, None)
+    areas = validate_areas(got['requested_areas'], message)
+    assert len(areas) == 1 and areas[0]['region'] == region
+    assert not requires_area_membership(areas)
+
+
+def test_explicit_containing_city_is_not_lost_when_country_unknown():
+    message = 'New York City queens'
+    raw = transaction(message, kind='neighborhood', query='queens')
+    raw['location_update']['targets'][0].pop('country')
+    raw['location_update']['parent_city'] = 'New York City'
+    got = adapt_location_update(raw, message, None)
+    areas = validate_areas(got['requested_areas'], message)
+    assert areas == [{'query': 'New York City', 'kind': 'municipality', 'country': '',
+                      'evidence': 'New York City', 'subarea': 'queens'}]
+
+
+def test_bounded_city_provider_must_match_its_parent_region():
+    area = {'query': 'Glendora', 'kind': 'municipality', 'country': 'US',
+            'region': 'CA', 'evidence': 'Glendora', 'boundary_evidence': 'only inside'}
+    c = GeocodeCandidate(34.13, -117.87, 'Glendora', 'Glendora, California, United States',
+                         'United States', 'place', 'US', 'California',
+                         (-117.9, 34.1, -117.8, 34.2), 0, 'glendora-ca', '')
+    queries = []
+    def provider(query, **kwargs):
+        queries.append(query)
+        return [c]
+    assert resolve_areas([area], SimpleNamespace(geocode_candidates=provider))['ok']
+    assert queries == ['Glendora, CA']
+    wrong = replace(c, place_name='Glendora, Mississippi, United States', region='Mississippi')
+    assert not resolve_areas([area], SimpleNamespace(geocode_candidates=lambda *a, **kw: [wrong]))['ok']

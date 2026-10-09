@@ -16,7 +16,8 @@ requested_landmark, requested_areas or requested_subarea):
  "evidence":"exact current message quote", "parent_city":"optional exact containing city",
  "position":1, "targets":[{"kind":"city|region|neighborhood|landmark|hotel",
  "query":"place name only", "country":"ISO2", "evidence":"exact current place quote",
- "scope":"nearby|inside", "code":"optional explicitly stated administrative code"}]}
+ "scope":"nearby|inside", "region":"optional verbatim containing state/province",
+ "code":"optional explicitly stated administrative code"}]}
 Omit unused fields. Preserve/missing/device/select have NO targets. Select is
 only a choice of one of LOCATION CONTEXT.options, never a hotel or multiple places.
 Preserve means there is NO geographic update. A new airport/address within the
@@ -25,7 +26,16 @@ the containing city for the EXISTING named hotel, landmark, address or neighborh
 retain the old target, do NOT put the parent city in targets. Correct with targets
 repairs the SAME intended place and retains its previous parent. Change replaces it.
 A bare city answering your location question is search, never a social acknowledgement.
-Use change with one target for a new destination; up to three targets are alternatives.
+Use change with one target for a new destination. Multiple targets are ONLY
+alternative destinations the customer accepts, never the components of an address.
+A city followed by a state/province/country is ONE target: city in query, verbatim
+state/province in region, geographic country hint in country. Never make the
+containing state a second destination. A corridor BETWEEN places is not their union;
+use unknown and ask for a central location if the corridor cannot be represented.
+For a neighborhood/landmark with its containing city stated in MESSAGE, parent_city
+is required and targets contains only the neighborhood/landmark, not that city.
+For a new landmark within the confirmed city, retain that confirmed parent_city
+unless the user states another city. Do not ask again for an already confirmed parent.
 A city is a municipality; a region is a state/county/province; a neighborhood is a
 sub-city district. Never label a neighborhood as a state or county. An airport,
 station, street address or postcode is a landmark, not an administrative region.
@@ -40,7 +50,9 @@ Countries/parent cities supplied later refine the outstanding specific destinati
 Negative locations are NEVER targets: retain the requested location when the user
 says the proposed results are in the wrong place. Use unknown if the positive target
 cannot be recovered from context. Do not infer coordinates, travel times or radii.
-If the country is unknown, omit it; do not invent a country from language or locale.
+country is a soft geographic hint, not a claim of user confirmation: use geographic
+knowledge of the named place/region when clear; the provider will verify it. If
+uncertain, omit it. Never infer a destination country from language or locale.
 '''
 
 
@@ -87,6 +99,10 @@ def adapt_location_update(data: dict[str, Any], message: str, context: dict | No
         if country is not None and (not isinstance(country, str) or len(country) != 2
                                    or not country.isascii() or not country.isalpha()):
             return result
+        region = target.get('region')
+        if region is not None and (not isinstance(region, str) or not region.strip()
+                                   or not area_name_in_text(region, message)):
+            return result
         scope = target.get('scope', 'nearby' if kind == 'city' else 'inside')
         if scope not in {'nearby', 'inside'}:
             return result
@@ -110,11 +126,20 @@ def adapt_location_update(data: dict[str, Any], message: str, context: dict | No
     if any(t['kind'] not in {'city', 'region', 'neighborhood'} for t in clean):
         # Mixed incompatible target kinds need clarification.
         return result
+    parent = raw.get('parent_city')
+    if (isinstance(parent, str) and area_name_in_text(parent, message)
+            and all(t['kind'] == 'neighborhood' for t in clean)):
+        result['requested_areas'] = [
+            {'query': parent, 'kind': 'municipality', 'country': t['country'] or '',
+             'evidence': parent, 'subarea': t['query']} for t in clean
+        ]
+        return result
     result['requested_areas'] = [
         {'query': t['query'], 'kind': {'city': 'municipality', 'region': 'administrative', 'neighborhood': 'neighborhood'}[t['kind']],
          'country': t['country'] or '', 'evidence': t['evidence'],
          **({'boundary_evidence': evidence} if t['kind'] == 'city' and t['scope'] == 'inside' else {}),
-         **({'code': t['code']} if t.get('code') else {})}
+         **({'code': t['code']} if t.get('code') else {}),
+         **({'region': t['region']} if t.get('region') else {})}
         for t in clean
     ]
     return result

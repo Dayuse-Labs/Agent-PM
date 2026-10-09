@@ -1683,6 +1683,7 @@ class _B2cConcierge(BaseAgent):
                 profile.search_anchor = None
             if profile.search_areas is None:
                 profile.country_anchor = area_update[0]["country"]
+                profile.state_anchor = area_update[0].get("region") or None
                 if area_update[0]["country"] == "US" and area_update[0].get("code"):
                     profile.state_anchor = area_update[0]["code"]
             profile.search_exhausted = False

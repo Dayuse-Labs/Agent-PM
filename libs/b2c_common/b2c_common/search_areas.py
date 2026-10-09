@@ -32,6 +32,7 @@ class AreaRequest(BaseModel):
     evidence: str = Field(description="Shortest exact quote from the CURRENT user message naming this area, e.g. 78 or Brescia. Never add words.")
     boundary_evidence: str = Field(default="", description="Exact CURRENT words requiring city limits, e.g. 'only within city limits'. REQUIRED for a single bounded municipality, even on the first turn. Empty for an ordinary city name or country clarification; those use normal city search.")
     subarea: str = Field(default="", description="Verbatim named geographic subset required INSIDE this area, e.g. rive droite or Le Marais. Preserve the entire subset if composite. Empty only when the whole parent area is allowed; never replace a strict subset with its parent.")
+    region: str = Field(default="", description="Verbatim containing state/province for this place; never a second alternative destination.")
     code: str = Field(default="", description="Administrative code explicitly named, e.g. 78. Omit when only the name was stated.")
 
 
@@ -47,7 +48,7 @@ def validate_areas(value: Any, message: str | None = None) -> list[dict[str, str
     for item in value:
         if isinstance(item, AreaRequest):
             item = item.model_dump(exclude_defaults=True)
-        if not isinstance(item, dict) or set(item) - {"query", "kind", "country", "code", "evidence", "boundary_evidence", "subarea"}:
+        if not isinstance(item, dict) or set(item) - {"query", "kind", "country", "code", "evidence", "boundary_evidence", "subarea", "region"}:
             return None
         if any(not isinstance(item.get(k), str) or not item[k].strip() for k in ("query", "kind", "evidence")):
             return None
@@ -75,6 +76,10 @@ def validate_areas(value: Any, message: str | None = None) -> list[dict[str, str
         if item.get("code") is not None and not isinstance(item["code"], str):
             return None
         if clean.get("boundary_evidence") and message is not None and clean["boundary_evidence"].casefold() not in message.casefold():
+            return None
+        if item.get("region") is not None and not isinstance(item["region"], str):
+            return None
+        if clean.get("region") and message is not None and not area_name_in_text(clean["region"], message):
             return None
         if item.get("subarea") is not None and not isinstance(item["subarea"], str):
             return None

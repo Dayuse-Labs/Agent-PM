@@ -15,6 +15,7 @@ from typing import Any, Awaitable
 
 from b2c_common.search_areas import validate_areas as validate_areas
 
+from hotel_search_agent.geo_guards import geocode_echo_matches, resolve_state_hint
 from hotel_search_agent.inventory import haversine_km
 from hotel_search_agent.mapbox_client import MapboxClient
 
@@ -63,10 +64,16 @@ def _resolve_area(item: dict[str, str], client: MapboxClient, language: str | No
     if parent is not None:
         types = "locality,neighborhood"
     query = f'{item["subarea"]}, {item["query"]}' if parent is not None else item["query"]
+    region = item.get("region")
+    region_hint = (resolve_state_hint(keywords=[region], country_code=item["country"] or None)
+                   or region) if region else None
+    if region:
+        query += ", " + region
     candidates = client.geocode_candidates(query, country=item["country"] or None, types=types, language=language)
     matches = [c for c in candidates if c.feature_type in types.split(",")
                and c.country_code and (not item["country"] or c.country_code == item["country"]) and c.mapbox_id
                and (parent is None or parent["id"] in c.parent_ids)
+               and (not region_hint or geocode_echo_matches(c.place_name, city=None, zone=None, state_hint=region_hint))
                and ((item.get("code") and parent is None and c.administrative_code.casefold() == item["code"].casefold())
                     or ((parent is not None or not item.get("code")) and _same_area_name(item["subarea"] if parent is not None else item["query"], c.name, parent is None and item["kind"] == "administrative")))]
     unique = {c.mapbox_id: c for c in matches}
