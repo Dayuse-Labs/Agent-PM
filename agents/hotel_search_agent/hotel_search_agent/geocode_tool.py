@@ -144,8 +144,10 @@ def _landmark_query(zone: str) -> str:
 def _unanchored_airport_code(zone: str) -> str | None:
     """A possible identifier authorizes lookup, never coordinates by itself."""
     query = _landmark_query(zone).strip()
-    if len(query) == 3 and query.isascii() and query.isalpha() and query.isupper():
-        return query
+    airport_category = any(word in _AIRPORT_WORDS for word in _place_words(zone))
+    if (len(query) == 3 and query.isascii() and query.isalpha()
+            and (query.isupper() or airport_category)):
+        return query.upper()
     return None
 
 

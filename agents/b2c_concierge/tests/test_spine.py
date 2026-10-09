@@ -86,7 +86,7 @@ def scripted(monkeypatch):
         monkeypatch.setattr(agent_module.litellm, "acompletion", llm)
         leaf_calls: list[str] = []
 
-        async def fake_run_leaf(leaf, ctx, profile_in):
+        async def fake_run_leaf(leaf, ctx, profile_in, *, query_params=None):
             leaf_calls.append(leaf)
             return leaf_text, dict(response or {})
 
@@ -332,7 +332,7 @@ class TestHonestDegradation:
     def test_leaf_failure_degrades_honestly_without_synthesis(self, scripted, caplog, monkeypatch):
         llm, _ = scripted('{"family": "search", "language": "fr"}')
 
-        async def dead_leaf(leaf, ctx, profile_in):
+        async def dead_leaf(leaf, ctx, profile_in, *, query_params=None):
             return None, {}
 
         monkeypatch.setattr(agent_module, "_run_leaf", dead_leaf)
@@ -492,14 +492,14 @@ class TestHonestDegradation:
             leaf_text="La recherche d'hôtels est momentanément indisponible.",
             response={
                 "status": "search_unavailable",
-                "profile_delta": {"city": "Marseille"},
+                "profile_delta": {"city": "Paris"},
             },
         )
         with caplog.at_level(logging.INFO, logger="b2c_concierge.metrics"):
             answer = _drive(USER_MESSAGE_SEARCH)
         # The geocode delta is kept (the destination WAS understood) and names
         # the city in the degraded template.
-        assert answer == templates.leaf_degraded_response("search", "fr", "Marseille")
+        assert answer == templates.leaf_degraded_response("search", "fr", "Paris")
         assert len(llm.calls) == 1  # triage only: never synthesize a fake zero
         assert _turn_metric(caplog)["status"] == "degraded"
 
@@ -512,11 +512,11 @@ class TestHonestDegradation:
         scripted(
             '{"family": "search", "language": "fr"}',
             leaf_text="indisponible",
-            response={"status": "search_unavailable", "profile_delta": {"city": "Marseille"}},
+            response={"status": "search_unavailable", "profile_delta": {"city": "Paris"}},
         )
         _drive_in(runner, session.id, USER_MESSAGE_SEARCH)
         profile = asyncio.run(fake_profile_store.get(session.id))
-        assert profile.city == "Marseille"  # the delta still landed
+        assert profile.city == "Paris"  # the literal destination delta still landed
         assert profile.consecutive_empty_searches == 0
         assert not profile.last_suggestions
 
@@ -569,7 +569,7 @@ class TestHonestDegradation:
             "Voici 1 hôtel trouvé à Paris.",
         )
 
-        async def textless_leaf(leaf, ctx, profile_in):
+        async def textless_leaf(leaf, ctx, profile_in, *, query_params=None):
             return None, {
                 "results": [{"id": 1, "name": "Villa", "price": "€50.00"}],
                 "profile_delta": {"city": {"op": "set", "value": "Paris"}},
@@ -620,7 +620,7 @@ class TestHonestDegradation:
             TimeoutError("synthesis down"),
         )
 
-        async def textless_leaf(leaf, ctx, profile_in):
+        async def textless_leaf(leaf, ctx, profile_in, *, query_params=None):
             return None, {"results": [{"id": 1, "name": "Villa", "price": "€50.00"}]}
 
         monkeypatch.setattr(agent_module, "_run_leaf", textless_leaf)
@@ -1221,7 +1221,7 @@ class TestObs3GuardScores:
         # does. Observability must not change control flow.
         runner, session = _new_session()
 
-        async def telemetry_only_leaf(leaf, ctx, profile_in):
+        async def telemetry_only_leaf(leaf, ctx, profile_in, *, query_params=None):
             return None, {"guards_fired": ["generic_location_demotion"]}
 
         scripted('{"family": "search", "language": "fr"}')

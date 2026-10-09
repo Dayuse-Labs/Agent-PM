@@ -1895,14 +1895,15 @@ class _B2cConcierge(BaseAgent):
         if route.target == LEAF_HOTEL_SEARCH and owned_destination:
             query_params["destination_authoritative"] = True
         destination_missing = bool(
-            route.target == LEAF_HOTEL_SEARCH and triage.used_llm and location_action == "missing"
+            route.target == LEAF_HOTEL_SEARCH and triage.used_llm and location_action in {None, "missing"}
             and not any((profile.city, profile.zone, profile.metro, profile.search_areas,
                          profile.confirmed_location, profile.named_hotel, triage.hotel_name))
             and not (profile.search_anchor and profile.search_anchor.get("type") == "gps")
         )
         if destination_missing:
-            # Absence of an extracted destination is not permission for the leaf
-            # to invent one from locale, timezone, or an amenity description.
+            # An omitted geographic transaction is not permission for the leaf
+            # to guess a destination after a clarification. The literal-current-
+            # city path in geocode injection still allows a grounded user answer.
             query_params["destination_missing"] = True
         if route.target == LEAF_HOTEL_SEARCH and occupancy_update:
             query_params["occupancy_update"] = occupancy_update

@@ -1,3 +1,32 @@
+## 2026-10-09 · rejeu v82 terminé ; correctifs de transmission en cours
+
+Runtime `5577837`, 32 conversations/94 tours : 11B,18C,1D,2NN, tous relus
+par Codex. Sur les 24 parcours géographiques : 10 préservés,9 partiels,5 échecs
+(v78 :12/8/4). Aucun gain global établi. Le lot inclut trois conversations
+fraîches lues dans l'export : Orly/Roissy avec enfant, Mercure Nürnberg/Fürth,
+jacuzzi en chambre à Paris ; toutes C. Origine organique non vérifiée.
+95 cartes liées aux reçus MCP exacts, zéro écart de prix/expiration/non-jointure ;
+9 cartes avec budget vérifié frais compris, aucun dépassement. 270 appels LLM,
+zéro erreur télémétrique. Coût1,76267035USD ; cumul147,02315109/150USD dont
+7,10provisionnés. Ledger sans pending ; trois services possédés arrêtés.
+Rapport privé : `production_parity_v18/batch-v82/replay_review.html` (HTML source
+contrôlé, pas rendu). Aucun push de ce suivi ; PR134 reste7139df5/NO GO.
+
+Défaut majeur enregistré : après « Near Disneyland » ambigu, triage omet la
+transaction géographique au tour horaire. Le leaf devine Anaheim et un POI sans
+confirmation ; midi est perdu séparément. Onze transactions géographiques sont
+omises dans les générations triage de ce lot. L'omission ne doit plus libérer
+le leaf si aucune destination/GPS n'est déjà possédée. Le garde de géocodage
+reste compatible avec une ville littéralement fournie au tour courant.
+Autre cause enregistrée : `jfk airport` minuscule ne bénéficiait pas du chemin
+IATA. Le qualifiant aéroport autorise la normalisation en majuscules, sous les
+mêmes vérifications fournisseur. Ni regex ni liste géographique ajoutée.
+Tests ciblés269, ruff/mypy75/guardrails verts ; suite finale2961passent/1gate
+live ignoré (`/tmp/dayuse-v83-tests-final.log`). Doubles de leaf mis au contrat
+query_params existant ; tests indisponibilité alignés sur leur demande Paris,
+avec test négatif séparé rejetant Marseille. Rejeu live encore requis. Les horaires écrits en lettres, les parents
+perdus et les comptes adultes/enfants ne sont pas corrigés par ces deux changements.
+
 ## 2026-10-09 · suivi local v82, séparé de la livraison publiée
 
 Complément local aéroport : un code ASCII majuscule de trois lettres, seul ou

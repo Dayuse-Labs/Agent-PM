@@ -706,6 +706,23 @@ def _user_content_with_profile_in(profile_in: dict) -> genai_types.Content:
 
 
 class TestInjectProfileGeoContext:
+    @pytest.mark.parametrize('city', [None, 'Anaheim'])
+    def test_missing_destination_rejects_guessed_city_after_hours_only_reply(self, city):
+        data = {'profile_in': {'language': 'en'}, 'query_params': {'destination_missing': True}}
+        content = genai_types.Content(role='user', parts=[genai_types.Part(text='Noon to 6pm'),
+            convert_a2a_part_to_genai_part(a2a_types.Part(root=a2a_types.DataPart(data=data)))])
+        args = {'city': city, 'zone': 'Disneyland', 'origin': 'destination'}
+        result = inject_profile_geo_context(_Tool('geocode_location'), args, _Ctx(user_content=content))
+        assert result['error'] == 'geocode_ambiguous'
+        assert not result.get('resolved_location')
+
+    def test_missing_extraction_still_allows_current_literal_city_answer(self):
+        data = {'profile_in': {'language': 'en'}, 'query_params': {'destination_missing': True}}
+        content = genai_types.Content(role='user', parts=[genai_types.Part(text='Anaheim'),
+            convert_a2a_part_to_genai_part(a2a_types.Part(root=a2a_types.DataPart(data=data)))])
+        args = {'city': 'Anaheim'}
+        assert inject_profile_geo_context(_Tool('geocode_location'), args, _Ctx(user_content=content)) is None
+
     @pytest.mark.parametrize("field", ["zone", "metro"])
     @pytest.mark.parametrize("copied", [None, "23rd st"])
     def test_owned_pending_refinement_keeps_specific_place_under_new_parent(self, field, copied):
@@ -2027,7 +2044,7 @@ class TestUnanchoredAirportIdentity:
             forward_candidates=forward))
         return calls
 
-    @pytest.mark.parametrize('zone', ['LAX', 'LAX airport', 'aéroport LAX'])
+    @pytest.mark.parametrize('zone', ['LAX', 'LAX airport', 'aéroport LAX', 'lax airport', 'aéroport lax'])
     def test_native_identity_resolves_without_city_gps_or_ui_country(self, monkeypatch, zone):
         calls = self.install(monkeypatch, [self.airport()])
         result = geocode_location(zone=zone, locale='fr-FR', raw_user_message=zone)

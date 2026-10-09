@@ -126,6 +126,48 @@ def _run_turn(runner, session_id, message):
     return "\n".join(texts).strip()
 
 
+def test_omitted_geo_transaction_after_clarification_cannot_authorize_a_guessed_city(
+    monkeypatch, fake_leg, fake_profile_store
+):
+    # Recorded Disneyland trajectory: the follow-up changes hours only and the
+    # triage omits location_update. That omission used to free the leaf to guess.
+    _scripted_llm(monkeypatch,
+        '{"family":"search","language":"en","location_update":{"action":"unknown","evidence":"Near Disneyland"}}',
+        '{"family":"search","language":"en","requested_window":{"start":"12:00","end":"18:00","evidence":"12:00 to 18:00"}}',
+        'Which city do you mean?')
+    fake_leg.response_payload = {'results': [], 'profile_delta': {}}
+    runner = InMemoryRunner(root_agent)
+    session = _new_session(runner)
+    _run_turn(runner, session.id, 'Near Disneyland')
+    assert fake_leg.call_count == 0
+    _run_turn(runner, session.id, '12:00 to 18:00')
+    outgoing = find_datapart(fake_leg.seen_outgoing_parts)
+    assert outgoing['query_params']['destination_missing'] is True
+    saved = asyncio.run(fake_profile_store.get(session.id))
+    assert saved.city is None
+    assert saved.timeslot_start == '12:00' and saved.timeslot_end == '18:00'
+
+
+def test_omitted_geo_transaction_does_not_erase_a_carried_city(monkeypatch, fake_leg, fake_profile_store):
+    runner = InMemoryRunner(root_agent)
+    session = _new_session(runner)
+    asyncio.run(fake_profile_store.set(session.id, SessionProfile(city='Paris')))
+    _scripted_llm(monkeypatch, '{"family":"search","language":"en"}', 'Same area.')
+    _run_turn(runner, session.id, 'Other options')
+    outgoing = find_datapart(fake_leg.seen_outgoing_parts)
+    assert outgoing['profile_in']['city'] == 'Paris'
+    assert not outgoing['query_params'].get('destination_missing')
+
+
+def test_omitted_geo_transaction_cannot_persist_an_unrelated_leaf_city(monkeypatch, fake_leg, fake_profile_store):
+    runner = InMemoryRunner(root_agent)
+    session = _new_session(runner)
+    _scripted_llm(monkeypatch, '{"family":"search","language":"fr"}')
+    fake_leg.response_payload = {'status': 'search_unavailable', 'profile_delta': {'city': 'Marseille'}}
+    _run_turn(runner, session.id, 'je cherche un hôtel à Paris demain')
+    assert asyncio.run(fake_profile_store.get(session.id)).city is None
+
+
 class TestOutgoingProfileEnvelope:
     def test_support_followup_context_reaches_triage_faq_and_final_answer_but_not_another_session(
         self, monkeypatch, fake_leg, fake_profile_store
