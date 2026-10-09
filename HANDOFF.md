@@ -1,5 +1,20 @@
 ## 2026-10-09 · suivi local v82, séparé de la livraison publiée
 
+Complément local aéroport : un code ASCII majuscule de trois lettres, seul ou
+accompagné du mot aéroport, autorise une recherche sans ville/GPS. La résolution
+exige une unique identité POI persistable avec code IATA natif du fournisseur et
+pays compatible. Une chaîne ressemblante, un commerce, une ville, une identité
+absente ou plusieurs points concurrents ne suffisent pas. La locale de l'interface
+ne contraint pas le pays du code ; les indices géographiques explicites restent
+appliqués. Le chemin avec GPS conserve son comportement précédent. Ni regex,
+ni catalogue d'aéroports, ni appel LLM ajouté. Les aéroports cités uniquement par
+leur nom et les pertes de parent géographique ne sont pas corrigés par ce lot.
+155 tests du module passent, dont 16 cas supplémentaires ; ruff/mypy75 et
+guardrails passent. Suite complète : 2953 passent, 1 gate live ignoré
+(`/tmp/dayuse-v82-airport-tests.log`). Aucun rejeu live de ce complément ni push. L'export prod
+rafraîchi comporte 36 lignes nouvelles / 15 sessions ; contenu pas encore revu,
+origine organique non vérifiée, donc aucun nouveau score à en déduire.
+
 Branche locale `codex/geo-scope-contract-followup`, créée depuis `7139df5`.
 La PR134 reste figée à ce commit, CI verte et NO GO ; aucun push de ce suivi.
 Diagnostic à partir des générations et réponses fournisseur enregistrées : une

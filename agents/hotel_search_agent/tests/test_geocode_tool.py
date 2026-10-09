@@ -2002,3 +2002,75 @@ def test_both_city_providers_preserve_selectable_homonym_options(monkeypatch, pr
     pending = pending_location(result['diagnostics'])
     assert pending is not None
     assert [o['provider_id'] for o in pending['options']] == ['davenport-fl', 'davenport-ia']
+
+
+class TestUnanchoredAirportIdentity:
+    @staticmethod
+    def airport():
+        return GeocodeCandidate(
+            33.943522, -118.408812, 'Los Angeles International Airport',
+            'Los Angeles International Airport, Los Angeles, California, United States',
+            'Los Angeles, California, United States', 'poi', 'US', 'California', None, 0,
+            'airport-lax', parent_city_name='Los Angeles', parent_city_id='city-la',
+            airport_iata='LAX',
+        )
+
+    @staticmethod
+    def install(monkeypatch, candidates):
+        from types import SimpleNamespace
+        calls = []
+        def forward(query, **kwargs):
+            calls.append((query, kwargs))
+            return candidates
+        _patch_multi(monkeypatch, [], inventory={})
+        monkeypatch.setattr(geocode_tool, 'get_searchbox_client', lambda: SimpleNamespace(
+            forward_candidates=forward))
+        return calls
+
+    @pytest.mark.parametrize('zone', ['LAX', 'LAX airport', 'aéroport LAX'])
+    def test_native_identity_resolves_without_city_gps_or_ui_country(self, monkeypatch, zone):
+        calls = self.install(monkeypatch, [self.airport()])
+        result = geocode_location(zone=zone, locale='fr-FR', raw_user_message=zone)
+        assert result['ok']
+        assert result['latitude'] == 33.943522
+        assert result['resolved_location']['provider_id'] == 'airport-lax'
+        assert result['resolved_location']['country_code'] == 'US'
+        assert result['distance_origin_type'] == 'poi'
+        assert len(calls) == 1
+        assert calls[0][0] == 'LAX'
+        assert calls[0][1]['country'] is None
+
+    @pytest.mark.parametrize('changes', [
+        {'airport_iata': ''}, {'airport_iata': 'JFK'}, {'feature_type': 'place'},
+        {'mapbox_id': ''}, {'country_code': ''},
+    ])
+    def test_spelling_is_insufficient_without_provider_identity(self, monkeypatch, changes):
+        from dataclasses import replace
+        self.install(monkeypatch, [replace(self.airport(), **changes)])
+        result = geocode_location(zone='LAX', raw_user_message='near LAX')
+        assert not result['ok']
+        assert not result.get('resolved_location')
+
+    @pytest.mark.parametrize('same_id', [False, True])
+    def test_conflicting_provider_points_are_never_ranked_into_certainty(self, monkeypatch, same_id):
+        from dataclasses import replace
+        candidate = self.airport()
+        self.install(monkeypatch, [candidate, replace(candidate, latitude=40.7,
+                     mapbox_id=candidate.mapbox_id if same_id else 'another-airport')])
+        result = geocode_location(zone='LAX', raw_user_message='near LAX')
+        assert not result['ok']
+        assert not result.get('resolved_location')
+
+    @pytest.mark.parametrize('zone', ['airport', 'spa', 'JFK Memorial', 'LAX Terminal 2'])
+    def test_non_identifiers_still_need_geographic_context(self, monkeypatch, zone):
+        calls = self.install(monkeypatch, [self.airport()])
+        result = geocode_location(zone=zone, raw_user_message=zone)
+        assert not result['ok']
+        assert not calls
+
+    @pytest.mark.parametrize('hint', ['country_code', 'country_guess'])
+    def test_geographic_country_hint_is_preserved(self, monkeypatch, hint):
+        calls = self.install(monkeypatch, [self.airport()])
+        result = geocode_location(zone='LAX', raw_user_message='LAX', **{hint: 'FR'})
+        assert not result['ok']
+        assert calls[0][1]['country'] == 'FR'

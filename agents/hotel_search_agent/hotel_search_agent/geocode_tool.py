@@ -141,6 +141,14 @@ def _landmark_query(zone: str) -> str:
     return " ".join(kept) if kept and has_identifier else zone
 
 
+def _unanchored_airport_code(zone: str) -> str | None:
+    """A possible identifier authorizes lookup, never coordinates by itself."""
+    query = _landmark_query(zone).strip()
+    if len(query) == 3 and query.isascii() and query.isalpha() and query.isupper():
+        return query
+    return None
+
+
 def _echoes(
     place_name: str, *, city: str | None, zone: str | None,
     state_hint: str | None, airport_iata: str = "",
@@ -610,6 +618,8 @@ def geocode_location(
         # bonus): the code can tell, and a signal the code owns cannot be
         # hallucinated.
         if zone_is_specific:
+            airport_code = (_unanchored_airport_code(effective_zone or "")
+                            if proximity_tuple is None else None)
             # 2026-08-26, found by the post-deploy verification of `fa08813`: with
             # no city, no metro AND no device fix, this lookup has nothing to aim
             # at but the container's egress IP (Mapbox's documented default for
@@ -628,7 +638,9 @@ def geocode_location(
             #
             # Runs AFTER the GPS branch above, so Gate 3 still holds; and when a
             # device fix DOES exist the ranker keeps the case exactly as before.
-            if proximity_tuple is None:
+            # A standalone airport code permits one lookup without that anchor;
+            # only a unique, provider-verified IATA identity can resolve it below.
+            if proximity_tuple is None and airport_code is None:
                 mark_level("WARNING", status_message="geocode_city_needed")
                 return _fail(
                     "geocode_ambiguous",
@@ -650,12 +662,15 @@ def geocode_location(
                 # would return exactly that. This is the one path that stays
                 # exposed to Mapbox's IP-biased ranking, which is why it ranks
                 # the whole candidate list instead of trusting top-1.
-                effective_zone or "",
+                airport_code or effective_zone or "",
                 # The raw `country_code` param, not `effective_country_code`:
                 # the US-ZIP anchor that derives the latter runs further down,
                 # after this early return. A bare landmark with no city and a US
                 # ZIP is not a real shape, so nothing is lost.
-                country=_soft_country(country_code, country_guess, locale),
+                # A literal airport identifier is not localized by the UI.
+                # Retain geographic hints, but never use browser language to
+                # turn JFK into a search restricted to France.
+                country=_soft_country(country_code, country_guess, None if airport_code else locale),
                 language=lang,
                 proximity=proximity_str,
             )
@@ -664,6 +679,17 @@ def geocode_location(
             landmark_candidates = [c for c in landmark_candidates if _echoes(
                 c.place_name, city=None, zone=effective_zone, state_hint=None, airport_iata=c.airport_iata
             )]
+            if proximity_tuple is None:
+                # Provider-native IATA metadata is the authority, not the
+                # spelling of a shop, terminal or municipality bearing a code.
+                airport_country = _soft_country(country_code, country_guess, None)
+                identities = [
+                    c for c in landmark_candidates
+                    if c.feature_type == "poi" and c.airport_iata == airport_code
+                    and (not airport_country or c.country_code == airport_country)
+                    and _provider_place(c, zone=effective_zone) is not None
+                ]
+                landmark_candidates = identities if len(identities) == 1 else []
             landmark = geo_resolver.rank_landmark(
                 landmark_candidates,
                 requested_zone=effective_zone or "",
