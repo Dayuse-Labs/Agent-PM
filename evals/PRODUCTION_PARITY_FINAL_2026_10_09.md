@@ -1,29 +1,61 @@
 # Bilan final du 9 octobre 2026 — revue de PR, remplacement refusé
 
-## État actuel — v93 : NO GO maintenu
+## État actuel — v94 : NO GO maintenu
 
-Runtime `7f20e59` : la correction explicite vers un département nommé aboutit
-à une offre reliée au reçu MCP exact, avec voyageurs conservés et aucun budget
-inventé. Le nombre géographique seul reste instable : triage `unknown` lors de
-ce rejeu. **Parcours C maintenu** ; ne pas annoncer le problème numérique résolu.
+Runtime `47f13ad` : **2 conversations / 11 tours, 1 B / 1 D**. Le type de
+clarification géographique est désormais conservé par le concierge et lié à sa
+dernière question. Une réponse numérique ambiguë reste une demande de lieu,
+sans devenir un budget ou une sélection d'ancien hôtel. Aucun regex ni phase
+modèle ajouté ; les feuilles restent stateless.
 
-2messages historiques +2messages synthétiques choisis après les réponsesv92,
-puis rejoués à l'identiquev93. Ce ne sont pas4messages historiques ni une nouvelle
-simulation adaptativev93 ; les branches de clarification diffèrent.1carte vérifiée,
-0écart prix/jointure/expiration ;0carte budget évaluée faute de plafond demandé.
+Le parcours numérique reçoit une clarification géographique et aboutit à une
+région nommée avec une offre vérifiée. Il contient **2 messages historiques et
+2 réponses synthétiques fixes** choisies lors d'un suivi précédent. Note B sur
+ce parcours seulement ; aucune stabilité générale démontrée.
 
-**3077tests passent /1gate Langfuse payante ignorée** ;ruff,mypy78,guardrails verts.
-78empreintes runtime stables. Le dernier lot groupé estv91 (**2B2C contre4C**),
-le dernier complet100/280restev78. Aucun gain global prouvé ; corpus exposé et
-review manuelle non indépendante. Modèles locaux5.2/4o-mini/5.2, différents du
-triage Railway4o-mini. Sources brutes conservées privées.
+Le nouveau parcours GPS contient **7 messages historiques**. L'ancre native
+reste dans la province initiale sur cinq recherches, alors que les traces de
+production attestent un saut vers une province homonyme après élargissement.
+Mais le nouveau parcours reste **D** :
 
-Coûtv93 **0.0710USD** ; complémentsv91–v93 **0.4250USD**.
-Cumul **149.1192/150USD**, dont7,10provisionnés ; disponible après réserve
-**0.3808USD**. Services arrêtés, ledger sans pending. Extension10USD
-non autorisée à ce stade. Restent clarification numérique, recovery, passage
-historique complet et jeu adaptatif séparé. Aucun merge/déploiement.
+- Une demande pour la semaine suivante est étiquetée « demain » par la feuille
+  de recherche et sert une date hors de la période demandée.
+- Une recherche sans offre strictement moins chère est présentée comme une
+  absence totale d'offres, malgré un contexte de comparaison transmis correctement.
+- Quatre villes alternatives correctement extraites sont rejetées par la limite
+  de trois destinations ; la clarification résultante n'exploite pas les lieux donnés.
+- Une sélection ordinale revient à l'ancienne liste après le changement de lieu
+  non résolu. Référent ambigu ; clarification requise, pas intention supposée.
+- Le point GPS est conservé, mais aucun élargissement de rayon n'a été exécuté.
 
+**15 cartes** correspondent aux reçus MCP exacts, sans écart de prix, jointure
+ou expiration. Ce contrôle ne valide pas la pertinence de leur date. Aucun
+plafond utilisateur demandé : **0 carte évaluée sur un budget explicite**.
+
+**3 086 tests passent, 1 gate Langfuse payante ignorée** ; ruff, mypy
+(79 fichiers), guardrails et diff-check passent. 79 empreintes runtime stables.
+34 nouveaux échanges de production issus de 9 sessions relus ; 7 traces
+Langfuse / 141 observations analysées. Statut organique non vérifié. Le contexte
+GPS du rejeu est reconstitué depuis les coordonnées natives des traces servies,
+avec permission accordée reconstituée ; le body navigateur original manque.
+Aucune locale, devise ou timezone absente inventée. Sources privées hors Git.
+
+Rejeu fixe et exposé, revue manuelle non indépendante. Modèles locaux : triage
+GPT-5.2, recherche GPT-4o-mini, synthèse GPT-5.2 ; le triage diffère de Railway
+GPT-4o-mini. Le défaut de date est observé dans une sortie 4o-mini ; celui de
+fausse indisponibilité dans une sortie 5.2. Ce passage ne compare pas les modèles
+et ne justifie pas à lui seul une montée en gamme.
+
+Dernier passage complet : **v78, 100 conversations / 280 tours**. Les notes du
+petit lot courant ne prouvent aucune supériorité globale. Restent les corrections
+ci-dessus, un passage complet sur le code final et un jeu adaptatif séparé.
+FAQ/SAV restent en phase 2.
+
+Coût v94 **0.2363 USD** ; cumul **149.3555 / 150 USD**, dont
+7,10 provisionnés. Disponible après réserve : **0.1445 USD**.
+Services possédés arrêtés, aucune dépense en attente. Extension de 10 USD demandée,
+non autorisée. CI GitHub bloquée avant toute étape par facturation/plafond Actions
+sur le précédent head, run 37975668283. Aucun merge ni déploiement.
 
 ## Dernier rejeu groupé — v91, 9 octobre
 

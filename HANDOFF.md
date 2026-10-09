@@ -1,36 +1,59 @@
-## 2026-10-09 · v94 portée de clarification persistante — validation locale
+## 2026-10-09 · v94 rejoué — clarification corrigée, parcours GPS encore D
 
-Le concierge conserve désormais le type de question géographique posée, lié
-au texte exact de sa dernière réponse. Une réponse numérique reste dans cette
-portée : elle ne devient ni budget ni sélection d'un ancien hôtel. Si le lieu
-reste ambigu, une question géographique conserve le nombre sans inventer son
-identité. Le triage reçoit la portée via son contexte existant. La question
-expire après une autre réponse ; un budget explicitement formulé reste accepté.
-Questions de lieu, adresse/postcode, repères et origine d'un rayon couvertes.
-État privé du concierge, exclu des feuilles et protégé de leurs deltas. Aucun
-regex ni phase modèle ajouté, aucune affectation automatique de coordonnées.
+Runtime `47f13ad` : **2 conversations / 11 tours, 1 B / 1 D**. Le type de
+clarification géographique est désormais conservé par le concierge et lié à sa
+dernière question. Une réponse numérique ambiguë reste une demande de lieu,
+sans devenir un budget ou une sélection d'ancien hôtel. Aucun regex ni phase
+modèle ajouté ; les feuilles restent stateless.
 
-3086tests passent,1gate Langfuse payante ignorée ;ruff/mypy79/guardrails/diff
-verts. Les tests couvrent une question périmée, un changement de sujet, le faux
-budget modèle, l'ancien hôtel sélectionnable et la conservation heures/groupe/
-équipements/plafond. Code pas encore rejoué à ce stade.
+Le parcours numérique reçoit une clarification géographique et aboutit à une
+région nommée avec une offre vérifiée. Il contient **2 messages historiques et
+2 réponses synthétiques fixes** choisies lors d'un suivi précédent. Note B sur
+ce parcours seulement ; aucune stabilité générale démontrée.
 
-Production fraîche18:55UTC :34nouveaux échanges/9sessions relus, statut organique
-non vérifié. Langfuse7traces/141observations d'un parcours GPS canadien : point
-initial device_gps en Ontario ; une relance widen re-géocode le nom homonyme
-sans province et recherche réellement en Nouvelle-Écosse. Les coordonnées natives
-sont attestées par requested_source=device_gps, distinctes du centre géocodé.
-Cela permet un rejeu avec contexte GPS reconstitué, explicitement documenté.
-Autres enjeux frais : alternatives géographiques, nuit18–10, moins cher versus
-hôtels répétés, heures exactes et date future. Sources privées batch-v94.
+Le nouveau parcours GPS contient **7 messages historiques**. L'ancre native
+reste dans la province initiale sur cinq recherches, alors que les traces de
+production attestent un saut vers une province homonyme après élargissement.
+Mais le nouveau parcours reste **D** :
 
-Cumul149,11918869/150USD ; disponible après réserve0,38081131. Aucun coût en
-attente. Extension10USD non accordée, CI GitHub bloquée avant exécution par
-facturation/plafond Actions (run37975668283), pas de relance identique. v94
-prévoit un dernier lot borné au reliquat : parcours numérique et parcours GPS
-frais, sans nouveau modèle. NO GO ; historique complet100/280 toujours requis.
-Le tour précédent est classé progrès (code,rejeux,preuves,PR), pas simple attente.
-Aucun merge/déploiement. PR134 publiée à9ec4ad3 avant ce complément.
+- Une demande pour la semaine suivante est étiquetée « demain » par la feuille
+  de recherche et sert une date hors de la période demandée.
+- Une recherche sans offre strictement moins chère est présentée comme une
+  absence totale d'offres, malgré un contexte de comparaison transmis correctement.
+- Quatre villes alternatives correctement extraites sont rejetées par la limite
+  de trois destinations ; la clarification résultante n'exploite pas les lieux donnés.
+- Une sélection ordinale revient à l'ancienne liste après le changement de lieu
+  non résolu. Référent ambigu ; clarification requise, pas intention supposée.
+- Le point GPS est conservé, mais aucun élargissement de rayon n'a été exécuté.
+
+**15 cartes** correspondent aux reçus MCP exacts, sans écart de prix, jointure
+ou expiration. Ce contrôle ne valide pas la pertinence de leur date. Aucun
+plafond utilisateur demandé : **0 carte évaluée sur un budget explicite**.
+
+**3 086 tests passent, 1 gate Langfuse payante ignorée** ; ruff, mypy
+(79 fichiers), guardrails et diff-check passent. 79 empreintes runtime stables.
+34 nouveaux échanges de production issus de 9 sessions relus ; 7 traces
+Langfuse / 141 observations analysées. Statut organique non vérifié. Le contexte
+GPS du rejeu est reconstitué depuis les coordonnées natives des traces servies,
+avec permission accordée reconstituée ; le body navigateur original manque.
+Aucune locale, devise ou timezone absente inventée. Sources privées hors Git.
+
+Rejeu fixe et exposé, revue manuelle non indépendante. Modèles locaux : triage
+GPT-5.2, recherche GPT-4o-mini, synthèse GPT-5.2 ; le triage diffère de Railway
+GPT-4o-mini. Le défaut de date est observé dans une sortie 4o-mini ; celui de
+fausse indisponibilité dans une sortie 5.2. Ce passage ne compare pas les modèles
+et ne justifie pas à lui seul une montée en gamme.
+
+Dernier passage complet : **v78, 100 conversations / 280 tours**. Les notes du
+petit lot courant ne prouvent aucune supériorité globale. Restent les corrections
+ci-dessus, un passage complet sur le code final et un jeu adaptatif séparé.
+FAQ/SAV restent en phase 2.
+
+Coût v94 **0.2363 USD** ; cumul **149.3555 / 150 USD**, dont
+7,10 provisionnés. Disponible après réserve : **0.1445 USD**.
+Services possédés arrêtés, aucune dépense en attente. Extension de 10 USD demandée,
+non autorisée. CI GitHub bloquée avant toute étape par facturation/plafond Actions
+sur le précédent head, run 37975668283. Aucun merge ni déploiement.
 
 ## 2026-10-09 · v93 rejoué — correction nommée vérifiée, NO GO
 
