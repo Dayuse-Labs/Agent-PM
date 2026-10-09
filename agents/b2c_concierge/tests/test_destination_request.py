@@ -145,3 +145,35 @@ def test_new_city_clears_device_intent_and_leaf_cannot_revive_near_me(scripted, 
     args = {"city": "Amsterdam", "zone": "mij in de buurt", "origin": "device"}
     assert inject_profile_geo_context(SimpleNamespace(name="geocode_location"), args, ctx) is None
     assert args["city"] == "Heemskerk" and not args.get("zone") and args["origin"] == "destination"
+
+
+def test_multiturn_alternative_landmarks_keep_all_targets_and_shared_filters(scripted, monkeypatch, fake_profile_store):  # noqa: F811
+    runner, session = _new_session()
+    asyncio.run(fake_profile_store.set(session.id, SessionProfile(date="2026-11-01", adults=2, children=1)))
+    seen = []
+
+    async def leaf(leaf, ctx, profile_in, **kwargs):
+        seen.append((profile_in, kwargs["query_params"]))
+        return "Please clarify", {"results": [], "profile_delta": {"city": "Unrelated City", "zone": "centre"}}
+
+    turns = [
+        ("North airport or South station", {"action": "change", "evidence": "North airport or South station",
+          "targets": [{"kind": "landmark", "query": name} for name in ["North airport", "South station"]]}),
+        ("Example City", {"action": "refine", "parent_city": "Example City", "evidence": "Example City"}),
+        ("under 80 EUR", {"action": "preserve"}),
+    ]
+    for text, update in turns:
+        scripted(json.dumps({"family": "search", "language": "en", "location_update": update}), "Please clarify")
+        monkeypatch.setattr(agent_module, "_run_leaf", leaf)
+        _drive_in(runner, session.id, text)
+    saved = asyncio.run(fake_profile_store.get(session.id))
+    assert len(seen) == 3
+    assert saved.requested_destination == {"kind": "landmarks", "landmarks": [
+        {"query": "North airport", "city": "Example City"},
+        {"query": "South station", "city": "Example City"},
+    ]}
+    assert saved.city is None and saved.zone is None and saved.confirmed_location is None
+    assert saved.date == "2026-11-01" and saved.adults == 2 and saved.children == 1
+    assert all(q["destination_authoritative"] for _, q in seen)
+    assert all(p["requested_destination"]["kind"] == "landmarks" for p, _ in seen)
+    assert all(len(p["requested_destination"]["landmarks"]) == 2 for p, _ in seen)

@@ -251,6 +251,15 @@ async def _search_areas(tool: Any, args: dict[str, Any], tool_context: Any, area
         if (isinstance(lat, bool) or isinstance(lon, bool) or not isinstance(lat, (float, int))
                 or not isinstance(lon, (float, int)) or not -90 <= lat <= 90 or not -180 <= lon <= 180):
             return None, True
+        points = [a for a in areas if a.get("scope") == "nearby_point"]
+        if points:
+            matches = [a for a in points if haversine_km(lat, lon, a["latitude"], a["longitude"]) <= a["radius_km"]]
+            if not matches:
+                return None, False
+            origins = [{"label": a["label"], "latitude": a["latitude"], "longitude": a["longitude"],
+                        "distance_km": round(haversine_km(lat, lon, a["latitude"], a["longitude"]), 1)}
+                       for a in matches]
+            return {**hotel, "verifiedSearchOrigins": origins, "countryCode": matches[0]["country"]}, False
         identifiers = await asyncio.to_thread(client.containing_area_ids, lat, lon)
         if identifiers is None:
             return None, True
@@ -269,7 +278,11 @@ async def _search_areas(tool: Any, args: dict[str, Any], tool_context: Any, area
                 "retrieved": len(hotels), "verified": len(valid),
                 "unverified": sum(unknown for _, unknown in checked),
                 "failed_areas": sum(p is None for p in payloads),
-                "notice": "Bounded sample from each requested area, filtered by provider membership. No claim of exhaustive availability or absence. Some candidates can be outside the requested boundaries; they were removed."}
+                "failed_area_names": [a["label"] for a, p in zip(areas, payloads, strict=True) if p is None],
+                "notice": ("Bounded sample around each verified alternative landmark; distances checked against each provider point. "
+                           "Some alternatives may be unresolved or failed. Never claim exhaustive availability or absence."
+                           if any(a.get("scope") == "nearby_point" for a in areas) else
+                           "Bounded sample from each requested area, filtered by provider membership. No claim of exhaustive availability or absence. Some candidates can be outside the requested boundaries; they were removed.")}
     tool_context.state[STATE_COVERAGE] = coverage
     if all(p is None for p in payloads):
         return {"ok": False, "error": "area_search_unavailable"}

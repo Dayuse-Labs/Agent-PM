@@ -188,6 +188,7 @@ class Triage:
     location_intent: dict | None = None
     comparison_positions: tuple[int, ...] | None = None
     requested_landmark: dict | None = None
+    requested_landmarks: list[dict] | None = None
     budget_interpretation_unverified: bool = False
     requested_occupancy: dict[str, int] | None = None
     unclassified_numeric_input: bool = False
@@ -781,7 +782,7 @@ async def classify(message: str, budget: TurnBudget, invocation_id: str = "",
         action = geographic_intent["action"]
         if action in {"preserve", "device", "missing", "unknown", "select"}:
             data = {**data, "requested_landmark": None, "requested_areas": None,
-                    "requested_subarea": None}
+                    "requested_subarea": None, "requested_landmarks": None}
         # For an actual destination update, independently grounded fields
         # carry the target. A redundant kind mistake must not discard a real
         # airport/address while leaving its containing city as the destination.
@@ -812,6 +813,8 @@ async def classify(message: str, budget: TurnBudget, invocation_id: str = "",
                             confirmed_city=(location_context or {}).get("confirmed_city"),
                             confirmed_country=(location_context or {}).get("country"))
                             if family in {"search", "booking"} else None),
+        requested_landmarks=(data.get("requested_landmarks")
+                             if family in {"search", "booking"} and "location_update" in data else None),
         comparison_positions=_comparison_positions(data.get("comparison_positions"), message),
         pick=pick,
         pick_position=position,

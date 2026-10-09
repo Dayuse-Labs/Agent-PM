@@ -13,17 +13,41 @@ from pydantic import BaseModel, ConfigDict, Field, ValidationError, model_valida
 from .search_areas import validate_areas
 
 
+class LandmarkRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid", strict=True)
+    query: str = Field(min_length=1, max_length=200)
+    city: str | None = Field(default=None, max_length=200)
+    country_guess: str | None = None
+
+    @model_validator(mode="after")
+    def coherent(self) -> LandmarkRequest:
+        if not self.query.strip() or (self.city is not None and not self.city.strip()):
+            raise ValueError("Landmark names cannot be blank")
+        if self.country_guess is not None and (
+            len(self.country_guess) != 2 or not self.country_guess.isascii()
+            or not self.country_guess.isalpha()
+        ):
+            raise ValueError("Country hint must be ISO2 shaped")
+        return self
+
+
 class DestinationRequest(BaseModel):
     model_config = ConfigDict(extra="forbid", strict=True)
-    kind: Literal["landmark", "hotel", "areas", "device"]
+    kind: Literal["landmark", "landmarks", "hotel", "areas", "device"]
     query: str | None = Field(default=None, max_length=200)
     city: str | None = Field(default=None, max_length=200)
     country_guess: str | None = None
     areas: list[dict[str, str]] | None = None
+    landmarks: list[LandmarkRequest] | None = Field(default=None, min_length=2, max_length=3)
 
     @model_validator(mode="after")
     def coherent(self) -> DestinationRequest:
-        if self.kind in {"landmark", "hotel"}:
+        if self.kind != "landmarks" and self.landmarks is not None:
+            raise ValueError("Only an alternative-landmark request carries landmarks")
+        if self.kind == "landmarks":
+            if not self.landmarks or any((self.query, self.city, self.country_guess, self.areas)):
+                raise ValueError("Alternative landmarks retain their separate requests")
+        elif self.kind in {"landmark", "hotel"}:
             if not self.query or not self.query.strip() or self.areas is not None:
                 raise ValueError("A landmark needs a requested name, not area geometry")
             if self.city is not None and not self.city.strip():

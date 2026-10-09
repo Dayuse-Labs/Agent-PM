@@ -1365,6 +1365,14 @@ class _B2cConcierge(BaseAgent):
         # offer selection. Search first; otherwise "cheapest, but 11–16" picks
         # yesterday's/earlier window before the update below can be applied.
         # Partial clock answers retain the other bound; explicit clear is ().
+        landmark_updates = triage.requested_landmarks if not location_choice else None
+        previous_destination = destination_request(profile.requested_destination)
+        if (not landmark_updates and previous_destination and previous_destination.kind == "landmarks"
+                and location_action == "refine" and (triage.location_intent or {}).get("parent_city")):
+            landmark_updates = [
+                {**item.model_dump(), "city": (triage.location_intent or {})["parent_city"]}
+                for item in previous_destination.landmarks or []
+            ]
         landmark_update = triage.requested_landmark if not location_choice else None
         parent_city = (triage.location_intent or {}).get("parent_city")
         if not location_choice:
@@ -1382,7 +1390,7 @@ class _B2cConcierge(BaseAgent):
             triage.hotel_name if family == "search" else None,
             profile.requested_destination, location_action, parent_city, message,
         ) if not location_choice else None
-        area_update = None if location_choice or landmark_update or hotel_update else preserve_area_boundary(
+        area_update = None if location_choice or landmark_update or landmark_updates or hotel_update else preserve_area_boundary(
             profile.search_areas, triage.requested_areas,
             parent_refinement=location_action == "refine",
             parent_city=parent_city,
@@ -1655,6 +1663,19 @@ class _B2cConcierge(BaseAgent):
             profile.consecutive_empty_searches = 0
             reset_search_cursor(profile)
 
+        if route.target == LEAF_HOTEL_SEARCH and landmark_updates:
+            profile.requested_destination = DestinationRequest.model_validate({"kind": "landmarks", "landmarks": landmark_updates}).model_dump(exclude_none=True)
+            for field in ("city", "zone", "metro", "search_areas", "country_anchor", "state_anchor",
+                          "distance_origin", "confirmed_location", "pending_location", "named_hotel"):
+                setattr(profile, field, None)
+            if not profile.search_anchor or profile.search_anchor.get("type") != "gps":
+                profile.search_anchor = None
+            profile.search_exhausted = False
+            profile.consecutive_empty_searches = 0
+            profile.widen_attempt_count = 0
+            profile.auto_widen_disclosure = None
+            reset_search_cursor(profile)
+
         if route.target == LEAF_HOTEL_SEARCH and landmark_update:
             profile.requested_destination = DestinationRequest(kind="landmark", **landmark_update).model_dump(exclude_none=True)
             # A landmark refinement inside the provider-confirmed parent must
@@ -1847,7 +1868,7 @@ class _B2cConcierge(BaseAgent):
             return
 
         if route.target == LEAF_HOTEL_SEARCH:
-            if location_choice or (location_action == "change" and not landmark_update and area_update is None and not hotel_update):
+            if location_choice or (location_action == "change" and not landmark_update and not landmark_updates and area_update is None and not hotel_update):
                 profile.requested_destination = None
             if location_action == "device":
                 profile.requested_destination = DestinationRequest(kind="device").model_dump(exclude_none=True)
@@ -1897,7 +1918,7 @@ class _B2cConcierge(BaseAgent):
         destination_missing = bool(
             route.target == LEAF_HOTEL_SEARCH and triage.used_llm and location_action in {None, "missing"}
             and not any((profile.city, profile.zone, profile.metro, profile.search_areas,
-                         profile.confirmed_location, profile.named_hotel, triage.hotel_name))
+                         profile.confirmed_location, profile.named_hotel, triage.hotel_name, owned_destination))
             and not (profile.search_anchor and profile.search_anchor.get("type") == "gps")
         )
         if destination_missing:
@@ -1989,6 +2010,11 @@ class _B2cConcierge(BaseAgent):
                 "city", "zone", "metro", "search_areas", "country_anchor", "state_anchor",
                 "distance_origin", "search_anchor",
             }}
+        if owned_destination and owned_destination.kind == "landmarks":
+            delta = {k: v for k, v in delta.items() if k not in {
+                "city", "zone", "metro", "search_areas", "country_anchor", "state_anchor",
+                "distance_origin", "search_anchor",
+            }}
         if delta:
             apply_profile_delta(profile, delta, "" if location_choice and numeric_reply else message, budget.fired)
         if route.target == LEAF_HOTEL_SEARCH and occupancy_update:
@@ -1996,7 +2022,7 @@ class _B2cConcierge(BaseAgent):
             # current-message update (including zero children).
             for key, value in occupancy_update.items():
                 setattr(profile, key, value)
-        if route.target == LEAF_HOTEL_SEARCH:
+        if route.target == LEAF_HOTEL_SEARCH and not (owned_destination and owned_destination.kind == "landmarks"):
             receive_location(profile, response)
         if numeric_reply:
             profile.language = reply_language

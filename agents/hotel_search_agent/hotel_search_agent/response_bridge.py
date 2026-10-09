@@ -607,6 +607,10 @@ def normalize_hotel(
         card["longitude"] = lon
     if hotel.get("verifiedSearchAreas"):
         card["verified_search_areas"] = hotel["verifiedSearchAreas"]
+    if hotel.get("verifiedSearchOrigins"):
+        card["verified_search_origins"] = hotel["verifiedSearchOrigins"]
+        # Multiple points have no single truthful global distance origin.
+        # Each explicit distance stays attached to its named provider point.
     photo = _photo_url(hotel.get("mainPhotoNormal"))
     if photo:
         card["image_urls"] = [photo]
@@ -1625,6 +1629,14 @@ async def prepare_owned_area_plan(callback_context: Any) -> None:
 def inject_owned_area_plan(callback_context: Any, llm_request: Any) -> None:
     plan = callback_context.state.get(STATE_RESOLUTION)
     if isinstance(plan, dict) and plan.get("ok"):
+        if any(a.get("scope") == "nearby_point" for a in plan.get("search_areas", [])):
+            llm_request.append_instructions([
+                "The requested alternative landmarks are already resolved in code. Call search_offers ONCE; "
+                "code searches each verified point with identical filters. Do not geocode again or choose one alternative. "
+                "The sample is not exhaustive. Unresolved alternatives remain pending. "
+                f"Initial coordinates: lat={plan['latitude']}, lon={plan['longitude']}."
+            ])
+            return None
         llm_request.append_instructions([
             "The current requested areas have ALREADY been geocoded and verified in code. "
             "Skip geocode_location. Call search_offers ONCE for the whole area plan; "
@@ -1633,6 +1645,12 @@ def inject_owned_area_plan(callback_context: Any, llm_request: Any) -> None:
             f"(code binds them to the verified plan): lat={plan['latitude']}, lon={plan['longitude']}. "
             "Only label the other filters from the current message; established profile "
             "filters are carried automatically."
+        ])
+    elif isinstance(plan, dict) and not plan.get("ok"):
+        llm_request.append_instructions([
+            "No requested alternative landmark could be verified. Do not search or invent a location. "
+            "Ask for the containing city/address for the unresolved alternatives, retaining every alternative: "
+            + json.dumps(plan.get("diagnostics") or {}, ensure_ascii=False)
         ])
     return None
 

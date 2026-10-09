@@ -61,7 +61,7 @@ def adapt_location_update(data: dict[str, Any], message: str, context: dict | No
     if 'location_update' not in data:
         return data
     result = {**data, 'requested_landmark': None, 'requested_areas': None,
-              'requested_subarea': None, 'hotel_name': None,
+              'requested_subarea': None, 'hotel_name': None, 'requested_landmarks': None,
               'location_intent': {'action': 'unknown', 'kind': 'none'}}
     raw = data['location_update']
     if not isinstance(raw, dict):
@@ -131,8 +131,18 @@ def adapt_location_update(data: dict[str, Any], message: str, context: dict | No
         result['requested_landmark'] = {'query': target['query'], 'city': parent,
                                        'country_guess': target['country'], 'evidence': target['evidence']}
         return result
+    if len(clean) > 1 and all(t['kind'] == 'landmark' for t in clean):
+        parent = raw.get('parent_city')
+        if not isinstance(parent, str) or not area_name_in_text(parent, message):
+            parent = None
+        result['requested_landmarks'] = [
+            {'query': t['query'], 'city': parent, 'country_guess': t['country']}
+            for t in clean
+        ]
+        return result
     if any(t['kind'] not in {'city', 'region', 'neighborhood'} for t in clean):
-        # Mixed incompatible target kinds need clarification.
+        # An unsupported combination must not authorize an unrelated leaf search.
+        result['location_intent'] = {'action': 'unknown', 'kind': 'none'}
         return result
     parent = raw.get('parent_city')
     if (isinstance(parent, str) and area_name_in_text(parent, message)

@@ -1,3 +1,31 @@
+## 2026-10-09 · destinations alternatives — correctif local, rejeu requis
+
+Le diagnostic Langfuse de deux sessions de production (5 traces/67 observations)
+confirme une perte de destinations alternatives dans la prod et dans le nouveau
+contrat. Dans le candidat, plusieurs landmarks correctement extraits n'étaient
+pas représentés dans le profil. Aucun changement de modèle ne résout cette perte.
+
+Le profil transporte désormais deux ou trois landmarks distincts. Une précision
+de ville commune puis des filtres conservent toute la liste. La feuille résout
+chaque point avec les gardes existants et son identité fournisseur ; aucun point
+fourni par le modèle n'est accepté. Le batch existant exécute au maximum trois
+lectures MCP avec les mêmes filtres et vérifie la distance à chaque point. Les
+cartes portent leurs origines nommées, sans distance globale ambiguë. Les
+alternatives non résolues restent signalées, sans conclure à une absence globale.
+Ni regex, dictionnaire géographique ni phase LLM supplémentaire.
+
+Les combinaisons hôtel/ville non représentables deviennent une clarification,
+au lieu d'autoriser une recherche géographique différente. Leur prise en charge
+complète reste à réaliser, comme la résolution des noms d'aéroports sans parent,
+l'occupation totale et les autres défauts historiques. FAQ en phase 2. Aucun GO.
+
+Validation : tests ciblés de contrat et parcours sur trois tours verts ; suite
+complète finale :2974 passent/1 gate live ignoré (log /tmp/dayuse-v85-full-final.log).
+Le contrat de câblage vérifie le nouveau callback avant le garde d’origine.
+Ruff/mypy76/guardrails verts. Aucun rejeu payant ni push de ce correctif
+à ce stade. Le prochain lot figé : quatre trajectoires réelles exposées et deux
+scénarios synthétiques distinctement identifiés ; pas de preuve globale de parité.
+
 ## 2026-10-09 · complément v83 terminé — NO GO maintenu
 
 Runtime `520b48c` : 7 conversations complètes /19 tours,2B5C, coût0,37092175USD.
