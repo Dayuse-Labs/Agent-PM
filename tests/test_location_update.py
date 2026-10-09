@@ -201,3 +201,55 @@ def test_transaction_quote_cannot_rescue_ungrounded_target_or_invalid_explicit_q
     got = adapt_location_update(raw, 'Budapest', None)
     assert got['location_intent']['action'] == 'unknown'
     assert got['requested_areas'] is None
+
+
+@pytest.mark.parametrize('kind,scope', [('landmark', 'nearby'), ('neighborhood', 'inside')])
+@pytest.mark.parametrize('parent_on_targets', [True, False])
+def test_redundant_parent_target_preserves_the_same_destination_contract(kind, scope, parent_on_targets):
+    message = 'Example City near River Gate or Market Square'
+    targets = [{'kind': kind, 'query': name, 'evidence': name, 'scope': scope,
+                **({'parent_city': 'Example City'} if parent_on_targets else {})}
+               for name in ('River Gate', 'Market Square')]
+    raw = {'location_update': {'action': 'change', 'evidence': message,
+            'parent_city': 'Example City', 'targets': targets}}
+    expected = adapt_location_update(raw, message, None)
+    raw['location_update']['targets'] = [
+        {'kind': 'city', 'query': 'Example City', 'evidence': 'Example City'}, *targets]
+    assert adapt_location_update(raw, message, None) == expected
+    if kind == 'landmark':
+        assert [p['query'] for p in expected['requested_landmarks']] == ['River Gate', 'Market Square']
+        assert all(p['city'] == 'Example City' for p in expected['requested_landmarks'])
+    else:
+        assert [p['subarea'] for p in expected['requested_areas']] == ['River Gate', 'Market Square']
+
+
+def test_each_landmark_keeps_its_explicit_parent_without_becoming_an_alternative_city():
+    message = 'River Gate in Example City or Market Square in Other City'
+    raw = {'location_update': {'action': 'change', 'evidence': message, 'targets': [
+        {'kind': 'landmark', 'query': 'River Gate', 'parent_city': 'Example City'},
+        {'kind': 'landmark', 'query': 'Market Square', 'parent_city': 'Other City'},
+    ]}}
+    got = adapt_location_update(raw, message, None)
+    assert [(p['query'], p['city']) for p in got['requested_landmarks']] == [
+        ('River Gate', 'Example City'), ('Market Square', 'Other City')]
+
+
+@pytest.mark.parametrize('parent', [None, 'Other City', 'Invented City'])
+def test_independent_city_alternative_is_not_dropped_without_a_grounded_parent_relation(parent):
+    message = 'Example City or River Gate in Other City'
+    raw = {'location_update': {'action': 'change', 'evidence': message, 'targets': [
+        {'kind': 'city', 'query': 'Example City'},
+        {'kind': 'landmark', 'query': 'River Gate', 'parent_city': parent},
+    ]}}
+    got = adapt_location_update(raw, message, None)
+    assert got['location_intent']['action'] == 'unknown'
+    assert got['requested_landmark'] is None
+
+
+def test_single_landmark_parent_is_grounded_even_when_emitted_on_its_target():
+    message = 'River Gate in Example City'
+    raw = {'location_update': {'action': 'change', 'evidence': message, 'targets': [
+        {'kind': 'landmark', 'query': 'River Gate', 'parent_city': 'Example City'}]}}
+    assert adapt_location_update(raw, message, None)['requested_landmark']['city'] == 'Example City'
+    raw['location_update']['targets'][0]['parent_city'] = 'Invented City'
+    assert adapt_location_update(raw, message, None)['requested_landmark']['city'] is None

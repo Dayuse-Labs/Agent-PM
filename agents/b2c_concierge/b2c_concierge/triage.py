@@ -24,6 +24,7 @@ for zero upside. Kept as-is; not a gap.
 from __future__ import annotations
 
 from b2c_common.search_budget import grounded_budget
+from b2c_common.proximity_request import grounded_proximity
 
 import json
 import logging
@@ -191,6 +192,7 @@ class Triage:
     requested_landmarks: list[dict] | None = None
     budget_interpretation_unverified: bool = False
     requested_occupancy: dict[str, int] | None = None
+    requested_proximity: dict | None = None
     unclassified_numeric_input: bool = False
 
 
@@ -552,6 +554,17 @@ Optional keys, extracted from MESSAGE ONLY, never copied from recent messages:
   or a general policy into a search update. Do not guess an unsupported key or
   equate a private bathtub with a hotel hot tub. Evidence must quote MESSAGE,
   never earlier messages. This object describes intent, not equipment IDs.
+- "requested_proximity": a CURRENT explicitly requested distance or permission
+  to search farther away: {{"distance": number, "unit":"km|mi",
+  "anchor":"current|parent_city", "evidence":"exact distance and unit quote"}}.
+  Keep the stated unit and number, never convert them. This is a radius, not a
+  drive time. current retains the specific point. parent_city means the user
+  permits leaving the earlier district/landmark and searching around its known
+  containing city instead; use it only for that relaxation, including an explicit
+  willingness to move farther out after a failed district search. Do not use it
+  when the customer requires staying inside that district. Do not invent a city,
+  coordinates or a distance. Preserve other filters, including dates/hours.
+  location_update remains preserve unless the user also supplies a new place.
 - "requested_occupancy": ONLY a CURRENT change to the customer's party:
   {{"adults": integer or null, "children": integer or null, "total": integer or null,
   "evidence": "exact current party-size statement"}}. Omit unchanged counts.
@@ -832,6 +845,7 @@ async def classify(message: str, budget: TurnBudget, invocation_id: str = "",
         display_currency=_display_currency_slot(data.get("display_currency")),
         requested_window=_grounded_window(data, message),
         overnight_window=_grounded_overnight_window(data, message),
+        requested_proximity=grounded_proximity(data.get("requested_proximity"), message),
         requested_occupancy=(_grounded_occupancy(data.get("requested_occupancy"), message)
                              if family == "search" else None),
         requested_daypart=_grounded_daypart(data.get("requested_daypart"), message),

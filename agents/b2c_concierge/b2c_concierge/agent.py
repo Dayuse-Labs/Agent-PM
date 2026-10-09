@@ -810,6 +810,10 @@ class _B2cConcierge(BaseAgent):
             ground_truth_block += ("\nEXACT DISPLAYED HOURS: " + response["literal_window_notice"]
                                    + " Do not claim that every offer covers the requested times. "
                                    "Code appends this notice; do not repeat it.")
+        from b2c_common.proximity_request import proximity_notice
+        radius_note = proximity_notice(response.get("search_context"), language)
+        if radius_note:
+            ground_truth_block += "\nACTUAL SEARCH RADIUS: " + radius_note + " Code appends this notice; do not repeat it."
         if response.get("area_coverage"):
             ground_truth_block += "\nAREA SEARCH COVERAGE: " + json.dumps(response["area_coverage"], ensure_ascii=False)
             ground_truth_block += ("\nDescribe these as verified examples in the requested areas. "
@@ -1400,6 +1404,16 @@ class _B2cConcierge(BaseAgent):
                 and (triage.subarea_parent is None or triage.subarea_parent.casefold() == profile.search_areas[0]["query"].casefold())):
             area_update = [{**profile.search_areas[0], "subarea": triage.requested_subarea}]
 
+        from b2c_common.proximity_request import apply_proximity
+        proximity_intent = triage.requested_proximity or profile.pending_proximity
+        proximity_base = profile.requested_destination
+        if landmark_update:
+            proximity_base = {"kind": "landmark", **landmark_update}
+        elif area_update:
+            proximity_base = {"kind": "areas", "areas": area_update}
+        elif hotel_update or landmark_updates or location_action in {"change", "device", "unknown", "select"}:
+            proximity_base = None  # Cannot guess an origin or reuse a replaced destination.
+        proximity_update = apply_proximity(proximity_base, proximity_intent) if proximity_intent else None
         amenity_update = triage.requested_amenities
         next_amenities = (
             apply_amenity_update(profile.amenities, amenity_update)
@@ -1467,7 +1481,7 @@ class _B2cConcierge(BaseAgent):
                               next_window != (profile.timeslot_start, profile.timeslot_end)
                               or (not requested_window and bool(profile.timeslot or profile.daypart))
                           )))
-        if (window_changed or triage.overnight_window or amenities_changed or occupancy_changed or area_update is not None or landmark_update or hotel_update) and family != "faq" and clicked_id is None:
+        if (window_changed or triage.overnight_window or amenities_changed or occupancy_changed or area_update is not None or landmark_update or hotel_update or proximity_update) and family != "faq" and clicked_id is None:
             family, route = "search", ROUTES["search"]
             picked = None
             booking_signal = False
@@ -1731,6 +1745,22 @@ class _B2cConcierge(BaseAgent):
             profile.auto_widen_disclosure = None
             reset_search_cursor(profile)
 
+        if route.target == LEAF_HOTEL_SEARCH and proximity_intent:
+            profile.pending_proximity = None if proximity_update else proximity_intent
+        if route.target == LEAF_HOTEL_SEARCH and proximity_update:
+            profile.requested_destination = proximity_update.model_dump(exclude_none=True)
+            if proximity_update.kind == "areas" and proximity_update.areas:
+                area = proximity_update.areas[0]
+                profile.city, profile.country_anchor = area["query"], area.get("country") or None
+                for field in ("zone", "metro", "search_areas", "state_anchor", "distance_origin"):
+                    setattr(profile, field, None)
+            # Re-resolve the owned origin and reset pagination for the new disc.
+            profile.confirmed_location = None
+            profile.pending_location = None
+            profile.search_exhausted = False
+            profile.consecutive_empty_searches = 0
+            reset_search_cursor(profile)
+
         if route.target == LEAF_HOTEL_SEARCH and amenity_update is not None:
             if any(key not in next_amenities for key in profile.amenities):
                 budget.fired.add("filter_relaxation_honored")
@@ -1863,8 +1893,25 @@ class _B2cConcierge(BaseAgent):
                 if profile.client_timezone:
                     profile.date_reference["client_tz"] = profile.client_timezone
 
+        if route.target == LEAF_HOTEL_SEARCH and profile.pending_proximity is not None:
+            question = templates.proximity_origin_question(reply_language)
+            profile.last_clarifying_question = question
+            await store.set(ctx.session.id, profile)
+            yield self._hotels_event(ctx, {"requires_clarification": True}, reply_language)
+            self._emit_turn_metric(family, "template:proximity_origin", budget, t_start, "ok", inv)
+            yield self._final(ctx, question)
+            return
+
         if route.target == LEAF_HOTEL_SEARCH and profile.pending_party_total is not None:
-            question = party_composition_question(profile.pending_party_total, reply_language)
+            # Keep the total but resolve the first missing search prerequisite
+            # before asking party composition. Never guess adults from a total,
+            # and never dispatch inventory while that composition is unresolved.
+            destination_known = any((profile.city, profile.zone, profile.metro,
+                profile.search_areas, profile.confirmed_location, profile.named_hotel,
+                destination_request(profile.requested_destination))) or bool(
+                    profile.search_anchor and profile.search_anchor.get("type") == "gps")
+            question = (party_composition_question(profile.pending_party_total, reply_language)
+                        if destination_known else templates.missing_destination_question(reply_language))
             profile.last_clarifying_question = question
             await store.set(ctx.session.id, profile)
             yield self._hotels_event(ctx, {"requires_clarification": True}, reply_language)
@@ -2053,15 +2100,16 @@ class _B2cConcierge(BaseAgent):
                 self._emit_turn_metric(family, "template:landmark_context", budget, t_start, "ok", inv)
                 yield self._final(ctx, question)
                 return
-        if (route.target == LEAF_HOTEL_SEARCH and owned_destination and owned_destination.kind == "address"
+        if (route.target == LEAF_HOTEL_SEARCH and owned_destination and owned_destination.kind in {"address", "postcode"}
                 and response.get("requires_clarification") and not response.get("results")
-                and response.get("destination_clarification") == {"kind": "address_context", "query": owned_destination.query}):
-            from b2c_common.destination_request import address_context_question
-            question = address_context_question(owned_destination.query or "", reply_language)
+                and response.get("destination_clarification") == {"kind": owned_destination.kind + "_context", "query": owned_destination.query}):
+            from b2c_common.destination_request import address_context_question, postcode_context_question
+            formatter = postcode_context_question if owned_destination.kind == "postcode" else address_context_question
+            question = formatter(owned_destination.query or "", reply_language)
             profile.last_clarifying_question = question
             await store.set(ctx.session.id, profile)
             yield self._hotels_event(ctx, {"requires_clarification": True}, reply_language)
-            self._emit_turn_metric(family, "template:address_context", budget, t_start, "ok", inv)
+            self._emit_turn_metric(family, "template:" + owned_destination.kind + "_context", budget, t_start, "ok", inv)
             yield self._final(ctx, question)
             return
         pending = pending_location(profile.pending_location)
@@ -2292,6 +2340,10 @@ class _B2cConcierge(BaseAgent):
             if (isinstance(context, dict) and context.get("timeslot_start") and context.get("timeslot_end")
                     and not response.get("area_coverage")):
                 line += "\n\n" + templates.empty_window_next_step(reply_language)
+            from b2c_common.proximity_request import proximity_notice
+            radius_note = proximity_notice(context, reply_language)
+            if radius_note:
+                line += "\n\n" + radius_note
             yield self._final(ctx, line)
             return
 
@@ -2350,6 +2402,10 @@ class _B2cConcierge(BaseAgent):
             )
             if parking_reserved:
                 metrics_logger.info("concierge_metric=parking_reserve appended=1")
+        from b2c_common.proximity_request import proximity_notice
+        radius_note = proximity_notice(response.get("search_context"), reply_language)
+        if radius_note:
+            final_text = f"{final_text.rstrip()}\n\n{radius_note}"
         if response.get("literal_window_notice"):
             final_text = f"{final_text.rstrip()}\n\n{response['literal_window_notice']}"
         if date_notice:

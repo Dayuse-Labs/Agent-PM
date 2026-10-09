@@ -1,3 +1,42 @@
+## 2026-10-09 · v91 correctif groupé — validation hors ligne, rejeu requis
+
+Codes postaux typés : recherche fournisseur postcode, identité exacte unique,
+contrôle du parent et du pays explicites, clarification déterministe si échec.
+Le code reste dans le profil après la réponse de ville. Une recherche autour
+du point postal ne prouve pas une appartenance à toute sa frontière ; inside
+postal n'est pas annoncé comme supporté. Payload fournisseur privé accepté
+pour W4/London/GB, rejeté avec CA ; pas de table géographique ajoutée.
+
+Distance explicite extraite dans le triage existant, nombre/unité ancrés dans
+la citation utilisateur, conversion des miles en code et plafond MCP200km.
+Le concierge conserve la demande et son origine, clarifie si elle manque,
+réinitialise le curseur si le rayon change et transmet le rayon à MCP après
+résolution géographique. Une relaxation parent_city exige l'intention explicite
+et le parent déjà demandé ; elle retire le sous-quartier, conserve les autres
+contraintes et annonce le rayon effectivement exécuté à vol d'oiseau. Pas de
+rayon supposé pour GPS, alternatives multiples ou frontière stricte. La réponse
+de ville précisant un code postal conserve aussi le rayon antérieur.
+
+Extraction ville + repères : ville retirée des cibles uniquement si chaque
+relation structurée l'identifie comme parent. Les vraies alternatives restent.
+Total de voyageurs sans destination : question du lieu avant composition,
+total conservé et aucun appel inventaire avant clarification du groupe.
+Aucun regex, dictionnaire de villes ou phase LLM ajouté ; Redis reste concierge,
+feuilles stateless A2A, outils MCP, modèles via LiteLLM.
+
+Validation :3070tests passent,2ignorés (gate live optionnelle, Node absent du
+PATH de ce shell). Contrôle JS relancé avec Node :16tests du fichier passent. Premier passage3067pass,
+1échec corrigé : rayon optionnel désormais absent du contrat de réponse quand
+non applicable, assertion historique conservée. Ruff/mypy78/guardrails/diff
+verts. Code encore NON rejoué sur les conversations réelles à ce stade.
+
+Préparation d'un rejeu identique aux4parcours/14toursv90, budget lot0,80USD,
+plafond campagne inchangé150USD. Cumul148,69423104, réserve0,50, disponible
+0,80576896. Extension10USD toujours non accordée. Maincbe88b9 inchangé ;
+CI37970252309 de l'ancien head16cc2b7 réussie, pas une validation de v91.
+Reste rejeu ciblé puis historique complet/adaptatif ; NO GO maintenu.
+Aucun merge/déploiement/Railway write ; sources privées hors Git.
+
 ## 2026-10-09 · v90 production fraîche —4C, NO GO confirmé
 
 Rejeu du commit2f3c9d4 (runtime identique9991aa1) :4conversations fraîches,

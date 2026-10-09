@@ -885,15 +885,15 @@ def inject_origin_sort(tool: Any, args: dict[str, Any], tool_context: Any) -> No
 def inject_landmark_radius(tool: Any, args: dict[str, Any], tool_context: Any) -> None:
     """`before_tool_callback`: the ONLY writer of search_offers' `radiusKm`.
 
-    Tightens the search disc to `_POI_RADIUS_KM` when THIS turn's anchor is a
-    landmark/POI, and otherwise leaves the key absent so MCP applies its own
-    20 km city default. Same doctrine as `from` and `hotelEquipmentIds`: the
+    Applies a customer-grounded radius owned by the concierge to THIS turn's
+    resolved point. Otherwise tightens a landmark/POI to `_POI_RADIUS_KM`, or
+    leaves the key absent for MCP's city default. Same doctrine as `from` and `hotelEquipmentIds`: the
     model is never taught this parameter and any value it invents is dropped —
     a radius is a filter, and the LLM never owns a filter value.
 
     Reads the anchor the geocode tool already stashed this turn
     (`_STATE_ANCHOR_KEY`, written by `capture_after_tool`'s GEOCODE branch), so
-    it needs no new plumbing and cannot fire on a city search. It deliberately
+    an explicit radius may also apply to a resolved city centroid. It deliberately
     does NOT read `_STATE_DISTANCE_ORIGIN_KEY`, which carries the same `type`
     but is only written in the SEARCH branch — i.e. after `search_offers` has
     already run, far too late for a before-tool callback. Reading that one is
@@ -912,7 +912,11 @@ def inject_landmark_radius(tool: Any, args: dict[str, Any], tool_context: Any) -
     args.pop("radiusKm", None)
     origin = tool_context.state.get(_STATE_ANCHOR_KEY)
     anchor_type = origin.get("type") if isinstance(origin, dict) else None
-    if anchor_type == "poi":
+    from b2c_common.destination_request import destination_request
+    request = destination_request(read_profile_in(tool_context).get("requested_destination"))
+    if request and request.radius_km is not None and anchor_type in {"poi", "city_centroid"}:
+        args["radiusKm"] = request.radius_km
+    elif anchor_type == "poi":
         args["radiusKm"] = _POI_RADIUS_KM
     # Content-free counter (flags only), and the audit's P0-3 ask: which geo tier
     # a turn actually took is otherwise invisible. It is also what caught the
@@ -1708,7 +1712,13 @@ def _search_context(
         )
         if url:
             search_page = {"name": page["name"], "url": url}
+    from b2c_common.destination_request import destination_request
+    request = destination_request(profile_in.get("requested_destination"))
+    origin = state.get(_STATE_ANCHOR_KEY) or {}
+    explicit_radius = (request.radius_km if request and request.radius_km is not None
+                       and request.radius_km == state.get(_STATE_RADIUS_KEY) else None)
     return {
+        **({"radius_origin": origin.get("label")} if explicit_radius is not None else {}),
         "search_page": search_page,
         "city": city or None,
         "zone": zone or None,
@@ -1924,8 +1934,8 @@ def emit_search_datapart(callback_context: Any) -> genai_types.Content | None:
             payload["destination_clarification"] = {
                 "kind": "landmark_context", "queries": [p.query for p in request.landmarks or []],
             }
-        elif request and request.kind == "address":
-            payload["destination_clarification"] = {"kind": "address_context", "query": request.query}
+        elif request and request.kind in {"address", "postcode"}:
+            payload["destination_clarification"] = {"kind": request.kind + "_context", "query": request.query}
     fallbacks = state.get(_STATE_FALLBACKS_KEY)
     if isinstance(fallbacks, list) and fallbacks:
         payload["fallbacks_fired"] = list(fallbacks)

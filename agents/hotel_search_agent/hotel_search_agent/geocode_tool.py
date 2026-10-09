@@ -368,6 +368,33 @@ def _provider_place(candidate: GeocodeCandidate, *, city: str | None = None,
     })
 
 
+def _resolve_postcode(query: str, *, city: str | None, country: str | None, language: str) -> dict:
+    """Resolve only a unique provider postal identity, never a similarly named POI."""
+    from b2c_common.destination_request import postcode_context_question
+    full_query = f"{query}, {city}" if city else query
+    candidates = get_mapbox_client().geocode_candidates(
+        full_query, types="postcode", country=country, language=language,
+    )
+    normalized = "".join(query.split()).casefold()
+    accepted = {
+        c.mapbox_id: c for c in candidates
+        if c.feature_type == "postcode" and c.mapbox_id
+        and "".join(c.name.split()).casefold() == normalized
+        and (not country or c.country_code.upper() == country.upper())
+        and (not city or c.parent_city_name.strip().casefold() == city.strip().casefold())
+        and _provider_place(c, city=city, zone=query) is not None
+    }
+    if len(accepted) == 1:
+        chosen = next(iter(accepted.values()))
+        return _ok(chosen.as_result(), feature_type="postcode", profile_delta={},
+                   distance_origin_type="poi", zone=query,
+                   resolved_location=_provider_place(chosen, city=city, zone=query))
+    return _fail("geocode_ambiguous", {
+        "question": postcode_context_question(query, language), "options": [],
+        "reason": "postcode_not_uniquely_verified", "query": full_query,
+    }, ["geocode_echo_back"], {"zone": query})
+
+
 def _resolve_address(query: str, *, city: str | None, country: str | None, language: str) -> dict:
     """Use provider address components, never a city/POI fallback or fuzzy top-1.
 
@@ -457,7 +484,7 @@ def geocode_location(
     country_guess: str | None = None,
     areas: list[AreaRequest] | None = None,
     origin: Literal["destination", "device"] = "destination",
-    place_kind: Literal["unspecified", "municipality", "address"] = "unspecified",
+    place_kind: Literal["unspecified", "municipality", "address", "postcode"] = "unspecified",
 ) -> dict:
     """Resolve a destination to coordinates for `search_offers`, guarded.
 
@@ -563,6 +590,9 @@ def geocode_location(
         # Only the A2A callback can authorize device coordinates. Direct calls
         # with model-supplied proximity values cannot establish this provenance.
         return _fail("device_context_required", {"question": "Which city or address should I search near?"})
+    if place_kind == "postcode":
+        return _resolve_postcode(zone or city, city=city if zone else None,
+                                 country=_iso2(country_code), language=(language_hint or locale or "en")[:2])
     if place_kind == "address":
         return _resolve_address(zone or city, city=city if zone else None,
                                 country=_iso2(country_code), language=(language_hint or locale or "en")[:2])
@@ -1170,11 +1200,11 @@ def inject_profile_geo_context(tool: object, args: dict, tool_context: object) -
         profile_in = dict(profile_in)
         params = dict(envelope.get("query_params") or {})
         envelope = {**envelope, "query_params": params}
-        if request.kind in {"landmark", "address"}:
+        if request.kind in {"landmark", "address", "postcode"}:
             profile_in.update(city=request.city, zone=request.query, metro=None, search_areas=None)
             params.update(landmark_authoritative=True, landmark_country_guess=request.country_guess)
-            if request.kind == "address":
-                args["place_kind"] = "address"
+            if request.kind in {"address", "postcode"}:
+                args["place_kind"] = request.kind
         elif request.kind == "areas" and request.areas:
             for key in ("city", "zone", "metro", "country_code", "areas"):
                 args.pop(key, None)

@@ -744,3 +744,27 @@ def overnight_window_response(language: str, window: dict[str, str]) -> str:
         "nl": "Uw verblijf {start}–{end} eindigt de volgende dag. Ik kan hier geen verblijf over middernacht controleren. Welke tijden op dezelfde dag zouden passen?",
     }
     return texts.get(language, texts["en"]).format(**window)
+
+
+def missing_destination_question(language: str) -> str:
+    return {
+        "fr": "Dans quelle ville ou près de quel lieu souhaites-tu chercher ?",
+        "en": "Which city or place would you like to search near?",
+        "es": "¿En qué ciudad o cerca de qué lugar quieres buscar?",
+        "it": "In quale città o vicino a quale luogo vuoi cercare?",
+        "de": "In welcher Stadt oder in der Nähe welchen Ortes möchtest du suchen?",
+        "pt": "Em que cidade ou perto de que lugar queres procurar?",
+        "nl": "In welke stad of bij welke plek wil je zoeken?",
+    }.get(language, "Which city or place would you like to search near?")
+
+
+def proximity_origin_question(language: str) -> str:
+    return {
+        "fr": "Je garde la distance demandée. Depuis quelle ville, adresse ou quel lieu dois-je la mesurer ?",
+        "en": "I’m keeping your requested distance. From which city, address or place should I measure it?",
+        "es": "Conservo la distancia que has pedido. ¿Desde qué ciudad, dirección o lugar debo medirla?",
+        "it": "Mantengo la distanza richiesta. Da quale città, indirizzo o luogo devo misurarla?",
+        "de": "Ich behalte die gewünschte Entfernung bei. Von welcher Stadt, Adresse oder welchem Ort soll ich sie messen?",
+        "pt": "Mantenho a distância pedida. A partir de que cidade, endereço ou lugar devo medi-la?",
+        "nl": "Ik behoud de gevraagde afstand. Vanaf welke stad, welk adres of welke plek moet ik die meten?",
+    }.get(language, "I’m keeping your requested distance. From which city, address or place should I measure it?")

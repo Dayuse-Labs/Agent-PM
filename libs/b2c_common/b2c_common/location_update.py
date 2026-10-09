@@ -14,7 +14,7 @@ Destination changes use ONLY location_update (do not also emit location_intent,
 requested_landmark, requested_areas or requested_subarea):
 {"action":"preserve|change|refine|correct|device|select|missing|unknown",
  "evidence":"exact current message quote", "parent_city":"optional exact containing city",
- "position":1, "targets":[{"kind":"city|region|neighborhood|landmark|address|hotel",
+ "position":1, "targets":[{"kind":"city|region|neighborhood|landmark|address|postcode|hotel",
  "query":"place name only", "country":"ISO2", "evidence":"exact current place quote",
  "scope":"nearby|inside", "region":"optional verbatim containing state/province",
  "code":"optional explicitly stated administrative code"}]}
@@ -43,7 +43,11 @@ For a new landmark within the confirmed city, retain that confirmed parent_city
 unless the user states another city. Do not ask again for an already confirmed parent.
 A city is a municipality; a region is a state/county/province; a neighborhood is a
 sub-city district. Never label a neighborhood as a state or county. An airport,
-station or standalone postcode is a landmark, not an administrative region.
+station is a landmark, not an administrative region. A standalone postal code
+uses postcode kind (including a postal district). Keep the code in query, and
+any stated city in parent_city. Postal lookup uses the provider postcode type,
+not a city or POI. Default scope is nearby; it locates the postal centroid,
+not a promise of membership in a postal boundary.
 A numbered street address uses address kind. Keep its full literal street number,
 street, city, state and postcode together in query; never convert it to a landmark
 or split it into alternative destinations. A complete address does not require
@@ -103,7 +107,7 @@ def adapt_location_update(data: dict[str, Any], message: str, context: dict | No
         # to repeat it for every target discards otherwise grounded destinations.
         # An explicitly supplied invalid quote still fails validation below.
         quote = target.get('evidence', evidence)
-        if kind not in {'city', 'region', 'neighborhood', 'landmark', 'address', 'hotel'}:
+        if kind not in {'city', 'region', 'neighborhood', 'landmark', 'address', 'postcode', 'hotel'}:
             return result
         if (not isinstance(query, str) or not query.strip() or len(query) > 200
                 or not isinstance(quote, str) or not quote.strip() or quote not in message
@@ -119,20 +123,35 @@ def adapt_location_update(data: dict[str, Any], message: str, context: dict | No
             # Optional model knowledge is not a user constraint. Discard it
             # without discarding the independently grounded destination name.
             region = None
-        scope = target.get('scope', 'nearby' if kind == 'city' else 'inside')
+        scope = target.get('scope', 'nearby' if kind in {'city', 'postcode'} else 'inside')
         if scope not in {'nearby', 'inside'}:
             return result
+        if kind == 'postcode' and scope == 'inside':
+            return result  # Exact postal-boundary membership is not this point lookup.
         clean.append({**target, 'query': query.strip(), 'evidence': quote,
                       'country': country.upper() if country else None,
                       'region': region, 'scope': scope})
+    # A parent may be repeated as a target by extraction. Collapse it ONLY
+    # when the structured relations explicitly identify that same city as the
+    # parent of every other target. Merely listing a city beside a POI does not
+    # authorize dropping an accepted alternative.
+    cities = [t for t in clean if t['kind'] == 'city']
+    dependents = [t for t in clean if t['kind'] in {'landmark', 'neighborhood', 'address', 'postcode'}]
+    if len(cities) == 1 and len(dependents) == len(clean) - 1 and dependents:
+        city = cities[0]['query']
+        if all(isinstance(parent := t.get('parent_city', raw.get('parent_city')), str)
+               and parent.strip().casefold() == city.casefold()
+               for t in dependents):
+            clean = dependents
+            raw = {**raw, 'parent_city': city}
     result['location_intent'] = {'action': action, 'evidence': evidence}
     if len(clean) == 1 and clean[0]['kind'] == 'hotel':
         result['hotel_name'] = clean[0]['query']
         return result
-    if len(clean) == 1 and (clean[0]['kind'] in {'landmark', 'address'} or
+    if len(clean) == 1 and (clean[0]['kind'] in {'landmark', 'address', 'postcode'} or
                            (clean[0]['kind'] == 'neighborhood' and clean[0]['scope'] == 'nearby')):
         target = clean[0]
-        parent = raw.get('parent_city')
+        parent = target.get('parent_city', raw.get('parent_city'))
         if not isinstance(parent, str) or not area_name_in_text(parent, message):
             confirmed = (context or {}).get('confirmed_city')
             parent = confirmed if isinstance(confirmed, str) and (
@@ -140,14 +159,16 @@ def adapt_location_update(data: dict[str, Any], message: str, context: dict | No
                 or action in {'correct', 'refine'}) else None
         result['requested_landmark'] = {'query': target['query'], 'city': parent,
                                        'country_guess': target['country'], 'evidence': target['evidence'],
-                                       **({'kind': 'address'} if target['kind'] == 'address' else {})}
+                                       **({'kind': target['kind']} if target['kind'] in {'address', 'postcode'} else {})}
         return result
     if len(clean) > 1 and all(t['kind'] == 'landmark' for t in clean):
         parent = raw.get('parent_city')
         if not isinstance(parent, str) or not area_name_in_text(parent, message):
             parent = None
         result['requested_landmarks'] = [
-            {'query': t['query'], 'city': parent, 'country_guess': t['country']}
+            {'query': t['query'], 'city': (t['parent_city'] if isinstance(t.get('parent_city'), str)
+                and area_name_in_text(t['parent_city'], message) else parent),
+             'country_guess': t['country']}
             for t in clean
         ]
         return result

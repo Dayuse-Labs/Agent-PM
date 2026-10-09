@@ -278,6 +278,7 @@ class SessionProfile:
     children: int | None = None
     # Explicit total awaiting an adult/child composition; never sent as adults.
     pending_party_total: int | None = None
+    pending_proximity: dict[str, Any] | None = None
     # Prices are shown in EUR unless the user asked for the hotel's own
     # currency ("HOTEL"), kept for the rest of the conversation until they ask
     # for euros again (product decision 2026-09-25).
@@ -300,6 +301,7 @@ class SessionProfile:
     def to_dict(self) -> dict[str, Any]:
         return {
             "pending_location": self.pending_location,
+            "pending_proximity": self.pending_proximity,
             "confirmed_location": self.confirmed_location,
             "requested_destination": self.requested_destination,
             "city": self.city,
@@ -389,6 +391,7 @@ class SessionProfile:
 # shipping to the leaf (GDPR: data minimization).
 _CONCIERGE_ONLY_KEYS = (
     "pending_party_total",
+    "pending_proximity",
     "amenities_owned",
     "pending_booking",
     "pending_location",
@@ -669,7 +672,7 @@ def apply_profile_delta(
     values, clears, explicit_sets = _normalize_delta(dict(delta))
     known_fields = set(SessionProfile.__dataclass_fields__)
     # User-grounded constraints are concierge-owned, including typed clears.
-    for owned_slot in ("pending_location", "confirmed_location", "requested_destination", "requested_budget", "price_comparison", "requested_window", "requested_duration_minutes", "overnight_window"):
+    for owned_slot in ("pending_proximity", "pending_location", "confirmed_location", "requested_destination", "requested_budget", "price_comparison", "requested_window", "requested_duration_minutes", "overnight_window"):
         values.pop(owned_slot, None)
         clears.discard(owned_slot)
     from b2c_common.destination_request import destination_request
@@ -1290,6 +1293,7 @@ def pagination_search_key(profile: SessionProfile) -> str:
         )
     }
     criteria["amenities"] = sorted(profile.amenities)
+    criteria["requested_destination"] = profile.requested_destination
     criteria["arrival_daypart"] = (profile.requested_window or {}).get("arrival_daypart")
     criteria["price_comparison"] = profile.price_comparison
     criteria["requested_budget"] = {

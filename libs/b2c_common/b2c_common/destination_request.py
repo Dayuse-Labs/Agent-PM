@@ -10,7 +10,7 @@ from typing import Any, Literal
 
 from pydantic import BaseModel, ConfigDict, Field, ValidationError, model_validator
 
-from .search_areas import validate_areas
+from .search_areas import requires_area_membership, validate_areas
 
 
 class LandmarkRequest(BaseModel):
@@ -33,21 +33,29 @@ class LandmarkRequest(BaseModel):
 
 class DestinationRequest(BaseModel):
     model_config = ConfigDict(extra="forbid", strict=True)
-    kind: Literal["landmark", "landmarks", "address", "hotel", "areas", "device"]
+    kind: Literal["landmark", "landmarks", "address", "postcode", "hotel", "areas", "device"]
     query: str | None = Field(default=None, max_length=200)
     city: str | None = Field(default=None, max_length=200)
     country_guess: str | None = None
     areas: list[dict[str, str]] | None = None
+    radius_km: float | None = Field(default=None, gt=0, le=200)
     landmarks: list[LandmarkRequest] | None = Field(default=None, min_length=2, max_length=3)
 
     @model_validator(mode="after")
     def coherent(self) -> DestinationRequest:
+        if self.radius_km is not None and not (
+            self.kind in {"landmark", "address", "postcode"}
+            or (self.kind == "areas" and self.areas and len(self.areas) == 1
+                and self.areas[0].get("kind") == "municipality"
+                and not requires_area_membership(self.areas))
+        ):
+            raise ValueError("A radius needs one point origin, not an area boundary or alternative origins")
         if self.kind != "landmarks" and self.landmarks is not None:
             raise ValueError("Only an alternative-landmark request carries landmarks")
         if self.kind == "landmarks":
             if not self.landmarks or any((self.query, self.city, self.country_guess, self.areas)):
                 raise ValueError("Alternative landmarks retain their separate requests")
-        elif self.kind in {"landmark", "address", "hotel"}:
+        elif self.kind in {"landmark", "address", "postcode", "hotel"}:
             if not self.query or not self.query.strip() or self.areas is not None:
                 raise ValueError("A landmark needs a requested name, not area geometry")
             if self.city is not None and not self.city.strip():
@@ -77,7 +85,7 @@ def requested_parent(value: Any) -> str | None:
     request = destination_request(value)
     if request is None:
         return None
-    if request.kind in {"landmark", "address", "hotel"}:
+    if request.kind in {"landmark", "address", "postcode", "hotel"}:
         return request.city
     if request.kind == "areas" and request.areas and len(request.areas) == 1:
         area = request.areas[0]
@@ -98,10 +106,14 @@ def refine_landmark(update: dict | None, previous: Any, action: str | None,
         result = dict(update)
         if not result.get("city") and action in {"correct", "refine"}:
             result["city"] = parent_city or requested_parent(previous)
+        if (request and request.radius_km is not None and action == "refine"
+                and result.get("query") == request.query):
+            result["radius_km"] = request.radius_km
         return result
-    if request and request.kind in {"landmark", "address"} and action == "refine" and parent_city:
+    if request and request.kind in {"landmark", "address", "postcode"} and action == "refine" and parent_city:
         return {"query": request.query, "city": parent_city, "country_guess": None,
-                **({"kind": "address"} if request.kind == "address" else {})}
+                **({"radius_km": request.radius_km} if request.radius_km is not None else {}),
+                **({"kind": request.kind} if request.kind in {"address", "postcode"} else {})}
     return None
 
 
@@ -158,3 +170,16 @@ def landmark_context_question(request: DestinationRequest, language: str) -> str
             "nl": "Ik behoud deze alternatieven: {places}. In welke stad liggen ze?",
         }
     return questions.get(language, questions["en"]).format(places=labels)
+
+
+def postcode_context_question(query: str, language: str) -> str:
+    questions = {
+        "fr": "Je n’arrive pas à confirmer le code postal « {code} ». Dans quelle ville et quel pays se trouve-t-il ?",
+        "en": "I can’t confirm the postcode “{code}”. Which city and country is it in?",
+        "de": "Ich kann die Postleitzahl „{code}“ nicht bestätigen. Zu welcher Stadt und welchem Land gehört sie?",
+        "es": "No puedo confirmar el código postal «{code}». ¿En qué ciudad y país está?",
+        "it": "Non riesco a confermare il codice postale «{code}». In quale città e paese si trova?",
+        "pt": "Não consigo confirmar o código postal «{code}». Em que cidade e país fica?",
+        "nl": "Ik kan postcode ‘{code}’ niet bevestigen. Bij welke stad en welk land hoort deze?",
+    }
+    return questions.get(language, questions["en"]).format(code=query)
