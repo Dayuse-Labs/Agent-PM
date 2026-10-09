@@ -1262,6 +1262,7 @@ def pagination_search_key(profile: SessionProfile) -> str:
         )
     }
     criteria["amenities"] = sorted(profile.amenities)
+    criteria["arrival_daypart"] = (profile.requested_window or {}).get("arrival_daypart")
     criteria["price_comparison"] = profile.price_comparison
     criteria["requested_budget"] = {
         key: (profile.requested_budget or {}).get(key)

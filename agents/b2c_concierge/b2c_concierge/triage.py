@@ -622,8 +622,11 @@ Optional keys, extracted from MESSAGE ONLY, never copied from recent messages:
   Extract before a destination clarification, so the party survives it.
 - "requested_daypart": for a CURRENT search preference such as morning,
   afternoon or evening, {{"value": one of {list(DAYPART_HOURS)},
-  "evidence": "short verbatim preference"}}. Omit for explicit clock times,
-  an unrestricted day, a property's opening hours, or a non-time followup.
+  "evidence": "short verbatim preference"}}. A vague arrival plus an exact
+  departure needs BOTH requested_daypart and requested_window: "from the morning
+  until 6pm" means morning AND end=18:00, with start=null. Never turn morning
+  into a guessed clock hour. Omit when the arrival is already an exact clock
+  time, for an unrestricted day, a property's opening hours, or a non-time followup.
   Extract before a location clarification: the preference must survive it.
 - "requested_calendar": a CURRENT explicit calendar date, including a day of
   month without a month: {{"day": integer, "month": integer or null,
@@ -742,12 +745,17 @@ async def classify(message: str, budget: TurnBudget, invocation_id: str = "",
                     "Refine means answering which city/country contains an unresolved address, ZIP, "
                     "neighborhood or hotel in LOCATION CONTEXT: keep that earlier specific request. "
                     "Naming its containing city/state/country is refine even when the earlier "
-                    "parent label was a borough or neighborhood. Emit requested_areas for that "
-                    "new parent, retaining the unresolved street/landmark. A different string "
+                    "parent label was a borough or neighborhood. For a containing CITY reply, "
+                    "include parent_city inside location_intent, copied verbatim from MESSAGE. "
+                    "Do not copy the old landmark into requested_landmark: the code retains it. "
+                    "For state/country refinements, use requested_areas instead. A different string "
                     "alone is not evidence that the customer abandoned the pending target. "
                     "Change means an explicit different destination or geographic scope, including "
                     "a new region or administrative code for the SAME city name. Such a correction "
-                    "is change, never preserve. Device "
+                    "is change, never preserve. An address correction (including a different "
+                    "street number) or a corrected landmark spelling MUST emit requested_landmark "
+                    "with the NEW address/name and evidence from MESSAGE; never emit the containing "
+                    "city alone or reuse the old point. Device "
                     "means explicitly near the customer’s current position, never merely a price "
                     "or time change. For preserve, quote the CURRENT non-geographic request "
                     "(such as its hours or budget), NOT the earlier destination. Evidence from "

@@ -515,8 +515,9 @@ def _search_offer(offers: list[Any], hotel: dict[str, Any], profile: SessionProf
             offer.get("startHour"), offer.get("endHour"), start, end
         ):
             continue
-        if profile.daypart and not slot_overlaps_daypart(
-            offer.get("startHour"), offer.get("endHour"), profile.daypart
+        arrival_daypart = (profile.requested_window or {}).get("arrival_daypart") or profile.daypart
+        if arrival_daypart and not slot_overlaps_daypart(
+            offer.get("startHour"), offer.get("endHour"), arrival_daypart
         ):
             continue
         if any(

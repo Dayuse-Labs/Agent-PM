@@ -197,3 +197,48 @@ def test_compact_hours_reach_leaf_with_confirmed_place(scripted, monkeypatch, fa
     monkeypatch.setattr(agent_module, "_run_leaf", leaf)
     _drive_in(runner, session.id, "1300 - 1800")
     assert len(seen) == 1 and seen[0]["requested_window"] == {"start": "13:00", "end": "18:00"}
+
+
+@pytest.mark.parametrize("parent", ["Paris", "", None, 42, "Auckland from history"])
+def test_refined_parent_must_be_quoted_in_current_reply(parent):
+    ctx = {"unresolved_request": {"zone": "convention centre"}}
+    value = {"action": "refine", "parent_city": parent, "evidence": "Auckland"}
+    assert location_intent(value, "Auckland", ctx) == {"action": "refine"}
+
+
+@pytest.mark.parametrize("zone,city", [("convention centre", "Auckland"), ("airport", "Rome")])
+def test_parent_reply_resolves_original_target_through_leaf_contract(
+    zone, city, scripted, monkeypatch, fake_profile_store  # noqa: F811
+):
+    from types import SimpleNamespace
+    from google.genai import types
+    from b2c_concierge.a2a_datapart import encode_datapart
+    from hotel_search_agent.geocode_tool import inject_profile_geo_context
+
+    runner, session = _new_session()
+    asyncio.run(fake_profile_store.set(session.id, SessionProfile(zone=zone, date="2026-11-01")))
+    seen = []
+
+    async def leaf(leaf, ctx, profile_in, **kwargs):
+        wire = {"profile_in": profile_in, "query_params": kwargs["query_params"]}
+        tool_ctx = SimpleNamespace(state={}, user_content=types.Content(role="user", parts=[
+            types.Part(text=city), encode_datapart(wire),
+        ]))
+        # The leaf tries a city-only query: the concierge's combined request
+        # must restore the original specific target before provider resolution.
+        args = {"city": city, "origin": "destination"}
+        result = inject_profile_geo_context(SimpleNamespace(name="geocode_location"), args, tool_ctx)
+        assert result is None
+        assert args["city"] == city and args["zone"] == zone
+        assert profile_in["confirmed_location"] is None
+        seen.append(args)
+        return "Which date?", {"results": []}
+
+    scripted(json.dumps({"family": "search", "language": "en", "location_intent": {
+        "action": "refine", "parent_city": city, "evidence": city}}), "Which date?")
+    monkeypatch.setattr(agent_module, "_run_leaf", leaf)
+    _drive_in(runner, session.id, city)
+    assert len(seen) == 1
+    stored = asyncio.run(fake_profile_store.get(session.id))
+    assert stored.city == city and stored.zone == zone
+    assert stored.date == "2026-11-01"

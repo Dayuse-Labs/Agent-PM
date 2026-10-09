@@ -1,3 +1,16 @@
+## v70 — corrections locales, rejeu complet requis avant publication
+
+Le matin + une heure de départ sont conservés ensemble, sans inventer une heure
+d’arrivée. Le filtrage par offre et les détails d’hôtel respectent cette arrivée ;
+la pagination distingue ce critère. Une précision de ville citée dans le message
+complète le lieu non résolu au lieu de le remplacer. Le triage reçoit le périmètre
+vérifié et une instruction explicite pour les corrections d’adresse.
+
+2810 tests passent, 1 ignoré ; ruff, mypy (71 fichiers) et guardrails verts.
+Main distant vérifié inchangé cbe88b9. Aucun nouveau regex, modèle ou changement
+Railway. FAQ phase2. Les résultats v69 restent la dernière preuve complète :
+les tests locaux ne prouvent pas la qualité du rejeu réel v70 à venir.
+
 ## 2026-10-09 — v69 terminé, avant publication
 
 Runtime a02b2e0 : identité fournisseur place/locality avec contexte de zone conservée au suivi. 2799 tests passent, 1 ignoré ; lint/types/guardrails verts.

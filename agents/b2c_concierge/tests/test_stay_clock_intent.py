@@ -20,6 +20,57 @@ from hotel_search_agent.response_bridge import STATE_EXACT_WINDOW_KEY, _hhmm_fro
 from .test_spine_profile import fake_leg, _new_session, _run_turn, _scripted_llm  # noqa: F401
 
 
+def test_morning_and_departure_survive_city_followup_and_exact_arrival_replaces_daypart(
+    monkeypatch, fake_leg, fake_profile_store  # noqa: F811
+):
+    fake_leg.response_payload = {"results": [], "profile_delta": {}}
+    _scripted_llm(
+        monkeypatch,
+        json.dumps({"family": "search", "language": "en", "requested_budget": None,
+                    "requested_daypart": {"value": "morning", "evidence": "morning"},
+                    "requested_window": {"end": "18:00", "evidence": "until 6pm"}}),
+        "Which city?",
+        '{"family":"search","language":"en","requested_budget":null}',
+        "Looking in Los Angeles.",
+        json.dumps({"family": "search", "language": "en", "requested_budget": None,
+                    "requested_window": {"start": "13:00", "evidence": "1pm"}}),
+        "Arrival at 1pm.",
+    )
+    runner = InMemoryRunner(root_agent)
+    session = _new_session(runner)
+    _run_turn(runner, session.id, "A room from the morning until 6pm")
+    wanted = {"start": None, "end": "18:00", "arrival_daypart": "morning"}
+    assert find_datapart(fake_leg.seen_outgoing_parts)["profile_in"]["requested_window"] == wanted
+    fake_leg.response_payload = {"results": [], "profile_delta": {
+        "city": "Los Angeles", "requested_window": {"start": "13:00", "end": "18:00"},
+        "timeslot_start": "13:00", "daypart": "afternoon",
+    }}
+    _run_turn(runner, session.id, "Los Angeles")
+    profile = asyncio.run(fake_profile_store.get(session.id))
+    assert profile.requested_window == wanted
+    assert profile.timeslot_start is None and profile.timeslot_end == "18:00"
+    _run_turn(runner, session.id, "Actually from 1pm")
+    assert find_datapart(fake_leg.seen_outgoing_parts)["profile_in"]["requested_window"] == {
+        "start": "13:00", "end": "18:00",
+    }
+
+
+def test_mixed_arrival_filters_each_offer_before_picking_cheapest():
+    from hotel_search_agent.response_bridge import normalize_search_results
+
+    raw = {"results": [{"hotelId": 1, "offers": [
+        {"ratePlanUuid": "cheap-noon", "priceEuro": 3000, "startHour": 12, "endHour": 18},
+        {"ratePlanUuid": "morning", "priceEuro": 5000, "startHour": 9, "endHour": 18},
+    ]}, {"hotelId": 2, "offers": [
+        {"ratePlanUuid": "afternoon", "priceEuro": 4000, "startHour": 13, "endHour": 20},
+    ]}]}
+    cards = normalize_search_results(raw, exact_window=(None, 1080), arrival_daypart="morning")
+    assert [(c["id"], c["offer_id"]) for c in cards] == [(1, "morning")]
+    # The retrieval/rounding fallback may relax clock minutes, never arrival intent.
+    cards = normalize_search_results(raw, exact_window=None, arrival_daypart="morning")
+    assert [(c["id"], c["offer_id"]) for c in cards] == [(1, "morning")]
+
+
 def _ctx_with_profile(profile, message):
     return SimpleNamespace(
         state={},
@@ -248,3 +299,21 @@ def test_unsupported_full_day_placeholder_cannot_overwrite_saved_departure():
     assert _grounded_window({'requested_window': {
         'start': '00:00', 'end': '24:00', 'evidence': '00:00–24:00',
     }}, '00:00–24:00') == ('00:00', '24:00')
+
+
+def test_mixed_arrival_change_invalidates_pagination():
+    from b2c_concierge.profile import pagination_search_key
+    profile = SessionProfile(requested_window={"start": None, "end": "18:00", "arrival_daypart": "morning"})
+    morning = pagination_search_key(profile)
+    profile.requested_window["arrival_daypart"] = "afternoon"
+    assert pagination_search_key(profile) != morning
+
+
+def test_named_hotel_details_respect_morning_and_departure():
+    from b2c_concierge.inline_tools import _search_offer
+    profile = SessionProfile(date="2099-11-01", requested_window={
+        "start": None, "end": "18:00", "arrival_daypart": "morning"}, timeslot_end="18:00")
+    common = {"availabilityDate": profile.date, "endHour": 18}
+    offers = [{**common, "ratePlanUuid": "noon", "startHour": 12, "priceEuro": 3000},
+              {**common, "ratePlanUuid": "morning", "startHour": 9, "priceEuro": 5000}]
+    assert _search_offer(offers, {}, profile)["ratePlanUuid"] == "morning"

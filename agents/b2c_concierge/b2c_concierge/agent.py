@@ -1348,6 +1348,14 @@ class _B2cConcierge(BaseAgent):
         # yesterday's/earlier window before the update below can be applied.
         # Partial clock answers retain the other bound; explicit clear is ().
         landmark_update = triage.requested_landmark if not location_choice else None
+        parent_city = (triage.location_intent or {}).get("parent_city")
+        if (not location_choice and pending_refinement and location_action == "refine"
+                and parent_city and (profile.zone or profile.metro)):
+            # The existing specific target is code-owned history, while only
+            # the containing city came from this reply. Resolve the combined
+            # request afresh; a model's parent label is not a verified point.
+            landmark_update = {"query": profile.zone or profile.metro,
+                               "city": parent_city, "country_guess": None}
         area_update = None if location_choice or landmark_update else preserve_area_boundary(
             profile.search_areas, triage.requested_areas,
             parent_refinement=pending_refinement and location_action == "refine",
@@ -1399,8 +1407,18 @@ class _B2cConcierge(BaseAgent):
             else:
                 next_window = (None, None)  # owned unknown arrival; the leaf cannot invent midnight
         daypart_update = triage.requested_daypart if requested_window is None or triage.replace_window else None
+        arrival_daypart = carried_window.get("arrival_daypart")
+        if triage.replace_window or requested_window == () or (requested_window and requested_window[0]):
+            arrival_daypart = None
+        if (triage.requested_daypart and requested_window and not requested_window[0]
+                and requested_window[1]):
+            # A vague arrival and an exact departure are independent constraints.
+            # Do not invent an arrival hour or retain an old exact arrival.
+            arrival_daypart = triage.requested_daypart
+            next_window = (None, requested_window[1])
         daypart_changed = bool(daypart_update and (daypart_update != profile.daypart or profile.timeslot_start or profile.timeslot_end))
-        window_changed = (daypart_changed or triage.replace_window or next_duration != profile.requested_duration_minutes
+        window_changed = (daypart_changed or arrival_daypart != carried_window.get("arrival_daypart")
+                          or triage.replace_window or next_duration != profile.requested_duration_minutes
                           or (next_window is not None and (
                               next_window != (profile.timeslot_start, profile.timeslot_end)
                               or (not requested_window and bool(profile.timeslot or profile.daypart))
@@ -1656,6 +1674,8 @@ class _B2cConcierge(BaseAgent):
             # Empty tuple is an explicit retraction; absent signal is carryover.
             assert next_window is not None
             profile.requested_window = {"start": next_window[0], "end": next_window[1]} if any(next_window) else {}
+            if arrival_daypart and not next_window[0] and next_window[1]:
+                profile.requested_window["arrival_daypart"] = arrival_daypart
             profile.restore_requested_window()
 
         if route.target == LEAF_HOTEL_SEARCH and daypart_update:

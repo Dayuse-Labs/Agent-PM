@@ -102,6 +102,7 @@ def context_for_triage(pending: Any, confirmed: Any, *, unresolved: dict | None 
         ]}
     if c:
         return {"confirmed_place": c["label"],
+                **({"search_context": c["search_context"]} if c.get("search_context") else {}),
                 # A POI's display name is not its city. Only the structured
                 # provider parent can authorize a later street/landmark reply;
                 # search_context.city is a request string, not that evidence.
@@ -132,6 +133,15 @@ def location_intent(value: Any, message: str, context: dict | None) -> dict | No
         if isinstance(n, bool) or not isinstance(n, int) or not 1 <= n <= len(options):
             return None
         return {"action": action, "position": n}
-    if action in {"preserve", "change", "device", "refine"}:
+    if action == "refine":
+        parent = value.get("parent_city")
+        # A quoted parent is a request label, never provider evidence. Keep it
+        # separate from the old landmark so history need not masquerade as a
+        # new, verbatim landmark extraction.
+        if (isinstance(parent, str) and parent.strip() and len(parent) <= 200
+                and parent.strip().casefold() in evidence.casefold()):
+            return {"action": action, "parent_city": parent.strip()}
+        return {"action": action}
+    if action in {"preserve", "change", "device"}:
         return {"action": action}
     return None
