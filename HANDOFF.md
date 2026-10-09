@@ -1,3 +1,33 @@
+## 2026-10-09 · v89 rejoué — amélioration ciblée, NO GO maintenu
+
+Runtime9991aa1 :4parcours/9tours terminés,2B2C contre1B3C en v88.
+Le contrôle synthétique adresse→budget→horaires passeC→B : origine conservée,
+plafond150USD frais inclus respecté,10:30–19 cité avec date/zone/plafond et
+suggestions date/zone/horaires. La dernière réponse utilise toutefois la synthèse
+leaf:hotel_search, PAS template:budget_no_verified_offer : ne pas attribuer
+causalement ce gain à cette branche déterministe, couverte hors ligne.
+MCP reçoit11–19 selon la règle partagée ; minutes originales conservées.
+
+Voorhees resteC (question adresse répétée après réponse de commune), JFK resteC
+(contestation reçoit la même réponse vide), Biltmore resteB (huit créneaux
+vérifiés).12cartes reliées aux reçus exacts,0écart prix/jointure/expiration ;
+5cartes sous budget frais compris,0dépassement.77hashes runtime inchangés.
+3029tests passent/1gate live optionnelle ignorée ; aucun changement runtime
+après cette suite. Trois services possédés arrêtés, ledger sans pending.
+
+Coût0,16758555USD ; cumul148,41301669/150 dont7,10provisionnés. Headroom après
+réserve1,08698331USD. Rapport privé batch-v89/replay_review.html, rapport général
+actualisé. Dernier lot complet100/280 restev78 ; aucun gain global prouvé.
+
+Production fraîche :43nouveaux échanges/19sessions relus, non rejoués ; origine
+organique non vérifiée. Langfuse2traces/31observations : après Otro, Madrid est
+encore dans le profil mais le guard search refuse la ville ; pour77, extraction
+budget nulle, pourtant profil et outil servi ajoutent77EUR. Ces défauts ne sont
+pas des attentes de référence. Régressions à couvrir : Madrid alternatives,
+réponse numérique de localisation, W4→London, Milanest→30km jusqu’àminuit.
+Reste aussi alternatives hôtel/ville et couverture historique complète.
+Aucun merge/déploiement. PR134 reste draft ; review humaine requise.
+
 ## 2026-10-09 · v89 budget + horaires — validation hors ligne verte, rejeu requis
 
 Réponse vide sous plafond : le concierge cite désormais le contexte réellement
