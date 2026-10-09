@@ -1,5 +1,34 @@
 # HANDOFF — AgentB2C
 
+## 2026-10-09 — v63 local : précision de ville sans objet requested_areas
+
+Cause v62 reproduite sur la vraie trace 23rd Street : le triage émet bien
+action=refine, la feuille appelle geocode_location avec New York et la rue,
+mais inject_profile_geo_context supprime la rue lors du changement de nom de
+ville Manhattan → New York. La conservation ne s'appliquait qu'au chemin
+areas_authoritative, absent dans cette extraction.
+
+Correction locale : l'intention de précision possédée par le concierge conserve
+zone/metro avant résolution fournisseur, même sans requested_areas. Exception
+limitée aux demandes non résolues, sans changement de pays connu. Le concierge
+ne l'autorise plus sur simple historique si une ville était déjà indiquée :
+il faut un refine explicite ; la première précision de ville reste compatible.
+Pas de regex, vocabulaire de lieux, appel modèle ou changement de fournisseur.
+
+2737 tests / 1 ignoré, ruff, mypy70, guardrails verts. Contre-factuel avec même
+profil, extraction et arguments réels v62 : avant la rue disparaît, après elle
+reste. Réseau désactivé ; cela ne prouve pas le géocodage ni la réponse finale.
+Rio reste ouvert (location_intent omis). Budget 45–65 : objet émis mais answer_to
+absent ; budget 120 : answer_to inventé, rejet justifié. Ne pas présenter ces
+deux cas comme simples champs manquants ni supprimer la validation de provenance.
+
+Lot LOCAL, non poussé, pas de note qualité v63 : un rejeu réel reste nécessaire
+avant publication. PR 134 reste au commit évalué/public 2772d9f ; CI 37868226960
+réussie, deux étapes payantes ignorées. Dernier bilan = v62 (10 A/19 B/23 C/6 NN),
+pas de GO production. Budget inchangé 108,97310628/110, dont 6,10 provisionnés,
+réserve 0,50. Aucun coût v63, aucun service lancé, FAQ/annulations phase 2.
+Preuves privées batch-v63 ; ne pas remplacer le rapport v62 par des scores inférés.
+
 ## 2026-10-09 — v62 rejoué : gains de restitution, géographie toujours insuffisante
 
 Runtime 6832426, main cbe88b9 fetchée et inchangée. 58 conversations / 163 réponses
@@ -27,7 +56,7 @@ Deux provisions de démarrage (2 USD) levées après preuve de refus réseau sur
 la fiche A2A AVANT tout appel feuille ; les cinq triages déjà facturés restent
 comptés. Les autres provisions restent intactes. Réserve interne 0,50 ; coût
 terminal réconcilié, services arrêtés. Pas de nouveau rejeu complet abordable.
-PR draft à actualiser avec ce bilan, puis contrôler la CI du commit exact.
+PR draft actualisée au commit 2772d9f ; CI exacte 37868226960 réussie.
 FAQ/annulations phase 2 ; aucun ajout FAQ, regex ou phase modèle dans v62.
 
 ## 2026-10-09 — v62 local : suivi géographique et cohérence cartes/texte

@@ -1731,7 +1731,8 @@ class _B2cConcierge(BaseAgent):
         query_params: dict[str, Any] = {}
         if route.target == LEAF_HOTEL_SEARCH and location_action == "device":
             query_params["device_authoritative"] = True
-        if route.target == LEAF_HOTEL_SEARCH and pending_refinement and (profile.zone or profile.metro):
+        if (route.target == LEAF_HOTEL_SEARCH and pending_refinement and (profile.zone or profile.metro)
+                and (location_action == "refine" or missing_destination_before_triage)):
             query_params["pending_request_refinement"] = True
         if route.target == LEAF_HOTEL_SEARCH and landmark_update:
             query_params["landmark_authoritative"] = True

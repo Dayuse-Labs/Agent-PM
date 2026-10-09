@@ -1227,7 +1227,22 @@ def inject_profile_geo_context(tool: object, args: dict, tool_context: object) -
 
     if _is_blank(args.get("city")) and profile_in.get("city"):
         args["city"] = profile_in["city"]
-    if destination_changed:
+    pending_refinement = (
+        (envelope.get("query_params") or {}).get("pending_request_refinement") is True
+        and not profile_in.get("confirmed_location")
+        and not profile_in.get("distance_origin")
+        and not profile_in.get("last_results")
+        and not (country and prior_country and country != prior_country)
+    )
+    if pending_refinement:
+        # The concierge owns the meaning of this city clarification. A new
+        # parent label does not abandon the unresolved street/metro, even if
+        # no requested_areas object accompanied the semantic refinement.
+        # Geometry still has to be resolved and verified by the provider.
+        for field in ("zone", "metro"):
+            if profile_in.get(field):
+                args[field] = profile_in[field]
+    elif destination_changed:
         # The model can copy an old area into its fresh args too. A repeated
         # name belongs to the new destination only when the actual current
         # customer message says it; do not trust raw_user_message supplied by

@@ -706,6 +706,33 @@ def _user_content_with_profile_in(profile_in: dict) -> genai_types.Content:
 
 
 class TestInjectProfileGeoContext:
+    @pytest.mark.parametrize("field", ["zone", "metro"])
+    @pytest.mark.parametrize("copied", [None, "23rd st"])
+    def test_owned_pending_refinement_keeps_specific_place_under_new_parent(self, field, copied):
+        profile = {"city": "Manhattan", field: "23rd st", "country_anchor": "US"}
+        data = {"profile_in": profile, "query_params": {"pending_request_refinement": True}}
+        content = genai_types.Content(role="user", parts=[genai_types.Part(text="New York, ny, usa"),
+            convert_a2a_part_to_genai_part(a2a_types.Part(root=a2a_types.DataPart(data=data)))])
+        args = {"city": "New York", "country_code": "US", field: copied}
+        assert inject_profile_geo_context(_Tool("geocode_location"), args, _Ctx(user_content=content)) is None
+        assert args["city"] == "New York"
+        assert args[field] == "23rd st"
+
+    @pytest.mark.parametrize("change", [
+        {"country_anchor": "CA"},
+        {"confirmed_location": {"provider_id": "already-resolved"}},
+        {"distance_origin": {"latitude": 40.7, "longitude": -74}},
+        {"last_results": [{"hotel_id": 1}]},
+    ])
+    def test_pending_refinement_cannot_override_cross_country_or_resolved_state(self, change):
+        data = {"profile_in": {"city": "Manhattan", "zone": "23rd st", "country_anchor": "US", **change},
+                "query_params": {"pending_request_refinement": True}}
+        content = genai_types.Content(role="user", parts=[genai_types.Part(text="New York, ny, usa"),
+            convert_a2a_part_to_genai_part(a2a_types.Part(root=a2a_types.DataPart(data=data)))])
+        args = {"city": "New York", "country_code": "US", "zone": "23rd st"}
+        inject_profile_geo_context(_Tool("geocode_location"), args, _Ctx(user_content=content))
+        assert not args.get("zone")
+
     def test_ignores_other_tools(self):
         args = {"lat": 1}
         ctx = _Ctx(user_content=_user_content_with_profile_in({"city": "Miami"}))

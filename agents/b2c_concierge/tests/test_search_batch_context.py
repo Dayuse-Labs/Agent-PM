@@ -78,6 +78,35 @@ def test_city_clarification_preserves_unresolved_zone_but_new_destination_clears
     assert p["date"] == "2026-11-01" and p["timeslot_start"] == "13:00"
 
 
+@pytest.mark.parametrize("action,expected_zone", [("refine", "23rd st"), ("change", None), (None, None)])
+def test_parent_refinement_without_area_extraction_reaches_geocoder(scripted, monkeypatch, fake_profile_store, action, expected_zone):  # noqa: F811
+    runner, session = _new_session()
+    asyncio.run(fake_profile_store.set(session.id, SessionProfile(city="Manhattan", zone="23rd st",
+        date="2026-11-01", requested_window={"start": "18:30", "end": "21:00"})))
+    payload = {"family": "search", "language": "en", "requested_budget": None}
+    if action:
+        payload["location_intent"] = {"action": action, "evidence": "New York, ny, usa"}
+    llm, _ = scripted(json.dumps(payload), "Current location result.")
+    seen = []
+    async def leaf(leaf, ctx, profile_in, **kwargs):
+        params = kwargs.get("query_params", {})
+        content = types.Content(role="user", parts=[types.Part(text="New York, ny, usa"),
+            encode_datapart({"profile_in": profile_in, "query_params": params})])
+        args = {"city": "new york", "zone": "23rd st", "country_code": "US"}
+        inject_profile_geo_context(SimpleNamespace(name="geocode_location"), args,
+                                   SimpleNamespace(state={}, user_content=content))
+        seen.append((args, params, profile_in))
+        return "Location unresolved", {"requires_clarification": True}
+    monkeypatch.setattr(agent_module, "_run_leaf", leaf)
+    _drive_in(runner, session.id, "New York, ny, usa")
+    args, params, profile = seen[0]
+    assert args.get("zone") == expected_zone
+    assert bool(params.get("pending_request_refinement")) is (action == "refine")
+    assert profile["requested_window"] == {"start": "18:30", "end": "21:00"}
+    assert profile["date"] == "2026-11-01"
+    assert len(llm.calls) == 2
+
+
 def test_owned_device_intent_wins_over_leaf_copied_city():
     ctx = SimpleNamespace(state={}, user_content=types.Content(role="user", parts=[
         types.Part(text="Near me"), encode_datapart({"profile_in": {"city": "Paris", "search_anchor": {"type": "gps", "lat": 48.6, "lon": 1.6}},
