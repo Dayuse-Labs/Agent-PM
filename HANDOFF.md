@@ -1,3 +1,32 @@
+## v73 — runtime figé localement ; rejeu complet à effectuer
+
+Le profil Redis existant reste la source de contexte. Opération géographique
+obligatoire dans le triage existant, preuve du message courant, clarification
+sur opération invalide. Les précisions de ville conservent repères, hôtels et
+unions de zones sans exiger une double extraction du parent. Le lookup MCP
+nommé est programmé sans appel LLM supplémentaire ; disponibilité datée vérifiée
+séparément. Les écarts de minutes figurent dans la synthèse et la réponse finale.
+
+2 853 tests passent, un ignoré ; ruff, mypy74, guardrails, diff check passent.
+Aucun regex ajouté. Pas de changement de modèle : candidat triage4.1-mini,
+search4o-mini, synthèse5.2 ; le triage Railway reste différent (4o-mini).
+84 appels de diagnostic restent une preuve limitée à des contextes exposés.
+Les revalidations hors ligne consomment les sorties archivées, avec hashes
+séparés pour la capture et le reducer courant ; aucun nouvel appel modèle.
+
+MCP joignable. Lookup Rambler avec Hongkong : même identité mais cityNameIgnored,
+donc aucune preuve de filtrage par ville. Export applicatif rafraîchi à11:01UTC
+le9octobre : 2 000 lignes, six nouvelles sur cinq sessions sélectionnées par
+métadonnées avant lecture. GPS/fuseau/contexte natif absent, jamais reconstruit
+à partir des filtres agent. Ce n'est pas un nouvel export SQL complet.
+
+Prévu : 58 conversations principales,24geo,3sources anciennes,10supplémentaires
+(cinq v72 exposées et cinq nouvelles v73), soit95conversations/260tours. Noter
+les nouvelles séparément. Cumul avant rejeu129,946028588112USD, dont6,10provisionnés,
+pending nul. Rapport visible encore v72. PR134 reste v69 publiée, v70–v73 locaux.
+Aéroports/entités, sémantique de clarification, prix nuls et réponses vides restent
+à réévaluer : pas de GO, merge ou déploiement. FAQ phase2. Objectif actif.
+
 ## v72 — rejeu terminé ; contrat de mise à jour de destination encore incomplet
 
 Runtime évalué : ca8e13954e7eced897a0d77787e0bf30e7f46630. PR134 reste au
