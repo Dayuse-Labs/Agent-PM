@@ -1,3 +1,32 @@
+## 2026-10-09 · v90 production fraîche —4C, NO GO confirmé
+
+Rejeu du commit2f3c9d4 (runtime identique9991aa1) :4conversations fraîches,
+14tours terminés,4C. Production originale4C également, défauts différents ;
+aucune équivalence globale démontrée. Parcours fixes, non adaptatifs, review
+Codex non indépendante. GPS absent du premier tour Madrid : non comparable.
+
+Causes observées dans générations : ville Madrid incluse comme cible en plus
+de deux repères au premier essai, puis comme parent au suivant ; permission
+30km émise preserve sans opération de rayon pour Milan ; entrée romantique
+àdeux déclenche une question de composition avant le lieu. W4 demeure dans le
+profil mais résolutionUK/Canada insatisfaisante. Madrid conserve les repères
+mais répète l’hôtel et demande de choisir un seul repère. Aucun correctif de
+ces nouvelles causes encore implémenté ; aucun nouveau regex.
+
+4cartes conformes aux reçusMCP,0écart prix/jointure/expiration. Aucun plafond
+monétaire demandé :0carte budget évaluée (pas une preuve de validité budget).
+77hashes runtime inchangés. Trois services possédés arrêtés, ledger sans pending.
+Coût0,28121435USD ; cumul148,69423104/150, dont7,10provisionnés ; headroom après
+réserve0,80576896USD. Extension10USD demandée, NON accordée à ce stade.
+
+PR134 publiée à2f3c9d4, draft. CI37969333761 réussie ; tests offline/lint/types/
+guardrails exécutés, batteries live et Langfuse ignorées faute de configuration.
+Rapports privés batch-v89/replay_review.html et batch-v90/replay_review.html,
+rapport général actualisé. Suite locale3029pass/1gate ignorée, runtime inchangé.
+Reste un correctif groupé des contrats sémantiques, puis rejeu historique complet
+et simulations adaptatives ; le budget actuel ne finance pas un nouveau100/280.
+Aucun merge/déploiement. Objectif complet non atteint.
+
 ## 2026-10-09 · v89 rejoué — amélioration ciblée, NO GO maintenu
 
 Runtime9991aa1 :4parcours/9tours terminés,2B2C contre1B3C en v88.

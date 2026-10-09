@@ -1,5 +1,26 @@
 # Bilan final du 9 octobre 2026 — revue de PR, remplacement refusé
 
+## Dernier complément — v90, conversations fraîches
+
+Commit `2f3c9d4`, runtime identique à `9991aa1` : **4 conversations /14 tours,
+4C**, contre4C sur les réponses de production d'origine, avec défauts différents.
+Pas de supériorité ni d'équivalence globale démontrée. Clarification sur le groupe
+avant le lieu, résolution de code postal, élargissement30km non appliqué et
+ville parente traitée comme destination supplémentaire restent insuffisants.
+Les générations enregistrées soutiennent ces diagnostics ; correctifs à faire.
+
+4cartes jointes aux reçusMCP exacts sans écart de prix/jointure/expiration.
+Aucun budget explicite : aucune carte évaluée pour ce critère.77hashes runtime
+inchangés. Trajectoires fixes, non adaptatives ; contexte navigateur absent non
+inventé ; premier tour GPS non comparable. Revue Codex non indépendante.
+
+Coût **0,2812USD** ; cumul **148,6942/150USD**, dont7,10provisionnés.
+Services possédés arrêtés, ledger sans pending. CI du commit2f3c9d4 réussie
+(run37969333761), checks offline exécutés et étapes live ignorées.
+Les8conversations/23tours des lotsv89+v90 ont coûté0,4488USD. **NO GO maintenu.**
+Le passage complet historique100/280 demeure requis après corrections.
+
+
 ## État courant — v89, 9 octobre à 17:51 UTC
 
 Runtime `9991aa1` : **4 conversations / 9 tours, 2 B / 2 C**, contre 1 B / 3 C
