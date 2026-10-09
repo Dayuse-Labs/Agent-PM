@@ -232,3 +232,54 @@ def test_room_requirement_remains_owned_after_location_reply_and_retraction(scri
         monkeypatch.setattr(agent_module, '_run_leaf', leaf)
         _drive_in(runner, session.id, message)
     assert observed == [({'roomEquipmentIds': [11]}, True), ({'roomEquipmentIds': [11]}, True), ({}, True), ({}, True)]
+
+
+@pytest.mark.parametrize('action,expected_subareas', [
+    ('refine', ['Barra da Tijuca', 'Recreio dos Bandeirantes']), ('change', []),
+])
+def test_city_parent_answer_preserves_unresolved_neighborhood_union(scripted, monkeypatch, fake_profile_store, action, expected_subareas):  # noqa: F811
+    from b2c_common.search_areas import validate_areas
+    runner, session = _new_session()
+    prior = [{'query': name, 'kind': 'municipality', 'country': 'BR', 'evidence': name}
+             for name in ['Barra da Tijuca', 'Recreio dos Bandeirantes']]
+    asyncio.run(fake_profile_store.set(session.id, SessionProfile(
+        city='Barra da Tijuca / Recreio dos Bandeirantes', search_areas=prior,
+        date='2026-11-01', amenities=['pool'], amenities_owned=True)))
+    scripted(json.dumps({'family': 'search', 'language': 'pt',
+        'location_intent': {'action': action, 'evidence': 'Rio de Janeiro'},
+        'requested_areas': [{'query': 'Rio de Janeiro', 'kind': 'municipality', 'country': 'BR', 'evidence': 'Rio de Janeiro'}]}),
+        'Current search outcome.')
+    observed = []
+    async def leaf(leaf, ctx, profile_in, **kwargs):
+        observed.append((profile_in, kwargs['query_params']))
+        return 'Areas unresolved', {'requires_clarification': True}
+    monkeypatch.setattr(agent_module, '_run_leaf', leaf)
+    _drive_in(runner, session.id, 'Rio de Janeiro')
+    profile, params = observed[0]
+    assert profile['city'] == 'Rio de Janeiro'
+    assert profile['date'] == '2026-11-01' and profile['amenities'] == ['pool']
+    areas = profile['search_areas']
+    assert [a.get('subarea') for a in areas or []] == expected_subareas
+    if expected_subareas:
+        assert validate_areas(areas) == areas
+        assert all(a['query'] == 'Rio de Janeiro' for a in areas)
+    assert params['areas_authoritative'] is True
+
+
+def test_pagination_delivery_is_owned_by_concierge_not_leaf(scripted, monkeypatch, fake_profile_store):  # noqa: F811
+    runner, session = _new_session()
+    asyncio.run(fake_profile_store.set(session.id, SessionProfile(
+        city='Paris', last_results=[{'hotel_id': 1, 'name': 'Previous'}], shown_hotel_ids=[1])))
+    llm, _ = scripted('{"family":"search","language":"en","wants_more_options":true}',
+                      'Additional choices are available.')
+    async def leaf(leaf, ctx, profile_in, **kwargs):
+        return 'Ask to widen for more options', {'results': [{'id': 2, 'name': 'New option'}],
+            'result_delivery': {'kind': 'additional_page', 'new_hotel_count': 0}}
+    monkeypatch.setattr(agent_module, '_run_leaf', leaf)
+    _drive_in(runner, session.id, 'Other options please')
+    prompt = llm.calls[-1]['messages'][-1]['content']
+    assert 'additional hotels have ALREADY been returned' in prompt
+    assert 'a fresh search is still required' not in prompt
+    stored = asyncio.run(fake_profile_store.get(session.id))
+    assert stored.last_results[0]['hotel_id'] == 2
+    assert len(llm.calls) == 2  # Triage and synthesis, no corrective model phase.

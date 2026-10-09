@@ -1195,6 +1195,7 @@ class _B2cConcierge(BaseAgent):
         previous_search_key = pagination_search_key(profile)
         previous_search_cursor = profile.search_cursor
         had_search_results = bool(profile.last_results)
+        previously_shown_ids = {str(hotel_id) for hotel_id in profile.shown_hotel_ids}
 
         # 1. Ack fast-path: zero LLM, template only — UNLESS the profile
         # signals a search refinement (a bare "ok" after an empty search must
@@ -1347,7 +1348,10 @@ class _B2cConcierge(BaseAgent):
         # yesterday's/earlier window before the update below can be applied.
         # Partial clock answers retain the other bound; explicit clear is ().
         landmark_update = triage.requested_landmark if not location_choice else None
-        area_update = None if location_choice or landmark_update else preserve_area_boundary(profile.search_areas, triage.requested_areas)
+        area_update = None if location_choice or landmark_update else preserve_area_boundary(
+            profile.search_areas, triage.requested_areas,
+            parent_refinement=pending_refinement and location_action == "refine",
+        )
         if (not landmark_update and area_update is None and triage.requested_subarea and profile.search_areas
                 and len(profile.search_areas) == 1 and profile.search_areas[0].get("subarea")
                 and (triage.subarea_parent is None or triage.subarea_parent.casefold() == profile.search_areas[0]["query"].casefold())):
@@ -1561,7 +1565,7 @@ class _B2cConcierge(BaseAgent):
 
         if route.target == LEAF_HOTEL_SEARCH and area_update is not None:
             profile.search_areas = area_update if requires_area_membership(area_update) else None
-            profile.city = " / ".join(a["query"] for a in area_update)
+            profile.city = " / ".join(dict.fromkeys(a["query"] for a in area_update))
             for field in ("state_anchor", "country_anchor", "zone", "metro", "distance_origin"):
                 if pending_refinement and field in {"zone", "metro"}:
                     continue
@@ -1931,6 +1935,15 @@ class _B2cConcierge(BaseAgent):
             if profile.display_currency == HOTEL:
                 apply_hotel_currency(response["results"])
             results_count = len(response["results"])
+            # This is the outcome of the CURRENT request, including pagination.
+            # The synthesis must not turn newly emitted cards into an offer to
+            # search again. The leaf cannot assert this presentation state.
+            returned_ids = {str(h.get("id", h.get("hotel_id"))) for h in response["results"]
+                            if isinstance(h, dict) and h.get("id", h.get("hotel_id")) is not None}
+            response["result_delivery"] = {
+                "kind": "additional_page" if more_options else "current_search",
+                "new_hotel_count": len(returned_ids - previously_shown_ids),
+            }
             search_context = response.get("search_context")
             page = search_context.get("search_page") if isinstance(search_context, dict) else None
             profile.search_page = page if isinstance(page, dict) and page.get("url") else None

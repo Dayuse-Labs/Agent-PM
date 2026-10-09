@@ -1,5 +1,34 @@
 # HANDOFF — AgentB2C
 
+## 2026-10-09 — v62 local : suivi géographique et cohérence cartes/texte
+
+Lot préparé après revue des échecs v61, sans nouvelle regex ni appel modèle.
+Une précision sémantique de ville conserve les quartiers non résolus dans le
+contrat parent/sous-zone ; le fournisseur doit toujours prouver l'appartenance.
+L'orchestrateur indique si une nouvelle page contient de nouveaux hôtels.
+La synthèse reçoit le résultat courant sans consigne contradictoire de relance,
+la couverture d'une borne horaire seule, la distinction prix carte/total avec
+frais, et le fait que les autres formules ne sont pas sur la carte sélectionnée.
+
+2726 tests passent / 1 ignoré ; ruff, mypy70 et guardrails verts. Quatre
+contre-factuels hors réseau sur les données enregistrées v61 vérifient les
+transitions et entrées de synthèse (Rio, départ 20h, USD, pagination). Ils ne
+prouvent ni une meilleure réponse finale ni une meilleure note conversation.
+Attention aux prix : carte 125 USD = total 134 ; carte 126 USD = total 131.
+Les quartiers de Rio doivent encore être résolus par le fournisseur en direct.
+Milano, budgets nus, périmètres, équipements privés et autres C restent ouverts.
+
+Ce lot reste LOCAL, non poussé : rejeu complet v62 requis avant proposition.
+PR 134 draft reste au commit 93ff60c, CI 37865154675 réussie, étapes payantes
+ignorées. Dernier bilan réel = v61 : 58 conversations / 163 réponses,
+7 A / 20 B / 24 C / 7 non notées ; pas de GO remplacement.
+FAQ/annulations restent en phase 2 ; aucun ajout FAQ dans v62.
+
+Coût v62 = 0 USD. Cumul conservateur inchangé 109,4042833 / 110 USD,
+dont 8,10 provisionnés, réserve interne 0,50. Le solde ne permet pas un rejeu
+complet ; ne pas lancer automatiquement de campagne payante ni pousser ce lot
+comme évalué. Rapport réel v61 inchangé ; preuves locales privées batch-v62.
+
 ## 2026-10-09 — v61 terminé : 58 conversations / 163 réponses, pas de GO
 
 Runtime `f90e368` : 56 historiques = 7 A / 20 B / 23 C / 6 non notés ;
@@ -19,7 +48,7 @@ Budget nu, périmètres, jacuzzi privé et restitution restent des défauts ouve
 diagnostic 0,0082392 USD ; cumul conservateur 109,4042833 / 110, dont 8,10
 provisionnés. Réserve interne 0,50, aucun coût tardif ni requête en attente.
 Services locaux arrêtés. Ne pas relancer une campagne payante automatiquement.
-PR draft à actualiser avec le bilan ; CI exacte à contrôler après push.
+PR draft actualisée au commit 93ff60c ; CI exacte 37865154675 réussie.
 Le document de progression remplace les anciens chiffres comme état courant.
 
 ## 2026-10-09 — v61 préparé : conservation des parents géographiques vérifiés

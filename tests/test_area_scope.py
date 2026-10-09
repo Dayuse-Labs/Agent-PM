@@ -626,3 +626,36 @@ def test_parallel_rejected_area_call_cannot_erase_applied_spa_on_next_turn(monke
         enforce_equipment_filters(tool, args, following)
         assert args['hotelEquipmentIds'] == [35]
     asyncio.run(scenario())
+
+
+def test_refinement_keeps_both_children_and_requires_provider_parent_membership():
+    from b2c_common.search_areas import preserve_area_boundary
+    previous = [{'query': name, 'kind': 'municipality', 'country': 'FR', 'evidence': name}
+                for name in ['Le Marais', 'Montmartre']]
+    parent = [{'query': 'Paris', 'kind': 'municipality', 'country': 'FR', 'evidence': 'Paris'}]
+    requests = preserve_area_boundary(previous, parent, parent_refinement=True)
+    city = replace(candidate('Paris', '', 'paris'), feature_type='place', bbox=(2.22, 48.81, 2.42, 48.90))
+    children = {name: replace(candidate(name, '', name), feature_type='neighborhood',
+                parent_ids=('paris',), bbox=(2.35, 48.85, 2.37, 48.87)) for name in ['Le Marais', 'Montmartre']}
+    def geocode(query, **kwargs):
+        return [city] if query == 'Paris' else [children[query.split(',')[0]]]
+    provider = SimpleNamespace(geocode_candidates=geocode)
+    result = resolve_areas(requests, provider)
+    assert result['ok'] and len(result['search_areas']) == 2
+    assert {a['id'] for a in result['search_areas']} == set(children)
+    assert all(a['required_parent_id'] == 'paris' for a in result['search_areas'])
+    children['Montmartre'] = replace(children['Montmartre'], parent_ids=('another-city',))
+    result = resolve_areas(requests, provider)
+    assert len(result['search_areas']) == 1 and result['unresolved_areas']
+    assert result['search_areas'][0]['id'] == 'Le Marais'  # Never substitute Paris.
+
+
+@pytest.mark.parametrize('update', [
+    [{'query': 'London', 'kind': 'municipality', 'country': 'GB', 'evidence': 'London'}],
+    [{'query': 'Le Marais', 'kind': 'municipality', 'country': 'FR', 'evidence': 'Le Marais'}],
+])
+def test_cross_country_or_selected_alternative_does_not_become_a_parent(update):
+    from b2c_common.search_areas import preserve_area_boundary
+    previous = [{'query': name, 'kind': 'municipality', 'country': 'FR', 'evidence': name}
+                for name in ['Le Marais', 'Montmartre']]
+    assert preserve_area_boundary(previous, update, parent_refinement=True) == update

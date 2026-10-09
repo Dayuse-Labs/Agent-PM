@@ -15,6 +15,7 @@ from __future__ import annotations
 
 import json
 from datetime import date, time
+from decimal import Decimal
 from typing import Any
 
 from b2c_common import minor_units
@@ -130,9 +131,10 @@ _HEADER = (
     "it: volunteering \"the amenities are not listed\" on a turn where "
     "nobody asked is filler that reads as a malfunction (prod 2026-07-29).\n"
     "IMPORTANT: this block is reference data for truthfulness only — it "
-    "does NOT replace tool calls. If the user changes any constraint or "
-    "asks to see options again, a fresh search is still required; describing "
-    "these hotels from memory instead of running a new search is a failure.\n"
+    "does NOT replace tool calls: those calls have ALREADY completed for the "
+    "CURRENT message, including its changed constraints or request for more "
+    "options. Describe this returned outcome; do not offer to perform this "
+    "same request again or infer that another search is needed from earlier dialogue.\n"
     "POLICIES: hotel_conditions applies to this property only; general_conditions "
     "does not establish a property-specific age threshold, exception or eligibility. "
     "Missing or truncated terms prove neither permission nor prohibition. Report "
@@ -156,11 +158,11 @@ def _minute_coverage(hotel: dict[str, Any], window: dict[str, str | None] | None
 
     window = window or {}
     start, end = clock(window.get("start")), clock(window.get("end"))
-    if start is None or end is None:
+    if start is None and end is None:
         return ""
-    if end == 0 and start > 0:
+    if end == 0 and start is not None and start > 0:
         end = 1440
-    if end <= start:
+    if start is not None and end is not None and end <= start:
         return ""  # No inferred overnight date or duration.
     valid_slots = []
     for slot in (hotel.get("timeslots") or [])[:5]:
@@ -173,9 +175,18 @@ def _minute_coverage(hotel: dict[str, Any], window: dict[str, str | None] | None
             right = 1440
         if right > left:
             valid_slots.append((left, right))
-    covers = any(left <= start and right >= end for left, right in valid_slots)
+    if start is not None and end is not None:
+        covers = any(left <= start and right >= end for left, right in valid_slots)
+        subject = f"minute coverage of {window['start']}–{window['end']}"
+    elif start is not None:
+        covers = any(left <= start < right for left, right in valid_slots)
+        subject = f"requested arrival {window['start']} (departure unspecified)"
+    else:
+        assert end is not None
+        covers = any(left < end <= right for left, right in valid_slots)
+        subject = f"requested departure {window['end']} (arrival unspecified)"
     verdict = "covered" if covers else "not covered" if valid_slots else "unknown"
-    return f" — minute coverage of {window['start']}–{window['end']}: {verdict}"
+    return f" — {subject}: {verdict}"
 
 
 def _hotel_line(hotel: dict[str, Any], window: dict[str, str | None] | None = None) -> str:
@@ -191,6 +202,14 @@ def _hotel_line(hotel: dict[str, Any], window: dict[str, str | None] | None = No
         line += f" ({place})"
     if price:
         line += f" — {price}"
+    shown_currency = hotel.get("display_currency") or "EUR"
+    shown_minor = hotel.get("display_price_minor") if hotel.get("display_currency") else hotel.get("price_eur_cents")
+    total_minor = (hotel.get("offer_totals") or {}).get(shown_currency)
+    if (isinstance(total_minor, int) and not isinstance(total_minor, bool) and total_minor > 0
+            and isinstance(shown_minor, int) and total_minor != shown_minor):
+        line += (f" — verified total including booking fees: {Decimal(total_minor).scaleb(-minor_units(shown_currency))} {shown_currency}. "
+                 "This differs from the card quote; explain the fee basis if mentioning this total or savings, "
+                 "never call it the price displayed on the card")
     # Expose the same dated slot the card shows. A requested profile window
     # is not proof of an available offer, and must never fill missing data.
     offered_date = hotel.get("offer_date")
@@ -228,7 +247,7 @@ def _hotel_line(hotel: dict[str, Any], window: dict[str, str | None] | None = No
                 if not isinstance(slot, dict):
                     continue
                 rows.append(f"{slot.get('start')}–{slot.get('end')} {offer.get('price')} (date {offer.get('offer_date')})")
-        line += " — other verified formulas (do not reuse the selected card price): " + "; ".join(dict.fromkeys(rows))
+        line += " — other verified formulas (not displayed on the selected card; do not reuse its price): " + "; ".join(dict.fromkeys(rows))
         if hotel.get("available_offers_truncated"):
             line += " (partial list; additional formulas may exist)"
     line += _minute_coverage(hotel, window)
@@ -443,19 +462,34 @@ def shortlist_ground_truth_block(
             return "\n\n## CURRENT RESULTS (GROUND TRUTH)\n" + _EMPTY_SCREEN_NOTE + date_block + location_note
         return location_note
     lines = [_hotel_line(hotel, profile.requested_window) for hotel in hotels]
+    delivery = (response or {}).get("result_delivery") or {}
+    delivery_note = ""
+    if delivery.get("kind") == "additional_page":
+        if isinstance(delivery.get("new_hotel_count"), int) and delivery["new_hotel_count"] > 0:
+            delivery_note = (
+                "CURRENT PAGE: additional hotels have ALREADY been returned and displayed for this "
+                "request for more options. Acknowledge these new options; do not ask the customer "
+                "to change date, area or budget just to obtain the options already on screen. "
+                "This page does not establish exhaustion of the full inventory.\n"
+            )
+        else:
+            delivery_note = "CURRENT PAGE: no new hotel identity is verified against the previous pages; do not call these new alternatives.\n"
     window_note = (
-        "TIME WINDOWS: minute coverage is calculated from a single listed offer. "
+        "TIME WINDOWS: coverage is calculated from a single listed offer. "
         "A covered window does not require arriving earlier or leaving later: "
         "10:00–18:00 covers a requested stay of 10:30–17:00. Do not ask the user "
         "to accept different hours when coverage is confirmed. Not covered means "
         "the listed slots do not contain the full exact request, even if the site's "
         "rounded-hour search accepted them. Unknown proves no coverage. Never "
         "combine separate offers into a longer stay or infer extension/refund terms.\n"
-        if any("minute coverage" in line for line in lines) else ""
+        "A single arrival/departure bound only proves that bound, not an unspecified full stay. "
+        "An offer ending after the requested departure permits that earlier departure; "
+        "do not ask the customer to accept staying until the offer ends.\n"
+        if any(_minute_coverage(hotel, profile.requested_window) for hotel in hotels) else ""
     )
     return (
         "\n\n## CURRENT SHORTLIST (GROUND TRUTH)\n"
-        + date_block + location_note + _HEADER + window_note + "\n".join(lines)
+        + date_block + location_note + _HEADER + delivery_note + window_note + "\n".join(lines)
     )
 
 

@@ -4,6 +4,8 @@ SearchResponse.results shape (contract.py) and SessionProfile (profile.py).
 """
 from __future__ import annotations
 
+import pytest
+
 from b2c_concierge.ground_truth import (
     MAX_AMENITIES,
     MAX_HOTELS,
@@ -518,3 +520,30 @@ def test_empty_device_search_keeps_origin_evidence_but_unexecuted_search_does_no
     delta = {"distance_origin": {"type": "gps"}}
     assert "device position" in shortlist_ground_truth_block({"results": [], "profile_delta": delta}, _profile())
     assert "device position" not in shortlist_ground_truth_block({"profile_delta": delta}, _profile())
+
+
+@pytest.mark.parametrize('bound,slot,expected', [
+    ({'end': '20:00'}, {'start': '17:00', 'end': '23:00'}, 'requested departure 20:00 (arrival unspecified): covered'),
+    ({'end': '20:00'}, {'start': '10:00', 'end': '19:00'}, 'requested departure 20:00 (arrival unspecified): not covered'),
+    ({'start': '18:00'}, {'start': '11:00', 'end': '18:00'}, 'requested arrival 18:00 (departure unspecified): not covered'),
+    ({'start': '18:00'}, {'start': '17:00', 'end': '23:00'}, 'requested arrival 18:00 (departure unspecified): covered'),
+])
+def test_one_clock_bound_is_checked_without_inventing_the_other(bound, slot, expected):
+    block = shortlist_ground_truth_block({'results': [{'name': 'Example', 'timeslots': [slot]}]}, _profile(requested_window=bound))
+    assert expected in block
+    assert 'not an unspecified full stay' in block
+    assert 'do not ask the customer to accept staying until the offer ends' in block
+
+
+def test_total_with_fees_is_not_described_as_the_displayed_card_quote():
+    block = shortlist_ground_truth_block({'results': [{'name': 'Example', 'price': 'USD 125.00',
+        'display_currency': 'USD', 'display_price_minor': 12500, 'offer_totals': {'USD': 13100}}]}, _profile())
+    assert 'USD 125.00' in block and 'verified total including booking fees: 131.00 USD' in block
+    assert 'never call it the price displayed on the card' in block
+
+
+def test_verified_alternative_formulas_are_distinct_from_card_times():
+    block = shortlist_ground_truth_block({'results': [{'name': 'Example', 'timeslots': [{'start': '10:00', 'end': '17:00'}],
+        'available_offers': [{'price': 'EUR 50', 'offer_date': '2026-11-01', 'timeslots': [{'start': '07:00', 'end': '12:00'}]}]}]}, _profile())
+    assert 'offered times: 10:00–17:00' in block and '07:00–12:00' in block
+    assert 'not displayed on the selected card' in block

@@ -1,6 +1,12 @@
 # Évaluation recherche avant remplacement de la production — 9 octobre 2026
 
 **Pas de GO remplacement. PR 134 en draft pour revue technique.**
+Un lot v62 est préparé localement, sans push ni rejeu réel : conservation des
+quartiers après précision de ville, pagination, horaires partiels et restitution
+des prix avec frais. 2726 tests / 1 ignoré et quatre contre-factuels sur traces
+v61 passent hors réseau ; ils ne changent aucune note du bilan ci-dessous.
+Coût additionnel nul, budget inchangé. Rejeu complet requis avant publication.
+
 Runtime évalué : `f90e3681e0a7fd7f92b92b5c793e5267e53c2698` (v61),
 base main `cbe88b9`, fetchée à nouveau et inchangée. FAQ, annulations et SAV
 restent en phase 2 ; aucune correction FAQ ajoutée dans le lot v61.
