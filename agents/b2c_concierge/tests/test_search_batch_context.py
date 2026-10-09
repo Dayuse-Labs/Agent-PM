@@ -235,8 +235,7 @@ def test_daypart_survives_city_clarification_and_replaces_old_clock(scripted, mo
         assert profile["timeslot_start"] is None and profile["timeslot_end"] is None
         assert profile["requested_duration_minutes"] is None
     wire = llm[0].calls[0]["response_format"]
-    assert wire["type"] == "json_schema" and wire["json_schema"]["strict"] is True
-    assert "location_intent" in wire["json_schema"]["schema"]["required"]
+    assert wire == {"type": "json_object"}
 
 
 def test_daypart_requires_current_quote_and_supported_value():

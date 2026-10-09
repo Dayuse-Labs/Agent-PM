@@ -129,9 +129,6 @@ def context_for_triage(pending: Any, confirmed: Any, *, unresolved: dict | None 
 def location_intent(value: Any, message: str, context: dict | None) -> dict | None:
     if not isinstance(value, dict):
         return None
-    evidence = value.get("evidence")
-    if not isinstance(evidence, str) or not evidence.strip() or evidence not in message:
-        return None
     action = value.get("action")
     kind = value.get("kind")
     # New wire responses carry a mandatory semantic kind. Older stored test/
@@ -139,6 +136,15 @@ def location_intent(value: Any, message: str, context: dict | None) -> dict | No
     # from matching the customer's words in code.
     typed = "kind" in value
     if typed and kind not in {"none", "city", "area", "landmark", "hotel", "device"}:
+        return None
+    # A no-op asserts no new geographic fact. Requiring a quote for it turned
+    # price/hour replies into location questions when triage copied the old
+    # place name. The caller discards all accompanying destination updates;
+    # relaxing this no-op cannot authorize a change or promote an identity.
+    if action == "preserve":
+        return {"action": "preserve", **({"kind": "none"} if typed else {})}
+    evidence = value.get("evidence")
+    if not isinstance(evidence, str) or not evidence.strip() or evidence not in message:
         return None
     extra = {"kind": kind} if typed else {}
     # The operation is authoritative. A copied description of the old target

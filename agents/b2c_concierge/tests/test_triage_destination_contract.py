@@ -8,7 +8,7 @@ import pytest
 from b2c_common.confirmed_location import context_for_triage, location_intent
 from b2c_concierge.budget import TurnBudget
 from b2c_concierge.triage import classify
-from b2c_concierge.triage_schema import TRIAGE_SCHEMA
+from b2c_concierge.triage_schema import TRIAGE_RESPONSE_FORMAT
 import b2c_concierge.agent as agent_module
 from b2c_concierge.profile import SessionProfile
 
@@ -20,7 +20,7 @@ def _decision(action, kind, evidence, parent_city=None):
             "parent_city": parent_city, "position": None}
 
 
-def test_strict_schema_is_sent_in_the_existing_single_call(monkeypatch):
+def test_sparse_contract_uses_the_existing_single_call(monkeypatch):
     seen = []
     async def llm(**kwargs):
         seen.append(kwargs)
@@ -33,9 +33,7 @@ def test_strict_schema_is_sent_in_the_existing_single_call(monkeypatch):
     result = asyncio.run(classify("près de moi", budget))
     assert budget.llm_calls == len(seen) == 1
     fmt = seen[0]["response_format"]
-    assert fmt["json_schema"]["strict"] is True
-    assert fmt["json_schema"]["schema"] == TRIAGE_SCHEMA
-    assert "location_intent" in TRIAGE_SCHEMA["required"]
+    assert fmt == TRIAGE_RESPONSE_FORMAT == {"type": "json_object"}
     assert result.location_intent == {"action": "device", "kind": "device"}
 
 
@@ -169,6 +167,44 @@ def test_invalid_geographic_proof_asks_without_searching_but_keeps_other_constra
     assert profile.city == "Paris" and profile.requested_destination["query"] == "Gare de Lyon"
     assert profile.requested_budget["amount"] == 80
     assert "Which place" in profile.last_clarifying_question
+
+
+@pytest.mark.parametrize("copied_evidence", ["Paris", "", None])
+def test_geographic_noop_does_not_block_budget_or_rewrite_destination(
+    scripted, monkeypatch, fake_profile_store, copied_evidence,  # noqa: F811
+):
+    runner, session = _new_session()
+    destination = {"kind": "landmark", "query": "Gare de Lyon", "city": "Paris"}
+    asyncio.run(fake_profile_store.set(session.id, SessionProfile(
+        city="Paris", zone="Gare de Lyon", date="2030-11-01",
+        timeslot_start="10:00", timeslot_end="16:00",
+        requested_destination=destination,
+    )))
+    seen = []
+
+    async def leaf(leaf, ctx, profile_in, **kwargs):
+        seen.append(profile_in)
+        return "No offers", {"results": []}
+
+    scripted(json.dumps({
+        "family": "search", "language": "en",
+        "location_intent": _decision("preserve", "city", copied_evidence),
+        "requested_areas": [{"query": "London", "kind": "municipality", "country": "GB", "evidence": "London"}],
+        "requested_budget": {"amount": 80, "currency": "EUR", "unit": "total", "evidence": "80 EUR"},
+    }), "No offers")
+    monkeypatch.setattr(agent_module, "_run_leaf", leaf)
+    _drive_in(runner, session.id, "under 80 EUR")
+    assert len(seen) == 1
+    assert seen[0]["requested_destination"] == destination
+    assert seen[0]["requested_budget"] == {"amount": 80.0, "currency": "EUR", "unit": "total"}
+    assert (seen[0]["timeslot_start"], seen[0]["timeslot_end"]) == ("10:00", "16:00")
+    assert seen[0]["search_areas"] is None
+
+
+@pytest.mark.parametrize("action", ["change", "correct", "refine", "device", "select"])
+def test_mutating_geographic_operations_still_require_current_evidence(action):
+    value = _decision(action, "city", "old place", "London")
+    assert location_intent(value, "under 80 EUR", {}) is None
 
 
 def test_current_airport_extraction_is_not_discarded_by_redundant_kind(monkeypatch):

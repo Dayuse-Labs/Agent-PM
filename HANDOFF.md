@@ -1,4 +1,36 @@
-## v73 — runtime figé localement ; rejeu complet à effectuer
+## v74 — diagnostic local ; pas de remplacement validé
+
+Le rejeu v73 est terminé : 95 conversations /260 tours. Lot principal58 :
+3A,18B,35C,2NN ; géographie24 :9préservés,8partiels,7échecs. Les319cartes
+contrôlées correspondent aux reçus MCP ; cela ne valide ni le lieu choisi ni
+les budgets perdus avant filtrage. Campagne2,1202214USD, tentative interrompue
+par disque plein comprise.17cas complets conservés, un cas incomplet archivé
+puis rejoué. Services locaux arrêtés. Rapport et preuves sous batch-v73.
+
+Le contrat strict v73 a régressé par rapport aux trajectoires v72 inspectées.
+Le présent essai restaure le prompt long et les mises à jour optionnelles,
+avec forme explicite de location_intent. Il conserve encore le préambule
+géographique ajouté en v73 : ce n'est PAS un retour exact au triage v72.
+Une opération preserve n'exige plus de nouvelle preuve de lieu ; elle ne
+peut modifier la destination et ses champs contradictoires sont ignorés.
+Les corrections indépendantes de lookup nommé et de minutes restent présentes.
+
+162 appels diagnostiques sur18contextes exposés, toutes variantes conservées :
+0,4669024USD. Cumul comptabilisé132,533152388112USD, dont6,10de provisions,
+pending nul, plafond150USD/réserve0,50. Aucun modèle par défaut changé.
+Budget explicite et certains repères mieux extraits, mais quartier/région,
+négation NYC, aéroport puis ville et deux codes postaux restent problématiques.
+Ni le format JSON ni un modèle plus cher ne prouvent la qualité conversationnelle.
+
+Tests du présent essai :2861passés/1ignoré (gate Langfuse live opt-in) ; ruff,
+mypy74, guardrails et diffcheck passent. Aucun regex ajouté. Pas de rejeu
+complet v74 lancé : ses diagnostics montrent encore des défauts sémantiques.
+Prochaine étape : comparer exactement le contrat triage v72, puis reprendre
+la distinction proximité souple/périmètre strict et rejet de lieu présente
+en production avant de figer un nouveau rejeu. PR134 reste v69 publiée ;
+aucun push, merge, déploiement ou changement Railway. FAQ phase2. Objectif actif.
+
+## v73 — état avant le rejeu, conservé pour traçabilité
 
 Le profil Redis existant reste la source de contexte. Opération géographique
 obligatoire dans le triage existant, preuve du message courant, clarification
