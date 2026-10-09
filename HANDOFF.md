@@ -1,3 +1,18 @@
+## 2026-10-09 · complément v80 — continuité des faits sur un hôtel unique
+
+Après le rejeu v79 (5 conversations/17 tours,0,3283USD), les trois villes simples
+repartent correctement ; Annapolis/Baltimore aussi, mais le parcours enfants
+reste C. Edison reste partiel.26 cartes exactes MCP,0 anomalie prix/expiration,
+4 cartes sous plafond conformes. Ces résultats ne remplacent pas le bilan100.
+
+Une question offer_facts avec lieu conservé peut utiliser l'unique hôtel de la
+liste affichée si aucun autre nom/pick n'est donné. Ce chemin est situé après
+le retour booking : aucune sélection/confirmation de réservation n'est créée.
+Aucun nouveau champ, modèle, prompt, regex ou appel LLM. Six cas de frontière
+couvrent liste vide/multiple, autre nom, source inconnue et identifiant invalide.
+2908 tests passent/1 ignoré,36 tests ciblés repassés après ajustement de typage ;
+ruff/mypy75/guardrails/diff-check verts. Rejeu7conversations/21tours à effectuer.
+
 ## 2026-10-09 · complément v79 — validation géographique, rejeu ciblé à effectuer
 
 Les générations brutes locales de v78 sont disponibles : l'ancien diagnostic

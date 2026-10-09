@@ -1602,6 +1602,18 @@ class _B2cConcierge(BaseAgent):
                 ):
                     yield event
                 return
+            shown_hotels = profile.last_results or []
+            if (route.target == "get_hotel_details" and picked is None
+                    and triage.hotel_name is None and triage.information_source == "offer_facts"
+                    and location_action == "preserve" and len(shown_hotels) == 1):
+                # A fact question after one displayed hotel has one owned
+                # referent, even when triage emits no redundant ordinal.
+                # This is below the booking branch: it grants read authority
+                # only, never a booking selection or confirmation.
+                sole_hotel = shown_hotels[0]
+                sole_id = sole_hotel.get("hotel_id")
+                if isinstance(sole_id, int) and not isinstance(sole_id, bool) and sole_id > 0:
+                    picked = sole_hotel
             if route.target == "get_hotel_details" and triage.hotel_name:
                 # A named-property question is also persistent destination
                 # intent, even when routed directly to details. Otherwise an

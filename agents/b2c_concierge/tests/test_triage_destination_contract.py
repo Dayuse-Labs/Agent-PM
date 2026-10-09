@@ -52,6 +52,37 @@ def _decision(action, kind, evidence, parent_city=None):
             "parent_city": parent_city, "position": None}
 
 
+@pytest.mark.parametrize('hotels,source,hotel_name,expected_id', [
+    ([{'hotel_id': 14566, 'name': 'The Biltmore Los Angeles'}], 'offer_facts', None, 14566),
+    ([], 'offer_facts', None, None),
+    ([{'hotel_id': 1, 'name': 'One'}, {'hotel_id': 2, 'name': 'Two'}], 'offer_facts', None, None),
+    ([{'hotel_id': 14566, 'name': 'The Biltmore Los Angeles'}], None, None, None),
+    ([{'hotel_id': 14566, 'name': 'The Biltmore Los Angeles'}], 'offer_facts', 'Other Hotel', None),
+    ([{'hotel_id': True, 'name': 'Malformed'}], 'offer_facts', None, None),
+])
+def test_offer_facts_can_use_only_one_displayed_identity_without_selecting_a_booking(
+    scripted, monkeypatch, fake_profile_store, hotels, source, hotel_name, expected_id,  # noqa: F811
+):
+    runner, session = _new_session()
+    asyncio.run(fake_profile_store.set(session.id, SessionProfile(last_results=hotels)))
+    message = 'What hours are available?' if hotel_name is None else 'What hours are available at Other Hotel?'
+    data = {'family': 'details', 'language': 'en', 'pick': 'none', 'hotel_name': hotel_name,
+            'information_source': {'value': source, 'evidence': message},
+            'location_intent': {'action': 'preserve'}}
+    scripted(json.dumps(data))
+    seen = []
+
+    async def details(reference, profile, **kwargs):
+        seen.append(kwargs)
+        return {'ok': False, 'error': 'hotel not found'}
+
+    monkeypatch.setattr(agent_module.inline_tools, 'get_hotel_details', details)
+    _drive_in(runner, session.id, message)
+    assert len(seen) == 1 and seen[0]['picked_hotel_id'] == expected_id
+    profile = asyncio.run(fake_profile_store.get(session.id))
+    assert profile.picked_hotel_id is None and profile.pending_booking is None
+
+
 def test_sparse_contract_uses_the_existing_single_call(monkeypatch):
     seen = []
     async def llm(**kwargs):
