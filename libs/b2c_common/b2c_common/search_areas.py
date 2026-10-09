@@ -3,7 +3,7 @@ from typing import Any, Literal
 import unicodedata
 from pydantic import BaseModel, ConfigDict, Field
 
-MAX_AREAS = 3
+MAX_AREAS = 5  # At most one requested area per slot in the five-card shortlist.
 
 
 def area_name_in_text(name: str, text: str) -> bool:

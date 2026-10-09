@@ -1,6 +1,6 @@
 """Typed destinations and provider-verified membership for bounded area searches.
 
-The LLM identifies up to three alternative administrative areas/municipalities.
+The LLM identifies up to five alternative administrative areas/municipalities.
 It never provides coordinates or boundaries. The existing geocoder resolves
 identities; the MCP's discs retrieve candidates; reverse geocoding verifies each
 hotel belongs to at least one requested area before any price/card is exposed.
@@ -13,7 +13,7 @@ import math
 import unicodedata
 from typing import Any, Awaitable
 
-from b2c_common.search_areas import validate_areas as validate_areas
+from b2c_common.search_areas import MAX_AREAS, validate_areas as validate_areas
 
 from hotel_search_agent.geo_guards import geocode_echo_matches, resolve_state_hint
 from hotel_search_agent.inventory import haversine_km
@@ -195,7 +195,7 @@ def resolve_areas(requests: list[dict[str, str]], client: MapboxClient, language
 def search_areas_before_tool(tool: Any, args: dict[str, Any], tool_context: Any) -> Awaitable[dict] | dict | None:
     """One bounded batch, after all existing date/budget/equipment guards.
 
-    At most three read-only MCP requests (five raw candidates each) and fifteen
+    At most five read-only MCP requests (five raw candidates each) and twenty-five
     membership lookups; no model retry/extra reasoning phase. A second batch in
     the same turn is blocked. Raw per-area calls remain visible to the MCP client.
     """
@@ -204,6 +204,8 @@ def search_areas_before_tool(tool: Any, args: dict[str, Any], tool_context: Any)
     areas = tool_context.state.get(STATE_AREAS)
     if not isinstance(areas, list) or not areas:
         return None
+    if len(areas) > MAX_AREAS:
+        return {"ok": False, "error": "Too many search areas for one bounded batch."}
     if tool_context.state.get(STATE_RAN):
         return {"ok": False, "error": "Area search already completed; answer from this turn's retrieved sample."}
     tool_context.state[STATE_RAN] = True

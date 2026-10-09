@@ -1,3 +1,51 @@
+## 2026-10-09 · v95 — corrections groupées, validation hors ligne uniquement
+
+Les quatre défauts du parcours v94 ont conduit à un lot commun :
+
+- Période de séjour possédée par le concierge. Une demande multi-jour ne part
+  plus vers une recherche d'un jour arbitraire lorsque le triage l'a identifiée.
+  Les bornes de semaine sont calculées une fois ; une réponse de jour de semaine
+  se résout dans cette période, et un changement explicite de date la remplace.
+  Les autres contraintes sont conservées. État privé Redis, protégé des feuilles.
+- Résultat vide sous comparaison de prix : réponse localisée en code, limitée
+  à cette recherche et au prix/devise de référence. Pas de synthèse susceptible
+  de transformer « rien de moins cher » en absence totale d'offres. Les réserves
+  sur date, devise, rayon et zones non résolues restent affichées.
+- Jusqu'à cinq alternatives administratives/municipales fondées sur le message,
+  vérification fournisseur inchangée. Borne passée de trois à cinq requêtes MCP
+  et de quinze à vingt-cinq candidats bruts, un seul lot par tour. Les alternatives
+  de repères restent limitées à trois. Le test d'excès utilise six zones au lieu
+  de quatre ; nouveaux tests vérifient quatre/cinq zones et aucun second lot.
+- Après une question de lieu non résolue, une position exprimée en mots demande
+  de distinguer lieu et hôtel avant de sélectionner un ancien résultat.
+
+**3 110 tests passent, 1 gate Langfuse payante ignorée**. 146 tests ciblés verts ;
+ruff, mypy (80 fichiers), guardrails et diff-check verts. Audit de 586 sorties
+triage sauvegardées : une transaction auparavant rejetée devient valide, zéro
+nouveau rejet. Ce ne sont pas 586 conversations uniques ni de nouvelles générations.
+Aucun nouveau regex ni phase modèle. Le débit/temps du lot de cinq zones doit
+encore être vérifié en live ; la hausse du travail MCP est explicite.
+
+**Ce code n'a pas encore été rejoué contre les modèles et le MCP réels.** Le
+dernier rejeu demeure v94 (`47f13ad`), 1 B / 1 D sur deux conversations / onze tours.
+Ne pas attribuer une amélioration de note à v95. La détection sémantique du nouveau
+champ de période reste à mesurer. La comparaison automatique des prix sur plusieurs
+jours n'est pas implémentée : l'agent demande quelle date vérifier d'abord.
+
+Export frais à 19:24 UTC : 12 nouveaux échanges / 9 sessions, statut organique
+non vérifié. Un cas demande deux séjours avec des dates et horaires distincts :
+à conserver comme cas séparé, sans prétendre que la clarification de période
+résout l'association date/créneau de chaque séjour. Autres contrôles à venir :
+port précis versus homonymes, limite AED, quartier et fin de créneau explicites.
+Sources et coordonnées restent privées, hors Git ; batch-v95.
+
+Aucun nouvel appel payant. Cumul 149,35549559 / 150 USD, dont 7,10 provisionnés ;
+reliquat après réserve 0,14450441 USD, ledger sans pending. Extension de 10 USD
+non accordée. Dernier complet 100/280 : v78. Rejeu final et jeu adaptatif séparé
+encore requis, FAQ/SAV phase 2. CI du précédent head publiée bloquée par facturation
+GitHub avant exécution (run 37978484286). Aucun merge/déploiement.
+Objectif global non atteint ; ce tour apporte code, tests et preuves nouvelles.
+
 ## 2026-10-09 · v94 rejoué — clarification corrigée, parcours GPS encore D
 
 Runtime `47f13ad` : **2 conversations / 11 tours, 1 B / 1 D**. Le type de

@@ -781,3 +781,18 @@ def numeric_location_clarification(value: str, language: str) -> str:
         'nl': 'Welke plaats of welk gebied bedoel je met ‘{value}’?',
     }
     return labels.get(language, labels['en']).format(value=value)
+
+
+_PLACE_OR_HOTEL = {
+    "fr": "Parles-tu d’un hôtel de la liste précédente ou d’un des lieux que tu as proposés ? Peux-tu préciser son nom ?",
+    "en": "Do you mean a hotel from the previous list or one of the places you suggested? Please specify its name.",
+    "es": "¿Te refieres a un hotel de la lista anterior o a uno de los lugares que propusiste? Indica su nombre.",
+    "it": "Intendi un hotel della lista precedente o uno dei luoghi che hai proposto? Puoi precisarne il nome?",
+    "de": "Meinst du ein Hotel aus der vorherigen Liste oder einen der vorgeschlagenen Orte? Bitte nenne den Namen.",
+    "pt": "Refere-se a um hotel da lista anterior ou a um dos lugares que sugeriu? Pode indicar o nome?",
+    "nl": "Bedoel je een hotel uit de vorige lijst of een van de voorgestelde plaatsen? Kun je de naam noemen?",
+}
+
+
+def ambiguous_place_or_hotel_question(language: str) -> str:
+    return _PLACE_OR_HOTEL.get(language, _PLACE_OR_HOTEL["en"])

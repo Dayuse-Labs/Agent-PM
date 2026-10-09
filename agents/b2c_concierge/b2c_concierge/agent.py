@@ -69,7 +69,8 @@ Logs carry NO message content (GDPR) — only family/route/timings/counters.
 from __future__ import annotations
 
 from b2c_common.amenities import apply_amenity_update
-from b2c_common.price_comparison import cheaper_reference, comparison_context, reference_question
+from b2c_common.price_comparison import cheaper_reference, comparison_context, reference_question, empty_comparison_notice
+from b2c_common.date_period import freeze_period, weekday_in_period, period_question
 from b2c_common.search_budget import budget_notice, budget_question, currency_answer, merge_budget, native_eur_cap, resolve_budget_currency
 
 import asyncio
@@ -1271,6 +1272,8 @@ class _B2cConcierge(BaseAgent):
         if expected_location:
             location_context = {**(location_context or {}), "pending_clarification": expected_location}
         location_kwargs = {"location_context": location_context} if location_context else {}
+        if profile.pending_date_period:
+            location_kwargs["date_context"] = profile.pending_date_period
         triage = await classify(
             message, budget, inv, recent_messages=recent_messages, previous_reply=previous_reply, **location_kwargs
         )
@@ -1498,6 +1501,13 @@ class _B2cConcierge(BaseAgent):
         elif location_choice is not None:
             picked = None
             family, route = "search", ROUTES["search"]
+        elif (triage.requested_date_period or profile.pending_date_period) and family != "faq" and clicked_id is None:
+            # An unresolved multi-day request cannot reuse an old single-day
+            # offer through an ordinal/details shortcut. Explicit UI picks
+            # retain their own verified offer identity.
+            family, route = "search", ROUTES["search"]
+            picked = None
+            booking_signal = False
         elif booking_signal:
             family, route = "booking", ROUTES["booking"]
         elif family == "compare" and clicked_id is None:
@@ -1543,6 +1553,16 @@ class _B2cConcierge(BaseAgent):
         )
         if budget_answer:
             family, route = "search", ROUTES["search"]
+        if (expected_location and triage.pick == "position" and not numeric_reply
+                and location_choice is None and clicked_id is None):
+            question = templates.ambiguous_place_or_hotel_question(reply_language)
+            profile.pending_booking = None
+            remember_location_question(profile, question)
+            await store.set(ctx.session.id, profile)
+            yield self._hotels_event(ctx, {"requires_clarification": True}, reply_language)
+            self._emit_turn_metric(family, "template:place_or_hotel_clarification", budget, t_start, "ok", inv)
+            yield self._final(ctx, question)
+            return
         if (route.target == LEAF_HOTEL_SEARCH and not location_choice
                 and (triage.budget_interpretation_unverified or triage.unclassified_numeric_input)):
             if expected_location and numeric_reply:
@@ -1902,11 +1922,31 @@ class _B2cConcierge(BaseAgent):
         # "le 3 octobre" asked, today served on the next turn).
         expected_date: str | None = None
         if route.target == LEAF_HOTEL_SEARCH:
+            today = reference_today(profile.client_timezone)
+            if triage.requested_date_period:
+                profile.pending_date_period = freeze_period(triage.requested_date_period, today)
+                profile.date = None
+                profile.date_reference = None
+                profile.pending_booking = None
             expected_date, from_message = expected_search_date(
                 "" if location_choice and numeric_reply else message, profile.date, reference_today(profile.client_timezone),
                 weekday=None if location_choice and numeric_reply else triage.requested_weekday,
                 calendar=None if location_choice and numeric_reply else triage.requested_calendar,
             )
+            if profile.pending_date_period:
+                if triage.requested_date_period:
+                    # A date quoted as one endpoint of a range does not select
+                    # that endpoint as the customer's sole stay date.
+                    expected_date, from_message = None, False
+                if triage.requested_weekday:
+                    # The ordinary next-weekday rule is wrong for e.g. Sunday
+                    # inside next week when today is Friday. Resolve in range.
+                    expected_date = weekday_in_period(profile.pending_date_period, triage.requested_weekday, today)
+                    from_message = expected_date is not None
+                if expected_date and from_message:
+                    profile.pending_date_period = None
+                else:
+                    expected_date = None  # Never fall back to the old date.
             if expected_date and from_message:
                 profile.date = expected_date
                 profile.date_reference = {"resolved_from": "concierge"}
@@ -1970,6 +2010,15 @@ class _B2cConcierge(BaseAgent):
                 self._emit_turn_metric(family, "template:location_clarification", budget, t_start, "ok", inv)
                 yield self._final(ctx, pending["question"])
                 return
+
+        if route.target == LEAF_HOTEL_SEARCH and profile.pending_date_period:
+            question = period_question(profile.pending_date_period, reply_language)
+            profile.last_clarifying_question = question
+            await store.set(ctx.session.id, profile)
+            yield self._hotels_event(ctx, {"requires_clarification": True}, reply_language)
+            self._emit_turn_metric(family, "template:date_period_clarification", budget, t_start, "ok", inv)
+            yield self._final(ctx, question)
+            return
 
         # Apply date/window/budget changes BEFORE deciding whether this is
         # another page. A triage "more" flag alone used to skip the first
@@ -2368,6 +2417,28 @@ class _B2cConcierge(BaseAgent):
                 line += "\n\n" + radius_note
             yield self._final(ctx, line)
             return
+
+        if profile.price_comparison and response.get("results") == []:
+            # A filtered empty sample says nothing about all availability.
+            # Do not let generic zero-results synthesis instructions broaden it.
+            line = empty_comparison_notice(profile.price_comparison, reply_language)
+            if line:
+                from b2c_common.proximity_request import proximity_notice
+                if notice := proximity_notice(response.get("search_context"), reply_language):
+                    line += "\n\n" + notice
+                if date_notice:
+                    line += "\n\n" + date_notice
+                if currency_notice:
+                    line += "\n\n" + currency_notice
+                unresolved = (response.get("area_coverage") or {}).get("unresolved_areas")
+                if isinstance(unresolved, list) and unresolved:
+                    line += "\n\n" + templates.unresolved_areas_notice(unresolved, reply_language)
+                profile.last_clarifying_question = None
+                profile.last_synthesis_angle = None
+                await store.set(ctx.session.id, profile)
+                self._emit_turn_metric(family, "template:comparison_no_verified_offer", budget, t_start, "ok", inv)
+                yield self._final(ctx, line)
+                return
 
         requested_stay = profile.requested_window or {}
         synth: str | None

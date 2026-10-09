@@ -117,3 +117,18 @@ def test_geographic_number_cannot_select_an_old_hotel(scripted, fake_profile_sto
     answer = _answer(_drive_in(runner, session.id, '1'))
     assert answer == templates.numeric_location_clarification('1', 'en')
     assert not leaves and len(llm.calls) == 1
+
+
+def test_spoken_ordinal_after_location_question_cannot_choose_an_old_hotel(scripted, fake_profile_store):  # noqa: F811
+    runner, session = _new_session()
+    p = SessionProfile(last_results=[{'hotel_id': 42, 'name': 'Old hotel'}],
+        pending_booking={'hotel_id': 42, 'offer_id': 'old-offer'})
+    asyncio.run(fake_profile_store.set(session.id, p))
+    first_location_question(runner, session, scripted)
+    llm, leaves = scripted(json.dumps({'family': 'details', 'language': 'en',
+        'pick': 'position', 'pick_position': 1, 'location_update': {'action': 'preserve'}}))
+    answer = _answer(_drive_in(runner, session.id, 'Tell me about the first option'))
+    assert answer == templates.ambiguous_place_or_hotel_question('en')
+    assert not leaves and len(llm.calls) == 1
+    saved = asyncio.run(fake_profile_store.get(session.id))
+    assert saved.pending_booking is None and saved.pending_clarification['kind'] == 'location'

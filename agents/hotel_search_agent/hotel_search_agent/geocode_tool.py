@@ -563,7 +563,7 @@ def geocode_location(
             from the model itself (it has no real GPS awareness).
         proximity_lon: paired with `proximity_lat`; either alone is ignored.
         areas: For administrative destinations or multiple alternative cities,
-            up to three objects with query (full area name), kind (administrative
+            up to five objects with query (full area name), kind (administrative
             or municipality), country (ISO2), evidence (literal customer quote),
             and optional code (department/state code explicitly given). Example:
             78 or 92 in France means Yvelines code 78 and Hauts-de-Seine code 92.

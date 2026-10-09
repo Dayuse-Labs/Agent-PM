@@ -125,7 +125,7 @@ def test_partial_area_search_keeps_unresolved_scope_in_coverage(monkeypatch):
     assert ctx.state[STATE_COVERAGE]['exhaustive'] is False
 
 
-@pytest.mark.parametrize("value", [None, [], AREAS * 2, [{**AREAS[0], "latitude": "48"}],
+@pytest.mark.parametrize("value", [None, [], AREAS * 3, [{**AREAS[0], "latitude": "48"}],
                                       [{**AREAS[0], "code": "75"}], [{**AREAS[0], "evidence": "77"}]])
 def test_invalid_or_unquoted_area_cannot_set_scope(value):
     assert validate_areas(value, "78 ou 92") is None

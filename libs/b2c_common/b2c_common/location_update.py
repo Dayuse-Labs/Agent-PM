@@ -7,7 +7,7 @@ Legacy callers can keep their old extraction fields until they migrate.
 from __future__ import annotations
 
 from typing import Any
-from .search_areas import area_name_in_text
+from .search_areas import MAX_AREAS, area_name_in_text
 
 LOCATION_UPDATE_INSTRUCTION = '''
 Destination changes use ONLY location_update (do not also emit location_intent,
@@ -100,7 +100,7 @@ def adapt_location_update(data: dict[str, Any], message: str, context: dict | No
         if isinstance(parent, str) and parent.strip() and area_name_in_text(parent, message):
             result['location_intent'] = {'action': 'refine', 'parent_city': parent, 'evidence': evidence}
         return result
-    if not isinstance(targets, list) or not 1 <= len(targets) <= 3:
+    if not isinstance(targets, list) or not 1 <= len(targets) <= MAX_AREAS:
         return result
     clean = []
     for target in targets:
@@ -174,6 +174,9 @@ def adapt_location_update(data: dict[str, Any], message: str, context: dict | No
         result['requested_landmark'] = {'query': target['query'], 'city': parent,
                                        'country_guess': target['country'], 'evidence': target['evidence'],
                                        **({'kind': target['kind']} if target['kind'] in {'address', 'postcode'} else {})}
+        return result
+    if len(clean) > 3 and any(t['kind'] not in {'city', 'region', 'neighborhood'} for t in clean):
+        result['location_intent'] = {'action': 'unknown', 'kind': 'none'}
         return result
     if len(clean) > 1 and all(t['kind'] == 'landmark' for t in clean):
         parent = raw.get('parent_city')

@@ -113,3 +113,22 @@ _REFERENCE_QUESTIONS = {
 
 def reference_question(language: str) -> str:
     return _REFERENCE_QUESTIONS.get(language, _REFERENCE_QUESTIONS["en"])
+
+
+_EMPTY_COMPARISON = {
+    "fr": "Je n’ai trouvé aucune offre vérifiée strictement moins chère que {amount} {currency}, frais compris, dans cette recherche. Cela ne signifie pas qu’aucune offre n’est disponible. Quel critère souhaites-tu modifier pour continuer ?",
+    "en": "I found no verified offer strictly cheaper than {amount} {currency}, including fees, in this search. This does not mean that no offers are available. Which search criterion would you like to change to continue?",
+    "es": "No encontré ninguna oferta verificada estrictamente más barata que {amount} {currency}, con gastos incluidos, en esta búsqueda. Esto no significa que no haya ofertas disponibles. ¿Qué criterio quieres cambiar para continuar?",
+    "it": "In questa ricerca non ho trovato offerte verificate inferiori a {amount} {currency}, spese incluse. Questo non significa che non ci siano offerte disponibili. Quale criterio vuoi modificare per continuare?",
+    "de": "Bei dieser Suche habe ich kein verifiziertes Angebot unter {amount} {currency} einschließlich Gebühren gefunden. Das bedeutet nicht, dass keine Angebote verfügbar sind. Welches Suchkriterium möchtest du ändern?",
+    "pt": "Não encontrei nesta pesquisa uma oferta verificada inferior a {amount} {currency}, com taxas incluídas. Isso não significa que não haja ofertas disponíveis. Qual critério gostaria de alterar para continuar?",
+    "nl": "Ik heb bij deze zoekopdracht geen geverifieerd aanbod gevonden dat goedkoper is dan {amount} {currency}, inclusief kosten. Dat betekent niet dat er geen aanbiedingen beschikbaar zijn. Welk zoekcriterium wil je wijzigen?",
+}
+
+
+def empty_comparison_notice(comparison: dict, language: str) -> str:
+    if comparison_budget(comparison) is None:
+        return ""
+    code = comparison["currency"]
+    amount = Decimal(comparison["reference_minor"]) / (10 ** minor_units(code))
+    return _EMPTY_COMPARISON.get(language, _EMPTY_COMPARISON["en"]).format(amount=amount, currency=code)

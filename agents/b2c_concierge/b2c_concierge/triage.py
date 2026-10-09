@@ -38,6 +38,7 @@ import litellm
 from b2c_common import max_tokens_for, reasoning_kwargs_for, role_model, temperature_kwargs_for
 from b2c_common.amenities import grounded_amenity_update
 from b2c_common.date_labels import WEEKDAYS, grounded_calendar
+from b2c_common.date_period import grounded_period
 from b2c_common.timeslot import DAYPART_HOURS
 from b2c_common.search_areas import validate_areas
 from dayuse_agent_common import (
@@ -184,6 +185,7 @@ class Triage:
     subarea_parent: str | None = None
     requested_weekday: str | None = None
     requested_calendar: dict | None = None
+    requested_date_period: dict | None = None
     requested_daypart: str | None = None
     information_source: str | None = None
     location_intent: dict | None = None
@@ -593,14 +595,24 @@ Optional keys, extracted from MESSAGE ONLY, never copied from recent messages:
   "on the 24th" gives day24, month/year null; "09/10" in day/month context
   gives day9, month10, year null. Omit if ambiguous. Code resolves missing
   components against the local calendar. Never copy an earlier date.
+- "requested_date_period": a CURRENT multi-day or flexible-date search request:
+  {{"kind":"next_week|this_week|range|flexible", "evidence":"exact period quote"}}.
+  A whole next week is next_week, NEVER tomorrow or one guessed calendar date.
+  Use range for other date ranges/alternatives that do not identify a single day;
+  flexible for dates left open. Omit for no date change, policy questions, or a
+  single exact date. A weekday in an explicitly named week needs BOTH the period
+  and requested_weekday; code computes that weekday inside the period. DATE CONTEXT
+  is an unresolved period already saved: a weekday answer selects within it.
+  Do not repeat that period as a new update on a price/location-only followup.
 - "requested_weekday": ONLY a single, unambiguous weekday requested for the
   SEARCH in MESSAGE: {{"value":"monday" through "sunday",
   "evidence":"verbatim weekday words ONLY, no numeric date"}}. Translate the weekday label,
   never calculate an ISO date. Code uses the next occurrence (strictly after
   today, as in the search tool). Extract even when the location needs clarification.
   Omit for no date change, previous context, a hotel's name/opening days, policy
-  questions, alternatives/ranges, or a specified later week that this label cannot
-  represent. Absolute dates and today/tomorrow are handled separately.
+  questions, alternatives/ranges without a single selected weekday, or a later
+  week other than this_week/next_week. For this_week/next_week also extract the
+  period as instructed above. Absolute dates and today/tomorrow are handled separately.
   A day change alone NEVER clears or replaces the requested hours.
 - "requested_window": an object ONLY when MESSAGE changes the requested hours.
   For numeric clock times: {{"start":"HH:MM" or null,"end":"HH:MM" or null,
@@ -669,7 +681,8 @@ def _parse_triage_json(text: str) -> dict | None:
 
 async def classify(message: str, budget: TurnBudget, invocation_id: str = "",
                    *, recent_messages: list[str] | None = None,
-                   previous_reply: str | None = None, location_context: dict | None = None) -> Triage:
+                   previous_reply: str | None = None, location_context: dict | None = None,
+                   date_context: dict | None = None) -> Triage:
     """ONE economy LLM classify, charged to the turn budget BEFORE the call
     (an attempt consumes the slot). Any failure falls back to regex — never
     a retry, never a hard fail. Emits one llm_call metric row (phase=triage,
@@ -713,7 +726,9 @@ async def classify(message: str, budget: TurnBudget, invocation_id: str = "",
                       + json.dumps(previous_reply[-1200:], ensure_ascii=False) + "\n\n")
                      if previous_reply else "") + (("LOCATION CONTEXT:\n"
                        + json.dumps(location_context, ensure_ascii=False) + "\n\n")
-                      if location_context else "") + f"MESSAGE:\n<<<\n{message}\n>>>"},
+                      if location_context else "") + (("DATE CONTEXT (unresolved period):\n"
+                       + json.dumps(date_context, ensure_ascii=False) + "\n\n")
+                      if date_context else "") + f"MESSAGE:\n<<<\n{message}\n>>>"},
             ],
             response_format=TRIAGE_RESPONSE_FORMAT,
             timeout=_TRIAGE_TIMEOUT,
@@ -857,6 +872,8 @@ async def classify(message: str, budget: TurnBudget, invocation_id: str = "",
         requested_daypart=_grounded_daypart(data.get("requested_daypart"), message),
         requested_calendar=(grounded_calendar(data.get("requested_calendar"), message)
                             if family == "search" else None),
+        requested_date_period=(grounded_period(data.get("requested_date_period"), message)
+                               if family == "search" else None),
         requested_weekday=(_grounded_weekday(data.get("requested_weekday"), message)
                            if family == "search" else None),
         replace_window=_window_replacement(data, message),
