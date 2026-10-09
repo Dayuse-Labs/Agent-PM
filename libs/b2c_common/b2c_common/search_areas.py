@@ -27,7 +27,7 @@ class AreaRequest(BaseModel):
     """Closed tool schema: names/intent only; geometry always comes from provider."""
     model_config = ConfigDict(extra="forbid")
     query: str = Field(description="Full area name for geocoding, for example Yvelines or Brescia.")
-    kind: Literal["administrative", "municipality"]
+    kind: Literal["administrative", "municipality", "neighborhood"]
     country: str = Field(description="ISO2 country of the requested area, e.g. FR, IT, GB.")
     evidence: str = Field(description="Shortest exact quote from the CURRENT user message naming this area, e.g. 78 or Brescia. Never add words.")
     boundary_evidence: str = Field(default="", description="Exact CURRENT words requiring city limits, e.g. 'only within city limits'. REQUIRED for a single bounded municipality, even on the first turn. Empty for an ordinary city name or country clarification; those use normal city search.")
@@ -52,7 +52,7 @@ def validate_areas(value: Any, message: str | None = None) -> list[dict[str, str
         if any(not isinstance(item.get(k), str) or not item[k].strip() for k in ("query", "kind", "country", "evidence")):
             return None
         clean = {k: v.strip() for k, v in item.items() if isinstance(v, str)}
-        if clean["kind"] not in {"administrative", "municipality"}:
+        if clean["kind"] not in {"administrative", "municipality", "neighborhood"}:
             return None
         if len(clean["country"]) != 2 or not clean["country"].isascii() or not clean["country"].isalpha():
             return None
@@ -101,7 +101,7 @@ def requires_area_membership(areas: list[dict[str, str]] | None) -> bool:
     Explicit boundary evidence and administrative/alternative destinations
     retain verified membership. This consumes typed intent, never user prose.
     """
-    return bool(areas and (len(areas) > 1 or areas[0]["kind"] == "administrative"
+    return bool(areas and (len(areas) > 1 or areas[0]["kind"] in {"administrative", "neighborhood"}
                           or areas[0].get("boundary_evidence") or areas[0].get("subarea")))
 
 
@@ -120,7 +120,7 @@ def preserve_area_boundary(previous: list[dict[str, str]] | None,
     # the parent on short clarification replies. Country is retained only
     # when the prior customer requests agree; no provider identity is inferred.
     if (parent_refinement and parent_city and previous and not update
-            and all(old["kind"] == "municipality" for old in previous)
+            and all(old["kind"] in {"municipality", "neighborhood"} for old in previous)
             and len({old["country"] for old in previous}) == 1):
         update = [{"query": parent_city, "kind": "municipality",
                    "country": previous[0]["country"], "evidence": parent_city}]
@@ -132,7 +132,7 @@ def preserve_area_boundary(previous: list[dict[str, str]] | None,
         if (parent_refinement and len(update) == 1
                 and parent["kind"] == "municipality"
                 and not parent.get("subarea") and not parent.get("boundary_evidence")
-                and all(old["kind"] == "municipality" and old["country"] == parent["country"]
+                and all(old["kind"] in {"municipality", "neighborhood"} and old["country"] == parent["country"]
                         and old["query"].casefold() != parent["query"].casefold() for old in previous)):
             return [{**parent, "subarea": old.get("subarea") or old["query"]} for old in previous]
         retained = []
@@ -140,7 +140,7 @@ def preserve_area_boundary(previous: list[dict[str, str]] | None,
             old = next((area for area in previous
                         if area.get("query", "").casefold() == new.get("query", "").casefold()
                         and area.get("country") == new.get("country")), None)
-            if (old and (old.get("kind") == "administrative" or old.get("boundary_evidence") or old.get("subarea"))
+            if (old and (old.get("kind") in {"administrative", "neighborhood"} or old.get("boundary_evidence") or old.get("subarea"))
                 and new.get("kind") == "municipality"
                 and not new.get("boundary_evidence") and not new.get("subarea")):
                 retained.append(old)

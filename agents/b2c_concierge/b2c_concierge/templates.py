@@ -730,3 +730,17 @@ def destination_update_clarification(language: str) -> str:
         "pt": "Que local pretende exatamente: o mesmo destino ou outro lugar?",
         "nl": "Welke plek bedoel je precies: dezelfde bestemming of een andere plek?",
     }.get(language, "Which place do you mean exactly: the same destination or a different one?")
+
+
+def overnight_window_response(language: str, window: dict[str, str]) -> str:
+    """No unsupported next-day window may silently become a daytime search."""
+    texts = {
+        "fr": "Votre créneau {start}–{end} se termine le lendemain. Je ne peux pas vérifier un séjour qui traverse minuit ici. Quels horaires sur une même journée vous conviendraient ?",
+        "en": "Your {start}–{end} stay ends the next day. I cannot verify a stay across midnight here. What hours on the same day would work for you?",
+        "it": "Il soggiorno {start}–{end} termina il giorno dopo. Non posso verificare un soggiorno oltre la mezzanotte qui. Quali orari nello stesso giorno andrebbero bene?",
+        "es": "La estancia {start}–{end} termina al día siguiente. No puedo verificar aquí una estancia que cruce la medianoche. ¿Qué horario dentro del mismo día te serviría?",
+        "de": "Ihr Aufenthalt {start}–{end} endet am nächsten Tag. Einen Aufenthalt über Mitternacht kann ich hier nicht prüfen. Welche Zeiten am selben Tag wären möglich?",
+        "pt": "A estadia {start}–{end} termina no dia seguinte. Não consigo verificar aqui uma estadia que atravesse a meia-noite. Que horários no mesmo dia seriam possíveis?",
+        "nl": "Uw verblijf {start}–{end} eindigt de volgende dag. Ik kan hier geen verblijf over middernacht controleren. Welke tijden op dezelfde dag zouden passen?",
+    }
+    return texts.get(language, texts["en"]).format(**window)

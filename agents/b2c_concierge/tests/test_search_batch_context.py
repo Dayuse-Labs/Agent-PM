@@ -223,7 +223,8 @@ def test_daypart_survives_city_clarification_and_replaces_old_clock(scripted, mo
     async def leaf(leaf, ctx, profile_in, **kwargs):
         seen.append(profile_in.copy())
         return "Which town?", {"requires_clarification": True}
-    llm = scripted(json.dumps({"family": "search", "language": "en", "requested_daypart": {"value": "evening", "evidence": "evening"}}),
+    llm = scripted(json.dumps({"family": "search", "language": "en", "requested_daypart": {"value": "evening", "evidence": "evening"},
+                               "requested_window": {"replace": True, "evidence": "evening room instead"}}),
                    "Which town?", json.dumps({"family": "search", "language": "en", "requested_areas": [
                        {"query": "Farnborough", "kind": "municipality", "country": "GB", "evidence": "Farnborough"}]}), "Checking Farnborough.")
     monkeypatch.setattr(agent_module, "_run_leaf", leaf)

@@ -2104,3 +2104,82 @@ def test_budget_followup_clarification_does_not_reuse_old_empty_inventory_claim(
     assert stored.price_comparison is None
     assert stored.requested_window == {'start':'14:30','end':'16:30'}
     assert stored.date == '2026-10-09' and stored.city == 'New York'
+
+
+@pytest.mark.parametrize('start,end,duration', [('18:00', None, None), ('08:00', '09:00', 60)])
+def test_vague_period_cannot_erase_owned_clock_bounds(monkeypatch, fake_leg, fake_profile_store, start, end, duration):
+    import json
+
+    fake_leg.response_payload = {'results': [], 'profile_delta': {'daypart': 'evening', 'timeslot_start': '16:00'}}
+    _scripted_llm(monkeypatch, json.dumps({
+        'family': 'search', 'language': 'en',
+        'requested_daypart': {'value': 'evening', 'evidence': 'in the evening'},
+    }), 'No offers for the requested hours.')
+    runner = InMemoryRunner(root_agent)
+    session = _new_session(runner)
+    asyncio.run(fake_profile_store.set(session.id, SessionProfile(
+        city='Philadelphia', requested_window={'start': start, 'end': end},
+        timeslot_start=start, timeslot_end=end, requested_duration_minutes=duration,
+    )))
+    _run_turn(runner, session.id, 'Is there anything available in the evening with a hot tub in the room?')
+    outgoing = find_datapart(fake_leg.seen_outgoing_parts)['profile_in']
+    saved = asyncio.run(fake_profile_store.get(session.id))
+    assert outgoing['requested_window'] == {'start': start, 'end': end}
+    assert (saved.timeslot_start, saved.timeslot_end) == (start, end)
+    assert saved.requested_duration_minutes == duration
+
+
+def test_named_details_persist_request_and_first_visible_identity(monkeypatch, fake_profile_store):
+    _scripted_llm(monkeypatch, '{"family":"details","language":"en","hotel_name":"Example Hotel"}',
+                  'Example Hotel has no verified offer for this date.')
+    async def details(*args, **kwargs):
+        return {'ok': True, 'hotel': {'hotel_id': 12, 'name': 'Example Hotel'}}
+    monkeypatch.setattr(agent_module.inline_tools, 'get_hotel_details', details)
+    runner = InMemoryRunner(root_agent)
+    session = _new_session(runner)
+    _run_turn(runner, session.id, 'Example Hotel')
+    saved = asyncio.run(fake_profile_store.get(session.id))
+    assert saved.requested_destination == {'kind': 'hotel', 'query': 'Example Hotel'}
+    assert saved.last_results[0]['hotel_id'] == 12
+    assert not saved.last_results[0].get('offer_id')
+    assert saved.pending_booking is None
+
+
+def test_geography_failure_is_not_replaced_by_unresolved_dollar_question(monkeypatch, fake_leg, fake_profile_store):
+    fake_leg.response_payload = {'location_resolution_failed': True, 'requires_clarification': True}
+    fake_leg.text = 'Which city contains the requested area?'
+    llm = _scripted_llm(monkeypatch, '{"family":"search","language":"en"}',
+                        'Which city contains the requested area?')
+    runner = InMemoryRunner(root_agent)
+    session = _new_session(runner)
+    asyncio.run(fake_profile_store.set(session.id, SessionProfile(
+        requested_budget={'amount': 80, 'unit': 'total', 'currency': None, 'currency_basis': 'dollar_market'},
+    )))
+    text = _run_turn(runner, session.id, 'Between these two areas')
+    assert 'Which city' in text
+    assert 'currency' not in text
+    assert len(llm.calls) == 2
+    saved = asyncio.run(fake_profile_store.get(session.id))
+    assert saved.requested_budget['amount'] == 80
+
+
+def test_overnight_constraint_persists_until_explicit_same_day_replacement(monkeypatch, fake_leg, fake_profile_store):
+    _scripted_llm(monkeypatch,
+        '{"family":"search","language":"en","requested_window":{"start":"22:00","end":"03:00","evidence":"22h to 3h"}}',
+        '{"family":"search","language":"en"}',
+        '{"family":"search","language":"en","requested_window":{"start":"14:00","end":"18:00","evidence":"14h to 18h"}}',
+        'Here are the verified daytime offers.')
+    runner = InMemoryRunner(root_agent)
+    session = _new_session(runner)
+    first = _run_turn(runner, session.id, 'Paris, 22h to 3h')
+    assert 'next day' in first and '22:00' in first and '03:00' in first
+    assert fake_leg.call_count == 0
+    second = _run_turn(runner, session.id, 'with a pool')
+    assert 'next day' in second and fake_leg.call_count == 0
+    saved = asyncio.run(fake_profile_store.get(session.id))
+    assert saved.overnight_window == {'start': '22:00', 'end': '03:00'}
+    _run_turn(runner, session.id, 'Then 14h to 18h')
+    saved = asyncio.run(fake_profile_store.get(session.id))
+    assert saved.overnight_window is None
+    assert saved.requested_window == {'start': '14:00', 'end': '18:00'}
+    assert fake_leg.call_count == 1

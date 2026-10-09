@@ -62,6 +62,7 @@ from google.adk.a2a.converters.part_converter import (
 from google.adk.models.llm_response import LlmResponse
 from google.genai import types as genai_types
 
+from b2c_common.pricing import has_unverified_zero_price
 from b2c_common import build_hotel_page_url, display_price_euro, hotel_currency_price, with_checkin_date
 from b2c_common.search_page import build_search_page_url, search_page_from
 from b2c_common.timeslot import (
@@ -637,7 +638,8 @@ def normalize_hotel(
     currency_code = _iso_currency(hotel.get("currencyCode"))
     if currency_code:
         card["currency_code"] = currency_code
-    offers = hotel.get("offers") or []
+    offers = [o for o in (hotel.get("offers") or [])
+              if isinstance(o, dict) and not has_unverified_zero_price(o, hotel)]
     if exact_window is not None:
         offers = [o for o in offers if isinstance(o, dict) and _offer_matches(o, exact_window)]
     best = _best_offer(offers, hotel)
@@ -744,6 +746,11 @@ def normalize_search_results(
     for item in items or []:
         if not isinstance(item, dict):
             continue
+        original_offers = item.get("offers") or []
+        offers = [o for o in original_offers if isinstance(o, dict) and not has_unverified_zero_price(o, item)]
+        if original_offers and not offers:
+            continue
+        item = {**item, "offers": offers}
         if arrival_daypart in DAYPART_HOURS:
             # Keep this constraint even when the exact-minute fallback is used.
             # Noon-only offers cannot satisfy a morning arrival until 18:00.
@@ -1839,6 +1846,11 @@ def emit_search_datapart(callback_context: Any) -> genai_types.Content | None:
     )
 
     payload: dict[str, Any] = {}
+    if state.get(STATE_FAILED):
+        # Keep the reason for an unresolved origin separate from a missing
+        # currency. The concierge must not replace a place clarification with
+        # a budget question before a country could be established.
+        payload["location_resolution_failed"] = True
     if state.get(RESOLVED_PLACE_KEY):
         payload["resolved_location"] = state[RESOLVED_PLACE_KEY]
     if state.get(CLARIFICATION_KEY):

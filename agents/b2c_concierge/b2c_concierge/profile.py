@@ -202,6 +202,7 @@ class SessionProfile:
     # None = legacy/delegated extraction; {} = explicitly no clock constraint.
     requested_window: dict[str, str | None] | None = None
     requested_duration_minutes: int | None = None
+    overnight_window: dict[str, str] | None = None
     timeslot: str | None = None
     timeslot_start: str | None = None
     timeslot_end: str | None = None
@@ -299,6 +300,7 @@ class SessionProfile:
             "requested_budget": self.requested_budget,
             "price_comparison": self.price_comparison,
             "requested_window": self.requested_window,
+            "overnight_window": self.overnight_window,
             "requested_duration_minutes": self.requested_duration_minutes,
             "timeslot": self.timeslot,
             "timeslot_start": self.timeslot_start,
@@ -654,7 +656,7 @@ def apply_profile_delta(
     values, clears, explicit_sets = _normalize_delta(dict(delta))
     known_fields = set(SessionProfile.__dataclass_fields__)
     # User-grounded constraints are concierge-owned, including typed clears.
-    for owned_slot in ("pending_location", "confirmed_location", "requested_destination", "requested_budget", "price_comparison", "requested_window", "requested_duration_minutes"):
+    for owned_slot in ("pending_location", "confirmed_location", "requested_destination", "requested_budget", "price_comparison", "requested_window", "requested_duration_minutes", "overnight_window"):
         values.pop(owned_slot, None)
         clears.discard(owned_slot)
     from b2c_common.destination_request import destination_request

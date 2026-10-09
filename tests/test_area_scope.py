@@ -276,7 +276,7 @@ def test_tool_schema_requires_query_and_exposes_the_closed_area_kinds():
     if '$ref' in item:
         item = definitions[item['$ref'].split('/')[-1]]
     assert 'query' in item['required']
-    assert item['properties']['kind']['enum'] == ['administrative', 'municipality']
+    assert item['properties']['kind']['enum'] == ['administrative', 'municipality', 'neighborhood']
 
 
 def test_failed_area_resolution_cannot_retry_as_its_parent_city(monkeypatch):

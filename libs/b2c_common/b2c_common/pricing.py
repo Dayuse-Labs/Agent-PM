@@ -89,3 +89,13 @@ def hotel_currency_price(
     if isinstance(original, int) and not isinstance(original, bool) and original > amount > 0:
         fields["hotel_original_price"] = round(original / 10 ** minor_units(code), 3)
     return fields
+
+
+def has_unverified_zero_price(offer: Mapping[str, Any], hotel: Mapping[str, Any] | None) -> bool:
+    """A zero indexed rate has no commercial proof of a free stay.
+
+    The MCP contract currently exposes no explicit complimentary-rate authority.
+    Keep positive alternatives; do not turn this sentinel into a cheapest quote
+    or a booking choice. Missing prices retain their existing unknown behavior.
+    """
+    return display_price_euro(offer, hotel) == 0 or display_price_hotel(offer, hotel) == 0

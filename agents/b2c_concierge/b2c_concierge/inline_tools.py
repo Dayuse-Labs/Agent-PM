@@ -52,6 +52,7 @@ from b2c_common import (
     with_checkin_date,
 )
 from b2c_common.observability import mark_level, observation, trace_context_carrier
+from b2c_common.pricing import has_unverified_zero_price
 from b2c_common.price_comparison import offer_totals
 from b2c_common.search_budget import offer_within_budget
 from b2c_common.timeslot import parse_hhmm, slot_covers_window, slot_overlaps_daypart
@@ -676,7 +677,7 @@ def _best_offer(
     Within a day, "cheapest" is the same rule the card itself applies
     (`response_bridge._best_offer`), mirrored rather than imported (B3: each
     side owns its tiny helpers, like `_hhmm` above)."""
-    pool = [o for o in offers if isinstance(o, dict)]
+    pool = [o for o in offers if isinstance(o, dict) and not has_unverified_zero_price(o, hotel)]
     if not pool:
         return None
     target = date or min(
@@ -719,6 +720,8 @@ def _rate_plan_view(
     reports/PROMPT-MCP-B2C-RATEPLANS.md), so this must produce a usable row
     from price + slot alone, and gain the labels the day they appear rather
     than needing a second implementation."""
+    if has_unverified_zero_price(offer, hotel):
+        return None
     offer_id = offer.get("ratePlanUuid")
     offer_date = offer.get("availabilityDate")
     if not (isinstance(offer_id, str) and offer_id.strip()):

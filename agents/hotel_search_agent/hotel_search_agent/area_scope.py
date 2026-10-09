@@ -50,7 +50,8 @@ def _same_area_name(query: str, label: str, administrative: bool) -> bool:
 
 def _resolve_area(item: dict[str, str], client: MapboxClient, language: str | None,
                   parent: dict | None = None) -> dict:
-    types = "region,district" if item["kind"] == "administrative" else "place,locality"
+    types = {"administrative": "region,district", "municipality": "place,locality",
+             "neighborhood": "locality,neighborhood"}[item["kind"]]
     if parent is not None:
         types = "locality,neighborhood"
     query = f'{item["subarea"]}, {item["query"]}' if parent is not None else item["query"]

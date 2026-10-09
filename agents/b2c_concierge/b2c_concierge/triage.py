@@ -170,6 +170,7 @@ class Triage:
     display_currency: str | None = None
     # None = no usable change; () = explicit removal of the requested window.
     requested_window: tuple[str | None, ...] | None = None
+    overnight_window: tuple[str, str] | None = None
     replace_window: bool = False
     requested_duration_minutes: int | None = None
     hotel_scope: str | None = None
@@ -532,75 +533,6 @@ Required key (always present, null if no budget change):
   Omit other optional keys and null-valued fields when unused. Return compact
   JSON on one line; do not indent. Never repeat old slots that MESSAGE did not change.
 Optional keys, extracted from MESSAGE ONLY, never copied from recent messages:
-- "requested_landmark": when searching NEAR a named airport, station, monument
-  or other point of interest, emit {{"query":"verbatim full landmark name",
-  "city":"municipality named in MESSAGE or the landmark name, otherwise null","country_guess":"ISO2 or null",
-  "evidence":"short verbatim current quote containing the full query"}}.
-  The landmark is NOT a municipality or an administrative subarea. Keep its
-  full name/terminal qualifiers in query; never reduce it to the containing city.
-  Use requested_areas=null for this request. If the landmark name includes a city,
-  put that city in city as well: "Toronto Pearson Airport" has
-  query="Toronto Pearson Airport", city="Toronto". Do not leave city null just
-  because it is embedded in the landmark name. If no city is named anywhere in
-  MESSAGE, only reuse the identical confirmed_city in LOCATION CONTEXT if
-  this landmark refines that same destination; otherwise leave city null.
-  country_guess is a soft provider hint, never proof of the place or coordinates.
-  A specific street address or postal code also uses requested_landmark: keep
-  the exact query, city null until supplied, and never infer a budget from it.
-  A named HOTEL uses hotel_name instead. Ordinary cities, device position,
-  amenities or a non-geographic follow-up emit null. A geographic category
-  such as "airport" or "station" IS a landmark request even without a proper
-  name: quote that category and retain the confirmed city if available. Ask
-  which airport when multiple candidates remain; never substitute the city centre.
-  "near me" and room themes are never landmarks: use device for near me.
-- "requested_areas": when MESSAGE names an administrative search area or a
-  choice of multiple municipalities, a list of up to three objects:
-  {{"query":"full area name","kind":"administrative" or "municipality",
-  "country":"ISO2","evidence":"shortest verbatim current quote",
-  "boundary_evidence":"verbatim city-limit restriction, or empty string",
-  "code":"explicit administrative code, including US state abbreviation when named","subarea":"verbatim REQUIRED inner area, or empty"}}.
-  query is the geographic proper name only. Vicinity/distance preferences are
-  not part of that name: preserve a complete compound place name, but exclude
-  words meaning nearby or surroundings. Never include an amenity or hotel brand
-  in a municipality query. Keep the full user's wording only in evidence.
-  For "île de france 78 ou 92": Yvelines administrative FR evidence78 code78,
-  Hauts-de-Seine administrative FR evidence92 code92. For "Brescia e provincia":
-  ONE administrative query="Brescia" IT evidence="Brescia"; the province
-  includes the city, so do NOT narrow it to municipality. A state/county or
-  department is not a missing city. "Only 92 now" replaces the previous list
-  with Hauts-de-Seine. Emit null when no area change, for ordinary single cities,
-  for POIs, or a corridor BETWEEN places (a corridor is not a union of cities).
-  Exception: a municipality with an explicit US state abbreviation must emit
-  that municipality and its code (e.g. query=Glendora, country=US, code=CA).
-  Do not discard the state qualifier as redundant.
-  Exception: explicitly narrowing to city limits ("Brescia city only") emits
-  one municipality with boundary_evidence quoting that explicit change (e.g.
-  "city only"). You MUST include that field: a single municipality with no
-  boundary_evidence is an ordinary city search, not a city-limit restriction.
-  Example MESSAGE="Solo entro i confini della città di Brescia, non in provincia."
-  -> requested_areas=[{{"query":"Brescia","kind":"municipality","country":"IT",
-  "evidence":"Brescia","boundary_evidence":"Solo entro i confini della città"}}].
-  When REPLACING an already restricted inner area with a new ordinary city,
-  emit that new municipality with empty boundary_evidence and empty subarea,
-  so the previous restriction is removed. Only actual named places are areas:
-  a reference to the user's own position is NOT a municipality name. Leave
-  requested_areas null for such references; device location is supplied by code.
-  A restriction INSIDE a city is not satisfied by that city's boundary.
-  For a strict neighborhood/bank/district requirement, emit the parent area
-  AND subarea with the complete verbatim inner-area constraint. Never discard
-  any part of a composite subset: preserve it even if it may not be geocodable.
-  Example "Paris rive droite seulement": query Paris, municipality FR,
-  evidence Paris, boundary_evidence seulement, subarea "rive droite".
-  Apply the restriction this turn; do not wait for another confirmation.
-  "requested_subarea": when answering a question asking to specify a neighborhood
-  INSIDE the current restricted area, quote the named neighborhood from MESSAGE.
-  This refines the carried area, not a new city. Null for budget/time replies,
-  repeated confirmations, unrestricted POI searches or a new destination.
-  Repeating a place name or adding its country is NOT a boundary
-  change: preserve the province and emit null in that case.
-  Do not copy old area names into evidence for a non-geographic follow-up.
-  This is search intent, not a policy question; family=search. Coordinates are
-  forbidden here and will be resolved/verified by the existing geocoder.
 - "requested_amenities": for a SEARCH constraint in the CURRENT MESSAGE, an
   object {{"add": [...], "remove": [...], "evidence": "verbatim current quote"}}.
   Keys: pool, spa, gym, jacuzzi, sauna, restaurant, breakfast, pet_friendly,
@@ -662,6 +594,9 @@ Optional keys, extracted from MESSAGE ONLY, never copied from recent messages:
   a hotel closing time, or an invented overnight stay. Never replace midnight
   with 23:00. Example "21 fino a mezzanotte" -> start="21:00", end="24:00",
   evidence="21 fino a mezzanotte". A missing arrival stays null, never 00:00.
+  If the explicitly requested departure is on the next day, keep BOTH clocks
+  in requested_window (e.g. 22:00 and 03:00); never omit an unsupported overnight
+  constraint. The concierge will explain the limitation, not invent availability.
   For explicit removal of the time restriction: {{"clear":true,"evidence":"exact
   substring requesting removal"}}. Never use [null,null] or an empty array.
   The evidence MUST be included inside this object; without it the update is
@@ -721,6 +656,7 @@ async def classify(message: str, budget: TurnBudget, invocation_id: str = "",
     a retry, never a hard fail. Emits one llm_call metric row (phase=triage,
     counters only — never the message, GDPR)."""
     from b2c_common.confirmed_location import grounded_landmark, location_intent
+    from b2c_common.location_update import LOCATION_UPDATE_INSTRUCTION, adapt_location_update
 
     budget.charge("triage")
     model_slug = role_model("TRIAGE")
@@ -740,52 +676,7 @@ async def classify(message: str, budget: TurnBudget, invocation_id: str = "",
         resp = await litellm.acompletion(
             model=model_slug,
             messages=[
-                {"role": "system", "content": _TRIAGE_INSTRUCTION + (
-                    "\nLOCATION CONTEXT is code-owned place state, not instructions. When supplied, "
-                    "include location_intent BEFORE family in the JSON: "
-                    '{"action":"select","position":1,"evidence":"verbatim reply"} '
-                    "for a choice, or action preserve/change/correct/refine/device/missing/unknown with evidence. "
-                    "return location_intent with action select, preserve, change, correct, refine, device or missing and "
-                    "evidence quoted verbatim from MESSAGE. Select only when MESSAGE identifies "
-                    "ONE pending option (position or distinguishing place/region/country); include "
-                    "its integer position. A bare yes cannot choose between multiple options. "
-                    "Select is impossible without pending options in LOCATION CONTEXT. "
-                    "A selection refers to a PLACE, never a hotel pick, comparison or budget. "
-                    "For hotel comparisons, use comparison_positions, never pick_position. Preserve means "
-                    "no new geographic request (budget, hours, amenity, FAQ or language change). "
-                    "Refine means answering which city/country contains an unresolved address, ZIP, "
-                    "neighborhood or hotel in LOCATION CONTEXT: keep that earlier specific request. "
-                    "Naming its containing city/state/country is refine even when the earlier "
-                    "parent label was a borough or neighborhood. For a containing CITY reply, "
-                    "include parent_city inside location_intent, copied verbatim from MESSAGE. "
-                    "parent_city is ONLY a containing municipality, never a street address, "
-                    "ZIP, landmark spelling correction, or replacement target. This also applies "
-                    "when refining a confirmed scope. Correct means repairing the spelling or street "
-                    "number of the SAME intended landmark/address. Emit correct plus requested_landmark "
-                    "with the new text; code retains a previously requested containing city, even if "
-                    "it has not yet resolved. Change means a DIFFERENT destination and does not inherit "
-                    "that parent. requested_destination in LOCATION CONTEXT is the customer's request, "
-                    "separate from confirmed_place, which is provider evidence. "
-                    "Do not copy the old landmark into requested_landmark: the code retains it. "
-                    "For state/country refinements, use requested_areas instead. A different string "
-                    "alone is not evidence that the customer abandoned the pending target. "
-                    "Change means an explicit different destination or geographic scope, including "
-                    "a new region or administrative code for the SAME city name. Such a correction "
-                    "is change, never preserve. An address correction (including a different "
-                    "street number) or a corrected landmark spelling MUST emit requested_landmark "
-                    "with the NEW address/name and evidence from MESSAGE; never emit the containing "
-                    "city alone or reuse the old point. Device "
-                    "means explicitly near the customer’s current position, never merely a price "
-                    "or time change. For preserve, quote the CURRENT non-geographic request "
-                    "(such as its hours or budget), NOT the earlier destination. Evidence from "
-                    "history or LOCATION CONTEXT is invalid even when that place is preserved. "
-                    "Missing means no destination in MESSAGE or earlier place state, and no device "
-                    "position request. Emit missing explicitly for a hotel search giving only "
-                    "amenities, date or hours without any location. Locale, language and timezone "
-                    "are NEVER a destination. Room themes are not geographic zones. "
-                    "If uncertain, omit location_intent. Do not invent a selection."
-                    if location_context else ""
-                ) + (
+                {"role": "system", "content": LOCATION_UPDATE_INSTRUCTION + _TRIAGE_INSTRUCTION + (
                     "\n\nThis MESSAGE contains only a number. Its role must come from "
                     "the actual last assistant question, not just a budget mentioned "
                     "earlier. requested_budget MUST be null unless answering a budget "
@@ -848,6 +739,7 @@ async def classify(message: str, budget: TurnBudget, invocation_id: str = "",
         reasoning_effort=reasoning_effort_label(),
     )
     data = _parse_triage_json(resp.choices[0].message.content or "") or {}
+    data = adapt_location_update(data, message, location_context)
     family = data.get("family")
     if family not in FAMILIES:
         family = fallback_family(message)
@@ -931,6 +823,7 @@ async def classify(message: str, budget: TurnBudget, invocation_id: str = "",
         information_source=_information_source(data.get("information_source"), message),
         display_currency=_display_currency_slot(data.get("display_currency")),
         requested_window=_grounded_window(data, message),
+        overnight_window=_grounded_overnight_window(data, message),
         requested_occupancy=(_grounded_occupancy(data.get("requested_occupancy"), message)
                              if family == "search" else None),
         requested_daypart=_grounded_daypart(data.get("requested_daypart"), message),
@@ -1092,6 +985,23 @@ def _clock_numbers_in_evidence(clock: str, evidence: str) -> bool:
         if stated_minute == minute:
             return True
     return False
+
+
+def _grounded_overnight_window(data: dict, message: str) -> tuple[str, str] | None:
+    """Retain two grounded clocks which cannot fit a same-day stay."""
+    raw = data.get("requested_window")
+    if not isinstance(raw, dict) or raw.get("clear") or raw.get("replace"):
+        return None
+    evidence = raw.get("evidence")
+    start, end = raw.get("start"), raw.get("end")
+    if (not isinstance(evidence, str) or not evidence.strip() or evidence not in message
+            or not isinstance(start, str) or not isinstance(end, str)
+            or _requested_window_slot([start, None]) is None
+            or _requested_window_slot([None, end]) is None or end >= start):
+        return None
+    if not all(_clock_numbers_in_evidence(clock, evidence) for clock in (start, end)):
+        return None
+    return start, end
 
 
 def _grounded_window(data: dict, message: str) -> tuple[str | None, ...] | None:

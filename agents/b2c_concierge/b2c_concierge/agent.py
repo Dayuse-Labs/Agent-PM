@@ -1048,6 +1048,10 @@ class _B2cConcierge(BaseAgent):
         if profile.display_currency == HOTEL:
             apply_hotel_currency(hotels)
         response = {"results": hotels}
+        if route.target == "get_hotel_details" and not profile.last_results:
+            # The first visible property is a valid referent even when it is
+            # identity-only. No offer/booking authority is invented by this.
+            record_search_shortlist(profile, hotels)
         if route.target == "compare_hotels":
             # These cards replace the visible list. Later ordinals and pick
             # buttons must use the same order, including an explicitly reversed
@@ -1430,6 +1434,12 @@ class _B2cConcierge(BaseAgent):
             else:
                 next_window = (None, None)  # owned unknown arrival; the leaf cannot invent midnight
         daypart_update = triage.requested_daypart if requested_window is None or triage.replace_window else None
+        if daypart_update and any(carried_window.get(k) for k in ("start", "end")) and not triage.replace_window:
+            # A repeated vague period cannot revoke an exact customer bound.
+            # The explicit replacement operation remains available for a real
+            # change (e.g. "morning instead"). This is state precedence, not
+            # keyword interpretation, and also protects the saved duration.
+            daypart_update = None
         arrival_daypart = carried_window.get("arrival_daypart")
         if triage.replace_window or requested_window == () or (requested_window and requested_window[0]):
             arrival_daypart = None
@@ -1446,7 +1456,7 @@ class _B2cConcierge(BaseAgent):
                               next_window != (profile.timeslot_start, profile.timeslot_end)
                               or (not requested_window and bool(profile.timeslot or profile.daypart))
                           )))
-        if (window_changed or amenities_changed or occupancy_changed or area_update is not None or landmark_update or hotel_update) and family != "faq" and clicked_id is None:
+        if (window_changed or triage.overnight_window or amenities_changed or occupancy_changed or area_update is not None or landmark_update or hotel_update) and family != "faq" and clicked_id is None:
             family, route = "search", ROUTES["search"]
             picked = None
             booking_signal = False
@@ -1592,6 +1602,14 @@ class _B2cConcierge(BaseAgent):
                 ):
                     yield event
                 return
+            if route.target == "get_hotel_details" and triage.hotel_name:
+                # A named-property question is also persistent destination
+                # intent, even when routed directly to details. Otherwise an
+                # unavailable property vanished before its city clarification.
+                named_request = refine_hotel(triage.hotel_name, None, None, None, message)
+                if named_request:
+                    profile.requested_destination = named_request
+                    await store.set(ctx.session.id, profile)
             # get_hotel_details / compare_hotels (S07): a real MCP_B2C call
             # the CODE decided to make (routing stays code-owned — no LLM
             # ever chooses whether/which tool to call here), then the same
@@ -1705,6 +1723,13 @@ class _B2cConcierge(BaseAgent):
             if occupancy_update:
                 for key, value in occupancy_update.items():
                     setattr(profile, key, value)
+        if route.target == LEAF_HOTEL_SEARCH:
+            if triage.overnight_window:
+                profile.overnight_window = dict(zip(("start", "end"), triage.overnight_window, strict=True))
+                profile.pending_booking = None
+                profile.last_results = []
+            elif triage.replace_window or requested_window is not None:
+                profile.overnight_window = None
         if route.target == LEAF_HOTEL_SEARCH and triage.replace_window:
             # A new daypart/written clock preference must not inherit a prior
             # exact range. The leaf interprets the new preference this turn.
@@ -1757,6 +1782,11 @@ class _B2cConcierge(BaseAgent):
                     yield self._final(ctx, reference_question(reply_language))
                     return
                 profile.price_comparison = reference
+            if profile.overnight_window:
+                await store.set(ctx.session.id, profile)
+                self._emit_turn_metric(family, "template:overnight_window", budget, t_start, "ok", inv)
+                yield self._final(ctx, templates.overnight_window_response(reply_language, profile.overnight_window))
+                return
             clarification = budget_question(profile.requested_budget, reply_language)
             if clarification:
                 await store.set(ctx.session.id, profile)
@@ -1961,7 +1991,9 @@ class _B2cConcierge(BaseAgent):
             self._emit_turn_metric(family, "template:location_clarification", budget, t_start, "ok", inv)
             yield self._final(ctx, pending["question"])
             return
-        if route.target == LEAF_HOTEL_SEARCH and profile.requested_budget:
+        if (route.target == LEAF_HOTEL_SEARCH and profile.requested_budget
+                and not response.get("requires_clarification")
+                and not response.get("location_resolution_failed")):
             profile.requested_budget = resolve_budget_currency(profile.requested_budget, profile.country_anchor)
             clarification = budget_question(profile.requested_budget, reply_language, after_search=True)
             if clarification:

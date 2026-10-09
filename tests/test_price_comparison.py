@@ -119,3 +119,18 @@ def test_current_price_outcome_uses_fee_totals_without_rebasing_the_previous_ref
     assert 'no cheaper offer verified in the retrieved sample' in comparison_context(comparison, [])
     for totals in ({'EUR': 5800}, {'EUR': 5900}, {'USD': 5700}, {}):
         assert 'do not prove a cheaper total' in comparison_context(comparison, [{'offer_totals': totals}])
+
+
+def test_unverified_zero_rate_cannot_win_search_details_or_booking_choice():
+    from b2c_concierge.inline_tools import _best_offer, _day_rate_plans
+    from hotel_search_agent.response_bridge import normalize_hotel, normalize_search_results
+    good = {'ratePlanUuid': 'paid', 'availabilityDate': '2026-10-10', 'priceEuro': 9000,
+            'hotelPrice': 10000, 'startHour': 10, 'endHour': 16}
+    zero = {**good, 'ratePlanUuid': 'unverified-zero', 'priceEuro': 0, 'hotelPrice': 0}
+    hotel = {'hotelId': 12, 'name': 'Example', 'offers': [zero, good]}
+    assert normalize_hotel(hotel)['offer_id'] == 'paid'
+    assert normalize_search_results({'results': [hotel]})[0]['offer_id'] == 'paid'
+    assert normalize_search_results({'results': [{**hotel, 'offers': [zero]}]}) == []
+    assert _best_offer([zero, good], '2026-10-10', hotel)['ratePlanUuid'] == 'paid'
+    assert _best_offer([zero], '2026-10-10', hotel) is None
+    assert [p['offer_id'] for p in _day_rate_plans([zero, good], '2026-10-10', hotel)] == ['paid']
