@@ -104,6 +104,28 @@ def ack_response(language: str) -> str:
     return _pick(language, _ACK_RESPONSE)
 
 
+def contextual_ack_response(language: str, destination: str | None = None,
+                            question: str | None = None, has_results: bool = False) -> str:
+    """Keep an active search visible when a terse reply cannot be interpreted.
+
+    No new search, selection, or booking is implied by an acknowledgement.
+    """
+    if question and not has_results:
+        return question
+    if destination or has_results:
+        target = f" ({destination})" if destination else ""
+        return _pick(language, {
+            "fr": f"Pour votre recherche{target}, que souhaitez-vous préciser ou modifier : le lieu, les horaires, le budget ou les hôtels proposés ?",
+            "en": f"For your search{target}, what would you like to clarify or change: the location, hours, budget, or hotels shown?",
+            "es": f"Para tu búsqueda{target}, ¿qué quieres aclarar o cambiar: la ubicación, el horario, el presupuesto o los hoteles propuestos?",
+            "it": f"Per la tua ricerca{target}, cosa vuoi chiarire o modificare: la zona, gli orari, il budget o gli hotel proposti?",
+            "de": f"Was möchtest du bei deiner Suche{target} klären oder ändern: den Ort, die Zeiten, das Budget oder die vorgeschlagenen Hotels?",
+            "pt": f"Na sua pesquisa{target}, o que pretende esclarecer ou alterar: o local, os horários, o orçamento ou os hotéis apresentados?",
+            "nl": f"Wat wil je voor je zoekopdracht{target} verduidelijken of wijzigen: de locatie, tijden, het budget of de getoonde hotels?",
+        })
+    return ack_response(language)
+
+
 # --- S07: inline tools (real MCP wiring) — zero-LLM honest degradation ------
 
 _INLINE_UNRESOLVED: dict[str, dict[str, str]] = {

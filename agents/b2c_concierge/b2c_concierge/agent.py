@@ -157,6 +157,7 @@ from .profile import (
     resolve_shortlist_ordinal,
     search_context_line,
     select_cheapest_hotel,
+    select_best_rated_hotel,
     select_hotel_by_position,
 )
 from .profile_store import get_profile_store
@@ -1229,7 +1230,11 @@ class _B2cConcierge(BaseAgent):
             # conversation's established language / client locale beat the guess.
             yield self._final(
                 ctx,
-                templates.ack_response(template_language(profile.language, profile.locale, message)),
+                templates.contextual_ack_response(
+                    template_language(profile.language, profile.locale, message),
+                    profile.zone or profile.city or (profile.named_hotel or {}).get("name"),
+                    profile.last_clarifying_question, bool(profile.last_results),
+                ),
             )
             return
 
@@ -1320,6 +1325,8 @@ class _B2cConcierge(BaseAgent):
             )
         if picked is None and triage.pick == "cheapest":
             picked = select_cheapest_hotel(profile.last_results)
+        elif picked is None and triage.pick == "best_rated":
+            picked = select_best_rated_hotel(profile.last_results)
         elif picked is None and triage.pick == "position":
             picked = select_hotel_by_position(profile.last_results, triage.pick_position)
 
@@ -1349,7 +1356,7 @@ class _B2cConcierge(BaseAgent):
         # Partial clock answers retain the other bound; explicit clear is ().
         landmark_update = triage.requested_landmark if not location_choice else None
         parent_city = (triage.location_intent or {}).get("parent_city")
-        if (not location_choice and pending_refinement and location_action == "refine"
+        if (not location_choice and not landmark_update and location_action == "refine"
                 and parent_city and (profile.zone or profile.metro)):
             # The existing specific target is code-owned history, while only
             # the containing city came from this reply. Resolve the combined
@@ -1546,7 +1553,11 @@ class _B2cConcierge(BaseAgent):
             self._emit_turn_metric(family, "template:ack", budget, t_start, "ok", inv)
             yield self._final(
                 ctx,
-                templates.ack_response(template_language(profile.language, profile.locale, message)),
+                templates.contextual_ack_response(
+                    template_language(profile.language, profile.locale, message),
+                    profile.zone or profile.city or (profile.named_hotel or {}).get("name"),
+                    profile.last_clarifying_question, bool(profile.last_results),
+                ),
             )
             return
 
@@ -1789,6 +1800,16 @@ class _B2cConcierge(BaseAgent):
 
         budget.charge("leaf_llm")
         query_params: dict[str, Any] = {}
+        destination_missing = bool(
+            route.target == LEAF_HOTEL_SEARCH and triage.used_llm and location_action == "missing"
+            and not any((profile.city, profile.zone, profile.metro, profile.search_areas,
+                         profile.confirmed_location, profile.named_hotel, triage.hotel_name))
+            and not (profile.search_anchor and profile.search_anchor.get("type") == "gps")
+        )
+        if destination_missing:
+            # Absence of an extracted destination is not permission for the leaf
+            # to invent one from locale, timezone, or an amenity description.
+            query_params["destination_missing"] = True
         if route.target == LEAF_HOTEL_SEARCH and occupancy_update:
             query_params["occupancy_update"] = occupancy_update
         if route.target == LEAF_HOTEL_SEARCH and location_action == "device":
@@ -1863,6 +1884,16 @@ class _B2cConcierge(BaseAgent):
         leaf_text = leaf_text or ""
 
         delta = response.get("profile_delta") or {}
+        stated_leaf_city = delta.get("city")
+        if isinstance(stated_leaf_city, dict):
+            stated_leaf_city = stated_leaf_city.get("value") if stated_leaf_city.get("op") == "set" else None
+        literal_leaf_city = (isinstance(stated_leaf_city, str) and bool(stated_leaf_city.strip())
+                             and stated_leaf_city.strip().casefold() in message.casefold())
+        if destination_missing and not literal_leaf_city:
+            delta = {k: v for k, v in delta.items() if k not in {
+                "city", "zone", "metro", "search_areas", "country_anchor", "state_anchor",
+                "distance_origin", "search_anchor",
+            }}
         if delta:
             apply_profile_delta(profile, delta, "" if location_choice and numeric_reply else message, budget.fired)
         if route.target == LEAF_HOTEL_SEARCH and occupancy_update:

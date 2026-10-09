@@ -142,6 +142,6 @@ def location_intent(value: Any, message: str, context: dict | None) -> dict | No
                 and parent.strip().casefold() in evidence.casefold()):
             return {"action": action, "parent_city": parent.strip()}
         return {"action": action}
-    if action in {"preserve", "change", "device"}:
+    if action in {"preserve", "change", "device", "missing"}:
         return {"action": action}
     return None

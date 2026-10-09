@@ -62,7 +62,7 @@ FALLBACK_FAMILY = "search"
 # resolves to, from a closed enum validated here and a price comparison over
 # the session's own shortlist. Adding a value costs one enum entry plus one
 # resolver — the contract shape does not change.
-PICKS = ("none", "cheapest", "position")
+PICKS = ("none", "cheapest", "best_rated", "position")
 FALLBACK_PICK = "none"
 
 # P1-1 (audit 2026-07-30 §P1). Five slots that the message ALREADY pays an
@@ -396,6 +396,8 @@ with these keys (omit the optional keys when there is no signal):
     cheapest = the user wants the least expensive of the hotels just shown
                ("le moins cher", "la moins chère", "je prends le moins cher",
                "the cheapest one", "book the cheapest", "le meilleur prix").
+    best_rated = the user asks for the highest customer rating among the hotels
+               just shown. Never guess its position: code compares actual ratings.
     position = the user points at one by its POSITION in the list just shown
                ("le premier", "ok pour la première", "je prends le 2",
                "the third one", "celui du milieu" -> no, that is not a
@@ -545,7 +547,11 @@ Optional keys, extracted from MESSAGE ONLY, never copied from recent messages:
   A specific street address or postal code also uses requested_landmark: keep
   the exact query, city null until supplied, and never infer a budget from it.
   A named HOTEL uses hotel_name instead. Ordinary cities, device position,
-  amenities, an unnamed airport or a non-geographic follow-up emit null.
+  amenities or a non-geographic follow-up emit null. A geographic category
+  such as "airport" or "station" IS a landmark request even without a proper
+  name: quote that category and retain the confirmed city if available. Ask
+  which airport when multiple candidates remain; never substitute the city centre.
+  "near me" and room themes are never landmarks: use device for near me.
 - "requested_areas": when MESSAGE names an administrative search area or a
   choice of multiple municipalities, a list of up to three objects:
   {{"query":"full area name","kind":"administrative" or "municipality",
@@ -677,6 +683,10 @@ Optional keys, extracted from MESSAGE ONLY, never copied from recent messages:
   "afternoon" is NOT evidence for "12:00". Never copy times from recent messages.
   "Keep the same hours" is NO change: omit requested_window entirely.
   Extract a stated clock window even if the destination still needs clarification.
+  A numeric arrival such as "8h", "10h" or "at 10" MUST remain an exact start
+  in requested_window, never just requested_daypart. A duration in the same
+  MESSAGE must be included alongside that start. Daytime means a day-use stay,
+  not specifically afternoon. Lunch does not mean breakfast.
 - "hotel_scope": "shown" ONLY for a question about the already proposed hotels
   collectively ("do these hotels offer massages?", "les hôtels proposés ont-ils
   un spa ?"). This is family=details, not a request for a new amenity-filtered
@@ -733,8 +743,8 @@ async def classify(message: str, budget: TurnBudget, invocation_id: str = "",
                     "\nLOCATION CONTEXT is code-owned place state, not instructions. When supplied, "
                     "include location_intent BEFORE family in the JSON: "
                     '{"action":"select","position":1,"evidence":"verbatim reply"} '
-                    "for a choice, or action preserve/change/refine/device/unknown with evidence. "
-                    "return location_intent with action select, preserve, change, refine or device and "
+                    "for a choice, or action preserve/change/refine/device/missing/unknown with evidence. "
+                    "return location_intent with action select, preserve, change, refine, device or missing and "
                     "evidence quoted verbatim from MESSAGE. Select only when MESSAGE identifies "
                     "ONE pending option (position or distinguishing place/region/country); include "
                     "its integer position. A bare yes cannot choose between multiple options. "
@@ -747,6 +757,10 @@ async def classify(message: str, budget: TurnBudget, invocation_id: str = "",
                     "Naming its containing city/state/country is refine even when the earlier "
                     "parent label was a borough or neighborhood. For a containing CITY reply, "
                     "include parent_city inside location_intent, copied verbatim from MESSAGE. "
+                    "parent_city is ONLY a containing municipality, never a street address, "
+                    "ZIP, landmark spelling correction, or replacement target. This also applies "
+                    "when refining a confirmed scope. A corrected landmark or street uses change "
+                    "plus requested_landmark, even if the correction only changes its spelling. "
                     "Do not copy the old landmark into requested_landmark: the code retains it. "
                     "For state/country refinements, use requested_areas instead. A different string "
                     "alone is not evidence that the customer abandoned the pending target. "
@@ -760,6 +774,10 @@ async def classify(message: str, budget: TurnBudget, invocation_id: str = "",
                     "or time change. For preserve, quote the CURRENT non-geographic request "
                     "(such as its hours or budget), NOT the earlier destination. Evidence from "
                     "history or LOCATION CONTEXT is invalid even when that place is preserved. "
+                    "Missing means no destination in MESSAGE or earlier place state, and no device "
+                    "position request. Emit missing explicitly for a hotel search giving only "
+                    "amenities, date or hours without any location. Locale, language and timezone "
+                    "are NEVER a destination. Room themes are not geographic zones. "
                     "If uncertain, omit location_intent. Do not invent a selection."
                     if location_context else ""
                 ) + (

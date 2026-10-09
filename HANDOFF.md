@@ -1,3 +1,20 @@
+## v71 — lot de corrections locales ; rejeu complet requis avant publication
+
+Corrections regroupées : priorité à la nouvelle adresse sur un parent contradictoire,
+réévaluation du parent d’un lieu déjà confirmé, conservation du contexte sur une
+relance classée ack, sélection du mieux noté par les notes de la liste réelle,
+intention explicite destination manquante empêchant une ville déduite du fuseau.
+Instructions renforcées pour heures exactes, aéroports génériques et corrections.
+Aucun regex ajouté, aucune exception de ville, aucun changement de modèle.
+FAQ phase2 ; pas de déploiement/merge. Tests et rejeu v71 consignés dans le rapport
+privé, à vérifier avant toute publication ou annonce de résultat.
+
+v70 est désormais terminé : 58/163 principal (16A20B18C4NN), 24/72 geo
+(8 préservés8partiels5échecs3nonévaluables), 3/7 récents (1B2C).
+25 mieux6moinsbons20identiques7noncomparables face au témoin prod v65.
+Diagnostic 144 appels de triage : aucun modèle ne résout toutes les catégories.
+Pas de GO prod. PR134 reste v69 publié jusqu’à preuve complète du nouveau lot.
+
 ## v70 — corrections locales, rejeu complet requis avant publication
 
 Le matin + une heure de départ sont conservés ensemble, sans inventer une heure

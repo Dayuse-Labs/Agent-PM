@@ -71,6 +71,7 @@ from __future__ import annotations
 
 import json
 import logging
+import math
 import re
 from dataclasses import MISSING, dataclass, field
 from typing import Any
@@ -1441,6 +1442,19 @@ def select_cheapest_hotel(
     if not priced:
         return None
     return min(priced, key=lambda hotel: hotel["price_eur_cents"])
+
+
+def select_best_rated_hotel(last_results: list[dict[str, Any]] | None) -> dict[str, Any] | None:
+    """Resolve a semantic pick against real shortlist scores, never list order.
+
+    Unknown/invalid ratings cannot win. Stable ordering breaks equal-score ties
+    without claiming a statistical preference from a small review count.
+    """
+    rated = [hotel for hotel in last_results or []
+             if isinstance(hotel, dict) and not isinstance(hotel.get("rating"), bool)
+             and isinstance(hotel.get("rating"), (int, float))
+             and math.isfinite(hotel["rating"]) and 0 < hotel["rating"] <= 5]
+    return max(rated, key=lambda hotel: hotel["rating"]) if rated else None
 
 
 # --- Booking confirmation (R9, guard #12) -----------------------------------

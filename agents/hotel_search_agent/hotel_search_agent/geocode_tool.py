@@ -1081,6 +1081,22 @@ def inject_profile_geo_context(tool: object, args: dict, tool_context: object) -
     from b2c_common.confirmed_location import verified_place
     content = getattr(tool_context, "user_content", None)
     envelope = find_datapart(getattr(content, "parts", None)) or {}
+    current_message = " ".join(part.text for part in (getattr(content, "parts", None) or [])
+                               if isinstance(getattr(part, "text", None), str))
+    literal_city = (isinstance(args.get("city"), str) and bool(args["city"].strip())
+                    and args["city"].strip().casefold() in current_message.casefold())
+    if (envelope.get("query_params") or {}).get("destination_missing") is True and not literal_city:
+        questions = {
+            "fr": "Dans quelle ville ou près de quelle adresse souhaitez-vous chercher ?",
+            "en": "Which city or address would you like to search near?",
+            "es": "¿En qué ciudad o cerca de qué dirección quieres buscar?",
+            "it": "In quale città o vicino a quale indirizzo vuoi cercare?",
+            "de": "In welcher Stadt oder in der Nähe welcher Adresse möchtest du suchen?",
+            "pt": "Em que cidade ou perto de que endereço pretende pesquisar?",
+            "nl": "In welke stad of bij welk adres wil je zoeken?",
+        }
+        return _fail("geocode_ambiguous", {"question": questions.get(str(profile_in.get("language") or "en"), questions["en"]),
+                                            "options": []})
     if (envelope.get("query_params") or {}).get("landmark_authoritative") is True:
         # The concierge validated the current landmark quote. The leaf cannot
         # reinterpret it as a municipality, strict area, or device position.
