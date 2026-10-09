@@ -111,6 +111,15 @@ _RECOVERY_SUGGESTIONS: dict[str, list[str]] = {
     "pt": ["aumentar o orçamento", "alargar a zona", "retirar um filtro"],
     "nl": ["budget verhogen", "gebied vergroten", "een filter verwijderen"],
 }
+_WINDOW_SUGGESTIONS: dict[str, list[str]] = {
+    "fr": ["essayer une autre date", "élargir la zone", "modifier les horaires"],
+    "en": ["try another date", "try a nearby area", "adjust the hours"],
+    "es": ["probar otra fecha", "ampliar la zona", "cambiar el horario"],
+    "it": ["provare un’altra data", "ampliare la zona", "modificare gli orari"],
+    "de": ["anderes Datum prüfen", "Umkreis erweitern", "Uhrzeiten ändern"],
+    "pt": ["tentar outra data", "alargar a zona", "alterar os horários"],
+    "nl": ["een andere datum proberen", "gebied vergroten", "tijden aanpassen"],
+}
 
 # S-CX6: a SAME-DAY dead end has exactly one cure, and it is not in the trio
 # above — day-use booking cutoffs land on the stay date itself (latest ~16h
@@ -875,6 +884,7 @@ def record_search_outcome(
     results_count: int,
     language: str = "en",
     same_day_dead_end: bool = False,
+    window_constrained: bool = False,
 ) -> None:
     """Tracks the empty-search streak that feeds `maybe_auto_widen` — called
     once per search turn with the leaf's returned result count. A zero-result
@@ -895,6 +905,8 @@ def record_search_outcome(
         profile.search_exhausted = False
     elif same_day_dead_end:
         profile.last_suggestions = list(_DATE_SUGGESTIONS.get(language, _DATE_SUGGESTIONS["en"]))
+    elif window_constrained:
+        profile.last_suggestions = list(_WINDOW_SUGGESTIONS.get(language, _WINDOW_SUGGESTIONS["en"]))
     else:
         profile.last_suggestions = list(
             _RECOVERY_SUGGESTIONS.get(language, _RECOVERY_SUGGESTIONS["en"])

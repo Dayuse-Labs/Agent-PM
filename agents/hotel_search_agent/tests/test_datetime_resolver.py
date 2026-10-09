@@ -54,7 +54,7 @@ def test_concierge_clock_window_controls_search_despite_rounded_leaf_arguments()
     args = {'timeSlot': {'startHour': 18, 'endHour': 21}, 'duration': '1 hour'}
     resolve_search_timeslot(_Tool('search_offers'), args, ctx)
     assert ctx.state[STATE_EXACT_WINDOW_KEY] == {'start_total': 1110, 'end_total': 1260}
-    assert args['timeSlot'] == {'startHour': 18, 'endHour': 21}
+    assert args['timeSlot'] == {'startHour': 19, 'endHour': 21}
     assert 'duration' not in args
 
 
@@ -521,11 +521,11 @@ def test_timeslot_ignores_other_tools():
     assert args["timeSlot"] == {"startHour": 7, "startMinute": 30}
 
 
-def test_timeslot_sub_hour_window_floors_and_ceils_for_mcp():
+def test_timeslot_sub_hour_window_matches_the_shared_site_rule_for_mcp():
     ctx = _ctx_with_profile({}, 'un hôtel de 7h30 à 13h30')
     args = {"timeSlot": {"startHour": 7, "startMinute": 30, "endHour": 13, "endMinute": 30}}
     resolve_search_timeslot(_Tool("search_offers"), args, ctx)
-    assert args["timeSlot"] == {"startHour": 7, "endHour": 14}
+    assert args["timeSlot"] == {"startHour": 8, "endHour": 14}
     exact = ctx.state[STATE_EXACT_WINDOW_KEY]
     assert exact == {"start_total": 7 * 60 + 30, "end_total": 13 * 60 + 30}
 
@@ -566,11 +566,11 @@ def test_timeslot_duration_combines_with_carried_over_start():
     assert ctx.state[STATE_EXACT_WINDOW_KEY] == {"start_total": 9 * 60, "end_total": 10 * 60}
 
 
-def test_timeslot_one_sided_start_only_kept_as_is():
+def test_timeslot_one_sided_start_uses_shared_one_hour_rule_without_inventing_departure():
     ctx = _ctx_with_profile({}, 'à partir de 14h')
     args = {"timeSlot": {"startHour": 15, "startMinute": 15}}
     resolve_search_timeslot(_Tool("search_offers"), args, ctx)
-    assert args["timeSlot"] == {"startHour": 15}
+    assert args["timeSlot"] == {"startHour": 15, "endHour": 16}
     assert ctx.state[STATE_EXACT_WINDOW_KEY] == {"start_total": 15 * 60 + 15, "end_total": None}
 
 
@@ -580,6 +580,28 @@ def test_timeslot_absent_entirely_stashes_nothing():
     resolve_search_timeslot(_Tool("search_offers"), args, ctx)
     assert "timeSlot" not in args
     assert STATE_EXACT_WINDOW_KEY not in ctx.state
+
+
+def test_mcp_containment_never_excludes_a_shared_rule_match():
+    from b2c_common.timeslot import slot_covers_window
+
+    # Cross-layer invariant over quarter-hour windows, one-sided requests,
+    # equal rounded bounds and midnight. The MCP schema has integer hours.
+    for start, end in [(s, e) for s in range(0, 1440, 15) for e in (s + 15, min(s + 90, 1440), 1440)] + [
+        (s, None) for s in range(0, 1440, 15)
+    ] + [(None, e) for e in range(60, 1441, 15)]:
+        window = {"start": f"{start//60:02d}:{start%60:02d}" if start is not None else None,
+                  "end": f"{end//60:02d}:{end%60:02d}" if end is not None else None}
+        ctx = _ctx_with_profile({"requested_window": window}, "same hours please")
+        args = {}
+        resolve_search_timeslot(_Tool("search_offers"), args, ctx)
+        sent = args["timeSlot"]
+        assert 0 <= sent["startHour"] <= 23 and 0 <= sent["endHour"] <= 23
+        assert ctx.state[STATE_EXACT_WINDOW_KEY] == {"start_total": start, "end_total": end}
+        for offer_start in range(24):
+            for offer_end in range(offer_start + 1, 25):
+                if slot_covers_window(offer_start, offer_end, start, end):
+                    assert offer_start <= sent["startHour"] and offer_end >= sent["endHour"], (window, sent, offer_start, offer_end)
 
 
 def test_timeslot_end_never_overflows_past_23():

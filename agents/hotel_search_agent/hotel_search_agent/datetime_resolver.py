@@ -32,11 +32,10 @@ Same split of responsibility as `equipment_ids.py` (the proven template):
     to the customer as "no offers in <city>" (prod 2026-07-29).
   - `resolve_search_timeslot` (before_tool, LAST group) pops the virtual
     `duration`/`startMinute`/`endMinute`, computes the EXACT requested window
-    in minutes-of-day, floors/ceils it to the whole hours MCP actually accepts
-    (A4-c interim — the real minute-level filter is a cross-repo ask, see
-    reports/MCP-B2C-REQUESTS.md), and stashes the exact window for
+    in minutes-of-day, uses the shared site's rounded-hour containment rule
+    for MCP (clamping midnight to its schema maximum), and stashes the exact window for
     response_bridge.capture_after_tool to recover (accurate profile capture +
-    the offer-level exact-minute post-filter). A duration with NO start hour
+    the offer-level filter and literal-minute disclosure). A duration with NO start hour
     anywhere (fresh or carried over) invents NO window at all — `timeSlot` is
     simply omitted, per the spine's "LLM labels, code computes, never guesses"
     rule.
@@ -53,7 +52,7 @@ from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
 from b2c_common.date_labels import resolve_relative_day as _resolve_relative
 from b2c_common.observability import mark_level
-from b2c_common.timeslot import DAYPART_HOURS, daypart_in
+from b2c_common.timeslot import DAYPART_HOURS, daypart_in, requested_hours
 from hotel_search_agent.response_bridge import (
     STATE_DATE_FALLBACK_KEY,
     STATE_DAYPART_KEY,
@@ -619,19 +618,21 @@ def resolve_search_timeslot(tool: Any, args: dict[str, Any], tool_context: Any) 
         start_total = _parse_hhmm_to_minutes(owned_window.get("start"))
         end_total = _parse_hhmm_to_minutes(owned_window.get("end"), end_of_day=True)
 
+    # Retrieval must not exclude offers accepted by the shared site rule.
+    # Flooring arrival/ceiling departure under containment was MORE restrictive:
+    # 10:30 became10, excluding11–19 although requested_hours accepts it.
+    # The literal request stays below for display and disclosure of near matches.
+    arrival, departure = requested_hours(start_total, end_total)
+    if arrival is None and departure is not None:
+        arrival = max(departure - 1, 0)
+    elif departure is None and arrival is not None:
+        departure = arrival + 1
     new_time_slot: dict[str, int] = {}
-    if start_total is not None:
-        new_time_slot["startHour"] = start_total // 60
-    if end_total is not None:
-        hour, minute = divmod(end_total, 60)
-        # MCP accepts at most23. This is a retrieval superset, never the
-        # requested departure: exact1440 remains in state for card filtering.
-        new_time_slot["endHour"] = min(hour + (1 if minute else 0), 23)
-        if end_total == 1440 and start_total is None:
-            # An end-only MCP request defaults start to end-2. With end23 it
-            # would wrongly exclude22–midnight offers; explicit23 is a superset
-            # of the site's end-only23–24 window. Do not persist this as arrival.
-            new_time_slot["startHour"] = 23
+    if arrival is not None:
+        new_time_slot["startHour"] = arrival
+    if departure is not None:
+        # MCP accepts at most23; local validation still checks24 at midnight.
+        new_time_slot["endHour"] = min(departure, 23)
     if new_time_slot:
         args["timeSlot"] = new_time_slot
         # Server enum belongs to the adapter, not to a model guess such as

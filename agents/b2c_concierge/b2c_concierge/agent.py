@@ -2238,6 +2238,8 @@ class _B2cConcierge(BaseAgent):
                 results_count=results_count,
                 language=reply_language,
                 same_day_dead_end=same_day_dead_end,
+                window_constrained=bool(isinstance(search_context, dict)
+                                        and search_context.get("timeslot_start") and search_context.get("timeslot_end")),
             )
             if response.get("area_coverage"):
                 profile.search_exhausted = False
@@ -2283,7 +2285,14 @@ class _B2cConcierge(BaseAgent):
             # rewriting an unverifiable currency price as global unavailability.
             await store.set(ctx.session.id, profile)
             self._emit_turn_metric(family, "template:budget_no_verified_offer", budget, t_start, "ok", inv)
-            yield self._final(ctx, budget_notice(profile.requested_budget, False, reply_language))
+            context = response.get("search_context") if not response.get("area_coverage") else None
+            line = no_offers_line(context, reply_language, requested_budget=profile.requested_budget)
+            if not line:
+                line = budget_notice(profile.requested_budget, False, reply_language)
+            if (isinstance(context, dict) and context.get("timeslot_start") and context.get("timeslot_end")
+                    and not response.get("area_coverage")):
+                line += "\n\n" + templates.empty_window_next_step(reply_language)
+            yield self._final(ctx, line)
             return
 
         requested_stay = profile.requested_window or {}

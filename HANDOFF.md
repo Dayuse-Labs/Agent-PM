@@ -1,3 +1,33 @@
+## 2026-10-09 · v89 budget + horaires — validation hors ligne verte, rejeu requis
+
+Réponse vide sous plafond : le concierge cite désormais le contexte réellement
+cherché (lieu/date/créneau/équipements/groupe) avec le plafond et sa devise,
+frais compris. Formulation bornée à cette recherche ; aucune attribution causale
+au seul budget. Les fenêtres explicites proposent date/zone/horaires dans les
+chips, avec priorité conservée aux dates quand les réservations du jour ferment.
+Les recherches d'aires gardent leur traitement spécifique, sans fausse couverture.
+
+Adaptateur MCP : utilisation de requested_hours, même règle horaire que le filtre
+local, au lieu de plancher arrivée/plafond départ qui rendait contain plus strict.
+Une borne seule est envoyée comme fenêtre d'une heure selon le filtre local,
+pour éviter les défauts MCP +3h/-2h ; ce choix est explicite. Le profil garde ses
+minutes exactes et ses bornes absentes ; fin minuit bornée23 dans la requête MCP,
+24 conservé dans l'état et le filtrage local. Les décalages littéraux des offres
+restent annoncés par literal_window_notice. Aucun regex ni appel modèle ajouté.
+
+Probe MCP direct sauvegardé privé : à la même origine Biltmore14566 et même date,
+12–17 renvoie4créneaux,13–17en renvoie6. Les deux ajouts13–19 et13–20 sont admis
+par la règle arrondie pour12h30–17h ; ils commencent PLUS TARD que la demande
+littérale et ne doivent pas être annoncés comme12h30. Aucun gain utilisateur
+global ne peut être déduit de ce contrôle de contrat.
+
+112tests ciblés passent. Après un premier lancement interrompu par les erreurs
+de fichiers temporaires (3011pass/18erreurs), la suite complète relancée après
+probe d'écriture réussie donne3029pass/1gate live optionnelle ignorée. Log privé
+/tmp/dayuse-v89-full.log ; ruff/mypy77/guardrails/diff verts. Rejeu utilisateur
+groupé des quatre parcours v88 encore requis. Maincbe88b9 et PR134draft7139df5
+revérifiés inchangés. Aucun merge/déploiement/push. NO GO maintenu.
+
 ## 2026-10-09 · v88 rejoué — point adresse vérifié, limites visibles
 
 Runtime a41da0e :4conversations/9tours,1B3C ; trois cas exposés de v86 et un

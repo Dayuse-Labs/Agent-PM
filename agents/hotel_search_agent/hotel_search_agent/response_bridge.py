@@ -1160,8 +1160,8 @@ def capture_after_tool(
             exclude_ids = set(shown)
         # S-G6 (A4-c): a genuine two-sided exact window (stashed by
         # datetime_resolver.resolve_search_timeslot before MCP only got the
-        # floored/ceiled hours) — a one-sided bound is never strict-filtered
-        # here (existing "kept as-is" mode, unchanged).
+        # rounded hours) — either bound also supports the shared one-hour
+        # rule for a one-sided request, without inventing a requested endpoint.
         exact_window_state = tool_context.state.get(STATE_EXACT_WINDOW_KEY)
         if isinstance(exact_window_state, dict):
             start_total, end_total = exact_window_state.get("start_total"), exact_window_state.get(

@@ -95,3 +95,13 @@ def test_an_unrelated_answer_is_left_alone():
 def test_nothing_to_cite_gives_no_sentence():
     assert no_offers_line(None, "fr") == ""
     assert no_offers_line({}, "fr") == ""
+
+
+@pytest.mark.parametrize("language", ["fr", "en", "es", "it", "de", "pt", "nl"])
+def test_empty_budget_search_keeps_all_criteria_and_native_currency(language):
+    line = no_offers_line({**_LYON, "timeslot_start": "10:30", "timeslot_end": "19:00"}, language,
+                          requested_budget={"amount": 150, "currency": "USD", "unit": "total"})
+    assert "Lyon" in line and "2026" in line and "150 USD" in line
+    assert "10" in line and "30" in line and "19" in line
+    assert "€" not in line  # a sent EUR retrieval cap is not the user's USD cap
+    assert "{" not in line

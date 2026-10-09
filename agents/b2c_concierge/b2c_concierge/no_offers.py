@@ -26,6 +26,24 @@ _LEAD: dict[str, str] = {
     "pt": "Nenhuma oferta {place}",
     "nl": "Geen aanbiedingen {place}",
 }
+_VERIFIED_LEAD: dict[str, str] = {
+    "fr": "Je n’ai trouvé aucune offre vérifiable dans cette recherche {place}",
+    "en": "I found no verifiable offer in this search {place}",
+    "es": "No encontré una oferta verificable en esta búsqueda {place}",
+    "it": "Non ho trovato un’offerta verificabile in questa ricerca {place}",
+    "de": "Ich habe bei dieser Suche kein überprüfbares Angebot {place} gefunden",
+    "pt": "Não encontrei uma oferta verificável nesta pesquisa {place}",
+    "nl": "Ik heb bij deze zoekopdracht geen verifieerbaar aanbod {place} gevonden",
+}
+_TOTAL_BUDGET: dict[str, str] = {
+    "fr": "avec un total maximum de {amount} {currency}, frais de réservation compris",
+    "en": "with a total at or below {amount} {currency}, including booking fees",
+    "es": "con un total máximo de {amount} {currency}, incluidos los gastos de reserva",
+    "it": "con un totale massimo di {amount} {currency}, incluse le spese di prenotazione",
+    "de": "mit einem Gesamtpreis bis {amount} {currency} einschließlich Buchungsgebühren",
+    "pt": "com um total máximo de {amount} {currency}, incluindo taxas de reserva",
+    "nl": "met een totaal tot {amount} {currency}, inclusief boekingskosten",
+}
 _PLACE: dict[str, str] = {
     "fr": "à {}", "en": "in {}", "es": "en {}", "it": "a {}", "de": "in {}", "pt": "em {}", "nl": "in {}",
 }
@@ -142,7 +160,7 @@ def _join(items: list[str], lang: str) -> str:
     return items[0] if len(items) == 1 else f"{', '.join(items[:-1])} {_AND[lang]} {items[-1]}"
 
 
-def no_offers_line(context: dict[str, Any] | None, language: str) -> str:
+def no_offers_line(context: dict[str, Any] | None, language: str, *, requested_budget: dict | None = None) -> str:
     """"Aucune offre à Lyon le mercredi 7 octobre 2026, de 6h à 16h, à moins
     de 20 €, avec piscine et spa." — empty when there is no context to cite."""
     if not isinstance(context, dict):
@@ -156,7 +174,11 @@ def no_offers_line(context: dict[str, Any] | None, language: str) -> str:
     if time:
         bits.append(time)
     budget = context.get("budget_max")
-    if isinstance(budget, (int, float)) and budget > 0:
+    if requested_budget:
+        bits.append(_TOTAL_BUDGET[lang].format(
+            amount=f"{requested_budget['amount']:g}", currency=requested_budget.get("currency") or "?",
+        ))
+    elif isinstance(budget, (int, float)) and budget > 0:
         amount = f"{float(budget):g}"
         bits.append(_BUDGET[lang].format(f"€{amount}" if lang == "en" else f"{amount} €"))
     amenities = [
@@ -172,7 +194,7 @@ def no_offers_line(context: dict[str, Any] | None, language: str) -> str:
     place = _place(context, lang)
     if not place and not bits:
         return ""
-    lead = _LEAD[lang].format(place=place).rstrip()
+    lead = (_VERIFIED_LEAD if requested_budget else _LEAD)[lang].format(place=place).rstrip()
     return f"{lead} {', '.join(bits)}.".replace(" ,", ",").replace(" .", ".")
 
 
