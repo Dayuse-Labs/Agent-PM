@@ -1,5 +1,38 @@
 # HANDOFF — AgentB2C
 
+## 2026-10-09 — v64 local : portée des équipements et faits de la formule affichée
+
+Le dernier rejeu affirmait un jacuzzi dans la chambre à Philadelphie sans
+preuve : le filtre jacuzzi vise l'hôtel, tandis que la formule MCP est Classic
+King Room, bedding double_king, avec Free parking comme équipement listé.
+Le bridge aplatissait les portées hôtel/chambre et les deux normalisateurs
+supprimaient nom de formule, type de lit/chambre et includedAmenities.
+
+Correction locale commune search/details : conserver ces champs bornés depuis
+LA formule sélectionnée, avec liaison hôtel + UUID + date ; les ignorer si
+cette identité change. Les filtres effectivement appliqués transmettent leur
+portée hôtel/chambre jusqu'à la synthèse. Consigne explicite : ni jacuzzi hôtel,
+ni baignoire chambre ne prouvent un jacuzzi privé ; équipements listés ne
+prouvent ni gratuité ni horaires. Absence = inconnu, pas absence d'équipement.
+Les valeurs fournisseur restent des données citées, jamais des instructions.
+Aucune regex, appel modèle additionnel, modification MCP ou travail FAQ.
+
+2748 tests passent / 1 ignoré (dont 364 ciblés), ruff, mypy71 et guardrails verts.
+Contre-factuel hors réseau sur les reçus v62 : 260 jointures hôtel/offre/date,
+260 noms de formule et 257 types de lit conservés, tous les anciens champs
+normalisés inchangés, faits search/details identiques. Les trois types de lit
+absents ne sont pas inventés. Preuves privées batch-v64. Ceci valide le chemin
+de données, PAS la réponse future du modèle ni une amélioration de note.
+
+v63 + v64 restent LOCAUX, non poussés : rejeu réel complet avant publication.
+PR 134 toujours au commit public évalué 2772d9f, rapport réel v62 inchangé
+(10 A / 19 B / 23 C / 6 NN). Rio, budgets implicites, débordements géographiques
+et autres C restent ouverts. Pas de GO remplacement de production.
+Coût supplémentaire = 0 ; cumul conservateur 108,97310628 / 110 USD, dont
+6,10 provisionnés, réserve 0,50. Un rejeu complet (~1,57 USD lors de v62)
+ne tient plus dans le solde. Aucun service ni nouvelle campagne payante lancé.
+FAQ/annulations toujours phase 2 ; pas de modification Railway/production.
+
 ## 2026-10-09 — v63 local : précision de ville sans objet requested_areas
 
 Cause v62 reproduite sur la vraie trace 23rd Street : le triage émet bien

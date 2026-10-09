@@ -43,6 +43,7 @@ from b2c_common.confirmed_location import (
 )
 from b2c_common.search_budget import offer_within_budget, resolve_budget_currency
 from b2c_common.price_comparison import offer_totals, offer_below_reference
+from b2c_common.offer_facts import selected_offer_facts
 
 import asyncio
 import json
@@ -641,6 +642,9 @@ def normalize_hotel(
         offers = [o for o in offers if isinstance(o, dict) and _offer_matches(o, exact_window)]
     best = _best_offer(offers, hotel)
     if best:
+        facts = selected_offer_facts(hotel, best)
+        if facts:
+            card["offer_facts"] = facts
         totals = offer_totals(best)
         if totals:
             card["offer_totals"] = totals
@@ -1218,10 +1222,17 @@ def capture_after_tool(
         # to this search's filters).
         applied = tool_context.state.get(STATE_APPLIED_AMENITIES_KEY) or []
         if applied:
+            # Local import: equipment_ids also uses bridge callback state keys.
+            from hotel_search_agent.equipment_ids import EQUIPMENT_IDS, ROOM_EQUIPMENT_IDS
+
             labels = [key.replace("_", " ") for key in applied]
             for card in results:
                 existing = card.get("amenities") or []
                 card["amenities"] = existing + [lbl for lbl in labels if lbl not in existing]
+                card["equipment_evidence"] = {
+                    "hotel": [key.replace("_", " ") for key in applied if key in EQUIPMENT_IDS],
+                    "room": [key.replace("_", " ") for key in applied if key in ROOM_EQUIPMENT_IDS],
+                }
         # Capture the budget / time-slot the model actually passed search_offers
         # (from the REAL args, not the model's prose) → emit maps it to the
         # profile so the concierge's S12 budget/timeslot guards finally engage.

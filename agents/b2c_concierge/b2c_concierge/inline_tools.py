@@ -31,6 +31,8 @@ same "honest degradation" posture as `_run_leaf`.
 """
 from __future__ import annotations
 
+from b2c_common.offer_facts import selected_offer_facts
+
 import asyncio
 import math
 import os
@@ -353,6 +355,9 @@ def _normalize_hotel_for_display(hotel: dict[str, Any], best_offer: dict[str, An
     if url:
         normalized["url"] = url
     if best_offer:
+        facts = selected_offer_facts(hotel, best_offer)
+        if facts:
+            normalized["offer_facts"] = facts
         totals = offer_totals(best_offer)
         if totals:
             normalized["offer_totals"] = totals
