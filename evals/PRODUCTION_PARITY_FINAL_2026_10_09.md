@@ -1,5 +1,50 @@
 # Bilan final du 9 octobre 2026 — revue de PR, remplacement refusé
 
+## État courant — v89, 9 octobre à 17:51 UTC
+
+Runtime `9991aa1` : **4 conversations / 9 tours, 2 B / 2 C**, contre 1 B / 3 C
+sur les mêmes parcours en v88. Un contrôle synthétique adresse → budget → horaires
+passe de C à B ; Voorhees et la contestation JFK restent C, Biltmore reste B.
+Revue Codex non indépendante, corpus exposé ; aucune supériorité globale prouvée.
+Le dernier passage complet 100/280 reste v78, décrit plus bas comme historique.
+
+Depuis le précédent head publié : vérification d'identité commune/aéroport,
+alternatives de repères conservées avec recherches bornées indépendantes,
+clarification du total de voyageurs, adresses typées vérifiées composant par
+composant, minutes exactes affichées, contexte combiné budget/horaires dans les
+réponses vides et alignement MCP sur le filtre horaire partagé. Pas de nouvelle
+regex, de dictionnaire géographique ou de phase modèle ajoutée.
+
+Le point adresse est conservé sur trois recherches. Le dernier tour vide cite
+les critères, mais a emprunté la synthèse habituelle : son amélioration ne prouve
+pas causalement la nouvelle branche déterministe budget_no_verified_offer,
+couverte par tests hors ligne. Les recherches MCP utilisent 11–19 pour la
+fenêtre 10:30–19 selon la règle arrondie du site ; cela n'autorise pas à présenter
+une arrivée11h comme une correspondance littérale10h30. Les décalages restent à
+signaler. Le nombre d'offres peut varier avec le modèle et l'inventaire frais.
+
+**3029 tests passent / 1 gate live optionnelle ignorée**, ruff/mypy77/guardrails
+verts.77empreintes runtime identiques pendant le lot.12cartes reliées aux reçus
+MCP exacts sans anomalie de prix/jointure/expiration ;5cartes budget conformes
+frais compris. Ces contrôles ne prouvent ni rappel inventaire ni pertinence globale.
+
+Coût du lot **0,1676USD** ; cumul **148,4130/150USD**, dont7,10provisionnés,
+réserve0,50USD. Services locaux possédés arrêtés, aucun coût en attente.
+43nouveaux échanges de production/19sessions relus ; deux traces Langfuse
+(31observations) inspectées. Une relance espagnole conserve la ville dans le
+profil mais le guard recherche la refuse ; une réponse numérique de localisation
+ajoute à tort un budget alors que l'extraction monétaire est nulle. Ces cas ne
+sont pas des attentes à reproduire et n'ont pas encore été rejoués sur v89.
+Statut organique des sessions non vérifié ; aucun contenu brut ajouté au dépôt.
+
+**NO GO maintenu.** Restent la récupération après clarification, les contestations,
+les alternatives hôtel/ville, les zones après relance et un nouveau passage
+historique complet. Configuration locale inchangée (triage5.2/recherche4o-mini/
+synthèse5.2), différente du triage Railway4o-mini. Aucun merge/déploiement.
+Les sections suivantes documentent les passages antérieurs avec leurs propres
+runtimes ; leurs chiffres ne sont pas les résultats du head actuel.
+
+
 ## Complément final — correctifs localisés, NO GO maintenu
 
 Runtime `e4b5c37` : les noms de ville explicitement demandés ne sont plus perdus
