@@ -12,7 +12,7 @@ from typing import Any
 from google.genai import types
 
 from b2c_common.confirmed_location import verified_place
-from b2c_common.destination_request import DestinationRequest, destination_request
+from b2c_common.destination_request import DestinationRequest, destination_request, landmark_context_question
 from hotel_search_agent.area_scope import STATE_FAILED, STATE_RESOLUTION
 from hotel_search_agent.geocode_tool import geocode_location, inject_profile_geo_context
 from hotel_search_agent.response_bridge import (
@@ -57,17 +57,7 @@ async def prepare_landmark_alternatives(callback_context: Any) -> None:
     points = [point for point, _ in outcomes if point is not None]
     unresolved = [failure for _, failure in outcomes if failure is not None]
     if not points:
-        labels = " / ".join(item.query for item in request.landmarks or [])
-        questions = {
-            "fr": "Dans quelle ville ou près de quelle adresse dois-je situer ces lieux : {places} ?",
-            "en": "Which city or address should I use for these alternatives: {places}?",
-            "de": "In welcher Stadt oder bei welcher Adresse liegen diese Alternativen: {places}?",
-            "es": "¿En qué ciudad o cerca de qué dirección están estas alternativas: {places}?",
-            "it": "In quale città o vicino a quale indirizzo si trovano queste alternative: {places}?",
-            "pt": "Em que cidade ou perto de que endereço ficam estas alternativas: {places}?",
-            "nl": "In welke stad of bij welk adres liggen deze alternatieven: {places}?",
-        }
-        question = questions.get(str(profile.get("language") or "en"), questions["en"]).format(places=labels)
+        question = landmark_context_question(request, str(profile.get("language") or "en"))
         result = {"ok": False, "error": "geocode_ambiguous", "diagnostics": {
             "question": question,
             "alternatives": unresolved, "options": [],

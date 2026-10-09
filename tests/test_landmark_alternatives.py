@@ -150,3 +150,16 @@ def test_bounded_batch_keeps_filters_roundrobins_results_and_checks_each_distanc
     assert all(h["verifiedSearchOrigins"][0]["distance_km"] == .6 for h in hotels)
     assert ctx.state[STATE_COVERAGE]["exhaustive"] is False
     assert search_areas_before_tool(Tool(), args, ctx)["ok"] is False
+
+
+def test_unresolved_alternatives_emit_typed_clarification_for_concierge(monkeypatch):
+    from hotel_search_agent.response_bridge import emit_search_datapart, find_datapart
+    monkeypatch.setattr(module, "inject_profile_geo_context", lambda *args: {"ok": False, "error": "geocode_ambiguous"})
+    ctx = context()
+    asyncio.run(module.prepare_landmark_alternatives(ctx))
+    emitted = emit_search_datapart(ctx)
+    payload = find_datapart(emitted.parts)
+    assert payload['requires_clarification'] is True
+    assert payload['destination_clarification'] == {
+        'kind': 'landmark_context', 'queries': ['North airport', 'South station'],
+    }

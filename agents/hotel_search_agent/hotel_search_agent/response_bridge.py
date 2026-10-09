@@ -1918,6 +1918,12 @@ def emit_search_datapart(callback_context: Any) -> genai_types.Content | None:
         # `requires_clarification` honestly (it used to be hardcoded False and
         # safe clarifying questions scored as hard failures).
         payload["requires_clarification"] = True
+        from b2c_common.destination_request import destination_request
+        request = destination_request(read_profile_in(callback_context).get("requested_destination"))
+        if request and request.kind == "landmarks" and state.get(STATE_FAILED):
+            payload["destination_clarification"] = {
+                "kind": "landmark_context", "queries": [p.query for p in request.landmarks or []],
+            }
     fallbacks = state.get(_STATE_FALLBACKS_KEY)
     if isinstance(fallbacks, list) and fallbacks:
         payload["fallbacks_fired"] = list(fallbacks)

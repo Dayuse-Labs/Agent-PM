@@ -1406,7 +1406,10 @@ class _B2cConcierge(BaseAgent):
             if amenity_update is not None else profile.amenities
         )
         amenities_changed = next_amenities != profile.amenities
-        occupancy_update = triage.requested_occupancy
+        from b2c_common.party_update import party_composition_question, resolve_party_update
+        occupancy_update, next_party_total = resolve_party_update(
+            profile.adults, profile.children, profile.pending_party_total, triage.requested_occupancy,
+        )
         occupancy_changed = bool(occupancy_update and any(
             getattr(profile, key) != value for key, value in occupancy_update.items()
         ))
@@ -1757,6 +1760,7 @@ class _B2cConcierge(BaseAgent):
 
         if route.target == LEAF_HOTEL_SEARCH:
             profile.requested_duration_minutes = next_duration
+            profile.pending_party_total = next_party_total
             if occupancy_update:
                 for key, value in occupancy_update.items():
                     setattr(profile, key, value)
@@ -1858,6 +1862,15 @@ class _B2cConcierge(BaseAgent):
                 profile.date_reference = {"resolved_from": "concierge"}
                 if profile.client_timezone:
                     profile.date_reference["client_tz"] = profile.client_timezone
+
+        if route.target == LEAF_HOTEL_SEARCH and profile.pending_party_total is not None:
+            question = party_composition_question(profile.pending_party_total, reply_language)
+            profile.last_clarifying_question = question
+            await store.set(ctx.session.id, profile)
+            yield self._hotels_event(ctx, {"requires_clarification": True}, reply_language)
+            self._emit_turn_metric(family, "template:party_clarification", budget, t_start, "ok", inv)
+            yield self._final(ctx, question)
+            return
 
         if route.target == LEAF_HOTEL_SEARCH and location_action == "unknown":
             question = templates.destination_update_clarification(reply_language)
@@ -2026,6 +2039,20 @@ class _B2cConcierge(BaseAgent):
             receive_location(profile, response)
         if numeric_reply:
             profile.language = reply_language
+        if (route.target == LEAF_HOTEL_SEARCH and owned_destination and owned_destination.kind == "landmarks"
+                and response.get("requires_clarification") and not response.get("results")):
+            from b2c_common.destination_request import landmark_context_question
+            expected = {"kind": "landmark_context", "queries": [p.query for p in owned_destination.landmarks or []]}
+            if response.get("destination_clarification") == expected:
+                # The question already has the correct semantic target. A
+                # second synthesis must not turn it into choosing one airport.
+                question = landmark_context_question(owned_destination, reply_language)
+                profile.last_clarifying_question = question
+                await store.set(ctx.session.id, profile)
+                yield self._hotels_event(ctx, {"requires_clarification": True}, reply_language)
+                self._emit_turn_metric(family, "template:landmark_context", budget, t_start, "ok", inv)
+                yield self._final(ctx, question)
+                return
         pending = pending_location(profile.pending_location)
         if route.target == LEAF_HOTEL_SEARCH and pending and response.get("requires_clarification"):
             profile.last_clarifying_question = pending["question"]

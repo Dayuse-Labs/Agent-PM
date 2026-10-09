@@ -267,6 +267,8 @@ class SessionProfile:
     # `children = 0` is a real statement ("adults only"), distinct from None.
     adults: int | None = None
     children: int | None = None
+    # Explicit total awaiting an adult/child composition; never sent as adults.
+    pending_party_total: int | None = None
     # Prices are shown in EUR unless the user asked for the hotel's own
     # currency ("HOTEL"), kept for the rest of the conversation until they ask
     # for euros again (product decision 2026-09-25).
@@ -336,6 +338,7 @@ class SessionProfile:
             "picked_hotel_id": self.picked_hotel_id,
             "adults": self.adults,
             "children": self.children,
+            "pending_party_total": self.pending_party_total,
             "display_currency": self.display_currency,
             "requested_currency": self.requested_currency,
             "search_page": self.search_page,
@@ -376,6 +379,7 @@ class SessionProfile:
 # `last_suggestions` also carry message-derived content that has no business
 # shipping to the leaf (GDPR: data minimization).
 _CONCIERGE_ONLY_KEYS = (
+    "pending_party_total",
     "amenities_owned",
     "pending_booking",
     "pending_location",

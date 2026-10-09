@@ -117,3 +117,30 @@ def refine_hotel(name: str | None, previous: Any, action: str | None,
     if request and request.kind == "hotel" and action == "refine" and parent_city:
         return {**request.model_dump(exclude_none=True), "city": parent_city}
     return None
+
+
+def landmark_context_question(request: DestinationRequest, language: str) -> str:
+    """Keep all accepted alternatives in the clarification shown to the user."""
+    points = request.landmarks or []
+    labels = " / ".join(p.query + (f" ({p.city})" if p.city else "") for p in points)
+    if points and all(p.city for p in points):
+        questions = {
+            "fr": "Je garde ces lieux comme alternatives : {places}. Peux-tu préciser leur adresse ou leur terminal pour les localiser ?",
+            "en": "I’m keeping these places as alternatives: {places}. Could you specify their address or terminal so I can locate them?",
+            "de": "Diese Orte bleiben als Alternativen erhalten: {places}. Welche Adresse oder welches Terminal ist gemeint?",
+            "es": "Mantengo estas alternativas: {places}. ¿Puedes indicar su dirección o terminal para localizarlas?",
+            "it": "Mantengo queste alternative: {places}. Puoi indicare il loro indirizzo o terminal per localizzarle?",
+            "pt": "Mantenho estas alternativas: {places}. Podes indicar o endereço ou terminal para as localizar?",
+            "nl": "Ik behoud deze alternatieven: {places}. Kun je het adres of de terminal opgeven zodat ik ze kan vinden?",
+        }
+    else:
+        questions = {
+            "fr": "Je garde ces lieux comme alternatives : {places}. Dans quelle ville dois-je les situer ?",
+            "en": "I’m keeping these places as alternatives: {places}. In which city should I locate them?",
+            "de": "Diese Orte bleiben als Alternativen erhalten: {places}. In welcher Stadt liegen sie?",
+            "es": "Mantengo estas alternativas: {places}. ¿En qué ciudad están?",
+            "it": "Mantengo queste alternative: {places}. In quale città si trovano?",
+            "pt": "Mantenho estas alternativas: {places}. Em que cidade ficam?",
+            "nl": "Ik behoud deze alternatieven: {places}. In welke stad liggen ze?",
+        }
+    return questions.get(language, questions["en"]).format(places=labels)

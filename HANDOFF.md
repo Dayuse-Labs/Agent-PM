@@ -1,3 +1,32 @@
+## 2026-10-09 · clarification et composition du groupe — rejeu requis
+
+La clarification de contexte des landmarks alternatifs traverse désormais A2A
+avec les noms attendus. Le concierge valide la correspondance exacte au profil
+et affiche la question localisée en code, sans synthèse qui la transforme en
+choix d'un seul aéroport. Le triage reçoit la règle explicite : une réponse de
+ville affine toutes les alternatives ; un changement explicite les remplace.
+Une ville déjà fournie n'est pas redemandée après échec : adresse/terminal requis.
+
+L'extraction distingue total/adultes/enfants. Un total identique confirme la
+composition connue ; un total différent ou une composition inconnue demande
+la répartition, sans inventer des adultes supplémentaires. Le total en attente
+est persisté au concierge et n'est pas envoyé comme adulte au MCP. Une réponse
+partielle résout arithmétiquement ce total, une nouvelle composition complète
+peut le remplacer. Aucun regex, liste de lieux ou phase LLM supplémentaire.
+
+2995 tests passent/1 gate live ignoré, ruff/mypy77/guardrails verts. Les tests
+couvrent question A2A exacte, maintien des deux lieux, vrai changement de ville,
+confirmation2+1, changement du total et résolution par réponse partielle.
+Source `/tmp/dayuse-v86-full.log`. Rejeu utilisateur encore requis avant tout
+constat de correction live ; précédentv85 reste2B4C/NO GO.
+
+Export prod rafraîchi15:28UTC :34420 lignes,2000 reçues ;21 nouvelles lignes dans
+8 sessions lues, statut organique non vérifié. Deux parcours complets récents
+servent de contrôle supplémentaire : adresse précise puis commune, et demande
+de deux heures avec autres hôtels. GPS/locale/devise native absents de l'export
+ne sont pas reconstruits depuis les réponses. Main cbe88b9 inchangé ; PR134
+open draft7139df5. Pas de merge/déploiement/push de ce suivi local.
+
 ## 2026-10-09 · v85 évalué — NO GO, clarification encore à corriger
 
 Runtime `00a7f82`, six conversations/quinze tours terminés :2B4C. Quatre

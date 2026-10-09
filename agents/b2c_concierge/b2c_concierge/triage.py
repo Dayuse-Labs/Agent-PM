@@ -553,8 +553,13 @@ Optional keys, extracted from MESSAGE ONLY, never copied from recent messages:
   equate a private bathtub with a hotel hot tub. Evidence must quote MESSAGE,
   never earlier messages. This object describes intent, not equipment IDs.
 - "requested_occupancy": ONLY a CURRENT change to the customer's party:
-  {{"adults": integer or null, "children": integer or null,
+  {{"adults": integer or null, "children": integer or null, "total": integer or null,
   "evidence": "exact current party-size statement"}}. Omit unchanged counts.
+  A total such as "we are three" or "nous sommes 3" is total=3, NOT adults=3.
+  Use adults/children ONLY for explicitly stated adult/child counts. Do not
+  copy an earlier composition into a current total-only extraction; code retains
+  the existing composition if it matches, or asks which composition changed.
+  If total and component counts are explicitly given together, they must agree.
   A removal of children is children=0, including written statements such as
   "without children, only two adults". Never infer children=0 merely from
   "two adults". Ages are not counts. A room's capacity, hotel adults-only
@@ -1087,14 +1092,19 @@ def _grounded_occupancy(raw: Any, message: str) -> dict[str, int] | None:
             or evidence.casefold() not in message.casefold()):
         return None
     update = {}
-    for key in ("adults", "children"):
+    for key in ("adults", "children", "total"):
         value = raw.get(key)
         if value is None:
             continue
-        minimum = 1 if key == "adults" else 0
+        minimum = 0 if key == "children" else 1
         if type(value) is not int or not minimum <= value <= 30:
             return None
         update[key] = value
+    if "total" in update:
+        if "adults" in update and "children" in update and update["adults"] + update["children"] != update["total"]:
+            return None
+        if update.get("adults", 0) > update["total"] or update.get("children", 0) >= update["total"]:
+            return None
     return update or None
 
 

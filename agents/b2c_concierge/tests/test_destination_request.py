@@ -177,3 +177,67 @@ def test_multiturn_alternative_landmarks_keep_all_targets_and_shared_filters(scr
     assert all(q["destination_authoritative"] for _, q in seen)
     assert all(p["requested_destination"]["kind"] == "landmarks" for p, _ in seen)
     assert all(len(p["requested_destination"]["landmarks"]) == 2 for p, _ in seen)
+
+
+def test_landmark_context_question_is_transported_without_choice_synthesis(scripted, monkeypatch, fake_profile_store):  # noqa: F811
+    runner, session = _new_session()
+    seen = []
+
+    async def leaf(leaf, ctx, profile_in, **kwargs):
+        seen.append(profile_in)
+        request = profile_in["requested_destination"]
+        if request["kind"] == "landmarks":
+            return "Which city?", {"requires_clarification": True, "destination_clarification": {
+                "kind": "landmark_context", "queries": [p["query"] for p in request["landmarks"]]}}
+        return "Searched", {"results": []}
+
+    turns = [
+        ("North airport or South station", {"action": "change", "evidence": "North airport or South station",
+          "targets": [{"kind": "landmark", "query": name} for name in ["North airport", "South station"]]}),
+        ("Example City", {"action": "refine", "parent_city": "Example City", "evidence": "Example City"}),
+        ("Switch to Coastal City instead", {"action": "change", "evidence": "Switch to Coastal City instead",
+          "targets": [{"kind": "city", "query": "Coastal City"}]}),
+    ]
+    for i, (text, update) in enumerate(turns):
+        scripted(json.dumps({"family": "search", "language": "en", "location_update": update}), "BAD: Choose just one place")
+        monkeypatch.setattr(agent_module, "_run_leaf", leaf)
+        events = _drive_in(runner, session.id, text)
+        profile = asyncio.run(fake_profile_store.get(session.id))
+        if i < 2:
+            answer = " ".join(p.text for e in events if e.content for p in e.content.parts or [] if p.text)
+            assert "BAD:" not in answer
+            assert "North airport" in answer and "South station" in answer
+            assert profile.last_clarifying_question in answer
+            if i == 0:
+                assert "which city" in answer.lower()
+            else:
+                assert "Example City" in answer and "address or terminal" in answer
+    assert [p['requested_destination']['kind'] for p in seen] == ['landmarks', 'landmarks', 'areas']
+    assert profile.requested_destination['areas'][0]['query'] == 'Coastal City'
+
+
+def test_party_total_confirmation_keeps_children_and_unknown_total_is_clarified(scripted, monkeypatch, fake_profile_store):  # noqa: F811
+    runner, session = _new_session()
+    asyncio.run(fake_profile_store.set(session.id, SessionProfile(city="Paris", adults=2, children=1)))
+    seen = []
+
+    async def leaf(leaf, ctx, profile_in, **kwargs):
+        seen.append(profile_in)
+        return "Checked", {"results": []}
+
+    for text, occupancy in [
+        ("we are three", {"total": 3}),
+        ("now four people", {"total": 4}),
+        ("one child", {"children": 1}),
+    ]:
+        scripted(json.dumps({"family": "search", "language": "en", "location_update": {"action": "preserve"},
+                             "requested_occupancy": {**occupancy, "evidence": text}}), "Checked")
+        monkeypatch.setattr(agent_module, "_run_leaf", leaf)
+        _drive_in(runner, session.id, text)
+        saved = asyncio.run(fake_profile_store.get(session.id))
+        if text == 'now four people':
+            assert saved.pending_party_total == 4
+            assert len(seen) == 1  # No inventory call before composition is known.
+            assert '4 guests' in saved.last_clarifying_question
+    assert [(p['adults'],p['children']) for p in seen] == [(2,1),(3,1)]
+    assert saved.pending_party_total is None

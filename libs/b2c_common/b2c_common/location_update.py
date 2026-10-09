@@ -23,7 +23,12 @@ only a choice of one of LOCATION CONTEXT.options, never a hotel or multiple plac
 Preserve means there is NO geographic update. A new airport/address within the
 same city is change, not preserve. Refine with parent_city means the user supplies
 the containing city for the EXISTING named hotel, landmark, address or neighborhoods;
-retain the old target, do NOT put the parent city in targets. Correct with targets
+retain the old target, do NOT put the parent city in targets. If LOCATION CONTEXT
+requested_destination.kind is landmarks, those are ALL accepted alternatives.
+A city answering their containing-city question refines ALL of them using
+parent_city and no targets. It does not replace them with a bare city search.
+An explicit request to switch to a new destination still uses change.
+Correct with targets
 repairs the SAME intended place and retains its previous parent. Change replaces it.
 A bare city answering your location question is search, never a social acknowledgement.
 Use change with one target for a new destination. Multiple targets are ONLY
