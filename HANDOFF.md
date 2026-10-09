@@ -1,27 +1,54 @@
-## v72 — demande de destination distincte de la résolution fournisseur
+## v72 — rejeu terminé ; contrat de mise à jour de destination encore incomplet
 
-Le concierge conserve une demande typée (lieu précis, zones, position du client)
-créée à partir des extractions déjà vérifiées. Une correction du même lieu peut
-retenir sa ville demandée même avant une résolution réussie. Un changement de
-destination ne l’hérite pas. Le contrat A2A réapplique cette demande aux outils ;
-les deltas de la feuille ne peuvent ni la réécrire ni remplacer ses alias.
-Une confirmation fournisseur reste séparée et ne prouve pas une requête non résolue.
-Les unions de zones survivent aux suivis ; une relance ambiguë avec destination
-connue ne répète plus un fragment de question tronqué. Aucun regex ajouté.
+Runtime évalué : ca8e13954e7eced897a0d77787e0bf30e7f46630. PR134 reste au
+code v69 publié ; v70–v72 locaux, aucun merge ou déploiement. FAQ phase2.
 
-Validation hors ligne et rejeu v72 : voir preuves privées, aucune supériorité live
-annoncée avant la revue complète. Cinq nouvelles sessions de prod (12 tours),
-sélectionnées par récence et continuité sans lecture sémantique pour guider ces
-corrections, sont réservées à une validation séparée. Export des logs applicatifs,
-pas nouvel export SQL complet ; statut organique non certifié.
+Le profil Redis existant conserve maintenant une demande de destination typée,
+distincte de l’identité fournisseur. Les protections A2A et de mise à jour
+fonctionnent lorsque l’extraction sémantique les active. Le rejeu ne prouve pas
+la préservation générale des corrections, unions de quartiers ou hôtels nommés.
+Aucun regex ajouté par ce lot.
 
-Le rejeu v71 est terminé : 58/163 (17A24B13C4NN), geo24/72
-(10 préservés7partiels5échecs2nonévaluables), récents3/7 (1B2C).
-29 mieux5moinsbons17identiques7noncomparables face au témoin prod v65.
-Coût total du lot85 : 2,40717195 USD. Pas de GO prod. PR134 reste v69 publié.
-V72 ne prétend pas encore résoudre les heures exactes, les aéroports génériques,
-l’identité des hôtels sur une précision de ville ou tous les échecs de géocodage.
-FAQ phase2 ; aucun déploiement ni merge.
+Quatre campagnes terminées : 90 conversations / 254 tours candidat.
+- Principal58/163 : 18A23B13C4nonnotés. Face à v71 : six meilleures notes,
+  sept moins bonnes, 41 identiques, quatre non notées ; pas de gain global établi.
+- Face au témoin production v65 réutilisé : 26 meilleures, une moins bonne,
+  24 identiques, sept non comparables. Inventaire, dates et réponses divergent ;
+  ces notes ne prouvent pas une supériorité générale ni une readiness production.
+- Géographie24/72 : 11 préservés, six partiels, cinq échecs, deux non évaluables.
+  South Plainfield était déjà résolu en v71 : correction de revue, pas gain code.
+- Trois conversations v69 rejouées/7 tours : 1B2C.
+- Cinq nouvelles conversations/12 tours, sélectionnées avant lecture du contenu
+  pour écrire v72 : 1A2B1C1nonnotée. Export applicatif des derniers2 000 logs,
+  pas nouvel export SQL complet ; contexte natif incomplet, statut organique
+  non certifié. Rueil part vers Le Chesnay ; la prod demandait une précision.
+
+372 cartes jointes aux reçus MCP, aucun écart prix/jointure/expiration détecté.
+346 distances cohérentes avec les coordonnées, sans preuve de pertinence du lieu.
+Deux écarts de minutes non signalés persistent. William Vale affiche un prix nul
+reçu du MCP : ce reçu ne prouve pas que l’offre gratuite est admissible.
+Tests : 2 833 réussis, un ignoré ; ruff, mypy72 et guardrails passent.
+Coût90 : 2,47316125USD. Services de rejeu arrêtés, aucun runner en cours.
+
+Diagnostic complémentaire sans changement de runtime : 201 des254 sorties
+triage omettent location_intent, alors que252 reçoivent un contexte de lieu.
+Douze contextes exposés, deux essais par modèle, consigne compacte et schéma
+strict : critères action/type/preuve respectés dans14/24 pour4o-mini,18/24
+pour4.1-mini,22/24 pour5.2. Aucun modèle ne traite correctement La Défense.
+Coût72 appels :0,0513578USD. Ce diagnostic change aussi le prompt/schema ;
+il ne prouve ni un gain global de modèle ni un parcours utilisateur corrigé.
+Certains parent_city valides dans le message sont rejetés par le validateur
+existant quand ils sont hors de la citation evidence : à traiter explicitement.
+
+Suite : décision géographique obligatoire dans le triage EXISTANT, transaction
+centralisée preserve/change/correct/refine/device/select, identité hôtel et zones
+multiples conservées, catégorie aéroport/gare vérifiée avant les cartes. Maintenir
+la limite de trois appels LLM par tour ; ne pas déployer le diagnostic comme
+quatrième appel. Conserver le profil Redis et les feuilles A2A sans état.
+Preuves détaillées privées : production_parity_v18/batch-v72, rapport
+current_evaluation.html (source validée, aucun rendu visuel effectué).
+Cumul conservateur129,65572029USD dont6,10USD provisionnés, pending nul.
+Objectif actif, remplacement de production non validé.
 
 ## v71 — lot de corrections locales ; rejeu complet requis avant publication
 
