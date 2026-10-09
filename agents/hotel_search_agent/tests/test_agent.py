@@ -162,7 +162,9 @@ class TestMetricsWiring:
         # the geocode's after_tool stash, which it does by construction
         # (different phase).
         assert before[0] is tool_timing_before
-        assert len(before) == 17
+        assert len(before) == 18
+        from hotel_search_agent.named_destination_plan import enforce_named_destination
+        assert before.index(enforce_named_destination) > before.index(mcp_circuit_before_tool)
         # mcp-dayuse#8: the schema guard must see the args every other
         # callback has finished rewriting.
         from hotel_search_agent.area_scope import search_areas_before_tool
@@ -174,15 +176,16 @@ class TestMetricsWiring:
         assert resolve_search_timeslot in before
         assert before[2] is mcp_circuit_before_tool
         from hotel_search_agent.owned_origin_plan import reuse_owned_origin
-        assert before[3] is reuse_owned_origin
-        assert before[4] is enforce_resolved_search_origin
-        assert before[5] is enforce_equipment_filters
-        assert before[6] is inject_profile_occupancy
-        assert before[7] is inject_profile_budget
-        assert before[8] is inject_profile_geo_context
-        assert before[9] is inject_pagination_offset
-        assert before[10] is inject_landmark_radius
-        assert before[11] is inject_origin_sort
+        assert before[3] is enforce_named_destination
+        assert before[4] is reuse_owned_origin
+        assert before[5] is enforce_resolved_search_origin
+        assert before[6] is enforce_equipment_filters
+        assert before[7] is inject_profile_occupancy
+        assert before[8] is inject_profile_budget
+        assert before[9] is inject_profile_geo_context
+        assert before[10] is inject_pagination_offset
+        assert before[11] is inject_landmark_radius
+        assert before[12] is inject_origin_sort
         assert tool_timing_after in self._as_list(root_agent.after_tool_callback)
         assert mcp_circuit_after_tool in self._as_list(root_agent.after_tool_callback)
         assert tool_error_metric in self._as_list(root_agent.on_tool_error_callback)

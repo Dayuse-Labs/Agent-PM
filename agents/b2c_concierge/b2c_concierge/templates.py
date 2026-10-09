@@ -717,3 +717,16 @@ def numeric_role_clarification(language: str) -> str:
         "nl": "Verwijst dit getal naar een locatie, een tijd of een budget? Vermeld bij een budget ook de valuta.",
         "pt": "Este número refere-se a um local, um horário ou um orçamento? Para um orçamento, indique também a moeda.",
     }.get(language, "What does this number refer to: a location, a time, or a budget? For a budget, please include the currency.")
+
+
+def destination_update_clarification(language: str) -> str:
+    """The semantic update was not grounded; keep constraints and ask for place."""
+    return {
+        "fr": "Quel lieu souhaitez-vous exactement : la même destination ou un autre endroit ?",
+        "en": "Which place do you mean exactly: the same destination or a different one?",
+        "es": "¿Qué lugar quieres exactamente: el mismo destino u otro sitio?",
+        "it": "Quale luogo intendi esattamente: la stessa destinazione o un altro posto?",
+        "de": "Welchen Ort meinst du genau: dasselbe Ziel oder einen anderen Ort?",
+        "pt": "Que local pretende exatamente: o mesmo destino ou outro lugar?",
+        "nl": "Welke plek bedoel je precies: dezelfde bestemming of een andere plek?",
+    }.get(language, "Which place do you mean exactly: the same destination or a different one?")

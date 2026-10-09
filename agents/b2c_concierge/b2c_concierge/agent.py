@@ -166,6 +166,7 @@ from .no_offers import drop_restated, no_offers_line
 from .window_guard import (
     enforce_window_disclosure,
     enforce_window_match,
+    literal_window_notice,
     past_window_question,
     requested_window_has_ended,
     window_label,
@@ -805,6 +806,10 @@ class _B2cConcierge(BaseAgent):
         # A prior empty hotel search is not evidence about this FAQ answer.
         ground_truth_block = (faq_ground_truth_block(response)
                               or shortlist_ground_truth_block(response, profile, language))
+        if response.get("literal_window_notice"):
+            ground_truth_block += ("\nEXACT DISPLAYED HOURS: " + response["literal_window_notice"]
+                                   + " Do not claim that every offer covers the requested times. "
+                                   "Code appends this notice; do not repeat it.")
         if response.get("area_coverage"):
             ground_truth_block += "\nAREA SEARCH COVERAGE: " + json.dumps(response["area_coverage"], ensure_ascii=False)
             ground_truth_block += ("\nDescribe these as verified examples in the requested areas. "
@@ -1220,7 +1225,7 @@ class _B2cConcierge(BaseAgent):
         # those alone after an empty search still reach the ack template. Not a
         # regression — closing it means touching a proven regex, not this gate.
         from b2c_common.confirmed_location import context_for_triage, pending_location
-        from b2c_common.destination_request import DestinationRequest, destination_request, refine_landmark
+        from b2c_common.destination_request import DestinationRequest, destination_request, refine_landmark, refine_hotel
         from .location_state import commit_place, receive_location, selected_place
 
         refinement_signal = is_search_refinement_signal(message, profile)
@@ -1369,9 +1374,14 @@ class _B2cConcierge(BaseAgent):
             # request afresh; a model's parent label is not a verified point.
             landmark_update = {"query": profile.zone or profile.metro,
                                "city": parent_city, "country_guess": None}
-        area_update = None if location_choice or landmark_update else preserve_area_boundary(
+        hotel_update = refine_hotel(
+            triage.hotel_name if family == "search" else None,
+            profile.requested_destination, location_action, parent_city, message,
+        ) if not location_choice else None
+        area_update = None if location_choice or landmark_update or hotel_update else preserve_area_boundary(
             profile.search_areas, triage.requested_areas,
-            parent_refinement=pending_refinement and location_action == "refine",
+            parent_refinement=location_action == "refine",
+            parent_city=parent_city,
         )
         if (not landmark_update and area_update is None and triage.requested_subarea and profile.search_areas
                 and len(profile.search_areas) == 1 and profile.search_areas[0].get("subarea")
@@ -1436,7 +1446,7 @@ class _B2cConcierge(BaseAgent):
                               next_window != (profile.timeslot_start, profile.timeslot_end)
                               or (not requested_window and bool(profile.timeslot or profile.daypart))
                           )))
-        if (window_changed or amenities_changed or occupancy_changed or area_update is not None or landmark_update) and family != "faq" and clicked_id is None:
+        if (window_changed or amenities_changed or occupancy_changed or area_update is not None or landmark_update or hotel_update) and family != "faq" and clicked_id is None:
             family, route = "search", ROUTES["search"]
             picked = None
             booking_signal = False
@@ -1602,6 +1612,16 @@ class _B2cConcierge(BaseAgent):
         # must NOT relaunch the leaf — it costs only the triage call already
         # spent above. Any non-bare-affirmative message (a new city, a new
         # budget, anything substantive) clears the flags and searches again.
+        if route.target == LEAF_HOTEL_SEARCH and hotel_update:
+            profile.requested_destination = hotel_update
+            profile.city = hotel_update.get("city")
+            for field in ("zone", "metro", "search_areas", "country_anchor", "state_anchor",
+                          "distance_origin", "confirmed_location", "pending_location", "named_hotel"):
+                setattr(profile, field, None)
+            profile.search_exhausted = False
+            profile.consecutive_empty_searches = 0
+            reset_search_cursor(profile)
+
         if route.target == LEAF_HOTEL_SEARCH and landmark_update:
             profile.requested_destination = DestinationRequest(kind="landmark", **landmark_update).model_dump(exclude_none=True)
             # A landmark refinement inside the provider-confirmed parent must
@@ -1772,8 +1792,16 @@ class _B2cConcierge(BaseAgent):
                 if profile.client_timezone:
                     profile.date_reference["client_tz"] = profile.client_timezone
 
+        if route.target == LEAF_HOTEL_SEARCH and location_action == "unknown":
+            question = templates.destination_update_clarification(reply_language)
+            profile.last_clarifying_question = question
+            await store.set(ctx.session.id, profile)
+            self._emit_turn_metric(family, "template:location_clarification", budget, t_start, "ok", inv)
+            yield self._final(ctx, question)
+            return
+
         if route.target == LEAF_HOTEL_SEARCH:
-            if location_choice or (location_action == "change" and not landmark_update and area_update is None):
+            if location_choice or (location_action == "change" and not landmark_update and area_update is None and not hotel_update):
                 profile.requested_destination = None
             if location_action == "device":
                 profile.requested_destination = DestinationRequest(kind="device").model_dump(exclude_none=True)
@@ -2045,6 +2073,9 @@ class _B2cConcierge(BaseAgent):
                         window_fallback = window  # none covers: label them closest
                     else:
                         response["results"] = kept
+            response["literal_window_notice"] = literal_window_notice(
+                response["results"], profile.timeslot_start, profile.timeslot_end, reply_language,
+            )
             if pending_currency is not None and response["results"]:
                 decided = resolve_currency_request(pending_currency, response["results"])
                 if decided.kind == "set":
@@ -2190,6 +2221,8 @@ class _B2cConcierge(BaseAgent):
             )
             if parking_reserved:
                 metrics_logger.info("concierge_metric=parking_reserve appended=1")
+        if response.get("literal_window_notice"):
+            final_text = f"{final_text.rstrip()}\n\n{response['literal_window_notice']}"
         if date_notice:
             final_text = f"{final_text.rstrip()}\n\n{date_notice}"
         if profile.requested_budget and "results" in response and (response["results"] or not profile.price_comparison):

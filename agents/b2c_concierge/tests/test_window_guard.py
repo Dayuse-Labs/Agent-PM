@@ -77,7 +77,9 @@ class TestSpine:
         answer = _drive("Un hôtel à Lyon demain de 22h01 à 23h01")
         assert [c["hotel_id"] for c in hotels[-1]] == [2]
         assert "window_match" in fired[-1]
-        assert answer == "Vous pouvez réserver ce créneau."
+        assert answer.startswith("Vous pouvez réserver ce créneau.")
+        assert "ne couvrent pas entièrement" in answer
+        assert "22:01–23:01" in answer and "Hotel 2 : 17:00–23:00" in answer
 
     def test_leaf_fallback_is_always_disclosed(self, scripted, monkeypatch, caplog):  # noqa: F811
         # The synthesis dropped the leaf's disclosure in the 22h01 QA trace.
@@ -88,10 +90,11 @@ class TestSpine:
         })
         with caplog.at_level(logging.INFO, logger="b2c_concierge.metrics"):
             answer = _drive("Un hôtel à Lyon demain de 6h à 16h")
-        assert answer == (
+        assert answer.startswith(
             "Vous pouvez réserver ce créneau.\n\nAucune offre ne couvre tout le créneau "
             "06:00–16:00 ; voici les offres les plus proches."
         )
+        assert "Hotel 1 : 08:00–14:00" in answer
         assert "window_match" not in fired[-1]  # labelled, not claimed
 
     def test_covering_cards_pass_untouched(self, scripted, monkeypatch):  # noqa: F811

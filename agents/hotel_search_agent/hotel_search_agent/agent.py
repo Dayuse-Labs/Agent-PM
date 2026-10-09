@@ -57,6 +57,9 @@ from hotel_search_agent.equipment_ids import (
 )
 from hotel_search_agent.area_scope import search_areas_before_tool
 from hotel_search_agent.geocode_tool import geocode_location, inject_profile_geo_context
+from hotel_search_agent.named_destination_plan import (
+    enforce_named_destination, reset_named_destination, select_named_destination,
+)
 from hotel_search_agent.budget_injection import inject_profile_budget
 from hotel_search_agent.budget_pages import search_budget_pages_before_tool
 from hotel_search_agent.occupancy import inject_occupancy_declaration, inject_profile_occupancy
@@ -387,7 +390,7 @@ root_agent = Agent(
     # A2aTurnObservation in serve.py) the inbound request as its input, and
     # mirrors the inbound A2A dayuse_trace_id as the Langfuse session id
     # (no-op unless tracing is enabled in serve.py).
-    before_agent_callback=[stamp_turn_start, stamp_a2a_turn, prepare_owned_area_plan, prepare_owned_origin],
+    before_agent_callback=[stamp_turn_start, stamp_a2a_turn, reset_named_destination, prepare_owned_area_plan, prepare_owned_origin],
     # skip_final_generation is FIRST: once the search tool has run, it short-circuits
     # the model's wasted final-prose call (emit_search_datapart overwrites that prose
     # and the orchestrator re-synthesizes anyway) — 3 → 2 internal LLM calls. Being
@@ -403,6 +406,7 @@ root_agent = Agent(
     # correctly skips both injections too).
     before_model_callback=[
         skip_final_generation,
+        select_named_destination,
         llm_timing_before,
         inject_today_before_model,
         inject_owned_area_plan,
@@ -427,6 +431,7 @@ root_agent = Agent(
         tool_timing_before,
         make_per_tool_budget_callback(PER_TOOL_CALL_LIMITS, MAX_TOOL_CALLS),
         mcp_circuit_before_tool,
+        enforce_named_destination,
         reuse_owned_origin,
         enforce_resolved_search_origin,
         enforce_equipment_filters,

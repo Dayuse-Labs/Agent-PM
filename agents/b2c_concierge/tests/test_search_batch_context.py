@@ -137,6 +137,14 @@ def test_city_clarification_preserves_unresolved_zone_but_new_destination_clears
         "requested_areas": [{"query": "Dubai", "kind": "municipality", "country": "AE", "evidence": "Dubai"}]}), "No offers.")
     monkeypatch.setattr(agent_module, "_run_leaf", leaf)
     _drive_in(runner, session.id, "at Dubai")
+    if action is None:
+        # An explicitly malformed operation now requires clarification; it
+        # must not let the leaf silently reinterpret the existing district.
+        assert seen == []
+        saved = asyncio.run(fake_profile_store.get(session.id))
+        assert saved.zone == "al mankool" and saved.last_clarifying_question
+        assert saved.date == "2026-11-01" and saved.timeslot_start == "13:00"
+        return
     p, args = seen[0]
     assert p["zone"] == expected_zone and args.get("zone") == expected_zone
     assert p["date"] == "2026-11-01" and p["timeslot_start"] == "13:00"
@@ -226,7 +234,9 @@ def test_daypart_survives_city_clarification_and_replaces_old_clock(scripted, mo
         assert profile["daypart"] == "evening"
         assert profile["timeslot_start"] is None and profile["timeslot_end"] is None
         assert profile["requested_duration_minutes"] is None
-    assert llm[0].calls[0]["response_format"] == {"type": "json_object"}
+    wire = llm[0].calls[0]["response_format"]
+    assert wire["type"] == "json_schema" and wire["json_schema"]["strict"] is True
+    assert "location_intent" in wire["json_schema"]["schema"]["required"]
 
 
 def test_daypart_requires_current_quote_and_supported_value():

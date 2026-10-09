@@ -38,6 +38,10 @@ async def prepare_owned_origin(callback_context: Any) -> None:
     if not owned or callback_context.state.get(STATE_RESOLUTION) or callback_context.state.get(STATE_FAILED):
         return None
     profile = read_profile_in(callback_context)
+    from b2c_common.destination_request import destination_request
+    request = destination_request(profile.get("requested_destination"))
+    if params.get("destination_authoritative") is True and request and request.kind == "hotel":
+        return None
     # A regional boundary alone does not choose between its centroid and the
     # supplied device position. Preserve the existing area-plan contract until
     # the concierge explicitly owns device mode; do not guess that decision.

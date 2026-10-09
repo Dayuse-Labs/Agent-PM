@@ -129,3 +129,49 @@ def past_window_question(start: str | None, end: str, day: str, language: str) -
     return _PAST_WINDOW.get(language, _PAST_WINDOW["en"]).format(
         window=window, day=format_date_human(day, language),
     )
+
+
+def literal_window_notice(results: list[dict[str, Any]], start: str | None,
+                          end: str | None, language: str) -> str | None:
+    """Disclose actual-minute differences without changing the site's hour rule.
+
+    A site-compatible 10:30 offer can still fail a customer's 10:00 arrival.
+    Inspect the same displayed slots, never invent hours or classify prose.
+    """
+    arrival, departure = parse_hhmm(start), parse_hhmm(end)
+    if arrival is None and departure is None:
+        return None
+    if arrival is not None and departure is not None and departure < arrival:
+        departure += 1440
+    partial = []
+    for card in results:
+        slots = []
+        for slot in card.get("timeslots") or []:
+            if not isinstance(slot, dict):
+                continue
+            a, b = parse_hhmm(slot.get("start")), parse_hhmm(slot.get("end"))
+            if a is None or b is None:
+                continue
+            if b < a:
+                b += 1440
+            slots.append((a, b, f"{slot['start']}–{slot['end']}"))
+        if not slots or any((arrival is None or a <= arrival) and
+                            (departure is None or b >= departure) for a, b, _ in slots):
+            continue
+        name = card.get("name")
+        if isinstance(name, str) and name.strip():
+            partial.append(name + " : " + ", ".join(label for _, _, label in slots))
+    if not partial:
+        return None
+    prefix = {
+        "fr": "Ces offres ne couvrent pas entièrement les horaires demandés ({window}) : {offers}.",
+        "en": "These offers do not cover all your requested times ({window}): {offers}.",
+        "es": "Estas ofertas no cubren todo el horario solicitado ({window}): {offers}.",
+        "it": "Queste offerte non coprono tutto l’orario richiesto ({window}): {offers}.",
+        "de": "Diese Angebote decken die gewünschten Zeiten nicht vollständig ab ({window}): {offers}.",
+        "pt": "Estas ofertas não cobrem todo o horário pedido ({window}): {offers}.",
+        "nl": "Deze aanbiedingen dekken niet alle gewenste tijden ({window}): {offers}.",
+    }
+    return prefix.get(language, prefix["en"]).format(
+        window=f"{start or '…'}–{end or '…'}", offers=" ; ".join(partial),
+    )

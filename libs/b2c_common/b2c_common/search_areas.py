@@ -108,12 +108,22 @@ def requires_area_membership(areas: list[dict[str, str]] | None) -> bool:
 
 def preserve_area_boundary(previous: list[dict[str, str]] | None,
                            update: list[dict[str, str]] | None, *,
-                           parent_refinement: bool = False) -> list[dict[str, str]] | None:
+                           parent_refinement: bool = False,
+                           parent_city: str | None = None) -> list[dict[str, str]] | None:
     """A repeated name/country clarification does not narrow a whole province.
 
     A new city, changed alternatives or explicit boundary-change quote still
     replaces the scope. Language understanding stays in the typed extraction.
     """
+    # The validated operation already contains the current-message parent.
+    # Do not require the model to duplicate it in requested_areas: that loses
+    # the parent on short clarification replies. Country is retained only
+    # when the prior customer requests agree; no provider identity is inferred.
+    if (parent_refinement and parent_city and previous and not update
+            and all(old["kind"] == "municipality" for old in previous)
+            and len({old["country"] for old in previous}) == 1):
+        update = [{"query": parent_city, "kind": "municipality",
+                   "country": previous[0]["country"], "evidence": parent_city}]
     if previous and update:
         # The semantic action identifies a containing city, not a replacement
         # for the unresolved neighborhoods. Reuse the existing parent/subarea

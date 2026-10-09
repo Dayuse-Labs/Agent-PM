@@ -15,7 +15,7 @@ from .search_areas import validate_areas
 
 class DestinationRequest(BaseModel):
     model_config = ConfigDict(extra="forbid", strict=True)
-    kind: Literal["landmark", "areas", "device"]
+    kind: Literal["landmark", "hotel", "areas", "device"]
     query: str | None = Field(default=None, max_length=200)
     city: str | None = Field(default=None, max_length=200)
     country_guess: str | None = None
@@ -23,7 +23,7 @@ class DestinationRequest(BaseModel):
 
     @model_validator(mode="after")
     def coherent(self) -> DestinationRequest:
-        if self.kind == "landmark":
+        if self.kind in {"landmark", "hotel"}:
             if not self.query or not self.query.strip() or self.areas is not None:
                 raise ValueError("A landmark needs a requested name, not area geometry")
             if self.city is not None and not self.city.strip():
@@ -53,7 +53,7 @@ def requested_parent(value: Any) -> str | None:
     request = destination_request(value)
     if request is None:
         return None
-    if request.kind == "landmark":
+    if request.kind in {"landmark", "hotel"}:
         return request.city
     if request.kind == "areas" and request.areas and len(request.areas) == 1:
         area = request.areas[0]
@@ -77,4 +77,19 @@ def refine_landmark(update: dict | None, previous: Any, action: str | None,
         return result
     if request and request.kind == "landmark" and action == "refine" and parent_city:
         return {"query": request.query, "city": parent_city, "country_guess": None}
+    return None
+
+
+def refine_hotel(name: str | None, previous: Any, action: str | None,
+                 parent_city: str | None, message: str) -> dict | None:
+    """Keep the named property when its containing city is clarified.
+
+    Request names are literal user evidence, not provider identities. A new
+    named hotel has no inherited city; a parent-only answer keeps its old name.
+    """
+    request = destination_request(previous)
+    if name and name.strip().casefold() in message.casefold():
+        return {"kind": "hotel", "query": name.strip()}
+    if request and request.kind == "hotel" and action == "refine" and parent_city:
+        return {**request.model_dump(exclude_none=True), "city": parent_city}
     return None

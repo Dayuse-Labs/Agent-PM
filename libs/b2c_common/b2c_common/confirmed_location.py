@@ -97,7 +97,9 @@ def context_for_triage(pending: Any, confirmed: Any, *, unresolved: dict | None 
                        requested: Any = None) -> dict[str, Any] | None:
     from .destination_request import destination_request
     request = destination_request(requested)
-    request_context = {"requested_destination": request.model_dump(exclude_none=True)} if request else {}
+    request_context: dict[str, Any] = {"requested_destination": request.model_dump(exclude_none=True)} if request else {}
+    if device_available:
+        request_context["device_available"] = True
     p, c = pending_location(pending), verified_place(confirmed)
     if p:
         return {**request_context, "question": p["question"], "options": [
@@ -125,27 +127,40 @@ def context_for_triage(pending: Any, confirmed: Any, *, unresolved: dict | None 
 
 
 def location_intent(value: Any, message: str, context: dict | None) -> dict | None:
-    if not context or not isinstance(value, dict):
+    if not isinstance(value, dict):
         return None
     evidence = value.get("evidence")
     if not isinstance(evidence, str) or not evidence.strip() or evidence not in message:
         return None
     action = value.get("action")
+    kind = value.get("kind")
+    # New wire responses carry a mandatory semantic kind. Older stored test/
+    # caller values without it retain their legacy shape; kinds never come
+    # from matching the customer's words in code.
+    typed = "kind" in value
+    if typed and kind not in {"none", "city", "area", "landmark", "hotel", "device"}:
+        return None
+    extra = {"kind": kind} if typed else {}
+    # The operation is authoritative. A copied description of the old target
+    # cannot turn a time-only preserve into a location change, or device into
+    # a named landmark. Kind is descriptive, not a second competing operation.
+    if typed and action in {"preserve", "missing", "device"}:
+        extra = {"kind": "device" if action == "device" else "none"}
     if action == "select":
         n = value.get("position")
-        options = context.get("options") or []
+        options = (context or {}).get("options") or []
         if isinstance(n, bool) or not isinstance(n, int) or not 1 <= n <= len(options):
             return None
-        return {"action": action, "position": n}
+        return {"action": action, "position": n, **extra}
     if action == "refine":
         parent = value.get("parent_city")
         # A quoted parent is a request label, never provider evidence. Keep it
         # separate from the old landmark so history need not masquerade as a
         # new, verbatim landmark extraction.
         if (isinstance(parent, str) and parent.strip() and len(parent) <= 200
-                and parent.strip().casefold() in evidence.casefold()):
-            return {"action": action, "parent_city": parent.strip()}
-        return {"action": action}
-    if action in {"preserve", "change", "correct", "device", "missing"}:
-        return {"action": action}
+                and parent.strip().casefold() in message.casefold()):
+            return {"action": action, "parent_city": parent.strip(), **extra}
+        return {"action": action, **extra}
+    if action in {"preserve", "change", "correct", "device", "missing", "unknown"}:
+        return {"action": action, **extra}
     return None
