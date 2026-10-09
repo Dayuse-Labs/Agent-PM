@@ -170,8 +170,9 @@ def test_invalid_geographic_proof_asks_without_searching_but_keeps_other_constra
 
 
 @pytest.mark.parametrize("copied_evidence", ["Paris", "", None])
+@pytest.mark.parametrize("with_kind", [True, False])
 def test_geographic_noop_does_not_block_budget_or_rewrite_destination(
-    scripted, monkeypatch, fake_profile_store, copied_evidence,  # noqa: F811
+    scripted, monkeypatch, fake_profile_store, copied_evidence, with_kind,  # noqa: F811
 ):
     runner, session = _new_session()
     destination = {"kind": "landmark", "query": "Gare de Lyon", "city": "Paris"}
@@ -188,7 +189,8 @@ def test_geographic_noop_does_not_block_budget_or_rewrite_destination(
 
     scripted(json.dumps({
         "family": "search", "language": "en",
-        "location_intent": _decision("preserve", "city", copied_evidence),
+        "location_intent": (_decision("preserve", "city", copied_evidence) if with_kind
+                            else {"action": "preserve", "evidence": copied_evidence}),
         "requested_areas": [{"query": "London", "kind": "municipality", "country": "GB", "evidence": "London"}],
         "requested_budget": {"amount": 80, "currency": "EUR", "unit": "total", "evidence": "80 EUR"},
     }), "No offers")

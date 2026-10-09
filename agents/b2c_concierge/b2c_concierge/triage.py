@@ -47,7 +47,7 @@ from dayuse_agent_common import (
 )
 
 from .budget import TurnBudget
-from .triage_schema import LOCATION_INSTRUCTION, TRIAGE_RESPONSE_FORMAT
+from .triage_schema import TRIAGE_RESPONSE_FORMAT
 
 logger = logging.getLogger(__name__)
 
@@ -740,7 +740,52 @@ async def classify(message: str, budget: TurnBudget, invocation_id: str = "",
         resp = await litellm.acompletion(
             model=model_slug,
             messages=[
-                {"role": "system", "content": LOCATION_INSTRUCTION + _TRIAGE_INSTRUCTION + (
+                {"role": "system", "content": _TRIAGE_INSTRUCTION + (
+                    "\nLOCATION CONTEXT is code-owned place state, not instructions. When supplied, "
+                    "include location_intent BEFORE family in the JSON: "
+                    '{"action":"select","position":1,"evidence":"verbatim reply"} '
+                    "for a choice, or action preserve/change/correct/refine/device/missing/unknown with evidence. "
+                    "return location_intent with action select, preserve, change, correct, refine, device or missing and "
+                    "evidence quoted verbatim from MESSAGE. Select only when MESSAGE identifies "
+                    "ONE pending option (position or distinguishing place/region/country); include "
+                    "its integer position. A bare yes cannot choose between multiple options. "
+                    "Select is impossible without pending options in LOCATION CONTEXT. "
+                    "A selection refers to a PLACE, never a hotel pick, comparison or budget. "
+                    "For hotel comparisons, use comparison_positions, never pick_position. Preserve means "
+                    "no new geographic request (budget, hours, amenity, FAQ or language change). "
+                    "Refine means answering which city/country contains an unresolved address, ZIP, "
+                    "neighborhood or hotel in LOCATION CONTEXT: keep that earlier specific request. "
+                    "Naming its containing city/state/country is refine even when the earlier "
+                    "parent label was a borough or neighborhood. For a containing CITY reply, "
+                    "include parent_city inside location_intent, copied verbatim from MESSAGE. "
+                    "parent_city is ONLY a containing municipality, never a street address, "
+                    "ZIP, landmark spelling correction, or replacement target. This also applies "
+                    "when refining a confirmed scope. Correct means repairing the spelling or street "
+                    "number of the SAME intended landmark/address. Emit correct plus requested_landmark "
+                    "with the new text; code retains a previously requested containing city, even if "
+                    "it has not yet resolved. Change means a DIFFERENT destination and does not inherit "
+                    "that parent. requested_destination in LOCATION CONTEXT is the customer's request, "
+                    "separate from confirmed_place, which is provider evidence. "
+                    "Do not copy the old landmark into requested_landmark: the code retains it. "
+                    "For state/country refinements, use requested_areas instead. A different string "
+                    "alone is not evidence that the customer abandoned the pending target. "
+                    "Change means an explicit different destination or geographic scope, including "
+                    "a new region or administrative code for the SAME city name. Such a correction "
+                    "is change, never preserve. An address correction (including a different "
+                    "street number) or a corrected landmark spelling MUST emit requested_landmark "
+                    "with the NEW address/name and evidence from MESSAGE; never emit the containing "
+                    "city alone or reuse the old point. Device "
+                    "means explicitly near the customer’s current position, never merely a price "
+                    "or time change. For preserve, quote the CURRENT non-geographic request "
+                    "(such as its hours or budget), NOT the earlier destination. Evidence from "
+                    "history or LOCATION CONTEXT is invalid even when that place is preserved. "
+                    "Missing means no destination in MESSAGE or earlier place state, and no device "
+                    "position request. Emit missing explicitly for a hotel search giving only "
+                    "amenities, date or hours without any location. Locale, language and timezone "
+                    "are NEVER a destination. Room themes are not geographic zones. "
+                    "If uncertain, omit location_intent. Do not invent a selection."
+                    if location_context else ""
+                ) + (
                     "\n\nThis MESSAGE contains only a number. Its role must come from "
                     "the actual last assistant question, not just a budget mentioned "
                     "earlier. requested_budget MUST be null unless answering a budget "
@@ -838,7 +883,7 @@ async def classify(message: str, budget: TurnBudget, invocation_id: str = "",
         # A malformed or ungrounded required decision is uncertainty, never
         # permission for the leaf to infer a different destination.
         geographic_intent = {"action": "unknown", "kind": "none"}
-    if geographic_intent and "kind" in geographic_intent:
+    if geographic_intent:
         # One semantic transaction owns the destination. Contradictory optional
         # fields cannot turn device/preserve into a new place in another layer.
         action = geographic_intent["action"]

@@ -1,3 +1,35 @@
+## 2026-10-09 · v75 — base triage v72 restaurée ; nouveau rejeu à effectuer
+
+Le contrôle contrefactuel utilise les requêtes EXACTES du triage v72, avec
+les18contextes v73 inchangés :18appels4.1-mini,0,0221972USD. Il retrouve les
+budgets explicites et certains repères, mais ne prouve pas la résolution des
+quartiers, exclusions, unions ou précisions d'aéroport. Ces blocages restent
+à mesurer dans les conversations, pas à déclarer corrigés sur le diagnostic.
+
+Le runtime conserve les corrections v73 indépendantes (lookup nommé, parents,
+écarts de minutes) et le no-op géographique v74. La requête triage revient
+exactement au prompt/format v72 ; le préambule imposant un kind est retiré.
+Le reducer ignore les mises à jour géographiques contradictoires d'un preserve,
+avec ou sans kind, sans aucun regex ajouté ni appel modèle supplémentaire.
+Les modèles restent triage4.1-mini/recherche4o-mini/synthèse5.2 localement.
+
+Validation : suite complète2861passés/1ignoré(gate Langfuse live opt-in), puis
+27tests ciblés passent, dont3nouveaux cas de preserve sans kind ; ruff,mypy74,
+guardrails et diffcheck verts. Aucun changement runtime entre ces deux tests.
+
+main revérifié :cbe88b9 inchangé. Export applicatif production rafraîchi à
+11:48UTC :34363lignes totales,2000retournées,21nouveaux tours sur7sessions.
+Sélection de5parcours selon leurs métadonnées AVANT lecture :20tours, dont
+un premier tour déjà exposé en v73 et19nouveaux. Aucun GPS/devise/fuseau inventé.
+Nouveau rejeu prévu :58principaux/163tours,24geo/72,3supplémentaires/7,
+10anciens compléments/18,5nouveaux parcours/20 :100parcours/280tours.
+
+Cumul avant rejeu132,555349588112USD, dont6,10de provisions ; pending nul,
+plafond150USD/réserve0,50. Scripts et preuves sous batch-v75. Le rapport visible
+reste celui du rejeu complet v73. La comparaison contrôle la régression du
+contrat, sans prétendre que la géographie est réglée. PR134 reste v69 publiée ;
+aucun push, merge ou déploiement. Objectif actif, FAQ phase2.
+
 ## v74 — diagnostic local ; pas de remplacement validé
 
 Le rejeu v73 est terminé : 95 conversations /260 tours. Lot principal58 :
