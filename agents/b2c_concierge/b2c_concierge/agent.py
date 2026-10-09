@@ -1220,6 +1220,7 @@ class _B2cConcierge(BaseAgent):
         # those alone after an empty search still reach the ack template. Not a
         # regression — closing it means touching a proven regex, not this gate.
         from b2c_common.confirmed_location import context_for_triage, pending_location
+        from b2c_common.destination_request import DestinationRequest, destination_request, refine_landmark
         from .location_state import commit_place, receive_location, selected_place
 
         refinement_signal = is_search_refinement_signal(message, profile)
@@ -1248,6 +1249,7 @@ class _B2cConcierge(BaseAgent):
             unresolved={k: getattr(profile, k) for k in ("city", "zone", "metro", "named_hotel")}
             if unresolved_request else None,
             areas=profile.search_areas, device_available=bool(profile.search_anchor and profile.search_anchor.get("type") == "gps"),
+            requested=profile.requested_destination,
         )
         location_kwargs = {"location_context": location_context} if location_context else {}
         triage = await classify(
@@ -1356,6 +1358,10 @@ class _B2cConcierge(BaseAgent):
         # Partial clock answers retain the other bound; explicit clear is ().
         landmark_update = triage.requested_landmark if not location_choice else None
         parent_city = (triage.location_intent or {}).get("parent_city")
+        if not location_choice:
+            landmark_update = refine_landmark(
+                landmark_update, profile.requested_destination, location_action, parent_city,
+            )
         if (not location_choice and not landmark_update and location_action == "refine"
                 and parent_city and (profile.zone or profile.metro)):
             # The existing specific target is code-owned history, while only
@@ -1597,6 +1603,7 @@ class _B2cConcierge(BaseAgent):
         # spent above. Any non-bare-affirmative message (a new city, a new
         # budget, anything substantive) clears the flags and searches again.
         if route.target == LEAF_HOTEL_SEARCH and landmark_update:
+            profile.requested_destination = DestinationRequest(kind="landmark", **landmark_update).model_dump(exclude_none=True)
             # A landmark refinement inside the provider-confirmed parent must
             # not discard that parent's country and select a foreign homonym.
             # New/conflicting destinations do not inherit this authority.
@@ -1623,6 +1630,10 @@ class _B2cConcierge(BaseAgent):
             reset_search_cursor(profile)
 
         if route.target == LEAF_HOTEL_SEARCH and area_update is not None:
+            # Legacy sessions may still have an unresolved zone without the new
+            # request record. Keep their established refinement path intact.
+            if not (pending_refinement and (profile.zone or profile.metro)):
+                profile.requested_destination = DestinationRequest(kind="areas", areas=area_update).model_dump(exclude_none=True)
             profile.search_areas = area_update if requires_area_membership(area_update) else None
             profile.city = " / ".join(dict.fromkeys(a["query"] for a in area_update))
             for field in ("state_anchor", "country_anchor", "zone", "metro", "distance_origin"):
@@ -1762,6 +1773,12 @@ class _B2cConcierge(BaseAgent):
                     profile.date_reference["client_tz"] = profile.client_timezone
 
         if route.target == LEAF_HOTEL_SEARCH:
+            if location_choice or (location_action == "change" and not landmark_update and area_update is None):
+                profile.requested_destination = None
+            if location_action == "device":
+                profile.requested_destination = DestinationRequest(kind="device").model_dump(exclude_none=True)
+                for field in ("city", "zone", "metro", "search_areas", "country_anchor", "state_anchor", "distance_origin"):
+                    setattr(profile, field, None)
             if location_action in {"change", "device"} or (area_update is not None and not location_choice):
                 profile.pending_location = None
                 profile.confirmed_location = None
@@ -1800,6 +1817,9 @@ class _B2cConcierge(BaseAgent):
 
         budget.charge("leaf_llm")
         query_params: dict[str, Any] = {}
+        owned_destination = destination_request(profile.requested_destination)
+        if route.target == LEAF_HOTEL_SEARCH and owned_destination:
+            query_params["destination_authoritative"] = True
         destination_missing = bool(
             route.target == LEAF_HOTEL_SEARCH and triage.used_llm and location_action == "missing"
             and not any((profile.city, profile.zone, profile.metro, profile.search_areas,

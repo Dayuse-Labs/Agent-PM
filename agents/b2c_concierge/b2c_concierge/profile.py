@@ -283,11 +283,13 @@ class SessionProfile:
 
     pending_location: dict[str, Any] | None = None
     confirmed_location: dict[str, Any] | None = None
+    requested_destination: dict[str, Any] | None = None
 
     def to_dict(self) -> dict[str, Any]:
         return {
             "pending_location": self.pending_location,
             "confirmed_location": self.confirmed_location,
+            "requested_destination": self.requested_destination,
             "city": self.city,
             "search_areas": self.search_areas,
             "state_anchor": self.state_anchor,
@@ -652,9 +654,16 @@ def apply_profile_delta(
     values, clears, explicit_sets = _normalize_delta(dict(delta))
     known_fields = set(SessionProfile.__dataclass_fields__)
     # User-grounded constraints are concierge-owned, including typed clears.
-    for owned_slot in ("pending_location", "confirmed_location", "requested_budget", "price_comparison", "requested_window", "requested_duration_minutes"):
+    for owned_slot in ("pending_location", "confirmed_location", "requested_destination", "requested_budget", "price_comparison", "requested_window", "requested_duration_minutes"):
         values.pop(owned_slot, None)
         clears.discard(owned_slot)
+    from b2c_common.destination_request import destination_request
+    if destination_request(profile.requested_destination):
+        # A provider answer is committed through receive_location. A leaf's
+        # semantic delta cannot replace the already grounded customer request.
+        for key in ("city", "zone", "metro", "search_areas"):
+            values.pop(key, None)
+            clears.discard(key)
     if profile.requested_budget is not None:
         clears.difference_update({"budget_max", "budget_request_source"})
 

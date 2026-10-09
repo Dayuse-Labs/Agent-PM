@@ -1,3 +1,28 @@
+## v72 — demande de destination distincte de la résolution fournisseur
+
+Le concierge conserve une demande typée (lieu précis, zones, position du client)
+créée à partir des extractions déjà vérifiées. Une correction du même lieu peut
+retenir sa ville demandée même avant une résolution réussie. Un changement de
+destination ne l’hérite pas. Le contrat A2A réapplique cette demande aux outils ;
+les deltas de la feuille ne peuvent ni la réécrire ni remplacer ses alias.
+Une confirmation fournisseur reste séparée et ne prouve pas une requête non résolue.
+Les unions de zones survivent aux suivis ; une relance ambiguë avec destination
+connue ne répète plus un fragment de question tronqué. Aucun regex ajouté.
+
+Validation hors ligne et rejeu v72 : voir preuves privées, aucune supériorité live
+annoncée avant la revue complète. Cinq nouvelles sessions de prod (12 tours),
+sélectionnées par récence et continuité sans lecture sémantique pour guider ces
+corrections, sont réservées à une validation séparée. Export des logs applicatifs,
+pas nouvel export SQL complet ; statut organique non certifié.
+
+Le rejeu v71 est terminé : 58/163 (17A24B13C4NN), geo24/72
+(10 préservés7partiels5échecs2nonévaluables), récents3/7 (1B2C).
+29 mieux5moinsbons17identiques7noncomparables face au témoin prod v65.
+Coût total du lot85 : 2,40717195 USD. Pas de GO prod. PR134 reste v69 publié.
+V72 ne prétend pas encore résoudre les heures exactes, les aéroports génériques,
+l’identité des hôtels sur une précision de ville ou tous les échecs de géocodage.
+FAQ phase2 ; aucun déploiement ni merge.
+
 ## v71 — lot de corrections locales ; rejeu complet requis avant publication
 
 Corrections regroupées : priorité à la nouvelle adresse sur un parent contradictoire,

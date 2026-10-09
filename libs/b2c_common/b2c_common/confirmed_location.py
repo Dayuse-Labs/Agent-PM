@@ -93,15 +93,19 @@ def pending_location(value: Any) -> dict[str, Any] | None:
 
 
 def context_for_triage(pending: Any, confirmed: Any, *, unresolved: dict | None = None,
-                       areas: list | None = None, device_available: bool = False) -> dict[str, Any] | None:
+                       areas: list | None = None, device_available: bool = False,
+                       requested: Any = None) -> dict[str, Any] | None:
+    from .destination_request import destination_request
+    request = destination_request(requested)
+    request_context = {"requested_destination": request.model_dump(exclude_none=True)} if request else {}
     p, c = pending_location(pending), verified_place(confirmed)
     if p:
-        return {"question": p["question"], "options": [
+        return {**request_context, "question": p["question"], "options": [
             {"position": i, "label": o["label"], "region": o["region"], "country": o["country_code"], **({"administrative_code": o["administrative_code"]} if o.get("administrative_code") else {})}
             for i, o in enumerate(p["options"], 1)
         ]}
     if c:
-        return {"confirmed_place": c["label"],
+        return {**request_context, "confirmed_place": c["label"],
                 **({"search_context": c["search_context"]} if c.get("search_context") else {}),
                 # A POI's display name is not its city. Only the structured
                 # provider parent can authorize a later street/landmark reply;
@@ -110,7 +114,7 @@ def context_for_triage(pending: Any, confirmed: Any, *, unresolved: dict | None 
                                    else (c.get("provider_city") or {}).get("name")),
                 "region": c["region"],
                 "country": c["country_code"], "administrative_code": c.get("administrative_code")}
-    context: dict[str, Any] = {}
+    context: dict[str, Any] = dict(request_context)
     if unresolved is not None:
         context["unresolved_request"] = {k: v for k, v in unresolved.items() if v}
     if areas:
@@ -142,6 +146,6 @@ def location_intent(value: Any, message: str, context: dict | None) -> dict | No
                 and parent.strip().casefold() in evidence.casefold()):
             return {"action": action, "parent_city": parent.strip()}
         return {"action": action}
-    if action in {"preserve", "change", "device", "missing"}:
+    if action in {"preserve", "change", "correct", "device", "missing"}:
         return {"action": action}
     return None

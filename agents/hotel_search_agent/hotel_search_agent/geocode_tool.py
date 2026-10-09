@@ -1081,6 +1081,30 @@ def inject_profile_geo_context(tool: object, args: dict, tool_context: object) -
     from b2c_common.confirmed_location import verified_place
     content = getattr(tool_context, "user_content", None)
     envelope = find_datapart(getattr(content, "parts", None)) or {}
+    from b2c_common.destination_request import destination_request
+    request = destination_request(profile_in.get("requested_destination"))
+    if (envelope.get("query_params") or {}).get("destination_authoritative") is True and request:
+        # Transport intent unchanged across turns. Provider identity stays in
+        # confirmed_location; these strings alone never authorize coordinates.
+        profile_in = dict(profile_in)
+        params = dict(envelope.get("query_params") or {})
+        envelope = {**envelope, "query_params": params}
+        if request.kind == "landmark":
+            profile_in.update(city=request.city, zone=request.query, metro=None, search_areas=None)
+            params.update(landmark_authoritative=True, landmark_country_guess=request.country_guess)
+        elif request.kind == "areas" and request.areas:
+            for key in ("city", "zone", "metro", "country_code", "areas"):
+                args.pop(key, None)
+            args["origin"] = "destination"
+            profile_in.update(
+                city=" / ".join(dict.fromkeys(a["query"] for a in request.areas)),
+                zone=None, metro=None,
+                search_areas=request.areas if requires_area_membership(request.areas) else None,
+                country_anchor=request.areas[0]["country"] if len(request.areas) == 1 else None,
+            )
+            params["areas_authoritative"] = True
+        elif request.kind == "device":
+            params["device_authoritative"] = True
     current_message = " ".join(part.text for part in (getattr(content, "parts", None) or [])
                                if isinstance(getattr(part, "text", None), str))
     literal_city = (isinstance(args.get("city"), str) and bool(args["city"].strip())
@@ -1157,7 +1181,6 @@ def inject_profile_geo_context(tool: object, args: dict, tool_context: object) -
     if failed_scope:
         return failed_scope
     fresh_areas = args.pop("areas", None)
-    envelope = find_datapart(getattr(content, "parts", None)) or {}
     authoritative = (envelope.get("query_params") or {}).get("areas_authoritative") is True
     carried = validate_areas(profile_in.get("search_areas"))
     if carried and any(_echo_fold(area["query"]) == _echo_fold(city or "") for area in carried):

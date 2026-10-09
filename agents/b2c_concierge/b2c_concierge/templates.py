@@ -110,8 +110,6 @@ def contextual_ack_response(language: str, destination: str | None = None,
 
     No new search, selection, or booking is implied by an acknowledgement.
     """
-    if question and not has_results:
-        return question
     if destination or has_results:
         target = f" ({destination})" if destination else ""
         return _pick(language, {
@@ -123,6 +121,8 @@ def contextual_ack_response(language: str, destination: str | None = None,
             "pt": f"Na sua pesquisa{target}, o que pretende esclarecer ou alterar: o local, os horários, o orçamento ou os hotéis apresentados?",
             "nl": f"Wat wil je voor je zoekopdracht{target} verduidelijken of wijzigen: de locatie, tijden, het budget of de getoonde hotels?",
         })
+    if question:
+        return question
     return ack_response(language)
 
 
