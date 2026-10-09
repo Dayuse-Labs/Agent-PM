@@ -1,3 +1,38 @@
+## 2026-10-09 · v86 terminé — clarification améliorée, NO GO maintenu
+
+Runtime `c7e2f9e` :8 conversations/19tours,4B4C ; six cas repris dev85 donnent
+3B3C contre2B4C, gain de note sur le scénario synthétique de clarification.
+Deux sessions fraîches réelles complètes :1B1C. Pas de preuve globale ni de
+comparaison indépendante ; dernière campagne100/280 toujoursv78.
+
+Le parcours synthétique Orly/Roissy → Paris → budget/horaires conserve les deux
+landmarks et sert des offres des deux aéroports. Quatre lectures MCP aux deux
+derniers tours, origines distinctes et mêmes date/adultes/contraintes ; plus de
+substitution par Paris centre. Le parcours réel extrait total=3 et conserve2+1,
+mais reste C car les aéroports nommés sans parent ne sont pas résolus. JFK/EWR
+reste correct sur trois tours/six lectures. Biltmore garde les huit créneaux.
+26 cartes exactes MCP, zéro écart prix/jointure/expiration ;12 sous plafond frais
+compris, zéro dépassement.2995 tests passent/1 gate live ignoré, contrôles verts.
+
+Échecs restants : Mercure devient encore une union de villes sans contrainte
+hôtel ; texte JFK11h au lieu de10h30 ; adresse complète de Voorhees non résolue.
+Le log de cette adresse montre parent omis au premier tour, puis geocode_echo_mismatch :
+requête avec adresse+commune dupliquée, fournisseur renvoyant la commune au lieu
+du point. Ne pas relâcher le garde pour afficher le centre comme adresse vérifiée.
+Cascais conserve durée120min ; MCP renvoie un seul hôtel, créneau16–22 annoncé
+comme fixe, pas comme forfait2h. Parking/piscine figurent bien dans includedAmenities.
+
+Coût0,38077215USD ; cumul148,08307954/150USD dont7,10 provisionnés ; headroom
+après réserve1,41692046USD.77 fichiers runtime inchangés pendant le lot. Ledger
+sans pending, trois services possédés arrêtés. Rapport privé :
+`production_parity_v18/batch-v86/replay_review.html`. PR134 toujours7139df5/draft,
+complément local non poussé ; aucun merge/déploiement. Remplace « rejeu requis ».
+
+Incident disque après rejeu : ENOSPC lors d'une commande de diagnostic. Seul le
+cache mypy généré de ce worktree a été supprimé (88Mo) ; preuves/transcripts
+conservés. Pour les prochains contrôles utiliser `mypy --cache-dir=/dev/null`
+si l'espace reste faible. Le bilan a été enregistré après libération du cache.
+
 ## 2026-10-09 · clarification et composition du groupe — rejeu requis
 
 La clarification de contexte des landmarks alternatifs traverse désormais A2A
