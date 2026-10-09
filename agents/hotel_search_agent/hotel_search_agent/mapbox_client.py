@@ -76,6 +76,7 @@ class GeocodeCandidate:
     parent_ids: tuple[str, ...] = ()
     parent_city_name: str = ""
     parent_city_id: str = ""
+    airport_iata: str = ""
 
     def as_result(self) -> GeocodeResult:
         return GeocodeResult(

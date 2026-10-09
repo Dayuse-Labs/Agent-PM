@@ -3,6 +3,7 @@ only, no real network."""
 from __future__ import annotations
 
 import httpx
+import pytest
 
 from hotel_search_agent.searchbox_client import SearchBoxClient
 
@@ -88,3 +89,27 @@ def test_missing_provider_name_cannot_be_filled_from_the_customer_query():
                            'properties':{'feature_type':'poi'}}]}
     client = _client(lambda request: httpx.Response(200,json=payload))
     assert client.forward_candidates('Solar Pizza') == []
+
+
+@pytest.mark.parametrize("code,categories,kind,expected", [
+    ("LAX", ["airport"], "poi", "LAX"),
+    ("dfw", ["airport"], "poi", "DFW"),
+    ("LAX", ["shop"], "poi", ""),
+    ("LAX", ["airport"], "place", ""),
+    ("LAX", "airport", "poi", ""),
+    (" LAX", ["airport"], "poi", ""),
+    ("L4X", ["airport"], "poi", ""),
+    ("ŁAX", ["airport"], "poi", ""),
+    (None, ["airport"], "poi", ""),
+    (123, ["airport"], "poi", ""),
+])
+def test_airport_identity_requires_structured_provider_code(code, categories, kind, expected):
+    payload = {"features": [{"geometry": {"coordinates": [-118.408812, 33.9435218]},
+                            "properties": {"name": "Los Angeles International Airport",
+                                           "feature_type": kind, "poi_category_ids": categories,
+                                           "external_ids": {"iata": code}}}]}
+    client = _client(lambda request: httpx.Response(200, json=payload))
+    candidates = client.forward_candidates("JFK")
+    assert len(candidates) == 1
+    assert candidates[0].airport_iata == expected
+    assert "JFK" not in candidates[0].place_name

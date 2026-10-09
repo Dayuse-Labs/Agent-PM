@@ -1875,3 +1875,58 @@ def test_fuzzy_city_candidates_are_not_offered_as_real_homonyms(monkeypatch):
     assert result['error'] != 'geocode_ambiguous'
     assert not result.get('diagnostics', {}).get('options')
     assert len(box.calls) == 1
+
+
+@pytest.mark.parametrize("as_zone", [True, False])
+def test_provider_airport_code_resolves_lax_without_name_initials(monkeypatch, as_zone):
+    from hotel_search_agent.searchbox_client import SearchBoxClient
+    _patch_multi(monkeypatch, [], inventory={})
+    payload = {"features": [{"geometry": {"coordinates": [-118.408812, 33.9435218]},
+                            "properties": {"name": "Los Angeles International Airport",
+                                "feature_type": "poi", "poi_category_ids": ["airport"],
+                                "external_ids": {"iata": "LAX"},
+                                "full_address": "1 World Way, Los Angeles, California 90045, United States",
+                                "context": {"country": {"country_code": "US"},
+                                            "region": {"name": "California"},
+                                            "place": {"name": "Los Angeles", "id": "la-provider"}}}}]}
+    seen = []
+    def handler(request):
+        seen.append(dict(request.url.params))
+        return httpx.Response(200, json=payload)
+    box = SearchBoxClient("tok", client=httpx.Client(transport=httpx.MockTransport(handler)))
+    monkeypatch.setattr(geocode_tool, "get_searchbox_client", lambda: box)
+    args = {"zone": "LAX airport", "proximity_lat": 34.048051, "proximity_lon": -118.254187} if as_zone else {"city": "LAX"}
+    result = geocode_location(**args, country_code="US", raw_user_message="near LAX airport")
+    assert result["ok"] is True
+    assert result["distance_origin_type"] == "poi"
+    assert result["latitude"] == 33.9435218
+    assert result["longitude"] == -118.408812
+    assert result["resolved_place"].startswith("Los Angeles International Airport")
+    assert len(seen) == 1
+    assert seen[0]["country"] == "us"
+
+
+@pytest.mark.parametrize("zone,state", [
+    ("JFK Memorial", None), ("JFK Terminal 3", None), ("JFK", "California"),
+])
+def test_provider_alias_does_not_bypass_full_place_identity(zone, state):
+    assert not geocode_tool._echoes(
+        "John F. Kennedy International Airport, New York, United States",
+        city=None, zone=zone, state_hint=state, airport_iata="JFK",
+    )
+
+
+def test_provider_alias_does_not_bypass_city_anchor_distance(monkeypatch):
+    from dataclasses import replace
+    city = _c("Los Angeles", "US", "California", lat=34.048051, lon=-118.254187)
+    client = _QueryAwareClient({"LAX airport, Los Angeles": [], "Los Angeles": [city]})
+    monkeypatch.setattr(geocode_tool, "get_mapbox_client", lambda: client)
+    monkeypatch.setattr(geocode_tool, "get_inventory", lambda: _FakeInventory({34.048051: 200}))
+    remote = replace(_as_candidate(GeocodeResult(40.7, -74.0, "International Airport, Los Angeles, California, United States", "US", "California")), airport_iata="LAX")
+    class Box:
+        def forward_candidates(self, *args, **kwargs):
+            return [remote]
+    monkeypatch.setattr(geocode_tool, "get_searchbox_client", lambda: Box())
+    result = geocode_location(city="Los Angeles", zone="LAX airport", country_code="US")
+    assert result["ok"] is False
+    assert "poi_anchor_coherence" in result["guards_fired"]

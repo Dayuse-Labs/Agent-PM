@@ -141,7 +141,16 @@ def _landmark_query(zone: str) -> str:
     return " ".join(kept) if kept and has_identifier else zone
 
 
-def _echoes(place_name: str, *, city: str | None, zone: str | None, state_hint: str | None) -> bool:
+def _echoes(
+    place_name: str, *, city: str | None, zone: str | None,
+    state_hint: str | None, airport_iata: str = "",
+) -> bool:
+    # Search Box's structured airport identity supplements its display name.
+    # Run the same full identity/state/terminal validation; never short-circuit
+    # it on a code match ("JFK Memorial" must not resolve to the airport).
+    if airport_iata:
+        place_name = f"{place_name} {airport_iata}"
+
     # Matching only the parent city must not turn its centroid into a named
     # landmark. Reuse the existing validator on the zone independently, then
     # let the normal city/state check and POI anchor guard do their work.
@@ -653,7 +662,7 @@ def geocode_location(
             # Identity is an eligibility condition, before inventory/rank
             # scoring: a busy unrelated restaurant cannot hide a real match.
             landmark_candidates = [c for c in landmark_candidates if _echoes(
-                c.place_name, city=None, zone=effective_zone, state_hint=None
+                c.place_name, city=None, zone=effective_zone, state_hint=None, airport_iata=c.airport_iata
             )]
             landmark = geo_resolver.rank_landmark(
                 landmark_candidates,
@@ -662,7 +671,8 @@ def geocode_location(
                 proximity=proximity_tuple,
             )
             if landmark is not None and _echoes(
-                landmark.place_name, city=None, zone=effective_zone, state_hint=None
+                landmark.place_name, city=None, zone=effective_zone, state_hint=None,
+                airport_iata=landmark.airport_iata
             ):
                 # Guard #14 — with no city named, `proximity_tuple` (the device
                 # fix) is the only anchor available; without one the guard is a
@@ -932,7 +942,8 @@ def geocode_location(
         # name in city/metro. A field choice must not bypass POI identity.
         identity_query = effective_zone or effective_city or effective_metro
         poi_candidates = [c for c in poi_candidates if _echoes(
-            c.place_name, city=echo_city, zone=identity_query, state_hint=state_hint
+            c.place_name, city=echo_city, zone=identity_query, state_hint=state_hint,
+            airport_iata=c.airport_iata
         )]
         poi = geo_resolver.rank_landmark(
             poi_candidates,
@@ -942,7 +953,8 @@ def geocode_location(
             city_anchor=city_anchor,
         )
         if poi is not None and _echoes(
-            poi.place_name, city=echo_city, zone=identity_query, state_hint=state_hint
+            poi.place_name, city=echo_city, zone=identity_query, state_hint=state_hint,
+            airport_iata=poi.airport_iata
         ):
             # Guard #14 (`poi_anchor_coherence`): the echo above proved the NAME,
             # this proves the PLACE. Rejecting falls through to the honest

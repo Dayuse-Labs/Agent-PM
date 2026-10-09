@@ -1,5 +1,37 @@
 # HANDOFF — AgentB2C
 
+## 2026-10-09 — v67 local : identité IATA et retrait d’occupation
+
+v66 terminé : 58 conversations / 163 réponses, 8 A / 23 B / 20 C / 7 non notées.
+254 cartes reliées à leur reçu exact ; zéro prix, plafond vérifiable ou expiration
+incorrects. 230 distances cohérentes avec l’origine stockée ; cela ne prouve pas
+sa pertinence. Coût 1,55552005 USD. Témoin production réellement rejoué :
+58/163, 2 A / 21 B / 28 C / 2 D / 5 non notées, coût 3,41923931 USD.
+Corpus : 48 conversations historiques, 1 mixte, 9 synthétiques ; 139 messages
+liés aux sources et 24 de test. Revue Codex, cas exposés, pas de holdout aveugle.
+
+v67 conserve external_ids.iata uniquement pour un POI fournisseur de catégorie
+airport ; l’alias enrichit le contrôle d’identité sans court-circuiter lieu,
+État, terminal ou distance à la ville. LAX avait perdu cet identifiant. DFW
+peut échouer pour une autre cause (mauvais typage municipality) : ne pas annoncer
+que tous les échecs aéroport ont la même cause.
+
+Le rejeu a aussi montré children=1 après « sans enfant ». L’extraction sémantique
+du triage existant transmet maintenant les changements d’occupation cités dans
+le message courant ; le concierge les persiste et les impose via A2A à la feuille.
+Zéro enfant retire le filtre MCP positif, sans rétablir l’ancien compte. Pas de
+regex, de nouvelle phase modèle, de modification MCP/Railway ou de travail FAQ.
+2786 tests passent / 1 ignoré ; ruff, mypy71 et guardrails verts. Rejeu réel v67
+encore à effectuer avant publication. Deux conversations indépendantes à la fois,
+tours séquentiels ; pas de comparaison de latence contre les campagnes séquentielles.
+
+Diagnostic de triage : 108 appels, 0,2067128 USD. GPT-5.2 améliore certains suivis,
+mais perd aussi des contraintes ; conserver 4.1-mini pour isoler ce lot de code.
+Recherche4o-mini / synthèse5.2 inchangées. Budget total opérationnel150 USD,
+réserve0,50, cumul115,74977319 dont6,10 provisionnés. Ledger privé fait foi.
+Reste bloquant : Rio/quartiers, ZIP, limites de communes, matin+heure de départ,
+jacuzzi privé et autres suivis. FAQ phase2. Pas de GO, aucun merge/déploiement.
+
 ## 2026-10-09 — v66 local : preuves de formule et clarification des budgets ambigus
 
 Le rejeu v65 est terminé : 58 conversations, 163 réponses, 8 A / 22 B / 21 C /

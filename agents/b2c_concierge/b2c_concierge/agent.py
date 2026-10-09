@@ -1363,6 +1363,10 @@ class _B2cConcierge(BaseAgent):
             if amenity_update is not None else profile.amenities
         )
         amenities_changed = next_amenities != profile.amenities
+        occupancy_update = triage.requested_occupancy
+        occupancy_changed = bool(occupancy_update and any(
+            getattr(profile, key) != value for key, value in occupancy_update.items()
+        ))
         requested_window = triage.requested_window
         carried_window = profile.requested_window or {}
         next_window = (
@@ -1401,7 +1405,7 @@ class _B2cConcierge(BaseAgent):
                               next_window != (profile.timeslot_start, profile.timeslot_end)
                               or (not requested_window and bool(profile.timeslot or profile.daypart))
                           )))
-        if (window_changed or amenities_changed or area_update is not None or landmark_update) and family != "faq" and clicked_id is None:
+        if (window_changed or amenities_changed or occupancy_changed or area_update is not None or landmark_update) and family != "faq" and clicked_id is None:
             family, route = "search", ROUTES["search"]
             picked = None
             booking_signal = False
@@ -1606,6 +1610,13 @@ class _B2cConcierge(BaseAgent):
                 profile.consecutive_empty_searches = 0
                 profile.auto_widen_disclosure = None
 
+        if route.target == LEAF_HOTEL_SEARCH and occupancy_changed:
+            profile.search_exhausted = False
+            profile.consecutive_empty_searches = 0
+            profile.widen_attempt_count = 0
+            profile.auto_widen_disclosure = None
+            reset_search_cursor(profile)
+
         if route.target == LEAF_HOTEL_SEARCH and profile.search_exhausted:
             if not is_bare_affirmative(message, triage.affirmative):
                 profile.search_exhausted = False
@@ -1617,6 +1628,9 @@ class _B2cConcierge(BaseAgent):
 
         if route.target == LEAF_HOTEL_SEARCH:
             profile.requested_duration_minutes = next_duration
+            if occupancy_update:
+                for key, value in occupancy_update.items():
+                    setattr(profile, key, value)
         if route.target == LEAF_HOTEL_SEARCH and triage.replace_window:
             # A new daypart/written clock preference must not inherit a prior
             # exact range. The leaf interprets the new preference this turn.
@@ -1741,6 +1755,8 @@ class _B2cConcierge(BaseAgent):
 
         budget.charge("leaf_llm")
         query_params: dict[str, Any] = {}
+        if route.target == LEAF_HOTEL_SEARCH and occupancy_update:
+            query_params["occupancy_update"] = occupancy_update
         if route.target == LEAF_HOTEL_SEARCH and location_action == "device":
             query_params["device_authoritative"] = True
         if (route.target == LEAF_HOTEL_SEARCH and pending_refinement and (profile.zone or profile.metro)
@@ -1815,6 +1831,11 @@ class _B2cConcierge(BaseAgent):
         delta = response.get("profile_delta") or {}
         if delta:
             apply_profile_delta(profile, delta, "" if location_choice and numeric_reply else message, budget.fired)
+        if route.target == LEAF_HOTEL_SEARCH and occupancy_update:
+            # The leaf cannot revive an old party count after a validated
+            # current-message update (including zero children).
+            for key, value in occupancy_update.items():
+                setattr(profile, key, value)
         if route.target == LEAF_HOTEL_SEARCH:
             receive_location(profile, response)
         if numeric_reply:

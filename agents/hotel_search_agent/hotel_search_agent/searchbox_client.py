@@ -168,6 +168,18 @@ class SearchBoxClient:
                 place_name = f"{name}, {full_address}"
             else:
                 place_name = full_address or name
+            # Identity from the provider, not inferred from the user query or
+            # initials of a translated airport name. Only airport POIs may
+            # supply an IATA alias; a terminal/shop cannot borrow the code.
+            external_ids = props.get("external_ids")
+            iata = external_ids.get("iata") if isinstance(external_ids, dict) else None
+            categories = props.get("poi_category_ids")
+            airport_iata = (
+                iata.upper() if isinstance(iata, str) and len(iata) == 3
+                and iata.isascii() and iata.isalpha()
+                and props.get("feature_type") == "poi"
+                and isinstance(categories, list) and "airport" in categories else ""
+            )
             candidates.append(
                 GeocodeCandidate(
                     latitude=lat,
@@ -180,6 +192,7 @@ class SearchBoxClient:
                     country_code=str(country_ctx.get("country_code") or "").upper(),
                     region=str(region_ctx.get("name") or region_ctx.get("region_code") or ""),
                     administrative_code=str(region_ctx.get("region_code") or ""),
+                    airport_iata=airport_iata,
                     parent_city_name=str((context.get("place") or {}).get("name") or ""),
                     parent_city_id=str((context.get("place") or {}).get("mapbox_id")
                                        or (context.get("place") or {}).get("id") or ""),

@@ -26,7 +26,8 @@ What was measured at **0 %** is everything downstream of that emission:
 
 Precedence, owned by `inject_profile_occupancy`:
 
-    the model's value for THIS turn wins; otherwise carry the profile's forward.
+    a validated concierge update for THIS turn wins; otherwise the leaf's
+    stated value wins, then the profile carries forward.
 
 That is the **date** rule (a fresh statement supersedes), not the **amenities**
 one (`equipment_ids` unions profile and LLM keys, because filters accumulate). A
@@ -100,6 +101,17 @@ def inject_profile_occupancy(
 
     tool_context.state[STATE_ZERO_CHILDREN_KEY] = False
     profile_occupancy = _profile_occupancy(tool_context)
+    content = getattr(tool_context, "user_content", None)
+    envelope = find_datapart(getattr(content, "parts", None) or [])
+    params = envelope.get("query_params") if isinstance(envelope, dict) else None
+    update = params.get("occupancy_update") if isinstance(params, dict) else None
+    # The concierge validates the current quote. Only those updated fields
+    # override leaf interpretation; other fields keep the existing precedence.
+    if isinstance(update, dict):
+        for key in _ARG_TO_SLOT:
+            value = update.get(key)
+            if type(value) is int and (1 if key == "adults" else 0) <= value <= 30:
+                args[key] = value
     carried = 0
     for arg_name in _ARG_TO_SLOT:
         sent = arg_name in args

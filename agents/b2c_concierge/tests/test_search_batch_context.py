@@ -20,6 +20,70 @@ from hotel_search_agent.response_bridge import encode_datapart, inject_origin_so
 from .test_spine import _drive_in, _new_session, scripted  # noqa: F401
 
 
+@pytest.mark.parametrize("value", [True, -1, 31, "0", 0.5])
+def test_invalid_semantic_party_count_is_not_an_update(value):
+    from b2c_concierge.triage import _grounded_occupancy
+    assert _grounded_occupancy({"children": value, "evidence": "sans enfant"}, "sans enfant") is None
+
+
+def test_party_update_requires_current_quote_and_preserves_absent_counts():
+    from b2c_concierge.triage import _grounded_occupancy
+    assert _grounded_occupancy({"children": 0, "evidence": "sans enfant"}, "Paris") is None
+    assert _grounded_occupancy({"adults": 0, "evidence": "personne"}, "personne") is None
+    assert _grounded_occupancy({"children": 0, "evidence": "sans enfant"}, "Finalement sans enfant") == {"children": 0}
+    assert _grounded_occupancy({"adults": 2, "evidence": "deux adultes"}, "deux adultes") == {"adults": 2}
+
+
+def test_party_retraction_reaches_mcp_and_survives_next_turn(scripted, monkeypatch, fake_profile_store):  # noqa: F811
+    from hotel_search_agent.occupancy import inject_profile_occupancy
+    from hotel_search_agent.response_bridge import STATE_ZERO_CHILDREN_KEY
+    runner, session = _new_session()
+    asyncio.run(fake_profile_store.set(session.id, SessionProfile(city="Paris", adults=2, children=1,
+        date="2030-10-09", timeslot_start="10:00", timeslot_end="17:00",
+        requested_window={"start": "10:00", "end": "17:00"})))
+    seen = []
+    async def leaf(leaf, ctx, profile_in, **kwargs):
+        params = kwargs.get("query_params", {})
+        content = types.Content(role="user", parts=[types.Part(text="party update"),
+            encode_datapart({"profile_in": profile_in, "query_params": params})])
+        context = SimpleNamespace(state={}, user_content=content)
+        # Reproduce a copied old count on the update, then a silent follow-up.
+        args = {"adults": 2, "children": 1} if not seen else {}
+        inject_profile_occupancy(SimpleNamespace(name="search_offers"), args, context)
+        seen.append((profile_in.copy(), args.copy(), context.state[STATE_ZERO_CHILDREN_KEY]))
+        return "No offers", {"results": [], "profile_delta": {"children": 1} if len(seen) == 1 else {}}
+    llm, _ = scripted(json.dumps({"family": "search", "language": "fr", "requested_occupancy": {
+        "adults": 2, "children": 0, "evidence": "sans enfant, nous serons seulement deux adultes"}}), "No offers.",
+        json.dumps({"family": "search", "language": "fr"}), "No offers.")
+    monkeypatch.setattr(agent_module, "_run_leaf", leaf)
+    _drive_in(runner, session.id, "Finalement sans enfant, nous serons seulement deux adultes.")
+    _drive_in(runner, session.id, "Autres options")
+    assert len(seen) == 2
+    for profile, args, zero in seen:
+        assert profile["adults"] == 2 and profile["children"] == 0
+        assert args == {"adults": 2} and zero is True
+        assert profile["date"] == "2030-10-09" and profile["timeslot_end"] == "17:00"
+    saved = asyncio.run(fake_profile_store.get(session.id))
+    assert saved.children == 0
+    assert len(llm.calls) == 4
+
+
+def test_party_counts_survive_city_clarification(scripted, monkeypatch, fake_profile_store):  # noqa: F811
+    runner, session = _new_session()
+    seen = []
+    async def leaf(leaf, ctx, profile_in, **kwargs):
+        seen.append(profile_in.copy())
+        return "Which city?", {"requires_clarification": True}
+    scripted(json.dumps({"family": "search", "language": "en", "requested_occupancy": {
+        "adults": 1, "children": 2, "evidence": "one adult and two children"}}), "Which city?",
+        json.dumps({"family": "search", "language": "en"}), "Searching Paris.")
+    monkeypatch.setattr(agent_module, "_run_leaf", leaf)
+    _drive_in(runner, session.id, "A pool for one adult and two children")
+    _drive_in(runner, session.id, "Paris")
+    assert len(seen) == 2
+    assert all(p["adults"] == 1 and p["children"] == 2 for p in seen)
+
+
 def test_numeric_dates_never_authorize_weekday_rollover():
     for message in ("Philadelphia on the 24th", "12am 09/10 check in"):
         evidence = "24th" if "24th" in message else "09/10"

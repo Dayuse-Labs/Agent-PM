@@ -187,6 +187,7 @@ class Triage:
     comparison_positions: tuple[int, ...] | None = None
     requested_landmark: dict | None = None
     budget_interpretation_unverified: bool = False
+    requested_occupancy: dict[str, int] | None = None
 
 
 def is_social_ack(message: str) -> bool:
@@ -610,6 +611,14 @@ Optional keys, extracted from MESSAGE ONLY, never copied from recent messages:
   or a general policy into a search update. Do not guess an unsupported key or
   equate a private bathtub with a hotel hot tub. Evidence must quote MESSAGE,
   never earlier messages. This object describes intent, not equipment IDs.
+- "requested_occupancy": ONLY a CURRENT change to the customer's party:
+  {{"adults": integer or null, "children": integer or null,
+  "evidence": "exact current party-size statement"}}. Omit unchanged counts.
+  A removal of children is children=0, including written statements such as
+  "without children, only two adults". Never infer children=0 merely from
+  "two adults". Ages are not counts. A room's capacity, hotel adults-only
+  policy, price, room count or duration is not the customer's party size.
+  Extract before a destination clarification, so the party survives it.
 - "requested_daypart": for a CURRENT search preference such as morning,
   afternoon or evening, {{"value": one of {list(DAYPART_HOURS)},
   "evidence": "short verbatim preference"}}. Omit for explicit clock times,
@@ -873,6 +882,8 @@ async def classify(message: str, budget: TurnBudget, invocation_id: str = "",
         information_source=_information_source(data.get("information_source"), message),
         display_currency=_display_currency_slot(data.get("display_currency")),
         requested_window=_grounded_window(data, message),
+        requested_occupancy=(_grounded_occupancy(data.get("requested_occupancy"), message)
+                             if family == "search" else None),
         requested_daypart=_grounded_daypart(data.get("requested_daypart"), message),
         requested_calendar=(grounded_calendar(data.get("requested_calendar"), message)
                             if family == "search" else None),
@@ -1095,6 +1106,26 @@ def _grounded_duration(data: dict, message: str) -> int | None:
             and isinstance(evidence, str) and evidence.strip() and evidence in message):
         return duration
     return None
+
+
+def _grounded_occupancy(raw: Any, message: str) -> dict[str, int] | None:
+    """Validate a semantic party update and its current quote, without parsing prose."""
+    if not isinstance(raw, dict):
+        return None
+    evidence = raw.get("evidence")
+    if (not isinstance(evidence, str) or not evidence.strip() or len(evidence) > 240
+            or evidence.casefold() not in message.casefold()):
+        return None
+    update = {}
+    for key in ("adults", "children"):
+        value = raw.get(key)
+        if value is None:
+            continue
+        minimum = 1 if key == "adults" else 0
+        if type(value) is not int or not minimum <= value <= 30:
+            return None
+        update[key] = value
+    return update or None
 
 
 def _grounded_daypart(raw: Any, message: str) -> str | None:
