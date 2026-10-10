@@ -1,83 +1,118 @@
-# B2C — Rejeu après correction du 10 octobre 2026
+# Comparatif production / B2C — 10 octobre 2026
 
-**NO GO pour remplacer la production.** Les corrections de contexte et de mémoire sont utiles et vérifiées, mais des défauts de recherche et de suivi restent ouverts. Ce bilan v107 remplace les conclusions v104 pour le code courant.
+**NO GO pour remplacer la production.** Cette livraison corrige des défauts concrets et fournit un comparatif frais; elle ne prouve pas encore une supériorité globale ni une parité suffisante pour basculer le trafic.
 
-## Changements depuis la précédente livraison
+## Changements depuis v109
 
-- Une contrainte de département reste obligatoire après précision de la ville. L'appartenance des résultats est vérifiée avec les identités du fournisseur géographique.
-- Un code postal reste actif quand le client précise sa ville parente déjà vérifiée. Le choix d'un lieu proposé transmet sa position.
-- Le profil Redis du concierge distingue la liste de recherche et l'hôtel consulté. Les questions sur son offre et les comparaisons de prix utilisent le bon hôtel, sans perdre les premières options de recherche.
-- Une recherche résolue qui ne produit que du texte sans avoir tenté de lire l'inventaire déclenche un appel MCP borné. Pas de boucle LLM de réparation.
-- Le triage distingue mieux les autres horaires, la pagination, les comparatifs et les réponses horaires courtes. Ces instructions ne garantissent pas à elles seules la réussite de tous les cas.
+Le concierge conserve les préférences de lit, d’accès aux équipements et de groupe dans son profil Redis et les transmet aux feuilles A2A. Le filtrage utilise les formules MCP. Les demandes d’accès aux équipements déclenchent une réserve lorsque l’accès inclus ou privatif n’est pas confirmé. La prose spontanée sur un équipement non demandé reste parfois trop affirmative ; cette limite est conservée dans les notes. Une demande de groupe permet la découverte conditionnelle sans inventer sa composition.
 
-Aucune nouvelle regex ni dictionnaire géographique. Concierge propriétaire du profil, feuilles A2A sans session, LiteLLM et MCP en lecture seule conservés.
+Le géocodeur peut examiner un quartier nommé sans pays et présente les homonymes réels lorsqu’il doit clarifier. Une adresse courte n’est plus rejetée uniquement pour un score agrégé faible lorsque tous ses mots, le numéro, la rue et la ville parente correspondent aux composants du fournisseur. Les autres cas, les numéros interpolés et les identités multiples restent bloqués. Les noms de quartiers préfixés par leur ville sont reconnus uniquement avec le lien parental du fournisseur. Le parent explicite est conservé qu’il soit transmis au niveau de la transaction ou de chaque quartier; plusieurs alternatives gardent chacune leur ville. La synthèse ne reçoit plus l’ancienne demande de code postal lorsque la recherche courante a effectivement résolu le point, mais conserve les restrictions écrites par le client.
 
-## Versions et méthode
+« Pas forcément moins cher, juste d’autres hôtels » conserve la pagination lorsque la recherche ne change réellement pas. Un changement de literie ou de taille de groupe relance au contraire la recherche au début, même si le client demande « d’autres hôtels ». Les réponses conditionnelles sur les équipements indiquent aussi le plus long créneau des offres affichées, à partir du format réel des cartes. La synthèse reçoit la confirmation de résolution du lieu uniquement lorsque le point fournisseur correspond à l’origine effective de la recherche et au contexte courant; cela réduit les clarifications inutiles sans garantir à lui seul la qualité de la reformulation.
 
-Runtime exécuté : `0e32cc0d3ec4ecbf17e0c5113c7cf646e182af28`. Les 81 fichiers sources sont restés inchangés pendant le rejeu. Main B2C refetch après exécution : `cbe88b9`. Production legacy déployée : `3093647`. Les configurations et déploiements des six services/environnements Railway sont identiques avant et après la campagne.
+Pas de nouvelle regex ni dictionnaire géographique. Architecture conservée : concierge propriétaire de l’état, feuilles sans état, LiteLLM, MCP en lecture seule. Le contrôle des composants d’adresse suit les définitions de [Mapbox](https://docs.mapbox.com/api/search/geocoding/).
 
-Configuration testée : triage **GPT-5.2**, raisonnement low, 2048 tokens, timeout 15 s; recherche **4o-mini**; synthèse **GPT-5.2**. Le triage B2C déployé reste 4o-mini. La PR ne modifie pas Railway. Aucun gain ne peut être attribué au code seul ou au modèle seul; aucune nouvelle ablation de modèle n'a été lancée.
+## Évaluation
 
-| Lot du runtime final | Conversations | Réponses | Coût modèle USD |
-|---|---:|---:|---:|
-| Contrôles détail, prix et comparaison | 3 | 12 | 0,2672 |
-| Corpus historique et contrôles | 100 | 280 | 5,7671 |
-| Total candidat | **103** | **292** | **6,0343** |
+Runtime final `315377106070e11390a84c3236993ce0d5177026`, 85 sources vérifiées inchangées pendant les rejeux. Production legacy `3093647`, main B2C `cbe88b9`. Six configurations et déploiements Railway vérifiés identiques avant/après.
 
-Les mêmes entrées du corpus principal sont comparées aux **280 réponses legacy déjà mesurées le même jour**, avec leurs timestamps d'origine. Inventaires non simultanés : export/Qdrant en production, MCP préproduction décrit comme reflet de production par l'équipe. Une absence d'hôtel ou un prix différent ne suffit pas à attribuer une erreur à l'agent.
+| Lot | Parcours candidat | Réponses candidat | Réponses legacy | Coût modèle USD |
+|---|---:|---:|---:|---:|
+| core-paired-v112 | 100 | 280 | 280 | 11.3969 |
+| diagnostic-candidate-v113 | 7 | 19 | 0 | 0.3482 |
+| diagnostic-candidate-v114 | 7 | 19 | 0 | 0.3506 |
+| diagnostic-candidate-v115 | 8 | 22 | 0 | 0.4138 |
+| diagnostic-candidate-v116 | 2 | 6 | 0 | 0.1154 |
+| core-candidate-v116 | 100 | 280 | 0 | 5.7325 |
+| adaptive-paired-v116 | 4 | 16 | 16 | 0.7244 |
 
-Les dates historiques littérales sont rejouées au calendrier actuel. Le GPS, la devise et les autres champs natifs absents des sources ne sont pas inventés. Ce corpus mêle historique réel et contrôles synthétiques déjà exposés : il ne mesure pas de manière aveugle et exhaustive six mois de trafic. FAQ/SAV restent en phase 2.
+Le premier lot rejoue les deux agents dans les mêmes fenêtres. Après les corrections, les 100 parcours candidat sont tous rejoués avec 4 conversations concurrentes (premier lot : 2 candidat + 2 legacy); leur référence legacy est celle du premier lot du même jour. Les parcours adaptatifs répondent aux clarifications effectivement posées, contrairement aux continuations historiques fixes. Ils évaluent un objectif commun, pas des entrées identiques.
 
-## Résultats relus
+Grille historique A parfait / B mineur / C significatif / D majeur / F critique. Revue complète par l’agent de codage, non aveugle et non indépendante. Les comptes ci-dessous décrivent cet échantillon exposé; ils ne sont pas un taux de victoire en production.
 
-Les **103 parcours candidats complets**, dont les **24 régressions géographiques**, ont été relus : **18 A, 42 B, 43 C** dans le périmètre évalué. A = parfait, B = mineur, C = significatif, D = majeur, F = critique. Une clarification appropriée peut recevoir A sans avoir produit de carte; les limites du préfixe et les questions hors périmètre sont signalées dans la revue.
+| Agent | A | B | C | D | F | Latence médiane / p95 | Médiane réponses avec cartes |
+|---|---:|---:|---:|---:|---:|---:|---:|
+| Production actuelle | 7 | 41 | 44 | 8 | 0 | 10.38 / 15.1 s | 13.0 s |
+| Candidat final | 10 | 63 | 27 | 0 | 0 | 4.87 / 8.07 s | 5.78 s |
 
-Revue par l'agent qui a modifié le code, **pas une validation humaine indépendante**. Les 38 revues legacy réutilisées portent sur les fichiers inchangés, vérifiés par hash. Aucun juge payant n'a été relancé; sa calibration précédente était insuffisante. Aucun taux global de victoire contre la production n'est validé.
+### Complément adaptatif : quatre objectifs, quatre tours par agent
 
-| Correction ou contrôle | Résultat observé |
-|---|---|
-| Département obligatoire après précision de Melun | Alternatives conservées en Seine-et-Marne |
-| Détails puis demande moins chère | Référence 85 EUR conservée; minimum 63 EUR, économie 22 EUR |
-| Mieux noté puis comparaison des deux premières options | Liste initiale conservée, confirmé dans le contrôle ciblé et le corpus principal |
-| Nom complet corrigé puis question sur son offre | Bon hôtel, date, créneau 08–14 et prix 154,51 EUR; faute initiale toujours rejetée |
-| Réponse courte «15 18h» | Mercredi conservé et créneau 15–18 compris; résolution de La Défense encore lente |
-| Autre horaire en portugais | Créneaux présentés sans pagination dans ce rejeu |
-| Retrait d'un enfant, puis moins cher | Composition et fenêtre conservées; alternatives horaires partielles annoncées |
+Ces 32 réponses sont séparées du tableau des 100 parcours. Les suites répondent aux questions réelles de chaque agent et peuvent donc différer entre bras.
 
-W4 a été conservé dans **3/3 répétitions sur v106**, avant la séparation de mémoire v107. Ce ne sont pas trois nouvelles mesures sur v107. La suite finale conserve les tests de rétention de la ville parente vérifiée. Le code postal non résolu 78239 suivi de San Antonio reste un cas distinct défaillant.
+| Objectif | Candidat | Production | Observation candidat |
+|---|---|---|---|
+| brooklyn | B | C | La clarification est suivie d’une recherche avec les contraintes complètes, puis le plafond est porté à 150 USD avec consentement. Aucun forfait au total vérifiable n’est retourné ; le détail nommé distingue correctement l’identité de l’hôtel et l’absence d’offre datée. Cette absence n’établit pas à elle seule un défaut de rappel. La récupération pourrait proposer un compromis plus concret. |
+| madrid | C | B | L’adresse courte réussit dans le cas historique simple mais échoue ici après une réponse complète comprenant Madrid et Espagne. La reformulation est enregistrée comme « Calle de la Palma y el número es 43 » et persiste malgré la correction explicite au tour suivant. Quatre tours sans résolution ; défaut de récupération du contexte et des composants d’adresse. |
+| berlin | B | C | Berlin Mitte est résolu et le créneau Maritim 09–17 couvre bien 10–17. Le détail relève la taxe de séjour de 7,5 % et distingue finalement prix affiché et total non confirmé. Le premier tour répond en anglais malgré le message et le contexte allemands ; ensuite langue correcte. |
+| paris-pool | B | C | Le budget de 150 EUR, deux adultes et le créneau 12–22 de demain sont conservés. H4 est proposé avec accès non confirmé ; les détails citent gratuité, réservation d’un créneau à la réception et un avis de fermeture ancien, sans garantir la réouverture. Au dernier tour, l’incertitude est maintenue, mais la réponse générique répète la durée au lieu d’expliquer directement l’absence de confirmation actuelle. |
 
-## Intégrité des offres
+## Défauts significatifs du candidat final
 
-**327 occurrences de cartes datées** sont reliées à un reçu MCP exact par hôtel, formule, date et créneau : aucun reçu manquant, écart détecté de prix ou de faits de formule, ni offre expirée lors de sa réponse. Les fiches d'identité sans offre sont comptées séparément dans le JSON.
+Ces cas restent des obstacles à la bascule. Les motifs ci-dessous proviennent du rejeu final complet, pas du seul lot ciblé.
 
-Sur le corpus principal : 262 distances recalculées sans écart arithmétique, 30 contrôles de capacité sans insuffisance détectée, 19 plafonds frais inclus vérifiés sans violation. Quatre écarts à la minute exacte — début 09h au lieu de 08h30, ou 10h30 au lieu de 10h — sont annoncés comme alternatives. Le lot ciblé ajoute 10 distances; une fiche informative n'expose pas sa capacité dans la carte.
+| Parcours | Note | Observation |
+|---|---|---|
+| 0d079383afa07f70848756a8 | C | Le nom London Heathrow Terminal 3 contient déjà la ville, mais l’agent la redemande deux fois. Cela empêche de traiter le suivi demandant un créneau plus tard et plus court. |
+| 115feab9f6871061cf090f93 | C | Les heures 15–18 et mercredi sont conservées. La précision Courbevoie laisse le repère mal orthographié bloquer deux tours ; la correction explicite finale « La Défense » finit cette fois par résoudre la zone et afficher des offres. Récupération réelle mais trop tardive. |
+| 129597a4c6fbc73b1da6a887 | C | La piscine intérieure est réduite au filtre générique piscine. La réserve sur l’accès ne conserve pas le sous-type requis. Le suivi donne une zone de manière générale, sans confirmer le critère intérieur. |
+| 242824991304d2617f2181d7 | C | La résolution partielle d’Edison est signalée. La date historique contradictoire « tonight July 7 » devient juillet 2027 mais le texte dit toujours ce soir. La demande de distance entre hôtel et gare reste bloquée malgré les noms et villes fournis ; aucun temps de trajet n’est inventé. |
+| 38d6a346fc6f99fbb922552e | C | La clarification sur Newark perd le contexte NYC établi. Le suivi Manhattan propose ensuite des homonymes d’autres États au lieu de réutiliser ce contexte ; la recherche est bloquée. |
+| 79c582c6f2d5f826704b2233 | C | Westminster est d’abord correctement présenté comme ambigu entre Royaume-Uni et États-Unis. Après « Westminster UK », l’agent redemande encore la ville et ne lance pas de recherche. Le nombre isolé 60 répondait à une autre question dans la branche historique : ne pas lui attribuer seul l’échec. |
+| a4ded214b420767da49db48c | C | La Défense reste non résolue : demandes répétées de ville alors que le budget et l’arrivée à 18h sont conservés. |
+| dd788becaecdeec0a39e6fe4 | C | Halton/Peel n’est pas résolu ; la clarification « même destination ou différente » est peu utile sans destination préalable. Le besoin piscine est conservé mais la recherche géographique reste bloquée. |
+| fresh-v39-0c597d7ce05c9c5e | C | La découverte conditionnelle et le détail de la première offre fonctionnent. Après « près de moi », le contexte géographique disparaît ; la demande moins chère déclenche une clarification bloquante de composition du groupe malgré une offre de référence. Aucun accès spa n’est promis, mais le suivi n’aboutit pas. |
+| fresh-v51-850df97d901415d7 | C | Le créneau 12–22 et la piscine persistent, mais « dispo demain » est enregistré comme période nécessitant une date précise. Deux demandes de clarification bloquent une date pourtant exploitable. La géolocalisation fournie n’est utilisée qu’au deuxième tour. |
+| fresh-v69-ac3101cd6e | C | Le besoin près d’un aéroport n’est pas conservé dans l’état de recherche lorsque Rome arrive. Des cartes du centre-ville sont affichées avant la clarification FCO/CIA ; la prose reconnaît ce décalage mais la sélection ne répond pas au besoin. |
+| fresh-v72-640d4c8302 | C | Le nom Five 6 Splendour mal orthographié n’est pas reconnu. Une clarification générique sur la même destination ou une autre est peu utile sans lieu confirmé préalable. |
+| fresh-v72-b67bda12db | C | Après avoir proposé Rueil-Malmaison, la réponse 92 efface Rueil et redemande une ville complète. Le département donné pour préciser la destination n’est pas associé au lieu déjà fourni ; le suivi spa reste bloqué. |
+| fresh-v73-360de9bb8c | C | Rome est désormais reconnu, mais le secteur est reste non résolu et la réponse demande une adresse ou un repère supplémentaire. L’agent répond en français à la demande italienne. Aucun résultat pour le secteur demandé. |
+| fresh-v73-e28a165f47 | C | Les deux codes postaux explicites ne sont pas retenus comme origines structurées ; la première clarification générique même destination ou différente est inadéquate. Au suivi carte, les deux codes sont enfin mentionnés pour choisir une origine, mais aucune recherche n’a encore abouti. |
+| fresh-v75-7ebba791b128 | C | Le contexte Maryland n’aide pas à résoudre Annapolis. Le détail de la première offre affirme l’accès piscine inclus alors qu’une réserve avait été donnée au tour précédent ; c’est un défaut de prose significatif malgré des cartes exactes. Les recherches suivantes qualifient bien l’accès privé non confirmé, mais grande baignoire s’ajoute à piscine et jacuzzi au lieu de clarifier un remplacement. |
+| global55-dublin-centre | C | Dublin City Centre n’est pas résolu malgré la ville, demain, le budget et la piscine. L’agent propose un repère plus précis sans résultats sur trois tours ; la première affirmation de recherche d’hôtels n’est pas étayée. |
+| global55-hotel-typo | C | Une faute d’une lettre dans le nom d’hôtel bloque la résolution. L’agent redemande nom complet et ville déjà fournie, sans proposer de candidat plausible à confirmer. |
+| holdout-0b29daa0abbc6cd7 | C | Le créneau 17–23 persiste, mais l’affinage Tuen Mun/Tung Chung perd Hong Kong et bloque les demandes suivantes. L’inventaire vide à l’heure du rejeu n’est pas noté comme régression. Le tour FAQ paiement est hors évaluation. |
+| holdout-39a54953510f835c | C | Le contexte New Jersey se perd au suivi GW Bridge, puis Bergen County permet enfin une recherche mais sans conserver la proximité du pont. La sélection locale demandée reste non résolue. |
+| holdout-650a7ee342f64a4c | C | La préférence La Quinta n’est pas suffisamment appliquée. Le suivi Halm Blvd perd San Antonio déjà confirmé et redemande l’adresse. La langue bascule aussi en espagnol. |
+| holdout-7619238f09035b85 | C | La date et l’arrivée à 13h persistent après Dubai, mais Al Mankool n’est pas vérifié et bloque la recherche. La prose prétend avoir recherché des hôtels malgré l’échec de résolution de zone. |
+| holdout-81bf0277ba4c7c05 | C | Aucun hôtel arbitraire inventé, mais « aucune » est interprété comme une période de dates et provoque une demande de date exacte. Clarification sans rapport avec la préférence ou l’absence de destination ; erreur de triage restante. |
+| holdout-92d1d0dcb10d8d41 | C | Un adulte, deux enfants et le budget de 80 dollars sont conservés. Après sa propre demande de lieu, l’agent ne sait pas traiter les deux lieux nommés et pose une question générique « même destination ou différente », sans recherche. |
+| holdout-d4a34235ab399d8d | C | La faute Lower Manhatten bloque la résolution. Le nombre 200 est ensuite interprété comme un lieu plutôt qu’une intention à préciser, sans recherche. Cette réponse numérique suivait une question de budget différente dans la branche legacy. |
+| holdout-e55c851daadf30d1 | C | Le numéro et la rue sont conservés, mais l’agent demande de revérifier numéro, nom ou code postal au lieu de demander clairement la ville manquante. La recherche à distance de marche n’aboutit pas. |
+| holdout-f92d2367af1c65f8 | C | 18:30–21 est conservé, mais 23rd Street disparaît derrière Manhattan. Après la précision NYC, l’agent affiche des hôtels du Financial District et redemande si la proximité de 23rd est souhaitée. Le repère fin est perdu malgré des créneaux corrects. |
 
-Ces contrôles ne prouvent ni l'exhaustivité de l'inventaire, ni la pertinence du lieu, ni l'exactitude de chaque phrase. Par exemple, une comparaison qualifie à tort 10–18 de plus long que 09–18 alors que les cartes sont exactes.
+Comparaison descriptive des notes : {'candidate_better': 43, 'legacy_better': 14, 'equal_grade': 43}. Une réponse de clarification rapide peut être moins utile : latence et qualité restent séparées. La concurrence candidate passe de 2 à 4 entre les lots; les latences sont descriptives, pas une mesure causale du seul correctif. Les différences d’inventaire seules ne justifient pas une mauvaise note.
 
-## Blocages avant remplacement
+Configuration candidate : triage GPT-5.2 low/2048, recherche 4o-mini, synthèse GPT-5.2. Le B2C déployé utilise 4o-mini au triage : la PR ne modifie pas Railway et le candidat testé n’est pas ce déploiement. Aucun gain ne peut être attribué au code seul ou à un changement de modèle seul.
 
-| Défaut observé | Conséquence |
-|---|---|
-| Quartiers/aéroports trop souvent non résolus | Heathrow Terminal 3, Manhattan après NYC/Newark, Westminster UK, La Défense et Brooklyn restent bloqués ou demandent trop de précisions |
-| Parent d'un code postal non vérifié | La ville peut remplacer la zone demandée sans annoncer l'élargissement |
-| «Demain» traité comme une période imprécise | L'agent redemande une date exacte au lieu de rechercher |
-| Composition adultes/enfants | La même question revient malgré les autres précisions du client |
-| Équipements de l'hôtel et de la formule mal distingués | Jacuzzi privé ou accès piscine insuffisamment vérifié/qualifié |
-| Faute sur un nom d'hôtel | Recherche sûre mais rappel insuffisant; correction complète nécessaire |
-| Synthèse et suivi complexe | Comparatifs de durée parfois faux, demandes de deux séjours non comparées automatiquement |
+## Données et limites
 
-Les traces locales comprennent requêtes/réponses modèle, profils successifs et reçus MCP; les preuves historiques Langfuse restent conservées. Le rapport local permet à la team de relire chaque conversation et sa justification. Fermer ces défauts, puis mesurer un nouveau lot réel non exposé avec une revue humaine calibrée avant remplacement.
+Les compteurs d’intégrité des cartes, prix, dates, créneaux, capacités, distances et budgets avec frais figurent dans le JSON adjacent. Sur le corpus final : 298 cartes jointes aux reçus MCP exacts, aucune erreur détectée de prix ou de faits dans les cartes, 246 distances recalculées sans écart et 28 budgets avec frais vérifiés. Les 9 écarts littéraux de créneau sont tous explicitement annoncés comme des alternatives. Ces contrôles ne prouvent ni le rappel exhaustif ni la qualité de chaque phrase.
 
-## Budget et livraison
+Dans le complément adaptatif, 12 cartes datées sont reliées aux reçus ; une carte présente uniquement l’identité de La Quinta, explicitement sans offre disponible ni prix confirmé. Elle explique l’unique total non vérifié dans cet audit, sans fausse promesse de prix. Quatre cartes de détail n’exposent pas de capacité dans leur payload, ce qui limite le contrôle structurel de ces cartes.
 
-- Cette reprise depuis v104 : **8,3630 USD**, diagnostics et arrêt intermédiaire compris.
-- Diagnostics v105 et v106 : 9 parcours / 24 réponses chacun, respectivement 0,5172 et 0,5190 USD.
-- Core v106 interrompu : 20 conversations complètes et 4 partielles, 63 réponses, 1,2925 USD. Arrêt sur erreur de transport MCP; sa revue a également découvert la régression détail → comparaison corrigée en v107. Ce lot ne vaut pas validation complète.
-- Cumul comptabilisé : **198,8437 USD**, dont 7,10 USD de provisions anciennes conservées. Plafond 200 USD, réserve 0,50 USD, disponible après réserve **0,6563 USD**. Aucun coût en attente ni nouvelle autorisation ajoutée.
-- Dernière enveloppe supplémentaire : 49,4882 USD consommés sous son plafond opérationnel ajouté de 50 USD. Tarification de télémétrie, pas facture; infrastructure, MCP et Mapbox exclus.
+Le corpus s’appuie sur les conversations historiques et les régressions déjà identifiées, sans couvrir exhaustivement six mois de trafic. Export/Qdrant en legacy, MCP préproduction présenté par l’équipe comme reflet de la production. Dates historiques littérales rejouées au calendrier actuel, contexte natif manquant non inventé. Certains messages suivants répondent seulement à la question legacy : les conclusions concernées sont nuancées et complétées par les parcours adaptatifs. FAQ/SAV restent en phase 2.
 
-Le corpus principal compte 801 appels modèle physiques pour 280 tours : au plus trois phases logiques, mais jusqu'à cinq appels physiques liés aux échanges avec les outils. Ne pas annoncer «trois appels maximum».
+## Conditions restant à remplir avant une bascule
 
-**3 202 tests hors réseau passent**, un test Langfuse live optionnel est ignoré. Ruff, mypy sur 81 fichiers, guardrails et diff passent. Les services candidats de test sont arrêtés. PR #134 en brouillon, aucun merge, déploiement, changement Railway ou opération client. Conversations, GPS et secrets restent hors Git. Le JSON adjacent contient les compteurs sans conversations.
+1. Résoudre les clarifications excessives et la perte de contexte parent : La Défense, Dublin City Centre, London Heathrow Terminal 3, NYC puis Newark/Manhattan, Rueil puis 92. Préserver l’origine fine lors d’un affinage de ville.
+2. Réconcilier les sorties du triage avec l’état déjà connu : « dispo demain » ne doit pas devenir une période indéfinie, et une réponse à une clarification doit compléter la contrainte concernée.
+3. Appliquer la preuve d’accès aussi aux réponses de détail, et conserver les sous-types demandés comme piscine intérieure. Le parcours familial montre encore une promesse d’accès piscine incluse dans un détail après une réserve au tour précédent.
+4. Faire valider par l’équipe un échantillon indépendant avec la configuration et la source de données prévues pour le déploiement. Les notes ci-dessus ne remplacent pas cette validation. FAQ et annulations nécessitent leur phase dédiée avant une bascule qui inclurait ces usages.
 
-La CI sera vérifiée sur le head de livraison; le head précédent était bloqué avant les jobs par la facturation GitHub.
+Ces portes de sortie sont proposées pour décider du lancement, pas présentées comme déjà franchies. Entre le premier candidat v112 et le candidat final, les notes s’améliorent sur 9 parcours, baissent sur 7 et restent égales sur 84. Ce résultat inclut variabilité du modèle, inventaire et horaire ; il ne mesure pas l’effet causal du seul code. Les 280 entrées du candidat final sont identiques à celles du premier candidat hors identifiants de session/tour. Dans le premier comparatif, 267 paires de corps de requête étaient identiques et 13 adaptaient uniquement le transport des mêmes coordonnées GPS au contrat natif de chaque agent.
+
+## Livraison et coût
+
+Tests locaux : **3305 passent**, un test Langfuse live payant optionnel ignoré. Ruff, mypy sur 85 fichiers, guardrails et vérification du diff passent. CI GitHub à vérifier sur le head livré ; le head précédent ne lançait pas les jobs à cause de la facturation/plafond GitHub.
+
+Un second lot v115 a été arrêté après 79 parcours complets et 1 partiel (225 réponses), pour corriger la perte du parent de quartier observée dans les sorties modèle. Coût **4.5767 USD** conservé; ces résultats ne valident pas le runtime final.
+
+Lot intermédiaire v114 arrêté après **16 parcours / 45 réponses**, coût **0.8953 USD** inclus ci-dessous, pour corriger la pagination des critères de chambre/groupe. Ce lot interrompu ne vaut pas validation du runtime final; les 100 parcours sont ensuite rejoués entièrement.
+
+Le complément adaptatif a d’abord été interrompu par un défaut de sérialisation des cookies dans le harnais : 8 réponses reçues, dont 4 non sauvegardées. Coût **0.1552 USD** rapproché des traces et conservé. Le harnais a été corrigé pour préserver domaine et chemin des cookies, puis les parcours ont repris dans de nouvelles sessions. Ce lot interrompu n’est pas compté comme validation.
+
+Les diagnostics préparatoires v110–v112 sont également inclus dans le cumul; aucune dépense intermédiaire n’est supprimée.
+
+Ce travail : **25.9548 USD**. Cumul **224.8714 / 230 USD**, dont 7,10 USD de provisions antérieures conservées; disponible après réserve : **4.6286 USD**. Aucun coût en attente. Télémétrie modèle, pas facture fournisseur; infrastructure/MCP/Mapbox exclus. L’extension de 30 USD n’a été appliquée qu’une fois.
+
+PR 134 en brouillon pour revue de l’équipe, sans merge ni déploiement. Le rapport HTML local contient les parcours complets, notes et motifs. Les conversations, GPS, reçus bruts et secrets restent hors Git.

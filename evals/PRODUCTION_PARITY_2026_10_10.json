@@ -1,158 +1,487 @@
 {
-  "created_at": "2026-10-10T11:40:35.943375+00:00",
-  "version": "v107",
+  "version": "v116",
+  "interrupted_core_v115": {
+    "actual_complete_cases": 79,
+    "partial_cases": 1,
+    "turns": 225,
+    "stop_reason": "Model correctly supplies target-level parent_city for Berlin-Mitte, but adapter only reads transaction-level parent for inside neighborhoods. Correct this seam and suppress stale resolved-location question in synthesis.",
+    "accounting_settled": true,
+    "cost_usd": "4.57670134999999992860"
+  },
+  "created_at": "2026-10-10T15:16:42.069015+00:00",
+  "interrupted_core_v114": {
+    "complete_cases": 16,
+    "turns": 45,
+    "cost_usd": "0.89534694999999998830",
+    "reason": "Pagination key omits newly persistent room constraints and pending party total; code review caught cursor restored after reset. Replace with v115 full frozen replay.",
+    "complete": false
+  },
   "release_decision": "NO GO",
-  "runtime_commit": "0e32cc0d3ec4ecbf17e0c5113c7cf646e182af28",
-  "legacy_production_commit": "3093647403ec167a0f4ddc2e0bace05f9669d88f",
+  "runtime_commit": "315377106070e11390a84c3236993ce0d5177026",
   "main_reference_commit": "cbe88b9963f28fbea932ac2a6ce23d22112f2b76",
-  "offline_tests": {
-    "passed": 3202,
-    "skipped": 1,
-    "ruff": "passed",
-    "mypy": "passed81files",
-    "guardrails": "passed"
+  "legacy_production_commit": "3093647403ec167a0f4ddc2e0bace05f9669d88f",
+  "runtime_files_verified": 85,
+  "offline_checks": {
+    "pytest_passed": 3305,
+    "pytest_skipped": 1,
+    "skip": "optional paid Langfuse live test",
+    "ruff": "pass",
+    "mypy_files": 85,
+    "guardrails": "pass",
+    "diff_check": "pass"
   },
   "lots": {
-    "diagnostic-candidate-v107": {
-      "cases": 3,
-      "turns": 12,
-      "cost_usd": "0.26723119999999999630",
-      "cards": 27,
-      "responses_with_cards": 10,
-      "receipt_audit": {
-        "matched_cards": 27,
-        "unmatched_cards": 0,
-        "card_price_errors": 0,
-        "expired_cards": 0,
-        "identity_only_cards": 0,
-        "card_fact_errors": 0
+    "core-paired-v112": {
+      "started_at": "2026-10-10T13:42:42.468769+00:00",
+      "runtime": "b18f3d8b2cc6b05d5ed9ad6c84c9e2fa0f04d97f",
+      "arms": {
+        "candidate": {
+          "cases": 100,
+          "turns": 280,
+          "cards": 323,
+          "turns_with_cards": 93,
+          "latency_median_s": 5.06,
+          "latency_p95_s": 8.56,
+          "cards_latency_median_s": 6.07,
+          "grades": {
+            "B": 58,
+            "C": 31,
+            "A": 11
+          },
+          "observed_model_usd": "5.7653211999999999123",
+          "physical_model_calls": 735
+        },
+        "legacy": {
+          "cases": 100,
+          "turns": 280,
+          "cards": 603,
+          "turns_with_cards": 142,
+          "latency_median_s": 10.38,
+          "latency_p95_s": 15.1,
+          "cards_latency_median_s": 13.0,
+          "grades": {
+            "C": 44,
+            "B": 41,
+            "A": 7,
+            "D": 8
+          },
+          "observed_model_usd": "5.631626319834"
+        }
       },
-      "distances_checked": 10,
-      "distance_mismatches": 0,
-      "literal_minute_mismatches": 0,
-      "capacity_checks": 12,
-      "insufficient_capacity": 0,
-      "missing_capacity": 1
-    },
-    "core-paired-v107": {
-      "cases": 100,
-      "turns": 280,
-      "cost_usd": "5.76709954999999989070",
-      "cards": 302,
-      "responses_with_cards": 81,
-      "receipt_audit": {
-        "matched_cards": 300,
+      "cost_usd": "11.39694751983399991230",
+      "raw_offer_audit": {
+        "matched_cards": 321,
         "unmatched_cards": 0,
         "card_price_errors": 0,
         "expired_cards": 0,
         "identity_only_cards": 2,
         "card_fact_errors": 0
       },
-      "distances_checked": 262,
+      "distances_checked": 272,
       "distance_mismatches": 0,
-      "literal_minute_mismatches": 4,
-      "capacity_checks": 30,
-      "insufficient_capacity": 0,
-      "missing_capacity": 0,
+      "literal_minute_mismatches_to_review": 7,
+      "capacity_insufficient": 0,
+      "capacity_unknown": 1,
       "fee_budget": {
-        "verified_cards": 19,
+        "verified_cards": 38,
         "violations": 0,
         "unverified": 0
       }
+    },
+    "diagnostic-candidate-v113": {
+      "started_at": "2026-10-10T14:22:46.386677+00:00",
+      "runtime": "771461fc43881f4f9145cc669b6561380fb9c50f",
+      "arms": {
+        "candidate": {
+          "cases": 7,
+          "turns": 19,
+          "cards": 53,
+          "turns_with_cards": 13,
+          "latency_median_s": 4.53,
+          "latency_p95_s": 7.18,
+          "cards_latency_median_s": 4.78,
+          "grades": {
+            "B": 5,
+            "C": 2
+          },
+          "observed_model_usd": "0.3481593499999999947",
+          "physical_model_calls": 44
+        }
+      },
+      "cost_usd": "0.34815934999999999470",
+      "raw_offer_audit": {
+        "matched_cards": 53,
+        "unmatched_cards": 0,
+        "card_price_errors": 0,
+        "expired_cards": 0,
+        "identity_only_cards": 0,
+        "card_fact_errors": 0
+      },
+      "distances_checked": 52,
+      "distance_mismatches": 0,
+      "literal_minute_mismatches_to_review": 5,
+      "capacity_insufficient": 0,
+      "capacity_unknown": 0,
+      "fee_budget": {
+        "verified_cards": 15,
+        "violations": 0,
+        "unverified": 0
+      }
+    },
+    "diagnostic-candidate-v114": {
+      "started_at": "2026-10-10T14:30:26.279739+00:00",
+      "runtime": "6522993c2a18a6232ee2e60d8b9ce0b750e07ae5",
+      "arms": {
+        "candidate": {
+          "cases": 7,
+          "turns": 19,
+          "cards": 53,
+          "turns_with_cards": 13,
+          "latency_median_s": 4.67,
+          "latency_p95_s": 7.82,
+          "cards_latency_median_s": 4.68,
+          "grades": {
+            "B": 7
+          },
+          "observed_model_usd": "0.3505934499999999897",
+          "physical_model_calls": 44
+        }
+      },
+      "cost_usd": "0.35059344999999998970",
+      "raw_offer_audit": {
+        "matched_cards": 53,
+        "unmatched_cards": 0,
+        "card_price_errors": 0,
+        "expired_cards": 0,
+        "identity_only_cards": 0,
+        "card_fact_errors": 0
+      },
+      "distances_checked": 52,
+      "distance_mismatches": 0,
+      "literal_minute_mismatches_to_review": 5,
+      "capacity_insufficient": 0,
+      "capacity_unknown": 0,
+      "fee_budget": {
+        "verified_cards": 15,
+        "violations": 0,
+        "unverified": 0
+      }
+    },
+    "diagnostic-candidate-v115": {
+      "started_at": "2026-10-10T14:38:23.805750+00:00",
+      "runtime": "cda28ebb6fa38a91fe5d61a0a8fc8fbb24eff662",
+      "arms": {
+        "candidate": {
+          "cases": 8,
+          "turns": 22,
+          "cards": 58,
+          "turns_with_cards": 14,
+          "latency_median_s": 4.0,
+          "latency_p95_s": 8.45,
+          "cards_latency_median_s": 4.01,
+          "grades": {
+            "B": 8
+          },
+          "observed_model_usd": "0.4138276999999999955",
+          "physical_model_calls": 52
+        }
+      },
+      "cost_usd": "0.41382769999999999550",
+      "raw_offer_audit": {
+        "matched_cards": 58,
+        "unmatched_cards": 0,
+        "card_price_errors": 0,
+        "expired_cards": 0,
+        "identity_only_cards": 0,
+        "card_fact_errors": 0
+      },
+      "distances_checked": 57,
+      "distance_mismatches": 0,
+      "literal_minute_mismatches_to_review": 6,
+      "capacity_insufficient": 0,
+      "capacity_unknown": 0,
+      "fee_budget": {
+        "verified_cards": 20,
+        "violations": 0,
+        "unverified": 0
+      }
+    },
+    "diagnostic-candidate-v116": {
+      "started_at": "2026-10-10T14:54:44.595156+00:00",
+      "runtime": "315377106070e11390a84c3236993ce0d5177026",
+      "arms": {
+        "candidate": {
+          "cases": 2,
+          "turns": 6,
+          "cards": 6,
+          "turns_with_cards": 2,
+          "latency_median_s": 5.3,
+          "latency_p95_s": 6.67,
+          "cards_latency_median_s": 6.37,
+          "grades": {
+            "B": 2
+          },
+          "observed_model_usd": "0.1153556999999999975",
+          "physical_model_calls": 14
+        }
+      },
+      "cost_usd": "0.11535569999999999750",
+      "raw_offer_audit": {
+        "matched_cards": 6,
+        "unmatched_cards": 0,
+        "card_price_errors": 0,
+        "expired_cards": 0,
+        "identity_only_cards": 0,
+        "card_fact_errors": 0
+      },
+      "distances_checked": 5,
+      "distance_mismatches": 0,
+      "literal_minute_mismatches_to_review": 0,
+      "capacity_insufficient": 0,
+      "capacity_unknown": 0,
+      "fee_budget": {
+        "verified_cards": 0,
+        "violations": 0,
+        "unverified": 0
+      }
+    },
+    "core-candidate-v116": {
+      "started_at": "2026-10-10T14:55:56.418596+00:00",
+      "runtime": "315377106070e11390a84c3236993ce0d5177026",
+      "arms": {
+        "candidate": {
+          "cases": 100,
+          "turns": 280,
+          "cards": 299,
+          "turns_with_cards": 84,
+          "latency_median_s": 4.87,
+          "latency_p95_s": 8.07,
+          "cards_latency_median_s": 5.78,
+          "grades": {
+            "B": 63,
+            "C": 27,
+            "A": 10
+          },
+          "observed_model_usd": "5.7324541999999998892",
+          "physical_model_calls": 734
+        }
+      },
+      "cost_usd": "5.73245419999999988920",
+      "raw_offer_audit": {
+        "matched_cards": 298,
+        "unmatched_cards": 0,
+        "card_price_errors": 0,
+        "expired_cards": 0,
+        "identity_only_cards": 1,
+        "card_fact_errors": 0
+      },
+      "distances_checked": 246,
+      "distance_mismatches": 0,
+      "literal_minute_mismatches_to_review": 9,
+      "capacity_insufficient": 0,
+      "capacity_unknown": 0,
+      "fee_budget": {
+        "verified_cards": 28,
+        "violations": 0,
+        "unverified": 0
+      }
+    },
+    "adaptive-paired-v116": {
+      "started_at": "2026-10-10T15:09:42.363312+00:00",
+      "runtime": "315377106070e11390a84c3236993ce0d5177026",
+      "arms": {
+        "candidate": {
+          "cases": 4,
+          "turns": 16,
+          "cards": 13,
+          "turns_with_cards": 8,
+          "latency_median_s": 5.93,
+          "latency_p95_s": 10.46,
+          "cards_latency_median_s": 7.8,
+          "grades": {
+            "B": 3,
+            "C": 1
+          },
+          "observed_model_usd": "0.3291116999999999968",
+          "physical_model_calls": 31
+        },
+        "legacy": {
+          "cases": 4,
+          "turns": 16,
+          "cards": 41,
+          "turns_with_cards": 10,
+          "latency_median_s": 17.96,
+          "latency_p95_s": 28.92,
+          "cards_latency_median_s": 22.92,
+          "grades": {
+            "C": 3,
+            "B": 1
+          },
+          "observed_model_usd": "0.395308349987"
+        }
+      },
+      "cost_usd": "0.72442004998699999680",
+      "raw_offer_audit": {
+        "matched_cards": 12,
+        "unmatched_cards": 0,
+        "card_price_errors": 0,
+        "expired_cards": 0,
+        "identity_only_cards": 1,
+        "card_fact_errors": 0
+      },
+      "distances_checked": 7,
+      "distance_mismatches": 0,
+      "literal_minute_mismatches_to_review": 0,
+      "capacity_insufficient": 0,
+      "capacity_unknown": 4,
+      "fee_budget": {
+        "verified_cards": 3,
+        "violations": 0,
+        "unverified": 1
+      }
     }
   },
-  "candidate_conversations": 103,
-  "candidate_responses": 292,
-  "legacy_reference_responses": 280,
-  "manual_candidate_reviews": 103,
-  "manual_legacy_reviews_reused": 38,
-  "manual_grade_counts": {
-    "A": 18,
-    "C": 43,
-    "B": 42
+  "descriptive_paired_grade_counts": {
+    "candidate_better": 43,
+    "legacy_better": 14,
+    "equal_grade": 43
   },
-  "independent_human_review": false,
-  "global_win_rate_validated": false,
-  "railway_config_and_deployments_unchanged": true,
-  "budget": {
-    "accounted_usd": "198.84367478782799719289",
-    "unpriced_provisions_usd": "7.10",
-    "ceiling_usd": "200",
-    "reserve_usd": "0.50",
-    "remaining_after_reserve_usd": "0.65632521217200280711",
-    "this_request_usd": "8.36297999999999984580",
-    "final_runtime_replays_usd": "6.03433074999999988700",
-    "since_last_50eur_authorization_usd": "49.48817919971599931423",
-    "pending": null,
-    "invoice_verified": false
-  },
+  "grades_not_independent": true,
+  "production_win_rate_validated": false,
+  "railway_services_verified_unchanged": 6,
   "models": {
-    "triage": "gpt-5.2 low2048",
-    "search": "gpt-4o-mini",
-    "synthesis": "gpt-5.2",
+    "legacy": "gpt-5.2",
+    "candidate_triage": "gpt-5.2 low2048",
+    "candidate_search": "gpt-4o-mini",
+    "candidate_synthesis": "gpt-5.2",
     "deployed_b2c_triage": "gpt-4o-mini"
   },
-  "limits": [
-    "Exposed historical regression corpus and synthetic controls, not independent holdout or six-month exhaustive coverage",
-    "Legacy baseline measured earlier same day; different retrieval/export vs MCP snapshots",
-    "Native GPS/currency/timezone missing in some sources; not invented",
-    "FAQ/SAV phase2",
-    "No paid judge repeated; manual review by same coding agent",
-    "No merge/deploy/Railway writes/customer actions"
-  ],
-  "runtime_metrics": {
-    "diagnostic-candidate-v107": {
-      "complete": true,
-      "model_calls": 32,
-      "physical_calls_per_observed_turn": {
-        "3": 4,
-        "2": 5,
-        "5": 1,
-        "1": 1,
-        "4": 1
-      },
-      "phase_counts_per_observed_turn": {
-        "3": 6,
-        "2": 5,
-        "1": 1
-      },
-      "models": {
-        "gpt-5.2": 23,
-        "gpt-4o-mini": 9
-      },
-      "statuses": {
-        "ok": 32
-      },
-      "observed_model_usd": "0.2672311999999999963",
-      "note": "Counts actual instrumented calls, including multiple tool-loop calls within one logical search phase. Candidate model-only, not infrastructure/Mapbox/MCP invoices."
-    },
-    "core-candidate-v107": {
-      "complete": true,
-      "model_calls": 801,
-      "physical_calls_per_observed_turn": {
-        "3": 103,
-        "4": 76,
-        "2": 35,
-        "1": 53,
-        "5": 13
-      },
-      "phase_counts_per_observed_turn": {
-        "3": 189,
-        "2": 38,
-        "1": 53
-      },
-      "models": {
-        "gpt-5.2": 480,
-        "gpt-4o-mini": 321
-      },
-      "statuses": {
-        "ok": 801
-      },
-      "observed_model_usd": "5.7670995499999998907",
-      "note": "Counts actual instrumented calls, including multiple tool-loop calls within one logical search phase. Candidate model-only, not infrastructure/Mapbox/MCP invoices."
-    }
+  "budget": {
+    "this_work_usd": "25.95481785981999967550",
+    "accounted_usd": "224.87143584764799686739",
+    "ceiling_usd": "230",
+    "reserve_usd": "0.50",
+    "remaining_after_reserve_usd": "4.62856415235200313261",
+    "unpriced_older_provisions_usd": "7.10",
+    "pending": null,
+    "provider_invoice_verified": false
   },
-  "geo_conversations_manually_reviewed": 24,
-  "source_manifest_sha256": "525d54974844c88dd27bf59a675cf6e0749e68c8cce6e13943872f4ad83e904e",
-  "manual_total_unique_conversation_arm_reviews": 141
+  "limits": [
+    "Historical exposed regression corpus plus controls, not random or independent holdout",
+    "v112 paired same-window; final v116 candidate rerun uses earlier same-day v112 legacy reference",
+    "Legacy export/Qdrant and MCP preproduction differ in retrieval and freshness",
+    "Literal historical dates evaluated against current date; expired dates can move into following year",
+    "Fixed continuations may answer only one agents prior question; separate adaptive complement",
+    "Candidate model configuration differs from deployed B2C triage; no code-only or model-only causal claim",
+    "FAQ/SAV deferred; no merge/deploy/Railway writes; model telemetry excludes infrastructure/Mapbox/MCP invoices"
+  ],
+  "interrupted_adaptive_cookie_harness": {
+    "physical_responses": 8,
+    "captured_responses": 4,
+    "received_but_not_saved_responses": 4,
+    "stop_reason": "Test harness persisted cookie values without domain/path; second-turn response arrived but dict(client.cookies) raised CookieConflict before saving it. Both agent arms equally affected. All eight model turns reconciled; not validation. Fresh sessions will use full cookie jar metadata.",
+    "accounting_settled": true,
+    "cost_usd": "0.15521343999899999900"
+  },
+  "same_corpus_candidate_grade_changes": {
+    "transitions": [
+      {
+        "before": "A",
+        "after": "A",
+        "count": 7
+      },
+      {
+        "before": "A",
+        "after": "B",
+        "count": 4
+      },
+      {
+        "before": "B",
+        "after": "A",
+        "count": 2
+      },
+      {
+        "before": "B",
+        "after": "B",
+        "count": 53
+      },
+      {
+        "before": "B",
+        "after": "C",
+        "count": 3
+      },
+      {
+        "before": "C",
+        "after": "A",
+        "count": 1
+      },
+      {
+        "before": "C",
+        "after": "B",
+        "count": 6
+      },
+      {
+        "before": "C",
+        "after": "C",
+        "count": 24
+      }
+    ],
+    "improved": 9,
+    "worse": 7,
+    "same_grade": 84,
+    "not_causal": "Version, model randomness, inventory time and concurrency can all affect outcomes; no causal code-only claim."
+  },
+  "request_context_parity": {
+    "final_candidate_vs_initial_candidate": 280,
+    "initial_pair_identical_except_session_ids": 267,
+    "native_geolocation_transport_adaptations_same_coordinates": 13,
+    "semantic_mismatches": 0
+  },
+  "final_core_minute_disclosure": {
+    "literal_minute_alternatives": 9,
+    "all_explicitly_disclosed": true,
+    "false_exact_match_statements_found_in_these_turns": 0
+  },
+  "adaptive_findings": {
+    "brooklyn": {
+      "candidate": {
+        "grade": "B",
+        "reason": "La clarification est suivie d’une recherche avec les contraintes complètes, puis le plafond est porté à 150 USD avec consentement. Aucun forfait au total vérifiable n’est retourné ; le détail nommé distingue correctement l’identité de l’hôtel et l’absence d’offre datée. Cette absence n’établit pas à elle seule un défaut de rappel. La récupération pourrait proposer un compromis plus concret."
+      },
+      "legacy": {
+        "grade": "C",
+        "reason": "La sélection initiale se situe surtout à Manhattan, explicitement annoncé. Après la précision Downtown Brooklyn, la prod annonce un total frais compris sans preuve complète ; le détail final dit à tort que 10–18 ne couvre pas 11–18, puis décrit ce même créneau. La confirmation nécessite en outre une autorisation redondante alors que le client l’a déjà demandée."
+      }
+    },
+    "madrid": {
+      "candidate": {
+        "grade": "C",
+        "reason": "L’adresse courte réussit dans le cas historique simple mais échoue ici après une réponse complète comprenant Madrid et Espagne. La reformulation est enregistrée comme « Calle de la Palma y el número es 43 » et persiste malgré la correction explicite au tour suivant. Quatre tours sans résolution ; défaut de récupération du contexte et des composants d’adresse."
+      },
+      "legacy": {
+        "grade": "B",
+        "reason": "Ville et pays précisés, puis budget et créneau modifiés avec consentement. Aucun résultat ni distance inventés ; les phrases « aucun hôtel disponible » dépassent toutefois la portée vérifiable de la recherche. L’absence d’inventaire de cette source n’est pas assimilée à une erreur de géographie."
+      }
+    },
+    "berlin": {
+      "candidate": {
+        "grade": "B",
+        "reason": "Berlin Mitte est résolu et le créneau Maritim 09–17 couvre bien 10–17. Le détail relève la taxe de séjour de 7,5 % et distingue finalement prix affiché et total non confirmé. Le premier tour répond en anglais malgré le message et le contexte allemands ; ensuite langue correcte."
+      },
+      "legacy": {
+        "grade": "C",
+        "reason": "La prod affirme manquer d’hôtels dans Mitte alors qu’elle affiche notamment Maritim proArte et ARCOTEL John F. Des cartes annexes ne couvrant pas 10–17 restent affichées et les détails mélangent plusieurs références tarifaires. Le total est correctement laissé non confirmé, mais la précision géographique et la présentation des offres restent trompeuses."
+      }
+    },
+    "paris-pool": {
+      "candidate": {
+        "grade": "B",
+        "reason": "Le budget de 150 EUR, deux adultes et le créneau 12–22 de demain sont conservés. H4 est proposé avec accès non confirmé ; les détails citent gratuité, réservation d’un créneau à la réception et un avis de fermeture ancien, sans garantir la réouverture. Au dernier tour, l’incertitude est maintenue, mais la réponse générique répète la durée au lieu d’expliquer directement l’absence de confirmation actuelle."
+      },
+      "legacy": {
+        "grade": "C",
+        "reason": "Le créneau plus court est négocié explicitement. Les premiers textes assimilent équipement piscine et accès inclus ; la sélection contient aussi des formules hors spa/piscine. Les frais complets sont affirmés puis laissés non vérifiés au détail suivant. La dernière réponse corrige la certitude, mais le parcours a fourni des assurances incohérentes."
+      }
+    }
+  }
 }
