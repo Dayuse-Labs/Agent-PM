@@ -1,79 +1,157 @@
 {
-  "created_at": "2026-10-10T10:36:58.908920+00:00",
+  "created_at": "2026-10-10T11:40:35.943375+00:00",
+  "version": "v107",
   "release_decision": "NO GO",
-  "candidate_runtime_commit": "9e85fe9f79f1a31a477c4e36857b8065a3693190",
+  "runtime_commit": "0e32cc0d3ec4ecbf17e0c5113c7cf646e182af28",
   "legacy_production_commit": "3093647403ec167a0f4ddc2e0bace05f9669d88f",
   "main_reference_commit": "cbe88b9963f28fbea932ac2a6ce23d22112f2b76",
-  "runtime_source_files": 81,
-  "runtime_manifest_sha256": "19e3df3d226112dfc89d0e3fd9695c020f18e91e05187705199046f4dc183f9e",
   "offline_tests": {
-    "passed": 3185,
+    "passed": 3202,
     "skipped": 1,
     "ruff": "passed",
-    "mypy": "passed,81 source files",
+    "mypy": "passed81files",
     "guardrails": "passed"
   },
-  "candidate_responses": 395,
-  "candidate_conversation_executions": 140,
-  "paired_conversations": 117,
-  "legacy_reference_responses": 344,
-  "dated_card_occurrences_verified": 514,
-  "card_audit_errors": {
-    "unmatched_cards": 0,
-    "card_price_errors": 0,
-    "expired_cards": 0,
-    "card_fact_errors": 0
-  },
-  "identity_only_card_occurrences": 3,
-  "budget": {
-    "accounted_usd": "190.48069478782799734709",
-    "unpriced_provisions_usd": "7.1",
-    "telemetry_priced_usd": "183.38069478782799734709",
-    "additional_since_50eur_authorization_usd": "41.12519919971599946843",
-    "ceiling_usd": "200",
-    "pending": null,
-    "invoice_verified": false,
-    "final_v104_live_usd": "8.05870519999999987840",
-    "final_v104_judging_usd": "3.65113399999999988250",
-    "final_v104_model_probe_usd": "0.11957039999999999790",
-    "final_v104_total_usd": "11.82940959999999975880"
-  },
-  "manual_conversation_arm_reviews": 120,
-  "manual_review_is_independent_human": false,
-  "judge": {
-    "model": "gpt-4.1",
-    "pair_assessments": 117,
-    "stability_reassessments": 4,
-    "exact_calibration_agreement": "7/16",
-    "grade_changes_when_order_reversed": "4/8 arm grades",
-    "invalid_pair_outputs": 1,
-    "invalid_manually_resolved": true,
-    "all9_major_agent_findings_reviewed": true,
-    "overall_win_rate_validated": false
-  },
-  "railway_before_after_identical": true,
-  "models": {
-    "candidate": {
-      "triage": "gpt-5.2",
-      "search": "gpt-4o-mini",
-      "synthesis": "gpt-5.2",
-      "triage_reasoning": "low",
-      "triage_max_tokens": 2048,
-      "triage_timeout_seconds": 15
+  "lots": {
+    "diagnostic-candidate-v107": {
+      "cases": 3,
+      "turns": 12,
+      "cost_usd": "0.26723119999999999630",
+      "cards": 27,
+      "responses_with_cards": 10,
+      "receipt_audit": {
+        "matched_cards": 27,
+        "unmatched_cards": 0,
+        "card_price_errors": 0,
+        "expired_cards": 0,
+        "identity_only_cards": 0,
+        "card_fact_errors": 0
+      },
+      "distances_checked": 10,
+      "distance_mismatches": 0,
+      "literal_minute_mismatches": 0,
+      "capacity_checks": 12,
+      "insufficient_capacity": 0,
+      "missing_capacity": 1
     },
-    "legacy": "gpt-5.2",
-    "deployed_b2c_triage": "gpt-4o-mini",
-    "model_ablation": false
+    "core-paired-v107": {
+      "cases": 100,
+      "turns": 280,
+      "cost_usd": "5.76709954999999989070",
+      "cards": 302,
+      "responses_with_cards": 81,
+      "receipt_audit": {
+        "matched_cards": 300,
+        "unmatched_cards": 0,
+        "card_price_errors": 0,
+        "expired_cards": 0,
+        "identity_only_cards": 2,
+        "card_fact_errors": 0
+      },
+      "distances_checked": 262,
+      "distance_mismatches": 0,
+      "literal_minute_mismatches": 4,
+      "capacity_checks": 30,
+      "insufficient_capacity": 0,
+      "missing_capacity": 0,
+      "fee_budget": {
+        "verified_cards": 19,
+        "violations": 0,
+        "unverified": 0
+      }
+    }
   },
-  "model_probe": {
-    "scope": "First completion only; 4 selected exposed cases x2models x3repetitions, identical messages/tools, temperature0. No tool executed, no end-to-end comparison.",
-    "cost_usd": "0.11957039999999999790",
-    "finding": "On the North Little Rock availability followup,4o-mini issued no tool in3/3 and asserted unverified sold-out-untilApril2027.4.1requested search_offers in3/3. Both models used tools on the other3controls (9/9 each); GPS route differs.",
-    "decision": "4.1 is worth a controlled full-pipeline challenger, not a validated replacement. Keep tested configuration in this PR report. Fix typed clarification/empty-data/error handling and regional filtering independently of model choice."
+  "candidate_conversations": 103,
+  "candidate_responses": 292,
+  "legacy_reference_responses": 280,
+  "manual_candidate_reviews": 103,
+  "manual_legacy_reviews_reused": 39,
+  "manual_grade_counts": {
+    "A": 18,
+    "C": 43,
+    "B": 42
   },
-  "scope_limits": [
-    "Same-day separate executions, non-contemporaneous inventories; legacy export/Qdrant vs live preproduction MCP. Inventory count or price differences alone are not agent defects.",
-    "Exposed regressions and mixed historical/synthetic sources, not full six-month traffic or a held-out population estimate. Recent seven prefixes were exposed by the NYC fix. Original native request context is incomplete. Adaptive goals use actual responses and have different messages per arm.",
-    "Whole-conversation A/B/C/D/F with NN for unverified claims. Separate model plus coding-agent manual review, not independent human review. FAQ/SAV policy correctness deferred."
-  ]
+  "independent_human_review": false,
+  "global_win_rate_validated": false,
+  "railway_config_and_deployments_unchanged": true,
+  "budget": {
+    "accounted_usd": "198.84367478782799719289",
+    "unpriced_provisions_usd": "7.10",
+    "ceiling_usd": "200",
+    "reserve_usd": "0.50",
+    "remaining_after_reserve_usd": "0.65632521217200280711",
+    "this_request_usd": "8.36297999999999984580",
+    "final_runtime_replays_usd": "6.03433074999999988700",
+    "since_last_50eur_authorization_usd": "49.48817919971599931423",
+    "pending": null,
+    "invoice_verified": false
+  },
+  "models": {
+    "triage": "gpt-5.2 low2048",
+    "search": "gpt-4o-mini",
+    "synthesis": "gpt-5.2",
+    "deployed_b2c_triage": "gpt-4o-mini"
+  },
+  "limits": [
+    "Exposed historical regression corpus and synthetic controls, not independent holdout or six-month exhaustive coverage",
+    "Legacy baseline measured earlier same day; different retrieval/export vs MCP snapshots",
+    "Native GPS/currency/timezone missing in some sources; not invented",
+    "FAQ/SAV phase2",
+    "No paid judge repeated; manual review by same coding agent",
+    "No merge/deploy/Railway writes/customer actions"
+  ],
+  "runtime_metrics": {
+    "diagnostic-candidate-v107": {
+      "complete": true,
+      "model_calls": 32,
+      "physical_calls_per_observed_turn": {
+        "3": 4,
+        "2": 5,
+        "5": 1,
+        "1": 1,
+        "4": 1
+      },
+      "phase_counts_per_observed_turn": {
+        "3": 6,
+        "2": 5,
+        "1": 1
+      },
+      "models": {
+        "gpt-5.2": 23,
+        "gpt-4o-mini": 9
+      },
+      "statuses": {
+        "ok": 32
+      },
+      "observed_model_usd": "0.2672311999999999963",
+      "note": "Counts actual instrumented calls, including multiple tool-loop calls within one logical search phase. Candidate model-only, not infrastructure/Mapbox/MCP invoices."
+    },
+    "core-candidate-v107": {
+      "complete": true,
+      "model_calls": 801,
+      "physical_calls_per_observed_turn": {
+        "3": 103,
+        "4": 76,
+        "2": 35,
+        "1": 53,
+        "5": 13
+      },
+      "phase_counts_per_observed_turn": {
+        "3": 189,
+        "2": 38,
+        "1": 53
+      },
+      "models": {
+        "gpt-5.2": 480,
+        "gpt-4o-mini": 321
+      },
+      "statuses": {
+        "ok": 801
+      },
+      "observed_model_usd": "5.7670995499999998907",
+      "note": "Counts actual instrumented calls, including multiple tool-loop calls within one logical search phase. Candidate model-only, not infrastructure/Mapbox/MCP invoices."
+    }
+  },
+  "geo_conversations_manually_reviewed": 24,
+  "source_manifest_sha256": "525d54974844c88dd27bf59a675cf6e0749e68c8cce6e13943872f4ad83e904e"
 }
