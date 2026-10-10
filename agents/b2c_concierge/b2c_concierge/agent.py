@@ -2214,6 +2214,22 @@ class _B2cConcierge(BaseAgent):
                     or identity[0].get("hotel_id", identity[0].get("id")) != hotel_id):
                 yield self._final(ctx, templates.leaf_degraded_response(family, reply_language, profile.city))
                 return
+            from b2c_common.named_identity import named_identity_grounded
+            requested_name = owned_destination.query if owned_destination and owned_destination.kind == "hotel" else triage.hotel_name
+            returned_name = str(identity[0].get("name") or "")
+            if not requested_name and returned_name and returned_name.casefold() in message.casefold():
+                requested_name = returned_name
+            if not named_identity_grounded(requested_name, identity[0]):
+                # Catalog fuzzy matching proposes an identity; it cannot choose
+                # a city or availability on the customer's behalf.
+                profile.pending_booking = None
+                profile.last_results = []
+                profile.shown_hotel_ids = []
+                await store.set(ctx.session.id, profile)
+                self._emit_turn_metric(family, "template:named_identity_clarification", budget, t_start, "ok", inv)
+                yield self._hotels_event(ctx, {"requires_clarification": True}, reply_language)
+                yield self._final(ctx, templates.unconfirmed_hotel_response(requested_name or "", reply_language))
+                return
             # A provider-identified hotel literally named this turn is also
             # customer intent when the leaf performed the name lookup. Keep
             # it even if triage omitted the optional name field. Neither an

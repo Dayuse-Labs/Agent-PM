@@ -2272,3 +2272,20 @@ def test_leaf_verified_literal_named_hotel_becomes_persistent_request(monkeypatc
     saved = asyncio.run(fake_profile_store.get(session.id))
     assert saved.requested_destination == {'kind': 'hotel', 'query': 'Example Hotel'}
     assert saved.pending_booking is None
+
+
+def test_fuzzy_catalog_suggestion_cannot_select_a_city_or_fetch_availability(monkeypatch, fake_leg, fake_profile_store):
+    _scripted_llm(monkeypatch, '{"family":"search","language":"en","hotel_name":"Bayview"}')
+    fake_leg.response_payload = {'named_hotel_id': 12, 'results': [
+        {'hotel_id': 12, 'name': 'Bellevue Grand Hotel', 'city': 'Seattle'}]}
+    async def forbidden(*args, **kwargs):
+        pytest.fail('An unconfirmed suggestion must not fetch offers')
+    monkeypatch.setattr(agent_module.inline_tools, 'get_hotel_details', forbidden)
+    runner = InMemoryRunner(root_agent)
+    session = _new_session(runner)
+    reply = _run_turn(runner, session.id, 'I prefer Bayview')
+    saved = asyncio.run(fake_profile_store.get(session.id))
+    assert 'full name and city' in reply
+    assert 'Seattle' not in reply and saved.city is None
+    assert saved.last_results == [] and saved.pending_booking is None
+    assert saved.requested_destination == {'kind': 'hotel', 'query': 'Bayview'}

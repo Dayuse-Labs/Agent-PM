@@ -31,6 +31,8 @@ same "honest degradation" posture as `_run_leaf`.
 """
 from __future__ import annotations
 
+from b2c_common.named_identity import named_identity_grounded
+
 from b2c_common.offer_facts import selected_offer_facts
 
 import asyncio
@@ -219,8 +221,10 @@ async def _resolve_hotel_id_impl(
         # get_hotel_details's own top-level fields when accessed directly.
         hotel = result["data"].get("hotel") or result["data"]
         hotel_id = hotel.get("hotelId") or hotel.get("id")
-        if hotel_id is not None:
+        if hotel_id is not None and named_identity_grounded(args["name"], hotel):
             return int(hotel_id), hotel.get("name")
+        # A successful fuzzy suggestion must not fall back to a stale card.
+        return None, None
 
     # A semantic proper name that failed catalog resolution cannot become an
     # unrelated displayed property merely because they share a city/brand word.

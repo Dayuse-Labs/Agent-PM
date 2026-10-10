@@ -1893,3 +1893,13 @@ def test_explicit_missing_name_cannot_fall_back_to_city_word_match(monkeypatch, 
         llm_hotel_name='Ritz Paris', allow_text_name=False))
     assert result['ok'] is False and result['error'] == 'hotel not found'
     assert [c[0] for c in session.calls] == ['find_hotel_by_name']
+
+
+def test_fuzzy_catalog_success_is_not_authority_to_replace_a_named_property(monkeypatch):
+    session = _install(monkeypatch, {'find_hotel_by_name': FakeResult({'hotel': {
+        'hotelId': 42, 'name': 'Bellevue Grand Hotel', 'cityName': 'Seattle'}})})
+    profile = SessionProfile(last_results=[{'hotel_id': 123, 'name': 'Bayview Paris'}])
+    result = _run(inline_tools.get_hotel_details('Tell me about Bayview London', profile,
+        llm_hotel_name='Bayview London', allow_text_name=False))
+    assert result['ok'] is False
+    assert [c[0] for c in session.calls] == ['find_hotel_by_name']

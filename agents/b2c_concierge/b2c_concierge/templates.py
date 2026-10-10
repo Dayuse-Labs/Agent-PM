@@ -796,3 +796,16 @@ _PLACE_OR_HOTEL = {
 
 def ambiguous_place_or_hotel_question(language: str) -> str:
     return _PLACE_OR_HOTEL.get(language, _PLACE_OR_HOTEL["en"])
+
+
+def unconfirmed_hotel_response(query: str, language: str) -> str:
+    questions = {
+        "fr": "Je ne peux pas confirmer l’hôtel « {query} ». Peux-tu préciser son nom complet et sa ville ?",
+        "en": "I can’t confirm the hotel “{query}”. Could you give its full name and city?",
+        "de": "Ich kann das Hotel „{query}“ nicht bestätigen. Wie lauten der vollständige Name und die Stadt?",
+        "es": "No puedo confirmar el hotel «{query}». ¿Puedes indicar su nombre completo y la ciudad?",
+        "it": "Non riesco a confermare l’hotel «{query}». Puoi indicare il nome completo e la città?",
+        "pt": "Não consigo confirmar o hotel «{query}». Podes indicar o nome completo e a cidade?",
+        "nl": "Ik kan het hotel ‘{query}’ niet bevestigen. Wat zijn de volledige naam en de stad?",
+    }
+    return _pick(language, questions).format(query=query)

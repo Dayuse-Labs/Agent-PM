@@ -1,3 +1,9 @@
+## 2026-10-10 — Guard fuzzy catalog identity before availability
+
+The paired v100 core was stopped after 21 complete pairs plus one partial pair (129 responses): a fuzzy MCP hotel-name suggestion selected another property/city without customer evidence. v101 now checks requested name words against the catalog identity before search availability and inline details. An unmatched suggestion asks for the full name and city; it cannot become cards or a booking referent. No new regex, geographic aliases or model call. Misspelled names can now require clarification; this recall tradeoff is explicit.
+
+Validation: 3159 offline tests passed, one opt-in live Langfuse test skipped; ruff, mypy (81 files), guardrails passed. Five focused live cases prepared, then one frozen complete paired evaluation; results still pending. NO GO until evidence is reviewed. Runtime ownership/A2A/MCP architecture unchanged.
+
 ## 2026-10-10 · v100 — dernière consolidation avant comparatif large
 
 v99 terminé **17 parcours / 36 tours**, **0,7029 USD**, cumul **153,7917 USD**.
