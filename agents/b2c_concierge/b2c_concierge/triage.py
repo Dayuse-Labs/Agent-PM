@@ -23,7 +23,7 @@ for zero upside. Kept as-is; not a gap.
 """
 from __future__ import annotations
 
-from b2c_common.search_budget import grounded_budget
+from b2c_common.search_budget import grounded_budget, currency_answer
 from b2c_common.proximity_request import grounded_proximity
 
 import json
@@ -873,7 +873,7 @@ async def classify(message: str, budget: TurnBudget, invocation_id: str = "",
         requested_calendar=(grounded_calendar(data.get("requested_calendar"), message)
                             if family == "search" else None),
         requested_date_period=(period_decision(data.get("requested_date_period"), message)
-                               if family == "search" else None),
+                               if family == "search" and currency_answer(message) is None else None),
         requested_weekday=(_grounded_weekday(data.get("requested_weekday"), message)
                            if family == "search" else None),
         replace_window=_window_replacement(data, message),

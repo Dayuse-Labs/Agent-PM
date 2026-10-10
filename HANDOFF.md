@@ -1,3 +1,27 @@
+## 2026-10-10 · v100 — dernière consolidation avant comparatif large
+
+v99 terminé **17 parcours / 36 tours**, **0,7029 USD**, cumul **153,7917 USD**.
+Texas reste Texas sur deux tours ; Hilton Atlanta et le suivi Maritime passent ;
+dates conservées avant clarification et absence d'offres du jour sur les deux
+séjours. 59 cartes reliées exactement au MCP, zéro divergence prix/date/créneau.
+Les deux séjours restent un objectif partiellement traité (clarification, pas
+comparaison simultanée). Pas de réussite globale déduite de ce contrôle.
+
+Écarts résiduels traités dans ce lot : un nom explicite introuvable ne peut plus
+se replier sur une ancienne carte partageant un seul mot (Ritz Paris → Mercure).
+Une nouvelle propriété demandée remplace les anciens référents visibles pour
+le prochain « cet hôtel ». Le triage doit garder les districts postaux partiels
+même avec « cheapest » ; instruction générale sans dictionnaire ni regex.
+Une réponse composée uniquement d'une devise ne peut pas réétiqueter une période
+existante (« next week » devenu « USD » dans le diagnostic).
+
+170 tests ciblés et **3 149 tests complets passent, 1 ignoré** (gate réseau opt-in).
+Lint, mypy (80 fichiers), guardrails et diff verts. Rejeu préparé **21/45**,
+avec troisième tour hôtel, deux répétitions W4 et deux contrôles postaux voisins
+explicitement synthétiques. Puis corpus fixe **100/280 par bras** et six objectifs
+adaptatifs **24 tours par bras**, budgets respectifs 20 et 4 USD. Pas encore exécutés.
+**NO GO** maintenu jusqu'à lecture des résultats ; aucune mise en prod ni merge.
+
 ## 2026-10-10 · v99 — dates avant clarifications, extraction invalide conservée comme incertitude
 
 Le diagnostic v98 a été arrêté sur un nouveau défaut majeur : demande de deux

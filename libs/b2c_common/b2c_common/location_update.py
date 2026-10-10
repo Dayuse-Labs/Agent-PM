@@ -58,7 +58,12 @@ Query contains the actual named place only, excluding words meaning nearby,
 surroundings or instead. Copy its spelling from MESSAGE; the provider resolves it.
 For a city, nearby is the default unless city limits are required. For a neighborhood,
 inside means results must belong to it, nearby explicitly allows adjacent places.
-A region is always inside; do not silently reduce it to a city. An ordinary city
+A region is always inside; do not silently reduce it to a city.
+A short postal district is still an explicit location, even when it is not a
+complete delivery postcode. Retain its literal token as a postcode target when
+asking for its containing city; omit an uncertain country instead of omitting
+the target. A request for "cheapest" does not erase the location alongside it.
+Never infer missing postcode digits or replace the district with its city. An ordinary city
 or neighborhood name is not a request for another confirmation when unambiguous.
 Countries/parent cities supplied later refine the outstanding specific destination.
 Negative locations are NEVER targets: retain the requested location when the user

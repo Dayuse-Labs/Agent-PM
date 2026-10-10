@@ -222,6 +222,10 @@ async def _resolve_hotel_id_impl(
         if hotel_id is not None:
             return int(hotel_id), hotel.get("name")
 
+    # A semantic proper name that failed catalog resolution cannot become an
+    # unrelated displayed property merely because they share a city/brand word.
+    if llm_hotel_name:
+        return None, None
     weak_hit = resolve_hotel_reference(reference, profile.last_results)
     if weak_hit is not None and weak_hit.get("hotel_id") is not None:
         return int(weak_hit["hotel_id"]), str(weak_hit["name"])

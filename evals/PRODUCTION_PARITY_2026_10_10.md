@@ -1,6 +1,17 @@
-# Production parity — reprise du 10 octobre 2026 (v99)
+# Production parity — reprise du 10 octobre 2026 (v100)
 
-**NO GO en attente du rejeu des correctifs et du comparatif large.**
+**NO GO en attente du comparatif large.**
+
+Le rejeu v99 a terminé 17 parcours / 36 tours : le Texas est conservé, Hilton
+Atlanta est retrouvé, le suivi de Maritime reste à Fort Lauderdale, et le retour
+silencieux à aujourd'hui après une demande de deux séjours est bloqué. 59 cartes
+ont un reçu MCP exact, sans divergence de prix. Coût : 0,7029 USD.
+
+Le dernier lot retire le repli d'un nom absent vers une ancienne carte partageant
+un mot, conserve le référent d'un nouvel hôtel au tour suivant et renforce
+l'extraction des districts postaux partiels. Ces ajouts doivent encore être rejoués.
+Les états précédents ci-dessous sont conservés comme historique, pas comme le
+bilan de validation de ce dernier lot.
 
 Le rejeu v98 a été arrêté après 13 parcours complets et un partiel (40 tours) :
 une extraction de période invalide faisait perdre les deux séjours demandés et

@@ -1053,10 +1053,14 @@ class _B2cConcierge(BaseAgent):
         if profile.display_currency == HOTEL:
             apply_hotel_currency(hotels)
         response = {"results": hotels}
-        if route.target == "get_hotel_details" and not profile.last_results:
-            # The first visible property is a valid referent even when it is
-            # identity-only. No offer/booking authority is invented by this.
+        if route.target == "get_hotel_details" and (not profile.last_results or (
+                llm_hotel_name and hotels[0].get("id", hotels[0].get("hotel_id")) not in
+                {h.get("hotel_id") for h in profile.last_results})):
+            # A newly requested property replaces the old visible referents.
+            # Its later "that hotel" question must not point to the prior city
+            # shortlist. Identity-only facts still grant no booking authority.
             record_search_shortlist(profile, hotels)
+            profile.pending_booking = None
         if route.target == "compare_hotels":
             # These cards replace the visible list. Later ordinals and pick
             # buttons must use the same order, including an explicitly reversed

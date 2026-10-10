@@ -14,6 +14,7 @@ from pathlib import Path
 from types import SimpleNamespace
 
 import jsonschema
+import pytest
 
 from b2c_concierge import inline_tools
 from b2c_concierge.profile import SessionProfile
@@ -1880,3 +1881,15 @@ def test_details_alternatives_still_apply_requested_clock(monkeypatch):
     profile = SessionProfile(date='2030-10-09', timeslot_start='11:00', timeslot_end='16:00')
     card = _run(inline_tools.get_hotel_details('', profile, picked_hotel_id=22293, for_search=True))['hotel']
     assert [o['offer_id'] for o in card['available_offers']] == ['covers']
+
+
+@pytest.mark.parametrize('failed', [False, True])
+def test_explicit_missing_name_cannot_fall_back_to_city_word_match(monkeypatch, failed):
+    session = _install(monkeypatch, {'find_hotel_by_name': FakeResult(
+        {} if failed else {'hotel': None}, is_error=failed)})
+    profile = SessionProfile(city='Paris', last_results=[
+        {'hotel_id': 123, 'name': 'Hôtel Mercure Paris Notre-Dame Saint-Germain-des-Prés'}])
+    result = _run(inline_tools.get_hotel_details('Tell me about Ritz Paris', profile,
+        llm_hotel_name='Ritz Paris', allow_text_name=False))
+    assert result['ok'] is False and result['error'] == 'hotel not found'
+    assert [c[0] for c in session.calls] == ['find_hotel_by_name']

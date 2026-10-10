@@ -347,3 +347,25 @@ def test_named_details_reach_mcp_after_preserving_search_city(scripted, monkeypa
     assert calls[0]['llm_hotel_name'] == 'Hilton Atlanta'
     assert calls[0]['picked_hotel_id'] is None
     assert calls[0]['allow_text_name'] is False
+
+
+def test_new_named_details_replace_the_old_shortlist_referent(scripted, monkeypatch, fake_profile_store):  # noqa: F811
+    runner, session = _new_session()
+    asyncio.run(fake_profile_store.set(session.id, SessionProfile(city='Atlanta',
+        last_results=[{'hotel_id': 1, 'name': 'Different Hotel'}, {'hotel_id': 2, 'name': 'Another Hotel'}])))
+    calls = []
+    async def details(message, profile, **kwargs):
+        calls.append(kwargs)
+        return {'ok': True, 'hotel': {'hotel_id': 19788, 'name': 'Hilton Atlanta', 'city': 'atlanta'}}
+    monkeypatch.setattr(agent_module.inline_tools, 'get_hotel_details', details)
+    scripted(json.dumps({'family': 'details', 'language': 'en', 'hotel_name': 'Hilton Atlanta',
+        'location_update': {'action': 'preserve'}}), 'Details of Hilton Atlanta.')
+    _drive_in(runner, session.id, 'Tell me about Hilton Atlanta')
+    profile = asyncio.run(fake_profile_store.get(session.id))
+    assert [h['hotel_id'] for h in profile.last_results] == [19788]
+    scripted(json.dumps({'family': 'details', 'language': 'en', 'location_update': {'action': 'preserve'},
+        'information_source': {'value': 'hotel_facts', 'evidence': 'Is that in Atlanta?'}}), 'Yes, in Atlanta.')
+    _drive_in(runner, session.id, 'Is that in Atlanta?')
+    assert calls[-1]['picked_hotel_id'] == 19788
+    profile = asyncio.run(fake_profile_store.get(session.id))
+    assert profile.pending_booking is None and profile.picked_hotel_id is None

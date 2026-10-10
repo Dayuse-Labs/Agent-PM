@@ -158,3 +158,15 @@ def test_invalid_period_does_not_gain_calendar_authority():
     assert frozen['kind'] == 'unresolved' and 'start' not in frozen and 'end' not in frozen
     assert weekday_in_period(frozen, 'tuesday', date(2026, 10, 9)) is None
     assert 'couldn’t verify' in period_question(frozen, 'en')
+
+
+def test_currency_only_answer_cannot_relabel_the_pending_period(monkeypatch, fake_leg, fake_profile_store, friday):  # noqa: F811
+    runner, session, _, _, _ = setup_period(monkeypatch, fake_profile_store)
+    _scripted_llm(monkeypatch, json.dumps({'family': 'search', 'language': 'en',
+        'requested_date_period': {'kind': 'next_week', 'evidence': 'USD'}}))
+    answer = _run_turn(runner, session.id, 'USD')
+    saved = asyncio.run(fake_profile_store.get(session.id))
+    assert saved.pending_date_period['evidence'] == 'next week'
+    assert saved.pending_date_period['start'] == '2026-10-12'
+    assert 'USD (2026' not in answer
+    assert fake_leg.call_count == 0
