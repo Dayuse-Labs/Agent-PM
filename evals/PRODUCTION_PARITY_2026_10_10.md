@@ -1,144 +1,104 @@
-# Production parity — reprise du 10 octobre 2026 (v100)
+# B2C / production : bilan de validation du 10 octobre 2026
 
-**NO GO en attente du comparatif large.**
+**NO GO pour remplacer la production. La PR #134 apporte des corrections vérifiées, mais la parité fonctionnelle n'est pas atteinte.** Les correctifs stabilisent le contexte et les offres MCP ; des blocages de pertinence et de suivi restent reproductibles. Ce document remplace les bilans intermédiaires v97-v103. Les rapports datés précédents sont historiques.
 
-Le rejeu v99 a terminé 17 parcours / 36 tours : le Texas est conservé, Hilton
-Atlanta est retrouvé, le suivi de Maritime reste à Fort Lauderdale, et le retour
-silencieux à aujourd'hui après une demande de deux séjours est bloqué. 59 cartes
-ont un reçu MCP exact, sans divergence de prix. Coût : 0,7029 USD.
+## Versions et architecture
 
-Le dernier lot retire le repli d'un nom absent vers une ancienne carte partageant
-un mot, conserve le référent d'un nouvel hôtel au tour suivant et renforce
-l'extraction des districts postaux partiels. Ces ajouts doivent encore être rejoués.
-Les états précédents ci-dessous sont conservés comme historique, pas comme le
-bilan de validation de ce dernier lot.
+- Candidat execute : `9e85fe9f79f1a31a477c4e36857b8065a3693190`. Les 81 fichiers runtime sont figes et verifies apres execution. Le commit de livraison peut ajouter uniquement ce bilan et le handoff.
+- Production effectivement deployee : `3093647403ec167a0f4ddc2e0bace05f9669d88f`; main B2C refetch avant/apres : `cbe88b9963f28fbea932ac2a6ce23d22112f2b76`.
+- Les configurations et deploiements des six services/environnements Railway sont identiques avant/apres. Les images B2C deployees n'exposent pas de SHA applicatif : ne pas les assimiler au candidat local.
+- Architecture conservee : profil Redis detenu par le concierge, feuilles A2A sans session, MCP pour les donnees, LiteLLM pour les modeles. Aucun nouvel appel regex dans le diff agents/libs de la PR. Pas de dictionnaire geographique ajoute ni de boucle LLM de reparation.
 
-Le rejeu v98 a été arrêté après 13 parcours complets et un partiel (40 tours) :
-une extraction de période invalide faisait perdre les deux séjours demandés et
-retomber sur aujourd'hui. La correction conserve une incertitude explicite et
-sauvegarde les dates avant les clarifications de budget. Nouveau rejeu ciblé
-17 parcours / 36 tours préparé ; validation réelle encore à effectuer.
+Configuration **testee**, differente du B2C deploye : triage GPT-5.2, raisonnement low, 2048 tokens et timeout15s; recherche4o-mini; synthese GPT-5.2. Le triage Railway B2C reste4o-mini. La production legacy utilise GPT-5.2. Les gains ne peuvent pas etre attribues au code seul ni au modele seul. La PR ne modifie pas Railway.
 
-W4 a également varié entre les deux passages : préserver une zone après une
-clarification demeure un point à mesurer. Les observations ci-dessous décrivent
-le diagnostic v97, sans les présenter comme des succès de la version finale.
+## Ce qui a été exécuté
 
-Le MCP est de nouveau accessible. Le diagnostic candidat a terminé ses **26 parcours /
-65 tours**, après le même lot sur la production actuelle `3093647`. Ces parcours
-mélangent historiques, suivis synthétiques et régressions tirées des tests de prod ;
-ils ne représentent pas 26 clients indépendants ni un échantillon aveugle du trafic.
+| Lot candidat | Parcours | Reponses | Reference legacy |
+|---|---:|---:|---|
+| Corpus principal historique + controles | 100 | 280 | 100 / 280 |
+| Suivis adaptes aux vraies reponses | 6 | 24 | 6 / 24 |
+| Prefixes recents de production | 7 | 26 | 7 / 26 |
+| Reprises explicites apres clarification | 4 | 14 | 4 / 14 |
+| Controles critiques complementaires | 17 | 36 | Hors comparatif final appaire |
+| Identite / nom d'hotel | 5 | 11 | Hors comparatif final appaire |
+| Retour sur une ancienne carte / creneau | 1 | 4 | Rejeu cible du defaut |
+| **Total** | **140 executions** | **395** | **117 / 344** |
 
-Le contrôle des données affichées a joint **144 cartes** à leur reçu MCP exact
-(hôtel, formule, date, créneau) : aucune divergence de prix, aucun reçu manquant
-pour ces cartes et aucune offre expirée au moment de la réponse. Ce contrôle ne
-prouve pas la pertinence géographique ni l'exhaustivité des résultats.
+Les reponses legacy proviennent des passages du meme jour v101 (corpus principal) et v102 (autres lots), avec leurs dates et hashes d'origine. Elles ne sont pas refacturees. Les inventaires sont **non simultanes et differents** : export/Qdrant legacy, MCP preproduction (reflet de la prod selon l'equipe). Un hotel absent ou un prix different ne prouve pas une erreur d'agent. Les tours sont sequentiels par session; quatre conversations independantes en parallele sur le corpus principal. Latence locale versus Railway non comparable directement.
 
-Le diagnostic a identifié deux défauts du candidat :
+Les 140 executions ne sont ni140 clients uniques ni les six mois complets. Le corpus melange messages historiques, prefixes recents et controles synthetiques issus des corrections. Tous sont exposes; les sept prefixes recents ont notamment servi au correctif NYC. **Aucun holdout independant final.** Les anciens messages utilisateur sont fixes et peuvent ne pas repondre aux nouvelles clarifications. Les six objectifs adaptatifs compensent partiellement cette limite en reagissant aux cartes reellement recues. GPS, devise UI, fuseau et autres contextes natifs manquants ne sont pas inventes. FAQ/SAV en phase2.
 
-- `New York, Texas` était correctement extrait, puis l'État était remplacé par
-  New York dans la résolution géographique. La correction donne priorité à
-  l'état de destination détenu par le concierge et refuse un résultat dont la
-  région n'est pas vérifiée par le fournisseur.
-- Un nom hôtel extrait correctement était effacé par une décision « préserver
-  la zone ». Le nom littéralement demandé reste maintenant utilisable pour lire
-  les détails via MCP ; une question sur l'unique hôtel affiché retrouve cette
-  identité pour ses informations générales comme pour ses horaires.
+## Ce que les preuves permettent de conclure
 
-Ces corrections n'ajoutent ni regex, ni dictionnaire géographique, ni appel LLM.
-Les régressions ciblées sont couvertes par des tests ; leur validation réelle sur
-le MCP est en cours. Ne pas confondre correction de la cause et succès déjà rejoué.
+**514 occurrences de cartes datees** sont reliees a un recu MCP exact par hotel, formule, date et creneau : zero recu manquant, zero divergence detectee de prix ou de faits de formule, aucune offre expiree detectee lors de sa reponse. Trois autres occurrences sont des fiches d'identite sans offre/prix; elles sont comptees a part. Ces controles ne prouvent ni l'exhaustivite ni la pertinence des hotels, ni la veracite de chaque phrase generee.
 
-Les points encore ouverts comprennent les deux séjours avec dates et horaires
-associés, le suivi après une demande de semaine flexible, et les écarts de couverture
-entre l'export de production et le MCP. La FAQ/SAV reste hors de cette phase.
-La comparaison conserve les différences de configuration : production GPT-5.2,
-candidat triage GPT-5.2 / recherche 4o-mini / synthèse GPT-5.2 ; la configuration
-B2C Railway utilise encore un triage 4o-mini. Aucun gain n'est attribué au seul modèle.
+Sur le corpus principal :301 cartes datees,262 calculs de distance sans ecart arithmetique,25 controles de capacite et21 plafonds frais inclus sans violation detectee. Quatre ecarts a la minute litterale relevent de la regle horaire du site et sont annonces comme alternatives. Une distance mathematiquement correcte n'empeche pas une recherche dans une mauvaise zone. Le candidat affiche des cartes sur84/280 reponses, contre146/280 pour le legacy : clarifications, inventaires et parcours conditionnels interdisent d'y lire seuls un taux de succes.
 
-Budget : **2,9178 USD** pour les deux bras du dernier diagnostic ; cumul
-**152,2733 USD** provisions incluses, plafond **200 USD**, réserve **0,50 USD**.
-Le passage large est préparé sur 100 parcours / 280 tours par bras, avec plafond
-propre de 20 USD et suivi comptable au fil des conversations. Pas encore exécuté.
+**Corrections confirmees par le rejeu :** NYC n'est plus perdu a cause de la normalisation du nom; consulter une carte ne transforme plus la zone en recherche d'un seul hotel; un rayon explicite30km repart du GPS verifie; les details d'un ancien hotel choisissent une formule compatible avec l'horaire memorise. Le parcours Herald Square conserve date/18h, propose d'autres hotels, puis retrouve le bon prix/creneau. Les controles Texas, Hilton Atlanta, Maritime, BNA/HNL/PDX et devise USD conservent leur contexte. Les prix sont rattaches a une formule/date, au lieu de reconstituer une offre depuis un prix d'appel.
 
-La CI GitHub du dernier head publié n'a pas démarré pour cause de facturation du
-compte. Aucun merge, déploiement ou changement Railway. La PR reste en brouillon.
+**Blocages encore ouverts :**
 
----
+| Priorite | Defaut verifie | Consequence / correction attendue |
+|---|---|---|
+| Majeur | Apres «toujours en Seine-et-Marne», une option moins chere a Saint-Germain-les-Corbeil (adresse MCP91250) est presentee sans signaler la sortie du departement | La region est memorisee mais le filtrage final utilise le point de Melun. Distinguer contexte de geocodage et contrainte geographique obligatoire jusqu'aux cartes. |
+| Significatif | La Defense, Manhattan, Heathrow Terminal3, WestminsterUK et BNE peuvent rester bloques | Ameliorer la resolution par preuves fournisseur et la clarification ciblee; ne pas revenir aux substitutions de ville non verifiees. |
+| Significatif | W4 conserve dans2/3 repetitions; SW19 peut devenir Londres-centre | Une precision sur la ville parente ne doit pas effacer silencieusement le district. |
+| Significatif | «its offer», «c'est dans quelle zone?», «autre horaire», choix d'un lieu propose ou faute sur un hotel visible | Unifier les referents de cartes/lieux et les operations de suivi; ne pas confondre autres hotels et autres creneaux. |
+| Significatif | «15 18h» devient date15 +18-20 au lieu d'une clarification | Resoudre l'ambiguite sans remplacer silencieusement la date memorisee. Deux sejours restent traites un a un, sans comparaison automatique. |
+| Significatif | Question sur le calendrier a North Little Rock annonce une panne | A2A et LLM ont repondu; la feuille a produit du texte sans outil. Distinguer clarification, absence d'offre et panne dans le contrat de retour. |
 
-## Archive : état avant la reconnexion MCP
+La prod a aussi des defauts confirmes : derive GW Bridge vers Virginia Beach/Washington, Metro Park/Princeton vers l'Inde, GPS Ontario vers Halifax, et prix d'appel associes a un mauvais creneau ou a un passe piscine. Les traces Langfuse completes ont servi a verifier le cas LAX, notamment. Cela ne rend pas automatiquement le candidat meilleur sur l'ensemble des parcours.
 
-# Production parity — 10 octobre 2026 (v97)
+## Notation et fiabilité du juge
 
-**NO GO : nouvelle référence de production exécutée, candidat encore bloqué par la connexion MCP.**
-La référence actuelle est `3093647`, déployée le 9 octobre à 18:31 UTC. Les six
-services/environnements Railway ont été relus avant et après le passage : aucun
-changement de configuration ou de déploiement. Main B2C reste `cbe88b9`.
-Le candidat testé prochainement est `869faf4`, dont les 80 fichiers runtime sont
-identiques à `6a5a221`. Aucun changement fonctionnel dans cette livraison v97.
+A parfait, B mineur, C significatif, D majeur, F critique; NN pour une affirmation non evaluable. Note de conversation entiere, pas moyenne des tours. **120 revues de conversations-bras par l'agent de codage**, incluant les24 regressions geo des deux bras, tous les suivis adaptatifs et controles complementaires. Ce n'est pas une validation humaine independante.
 
-## Exécution et coût
+GPT-4.1 a evalue117 paires, plus4 repetitions avec ordre inverse. Calibration :7/16 notes identiques a la revue prealable; inversion de l'ordre :4/8 notes de bras changent. Il a rate des erreurs de prix/creneau, penalise a tort des ecarts d'inventaire et une FAQ hors scope. Ses9 signalements majeurs ont tous ete revus; une sortie invalide a ete remplacee par une revue des deux bras sans nouvel appel payant. **Les notes automatiques restantes sont provisoires; aucun taux global de reussite ni victoire globale n'est valide.** Le rapport prive indique la provenance de chaque note. La conclusion NO GO repose sur des defauts observes, pas sur la moyenne du juge.
 
-- **Prod : 26 parcours, 65 tours, 65 traces Langfuse tarifées**, sessions isolées,
-  tours séquentiels, aucun rejeu automatique. Coût supplémentaire **1.6182 USD**.
-- **Candidat : 0 parcours exécuté.** Initialisation MCP en expiration de connexion
-  avant authentification, avec URL et jeton identiques à la configuration Railway.
-  Le contrôle préalable a arrêté le lancement avant tout appel modèle candidat.
-- Budget supplémentaire autorisé : 50 EUR ; sous-plafond prudent de 50 USD ajouté.
-  Plafond cumulé 200 USD ; total comptabilisé **150.9737 USD**, dont 7,10 provisionnés
-  conservés. Réserve 0,50 USD ; reste disponible **48.5263 USD**.
-  Ledger soldé, aucun batch payant actif à la clôture du passage.
+Les six suivis adaptatifs entierement revus donnent candidat3A/2B/1D, legacy2B/1C/3D. C'est un petit lot cible, pas une estimation du trafic. La matrice ci-dessous utilise uniquement les revues de conversations entieres; une noteC peut provenir du suivi, meme si le pays est correct.
 
-## Résultats de la référence
+| Regression historique | Prod | Candidat |
+|---|---|---|
+| East Brunswick, NJ | B | B |
+| Halton / Peel, Canada | C | A |
+| Berlin-Mitte | B | A |
+| Abu Dhabi et piscine enfants | C | B |
+| Milano et question sur le quartier | B | C |
+| La Defense / Courbevoie | C | C |
+| Disneyland et clarification du pays | D | C |
+| JFK et horaires | C | B |
+| Heathrow Terminal 3 | C | C |
+| Milford, Connecticut | B | B |
+| Queens et piscine | C | B |
+| South Plainfield, NJ | B | B |
+| Melbourne, Australie | B | B |
+| Rambler Oasis / Hong Kong | C | A |
+| Singapore avec faute de frappe | B | B |
+| Correction Courbevoie / La Defense | C | C |
+| Newark puis Manhattan | C | C |
+| Halifax ambigu | C | B |
+| Westminster UK | B | C |
+| Kent / Gillingham | B | B |
+| Brooklyn et budget | B | B |
+| Paris Bercy / demain | C | B |
+| Metro Park Edison vers Hampton Princeton | D | C |
+| Nice adjectif / Paddington / meilleure note | B | A |
 
-Revue manuelle non aveugle des 26 conversations : **5 B, 15 C, 5 D, 1 non notée**.
-A = parfait, B = mineur, C = significatif, D = majeur, F = critique. Ce lot est
-volontairement concentré sur les régressions : ce n'est pas une estimation du taux
-d'erreur du trafic de production. Ce n'est pas non plus un comparatif apparié terminé.
-Il contient 5 régressions connues, 3 conversations récentes et 18 contrôles
-synthétiques dérivés des derniers correctifs de production ; pas 26 conversations
-clients historiques. Deux suivis synthétiques sont inclus dans les régressions.
+## Modèle et coût
 
-| Comportement | Observation vérifiée dans le rejeu actuel |
-|---|---|
-| Réponse numérique à une question géographique | Le code déclare aussi un budget explicite, contrairement au sens de la réponse. Langfuse indique que cette valeur ne vient pas de l'extraction LLM. |
-| Élargissement autour de Milan | Un homonyme près de Spoleto est géocodé ; le métro devient Rome. Une validation géographique négative ne bloque pas la recherche servie. |
-| Élargissement depuis un GPS canadien | La recherche passe de l'Ontario à Halifax, puis se corrige après protestation. |
-| Demande d'une autre option à Madrid | Le suivi est interprété comme un autre lieu ; les budgets sont inventés puis augmentés sans demande. |
-| Prix pour un horaire précis | 11 annonces ciblées sont contredites par leurs propres créneaux structurés. Exemple : 160,30 USD annoncé pour une sortie à 19 h, contre 179,20 USD pour le créneau couvrant cette heure. Ce sous-échantillon a été sélectionné pour diagnostic. |
-| Hôtel nommé | Un hôtel exact dans l'Ohio est joint à des cartes de New York ; une autre recherche limitée à Los Angeles renvoie Boston. Les appels outils confirment les incohérences de contexte et de filtrage. |
-| Hôtel ajouté dans le texte | Le guard détecte un hôtel fantôme mais sa proposition tarifée reste dans la réponse, accompagnée d'une mention d'absence des résultats. |
-| Correctifs préservés en prod | Les neuf codes aéroport restent dans la bonne zone au suivi ; le cas New York au Texas ne bascule pas vers New York City ; l'identité exacte Hilton Atlanta et les créneaux Hampton O'Hare sont récupérés. Cela ne valide pas tous leurs prix/équipements. |
+Micro-controle isole :4 decisions capturees, deux modeles, trois repetitions, entree/outils identiques, aucun outil execute. Sur la question North Little Rock,4o-mini affirme une indisponibilite sans outil3/3; GPT-4.1 demande une recherche3/3. Les deux appellent des outils sur les trois autres controles. Cout **0.1196 USD**. Cela justifie un futur challenger4.1 de bout en bout, **pas un remplacement valide**. Les gardes de contexte/prix et le contrat de clarification restent necessaires.
 
-Six traces complètes (111 observations) ont été lues pour diagnostiquer les causes.
-Les données brutes, coordonnées, sessions, clés et transcriptions restent hors Git.
-La piscine ET le spa sont bien transmis en filtres obligatoires, mais l'inclusion
-des accès dans une offre chambre n'est pas établie : cas non noté, pas faux succès.
-Les séjours à deux dates et la demande de semaine suivante sont non vérifiables
-sur les cartes legacy non datées ; les contrôles date restent `skipped`.
-Les différences export/RevOps contre MCP préproduction ne sont pas automatiquement
-attribuées à l'agent. Les incohérences internes prix/créneau, ville et budget sont
-évaluables indépendamment de cette différence d'inventaire.
+- Derniere validation v104 : **11.8294 USD**, dont8.0587 de rejeux,3.6511 de notation et0.1196 de micro-controle.
+- Derniere enveloppe supplementaire : **41.1252 USD consommes**, sous-plafond operationnel ajoute50USD.
+- Cumul comptabilise : **190.4807 USD**, dont7,10USD de provisions anterieures non tarifables conservees; plafond200USD, reserve0,50USD, disponible **9.0193 USD**. Aucun batch payant en attente.
+- Corpus principal : candidat5,6691USD /280 reponses, legacy5,7628USD /280. Pas de baisse de cout robuste demontree. Tarification issue de la telemetrie, pas verification de facture; couts MCP/Mapbox/infrastructure exclus.
 
-## Suite exacte
+Le corpus principal compte812 appels modele :280 tours, au plus3 phases logiques, mais jusqu'a6 appels physiques a cause des boucles d'outils. Ne pas presenter l'architecture comme «3 appels maximum».
 
-1. Rétablir la connexion MCP, rejouer les mêmes 26 parcours sur le candidat figé,
-   puis joindre les cartes aux offres MCP réelles. Ne pas relancer la prod déjà
-   terminée si version, horloge utile et inventaire restent comparables.
-2. Corriger les défauts réellement observés sur le candidat en lots cohérents,
-   sans regex ni dictionnaire géographique ajouté ; rejouer les cas en échec.
-3. Passer les 100 autres parcours / 280 tours sur les deux agents actuels.
-4. Ajouter 3 conversations de ce matin / 16 tours, messages figés avant réponse
-   candidat, et 6 objectifs adaptatifs / 48 tours maximum au total sur les deux
-   agents. Ces objectifs sont préparés, pas exécutés ; leur runner adaptatif reste
-   à implémenter. Contextes natifs absents explicitement signalés, jamais inventés.
-5. Challenger 4o-mini par une ablation contrôlée si les traces candidat montrent
-   une limite de compréhension. La prod GPT-5.2 échoue aussi quand les champs ou
-   résultats invalides ne sont pas bloqués : le modèle seul ne tranche pas cela.
+## Revue / livraison
 
-Le candidat utilise triage5.2 / recherche4o-mini / synthèse5.2 ; le B2C déployé
-utilise triage4o-mini. Le gain code+configuration ne doit pas être présenté comme
-un effet du modèle seul. FAQ/SAV restent en phase 2.
-Dernière validation runtime inchangée : 3 110 tests passants, 1 skip ; 87 tests
-d'évaluation liés passants. Aucun nouveau test runtime n'est revendiqué ici.
-La CI du dernier head reste bloquée par la facturation GitHub avant exécution.
-Aucun merge, déploiement, changement Railway ni opération client.
+3185 tests hors reseau passent,1 test Langfuse live optionnel saute; ruff, mypy81 fichiers, guardrails et verification de diff passent. Aucun merge, deploiement, changement Railway ou operation client. La CI GitHub est a verifier sur le head livre; le head precedent etait bloque avant execution par la facturation du compte.
+
+Ordre de revue conseille : contrats `libs/b2c_common`, profil/triage et operations du concierge, ancrage/filtrage et offres de la feuille recherche, details/comparaison/devise, puis tests et harnais. La PR est large (136 fichiers avant ajout du bilan JSON); les donnees brutes privees et les cles restent hors Git. Le fichier JSON adjacent contient les compteurs et hashes de preuve sans conversations.
+
+Avant remplacement : fermer les blocages ci-dessus, rejouer leurs controles sur un meme runtime, puis figer un nouveau lot reel non expose et faire calibrer les jugements par la team. La PR reste en brouillon pour cette revue.
