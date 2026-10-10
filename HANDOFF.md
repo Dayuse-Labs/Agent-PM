@@ -1,3 +1,31 @@
+## 2026-10-10 · v97 — budget renouvelé, référence prod 26/65 exécutée
+
+Budget supplémentaire explicite **50 EUR**, sous-plafond prudent **+50 USD** :
+plafond cumulé 200 USD, dépenses/provisions antérieures conservées. Nouvelle dépense
+**1,6182 USD** ; cumul **150,9737 USD** dont 7,10 provisionnés ; réserve 0,50,
+reste **48,5263 USD**. Aucun pending ni runner payant actif.
+
+Référence actuelle `3093647` rejouée sur **26 parcours / 65 tours**, 65 traces tarifées.
+Configurations et déploiements Railway des six services inchangés avant/après.
+Revue manuelle ciblée : **5 B / 15 C / 5 D / 1 NN**, aucune inférence sur le trafic global.
+Six traces complètes / 111 observations lues : validation géographique négative non
+bloquante, budget numérique déclaré explicite hors extraction LLM, mélange de
+résultats après recherche nommée, hôtel fantôme signalé mais laissé dans le texte.
+Onze prix ciblés incompatibles avec les créneaux demandés selon les cartes servies.
+
+**Candidat non rejoué** : MCP expire avant authentification depuis cette machine,
+URL/jeton alignés sur Railway. VPN demandé au user. Aucun appel modèle candidat.
+Les 80 fichiers runtime sont inchangés depuis v95 ; pas de nouveau correctif spéculatif.
+Les cas prod déjà exécutés sont dans `remote-diagnostic-legacy-v97`, les sources,
+revues et preuves privées dans `batch-v97` du workspace d'audit. Aucun brut dans Git.
+Trois nouvelles conversations / 16 tours figées et six objectifs adaptatifs préparés,
+non exécutés. Runner adaptatif à implémenter. Prochain passage : candidat 26, analyse
+et corrections/rejeu, 100 parcours appariés, frais/adaptatif, puis ablation si nécessaire.
+
+Rapport partageable : [production parity v97](evals/PRODUCTION_PARITY_2026_10_10.md).
+**NO GO** ; aucune supériorité globale prouvée. CI facturation encore bloquée sur
+le dernier head connu ; pas de relance identique. FAQ/SAV phase 2, pas de merge/deploy.
+
 ## 2026-10-09 · v96 — référence de production mise à jour, comparaison à financer
 
 Railway relu sur les six services/environnements de référence. L'ancien agent
