@@ -625,7 +625,7 @@ class TestNoOffersCitesTheSearchThatRan:
         answer = _run_turn(runner, session.id, "a hotel near Gare du Nord tomorrow 7am-9am with a sauna")
 
         assert answer.startswith(
-            "No offers around Gare du Nord, Paris on Wednesday, October 7, 2026, "
+            "I found no verifiable offer in this search around Gare du Nord, Paris on Wednesday, October 7, 2026, "
             "from 7:00 to 9:00, under €30, with a sauna."
         )
         assert answer.endswith("Try a later time or a wider area.")

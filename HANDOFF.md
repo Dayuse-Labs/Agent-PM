@@ -1,3 +1,9 @@
+## 2026-10-10 — v111 final replay freeze pending
+
+v110 targeted13/41 completed for0.9147138USD:53 dated card joins without price/date/formula/fact/expiry mismatch,44 distance checks without discrepancy. Live progress: LA bedding/shower/LAX, Manhattan cheaper→new total cap, tomorrow+pool follow-up, Vienna airport. Remaining ambiguous neighborhoods/typos/airport referents still clarify excessively; no claim that all historical failures are fixed.
+
+v111 extends the owned room contract to explicitly requested facility access, independently of free/included/private access; equipment presence alone still cannot establish offer access. Empty-result wording is scoped to the bounded search, never global availability. Ambiguous area clarification names the actual provider locations and cannot claim an inventory search ran. No new model calls, regex, geographic aliases or state owner. Targeted4/11 precedes fresh paired100/280-per-arm;230USD ceiling unchanged, no extra authorization increment. No merge/deploy. Full release decision awaits the frozen comparative evidence.
+
 ## 2026-10-10 — v110 grouped fixes; live comparison pending
 
 Concierge-owned room requirements now survive turns and A2A transport: offer-level bedding is checked before selection (including fresh quote/formula choices); hotel equipment never proves private or included access. Conditional party discovery asks composition once without inventing counts. A single countryless neighborhood may use verified provider identity and existing membership checks; ambiguous alternative neighborhoods and numeric codes still clarify. Offer duration in minutes is supplied to synthesis. No new regex, geographic alias dictionary, Redis owner, model phase or provider contract.

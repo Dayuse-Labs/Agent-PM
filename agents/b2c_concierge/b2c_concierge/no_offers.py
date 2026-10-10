@@ -194,7 +194,8 @@ def no_offers_line(context: dict[str, Any] | None, language: str, *, requested_b
     place = _place(context, lang)
     if not place and not bits:
         return ""
-    lead = (_VERIFIED_LEAD if requested_budget else _LEAD)[lang].format(place=place).rstrip()
+    # Every retrieval is a bounded sample, even without a stated price cap.
+    lead = _VERIFIED_LEAD[lang].format(place=place).rstrip()
     return f"{lead} {', '.join(bits)}.".replace(" ,", ",").replace(" .", ".")
 
 

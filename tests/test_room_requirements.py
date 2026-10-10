@@ -51,3 +51,10 @@ def test_private_or_included_access_is_not_proven_by_an_amenity_label():
     assert unverified_access({'private_amenities': ['jacuzzi']})
     assert unverified_access({'included_amenities': ['pool']})
     assert not unverified_access({'bedding': 'double'})
+
+
+def test_explicit_access_is_not_equivalent_to_a_hotel_facility():
+    update = grounded_room_update({'access_amenities': ['pool'], 'evidence': 'accès piscine'}, 'avec accès piscine')
+    assert update == {'access_amenities': ['pool']}
+    assert unverified_access(update)
+    assert apply_room_update(update, {'bedding': 'double'})['access_amenities'] == ['pool']

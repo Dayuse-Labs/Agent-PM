@@ -571,9 +571,11 @@ Optional keys, extracted from MESSAGE ONLY, never copied from recent messages:
   an explicitly requested king or queen uses that exact key;
   separate beds means twin; any explicitly removes bedding). It is independent
   of occupancy and other amenities. Also optional "private_amenities" and
-  "included_amenities" arrays, using pool,jacuzzi,spa,sauna,breakfast,parking,shuttle.
+  "included_amenities" and "access_amenities" arrays, using pool,jacuzzi,spa,sauna,breakfast,parking,shuttle.
   Use private_amenities for explicitly private/in-room equipment; use
-  included_amenities for explicitly included/free access. Presence at the property
+  included_amenities for explicitly included/free access. Use access_amenities
+  for explicitly requested access/use without a free-inclusion claim (e.g. accès piscine).
+  Presence at the property
   proves neither. Set the complete updated array only when that scope changes;
   [] explicitly removes that scoped requirement. Never erase it on a follow-up
   about another criterion. Still add the supported hotel amenity separately.

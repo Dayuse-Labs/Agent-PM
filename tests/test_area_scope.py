@@ -770,3 +770,21 @@ def test_countryless_named_neighborhood_can_be_resolved_from_provider_evidence()
                             'country': '', 'evidence': 'Example Quarter'}],
                           SimpleNamespace(geocode_candidates=lambda *a, **kw: [wrong]))
     assert not result['ok']
+
+
+def test_ambiguous_area_question_names_actual_provider_locations():
+    from hotel_search_agent.area_scope import STATE_FAILED
+    from hotel_search_agent.response_bridge import skip_final_generation
+    candidates = [replace(candidate(), name='Common', feature_type='locality', country_code='US',
+                          mapbox_id='area-a', place_name='Common, First City, US', rank=0),
+                  replace(candidate(), name='Common', feature_type='locality', country_code='US',
+                          mapbox_id='area-b', place_name='Common, Second City, US', rank=1)]
+    provider = SimpleNamespace(geocode_candidates=lambda *a, **kw: candidates)
+    result = resolve_areas([{'query': 'Common', 'kind': 'neighborhood', 'country': 'US', 'evidence': 'Common'}], provider, 'en')
+    assert not result['ok']
+    assert 'First City' in result['diagnostics']['question'] and 'Second City' in result['diagnostics']['question']
+    ctx = context({}, 'Common')
+    ctx.state[STATE_FAILED] = result
+    capture_after_tool(SimpleNamespace(name='geocode_location'), {}, ctx, result)
+    reply = skip_final_generation(ctx, None)
+    assert reply.content.parts[0].text == result['diagnostics']['question']

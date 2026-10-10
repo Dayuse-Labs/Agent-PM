@@ -50,6 +50,21 @@ def _same_area_name(query: str, label: str, administrative: bool) -> bool:
     return bool(words) and words == _identity_words(label, administrative)
 
 
+def _area_question(query: str, candidates: list, language: str | None) -> str:
+    labels = list(dict.fromkeys(c.place_name for c in candidates if c.place_name))[:3]
+    templates = {
+        "en": "Which city do you mean for {query}? Please give its containing city or an exact address.",
+        "fr": "Dans quelle ville cherchez-vous {query} ? Précisez la ville ou une adresse exacte.",
+        "de": "In welcher Stadt meinen Sie {query}? Bitte nennen Sie die Stadt oder eine genaue Adresse.",
+        "it": "In quale città cerchi {query}? Indica la città o un indirizzo preciso.",
+        "es": "¿En qué ciudad buscas {query}? Indica la ciudad o una dirección exacta.",
+        "pt": "Em que cidade procura {query}? Indique a cidade ou uma morada exata.",
+        "nl": "In welke stad bedoelt u {query}? Geef de stad of een exact adres aan.",
+    }
+    question = templates.get(language or "en", templates["en"]).format(query=query)
+    return question + (" (" + "; ".join(labels) + ")" if labels else "")
+
+
 def _resolve_area(item: dict[str, str], client: MapboxClient, language: str | None,
                   parent: dict | None = None, *, identity_only: bool = False) -> dict:
     if item.get("required_region") and parent is None:
@@ -87,6 +102,7 @@ def _resolve_area(item: dict[str, str], client: MapboxClient, language: str | No
         return {"ok": False, "error": "area_unresolved", "diagnostics": {
             "reason": "The requested area could not be resolved uniquely; do not substitute its parent city.",
             "area": item["query"],
+            "question": _area_question(item["query"], matches, language),
         }}
     if identity_only:
         return {"ok": True, "area": {"id": candidate.mapbox_id,

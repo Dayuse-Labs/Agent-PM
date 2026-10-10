@@ -1107,7 +1107,7 @@ def capture_after_tool(
         elif isinstance(tool_response, dict) and tool_response.get("error") == "area_exceeds_search_radius":
             tool_context.state[_STATE_DELTA_KEY] = tool_response.get("profile_delta") or {}
         elif isinstance(tool_response, dict) and tool_response.get("error") in {
-            "geocode_ambiguous", "device_location_unavailable", "device_area_conflict",
+            "geocode_ambiguous", "device_location_unavailable", "device_area_conflict", "area_unresolved",
         }:
             # 2026-08-26: a clarify carries a profile delta too, and it has to be
             # stashed like the ok-path's — otherwise the subject of the question
@@ -2043,6 +2043,11 @@ def skip_final_generation(callback_context: Any, llm_request: Any) -> LlmRespons
     `after_model_callback` runs, so `llm_timing_after` never fires — placing this
     first means `llm_timing_before` never stamps an orphaned timer for a call that
     won't happen."""
+    area_question = callback_context.state.get(_STATE_CLARIFY_QUESTION_KEY)
+    if callback_context.state.get(STATE_FAILED) and isinstance(area_question, str) and area_question:
+        return LlmResponse(content=genai_types.Content(role="model", parts=[
+            genai_types.Part(text=area_question),
+        ]))
     pending = pending_location(callback_context.state.get(CLARIFICATION_KEY))
     if pending:
         return LlmResponse(content=genai_types.Content(role="model", parts=[

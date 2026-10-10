@@ -14,7 +14,7 @@ _LYON = {
 
 def test_every_applied_criterion_is_cited():
     assert no_offers_line(_LYON, "fr") == (
-        "Aucune offre à Lyon le mercredi 7 octobre 2026, de 6h à 16h, à moins de 20 €, avec spa et piscine."
+        "Je n’ai trouvé aucune offre vérifiable dans cette recherche à Lyon le mercredi 7 octobre 2026, de 6h à 16h, à moins de 20 €, avec spa et piscine."
     )
 
 
@@ -25,7 +25,7 @@ def test_a_zone_is_cited_with_its_city():
         "timeslot_end": "09:00", "budget_max": 30.0, "amenities": ["sauna"],
     }
     assert no_offers_line(context, "en") == (
-        "No offers around Gare du Nord, Paris on Wednesday, October 7, 2026, "
+        "I found no verifiable offer in this search around Gare du Nord, Paris on Wednesday, October 7, 2026, "
         "from 7:00 to 9:00, under €30, with a sauna."
     )
 
@@ -33,7 +33,7 @@ def test_a_zone_is_cited_with_its_city():
 def test_a_daypart_replaces_the_window():
     context = {**_LYON, "daypart": "afternoon", "timeslot_start": None, "timeslot_end": None,
                "budget_max": None, "amenities": []}
-    assert no_offers_line(context, "fr") == "Aucune offre à Lyon le mercredi 7 octobre 2026, l'après-midi."
+    assert no_offers_line(context, "fr") == "Je n’ai trouvé aucune offre vérifiable dans cette recherche à Lyon le mercredi 7 octobre 2026, l'après-midi."
 
 
 def test_minutes_are_not_rounded_in_the_displayed_request():
@@ -74,7 +74,7 @@ def test_a_restated_sentence_is_dropped_and_the_next_step_kept():
     """Live 2026-10-06: shown the sentence, the synthesis copied it anyway."""
     line = no_offers_line(_LYON, "fr")
     text = (
-        "Aucune offre à Lyon le mercredi 7 octobre 2026, à moins de 20 €, avec spa et piscine. "
+        "Je n’ai trouvé aucune offre vérifiable dans cette recherche à Lyon le mercredi 7 octobre 2026, à moins de 20 €, avec spa et piscine. "
         "Je vous recommande d'augmenter votre budget ou de changer de date."
     )
     assert drop_restated(text, line) == "Je vous recommande d'augmenter votre budget ou de changer de date."
