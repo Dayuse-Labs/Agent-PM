@@ -251,6 +251,9 @@ def _hotel_line(hotel: dict[str, Any], window: dict[str, str | None] | None = No
         slots.append(f"{start}–{end}")
     if slots:
         line += " — offered times: " + ", ".join(slots)
+    if hotel.get("requested_offer_unavailable"):
+        line += (" — no dated formula matching the requested hours was verified. "
+                 "Describe property facts only; explicitly disclose this and do not invent a price or availability")
     alternatives = hotel.get("available_offers") or []
     if alternatives:
         # These dated formulas passed the same budget/window/capacity/cutoff

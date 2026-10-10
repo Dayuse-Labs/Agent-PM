@@ -1903,3 +1903,41 @@ def test_fuzzy_catalog_success_is_not_authority_to_replace_a_named_property(monk
         llm_hotel_name='Bayview London', allow_text_name=False))
     assert result['ok'] is False
     assert [c[0] for c in session.calls] == ['find_hotel_by_name']
+
+
+@pytest.mark.parametrize("matching", [True, False])
+def test_return_to_older_hotel_details_keeps_requested_hours(monkeypatch, matching):
+    wrong = {"ratePlanUuid": "daytime", "availabilityDate": "2026-11-01",
+             "startHour": 12, "endHour": 17, "priceEuro": 10000}
+    evening = {**wrong, "ratePlanUuid": "evening", "startHour": 15,
+               "endHour": 20, "priceEuro": 15450}
+    _install(monkeypatch, {"get_hotel_details": FakeResult({
+        "hotel": {"hotelId": 22293, "name": "Previous hotel"},
+        "offers": [wrong, evening] if matching else [wrong],
+    })})
+    p = SessionProfile(date="2026-11-01", timeslot_start="18:00", adults=2,
+                       requested_budget={"amount": 90, "currency": "EUR", "unit": "total"},
+                       last_results=[{"hotel_id": 99, "name": "Another hotel"}])
+    h = _run(inline_tools.get_hotel_details("", p, picked_hotel_id=22293))["hotel"]
+    if matching:
+        assert h["offer_id"] == "evening"
+        assert h["price_eur_cents"] == 15450
+        assert h["timeslots"] == [{"start": "15:00", "end": "20:00"}]
+    else:
+        assert h["requested_offer_unavailable"]
+        assert "price" not in h and "offer_id" not in h and "timeslots" not in h
+
+
+def test_details_preserve_verified_shown_formula_over_cheaper_matching_one(monkeypatch):
+    offer = {"ratePlanUuid": "shown", "availabilityDate": "2026-11-01",
+             "startHour": 15, "endHour": 20, "priceEuro": 15450}
+    _install(monkeypatch, {"get_hotel_details": FakeResult({
+        "hotel": {"hotelId": 22293, "name": "Previous hotel"},
+        "offers": [{**offer, "ratePlanUuid": "cheaper", "priceEuro": 13000}, offer],
+    })})
+    p = SessionProfile(date="2026-11-01", timeslot_start="18:00", last_results=[{
+        "hotel_id": 22293, "name": "Previous hotel", "offer_id": "shown",
+        "offer_date": "2026-11-01", "start_time": "15:00", "end_time": "20:00",
+    }])
+    h = _run(inline_tools.get_hotel_details("", p, picked_hotel_id=22293))["hotel"]
+    assert h["offer_id"] == "shown" and h["price_eur_cents"] == 15450

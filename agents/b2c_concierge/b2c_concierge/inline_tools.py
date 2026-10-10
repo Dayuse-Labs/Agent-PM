@@ -461,9 +461,20 @@ async def get_hotel_details(
                               and _hhmm(o.get("startHour"), o.get("startMinute")) == shown.get("start_time")
                               and _hhmm(o.get("endHour"), o.get("endMinute")) == shown.get("end_time")]
                     best = _search_offer(offers, hotel, replace(profile, date=requested_date))
+                elif not for_search and shown is None and requested_date:
+                    # An older hotel can have left the visible shortlist. Its
+                    # first/cheapest formula is not evidence for the requested
+                    # hours. Details may quote a higher price, so budget and
+                    # party eligibility remain separate from this slot choice.
+                    best = _search_offer(offers, hotel, replace(
+                        profile, date=requested_date, requested_budget=None,
+                        budget_max=None, adults=None, children=None,
+                    ))
                 else:
                     best = _search_offer(offers, hotel, profile) if for_search else (offers[0] if offers else None)
                 normalized = _normalize_hotel_for_display(hotel, best)
+                if not for_search and shown is None and requested_date and best is None:
+                    normalized["requested_offer_unavailable"] = True
                 if available_offers:
                     normalized["available_offers"] = available_offers[:20]
                     normalized["available_offers_truncated"] = len(available_offers) > 20

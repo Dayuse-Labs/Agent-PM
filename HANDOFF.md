@@ -1,3 +1,9 @@
+## 2026-10-10 — Final offer-selection regression before frozen v104
+
+The v103 focused replay completed3/15: literal NYC now searches; details → alternatives returns different hotels in the original area; explicit30km expands from the original verified GPS. It exposed a separate return-to-previous-hotel issue: after that hotel leaves the shortlist, details chose the first daytime formula despite an18:00 arrival. Fresh dated details now use the existing date/window/cutoff selector; a verified shown formula remains unchanged. Budget and party eligibility are not silently applied to an informational details question. When no valid formula matches, only property facts are shown with an explicit unavailable notice. No extra LLM call or regex.
+
+Targeted tests:104 passed, including wrong-window cheaper offer, no matching offer and preservation of the shown formula. The full suite and source checks are recorded in the final review report. Candidate runtime will be frozen for one focused4-turn replay then the full100/280, adaptive6/24, recent-source7/26, recovery4/14, critical17/36 and named5/11 campaign. Legacy observations are retained from v101(core) and v102(other comparison cohorts), with their original timestamps and inventory limitations. Recent prefixes are exposed regression tests. Release remains NO GO pending reviewed evidence; no merge/deploy/Railway writes.
+
 ## 2026-10-10 — Grouped follow-up fixes after the full v102 diagnostic
 
 v102 completed core100/280 candidate responses, adaptive6/24, recent-source7/26, recovery4/14 and critical17/36. The core had320 exact dated MCP card matches, no detected price/date/card-fact errors, and21 fee-inclusive cap checks without violations. Current legacy reference is already measured and retained; quality remains NO GO. These data checks do not erase conversational failures.
