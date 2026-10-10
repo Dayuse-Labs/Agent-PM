@@ -70,7 +70,7 @@ from __future__ import annotations
 
 from b2c_common.amenities import apply_amenity_update
 from b2c_common.price_comparison import cheaper_reference, comparison_context, reference_question, empty_comparison_notice
-from b2c_common.date_period import freeze_period, weekday_in_period, period_question
+from b2c_common.date_period import period_question
 from b2c_common.search_budget import budget_notice, budget_question, currency_answer, merge_budget, native_eur_cap, resolve_budget_currency
 
 import asyncio
@@ -162,7 +162,8 @@ from .profile import (
     select_hotel_by_position,
 )
 from .profile_store import get_profile_store
-from .requested_date import date_served_notice, expected_search_date, reference_today
+from .requested_date import date_served_notice, reference_today
+from .date_state import decide_date
 from .no_offers import drop_restated, no_offers_line
 from .window_guard import (
     enforce_window_disclosure,
@@ -1245,7 +1246,7 @@ class _B2cConcierge(BaseAgent):
         # regression — closing it means touching a proven regex, not this gate.
         from b2c_common.confirmed_location import context_for_triage, pending_location
         from b2c_common.destination_request import DestinationRequest, destination_request, refine_landmark, refine_hotel
-        from .location_state import commit_place, receive_location, selected_place
+        from .location_state import accepted_location_delta, commit_place, receive_location, selected_place
         from .clarification_state import location_reply_context, remember_location_question
 
         refinement_signal = is_search_refinement_signal(message, profile)
@@ -1846,30 +1847,18 @@ class _B2cConcierge(BaseAgent):
         expected_date: str | None = None
         if route.target == LEAF_HOTEL_SEARCH:
             today = reference_today(profile.client_timezone)
-            if triage.requested_date_period:
-                profile.pending_date_period = freeze_period(triage.requested_date_period, today)
-                profile.date = None
-                profile.date_reference = None
-                profile.pending_booking = None
-            expected_date, from_message = expected_search_date(
-                "" if location_choice and numeric_reply else message, profile.date, reference_today(profile.client_timezone),
+            decision = decide_date(
+                "" if location_choice and numeric_reply else message, profile.date,
+                profile.pending_date_period, triage.requested_date_period, today,
                 weekday=None if location_choice and numeric_reply else triage.requested_weekday,
                 calendar=None if location_choice and numeric_reply else triage.requested_calendar,
             )
+            profile.pending_date_period = decision.pending_period
+            expected_date, from_message = decision.expected, decision.from_message
             if profile.pending_date_period:
-                if triage.requested_date_period:
-                    # A date quoted as one endpoint of a range does not select
-                    # that endpoint as the customer's sole stay date.
-                    expected_date, from_message = None, False
-                if triage.requested_weekday:
-                    # The ordinary next-weekday rule is wrong for e.g. Sunday
-                    # inside next week when today is Friday. Resolve in range.
-                    expected_date = weekday_in_period(profile.pending_date_period, triage.requested_weekday, today)
-                    from_message = expected_date is not None
-                if expected_date and from_message:
-                    profile.pending_date_period = None
-                else:
-                    expected_date = None  # Never fall back to the old date.
+                profile.date = None
+                profile.date_reference = None
+                profile.pending_booking = None
             if expected_date and from_message:
                 profile.date = expected_date
                 profile.date_reference = {"resolved_from": "concierge"}
@@ -2152,6 +2141,8 @@ class _B2cConcierge(BaseAgent):
         leaf_text = leaf_text or ""
 
         delta = response.get("profile_delta") or {}
+        if route.target == LEAF_HOTEL_SEARCH:
+            delta = accepted_location_delta(response, delta)
         stated_leaf_city = delta.get("city")
         if isinstance(stated_leaf_city, dict):
             stated_leaf_city = stated_leaf_city.get("value") if stated_leaf_city.get("op") == "set" else None

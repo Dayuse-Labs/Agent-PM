@@ -41,6 +41,7 @@ from dataclasses import dataclass, field
 
 from hotel_search_agent.inventory import DEFAULT_RADIUS_KM, InventoryProvider, haversine_km
 from hotel_search_agent.mapbox_client import GeocodeCandidate
+from hotel_search_agent.identity_confidence import MAX_WEAK_PRIOR_RANK, dominant_identity
 
 # ── Ranking weights (named constants — tune on the 41-case geo eval) ────────────
 # Feature-type prior: a city (`place`) is the best hotel-destination anchor; a
@@ -135,7 +136,8 @@ def _score(
     score = type_prior - _W_RANK * candidate.rank
     if inventory_count > 0:
         score += _W_INVENTORY * (min(inventory_count, _INVENTORY_SOFT_CAP) / _INVENTORY_SOFT_CAP)
-    if locale_country and candidate.country_code == locale_country.upper():
+    if (locale_country and candidate.country_code == locale_country.upper()
+            and candidate.rank < MAX_WEAK_PRIOR_RANK):
         score += _W_LOCALE
     score += _W_PROXIMITY * _proximity_credit(candidate, proximity)
     return score
@@ -483,6 +485,9 @@ def resolve(
                           and _name_fold(c.name) == requested_fold]
     if prefer_municipality and exact_destinations:
         survivors = exact_destinations
+        # As in production, a deep homonym cannot defeat a leading exact
+        # identity merely because our inventory/locale happens to favor it.
+        # Close homonyms retain the existing clarification policy below.
 
     # 2-5 — score every survivor.
     scored: list[ScoredCandidate] = []
@@ -498,6 +503,13 @@ def resolve(
     # Sort by inventory tier first (near-hard), then score. Stable within ties on
     # Mapbox rank (survivors kept their input order, which is rank order).
     scored.sort(key=lambda s: (s.in_inventory_tier, s.score), reverse=True)
+
+    if prefer_municipality and exact_destinations:
+        dominant = dominant_identity(survivors)
+        if dominant is not None:
+            # Retain scored evidence: landmark resolution uses it to recover
+            # the already selected city anchor without another provider call.
+            return Resolution(decision="select", chosen=dominant, scored=scored)
 
     top = scored[0]
     if prefer_municipality and exact_destinations:

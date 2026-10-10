@@ -5,6 +5,23 @@ from b2c_common.confirmed_location import pending_location, verified_place
 
 from .profile import SessionProfile
 
+GEO_FIELDS = frozenset({"city", "zone", "metro", "search_areas", "country_anchor",
+                        "state_anchor", "distance_origin", "search_anchor"})
+
+
+def accepted_location_delta(response: dict, delta: dict) -> dict:
+    """A clarification is evidence, never a committed geographic mutation.
+
+    Customer intent was already reduced by the concierge before dispatch.
+    Preserve independent date/budget updates from the leaf, but reject its
+    tentative city/country/anchor together, as production's profile sync does.
+    """
+    rejected = (response.get("location_resolution_failed")
+                or pending_location(response.get("location_clarification"))
+                or (response.get("requires_clarification")
+                    and not verified_place(response.get("resolved_location"))))
+    return {k: v for k, v in delta.items() if k not in GEO_FIELDS} if rejected else delta
+
 
 def selected_place(profile: SessionProfile, intent: dict | None, areas: list[dict] | None = None) -> dict | None:
     pending = pending_location(profile.pending_location)
@@ -49,6 +66,8 @@ def receive_location(profile: SessionProfile, response: dict) -> None:
         profile.confirmed_location = None
         profile.pending_booking = None
         profile.last_results = None
+        return
+    if response.get("location_resolution_failed"):
         return
     place = verified_place(response.get("resolved_location"))
     if place:

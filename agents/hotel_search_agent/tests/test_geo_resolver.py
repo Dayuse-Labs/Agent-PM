@@ -48,6 +48,25 @@ class FakeInventory:
         return self._by_lat.get(round(lat, 4), 0)
 
 
+def test_deep_homonym_inventory_and_locale_cannot_overrule_exact_provider_identity():
+    first = cand('Example City', 'US', 'State A', lat=40, rank=0)
+    other = cand('Example City', 'CA', 'Province B', lat=50, rank=7)
+    result = geo_resolver.resolve([first, other], requested_name='Example City',
+        prefer_municipality=True, inventory=FakeInventory({50: 100}), locale_country='CA')
+    assert result.decision == 'select' and result.chosen == first
+    explicit = geo_resolver.resolve([first, other], requested_name='Example City',
+        prefer_municipality=True, inventory=FakeInventory({40: 100}), country_hint='CA')
+    assert explicit.chosen == other
+
+
+def test_adjacent_homonyms_still_require_clarification():
+    first = cand('Example City', 'US', 'State A', lat=40, rank=0)
+    other = cand('Example City', 'CA', 'Province B', lat=50, rank=1)
+    result = geo_resolver.resolve([first, other], requested_name='Example City',
+        prefer_municipality=True, inventory=FakeInventory({50: 100}), locale_country='CA')
+    assert result.decision == 'clarify'
+
+
 # ── Named audit failure cases ───────────────────────────────────────────────────
 def test_milano_resolves_to_milan_italy_not_texas():
     milan = cand("Milano", "IT", "Milan", lat=45.46, rank=0)

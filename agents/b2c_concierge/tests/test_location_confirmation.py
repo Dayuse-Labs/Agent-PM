@@ -15,6 +15,34 @@ VALENCE = {"provider_id": "mapbox:valence-26", "name": "Valence", "label": "Vale
 SPAIN = {**VALENCE, "provider_id": "mapbox:valencia-es", "label": "Valence, Espagne", "country_code": "ES", "region": "V", "latitude": 39.47, "longitude": -0.38}
 PENDING = {"question": "Valence dans la Drôme ou en Espagne ?", "options": [VALENCE, SPAIN]}
 
+
+def test_failed_resolution_cannot_overwrite_accepted_location(scripted, fake_profile_store):  # noqa: F811
+    runner, session = _new_session()
+    profile = SessionProfile(city='Valence', country_anchor='FR', confirmed_location=VALENCE,
+                             date='2026-11-01', amenities=['pool'])
+    asyncio.run(fake_profile_store.set(session.id, profile))
+    scripted(json.dumps({'family': 'search', 'language': 'en',
+        'location_update': {'action': 'preserve'}}), 'Please clarify the area.', response={
+            'requires_clarification': True, 'location_resolution_failed': True,
+            'resolved_location': SPAIN,
+            'profile_delta': {'city': 'Valencia', 'country_anchor': 'ES',
+                              'zone': 'Unverified district', 'state_anchor': 'V'}})
+    _drive_in(runner, session.id, 'With a pool')
+    saved = asyncio.run(fake_profile_store.get(session.id))
+    assert saved.city == 'Valence' and saved.country_anchor == 'FR'
+    assert saved.confirmed_location == VALENCE and saved.zone is None
+    assert saved.date == '2026-11-01' and saved.amenities == ['pool']
+
+
+def test_location_rejection_keeps_independent_non_geo_updates():
+    from b2c_concierge.location_state import accepted_location_delta
+    update = {'city': 'Wrong city', 'search_anchor': {'lat': 1, 'lon': 2},
+              'date': '2026-11-01', 'amenities': ['pool']}
+    for response in ({'location_resolution_failed': True}, {'requires_clarification': True},
+                     {'location_clarification': PENDING, 'requires_clarification': True}):
+        assert accepted_location_delta(response, update) == {'date': '2026-11-01', 'amenities': ['pool']}
+    assert accepted_location_delta({'resolved_location': VALENCE}, update) == update
+
 AIRPORT = {"provider_id": "provider:airport-vienna", "name": "Vienna International Airport",
            "label": "Vienna International Airport, Schwechat, Austria", "feature_type": "poi",
            "country_code": "AT", "region": "Lower Austria", "latitude": 48.1103, "longitude": 16.5697,

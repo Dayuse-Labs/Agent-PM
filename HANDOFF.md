@@ -1,3 +1,11 @@
+## 2026-10-10 — v108 decision policy consolidation, offline only: NO GO
+
+Adapted the current production3093647 evidence-before-commit approach without importing its orchestrator. Shared provider identity confidence runs after hard geographic constraints; deep locale priors cannot override leading exact identities. Neighborhood and containing city resolve as a provider relationship, with one parent-ID lookup fallback and unchanged per-hotel child AND parent membership. Countryless neighborhoods/codes still clarify. The concierge rejects geographic deltas from failed/clarifying location resolutions and reduces date/period precedence once before early returns; a mislabeled literal single day cannot become a date-period loop. No new regex, geographic alias dictionary, model phase, Redis owner, A2A/MCP contract or model configuration change.
+
+Evidence and limits: `evals/DECISION_POLICY_2026_10_10.md`. Retained-provider counterfactual:290 city decisions unchanged (without locale/GPS priors);14 child-parent decisions preserve the same identities/refusals. Two exact v107 triage outputs quoting “demain” as range now resolve to2026-10-11 at the date-decision stage. These are offline component replays, NOT fresh end-to-end model/inventory evaluations. Final offline suite:3232 passed,1 optional live Langfuse test skipped; ruff,mypy83,guardrails,diff passed. No release superiority claim. Main B2C still cbe88b9, current legacy main3093647; no Railway writes.
+
+No additional paid run. Budget198.84367479USD including retained provisions, ceiling200/reserve0.50, remaining0.65632521USD. STOP and stopped owned services preserved. Adult/child loops, private amenity scope, typo/airport recall and some geographic interpretations remain open. PR134 stays draft; do not apply v107 live grades to this changed runtime. Next: human review and funded frozen end-to-end replay. No merge/deploy/customer action.
+
 ## 2026-10-10 — Final v107 replay complete: NO GO
 
 Authoritative evidence: `evals/PRODUCTION_PARITY_2026_10_10.md` and adjacent sanitized JSON. Runtime `0e32cc0d3ec4ecbf17e0c5113c7cf646e182af28`; 81 source hashes unchanged. Main remains cbe88b9; legacy production3093647. Six Railway configurations/deployments unchanged before/after the completed campaign. No merge, deployment, Railway write or customer action.

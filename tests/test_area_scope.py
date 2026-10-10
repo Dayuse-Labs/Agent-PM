@@ -114,6 +114,72 @@ def test_provider_codes_and_bounding_circle_cover_the_whole_requested_areas():
     assert result["profile_delta"]["search_areas"] == AREAS
 
 
+def test_country_is_resolved_from_provider_identity_before_requesting_parent():
+    provider = SimpleNamespace(geocode_candidates=lambda *a, **kw: [candidate()])
+    result = resolve_areas([{'query': 'Yvelines', 'kind': 'administrative',
+                            'country': '', 'evidence': 'Yvelines'}], provider)
+    assert result['ok'] and result['search_areas'][0]['country'] == 'FR'
+    assert result['search_areas'][0]['id'] == 'area78'
+
+
+def test_administrative_code_alone_cannot_select_a_country():
+    def no_lookup(*args, **kwargs):
+        raise AssertionError('A local administrative code has no global identity')
+    result = resolve_areas([{**AREAS[0], 'country': ''}], SimpleNamespace(geocode_candidates=no_lookup))
+    assert result['error'] == 'area_parent_needed'
+
+
+@pytest.mark.parametrize('gap,accepted', [(1, False), (2, False), (3, True), (7, True)])
+def test_area_homonyms_use_provider_identity_confidence(gap, accepted):
+    leading = candidate()
+    other = replace(leading, mapbox_id='other', rank=gap, country_code='CA', latitude=45.5)
+    provider = SimpleNamespace(geocode_candidates=lambda *a, **kw: [leading, other])
+    request = {k: v for k, v in {**AREAS[0], 'country': ''}.items() if k != 'code'}
+    result = resolve_areas([request], provider)
+    assert result['ok'] is accepted
+    if accepted:
+        assert result['search_areas'][0]['id'] == 'area78'
+
+
+def test_provider_prominence_never_overrides_explicit_area_country():
+    leading = candidate()
+    other = replace(leading, mapbox_id='other', rank=7, country_code='CA')
+    provider = SimpleNamespace(geocode_candidates=lambda *a, **kw: [leading, other])
+    result = resolve_areas([{**AREAS[0], 'country': 'CA'}], provider)
+    assert result['ok'] and result['search_areas'][0]['id'] == 'other'
+
+
+@pytest.mark.parametrize('parent_name', ['New York', 'New York City'])
+def test_child_provider_relationship_resolves_parent_without_separate_homonym_choice(parent_name):
+    child = replace(candidate('Manhattan', '', 'manhattan'), feature_type='locality',
+                    country_code='US', parent_city_name=parent_name, parent_city_id='nyc',
+                    parent_ids=('nyc', 'state-ny'), bbox=(-74.02, 40.7, -73.9, 40.88))
+    calls = []
+    def geocode(query, **kwargs):
+        calls.append(query)
+        return [child]
+    item = {'query': 'New York', 'subarea': 'Manhattan', 'kind': 'municipality',
+            'country': 'US', 'evidence': 'New York'}
+    result = resolve_areas([item], SimpleNamespace(geocode_candidates=geocode))
+    assert result['ok'] and calls == ['Manhattan, New York']
+    assert result['search_areas'][0]['id'] == 'manhattan'
+    assert result['search_areas'][0]['required_parent_id'] == 'nyc'
+
+
+@pytest.mark.parametrize('change', [
+    {'parent_city_name': 'West New York'}, {'parent_ids': ('other-city',)},
+    {'country_code': 'CA'}, {'name': 'Manhattan Hotel'}, {'feature_type': 'poi'},
+])
+def test_child_identity_cannot_guess_a_parent_from_name_or_proximity(change):
+    child = replace(candidate('Manhattan', '', 'manhattan'), feature_type='locality',
+                    country_code='US', parent_city_name='New York City', parent_city_id='nyc',
+                    parent_ids=('nyc',), bbox=(-74.02, 40.7, -73.9, 40.88))
+    provider = SimpleNamespace(geocode_candidates=lambda *a, **kw: [replace(child, **change)])
+    result = resolve_areas([{'query': 'New York', 'subarea': 'Manhattan', 'kind': 'municipality',
+                            'country': 'US', 'evidence': 'New York'}], provider)
+    assert not result['ok'] and result['error'] == 'area_subarea_unresolved'
+
+
 @pytest.mark.parametrize("changed", [
     {"country_code": "US"}, {"feature_type": "place"}, {"mapbox_id": ""},
     {"administrative_code": "75"}, {"bbox": None}, {"bbox": (2, 49, 1, 48)},
@@ -550,7 +616,9 @@ def test_unresolved_inner_area_never_becomes_verified_parent():
     assert result['error'] == 'area_subarea_unresolved'
     assert result['diagnostics']['subarea'] == 'Le Marais'
     assert result['profile_delta']['search_areas'] == [SUBAREA]
-    assert calls == ['Paris', 'Le Marais, Paris']
+    # The bounded child lookup fails immediately; no parent-city fallback can
+    # turn that failure into compliant hotels.
+    assert calls == ['Le Marais, Paris']
 
 
 def test_partial_alternative_keeps_unresolved_inner_area_label():

@@ -170,3 +170,28 @@ def test_currency_only_answer_cannot_relabel_the_pending_period(monkeypatch, fak
     assert saved.pending_date_period['start'] == '2026-10-12'
     assert 'USD (2026' not in answer
     assert fake_leg.call_count == 0
+
+
+@pytest.mark.parametrize('kind', ['range', 'flexible', 'next_week'])
+@pytest.mark.parametrize('message,quote', [('demain', 'demain'), ('pour demain de 12h à 18h', 'demain'),
+                                          ('tomorrow with a pool', 'tomorrow')])
+def test_single_day_cannot_be_replaced_by_a_model_period_label(
+        monkeypatch, fake_leg, fake_profile_store, friday, kind, message, quote):  # noqa: F811
+    runner, session, original, _, _ = setup_period(monkeypatch, fake_profile_store)
+    _scripted_llm(monkeypatch, json.dumps({'family': 'search', 'language': 'en',
+        'requested_date_period': {'kind': kind, 'evidence': quote}}), 'Matching offers.')
+    fake_leg.response_payload = {'results': [], 'profile_delta': {}}
+    _run_turn(runner, session.id, message)
+    assert fake_leg.call_count == 1
+    outgoing = find_datapart(fake_leg.seen_outgoing_parts)['profile_in']
+    assert outgoing['date'] == '2026-10-10'
+    assert outgoing['city'] == original.city and outgoing['adults'] == 2
+    saved = asyncio.run(fake_profile_store.get(session.id))
+    assert saved.pending_date_period is None and saved.date == '2026-10-10'
+
+
+@pytest.mark.parametrize('message', ['tomorrow or Sunday', 'tomorrow or October 22', 'tomorrow and today'])
+def test_single_day_endpoint_quote_does_not_silence_other_dates(message):
+    from b2c_concierge.date_state import decide_date
+    result = decide_date(message, None, None, {'kind': 'range', 'evidence': 'tomorrow'}, date(2026, 10, 9))
+    assert result.expected is None and result.pending_period

@@ -18,6 +18,7 @@ from b2c_common.search_areas import MAX_AREAS, area_name_in_text, validate_areas
 from hotel_search_agent.geo_guards import resolve_state_hint
 from hotel_search_agent.inventory import haversine_km
 from hotel_search_agent.mapbox_client import MapboxClient
+from hotel_search_agent.identity_confidence import dominant_identity
 
 STATE_AREAS = "temp:search_areas"
 STATE_COVERAGE = "temp:area_coverage"
@@ -53,14 +54,13 @@ def _resolve_area(item: dict[str, str], client: MapboxClient, language: str | No
                   parent: dict | None = None, *, identity_only: bool = False) -> dict:
     if item.get("required_region") and parent is None:
         return _resolve_region_scoped_area(item, client, language)
-    if not item["country"] and item["kind"] in {"administrative", "neighborhood"} and parent is None:
-        # Retain unresolved names but never pick a globally IP-biased district.
-        # A containing-city refinement is represented as municipality+subarea
-        # and can establish the parent through the normal provider lookup.
+    if parent is None and item.get("subarea"):
+        return _resolve_subarea(item, client, language)
+    if not item["country"] and (item["kind"] == "neighborhood" or item.get("code")) and parent is None:
+        # A globally unanchored neighborhood lookup can be IP-biased. A known
+        # containing city instead uses the provider relationship below.
         return {"ok": False, "error": "area_parent_needed", "diagnostics": {
-            "area": item["query"],
-            "reason": "Which containing city and country does this requested area belong to? Keep every requested alternative while clarifying; do not substitute another destination.",
-        }}
+            "area": item["query"], "reason": "Which containing city and country does this requested area belong to?"}}
     types = {"administrative": "region,district", "municipality": "place,locality",
              "neighborhood": "locality,neighborhood"}[item["kind"]]
     if parent is not None:
@@ -71,37 +71,27 @@ def _resolve_area(item: dict[str, str], client: MapboxClient, language: str | No
                    or region) if region else None
     if region:
         query += ", " + region
-    candidates = client.geocode_candidates(query, country=item["country"] or None, types=types, language=language)
+    candidates = ([parent["candidate"]] if parent and parent.get("candidate") else
+                  client.geocode_candidates(query, country=item["country"] or None, types=types, language=language))
     matches = [c for c in candidates if c.feature_type in types.split(",")
                and c.country_code and (not item["country"] or c.country_code == item["country"]) and c.mapbox_id
                and (parent is None or parent["id"] in c.parent_ids)
                and (not region_hint or area_name_in_text(region_hint, c.place_name))
                and ((item.get("code") and parent is None and c.administrative_code.casefold() == item["code"].casefold())
                     or ((parent is not None or not item.get("code")) and _same_area_name(item["subarea"] if parent is not None else item["query"], c.name, parent is None and item["kind"] == "administrative")))]
-    unique = {c.mapbox_id: c for c in matches}
-    if len(unique) != 1:
+    # Inspect actual provider identities before asking for information the
+    # provider can establish. Explicit country/parent/region constraints above
+    # remain hard filters; the selected area's membership is still verified.
+    candidate = dominant_identity(matches)
+    if candidate is None:
         return {"ok": False, "error": "area_unresolved", "diagnostics": {
             "reason": "The requested area could not be resolved uniquely; do not substitute its parent city.",
             "area": item["query"],
         }}
-    candidate = next(iter(unique.values()))
     if identity_only:
         return {"ok": True, "area": {"id": candidate.mapbox_id,
                 "identities": _provider_identities(candidate), "label": candidate.name,
                 "country": candidate.country_code}}
-    if parent is None and item.get("subarea"):
-        # Identity of the parent is required, but its bounding disc need not
-        # fit MCP when the actual requested subset is smaller.
-        child = _resolve_area(item, client, language, parent={"id": candidate.mapbox_id})
-        if not child["ok"]:
-            return {"ok": False, "error": "area_subarea_unresolved", "diagnostics": {
-                "area": item["query"], "subarea": item["subarea"],
-                "reason": "The parent is resolved but the required subset is not verified. Ask for a named neighborhood or precise address inside that subset. Do not ask yes/no confirmation of the same unresolved words or show parent-city hotels as compliant.",
-                "provider_error": child["error"],
-            }}
-        child["area"]["required_parent_id"] = candidate.mapbox_id
-        child["area"]["label"] = item["query"] + " — " + item["subarea"]
-        return child
     bbox = candidate.bbox
     if (bbox is None or not all(math.isfinite(x) for x in bbox)
             or not -180 <= bbox[0] < bbox[2] <= 180
@@ -117,6 +107,61 @@ def _resolve_area(item: dict[str, str], client: MapboxClient, language: str | No
     return {"ok": True, "area": {"id": candidate.mapbox_id, "identities": identities, "label": candidate.name,
             "country": candidate.country_code, "latitude": lat, "longitude": lon, "radius_km": radius,
             "bbox": list(bbox)}}
+
+
+def _same_parent_name(query: str, provider_name: str) -> bool:
+    wanted, actual = _identity_words(query, False), _identity_words(provider_name, False)
+    # Provider municipality labels may append the generic feature type.
+    # This is not a list of geographic aliases and never strips proper names.
+    return bool(wanted) and (wanted == actual or actual == wanted + ["city"])
+
+
+def _resolve_subarea(item: dict[str, str], client: MapboxClient, language: str | None) -> dict:
+    """Resolve child + parent as one provider relationship, not two guesses.
+
+    A parent homonym must not block an otherwise unique neighborhood identity.
+    The provider's explicit parent ID establishes both; hotel membership below
+    still requires that ID AND the child's identity.
+    """
+    query = item["subarea"] + ", " + item["query"]
+    if item.get("region"):
+        query += ", " + item["region"]
+    candidates = client.geocode_candidates(query, country=item["country"] or None,
+                                           types="locality,neighborhood", language=language)
+    matches = [c for c in candidates if c.mapbox_id and c.country_code
+               and c.feature_type in {"locality", "neighborhood"}
+               and (not item["country"] or c.country_code == item["country"])
+               and _same_area_name(item["subarea"], c.name, False)
+               and c.parent_city_id and c.parent_city_id in c.parent_ids
+               and _same_parent_name(item["query"], c.parent_city_name)]
+    candidate = dominant_identity(matches)
+    parent_id = candidate.parent_city_id if candidate else None
+    if candidate is None and candidates:
+        # Provider labels may be absent or canonicalized (e.g. an abbreviation
+        # in the request). Resolve the parent once and join on its ID; never
+        # add an alias dictionary or infer that identity from proximity.
+        parent = _resolve_area({k: v for k, v in item.items() if k != "subarea"},
+                               client, language, identity_only=True)
+        if parent["ok"]:
+            parent_id = parent["area"]["id"]
+            candidate = dominant_identity([c for c in candidates
+                if parent_id in c.parent_ids and _same_area_name(item["subarea"], c.name, False)
+                and c.feature_type in {"locality", "neighborhood"}
+                and c.mapbox_id and c.country_code
+                and (not item["country"] or c.country_code == item["country"])
+                and (not c.parent_city_id or c.parent_city_id == parent_id)])
+    child: dict = (_resolve_area(item, client, language, parent={"id": parent_id, "candidate": candidate})
+             if candidate else {"ok": False, "error": "area_parent_identity_unverified"})
+    if not child["ok"]:
+        return {"ok": False, "error": "area_subarea_unresolved", "diagnostics": {
+            "area": item["query"], "subarea": item["subarea"],
+            "reason": "The required subset and its containing city are not verified together. Ask for a precise address inside that subset; do not substitute parent-city hotels.",
+            "provider_error": child["error"],
+        }}
+    assert candidate is not None
+    child["area"]["required_parent_id"] = parent_id
+    child["area"]["label"] = item["query"] + " — " + item["subarea"]
+    return child
 
 
 def _provider_identities(candidate: Any) -> list[str]:
