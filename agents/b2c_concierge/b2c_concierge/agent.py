@@ -1043,6 +1043,9 @@ class _B2cConcierge(BaseAgent):
             budget.fallbacks.add("named_hotel_not_found")
 
         if not result.get("ok") or not hotels:
+            if route.target == "get_hotel_details" and llm_hotel_name:
+                profile.detail_results = None
+                await store.set(ctx.session.id, profile)
             self._emit_turn_metric(
                 family, f"inline:{route.target}", budget, t_start, "degraded", inv,
                 hotels_returned=len(hotels),
@@ -1054,10 +1057,16 @@ class _B2cConcierge(BaseAgent):
             apply_hotel_currency(hotels)
         response = {"results": hotels}
         if route.target == "get_hotel_details":
-            # The displayed detail cards own the next ordinal, pronoun and
-            # cheaper-price reference, even for a previously shown property.
-            # Geographic scope and accumulated shown ids remain independent.
+            # Keep the search list for plural comparisons/ordinals, and the
+            # displayed facts separately for an unnamed singular follow-up or
+            # cheaper-price reference. A newly named property still replaces
+            # unrelated old search results, as before.
+            search_results = profile.last_results
             record_search_shortlist(profile, hotels)
+            profile.detail_results = profile.last_results
+            if search_results and all(h.get("hotel_id") in {r.get("hotel_id") for r in search_results}
+                                      for h in profile.detail_results or []):
+                profile.last_results = search_results
             profile.pending_booking = None
         if route.target == "compare_hotels":
             # These cards replace the visible list. Later ordinals and pick
@@ -1065,7 +1074,7 @@ class _B2cConcierge(BaseAgent):
             # comparison; an unavailable formula must not remain bookable state.
             record_search_shortlist(profile, hotels)
             profile.pending_booking = None
-        # Same persisted order as the done payload, on both inline paths.
+        # Search-list picks retain their order; detail focus is not a new ranking.
         yield self._hotels_event(ctx, response, language, build_hotel_picks(profile))
 
         synth = await self._synthesize_with_guards(
@@ -1669,17 +1678,18 @@ class _B2cConcierge(BaseAgent):
                     yield event
                 return
             shown_hotels = profile.last_results or []
+            detail_referents = profile.detail_results or shown_hotels
             if (route.target == "get_hotel_details" and picked is None
                     and triage.hotel_name is None and triage.information_source in {"offer_facts", "hotel_facts"}
                     and location_action in {None, "preserve"}
                     and not (triage.requested_landmark or triage.requested_areas or triage.requested_subarea)
                     and not profile.pending_location
-                    and len(shown_hotels) == 1):
+                    and len(detail_referents) == 1):
                 # A fact question after one displayed hotel has one owned
                 # referent, even when triage emits no redundant ordinal.
                 # This is below the booking branch: it grants read authority
                 # only, never a booking selection or confirmation.
-                sole_hotel = shown_hotels[0]
+                sole_hotel = detail_referents[0]
                 sole_id = sole_hotel.get("hotel_id")
                 if isinstance(sole_id, int) and not isinstance(sole_id, bool) and sole_id > 0:
                     picked = sole_hotel
@@ -1933,7 +1943,7 @@ class _B2cConcierge(BaseAgent):
             if triage.price_comparison == "clear":
                 profile.price_comparison = None
             elif triage.price_comparison == "lower":
-                reference = cheaper_reference(profile.last_results, profile.display_currency)
+                reference = cheaper_reference(profile.detail_results or profile.last_results, profile.display_currency)
                 if reference is None:
                     await store.set(ctx.session.id, profile)
                     self._emit_turn_metric(family, "template:price_reference_missing", budget, t_start, "ok", inv)
@@ -2048,6 +2058,8 @@ class _B2cConcierge(BaseAgent):
         if route.target == LEAF_HOTEL_SEARCH:
             # Keep customer changes even when the remote leaf times out or
             # returns no payload. The concierge remains the only state owner.
+            if location_action in {"change", "correct", "device", "select"}:
+                profile.detail_results = None
             await store.set(ctx.session.id, profile)
 
         budget.charge("leaf_llm")

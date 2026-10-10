@@ -92,12 +92,45 @@ def test_details_card_owns_next_reference_and_cheaper_total(scripted, monkeypatc
     scripted('{"family":"details","language":"en","pick":"position","pick_position":3}', 'Hotel 3.')
     _drive_in(runner, session.id, 'Tell me about the third one')
     current = asyncio.run(fake_profile_store.get(session.id))
-    assert [h['hotel_id'] for h in current.last_results] == [3]
-    assert cheaper_reference(current.last_results, 'EUR')['reference_minor'] == 9500
+    assert [h['hotel_id'] for h in current.last_results] == [1, 2, 3, 4, 5]
+    assert [h['hotel_id'] for h in current.detail_results] == [3]
+    assert cheaper_reference(current.detail_results, 'EUR')['reference_minor'] == 9500
     assert current.requested_destination == p.requested_destination
     scripted('{"family":"details","language":"en","information_source":{"value":"offer_facts","evidence":"its exact slot"},"location_update":{"action":"preserve"}}', 'The exact slot.')
     _drive_in(runner, session.id, 'What is its exact slot?')
     assert calls.calls[-1][1]['hotelId'] == 3
+    # A relative price request refers to the consultation, not the cheapest
+    # item in the earlier search. Leaves never receive/write the detail focus.
+    import b2c_concierge.agent as concierge
+    seen = []
+    async def leaf(leaf, ctx, profile_in, **kwargs):
+        seen.append(profile_in)
+        return 'No cheaper verified offer', {'results': []}
+    scripted('{"family":"search","language":"en","location_update":{"action":"preserve"},"price_comparison":{"value":"lower","evidence":"cheaper"}}', 'No cheaper verified offer')
+    monkeypatch.setattr(concierge, '_run_leaf', leaf)
+    _drive_in(runner, session.id, 'Anything cheaper?')
+    assert seen[0]['price_comparison']['reference_minor'] == 9500
+    assert 'detail_results' not in seen[0]
+    # But a plural comparison still resolves the original list, after both
+    # the detail question and the unsuccessful cheaper search.
+    scripted('{"family":"compare","language":"en","comparison_positions":[1,2]}', 'The first two compared.')
+    events = _drive_in(runner, session.id, 'Compare the first two options')
+    markers = [m for m in _marker_payloads(events) if m['event'] == 'hotels']
+    assert [h['id'] for h in markers[0]['hotels']] == [1, 2]
+    assert asyncio.run(fake_profile_store.get(session.id)).detail_results is None
+
+
+def test_detail_focus_is_persisted_but_cannot_be_written_by_a_leaf():
+    from b2c_concierge.profile import apply_profile_delta, leaf_profile_view, record_search_shortlist
+    p = SessionProfile(city='Paris', detail_results=[{'hotel_id': 3, 'name': 'Hotel 3'}])
+    restored = SessionProfile.from_dict(p.to_dict())
+    assert restored.detail_results == p.detail_results
+    assert 'detail_results' not in leaf_profile_view(restored)
+    apply_profile_delta(restored, {'detail_results': {'op': 'set', 'value': [{'hotel_id': 999}]}}, '')
+    apply_profile_delta(restored, {'detail_results': {'op': 'clear'}}, '')
+    assert restored.detail_results == p.detail_results
+    record_search_shortlist(restored, [{'id': 4, 'name': 'New search'}])
+    assert restored.detail_results is None
 
 
 @pytest.mark.parametrize("positions", [(), (1,), (1, 6), (1, 1), (True, 2)])

@@ -229,6 +229,10 @@ class SessionProfile:
     pending_clarification: dict[str, str] | None = None
     pending_date_period: dict[str, str] | None = None
     last_results: list[dict[str, Any]] | None = None
+    # Informational focus is distinct from the search list: "its offer" and
+    # "cheaper" can refer to a consulted hotel while "compare the first two"
+    # still refers to the original shortlist. Concierge-owned, never leaf input.
+    detail_results: list[dict[str, Any]] | None = None
     pending_booking: dict[str, Any] | None = None
     amenity_claim_corrections: dict[str, list[str]] | None = None
     # S-PERF5: the angle key the synthesis led on last turn, so the next one
@@ -334,6 +338,7 @@ class SessionProfile:
             "pending_clarification": self.pending_clarification,
             "pending_date_period": self.pending_date_period,
             "last_results": self.last_results,
+            "detail_results": self.detail_results,
             "pending_booking": self.pending_booking,
             "amenity_claim_corrections": self.amenity_claim_corrections,
             "last_synthesis_angle": self.last_synthesis_angle,
@@ -394,6 +399,7 @@ class SessionProfile:
 # `last_suggestions` also carry message-derived content that has no business
 # shipping to the leaf (GDPR: data minimization).
 _CONCIERGE_ONLY_KEYS = (
+    "detail_results",
     "pending_date_period",
     "pending_clarification",
     "pending_party_total",
@@ -678,7 +684,7 @@ def apply_profile_delta(
     values, clears, explicit_sets = _normalize_delta(dict(delta))
     known_fields = set(SessionProfile.__dataclass_fields__)
     # User-grounded constraints are concierge-owned, including typed clears.
-    for owned_slot in ("pending_date_period", "pending_clarification", "pending_proximity", "pending_location", "confirmed_location", "requested_destination", "requested_budget", "price_comparison", "requested_window", "requested_duration_minutes", "overnight_window"):
+    for owned_slot in ("detail_results", "pending_date_period", "pending_clarification", "pending_proximity", "pending_location", "confirmed_location", "requested_destination", "requested_budget", "price_comparison", "requested_window", "requested_duration_minutes", "overnight_window"):
         values.pop(owned_slot, None)
         clears.discard(owned_slot)
     from b2c_common.destination_request import destination_request
@@ -701,6 +707,7 @@ def apply_profile_delta(
         and values["country_anchor"] != profile.country_anchor
     )
     if city_changed or country_changed:
+        profile.detail_results = None
         profile.state_anchor = None
         profile.search_areas = None
         profile.country_anchor = None
@@ -1225,6 +1232,7 @@ def record_search_shortlist(profile: SessionProfile, results: list[dict[str, Any
             entry["start_time"], entry["end_time"] = slot["start"], slot["end"]
         shortlist.append(entry)
     if shortlist:
+        profile.detail_results = None
         profile.last_results = shortlist[:MAX_SHORTLIST]
         _accumulate_shown_hotel_ids(profile, [entry["hotel_id"] for entry in shortlist])
 

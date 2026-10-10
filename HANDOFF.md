@@ -1,3 +1,9 @@
+## 2026-10-10 — v107 separate informational focus from search options
+
+The v106 focused replay completed9/24 for0.51897855USD; all three W4 repetitions retained the postcode. The core stopped on an inventory transport error after20 complete cases and4 partial cases/63responses;1.2925104USD reconciled, no pending costs. Review also found a detail-to-comparison regression: consulting the best-rated hotel replaced the original search list.
+
+The concierge now persists detail_results separately from last_results. Singular informational questions and cheaper-price references use the consulted hotel; plural comparisons and ordinal search picks keep the search list. A new successful search/comparison clears detail focus; destination changes and failed explicitly named detail lookups cannot reuse it. Leaves cannot receive, overwrite or clear this concierge-owned field. No new regex, aliases or model calls. Targeted227 tests passed; full3202 passed,1 optional live test skipped. Final static gates and focused3/12 then core100/280 live replay are required before delivery. Runtime remains NO GO pending measured evidence. Budget192.809344USD including provisions;6.690656USD after reserve. No new authorization, no paid judge, no merge/deploy.
+
 ## 2026-10-10 — v106 postcode-parent and location-choice completion
 
 Focused v105 replay completed9/24 for0.5171603USD: department membership and85EUR detail-price reference preserved; the sole hotel's next exact-offer question succeeds; the prose-only North Little Rock followup now executes MCP instead of becoming a false outage.55 dated card occurrences match exact receipts, no card price/date/fact errors; one informational details card lacks capacity metadata. W4 still broadened when its already provider-verified parent was repeated outside a pending question. A geographical first-option reply emitted select without position.
