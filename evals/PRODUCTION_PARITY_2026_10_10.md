@@ -32,7 +32,7 @@ Les dates historiques littérales sont rejouées au calendrier actuel. Le GPS, l
 
 Les **103 parcours candidats complets**, dont les **24 régressions géographiques**, ont été relus : **18 A, 42 B, 43 C** dans le périmètre évalué. A = parfait, B = mineur, C = significatif, D = majeur, F = critique. Une clarification appropriée peut recevoir A sans avoir produit de carte; les limites du préfixe et les questions hors périmètre sont signalées dans la revue.
 
-Revue par l'agent qui a modifié le code, **pas une validation humaine indépendante**. Les 39 revues legacy réutilisées portent sur les fichiers inchangés, vérifiés par hash. Aucun juge payant n'a été relancé; sa calibration précédente était insuffisante. Aucun taux global de victoire contre la production n'est validé.
+Revue par l'agent qui a modifié le code, **pas une validation humaine indépendante**. Les 38 revues legacy réutilisées portent sur les fichiers inchangés, vérifiés par hash. Aucun juge payant n'a été relancé; sa calibration précédente était insuffisante. Aucun taux global de victoire contre la production n'est validé.
 
 | Correction ou contrôle | Résultat observé |
 |---|---|

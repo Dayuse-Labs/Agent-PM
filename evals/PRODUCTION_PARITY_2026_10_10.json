@@ -65,7 +65,7 @@
   "candidate_responses": 292,
   "legacy_reference_responses": 280,
   "manual_candidate_reviews": 103,
-  "manual_legacy_reviews_reused": 39,
+  "manual_legacy_reviews_reused": 38,
   "manual_grade_counts": {
     "A": 18,
     "C": 43,
@@ -153,5 +153,6 @@
     }
   },
   "geo_conversations_manually_reviewed": 24,
-  "source_manifest_sha256": "525d54974844c88dd27bf59a675cf6e0749e68c8cce6e13943872f4ad83e904e"
+  "source_manifest_sha256": "525d54974844c88dd27bf59a675cf6e0749e68c8cce6e13943872f4ad83e904e",
+  "manual_total_unique_conversation_arm_reviews": 141
 }
