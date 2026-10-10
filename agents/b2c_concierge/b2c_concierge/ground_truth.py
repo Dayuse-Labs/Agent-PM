@@ -484,6 +484,25 @@ def shortlist_ground_truth_block(
             "Keeping a region boundary does not make every result close to the "
             "customer. Ask permission before relaxing other requested filters.\n"
         )
+    # Bind the provider identity to this invocation's actual distance origin.
+    # Merely having an address left on the profile is not search evidence.
+    from b2c_common.confirmed_location import verified_place
+    place = verified_place(profile.confirmed_location)
+    context = (place or {}).get("search_context") or {}
+    if (isinstance((response or {}).get("results"), list) and place
+            and isinstance(origin, dict) and origin.get("type") == "poi"
+            and place["feature_type"] in {"address", "postcode", "poi"}
+            and origin.get("latitude", origin.get("lat")) == place["latitude"]
+            and origin.get("longitude", origin.get("lon")) == place["longitude"]
+            and context.get("zone") == profile.zone
+            and context.get("city") == profile.city):
+        location_note = (
+            "SEARCH ORIGIN: The provider resolved the requested destination and this search "
+            "used that verified point. The earlier location clarification is resolved; "
+            "do not say a postcode or address confirmation is still required for this search. "
+            "Distances are straight-line distances from that point, not walking or driving "
+            "times. Resolution alone does not prove that any offer is sufficiently close.\n"
+        )
     if not hotels:
         if profile.consecutive_empty_searches > 0:
             # Date block LAST on this path: it is the authoritative cause and

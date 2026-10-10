@@ -68,9 +68,9 @@ def test_hotel_facility_filter_cannot_imply_access_when_scoped_extraction_is_omi
 
 def test_facility_disclosure_still_explains_actual_longest_displayed_window():
     from b2c_common.room_requirements import conditional_access_message
-    results = [{'name': 'Short', 'start_time': '10:00', 'end_time': '18:00'},
-               {'name': 'Long', 'start_time': '09:00', 'end_time': '18:00'},
-               {'name': 'Unknown', 'start_time': None, 'end_time': None}]
+    results = [{'name': 'Short', 'timeslots': [{'start': '10:00', 'end': '18:00'}]},
+               {'name': 'Long', 'timeslots': [{'start': '09:00', 'end': '18:00'}]},
+               {'name': 'Unknown', 'timeslots': []}]
     text = conditional_access_message('en', results)
     assert 'not confirmed' in text
     assert 'Long, 09:00–18:00 (540 min)' in text
@@ -79,5 +79,13 @@ def test_facility_disclosure_still_explains_actual_longest_displayed_window():
 
 def test_displayed_window_handles_midnight_without_inventing_missing_times():
     from b2c_common.room_requirements import displayed_slot_fact
-    assert '360 min' in displayed_slot_fact([{'name': 'Evening', 'start_time': '18:00', 'end_time': '00:00'}], 'en')
-    assert displayed_slot_fact([{'name': 'Missing', 'start_time': 'unknown', 'end_time': '18:00'}], 'en') == ''
+    assert '360 min' in displayed_slot_fact([{'name': 'Evening', 'timeslots': [{'start': '18:00', 'end': '00:00'}]}], 'en')
+    assert displayed_slot_fact([{'name': 'Missing', 'timeslots': [{'start': 'unknown', 'end': '18:00'}]}], 'en') == ''
+
+
+def test_access_disclosure_uses_actual_normalized_mcp_card():
+    from b2c_common.room_requirements import conditional_access_message
+    cards = normalize_search_results({'results': [{'hotelId': 42, 'name': 'Example', 'offers': [
+        {'ratePlanUuid': 'day', 'price': 3000, 'startHour': 9, 'startMinute': 30,
+         'endHour': 18, 'endMinute': 0}]}]})
+    assert 'Example, 09:30–18:00 (510 min)' in conditional_access_message('en', cards)

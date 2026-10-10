@@ -176,3 +176,21 @@ def test_zero_child_capacity_remains_explicit_and_bound_to_the_offer():
     assert '"children_capacity": 0' in block(card)
     card["offer_id"] = "suite"
     assert matching_offer_facts(card) == {}
+
+
+@pytest.mark.parametrize('stale', [False, True])
+def test_verified_address_search_overrides_old_clarification_only_for_current_origin(stale):
+    place = {'provider_id': 'provider-address', 'name': '12 Example Street',
+             'label': '12 Example Street, Paris', 'country_code': 'FR', 'feature_type': 'address',
+             'latitude': 48.85, 'longitude': 2.35,
+             'search_context': {'city': 'Paris', 'zone': '12 Example Street', 'metro': None}}
+    profile = SessionProfile(city='Paris', zone='12 Example Street', confirmed_location=place)
+    origin = {'type': 'poi', 'latitude': 48.85, 'longitude': 2.36 if stale else 2.35}
+    response = {'results': [normalize_hotel(hotel_payload())], 'profile_delta': {'distance_origin': origin}}
+    text = shortlist_ground_truth_block(response, profile)
+    assert ('earlier location clarification is resolved' in text) is (not stale)
+    assert '48.85' not in text
+    profile.zone = 'Another destination'
+    assert 'earlier location clarification is resolved' not in shortlist_ground_truth_block(response, profile)
+    response.pop('results')
+    assert 'earlier location clarification is resolved' not in shortlist_ground_truth_block(response, profile)

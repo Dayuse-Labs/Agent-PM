@@ -74,13 +74,16 @@ def displayed_slot_fact(results: list[dict] | None, language: str) -> str:
     from .timeslot import parse_hhmm
     slots = []
     for row in results or []:
-        start, end = parse_hhmm(row.get('start_time')), parse_hhmm(row.get('end_time'))
         name = row.get('name')
-        if start is None or end is None or not isinstance(name, str) or not name:
+        if not isinstance(name, str) or not name:
             continue
-        end = 1440 if end == 0 and start > 0 else end
-        if end > start:
-            slots.append((end - start, row))
+        for slot in row.get('timeslots') or []:
+            start, end = parse_hhmm(slot.get('start')), parse_hhmm(slot.get('end'))
+            if start is None or end is None:
+                continue
+            end = 1440 if end == 0 and start > 0 else end
+            if end > start:
+                slots.append((end - start, {'name': name, 'start_time': slot['start'], 'end_time': slot['end']}))
     if not slots:
         return ''
     minutes, longest = max(slots, key=lambda item: item[0])
