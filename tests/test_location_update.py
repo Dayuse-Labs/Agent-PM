@@ -170,6 +170,14 @@ def test_postcode_question_owns_bare_city_reply(message, expected):
         assert got['requested_areas'] is None
 
 
+@pytest.mark.parametrize('message,query,expected', [('London', 'London', 'refine'),
+    ('Oxford', 'Oxford', 'change'), ('Switch to London', 'London', 'change')])
+def test_verified_postcode_parent_does_not_broaden_existing_results(message, query, expected):
+    context = {'requested_destination': {'kind': 'postcode', 'query': 'W4'}, 'confirmed_city': 'London'}
+    got = adapt_location_update(transaction(message, query=query), message, context)
+    assert got['location_intent']['action'] == expected
+
+
 def test_explicit_containing_city_is_not_lost_when_country_unknown():
     message = 'New York City queens'
     raw = transaction(message, kind='neighborhood', query='queens')

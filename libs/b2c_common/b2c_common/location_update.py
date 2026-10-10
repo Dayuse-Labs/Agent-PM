@@ -21,6 +21,9 @@ requested_landmark, requested_areas or requested_subarea):
  "code":"optional explicitly stated administrative code"}]}
 Omit unused fields. Preserve/missing/device/select have NO targets. Select is
 only a choice of one of LOCATION CONTEXT.options, never a hotel or multiple places.
+For action=select, position is REQUIRED: the integer 1-based position in those
+options. For example, a first-option reply emits action=select, position=1 and
+its literal evidence. Never omit position or put it in hotel pick_position.
 If those options are places, "tell me about the first option" selects that
 place with family=search; it is not a hotel-details lookup.
 Preserve means there is NO geographic update. A new airport/address within the
@@ -190,10 +193,11 @@ def adapt_location_update(data: dict[str, Any], message: str, context: dict | No
         previous = {}
     if (action == 'change' and len(clean) == 1 and clean[0]['kind'] == 'city'
             and previous.get('kind') == 'postcode'
-            and ((context or {}).get('pending_clarification') or {}).get('kind') == 'location'
+            and (((context or {}).get('pending_clarification') or {}).get('kind') == 'location'
+                 or str((context or {}).get('confirmed_city') or '').casefold() == clean[0]['query'].casefold())
             and area_name_in_text(message.strip(), clean[0]['query'])):
-        # A bare city answering the owned postcode-context question fills its
-        # parent; it cannot erase the outstanding district. Explicit switching
+        # A bare city answering the owned postcode-context question, or naming
+        # its verified parent, cannot erase the district. Explicit switching
         # phrases fail the whole-message equality test and retain change.
         result['location_intent'] = {'action': 'refine', 'parent_city': clean[0]['query'], 'evidence': evidence}
         return result
