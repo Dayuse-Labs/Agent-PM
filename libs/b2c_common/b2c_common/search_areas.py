@@ -37,7 +37,7 @@ class AreaRequest(BaseModel):
     code: str = Field(default="", description="Administrative code explicitly named, e.g. 78. Omit when only the name was stated.")
 
 
-def validate_areas(value: Any, message: str | None = None) -> list[dict[str, str]] | None:
+def validate_areas(value: Any, message: str | None = None, *, confirmed_city: str | None = None) -> list[dict[str, str]] | None:
     """Closed typed extraction; optional literal current-message grounding.
 
     Literal evidence checks provenance, not perfect semantic understanding.
@@ -91,6 +91,14 @@ def validate_areas(value: Any, message: str | None = None) -> list[dict[str, str
         if clean.get("subarea") and message is not None and clean["subarea"].casefold() not in message.casefold():
             return None
         if message is not None:
+            # A new quoted neighborhood may reuse the already provider-verified
+            # parent. Its current evidence still has to be literal; this only
+            # exempts that parent's name from being repeated by the customer.
+            inherited_parent = bool(
+                isinstance(confirmed_city, str) and clean["kind"] == "municipality"
+                and clean["query"].casefold() == confirmed_city.strip().casefold()
+                and clean.get("subarea") and area_name_in_text(clean["subarea"], message)
+            )
             words = "".join(c if c.isalnum() else " " for c in message.casefold()).split()
             named = area_name_in_text(clean["query"], message)
             coded = bool(clean.get("code") and clean["code"].casefold() in words)
@@ -99,7 +107,7 @@ def validate_areas(value: Any, message: str | None = None) -> list[dict[str, str
             normalized_name = bool(compact_query and compact_query == compact_evidence)
             if clean.get("code") and not coded:
                 return None
-            if not named and not coded and not normalized_name:
+            if not named and not coded and not normalized_name and not inherited_parent:
                 return None  # "all", "cheaper", etc. cannot invent a new area identity
 
         if clean not in result:

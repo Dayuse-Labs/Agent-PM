@@ -439,6 +439,21 @@ def shortlist_hotels(response: dict[str, Any] | None) -> list[dict[str, Any]]:
     return [h for h in (results or []) if isinstance(h, dict)][:MAX_HOTELS]
 
 
+def current_verified_point_search(response: dict[str, Any] | None, profile: SessionProfile) -> bool:
+    """Current provider point, profile scope and actual search origin agree."""
+    from b2c_common.confirmed_location import verified_place
+    origin = ((response or {}).get("profile_delta") or {}).get("distance_origin")
+    place = verified_place(profile.confirmed_location)
+    context = (place or {}).get("search_context") or {}
+    return bool(isinstance((response or {}).get("results"), list) and place
+            and isinstance(origin, dict) and origin.get("type") == "poi"
+            and place["feature_type"] in {"address", "postcode", "poi"}
+            and origin.get("latitude", origin.get("lat")) == place["latitude"]
+            and origin.get("longitude", origin.get("lon")) == place["longitude"]
+            and context.get("zone") == profile.zone
+            and context.get("city") == profile.city)
+
+
 def shortlist_ground_truth_block(
     response: dict[str, Any] | None, profile: SessionProfile, language: str = "en"
 ) -> str:
@@ -484,18 +499,7 @@ def shortlist_ground_truth_block(
             "Keeping a region boundary does not make every result close to the "
             "customer. Ask permission before relaxing other requested filters.\n"
         )
-    # Bind the provider identity to this invocation's actual distance origin.
-    # Merely having an address left on the profile is not search evidence.
-    from b2c_common.confirmed_location import verified_place
-    place = verified_place(profile.confirmed_location)
-    context = (place or {}).get("search_context") or {}
-    if (isinstance((response or {}).get("results"), list) and place
-            and isinstance(origin, dict) and origin.get("type") == "poi"
-            and place["feature_type"] in {"address", "postcode", "poi"}
-            and origin.get("latitude", origin.get("lat")) == place["latitude"]
-            and origin.get("longitude", origin.get("lon")) == place["longitude"]
-            and context.get("zone") == profile.zone
-            and context.get("city") == profile.city):
+    if current_verified_point_search(response, profile):
         location_note = (
             "SEARCH ORIGIN: The provider resolved the requested destination and this search "
             "used that verified point. The earlier location clarification is resolved; "

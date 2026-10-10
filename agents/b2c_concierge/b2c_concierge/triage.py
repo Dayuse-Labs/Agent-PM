@@ -919,13 +919,13 @@ async def classify(message: str, budget: TurnBudget, invocation_id: str = "",
             and _grounded_window(data, message) is None
             and grounded_calendar(data.get("requested_calendar"), message) is None
             and _grounded_occupancy(data.get("requested_occupancy"), message) is None
-            and validate_areas(data.get("requested_areas"), message) is None
+            and validate_areas(data.get("requested_areas"), message, confirmed_city=(location_context or {}).get("confirmed_city")) is None
             and requested_landmark is None
         ),
         budget_checked="requested_budget" in data or numeric_only_message(message),
         requested_subarea=subarea,
         subarea_parent=subarea_parent if isinstance(subarea_parent, str) else None,
-        requested_areas=(validate_areas(data.get("requested_areas"), message)
+        requested_areas=(validate_areas(data.get("requested_areas"), message, confirmed_city=(location_context or {}).get("confirmed_city"))
                          if family in {"search", "booking"} else None),
         requested_room=(grounded_room_update(data.get("requested_room"), message)
                         if family in {"search", "booking"} else None),

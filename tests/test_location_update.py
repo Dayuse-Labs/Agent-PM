@@ -355,3 +355,42 @@ def test_explicit_mention_wins_over_untrusted_canonical_label(literal, canonical
     assert areas[0]['query'] == literal and areas[0]['evidence'] == literal
     assert areas[0]['query'] != canonical
     assert 'latitude' not in areas[0] and 'longitude' not in areas[0]
+
+
+@pytest.mark.parametrize('nested', [False, True])
+def test_inside_neighborhood_parent_placement_is_equivalent(nested):
+    message = 'Berlin Mitte'
+    raw = {'location_update': {'action': 'change', 'evidence': message, 'targets': [
+        {'kind': 'neighborhood', 'query': 'Mitte', 'country': 'DE', 'evidence': message, 'scope': 'inside'}]}}
+    owner = raw['location_update']['targets'][0] if nested else raw['location_update']
+    owner['parent_city'] = 'Berlin'
+    got = adapt_location_update(raw, message, None)
+    assert validate_areas(got['requested_areas'], message) == [
+        {'query': 'Berlin', 'kind': 'municipality', 'country': 'DE', 'evidence': 'Berlin', 'subarea': 'Mitte'}]
+    owner['parent_city'] = 'Invented City'
+    got = adapt_location_update(raw, message, None)
+    assert got['requested_areas'][0]['query'] == 'Mitte'
+    assert 'subarea' not in got['requested_areas'][0]
+
+
+def test_each_alternative_neighborhood_keeps_its_own_grounded_parent():
+    message = 'Berlin Mitte or Paris Marais'
+    raw = {'location_update': {'action': 'change', 'evidence': message, 'targets': [
+        {'kind': 'neighborhood', 'query': 'Mitte', 'country': 'DE', 'parent_city': 'Berlin'},
+        {'kind': 'neighborhood', 'query': 'Marais', 'country': 'FR', 'parent_city': 'Paris'}]}}
+    got = adapt_location_update(raw, message, None)
+    areas = validate_areas(got['requested_areas'], message)
+    assert [(a['query'], a['subarea'], a['country']) for a in areas] == [('Berlin', 'Mitte', 'DE'), ('Paris', 'Marais', 'FR')]
+
+
+@pytest.mark.parametrize('confirmed,expected', [('Berlin', 'Berlin'), ('Paris', 'Mitte')])
+def test_neighborhood_followup_only_reuses_the_provider_confirmed_parent(confirmed, expected):
+    raw = {'location_update': {'action': 'change', 'evidence': 'Mitte', 'targets': [
+        {'kind': 'neighborhood', 'query': 'Mitte', 'country': 'DE', 'parent_city': 'Berlin'}]}}
+    got = adapt_location_update(raw, 'Mitte', {'confirmed_city': confirmed})
+    areas = validate_areas(got['requested_areas'], 'Mitte', confirmed_city=confirmed)
+    assert areas and areas[0]['query'] == expected
+    if expected == 'Berlin':
+        assert validate_areas(got['requested_areas'], 'Mitte') is None
+        assert validate_areas(got['requested_areas'], 'Other', confirmed_city='Berlin') is None
+        assert got['requested_areas'][0]['subarea'] == 'Mitte'

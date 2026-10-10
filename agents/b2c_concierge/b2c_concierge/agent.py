@@ -805,6 +805,12 @@ class _B2cConcierge(BaseAgent):
         profile.
         """
         budget.charge("synthesis")
+        from .ground_truth import current_verified_point_search
+        if current_verified_point_search(response, profile):
+            # The current search already answered the old location question.
+            # Keep customer constraints, but do not prime synthesis with a stale
+            # assistant request for a postcode/address that is now verified.
+            previous_reply = None
         # A prior empty hotel search is not evidence about this FAQ answer.
         ground_truth_block = (faq_ground_truth_block(response)
                               or shortlist_ground_truth_block(response, profile, language))

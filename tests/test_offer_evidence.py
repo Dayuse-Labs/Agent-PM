@@ -194,3 +194,26 @@ def test_verified_address_search_overrides_old_clarification_only_for_current_or
     assert 'earlier location clarification is resolved' not in shortlist_ground_truth_block(response, profile)
     response.pop('results')
     assert 'earlier location clarification is resolved' not in shortlist_ground_truth_block(response, profile)
+
+
+@pytest.mark.parametrize('resolved', [True, False])
+def test_resolved_search_does_not_reprime_synthesis_with_old_address_question(monkeypatch, resolved):
+    import asyncio
+    from b2c_concierge.agent import root_agent, TurnBudget
+    place = {'provider_id': 'provider-address', 'name': '12 Example Street',
+             'label': '12 Example Street, Paris', 'country_code': 'FR', 'feature_type': 'address',
+             'latitude': 48.85, 'longitude': 2.35,
+             'search_context': {'city': 'Paris', 'zone': '12 Example Street', 'metro': None}}
+    profile = SessionProfile(city='Paris', zone='12 Example Street', confirmed_location=place)
+    response = {'results': [normalize_hotel(hotel_payload())], 'profile_delta': {
+        'distance_origin': {'type': 'poi', 'latitude': 48.85, 'longitude': 2.35 if resolved else 2.36}}}
+    calls = []
+    async def generate(self, **kwargs):
+        calls.append(kwargs)
+        return 'Current search results.'
+    monkeypatch.setattr(type(root_agent), '_generate_once', generate)
+    asyncio.run(root_agent._synthesize_with_guards(message='Paris', language='en', leaf_text='',
+        response=response, profile=profile, budget=TurnBudget(), invocation_id='test',
+        recent_messages=['Near12ExampleStreet with a double bed'], previous_reply='Please confirm the postcode.'))
+    assert calls[0]['previous_reply'] == (None if resolved else 'Please confirm the postcode.')
+    assert calls[0]['recent_messages'] == ['Near12ExampleStreet with a double bed']

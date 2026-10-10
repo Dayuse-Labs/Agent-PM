@@ -45,7 +45,7 @@ containing state a second destination. A corridor BETWEEN places is not their un
 use unknown and ask for a central location if the corridor cannot be represented.
 For a neighborhood/landmark with its containing city stated in MESSAGE, parent_city
 is required and targets contains only the neighborhood/landmark, not that city.
-For a new landmark within the confirmed city, retain that confirmed parent_city
+For a new landmark or neighborhood within the confirmed city, retain that confirmed parent_city
 unless the user states another city. Do not ask again for an already confirmed parent.
 A city is a municipality; a region is a state/county/province; a neighborhood is a
 sub-city district. Never label a neighborhood as a state or county. An airport,
@@ -235,14 +235,6 @@ def adapt_location_update(data: dict[str, Any], message: str, context: dict | No
         # An unsupported combination must not authorize an unrelated leaf search.
         result['location_intent'] = {'action': 'unknown', 'kind': 'none'}
         return result
-    parent = raw.get('parent_city')
-    if (isinstance(parent, str) and area_name_in_text(parent, message)
-            and all(t['kind'] == 'neighborhood' for t in clean)):
-        result['requested_areas'] = [
-            {'query': parent, 'kind': 'municipality', 'country': t['country'] or '',
-             'evidence': parent, 'subarea': t['query']} for t in clean
-        ]
-        return result
     result['requested_areas'] = [
         {'query': t['query'], 'kind': {'city': 'municipality', 'region': 'administrative', 'neighborhood': 'neighborhood'}[t['kind']],
          'country': t['country'] or '', 'evidence': t['evidence'],
@@ -255,4 +247,17 @@ def adapt_location_update(data: dict[str, Any], message: str, context: dict | No
                  for old in previous.get('areas') or [])) else {})}
         for t in clean
     ]
+    # Parent placement is transport syntax, not a geographic decision. A
+    # target-local parent and the transaction parent carry the same grounded
+    # relation. Retain each independently, including mixed alternative areas.
+    confirmed_parent = (context or {}).get('confirmed_city')
+    for target, area in zip(clean, result['requested_areas'], strict=True):
+        parent = target.get('parent_city', raw.get('parent_city'))
+        if (target['kind'] == 'neighborhood' and isinstance(parent, str)
+                and parent.strip() and (area_name_in_text(parent, message) or (
+                    isinstance(confirmed_parent, str)
+                    and parent.strip().casefold() == confirmed_parent.strip().casefold()))):
+            area.update(query=parent.strip(), kind='municipality',
+                        evidence=parent.strip() if area_name_in_text(parent, message) else target['evidence'],
+                        subarea=target['query'])
     return result
