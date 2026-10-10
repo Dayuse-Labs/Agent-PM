@@ -52,7 +52,7 @@ def unverified_access(requirements: dict | None, amenities: list[str] | None = N
                 (requirements and (requirements.get('private_amenities') or requirements.get('included_amenities') or requirements.get('access_amenities'))))
 
 
-def conditional_access_message(language: str) -> str:
+def conditional_access_message(language: str, results: list[dict] | None = None) -> str:
     messages = {
         'fr': "Ces hôtels sont des pistes, mais l’accès demandé à l’équipement, ou son caractère privatif ou inclus, n’est pas confirmé pour ces offres. Il faut le vérifier auprès de l’hôtel avant de réserver.",
         'en': "These hotels are options to explore, but the requested facility access (including any private-use or inclusion requirement) is not confirmed for these offers. Please confirm it with the hotel before booking.",
@@ -62,4 +62,36 @@ def conditional_access_message(language: str) -> str:
         'pt': "Estes hotéis são opções a considerar, mas o acesso solicitado à instalação, incluindo uso privado ou incluído, não está confirmado nestas ofertas. Confirme com o hotel antes de reservar.",
         'nl': "Deze hotels zijn mogelijke opties, maar de gevraagde toegang tot de faciliteit, inclusief privégebruik of inbegrepen toegang, is voor deze aanbiedingen niet bevestigd. Controleer dit vóór het boeken bij het hotel.",
     }
-    return messages.get(language, messages['en'])
+    return messages.get(language, messages['en']) + displayed_slot_fact(results, language)
+
+
+def displayed_slot_fact(results: list[dict] | None, language: str) -> str:
+    """Keep the temporal answer useful without claiming facility inclusion.
+
+    Scope is the displayed dated formulas, never the whole hotel/inventory.
+    A longer requested stay is not inferred to fit this provider slot.
+    """
+    from .timeslot import parse_hhmm
+    slots = []
+    for row in results or []:
+        start, end = parse_hhmm(row.get('start_time')), parse_hhmm(row.get('end_time'))
+        name = row.get('name')
+        if start is None or end is None or not isinstance(name, str) or not name:
+            continue
+        end = 1440 if end == 0 and start > 0 else end
+        if end > start:
+            slots.append((end - start, row))
+    if not slots:
+        return ''
+    minutes, longest = max(slots, key=lambda item: item[0])
+    labels = {
+        'en': 'Longest slot among the displayed offers',
+        'fr': 'Créneau le plus long parmi les offres affichées',
+        'de': 'Längstes Zeitfenster unter den angezeigten Angeboten',
+        'it': 'Fascia oraria più lunga tra le offerte mostrate',
+        'es': 'Franja más larga entre las ofertas mostradas',
+        'pt': 'Período mais longo entre as ofertas apresentadas',
+        'nl': 'Langste tijdvak van de getoonde aanbiedingen',
+    }
+    return (f"\n\n{labels.get(language, labels['en'])} : {longest['name']}, "
+            f"{longest['start_time']}–{longest['end_time']} ({minutes} min).")

@@ -64,3 +64,20 @@ def test_hotel_facility_filter_cannot_imply_access_when_scoped_extraction_is_omi
     assert unverified_access(None, ['pool'])
     assert unverified_access({'bedding': 'double'}, ['jacuzzi'])
     assert not unverified_access(None, ['shower', 'air_conditioning'])
+
+
+def test_facility_disclosure_still_explains_actual_longest_displayed_window():
+    from b2c_common.room_requirements import conditional_access_message
+    results = [{'name': 'Short', 'start_time': '10:00', 'end_time': '18:00'},
+               {'name': 'Long', 'start_time': '09:00', 'end_time': '18:00'},
+               {'name': 'Unknown', 'start_time': None, 'end_time': None}]
+    text = conditional_access_message('en', results)
+    assert 'not confirmed' in text
+    assert 'Long, 09:00–18:00 (540 min)' in text
+    assert 'among the displayed offers' in text
+
+
+def test_displayed_window_handles_midnight_without_inventing_missing_times():
+    from b2c_common.room_requirements import displayed_slot_fact
+    assert '360 min' in displayed_slot_fact([{'name': 'Evening', 'start_time': '18:00', 'end_time': '00:00'}], 'en')
+    assert displayed_slot_fact([{'name': 'Missing', 'start_time': 'unknown', 'end_time': '18:00'}], 'en') == ''

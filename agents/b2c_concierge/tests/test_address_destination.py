@@ -141,3 +141,34 @@ def test_address_clarification_and_city_answer_preserve_address_multiturn(script
     assert profile.requested_destination["query"] == QUERY and profile.requested_destination["city"] == "Sampletown"
     assert profile.budget_max == 120 and profile.date == "2027-01-12"
     assert all(p["requested_destination"]["kind"] == "address" for p in seen)
+
+
+@pytest.mark.parametrize("city,query,patch,expected", [
+    ("Sampletown", "Example Street 144", {}, True),
+    (None, "Example Street 144", {}, False),
+    ("Othercity", "Example Street 144", {}, False),
+    ("Sampletown", "Example Street 144 99999", {}, False),
+    ("Sampletown", "Example Street 145", {}, False),
+    ("Sampletown", "Example Street 144", {"address_place_match": "unmatched"}, False),
+    ("Sampletown", "Example Street 144", {"parent_city_id": ""}, False),
+    ("Sampletown", "Example Street 144", {"address_number_match": "plausible"}, False),
+    ("Sampletown", "Example Street 144", {"street_match": "unmatched"}, False),
+    ("Sampletown", "Example Street 144", {"address_confidence": ""}, False),
+])
+def test_low_overall_confidence_requires_complete_address_and_explicit_parent(monkeypatch, city, query, patch, expected):
+    chosen = replace(candidate(), **({"address_confidence": "low", "address_place_match": "matched"} | patch))
+    monkeypatch.setattr(geo, "get_mapbox_client", lambda: SimpleNamespace(geocode_candidates=lambda *a, **kw: [chosen]))
+    assert geo._resolve_address(query, city=city, country="US", language="en")["ok"] is expected
+
+
+def test_component_match_does_not_pick_first_of_two_native_addresses(monkeypatch):
+    chosen = replace(candidate(), address_confidence="low", address_place_match="matched")
+    monkeypatch.setattr(geo, "get_mapbox_client", lambda: SimpleNamespace(geocode_candidates=lambda *a, **kw: [
+        chosen, replace(chosen, mapbox_id="another", longitude=-75.0)]))
+    assert not geo._resolve_address("Example Street 144", city="Sampletown", country="US", language="en")["ok"]
+
+
+def test_address_place_match_parser_preserves_provider_evidence():
+    feature = provider_feature()
+    feature["properties"]["match_code"]["place"] = "matched"
+    assert MapboxClient._parse_candidates({"features": [feature]})[0].address_place_match == "matched"

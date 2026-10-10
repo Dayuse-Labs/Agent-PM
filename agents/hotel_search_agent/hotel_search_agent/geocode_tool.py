@@ -442,12 +442,32 @@ def _resolve_postcode(query: str, *, city: str | None, country: str | None, lang
     }, ["geocode_echo_back"], {"zone": query})
 
 
+def _complete_address_components(candidate: GeocodeCandidate, query: str, city: str | None) -> bool:
+    """Allow an exact short street address whose omitted components lower confidence.
+
+    All query words must be accounted for by the provider street+number name.
+    A conflicting postcode/region/extra token cannot disappear via this path.
+    The caller still requires a unique native identity and matched street/number.
+    """
+    def words(value: str) -> list[str]:
+        folded = "".join(c for c in unicodedata.normalize("NFKD", value.casefold())
+                         if not unicodedata.combining(c))
+        return sorted("".join(c if c.isalnum() else " " for c in folded).split())
+    return bool(
+        city and candidate.address_place_match == "matched"
+        and candidate.parent_city_id and candidate.parent_city_name
+        and _postcode_parent_matches(city, candidate)
+        and words(query) and words(query) == words(candidate.name)
+    )
+
+
 def _resolve_address(query: str, *, city: str | None, country: str | None, language: str) -> dict:
     """Use provider address components, never a city/POI fallback or fuzzy top-1.
 
     Mapbox match_code is address-only. A high overall score can still mean a
     different street (observed live); both number and street must match too.
-    Missing/weak confidence stays a clarification, not an invented exact point.
+    Weak aggregate confidence is accepted only when the entire short address
+    and its explicit parent are independently matched; extra tokens stay ambiguous.
     """
     from b2c_common.destination_request import address_context_question
     full_query = query
@@ -459,7 +479,9 @@ def _resolve_address(query: str, *, city: str | None, country: str | None, langu
     accepted = {
         c.mapbox_id: c for c in candidates
         if c.feature_type == "address" and c.mapbox_id
-        and c.address_confidence in {"exact", "high"}
+        and (c.address_confidence in {"exact", "high"}
+             or (c.address_confidence in {"low", "medium"}
+                 and _complete_address_components(c, query, city)))
         and c.address_number_match == "matched" and c.street_match == "matched"
         and (not country or c.country_code.upper() == country.upper())
         and _provider_place(c, city=city, zone=query) is not None

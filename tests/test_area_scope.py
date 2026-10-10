@@ -788,3 +788,22 @@ def test_ambiguous_area_question_names_actual_provider_locations():
     capture_after_tool(SimpleNamespace(name='geocode_location'), {}, ctx, result)
     reply = skip_final_generation(ctx, None)
     assert reply.content.parts[0].text == result['diagnostics']['question']
+
+
+@pytest.mark.parametrize('label,parent_name,parent_id,expected', [
+    ('Examplecity-Central', 'Examplecity', 'city:1', True),
+    ('Central Examplecity', 'Examplecity', 'city:1', True),
+    ('Anothercity-Central', 'Examplecity', 'city:1', False),
+    ('Examplecity-Central', 'Examplecity', '', False),
+    ('Examplecity-Central Extra', 'Examplecity', 'city:1', False),
+])
+def test_parent_qualified_child_label_requires_native_relationship(label, parent_name, parent_id, expected):
+    child = GeocodeCandidate(48.8, 2.3, label, label, 'France', 'locality', 'FR', 'Region',
+        (2.29,48.79,2.31,48.81), 0, 'child:1', parent_ids=(parent_id,),
+        parent_city_name=parent_name, parent_city_id=parent_id)
+    provider = SimpleNamespace(geocode_candidates=lambda *a, **kw: [child])
+    result = resolve_areas([{'query':'Examplecity','subarea':'Central','kind':'municipality','country':'FR'}], provider)
+    assert result['ok'] is expected
+    if expected:
+        assert result['search_areas'][0]['required_parent_id'] == 'city:1'
+        assert result['search_areas'][0]['id'] == 'child:1'

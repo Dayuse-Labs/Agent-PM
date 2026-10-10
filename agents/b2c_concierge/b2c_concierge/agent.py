@@ -2044,7 +2044,7 @@ class _B2cConcierge(BaseAgent):
         more_options = (
             route.target == LEAF_HOTEL_SEARCH
             and had_search_results
-            and triage.price_comparison is None
+            and triage.price_comparison in (None, "clear")
             and previous_search_key == pagination_search_key(profile)
             and is_more_options_signal(message, triage.wants_more_options)
         )
@@ -2505,7 +2505,7 @@ class _B2cConcierge(BaseAgent):
             synth = discovery_message(profile.pending_party_total, reply_language, ask=not party_question_asked)
             profile.last_clarifying_question = party_composition_question(profile.pending_party_total, reply_language)
         elif response.get("results") and unverified_access(profile.room_requirements, profile.amenities):
-            synth = conditional_access_message(reply_language)
+            synth = conditional_access_message(reply_language, response.get("results"))
         elif no_offers and requested_stay.get("start") and requested_stay.get("end"):
             # Full-stay containment: longer hours cannot recover an empty
             # result. Keep this bounded next step in code, without inventing
@@ -2550,7 +2550,7 @@ class _B2cConcierge(BaseAgent):
             )
         if (response.get("results") and profile.pending_party_total is not None
                 and unverified_access(profile.room_requirements, profile.amenities)):
-            final_text += "\n\n" + conditional_access_message(reply_language)
+            final_text += "\n\n" + conditional_access_message(reply_language, response.get("results"))
         if no_offers:
             rest = drop_restated(final_text, no_offers)
             final_text = f"{no_offers}\n\n{rest}" if rest else no_offers

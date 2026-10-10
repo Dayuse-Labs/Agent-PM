@@ -270,13 +270,13 @@ class TestProfileDeltaAppliedAndPersisted:
         assert stored.budget_max == 150.0
         assert stored.budget_request_source == BUDGET_SOURCE_FLEXIBLE_DEFAULT
 
-    def test_amenities_delta_is_persisted_and_surfaces_in_search_context(
+    def test_amenities_delta_is_persisted_and_triggers_access_disclosure(
         self, monkeypatch, fake_leg, fake_profile_store
     ):
         """S10: the leaf emits the amenity filters it hard-applied
         (equipment_ids/response_bridge) as `profile_delta.amenities`; the
         orchestrator must merge them (accumulating filter for next turns) AND
-        show them in the SAME turn's SEARCH CONTEXT (transparency)."""
+        disclose unverified access in the SAME turn without another model call."""
         fake_leg.response_payload = {
             "results": [{"id": 1, "name": "Hotel A", "amenities": ["pool"]}],
             "profile_delta": {"amenities": ["pool"]},
@@ -287,13 +287,13 @@ class TestProfileDeltaAppliedAndPersisted:
         runner = InMemoryRunner(root_agent)
         session = _new_session(runner)
 
-        _run_turn(runner, session.id, "un hotel à miami avec une piscine")
+        text = _run_turn(runner, session.id, "un hotel à miami avec une piscine")
 
         stored = asyncio.run(fake_profile_store.get(session.id))
         assert stored.amenities == ["pool"]
-        # The delta is applied BEFORE synthesis (agent.py), so the search-context
-        # line the model saw this turn already restates the amenity.
-        assert "amenities: pool" in llm.calls[-1]["messages"][1]["content"]
+        # An equipment label is not evidence of access for the displayed offer.
+        assert "n’est pas confirmé" in text
+        assert len(llm.calls) == 1  # triage only; no free-form access promise
 
     def test_bare_number_reply_overrides_the_leafs_own_source_claim(
         self, monkeypatch, fake_leg, fake_profile_store
@@ -2334,3 +2334,20 @@ def test_device_radius_carries_native_anchor_and_date_to_leaf(monkeypatch, fake_
     assert sent['requested_destination'] == {'kind': 'device', 'radius_km': 30.}
     assert sent['search_anchor']['lat'] == anchor['lat'] and sent['search_anchor']['lon'] == anchor['lon']
     assert sent['date'] == '2027-02-16'
+
+
+@pytest.mark.parametrize('previous_comparison,expected_cursor', [(None, 2),
+    ({'relation': 'lower', 'currency': 'EUR', 'reference_minor': 10000}, 0)])
+def test_other_hotels_after_redundant_comparison_clear_keeps_paging(monkeypatch, fake_leg, fake_profile_store, previous_comparison, expected_cursor):
+    import json
+    _scripted_llm(monkeypatch, json.dumps({'family':'search', 'language':'en', 'wants_more_options':True,
+        'price_comparison':{'value':'clear','evidence':'not necessarily cheaper'}}), 'More offers.')
+    runner = InMemoryRunner(root_agent)
+    session = _new_session(runner)
+    asyncio.run(fake_profile_store.set(session.id, SessionProfile(city='Paris', search_cursor=1,
+        price_comparison=previous_comparison, last_results=[{'hotel_id':12,'name':'Example'}])))
+    fake_leg.response_payload = {'results':[{'id':13,'name':'Other'}]}
+    _run_turn(runner, session.id, 'Not necessarily cheaper, just other hotels.')
+    outgoing = find_datapart(fake_leg.seen_outgoing_parts)['profile_in']
+    assert outgoing['price_comparison'] is None
+    assert outgoing['search_cursor'] == expected_cursor

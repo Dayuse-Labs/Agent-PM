@@ -50,6 +50,19 @@ def _same_area_name(query: str, label: str, administrative: bool) -> bool:
     return bool(words) and words == _identity_words(label, administrative)
 
 
+def _same_child_name(query: str, candidate: Any) -> bool:
+    """Provider child labels may include their own verified parent's name.
+
+    No name aliases or fuzzy similarity. Parent membership is required by the
+    caller; an unrelated parent's prefix cannot establish this relationship.
+    """
+    wanted = _identity_words(query, False)
+    actual = _identity_words(candidate.name, False)
+    parent = _identity_words(candidate.parent_city_name, False)
+    return bool(wanted and (wanted == actual or (
+        candidate.parent_city_id and parent and actual in (parent + wanted, wanted + parent))))
+
+
 def _area_question(query: str, candidates: list, language: str | None) -> str:
     labels = list(dict.fromkeys(c.place_name for c in candidates if c.place_name))[:3]
     templates = {
@@ -93,7 +106,8 @@ def _resolve_area(item: dict[str, str], client: MapboxClient, language: str | No
                and (parent is None or parent["id"] in c.parent_ids)
                and (not region_hint or area_name_in_text(region_hint, c.place_name))
                and ((item.get("code") and parent is None and c.administrative_code.casefold() == item["code"].casefold())
-                    or ((parent is not None or not item.get("code")) and _same_area_name(item["subarea"] if parent is not None else item["query"], c.name, parent is None and item["kind"] == "administrative")))]
+                    or (parent is not None and _same_child_name(item["subarea"], c))
+                    or (parent is None and not item.get("code") and _same_area_name(item["query"], c.name, item["kind"] == "administrative")))]
     # Inspect actual provider identities before asking for information the
     # provider can establish. Explicit country/parent/region constraints above
     # remain hard filters; the selected area's membership is still verified.
@@ -147,7 +161,7 @@ def _resolve_subarea(item: dict[str, str], client: MapboxClient, language: str |
     matches = [c for c in candidates if c.mapbox_id and c.country_code
                and c.feature_type in {"locality", "neighborhood"}
                and (not item["country"] or c.country_code == item["country"])
-               and _same_area_name(item["subarea"], c.name, False)
+               and _same_child_name(item["subarea"], c)
                and c.parent_city_id and c.parent_city_id in c.parent_ids
                and _same_parent_name(item["query"], c.parent_city_name)]
     candidate = dominant_identity(matches)
@@ -161,7 +175,7 @@ def _resolve_subarea(item: dict[str, str], client: MapboxClient, language: str |
         if parent["ok"]:
             parent_id = parent["area"]["id"]
             candidate = dominant_identity([c for c in candidates
-                if parent_id in c.parent_ids and _same_area_name(item["subarea"], c.name, False)
+                if parent_id in c.parent_ids and _same_child_name(item["subarea"], c)
                 and c.feature_type in {"locality", "neighborhood"}
                 and c.mapbox_id and c.country_code
                 and (not item["country"] or c.country_code == item["country"])
