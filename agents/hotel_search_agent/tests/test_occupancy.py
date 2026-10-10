@@ -86,6 +86,18 @@ class TestCaptureFromArgs:
 
 
 class TestCarryover:
+    def test_unknown_new_total_removes_stale_and_model_guessed_filters(self):
+        datapart = a2a_types.Part(root=a2a_types.DataPart(data={
+            "query_params": {"party_total": 4},
+            "profile_in": {"adults": 2, "children": 1},
+        }))
+        ctx = _Ctx(user_content=genai_types.Content(role="user", parts=[
+            convert_a2a_part_to_genai_part(datapart),
+        ]))
+        args = {"adults": 4, "children": 0, "lat": 48.0}
+        inject_profile_occupancy(_Tool("search_offers"), args, ctx)
+        assert args == {"lat": 48.0}
+
     def test_profile_fills_the_slot_when_the_model_omits_it(self):
         # The bug this whole change exists for: turn 2 ("moins cher") used to
         # drop the party size and offer rooms the family cannot book.

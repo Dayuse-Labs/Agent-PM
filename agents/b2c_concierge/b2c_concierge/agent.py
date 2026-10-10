@@ -1447,7 +1447,7 @@ class _B2cConcierge(BaseAgent):
         occupancy_update, next_party_total = resolve_party_update(
             profile.adults, profile.children, profile.pending_party_total, triage.requested_occupancy,
         )
-        occupancy_changed = bool(occupancy_update and any(
+        occupancy_changed = next_party_total != profile.pending_party_total or bool(occupancy_update and any(
             getattr(profile, key) != value for key, value in occupancy_update.items()
         ))
         requested_window = triage.requested_window
@@ -1665,6 +1665,13 @@ class _B2cConcierge(BaseAgent):
 
         if route.kind == "inline":
             if route.target == "generate_booking_link":
+                if next_party_total is not None:
+                    profile.pending_party_total = next_party_total
+                    profile.pending_booking = None
+                    await store.set(ctx.session.id, profile)
+                    self._emit_turn_metric(family, "template:party_clarification", budget, t_start, "ok", inv)
+                    yield self._final(ctx, party_composition_question(next_party_total, reply_language))
+                    return
                 # R9 (guard #12): fully deterministic, ZERO extra LLM — see
                 # _run_booking's docstring for why a booking confirmation is
                 # never delegated to an LLM's judgment.
@@ -1971,23 +1978,20 @@ class _B2cConcierge(BaseAgent):
             return
 
         if route.target == LEAF_HOTEL_SEARCH and profile.pending_party_total is not None:
-            # Keep the total but resolve the first missing search prerequisite
-            # before asking party composition. Never guess adults from a total,
-            # and never dispatch inventory while that composition is unresolved.
+            # Missing destination still blocks. A known destination permits
+            # conditional discovery, with no invented adult/child composition.
             destination_known = any((profile.city, profile.zone, profile.metro,
                 profile.search_areas, profile.confirmed_location, profile.named_hotel,
                 destination_request(profile.requested_destination))) or bool(
                     profile.search_anchor and profile.search_anchor.get("type") == "gps")
-            question = (party_composition_question(profile.pending_party_total, reply_language)
-                        if destination_known else templates.missing_destination_question(reply_language))
-            profile.last_clarifying_question = question
             if not destination_known:
+                question = templates.missing_destination_question(reply_language)
                 remember_location_question(profile, question)
-            await store.set(ctx.session.id, profile)
-            yield self._hotels_event(ctx, {"requires_clarification": True}, reply_language)
-            self._emit_turn_metric(family, "template:party_clarification", budget, t_start, "ok", inv)
-            yield self._final(ctx, question)
-            return
+                await store.set(ctx.session.id, profile)
+                yield self._hotels_event(ctx, {"requires_clarification": True}, reply_language)
+                self._emit_turn_metric(family, "template:party_clarification", budget, t_start, "ok", inv)
+                yield self._final(ctx, question)
+                return
 
         if route.target == LEAF_HOTEL_SEARCH and location_action == "unknown":
             question = templates.destination_update_clarification(reply_language)
@@ -2069,6 +2073,8 @@ class _B2cConcierge(BaseAgent):
             query_params["destination_missing"] = True
         if route.target == LEAF_HOTEL_SEARCH and occupancy_update:
             query_params["occupancy_update"] = occupancy_update
+        if route.target == LEAF_HOTEL_SEARCH and profile.pending_party_total is not None:
+            query_params["party_total"] = profile.pending_party_total
         if route.target == LEAF_HOTEL_SEARCH and location_action == "device":
             query_params["device_authoritative"] = True
         if (route.target == LEAF_HOTEL_SEARCH and pending_refinement and (profile.zone or profile.metro)
@@ -2143,6 +2149,8 @@ class _B2cConcierge(BaseAgent):
         delta = response.get("profile_delta") or {}
         if route.target == LEAF_HOTEL_SEARCH:
             delta = accepted_location_delta(response, delta)
+            if profile.pending_party_total is not None:
+                delta = {k: v for k, v in delta.items() if k not in {"adults", "children"}}
         stated_leaf_city = delta.get("city")
         if isinstance(stated_leaf_city, dict):
             stated_leaf_city = stated_leaf_city.get("value") if stated_leaf_city.get("op") == "set" else None
@@ -2321,6 +2329,19 @@ class _B2cConcierge(BaseAgent):
             return
         window_fallback: str | None = None
         no_offers = ""
+        if (route.target == LEAF_HOTEL_SEARCH and profile.pending_party_total is not None
+                and response.get("results") == [] and not response.get("requires_clarification")):
+            # An empty conditional shortlist is not proof of unavailability
+            # for an unknown composition. Do not widen or exhaust the search.
+            profile.pending_booking = None
+            record_search_shortlist(profile, [])
+            question = party_composition_question(profile.pending_party_total, reply_language)
+            profile.last_clarifying_question = question
+            await store.set(ctx.session.id, profile)
+            yield self._hotels_event(ctx, response, reply_language)
+            self._emit_turn_metric(family, "template:party_clarification", budget, t_start, "ok", inv)
+            yield self._final(ctx, question)
+            return
         if route.target == LEAF_HOTEL_SEARCH and "results" in response:
             # guard_window_match (mcp-dayuse#8): what reaches the screen as a
             # match covers the slot, by the site rule the leaf filters with.
@@ -2470,7 +2491,13 @@ class _B2cConcierge(BaseAgent):
 
         requested_stay = profile.requested_window or {}
         synth: str | None
-        if no_offers and requested_stay.get("start") and requested_stay.get("end"):
+        if profile.pending_party_total is not None and response.get("results"):
+            from b2c_common.party_discovery import discovery_message
+            # Do not let prose claim confirmed group eligibility or guess two
+            # adults. Cards show the exact provider offer; no synthesis call.
+            synth = discovery_message(profile.pending_party_total, reply_language)
+            profile.last_clarifying_question = party_composition_question(profile.pending_party_total, reply_language)
+        elif no_offers and requested_stay.get("start") and requested_stay.get("end"):
             # Full-stay containment: longer hours cannot recover an empty
             # result. Keep this bounded next step in code, without inventing
             # availability or changing the customer's profile. Existing final

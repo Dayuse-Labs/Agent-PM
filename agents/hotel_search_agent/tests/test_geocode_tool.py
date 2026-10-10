@@ -1312,7 +1312,7 @@ class TestPoiAnchorCoherenceGuard:
         assert result["ok"] is True
         assert "poi_anchor_coherence" not in (result.get("guards_fired") or [])
 
-    def test_with_no_anchor_at_all_the_turn_never_reaches_this_guard(self, monkeypatch):
+    def test_unanchored_non_airport_still_requires_city_after_bounded_lookup(self, monkeypatch):
         # This guard's documented limit was "with no anchor there is nothing to
         # compare against, so it cannot fire" — which is exactly how the Toulon
         # POI got accepted. Since 2026-08-26 that shape is gated upstream: with
@@ -1328,7 +1328,7 @@ class TestPoiAnchorCoherenceGuard:
 
         assert result["ok"] is False
         assert result["error"] == "geocode_ambiguous"
-        assert box.calls == []          # the Toulon POI is never even fetched
+        assert len(box.calls) == 1  # Country hint permits one native-airport lookup only.
         assert "poi_anchor_coherence" not in (result.get("guards_fired") or [])
 
 
@@ -2117,3 +2117,42 @@ def test_provider_miss_in_owned_region_never_serves_homonym_elsewhere(monkeypatc
     assert fake.calls[0] == ('New York, Texas', 'US')
     assert result['ok'] is False
     assert 'latitude' not in result
+
+
+class TestRemoteNamedAirport:
+    @staticmethod
+    def airport():
+        return GeocodeCandidate(latitude=51.4715676, longitude=-0.4878455,
+            name='London Heathrow Airport', place_name='London Heathrow Airport, Hounslow, United Kingdom',
+            place_formatted='Hounslow, United Kingdom', feature_type='poi', country_code='GB',
+            region='England', bbox=None, rank=0, mapbox_id='provider-heathrow', airport_iata='LHR')
+
+    @pytest.mark.parametrize('gps', [False, True])
+    def test_exact_provider_airport_name_overrides_remote_device(self, monkeypatch, gps):
+        calls = TestUnanchoredAirportIdentity.install(monkeypatch, [self.airport()])
+        result = geocode_location(zone='London Heathrow Airport', country_guess='GB',
+            raw_user_message='A day room near London Heathrow Airport',
+            **({'proximity_lat': 45.5849, 'proximity_lon': 10.2441} if gps else {}))
+        assert result['ok'] and result['latitude'] == self.airport().latitude
+        assert result['resolved_location']['provider_id'] == 'provider-heathrow'
+        assert result['distance_origin_type'] == 'poi' and len(calls) == 1
+
+    @pytest.mark.parametrize('changes', [
+        {'airport_iata': ''}, {'mapbox_id': ''},
+        {'name': 'London Heathrow Airport Hotel', 'airport_iata': ''},
+    ])
+    def test_names_without_native_airport_identity_cannot_bypass_device_guard(self, monkeypatch, changes):
+        from dataclasses import replace
+        TestUnanchoredAirportIdentity.install(monkeypatch, [replace(self.airport(), **changes)])
+        result = geocode_location(zone='London Heathrow Airport', country_guess='GB',
+            proximity_lat=45.5849, proximity_lon=10.2441,
+            raw_user_message='A day room near London Heathrow Airport')
+        assert not result['ok']
+
+    def test_exact_remote_airport_cannot_override_explicit_city(self, monkeypatch):
+        TestUnanchoredAirportIdentity.install(monkeypatch, [self.airport()])
+        paris = _c('Paris', 'FR', 'Île-de-France', lat=48.8566, lon=2.3522)
+        _patch_multi(monkeypatch, [paris], inventory={48.8566: 780})
+        result = geocode_location(city='Paris', zone='London Heathrow Airport',
+            raw_user_message='London Heathrow Airport in Paris')
+        assert not result['ok']

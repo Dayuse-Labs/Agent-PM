@@ -97,7 +97,7 @@ def test_explicit_region_after_numeric_clarification_is_kept_while_party_is_pend
     _drive_in(runner, session.id, '12')
     message = 'Example Province'
     scripted(json.dumps({'family': 'search', 'language': 'en', 'location_update': {
-        'action': 'change', 'evidence': message, 'targets': [{'kind': 'region', 'query': message, 'country': 'GB'}]}}))
+        'action': 'change', 'evidence': message, 'targets': [{'kind': 'region', 'query': message, 'country': 'GB'}]}}), response={'results': []})
     answer = _answer(_drive_in(runner, session.id, message))
     saved = asyncio.run(fake_profile_store.get(session.id))
     assert saved.requested_destination['areas'][0]['query'] == message

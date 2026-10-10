@@ -435,6 +435,10 @@ def leaf_profile_view(profile: SessionProfile) -> dict[str, Any]:
     view = profile.to_dict()
     for key in _CONCIERGE_ONLY_KEYS:
         view.pop(key, None)
+    if profile.pending_party_total is not None:
+        # The previous composition is not evidence for a changed total.
+        view.pop("adults", None)
+        view.pop("children", None)
     view["last_results"] = [
         {"hotel_id": entry.get("hotel_id"), "name": entry.get("name")}
         for entry in (profile.last_results or [])

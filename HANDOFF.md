@@ -1,3 +1,9 @@
+## 2026-10-10 — v109 conditional discovery and remote airport identity, validation in progress
+
+Grouped follow-up: search can progress with an unresolved party total while counts remain unguessed and booking requires composition. The leaf receives no stale counts, filters individual offers for possible capacity, and cannot invent counts back into the profile. A provider-native exact airport identity can override device GPS; explicit-city constraints and non-airport identity guards remain. See `evals/DISCOVERY_AND_REMOTE_AIRPORT_2026_10_10.md` for intentional contract changes and release gates.
+
+Current main and actual Railway deployment/config were read again. Candidate model overrides are still explicit and are not deployed. The additional-budget question is pending; no budget increment is applied. Only a two-case/four-turn candidate smoke is prepared within the existing 200USD ceiling. Broad paired evaluation and model ablation remain unfunded pending the amount. NO GO, no merge/deploy.
+
 ## 2026-10-10 — v108 decision policy consolidation, offline only: NO GO
 
 Adapted the current production3093647 evidence-before-commit approach without importing its orchestrator. Shared provider identity confidence runs after hard geographic constraints; deep locale priors cannot override leading exact identities. Neighborhood and containing city resolve as a provider relationship, with one parent-ID lookup fallback and unchanged per-hotel child AND parent membership. Countryless neighborhoods/codes still clarify. The concierge rejects geographic deltas from failed/clarifying location resolutions and reduces date/period precedence once before early returns; a mislabeled literal single day cannot become a date-period loop. No new regex, geographic alias dictionary, model phase, Redis owner, A2A/MCP contract or model configuration change.

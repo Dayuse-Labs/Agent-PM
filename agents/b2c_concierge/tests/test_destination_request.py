@@ -237,7 +237,8 @@ def test_party_total_confirmation_keeps_children_and_unknown_total_is_clarified(
         saved = asyncio.run(fake_profile_store.get(session.id))
         if text == 'now four people':
             assert saved.pending_party_total == 4
-            assert len(seen) == 1  # No inventory call before composition is known.
+            assert len(seen) == 2  # Conditional discovery does not invent a composition.
+            assert 'adults' not in seen[-1] and 'children' not in seen[-1]
             assert '4 guests' in saved.last_clarifying_question
-    assert [(p['adults'],p['children']) for p in seen] == [(2,1),(3,1)]
+    assert [(p.get('adults'), p.get('children')) for p in seen] == [(2, 1), (None, None), (3, 1)]
     assert saved.pending_party_total is None

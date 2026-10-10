@@ -395,8 +395,9 @@ def build_active_filters(profile: SessionProfile) -> dict[str, Any]:
         # before this — the leaf was emitting adults/children to MCP while the
         # response disclosed nothing, so neither a user nor an eval could tell
         # whether the occupancy had been honoured.
-        "adults": profile.adults,
-        "children": profile.children,
+        "adults": profile.adults if profile.pending_party_total is None else None,
+        "children": profile.children if profile.pending_party_total is None else None,
+        "pending_party_total": profile.pending_party_total,
     }
 
 

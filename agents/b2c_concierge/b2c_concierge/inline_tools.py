@@ -540,7 +540,11 @@ def _search_offer(offers: list[Any], hotel: dict[str, Any], profile: SessionProf
             offer.get("startHour"), offer.get("endHour"), arrival_daypart
         ):
             continue
-        if any(
+        if profile.pending_party_total is not None:
+            from b2c_common.party_discovery import possible_party
+            if not possible_party(offer, profile.pending_party_total):
+                continue
+        elif any(
             needed is not None and needed > 0 and (
                 isinstance(offer.get(field), bool) or not isinstance(offer.get(field), int)
                 or offer[field] < needed
@@ -1229,6 +1233,9 @@ async def _generate_booking_link_impl(
          pointing at another hotel must not confirm the stale one — it
          re-resolves the newly named one instead).
     """
+    if profile.pending_party_total is not None:
+        profile.pending_booking = None
+        return {"ok": False, "error": "party_composition_required"}
     pending = profile.pending_booking
     if user_confirmed and pending is not None:
         named_hit = resolve_hotel_reference(hotel_reference or "", profile.last_results)

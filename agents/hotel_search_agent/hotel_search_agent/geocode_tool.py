@@ -375,6 +375,28 @@ def _provider_place(candidate: GeocodeCandidate, *, city: str | None = None,
     })
 
 
+def _named_airport_identity(candidates: list[GeocodeCandidate], query: str,
+                            country: str | None) -> GeocodeCandidate | None:
+    """A provider-native airport identity can describe a remote destination.
+
+    Exact full names or native IATA codes only; no shops, terminals, fuzzy
+    names or general POIs may bypass the device-distance guard this way.
+    Multiple airport identities remain ambiguous regardless of inventory.
+    """
+    wanted = geo_resolver._landmark_key(query)
+    matches = {}
+    for candidate in candidates:
+        if (candidate.feature_type != "poi" or not candidate.airport_iata
+                or (country and candidate.country_code != country)
+                or _provider_place(candidate, zone=query) is None):
+            continue
+        if (wanted == geo_resolver._landmark_key(candidate.name)
+                or _unanchored_airport_code(query) == candidate.airport_iata):
+            matches[(candidate.airport_iata, candidate.mapbox_id,
+                     candidate.latitude, candidate.longitude)] = candidate
+    return next(iter(matches.values())) if len(matches) == 1 else None
+
+
 def _postcode_parent_matches(parent: str, candidate: GeocodeCandidate) -> bool:
     """Validate each supplied parent word against structured provider context.
 
@@ -731,9 +753,10 @@ def geocode_location(
             #
             # Runs AFTER the GPS branch above, so Gate 3 still holds; and when a
             # device fix DOES exist the ranker keeps the case exactly as before.
-            # A standalone airport code permits one lookup without that anchor;
-            # only a unique, provider-verified IATA identity can resolve it below.
-            if proximity_tuple is None and airport_code is None:
+            # A standalone airport code or a country hint permits one lookup.
+            # Only a unique provider-native airport identity can resolve without
+            # an anchor; all other landmarks still require a containing city.
+            if proximity_tuple is None and airport_code is None and guess_iso is None:
                 mark_level("WARNING", status_message="geocode_city_needed")
                 return _fail(
                     "geocode_ambiguous",
@@ -772,18 +795,17 @@ def geocode_location(
             landmark_candidates = [c for c in landmark_candidates if _echoes(
                 c.place_name, city=None, zone=effective_zone, state_hint=None, airport_iata=c.airport_iata
             )]
-            if proximity_tuple is None:
-                # Provider-native IATA metadata is the authority, not the
-                # spelling of a shop, terminal or municipality bearing a code.
-                airport_country = _soft_country(country_code, country_guess, None)
-                identities = [
-                    c for c in landmark_candidates
-                    if c.feature_type == "poi" and c.airport_iata == airport_code
-                    and (not airport_country or c.country_code == airport_country)
-                    and _provider_place(c, zone=effective_zone) is not None
-                ]
-                landmark_candidates = identities if len(identities) == 1 else []
-            landmark = geo_resolver.rank_landmark(
+            airport_identity = _named_airport_identity(
+                landmark_candidates, effective_zone or "", _soft_country(country_code, country_guess, None),
+            )
+            if proximity_tuple is None and airport_identity is None:
+                # A bounded lookup may establish an exact airport identity.
+                # Other unanchored landmarks still need the containing city.
+                return _fail("geocode_ambiguous", {
+                    "question": geo_resolver.city_needed_question(effective_zone or "", lang),
+                    "options": [],
+                }, guards_fired, {"zone": effective_zone} if effective_zone else None)
+            landmark = airport_identity or geo_resolver.rank_landmark(
                 landmark_candidates,
                 requested_zone=effective_zone or "",
                 inventory=get_inventory(),
@@ -796,7 +818,7 @@ def geocode_location(
                 # Guard #14 — with no city named, `proximity_tuple` (the device
                 # fix) is the only anchor available; without one the guard is a
                 # no-op here and the ranker above is what carries the case.
-                if _poi_anchor_incoherent(landmark, anchor=proximity_tuple):
+                if airport_identity is None and _poi_anchor_incoherent(landmark, anchor=proximity_tuple):
                     guards_fired.append("poi_anchor_coherence")
                     mark_level("WARNING", status_message="poi_anchor_incoherent")
                 else:

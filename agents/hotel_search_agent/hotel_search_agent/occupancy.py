@@ -50,6 +50,7 @@ from __future__ import annotations
 import copy
 import logging
 from typing import Any
+from b2c_common.party_discovery import discovery_total
 
 from hotel_search_agent.response_bridge import STATE_ZERO_CHILDREN_KEY, find_datapart, party_count
 
@@ -104,6 +105,12 @@ def inject_profile_occupancy(
     content = getattr(tool_context, "user_content", None)
     envelope = find_datapart(getattr(content, "parts", None) or [])
     params = envelope.get("query_params") if isinstance(envelope, dict) else None
+    if discovery_total(params) is not None:
+        # Neither model guesses nor stale counts may turn a total into an
+        # adult/child filter. The bridge checks possible capacity per offer.
+        for key in _ARG_TO_SLOT:
+            args.pop(key, None)
+        return None
     update = params.get("occupancy_update") if isinstance(params, dict) else None
     # The concierge validates the current quote. Only those updated fields
     # override leaf interpretation; other fields keep the existing precedence.
