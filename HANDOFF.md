@@ -1,8 +1,10 @@
-## 2026-10-10 — v109 conditional discovery and remote airport identity, validation in progress
+## 2026-10-10 — v109 delivered narrow live validation: NO GO for broad replacement
 
-Grouped follow-up: search can progress with an unresolved party total while counts remain unguessed and booking requires composition. The leaf receives no stale counts, filters individual offers for possible capacity, and cannot invent counts back into the profile. A provider-native exact airport identity can override device GPS; explicit-city constraints and non-airport identity guards remain. See `evals/DISCOVERY_AND_REMOTE_AIRPORT_2026_10_10.md` for intentional contract changes and release gates.
+Runtime `fa14b9d`: conditional party discovery, stale-count isolation, booking composition guards, and native exact airport identity over remote GPS. See `evals/DISCOVERY_AND_REMOTE_AIRPORT_2026_10_10.md` for intentional contracts and release gates. The profile owner, stateless A2A leaves, LiteLLM and read-only MCP remain; no new regex or geographic aliases.
 
-Current main and actual Railway deployment/config were read again. Candidate model overrides are still explicit and are not deployed. The additional-budget question is pending; no budget increment is applied. Only a two-case/four-turn candidate smoke is prepared within the existing 200USD ceiling. Broad paired evaluation and model ablation remain unfunded pending the amount. NO GO, no merge/deploy.
+3250 tests pass/1 optional live skipped; ruff, mypy84, guardrails and diff clean. Two exposed conversations/four turns completed: LA→bed/shower→LAX now advances; Heathrow from Italian GPS resolves and yields five offers.12 exact MCP card joins, no detected price/date/formula/fact/expiry errors;12 distance arithmetic checks and0 minute mismatches. Nonblind grades1A/1B, no fresh legacy arm, no general superiority claim. Repetitive party wording, durable bedding and wider geo/amenity coverage remain open.
+
+Cost0.0729432USD; accounted198.91661799USD including retained provisions; ceiling200/reserve0.50, headroom0.58338201. Additional-budget amount selection is pending and NO increment applied. Pending paid batch null, owned services stopped, STOP restored. Fresh Railway snapshots in private batch-v109; model overrides remain explicit (candidate triage5.2 vs deployed4o-mini). PR stays draft; no merge/deploy. Exact-head CI still needs checking after publication; previous head's CI was blocked by GitHub billing before execution.
 
 ## 2026-10-10 — v108 decision policy consolidation, offline only: NO GO
 
