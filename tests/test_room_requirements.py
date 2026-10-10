@@ -58,3 +58,9 @@ def test_explicit_access_is_not_equivalent_to_a_hotel_facility():
     assert update == {'access_amenities': ['pool']}
     assert unverified_access(update)
     assert apply_room_update(update, {'bedding': 'double'})['access_amenities'] == ['pool']
+
+
+def test_hotel_facility_filter_cannot_imply_access_when_scoped_extraction_is_omitted():
+    assert unverified_access(None, ['pool'])
+    assert unverified_access({'bedding': 'double'}, ['jacuzzi'])
+    assert not unverified_access(None, ['shower', 'air_conditioning'])

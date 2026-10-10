@@ -1,3 +1,7 @@
+## 2026-10-10 — v112 access guard from owned facility filters
+
+v111 live replay exposed that triage may omit an optional access scope even when it correctly retains the pool amenity. The disclosure therefore also uses the already concierge-owned pool/jacuzzi/spa/sauna filters: hotel equipment cannot imply verified access for the selected formula. This is a deterministic policy over typed state, no text matching or extra model call. Room-specific requests still persist separately. All previous source hashes verified unchanged through their diagnostics; accounting observer updated for a code-only area clarification, with preserved raw records and documented retrospective reconciliation. Final frozen paired comparison follows the pool replay. Ceiling230USD unchanged. No deployment/merge/Railway writes.
+
 ## 2026-10-10 — v111 final replay freeze pending
 
 v110 targeted13/41 completed for0.9147138USD:53 dated card joins without price/date/formula/fact/expiry mismatch,44 distance checks without discrepancy. Live progress: LA bedding/shower/LAX, Manhattan cheaper→new total cap, tomorrow+pool follow-up, Vienna airport. Remaining ambiguous neighborhoods/typos/airport referents still clarify excessively; no claim that all historical failures are fixed.

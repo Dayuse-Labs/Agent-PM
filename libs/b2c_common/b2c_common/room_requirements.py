@@ -45,10 +45,11 @@ def bedding_matches(offer: dict, requirements: dict | None) -> bool:
     return offer.get('bedding') in codes
 
 
-def unverified_access(requirements: dict | None) -> bool:
+def unverified_access(requirements: dict | None, amenities: list[str] | None = None) -> bool:
     # Current MCP offer data does not prove private use or free/included access.
     # Presence at the hotel, or an unqualified inclusion label, is insufficient.
-    return bool(requirements and (requirements.get('private_amenities') or requirements.get('included_amenities') or requirements.get('access_amenities')))
+    return bool(set(amenities or []) & {'pool', 'jacuzzi', 'spa', 'sauna'} or
+                (requirements and (requirements.get('private_amenities') or requirements.get('included_amenities') or requirements.get('access_amenities'))))
 
 
 def conditional_access_message(language: str) -> str:

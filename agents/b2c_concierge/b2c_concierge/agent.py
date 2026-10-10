@@ -2504,7 +2504,7 @@ class _B2cConcierge(BaseAgent):
             # adults. Cards show the exact provider offer; no synthesis call.
             synth = discovery_message(profile.pending_party_total, reply_language, ask=not party_question_asked)
             profile.last_clarifying_question = party_composition_question(profile.pending_party_total, reply_language)
-        elif response.get("results") and unverified_access(profile.room_requirements):
+        elif response.get("results") and unverified_access(profile.room_requirements, profile.amenities):
             synth = conditional_access_message(reply_language)
         elif no_offers and requested_stay.get("start") and requested_stay.get("end"):
             # Full-stay containment: longer hours cannot recover an empty
@@ -2549,7 +2549,7 @@ class _B2cConcierge(BaseAgent):
                 + f"\n\n{final_text}"
             )
         if (response.get("results") and profile.pending_party_total is not None
-                and unverified_access(profile.room_requirements)):
+                and unverified_access(profile.room_requirements, profile.amenities)):
             final_text += "\n\n" + conditional_access_message(reply_language)
         if no_offers:
             rest = drop_restated(final_text, no_offers)
