@@ -1,0 +1,85 @@
+{
+  "method": "AST Call nodes on direct re.* calls in tracked agents/ and libs/ Python, excluding tests/; compile calls and direct uses, not unique patterns or executed counts",
+  "main_commit": "cbe88b9963f28fbea932ac2a6ce23d22112f2b76",
+  "reviewed_head": "61b4ed0d3c611f84253579e54c9c4bfabaeff61d",
+  "runtime_commit": "315377106070e11390a84c3236993ce0d5177026",
+  "by_reference": {
+    "origin/main": {
+      "call_sites": 82,
+      "files": 19,
+      "operations": {
+        "findall": 2,
+        "sub": 8,
+        "escape": 3,
+        "search": 7,
+        "compile": 56,
+        "fullmatch": 3,
+        "match": 1,
+        "split": 2
+      },
+      "per_file": {
+        "agents/b2c_concierge/b2c_concierge/agent.py": 1,
+        "agents/b2c_concierge/b2c_concierge/amenity_guard.py": 5,
+        "agents/b2c_concierge/b2c_concierge/currency_guard.py": 1,
+        "agents/b2c_concierge/b2c_concierge/date_format.py": 2,
+        "agents/b2c_concierge/b2c_concierge/facade.py": 5,
+        "agents/b2c_concierge/b2c_concierge/fallback_text.py": 1,
+        "agents/b2c_concierge/b2c_concierge/inline_tools.py": 2,
+        "agents/b2c_concierge/b2c_concierge/link_guard.py": 4,
+        "agents/b2c_concierge/b2c_concierge/no_offers.py": 2,
+        "agents/b2c_concierge/b2c_concierge/profile.py": 20,
+        "agents/b2c_concierge/b2c_concierge/requested_date.py": 10,
+        "agents/b2c_concierge/b2c_concierge/triage.py": 8,
+        "agents/b2c_concierge/b2c_concierge/window_guard.py": 1,
+        "agents/hotel_search_agent/hotel_search_agent/datetime_resolver.py": 5,
+        "agents/hotel_search_agent/hotel_search_agent/geo_guards.py": 8,
+        "agents/hotel_search_agent/hotel_search_agent/geo_resolver.py": 1,
+        "libs/b2c_common/b2c_common/hotel_urls.py": 2,
+        "libs/b2c_common/b2c_common/search_page.py": 1,
+        "libs/b2c_common/b2c_common/timeslot.py": 3
+      }
+    },
+    "HEAD": {
+      "call_sites": 82,
+      "files": 19,
+      "operations": {
+        "findall": 2,
+        "sub": 8,
+        "escape": 3,
+        "search": 7,
+        "compile": 56,
+        "fullmatch": 3,
+        "match": 1,
+        "split": 2
+      },
+      "per_file": {
+        "agents/b2c_concierge/b2c_concierge/agent.py": 1,
+        "agents/b2c_concierge/b2c_concierge/amenity_guard.py": 5,
+        "agents/b2c_concierge/b2c_concierge/currency_guard.py": 1,
+        "agents/b2c_concierge/b2c_concierge/date_format.py": 2,
+        "agents/b2c_concierge/b2c_concierge/facade.py": 5,
+        "agents/b2c_concierge/b2c_concierge/fallback_text.py": 1,
+        "agents/b2c_concierge/b2c_concierge/inline_tools.py": 2,
+        "agents/b2c_concierge/b2c_concierge/link_guard.py": 4,
+        "agents/b2c_concierge/b2c_concierge/no_offers.py": 2,
+        "agents/b2c_concierge/b2c_concierge/profile.py": 20,
+        "agents/b2c_concierge/b2c_concierge/requested_date.py": 10,
+        "agents/b2c_concierge/b2c_concierge/triage.py": 8,
+        "agents/b2c_concierge/b2c_concierge/window_guard.py": 1,
+        "agents/hotel_search_agent/hotel_search_agent/datetime_resolver.py": 5,
+        "agents/hotel_search_agent/hotel_search_agent/geo_guards.py": 8,
+        "agents/hotel_search_agent/hotel_search_agent/geo_resolver.py": 1,
+        "libs/b2c_common/b2c_common/hotel_urls.py": 2,
+        "libs/b2c_common/b2c_common/search_page.py": 1,
+        "libs/b2c_common/b2c_common/timeslot.py": 3
+      }
+    }
+  },
+  "added_call_expressions": [],
+  "removed_call_expressions": [],
+  "limitations": [
+    "Does not count regex use inside dependencies, JS, tests, or indirect custom APIs.",
+    "An unchanged call expression is not proof that all runtime inputs or referenced constants are unchanged.",
+    "The absence of new regex does not mean absence of semantic heuristics, token matching or exact word lists."
+  ]
+}
