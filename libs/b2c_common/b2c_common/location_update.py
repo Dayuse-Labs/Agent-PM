@@ -94,6 +94,14 @@ def adapt_location_update(data: dict[str, Any], message: str, context: dict | No
         if targets:
             return result  # A contradictory transaction is not a silent no-op.
         result['location_intent'] = {k: raw[k] for k in ('action', 'evidence', 'position') if k in raw}
+        # Preserving the search area does not discard a separately named
+        # property whose facts the customer requests. Search/booking intent
+        # still requires a destination transaction; details grant read only.
+        name = data.get('hotel_name')
+        if (action == 'preserve' and data.get('family') == 'details'
+                and isinstance(name, str) and name.strip() and len(name) <= 200
+                and area_name_in_text(name, message)):
+            result['hotel_name'] = name.strip()
         return result
     if action == 'refine' and not targets:
         parent = raw.get('parent_city')

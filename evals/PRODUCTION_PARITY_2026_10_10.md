@@ -1,3 +1,51 @@
+# Production parity — reprise du 10 octobre 2026 (v98)
+
+**NO GO en attente du rejeu des correctifs et du comparatif large.**
+
+Le MCP est de nouveau accessible. Le diagnostic candidat a terminé ses **26 parcours /
+65 tours**, après le même lot sur la production actuelle `3093647`. Ces parcours
+mélangent historiques, suivis synthétiques et régressions tirées des tests de prod ;
+ils ne représentent pas 26 clients indépendants ni un échantillon aveugle du trafic.
+
+Le contrôle des données affichées a joint **144 cartes** à leur reçu MCP exact
+(hôtel, formule, date, créneau) : aucune divergence de prix, aucun reçu manquant
+pour ces cartes et aucune offre expirée au moment de la réponse. Ce contrôle ne
+prouve pas la pertinence géographique ni l'exhaustivité des résultats.
+
+Le diagnostic a identifié deux défauts du candidat :
+
+- `New York, Texas` était correctement extrait, puis l'État était remplacé par
+  New York dans la résolution géographique. La correction donne priorité à
+  l'état de destination détenu par le concierge et refuse un résultat dont la
+  région n'est pas vérifiée par le fournisseur.
+- Un nom hôtel extrait correctement était effacé par une décision « préserver
+  la zone ». Le nom littéralement demandé reste maintenant utilisable pour lire
+  les détails via MCP ; une question sur l'unique hôtel affiché retrouve cette
+  identité pour ses informations générales comme pour ses horaires.
+
+Ces corrections n'ajoutent ni regex, ni dictionnaire géographique, ni appel LLM.
+Les régressions ciblées sont couvertes par des tests ; leur validation réelle sur
+le MCP est en cours. Ne pas confondre correction de la cause et succès déjà rejoué.
+
+Les points encore ouverts comprennent les deux séjours avec dates et horaires
+associés, le suivi après une demande de semaine flexible, et les écarts de couverture
+entre l'export de production et le MCP. La FAQ/SAV reste hors de cette phase.
+La comparaison conserve les différences de configuration : production GPT-5.2,
+candidat triage GPT-5.2 / recherche 4o-mini / synthèse GPT-5.2 ; la configuration
+B2C Railway utilise encore un triage 4o-mini. Aucun gain n'est attribué au seul modèle.
+
+Budget : **2,9178 USD** pour les deux bras du dernier diagnostic ; cumul
+**152,2733 USD** provisions incluses, plafond **200 USD**, réserve **0,50 USD**.
+Le passage large est préparé sur 100 parcours / 280 tours par bras, avec plafond
+propre de 20 USD et suivi comptable au fil des conversations. Pas encore exécuté.
+
+La CI GitHub du dernier head publié n'a pas démarré pour cause de facturation du
+compte. Aucun merge, déploiement ou changement Railway. La PR reste en brouillon.
+
+---
+
+## Archive : état avant la reconnexion MCP
+
 # Production parity — 10 octobre 2026 (v97)
 
 **NO GO : nouvelle référence de production exécutée, candidat encore bloqué par la connexion MCP.**

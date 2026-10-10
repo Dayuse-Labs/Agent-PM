@@ -1,3 +1,27 @@
+## 2026-10-10 · v98 — corrections groupées après diagnostic candidat
+
+MCP revenu : candidat v97 exécuté **26 parcours / 65 tours**, coût **1,2996 USD**.
+Comparaison diagnostique totale **2,9178 USD**, cumul **152,2733 USD** (provisions incluses),
+reste **47,2267 USD** réserve déduite. 144 cartes jointes aux reçus MCP exacts,
+aucune divergence prix/date/créneau ni carte expirée dans ce contrôle ; cela ne
+prouve ni pertinence globale ni couverture des offres absentes.
+
+Deux causes reproduites et corrigées : l'état géographique détenu par le concierge
+prime sur l'homonymie ville/État ; un géocode sans preuve de région ne peut plus
+revenir à un autre État. Pour les détails, préserver la zone n'efface plus un nom
+hôtel littéralement demandé ; une question de faits sur l'unique hôtel affiché
+retrouve aussi cette identité. Aucun ajout de regex, dictionnaire ou phase LLM.
+
+Validation : **3 138 tests passent, 2 ignorés** (gate live opt-in, Node absent du PATH
+du premier lancement). Contrôle JS relancé séparément avec le runtime installé ;
+lint, mypy (80 fichiers), guardrails et diff verts. Rejeu réel en cours au gel de ce bloc.
+Restent : valider ces corrections, grand comparatif 100 parcours, suivi adaptatif
+et revue des écarts d'inventaire. Les deux séjours associés à deux dates/horaires
+ne sont pas encore pris en charge ensemble ; les demandes de semaine flexible
+nécessitent une date choisie. Aucun GO global. FAQ/SAV phase 2, aucune mise en prod.
+
+Le bloc v97 ci-dessous décrit l'état historique avant reconnexion, pas l'état courant.
+
 ## 2026-10-10 · v97 — budget renouvelé, référence prod 26/65 exécutée
 
 Budget supplémentaire explicite **50 EUR**, sous-plafond prudent **+50 USD** :

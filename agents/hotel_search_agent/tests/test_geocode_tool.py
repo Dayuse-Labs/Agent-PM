@@ -2091,3 +2091,29 @@ class TestUnanchoredAirportIdentity:
         result = geocode_location(zone='LAX', raw_user_message='LAX', **{hint: 'FR'})
         assert not result['ok']
         assert calls[0][1]['country'] == 'FR'
+
+
+@pytest.mark.parametrize('message', ['A day room in New York, Texas', 'Same place until 18:00'])
+def test_owned_region_survives_city_state_homonym_and_followup(monkeypatch, message):
+    texas = GeocodeResult(latitude=32.166, longitude=-95.668,
+                          place_name='New York, Texas, United States', country_code='US', region='TX')
+    fake = _patch_client(monkeypatch, texas)
+    result = geocode_location(city='New York', raw_user_message=message, country_code='US',
+                              profile_state_context='TX', profile_location_hint='New York',
+                              place_kind='municipality')
+    assert fake.calls[0] == ('New York, Texas', 'US')
+    assert result['ok'] is True
+    assert result['latitude'] == texas.latitude
+    assert result.get('profile_delta', {}).get('last_state_context', 'TX') == 'TX'
+
+
+def test_provider_miss_in_owned_region_never_serves_homonym_elsewhere(monkeypatch):
+    wrong = GeocodeResult(latitude=40.71, longitude=-74.0,
+                          place_name='New York, New York, United States', country_code='US', region='NY')
+    fake = _patch_client(monkeypatch, wrong)
+    result = geocode_location(city='New York', raw_user_message='A day room in New York, Texas',
+                              country_code='US', profile_state_context='TX',
+                              profile_location_hint='New York', place_kind='municipality')
+    assert fake.calls[0] == ('New York, Texas', 'US')
+    assert result['ok'] is False
+    assert 'latitude' not in result

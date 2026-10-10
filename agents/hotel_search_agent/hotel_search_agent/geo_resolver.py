@@ -451,11 +451,8 @@ def resolve(
         ch = country_hint.upper()
         survivors = [c for c in survivors if c.country_code == ch]
     if region_hint:
-        matched = [c for c in survivors if _region_matches(c, region_hint)]
-        # Only apply the region filter when it actually matches something —
-        # a hint expressed differently from Mapbox's context must not zero out.
-        if matched:
-            survivors = matched
+        # Missing provider evidence is not permission to search another region.
+        survivors = [c for c in survivors if _region_matches(c, region_hint)]
 
     if not survivors:
         return Resolution(decision="none")

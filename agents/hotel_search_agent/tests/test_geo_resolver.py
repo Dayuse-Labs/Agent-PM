@@ -177,12 +177,12 @@ def test_country_hint_matching_nothing_resolves_none_never_wrong_country():
     assert res.chosen is None
 
 
-def test_region_hint_that_matches_nothing_does_not_zero_out():
-    # A hint expressed differently from Mapbox's context must not wipe candidates.
+def test_region_hint_without_provider_evidence_returns_no_match():
+    # A provider that cannot verify the requested region must not bypass it.
     milan = cand("Milano", "IT", "Milan", lat=45.46, rank=0)
     inv = FakeInventory({45.46: 40})
     res = geo_resolver.resolve([milan], inventory=inv, region_hint="Lombardia")
-    assert res.decision == "select" and res.chosen is milan
+    assert res.decision == "none" and res.chosen is None
 
 
 # ── Inventory tier & proximity band ───────────────────────────────────────────────

@@ -293,6 +293,12 @@ def _anchor_state(
     concierge (`scores.py`: "a later session wires their call sites"). It counts
     as having fired when it actually did something: a US state is in effect for
     this geocode, or it cleared a stale one."""
+    if (profile_state_context and city and profile_location_hint
+            and city.strip().casefold() == profile_location_hint.strip().casefold()):
+        # Preserve the same code-owned state used to qualify the provider
+        # query. Re-parsing the bare city here would undo that decision.
+        guards_fired.append("state_anchoring")
+        return {}
     anchored, delta = anchor_state_context(
         city=city,
         raw_user_message=raw_user_message,

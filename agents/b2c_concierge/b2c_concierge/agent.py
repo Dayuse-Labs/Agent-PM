@@ -1669,7 +1669,7 @@ class _B2cConcierge(BaseAgent):
                 return
             shown_hotels = profile.last_results or []
             if (route.target == "get_hotel_details" and picked is None
-                    and triage.hotel_name is None and triage.information_source == "offer_facts"
+                    and triage.hotel_name is None and triage.information_source in {"offer_facts", "hotel_facts"}
                     and location_action in {None, "preserve"}
                     and not (triage.requested_landmark or triage.requested_areas or triage.requested_subarea)
                     and not profile.pending_location

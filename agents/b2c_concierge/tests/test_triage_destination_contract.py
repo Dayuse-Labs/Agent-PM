@@ -55,6 +55,7 @@ def _decision(action, kind, evidence, parent_city=None):
 @pytest.mark.parametrize('location_action', [None, 'preserve', 'unknown', 'change', 'pending'])
 @pytest.mark.parametrize('hotels,source,hotel_name,expected_id', [
     ([{'hotel_id': 14566, 'name': 'The Biltmore Los Angeles'}], 'offer_facts', None, 14566),
+    ([{'hotel_id': 14566, 'name': 'The Biltmore Los Angeles'}], 'hotel_facts', None, 14566),
     ([], 'offer_facts', None, None),
     ([{'hotel_id': 1, 'name': 'One'}, {'hotel_id': 2, 'name': 'Two'}], 'offer_facts', None, None),
     ([{'hotel_id': 14566, 'name': 'The Biltmore Los Angeles'}], None, None, None),
@@ -325,3 +326,24 @@ def test_minute_disclosure_reaches_synthesis_and_final_answer(scripted, monkeypa
     assert "10:30–17:00" in answer and "Partial hotel" in answer
     assert "EXACT DISPLAYED HOURS:" in json.dumps(llm.calls[-1])
     assert len(llm.calls) == 2  # triage and synthesis; no extra LLM for disclosure
+
+
+def test_named_details_reach_mcp_after_preserving_search_city(scripted, monkeypatch, fake_profile_store):  # noqa: F811
+    runner, session = _new_session()
+    asyncio.run(fake_profile_store.set(session.id, SessionProfile(city='Atlanta', state_anchor='GA',
+        last_results=[{'hotel_id': 1, 'name': 'Different Hotel'}])))
+    calls = []
+    async def details(message, profile, **kwargs):
+        calls.append(kwargs)
+        assert profile.city == 'Atlanta'
+        assert profile.pending_booking is None
+        return {'ok': True, 'hotel': {'hotel_id': 19788, 'name': 'Hilton Atlanta'}}
+    monkeypatch.setattr(agent_module.inline_tools, 'get_hotel_details', details)
+    scripted(json.dumps({'family': 'details', 'language': 'en', 'pick': 'none',
+        'hotel_name': 'Hilton Atlanta', 'location_update': {'action': 'preserve', 'targets': []}}),
+        'Here are the details of Hilton Atlanta.')
+    _drive_in(runner, session.id, 'Tell me about Hilton Atlanta')
+    assert len(calls) == 1
+    assert calls[0]['llm_hotel_name'] == 'Hilton Atlanta'
+    assert calls[0]['picked_hotel_id'] is None
+    assert calls[0]['allow_text_name'] is False

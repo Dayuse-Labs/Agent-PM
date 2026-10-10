@@ -125,10 +125,12 @@ def resolve_state_hint(
     1. LLM keywords — exact extracted tokens, so the full abbreviation table
        is safe (ambiguous codes like "or"/"me" can't collide with prose
        words here).
-    2. Free text (city string, zone, stored profile location, raw message)
+    2. The concierge-owned state when the city still matches its stored identity.
+       A bare city that is also a state name cannot replace that qualification.
+    3. Free text (city string, zone, stored profile location, raw message)
        via `extract_state_hint_from_text` — skips word-colliding
        abbreviations.
-    3. The profile's anchored state context ("Milford ct" → CT, stored on an
+    4. The profile's anchored state context ("Milford ct" → CT, stored on an
        earlier turn): the search turn's message is often just a budget
        number, and without this fallback the bare city geocodes to the
        wrong state's homonym (prod session 3d3618c1 resolved the
@@ -148,6 +150,15 @@ def resolve_state_hint(
     # trusted non-US code blinds the search to an explicit US state hint.
     if country_code and country_code != "US" and country_resolved:
         return None
+    # The concierge already applied the grounded destination update. On the
+    # same city, its typed state outranks a city name that is itself a state
+    # name (New York, Texas). A genuinely changed city retains legacy parsing.
+    if (profile_state_context and city and profile_location_hint
+            and city.strip().casefold() == profile_location_hint.strip().casefold()):
+        psc = profile_state_context.lower().strip().rstrip(".")
+        owned = US_STATE_ABBREV_TO_NAME.get(psc) or US_STATE_NAME_TO_CANONICAL.get(psc)
+        if owned:
+            return owned
     state_hint = extract_state_hint_from_text(city, zone, profile_location_hint, raw_user_message)
     if state_hint:
         return state_hint

@@ -271,3 +271,19 @@ def test_explicit_numeric_area_code_is_not_discarded_or_replaced_by_a_hint():
             'targets': [{'kind': 'region', 'query': '12', 'country': 'GB', 'code': code}]}}, '12', None)
         assert got['requested_areas'][0]['code'] == code
         assert bool(validate_areas(got['requested_areas'], '12')) is accepted
+
+
+@pytest.mark.parametrize('family,action,name,message,expected', [
+    ('details', 'preserve', 'Hilton Atlanta', 'Tell me about Hilton Atlanta', 'Hilton Atlanta'),
+    ('details', 'preserve', 'Ritz Paris', 'Tell me about Ritz Paris', 'Ritz Paris'),
+    ('details', 'preserve', 'Invented Hotel', 'Tell me about the second', None),
+    ('search', 'preserve', 'Hilton Atlanta', 'Show Hilton Atlanta', None),
+    ('booking', 'preserve', 'Hilton Atlanta', 'Book Hilton Atlanta', None),
+    ('details', 'unknown', 'Hilton Atlanta', 'Tell me about Hilton Atlanta', None),
+])
+def test_named_facts_and_preserved_search_area_are_independent(family, action, name, message, expected):
+    data = {'family': family, 'hotel_name': name,
+            'location_update': {'action': action, 'evidence': message, 'targets': []}}
+    got = adapt_location_update(data, message, None)
+    assert got['hotel_name'] == expected
+    assert got['requested_areas'] is None
