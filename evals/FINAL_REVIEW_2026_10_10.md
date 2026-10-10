@@ -1,5 +1,7 @@
 # Dernière revue — 10 octobre 2026
 
+> **Historique :** les corrections ultérieures et leur validation partielle sont décrites dans [la livraison groupée](GROUPED_REGRESSIONS_AND_REGEX_RISKS_2026_10_10.md). Les notes ci-dessous restent celles de `3153771`; elles ne valident pas le nouveau code, dont le rejeu complet attend le MCP.
+
 **PR finalisée pour revue équipe. Le candidat est mieux noté sur le corpus historique évalué; la supériorité générale en production reste non démontrée.** Le critère demandé est un gain par rapport à la prod, sans attendre la disparition de tous les défauts. Les notes et les limites du [comparatif complet](PRODUCTION_PARITY_2026_10_10.md) restent inchangées. Cette décision concerne la revue de la PR, pas une autorisation de bascule générale.
 
 - Sur 100 parcours multi-tours : **73 A/B contre 48 en prod**, 43 mieux notés, 14 moins bien, 43 identiques. Aucun D/F candidat dans cette revue, contre 8 D côté legacy. Les 27 C restent des défauts significatifs.

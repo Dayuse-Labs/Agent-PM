@@ -226,7 +226,8 @@ class SessionProfile:
     search_exhausted: bool = False
     last_suggestions: list[str] | None = None
     last_clarifying_question: str | None = None
-    pending_clarification: dict[str, str] | None = None
+    pending_clarification: dict[str, Any] | None = None
+    previous_location_context: dict[str, Any] | None = None
     pending_date_period: dict[str, str] | None = None
     last_results: list[dict[str, Any]] | None = None
     # Informational focus is distinct from the search list: "its offer" and
@@ -337,6 +338,7 @@ class SessionProfile:
             "last_suggestions": self.last_suggestions,
             "last_clarifying_question": self.last_clarifying_question,
             "pending_clarification": self.pending_clarification,
+            "previous_location_context": self.previous_location_context,
             "pending_date_period": self.pending_date_period,
             "last_results": self.last_results,
             "detail_results": self.detail_results,
@@ -404,6 +406,7 @@ _CONCIERGE_ONLY_KEYS = (
     "detail_results",
     "pending_date_period",
     "pending_clarification",
+    "previous_location_context",
     "pending_party_total",
     "pending_proximity",
     "amenities_owned",
@@ -470,7 +473,7 @@ _BARE_NUMBER_RE = re.compile(r"^\s*[$€£]?\s*(\d+(?:[.,]\d+)?)\s*[$€£]?\s*$
 def _bare_number_value(message: str) -> float | None:
     """The message IS a plain number (currency symbol tolerated) — nothing
     else. "180" and "$40" match; "under 180" or "180 max" do not."""
-    match = _BARE_NUMBER_RE.match(message or "")
+    match = _BARE_NUMBER_RE.match((message or "").strip())
     if not match:
         return None
     return float(match.group(1).replace(",", "."))
@@ -690,7 +693,7 @@ def apply_profile_delta(
     values, clears, explicit_sets = _normalize_delta(dict(delta))
     known_fields = set(SessionProfile.__dataclass_fields__)
     # User-grounded constraints are concierge-owned, including typed clears.
-    for owned_slot in ("room_requirements", "detail_results", "pending_date_period", "pending_clarification", "pending_proximity", "pending_location", "confirmed_location", "requested_destination", "requested_budget", "price_comparison", "requested_window", "requested_duration_minutes", "overnight_window"):
+    for owned_slot in ("previous_location_context", "room_requirements", "detail_results", "pending_date_period", "pending_clarification", "pending_proximity", "pending_location", "confirmed_location", "requested_destination", "requested_budget", "price_comparison", "requested_window", "requested_duration_minutes", "overnight_window"):
         values.pop(owned_slot, None)
         clears.discard(owned_slot)
     from b2c_common.destination_request import destination_request
@@ -980,11 +983,12 @@ def is_more_options_signal(message: str, llm_wants_more: bool | None = None) -> 
     signal that should advance `profile.search_cursor` (S-G1's
     `advance_search_cursor`, wired in agent.py).
 
-    P1-1: `llm_wants_more` is triage's `wants_more_options` slot, applied
-    additively for the same reason as `is_bare_affirmative` above — it adds
-    "otras opciones"/"altre opzioni"/"noch andere", it never vetoes a phrase
-    the regex already recognizes."""
-    return bool(llm_wants_more) or bool(_MORE_OPTIONS_RE.search((message or "").strip()))
+    The typed triage decision is primary. The lexical path is only a fallback
+    when no decision exists: a negated request must not advance pagination
+    merely because it contains the words "other options"."""
+    if llm_wants_more is not None:
+        return llm_wants_more
+    return bool(_MORE_OPTIONS_RE.search((message or "").strip()))
 
 
 def _has_refinement_modifier(message: str, llm_bare_budget: float | None = None) -> bool:
@@ -1088,8 +1092,6 @@ def search_context_line(profile: SessionProfile) -> str:
 
 # --- Anti-clarification-loop (P10) --------------------------------------
 
-_FINAL_QUESTION_RE = re.compile(r"([^.!?\n]*\?)\s*$")
-
 # Cheap normalization for fuzzy equivalence: lowercase, drop punctuation, and
 # collapse whitespace — "Which airport area exactly should I prioritize?" and
 # "Which airport area, exactly, should I prioritize?" must compare equal.
@@ -1103,11 +1105,12 @@ def extract_final_question(text: str) -> str | None:
     cfa9c579 repeated the SAME trailing question up to 7 times)."""
     if not text:
         return None
-    match = _FINAL_QUESTION_RE.search(text.strip())
-    if not match:
+    stripped = text.strip()
+    if not stripped.endswith("?"):
         return None
-    question = match.group(1).strip()
-    return question or None
+    prefix = stripped[:-1]
+    start = max(prefix.rfind(delimiter) for delimiter in ".!?\n") + 1
+    return stripped[start:].strip() or None
 
 
 def questions_equivalent(a: str | None, b: str | None) -> bool:
@@ -1535,21 +1538,18 @@ def is_booking_confirmation_signal(
     confirmation verb (« non je ne confirme pas » must never confirm), and a
     question is never a confirmation.
 
-    P1-1: `llm_booking_confirmation` is triage's `booking_confirmation` slot
-    ("confirm"/"refuse"/"change"/"none", or None when the classify produced
-    nothing usable). It is consulted BEFORE the regexes, but `"none"` falls
-    THROUGH to them rather than returning False — the model is told to judge the
-    message on its own, and it cannot see that a booking is pending, so a bare
-    "oui" may legitimately come back as `none`. Treating that as a refusal would
-    re-break the exact prod defect PR #47 fixed (a written confirmation
-    dead-ending on the greeting template). So the slot can only ADD coverage
-    ("sí, confírmalo") or ADD protection ("refuse"/"change"); it can never
-    remove a confirmation the regexes already recognize.
+    The typed decision can authorize confirmation or refuse it. Questions and
+    the existing refusal guard win first. A model none still accepts a bare
+    affirmative to the owned booking question, but never a verb-only match.
+    The production spine passes none when classification is unavailable.
+    The legacy lexical fallback remains for standalone callers only.
     """
     if not profile.pending_booking:
         return False
     stripped = (message or "").strip()
     if not stripped:
+        return False
+    if "?" in stripped or _CONFIRMATION_NEGATION_RE.search(stripped):
         return False
     if llm_booking_confirmation == "confirm":
         return True
@@ -1557,6 +1557,6 @@ def is_booking_confirmation_signal(
         return False
     if _AFFIRMATIVE_RE.match(stripped):
         return True
-    if "?" in stripped or _CONFIRMATION_NEGATION_RE.search(stripped):
+    if llm_booking_confirmation == "none":
         return False
     return bool(_CONFIRMATION_RE.search(stripped))

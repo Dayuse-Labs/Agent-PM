@@ -1275,6 +1275,8 @@ class _B2cConcierge(BaseAgent):
         recent_messages = recent_user_messages(ctx.session.events, message)
         previous_reply = last_assistant_message(ctx.session.events, author=self.name)
         expected_location = location_reply_context(profile, previous_reply)
+        if profile.confirmed_location:
+            profile.previous_location_context = dict(profile.confirmed_location)
         profile.pending_clarification = None  # Each new answer must establish its own question.
         numeric_reply = numeric_only_message(message)
         missing_destination_before_triage = not profile.city
@@ -1288,6 +1290,9 @@ class _B2cConcierge(BaseAgent):
         )
         if expected_location:
             location_context = {**(location_context or {}), "pending_clarification": expected_location}
+        if profile.previous_location_context:
+            location_context = {**(location_context or {}),
+                                "previous_verified_context": profile.previous_location_context}
         location_kwargs = {"location_context": location_context} if location_context else {}
         if profile.pending_date_period:
             location_kwargs["date_context"] = profile.pending_date_period
@@ -1303,18 +1308,9 @@ class _B2cConcierge(BaseAgent):
         if expected_location and numeric_reply:
             family = "search"
         route = ROUTES[family]
-        # P1-1: the two code-owned override signals are RE-derived here, now fed
-        # by triage's slots on top of their own regexes (the slots ADD coverage
-        # — notably outside fr/en — they never veto a regex match; see
-        # profile.py). The regex-only pair computed above the ack fast-path is
-        # deliberately not reused: it had to run before any LLM existed, and
-        # this is the first point where the slots do. Recomputing costs two
-        # regex matches; carrying the pre-LLM answer forward would silently
-        # discard the whole point of the slots.
-        # `refinement_signal` true IS the recovery-ack guard (P2) catching a
-        # bare "ok"/refinement; `booking_signal` true is the R9 gate
-        # recognizing a pending-offer confirmation. Computed once — message and
-        # profile don't change across the call sites below.
+        # Re-evaluate after typed extraction. Pagination uses the semantic
+        # verdict when present; broad confirmation regexes cannot authorize a
+        # booking when the classifier is missing or says this is not consent.
         refinement_signal = is_search_refinement_signal(
             message,
             profile,
@@ -1323,7 +1319,7 @@ class _B2cConcierge(BaseAgent):
             llm_bare_budget=triage.bare_budget_value,
         )
         booking_signal = is_booking_confirmation_signal(
-            message, profile, llm_booking_confirmation=triage.booking_confirmation
+            message, profile, llm_booking_confirmation=triage.booking_confirmation or "none"
         )
         if expected_location and numeric_reply:
             booking_signal = False
@@ -1588,7 +1584,7 @@ class _B2cConcierge(BaseAgent):
         if (route.target == LEAF_HOTEL_SEARCH and not location_choice
                 and (triage.budget_interpretation_unverified or triage.unclassified_numeric_input)):
             if expected_location and numeric_reply:
-                question = templates.numeric_location_clarification(message.strip(), reply_language)
+                question = templates.numeric_role_clarification(reply_language)
                 remember_location_question(profile, question, message.strip())
                 await store.set(ctx.session.id, profile)
                 self._emit_turn_metric(family, "template:location_number_clarification", budget, t_start, "ok", inv)
@@ -2004,6 +2000,22 @@ class _B2cConcierge(BaseAgent):
                 self._emit_turn_metric(family, "template:party_clarification", budget, t_start, "ok", inv)
                 yield self._final(ctx, question)
                 return
+
+        from .search_clarification import need_question, reduce_need
+        search_need = reduce_need(
+            triage.clarification_need, (expected_location or {}).get("need"), message,
+            triage.location_intent, triage.requested_areas, triage.requested_landmark,
+        )
+        if route.target == LEAF_HOTEL_SEARCH and search_need:
+            question = need_question(search_need, reply_language)
+            remember_location_question(profile, question)
+            assert profile.pending_clarification is not None
+            profile.pending_clarification["need"] = search_need
+            await store.set(ctx.session.id, profile)
+            yield self._hotels_event(ctx, {"requires_clarification": True}, reply_language)
+            self._emit_turn_metric(family, "template:search_scope_clarification", budget, t_start, "ok", inv)
+            yield self._final(ctx, question)
+            return
 
         if route.target == LEAF_HOTEL_SEARCH and location_action == "unknown":
             question = templates.destination_update_clarification(reply_language)

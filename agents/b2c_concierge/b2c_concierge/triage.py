@@ -188,6 +188,7 @@ class Triage:
     requested_weekday: str | None = None
     requested_calendar: dict | None = None
     requested_date_period: dict | None = None
+    clarification_need: dict | None = None
     requested_daypart: str | None = None
     information_source: str | None = None
     location_intent: dict | None = None
@@ -622,11 +623,24 @@ Optional keys, extracted from MESSAGE ONLY, never copied from recent messages:
   Two numbers in a clock answer such as "15 18h" describe hours, not a silent
   change of the established calendar day. Do not emit a calendar date without
   independent calendar evidence; retain the earlier weekday/date.
+- "clarification_need": only for an unresolved generic airport request or a
+  search relative to multiple points that cannot be represented as alternatives:
+  {{"kind":"airport|multiple_origins", "queries":["literal place or airport words"],
+  "relation":"between|near_all|choose", "evidence":"exact current quote",
+  "parent":"optional currently stated city"}}.
+  Airport means an airport is requested but its identity is missing, NOT a named
+  airport/terminal. Multiple origins preserve both names, including postcodes.
+  LOCATION CONTEXT.pending_clarification.need holds the outstanding request;
+  a city answer supplies an airport's parent, never abandons airport proximity.
+  A newly selected specific origin clears the request. Never infer coordinates.
 - "requested_date_period": a CURRENT multi-day or flexible-date search request:
   {{"kind":"next_week|this_week|range|flexible", "evidence":"exact period quote"}}.
   A whole next week is next_week, NEVER tomorrow or one guessed calendar date.
   Use range for other date ranges/alternatives that do not identify a single day;
-  flexible for dates left open. Omit for no date change, policy questions, or a
+  flexible ONLY for an explicit date-flexibility statement, and include
+  "scope":"dates" on that object. A bare negative/none response to a compound
+  city/date or preference question is NOT date flexibility: omit the period.
+  Availability on one day is a single date, never flexibility. Omit for no date change, policy questions, or a
   single exact date. A weekday in an explicitly named week needs BOTH the period
   and requested_weekday; code computes that weekday inside the period. DATE CONTEXT
   is an unresolved period already saved: a weekday answer selects within it.
@@ -869,14 +883,22 @@ async def classify(message: str, budget: TurnBudget, invocation_id: str = "",
         subarea = None
     else:
         subarea = subarea.strip()
+    parent_context = location_context or {}
+    if not parent_context.get("confirmed_city"):
+        old_place = parent_context.get("previous_verified_context") or {}
+        parent_context = {**parent_context,
+            "confirmed_city": (old_place.get("provider_city") or {}).get("name"),
+            "country": old_place.get("country_code")}
     requested_landmark = (grounded_landmark(data.get("requested_landmark"), message,
-                            confirmed_city=(location_context or {}).get("confirmed_city"),
-                            confirmed_country=(location_context or {}).get("country"))
+                            confirmed_city=parent_context.get("confirmed_city"),
+                            confirmed_country=parent_context.get("country"))
                          if family in {"search", "booking"} else None)
+    from .search_clarification import grounded_need
     return Triage(
         family,
         language,
         used_llm=True,
+        clarification_need=grounded_need(data.get("clarification_need"), message),
         location_intent=geographic_intent,
         requested_landmark=requested_landmark,
         requested_landmarks=(data.get("requested_landmarks")
@@ -899,7 +921,7 @@ async def classify(message: str, budget: TurnBudget, invocation_id: str = "",
         requested_daypart=_grounded_daypart(data.get("requested_daypart"), message),
         requested_calendar=(grounded_calendar(data.get("requested_calendar"), message)
                             if family == "search" else None),
-        requested_date_period=(period_decision(data.get("requested_date_period"), message)
+        requested_date_period=(period_decision(data.get("requested_date_period"), message, require_scope=True)
                                if family == "search" and currency_answer(message) is None else None),
         requested_weekday=(_grounded_weekday(data.get("requested_weekday"), message)
                            if family == "search" else None),
@@ -919,13 +941,13 @@ async def classify(message: str, budget: TurnBudget, invocation_id: str = "",
             and _grounded_window(data, message) is None
             and grounded_calendar(data.get("requested_calendar"), message) is None
             and _grounded_occupancy(data.get("requested_occupancy"), message) is None
-            and validate_areas(data.get("requested_areas"), message, confirmed_city=(location_context or {}).get("confirmed_city")) is None
+            and validate_areas(data.get("requested_areas"), message, confirmed_city=parent_context.get("confirmed_city")) is None
             and requested_landmark is None
         ),
         budget_checked="requested_budget" in data or numeric_only_message(message),
         requested_subarea=subarea,
         subarea_parent=subarea_parent if isinstance(subarea_parent, str) else None,
-        requested_areas=(validate_areas(data.get("requested_areas"), message, confirmed_city=(location_context or {}).get("confirmed_city"))
+        requested_areas=(validate_areas(data.get("requested_areas"), message, confirmed_city=parent_context.get("confirmed_city"))
                          if family in {"search", "booking"} else None),
         requested_room=(grounded_room_update(data.get("requested_room"), message)
                         if family in {"search", "booking"} else None),

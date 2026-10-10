@@ -1,5 +1,7 @@
 # Comparatif production / B2C — 10 octobre 2026
 
+> **Historique :** les corrections ultérieures et leur validation partielle sont décrites dans [la livraison groupée](GROUPED_REGRESSIONS_AND_REGEX_RISKS_2026_10_10.md). Les notes ci-dessous restent celles de `3153771`; elles ne valident pas le nouveau code, dont le rejeu complet attend le MCP.
+
 **PR prête pour revue équipe; bascule générale non validée.** Voir la [dernière passe](FINAL_REVIEW_2026_10_10.md), qui accepte le gain relatif demandé sans modifier les notes. Cette livraison corrige des défauts concrets et fournit un comparatif frais; elle ne prouve pas encore une supériorité globale ni une parité suffisante pour basculer le trafic.
 
 ## Changements depuis v109

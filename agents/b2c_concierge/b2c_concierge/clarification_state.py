@@ -1,16 +1,18 @@
 """Concierge-owned question scope, bound to the actual previous answer."""
 from __future__ import annotations
 
+from typing import Any
+
 from .profile import SessionProfile
 
 
-def location_reply_context(profile: SessionProfile, previous_reply: str | None) -> dict[str, str] | None:
+def location_reply_context(profile: SessionProfile, previous_reply: str | None) -> dict[str, Any] | None:
     pending = profile.pending_clarification
     if (not isinstance(pending, dict) or pending.get("kind") != "location"
             or not isinstance(pending.get("question"), str) or not previous_reply
             or pending["question"].strip() != previous_reply.strip()):
         return None
-    return {k: v for k, v in pending.items() if k in {"kind", "value"} and isinstance(v, str)}
+    return {k: v for k, v in pending.items() if k in {"kind", "value", "need"}}
 
 
 def remember_location_question(profile: SessionProfile, question: str, value: str | None = None) -> None:

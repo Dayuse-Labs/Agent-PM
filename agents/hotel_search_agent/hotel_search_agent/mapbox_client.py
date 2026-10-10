@@ -82,6 +82,7 @@ class GeocodeCandidate:
     street_match: str = ""
     address_place_match: str = ""
     country_name: str = ""
+    poi_categories: tuple[str, ...] = ()
 
     def as_result(self) -> GeocodeResult:
         return GeocodeResult(

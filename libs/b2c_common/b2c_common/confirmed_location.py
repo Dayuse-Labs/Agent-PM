@@ -85,14 +85,16 @@ def pending_location(value: Any) -> dict[str, Any] | None:
     if not isinstance(value, dict) or not isinstance(value.get("question"), str):
         return None
     options = value.get("options")
-    if not isinstance(options, list) or not 2 <= len(options) <= 3 or not value["question"].strip():
+    minimum = 1 if value.get("confirmation_required") is True else 2
+    if not isinstance(options, list) or not minimum <= len(options) <= 3 or not value["question"].strip():
         return None
     valid = [verified_place(o) for o in options]
     if any(o is None for o in valid):
         return None  # Never renumber an incomplete list the customer already saw.
     if len({o["provider_id"] for o in valid if o}) != len(valid):
         return None
-    return {"question": value["question"].strip(), "options": valid}
+    return {"question": value["question"].strip(), "options": valid,
+            **({"confirmation_required": True} if value.get("confirmation_required") is True else {})}
 
 
 def context_for_triage(pending: Any, confirmed: Any, *, unresolved: dict | None = None,
@@ -171,5 +173,9 @@ def location_intent(value: Any, message: str, context: dict | None) -> dict | No
             return {"action": action, "parent_city": parent.strip(), **extra}
         return {"action": action, **extra}
     if action in {"preserve", "change", "correct", "device", "missing", "unknown"}:
+        parent = value.get("parent_city")
+        if (action in {"change", "correct"} and isinstance(parent, str)
+                and parent.strip() and parent.casefold() in message.casefold()):
+            extra["parent_city"] = parent.strip()
         return {"action": action, **extra}
     return None

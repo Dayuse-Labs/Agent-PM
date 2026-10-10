@@ -1,0 +1,653 @@
+{
+  "at": "2026-10-10T17:26:04.409996+00:00",
+  "runtime_parent_commit": "b86ba20dd0953661439b3800c43d59bfc2017cb9",
+  "runtime_source_hashes": {
+    "agents/b2c_concierge/b2c_concierge/__init__.py": "918b3fe048cfe5933ae1378e8273ad7df8f2621dfcb37c7bbf35fb8fc5ec1a0a",
+    "agents/b2c_concierge/b2c_concierge/a2a_datapart.py": "f1575ac9b92766bc4f8e85ccf1ab4dfc9933e72e79c8fd1601f8883a3f131825",
+    "agents/b2c_concierge/b2c_concierge/agent.py": "9e70811db38ec2a5b449e8783333fe9b90070b3ee723c018373496bb97112162",
+    "agents/b2c_concierge/b2c_concierge/amenity_guard.py": "6e1dc81d05b622a3062348613b1959e2b6f79350cb79e37078286d3071d07a2d",
+    "agents/b2c_concierge/b2c_concierge/amenity_synonyms.py": "bd22d2fa3723bcc549f8127a5b15bb557b3732cb0b5cf75d3f336107c37ebf05",
+    "agents/b2c_concierge/b2c_concierge/budget.py": "29792364743097d236fddc1450b8abd87f449d7c377f0deef6414d38e1bf1736",
+    "agents/b2c_concierge/b2c_concierge/clarification_state.py": "24e5434dd84294ffc1addf9871356a775a6ca8f3f48e8ef00b8a10086bcc34d1",
+    "agents/b2c_concierge/b2c_concierge/conversation_log.py": "f1687f3a177082e9dda7bb1c54e6fa03e70b954663ef7b6007d4d43323cd5e81",
+    "agents/b2c_concierge/b2c_concierge/currency_guard.py": "b02c3111fa9d4dac7d8b3e69721d412f6de79fb336e2970f2854ef295f7314b9",
+    "agents/b2c_concierge/b2c_concierge/date_format.py": "0eb5761b25687ed3cbd6a4a193d653cba963bbb472a639489cbe77f69af14759",
+    "agents/b2c_concierge/b2c_concierge/date_state.py": "dd2a6fb1dbe218b34978cd35b347f27cc0a523a53c9f4fa7fbc16be2d5c6e006",
+    "agents/b2c_concierge/b2c_concierge/dialogue_context.py": "8611bc8a8555f1037cda105c03fee61443f6197fe5d8d72a31303c39c8f60f4b",
+    "agents/b2c_concierge/b2c_concierge/display_currency.py": "a1bf8cf1c2eba13208cb4cd062266c96396a092e9a26e6459ed6c46485bf569c",
+    "agents/b2c_concierge/b2c_concierge/facade.py": "6d48c965a210abdd56a2092e260f13e6b10b128db85efbd3d1dbf4f67fda2357",
+    "agents/b2c_concierge/b2c_concierge/fallback_text.py": "a033cffa98097713a8bfef29fcda6859d59cd4d537b7c8f3d67b5705222eb250",
+    "agents/b2c_concierge/b2c_concierge/ground_truth.py": "06dc86414a4f574f27aae053417dc8e8443ff67127936e955ccb22e1436546fe",
+    "agents/b2c_concierge/b2c_concierge/inline_tools.py": "0bb242640b6ba51cb9b749dbf4f9e7bc2f7de0a4d5910361307f206daeff37c0",
+    "agents/b2c_concierge/b2c_concierge/leg.py": "bfb9d9f1949178dc24330f1c8f9ee276a2aafe82fc255f4287104ea4cc475159",
+    "agents/b2c_concierge/b2c_concierge/link_guard.py": "8f22c81837f3a7ca07ceb16c4929af16798e890a42406444d1d0ce46133c591e",
+    "agents/b2c_concierge/b2c_concierge/location_state.py": "a5b0b511ef5c25e4d0c7845176c664ec1c35e8470fe66924764bc937ede44b1c",
+    "agents/b2c_concierge/b2c_concierge/no_offers.py": "24ff8740bf936b2a2d4c81c53498b824db112380cfb214c7eb737f2cbb642374",
+    "agents/b2c_concierge/b2c_concierge/profile.py": "d5c4c7ec6cd67c9fbe3b67a6bc117886d775a8fc122be1be3ce1e9c3847378f6",
+    "agents/b2c_concierge/b2c_concierge/profile_store.py": "a1c8f3a89e58001a56142506530258078e9e11b6acc26c9c00633ed7c218c267",
+    "agents/b2c_concierge/b2c_concierge/requested_date.py": "4b5498efb081756ec04ed3f4ca71e15c7aec3bbfd49e71127b9fc2d38eb9943b",
+    "agents/b2c_concierge/b2c_concierge/routing.py": "916a857d7332774e7e011ae0993e9c38f2e42faaa8261ef2a936ffb71c6b9fd5",
+    "agents/b2c_concierge/b2c_concierge/search_clarification.py": "3944b02de83996fbdfed3468d08f8254629a8e49539e7527f6dc1c1e01cbf195",
+    "agents/b2c_concierge/b2c_concierge/serve.py": "aab5333142fd3af3ce07e5f2915cb236a6e2288b0176c7f84893d071172d47f4",
+    "agents/b2c_concierge/b2c_concierge/templates.py": "1d03968678a947d866dadaaeddb07243ae2d25d8c3b74a38a8d8682b828da29d",
+    "agents/b2c_concierge/b2c_concierge/tool_loop.py": "39a25ebd086953a77a52fd7adfc42f4d3ccff1b928d1f0fd7fd48e1ad3e8a8e5",
+    "agents/b2c_concierge/b2c_concierge/triage.py": "afa698ef61d5018fdf38b3118d3024b5905a16e9a0963cbeca1df08baab099db",
+    "agents/b2c_concierge/b2c_concierge/triage_schema.py": "409f3273f271b335b40bd2beda3be59606e798c6abf7649f7747ee196100e8dd",
+    "agents/b2c_concierge/b2c_concierge/window_guard.py": "3a3d0f57abcae7b8944aad0297c6c88474e9eebe919a947ad1fdb1bd56db121a",
+    "agents/faq_agent/faq_agent/__init__.py": "918b3fe048cfe5933ae1378e8273ad7df8f2621dfcb37c7bbf35fb8fc5ec1a0a",
+    "agents/faq_agent/faq_agent/agent.py": "e812d1e009c6b51fc55272e047f36cafad6d670972a42a616d8e4d7b2ca9b4f8",
+    "agents/faq_agent/faq_agent/contract.py": "7f8b4f859808d59540bad6ae31ef1ecda5a538307cf1a5abc1a71c350a91b93e",
+    "agents/faq_agent/faq_agent/response_bridge.py": "816d576f2e7e3880bfede2908e36c9727aa19c8dd732d8d26639724984259776",
+    "agents/faq_agent/faq_agent/serve.py": "4b8fdcdd4a0ad0f07239ea5459816980591c8f886d60654bfbe82e84960d78b1",
+    "agents/hotel_search_agent/hotel_search_agent/__init__.py": "918b3fe048cfe5933ae1378e8273ad7df8f2621dfcb37c7bbf35fb8fc5ec1a0a",
+    "agents/hotel_search_agent/hotel_search_agent/agent.py": "e7b6c3f9361da3a05bbf363ff3c0775326879339cfa36e9e876fb9ecb061d18d",
+    "agents/hotel_search_agent/hotel_search_agent/area_scope.py": "009eb4f5de49e7d54fb17fcac4177a422c0d1b12203de24a29e4fe75ce3e4ea0",
+    "agents/hotel_search_agent/hotel_search_agent/budget_injection.py": "f9ba573123376272f9d7b16e9da7d3723460f2af673101c3ac3ce06181881b25",
+    "agents/hotel_search_agent/hotel_search_agent/budget_pages.py": "ab69b2311e6e13d6f5ebc48beeaa476cf2ddf7bb7f36fc95bf4ec5a9f06c5943",
+    "agents/hotel_search_agent/hotel_search_agent/contract.py": "ff30bd83bef109cdd0ccdf3f9608fa2fc412f2d595a691bc7244eb5500fc8310",
+    "agents/hotel_search_agent/hotel_search_agent/datetime_resolver.py": "a2064b3072f3f0bb195c0021b5e07a917736f9dc903981c72f108e30cae92ef3",
+    "agents/hotel_search_agent/hotel_search_agent/equipment_ids.py": "2cbe1ebfd8bb2112f20468a180494bd54ec61c901d5da375a129d27e4e011735",
+    "agents/hotel_search_agent/hotel_search_agent/geo_guards.py": "edd4d245303ccf26d46a754b64e11820713d4c8bcbad961bccc674c756eef881",
+    "agents/hotel_search_agent/hotel_search_agent/geo_resolver.py": "24e5d238aa910fd7f43627cbd14fb4fbfd35ad43583a3036c81ea957ae4068b7",
+    "agents/hotel_search_agent/hotel_search_agent/geocode_tool.py": "defaf5cdff7ad43a41b86a43e42ddaba9b2f2689622027ab72a6b4e2af018eef",
+    "agents/hotel_search_agent/hotel_search_agent/identity_confidence.py": "cab531f00a1e6242fd3b0269ff85c304cc7187bd87e105b05a0c492823635b74",
+    "agents/hotel_search_agent/hotel_search_agent/inventory.py": "7fcbecb59654fb7128d8c90871ba90b4c056f4740d5f8026145731eaa401647b",
+    "agents/hotel_search_agent/hotel_search_agent/landmark_alternatives.py": "eb5949638e4222063e6edfbe74de9733dd0520d01f09ef5a8ad47abd56ecfbbd",
+    "agents/hotel_search_agent/hotel_search_agent/mapbox_client.py": "5c11fa3bb6c713e12f23d8be80ce7dbc4c61ab60cd5775f7c1540f0f4ca1b727",
+    "agents/hotel_search_agent/hotel_search_agent/mcp_guard.py": "b57f6f1ce9a90f022cad29274e61fc12404527459210a2a000ce34a0b103ec25",
+    "agents/hotel_search_agent/hotel_search_agent/named_destination_plan.py": "c51c05c3d455af48291e490a4c1b495169822776ecbbf46bccf686914f61b073",
+    "agents/hotel_search_agent/hotel_search_agent/occupancy.py": "915527fefcbf2768824378e5773658d7eb5eb1e9cd327641d7fea3594804d331",
+    "agents/hotel_search_agent/hotel_search_agent/owned_origin_plan.py": "90a35eccf6d000787b32167fc523ce07eb49de20876802a8ba0f5cd5b3f29644",
+    "agents/hotel_search_agent/hotel_search_agent/resilience.py": "36740f38f1f96ebd7dc24530c03448e7de9a3b7ef370ddba5645d1770f0bc3f5",
+    "agents/hotel_search_agent/hotel_search_agent/response_bridge.py": "033d6674e64f2614a7f77a5d4d4f17a376159443043a7078d6c1c3f955cd42cd",
+    "agents/hotel_search_agent/hotel_search_agent/schema_guard.py": "1940e6f6cfe01641856446a2e4cd05a46feccc274d06086dc370afabe0f1531a",
+    "agents/hotel_search_agent/hotel_search_agent/searchbox_client.py": "f9fe8a0a479da8882c047d186e6d9102d9d1ca65170bc2db1981dd5afcb93be7",
+    "agents/hotel_search_agent/hotel_search_agent/serve.py": "cc81285f1358b4b3f3260d0d074e8ef87333ef35db004b05d09d0e5945d51f41",
+    "agents/hotel_search_agent/hotel_search_agent/tool_budget_guard.py": "2e8a2526e87cad1b70a29704f1b21c53bc99cacd6788653388e754b2e1ea7f7b",
+    "libs/b2c_common/b2c_common/__init__.py": "9ceca8d20a4990412d7bb021ab6601a7e1065afd3f623683269c4c5175742abb",
+    "libs/b2c_common/b2c_common/amenities.py": "5e288f5b369365268889ea9bca07f7a2d85d567d3bce13c4d5607bdb86f1a2f3",
+    "libs/b2c_common/b2c_common/auth.py": "4162d70e454a7ef00dd3924d3bc4bb4e6a071a7d0378a277faf92d75b055be2a",
+    "libs/b2c_common/b2c_common/confirmed_location.py": "dbde2904773e092506a610cb7f7387c2384330a533a0f5ab37eb9b0c3e032fd1",
+    "libs/b2c_common/b2c_common/date_labels.py": "507e2d12d2d3177ad12336d6815fe7e5e25e4a27ac91a71d2b704b66f26ff130",
+    "libs/b2c_common/b2c_common/date_period.py": "9eb463779f0a0131034d8f1a7fd0f865e85069f01d75a07788f64c18e38b3dd0",
+    "libs/b2c_common/b2c_common/destination_request.py": "7a9eb509fa6008224c1d8af873754a24db5f54c245614e14291c3a053ab747db",
+    "libs/b2c_common/b2c_common/hotel_urls.py": "31a31df88ba5abc63179dec63a4ccb7effd17e88ba928c47ba4afc1d3d644f79",
+    "libs/b2c_common/b2c_common/llm_params.py": "67f77ae0b02c3fc0888e3b04ef1fd4f2b676685100f53f05d6ec08d5e567bd96",
+    "libs/b2c_common/b2c_common/location_update.py": "5eac7e870d05c3f09656a55d9cef354ca7d7b15beec356d55cc78b66bfe0af32",
+    "libs/b2c_common/b2c_common/named_identity.py": "9e4d1e2ef26a51078843bb1eaf8f731d5f0490162eaaa7ae558f7f9bcf7b313e",
+    "libs/b2c_common/b2c_common/observability.py": "1f3fd3da91509a4ab0e0106afee1fe3469379381461162430111387db394d901",
+    "libs/b2c_common/b2c_common/offer_facts.py": "7159dc55e806c21a2746212f6cc77cd9003d451605d3f8a7f4eb2fb0d2eda744",
+    "libs/b2c_common/b2c_common/party_discovery.py": "3d45a01c36ad9d83d015cd6b4e8ae2a370b7442f0e000f9ec3401f27154d2a09",
+    "libs/b2c_common/b2c_common/party_update.py": "333d6cfb4a892e67599167b7a269e43809144992b609c92786a3f37213180eff",
+    "libs/b2c_common/b2c_common/price_comparison.py": "d800040e2bc9a419b3adcb504f11ed3f35438fb2cd579aacbee27178494a223c",
+    "libs/b2c_common/b2c_common/pricing.py": "a658c3d408e1692ca5ce3e09f674c97793a111d4826b954a79221d5bd167b41c",
+    "libs/b2c_common/b2c_common/proximity_request.py": "9e2bcb037fd8b64211987e8cfb74d0b854f6668bc372ada92c1ee775f1d32853",
+    "libs/b2c_common/b2c_common/room_requirements.py": "71d154d2a9728b595240194d7a6dd12dad6a16a6462ce9e7b35886ea24af5c42",
+    "libs/b2c_common/b2c_common/scores.py": "e371a50127a806c462ebe5efeb3451127a7af9dccbe4196c0840fbe0b4ef5b8f",
+    "libs/b2c_common/b2c_common/search_areas.py": "3ea8c63b55994eb3b054917f107341df5890b9bb35ac63baa2a037515af629b4",
+    "libs/b2c_common/b2c_common/search_budget.py": "ba6c7003cedabd2c12f8458d1c70ee1fcb0605b301844b4b0bfec7bebbd38cff",
+    "libs/b2c_common/b2c_common/search_page.py": "937980dae360ace2e77ff9239ad8782c2d2430b424273d30f1814380974c7bd5",
+    "libs/b2c_common/b2c_common/timeslot.py": "e2f1713c6e3f0f0dcfa1725830f652d669f810afca57f3e288d42074117cbd08"
+  },
+  "full_conversation_live_validation": false,
+  "latest_full_live_runtime": "315377106070e11390a84c3236993ce0d5177026",
+  "offline_tests": {
+    "full_passed": 3336,
+    "skipped_paid_opt_in": 1,
+    "affected_tests_after_annotation_and_duplicate_guard_cleanup": 225,
+    "ruff": "pass",
+    "mypy_files": 86,
+    "guardrails": "pass"
+  },
+  "regex_audit": {
+    "method": "AST direct re.* Call nodes across the four runtime package roots. Not unique expressions, invocations, or a complete security proof. Includes compile calls; downstream pattern methods not counted again.",
+    "before": {
+      "call_sites": 82,
+      "compile": 56,
+      "files": 19
+    },
+    "after": {
+      "call_sites": 81,
+      "compile": 55,
+      "files": 19
+    },
+    "calls": [
+      {
+        "file": "agents/b2c_concierge/b2c_concierge/agent.py",
+        "line": 315,
+        "operation": "findall",
+        "expression": "re.findall('\\\\S+\\\\s*', text)"
+      },
+      {
+        "file": "agents/b2c_concierge/b2c_concierge/amenity_guard.py",
+        "line": 72,
+        "operation": "sub",
+        "expression": "re.sub(re.escape(name_l), lambda m: ' ' * len(m.group(0)), low, flags=re.IGNORECASE)"
+      },
+      {
+        "file": "agents/b2c_concierge/b2c_concierge/amenity_guard.py",
+        "line": 72,
+        "operation": "escape",
+        "expression": "re.escape(name_l)"
+      },
+      {
+        "file": "agents/b2c_concierge/b2c_concierge/amenity_guard.py",
+        "line": 115,
+        "operation": "search",
+        "expression": "re.search(pattern, name_l, re.IGNORECASE)"
+      },
+      {
+        "file": "agents/b2c_concierge/b2c_concierge/amenity_guard.py",
+        "line": 111,
+        "operation": "search",
+        "expression": "re.search(pattern, blanked_lines[idx], re.IGNORECASE)"
+      },
+      {
+        "file": "agents/b2c_concierge/b2c_concierge/amenity_guard.py",
+        "line": 153,
+        "operation": "search",
+        "expression": "re.search(pattern, blanked[idx], re.IGNORECASE)"
+      },
+      {
+        "file": "agents/b2c_concierge/b2c_concierge/currency_guard.py",
+        "line": 37,
+        "operation": "compile",
+        "expression": "re.compile('\\\\b(eur|euros?)\\\\b[^.!?\\\\n]{0,60}\\\\b(conversion|converti[es]?|convert(?:ed|ing)?)\\\\b|\\\\b(sans conversion|no conversion|not converted)\\\\b', re.IGNORECASE)"
+      },
+      {
+        "file": "agents/b2c_concierge/b2c_concierge/date_format.py",
+        "line": 68,
+        "operation": "compile",
+        "expression": "re.compile('(?<![\\\\d-])(\\\\d{4})-(\\\\d{2})-(\\\\d{2})(?![\\\\d-])')"
+      },
+      {
+        "file": "agents/b2c_concierge/b2c_concierge/date_format.py",
+        "line": 69,
+        "operation": "compile",
+        "expression": "re.compile('https?://\\\\S+')"
+      },
+      {
+        "file": "agents/b2c_concierge/b2c_concierge/facade.py",
+        "line": 61,
+        "operation": "compile",
+        "expression": "re.compile('^[a-zA-Z0-9_-]{1,128}$')"
+      },
+      {
+        "file": "agents/b2c_concierge/b2c_concierge/facade.py",
+        "line": 66,
+        "operation": "compile",
+        "expression": "re.compile('^[0-9a-f]{32}$')"
+      },
+      {
+        "file": "agents/b2c_concierge/b2c_concierge/facade.py",
+        "line": 592,
+        "operation": "compile",
+        "expression": "re.compile('^[A-Za-z]{2,3}(-[A-Za-z0-9]{1,8})*$')"
+      },
+      {
+        "file": "agents/b2c_concierge/b2c_concierge/facade.py",
+        "line": 593,
+        "operation": "compile",
+        "expression": "re.compile('^[A-Za-z]{3}$')"
+      },
+      {
+        "file": "agents/b2c_concierge/b2c_concierge/facade.py",
+        "line": 594,
+        "operation": "compile",
+        "expression": "re.compile('^(?=.{1,253}$)[A-Za-z0-9](?:[A-Za-z0-9-]{0,61}[A-Za-z0-9])?(?:\\\\.[A-Za-z0-9](?:[A-Za-z0-9-]{0,61}[A-Za-z0-9])?)+$')"
+      },
+      {
+        "file": "agents/b2c_concierge/b2c_concierge/fallback_text.py",
+        "line": 33,
+        "operation": "compile",
+        "expression": "re.compile('\\\\b(parking|parkings|garage|stationnement|aparcamiento|estacionamiento|parcheggio|parkplatz|parkplätze|parkplatze|estacionamento|parkeren|parkeerplaats)\\\\b', re.IGNORECASE)"
+      },
+      {
+        "file": "agents/b2c_concierge/b2c_concierge/inline_tools.py",
+        "line": 137,
+        "operation": "compile",
+        "expression": "re.compile('^(?:please\\\\s+)?(?:book|reserve|r[ée]serve[rz]?|compare|(?:show|tell)\\\\s+me\\\\s+(?:more\\\\s+)?(?:details\\\\s+)?(?:on|for|about)|details?\\\\s+(?:on|for|about)|what\\\\s+about)\\\\s+(?:the\\\\s+)?', re.IGNORECASE)"
+      },
+      {
+        "file": "agents/b2c_concierge/b2c_concierge/inline_tools.py",
+        "line": 143,
+        "operation": "compile",
+        "expression": "re.compile(\"\\\\s+(?:for\\\\s+me|please|s'il\\\\s+vous\\\\s+pla[iî]t|svp|now|today|merci)\\\\.?\\\\s*$\", re.IGNORECASE)"
+      },
+      {
+        "file": "agents/b2c_concierge/b2c_concierge/link_guard.py",
+        "line": 33,
+        "operation": "compile",
+        "expression": "re.compile('([ \\\\t]*)(' + _URL_PATTERN + ')', re.IGNORECASE)"
+      },
+      {
+        "file": "agents/b2c_concierge/b2c_concierge/link_guard.py",
+        "line": 34,
+        "operation": "compile",
+        "expression": "re.compile('\\\\[([^\\\\]\\\\n]*)\\\\]\\\\(\\\\s*(' + _URL_PATTERN + ')\\\\s*\\\\)', re.IGNORECASE)"
+      },
+      {
+        "file": "agents/b2c_concierge/b2c_concierge/link_guard.py",
+        "line": 81,
+        "operation": "sub",
+        "expression": "re.sub('\\\\(\\\\s*\\\\)|\\\\[\\\\s*\\\\]', '', corrected)"
+      },
+      {
+        "file": "agents/b2c_concierge/b2c_concierge/link_guard.py",
+        "line": 82,
+        "operation": "sub",
+        "expression": "re.sub('[ \\\\t]{2,}', ' ', corrected)"
+      },
+      {
+        "file": "agents/b2c_concierge/b2c_concierge/no_offers.py",
+        "line": 203,
+        "operation": "compile",
+        "expression": "re.compile('(?<=[^\\\\d\\\\s][.!?])\\\\s+')"
+      },
+      {
+        "file": "agents/b2c_concierge/b2c_concierge/no_offers.py",
+        "line": 204,
+        "operation": "compile",
+        "expression": "re.compile('\\\\w{3,}')"
+      },
+      {
+        "file": "agents/b2c_concierge/b2c_concierge/profile.py",
+        "line": 147,
+        "operation": "compile",
+        "expression": "re.compile(\"^\\\\s*(?:ok(?:ay)?|d'accord|sure|yes|yeah|oui|super|parfait|great|perfect|cool)[\\\\s!,.?;:🙂😊👍❤️✨]*\\\\s*$\", re.IGNORECASE)"
+      },
+      {
+        "file": "agents/b2c_concierge/b2c_concierge/profile.py",
+        "line": 181,
+        "operation": "compile",
+        "expression": "re.compile('\\\\b(?:confirm\\\\w*|valide[rsz]?|r[ée]serve[rz]?|book(?:\\\\s+it)?|vas[- ]?y|allons[- ]?y|go)\\\\b', re.IGNORECASE)"
+      },
+      {
+        "file": "agents/b2c_concierge/b2c_concierge/profile.py",
+        "line": 188,
+        "operation": "compile",
+        "expression": "re.compile(\"\\\\b(?:non|ne|n'|pas|plus|jamais|annul\\\\w*|cancel\\\\w*|attend\\\\w*|wait|stop|autre|chang\\\\w*|plut[oô]t)\\\\b|n'\", re.IGNORECASE)"
+      },
+      {
+        "file": "agents/b2c_concierge/b2c_concierge/profile.py",
+        "line": 470,
+        "operation": "compile",
+        "expression": "re.compile('^\\\\s*[$€£]?\\\\s*(\\\\d+(?:[.,]\\\\d+)?)\\\\s*[$€£]?\\\\s*$')"
+      },
+      {
+        "file": "agents/b2c_concierge/b2c_concierge/profile.py",
+        "line": 561,
+        "operation": "compile",
+        "expression": "re.compile('^\\\\s*(\\\\d{1,2})(?::(\\\\d{2}))?\\\\s*(am|pm)?\\\\s*$', re.IGNORECASE)"
+      },
+      {
+        "file": "agents/b2c_concierge/b2c_concierge/profile.py",
+        "line": 563,
+        "operation": "compile",
+        "expression": "re.compile('\\\\b\\\\d{1,2}(?::\\\\d{2})?\\\\s*(?:am|pm|h)\\\\b|\\\\b\\\\d{1,2}:\\\\d{2}\\\\b|\\\\b(?:morning|afternoon|evening|night|matin|midi|apr[eè]s-midi|soir(?:ée)?)\\\\b', re.IGNORECASE)"
+      },
+      {
+        "file": "agents/b2c_concierge/b2c_concierge/profile.py",
+        "line": 950,
+        "operation": "compile",
+        "expression": "re.compile(\"\\\\b(?:aujourd'hui|demain|apr[eè]s[- ]demain|today|tomorrow|lundi|mardi|mercredi|jeudi|vendredi|samedi|dimanche|monday|tuesday|wednesday|thursday|friday|saturday|sunday)\\\\b|\\\\b(?:\" + _MONTHS + ')\\\\b|\\\\ble\\\\s+\\\\d{1,2}\\\\b|\\\\b\\\\d{1,2}\\\\s+(?:' + _MONTHS + ')\\\\b|\\\\b\\\\d{4}-\\\\d{2}-\\\\d{2}\\\\b', re.IGNORECASE)"
+      },
+      {
+        "file": "agents/b2c_concierge/b2c_concierge/profile.py",
+        "line": 959,
+        "operation": "compile",
+        "expression": "re.compile('\\\\b(?:moins\\\\s+cher|cheaper|pas\\\\s+trop\\\\s+cher|budget|[ée]largir|autour|nearby|plus\\\\s+pr[eè]s|plus\\\\s+t[ôo]t|plus\\\\s+tard|earlier|later|chang\\\\w*\\\\s+(?:la\\\\s+)?date|autre\\\\s+date|other\\\\s+date|autre\\\\s+quartier|arrondissement)\\\\b|[€$£]', re.IGNORECASE)"
+      },
+      {
+        "file": "agents/b2c_concierge/b2c_concierge/profile.py",
+        "line": 971,
+        "operation": "compile",
+        "expression": "re.compile(\"\\\\b(?:autres?\\\\s+options?|autre\\\\s+chose|d'autres?\\\\s+h[ôo]tels?|encore\\\\s+des?\\\\s+h[ôo]tels?|other\\\\s+options?|more\\\\s+options?|show\\\\s+me\\\\s+more|anything\\\\s+else|what\\\\s+else|any\\\\s+other(?:\\\\s+ones?)?)\\\\b\", re.IGNORECASE)"
+      },
+      {
+        "file": "agents/b2c_concierge/b2c_concierge/profile.py",
+        "line": 1098,
+        "operation": "compile",
+        "expression": "re.compile('[^\\\\w\\\\s]')"
+      },
+      {
+        "file": "agents/b2c_concierge/b2c_concierge/profile.py",
+        "line": 1135,
+        "operation": "compile",
+        "expression": "re.compile('[a-z0-9]+')"
+      },
+      {
+        "file": "agents/b2c_concierge/b2c_concierge/profile.py",
+        "line": 1420,
+        "operation": "compile",
+        "expression": "re.compile('^\\\\s*(?:#\\\\s*|n[°o]\\\\s*|option\\\\s+|choix\\\\s+)?(\\\\d{1,2})\\\\s*$', re.IGNORECASE)"
+      },
+      {
+        "file": "agents/b2c_concierge/b2c_concierge/profile.py",
+        "line": 495,
+        "operation": "fullmatch",
+        "expression": "re.fullmatch('\\\\s*€?\\\\s*(\\\\d+(?:[.,]\\\\d+)?)\\\\s*€?\\\\s*', message)"
+      },
+      {
+        "file": "agents/b2c_concierge/b2c_concierge/profile.py",
+        "line": 511,
+        "operation": "escape",
+        "expression": "re.escape(str(int(budget_max)) if float(budget_max).is_integer() else str(budget_max))"
+      },
+      {
+        "file": "agents/b2c_concierge/b2c_concierge/profile.py",
+        "line": 515,
+        "operation": "search",
+        "expression": "re.search(currency, text)"
+      },
+      {
+        "file": "agents/b2c_concierge/b2c_concierge/profile.py",
+        "line": 524,
+        "operation": "escape",
+        "expression": "re.escape(str(int(budget_max)) if float(budget_max).is_integer() else str(budget_max))"
+      },
+      {
+        "file": "agents/b2c_concierge/b2c_concierge/profile.py",
+        "line": 518,
+        "operation": "search",
+        "expression": "re.search(unit, text)"
+      },
+      {
+        "file": "agents/b2c_concierge/b2c_concierge/profile.py",
+        "line": 525,
+        "operation": "search",
+        "expression": "re.search(f'(?<![\\\\d.,]){token}(?![\\\\d])', message or '')"
+      },
+      {
+        "file": "agents/b2c_concierge/b2c_concierge/profile.py",
+        "line": 1448,
+        "operation": "sub",
+        "expression": "re.sub('^(?:the|le|la)\\\\s+', '', stripped.lower())"
+      },
+      {
+        "file": "agents/b2c_concierge/b2c_concierge/requested_date.py",
+        "line": 50,
+        "operation": "compile",
+        "expression": "re.compile('\\\\b(\\\\d{1,2})(?:er|st|nd|rd|th|º|°|\\\\.)?\\\\s+(?:de\\\\s+|of\\\\s+)?(' + _MONTH_ALT + ')\\\\.?\\\\b(?:\\\\s+(?:de\\\\s+)?(\\\\d{4}))?')"
+      },
+      {
+        "file": "agents/b2c_concierge/b2c_concierge/requested_date.py",
+        "line": 57,
+        "operation": "compile",
+        "expression": "re.compile('\\\\b(' + '|'.join((m for m in sorted(_MONTH_NUMBERS, key=len, reverse=True) if m not in _MONTH_FIRST_EXCLUDED)) + ')\\\\.?\\\\s+(\\\\d{1,2})(?:st|nd|rd|th)?\\\\b(?:,?\\\\s+(\\\\d{4}))?')"
+      },
+      {
+        "file": "agents/b2c_concierge/b2c_concierge/requested_date.py",
+        "line": 63,
+        "operation": "compile",
+        "expression": "re.compile('\\\\b\\\\d{1,2}(?:er|st|nd|rd|th)?\\\\s*(?:-|au|a|al|to|bis|tot|et|and|y|e|und|en|ou|or)\\\\s*\\\\d{1,2}(?:er|st|nd|rd|th|\\\\.)?\\\\s+(?:de\\\\s+)?(?:' + _MONTH_ALT + ')\\\\b')"
+      },
+      {
+        "file": "agents/b2c_concierge/b2c_concierge/requested_date.py",
+        "line": 67,
+        "operation": "compile",
+        "expression": "re.compile('\\\\b(\\\\d{4})-(\\\\d{2})-(\\\\d{2})\\\\b')"
+      },
+      {
+        "file": "agents/b2c_concierge/b2c_concierge/requested_date.py",
+        "line": 78,
+        "operation": "compile",
+        "expression": "re.compile('\\\\b(?:am|guten|goede|heute)\\\\s+morgen\\\\b|\\\\bgoedemorgen\\\\b|\\\\bmorgens\\\\b')"
+      },
+      {
+        "file": "agents/b2c_concierge/b2c_concierge/requested_date.py",
+        "line": 154,
+        "operation": "compile",
+        "expression": "re.compile('\\\\b(?:' + _WEEKDAY_ALT + '|' + _MONTH_ALT + ')\\\\b|\\\\b(?:le|the|el|il|der|den|o|de)\\\\s+\\\\d{1,2}(?:er|st|nd|rd|th|\\\\.)?\\\\b(?!\\\\s*h)|\\\\b\\\\d{1,2}[/.]\\\\d{1,2}\\\\b|\\\\b\\\\d{4}-\\\\d{2}-\\\\d{2}\\\\b')"
+      },
+      {
+        "file": "agents/b2c_concierge/b2c_concierge/requested_date.py",
+        "line": 72,
+        "operation": "compile",
+        "expression": "re.compile('\\\\b(?:apres[- ]demain|day after tomorrow|pasado manana|dopodomani|ubermorgen|depois de amanha|overmorgen)\\\\b')"
+      },
+      {
+        "file": "agents/b2c_concierge/b2c_concierge/requested_date.py",
+        "line": 74,
+        "operation": "compile",
+        "expression": "re.compile('\\\\b(?:demain|tomorrow|domani|amanha|morgen)\\\\b')"
+      },
+      {
+        "file": "agents/b2c_concierge/b2c_concierge/requested_date.py",
+        "line": 75,
+        "operation": "compile",
+        "expression": "re.compile('(?<!la )(?<!esta )(?<!por la )\\\\bmanana\\\\b')"
+      },
+      {
+        "file": "agents/b2c_concierge/b2c_concierge/requested_date.py",
+        "line": 76,
+        "operation": "compile",
+        "expression": "re.compile('\\\\b(?:aujourd.hui|today|tonight|ce soir|hoy|oggi|heute|hoje|vandaag)\\\\b')"
+      },
+      {
+        "file": "agents/b2c_concierge/b2c_concierge/triage.py",
+        "line": 118,
+        "operation": "compile",
+        "expression": "re.compile(f'^\\\\s*(?:{_ACK_WORDS}[\\\\s!,.?;:🙂😊👍❤️✨]*)+$', re.IGNORECASE)"
+      },
+      {
+        "file": "agents/b2c_concierge/b2c_concierge/triage.py",
+        "line": 121,
+        "operation": "compile",
+        "expression": "re.compile(\"\\\\b(je|j'|tu|vous|nous|hôtel|chambre|journée|réservation|résa|annul\\\\w*|rembours\\\\w*|cherche|demain|aujourd'hui|conditions|bonjour|merci|prix|combien)\\\\b\", re.IGNORECASE)"
+      },
+      {
+        "file": "agents/b2c_concierge/b2c_concierge/triage.py",
+        "line": 129,
+        "operation": "compile",
+        "expression": "re.compile('annul\\\\w*|rembours\\\\w*|condition|politique|policy|cancel|refund|check.?in|check.?out|cgv|\\\\bfaq\\\\b|fonctionne|how does|comment ça marche|paiement|payment', re.IGNORECASE)"
+      },
+      {
+        "file": "agents/b2c_concierge/b2c_concierge/triage.py",
+        "line": 136,
+        "operation": "compile",
+        "expression": "re.compile('\\\\bpay(?!s\\\\b)\\\\w*|\\\\bpaie\\\\w*|\\\\baccept\\\\w*', re.IGNORECASE)"
+      },
+      {
+        "file": "agents/b2c_concierge/b2c_concierge/triage.py",
+        "line": 137,
+        "operation": "compile",
+        "expression": "re.compile('compar\\\\w*|\\\\bversus\\\\b|\\\\bvs\\\\b|différence|difference', re.IGNORECASE)"
+      },
+      {
+        "file": "agents/b2c_concierge/b2c_concierge/triage.py",
+        "line": 138,
+        "operation": "compile",
+        "expression": "re.compile('détails?|\\\\bdetails?\\\\b|équipements?|amenities|piscine|\\\\bspa\\\\b|parking|photos?', re.IGNORECASE)"
+      },
+      {
+        "file": "agents/b2c_concierge/b2c_concierge/triage.py",
+        "line": 142,
+        "operation": "compile",
+        "expression": "re.compile('réserv\\\\w*|\\\\bbook\\\\w*\\\\b|lien', re.IGNORECASE)"
+      },
+      {
+        "file": "agents/b2c_concierge/b2c_concierge/triage.py",
+        "line": 149,
+        "operation": "compile",
+        "expression": "re.compile('\\\\b(?:le|la|les)\\\\s+(?:moins\\\\s+ch[eè]re?s?|plus\\\\s+[ée]conomiques?|meilleur\\\\s+prix)\\\\b|\\\\bcheapest\\\\b|\\\\blowest\\\\s+price\\\\b', re.IGNORECASE)"
+      },
+      {
+        "file": "agents/b2c_concierge/b2c_concierge/window_guard.py",
+        "line": 23,
+        "operation": "compile",
+        "expression": "re.compile('plus proches|closest|más cercan|più vicin|nächstgelegen|mais próxim|dichtstbij', re.IGNORECASE)"
+      },
+      {
+        "file": "agents/hotel_search_agent/hotel_search_agent/datetime_resolver.py",
+        "line": 181,
+        "operation": "compile",
+        "expression": "re.compile('^(\\\\d{4})-(\\\\d{2})-(\\\\d{2})$')"
+      },
+      {
+        "file": "agents/hotel_search_agent/hotel_search_agent/datetime_resolver.py",
+        "line": 182,
+        "operation": "compile",
+        "expression": "re.compile('^(\\\\d{2})-(\\\\d{2})$')"
+      },
+      {
+        "file": "agents/hotel_search_agent/hotel_search_agent/datetime_resolver.py",
+        "line": 471,
+        "operation": "compile",
+        "expression": "re.compile('^P(?:T(?:(\\\\d+)H)?(?:(\\\\d+)M)?)$')"
+      },
+      {
+        "file": "agents/hotel_search_agent/hotel_search_agent/datetime_resolver.py",
+        "line": 509,
+        "operation": "compile",
+        "expression": "re.compile('\\\\b\\\\d{1,2}\\\\s*h(?:\\\\s*\\\\d{2})?\\\\b|\\\\b\\\\d{1,2}:\\\\d{2}\\\\b|\\\\b\\\\d{1,2}\\\\s*(?:am|pm|a\\\\.m\\\\.|p\\\\.m\\\\.)|\\\\b\\\\d{1,2}\\\\s*(?:heures?|uhr|horas?|ore|uur)\\\\b|\\\\b(?:a las|alle|às|as|om|um|at|à)\\\\s+\\\\d{1,2}\\\\b|(?<!après-)(?<!apres-)(?<!après )(?<!apres )\\\\b(?:midi|minuit|noon|midnight|mediod[ií]a|medianoche|mezzogiorno|mezzanotte|mittags?|mitternacht|meio-dia|meia-noite|middag|middernacht)\\\\b', re.IGNORECASE)"
+      },
+      {
+        "file": "agents/hotel_search_agent/hotel_search_agent/datetime_resolver.py",
+        "line": 500,
+        "operation": "match",
+        "expression": "re.match('^(\\\\d{1,2}):(\\\\d{2})$', value.strip())"
+      },
+      {
+        "file": "agents/hotel_search_agent/hotel_search_agent/geo_guards.py",
+        "line": 486,
+        "operation": "findall",
+        "expression": "re.findall('[A-Za-z]+|\\\\d{5}(?:-\\\\d{4})?|\\\\d+(?:st|nd|rd|th)?', combined)"
+      },
+      {
+        "file": "agents/hotel_search_agent/hotel_search_agent/geo_guards.py",
+        "line": 373,
+        "operation": "split",
+        "expression": "re.split('[^a-z0-9]+', _echo_fold(f\"{zone or ''} {city or ''}\"))"
+      },
+      {
+        "file": "agents/hotel_search_agent/hotel_search_agent/geo_guards.py",
+        "line": 393,
+        "operation": "sub",
+        "expression": "re.sub('\\\\D', '', _raw_request)"
+      },
+      {
+        "file": "agents/hotel_search_agent/hotel_search_agent/geo_guards.py",
+        "line": 233,
+        "operation": "fullmatch",
+        "expression": "re.fullmatch('terminal\\\\s*\\\\d{0,2}', c)"
+      },
+      {
+        "file": "agents/hotel_search_agent/hotel_search_agent/geo_guards.py",
+        "line": 362,
+        "operation": "sub",
+        "expression": "re.sub('[^a-z0-9]+', ' ', _echo_fold(place_name))"
+      },
+      {
+        "file": "agents/hotel_search_agent/hotel_search_agent/geo_guards.py",
+        "line": 387,
+        "operation": "search",
+        "expression": "re.search('[a-z]', _raw_request.lower())"
+      },
+      {
+        "file": "agents/hotel_search_agent/hotel_search_agent/geo_guards.py",
+        "line": 492,
+        "operation": "fullmatch",
+        "expression": "re.fullmatch('\\\\d{5}(?:-\\\\d{4})?', token)"
+      },
+      {
+        "file": "agents/hotel_search_agent/hotel_search_agent/geo_guards.py",
+        "line": 99,
+        "operation": "sub",
+        "expression": "re.sub('[^a-z]+', ' ', raw)"
+      },
+      {
+        "file": "agents/hotel_search_agent/hotel_search_agent/geo_resolver.py",
+        "line": 157,
+        "operation": "split",
+        "expression": "re.split('[^a-z0-9]+', folded)"
+      },
+      {
+        "file": "libs/b2c_common/b2c_common/hotel_urls.py",
+        "line": 212,
+        "operation": "compile",
+        "expression": "re.compile('[a-z0-9]+(?:-[a-z0-9]+)*')"
+      },
+      {
+        "file": "libs/b2c_common/b2c_common/hotel_urls.py",
+        "line": 218,
+        "operation": "sub",
+        "expression": "re.sub('[^a-z]+', ' ', value.lower())"
+      },
+      {
+        "file": "libs/b2c_common/b2c_common/search_page.py",
+        "line": 25,
+        "operation": "compile",
+        "expression": "re.compile('/s(?:/[a-z0-9]+(?:-[a-z0-9]+)*)+')"
+      },
+      {
+        "file": "libs/b2c_common/b2c_common/timeslot.py",
+        "line": 112,
+        "operation": "compile",
+        "expression": "re.compile('\\\\b(?:matin|matinee|morning|(?:por|de|en) la manana|mattin[ao]|vormittags?|morgens|am morgen|(?:de|pela|a) manha|ochtend|s ochtends)\\\\b')"
+      },
+      {
+        "file": "libs/b2c_common/b2c_common/timeslot.py",
+        "line": 116,
+        "operation": "compile",
+        "expression": "re.compile('\\\\b(?:apres[ -]midi|aprem|afternoon|(?:por|de|en|a) la tarde|(?:a|de|pela) tarde|pomeriggio|nachmittags?|middag|s middags)\\\\b')"
+      },
+      {
+        "file": "libs/b2c_common/b2c_common/timeslot.py",
+        "line": 120,
+        "operation": "compile",
+        "expression": "re.compile('\\\\b(?:soir|soiree|evening|tonight|(?:por|de|en) la noche|(?:a|de|pela) noite|(?:la|di|in) sera|serata|stasera|abends?|am abend|avond|s avonds)\\\\b')"
+      }
+    ]
+  },
+  "isolated_triage_probes": {
+    "calls": 18,
+    "model": "gpt-5.2 low/2048/15s",
+    "cost_usd": "0.29730399999999998800",
+    "fresh_full_conversations": 0,
+    "uses_retained_contexts": true,
+    "final_runtime_differences_by_probe": [
+      {
+        "run_id": "triage-component-v117-e5e9b6f1",
+        "changed_sources": [
+          "agents/b2c_concierge/b2c_concierge/date_state.py",
+          "agents/b2c_concierge/b2c_concierge/profile.py",
+          "agents/hotel_search_agent/hotel_search_agent/geocode_tool.py",
+          "agents/hotel_search_agent/hotel_search_agent/mapbox_client.py",
+          "agents/hotel_search_agent/hotel_search_agent/searchbox_client.py",
+          "libs/b2c_common/b2c_common/confirmed_location.py",
+          "libs/b2c_common/b2c_common/location_update.py"
+        ]
+      },
+      {
+        "run_id": "triage-component-v117-202a3958",
+        "changed_sources": [
+          "agents/b2c_concierge/b2c_concierge/date_state.py",
+          "agents/b2c_concierge/b2c_concierge/profile.py",
+          "agents/hotel_search_agent/hotel_search_agent/geocode_tool.py",
+          "agents/hotel_search_agent/hotel_search_agent/mapbox_client.py",
+          "agents/hotel_search_agent/hotel_search_agent/searchbox_client.py",
+          "libs/b2c_common/b2c_common/confirmed_location.py",
+          "libs/b2c_common/b2c_common/location_update.py"
+        ]
+      }
+    ]
+  },
+  "retained_provider_replay": {
+    "source_sha256": "d79ac68983755f707f13624d2c4fecd63f47acd0ef0569233fd54d0c98ce2f61",
+    "native_terminal_choices": 2,
+    "fresh_provider_call": false,
+    "automatic_location_commit": false
+  },
+  "mcp_preflight": {
+    "result": "httpx.ConnectTimeout before authentication",
+    "full_replay_blocked": true
+  },
+  "budget": {
+    "accounted_usd": "225.16873984764799685539",
+    "ceiling_usd": "230",
+    "reserve_usd": "0.50",
+    "pending": null,
+    "remaining_after_reserve_usd": "4.33126015235200314461"
+  }
+}

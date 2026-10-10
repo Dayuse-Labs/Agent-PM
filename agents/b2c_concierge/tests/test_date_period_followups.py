@@ -27,7 +27,7 @@ def setup_period(monkeypatch, store, *, message='next week', kind='next_week', e
         adults=2, children=0, amenities=['pool'])
     asyncio.run(store.set(session.id, profile))
     script = {'family': 'search', 'language': 'en',
-        'requested_date_period': {'kind': kind, 'evidence': message}, **(extra or {})}
+        'requested_date_period': {'kind': kind, 'evidence': message, **({'scope': 'dates'} if kind == 'flexible' else {})}, **(extra or {})}
     llm = _scripted_llm(monkeypatch, json.dumps(script))
     answer = _run_turn(runner, session.id, message)
     return runner, session, profile, answer, llm

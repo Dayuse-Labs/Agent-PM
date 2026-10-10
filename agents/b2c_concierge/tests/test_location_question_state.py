@@ -45,7 +45,7 @@ def test_unknown_number_after_location_question_stays_geographic_and_keeps_const
     llm, leaves = scripted(json.dumps({'family': 'search', 'language': 'en',
         'location_update': {'action': 'unknown', 'evidence': number}, 'requested_budget': None}))
     answer = _answer(_drive_in(runner, session.id, number))
-    assert answer == templates.numeric_location_clarification(number, 'en')
+    assert answer == templates.numeric_role_clarification('en')
     assert not leaves and len(llm.calls) == 1
     saved = asyncio.run(fake_profile_store.get(session.id))
     assert saved.pending_clarification['value'] == number and saved.pending_party_total == 2
@@ -115,7 +115,7 @@ def test_geographic_number_cannot_select_an_old_hotel(scripted, fake_profile_sto
         'pick': 'position', 'pick_position': 1, 'booking_confirmation': 'confirmed',
         'location_update': {'action': 'unknown', 'evidence': '1'}}))
     answer = _answer(_drive_in(runner, session.id, '1'))
-    assert answer == templates.numeric_location_clarification('1', 'en')
+    assert answer == templates.numeric_role_clarification('en')
     assert not leaves and len(llm.calls) == 1
 
 

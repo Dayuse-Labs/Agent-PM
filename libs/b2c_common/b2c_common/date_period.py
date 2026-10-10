@@ -16,13 +16,20 @@ def grounded_period(value: Any, message: str) -> dict | None:
     return {"kind": value["kind"], "evidence": quote}
 
 
-def period_decision(value: Any, message: str) -> dict | None:
+def period_decision(value: Any, message: str, *, require_scope: bool = False) -> dict | None:
     """An invalid extraction can request clarification, never invent a date.
 
     Keep uncertainty when the model saw multiple dates but abbreviated its
     quote. Silently dropping that decision would authorize today's fallback.
     The literal customer request is context, not a validated calendar range.
     """
+    if isinstance(value, dict) and value.get("kind") == "flexible":
+        # Sparse model output must identify the subject of flexibility. A bare
+        # reply to a compound location/date question is not a date decision.
+        scope = value.get("scope")
+        if require_scope and scope != "dates":
+            return None
+        value = {k: v for k, v in value.items() if k != "scope"}
     valid = grounded_period(value, message)
     if valid is not None or value is None:
         return valid

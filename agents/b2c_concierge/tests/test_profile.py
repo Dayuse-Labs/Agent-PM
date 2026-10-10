@@ -1530,10 +1530,10 @@ class TestP1LlmSignalsAreAdditive:
         assert is_bare_affirmative("ok", False)
         assert is_bare_affirmative("d'accord", None)
 
-    def test_more_options_slot_adds_languages_without_vetoing(self):
+    def test_more_options_slot_is_primary_over_lexical_fallback(self):
         assert is_more_options_signal("otras opciones", True)
         assert not is_more_options_signal("otras opciones")
-        assert is_more_options_signal("d'autres options", False)
+        assert not is_more_options_signal("d'autres options", False)
 
     def test_a_foreign_affirmative_after_an_empty_search_refines(self):
         # The exact b2c/language-robustness case: an empty shortlist plus "sí"
@@ -1574,8 +1574,12 @@ class TestP1BookingConfirmationSlot:
         # because it sees no booking context must not be able to cause that.
         profile = SessionProfile(pending_booking={"hotel_id": 1})
         assert is_booking_confirmation_signal("oui", profile, llm_booking_confirmation="none")
-        assert is_booking_confirmation_signal(
+        # A semantic non-confirmation must not be promoted by a verb regex.
+        assert not is_booking_confirmation_signal(
             "oui je confirme", profile, llm_booking_confirmation="none"
+        )
+        assert is_booking_confirmation_signal(
+            "oui je confirme", profile, llm_booking_confirmation="confirm"
         )
 
     def test_the_slot_never_confirms_without_a_pending_booking(self):

@@ -397,6 +397,33 @@ def _named_airport_identity(candidates: list[GeocodeCandidate], query: str,
     return next(iter(matches.values())) if len(matches) == 1 else None
 
 
+def _terminal_confirmation(candidates: list[GeocodeCandidate], query: str,
+                           language: str | None) -> dict | None:
+    """Offer provider-native terminal identities for explicit user selection.
+
+    A matching shop/bus stop is not a terminal. This never resolves a location
+    automatically, borrows an airport's IATA, or chooses an airport centroid.
+    """
+    words = set(_place_words(query))
+    numbers = {word for word in words if word.isdigit()}
+    if not words or not numbers:
+        return None
+    matches = {}
+    for c in candidates:
+        native_words = set(_place_words(c.name))
+        if (c.feature_type == "poi" and "airport_terminal" in c.poi_categories
+                and words <= native_words
+                and numbers == {word for word in native_words if word.isdigit()}
+                and _provider_place(c, zone=query) is not None):
+            matches[c.mapbox_id] = c
+    if not 1 <= len(matches) <= 3:
+        return None
+    options = list(matches.values())
+    return {"question": geo_resolver._clarify_question(options, language),
+            "options": [_provider_place(c, zone=query) for c in options],
+            "confirmation_required": True}
+
+
 def _postcode_parent_matches(parent: str, candidate: GeocodeCandidate) -> bool:
     """Validate each supplied parent word against structured provider context.
 
@@ -492,7 +519,8 @@ def _resolve_address(query: str, *, city: str | None, country: str | None, langu
                    distance_origin_type="poi", zone=query,
                    resolved_location=_provider_place(chosen, city=city, zone=query))
     return _fail("geocode_ambiguous", {
-        "question": address_context_question(query, language), "options": [],
+        "question": address_context_question(query, language, missing_city=not city and not any(
+            c.parent_city_name and c.parent_city_name.casefold() in query.casefold() for c in candidates)), "options": [],
         "reason": "address_not_uniquely_verified", "query": full_query,
     }, ["geocode_echo_back"], {"zone": query})
 
@@ -821,6 +849,10 @@ def geocode_location(
                 landmark_candidates, effective_zone or "", _soft_country(country_code, country_guess, None),
             )
             if proximity_tuple is None and airport_identity is None:
+                terminal = _terminal_confirmation(landmark_candidates, effective_zone or "", lang)
+                if terminal:
+                    return _fail("geocode_ambiguous", terminal, guards_fired,
+                                 {"zone": effective_zone} if effective_zone else None)
                 # A bounded lookup may establish an exact airport identity.
                 # Other unanchored landmarks still need the containing city.
                 return _fail("geocode_ambiguous", {

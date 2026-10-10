@@ -22,7 +22,9 @@ requested_landmark, requested_areas or requested_subarea):
 Omit unused fields. Preserve/missing/device/select have NO targets. Select is
 only a choice of one of LOCATION CONTEXT.options, never a hotel or multiple places.
 For action=select, position is REQUIRED: the integer 1-based position in those
-options. For example, a first-option reply emits action=select, position=1 and
+options. When there is a single provider option, an explicit yes to that
+place-confirmation question selects position=1 with family=search; it never
+confirms a hotel booking. For example, a first-option reply emits action=select, position=1 and
 its literal evidence. Never omit position or put it in hotel pick_position.
 If those options are places, "tell me about the first option" selects that
 place with family=search; it is not a hotel-details lookup.
@@ -42,7 +44,9 @@ alternative destinations the customer accepts, never the components of an addres
 A city followed by a state/province/country is ONE target: city in query, verbatim
 state/province in region, geographic country hint in country. Never make the
 containing state a second destination. A corridor BETWEEN places is not their union;
-use unknown and ask for a central location if the corridor cannot be represented.
+use unknown and emit clarification_need with kind=multiple_origins, its literal
+queries and relation=between. For proximity to BOTH points use relation=near_all.
+Never discard the two points into an unspecified unknown question.
 For a neighborhood/landmark with its containing city stated in MESSAGE, parent_city
 is required and targets contains only the neighborhood/landmark, not that city.
 For a new landmark or neighborhood within the confirmed city, retain that confirmed parent_city
@@ -78,6 +82,18 @@ Countries/parent cities supplied later refine the outstanding specific destinati
 Negative locations are NEVER targets: retain the requested location when the user
 says the proposed results are in the wrong place. Use unknown if the positive target
 cannot be recovered from context. Do not infer coordinates, travel times or radii.
+LOCATION CONTEXT.previous_verified_context is a previous provider-verified place,
+not the active destination. Use it to interpret a return to the prior city or a
+nearby airport; explicitly emit its parent when relevant. A different named
+country/city wins; never constrain a new destination to the old coordinates.
+When MESSAGE already names a containing city, retain that literal parent even
+when it is also present inside a terminal/landmark query. A generic airport
+request requires clarification_need kind=airport until a specific airport is
+chosen; a city-only reply supplies its parent, not permission for city-centre cards.
+For a city centre without explicit boundary language, use neighborhood scope=nearby
+with its parent; do not invent an administrative boundary. Strict inside requests
+remain inside. A spelled-out hotel city belongs in parent_city, not in the hotel
+query; retain the actual hotel spelling and let the provider resolve the identity.
 country is a soft geographic hint, not a claim of user confirmation: use geographic
 knowledge of the named place/region when clear; the provider will verify it. If
 uncertain, omit it. Never infer a destination country from language or locale.
@@ -188,6 +204,11 @@ def adapt_location_update(data: dict[str, Any], message: str, context: dict | No
             clean = dependents
             raw = {**raw, 'parent_city': city}
     result['location_intent'] = {'action': action, 'evidence': evidence}
+    previous_place = (context or {}).get('previous_verified_context') or {}
+    previous_parent = (previous_place.get('provider_city') or {}).get('name')
+    if (not (context or {}).get('confirmed_city') and isinstance(previous_parent, str)
+            and all(not t.get('country') or t['country'] == previous_place.get('country_code') for t in clean)):
+        context = {**(context or {}), 'confirmed_city': previous_parent}
     previous = (context or {}).get('requested_destination') or {}
     if not isinstance(previous, dict):
         previous = {}
@@ -203,6 +224,9 @@ def adapt_location_update(data: dict[str, Any], message: str, context: dict | No
         return result
     if len(clean) == 1 and clean[0]['kind'] == 'hotel':
         result['hotel_name'] = clean[0]['query']
+        parent = clean[0].get('parent_city', raw.get('parent_city'))
+        if isinstance(parent, str) and area_name_in_text(parent, message):
+            result['location_intent']['parent_city'] = parent
         return result
     if len(clean) == 1 and (clean[0]['kind'] in {'landmark', 'address', 'postcode'} or
                            (clean[0]['kind'] == 'neighborhood' and clean[0]['scope'] == 'nearby')):
@@ -211,7 +235,7 @@ def adapt_location_update(data: dict[str, Any], message: str, context: dict | No
         if not isinstance(parent, str) or not area_name_in_text(parent, message):
             confirmed = (context or {}).get('confirmed_city')
             parent = confirmed if isinstance(confirmed, str) and (
-                raw.get('parent_city') == confirmed or area_name_in_text(confirmed, message)
+                target.get('parent_city', raw.get('parent_city')) == confirmed or area_name_in_text(confirmed, message)
                 or action in {'correct', 'refine'}) else None
         result['requested_landmark'] = {'query': target['query'], 'city': parent,
                                        'country_guess': target['country'], 'evidence': target['evidence'],
@@ -230,6 +254,13 @@ def adapt_location_update(data: dict[str, Any], message: str, context: dict | No
              'country_guess': t['country']}
             for t in clean
         ]
+        return result
+    if len(clean) > 1 and (raw.get('relation') in {'between', 'near_all'}
+                          or all(t['kind'] == 'postcode' for t in clean)):
+        result['clarification_need'] = {'kind': 'multiple_origins',
+            'queries': [t['query'] for t in clean], 'relation': raw.get('relation', 'choose'),
+            'evidence': evidence}
+        result['location_intent'] = {'action': 'unknown', 'kind': 'none'}
         return result
     if any(t['kind'] not in {'city', 'region', 'neighborhood'} for t in clean):
         # An unsupported combination must not authorize an unrelated leaf search.

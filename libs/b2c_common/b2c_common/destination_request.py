@@ -117,7 +117,18 @@ def refine_landmark(update: dict | None, previous: Any, action: str | None,
     return None
 
 
-def address_context_question(query: str, language: str) -> str:
+def address_context_question(query: str, language: str, *, missing_city: bool = False) -> str:
+    if missing_city:
+        questions = {
+            "fr": "Je garde l’adresse « {address} ». Dans quelle ville et quel pays se trouve-t-elle ?",
+            "en": "I’ve kept the address “{address}”. Which city and country is it in?",
+            "de": "Ich behalte die Adresse „{address}“. In welcher Stadt und welchem Land liegt sie?",
+            "es": "Mantengo la dirección «{address}». ¿En qué ciudad y país está?",
+            "it": "Mantengo l’indirizzo «{address}». In quale città e paese si trova?",
+            "pt": "Guardo o endereço «{address}». Em que cidade e país fica?",
+            "nl": "Ik bewaar het adres ‘{address}’. In welke stad en welk land ligt het?",
+        }
+        return questions.get(language, questions["en"]).format(address=query)
     questions = {
         "fr": "Je n’arrive pas à confirmer l’adresse « {address} ». Peux-tu vérifier le numéro, la rue et le code postal ?",
         "en": "I can’t confirm the address “{address}”. Could you check the street number, street name and postcode?",
@@ -139,7 +150,8 @@ def refine_hotel(name: str | None, previous: Any, action: str | None,
     """
     request = destination_request(previous)
     if name and name.strip().casefold() in message.casefold():
-        return {"kind": "hotel", "query": name.strip()}
+        return {"kind": "hotel", "query": name.strip(),
+                **({"city": parent_city} if parent_city and parent_city.casefold() in message.casefold() else {})}
     if request and request.kind == "hotel" and action == "refine" and parent_city:
         return {**request.model_dump(exclude_none=True), "city": parent_city}
     return None

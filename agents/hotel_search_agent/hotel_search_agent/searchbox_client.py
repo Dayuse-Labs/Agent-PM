@@ -193,6 +193,7 @@ class SearchBoxClient:
                     region=str(region_ctx.get("name") or region_ctx.get("region_code") or ""),
                     administrative_code=str(region_ctx.get("region_code") or ""),
                     airport_iata=airport_iata,
+                    poi_categories=tuple(c for c in categories if isinstance(c, str)) if isinstance(categories, list) else (),
                     parent_city_name=str((context.get("place") or {}).get("name") or ""),
                     parent_city_id=str((context.get("place") or {}).get("mapbox_id")
                                        or (context.get("place") or {}).get("id") or ""),

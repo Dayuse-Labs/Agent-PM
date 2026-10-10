@@ -1,5 +1,7 @@
 # Regex et traitement des 14 écarts — 10 octobre 2026
 
+> **Historique :** les corrections ultérieures et leur validation partielle sont décrites dans [la livraison groupée](GROUPED_REGRESSIONS_AND_REGEX_RISKS_2026_10_10.md). Les notes ci-dessous restent celles de `3153771`; elles ne valident pas le nouveau code, dont le rejeu complet attend le MCP.
+
 **Diagnostic et plan de correction, pas une nouvelle version validée.** Runtime v116 inchangé; PR134 reste prête à la revue. Aucun nouveau modèle appelé, aucune modification Railway, aucun changement de notes. Les 14 sont des parcours moins bien notés que la production, pas 14 régressions causalement attribuées à cette PR : 11 défauts significatifs (C) et 3 mineurs (B). Le comparatif conserve les limites d’inventaire, de calendrier et de branches conversationnelles.
 
 ## Regex : ce qui est réellement présent
