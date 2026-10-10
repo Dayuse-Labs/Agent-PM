@@ -1691,7 +1691,15 @@ class _B2cConcierge(BaseAgent):
                 # intent, even when routed directly to details. Otherwise an
                 # unavailable property vanished before its city clarification.
                 named_request = refine_hotel(triage.hotel_name, None, None, None, message)
-                if named_request:
+                shown_name = any(
+                    str(h.get("name") or "").strip().casefold() == triage.hotel_name.strip().casefold()
+                    for h in shown_hotels
+                )
+                # Reading an already displayed card does not replace the
+                # search destination. Otherwise a later "other hotels" stays
+                # trapped in this property despite correct triage intent.
+                keeps_search_scope = bool(previous_destination and previous_destination.kind != "hotel" and shown_name)
+                if named_request and not keeps_search_scope:
                     profile.requested_destination = named_request
                     await store.set(ctx.session.id, profile)
             # get_hotel_details / compare_hotels (S07): a real MCP_B2C call

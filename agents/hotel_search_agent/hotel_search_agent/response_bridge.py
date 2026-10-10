@@ -899,8 +899,8 @@ def inject_landmark_radius(tool: Any, args: dict[str, Any], tool_context: Any) -
     already run, far too late for a before-tool callback. Reading that one is
     silent no-op territory: everything type-checks and the radius is simply
     never applied.
-    `gps` anchors are deliberately NOT tightened here: "near me" has its own
-    expectations and changing it is not part of the POI bug.
+    GPS keeps its default radius unless the customer explicitly requests one.
+    Only a device request paired with this turn's verified GPS origin may use it.
 
     Scarcity note: a tighter disc can legitimately return nothing where the 20 km
     one returned something. That is a HONEST empty, and the existing
@@ -914,7 +914,11 @@ def inject_landmark_radius(tool: Any, args: dict[str, Any], tool_context: Any) -
     anchor_type = origin.get("type") if isinstance(origin, dict) else None
     from b2c_common.destination_request import destination_request
     request = destination_request(read_profile_in(tool_context).get("requested_destination"))
-    if request and request.radius_km is not None and anchor_type in {"poi", "city_centroid"}:
+    matching_point = request is not None and (
+        (request.kind == "device" and anchor_type == "gps")
+        or (request.kind != "device" and anchor_type in {"poi", "city_centroid"})
+    )
+    if request and request.radius_km is not None and matching_point:
         args["radiusKm"] = request.radius_km
     elif anchor_type == "poi":
         args["radiusKm"] = _POI_RADIUS_KM

@@ -1,3 +1,13 @@
+## 2026-10-10 — Grouped follow-up fixes after the full v102 diagnostic
+
+v102 completed core100/280 candidate responses, adaptive6/24, recent-source7/26, recovery4/14 and critical17/36. The core had320 exact dated MCP card matches, no detected price/date/card-fact errors, and21 fee-inclusive cap checks without violations. Current legacy reference is already measured and retained; quality remains NO GO. These data checks do not erase conversational failures.
+
+The next runtime fixes three reproducible intent/state failures together: (1) an explicit literal destination mention wins over an untrusted model canonical label, including abbreviation expansion; no guessed model identity becomes geometry; (2) consulting an exactly named card already in the visible search does not replace its geographic request with a property-only destination, so the next request for alternatives can search the area; (3) an explicit radius may use a device destination only with this turn's verified GPS origin. No new regex, aliases, LLM phase or leaf session state.
+
+Two contract tests changed intentionally: an unrelated canonical label now retains the quoted customer mention instead of discarding both; device radius is permitted only through the verified native-origin path. Negative provider/format/coordinate tests remain. New integration tests cover details → alternatives and persisted device location/date across a radius change.
+
+Validation: 3182 offline tests passed, one opt-in live Langfuse test skipped; ruff, mypy (81 files), guardrails and diff checks passed. Targeted3/15 then one final frozen candidate replay against retained same-day legacy measurements. Recent seven source prefixes are now exposed (NYC informed this fix), not an independent holdout. No new release claim until reviewed. Main remains cbe88b9; no deploy or merge.
+
 ## 2026-10-10 — Literal spelling and postcode parent context
 
 The v101 diagnostic completed 100 paired conversations / 560 responses against current legacy production. 317 dated cards matched exact MCP receipts; no detected card price/date/fact errors; 21 fee-inclusive budget checks passed. These are data-integrity checks, not a claim of complete conversational parity. Significant clarification/relevance failures remain: NO GO.

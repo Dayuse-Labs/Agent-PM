@@ -79,22 +79,6 @@ invent coordinates, a containing city, or an administrative name to force a matc
 '''
 
 
-def _literal_spelling_variant(query: str, quote: str) -> bool:
-    """One model spelling edit may not erase a literal destination mention.
-
-    This does not select or correct a place: only the original quote is sent
-    to the provider. Unrelated model identities still fail the contract.
-    """
-    left, right = query.strip().casefold(), quote.strip().casefold()
-    if min(len(left), len(right)) < 4 or abs(len(left) - len(right)) > 1:
-        return False
-    if len(left) == len(right):
-        return sum(a != b for a, b in zip(left, right)) == 1
-    short, long = sorted((left, right), key=len)
-    index = next((i for i, (a, b) in enumerate(zip(short, long)) if a != b), len(short))
-    return short[index:] == long[index + 1:]
-
-
 def adapt_location_update(data: dict[str, Any], message: str, context: dict | None) -> dict[str, Any]:
     """Translate a single transaction; malformed transactions cannot mutate place."""
     if 'location_update' not in data:
@@ -146,10 +130,13 @@ def adapt_location_update(data: dict[str, Any], message: str, context: dict | No
                 or not isinstance(quote, str) or not quote.strip() or quote not in message):
             return result
         if not area_name_in_text(query, quote):
-            if ('evidence' not in target or len(quote) > 200
-                    or not _literal_spelling_variant(query, quote)):
+            if 'evidence' not in target or len(quote) > 200:
                 return result
-            query = quote  # Literal user spelling; geometry still belongs to the provider.
+            # The literal mention is the source of destination identity. A
+            # canonical model label (abbreviation expansion, translation or
+            # typo correction) never replaces it. Provider validation remains
+            # mandatory; the quote itself grants no coordinates or boundary.
+            query = quote
         country = target.get('country')
         if country is not None and (not isinstance(country, str) or len(country) != 2
                                    or not country.isascii() or not country.isalpha()):

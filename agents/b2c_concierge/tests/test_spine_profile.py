@@ -2289,3 +2289,48 @@ def test_fuzzy_catalog_suggestion_cannot_select_a_city_or_fetch_availability(mon
     assert 'Seattle' not in reply and saved.city is None
     assert saved.last_results == [] and saved.pending_booking is None
     assert saved.requested_destination == {'kind': 'hotel', 'query': 'Bayview'}
+
+
+@pytest.mark.parametrize('named_label', ['Example Hotel', 'EXAMPLE HOTEL'])
+def test_reading_a_shown_hotel_preserves_search_scope_for_alternatives(monkeypatch, fake_leg, fake_profile_store, named_label):
+    import json
+    destination = {'kind': 'landmark', 'query': 'Example Station', 'city': 'Example City'}
+    runner = InMemoryRunner(root_agent)
+    session = _new_session(runner)
+    asyncio.run(fake_profile_store.set(session.id, SessionProfile(
+        city='Example City', zone='Example Station', requested_destination=destination,
+        last_results=[{'hotel_id': 12, 'name': 'Example Hotel'}], adults=2, children=0)))
+    async def details(*args, **kwargs):
+        return {'ok': True, 'hotel': {'id': 12, 'name': 'Example Hotel'}}
+    monkeypatch.setattr(agent_module.inline_tools, 'get_hotel_details', details)
+    _scripted_llm(monkeypatch, json.dumps({'family': 'details', 'language': 'en', 'hotel_name': named_label,
+        'location_update': {'action': 'preserve'}}), 'Details of the shown hotel.')
+    _run_turn(runner, session.id, 'Tell me about ' + named_label)
+    saved = asyncio.run(fake_profile_store.get(session.id))
+    assert saved.requested_destination == destination
+    _scripted_llm(monkeypatch, json.dumps({'family': 'search', 'language': 'en', 'wants_more_options': True,
+        'location_update': {'action': 'preserve'}}), 'Other offers in the same area.')
+    fake_leg.response_payload = {'results': [{'id': 13, 'name': 'Other Hotel'}]}
+    _run_turn(runner, session.id, 'Any other hotel in that same area?')
+    sent = find_datapart(fake_leg.seen_outgoing_parts)['profile_in']
+    assert sent['requested_destination'] == destination
+    assert sent['zone'] == 'Example Station'
+    assert sent['adults'] == 2 and sent['children'] == 0
+
+
+def test_device_radius_carries_native_anchor_and_date_to_leaf(monkeypatch, fake_leg, fake_profile_store):
+    import json
+    runner = InMemoryRunner(root_agent)
+    session = _new_session(runner)
+    anchor = {'type': 'gps', 'lat': 45., 'lon': -75.}
+    asyncio.run(fake_profile_store.set(session.id, SessionProfile(
+        requested_destination={'kind': 'device'}, search_anchor=anchor, date='2027-02-16')))
+    _scripted_llm(monkeypatch, json.dumps({'family': 'search', 'language': 'en',
+        'requested_proximity': {'distance': 30, 'unit': 'km', 'anchor': 'current', 'evidence': 'within 30 km'},
+        'location_update': {'action': 'preserve'}}), 'Offers within your requested radius.')
+    fake_leg.response_payload = {'results': []}
+    _run_turn(runner, session.id, 'Search within 30 km of my original location')
+    sent = find_datapart(fake_leg.seen_outgoing_parts)['profile_in']
+    assert sent['requested_destination'] == {'kind': 'device', 'radius_km': 30.}
+    assert sent['search_anchor']['lat'] == anchor['lat'] and sent['search_anchor']['lon'] == anchor['lon']
+    assert sent['date'] == '2027-02-16'

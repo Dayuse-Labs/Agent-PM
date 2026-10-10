@@ -47,7 +47,7 @@ def test_parent_relaxation_requires_a_known_parent_and_does_not_infer_one_from_l
 
 
 def test_a_radius_cannot_be_attached_to_multiple_or_strict_area_origins():
-    for value in ({'kind': 'device'}, {'kind': 'hotel', 'query': 'Example Hotel'}, area('east district')):
+    for value in ({'kind': 'hotel', 'query': 'Example Hotel'}, area('east district')):
         assert destination_request({**value, 'radius_km': 30}) is None
 
 
@@ -103,3 +103,21 @@ def test_parent_clarification_preserves_distance_but_new_destination_does_not_in
     assert repeated and repeated['radius_km'] == 30.
     changed = refine_landmark({'query': 'Another Landmark'}, prior, 'change', None)
     assert changed and 'radius_km' not in changed
+
+
+@pytest.mark.parametrize('origin,expected', [('gps', 30), ('poi', 3), ('city_centroid', None), (None, None)])
+def test_explicit_device_radius_requires_a_verified_device_origin(origin, expected):
+    from hotel_search_agent.response_bridge import _STATE_ANCHOR_KEY, _POI_RADIUS_KM
+    request = apply_proximity({'kind': 'device'}, {'radius_km': 30., 'anchor': 'current'})
+    assert request is not None and request.radius_km == 30
+    ctx = SimpleNamespace(state={_STATE_ANCHOR_KEY: {'type': origin}},
+        user_content=types.Content(role='user', parts=[encode_datapart({'profile_in': {
+            'requested_destination': request.model_dump(exclude_none=True)}})]))
+    args = {'radiusKm': 199}
+    inject_landmark_radius(SimpleNamespace(name='search_offers'), args, ctx)
+    assert args.get('radiusKm') == (_POI_RADIUS_KM if origin == 'poi' else expected)
+
+
+def test_default_device_search_does_not_acquire_a_radius_or_model_location():
+    assert destination_request({'kind': 'device'}).radius_km is None
+    assert destination_request({'kind': 'device', 'query': 'invented', 'radius_km': 30}) is None

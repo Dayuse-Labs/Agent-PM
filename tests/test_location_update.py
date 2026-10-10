@@ -56,7 +56,7 @@ def test_new_airport_in_confirmed_city_owns_landmark_not_city_center():
 
 
 @pytest.mark.parametrize('mutation', [
-    {'query': 'Rome'}, {'evidence': 'previous message'}, {'country': 'USA'},
+    {'evidence': 'previous message'}, {'country': 'USA'},
     {'kind': 'coordinates'}, {'scope': '200km'},
 ])
 def test_invalid_target_cannot_mutate_geography(mutation):
@@ -306,3 +306,14 @@ def test_spelling_recovery_requires_an_explicit_literal_target_quote():
     raw = {'location_update': {'action': 'change', 'evidence': 'Sampletwn',
            'targets': [{'kind': 'city', 'query': 'Sampletown'}]}}
     assert adapt_location_update(raw, 'Sampletwn', None)['location_intent']['action'] == 'unknown'
+
+
+@pytest.mark.parametrize('literal,canonical', [('Nyc', 'New York City'), ('Sampletwn', 'Sampletown'), ('Milano', 'Rome')])
+def test_explicit_mention_wins_over_untrusted_canonical_label(literal, canonical):
+    message = 'Hotels in ' + literal
+    raw = transaction(message, query=canonical, evidence=literal)
+    got = adapt_location_update(raw, message, None)
+    areas = validate_areas(got['requested_areas'], message)
+    assert areas[0]['query'] == literal and areas[0]['evidence'] == literal
+    assert areas[0]['query'] != canonical
+    assert 'latitude' not in areas[0] and 'longitude' not in areas[0]

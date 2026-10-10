@@ -44,7 +44,7 @@ class DestinationRequest(BaseModel):
     @model_validator(mode="after")
     def coherent(self) -> DestinationRequest:
         if self.radius_km is not None and not (
-            self.kind in {"landmark", "address", "postcode"}
+            self.kind in {"landmark", "address", "postcode", "device"}
             or (self.kind == "areas" and self.areas and len(self.areas) == 1
                 and self.areas[0].get("kind") == "municipality"
                 and not requires_area_membership(self.areas))
