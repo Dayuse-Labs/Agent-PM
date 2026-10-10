@@ -398,6 +398,7 @@ def build_active_filters(profile: SessionProfile) -> dict[str, Any]:
         "adults": profile.adults if profile.pending_party_total is None else None,
         "children": profile.children if profile.pending_party_total is None else None,
         "pending_party_total": profile.pending_party_total,
+        "room_requirements": profile.room_requirements,
     }
 
 

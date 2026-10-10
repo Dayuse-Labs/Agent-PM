@@ -284,6 +284,7 @@ class SessionProfile:
     children: int | None = None
     # Explicit total awaiting an adult/child composition; never sent as adults.
     pending_party_total: int | None = None
+    room_requirements: dict[str, Any] | None = None
     pending_proximity: dict[str, Any] | None = None
     # Prices are shown in EUR unless the user asked for the hotel's own
     # currency ("HOTEL"), kept for the rest of the conversation until they ask
@@ -359,6 +360,7 @@ class SessionProfile:
             "adults": self.adults,
             "children": self.children,
             "pending_party_total": self.pending_party_total,
+            "room_requirements": self.room_requirements,
             "display_currency": self.display_currency,
             "requested_currency": self.requested_currency,
             "search_page": self.search_page,
@@ -688,7 +690,7 @@ def apply_profile_delta(
     values, clears, explicit_sets = _normalize_delta(dict(delta))
     known_fields = set(SessionProfile.__dataclass_fields__)
     # User-grounded constraints are concierge-owned, including typed clears.
-    for owned_slot in ("detail_results", "pending_date_period", "pending_clarification", "pending_proximity", "pending_location", "confirmed_location", "requested_destination", "requested_budget", "price_comparison", "requested_window", "requested_duration_minutes", "overnight_window"):
+    for owned_slot in ("room_requirements", "detail_results", "pending_date_period", "pending_clarification", "pending_proximity", "pending_location", "confirmed_location", "requested_destination", "requested_budget", "price_comparison", "requested_window", "requested_duration_minutes", "overnight_window"):
         values.pop(owned_slot, None)
         clears.discard(owned_slot)
     from b2c_common.destination_request import destination_request

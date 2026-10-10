@@ -248,7 +248,8 @@ def _hotel_line(hotel: dict[str, Any], window: dict[str, str | None] | None = No
             time.fromisoformat(end)
         except ValueError:
             continue
-        slots.append(f"{start}–{end}")
+        minutes = (int(end[:2]) * 60 + int(end[3:])) - (int(start[:2]) * 60 + int(start[3:]))
+        slots.append(f"{start}–{end}" + (f" ({minutes} minutes)" if minutes > 0 else ""))
     if slots:
         line += " — offered times: " + ", ".join(slots)
     if hotel.get("requested_offer_unavailable"):
@@ -518,7 +519,9 @@ def shortlist_ground_truth_block(
     )
     return (
         "\n\n## CURRENT SHORTLIST (GROUND TRUTH)\n"
-        + date_block + location_note + _HEADER + delivery_note + window_note + "\n".join(lines)
+        + date_block + location_note + _HEADER + delivery_note + window_note
+        + ("ROOM REQUIREMENTS (customer intent, not verified facts): " + str(profile.room_requirements) + "\n"
+           if profile.room_requirements else "") + "\n".join(lines)
     )
 
 

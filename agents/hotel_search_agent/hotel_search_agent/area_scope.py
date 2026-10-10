@@ -56,9 +56,9 @@ def _resolve_area(item: dict[str, str], client: MapboxClient, language: str | No
         return _resolve_region_scoped_area(item, client, language)
     if parent is None and item.get("subarea"):
         return _resolve_subarea(item, client, language)
-    if not item["country"] and (item["kind"] == "neighborhood" or item.get("code")) and parent is None:
-        # A globally unanchored neighborhood lookup can be IP-biased. A known
-        # containing city instead uses the provider relationship below.
+    if not item["country"] and item.get("code") and parent is None:
+        # A numeric administrative code has no global identity. Named areas
+        # use provider evidence below; homonyms still require clarification.
         return {"ok": False, "error": "area_parent_needed", "diagnostics": {
             "area": item["query"], "reason": "Which containing city and country does this requested area belong to?"}}
     types = {"administrative": "region,district", "municipality": "place,locality",
@@ -253,7 +253,14 @@ def resolve_areas(requests: list[dict[str, str]], client: MapboxClient, language
     # These are alternative areas, never an intersection. A failed alternative
     # must stay visible, but cannot erase valid membership in another requested
     # area. No substitution, radius expansion or extra provider call is needed.
-    outcomes = [_resolve_area(item, client, language) for item in requests]
+    unanchored_alternatives = len(requests) > 1 and any(
+        item["kind"] == "neighborhood" and not item["country"] and not item.get("subarea")
+        for item in requests
+    )
+    outcomes: list[dict[str, Any]] = ([{"ok": False, "error": "area_parent_needed", "diagnostics": {
+        "area": item["query"], "reason": "Which containing city do these alternative neighborhoods belong to?"}}
+        for item in requests] if unanchored_alternatives else
+        [_resolve_area(item, client, language) for item in requests])
     resolved = [outcome["area"] for outcome in outcomes if outcome["ok"]]
     unresolved = [{"query": item["query"] + (" — " + item["subarea"] if item.get("subarea") else ""), "error": outcome["error"]}
                   for item, outcome in zip(requests, outcomes, strict=True) if not outcome["ok"]]

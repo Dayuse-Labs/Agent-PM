@@ -37,6 +37,7 @@ from typing import Any
 import litellm
 from b2c_common import max_tokens_for, reasoning_kwargs_for, role_model, temperature_kwargs_for
 from b2c_common.amenities import grounded_amenity_update
+from b2c_common.room_requirements import grounded_room_update
 from b2c_common.date_labels import WEEKDAYS, grounded_calendar
 from b2c_common.date_period import period_decision
 from b2c_common.timeslot import DAYPART_HOURS
@@ -180,6 +181,7 @@ class Triage:
     price_comparison: str | None = None
     budget_checked: bool = False
     requested_amenities: dict | None = None
+    requested_room: dict | None = None
     requested_areas: list[dict[str, str]] | None = None
     requested_subarea: str | None = None
     subarea_parent: str | None = None
@@ -551,7 +553,7 @@ Optional keys, extracted from MESSAGE ONLY, never copied from recent messages:
   Keys: pool, spa, gym, jacuzzi, sauna, restaurant, breakfast, pet_friendly,
   shuttle, bathtub, shower, air_conditioning, room_service, elevator, rooftop_bar.
   Bathtub and shower refer to the ROOM; jacuzzi is a HOTEL hot tub and does not
-  prove a private in-room jacuzzi. A double bed or soundproofing has no supported
+  prove a private in-room jacuzzi. A double bed uses requested_room.bedding, not an amenity key. Soundproofing has no supported
   key: do not replace it with another amenity or drop a separate supported need.
   A meal/lunch is not breakfast; a hotel facility does not prove inclusion in
   the room price or its availability at a particular hour.
@@ -564,6 +566,18 @@ Optional keys, extracted from MESSAGE ONLY, never copied from recent messages:
   or a general policy into a search update. Do not guess an unsupported key or
   equate a private bathtub with a hotel hot tub. Evidence must quote MESSAGE,
   never earlier messages. This object describes intent, not equipment IDs.
+- "requested_room": CURRENT search requirements with a verbatim "evidence" quote.
+  Optional "bedding":"double|king|queen|twin|any" (double/matrimonial means double;
+  an explicitly requested king or queen uses that exact key;
+  separate beds means twin; any explicitly removes bedding). It is independent
+  of occupancy and other amenities. Also optional "private_amenities" and
+  "included_amenities" arrays, using pool,jacuzzi,spa,sauna,breakfast,parking,shuttle.
+  Use private_amenities for explicitly private/in-room equipment; use
+  included_amenities for explicitly included/free access. Presence at the property
+  proves neither. Set the complete updated array only when that scope changes;
+  [] explicitly removes that scoped requirement. Never erase it on a follow-up
+  about another criterion. Still add the supported hotel amenity separately.
+  Do not set this for informational questions about a shown hotel. Omit if unchanged.
 - "requested_proximity": a CURRENT explicitly requested distance or permission
   to search farther away: {{"distance": number, "unit":"km|mi",
   "anchor":"current|parent_city", "evidence":"exact distance and unit quote"}}.
@@ -911,6 +925,8 @@ async def classify(message: str, budget: TurnBudget, invocation_id: str = "",
         subarea_parent=subarea_parent if isinstance(subarea_parent, str) else None,
         requested_areas=(validate_areas(data.get("requested_areas"), message)
                          if family in {"search", "booking"} else None),
+        requested_room=(grounded_room_update(data.get("requested_room"), message)
+                        if family in {"search", "booking"} else None),
         requested_amenities=(
             grounded_amenity_update(data.get("requested_amenities"), message)
             if family in {"search", "booking"} else None

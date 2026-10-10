@@ -72,3 +72,25 @@ def test_search_progresses_with_total_and_rejects_leaf_invented_counts(monkeypat
     assert saved.pending_party_total == 2 and saved.adults is None and saved.children is None
     assert fake_leg.call_count == 1 and len(llm.calls) == 1
     assert "options" in text and "confirmation" in text and "adults and children" in text
+
+
+def test_room_preference_survives_followup_and_private_access_is_conditional(monkeypatch, fake_leg, fake_profile_store):  # noqa: F811
+    from b2c_concierge.a2a_datapart import find_datapart
+    runner = InMemoryRunner(root_agent)
+    session = _new_session(runner)
+    asyncio.run(fake_profile_store.set(session.id, SessionProfile(city='Example City')))
+    fake_leg.response_payload = {'results': [{'hotel_id': 42, 'name': 'Example'}], 'profile_delta': {}}
+    plan = json.dumps({'family': 'search', 'language': 'en', 'location_update': {'action': 'preserve'},
+                       'requested_room': {'bedding': 'double', 'private_amenities': ['jacuzzi'],
+                                          'evidence': 'double bed and private jacuzzi'}})
+    _scripted_llm(monkeypatch, plan)
+    first = _run_turn(runner, session.id, 'double bed and private jacuzzi')
+    assert 'not confirmed' in first
+    assert find_datapart(fake_leg.seen_outgoing_parts)['profile_in']['room_requirements'] == {
+        'bedding': 'double', 'private_amenities': ['jacuzzi']}
+    _scripted_llm(monkeypatch, json.dumps({'family': 'search', 'language': 'en',
+                                        'location_update': {'action': 'preserve'}}))
+    second = _run_turn(runner, session.id, 'other options')
+    saved = asyncio.run(fake_profile_store.get(session.id))
+    assert saved.room_requirements == {'bedding': 'double', 'private_amenities': ['jacuzzi']}
+    assert 'not confirmed' in second

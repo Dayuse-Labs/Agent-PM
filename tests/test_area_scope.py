@@ -756,3 +756,17 @@ def test_cross_country_or_selected_alternative_does_not_become_a_parent(update):
     previous = [{'query': name, 'kind': 'municipality', 'country': 'FR', 'evidence': name}
                 for name in ['Le Marais', 'Montmartre']]
     assert preserve_area_boundary(previous, update, parent_refinement=True) == update
+
+
+def test_countryless_named_neighborhood_can_be_resolved_from_provider_evidence():
+    from dataclasses import replace
+    c = replace(candidate(), name='Example Quarter', feature_type='neighborhood')
+    provider = SimpleNamespace(geocode_candidates=lambda *a, **kw: [c])
+    result = resolve_areas([{'query': 'Example Quarter', 'kind': 'neighborhood',
+                            'country': '', 'evidence': 'Example Quarter'}], provider)
+    assert result['ok'] and result['search_areas'][0]['id'] == c.mapbox_id
+    wrong = replace(c, name='Example Quarter Shop', feature_type='poi')
+    result = resolve_areas([{'query': 'Example Quarter', 'kind': 'neighborhood',
+                            'country': '', 'evidence': 'Example Quarter'}],
+                          SimpleNamespace(geocode_candidates=lambda *a, **kw: [wrong]))
+    assert not result['ok']

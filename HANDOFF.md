@@ -1,3 +1,9 @@
+## 2026-10-10 — v110 grouped fixes; live comparison pending
+
+Concierge-owned room requirements now survive turns and A2A transport: offer-level bedding is checked before selection (including fresh quote/formula choices); hotel equipment never proves private or included access. Conditional party discovery asks composition once without inventing counts. A single countryless neighborhood may use verified provider identity and existing membership checks; ambiguous alternative neighborhoods and numeric codes still clarify. Offer duration in minutes is supplied to synthesis. No new regex, geographic alias dictionary, Redis owner, model phase or provider contract.
+
+New user acceptance authorizes an additional30USD: operational ceiling230USD, reserve0.50; initial accounted198.91661799USD including retained unpriced provisions. Frozen targeted13 conversations precede a fresh paired100-conversation/280-turn-per-arm comparison against actual legacy production. Candidate remains local triage5.2/search4o-mini/synthesis5.2; deployed B2C triage remains4o-mini. Do not apply earlier grades to this changed runtime. FAQ/SAV phase2. No merge, deployment, Railway writes or customer action. PR134 remains draft. Exact-head CI may remain blocked by GitHub account billing independently of eval budget.
+
 ## 2026-10-10 — v109 delivered narrow live validation: NO GO for broad replacement
 
 Runtime `fa14b9d`: conditional party discovery, stale-count isolation, booking composition guards, and native exact airport identity over remote GPS. See `evals/DISCOVERY_AND_REMOTE_AIRPORT_2026_10_10.md` for intentional contracts and release gates. The profile owner, stateless A2A leaves, LiteLLM and read-only MCP remain; no new regex or geographic aliases.

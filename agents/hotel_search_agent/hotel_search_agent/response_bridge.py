@@ -720,6 +720,7 @@ def normalize_search_results(
     price_comparison: dict[str, Any] | None = None,
     arrival_daypart: str | None = None,
     party_total: int | None = None,
+    room_requirements: dict | None = None,
 ) -> list[dict[str, Any]]:
     """Top-5 compact cards from a tool's structuredContent. Handles the
     `search_offers` envelope (`{"results": [...]}`, confirmed live) and the
@@ -753,6 +754,10 @@ def normalize_search_results(
             continue
         original_offers = item.get("offers") or []
         offers = [o for o in original_offers if isinstance(o, dict) and not has_unverified_zero_price(o, item)]
+        from b2c_common.room_requirements import bedding_matches
+        offers = [o for o in offers if bedding_matches(o, room_requirements)]
+        if room_requirements and not offers:
+            continue
         if party_total is not None:
             from b2c_common.party_discovery import possible_party
             offers = [o for o in offers if possible_party(o, party_total)]
@@ -1199,12 +1204,13 @@ def capture_after_tool(
     from b2c_common.party_discovery import discovery_total
     envelope = find_datapart(getattr(getattr(tool_context, "user_content", None), "parts", None) or []) or {}
     party_total = discovery_total(envelope.get("query_params")) if name == "search_offers" else None
-    results = normalize_search_results(structured, exclude_ids, strict_window, requested_budget, price_comparison, arrival_daypart, party_total)
+    room_requirements = read_profile_in(tool_context).get("room_requirements") if name == "search_offers" else None
+    results = normalize_search_results(structured, exclude_ids, strict_window, requested_budget, price_comparison, arrival_daypart, party_total, room_requirements)
     timeslot_fallback = False
     if strict_window is not None and not results:
         # The exact-minute filter emptied the set: fall back to the coarser
         # hour-rounded results (never a silent 0) — the outcome text discloses it.
-        fallback_results = normalize_search_results(structured, exclude_ids, None, requested_budget, price_comparison, arrival_daypart, party_total)
+        fallback_results = normalize_search_results(structured, exclude_ids, None, requested_budget, price_comparison, arrival_daypart, party_total, room_requirements)
         if fallback_results:
             results = fallback_results
             timeslot_fallback = True
@@ -1218,9 +1224,9 @@ def capture_after_tool(
         stashed = tool_context.state.get(STATE_DATE_FALLBACK_KEY)
         payload = stashed.get("payload") if isinstance(stashed, dict) else None
         if isinstance(payload, dict):
-            swapped = normalize_search_results(payload, exclude_ids, strict_window, requested_budget, price_comparison, arrival_daypart, party_total)
+            swapped = normalize_search_results(payload, exclude_ids, strict_window, requested_budget, price_comparison, arrival_daypart, party_total, room_requirements)
             if not swapped and strict_window is not None:
-                swapped = normalize_search_results(payload, exclude_ids, None, requested_budget, price_comparison, arrival_daypart, party_total)
+                swapped = normalize_search_results(payload, exclude_ids, None, requested_budget, price_comparison, arrival_daypart, party_total, room_requirements)
                 timeslot_fallback = bool(swapped)
             if swapped:
                 results = swapped

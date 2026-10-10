@@ -21,7 +21,7 @@ def possible_party(offer: dict, total: int) -> bool:
         type(children) is int and children >= 0 and adults + children >= total)))
 
 
-def discovery_message(total: int, language: str) -> str:
+def discovery_message(total: int, language: str, *, ask: bool = True) -> str:
     messages = {
         "fr": "Voici des pistes issues de la recherche. Leur capacité pour votre groupe de {total} personnes reste à confirmer : combien y a-t-il d’adultes et d’enfants ?",
         "en": "Here are options from the search. Suitability for your group of {total} still needs confirmation: how many adults and children are there?",
@@ -31,4 +31,5 @@ def discovery_message(total: int, language: str) -> str:
         "pt": "Aqui estão opções da pesquisa. Falta confirmar a capacidade para o grupo de {total} pessoas: quantos adultos e crianças são?",
         "nl": "Hier zijn opties uit de zoekopdracht. Geschiktheid voor jullie groep van {total} moet nog worden bevestigd: hoeveel volwassenen en kinderen zijn er?",
     }
-    return messages.get(language, messages["en"]).format(total=total)
+    message = messages.get(language, messages["en"]).format(total=total)
+    return message if ask else message.rsplit(":", 1)[0].rstrip() + "."

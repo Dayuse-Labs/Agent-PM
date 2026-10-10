@@ -540,6 +540,9 @@ def _search_offer(offers: list[Any], hotel: dict[str, Any], profile: SessionProf
             offer.get("startHour"), offer.get("endHour"), arrival_daypart
         ):
             continue
+        from b2c_common.room_requirements import bedding_matches
+        if not bedding_matches(offer, profile.room_requirements):
+            continue
         if profile.pending_party_total is not None:
             from b2c_common.party_discovery import possible_party
             if not possible_party(offer, profile.pending_party_total):
@@ -1017,6 +1020,8 @@ async def _quote_fresh_offer(
                         return {**details, "guards_fired": guards_fired}
                     offers = details["data"].get("offers") or []
                     details_hotel = details["data"].get("hotel")
+                    from b2c_common.room_requirements import bedding_matches
+                    offers = [o for o in offers if bedding_matches(o, profile.room_requirements)]
                     best = _best_offer(offers, profile.date, details_hotel)
                     if best is None:
                         return {
@@ -1098,6 +1103,8 @@ async def _quote_picked_rate_plans(hotel_id: int, profile: SessionProfile) -> di
                 if not details["ok"]:
                     return details
                 offers = details["data"].get("offers") or []
+                from b2c_common.room_requirements import bedding_matches
+                offers = [o for o in offers if bedding_matches(o, profile.room_requirements)]
                 plans = _day_rate_plans(
                     offers, profile.date, details["data"].get("hotel"), profile.display_currency
                 )

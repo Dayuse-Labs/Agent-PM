@@ -1437,6 +1437,9 @@ class _B2cConcierge(BaseAgent):
         elif hotel_update or landmark_updates or location_action in {"change", "device", "unknown", "select"}:
             proximity_base = None  # Cannot guess an origin or reuse a replaced destination.
         proximity_update = apply_proximity(proximity_base, proximity_intent) if proximity_intent else None
+        from b2c_common.room_requirements import apply_room_update
+        next_room = apply_room_update(profile.room_requirements, triage.requested_room)
+        room_changed = next_room != (profile.room_requirements or {})
         amenity_update = triage.requested_amenities
         next_amenities = (
             apply_amenity_update(profile.amenities, amenity_update)
@@ -1447,6 +1450,8 @@ class _B2cConcierge(BaseAgent):
         occupancy_update, next_party_total = resolve_party_update(
             profile.adults, profile.children, profile.pending_party_total, triage.requested_occupancy,
         )
+        party_question_asked = (profile.pending_party_total == next_party_total and next_party_total is not None
+            and profile.last_clarifying_question == party_composition_question(next_party_total, reply_language))
         occupancy_changed = next_party_total != profile.pending_party_total or bool(occupancy_update and any(
             getattr(profile, key) != value for key, value in occupancy_update.items()
         ))
@@ -1504,7 +1509,7 @@ class _B2cConcierge(BaseAgent):
                               next_window != (profile.timeslot_start, profile.timeslot_end)
                               or (not requested_window and bool(profile.timeslot or profile.daypart))
                           )))
-        if (window_changed or triage.overnight_window or amenities_changed or occupancy_changed or area_update is not None or landmark_update or hotel_update or proximity_update) and family != "faq" and clicked_id is None:
+        if (window_changed or triage.overnight_window or amenities_changed or room_changed or occupancy_changed or area_update is not None or landmark_update or hotel_update or proximity_update) and family != "faq" and clicked_id is None:
             family, route = "search", ROUTES["search"]
             picked = None
             booking_signal = False
@@ -1839,7 +1844,7 @@ class _B2cConcierge(BaseAgent):
                 profile.consecutive_empty_searches = 0
                 profile.auto_widen_disclosure = None
 
-        if route.target == LEAF_HOTEL_SEARCH and occupancy_changed:
+        if route.target == LEAF_HOTEL_SEARCH and (occupancy_changed or room_changed):
             profile.search_exhausted = False
             profile.consecutive_empty_searches = 0
             profile.widen_attempt_count = 0
@@ -1884,6 +1889,7 @@ class _B2cConcierge(BaseAgent):
         if route.target == LEAF_HOTEL_SEARCH:
             profile.requested_duration_minutes = next_duration
             profile.pending_party_total = next_party_total
+            profile.room_requirements = next_room or None
             if occupancy_update:
                 for key, value in occupancy_update.items():
                     setattr(profile, key, value)
@@ -2146,7 +2152,7 @@ class _B2cConcierge(BaseAgent):
         # truly-empty case above degrades.
         leaf_text = leaf_text or ""
 
-        delta = response.get("profile_delta") or {}
+        delta = {k: v for k, v in (response.get("profile_delta") or {}).items() if k != "room_requirements"}
         if route.target == LEAF_HOTEL_SEARCH:
             delta = accepted_location_delta(response, delta)
             if profile.pending_party_total is not None:
@@ -2489,14 +2495,17 @@ class _B2cConcierge(BaseAgent):
                 yield self._final(ctx, line)
                 return
 
+        from b2c_common.room_requirements import conditional_access_message, unverified_access
         requested_stay = profile.requested_window or {}
         synth: str | None
         if profile.pending_party_total is not None and response.get("results"):
             from b2c_common.party_discovery import discovery_message
             # Do not let prose claim confirmed group eligibility or guess two
             # adults. Cards show the exact provider offer; no synthesis call.
-            synth = discovery_message(profile.pending_party_total, reply_language)
+            synth = discovery_message(profile.pending_party_total, reply_language, ask=not party_question_asked)
             profile.last_clarifying_question = party_composition_question(profile.pending_party_total, reply_language)
+        elif response.get("results") and unverified_access(profile.room_requirements):
+            synth = conditional_access_message(reply_language)
         elif no_offers and requested_stay.get("start") and requested_stay.get("end"):
             # Full-stay containment: longer hours cannot recover an empty
             # result. Keep this bounded next step in code, without inventing
@@ -2539,6 +2548,9 @@ class _B2cConcierge(BaseAgent):
                 templates.named_hotel_not_found_notice(named_not_found, reply_language, profile.city)
                 + f"\n\n{final_text}"
             )
+        if (response.get("results") and profile.pending_party_total is not None
+                and unverified_access(profile.room_requirements)):
+            final_text += "\n\n" + conditional_access_message(reply_language)
         if no_offers:
             rest = drop_restated(final_text, no_offers)
             final_text = f"{no_offers}\n\n{rest}" if rest else no_offers
