@@ -1,3 +1,25 @@
+## 2026-10-10 · v99 — dates avant clarifications, extraction invalide conservée comme incertitude
+
+Le diagnostic v98 a été arrêté sur un nouveau défaut majeur : demande de deux
+séjours remplacée par des offres du jour après une clarification de devise.
+**13 parcours complets + 1 partiel / 40 tours**, tout comptabilisé, aucun pending.
+Cumul **153,0887 USD** provisions incluses. Les cas hôtels nommés et Texas étaient
+encore non exécutés au moment de cet arrêt : ne pas revendiquer leur validation live.
+
+Cause précise : la citation de période abrégée par le modèle avec une ellipse
+était rejetée, puis assimilée à une absence de dates. La décision invalide conserve
+maintenant une incertitude sans inventer de bornes. En complément, la mise à jour des
+dates précède les sorties pour clarification de budget ; la question de période
+ne suppose plus une demande de comparaison du jour le moins cher.
+
+276 tests ciblés et **3 145 tests complets passent, 1 ignoré** (gate réseau live
+opt-in). Lint, mypy (80 fichiers), guardrails et diff verts. Nouveau lot préparé
+**17 parcours / 36 tours** : défaut de dates, Texas, noms/détails, W4, aéroports et
+deux contrôles synthétiques date/devise. Rejeu avant le corpus large 100/280 par bras.
+W4 reste variable (v97 préservé, v98 perdu après une clarification générique).
+La recherche simultanée de deux séjours n'est pas implémentée ; demander une date
+précise honnêtement ne vaut pas réussite complète de cet objectif. **NO GO** maintenu.
+
 ## 2026-10-10 · v98 — corrections groupées après diagnostic candidat
 
 MCP revenu : candidat v97 exécuté **26 parcours / 65 tours**, coût **1,2996 USD**.

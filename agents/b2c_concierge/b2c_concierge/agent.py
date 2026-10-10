@@ -1819,6 +1819,44 @@ class _B2cConcierge(BaseAgent):
             profile.auto_widen_disclosure = None
             reset_search_cursor(profile)
 
+        # guard_date_served (mcp-dayuse#8): the day this search must run on,
+        # when code can know it. A date named in THIS message is stored before
+        # the leaf runs — a turn that ends on a clarification never reaches
+        # search_offers, and the date used to die with it (QA Côte d'Azur:
+        # "le 3 octobre" asked, today served on the next turn).
+        expected_date: str | None = None
+        if route.target == LEAF_HOTEL_SEARCH:
+            today = reference_today(profile.client_timezone)
+            if triage.requested_date_period:
+                profile.pending_date_period = freeze_period(triage.requested_date_period, today)
+                profile.date = None
+                profile.date_reference = None
+                profile.pending_booking = None
+            expected_date, from_message = expected_search_date(
+                "" if location_choice and numeric_reply else message, profile.date, reference_today(profile.client_timezone),
+                weekday=None if location_choice and numeric_reply else triage.requested_weekday,
+                calendar=None if location_choice and numeric_reply else triage.requested_calendar,
+            )
+            if profile.pending_date_period:
+                if triage.requested_date_period:
+                    # A date quoted as one endpoint of a range does not select
+                    # that endpoint as the customer's sole stay date.
+                    expected_date, from_message = None, False
+                if triage.requested_weekday:
+                    # The ordinary next-weekday rule is wrong for e.g. Sunday
+                    # inside next week when today is Friday. Resolve in range.
+                    expected_date = weekday_in_period(profile.pending_date_period, triage.requested_weekday, today)
+                    from_message = expected_date is not None
+                if expected_date and from_message:
+                    profile.pending_date_period = None
+                else:
+                    expected_date = None  # Never fall back to the old date.
+            if expected_date and from_message:
+                profile.date = expected_date
+                profile.date_reference = {"resolved_from": "concierge"}
+                if profile.client_timezone:
+                    profile.date_reference["client_tz"] = profile.client_timezone
+
         if route.target == LEAF_HOTEL_SEARCH and profile.search_exhausted:
             if not is_bare_affirmative(message, triage.affirmative):
                 profile.search_exhausted = False
@@ -1915,44 +1953,6 @@ class _B2cConcierge(BaseAgent):
         # ONE call, per-family budget (_leaf_timeout), no retry. Session profile
         # (Redis, orchestrator-only — decision B3) travels OUT as profile_in and
         # comes back as profile_delta.
-        # guard_date_served (mcp-dayuse#8): the day this search must run on,
-        # when code can know it. A date named in THIS message is stored before
-        # the leaf runs — a turn that ends on a clarification never reaches
-        # search_offers, and the date used to die with it (QA Côte d'Azur:
-        # "le 3 octobre" asked, today served on the next turn).
-        expected_date: str | None = None
-        if route.target == LEAF_HOTEL_SEARCH:
-            today = reference_today(profile.client_timezone)
-            if triage.requested_date_period:
-                profile.pending_date_period = freeze_period(triage.requested_date_period, today)
-                profile.date = None
-                profile.date_reference = None
-                profile.pending_booking = None
-            expected_date, from_message = expected_search_date(
-                "" if location_choice and numeric_reply else message, profile.date, reference_today(profile.client_timezone),
-                weekday=None if location_choice and numeric_reply else triage.requested_weekday,
-                calendar=None if location_choice and numeric_reply else triage.requested_calendar,
-            )
-            if profile.pending_date_period:
-                if triage.requested_date_period:
-                    # A date quoted as one endpoint of a range does not select
-                    # that endpoint as the customer's sole stay date.
-                    expected_date, from_message = None, False
-                if triage.requested_weekday:
-                    # The ordinary next-weekday rule is wrong for e.g. Sunday
-                    # inside next week when today is Friday. Resolve in range.
-                    expected_date = weekday_in_period(profile.pending_date_period, triage.requested_weekday, today)
-                    from_message = expected_date is not None
-                if expected_date and from_message:
-                    profile.pending_date_period = None
-                else:
-                    expected_date = None  # Never fall back to the old date.
-            if expected_date and from_message:
-                profile.date = expected_date
-                profile.date_reference = {"resolved_from": "concierge"}
-                if profile.client_timezone:
-                    profile.date_reference["client_tz"] = profile.client_timezone
-
         if route.target == LEAF_HOTEL_SEARCH and profile.pending_proximity is not None:
             question = templates.proximity_origin_question(reply_language)
             remember_location_question(profile, question)

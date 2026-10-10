@@ -111,3 +111,50 @@ def test_pending_period_prevents_ordinal_from_reusing_old_date(monkeypatch, fake
         'pick': 'position', 'pick_position': 1}))
     answer = _run_turn(runner, session.id, 'Tell me about the first one')
     assert 'Which specific date' in answer and fake_leg.call_count == 0
+
+
+@pytest.mark.parametrize('period_evidence', [
+    'on October 31 and then do another one from like 8 AM to 2 PM on the November 1',
+    'on October 31 and then do another one ... on the November 1',
+])
+@pytest.mark.parametrize('budget_text', ['under $150', 'under 150'])
+def test_two_dates_survive_earlier_budget_clarification(monkeypatch, fake_leg, fake_profile_store, friday, period_evidence, budget_text):  # noqa: F811
+    runner = InMemoryRunner(root_agent)
+    session = _new_session(runner)
+    message = f'Looking for a room {budget_text} want to arrive 9 AM to 3 PM on October 31 and then do another one from like 8 AM to 2 PM on the November 1'
+    _scripted_llm(monkeypatch, json.dumps({'family': 'search', 'language': 'en',
+        'requested_budget': {'amount': 150, 'currency': None, 'unit': 'total', 'evidence': budget_text},
+        'requested_date_period': {'kind': 'range', 'evidence': period_evidence}}))
+    first = _run_turn(runner, session.id, message)
+    assert fake_leg.call_count == 0
+    assert ('currency' in first if budget_text == 'under 150' else 'Which specific date' in first)
+    profile = asyncio.run(fake_profile_store.get(session.id))
+    assert profile.pending_date_period is not None and profile.date is None
+    assert profile.pending_date_period['kind'] == ('range' if period_evidence in message else 'unresolved')
+    assert '...' not in profile.pending_date_period['evidence']
+    _scripted_llm(monkeypatch, json.dumps({'family': 'search', 'language': 'en',
+        'location_update': {'action': 'change', 'evidence': 'New York', 'targets': [
+            {'kind': 'city', 'query': 'New York', 'country': 'US', 'scope': 'nearby'}]}}))
+    _run_turn(runner, session.id, 'New York')
+    assert fake_leg.call_count == 0
+    assert asyncio.run(fake_profile_store.get(session.id)).date is None
+
+
+def test_calendar_date_survives_budget_currency_question(monkeypatch, fake_leg, fake_profile_store, friday):  # noqa: F811
+    runner = InMemoryRunner(root_agent)
+    session = _new_session(runner)
+    _scripted_llm(monkeypatch, json.dumps({'family': 'search', 'language': 'en',
+        'requested_budget': {'amount': 150, 'currency': None, 'unit': 'total', 'evidence': 'under 150'},
+        'requested_calendar': {'month': 10, 'day': 31, 'evidence': 'October 31'}}))
+    first = _run_turn(runner, session.id, 'A day room on October 31 under 150')
+    assert 'currency' in first and fake_leg.call_count == 0
+    assert asyncio.run(fake_profile_store.get(session.id)).date == '2026-10-31'
+
+
+def test_invalid_period_does_not_gain_calendar_authority():
+    from b2c_common.date_period import period_decision, period_question
+    period = period_decision({'kind': 'next_week', 'evidence': 'not literal'}, 'dates unclear')
+    frozen = freeze_period(period, date(2026, 10, 9))
+    assert frozen['kind'] == 'unresolved' and 'start' not in frozen and 'end' not in frozen
+    assert weekday_in_period(frozen, 'tuesday', date(2026, 10, 9)) is None
+    assert 'couldn’t verify' in period_question(frozen, 'en')

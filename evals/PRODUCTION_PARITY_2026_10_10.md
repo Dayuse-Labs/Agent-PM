@@ -1,6 +1,16 @@
-# Production parity — reprise du 10 octobre 2026 (v98)
+# Production parity — reprise du 10 octobre 2026 (v99)
 
 **NO GO en attente du rejeu des correctifs et du comparatif large.**
+
+Le rejeu v98 a été arrêté après 13 parcours complets et un partiel (40 tours) :
+une extraction de période invalide faisait perdre les deux séjours demandés et
+retomber sur aujourd'hui. La correction conserve une incertitude explicite et
+sauvegarde les dates avant les clarifications de budget. Nouveau rejeu ciblé
+17 parcours / 36 tours préparé ; validation réelle encore à effectuer.
+
+W4 a également varié entre les deux passages : préserver une zone après une
+clarification demeure un point à mesurer. Les observations ci-dessous décrivent
+le diagnostic v97, sans les présenter comme des succès de la version finale.
 
 Le MCP est de nouveau accessible. Le diagnostic candidat a terminé ses **26 parcours /
 65 tours**, après le même lot sur la production actuelle `3093647`. Ces parcours

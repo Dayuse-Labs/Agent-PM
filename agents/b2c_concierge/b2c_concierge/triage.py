@@ -38,7 +38,7 @@ import litellm
 from b2c_common import max_tokens_for, reasoning_kwargs_for, role_model, temperature_kwargs_for
 from b2c_common.amenities import grounded_amenity_update
 from b2c_common.date_labels import WEEKDAYS, grounded_calendar
-from b2c_common.date_period import grounded_period
+from b2c_common.date_period import period_decision
 from b2c_common.timeslot import DAYPART_HOURS
 from b2c_common.search_areas import validate_areas
 from dayuse_agent_common import (
@@ -872,7 +872,7 @@ async def classify(message: str, budget: TurnBudget, invocation_id: str = "",
         requested_daypart=_grounded_daypart(data.get("requested_daypart"), message),
         requested_calendar=(grounded_calendar(data.get("requested_calendar"), message)
                             if family == "search" else None),
-        requested_date_period=(grounded_period(data.get("requested_date_period"), message)
+        requested_date_period=(period_decision(data.get("requested_date_period"), message)
                                if family == "search" else None),
         requested_weekday=(_grounded_weekday(data.get("requested_weekday"), message)
                            if family == "search" else None),
