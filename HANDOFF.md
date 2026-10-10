@@ -1,4 +1,8 @@
-## 2026-10-10 — v112 access guard from owned facility filters
+## 2026-10-10 — final review: ready for human PR review, no deployment
+
+User accepts relative improvement rather than an all-defects-fixed gate. See `evals/FINAL_REVIEW_2026_10_10.md`. Runtime3153771 unchanged (85 hashes); main freshly fetched unchanged cbe88b9. All200 reviewed source hashes checked; all14 lower-grade trajectories reread in both arms, grades unchanged (11C/3B). Candidate73AB vs legacy48AB;43better/14worse/43equal, nonblind exposed corpus. Result-bearing responses84/280 vs142/280;299candidate card occurrences =298 dated exact-MCP joins +1 identity-only. Do not equate dialogue grades with inventory recall or general production superiority.
+
+Final offline rerun3304pass/2skip; Node contract initially skipped because shell PATH omitted Node, then rerun with Node:1pass. Net3305 verified, only paid opt-in Langfuse test skipped. Ruff/mypy85/guardrails/diff pass. Documentation-only delivery; prepare PR134 ready for human review, no merge/deploy. CI on previous head blocked before start by GitHub billing; final-head state belongs in PR body. Fabien review, working CI and deliberate adoption of evaluated model configuration remain prerequisites for merge/traffic. Deployed B2C triage4omini differs from tested5.2low/2048/15s. FAQ phase2. No new paid run;224.871435847648/230USD unchanged, pendingnull, owned services stopped. Earlier entries below are historical.
 
 ## 2026-10-10 — v116 final replay and production comparison delivered (NO GO)
 
@@ -15,6 +19,8 @@ Remaining release blockers: over-clarification and parent/location loss (La Déf
 Model cost of this continuation: 25.95481785982 USD; cumulative 224.871435847648 / 230 USD including 7.10 prior provisions. Remaining after 0.50 reserve: 4.628564152352 USD. Pending null. All interrupted costs retained: v114 16/45; v115 79 complete + 1 partial / 225 responses; adaptive cookie-harness interruption 8 responses, 4 unsaved, fully reconciled before fresh sessions. Cookie domain/path serialization corrected in private harness; runtime unchanged. Owned services 10000–10002 stopped, shared Redis/proxy retained, STOP restored. No paid work running. Raw conversations/GPS/receipts stay outside Git. PR134 stays draft; check CI on the documentation delivery head (prior head blocked by GitHub billing).
 
 The local HTML report contains complete side-by-side transcripts. Browser automation refused the file:// URL; only HTML structure/content checks were performed, not a visual browser verification. Earlier entries below are historical.
+
+## 2026-10-10 — v112 access guard from owned facility filters
 
 v111 live replay exposed that triage may omit an optional access scope even when it correctly retains the pool amenity. The disclosure therefore also uses the already concierge-owned pool/jacuzzi/spa/sauna filters: hotel equipment cannot imply verified access for the selected formula. This is a deterministic policy over typed state, no text matching or extra model call. Room-specific requests still persist separately. All previous source hashes verified unchanged through their diagnostics; accounting observer updated for a code-only area clarification, with preserved raw records and documented retrospective reconciliation. Final frozen paired comparison follows the pool replay. Ceiling230USD unchanged. No deployment/merge/Railway writes.
 

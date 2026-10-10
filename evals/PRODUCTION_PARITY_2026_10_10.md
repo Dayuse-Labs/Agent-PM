@@ -1,6 +1,6 @@
 # Comparatif production / B2C — 10 octobre 2026
 
-**NO GO pour remplacer la production.** Cette livraison corrige des défauts concrets et fournit un comparatif frais; elle ne prouve pas encore une supériorité globale ni une parité suffisante pour basculer le trafic.
+**PR prête pour revue équipe; bascule générale non validée.** Voir la [dernière passe](FINAL_REVIEW_2026_10_10.md), qui accepte le gain relatif demandé sans modifier les notes. Cette livraison corrige des défauts concrets et fournit un comparatif frais; elle ne prouve pas encore une supériorité globale ni une parité suffisante pour basculer le trafic.
 
 ## Changements depuis v109
 
@@ -34,6 +34,8 @@ Grille historique A parfait / B mineur / C significatif / D majeur / F critique.
 |---|---:|---:|---:|---:|---:|---:|---:|
 | Production actuelle | 7 | 41 | 44 | 8 | 0 | 10.38 / 15.1 s | 13.0 s |
 | Candidat final | 10 | 63 | 27 | 0 | 0 | 4.87 / 8.07 s | 5.78 s |
+
+**Fréquence des résultats :** 84/280 réponses avec cartes côté candidat, contre 142/280 côté prod. 299 occurrences candidat au total : 298 offres datées reliées aux reçus MCP et une identité hôtel sans disponibilité confirmée; 603 occurrences legacy. Le gain de notes ne démontre pas un meilleur rappel de l’inventaire.
 
 ### Complément adaptatif : quatre objectifs, quatre tours par agent
 

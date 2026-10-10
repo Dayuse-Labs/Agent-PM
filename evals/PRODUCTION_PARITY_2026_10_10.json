@@ -483,5 +483,34 @@
         "reason": "Le créneau plus court est négocié explicitement. Les premiers textes assimilent équipement piscine et accès inclus ; la sélection contient aussi des formules hors spa/piscine. Les frais complets sont affirmés puis laissés non vérifiés au détail suivant. La dernière réponse corrige la certitude, mais le parcours a fourni des assurances incohérentes."
       }
     }
+  },
+  "pr_review_decision": "READY_FOR_HUMAN_REVIEW",
+  "final_review": {
+    "document": "FINAL_REVIEW_2026_10_10.md",
+    "runtime_unchanged": true,
+    "runtime_files_reverified": 85,
+    "worse_trajectories_rereviewed": 14,
+    "new_paid_cost_usd": 0,
+    "result_frequency": {
+      "legacy": {
+        "conversations": 100,
+        "responses": 280,
+        "responses_with_cards": 142,
+        "card_occurrences": 603
+      },
+      "candidate": {
+        "conversations": 100,
+        "responses": 280,
+        "responses_with_cards": 84,
+        "card_occurrences": 299
+      }
+    },
+    "full_suite": {
+      "passed": 3304,
+      "skipped": 2
+    },
+    "node_contract_rerun": "1 passed with Node in PATH",
+    "only_remaining_skip": "optional paid Langfuse live test",
+    "merge_or_deployment_performed": false
   }
 }
