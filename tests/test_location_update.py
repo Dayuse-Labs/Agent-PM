@@ -287,3 +287,22 @@ def test_named_facts_and_preserved_search_area_are_independent(family, action, n
     got = adapt_location_update(data, message, None)
     assert got['hotel_name'] == expected
     assert got['requested_areas'] is None
+
+
+@pytest.mark.parametrize('literal,normalized', [
+    ('Sampletwn', 'Sampletown'), ('Lower Sampletown', 'Lower Sampletown'),
+    ('Sampletownn', 'Sampletown'),
+])
+def test_model_spelling_normalization_keeps_the_literal_provider_query(literal, normalized):
+    message = 'Hotels in ' + literal
+    raw = transaction(message, query=normalized, evidence=literal)
+    got = adapt_location_update(raw, message, None)
+    areas = validate_areas(got['requested_areas'], message)
+    assert areas[0]['query'] == literal and areas[0]['evidence'] == literal
+    assert got['location_intent']['action'] == 'change'
+
+
+def test_spelling_recovery_requires_an_explicit_literal_target_quote():
+    raw = {'location_update': {'action': 'change', 'evidence': 'Sampletwn',
+           'targets': [{'kind': 'city', 'query': 'Sampletown'}]}}
+    assert adapt_location_update(raw, 'Sampletwn', None)['location_intent']['action'] == 'unknown'

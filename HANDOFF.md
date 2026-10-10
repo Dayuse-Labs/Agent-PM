@@ -1,3 +1,11 @@
+## 2026-10-10 — Literal spelling and postcode parent context
+
+The v101 diagnostic completed 100 paired conversations / 560 responses against current legacy production. 317 dated cards matched exact MCP receipts; no detected card price/date/fact errors; 21 fee-inclusive budget checks passed. These are data-integrity checks, not a claim of complete conversational parity. Significant clarification/relevance failures remain: NO GO.
+
+Two observed contract failures are now corrected together: a single spelling edit by extraction no longer erases an explicitly quoted destination (the literal user spelling, never the model correction, goes to the provider); postcode context accepts city plus provider-verified region/country instead of requiring equality with the city alone. Wrong region/country and unrelated model names still fail. No new regex, geographic dictionary or model call. This does not promise fuzzy neighborhood identity resolution or solve all postal-district follow-ups.
+
+Validation: 3172 offline tests passed, one opt-in Langfuse network test skipped; ruff, mypy (81 files), guardrails passed. Runtime frozen after this commit for focused replay, full candidate 100/280 and adaptive/prospective/recovery controls. The final core comparison reuses v101 legacy measurements from earlier the same day: it is not contemporaneous inventory. No merge or deployment. Earlier entries below are historical; final review evidence will be consolidated in evals/PRODUCTION_PARITY_2026_10_10.md.
+
 ## 2026-10-10 — Guard fuzzy catalog identity before availability
 
 The paired v100 core was stopped after 21 complete pairs plus one partial pair (129 responses): a fuzzy MCP hotel-name suggestion selected another property/city without customer evidence. v101 now checks requested name words against the catalog identity before search availability and inline details. An unmatched suggestion asks for the full name and city; it cannot become cards or a booking referent. No new regex, geographic aliases or model call. Misspelled names can now require clarification; this recall tradeoff is explicit.

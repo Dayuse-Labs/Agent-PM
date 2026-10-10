@@ -80,6 +80,7 @@ class GeocodeCandidate:
     address_confidence: str = ""
     address_number_match: str = ""
     street_match: str = ""
+    country_name: str = ""
 
     def as_result(self) -> GeocodeResult:
         return GeocodeResult(
@@ -325,6 +326,7 @@ class MapboxClient:
                     address_number_match=str((props.get("match_code") or {}).get("address_number") or ""),
                     street_match=str((props.get("match_code") or {}).get("street") or ""),
                     country_code=str(country_ctx.get("country_code") or "").upper(),
+                    country_name=str(country_ctx.get("name") or ""),
                     region=str(region_ctx.get("name") or region_ctx.get("region_code") or ""),
                     bbox=bbox,
                     rank=rank,

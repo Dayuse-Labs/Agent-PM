@@ -125,3 +125,28 @@ def test_named_region_correction_replaces_unverified_postcode_even_with_unstated
     assert request['kind'] == 'areas' and request['areas'][0]['query'] == 'Example Province'
     assert 'code' not in request['areas'][0]
     assert seen[0]['adults'] == 2 and seen[0]['children'] == 0
+
+
+@pytest.mark.parametrize('parent,accepted', [
+    ('Example City Example Province', True), ('Example City, EP, GB', True),
+    ('Example City United Kingdom', True), ('Éxample City', True),
+    ('Example City Wrong Province', False), ('Other City Example Province', False),
+    ('Example City US', False), ('!!!', False),
+])
+def test_postcode_parent_context_validates_city_state_and_country(monkeypatch, parent, accepted):
+    feature = replace(candidate(), region='Example Province', administrative_code='EP',
+                      country_name='United Kingdom')
+    monkeypatch.setattr(geo, 'get_mapbox_client', lambda: SimpleNamespace(
+        geocode_candidates=lambda *a, **kw: [feature]))
+    got = geo.geocode_location(zone=CODE, city=parent, place_kind='postcode')
+    assert got['ok'] is accepted
+    if accepted:
+        assert got['resolved_location']['provider_id'] == feature.mapbox_id
+        assert got['resolved_location']['provider_city']['name'] == 'Example City'
+
+
+def test_postcode_country_name_is_provider_owned():
+    feature = {'geometry': {'coordinates': [-1.2, 51.5]}, 'properties': {
+        'feature_type': 'postcode', 'mapbox_id': 'postal', 'name': CODE,
+        'context': {'country': {'country_code': 'GB', 'name': 'United Kingdom'}}}}
+    assert MapboxClient._parse_candidates({'features': [feature]})[0].country_name == 'United Kingdom'

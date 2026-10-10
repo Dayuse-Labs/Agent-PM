@@ -25,6 +25,7 @@ turn's `profile_in` by whoever owns the session (the orchestrator, S5).
 from __future__ import annotations
 
 import os
+import unicodedata
 from typing import Literal
 
 from b2c_common.observability import mark_level
@@ -374,6 +375,24 @@ def _provider_place(candidate: GeocodeCandidate, *, city: str | None = None,
     })
 
 
+def _postcode_parent_matches(parent: str, candidate: GeocodeCandidate) -> bool:
+    """Validate each supplied parent word against structured provider context.
+
+    A city followed by its state is one containing context. The postcode's
+    display label is not used to bypass a conflicting structured parent city.
+    Missing or ambiguous provider identities still fail in the caller.
+    """
+    def words(value: str) -> set[str]:
+        folded = "".join(c for c in unicodedata.normalize("NFKD", value.casefold())
+                         if not unicodedata.combining(c))
+        return set("".join(c if c.isalnum() else " " for c in folded).split())
+    requested = words(parent)
+    supported = words(" ".join((candidate.parent_city_name, candidate.region,
+                                candidate.administrative_code, candidate.country_code,
+                                candidate.country_name)))
+    return bool(requested) and requested <= supported
+
+
 def _resolve_postcode(query: str, *, city: str | None, country: str | None, language: str) -> dict:
     """Resolve only a unique provider postal identity, never a similarly named POI."""
     from b2c_common.destination_request import postcode_context_question
@@ -387,7 +406,7 @@ def _resolve_postcode(query: str, *, city: str | None, country: str | None, lang
         if c.feature_type == "postcode" and c.mapbox_id
         and "".join(c.name.split()).casefold() == normalized
         and (not country or c.country_code.upper() == country.upper())
-        and (not city or c.parent_city_name.strip().casefold() == city.strip().casefold())
+        and (not city or _postcode_parent_matches(city, c))
         and _provider_place(c, city=city, zone=query) is not None
     }
     if len(accepted) == 1:
