@@ -1312,6 +1312,8 @@ def pagination_search_key(profile: SessionProfile) -> str:
             "timeslot_mode", "daypart", "adults", "children",
         )
     }
+    criteria["room_requirements"] = profile.room_requirements
+    criteria["pending_party_total"] = profile.pending_party_total
     criteria["amenities"] = sorted(profile.amenities)
     criteria["requested_destination"] = profile.requested_destination
     criteria["arrival_daypart"] = (profile.requested_window or {}).get("arrival_daypart")

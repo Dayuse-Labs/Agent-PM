@@ -2351,3 +2351,22 @@ def test_other_hotels_after_redundant_comparison_clear_keeps_paging(monkeypatch,
     outgoing = find_datapart(fake_leg.seen_outgoing_parts)['profile_in']
     assert outgoing['price_comparison'] is None
     assert outgoing['search_cursor'] == expected_cursor
+
+
+@pytest.mark.parametrize('change,initial,expected', [
+    ({'requested_room': {'bedding': 'double', 'evidence': 'double bed'}}, {}, 0),
+    ({'requested_room': {'bedding': 'double', 'evidence': 'double bed'}}, {'room_requirements': {'bedding': 'double'}}, 2),
+    ({'requested_occupancy': {'total': 3, 'evidence': 'three people'}}, {'pending_party_total': 2}, 0),
+])
+def test_more_options_with_changed_room_or_party_restarts_search(monkeypatch, fake_leg, fake_profile_store, change, initial, expected):
+    import json
+    _scripted_llm(monkeypatch, json.dumps({'family': 'search', 'language': 'en',
+        'wants_more_options': True, 'location_update': {'action': 'preserve'}, **change}), 'Offers.')
+    runner = InMemoryRunner(root_agent)
+    session = _new_session(runner)
+    asyncio.run(fake_profile_store.set(session.id, SessionProfile(city='Paris', search_cursor=1,
+        last_results=[{'hotel_id': 12, 'name': 'Example'}], **initial)))
+    fake_leg.response_payload = {'results': [{'id': 13, 'name': 'Other'}]}
+    _run_turn(runner, session.id, 'Other options with a double bed for three people.')
+    outgoing = find_datapart(fake_leg.seen_outgoing_parts)['profile_in']
+    assert outgoing['search_cursor'] == expected
