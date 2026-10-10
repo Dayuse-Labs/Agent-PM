@@ -13,9 +13,9 @@ import math
 import unicodedata
 from typing import Any, Awaitable
 
-from b2c_common.search_areas import MAX_AREAS, validate_areas as validate_areas
+from b2c_common.search_areas import MAX_AREAS, area_name_in_text, validate_areas as validate_areas
 
-from hotel_search_agent.geo_guards import geocode_echo_matches, resolve_state_hint
+from hotel_search_agent.geo_guards import resolve_state_hint
 from hotel_search_agent.inventory import haversine_km
 from hotel_search_agent.mapbox_client import MapboxClient
 
@@ -50,7 +50,9 @@ def _same_area_name(query: str, label: str, administrative: bool) -> bool:
 
 
 def _resolve_area(item: dict[str, str], client: MapboxClient, language: str | None,
-                  parent: dict | None = None) -> dict:
+                  parent: dict | None = None, *, identity_only: bool = False) -> dict:
+    if item.get("required_region") and parent is None:
+        return _resolve_region_scoped_area(item, client, language)
     if not item["country"] and item["kind"] in {"administrative", "neighborhood"} and parent is None:
         # Retain unresolved names but never pick a globally IP-biased district.
         # A containing-city refinement is represented as municipality+subarea
@@ -73,7 +75,7 @@ def _resolve_area(item: dict[str, str], client: MapboxClient, language: str | No
     matches = [c for c in candidates if c.feature_type in types.split(",")
                and c.country_code and (not item["country"] or c.country_code == item["country"]) and c.mapbox_id
                and (parent is None or parent["id"] in c.parent_ids)
-               and (not region_hint or geocode_echo_matches(c.place_name, city=None, zone=None, state_hint=region_hint))
+               and (not region_hint or area_name_in_text(region_hint, c.place_name))
                and ((item.get("code") and parent is None and c.administrative_code.casefold() == item["code"].casefold())
                     or ((parent is not None or not item.get("code")) and _same_area_name(item["subarea"] if parent is not None else item["query"], c.name, parent is None and item["kind"] == "administrative")))]
     unique = {c.mapbox_id: c for c in matches}
@@ -83,6 +85,10 @@ def _resolve_area(item: dict[str, str], client: MapboxClient, language: str | No
             "area": item["query"],
         }}
     candidate = next(iter(unique.values()))
+    if identity_only:
+        return {"ok": True, "area": {"id": candidate.mapbox_id,
+                "identities": _provider_identities(candidate), "label": candidate.name,
+                "country": candidate.country_code}}
     if parent is None and item.get("subarea"):
         # Identity of the parent is required, but its bounding disc need not
         # fit MCP when the actual requested subset is smaller.
@@ -107,6 +113,13 @@ def _resolve_area(item: dict[str, str], client: MapboxClient, language: str | No
         return {"ok": False, "error": "area_exceeds_search_radius", "diagnostics": {
             "area": candidate.name, "reason": "This whole area exceeds the MCP's 200 km radius. Ask for a narrower part without discarding the requested region.",
         }}
+    identities = _provider_identities(candidate)
+    return {"ok": True, "area": {"id": candidate.mapbox_id, "identities": identities, "label": candidate.name,
+            "country": candidate.country_code, "latitude": lat, "longitude": lon, "radius_km": radius,
+            "bbox": list(bbox)}}
+
+
+def _provider_identities(candidate: Any) -> list[str]:
     identities = [candidate.mapbox_id]
     # Forward and reverse Mapbox IDs can differ for the same administrative
     # entity. Only an explicit provider semantic ID can establish equivalence;
@@ -114,9 +127,34 @@ def _resolve_area(item: dict[str, str], client: MapboxClient, language: str | No
     wikidata = candidate.wikidata_id
     if wikidata.startswith("Q") and wikidata[1:].isascii() and wikidata[1:].isdigit():
         identities.append("wikidata:" + wikidata)
-    return {"ok": True, "area": {"id": candidate.mapbox_id, "identities": identities, "label": candidate.name,
-            "country": candidate.country_code, "latitude": lat, "longitude": lon, "radius_km": radius,
-            "bbox": list(bbox)}}
+    return identities
+
+
+def _resolve_region_scoped_area(item: dict[str, str], client: MapboxClient, language: str | None) -> dict:
+    """Retrieve near the city but verify the customer's mandatory region.
+
+    A containing region is an intersection, never another accepted destination.
+    Its whole bounding disc need not fit MCP when searching a particular city.
+    """
+    point = _resolve_area({k: v for k, v in item.items() if k != "required_region"}, client, language)
+    if not point["ok"]:
+        return point
+    region = _resolve_area({"query": item["required_region"], "kind": "administrative",
+                            "country": point["area"]["country"], "evidence": item["required_region"]},
+                           client, language, identity_only=True)
+    if not region["ok"]:
+        return region
+    area = point["area"]
+    mandatory = region["area"]["identities"]
+    if item["kind"] == "municipality" and not item.get("boundary_evidence") and not item.get("subarea"):
+        # The city locates retrieval; its boundary was not requested. Per-hotel
+        # reverse membership below proves the region, including nearby suburbs.
+        area.update(id=region["area"]["id"], identities=mandatory,
+                    radius_km=20, sort_by="distance")
+    else:
+        area["required_region_identities"] = mandatory
+    area["label"] = item["query"] + " — " + item["required_region"]
+    return {"ok": True, "area": area}
 
 
 def trusted_device_coordinates(anchor: Any) -> tuple[float, float] | None:
@@ -266,7 +304,8 @@ async def _search_areas(tool: Any, args: dict[str, Any], tool_context: Any, area
         if identifiers is None:
             return None, True
         matching = [a for a in areas if identifiers.intersection(a.get("identities") or [a["id"]])
-                    and (not a.get("required_parent_id") or a["required_parent_id"] in identifiers)]
+                    and (not a.get("required_parent_id") or a["required_parent_id"] in identifiers)
+                    and (not a.get("required_region_identities") or identifiers.intersection(a["required_region_identities"]))]
         if not matching:
             return None, False
         return {**hotel, "verifiedSearchAreas": [a["label"] for a in matching],

@@ -60,6 +60,40 @@ def test_search_first_uses_confirmed_origin_and_preserves_the_two_read_limit(mon
     assert not reserve_mcp_read(ctx, 'search_offers')
 
 
+def test_prose_only_owned_search_gets_one_guarded_read_without_model_retry(monkeypatch):
+    from google.adk.models.llm_response import LlmResponse
+    from hotel_search_agent.owned_origin_plan import ensure_grounded_search
+    from hotel_search_agent.response_bridge import skip_final_generation
+    forbid_provider(monkeypatch)
+    ctx = context({'city': 'Paris', 'confirmed_location': PLACE}, {'reuse_confirmed_location': True})
+    prepare(ctx)
+    prose = LlmResponse(content=types.Content(role='model', parts=[types.Part(text='Fully booked until next year')]))
+    response = ensure_grounded_search(ctx, prose)
+    call = response.content.parts[0].function_call
+    assert call.name == 'search_offers' and call.args == {}
+    assert ensure_grounded_search(ctx, prose) is None
+    ctx.state['temp:hotel_search_results'] = []  # A real empty page also ends the turn.
+    assert skip_final_generation(ctx, None) is not None
+
+
+@pytest.mark.parametrize('mode', ['unowned', 'failed', 'attempted', 'tool_call', 'empty_result'])
+def test_owned_read_fallback_never_retries_or_overrides_clarification(monkeypatch, mode):
+    from google.adk.models.llm_response import LlmResponse
+    from hotel_search_agent.owned_origin_plan import ensure_grounded_search
+    forbid_provider(monkeypatch)
+    ctx = context({'city': 'Paris', 'confirmed_location': PLACE},
+                  {} if mode == 'unowned' else {'reuse_confirmed_location': True})
+    prepare(ctx)
+    if mode == 'failed':
+        ctx.state['temp:area_resolution_failed'] = {'ok': False}
+    if mode == 'attempted':
+        ctx.state.update(_per_tool_budget_inv=ctx.invocation_id, _per_tool_budget_counts={'search_offers': 1})
+    if mode == 'empty_result':
+        ctx.state['temp:hotel_search_results'] = []
+    parts = [types.Part(function_call=types.FunctionCall(name='search_offers', args={}))] if mode == 'tool_call' else [types.Part(text='No offers')]
+    assert ensure_grounded_search(ctx, LlmResponse(content=types.Content(role='model', parts=parts))) is None
+
+
 @pytest.mark.parametrize('params,profile', [
     ({}, {'city': 'Paris', 'confirmed_location': PLACE}),
     ({'reuse_confirmed_location': True}, {'city': 'Paris', 'confirmed_location': {**PLACE, 'latitude': 999}}),

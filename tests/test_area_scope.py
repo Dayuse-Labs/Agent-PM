@@ -71,6 +71,35 @@ def client():
     return SimpleNamespace(geocode_candidates=lambda query, **kw: [candidate() if query == "Yvelines" else candidate("Hauts-de-Seine", "92", "area92")])
 
 
+@pytest.mark.parametrize('bounded_city', [False, True])
+def test_city_search_cannot_return_hotels_outside_required_region(monkeypatch, bounded_city):
+    city = replace(candidate(), name='Melun', feature_type='place', mapbox_id='melun',
+                   place_name='Melun, Seine-et-Marne, France', region='Seine-et-Marne',
+                   bbox=(2.63, 48.51, 2.69, 48.56))
+    # The parent region need not have a usable/within-200km bbox: only its
+    # identity is required when retrieving around the confirmed city.
+    region = replace(candidate(), name='Seine-et-Marne', mapbox_id='dept77', bbox=None)
+    provider = SimpleNamespace(geocode_candidates=lambda q, **kw: [region if q == 'Seine-et-Marne' else city],
+        containing_area_ids=lambda lat, lon: {1: {'melun', 'dept77'}, 2: {'dept91'}, 3: {'dept77'}}[int(lat)])
+    item = {'query': 'Melun', 'kind': 'municipality', 'country': 'FR', 'evidence': 'Melun',
+            'region': 'Seine-et-Marne', 'required_region': 'Seine-et-Marne'}
+    if bounded_city:
+        item['boundary_evidence'] = 'only Melun'
+    resolved = resolve_areas([item], provider)
+    assert resolved['ok']
+    area = resolved['search_areas'][0]
+    assert area['latitude'] > 48 and area['radius_km'] <= 20
+    monkeypatch.setattr('hotel_search_agent.geocode_tool.get_mapbox_client', lambda: provider)
+    sent = []
+    async def run_async(*, args, tool_context):
+        sent.append(args)
+        return {'structuredContent': {'results': [{'hotelId': i, 'lat': i, 'lon': 2} for i in (1, 2, 3)]}}
+    ctx = context(state={STATE_AREAS: resolved['search_areas']})
+    result = asyncio.run(search_areas_before_tool(SimpleNamespace(name='search_offers', run_async=run_async), {}, ctx))
+    assert [h['hotelId'] for h in result['structuredContent']['results']] == ([1] if bounded_city else [1, 3])
+    assert sent[0]['lat'] > 48  # City retrieval, not the department's centroid.
+
+
 def context(profile=None, message="78 ou 92", state=None):
     return SimpleNamespace(state=state or {}, user_content=types.Content(role="user", parts=[
         types.Part(text=message), encode_datapart({"profile_in": profile or {}}),

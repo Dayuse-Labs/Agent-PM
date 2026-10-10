@@ -446,11 +446,15 @@ with these keys (omit the optional keys when there is no signal):
   Also false for an answer accepting any of the preferences just asked by the
   assistant: "all" / "tutte" after a question about morning/afternoon/evening
   accepts any time of day; it does not ask for the next page of hotels.
+  A request for another time/slot (in any language) is false: keep the destination
+  and inspect/refine the time preference; it is never hotel pagination.
 - "price_comparison": {{"value":"lower" | "clear", "evidence":"verbatim current phrase"}}
   when asking for cheaper alternatives than the displayed offers, or explicitly
   removing that price preference. "Cheaper" is lower even without a number;
   wants_more_options=false. "The cheapest of these" selects an existing offer,
   not lower. Omit for neutral more-results requests and numeric budget changes.
+  A first request for the cheapest hotel is not a comparison with previous offers:
+  omit price_comparison when no previous offers were displayed.
   Code computes the reference from verified offers; never invent an amount.
 - "bare_budget_value": when the message answers a BUDGET question with JUST a
   number, or gives an explicit currency amount ("€120"), that number.
@@ -475,6 +479,10 @@ with these keys (omit the optional keys when there is no signal):
   offer_facts = the actual hours/price/terms of a particular formula. Do not
   infer a specific property from "my hotel" alone. Omit when uncertain or not
   an informational question. General policy does not change search constraints.
+  Questions about its date, exact slot or price after a displayed hotel are
+  offer_facts, family=details, location_update=preserve and hotel_name=null.
+  Questions about the area of the displayed hotels are hotel_facts with
+  hotel_scope=shown; do not invent a hotel name from the question.
 - "hotel_name": the hotel name the user names, stripped of the request phrasing
   around it ("book the Villa Paris Orly for me" → "Villa Paris Orly", "détails
   sur l'Ibis Lyon Gare" → "Ibis Lyon Gare"). Null when no hotel is named by
@@ -595,6 +603,9 @@ Optional keys, extracted from MESSAGE ONLY, never copied from recent messages:
   "on the 24th" gives day24, month/year null; "09/10" in day/month context
   gives day9, month10, year null. Omit if ambiguous. Code resolves missing
   components against the local calendar. Never copy an earlier date.
+  Two numbers in a clock answer such as "15 18h" describe hours, not a silent
+  change of the established calendar day. Do not emit a calendar date without
+  independent calendar evidence; retain the earlier weekday/date.
 - "requested_date_period": a CURRENT multi-day or flexible-date search request:
   {{"kind":"next_week|this_week|range|flexible", "evidence":"exact period quote"}}.
   A whole next week is next_week, NEVER tomorrow or one guessed calendar date.

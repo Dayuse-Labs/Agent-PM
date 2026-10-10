@@ -140,6 +140,36 @@ def test_city_and_parent_region_are_one_destination(city, region):
     assert not requires_area_membership(areas)
 
 
+@pytest.mark.parametrize('explicit', [True, False])
+def test_city_refinement_retains_mandatory_department(explicit):
+    message = 'Melun, toujours en Seine-et-Marne'
+    raw = transaction(message, query='Melun', region='Seine-et-Marne')
+    raw['location_update']['targets'][0]['country'] = 'FR'
+    previous = {'kind': 'areas', 'areas': [{'query': 'Seine-et-Marne', 'kind': 'administrative',
+                                          'country': 'FR', 'evidence': 'Seine-et-Marne'}]}
+    if explicit:
+        raw['location_update']['targets'][0]['region_scope'] = 'inside'
+    got = adapt_location_update(raw, message, {'requested_destination': previous} if not explicit else None)
+    areas = validate_areas(got['requested_areas'], message)
+    assert areas[0]['required_region'] == 'Seine-et-Marne'
+    assert requires_area_membership(areas)
+    repeated = preserve_area_boundary(areas, [{'query': 'Melun', 'kind': 'municipality',
+                                              'country': 'FR', 'evidence': 'Melun'}])
+    assert repeated[0]['required_region'] == 'Seine-et-Marne'
+
+
+@pytest.mark.parametrize('message,expected', [('London', 'refine'), ('Switch to London', 'change')])
+def test_postcode_question_owns_bare_city_reply(message, expected):
+    raw = transaction(message, query='London')
+    context = {'requested_destination': {'kind': 'postcode', 'query': 'W4'},
+               'pending_clarification': {'kind': 'location'}}
+    got = adapt_location_update(raw, message, context)
+    assert got['location_intent']['action'] == expected
+    if expected == 'refine':
+        assert got['location_intent']['parent_city'] == 'London'
+        assert got['requested_areas'] is None
+
+
 def test_explicit_containing_city_is_not_lost_when_country_unknown():
     message = 'New York City queens'
     raw = transaction(message, kind='neighborhood', query='queens')

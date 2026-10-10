@@ -1053,12 +1053,10 @@ class _B2cConcierge(BaseAgent):
         if profile.display_currency == HOTEL:
             apply_hotel_currency(hotels)
         response = {"results": hotels}
-        if route.target == "get_hotel_details" and (not profile.last_results or (
-                llm_hotel_name and hotels[0].get("id", hotels[0].get("hotel_id")) not in
-                {h.get("hotel_id") for h in profile.last_results})):
-            # A newly requested property replaces the old visible referents.
-            # Its later "that hotel" question must not point to the prior city
-            # shortlist. Identity-only facts still grant no booking authority.
+        if route.target == "get_hotel_details":
+            # The displayed detail cards own the next ordinal, pronoun and
+            # cheaper-price reference, even for a previously shown property.
+            # Geographic scope and accumulated shown ids remain independent.
             record_search_shortlist(profile, hotels)
             profile.pending_booking = None
         if route.target == "compare_hotels":
@@ -1067,8 +1065,7 @@ class _B2cConcierge(BaseAgent):
             # comparison; an unavailable formula must not remain bookable state.
             record_search_shortlist(profile, hotels)
             profile.pending_booking = None
-        # Same persisted order as the done payload. A comparison has just
-        # replaced the visible list; a single details lookup retains its context.
+        # Same persisted order as the done payload, on both inline paths.
         yield self._hotels_event(ctx, response, language, build_hotel_picks(profile))
 
         synth = await self._synthesize_with_guards(

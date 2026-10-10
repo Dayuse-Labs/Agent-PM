@@ -42,7 +42,7 @@ from google.adk.agents import Agent
 from google.adk.tools.mcp_tool import McpToolset, StreamableHTTPConnectionParams
 
 from hotel_search_agent.tool_budget_guard import make_per_tool_budget_callback
-from hotel_search_agent.owned_origin_plan import prepare_owned_origin, reuse_owned_origin, inject_owned_origin
+from hotel_search_agent.owned_origin_plan import prepare_owned_origin, reuse_owned_origin, inject_owned_origin, ensure_grounded_search
 from hotel_search_agent.datetime_resolver import (
     inject_datetime_declaration,
     probe_next_day_after_tool,
@@ -416,7 +416,7 @@ root_agent = Agent(
         inject_datetime_declaration,
         inject_occupancy_declaration,
     ],
-    after_model_callback=[llm_timing_after],
+    after_model_callback=[llm_timing_after, ensure_grounded_search],
     on_model_error_callback=llm_error_metric,
     # Order matters: timing stamps t0 first; the budget callback short-circuits
     # a tool beyond ITS own cap (PER_TOOL_CALL_LIMITS); the MCP circuit guard

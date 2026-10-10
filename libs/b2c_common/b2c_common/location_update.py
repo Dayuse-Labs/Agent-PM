@@ -17,13 +17,16 @@ requested_landmark, requested_areas or requested_subarea):
  "position":1, "targets":[{"kind":"city|region|neighborhood|landmark|address|postcode|hotel",
  "query":"place name only", "country":"ISO2", "evidence":"exact current place quote",
  "scope":"nearby|inside", "region":"optional verbatim containing state/province",
+ "region_scope":"context|inside",
  "code":"optional explicitly stated administrative code"}]}
 Omit unused fields. Preserve/missing/device/select have NO targets. Select is
 only a choice of one of LOCATION CONTEXT.options, never a hotel or multiple places.
+If those options are places, "tell me about the first option" selects that
+place with family=search; it is not a hotel-details lookup.
 Preserve means there is NO geographic update. A new airport/address within the
 same city is change, not preserve. Refine with parent_city means the user supplies
 the containing city for the EXISTING named hotel, landmark, address or neighborhoods;
-retain the old target, do NOT put the parent city in targets. If LOCATION CONTEXT
+retain the old target (including a postal district), do NOT put the parent city in targets. If LOCATION CONTEXT
 requested_destination.kind is landmarks, those are ALL accepted alternatives.
 A city answering their containing-city question refines ALL of them using
 parent_city and no targets. It does not replace them with a bare city search.
@@ -59,6 +62,9 @@ surroundings or instead. Copy its spelling from MESSAGE; the provider resolves i
 For a city, nearby is the default unless city limits are required. For a neighborhood,
 inside means results must belong to it, nearby explicitly allows adjacent places.
 A region is always inside; do not silently reduce it to a city.
+When results must remain in a containing department/state, use region_scope=inside
+alongside its literal region. Nearby a city within that region still requires
+membership in the region. A region used only to disambiguate a city uses context.
 A short postal district is still an explicit location, even when it is not a
 complete delivery postcode. Retain its literal token as a postcode target when
 asking for its containing city; omit an uncertain country instead of omitting
@@ -179,6 +185,18 @@ def adapt_location_update(data: dict[str, Any], message: str, context: dict | No
             clean = dependents
             raw = {**raw, 'parent_city': city}
     result['location_intent'] = {'action': action, 'evidence': evidence}
+    previous = (context or {}).get('requested_destination') or {}
+    if not isinstance(previous, dict):
+        previous = {}
+    if (action == 'change' and len(clean) == 1 and clean[0]['kind'] == 'city'
+            and previous.get('kind') == 'postcode'
+            and ((context or {}).get('pending_clarification') or {}).get('kind') == 'location'
+            and area_name_in_text(message.strip(), clean[0]['query'])):
+        # A bare city answering the owned postcode-context question fills its
+        # parent; it cannot erase the outstanding district. Explicit switching
+        # phrases fail the whole-message equality test and retain change.
+        result['location_intent'] = {'action': 'refine', 'parent_city': clean[0]['query'], 'evidence': evidence}
+        return result
     if len(clean) == 1 and clean[0]['kind'] == 'hotel':
         result['hotel_name'] = clean[0]['query']
         return result
@@ -226,7 +244,11 @@ def adapt_location_update(data: dict[str, Any], message: str, context: dict | No
          'country': t['country'] or '', 'evidence': t['evidence'],
          **({'boundary_evidence': evidence} if t['kind'] == 'city' and t['scope'] == 'inside' else {}),
          **({'code': t['code']} if t.get('code') else {}),
-         **({'region': t['region']} if t.get('region') else {})}
+         **({'region': t['region']} if t.get('region') else {}),
+         **({'required_region': t['region']} if t.get('region') and (
+             t.get('region_scope') == 'inside' or any(
+                 old.get('kind') == 'administrative' and old.get('query', '').casefold() == t['region'].casefold()
+                 for old in previous.get('areas') or [])) else {})}
         for t in clean
     ]
     return result

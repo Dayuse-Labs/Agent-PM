@@ -33,6 +33,7 @@ class AreaRequest(BaseModel):
     boundary_evidence: str = Field(default="", description="Exact CURRENT words requiring city limits, e.g. 'only within city limits'. REQUIRED for a single bounded municipality, even on the first turn. Empty for an ordinary city name or country clarification; those use normal city search.")
     subarea: str = Field(default="", description="Verbatim named geographic subset required INSIDE this area, e.g. rive droite or Le Marais. Preserve the entire subset if composite. Empty only when the whole parent area is allowed; never replace a strict subset with its parent.")
     region: str = Field(default="", description="Verbatim containing state/province for this place; never a second alternative destination.")
+    required_region: str = Field(default="", description="Containing region whose membership is mandatory for every result, even around a city. Empty for a disambiguation hint alone.")
     code: str = Field(default="", description="Administrative code explicitly named, e.g. 78. Omit when only the name was stated.")
 
 
@@ -48,7 +49,7 @@ def validate_areas(value: Any, message: str | None = None) -> list[dict[str, str
     for item in value:
         if isinstance(item, AreaRequest):
             item = item.model_dump(exclude_defaults=True)
-        if not isinstance(item, dict) or set(item) - {"query", "kind", "country", "code", "evidence", "boundary_evidence", "subarea", "region"}:
+        if not isinstance(item, dict) or set(item) - {"query", "kind", "country", "code", "evidence", "boundary_evidence", "subarea", "region", "required_region"}:
             return None
         if any(not isinstance(item.get(k), str) or not item[k].strip() for k in ("query", "kind", "evidence")):
             return None
@@ -81,6 +82,10 @@ def validate_areas(value: Any, message: str | None = None) -> list[dict[str, str
             return None
         if clean.get("region") and message is not None and not area_name_in_text(clean["region"], message):
             return None
+        if item.get("required_region") is not None and not isinstance(item["required_region"], str):
+            return None
+        if clean.get("required_region") and clean["required_region"] != clean.get("region"):
+            return None
         if item.get("subarea") is not None and not isinstance(item["subarea"], str):
             return None
         if clean.get("subarea") and message is not None and clean["subarea"].casefold() not in message.casefold():
@@ -109,7 +114,7 @@ def requires_area_membership(areas: list[dict[str, str]] | None) -> bool:
     retain verified membership. This consumes typed intent, never user prose.
     """
     return bool(areas and (len(areas) > 1 or areas[0]["kind"] in {"administrative", "neighborhood"}
-                          or areas[0].get("boundary_evidence") or areas[0].get("subarea")))
+                          or areas[0].get("boundary_evidence") or areas[0].get("subarea") or areas[0].get("required_region")))
 
 
 
@@ -152,6 +157,11 @@ def preserve_area_boundary(previous: list[dict[str, str]] | None,
                 and not new.get("boundary_evidence") and not new.get("subarea")):
                 retained.append(old)
             else:
+                # Repeating the same city is not permission to leave its
+                # explicitly required parent region. A different region is a
+                # genuine replacement and does not inherit this restriction.
+                if old and old.get("required_region") and new.get("region", old.get("region")) == old.get("region"):
+                    new = {**new, "region": old["region"], "required_region": old["required_region"]}
                 retained.append(new)
         return retained
     return update

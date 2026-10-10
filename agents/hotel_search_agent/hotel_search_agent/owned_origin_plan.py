@@ -10,6 +10,8 @@ import asyncio
 import json
 from types import SimpleNamespace
 from typing import Any
+from google.adk.models.llm_response import LlmResponse
+from google.genai import types
 
 from b2c_common.confirmed_location import verified_place
 from b2c_common.search_areas import requires_area_membership, validate_areas
@@ -18,6 +20,7 @@ from hotel_search_agent.geocode_tool import geocode_location, inject_profile_geo
 from hotel_search_agent.response_bridge import capture_after_tool, find_datapart, read_profile_in
 
 _STATE_PLAN = 'temp:hotel_search_owned_origin_plan'
+_STATE_FALLBACK = 'temp:hotel_search_owned_read_sent'
 _GEO_TOOL = SimpleNamespace(name='geocode_location')
 
 
@@ -29,6 +32,7 @@ async def prepare_owned_origin(callback_context: Any) -> None:
     Area preparation may already have resolved the current request.
     """
     callback_context.state[_STATE_PLAN] = None
+    callback_context.state[_STATE_FALLBACK] = False
     content = getattr(callback_context, 'user_content', None)
     envelope = find_datapart(getattr(content, 'parts', None)) or {}
     params = envelope.get('query_params') or {}
@@ -67,6 +71,31 @@ async def prepare_owned_origin(callback_context: Any) -> None:
         callback_context.state[STATE_FAILED] = result
     capture_after_tool(_GEO_TOOL, args, callback_context, result)
     return None
+
+
+def ensure_grounded_search(callback_context: Any, llm_response: Any) -> LlmResponse | None:
+    """One guarded read when the model stops without checking an owned search.
+
+    A successful owned origin already authorizes this read. The ordinary tool
+    callbacks supply all persisted constraints and enforce quotas. Do not retry
+    an attempted search, repair an error, parse prose, or add a model call.
+    """
+    state = callback_context.state
+    plan = state.get(_STATE_PLAN)
+    content = getattr(llm_response, 'content', None)
+    if (not isinstance(plan, dict) or not plan.get('ok') or content is None
+            or getattr(llm_response, 'partial', False) or getattr(llm_response, 'error_code', None)
+            or state.get(_STATE_FALLBACK) or state.get(STATE_FAILED)
+            or state.get('temp:hotel_search_results') is not None
+            or any(p.function_call for p in content.parts or [])):
+        return None
+    if (state.get('_per_tool_budget_inv') == getattr(callback_context, 'invocation_id', None)
+            and (state.get('_per_tool_budget_counts') or {}).get('search_offers', 0)):
+        return None
+    state[_STATE_FALLBACK] = True
+    return LlmResponse(content=types.Content(role='model', parts=[
+        types.Part(function_call=types.FunctionCall(name='search_offers', args={})),
+    ]))
 
 
 def reuse_owned_origin(tool: Any, args: dict[str, Any], tool_context: Any) -> dict | None:

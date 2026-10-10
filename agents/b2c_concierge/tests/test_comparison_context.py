@@ -80,6 +80,26 @@ def test_real_concierge_comparison_updates_visible_order_and_next_pick(scripted,
     assert calls.calls[-1][1]["hotelId"] == 3
 
 
+def test_details_card_owns_next_reference_and_cheaper_total(scripted, monkeypatch, fake_profile_store):  # noqa: F811
+    from b2c_common.price_comparison import cheaper_reference
+    runner, session = _new_session()
+    p = profile()
+    p.last_results[0]['offer_totals'] = {'EUR': 6300}
+    p.requested_destination = {'kind': 'areas', 'areas': [
+        {'query': 'Melun', 'kind': 'municipality', 'country': 'FR', 'evidence': 'Melun'}]}
+    asyncio.run(fake_profile_store.set(session.id, p))
+    calls = _install(monkeypatch, {'get_hotel_details': lambda a: FakeResult(receipt(a))})
+    scripted('{"family":"details","language":"en","pick":"position","pick_position":3}', 'Hotel 3.')
+    _drive_in(runner, session.id, 'Tell me about the third one')
+    current = asyncio.run(fake_profile_store.get(session.id))
+    assert [h['hotel_id'] for h in current.last_results] == [3]
+    assert cheaper_reference(current.last_results, 'EUR')['reference_minor'] == 9500
+    assert current.requested_destination == p.requested_destination
+    scripted('{"family":"details","language":"en","information_source":{"value":"offer_facts","evidence":"its exact slot"},"location_update":{"action":"preserve"}}', 'The exact slot.')
+    _drive_in(runner, session.id, 'What is its exact slot?')
+    assert calls.calls[-1][1]['hotelId'] == 3
+
+
 @pytest.mark.parametrize("positions", [(), (1,), (1, 6), (1, 1), (True, 2)])
 def test_invalid_selection_cannot_silently_compare_the_whole_list(monkeypatch, positions):
     session = _install(monkeypatch, {})
