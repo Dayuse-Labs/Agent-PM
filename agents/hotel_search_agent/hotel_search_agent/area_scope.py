@@ -315,7 +315,7 @@ def resolve_areas(requests: list[dict[str, str]], client: MapboxClient, language
 def search_areas_before_tool(tool: Any, args: dict[str, Any], tool_context: Any) -> Awaitable[dict] | dict | None:
     """One bounded batch, after all existing date/budget/equipment guards.
 
-    At most five read-only MCP requests (five raw candidates each) and twenty-five
+    At most five read-only MCP requests, within the per-tool read cap (five raw candidates each) and twenty-five
     membership lookups; no model retry/extra reasoning phase. A second batch in
     the same turn is blocked. Raw per-area calls remain visible to the MCP client.
     """
@@ -329,10 +329,20 @@ def search_areas_before_tool(tool: Any, args: dict[str, Any], tool_context: Any)
     if tool_context.state.get(STATE_RAN):
         return {"ok": False, "error": "Area search already completed; answer from this turn's retrieved sample."}
     tool_context.state[STATE_RAN] = True
-    return _search_areas(tool, args, tool_context, areas)
+    # Each area is one MCP read under the per-tool cap, like any search (MCP
+    # answers chained bursts with 429s). Areas past the quota are reported as
+    # not searched (failed_area_names), never as an absence of hotels.
+    from hotel_search_agent.tool_budget_guard import STOP_MESSAGE, reserve_mcp_read
+    searched = 0
+    while searched < len(areas) and reserve_mcp_read(tool_context, "search_offers"):
+        searched += 1
+    if not searched:
+        return {"ok": False, "error": STOP_MESSAGE}
+    return _search_areas(tool, args, tool_context, areas, searched)
 
 
-async def _search_areas(tool: Any, args: dict[str, Any], tool_context: Any, areas: list[dict]) -> dict:
+async def _search_areas(tool: Any, args: dict[str, Any], tool_context: Any, areas: list[dict],
+                        searched: int) -> dict:
     from hotel_search_agent.geocode_tool import get_mapbox_client
     from hotel_search_agent.mcp_guard import mark_mcp_dispatched
     from hotel_search_agent.response_bridge import read_structured_payload
@@ -354,7 +364,8 @@ async def _search_areas(tool: Any, args: dict[str, Any], tool_context: Any, area
         payload = read_structured_payload(raw)
         return payload if isinstance(payload, dict) and isinstance(payload.get("results"), list) else None
 
-    payloads = await asyncio.gather(*(retrieve(a) for a in areas))
+    payloads = list(await asyncio.gather(*(retrieve(a) for a in areas[:searched])))
+    payloads += [None] * (len(areas) - searched)
     # Round-robin before the existing top-five cut preserves representation of
     # alternative areas. Deduplicate by server hotel identity, never hotel name.
     hotels: list[dict] = []

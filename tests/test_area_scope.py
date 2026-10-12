@@ -101,9 +101,19 @@ def test_city_search_cannot_return_hotels_outside_required_region(monkeypatch, b
 
 
 def context(profile=None, message="78 ou 92", state=None):
-    return SimpleNamespace(state=state or {}, user_content=types.Content(role="user", parts=[
+    return _turn_started(SimpleNamespace(state=state or {}, user_content=types.Content(role="user", parts=[
         types.Part(text=message), encode_datapart({"profile_in": profile or {}}),
-    ]))
+    ])))
+
+
+def _turn_started(ctx):
+    """The leaf's real per-tool budget guard runs first on every tool call of a
+    turn; the area batch reserves its MCP reads under it (PR134-FIX R6)."""
+    from hotel_search_agent.agent import MAX_TOOL_CALLS, PER_TOOL_CALL_LIMITS
+    from hotel_search_agent.tool_budget_guard import make_per_tool_budget_callback
+    ctx.invocation_id = "turn"
+    make_per_tool_budget_callback(PER_TOOL_CALL_LIMITS, MAX_TOOL_CALLS)(SimpleNamespace(name="search_offers"), {}, ctx)
+    return ctx
 
 
 def test_provider_codes_and_bounding_circle_cover_the_whole_requested_areas():
@@ -807,3 +817,50 @@ def test_parent_qualified_child_label_requires_native_relationship(label, parent
     if expected:
         assert result['search_areas'][0]['required_parent_id'] == 'city:1'
         assert result['search_areas'][0]['id'] == 'child:1'
+
+
+# --- PR134-FIX R6: the area batch counts in the per-tool MCP read cap -------------------------
+
+def _budgeted(areas, limit=2):
+    from hotel_search_agent.tool_budget_guard import make_per_tool_budget_callback
+    ctx = context(state={STATE_AREAS: areas})
+    ctx.invocation_id = "one-turn"
+    assert make_per_tool_budget_callback({"search_offers": limit}, 2)(
+        SimpleNamespace(name="search_offers"), {}, ctx) is None
+    return ctx
+
+
+def _areas(n):
+    return [{"id": f"a{i}", "label": f"Area {i}", "country": "FR", "latitude": 48.8, "longitude": 1.8 + i,
+             "radius_km": 10, "scope": "nearby_point"} for i in range(n)]
+
+
+def test_area_batch_dispatches_no_more_reads_than_the_cap(monkeypatch):
+    # Up to five parallel MCP calls used to leave OUTSIDE the cap of 2 per tool
+    # (MCP answers chained calls with 429s). Areas past the quota are reported
+    # as not searched — never as "no hotels there".
+    monkeypatch.setattr('hotel_search_agent.geocode_tool.get_mapbox_client', lambda: SimpleNamespace())
+    sent = []
+
+    async def run_async(*, args, tool_context):
+        sent.append(args["lon"])
+        return {"structuredContent": {"results": []}}
+
+    ctx = _budgeted(_areas(3))
+    result = asyncio.run(search_areas_before_tool(SimpleNamespace(name="search_offers", run_async=run_async), {}, ctx))
+    assert len(sent) == 2
+    coverage = result["structuredContent"]["areaCoverage"]
+    assert coverage["failed_area_names"] == ["Area 2"] and coverage["failed_areas"] == 1
+
+
+def test_area_batch_with_no_read_left_is_a_budget_stop_not_an_outage():
+    from hotel_search_agent.tool_budget_guard import STOP_MESSAGE, reserve_mcp_read
+
+    async def run_async(*, args, tool_context):
+        raise AssertionError("no MCP read may leave past the cap")
+
+    ctx = _budgeted(_areas(2))
+    assert reserve_mcp_read(ctx, "search_offers") and reserve_mcp_read(ctx, "search_offers")
+    result = search_areas_before_tool(SimpleNamespace(name="search_offers", run_async=run_async), {}, ctx)
+    result = asyncio.run(result) if asyncio.iscoroutine(result) else result
+    assert result == {"ok": False, "error": STOP_MESSAGE}

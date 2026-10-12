@@ -291,11 +291,14 @@ def test_a_callback_that_dispatches_mcp_itself_is_still_observed(fresh_breaker, 
     async def run_async(*, args, tool_context):
         return {"isError": True, "content": [{"type": "text", "text": "ES timeout"}]}
 
+    from hotel_search_agent.tool_budget_guard import make_per_tool_budget_callback
+
     tool = SimpleNamespace(name="search_offers", run_async=run_async)
     for _ in range(3):
         ctx = _ChainContext({STATE_AREAS: [{"id": "a", "label": "Yvelines", "country": "FR",
                                             "latitude": 48.8, "longitude": 1.8, "radius_km": 70}]})
         mcp_call_pending(tool, {}, ctx)
+        make_per_tool_budget_callback({"search_offers": 2}, 2)(tool, {}, ctx)
         response = asyncio.run(search_areas_before_tool(tool, {}, ctx))
         assert response == {"ok": False, "error": "area_search_unavailable"}
         mcp_circuit_after_tool(tool, {}, ctx, response)

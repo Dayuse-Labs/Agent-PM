@@ -21,11 +21,21 @@ def request():
 
 
 def context():
-    return SimpleNamespace(state={}, user_content=types.Content(role="user", parts=[
+    return _turn_started(SimpleNamespace(state={}, user_content=types.Content(role="user", parts=[
         types.Part(text="North airport or South station in Example City"),
         encode_datapart({"profile_in": {"requested_destination": request(), "date": "2027-01-12", "adults": 2},
                         "query_params": {"destination_authoritative": True}}),
-    ]))
+    ])))
+
+
+def _turn_started(ctx):
+    """The leaf's real per-tool budget guard runs first on every tool call of a
+    turn; the area batch reserves its MCP reads under it (PR134-FIX R6)."""
+    from hotel_search_agent.agent import MAX_TOOL_CALLS, PER_TOOL_CALL_LIMITS
+    from hotel_search_agent.tool_budget_guard import make_per_tool_budget_callback
+    ctx.invocation_id = "turn"
+    make_per_tool_budget_callback(PER_TOOL_CALL_LIMITS, MAX_TOOL_CALLS)(SimpleNamespace(name="search_offers"), {}, ctx)
+    return ctx
 
 
 def place(name, lat):
