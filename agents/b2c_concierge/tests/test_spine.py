@@ -75,6 +75,14 @@ class ScriptedLlm:
         return _llm_response(item)
 
 
+class _LeafCalls(list):
+    """The leaves called, in order; `.kwargs` holds what each call was given."""
+
+    def __init__(self):
+        super().__init__()
+        self.kwargs: list[dict] = []
+
+
 @pytest.fixture
 def scripted(monkeypatch):
     """Installs a scripted LLM + a fake leaf leg; returns (llm, leaf_calls)."""
@@ -84,10 +92,11 @@ def scripted(monkeypatch):
         # Both triage and synthesis resolve litellm.acompletion at call time on
         # the shared module object — one patch covers both call sites.
         monkeypatch.setattr(agent_module.litellm, "acompletion", llm)
-        leaf_calls: list[str] = []
+        leaf_calls = _LeafCalls()
 
-        async def fake_run_leaf(leaf, ctx, profile_in):
+        async def fake_run_leaf(leaf, ctx, profile_in, **kwargs):
             leaf_calls.append(leaf)
+            leaf_calls.kwargs.append(kwargs)
             return leaf_text, dict(response or {})
 
         monkeypatch.setattr(agent_module, "_run_leaf", fake_run_leaf)
@@ -265,7 +274,7 @@ class TestBudget:
         runner, session = _new_session()
         asyncio.run(fake_profile_store.set(session.id, SessionProfile(locale="fr-FR")))
         events = _drive_in(runner, session.id, "ok")
-        assert _answer(events) == templates.ack_response("fr")
+        assert _answer(events) == templates.affirmative_relaunch_response("fr", searched=False)
 
     def test_inline_lookup_turn_degrades_on_triage_only_when_unresolved(self, scripted, caplog, monkeypatch):
         # No shortlist, no MCP reachable in tests — degrades honestly BEFORE
@@ -467,6 +476,111 @@ class TestHonestDegradation:
             },
         )
         assert _drive("le Pullman Lyon a des dispos ?") == "Le Pullman Lyon est disponible."
+
+    def test_a_named_hotel_is_handed_to_the_leaf_by_name(self, scripted):
+        # mcp-dayuse#7: « St Paul's Hotel » was geocoded as a landmark.
+        _, leaf_calls = scripted(
+            '{"family": "search", "language": "fr", "hotel_name": "St Paul\'s Hotel"}',
+            "Le St Paul's Hotel est disponible.",
+            response={"results": [{"hotel_id": 7, "name": "St Paul's Hotel"}]},
+        )
+        _drive("un hôtel au St Paul's Hotel à Londres demain")
+        assert leaf_calls.kwargs == [{"query_params": {"hotel_name": "St Paul's Hotel"}}]
+
+    def test_a_named_hotel_without_offers_that_day_is_said_first(self, scripted):
+        from datetime import timedelta
+
+        from b2c_concierge.date_format import format_date_human
+        from b2c_concierge.requested_date import reference_today
+
+        # Clock-relative: a literal "demain" date rots the next day (the
+        # date_served guard then fires on top of the notice under test).
+        tomorrow = (reference_today(None) + timedelta(days=1)).isoformat()
+        scripted(
+            '{"family": "search", "language": "fr", "hotel_name": "St Paul\'s Hotel"}',
+            "Voici des hôtels proches.",
+            response={
+                "results": [{"hotel_id": 3, "name": "The W14"}],
+                "search_date": {"date": tomorrow},
+                "named_hotel": {"name": "St Paul's Hotel", "offered": False},
+            },
+        )
+        answer = _drive("un hôtel au St Paul's Hotel à Londres demain")
+        assert answer == (
+            templates.named_hotel_not_offered_notice(
+                "St Paul's Hotel", format_date_human(tomorrow, "fr"), "fr"
+            )
+            + "\n\nVoici des hôtels proches."
+        )
+
+    def test_several_matching_hotels_are_a_question_then_the_reply_picks_one(
+        self, monkeypatch, fake_profile_store
+    ):
+        candidates = [
+            {"name": "Leonardo Royal Hotel London City", "city": "london"},
+            {"name": "Leonardo Royal Hotel London St Pauls", "city": "london"},
+        ]
+        plan = [
+            '{"family": "search", "language": "fr", "hotel_name": "Leonardo Royal"}',
+            # triage reads « celui de … » as a position: the words must win.
+            '{"family": "search", "language": "fr", "pick": "position", "pick_position": 1}',
+            "Le Leonardo Royal Hotel London St Pauls est disponible.",
+        ]
+        monkeypatch.setattr(agent_module.litellm, "acompletion", ScriptedLlm(*plan))
+        sent: list[dict] = []
+        responses = [
+            {"named_hotel_ambiguous": {"query": "Leonardo Royal", "candidates": candidates},
+             "requires_clarification": True},
+            {"results": [{"hotel_id": 2, "name": "Leonardo Royal Hotel London St Pauls"}]},
+        ]
+
+        async def fake_run_leaf(leaf, ctx, profile_in, **kwargs):
+            sent.append(kwargs)
+            return None, responses.pop(0)
+
+        monkeypatch.setattr(agent_module, "_run_leaf", fake_run_leaf)
+        runner, session = _new_session()
+        first = _answer(_drive_in(runner, session.id, "je veux le Leonardo Royal à Londres demain"))
+        assert first == templates.named_hotel_ambiguous_response("Leonardo Royal", candidates, "fr")
+        _drive_in(runner, session.id, "celui de St Pauls")
+        assert sent[1] == {"query_params": {"hotel_name": "Leonardo Royal Hotel London St Pauls"}}
+        assert asyncio.run(fake_profile_store.get(session.id)).named_candidates is None
+
+    def test_a_homonym_question_is_answered_in_the_conversation_language(
+        self, monkeypatch, fake_profile_store
+    ):
+        # mcp-dayuse#7: « New York » answering « which Manhattan? » came back in
+        # English, and the place asked about must reach the answer turn once.
+        pending = {"name": "Manhattan", "options": [{"region": "New York"}]}
+        plan = [
+            '{"family": "search", "language": "fr"}',
+            "Quel Manhattan ?",
+            '{"family": "search", "language": "en"}',
+            "Voici des hôtels à Manhattan.",
+        ]
+        llm = ScriptedLlm(*plan)
+        monkeypatch.setattr(agent_module.litellm, "acompletion", llm)
+        seen: list[dict] = []
+        responses = [
+            {"requires_clarification": True,
+             "profile_delta": {"pending_place": {"op": "set", "value": pending}}},
+            {"results": [{"hotel_id": 1, "name": "Moxy NYC Downtown"}],
+             "profile_delta": {"city": "Manhattan"}},
+        ]
+
+        async def fake_run_leaf(leaf, ctx, profile_in, **kwargs):
+            seen.append(dict(profile_in))
+            return "leaf", responses.pop(0)
+
+        monkeypatch.setattr(agent_module, "_run_leaf", fake_run_leaf)
+        runner, session = _new_session()
+        _drive_in(runner, session.id, "un hôtel à Manhattan demain")
+        _drive_in(runner, session.id, "New York")
+        assert seen[1]["pending_place"] == pending
+        assert "LANG: fr" in str(llm.calls[3]["messages"])
+        profile = asyncio.run(fake_profile_store.get(session.id))
+        assert profile.pending_place is None
+        assert profile.language == "fr"
 
     def test_named_hotel_not_found_without_any_text_is_answered_in_code(self, scripted, caplog):
         scripted(
@@ -871,12 +985,38 @@ class TestRecoveryAck:
         assert leaf_calls == []
         assert _answer(events) == templates.ack_response("fr")
 
-    def test_bare_ok_without_empty_streak_stays_a_plain_ack(self, scripted, fake_profile_store):
+    def test_bare_ok_without_empty_streak_stays_a_template(self, scripted, fake_profile_store):
         runner, session = _new_session()
         llm, leaf_calls = scripted()  # empty plan: a fresh session has no signal
         events = _drive_in(runner, session.id, "ok")
         assert leaf_calls == []
-        assert _answer(events) == templates.ack_response("en")
+        assert _answer(events) == templates.affirmative_relaunch_response("en", searched=False)
+
+
+class TestBareAffirmativeIsNoGreeting:
+    """mcp-dayuse#6 (Mathias 2026-10-06): "oui"/"ok" with no question pending
+    gets a short relaunch — never "Bonjour, je suis le concierge" mid-way."""
+
+    def test_ok_after_a_search_offers_to_refine(self, scripted, fake_profile_store):
+        runner, session = _new_session()
+        asyncio.run(fake_profile_store.set(session.id, SessionProfile(city="Nice", language="fr")))
+        scripted()  # zero-LLM fast path
+        events = _drive_in(runner, session.id, "ok")
+        assert _answer(events) == templates.affirmative_relaunch_response("fr", searched=True)
+
+    def test_oui_classified_ack_by_the_llm_relaunches(self, scripted, fake_profile_store):
+        # "oui" is not in the fast-path word list: triage says ack.
+        runner, session = _new_session()
+        llm, leaf_calls = scripted('{"family": "ack", "language": "fr", "affirmative": true}')
+        events = _drive_in(runner, session.id, "oui")
+        assert leaf_calls == []
+        assert _answer(events) == templates.affirmative_relaunch_response("fr", searched=False)
+
+    def test_a_greeting_still_gets_the_greeting(self, scripted, fake_profile_store):
+        runner, session = _new_session()
+        scripted()
+        events = _drive_in(runner, session.id, "bonjour")
+        assert _answer(events) == templates.ack_response("fr")
 
 
 class TestRefinementRouting:

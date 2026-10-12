@@ -59,7 +59,7 @@ from b2c_common.timeslot import (
     slot_overlaps_daypart,
     window_fallback_line,
 )
-from hotel_search_agent.inventory import haversine_km
+from hotel_search_agent.inventory import get_inventory, haversine_km
 from hotel_search_agent.mcp_guard import classify_mcp_error
 
 # The concierge reports AT MOST 5 (ground-truth cap) — match it so the model
@@ -100,6 +100,10 @@ _STATE_MCP_ERROR_KEY = "temp:hotel_search_mcp_error"
 # The name `find_hotel_by_name` could not find, so the concierge can say so
 # when the turn answers with other hotels (QA trace 6ef04c80).
 _STATE_NAMED_NOT_FOUND_KEY = "temp:hotel_search_named_not_found"
+# mcp-dayuse#7 (named_hotel.py): the hotel a name lookup found, and whether it
+# has offers on the searched day; or, when several hotels matched, which ones.
+STATE_NAMED_HOTEL_KEY = "temp:hotel_search_named_hotel"
+STATE_NAMED_AMBIGUOUS_KEY = "temp:hotel_search_named_ambiguous"
 # The budget / time-slot the model actually sent search_offers, captured from
 # the tool args (search_offers has NATIVE priceRangeMax/timeSlot params — no
 # virtual param needed, unlike amenities in S10) and mapped to the profile in
@@ -757,30 +761,45 @@ def read_structured_payload(tool_response: Any) -> dict[str, Any] | None:
 
 # --- callbacks ------------------------------------------------------------------------------
 # P0-2 fix 4. "Around the Champs-Élysées" must not mean "anywhere in greater
-# Paris". MCP_B2C's `search_offers` takes `radiusKm` (default **20**), so until
-# now a landmark anchor and a city anchor searched an identical 20 km disc — the
-# geocode could resolve the avenue to within 250 m and the results would still
-# come back from La Défense (7 km) and Orly (13 km). That is why the audit
-# measured only 18-24 % of returned hotels inside the landmark radius while
-# `resolved_country_code` was already at 72-78 %: the two halves of the promise
-# fail independently, and fixing the geocode alone does not move this one.
+# Paris": MCP_B2C's `search_offers` defaults to a 20 km disc ranked by
+# relevance, so a geocode precise to 250 m still came back with hotels from La
+# Défense (7 km) and Orly (13 km).
 #
-# 3 km is the product intent already encoded in `evals/datasets/b2c-geo-poi.jsonl`:
-# 13 of its 17 `hotels_within_km` assertions use 3, the wider ones being
-# genuinely out-of-town anchors (Disneyland 10, JFK 10). A 3 km search satisfies
-# every one of them, and 3 km around an urban landmark is what a customer means
-# by "around".
-_POI_RADIUS_KM = 3.0
+# mcp-dayuse#7: the disc and the order are the Dayuse site's, not a constant of
+# ours. For a place with no search page of its own (a district, a landmark, an
+# address), the site searches the smallest of these rings that holds at least
+# 10 hotels and sorts by distance (dayuse-com `BoundingBoxFilters::SEARCH_RADIUSES`,
+# `HotelElasticSearchService::MINIMUM_HOTEL_RESULT_REQUIRED`,
+# `SearchHotelQueryProcessor` → `SORT_DISTANCE_ASC`). The 3 km disc it replaces
+# still let relevance push a hotel 18 km out ahead of one around the corner
+# (Monaco → Nice airport first, Marais → no card in the Marais).
+#
+# The site counts hotels that match the query; the leaf counts the inventory
+# snapshot, so a ring can come back thinner on a given date. Cities keep MCP's
+# own 20 km default and relevance order: their site page owns both.
+SITE_RADII_KM = (2.0, 5.0, 10.0, 20.0, 30.0, 50.0)
+SITE_MIN_HOTELS = 10
+
+
+def site_radius_km(lat: float, lon: float) -> float:
+    inventory = get_inventory()
+    for radius in SITE_RADII_KM:
+        if inventory.count_near(lat, lon, radius_km=radius) >= SITE_MIN_HOTELS:
+            return radius
+    return SITE_RADII_KM[-1]
 
 
 def inject_landmark_radius(tool: Any, args: dict[str, Any], tool_context: Any) -> None:
-    """`before_tool_callback`: the ONLY writer of search_offers' `radiusKm`.
+    """`before_tool_callback`: the ONLY writer of search_offers' `radiusKm` and
+    `sort`.
 
-    Tightens the search disc to `_POI_RADIUS_KM` when THIS turn's anchor is a
-    landmark/POI, and otherwise leaves the key absent so MCP applies its own
-    20 km city default. Same doctrine as `from` and `hotelEquipmentIds`: the
-    model is never taught this parameter and any value it invents is dropped —
-    a radius is a filter, and the LLM never owns a filter value.
+    A landmark/POI anchor THIS turn gets the site's ring (`site_radius_km`) and
+    `sort="distance"`; anything else leaves both keys absent, so MCP applies its
+    own 20 km city default and relevance order. Same doctrine as `from` and
+    `hotelEquipmentIds`: the model is never taught these parameters and any
+    value it invents is dropped — a radius is a filter, and the LLM never owns
+    a filter value. An MCP that does not know `sort` yet never sees it
+    (`schema_guard`), and `capture_after_tool` still orders the cards it keeps.
 
     Reads the anchor the geocode tool already stashed this turn
     (`_STATE_ANCHOR_KEY`, written by `capture_after_tool`'s GEOCODE branch), so
@@ -791,28 +810,31 @@ def inject_landmark_radius(tool: Any, args: dict[str, Any], tool_context: Any) -
     silent no-op territory: everything type-checks and the radius is simply
     never applied.
     `gps` anchors are deliberately NOT tightened here: "near me" has its own
-    expectations and changing it is not part of the POI bug.
-
-    Scarcity note: a tighter disc can legitimately return nothing where the 20 km
-    one returned something. That is a HONEST empty, and the existing
-    empty-shortlist score plus the S-CX2 false-scarcity guard are what make it
-    visible — but if `min_hotels` drops on the geo dataset, this constant is the
-    first thing to revisit."""
+    expectations and changing it is not part of the POI bug."""
     if getattr(tool, "name", "") != "search_offers":
         return None
     args.pop("radiusKm", None)
+    args.pop("sort", None)
     origin = tool_context.state.get(_STATE_ANCHOR_KEY)
     anchor_type = origin.get("type") if isinstance(origin, dict) else None
     if anchor_type == "poi":
-        args["radiusKm"] = _POI_RADIUS_KM
+        a_lat, a_lon = _coord(args.get("lat")), _coord(args.get("lon"))
+        if a_lat is None or a_lon is None:
+            a_lat, a_lon = _coord(origin.get("latitude")), _coord(origin.get("longitude"))
+        args["radiusKm"] = (
+            site_radius_km(a_lat, a_lon) if a_lat is not None and a_lon is not None
+            else SITE_RADII_KM[-1]
+        )
+        args["sort"] = "distance"
     # Content-free counter (flags only), and the audit's P0-3 ask: which geo tier
     # a turn actually took is otherwise invisible. It is also what caught the
     # first version of this callback reading the wrong state key — it logged
     # anchor=none on every landmark turn while everything still type-checked.
     _metrics_logger.info(
-        "dayuse_metric=landmark_radius agent=b2c_hotel_search anchor=%s applied=%d",
+        "dayuse_metric=landmark_radius agent=b2c_hotel_search anchor=%s applied=%d radius_km=%s",
         anchor_type or "none",
         int("radiusKm" in args),
+        args.get("radiusKm", "-"),
     )
     return None
 
@@ -918,6 +940,8 @@ def _record_fallback(tool_context: Any, name: str) -> None:
 def _record_mcp_error(
     tool_context: Any, tool_name: str, args: dict[str, Any], tool_response: dict[str, Any]
 ) -> None:
+    if tool_name == "find_hotel_by_name" and tool_context.state.get(STATE_NAMED_AMBIGUOUS_KEY):
+        return  # several hotels match: a question for the user, not an error
     kind = classify_mcp_error(tool_response) or "failed"
     if kind == "not_found" and tool_name == "find_hotel_by_name":
         envelope = (tool_response.get("structuredContent") or {}).get("error") or {}
@@ -989,6 +1013,8 @@ def capture_after_tool(
 
     if name not in _TARGET_TOOLS or not isinstance(tool_response, dict):
         return None
+    if name == "find_hotel_by_name" and tool_context.state.get(STATE_NAMED_HOTEL_KEY):
+        return None  # the dated search around the hotel already stashed the cards
     if tool_response.get("error") == "mcp_circuit_open":
         # S-CX2: the breaker short-circuited an MCP search call — remember it so
         # emit_search_datapart / skip_final_generation degrade deterministically
@@ -1091,6 +1117,10 @@ def capture_after_tool(
         if origin and results:
             _stamp_distances(results, origin)
             tool_context.state[_STATE_DISTANCE_ORIGIN_KEY] = origin
+            if origin.get("type") == "poi":
+                # Nearest first, as asked of MCP (`inject_landmark_radius`) — also
+                # what an MCP without `sort` can still be given on its own page.
+                results.sort(key=lambda card: card.get("distance_km", math.inf))
         # The search ran at the geocoded coordinates, so the geocoded country is
         # a legitimate attribute of ITS results (a server-sent countryCode always
         # wins via setdefault). find_hotel_by_name is NOT stamped — a name lookup
@@ -1540,6 +1570,8 @@ def emit_search_datapart(callback_context: Any) -> genai_types.Content | None:
         profile_delta["zone"] = _op_set(raw_delta["zone"])
     if raw_delta.get("metro"):
         profile_delta["metro"] = _op_set(raw_delta["metro"])
+    if raw_delta.get("pending_place"):
+        profile_delta["pending_place"] = _op_set(raw_delta["pending_place"])
     # S-G6: a FRESH date label this turn (datetime_resolver.resolve_search_date)
     # — only-when-present. When the model extracted no date this turn, nothing
     # is stashed here at all (the code-computed search still used the
@@ -1579,10 +1611,10 @@ def emit_search_datapart(callback_context: Any) -> genai_types.Content | None:
         profile_delta["budget_max"] = budget_timeslot["budget_max"]
         profile_delta["budget_request_source"] = _REQUEST_SOURCE_FLEXIBLE
     if budget_timeslot.get("timeslot_start") or budget_timeslot.get("timeslot_end"):
-        if budget_timeslot.get("timeslot_start"):
-            profile_delta["timeslot_start"] = budget_timeslot["timeslot_start"]
-        if budget_timeslot.get("timeslot_end"):
-            profile_delta["timeslot_end"] = budget_timeslot["timeslot_end"]
+        # The window searched is the whole window: a bound it lacks is cleared,
+        # never carried over from an earlier turn (mcp-dayuse#6).
+        for bound in ("timeslot_start", "timeslot_end"):
+            profile_delta[bound] = budget_timeslot.get(bound) or {"op": "clear"}
         profile_delta["timeslot_request_source"] = _REQUEST_SOURCE_FLEXIBLE
         # A stated clock window replaces a daypart carried from earlier.
         if read_profile_in(callback_context).get("daypart"):
@@ -1611,7 +1643,8 @@ def emit_search_datapart(callback_context: Any) -> genai_types.Content | None:
         profile_delta["distance_origin"] = distance_origin
 
     clarify_question = state.get(_STATE_CLARIFY_QUESTION_KEY)
-    clarify_turn = results is None and isinstance(clarify_question, str)
+    named_ambiguous = state.get(STATE_NAMED_AMBIGUOUS_KEY) if results is None else None
+    clarify_turn = results is None and (isinstance(clarify_question, str) or bool(named_ambiguous))
     # S-CX2 (audit F2 — false scarcity): the search tools did not produce ANY
     # response this turn, yet the pipeline meant to search: either the breaker
     # short-circuited an MCP call (explicit flag), or the geocode SUCCEEDED
@@ -1672,6 +1705,11 @@ def emit_search_datapart(callback_context: Any) -> genai_types.Content | None:
     named_not_found = state.get(_STATE_NAMED_NOT_FOUND_KEY)
     if isinstance(named_not_found, str):
         payload["named_hotel_not_found"] = named_not_found
+    named_hotel = state.get(STATE_NAMED_HOTEL_KEY)
+    if results is not None and isinstance(named_hotel, dict):
+        payload["named_hotel"] = named_hotel
+    if isinstance(named_ambiguous, dict):
+        payload["named_hotel_ambiguous"] = named_ambiguous
     if results is not None and state.get(_STATE_TIMESLOT_FALLBACK_KEY):
         # No offer covers the window: the cards are the closest ones. The
         # concierge makes sure the answer says so (`guard_window_match`).
@@ -1695,7 +1733,7 @@ def emit_search_datapart(callback_context: Any) -> genai_types.Content | None:
                 )
             )
         )
-    elif clarify_turn:
+    elif clarify_turn and isinstance(clarify_question, str):
         # This event replaces the model's own final text (last non-partial
         # wins), so the deterministic clarify question must ride here or the
         # question would be lost — the orchestrator's synthesis re-localizes it.

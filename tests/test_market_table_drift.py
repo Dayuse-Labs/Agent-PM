@@ -297,8 +297,11 @@ class TestWidgetUrlContract:
             pytest.skip("node not installed — JS contract unverified in this environment")
         suite = REPO_ROOT / "tests" / "widget" / "widget_url_contract.test.mjs"
         assert suite.is_file(), f"missing JS suite: {suite}"
+        # Every widget suite of the directory rides the same gate (mcp-dayuse#6
+        # added the session-expiry one).
+        suites = sorted(str(path) for path in suite.parent.glob("*.test.mjs"))
         result = subprocess.run(
-            [node, "--test", str(suite)],
+            [node, "--test", *suites],
             cwd=REPO_ROOT,
             capture_output=True,
             text=True,

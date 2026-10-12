@@ -404,6 +404,17 @@ class TestTimeslotSanitization:
         assert profile.timeslot_start == "07:00"
         assert profile.timeslot_mode == "range"
 
+    def test_a_cleared_bound_is_not_carried_over(self):
+        # mcp-dayuse#6: "à 9h00" after 13h-15h — the leaf searched 9h, end free.
+        profile = SessionProfile(
+            timeslot_start="13:00", timeslot_end="15:00", timeslot_mode="range"
+        )
+        apply_profile_delta(
+            profile, {"timeslot_start": "09:00", "timeslot_end": {"op": "clear"}}, "à 9h00"
+        )
+        assert (profile.timeslot_start, profile.timeslot_end) == ("09:00", None)
+        assert profile.timeslot_mode == "start_only"
+
     def test_fresh_timeslot_bounds_set_range_mode(self):
         profile = SessionProfile()
         apply_profile_delta(
@@ -1606,3 +1617,70 @@ def test_recognized_euro_amount_preserves_other_search_constraints():
     assert apply_recognized_bare_budget(profile, "60,50 €", 60.5, set())
     assert profile.budget_max == 60.5 and profile.budget_request_source == BUDGET_SOURCE_EXPLICIT
     assert profile.city == "Paris" and profile.amenities == ["pool"] and profile.timeslot_start == "10:00"
+
+
+class TestPendingSearch:
+    """mcp-dayuse#6: what a search turn leaves open for the next one."""
+
+    def test_an_unsearched_request_accumulates_across_clarifications(self):
+        from b2c_concierge.profile import next_pending_search
+
+        first = next_pending_search(None, "un hotel avec spa demain 14h", False, "Où ?")
+        second = next_pending_search(first, "Côte d'Azur", False, "Quelle ville ?")
+        assert second == {
+            "request": "un hotel avec spa demain 14h\nCôte d'Azur",
+            "question": "Quelle ville ?",
+        }
+
+    def test_a_search_keeps_only_its_question(self):
+        from b2c_concierge.profile import next_pending_search
+
+        pending = {"request": "un hotel demain", "question": "Où ?"}
+        assert next_pending_search(pending, "Lyon", True, "Plus central ?") == {
+            "request": None,
+            "question": "Plus central ?",
+        }
+        assert next_pending_search(pending, "Lyon", True, None) is None
+
+    def test_the_request_is_bounded(self):
+        from b2c_concierge.profile import next_pending_search
+
+        pending = next_pending_search(None, "x" * 900, False, None)
+        assert pending is not None and len(pending["request"]) == 500
+
+    def test_it_never_travels_to_the_leaf_as_profile_data(self):
+        profile = SessionProfile(pending_search={"request": "un hotel demain", "question": None})
+        assert "pending_search" not in leaf_profile_view(profile)
+
+
+class TestChooseNamedCandidate:
+    """mcp-dayuse#7: the reply to « which of these hotels? »."""
+
+    CANDIDATES = [
+        "Leonardo Royal Hotel London City",
+        "Leonardo Royal Hotel London St Pauls",
+        "Leonardo Royal Hotel London Tower Bridge",
+    ]
+
+    def test_the_words_that_set_one_apart_pick_it(self):
+        from b2c_concierge.profile import choose_named_candidate
+
+        assert choose_named_candidate("celui de St Pauls", self.CANDIDATES) == self.CANDIDATES[1]
+        assert choose_named_candidate("tower bridge", self.CANDIDATES) == self.CANDIDATES[2]
+
+    def test_words_win_over_a_position_triage_misread(self):
+        from b2c_concierge.profile import choose_named_candidate
+
+        assert choose_named_candidate("celui de St Pauls", self.CANDIDATES, 1) == self.CANDIDATES[1]
+
+    def test_a_position_picks_when_no_word_does(self):
+        from b2c_concierge.profile import choose_named_candidate
+
+        assert choose_named_candidate("le deuxième", self.CANDIDATES, 2) == self.CANDIDATES[1]
+        assert choose_named_candidate("le cinquième", self.CANDIDATES, 5) is None
+
+    def test_shared_words_designate_none(self):
+        from b2c_concierge.profile import choose_named_candidate
+
+        assert choose_named_candidate("le Leonardo Royal", self.CANDIDATES) is None
+        assert choose_named_candidate("un hôtel à Lyon demain", self.CANDIDATES) is None

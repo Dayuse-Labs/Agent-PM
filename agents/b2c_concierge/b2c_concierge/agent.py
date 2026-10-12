@@ -115,7 +115,7 @@ from .amenity_guard import apply_amenity_truthfulness
 from .budget import TurnBudget
 from .currency_guard import enforce_currency_disclosure
 from .dialogue_context import recent_user_messages
-from .date_format import humanize_iso_dates
+from .date_format import format_date_human, humanize_iso_dates
 from .fallback_text import enforce_parking_reserve, synthesis_fallback_text
 from .display_currency import (
     HOTEL,
@@ -131,6 +131,7 @@ from .ground_truth import shortlist_ground_truth_block, shortlist_hotels, synthe
 from .leg import StatelessLeafLeg
 from .link_guard import enforce_hotel_link_truthfulness
 from .profile import (
+    choose_named_candidate,
     named_hotel_in_results,
     BUDGET_SOURCE_EXPLICIT,
     SessionProfile,
@@ -145,10 +146,13 @@ from .profile import (
     is_search_refinement_signal,
     leaf_profile_view,
     maybe_auto_widen,
+    next_pending_search,
+    pending_search_context,
     questions_equivalent,
     record_search_outcome,
     record_search_shortlist,
     reset_search_cursor,
+    shortlist_signature,
     resolve_shortlist_ordinal,
     search_context_line,
     select_cheapest_hotel,
@@ -160,6 +164,7 @@ from .no_offers import drop_restated, no_offers_line
 from .window_guard import enforce_window_disclosure, enforce_window_match, window_label
 from .routing import LEAF_FAQ, LEAF_HOTEL_SEARCH, ROUTES, bearer_token, card_url
 from .triage import (
+    has_language_evidence,
     SERVICE,
     TEMPLATE_LANGUAGES,
     asks_policy,
@@ -341,7 +346,9 @@ def _reset_legs() -> None:
     _legs.clear()
 
 
-def _attach_outgoing_datapart(ctx: InvocationContext, payload: dict[str, Any]) -> None:
+def _attach_outgoing_datapart(
+    ctx: InvocationContext, payload: dict[str, Any], context_text: str | None = None
+) -> None:
     """Appends the `{query_params, profile_in}` envelope (contract.py) as an
     A2A DataPart to the CURRENT turn's user event. RemoteA2aAgent builds its
     outgoing A2A message purely from `ctx.session.events` content parts —
@@ -357,7 +364,10 @@ def _attach_outgoing_datapart(ctx: InvocationContext, payload: dict[str, Any]) -
     last_event = ctx.session.events[-1]
     if not last_event.content:
         return
-    last_event.content.parts = [*(last_event.content.parts or []), encode_datapart(payload)]
+    # `context_text` (mcp-dayuse#6) goes BEFORE the user's words: the leaf reads
+    # the earlier request and the reply as one message.
+    prefix = [genai_types.Part(text=context_text)] if context_text else []
+    last_event.content.parts = [*prefix, *(last_event.content.parts or []), encode_datapart(payload)]
 
 
 async def _run_leaf(
@@ -366,6 +376,7 @@ async def _run_leaf(
     profile_in: dict[str, Any],
     *,
     query_params: dict[str, Any] | None = None,
+    context_text: str | None = None,
 ) -> tuple[str | None, dict[str, Any]]:
     """One leaf leg over A2A: returns (the leaf's final text, its decoded A2A
     DataPart response — `{}` if it didn't send one, e.g. not wired yet). The
@@ -382,7 +393,7 @@ async def _run_leaf(
     # query_params carries only code-owned hints (e.g. repeat_previous_search);
     # the business schema (destination, dates, filters…) stays S4's contract.
     _attach_outgoing_datapart(
-        ctx, {"query_params": query_params or {}, "profile_in": profile_in}
+        ctx, {"query_params": query_params or {}, "profile_in": profile_in}, context_text
     )
     texts: list[str] = []
     response: dict[str, Any] = {}
@@ -494,8 +505,21 @@ ABSOLUTE RULES — a violation is a defect:
    EUR with no conversion applied — NEVER invent a converted amount or state
    a price in any other currency; the number itself is only ever the one
    given in the OUTCOME/GROUND TRUTH.
+10. You do not control the search radius: never say you widened, enlarged or
+   extended the area (mcp-dayuse#6 — "J'ai élargi la zone" over a search run
+   on the very same radius). Describe what is on screen, not a change you did.
 
 Output only the reply — no preamble, no headings."""
+
+# mcp-dayuse#6: "élargir la zone" put the same 5 hotels back and the reply
+# said "J'ai élargi la zone". The sentence saying nothing changed is written
+# in code (templates.refinement_unchanged_notice); this keeps the reply from
+# contradicting it.
+_UNCHANGED_NOTE = (
+    "the cards are exactly the ones already shown on the previous turn: the user's "
+    "change did not alter them. Your reply comes right after a sentence saying so. "
+    "Never claim you widened, changed or found anything; offer ONE different next step."
+)
 
 _DO_NOT_ASK_DIRECTIVE = """
 
@@ -620,6 +644,7 @@ class _B2cConcierge(BaseAgent):
         widen_note: str | None, invocation_id: str, extra_instruction: str = "",
         search_context: str = "", provenance_note: str = "", currency_note: str = "",
         angle: str = "", no_offers: str = "", recent_messages: list[str] | None = None,
+        unchanged: bool = False,
     ) -> str | None:
         """ONE litellm call producing a candidate synthesis text, or None on
         failure. The system prompt's STATIC prefix never changes (cache); only
@@ -675,6 +700,8 @@ class _B2cConcierge(BaseAgent):
             user += f"\n\nSEARCH CONTEXT (what you understood — restate briefly): {search_context}"
         if angle:
             user += f"\n\nANGLE (lead on this, in your own words): {angle}"
+        if unchanged:
+            user += f"\n\nUNCHANGED: {_UNCHANGED_NOTE}"
         t0 = time.monotonic()
         try:
             resp = await _get_synthesis_router(model_slug).acompletion(
@@ -730,7 +757,7 @@ class _B2cConcierge(BaseAgent):
         self, *, message: str, language: str, leaf_text: str, response: dict[str, Any],
         profile: SessionProfile, budget: TurnBudget, invocation_id: str,
         leaf_text_is_user_facing: bool = True, no_offers: str = "",
-        recent_messages: list[str] | None = None,
+        recent_messages: list[str] | None = None, unchanged: bool = False,
     ) -> str | None:
         """ONE charged "synthesis" budget slot (internal retries below are an
         implementation detail of this ONE phase — same precedent as the
@@ -823,6 +850,7 @@ class _B2cConcierge(BaseAgent):
             invocation_id=invocation_id, search_context=search_context,
             provenance_note=provenance_note, currency_note=currency_note,
             angle=angle, no_offers=no_offers, recent_messages=recent_messages,
+            unchanged=unchanged,
         )
 
         def fallback() -> str | None:
@@ -850,7 +878,7 @@ class _B2cConcierge(BaseAgent):
                     invocation_id=invocation_id, extra_instruction=directive,
                     search_context=search_context, provenance_note=provenance_note,
                     currency_note=currency_note, angle=angle, no_offers=no_offers,
-                    recent_messages=recent_messages,
+                    recent_messages=recent_messages, unchanged=unchanged,
                 )
                 if retry is not None:
                     candidate = retry
@@ -1080,6 +1108,17 @@ class _B2cConcierge(BaseAgent):
                 ),
             )
 
+    @staticmethod
+    def _ack_text(
+        profile: SessionProfile, message: str, language: str, llm_affirmative: bool | None = None
+    ) -> str:
+        """The greeting, unless the message is a bare "oui"/"ok": that answers
+        no question here (mcp-dayuse#6, a pending one is routed to the search
+        before this), so it gets a short relaunch instead."""
+        if is_bare_affirmative(message, llm_affirmative):
+            return templates.affirmative_relaunch_response(language, bool(profile.city))
+        return templates.ack_response(language)
+
     # --- Spine --------------------------------------------------------------------------------
     async def _run_async_impl(self, ctx: InvocationContext) -> AsyncGenerator[Event, None]:
         t_start = time.monotonic()
@@ -1119,13 +1158,22 @@ class _B2cConcierge(BaseAgent):
         # regression — closing it means touching a proven regex, not this gate.
         refinement_signal = is_search_refinement_signal(message, profile)
         booking_signal = is_booking_confirmation_signal(message, profile)
-        if is_social_ack(message) and not refinement_signal and not booking_signal:
+        # mcp-dayuse#6: a bare "ok" answering the question the last search
+        # turn asked is a reply to it, not a greeting.
+        pending = profile.pending_search if isinstance(profile.pending_search, dict) else None
+        answers_pending = pending is not None and is_bare_affirmative(message)
+        if (
+            is_social_ack(message)
+            and not refinement_signal
+            and not booking_signal
+            and not answers_pending
+        ):
             self._emit_turn_metric("ack", "template:ack", budget, t_start, "ok", inv)
             # S-CX2 (audit F5): a bare "ok" carries no language signal — the
             # conversation's established language / client locale beat the guess.
             yield self._final(
                 ctx,
-                templates.ack_response(template_language(profile.language, profile.locale, message)),
+                self._ack_text(profile, message, template_language(profile.language, profile.locale, message)),
             )
             return
 
@@ -1164,7 +1212,13 @@ class _B2cConcierge(BaseAgent):
         # or the synthesis prompt is fed — see triage.response_language for
         # why this stays a choke point rather than reading `triage.language`
         # directly at each call site.
-        reply_language = response_language(triage.language)
+        # mcp-dayuse#7: a message of proper nouns only (« New York ») says where,
+        # not in which language — the conversation's language stands.
+        reply_language = response_language(
+            profile.language
+            if profile.language and not has_language_evidence(message)
+            else triage.language
+        )
         # Code-owned overrides (LLM never routes). A pending-offer confirmation
         # wins; otherwise a refinement of a PRIOR search re-routes to a fresh
         # search REGARDLESS of what triage guessed — a terse "le 28"/"moins cher"
@@ -1180,6 +1234,15 @@ class _B2cConcierge(BaseAgent):
         # into another relevance search (prod 2026-07-27). Nothing resolvable →
         # `picked` stays None and the turn routes exactly as it did before.
         picked: dict[str, Any] | None = None
+        # mcp-dayuse#7: a reply to "which of these hotels?" names one of them —
+        # the next search looks THAT hotel up by its full name.
+        named_choice: str | None = None
+        pending_named, profile.named_candidates = profile.named_candidates, None
+        if pending_named and profile.picked_hotel_id is None:
+            named_choice = choose_named_candidate(
+                message, pending_named,
+                triage.pick_position if triage.pick == "position" else None,
+            )
         # A CLICKED pick button (its hotel id rode the request body, facade
         # intake) outranks anything read from the text: the user pointed at one
         # card, there is nothing left to interpret. One-shot — cleared here so
@@ -1193,7 +1256,9 @@ class _B2cConcierge(BaseAgent):
                 ),
                 None,
             )
-        if picked is None and triage.pick == "cheapest":
+        if named_choice is not None:
+            pass  # the position, if any, pointed at the candidates, not the cards
+        elif picked is None and triage.pick == "cheapest":
             picked = select_cheapest_hotel(profile.last_results)
         elif picked is None and triage.pick == "position":
             picked = select_hotel_by_position(profile.last_results, triage.pick_position)
@@ -1208,11 +1273,17 @@ class _B2cConcierge(BaseAgent):
         # (all 7) — `triage.classify` already validates `language` against
         # LANGUAGES, so this check is a defensive choke point, not a filter
         # that fires in practice.
-        if clicked_id is None and triage.language in TEMPLATE_LANGUAGES:
+        if (
+            clicked_id is None
+            and triage.language in TEMPLATE_LANGUAGES
+            and (profile.language is None or has_language_evidence(message))
+        ):
             profile.language = triage.language
 
         if booking_signal:
             family, route = "booking", ROUTES["booking"]
+        elif named_choice is not None:
+            family, route = "search", ROUTES["search"]
         elif picked is not None:
             # A pick with a BOOKING intent hands off (a link, guarded below);
             # a pick with any other intent ("montre-moi le moins cher") is a
@@ -1233,6 +1304,17 @@ class _B2cConcierge(BaseAgent):
             family, route = "booking", ROUTES["booking"]
         elif family != "faq" and refinement_signal:
             family, route = "search", ROUTES["search"]
+        elif (
+            family == "ack"
+            and pending is not None
+            and (pending.get("request") or is_bare_affirmative(message, triage.affirmative))
+        ):
+            # mcp-dayuse#6: the short reply to the last search turn's question
+            # ("oui", "Monaco") goes back to the search with that context.
+            family, route = "search", ROUTES["search"]
+        # Consumed by this turn, whatever it does: only the very next reply
+        # answers a question.
+        profile.pending_search = None
 
         currency = resolve_currency_request(triage.display_currency, profile.last_results)
         if triage.display_currency:
@@ -1288,9 +1370,13 @@ class _B2cConcierge(BaseAgent):
         if route.kind == "template":
             # The LLM classified ack where the regex fast-path didn't match.
             self._emit_turn_metric(family, "template:ack", budget, t_start, "ok", inv)
+            await store.set(ctx.session.id, profile)
             yield self._final(
                 ctx,
-                templates.ack_response(template_language(profile.language, profile.locale, message)),
+                self._ack_text(
+                    profile, message, template_language(profile.language, profile.locale, message),
+                    triage.affirmative,
+                ),
             )
             return
 
@@ -1341,8 +1427,14 @@ class _B2cConcierge(BaseAgent):
         # (hotel_search_agent.response_bridge.inject_pagination_offset).
         # shown_hotel_ids stays the belt-and-suspenders exclusion filter
         # regardless of what the cursor computes.
-        more_options = route.target == LEAF_HOTEL_SEARCH and is_more_options_signal(
-            message, triage.wants_more_options
+        # mcp-dayuse#7 (trace 550ddc54): « tous les hôtels de Manhattan » read as
+        # "more options" sent from=5 on a first search. Page 2 needs a page 1 on
+        # screen, and a named hotel is a new search, never the next page.
+        more_options = (
+            route.target == LEAF_HOTEL_SEARCH
+            and bool(profile.shown_hotel_ids)
+            and not (named_choice or triage.hotel_name)
+            and is_more_options_signal(message, triage.wants_more_options)
         )
         if more_options:
             advance_search_cursor(profile)
@@ -1387,6 +1479,14 @@ class _B2cConcierge(BaseAgent):
         )
         if family == "faq" and recent_messages:
             leaf_kwargs = {"query_params": {"recent_user_messages": recent_messages}}
+        hotel_name = named_choice or triage.hotel_name
+        if not repeat_search and route.target == LEAF_HOTEL_SEARCH and hotel_name:
+            # mcp-dayuse#7: a hotel the user names is looked up by name, never
+            # geocoded as a landmark.
+            leaf_kwargs = {"query_params": {"hotel_name": hotel_name}}
+        context_text = pending_search_context(pending) if route.target == LEAF_HOTEL_SEARCH else None
+        if context_text:
+            leaf_kwargs["context_text"] = context_text
         leaf_text, response = await _run_leaf(
             route.target, ctx, leaf_profile_view(profile), **leaf_kwargs
         )
@@ -1402,12 +1502,32 @@ class _B2cConcierge(BaseAgent):
         # Removing the key first keeps that control flow byte-identical instead
         # of making observability change behaviour.
         named_not_found: str | None = None
+        named_hotel: Any = None
+        named_ambiguous: Any = None
         if isinstance(response, dict):
             budget.fired.update(response.pop("guards_fired", None) or [])
             # mcp-dayuse#8: same hand-off for the degraded paths the leaf
             # answered on, popped for the same reason.
             budget.fallbacks.update(response.pop("fallbacks_fired", None) or [])
             named_not_found = response.pop("named_hotel_not_found", None)
+            named_hotel = response.get("named_hotel")
+            named_ambiguous = response.pop("named_hotel_ambiguous", None)
+        if isinstance(named_ambiguous, dict) and "results" not in response:
+            profile.named_candidates = [
+                c["name"] for c in named_ambiguous.get("candidates") or []
+                if isinstance(c, dict) and isinstance(c.get("name"), str)
+            ] or None
+            await store.set(ctx.session.id, profile)
+            self._emit_turn_metric(family, f"leaf:{route.target}", budget, t_start, "ok", inv)
+            yield self._final(
+                ctx,
+                templates.named_hotel_ambiguous_response(
+                    named_ambiguous.get("query") or triage.hotel_name or "",
+                    named_ambiguous.get("candidates") or [],
+                    reply_language,
+                ),
+            )
+            return
         if named_not_found and not leaf_text and "results" not in response:
             # The leaf wrote nothing, but code knows why: the hotel does not
             # exist on Dayuse — not "retry in a moment".
@@ -1433,6 +1553,8 @@ class _B2cConcierge(BaseAgent):
         delta = response.get("profile_delta") or {}
         if delta:
             apply_profile_delta(profile, delta, message, budget.fired)
+        if route.target == LEAF_HOTEL_SEARCH and "pending_place" not in delta:
+            profile.pending_place = None  # answered, or the user moved on
         date_notice: str | None = None
         search_date_part = response.get("search_date")
         if expected_date and isinstance(search_date_part, dict):
@@ -1468,6 +1590,7 @@ class _B2cConcierge(BaseAgent):
             return
         window_fallback: str | None = None
         no_offers = ""
+        unchanged = False
         if route.target == LEAF_HOTEL_SEARCH and "results" in response:
             # guard_window_match (mcp-dayuse#8): what reaches the screen as a
             # match covers the slot, by the site rule the leaf filters with.
@@ -1527,7 +1650,22 @@ class _B2cConcierge(BaseAgent):
                 language=reply_language,
                 same_day_dead_end=same_day_dead_end,
             )
+            shown_before = shortlist_signature(profile.last_results)
             record_search_shortlist(profile, response["results"])  # S07: named-hotel lookup guard
+            # guard_refinement_unchanged (mcp-dayuse#6): a follow-up that put
+            # back the very offers on screen says so. Pagination never repeats
+            # a card, and a currency repaint changes only how prices read.
+            unchanged = (
+                results_count > 0
+                and not more_options
+                and not repeat_search
+                and bool(shown_before)
+                and shortlist_signature(profile.last_results) == shown_before
+            )
+            if unchanged:
+                with observation(as_type="guardrail", name="refinement-unchanged"):
+                    mark_level("WARNING", status_message="refinement_unchanged")
+                    budget.fired.add("refinement_unchanged")
             if more_options and results_count == 0:
                 # S-G5: pagination pool exhausted for the CURRENT filters (the
                 # leaf already excluded shown_hotel_ids before returning) —
@@ -1566,7 +1704,12 @@ class _B2cConcierge(BaseAgent):
             message=message, language=reply_language, leaf_text=leaf_text, response=response,
             profile=profile, budget=budget, invocation_id=inv, no_offers=no_offers,
             recent_messages=recent_messages if family == "faq" else None,
+            unchanged=unchanged,
         )
+        if route.target == LEAF_HOTEL_SEARCH:
+            profile.pending_search = next_pending_search(
+                pending, message, "results" in response, profile.last_clarifying_question
+            )
         await store.set(ctx.session.id, profile)
 
         self._emit_turn_metric(
@@ -1597,6 +1740,23 @@ class _B2cConcierge(BaseAgent):
         if no_offers:
             rest = drop_restated(final_text, no_offers)
             final_text = f"{no_offers}\n\n{rest}" if rest else no_offers
+        if unchanged:
+            final_text = f"{templates.refinement_unchanged_notice(reply_language)}\n\n{final_text}"
+        if (
+            isinstance(named_hotel, dict)
+            and named_hotel.get("name")
+            and named_hotel.get("offered") is False
+            and response.get("results")
+        ):
+            served_day = (response.get("search_date") or {}).get("date") or profile.date
+            final_text = (
+                templates.named_hotel_not_offered_notice(
+                    named_hotel["name"],
+                    format_date_human(served_day, reply_language) if served_day else "",
+                    reply_language,
+                )
+                + f"\n\n{final_text}"
+            )
         if window_fallback:
             final_text, _ = enforce_window_disclosure(final_text, window_fallback, reply_language)
         if route.target == LEAF_HOTEL_SEARCH and response.get("results"):

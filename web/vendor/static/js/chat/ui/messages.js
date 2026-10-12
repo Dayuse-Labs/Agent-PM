@@ -859,6 +859,21 @@ function formatCardDate(value) {
 }
 
 /**
+ * A separator line in the conversation, not a message from anyone — e.g. the
+ * session profile expired (mcp-dayuse#6). Text only, never HTML.
+ */
+export function addNotice(text) {
+    const messagesDiv = document.getElementById('chat-messages');
+    if (!messagesDiv || !text) return null;
+    const notice = document.createElement('div');
+    notice.className = 'chat-notice';
+    notice.setAttribute('role', 'status');
+    notice.textContent = String(text);
+    messagesDiv.appendChild(notice);
+    return notice;
+}
+
+/**
  * Show typing indicator (legacy - replaced by thinking animation)
  */
 export function showTypingIndicator() {

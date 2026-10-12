@@ -11,7 +11,8 @@ named-hotel-card specs); 2 are AgentB2C-specific additions beyond that spec
 (`booking_confirmation` = R9/guard #12, `hotel_link_truthfulness` = S-G12,
 guard #13) — see CLAUDE.md's "17 guards déterministes" — plus
 `poi_anchor_coherence` (#14), `filter_relaxation_honored` (#15, UX1),
-`date_served` (#16) and `window_match` (#17, both mcp-dayuse#8).
+`date_served` (#16) and `window_match` (#17, both mcp-dayuse#8), and
+`refinement_unchanged` (#18, mcp-dayuse#6).
 
 Seven of the 15 (the geo/date guards + `filter_relaxation_honored`) fire
 inside `hotel_search_agent`, out of the OBS3 phase's zone
@@ -86,6 +87,11 @@ GUARD_SCORE_NAMES: tuple[str, ...] = (
     # 22h01–23h01, cards closing at 22:00. Fires in `b2c_concierge.agent`,
     # which drops those cards (or labels them all as the closest offers).
     "window_match",
+    # #18 (mcp-dayuse#6, 2026-10-06): a follow-up search put back on screen
+    # exactly the offers already there ("élargir la zone": same 5 hotels, and
+    # the reply claimed it had widened). Fires in `b2c_concierge.agent`, which
+    # then says the change did not alter the results.
+    "refinement_unchanged",
 )
 
 #: Degraded paths that still answer (mcp-dayuse#8): each becomes the BOOLEAN
