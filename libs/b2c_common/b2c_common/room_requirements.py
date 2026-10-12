@@ -52,6 +52,17 @@ def unverified_access(requirements: dict | None, amenities: list[str] | None = N
                 (requirements and (requirements.get('private_amenities') or requirements.get('included_amenities') or requirements.get('access_amenities'))))
 
 
+def access_request_key(requirements: dict | None, amenities: list[str] | None = None) -> list[str] | None:
+    """The requested access set `unverified_access` warns about, as a stable
+    key: the warning is said once per set, and again only when the set changes."""
+    if not unverified_access(requirements, amenities):
+        return None
+    key = {f'amenity:{a}' for a in amenities or [] if a in {'pool', 'jacuzzi', 'spa', 'sauna'}}
+    for kind in ('private_amenities', 'included_amenities', 'access_amenities'):
+        key |= {f'{kind}:{a}' for a in (requirements or {}).get(kind) or []}
+    return sorted(key)
+
+
 def conditional_access_message(language: str, results: list[dict] | None = None) -> str:
     messages = {
         'fr': "Ces hôtels sont des pistes, mais l’accès demandé à l’équipement, ou son caractère privatif ou inclus, n’est pas confirmé pour ces offres. Il faut le vérifier auprès de l’hôtel avant de réserver.",

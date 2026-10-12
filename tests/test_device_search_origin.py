@@ -33,6 +33,16 @@ def context(profile=None, authoritative=False):
     ]))
 
 
+def _turn_started(ctx):
+    """The leaf's real per-tool budget guard runs first on every tool call of a
+    turn; the area batch reserves its MCP reads under it (PR134-FIX R6)."""
+    from hotel_search_agent.agent import MAX_TOOL_CALLS, PER_TOOL_CALL_LIMITS
+    from hotel_search_agent.tool_budget_guard import make_per_tool_budget_callback
+    ctx.invocation_id = "turn"
+    make_per_tool_budget_callback(PER_TOOL_CALL_LIMITS, MAX_TOOL_CALLS)(SimpleNamespace(name="search_offers"), {}, ctx)
+    return ctx
+
+
 def profile():
     return {"city": "Yvelines", "search_areas": [AREA], "search_anchor": GPS,
             "date": "2026-10-10", "budget_max": 150, "timeslot_end": "20:00", "amenities": ["spa"]}
@@ -123,7 +133,7 @@ def test_device_disc_keeps_membership_filter_and_nearest_sort(monkeypatch):
     from hotel_search_agent.area_scope import search_areas_before_tool
     p = provider()
     plan = use_device_origin(resolve_areas([AREA], p), GPS, p)
-    ctx = context()
+    ctx = _turn_started(context())
     ctx.state[STATE_AREAS] = plan["search_areas"]
     p.containing_area_ids = lambda lat, lon: {"area78"} if lat == 48.6 else {"outside"}
     monkeypatch.setattr(geo, "get_mapbox_client", lambda: p)

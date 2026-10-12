@@ -200,3 +200,106 @@ def test_invalid_arguments_do_not_open_the_breaker(clock, monkeypatch):
     for _ in range(3):
         mcp_circuit_after_tool(_Tool("search_offers"), {}, None, _INVALID_ARGS)
     assert mcp_circuit_before_tool(_Tool("search_offers"), {}, None) is None
+
+
+# --- PR134-FIX B1: only calls really sent to MCP feed the breaker -----------------------------
+
+
+class _ChainContext:
+    """A per-call ToolContext stand-in, driven through the leaf's REAL chain."""
+
+    invocation_id = "b1-chain"
+    agent_name = "b2c_hotel_search"
+
+    def __init__(self, state: dict):
+        self.state = state
+        self.user_content = None
+
+
+def _adk_tool_call(tool_name: str, state: dict, mcp_answer: dict) -> dict:
+    """ADK 2.4's order (flows/llm_flows/functions.py, steps 1-6): the canonical
+    before chain stops at the first non-None result, the tool runs only if none
+    short-circuited, and the after chain runs EITHER WAY."""
+    from hotel_search_agent.agent import root_agent
+
+    tool, args, ctx = _Tool(tool_name), {"name": "Hotel X"}, _ChainContext(state)
+    response = None
+    for callback in root_agent.canonical_before_tool_callbacks:
+        response = callback(tool, args, ctx)
+        if response is not None:
+            break
+    if response is None:
+        response = mcp_answer
+    for callback in root_agent.canonical_after_tool_callbacks:
+        callback(tool, args, ctx, response)
+    return response
+
+
+def test_local_refusals_never_open_the_breaker(fresh_breaker):
+    from b2c_common.confirmed_location import CLARIFICATION_KEY
+
+    # `location_requires_clarification`: the leaf refuses BEFORE any MCP hit.
+    # Three such refusals, from anyone, used to give 30 s of "the search is
+    # unavailable" to every user of the process.
+    for _ in range(3):
+        refused = _adk_tool_call(
+            "search_offers", {CLARIFICATION_KEY: {"question": "Which Paris?"}}, {"ok": True}
+        )
+        assert refused["error"] == "location_requires_clarification"
+    assert fresh_breaker.allow()
+
+
+def test_real_mcp_failures_through_the_chain_still_open_the_breaker(fresh_breaker):
+    for _ in range(3):
+        _adk_tool_call("find_hotel_by_name", {}, {"isError": True, "content": [{"type": "text", "text": "ES timeout"}]})
+    assert not fresh_breaker.allow()
+
+
+def test_a_local_refusal_is_not_metered_as_a_tool_error(fresh_breaker):
+    import logging
+
+    from b2c_common.confirmed_location import CLARIFICATION_KEY
+
+    rows: list[str] = []
+
+    class _Collect(logging.Handler):
+        def emit(self, record):
+            rows.append(record.getMessage())
+
+    logger = logging.getLogger("dayuse.metrics")  # propagate=False: caplog never sees it
+    handler = _Collect()
+    logger.addHandler(handler)
+    try:
+        _adk_tool_call("search_offers", {CLARIFICATION_KEY: {"question": "?"}}, {"ok": True})
+    finally:
+        logger.removeHandler(handler)
+    rows = [r for r in rows if "dayuse_metric=tool_call" in r]
+    assert len(rows) == 1 and "status=ok" in rows[0] and "error_type=-" in rows[0]
+
+
+def test_a_callback_that_dispatches_mcp_itself_is_still_observed(fresh_breaker, monkeypatch):
+    # The area batch calls `tool.run_async` from a before_tool_callback: its
+    # short-circuit IS the real MCP outcome and must keep feeding the breaker.
+    import asyncio
+    from types import SimpleNamespace
+
+    from hotel_search_agent.area_scope import STATE_AREAS, search_areas_before_tool
+    from hotel_search_agent.mcp_guard import mcp_call_pending
+
+    monkeypatch.setattr("hotel_search_agent.geocode_tool.get_mapbox_client", lambda: SimpleNamespace())
+
+    async def run_async(*, args, tool_context):
+        return {"isError": True, "content": [{"type": "text", "text": "ES timeout"}]}
+
+    from hotel_search_agent.tool_budget_guard import make_per_tool_budget_callback
+
+    tool = SimpleNamespace(name="search_offers", run_async=run_async)
+    for _ in range(3):
+        ctx = _ChainContext({STATE_AREAS: [{"id": "a", "label": "Yvelines", "country": "FR",
+                                            "latitude": 48.8, "longitude": 1.8, "radius_km": 70}]})
+        mcp_call_pending(tool, {}, ctx)
+        make_per_tool_budget_callback({"search_offers": 2}, 2)(tool, {}, ctx)
+        response = asyncio.run(search_areas_before_tool(tool, {}, ctx))
+        assert response == {"ok": False, "error": "area_search_unavailable"}
+        mcp_circuit_after_tool(tool, {}, ctx, response)
+    assert not fresh_breaker.allow()

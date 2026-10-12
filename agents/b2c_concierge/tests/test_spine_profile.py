@@ -16,6 +16,7 @@ from google.adk.runners import InMemoryRunner
 from google.genai import types as genai_types
 
 import b2c_concierge.agent as agent_module
+from b2c_common.room_requirements import conditional_access_message
 from b2c_concierge.a2a_datapart import encode_datapart, find_datapart
 from b2c_concierge.agent import root_agent
 from b2c_concierge.profile import (
@@ -270,13 +271,13 @@ class TestProfileDeltaAppliedAndPersisted:
         assert stored.budget_max == 150.0
         assert stored.budget_request_source == BUDGET_SOURCE_FLEXIBLE_DEFAULT
 
-    def test_amenities_delta_is_persisted_and_triggers_access_disclosure(
+    def test_amenities_delta_is_persisted_and_surfaces_in_search_context(
         self, monkeypatch, fake_leg, fake_profile_store
     ):
         """S10: the leaf emits the amenity filters it hard-applied
         (equipment_ids/response_bridge) as `profile_delta.amenities`; the
         orchestrator must merge them (accumulating filter for next turns) AND
-        disclose unverified access in the SAME turn without another model call."""
+        show them in the SAME turn's SEARCH CONTEXT (transparency)."""
         fake_leg.response_payload = {
             "results": [{"id": 1, "name": "Hotel A", "amenities": ["pool"]}],
             "profile_delta": {"amenities": ["pool"]},
@@ -287,13 +288,52 @@ class TestProfileDeltaAppliedAndPersisted:
         runner = InMemoryRunner(root_agent)
         session = _new_session(runner)
 
-        text = _run_turn(runner, session.id, "un hotel à miami avec une piscine")
+        _run_turn(runner, session.id, "un hotel à miami avec une piscine")
 
         stored = asyncio.run(fake_profile_store.get(session.id))
         assert stored.amenities == ["pool"]
-        # An equipment label is not evidence of access for the displayed offer.
-        assert "n’est pas confirmé" in text
-        assert len(llm.calls) == 1  # triage only; no free-form access promise
+        # The delta is applied BEFORE synthesis (agent.py), so the search-context
+        # line the model saw this turn already restates the amenity.
+        assert "amenities: pool" in llm.calls[-1]["messages"][1]["content"]
+
+    def test_access_disclosure_is_appended_once_per_requested_amenity_set(
+        self, monkeypatch, fake_leg, fake_profile_store
+    ):
+        """PR134-FIX B2: an equipment label is not evidence of access for the
+        displayed offer, so the code says so — but it ADDS that warning to the
+        normal synthesis (it used to replace it: every pool search, every turn,
+        lost the hotel descriptions), and only once per requested set."""
+        notice = conditional_access_message("fr", [{"id": 1, "name": "Hotel A"}])
+        fake_leg.response_payload = {
+            "results": [{"id": 1, "name": "Hotel A", "amenities": ["pool"]}],
+            "profile_delta": {"amenities": ["pool"]},
+        }
+        llm = _scripted_llm(
+            monkeypatch,
+            '{"family": "search", "language": "fr"}', "Le Hotel A a une belle piscine.",
+            '{"family": "search", "language": "fr"}', "Le Hotel A reste le meilleur choix.",
+            '{"family": "search", "language": "fr"}', "Le Hotel A a aussi un spa.",
+        )
+        runner = InMemoryRunner(root_agent)
+        session = _new_session(runner)
+
+        first = _run_turn(runner, session.id, "un hôtel avec piscine à Nice")
+        assert len(llm.calls) == 2  # triage + the ONE synthesis
+        assert first.startswith("Le Hotel A a une belle piscine.")
+        assert first.endswith(notice)
+
+        fake_leg.response_payload = {"results": [{"id": 1, "name": "Hotel A", "amenities": ["pool"]}]}
+        second = _run_turn(runner, session.id, "plutôt en fin de journée")
+        assert len(llm.calls) == 4
+        assert "Le Hotel A reste le meilleur choix." in second
+        assert notice not in second  # same amenity set: said once is enough
+
+        fake_leg.response_payload = {
+            "results": [{"id": 1, "name": "Hotel A", "amenities": ["pool", "spa"]}],
+            "profile_delta": {"amenities": ["pool", "spa"]},
+        }
+        third = _run_turn(runner, session.id, "avec un spa aussi")
+        assert third.endswith(notice)  # a new set is a new request
 
     def test_bare_number_reply_overrides_the_leafs_own_source_claim(
         self, monkeypatch, fake_leg, fake_profile_store
@@ -369,6 +409,39 @@ class TestAutoWidenThroughTheSpine:
         _run_turn(runner, session.id, "still looking")
 
         stored = asyncio.run(fake_profile_store.get(session.id))
+        assert stored.consecutive_empty_searches == 2
+        assert stored.budget_max == 100.0
+        assert stored.auto_widen_disclosure is None
+
+    def test_a_bare_number_answering_a_budget_question_is_never_auto_widened(
+        self, monkeypatch, fake_leg, fake_profile_store
+    ):
+        # cbe88b9's "100" case, ported (PR134-FIX B3, Fabien 2026-10-12): a bare
+        # number is a budget when it answers a budget question — #134 keeps a
+        # number nobody asked for ambiguous (postcodes). No widget currency:
+        # the display currency (EUR) is its unit, never a blocking question.
+        question = "What is your maximum total budget?"
+        fake_leg.response_payload = {"results": ["hotel A"]}
+        _scripted_llm(
+            monkeypatch,
+            '{"family": "search", "language": "en"}', question,
+            '{"family":"search","language":"en","requested_budget":'
+            '{"amount":100,"unit":"total","evidence":"100","answer_to":"What is your maximum total budget?"}}',
+            "No luck yet.",
+            '{"family": "search", "language": "en"}', "Still nothing.",
+        )
+        runner = InMemoryRunner(root_agent)
+        session = _new_session(runner)
+
+        _run_turn(runner, session.id, "A day room in Paris please")
+        fake_leg.response_payload = {"results": [], "profile_delta": {"budget_max": 100}}
+        _run_turn(runner, session.id, "100")
+        fake_leg.response_payload = {"results": []}
+        _run_turn(runner, session.id, "still looking")
+
+        stored = asyncio.run(fake_profile_store.get(session.id))
+        assert fake_leg.call_count == 3
+        assert stored.budget_request_source == BUDGET_SOURCE_EXPLICIT
         assert stored.consecutive_empty_searches == 2
         assert stored.budget_max == 100.0
         assert stored.auto_widen_disclosure is None
@@ -1483,19 +1556,21 @@ class TestTypedBudgetThroughSpine:
 
 
 def test_currency_answer_completes_budget_without_switching_display(monkeypatch, fake_leg, fake_profile_store):
-    fake_leg.response_payload = {"results": [], "profile_delta": {"city": "Arlington", "country_anchor": "US"}}
+    # PR134-FIX B3: an unwritten unit is now the display currency, so the
+    # pending budget comes from a "$" the geocode did not settle (Paris).
+    fake_leg.response_payload = {"results": [], "profile_delta": {"city": "Paris", "country_anchor": "FR"}}
     _scripted_llm(monkeypatch,
-        '{"family":"search","language":"en","requested_budget":{"amount":50,"currency":"EUR","unit":"total","evidence":"50"}}',
+        '{"family":"search","language":"en","requested_budget":{"amount":50,"currency":null,"unit":"total","evidence":"$50"}}',
         '{"family":"details","language":"en","display_currency":"USD","requested_budget":{"amount":50,"currency":"USD","unit":"total","evidence":"50"}}')
     runner = InMemoryRunner(agent=root_agent)
     session = _new_session(runner)
-    text = _run_turn(runner, session.id, "Arlington Texas 50")
-    assert "Which currency" in text and fake_leg.call_count == 0
+    text = _run_turn(runner, session.id, "Paris under $50")
+    assert "Which currency" in text and fake_leg.call_count == 1
     _run_turn(runner, session.id, "USD")
     profile = asyncio.run(fake_profile_store.get(session.id))
     assert profile.requested_budget == {"amount": 50.0, "currency": "USD", "unit": "total"}
     assert profile.display_currency is None and profile.requested_currency is None
-    assert fake_leg.call_count == 1
+    assert fake_leg.call_count == 2
 
 
 def test_numeric_reply_keeps_session_language_despite_model_guess(monkeypatch, fake_leg, fake_profile_store):
@@ -2370,3 +2445,63 @@ def test_more_options_with_changed_room_or_party_restarts_search(monkeypatch, fa
     _run_turn(runner, session.id, 'Other options with a double bed for three people.')
     outgoing = find_datapart(fake_leg.seen_outgoing_parts)['profile_in']
     assert outgoing['search_cursor'] == expected
+
+
+class TestBudgetWithoutWrittenCurrency:
+    """PR134-FIX B3: a written amount with no currency never blocks the search
+    (as on main), and a budget question never throws away results already
+    retrieved."""
+
+    def test_an_amount_without_currency_searches_in_the_display_currency(
+        self, monkeypatch, fake_leg, fake_profile_store
+    ):
+        from b2c_concierge.a2a_datapart import find_datapart
+
+        fake_leg.response_payload = {
+            "results": [{"id": 1, "name": "Hotel A"}], "profile_delta": {"city": "Paris"},
+        }
+        llm = _scripted_llm(
+            monkeypatch,
+            '{"family": "search", "language": "fr", "requested_budget": {"amount": 100,'
+            ' "currency": null, "unit": "total", "evidence": "moins de 100"}}',
+            "Voici le Hotel A.",
+        )
+        runner = InMemoryRunner(root_agent)
+        session = _new_session(runner)
+
+        text = _run_turn(runner, session.id, "à Paris pour moins de 100")
+
+        assert fake_leg.call_count == 1  # never "Dans quelle devise ?" with 0 leaf call
+        assert "devise" not in text
+        assert len(llm.calls) == 2
+        stored = asyncio.run(fake_profile_store.get(session.id))
+        # B2C displays prices in EUR: an unwritten unit is the display unit.
+        assert stored.requested_budget == {"amount": 100.0, "currency": "EUR", "unit": "total"}
+        assert find_datapart(fake_leg.seen_outgoing_parts)["profile_in"]["requested_budget"]["currency"] == "EUR"
+
+    def test_a_budget_question_after_a_search_keeps_its_results(
+        self, monkeypatch, fake_leg, fake_profile_store
+    ):
+        # "$" in a market the geocode does not establish as a dollar market:
+        # the unit genuinely needs asking — but the hotels found stay on screen.
+        fake_leg.response_payload = {
+            "results": [{"id": 1, "name": "Hotel A"}],
+            "profile_delta": {"city": "Paris", "country_anchor": "FR"},
+        }
+        llm = _scripted_llm(
+            monkeypatch,
+            '{"family": "search", "language": "fr", "requested_budget": {"amount": 100,'
+            ' "currency": null, "unit": "total", "evidence": "moins de 100$"}}',
+            "Voici le Hotel A.",
+        )
+        runner = InMemoryRunner(root_agent)
+        session = _new_session(runner)
+
+        text = _run_turn(runner, session.id, "à Paris pour moins de 100$")
+
+        assert fake_leg.call_count == 1
+        assert "Voici le Hotel A." in text
+        assert text.rstrip().endswith("Dans quelle devise est votre budget maximum de 100 au total ?")
+        assert len(llm.calls) == 2
+        stored = asyncio.run(fake_profile_store.get(session.id))
+        assert stored.last_results and stored.last_results[0]["name"] == "Hotel A"

@@ -35,7 +35,6 @@ from dayuse_agent_common import (
     llm_timing_after,
     llm_timing_before,
     tool_error_metric,
-    tool_timing_after,
     tool_timing_before,
 )
 from google.adk.agents import Agent
@@ -65,9 +64,12 @@ from hotel_search_agent.budget_injection import inject_profile_budget
 from hotel_search_agent.budget_pages import search_budget_pages_before_tool
 from hotel_search_agent.occupancy import inject_occupancy_declaration, inject_profile_occupancy
 from hotel_search_agent.mcp_guard import (
+    mcp_call_dispatched,
+    mcp_call_pending,
     mcp_circuit_after_tool,
     mcp_circuit_before_tool,
     mcp_circuit_on_error,
+    mcp_tool_metric_after,
 )
 from hotel_search_agent.schema_guard import drop_args_outside_schema
 from hotel_search_agent.response_bridge import (
@@ -430,6 +432,9 @@ root_agent = Agent(
     # matter, they touch disjoint tool names/keys.
     before_tool_callback=[
         tool_timing_before,
+        # Before any guard that may refuse: only a real dispatch clears it, so
+        # a local refusal never feeds the breaker nor reads as an MCP error.
+        mcp_call_pending,
         make_per_tool_budget_callback(PER_TOOL_CALL_LIMITS, MAX_TOOL_CALLS),
         mcp_circuit_before_tool,
         enforce_named_destination,
@@ -450,6 +455,8 @@ root_agent = Agent(
         drop_args_outside_schema,
         search_areas_before_tool,
         search_budget_pages_before_tool,
+        # Reached only when nothing above short-circuited: ADK runs the tool.
+        mcp_call_dispatched,
     ],
     # capture_after_tool is LAST: it may return a truncated payload (which breaks
     # the after-tool chain), so it must never run before mcp_circuit_after_tool
@@ -462,7 +469,7 @@ root_agent = Agent(
     # callback here — ADK awaits an awaitable one mixed among sync ones — and it
     # always returns None, so it never breaks the chain.
     after_tool_callback=[
-        tool_timing_after,
+        mcp_tool_metric_after,
         mcp_circuit_after_tool,
         probe_next_day_after_tool,
         capture_after_tool,

@@ -15,8 +15,13 @@ from google.genai import types
 
 
 def context():
-    return SimpleNamespace(state={}, user_content=types.Content(role="user", parts=[
+    ctx = SimpleNamespace(state={}, invocation_id="turn", user_content=types.Content(role="user", parts=[
         types.Part(text="alternative cities"), encode_datapart({"profile_in": {}})]))
+    # The leaf's real per-tool budget guard runs first on every tool call.
+    from hotel_search_agent.agent import MAX_TOOL_CALLS, PER_TOOL_CALL_LIMITS
+    from hotel_search_agent.tool_budget_guard import make_per_tool_budget_callback
+    make_per_tool_budget_callback(PER_TOOL_CALL_LIMITS, MAX_TOOL_CALLS)(SimpleNamespace(name="search_offers"), {}, ctx)
+    return ctx
 
 NAMES = ['Alpha City', 'Beta City', 'Gamma City', 'Delta City', 'Epsilon City', 'Zeta City']
 
@@ -46,7 +51,12 @@ def test_bound_is_explicit_and_does_not_expand_landmark_budget():
 
 
 @pytest.mark.parametrize('count', [4, 5])
-def test_provider_verified_batch_searches_every_accepted_area_once(monkeypatch, count):
+def test_provider_verified_batch_searches_accepted_areas_within_the_read_cap(monkeypatch, count):
+    # PR134-FIX R6 (Fabien, 2026-10-12): every area is one MCP read under the
+    # per-tool cap. Past it, an area is "not searched" — disclosed through
+    # failed_area_names, never presented as an absence of hotels.
+    from hotel_search_agent.agent import PER_TOOL_CALL_LIMITS
+    cap = PER_TOOL_CALL_LIMITS['search_offers']
     got, message = transaction(count)
     areas = validate_areas(got['requested_areas'], message)
     features = {name: GeocodeCandidate(48.15, i + .05, name, name, 'France', 'place', 'FR', name,
@@ -68,13 +78,14 @@ def test_provider_verified_batch_searches_every_accepted_area_once(monkeypatch, 
     args = {'date': '2026-10-14', 'priceRangeMax': 80, 'hotelEquipmentIds': [41],
             'timeSlot': {'startHour': 10, 'endHour': 17}, 'adults': 2}
     result = asyncio.run(search_areas_before_tool(tool, args, ctx))
-    assert len(calls) == count
+    assert len(calls) == cap
     assert all(all(call[k] == v for k, v in args.items()) and call['size'] == 5 for call in calls)
-    assert len(result['structuredContent']['results']) == count
+    assert len(result['structuredContent']['results']) == cap
     assert ctx.state[STATE_COVERAGE]['areas'] == NAMES[:count]
+    assert ctx.state[STATE_COVERAGE]['failed_area_names'] == NAMES[cap:count]
     assert ctx.state[STATE_COVERAGE]['exhaustive'] is False
     assert search_areas_before_tool(tool, args, ctx)['ok'] is False
-    assert len(calls) == count
+    assert len(calls) == cap
 
 
 def test_excessive_internal_batch_is_rejected_before_any_dispatch():

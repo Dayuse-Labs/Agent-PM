@@ -1,6 +1,7 @@
 """Real concierge turns: a provider place choice survives budget/time refinements."""
 import asyncio
 import json
+from datetime import date, timedelta
 
 import pytest
 from b2c_common.confirmed_location import context_for_triage, location_intent, pending_location, verified_place
@@ -133,16 +134,26 @@ def test_place_choice_and_refinements_preserve_identity(scripted, monkeypatch, f
     assert seen[1][0]["timeslot_end"] == "16:00"
 
 
+_FR_MONTHS = (
+    "janvier", "février", "mars", "avril", "mai", "juin",
+    "juillet", "août", "septembre", "octobre", "novembre", "décembre",
+)
+
+
 def test_yes_cannot_choose_homonym_and_date_answer_is_preserved(scripted, fake_profile_store):  # noqa: F811
     runner, session = _new_session()
     asyncio.run(fake_profile_store.set(session.id, SessionProfile(pending_location=PENDING)))
     llm, leaves = scripted('{"family":"ack","language":"fr","location_intent":{"action":"preserve","evidence":"Yes"}}')
     assert _answer(_drive_in(runner, session.id, "Yes")) == PENDING["question"]
     assert len(llm.calls) == 1 and leaves == []
-    scripted('{"family":"search","language":"fr","location_intent":{"action":"preserve","evidence":"Le 12 novembre 2026"}}')
-    assert _answer(_drive_in(runner, session.id, "Le 12 novembre 2026")) == PENDING["question"]
+    # Clock-relative (PR134-FIX B4): a literal "12 novembre 2026" stopped
+    # being a future date — and stopped testing this — on 2026-11-13.
+    day = date.today() + timedelta(days=30)
+    said = f"Le {day.day} {_FR_MONTHS[day.month - 1]} {day.year}"
+    scripted('{"family":"search","language":"fr","location_intent":{"action":"preserve","evidence":"%s"}}' % said)
+    assert _answer(_drive_in(runner, session.id, said)) == PENDING["question"]
     p = asyncio.run(fake_profile_store.get(session.id))
-    assert p.date == "2026-11-12" and p.pending_location == PENDING
+    assert p.date == day.isoformat() and p.pending_location == PENDING
 
 
 def test_first_clarification_is_terminal_and_clears_stale_cards(scripted, fake_profile_store):  # noqa: F811

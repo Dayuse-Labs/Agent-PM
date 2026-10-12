@@ -127,7 +127,9 @@ def test_two_dates_survive_earlier_budget_clarification(monkeypatch, fake_leg, f
         'requested_date_period': {'kind': 'range', 'evidence': period_evidence}}))
     first = _run_turn(runner, session.id, message)
     assert fake_leg.call_count == 0
-    assert ('currency' in first if budget_text == 'under 150' else 'Which specific date' in first)
+    # PR134-FIX B3: an unwritten unit is the display currency (EUR), never a
+    # question — the pending period is what still needs asking, either way.
+    assert 'Which specific date' in first
     profile = asyncio.run(fake_profile_store.get(session.id))
     assert profile.pending_date_period is not None and profile.date is None
     assert profile.pending_date_period['kind'] == ('range' if period_evidence in message else 'unresolved')
@@ -143,10 +145,12 @@ def test_two_dates_survive_earlier_budget_clarification(monkeypatch, fake_leg, f
 def test_calendar_date_survives_budget_currency_question(monkeypatch, fake_leg, fake_profile_store, friday):  # noqa: F811
     runner = InMemoryRunner(root_agent)
     session = _new_session(runner)
+    # PR134-FIX B3: a bare "under 150" no longer asks (display currency); an
+    # hourly amount still does — the unit cannot be assumed.
     _scripted_llm(monkeypatch, json.dumps({'family': 'search', 'language': 'en',
-        'requested_budget': {'amount': 150, 'currency': None, 'unit': 'total', 'evidence': 'under 150'},
+        'requested_budget': {'amount': 10, 'currency': None, 'unit': 'hour', 'evidence': '10 per hour'},
         'requested_calendar': {'month': 10, 'day': 31, 'evidence': 'October 31'}}))
-    first = _run_turn(runner, session.id, 'A day room on October 31 under 150')
+    first = _run_turn(runner, session.id, 'A day room on October 31 at 10 per hour')
     assert 'currency' in first and fake_leg.call_count == 0
     assert asyncio.run(fake_profile_store.get(session.id)).date == '2026-10-31'
 

@@ -1935,6 +1935,11 @@ class _B2cConcierge(BaseAgent):
                 elif profile.requested_currency == HOTEL:
                     currencies = shortlist_currencies(profile.last_results)
                     native_currency = currencies[0] if len(currencies) == 1 else None
+                # No written unit and no market currency from the widget: the
+                # amount is in the currency prices are displayed in — EUR, as
+                # on main — never a question that blocks the search.
+                if native_currency is None and profile.display_currency is None:
+                    native_currency = "EUR"
                 requested = merge_budget(profile.requested_budget, budget_update, native_currency)
                 if requested is not None:
                     profile.requested_budget = requested
@@ -2235,12 +2240,17 @@ class _B2cConcierge(BaseAgent):
             self._emit_turn_metric(family, "template:location_clarification", budget, t_start, "ok", inv)
             yield self._final(ctx, pending["question"])
             return
+        budget_followup: str | None = None
         if (route.target == LEAF_HOTEL_SEARCH and profile.requested_budget
                 and not response.get("requires_clarification")
                 and not response.get("location_resolution_failed")):
             profile.requested_budget = resolve_budget_currency(profile.requested_budget, profile.country_anchor)
             clarification = budget_question(profile.requested_budget, reply_language, after_search=True)
-            if clarification:
+            if clarification and response.get("results"):
+                # Hotels were found: they stay on screen, the unit question is
+                # appended to the answer. Results are never discarded to ask.
+                budget_followup = clarification
+            elif clarification:
                 # Geocode did not establish a dollar market. Do not describe
                 # unknown-price filtering as an inventory shortage.
                 await store.set(ctx.session.id, profile)
@@ -2513,7 +2523,7 @@ class _B2cConcierge(BaseAgent):
                 yield self._final(ctx, line)
                 return
 
-        from b2c_common.room_requirements import conditional_access_message, unverified_access
+        from b2c_common.room_requirements import access_request_key, conditional_access_message
         requested_stay = profile.requested_window or {}
         synth: str | None
         if profile.pending_party_total is not None and response.get("results"):
@@ -2522,8 +2532,6 @@ class _B2cConcierge(BaseAgent):
             # adults. Cards show the exact provider offer; no synthesis call.
             synth = discovery_message(profile.pending_party_total, reply_language, ask=not party_question_asked)
             profile.last_clarifying_question = party_composition_question(profile.pending_party_total, reply_language)
-        elif response.get("results") and unverified_access(profile.room_requirements, profile.amenities):
-            synth = conditional_access_message(reply_language, response.get("results"))
         elif no_offers and requested_stay.get("start") and requested_stay.get("end"):
             # Full-stay containment: longer hours cannot recover an empty
             # result. Keep this bounded next step in code, without inventing
@@ -2543,6 +2551,15 @@ class _B2cConcierge(BaseAgent):
                 previous_reply=previous_reply if family == "search" else None,
                 leaf_text_is_user_facing="faq_evidence" not in response,
             )
+        # An equipment label is not evidence of access for the displayed offer:
+        # the code ADDS that warning to the answer (never the LLM, never in
+        # place of the synthesis), once per requested access set.
+        access_key = access_request_key(profile.room_requirements, profile.amenities)
+        access_notice = None
+        if access_key is not None and response.get("results") and access_key != profile.access_notice_key:
+            access_notice = conditional_access_message(reply_language, response.get("results"))
+        if access_key is None or access_notice:
+            profile.access_notice_key = access_key
         await store.set(ctx.session.id, profile)
 
         self._emit_turn_metric(
@@ -2566,9 +2583,8 @@ class _B2cConcierge(BaseAgent):
                 templates.named_hotel_not_found_notice(named_not_found, reply_language, profile.city)
                 + f"\n\n{final_text}"
             )
-        if (response.get("results") and profile.pending_party_total is not None
-                and unverified_access(profile.room_requirements, profile.amenities)):
-            final_text += "\n\n" + conditional_access_message(reply_language, response.get("results"))
+        if access_notice:
+            final_text += "\n\n" + access_notice
         if no_offers:
             rest = drop_restated(final_text, no_offers)
             final_text = f"{no_offers}\n\n{rest}" if rest else no_offers
@@ -2588,7 +2604,9 @@ class _B2cConcierge(BaseAgent):
             final_text = f"{final_text.rstrip()}\n\n{response['literal_window_notice']}"
         if date_notice:
             final_text = f"{final_text.rstrip()}\n\n{date_notice}"
-        if profile.requested_budget and "results" in response and (response["results"] or not profile.price_comparison):
+        if budget_followup:
+            final_text = f"{final_text.rstrip()}\n\n{budget_followup}"
+        elif profile.requested_budget and "results" in response and (response["results"] or not profile.price_comparison):
             final_text = f"{final_text.rstrip()}\n\n{budget_notice(profile.requested_budget, bool(response['results']), reply_language)}"
         if currency_notice:
             final_text = f"{final_text.rstrip()}\n\n{currency_notice}"

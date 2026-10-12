@@ -13,6 +13,8 @@ from typing import Any, Awaitable
 from b2c_common.price_comparison import comparison_budget
 
 from hotel_search_agent.area_scope import STATE_AREAS
+from hotel_search_agent.mcp_guard import mark_mcp_dispatched
+from hotel_search_agent.schema_guard import drop_args_outside_schema
 from hotel_search_agent.response_bridge import (
     normalize_search_results,
     read_profile_in,
@@ -44,6 +46,10 @@ def search_budget_pages_before_tool(tool: Any, args: dict[str, Any], tool_contex
 async def _search(tool: Any, args: dict[str, Any], ctx: Any, cap: dict, profile: dict) -> dict:
     # All location/date/window/occupancy/equipment guards have already run.
     query = {**args, "size": 5}
+    # The chain's schema guard ran before this key was added: it stays the
+    # last thing applied to what is sent.
+    drop_args_outside_schema(tool, query, ctx)
+    mark_mcp_dispatched(ctx)
     first = await tool.run_async(args=query, tool_context=ctx)
     payload = read_structured_payload(first)
     if not isinstance(first, dict) or first.get("isError") or first.get("ok") is False:
@@ -60,7 +66,9 @@ async def _search(tool: Any, args: dict[str, Any], ctx: Any, cap: dict, profile:
             or not isinstance(current, int) or offset != current + 5
             or not reserve_mcp_read(ctx, "search_offers")):
         return first
-    second = await tool.run_async(args={**query, "from": offset}, tool_context=ctx)
+    second_query = {**query, "from": offset}
+    drop_args_outside_schema(tool, second_query, ctx)
+    second = await tool.run_async(args=second_query, tool_context=ctx)
     next_payload = read_structured_payload(second)
     if not isinstance(second, dict) or second.get("isError") or second.get("ok") is False:
         return second
