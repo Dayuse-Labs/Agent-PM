@@ -1935,6 +1935,11 @@ class _B2cConcierge(BaseAgent):
                 elif profile.requested_currency == HOTEL:
                     currencies = shortlist_currencies(profile.last_results)
                     native_currency = currencies[0] if len(currencies) == 1 else None
+                # No written unit and no market currency from the widget: the
+                # amount is in the currency prices are displayed in — EUR, as
+                # on main — never a question that blocks the search.
+                if native_currency is None and profile.display_currency is None:
+                    native_currency = "EUR"
                 requested = merge_budget(profile.requested_budget, budget_update, native_currency)
                 if requested is not None:
                     profile.requested_budget = requested
@@ -2235,12 +2240,17 @@ class _B2cConcierge(BaseAgent):
             self._emit_turn_metric(family, "template:location_clarification", budget, t_start, "ok", inv)
             yield self._final(ctx, pending["question"])
             return
+        budget_followup: str | None = None
         if (route.target == LEAF_HOTEL_SEARCH and profile.requested_budget
                 and not response.get("requires_clarification")
                 and not response.get("location_resolution_failed")):
             profile.requested_budget = resolve_budget_currency(profile.requested_budget, profile.country_anchor)
             clarification = budget_question(profile.requested_budget, reply_language, after_search=True)
-            if clarification:
+            if clarification and response.get("results"):
+                # Hotels were found: they stay on screen, the unit question is
+                # appended to the answer. Results are never discarded to ask.
+                budget_followup = clarification
+            elif clarification:
                 # Geocode did not establish a dollar market. Do not describe
                 # unknown-price filtering as an inventory shortage.
                 await store.set(ctx.session.id, profile)
@@ -2594,7 +2604,9 @@ class _B2cConcierge(BaseAgent):
             final_text = f"{final_text.rstrip()}\n\n{response['literal_window_notice']}"
         if date_notice:
             final_text = f"{final_text.rstrip()}\n\n{date_notice}"
-        if profile.requested_budget and "results" in response and (response["results"] or not profile.price_comparison):
+        if budget_followup:
+            final_text = f"{final_text.rstrip()}\n\n{budget_followup}"
+        elif profile.requested_budget and "results" in response and (response["results"] or not profile.price_comparison):
             final_text = f"{final_text.rstrip()}\n\n{budget_notice(profile.requested_budget, bool(response['results']), reply_language)}"
         if currency_notice:
             final_text = f"{final_text.rstrip()}\n\n{currency_notice}"

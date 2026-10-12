@@ -1523,19 +1523,21 @@ class TestTypedBudgetThroughSpine:
 
 
 def test_currency_answer_completes_budget_without_switching_display(monkeypatch, fake_leg, fake_profile_store):
-    fake_leg.response_payload = {"results": [], "profile_delta": {"city": "Arlington", "country_anchor": "US"}}
+    # PR134-FIX B3: an unwritten unit is now the display currency, so the
+    # pending budget comes from a "$" the geocode did not settle (Paris).
+    fake_leg.response_payload = {"results": [], "profile_delta": {"city": "Paris", "country_anchor": "FR"}}
     _scripted_llm(monkeypatch,
-        '{"family":"search","language":"en","requested_budget":{"amount":50,"currency":"EUR","unit":"total","evidence":"50"}}',
+        '{"family":"search","language":"en","requested_budget":{"amount":50,"currency":null,"unit":"total","evidence":"$50"}}',
         '{"family":"details","language":"en","display_currency":"USD","requested_budget":{"amount":50,"currency":"USD","unit":"total","evidence":"50"}}')
     runner = InMemoryRunner(agent=root_agent)
     session = _new_session(runner)
-    text = _run_turn(runner, session.id, "Arlington Texas 50")
-    assert "Which currency" in text and fake_leg.call_count == 0
+    text = _run_turn(runner, session.id, "Paris under $50")
+    assert "Which currency" in text and fake_leg.call_count == 1
     _run_turn(runner, session.id, "USD")
     profile = asyncio.run(fake_profile_store.get(session.id))
     assert profile.requested_budget == {"amount": 50.0, "currency": "USD", "unit": "total"}
     assert profile.display_currency is None and profile.requested_currency is None
-    assert fake_leg.call_count == 1
+    assert fake_leg.call_count == 2
 
 
 def test_numeric_reply_keeps_session_language_despite_model_guess(monkeypatch, fake_leg, fake_profile_store):
@@ -2410,3 +2412,63 @@ def test_more_options_with_changed_room_or_party_restarts_search(monkeypatch, fa
     _run_turn(runner, session.id, 'Other options with a double bed for three people.')
     outgoing = find_datapart(fake_leg.seen_outgoing_parts)['profile_in']
     assert outgoing['search_cursor'] == expected
+
+
+class TestBudgetWithoutWrittenCurrency:
+    """PR134-FIX B3: a written amount with no currency never blocks the search
+    (as on main), and a budget question never throws away results already
+    retrieved."""
+
+    def test_an_amount_without_currency_searches_in_the_display_currency(
+        self, monkeypatch, fake_leg, fake_profile_store
+    ):
+        from b2c_concierge.a2a_datapart import find_datapart
+
+        fake_leg.response_payload = {
+            "results": [{"id": 1, "name": "Hotel A"}], "profile_delta": {"city": "Paris"},
+        }
+        llm = _scripted_llm(
+            monkeypatch,
+            '{"family": "search", "language": "fr", "requested_budget": {"amount": 100,'
+            ' "currency": null, "unit": "total", "evidence": "moins de 100"}}',
+            "Voici le Hotel A.",
+        )
+        runner = InMemoryRunner(root_agent)
+        session = _new_session(runner)
+
+        text = _run_turn(runner, session.id, "à Paris pour moins de 100")
+
+        assert fake_leg.call_count == 1  # never "Dans quelle devise ?" with 0 leaf call
+        assert "devise" not in text
+        assert len(llm.calls) == 2
+        stored = asyncio.run(fake_profile_store.get(session.id))
+        # B2C displays prices in EUR: an unwritten unit is the display unit.
+        assert stored.requested_budget == {"amount": 100.0, "currency": "EUR", "unit": "total"}
+        assert find_datapart(fake_leg.seen_outgoing_parts)["profile_in"]["requested_budget"]["currency"] == "EUR"
+
+    def test_a_budget_question_after_a_search_keeps_its_results(
+        self, monkeypatch, fake_leg, fake_profile_store
+    ):
+        # "$" in a market the geocode does not establish as a dollar market:
+        # the unit genuinely needs asking — but the hotels found stay on screen.
+        fake_leg.response_payload = {
+            "results": [{"id": 1, "name": "Hotel A"}],
+            "profile_delta": {"city": "Paris", "country_anchor": "FR"},
+        }
+        llm = _scripted_llm(
+            monkeypatch,
+            '{"family": "search", "language": "fr", "requested_budget": {"amount": 100,'
+            ' "currency": null, "unit": "total", "evidence": "moins de 100$"}}',
+            "Voici le Hotel A.",
+        )
+        runner = InMemoryRunner(root_agent)
+        session = _new_session(runner)
+
+        text = _run_turn(runner, session.id, "à Paris pour moins de 100$")
+
+        assert fake_leg.call_count == 1
+        assert "Voici le Hotel A." in text
+        assert text.rstrip().endswith("Dans quelle devise est votre budget maximum de 100 au total ?")
+        assert len(llm.calls) == 2
+        stored = asyncio.run(fake_profile_store.get(session.id))
+        assert stored.last_results and stored.last_results[0]["name"] == "Hotel A"
