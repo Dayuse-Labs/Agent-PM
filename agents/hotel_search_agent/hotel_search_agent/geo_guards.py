@@ -400,7 +400,16 @@ def geocode_echo_matches(
             # merely because all distinctive words were shorter than four.
             place_words = place.split()
             initials = "".join(word[0] for word in place_words if word.isalpha())
-            return all(tok in place_words or initials.startswith(tok) for tok in short_tokens)
+            # An alias may also EXTEND the initials of the place's own name
+            # ("NYC" for Mapbox's canonical "New York, New York, ..."). Only a
+            # multi-word head counts: one initial proves nothing ("Brea").
+            head = re.sub(r"[^a-z0-9]+", " ", _echo_fold(place_name).split(",")[0]).split()
+            head_initials = "".join(word[0] for word in head if word.isalpha())
+            return all(
+                tok in place_words or initials.startswith(tok)
+                or (len(head_initials) >= 2 and tok.startswith(head_initials))
+                for tok in short_tokens
+            )
         return True
     compact_place = place.replace(" ", "")
 

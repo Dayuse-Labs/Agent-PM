@@ -144,15 +144,16 @@ def test_echo_back_still_rejects_unrelated_place_despite_exonym_table():
     )
 
 
-def test_echo_back_accepts_short_alias_supported_by_provider_name():
-    # Actual Mapbox labels include NYC / New York City. The short alias
-    # needs this evidence; an empty token set is no longer a universal pass.
-    assert geocode_echo_matches(
-        "New York City, New York, United States",
-        city="NYC",
-        zone=None,
-        state_hint=None,
-    )
+@pytest.mark.parametrize("place", [
+    "New York City, New York, United States",
+    # cbe88b9's fixture, restored (PR134-FIX R5): Mapbox's canonical label for
+    # the city carries no "City" — the alias extends the place's own initials.
+    "New York, New York, United States",
+])
+def test_echo_back_accepts_short_alias_supported_by_provider_name(place):
+    # The short alias needs this evidence; an empty token set is no longer a
+    # universal pass.
+    assert geocode_echo_matches(place, city="NYC", zone=None, state_hint=None)
 
 
 def test_geocode_echo_rejects_non_latin_city_against_latin_place():
