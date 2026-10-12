@@ -240,6 +240,9 @@ class SessionProfile:
     # picks a different fact instead of repeating it near-verbatim when the
     # shortlist barely moved (ground_truth.synthesis_angle).
     last_synthesis_angle: str | None = None
+    # PR134-FIX B2: the requested access set (`access_request_key`) the
+    # unverified-access warning was last appended for — said once per set.
+    access_notice_key: list[str] | None = None
     # S-G1 (2026-07-23): audit-identified missing slots — all optional, all
     # absent-tolerant, so a leaf that hasn't migrated yet (S-G5/S-G6) never
     # breaks by omitting them.
@@ -345,6 +348,7 @@ class SessionProfile:
             "pending_booking": self.pending_booking,
             "amenity_claim_corrections": self.amenity_claim_corrections,
             "last_synthesis_angle": self.last_synthesis_angle,
+            "access_notice_key": self.access_notice_key,
             "named_hotel": self.named_hotel,
             "zone": self.zone,
             "metro": self.metro,
@@ -416,6 +420,7 @@ _CONCIERGE_ONLY_KEYS = (
     "last_clarifying_question",
     "amenity_claim_corrections",
     "last_synthesis_angle",
+    "access_notice_key",
     "auto_widen_disclosure",
     "named_hotel",
     "picked_hotel_id",

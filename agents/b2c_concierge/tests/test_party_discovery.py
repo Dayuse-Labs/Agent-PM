@@ -93,4 +93,6 @@ def test_room_preference_survives_followup_and_private_access_is_conditional(mon
     second = _run_turn(runner, session.id, 'other options')
     saved = asyncio.run(fake_profile_store.get(session.id))
     assert saved.room_requirements == {'bedding': 'double', 'private_amenities': ['jacuzzi']}
-    assert 'not confirmed' in second
+    # PR134-FIX B2: the access warning is said once per requested set, not on
+    # every turn that still carries it.
+    assert 'not confirmed' not in second

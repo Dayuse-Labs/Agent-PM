@@ -16,6 +16,7 @@ from google.adk.runners import InMemoryRunner
 from google.genai import types as genai_types
 
 import b2c_concierge.agent as agent_module
+from b2c_common.room_requirements import conditional_access_message
 from b2c_concierge.a2a_datapart import encode_datapart, find_datapart
 from b2c_concierge.agent import root_agent
 from b2c_concierge.profile import (
@@ -270,13 +271,13 @@ class TestProfileDeltaAppliedAndPersisted:
         assert stored.budget_max == 150.0
         assert stored.budget_request_source == BUDGET_SOURCE_FLEXIBLE_DEFAULT
 
-    def test_amenities_delta_is_persisted_and_triggers_access_disclosure(
+    def test_amenities_delta_is_persisted_and_surfaces_in_search_context(
         self, monkeypatch, fake_leg, fake_profile_store
     ):
         """S10: the leaf emits the amenity filters it hard-applied
         (equipment_ids/response_bridge) as `profile_delta.amenities`; the
         orchestrator must merge them (accumulating filter for next turns) AND
-        disclose unverified access in the SAME turn without another model call."""
+        show them in the SAME turn's SEARCH CONTEXT (transparency)."""
         fake_leg.response_payload = {
             "results": [{"id": 1, "name": "Hotel A", "amenities": ["pool"]}],
             "profile_delta": {"amenities": ["pool"]},
@@ -287,13 +288,52 @@ class TestProfileDeltaAppliedAndPersisted:
         runner = InMemoryRunner(root_agent)
         session = _new_session(runner)
 
-        text = _run_turn(runner, session.id, "un hotel à miami avec une piscine")
+        _run_turn(runner, session.id, "un hotel à miami avec une piscine")
 
         stored = asyncio.run(fake_profile_store.get(session.id))
         assert stored.amenities == ["pool"]
-        # An equipment label is not evidence of access for the displayed offer.
-        assert "n’est pas confirmé" in text
-        assert len(llm.calls) == 1  # triage only; no free-form access promise
+        # The delta is applied BEFORE synthesis (agent.py), so the search-context
+        # line the model saw this turn already restates the amenity.
+        assert "amenities: pool" in llm.calls[-1]["messages"][1]["content"]
+
+    def test_access_disclosure_is_appended_once_per_requested_amenity_set(
+        self, monkeypatch, fake_leg, fake_profile_store
+    ):
+        """PR134-FIX B2: an equipment label is not evidence of access for the
+        displayed offer, so the code says so — but it ADDS that warning to the
+        normal synthesis (it used to replace it: every pool search, every turn,
+        lost the hotel descriptions), and only once per requested set."""
+        notice = conditional_access_message("fr", [{"id": 1, "name": "Hotel A"}])
+        fake_leg.response_payload = {
+            "results": [{"id": 1, "name": "Hotel A", "amenities": ["pool"]}],
+            "profile_delta": {"amenities": ["pool"]},
+        }
+        llm = _scripted_llm(
+            monkeypatch,
+            '{"family": "search", "language": "fr"}', "Le Hotel A a une belle piscine.",
+            '{"family": "search", "language": "fr"}', "Le Hotel A reste le meilleur choix.",
+            '{"family": "search", "language": "fr"}', "Le Hotel A a aussi un spa.",
+        )
+        runner = InMemoryRunner(root_agent)
+        session = _new_session(runner)
+
+        first = _run_turn(runner, session.id, "un hôtel avec piscine à Nice")
+        assert len(llm.calls) == 2  # triage + the ONE synthesis
+        assert first.startswith("Le Hotel A a une belle piscine.")
+        assert first.endswith(notice)
+
+        fake_leg.response_payload = {"results": [{"id": 1, "name": "Hotel A", "amenities": ["pool"]}]}
+        second = _run_turn(runner, session.id, "plutôt en fin de journée")
+        assert len(llm.calls) == 4
+        assert "Le Hotel A reste le meilleur choix." in second
+        assert notice not in second  # same amenity set: said once is enough
+
+        fake_leg.response_payload = {
+            "results": [{"id": 1, "name": "Hotel A", "amenities": ["pool", "spa"]}],
+            "profile_delta": {"amenities": ["pool", "spa"]},
+        }
+        third = _run_turn(runner, session.id, "avec un spa aussi")
+        assert third.endswith(notice)  # a new set is a new request
 
     def test_bare_number_reply_overrides_the_leafs_own_source_claim(
         self, monkeypatch, fake_leg, fake_profile_store
