@@ -46,6 +46,7 @@ import copy
 import logging
 import re
 import time
+import unicodedata
 from datetime import date, datetime, timedelta
 from typing import Any
 from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
@@ -280,6 +281,13 @@ def resolve_date_label(
     return today, "default", None
 
 
+def _fold(text: str) -> str:
+    """Case- and accent-insensitive form for the provenance check: the model
+    quoting "6 aout" for the customer's "6 août" quotes the same words."""
+    decomposed = unicodedata.normalize("NFKD", text)
+    return "".join(c for c in decomposed if not unicodedata.combining(c)).casefold()
+
+
 def resolve_search_date(tool: Any, args: dict[str, Any], tool_context: Any) -> None:
     """`before_tool_callback`: the ONLY writer of search_offers' `date` — the
     model never owns a resolved calendar date, only the label.
@@ -317,7 +325,7 @@ def resolve_search_date(tool: Any, args: dict[str, Any], tool_context: Any) -> N
         if isinstance(getattr(part, "text", None), str)
     )
     expression = label.get("expression") if isinstance(label, dict) else None
-    if not isinstance(expression, str) or not expression.strip() or expression not in message:
+    if not isinstance(expression, str) or not expression.strip() or _fold(expression) not in _fold(message):
         label = None
     if isinstance(label, dict) and label.get("type") in ("relative", "absolute"):
         resolved_date, resolved_from, expression = resolve_date_label(label, today, guards_fired)

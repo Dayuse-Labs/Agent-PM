@@ -11,6 +11,8 @@ import asyncio
 import copy
 from datetime import date, timedelta
 
+import pytest
+
 from a2a import types as a2a_types
 from google.adk.a2a.converters.part_converter import convert_a2a_part_to_genai_part
 from google.adk.models.llm_request import LlmRequest
@@ -885,3 +887,27 @@ def test_no_clock_request_removes_dangling_mode():
     args = {"timeSlotMode": "invalid"}
     resolve_search_timeslot(_Tool("search_offers"), args, ctx)
     assert "timeSlotMode" not in args
+
+
+@pytest.mark.parametrize("message,expression", [
+    ("un hôtel le 6 août", "6 aout"),      # the model drops the accent
+    ("un hôtel le 6 aout", "6 août"),      # …or the customer did
+    ("Demain à Paris", "demain"),           # sentence case
+])
+def test_date_expression_matches_the_message_without_case_or_accents(message, expression):
+    # PR134-FIX D: the provenance gate compared raw substrings, so a date the
+    # customer DID write was discarded (and today searched instead).
+    ctx = _ctx_with_profile({}, message)
+    label = ({"type": "relative", "value": "tomorrow", "expression": expression}
+             if expression == "demain" else {"type": "absolute", "value": "2023-08-06", "expression": expression})
+    args = {"date": label}
+    resolve_search_date(_Tool("search_offers"), args, ctx)
+    assert STATE_RESOLVED_DATE_KEY in ctx.state
+    assert args["date"] != date.today().isoformat()
+
+
+def test_an_expression_absent_from_the_message_is_still_refused():
+    ctx = _ctx_with_profile({}, "un hôtel à Paris")
+    args = {"date": {"type": "absolute", "value": "2023-08-06", "expression": "6 août"}}
+    resolve_search_date(_Tool("search_offers"), args, ctx)
+    assert STATE_RESOLVED_DATE_KEY not in ctx.state
