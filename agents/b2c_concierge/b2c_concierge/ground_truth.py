@@ -189,6 +189,17 @@ def synthesis_angle(response: dict[str, Any] | None, exclude: str = "") -> tuple
     if not hotels:
         return ("", "")
 
+    # mcp-dayuse#7: the user named this hotel and it is the first card — the
+    # reply answers THAT request first, whatever the previous turn led on.
+    named = (response or {}).get("named_hotel")
+    if isinstance(named, dict) and named.get("offered") and named.get("name"):
+        return (
+            "named",
+            f"The user asked for {named['name']}: it is the FIRST card. Lead with it "
+            "(its price and time slot), then mention the nearby alternatives in one "
+            "short sentence.",
+        )
+
     candidates: list[tuple[str, str]] = []
 
     if len(hotels) == 1:

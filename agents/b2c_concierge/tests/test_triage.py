@@ -449,3 +449,21 @@ class TestP1LanguageRecognition:
     def test_the_prompt_lists_the_widened_enum(self):
         assert "'es'" in triage_module._TRIAGE_INSTRUCTION
         assert "'nl'" in triage_module._TRIAGE_INSTRUCTION
+
+
+
+class TestLanguageEvidence:
+    """mcp-dayuse#7: « New York » answering « which Manhattan? » turned a French
+    conversation English."""
+
+    def test_proper_nouns_alone_carry_no_language(self):
+        from b2c_concierge.triage import has_language_evidence
+
+        for message in ("New York", "Paris", "NYC", "Saint-Étienne", "  "):
+            assert has_language_evidence(message) is False
+
+    def test_any_lowercase_word_does(self):
+        from b2c_concierge.triage import has_language_evidence
+
+        for message in ("oui", "à Paris", "New York please", "plutôt Lyon"):
+            assert has_language_evidence(message) is True

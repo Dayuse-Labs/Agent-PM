@@ -153,6 +153,22 @@ class TestSynthesisAngle:
         ]
         assert synthesis_angle({"results": hotels})[1] == ""
 
+    def test_a_named_hotel_on_screen_leads_the_reply(self):
+        # mcp-dayuse#7: the reply opened on another hotel's discount.
+        response = {
+            "results": [self._hotel(name="St Paul's Hotel"), self._hotel(name="B")],
+            "named_hotel": {"name": "St Paul's Hotel", "offered": True},
+        }
+        key, directive = synthesis_angle(response, exclude="named")
+        assert key == "named" and "St Paul's Hotel" in directive
+
+    def test_a_named_hotel_without_offers_does_not_lead(self):
+        response = {
+            "results": [self._hotel(name="B")],
+            "named_hotel": {"name": "St Paul's Hotel", "offered": False},
+        }
+        assert synthesis_angle(response)[0] != "named"
+
     def test_no_results_gets_no_angle(self):
         assert synthesis_angle({"results": []})[1] == ""
         assert synthesis_angle(None)[1] == ""

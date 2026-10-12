@@ -30,6 +30,12 @@ if [ -f .env ]; then
   set +a
 fi
 
+# MCP_B2C_URL_OVERRIDE: points this stack at another MCP (e.g. a branch build on
+# :8180) — .env would otherwise win over an exported MCP_B2C_URL.
+if [ -n "${MCP_B2C_URL_OVERRIDE:-}" ]; then
+  export MCP_B2C_URL="$MCP_B2C_URL_OVERRIDE"
+fi
+
 # Local defaults only — serve.py fails closed without a token (D7); deploys use real secrets.
 # Locally the 3 services share ONE token; in deployment each service has its own.
 export A2A_BEARER_TOKEN="${A2A_BEARER_TOKEN:-local-dev-token}"

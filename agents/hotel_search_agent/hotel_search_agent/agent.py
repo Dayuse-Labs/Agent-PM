@@ -57,6 +57,7 @@ from hotel_search_agent.equipment_ids import (
 from hotel_search_agent.geocode_tool import geocode_location, inject_profile_geo_context
 from hotel_search_agent.budget_injection import inject_profile_budget
 from hotel_search_agent.occupancy import inject_profile_occupancy
+from hotel_search_agent import named_hotel
 from hotel_search_agent.mcp_guard import (
     mcp_circuit_after_tool,
     mcp_circuit_before_tool,
@@ -180,6 +181,11 @@ How to act, frugally (at most ONE reasoning pass — no tool-call loops):
   in Nice), and whenever the zone's name mentions no city at all ("montmartre",
   "le louvre", "les champs élysées"), there is no conflict and no doubt: pass
   the city as usual.
+  Only for a LANDMARK the user names by a SHORT form (never for a city, which
+  stays in `city`): write its full name in `zone`, its city in `city` as above
+  ("près de St Paul's à Londres" -> zone "St Paul's Cathedral", city "London"):
+  the short form is also the name of smaller places elsewhere in that city, and
+  the lookup would take the wrong one.
   Leave `city` blank as well when you genuinely don't know the city; never
   leave BOTH blank when the user named a place.
   ALSO pass `country_guess`: the ISO-3166-1 alpha-2 country you know that place
@@ -256,8 +262,22 @@ How to act, frugally (at most ONE reasoning pass — no tool-call loops):
   "earlier", "any other options") → still call geocode_location first (leave
   city blank, per above) then run a fresh search with the new constraint. Do
   not ask the user to repeat the city they already gave.
-- A specific hotel named by the user → call find_hotel_by_name directly (no
-  geocoding needed).
+- A message that starts with "EARLIER REQUEST" and/or "YOU ASKED" is the user
+  REPLYING to the question you asked on the previous turn. Read the earlier
+  request and the reply as ONE message: every criterion of the earlier request
+  (date, hours, budget, amenities, party) still applies unless the reply
+  changes it. A bare "yes"/"oui" accepts what the question proposed.
+- A specific hotel named by the user (`query_params.hotel_name`, when set, is
+  that name) → call find_hotel_by_name directly (no geocoding needed): `name`,
+  `cityName` = the city THIS message places it in, by its English or local
+  name ("London", never "Londres"; omit it when none), and the
+  same `date` label as for search_offers. A hotel name is never a `zone`. Once
+  it is found, the system shows it with its offers and its nearest neighbours
+  itself — do not call search_offers after it. AmbiguousHotelError → if THIS
+  message names a city, call it ONCE more with that cityName; otherwise stop,
+  the system asks the user which hotel. HotelNotFoundError with a city in THIS
+  message → geocode_location + search_offers on that city, so the user sees
+  other hotels there (the system tells them the named one was not found).
 - On a SUCCESSFUL search, reply with a SHORT one-line outcome in plain language
   (how many day-use offers, and in which city). Do NOT format a detailed hotel
   list and NEVER paste the raw tool payload — the structured top-5 results are
@@ -297,6 +317,26 @@ def inject_today_before_model(callback_context: Any, llm_request: Any) -> None:
     )
     return None
 
+_MCP_TOOLSET = build_mcp_toolset()
+
+# The dated search that follows a hotel found by name (named_hotel.py) goes
+# through the same callbacks as a search the model makes.
+named_hotel.bind(
+    _MCP_TOOLSET,
+    search_before=[
+        mcp_circuit_before_tool,
+        enforce_equipment_filters,
+        inject_profile_occupancy,
+        inject_profile_budget,
+        inject_pagination_offset,
+        inject_landmark_radius,
+        resolve_search_date,
+        resolve_search_timeslot,
+        drop_args_outside_schema,
+    ],
+    search_after=[mcp_circuit_after_tool, probe_next_day_after_tool, capture_after_tool],
+)
+
 # Metrics callbacks (fleet contract, booking_qa precedent). Deliberately NO
 # switch_model_callback: B2C serves the public — a per-request MODEL: override
 # must never be honored here.
@@ -314,7 +354,7 @@ root_agent = Agent(
     # state travels in profile_in by contract; without this, any A2A caller
     # reusing a contextId regrows the prompt with the whole session history.
     include_contents="none",
-    tools=[build_mcp_toolset(), geocode_location],
+    tools=[_MCP_TOOLSET, geocode_location],
     # S-G4: stamps t0 for the turn's total-ms counter (emit_search_datapart logs
     # it) — runs before anything else so it covers every path, not just search.
     # stamp_a2a_turn gives the leaf's root observation (opened by
@@ -340,6 +380,7 @@ root_agent = Agent(
         inject_today_before_model,
         inject_amenities_declaration,
         inject_datetime_declaration,
+        named_hotel.inject_named_hotel_declaration,
     ],
     after_model_callback=[llm_timing_after],
     on_model_error_callback=llm_error_metric,
@@ -365,6 +406,7 @@ root_agent = Agent(
         inject_landmark_radius,
         resolve_search_date,
         resolve_search_timeslot,
+        named_hotel.prepare_named_hotel_lookup,
         # LAST: the virtual params are gone by now; anything else the tool's
         # published schema does not declare would make MCP refuse the call.
         drop_args_outside_schema,
@@ -383,6 +425,7 @@ root_agent = Agent(
         tool_timing_after,
         mcp_circuit_after_tool,
         probe_next_day_after_tool,
+        named_hotel.follow_named_hotel,
         capture_after_tool,
     ],
     on_tool_error_callback=[tool_error_metric, mcp_circuit_on_error],
