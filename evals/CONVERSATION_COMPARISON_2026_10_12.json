@@ -1,0 +1,3802 @@
+{
+  "date": "2026-10-12",
+  "scope": "Retrospective comparison of October 10 retained replays. Existing nonblind grades retained; no new live run or independent regrading. All 200 trajectory hashes checked against reviews; all 280 user messages identical in pairs. All 100 paired review rationales examined and all 90 legacy-only candidate responses read. Other turns inspected through their inputs, card payload counts and verified prior reviews; full text available in private HTML.",
+  "candidate_runtime": "315377106070e11390a84c3236993ce0d5177026",
+  "production_runtime": "3093647403ec167a0f4ddc2e0bace05f9669d88f",
+  "current_pr_runtime_not_reevaluated": "548b7394a631fa5ffddf61f1725d45f84e885e5f",
+  "summary": {
+    "both": 52,
+    "legacy_only": 90,
+    "candidate_cards": 299,
+    "candidate_cases_with_cards": 48,
+    "candidate_distinct_within_cases": 228,
+    "legacy_cards": 603,
+    "legacy_cases_with_cards": 76,
+    "legacy_distinct_within_cases": 439,
+    "cases_fewer_cards": 58,
+    "cases_equal_distinct": 23,
+    "neither": 106,
+    "candidate_only": 32,
+    "cases_more_cards": 20,
+    "cases_more_distinct": 18,
+    "cases_fewer_distinct": 59,
+    "cases_equal_cards": 22
+  },
+  "legacy_only_response_observations": {
+    "offers": 38,
+    "conversation": 12,
+    "geo": 39,
+    "faq": 1
+  },
+  "observation_labels": {
+    "geo": "Lieu ou identité à préciser",
+    "conversation": "Budget groupe ou référence à préciser",
+    "faq": "FAQ hors périmètre",
+    "offers": "Aucune offre vérifiable annoncée"
+  },
+  "legacy_only_turns_with_legacy_reported_card_constraint_warning": 28,
+  "classification_limits": "Manual primary observation of why the response has no cards, not attribution of root cause or proof of provider availability. Geo includes necessary and excessive clarification; offers includes correct filtering, interpretation errors, date effects and unknown provider recall. Constraints warnings are legacy self-reports, not independent validation.",
+  "cases": [
+    {
+      "number": 1,
+      "label": "C001",
+      "title": "Hôtel nommé à Hong Kong",
+      "production_grade": "C",
+      "candidate_grade": "B",
+      "grade_comparison": "Mieux noté",
+      "production_cards": 2,
+      "candidate_cards": 1,
+      "distinct_hotels": {
+        "candidate": 1,
+        "legacy": 1
+      },
+      "turns": [
+        {
+          "turn": 1,
+          "production_cards": 1,
+          "candidate_cards": 1,
+          "presence": "both",
+          "gap_observation": null
+        },
+        {
+          "turn": 2,
+          "production_cards": 1,
+          "candidate_cards": 0,
+          "presence": "legacy_only",
+          "gap_observation": "offers"
+        }
+      ],
+      "diagnostic": "L’identité est conservée des deux côtés. La prod réaffiche l’hôtel ; le candidat ne confirme aucune offre datée après la précision de ville. La disponibilité explique la réponse, mais sa cause fournisseur reste à vérifier.",
+      "next_check": "Comparer les disponibilités datées du même hôtel."
+    },
+    {
+      "number": 2,
+      "label": "C002",
+      "title": "Paddington puis meilleur avis",
+      "production_grade": "B",
+      "candidate_grade": "B",
+      "grade_comparison": "Même note",
+      "production_cards": 5,
+      "candidate_cards": 6,
+      "distinct_hotels": {
+        "candidate": 5,
+        "legacy": 5
+      },
+      "turns": [
+        {
+          "turn": 1,
+          "production_cards": 0,
+          "candidate_cards": 0,
+          "presence": "neither",
+          "gap_observation": null
+        },
+        {
+          "turn": 2,
+          "production_cards": 5,
+          "candidate_cards": 5,
+          "presence": "both",
+          "gap_observation": null
+        },
+        {
+          "turn": 3,
+          "production_cards": 0,
+          "candidate_cards": 1,
+          "presence": "candidate_only",
+          "gap_observation": null
+        }
+      ],
+      "diagnostic": "Les deux agents proposent des hôtels près de Paddington. Le candidat répond au classement avec une carte de la liste réelle ; la prod répond sans nouvelle carte. La baisse globale de cartes ne concerne pas ce parcours.",
+      "next_check": "Conserver la référence à la liste et vérifier les affirmations sur la salle de bain."
+    },
+    {
+      "number": 3,
+      "label": "C003",
+      "title": "Piscine dans Queens puis nombre seul",
+      "production_grade": "C",
+      "candidate_grade": "B",
+      "grade_comparison": "Mieux noté",
+      "production_cards": 2,
+      "candidate_cards": 3,
+      "distinct_hotels": {
+        "candidate": 3,
+        "legacy": 1
+      },
+      "turns": [
+        {
+          "turn": 1,
+          "production_cards": 0,
+          "candidate_cards": 0,
+          "presence": "neither",
+          "gap_observation": null
+        },
+        {
+          "turn": 2,
+          "production_cards": 1,
+          "candidate_cards": 3,
+          "presence": "both",
+          "gap_observation": null
+        },
+        {
+          "turn": 3,
+          "production_cards": 1,
+          "candidate_cards": 0,
+          "presence": "legacy_only",
+          "gap_observation": "conversation"
+        }
+      ],
+      "diagnostic": "Le candidat montre davantage de cartes au tour de recherche, puis clarifie le nombre isolé. La question précédente diffère de celle de la prod ; le suivi numérique fixe n’est pas une comparaison équitable. La prod promet l’accès piscine sans preuve suffisante.",
+      "next_check": "Rejouer avec une réponse de budget adaptée à la vraie question."
+    },
+    {
+      "number": 4,
+      "label": "C004",
+      "title": "Heathrow Terminal 3 puis horaires",
+      "production_grade": "B",
+      "candidate_grade": "C",
+      "grade_comparison": "Moins bien noté",
+      "production_cards": 10,
+      "candidate_cards": 0,
+      "distinct_hotels": {
+        "candidate": 0,
+        "legacy": 7
+      },
+      "turns": [
+        {
+          "turn": 1,
+          "production_cards": 5,
+          "candidate_cards": 0,
+          "presence": "legacy_only",
+          "gap_observation": "geo"
+        },
+        {
+          "turn": 2,
+          "production_cards": 5,
+          "candidate_cards": 0,
+          "presence": "legacy_only",
+          "gap_observation": "geo"
+        }
+      ],
+      "diagnostic": "La prod avance avec des hôtels autour de Heathrow ; le candidat redemande deux fois la ville déjà contenue dans le nom. Le suivi sur les horaires reste bloqué : perte utile de résultats côté candidat.",
+      "next_check": "Rejouer la proposition de terminaux fournisseur du dernier correctif."
+    },
+    {
+      "number": 5,
+      "label": "C005",
+      "title": "La Défense avec faute puis Courbevoie",
+      "production_grade": "C",
+      "candidate_grade": "C",
+      "grade_comparison": "Même note",
+      "production_cards": 10,
+      "candidate_cards": 5,
+      "distinct_hotels": {
+        "candidate": 5,
+        "legacy": 8
+      },
+      "turns": [
+        {
+          "turn": 1,
+          "production_cards": 0,
+          "candidate_cards": 0,
+          "presence": "neither",
+          "gap_observation": null
+        },
+        {
+          "turn": 2,
+          "production_cards": 0,
+          "candidate_cards": 0,
+          "presence": "neither",
+          "gap_observation": null
+        },
+        {
+          "turn": 3,
+          "production_cards": 5,
+          "candidate_cards": 0,
+          "presence": "legacy_only",
+          "gap_observation": "geo"
+        },
+        {
+          "turn": 4,
+          "production_cards": 5,
+          "candidate_cards": 0,
+          "presence": "legacy_only",
+          "gap_observation": "geo"
+        },
+        {
+          "turn": 5,
+          "production_cards": 0,
+          "candidate_cards": 5,
+          "presence": "candidate_only",
+          "gap_observation": null
+        }
+      ],
+      "diagnostic": "La prod produit des cartes mais mélange heure, plafond et prix nul. Le candidat garde mercredi et 15–18 mais reste bloqué sur la faute jusqu’à sa correction explicite, puis fournit cinq cartes.",
+      "next_check": "Accélérer la récupération du repère sans perdre heure ni plafond."
+    },
+    {
+      "number": 6,
+      "label": "C006",
+      "title": "Piscine intérieure à Milan",
+      "production_grade": "C",
+      "candidate_grade": "C",
+      "grade_comparison": "Même note",
+      "production_cards": 5,
+      "candidate_cards": 10,
+      "distinct_hotels": {
+        "candidate": 5,
+        "legacy": 5
+      },
+      "turns": [
+        {
+          "turn": 1,
+          "production_cards": 0,
+          "candidate_cards": 0,
+          "presence": "neither",
+          "gap_observation": null
+        },
+        {
+          "turn": 2,
+          "production_cards": 5,
+          "candidate_cards": 5,
+          "presence": "both",
+          "gap_observation": null
+        },
+        {
+          "turn": 3,
+          "production_cards": 0,
+          "candidate_cards": 5,
+          "presence": "candidate_only",
+          "gap_observation": null
+        }
+      ],
+      "diagnostic": "Les deux agents affichent des hôtels, mais aucun ne prouve le sous-type intérieur demandé. Le candidat ajoute des cartes au suivi de zone ; ce volume supplémentaire ne résout pas le défaut d’équipement.",
+      "next_check": "Conserver et vérifier le sous-type intérieur."
+    },
+    {
+      "number": 7,
+      "label": "C007",
+      "title": "Séjour de trois heures à Melbourne",
+      "production_grade": "B",
+      "candidate_grade": "B",
+      "grade_comparison": "Même note",
+      "production_cards": 10,
+      "candidate_cards": 0,
+      "distinct_hotels": {
+        "candidate": 0,
+        "legacy": 6
+      },
+      "turns": [
+        {
+          "turn": 1,
+          "production_cards": 0,
+          "candidate_cards": 0,
+          "presence": "neither",
+          "gap_observation": null
+        },
+        {
+          "turn": 2,
+          "production_cards": 5,
+          "candidate_cards": 0,
+          "presence": "legacy_only",
+          "gap_observation": "offers"
+        },
+        {
+          "turn": 3,
+          "production_cards": 5,
+          "candidate_cards": 0,
+          "presence": "legacy_only",
+          "gap_observation": "offers"
+        }
+      ],
+      "diagnostic": "La prod propose des hôtels aux deux tours. Le candidat maintient la durée mais ne trouve aucune offre datée vérifiable ; rien ne démontre que les offres legacy sont disponibles à cette date.",
+      "next_check": "Comparer requêtes et disponibilités, puis proposer un compromis concret."
+    },
+    {
+      "number": 8,
+      "label": "C008",
+      "title": "Escale près de JFK à date historique",
+      "production_grade": "C",
+      "candidate_grade": "B",
+      "grade_comparison": "Mieux noté",
+      "production_cards": 5,
+      "candidate_cards": 0,
+      "distinct_hotels": {
+        "candidate": 0,
+        "legacy": 5
+      },
+      "turns": [
+        {
+          "turn": 1,
+          "production_cards": 5,
+          "candidate_cards": 0,
+          "presence": "legacy_only",
+          "gap_observation": "offers"
+        },
+        {
+          "turn": 2,
+          "production_cards": 0,
+          "candidate_cards": 0,
+          "presence": "neither",
+          "gap_observation": null
+        }
+      ],
+      "diagnostic": "La prod affiche des hôtels éloignés vers Jersey City. Le candidat conserve JFK et les horaires, mais la date historique est rejouée en 2027 et la recherche est vide. Géographie et calendrier empêchent de comparer le seul volume.",
+      "next_check": "Rejouer à date relative avec contrôle de distance et du séjour complet."
+    },
+    {
+      "number": 9,
+      "label": "C009",
+      "title": "Piscine pour enfants à Abu Dhabi",
+      "production_grade": "C",
+      "candidate_grade": "B",
+      "grade_comparison": "Mieux noté",
+      "production_cards": 10,
+      "candidate_cards": 10,
+      "distinct_hotels": {
+        "candidate": 6,
+        "legacy": 9
+      },
+      "turns": [
+        {
+          "turn": 1,
+          "production_cards": 5,
+          "candidate_cards": 5,
+          "presence": "both",
+          "gap_observation": null
+        },
+        {
+          "turn": 2,
+          "production_cards": 5,
+          "candidate_cards": 5,
+          "presence": "both",
+          "gap_observation": null
+        }
+      ],
+      "diagnostic": "Même volume de cartes. Le candidat maintient une réserve d’accès au suivi ; la prod promet davantage sans preuve de politique enfants. La première réponse candidat reste trop affirmative.",
+      "next_check": "Vérifier accès et politique enfants sur la formule."
+    },
+    {
+      "number": 10,
+      "label": "C010",
+      "title": "Edison et East Brunswick en soirée",
+      "production_grade": "D",
+      "candidate_grade": "C",
+      "grade_comparison": "Mieux noté",
+      "production_cards": 10,
+      "candidate_cards": 0,
+      "distinct_hotels": {
+        "candidate": 0,
+        "legacy": 8
+      },
+      "turns": [
+        {
+          "turn": 1,
+          "production_cards": 5,
+          "candidate_cards": 0,
+          "presence": "legacy_only",
+          "gap_observation": "offers"
+        },
+        {
+          "turn": 2,
+          "production_cards": 5,
+          "candidate_cards": 0,
+          "presence": "legacy_only",
+          "gap_observation": "offers"
+        },
+        {
+          "turn": 3,
+          "production_cards": 0,
+          "candidate_cards": 0,
+          "presence": "neither",
+          "gap_observation": null
+        },
+        {
+          "turn": 4,
+          "production_cards": 0,
+          "candidate_cards": 0,
+          "presence": "neither",
+          "gap_observation": null
+        }
+      ],
+      "diagnostic": "La prod affiche dix cartes cumulées puis se trompe de pays sur Metro Park. Le candidat ne résout pas complètement Edison et traite une date contradictoire comme juillet 2027 tout en disant ce soir. Les deux parcours échouent différemment.",
+      "next_check": "Résoudre la contradiction de date avant recherche et conserver les deux zones."
+    },
+    {
+      "number": 11,
+      "label": "C011",
+      "title": "Brooklyn puis budget et horaires",
+      "production_grade": "C",
+      "candidate_grade": "B",
+      "grade_comparison": "Mieux noté",
+      "production_cards": 10,
+      "candidate_cards": 0,
+      "distinct_hotels": {
+        "candidate": 0,
+        "legacy": 10
+      },
+      "turns": [
+        {
+          "turn": 1,
+          "production_cards": 5,
+          "candidate_cards": 0,
+          "presence": "legacy_only",
+          "gap_observation": "geo"
+        },
+        {
+          "turn": 2,
+          "production_cards": 5,
+          "candidate_cards": 0,
+          "presence": "legacy_only",
+          "gap_observation": "geo"
+        }
+      ],
+      "diagnostic": "La prod montre des options dont une hors quartier et au-dessus du plafond. Le candidat demande quel Brooklyn ; les réponses historiques ne lèvent pas l’ambiguïté. La clarification peut être légitime, mais ne conduit à aucun résultat dans ce rejeu fixe.",
+      "next_check": "Faire un rejeu adaptatif avec confirmation du Brooklyn visé."
+    },
+    {
+      "number": 12,
+      "label": "C012",
+      "title": "Gillingham et séjour de quatre heures",
+      "production_grade": "C",
+      "candidate_grade": "B",
+      "grade_comparison": "Mieux noté",
+      "production_cards": 5,
+      "candidate_cards": 2,
+      "distinct_hotels": {
+        "candidate": 2,
+        "legacy": 5
+      },
+      "turns": [
+        {
+          "turn": 1,
+          "production_cards": 0,
+          "candidate_cards": 0,
+          "presence": "neither",
+          "gap_observation": null
+        },
+        {
+          "turn": 2,
+          "production_cards": 5,
+          "candidate_cards": 2,
+          "presence": "both",
+          "gap_observation": null
+        },
+        {
+          "turn": 3,
+          "production_cards": 0,
+          "candidate_cards": 0,
+          "presence": "neither",
+          "gap_observation": null
+        },
+        {
+          "turn": 4,
+          "production_cards": 0,
+          "candidate_cards": 0,
+          "presence": "neither",
+          "gap_observation": null
+        }
+      ],
+      "diagnostic": "Les deux proposent des hôtels après la ville. Le candidat en montre moins puis n’invente pas une offre pour des heures déjà passées localement ; la prod ne persiste pas correctement le nouvel horaire.",
+      "next_check": "Rejouer à heure future et vérifier la qualité de literie annoncée."
+    },
+    {
+      "number": 13,
+      "label": "C013",
+      "title": "NYC puis Newark puis Manhattan",
+      "production_grade": "B",
+      "candidate_grade": "C",
+      "grade_comparison": "Moins bien noté",
+      "production_cards": 5,
+      "candidate_cards": 5,
+      "distinct_hotels": {
+        "candidate": 5,
+        "legacy": 5
+      },
+      "turns": [
+        {
+          "turn": 1,
+          "production_cards": 0,
+          "candidate_cards": 0,
+          "presence": "neither",
+          "gap_observation": null
+        },
+        {
+          "turn": 2,
+          "production_cards": 0,
+          "candidate_cards": 5,
+          "presence": "candidate_only",
+          "gap_observation": null
+        },
+        {
+          "turn": 3,
+          "production_cards": 0,
+          "candidate_cards": 0,
+          "presence": "neither",
+          "gap_observation": null
+        },
+        {
+          "turn": 4,
+          "production_cards": 5,
+          "candidate_cards": 0,
+          "presence": "legacy_only",
+          "gap_observation": "geo"
+        }
+      ],
+      "diagnostic": "Le candidat trouve des hôtels à NYC mais perd ce contexte après Newark et redemande quel Manhattan. La prod aboutit à Manhattan. C’est une régression de suivi, malgré les cinq cartes initiales du candidat.",
+      "next_check": "Rejouer la conservation du précédent parent vérifié."
+    },
+    {
+      "number": 14,
+      "label": "C014",
+      "title": "Singapour avec faute puis nuit",
+      "production_grade": "B",
+      "candidate_grade": "B",
+      "grade_comparison": "Même note",
+      "production_cards": 10,
+      "candidate_cards": 0,
+      "distinct_hotels": {
+        "candidate": 0,
+        "legacy": 5
+      },
+      "turns": [
+        {
+          "turn": 1,
+          "production_cards": 5,
+          "candidate_cards": 0,
+          "presence": "legacy_only",
+          "gap_observation": "geo"
+        },
+        {
+          "turn": 2,
+          "production_cards": 5,
+          "candidate_cards": 0,
+          "presence": "legacy_only",
+          "gap_observation": "faq"
+        }
+      ],
+      "diagnostic": "La prod récupère le nom et affiche des cartes. Le candidat demande confirmation puis répond à une question de nuit sans cartes. Le deuxième tour relève de la FAQ hors périmètre ; il ne faut pas compter toute la différence comme perte de recherche.",
+      "next_check": "Distinguer récupération du nom et validation séparée du parcours nuit."
+    },
+    {
+      "number": 15,
+      "label": "C015",
+      "title": "Jacuzzi à Milford puis nombre seul",
+      "production_grade": "B",
+      "candidate_grade": "B",
+      "grade_comparison": "Même note",
+      "production_cards": 8,
+      "candidate_cards": 0,
+      "distinct_hotels": {
+        "candidate": 0,
+        "legacy": 5
+      },
+      "turns": [
+        {
+          "turn": 1,
+          "production_cards": 0,
+          "candidate_cards": 0,
+          "presence": "neither",
+          "gap_observation": null
+        },
+        {
+          "turn": 2,
+          "production_cards": 5,
+          "candidate_cards": 0,
+          "presence": "legacy_only",
+          "gap_observation": "offers"
+        },
+        {
+          "turn": 3,
+          "production_cards": 3,
+          "candidate_cards": 0,
+          "presence": "legacy_only",
+          "gap_observation": "conversation"
+        }
+      ],
+      "diagnostic": "La prod propose des alternatives en signalant l’absence de jacuzzi. Le candidat garde le filtre et n’a pas d’offre vérifiable ; le nombre suivant répondait à une autre question côté legacy.",
+      "next_check": "Tester un assouplissement consenti puis un budget explicite."
+    },
+    {
+      "number": 16,
+      "label": "C016",
+      "title": "Escale à Berlin Mitte",
+      "production_grade": "C",
+      "candidate_grade": "A",
+      "grade_comparison": "Mieux noté",
+      "production_cards": 0,
+      "candidate_cards": 1,
+      "distinct_hotels": {
+        "candidate": 1,
+        "legacy": 0
+      },
+      "turns": [
+        {
+          "turn": 1,
+          "production_cards": 0,
+          "candidate_cards": 0,
+          "presence": "neither",
+          "gap_observation": null
+        },
+        {
+          "turn": 2,
+          "production_cards": 0,
+          "candidate_cards": 1,
+          "presence": "candidate_only",
+          "gap_observation": null
+        }
+      ],
+      "diagnostic": "La prod répond de façon explicative sans recherche utile. Le candidat résout le quartier et affiche une offre réelle. Gain de progression et de pertinence, pas seulement gain de cartes.",
+      "next_check": "Conserver ce parcours comme contrôle positif."
+    },
+    {
+      "number": 17,
+      "label": "C017",
+      "title": "Westminster jacuzzi et climatisation",
+      "production_grade": "C",
+      "candidate_grade": "C",
+      "grade_comparison": "Même note",
+      "production_cards": 11,
+      "candidate_cards": 0,
+      "distinct_hotels": {
+        "candidate": 0,
+        "legacy": 9
+      },
+      "turns": [
+        {
+          "turn": 1,
+          "production_cards": 4,
+          "candidate_cards": 0,
+          "presence": "legacy_only",
+          "gap_observation": "geo"
+        },
+        {
+          "turn": 2,
+          "production_cards": 2,
+          "candidate_cards": 0,
+          "presence": "legacy_only",
+          "gap_observation": "geo"
+        },
+        {
+          "turn": 3,
+          "production_cards": 2,
+          "candidate_cards": 0,
+          "presence": "legacy_only",
+          "gap_observation": "geo"
+        },
+        {
+          "turn": 4,
+          "production_cards": 0,
+          "candidate_cards": 0,
+          "presence": "neither",
+          "gap_observation": null
+        },
+        {
+          "turn": 5,
+          "production_cards": 3,
+          "candidate_cards": 0,
+          "presence": "legacy_only",
+          "gap_observation": "conversation"
+        }
+      ],
+      "diagnostic": "La prod affiche des options puis relâche un filtre sans consentement. Le candidat clarifie d’abord un homonyme, mais redemande encore la ville après Westminster UK et interprète un nombre comme lieu. Les deux ont des défauts.",
+      "next_check": "Utiliser la réponse UK pour résoudre le parent et clarifier le rôle du nombre."
+    },
+    {
+      "number": 18,
+      "label": "C018",
+      "title": "Bercy puis date et créneau",
+      "production_grade": "B",
+      "candidate_grade": "B",
+      "grade_comparison": "Même note",
+      "production_cards": 10,
+      "candidate_cards": 10,
+      "distinct_hotels": {
+        "candidate": 9,
+        "legacy": 7
+      },
+      "turns": [
+        {
+          "turn": 1,
+          "production_cards": 0,
+          "candidate_cards": 0,
+          "presence": "neither",
+          "gap_observation": null
+        },
+        {
+          "turn": 2,
+          "production_cards": 5,
+          "candidate_cards": 5,
+          "presence": "both",
+          "gap_observation": null
+        },
+        {
+          "turn": 3,
+          "production_cards": 5,
+          "candidate_cards": 5,
+          "presence": "both",
+          "gap_observation": null
+        }
+      ],
+      "diagnostic": "Même volume de cartes et origine conservée. Le candidat ne privilégie pas immédiatement le moins cher demandé, mais trouve ensuite une option à 57 EUR.",
+      "next_check": "Vérifier que le premier classement suit la demande de prix."
+    },
+    {
+      "number": 19,
+      "label": "C019",
+      "title": "East Brunswick puis plafond USD",
+      "production_grade": "B",
+      "candidate_grade": "B",
+      "grade_comparison": "Même note",
+      "production_cards": 8,
+      "candidate_cards": 10,
+      "distinct_hotels": {
+        "candidate": 5,
+        "legacy": 6
+      },
+      "turns": [
+        {
+          "turn": 1,
+          "production_cards": 5,
+          "candidate_cards": 5,
+          "presence": "both",
+          "gap_observation": null
+        },
+        {
+          "turn": 2,
+          "production_cards": 3,
+          "candidate_cards": 5,
+          "presence": "both",
+          "gap_observation": null
+        }
+      ],
+      "diagnostic": "Le candidat conserve ville et plafond et montre plus de cartes au suivi. Le rendu EUR et la sélection générique restent peu alignés avec la demande qualitative ; la prod cite aussi des hôtels absents de la liste.",
+      "next_check": "Améliorer la présentation du prix et la justification du classement."
+    },
+    {
+      "number": 20,
+      "label": "C020",
+      "title": "Disneyland sans ville",
+      "production_grade": "D",
+      "candidate_grade": "B",
+      "grade_comparison": "Mieux noté",
+      "production_cards": 0,
+      "candidate_cards": 0,
+      "distinct_hotels": {
+        "candidate": 0,
+        "legacy": 0
+      },
+      "turns": [
+        {
+          "turn": 1,
+          "production_cards": 0,
+          "candidate_cards": 0,
+          "presence": "neither",
+          "gap_observation": null
+        },
+        {
+          "turn": 2,
+          "production_cards": 0,
+          "candidate_cards": 0,
+          "presence": "neither",
+          "gap_observation": null
+        },
+        {
+          "turn": 3,
+          "production_cards": 0,
+          "candidate_cards": 0,
+          "presence": "neither",
+          "gap_observation": null
+        },
+        {
+          "turn": 4,
+          "production_cards": 0,
+          "candidate_cards": 0,
+          "presence": "neither",
+          "gap_observation": null
+        },
+        {
+          "turn": 5,
+          "production_cards": 0,
+          "candidate_cards": 0,
+          "presence": "neither",
+          "gap_observation": null
+        },
+        {
+          "turn": 6,
+          "production_cards": 0,
+          "candidate_cards": 0,
+          "presence": "neither",
+          "gap_observation": null
+        }
+      ],
+      "diagnostic": "Aucun hôtel des deux côtés. La prod choisit un pays erroné ; le candidat clarifie un parc ambigu, mais les suites fixes ne répondent pas à sa question. Absence de cartes ici ne signifie pas régression.",
+      "next_check": "Rejouer avec confirmation du parc réellement souhaité."
+    },
+    {
+      "number": 21,
+      "label": "C021",
+      "title": "South Plainfield en excluant NYC",
+      "production_grade": "D",
+      "candidate_grade": "B",
+      "grade_comparison": "Mieux noté",
+      "production_cards": 15,
+      "candidate_cards": 2,
+      "distinct_hotels": {
+        "candidate": 2,
+        "legacy": 13
+      },
+      "turns": [
+        {
+          "turn": 1,
+          "production_cards": 5,
+          "candidate_cards": 2,
+          "presence": "both",
+          "gap_observation": null
+        },
+        {
+          "turn": 2,
+          "production_cards": 5,
+          "candidate_cards": 0,
+          "presence": "legacy_only",
+          "gap_observation": "conversation"
+        },
+        {
+          "turn": 3,
+          "production_cards": 5,
+          "candidate_cards": 0,
+          "presence": "legacy_only",
+          "gap_observation": "conversation"
+        }
+      ],
+      "diagnostic": "La prod continue à proposer Manhattan malgré l’exclusion. Le candidat garde le New Jersey, mais demande le rôle du nombre puis la devise. Moins de cartes et meilleure contrainte géographique, avec friction de clarification.",
+      "next_check": "Répondre au budget dans le contexte réel puis contrôler la zone exclue."
+    },
+    {
+      "number": 22,
+      "label": "C022",
+      "title": "La Défense puis arrivée à 18 h",
+      "production_grade": "C",
+      "candidate_grade": "C",
+      "grade_comparison": "Même note",
+      "production_cards": 10,
+      "candidate_cards": 0,
+      "distinct_hotels": {
+        "candidate": 0,
+        "legacy": 9
+      },
+      "turns": [
+        {
+          "turn": 1,
+          "production_cards": 5,
+          "candidate_cards": 0,
+          "presence": "legacy_only",
+          "gap_observation": "geo"
+        },
+        {
+          "turn": 2,
+          "production_cards": 5,
+          "candidate_cards": 0,
+          "presence": "legacy_only",
+          "gap_observation": "geo"
+        }
+      ],
+      "diagnostic": "La prod montre des cartes avec prix nul ou créneau inadapté. Le candidat conserve plafond et arrivée mais redemande la ville aux deux tours. Refuser de mauvaises offres ne justifie pas ce blocage géographique.",
+      "next_check": "Résoudre La Défense puis comparer les formules couvrant 18 h."
+    },
+    {
+      "number": 23,
+      "label": "C023",
+      "title": "Halifax puis absence de plafond",
+      "production_grade": "C",
+      "candidate_grade": "B",
+      "grade_comparison": "Mieux noté",
+      "production_cards": 4,
+      "candidate_cards": 0,
+      "distinct_hotels": {
+        "candidate": 0,
+        "legacy": 2
+      },
+      "turns": [
+        {
+          "turn": 1,
+          "production_cards": 2,
+          "candidate_cards": 0,
+          "presence": "legacy_only",
+          "gap_observation": "geo"
+        },
+        {
+          "turn": 2,
+          "production_cards": 2,
+          "candidate_cards": 0,
+          "presence": "legacy_only",
+          "gap_observation": "geo"
+        }
+      ],
+      "diagnostic": "La prod choisit une ville et impose un plafond malgré la demande. Le candidat garde l’absence de plafond, mais répète le choix Canada ou Royaume-Uni auquel le suivi fixe ne répond pas.",
+      "next_check": "Tester une réponse de désambiguïsation réelle."
+    },
+    {
+      "number": 24,
+      "label": "C024",
+      "title": "Halton et Peel puis piscine",
+      "production_grade": "C",
+      "candidate_grade": "C",
+      "grade_comparison": "Même note",
+      "production_cards": 10,
+      "candidate_cards": 0,
+      "distinct_hotels": {
+        "candidate": 0,
+        "legacy": 7
+      },
+      "turns": [
+        {
+          "turn": 1,
+          "production_cards": 0,
+          "candidate_cards": 0,
+          "presence": "neither",
+          "gap_observation": null
+        },
+        {
+          "turn": 2,
+          "production_cards": 5,
+          "candidate_cards": 0,
+          "presence": "legacy_only",
+          "gap_observation": "geo"
+        },
+        {
+          "turn": 3,
+          "production_cards": 5,
+          "candidate_cards": 0,
+          "presence": "legacy_only",
+          "gap_observation": "geo"
+        }
+      ],
+      "diagnostic": "La prod remplace les deux régions par Toronto et promet trop sur l’accès. Le candidat conserve le besoin piscine mais ne transforme pas les deux lieux en demande exploitable. Question générique sans recherche.",
+      "next_check": "Conserver les deux régions et demander une priorité utile si nécessaire."
+    },
+    {
+      "number": 25,
+      "label": "C025",
+      "title": "Île de France spa pour deux",
+      "production_grade": "C",
+      "candidate_grade": "C",
+      "grade_comparison": "Même note",
+      "production_cards": 15,
+      "candidate_cards": 6,
+      "distinct_hotels": {
+        "candidate": 5,
+        "legacy": 8
+      },
+      "turns": [
+        {
+          "turn": 1,
+          "production_cards": 5,
+          "candidate_cards": 5,
+          "presence": "both",
+          "gap_observation": null
+        },
+        {
+          "turn": 2,
+          "production_cards": 5,
+          "candidate_cards": 0,
+          "presence": "legacy_only",
+          "gap_observation": "conversation"
+        },
+        {
+          "turn": 3,
+          "production_cards": 0,
+          "candidate_cards": 1,
+          "presence": "candidate_only",
+          "gap_observation": null
+        },
+        {
+          "turn": 4,
+          "production_cards": 5,
+          "candidate_cards": 0,
+          "presence": "legacy_only",
+          "gap_observation": "conversation"
+        }
+      ],
+      "diagnostic": "Le candidat sait rechercher et détailler la première offre, puis bloque deux fois sur la composition du groupe et perd la géographie après près de moi. La prod avance mais mélange spa seul, chambre et budget.",
+      "next_check": "Préserver la découverte conditionnelle et la référence de prix lors des suivis."
+    },
+    {
+      "number": 26,
+      "label": "C026",
+      "title": "Près de moi sans GPS en anglais",
+      "production_grade": "A",
+      "candidate_grade": "A",
+      "grade_comparison": "Même note",
+      "production_cards": 0,
+      "candidate_cards": 0,
+      "distinct_hotels": {
+        "candidate": 0,
+        "legacy": 0
+      },
+      "turns": [
+        {
+          "turn": 1,
+          "production_cards": 0,
+          "candidate_cards": 0,
+          "presence": "neither",
+          "gap_observation": null
+        }
+      ],
+      "diagnostic": "Les deux agents demandent une localisation sans inventer de résultat. Zéro carte est le comportement attendu à ce stade.",
+      "next_check": "Contrôle négatif à conserver."
+    },
+    {
+      "number": 27,
+      "label": "C027",
+      "title": "Près de moi puis 80 EUR et horaires",
+      "production_grade": "B",
+      "candidate_grade": "B",
+      "grade_comparison": "Même note",
+      "production_cards": 4,
+      "candidate_cards": 1,
+      "distinct_hotels": {
+        "candidate": 1,
+        "legacy": 2
+      },
+      "turns": [
+        {
+          "turn": 1,
+          "production_cards": 2,
+          "candidate_cards": 1,
+          "presence": "both",
+          "gap_observation": null
+        },
+        {
+          "turn": 2,
+          "production_cards": 1,
+          "candidate_cards": 0,
+          "presence": "legacy_only",
+          "gap_observation": "offers"
+        },
+        {
+          "turn": 3,
+          "production_cards": 1,
+          "candidate_cards": 0,
+          "presence": "legacy_only",
+          "gap_observation": "offers"
+        }
+      ],
+      "diagnostic": "La prod affiche des alternatives lointaines annoncées. Le candidat applique réellement 80 EUR mais sa prose cite l’ancien seuil de 97,50 EUR ; la recherche est vide. Défaut d’explication distinct du filtrage.",
+      "next_check": "Aligner le texte sur le plafond actif et vérifier l’offre legacy comparable."
+    },
+    {
+      "number": 28,
+      "label": "C028",
+      "title": "Jacuzzi à Milan à date explicite",
+      "production_grade": "C",
+      "candidate_grade": "B",
+      "grade_comparison": "Mieux noté",
+      "production_cards": 4,
+      "candidate_cards": 5,
+      "distinct_hotels": {
+        "candidate": 5,
+        "legacy": 4
+      },
+      "turns": [
+        {
+          "turn": 1,
+          "production_cards": 0,
+          "candidate_cards": 0,
+          "presence": "neither",
+          "gap_observation": null
+        },
+        {
+          "turn": 2,
+          "production_cards": 4,
+          "candidate_cards": 5,
+          "presence": "both",
+          "gap_observation": null
+        }
+      ],
+      "diagnostic": "Les deux recherchent et le candidat affiche légèrement plus de cartes. Il distingue présence et accès privé ou inclus, que la prod promet sans preuve suffisante.",
+      "next_check": "Conserver l’incertitude d’accès dans les détails aussi."
+    },
+    {
+      "number": 29,
+      "label": "C029",
+      "title": "Aéroport de Vienne puis 13 h à 18 h",
+      "production_grade": "B",
+      "candidate_grade": "A",
+      "grade_comparison": "Mieux noté",
+      "production_cards": 5,
+      "candidate_cards": 1,
+      "distinct_hotels": {
+        "candidate": 1,
+        "legacy": 5
+      },
+      "turns": [
+        {
+          "turn": 1,
+          "production_cards": 0,
+          "candidate_cards": 0,
+          "presence": "neither",
+          "gap_observation": null
+        },
+        {
+          "turn": 2,
+          "production_cards": 0,
+          "candidate_cards": 1,
+          "presence": "candidate_only",
+          "gap_observation": null
+        },
+        {
+          "turn": 3,
+          "production_cards": 5,
+          "candidate_cards": 0,
+          "presence": "legacy_only",
+          "gap_observation": "offers"
+        }
+      ],
+      "diagnostic": "Le candidat trouve d’abord une offre puis ne montre plus de formule vérifiable pour le créneau exact. La prod affiche des créneaux partiels avec réserve. Différence de stratégie d’alternative, pas preuve de perte d’inventaire.",
+      "next_check": "Proposer une alternative explicite après accord sur les horaires."
+    },
+    {
+      "number": 30,
+      "label": "C030",
+      "title": "Déjeuner inclus sans destination",
+      "production_grade": "B",
+      "candidate_grade": "B",
+      "grade_comparison": "Même note",
+      "production_cards": 0,
+      "candidate_cards": 0,
+      "distinct_hotels": {
+        "candidate": 0,
+        "legacy": 0
+      },
+      "turns": [
+        {
+          "turn": 1,
+          "production_cards": 0,
+          "candidate_cards": 0,
+          "presence": "neither",
+          "gap_observation": null
+        }
+      ],
+      "diagnostic": "Les deux demandent un lieu. Le candidat laisse l’inclusion conditionnelle à la formule ; aucune carte n’est attendue sans destination.",
+      "next_check": "Contrôle de clarification et d’inclusion à conserver."
+    },
+    {
+      "number": 31,
+      "label": "C031",
+      "title": "Navette à DFW",
+      "production_grade": "B",
+      "candidate_grade": "B",
+      "grade_comparison": "Même note",
+      "production_cards": 5,
+      "candidate_cards": 2,
+      "distinct_hotels": {
+        "candidate": 2,
+        "legacy": 5
+      },
+      "turns": [
+        {
+          "turn": 1,
+          "production_cards": 0,
+          "candidate_cards": 0,
+          "presence": "neither",
+          "gap_observation": null
+        },
+        {
+          "turn": 2,
+          "production_cards": 5,
+          "candidate_cards": 2,
+          "presence": "both",
+          "gap_observation": null
+        }
+      ],
+      "diagnostic": "Les deux reconnaissent l’aéroport. Le candidat expose deux offres avec créneaux réels contre cinq côté prod ; navette et disponibilité ne sont pas comparables par nombre seul.",
+      "next_check": "Vérifier navette incluse et pertinence des formules retournées."
+    },
+    {
+      "number": 32,
+      "label": "C032",
+      "title": "Portugal puis deux villes dont une mal écrite",
+      "production_grade": "C",
+      "candidate_grade": "B",
+      "grade_comparison": "Mieux noté",
+      "production_cards": 0,
+      "candidate_cards": 2,
+      "distinct_hotels": {
+        "candidate": 2,
+        "legacy": 0
+      },
+      "turns": [
+        {
+          "turn": 1,
+          "production_cards": 0,
+          "candidate_cards": 0,
+          "presence": "neither",
+          "gap_observation": null
+        },
+        {
+          "turn": 2,
+          "production_cards": 0,
+          "candidate_cards": 0,
+          "presence": "neither",
+          "gap_observation": null
+        },
+        {
+          "turn": 3,
+          "production_cards": 0,
+          "candidate_cards": 0,
+          "presence": "neither",
+          "gap_observation": null
+        },
+        {
+          "turn": 4,
+          "production_cards": 0,
+          "candidate_cards": 2,
+          "presence": "candidate_only",
+          "gap_observation": null
+        }
+      ],
+      "diagnostic": "La prod perd Porto avec la faute sur Lisbonne. Le candidat recherche Porto et signale l’autre zone non résolue. Gain de récupération partielle explicite.",
+      "next_check": "Conserver les alternatives valides sans prétendre couvrir les deux villes."
+    },
+    {
+      "number": 33,
+      "label": "C033",
+      "title": "Singapour avec arrivée à minuit",
+      "production_grade": "C",
+      "candidate_grade": "B",
+      "grade_comparison": "Mieux noté",
+      "production_cards": 5,
+      "candidate_cards": 0,
+      "distinct_hotels": {
+        "candidate": 0,
+        "legacy": 5
+      },
+      "turns": [
+        {
+          "turn": 1,
+          "production_cards": 0,
+          "candidate_cards": 0,
+          "presence": "neither",
+          "gap_observation": null
+        },
+        {
+          "turn": 2,
+          "production_cards": 5,
+          "candidate_cards": 0,
+          "presence": "legacy_only",
+          "gap_observation": "offers"
+        },
+        {
+          "turn": 3,
+          "production_cards": 0,
+          "candidate_cards": 0,
+          "presence": "neither",
+          "gap_observation": null
+        },
+        {
+          "turn": 4,
+          "production_cards": 0,
+          "candidate_cards": 0,
+          "presence": "neither",
+          "gap_observation": null
+        },
+        {
+          "turn": 5,
+          "production_cards": 0,
+          "candidate_cards": 0,
+          "presence": "neither",
+          "gap_observation": null
+        }
+      ],
+      "diagnostic": "La prod présente d’abord 00 h comme compatible avec une formule commençant à 00 h 30. Le candidat ne montre aucune offre pour minuit ; les dates historiques et le suivi comparatif sans liste compliquent le rejeu.",
+      "next_check": "Tester minuit à date future et annoncer toute alternative de 30 minutes."
+    },
+    {
+      "number": 34,
+      "label": "C034",
+      "title": "Jacuzzi autour de Den Bosch",
+      "production_grade": "D",
+      "candidate_grade": "B",
+      "grade_comparison": "Mieux noté",
+      "production_cards": 5,
+      "candidate_cards": 0,
+      "distinct_hotels": {
+        "candidate": 0,
+        "legacy": 4
+      },
+      "turns": [
+        {
+          "turn": 1,
+          "production_cards": 0,
+          "candidate_cards": 0,
+          "presence": "neither",
+          "gap_observation": null
+        },
+        {
+          "turn": 2,
+          "production_cards": 2,
+          "candidate_cards": 0,
+          "presence": "legacy_only",
+          "gap_observation": "offers"
+        },
+        {
+          "turn": 3,
+          "production_cards": 3,
+          "candidate_cards": 0,
+          "presence": "legacy_only",
+          "gap_observation": "conversation"
+        }
+      ],
+      "diagnostic": "La prod affiche des hôtels vers Schiphol comme s’ils répondaient à Den Bosch. Le candidat garde la ville et le jacuzzi mais répond vide puis clarifie une réaction issue de la branche legacy.",
+      "next_check": "Vérifier le résultat fournisseur local et proposer un compromis géographique explicite."
+    },
+    {
+      "number": 35,
+      "label": "C035",
+      "title": "Près de moi demain avec piscine",
+      "production_grade": "B",
+      "candidate_grade": "C",
+      "grade_comparison": "Moins bien noté",
+      "production_cards": 0,
+      "candidate_cards": 5,
+      "distinct_hotels": {
+        "candidate": 5,
+        "legacy": 0
+      },
+      "turns": [
+        {
+          "turn": 1,
+          "production_cards": 0,
+          "candidate_cards": 0,
+          "presence": "neither",
+          "gap_observation": null
+        },
+        {
+          "turn": 2,
+          "production_cards": 0,
+          "candidate_cards": 5,
+          "presence": "candidate_only",
+          "gap_observation": null
+        },
+        {
+          "turn": 3,
+          "production_cards": 0,
+          "candidate_cards": 0,
+          "presence": "neither",
+          "gap_observation": null
+        },
+        {
+          "turn": 4,
+          "production_cards": 0,
+          "candidate_cards": 0,
+          "presence": "neither",
+          "gap_observation": null
+        }
+      ],
+      "diagnostic": "Le candidat montre cinq cartes au deuxième tour, puis transforme demain en période indéfinie et bloque. La prod ne montre aucune carte mais continue à demander le lieu. Le défaut candidat ne se voit pas dans le total de cartes.",
+      "next_check": "Rejouer le correctif de flexibilité temporelle."
+    },
+    {
+      "number": 36,
+      "label": "C036",
+      "title": "Barking tôt le matin puis moins cher",
+      "production_grade": "B",
+      "candidate_grade": "B",
+      "grade_comparison": "Même note",
+      "production_cards": 10,
+      "candidate_cards": 0,
+      "distinct_hotels": {
+        "candidate": 0,
+        "legacy": 5
+      },
+      "turns": [
+        {
+          "turn": 1,
+          "production_cards": 0,
+          "candidate_cards": 0,
+          "presence": "neither",
+          "gap_observation": null
+        },
+        {
+          "turn": 2,
+          "production_cards": 5,
+          "candidate_cards": 0,
+          "presence": "legacy_only",
+          "gap_observation": "offers"
+        },
+        {
+          "turn": 3,
+          "production_cards": 5,
+          "candidate_cards": 0,
+          "presence": "legacy_only",
+          "gap_observation": "conversation"
+        }
+      ],
+      "diagnostic": "La prod présente des créneaux partiels en les signalant. Le candidat garde 06–16, n’a pas d’offre vérifiable et ne peut pas établir moins cher sans référence. Les suites fixes n’acceptent aucun compromis.",
+      "next_check": "Tester des alternatives après consentement sur le créneau."
+    },
+    {
+      "number": 37,
+      "label": "C037",
+      "title": "Cph avec jacuzzi",
+      "production_grade": "A",
+      "candidate_grade": "B",
+      "grade_comparison": "Moins bien noté",
+      "production_cards": 0,
+      "candidate_cards": 0,
+      "distinct_hotels": {
+        "candidate": 0,
+        "legacy": 0
+      },
+      "turns": [
+        {
+          "turn": 1,
+          "production_cards": 0,
+          "candidate_cards": 0,
+          "presence": "neither",
+          "gap_observation": null
+        },
+        {
+          "turn": 2,
+          "production_cards": 0,
+          "candidate_cards": 0,
+          "presence": "neither",
+          "gap_observation": null
+        }
+      ],
+      "diagnostic": "Aucune carte. La prod reconnaît le code et explique la couverture ; le candidat demande une précision. Régression mineure de compréhension et de récupération, invisible dans les compteurs de cartes.",
+      "next_check": "Valider la normalisation avec une identité fournisseur et une couverture autoritative."
+    },
+    {
+      "number": 38,
+      "label": "C038",
+      "title": "SeaWorld et paiement en espèces",
+      "production_grade": "D",
+      "candidate_grade": "B",
+      "grade_comparison": "Mieux noté",
+      "production_cards": 5,
+      "candidate_cards": 0,
+      "distinct_hotels": {
+        "candidate": 0,
+        "legacy": 5
+      },
+      "turns": [
+        {
+          "turn": 1,
+          "production_cards": 5,
+          "candidate_cards": 0,
+          "presence": "legacy_only",
+          "gap_observation": "geo"
+        }
+      ],
+      "diagnostic": "La prod choisit Seattle sans fondement. Le candidat demande la ville du parc et ne fournit pas de mauvaise sélection. Le paiement en espèces reste à vérifier.",
+      "next_check": "Répondre à l’ambiguïté puis vérifier les conditions de paiement séparément."
+    },
+    {
+      "number": 39,
+      "label": "C039",
+      "title": "Deux quartiers de Rio",
+      "production_grade": "C",
+      "candidate_grade": "B",
+      "grade_comparison": "Mieux noté",
+      "production_cards": 0,
+      "candidate_cards": 4,
+      "distinct_hotels": {
+        "candidate": 2,
+        "legacy": 0
+      },
+      "turns": [
+        {
+          "turn": 1,
+          "production_cards": 0,
+          "candidate_cards": 2,
+          "presence": "candidate_only",
+          "gap_observation": null
+        },
+        {
+          "turn": 2,
+          "production_cards": 0,
+          "candidate_cards": 2,
+          "presence": "candidate_only",
+          "gap_observation": null
+        }
+      ],
+      "diagnostic": "La prod perd l’une des alternatives. Le candidat conserve les deux, puis les rattache à Rio et affiche des résultats dans les zones vérifiées.",
+      "next_check": "Contrôle positif de zones alternatives et parent."
+    },
+    {
+      "number": 40,
+      "label": "C040",
+      "title": "Philadelphie le soir avec jacuzzi privé",
+      "production_grade": "C",
+      "candidate_grade": "B",
+      "grade_comparison": "Mieux noté",
+      "production_cards": 4,
+      "candidate_cards": 0,
+      "distinct_hotels": {
+        "candidate": 0,
+        "legacy": 1
+      },
+      "turns": [
+        {
+          "turn": 1,
+          "production_cards": 0,
+          "candidate_cards": 0,
+          "presence": "neither",
+          "gap_observation": null
+        },
+        {
+          "turn": 2,
+          "production_cards": 1,
+          "candidate_cards": 0,
+          "presence": "legacy_only",
+          "gap_observation": "offers"
+        },
+        {
+          "turn": 3,
+          "production_cards": 1,
+          "candidate_cards": 0,
+          "presence": "legacy_only",
+          "gap_observation": "offers"
+        },
+        {
+          "turn": 4,
+          "production_cards": 1,
+          "candidate_cards": 0,
+          "presence": "legacy_only",
+          "gap_observation": "offers"
+        },
+        {
+          "turn": 5,
+          "production_cards": 1,
+          "candidate_cards": 0,
+          "presence": "legacy_only",
+          "gap_observation": "offers"
+        }
+      ],
+      "diagnostic": "La prod répète une carte diurne et avance un rayon en temps de trajet non prouvé. Le candidat conserve soirée et jacuzzi, reste sans offre et propose des compromis ; il ne vérifie pas non plus le temps de voiture.",
+      "next_check": "Proposer un seul compromis explicite et ne pas promettre un rayon routier."
+    },
+    {
+      "number": 41,
+      "label": "C041",
+      "title": "Aéroport puis Rome",
+      "production_grade": "A",
+      "candidate_grade": "C",
+      "grade_comparison": "Moins bien noté",
+      "production_cards": 0,
+      "candidate_cards": 5,
+      "distinct_hotels": {
+        "candidate": 5,
+        "legacy": 0
+      },
+      "turns": [
+        {
+          "turn": 1,
+          "production_cards": 0,
+          "candidate_cards": 0,
+          "presence": "neither",
+          "gap_observation": null
+        },
+        {
+          "turn": 2,
+          "production_cards": 0,
+          "candidate_cards": 5,
+          "presence": "candidate_only",
+          "gap_observation": null
+        }
+      ],
+      "diagnostic": "Le candidat affiche cinq cartes du centre-ville alors que la prod demande quel aéroport. Ici davantage de cartes constitue un défaut : le besoin aéroport est perdu.",
+      "next_check": "Rejouer la clarification aéroport persistante avant toute sélection."
+    },
+    {
+      "number": 42,
+      "label": "C042",
+      "title": "Centre de congrès à Auckland",
+      "production_grade": "B",
+      "candidate_grade": "B",
+      "grade_comparison": "Même note",
+      "production_cards": 5,
+      "candidate_cards": 0,
+      "distinct_hotels": {
+        "candidate": 0,
+        "legacy": 5
+      },
+      "turns": [
+        {
+          "turn": 1,
+          "production_cards": 0,
+          "candidate_cards": 0,
+          "presence": "neither",
+          "gap_observation": null
+        },
+        {
+          "turn": 2,
+          "production_cards": 5,
+          "candidate_cards": 0,
+          "presence": "legacy_only",
+          "gap_observation": "offers"
+        }
+      ],
+      "diagnostic": "La prod affiche des hôtels après précision de ville. Le candidat conserve le repère mais ne trouve aucune offre datée. La cause de la différence fournisseur n’est pas établie.",
+      "next_check": "Comparer identité du repère et offres à date identique."
+    },
+    {
+      "number": 43,
+      "label": "C043",
+      "title": "Rothrist puis autre horaire",
+      "production_grade": "C",
+      "candidate_grade": "B",
+      "grade_comparison": "Mieux noté",
+      "production_cards": 0,
+      "candidate_cards": 6,
+      "distinct_hotels": {
+        "candidate": 3,
+        "legacy": 0
+      },
+      "turns": [
+        {
+          "turn": 1,
+          "production_cards": 0,
+          "candidate_cards": 0,
+          "presence": "neither",
+          "gap_observation": null
+        },
+        {
+          "turn": 2,
+          "production_cards": 0,
+          "candidate_cards": 3,
+          "presence": "candidate_only",
+          "gap_observation": null
+        },
+        {
+          "turn": 3,
+          "production_cards": 0,
+          "candidate_cards": 3,
+          "presence": "candidate_only",
+          "gap_observation": null
+        }
+      ],
+      "diagnostic": "La prod élargit vers Zurich et applique un contexte monétaire inadéquat. Le candidat garde la ville et expose les créneaux réels, mais change de langue sur un tour.",
+      "next_check": "Conserver le lieu et stabiliser la langue des suivis."
+    },
+    {
+      "number": 44,
+      "label": "C044",
+      "title": "Liverpool station puis Hoxton",
+      "production_grade": "C",
+      "candidate_grade": "B",
+      "grade_comparison": "Mieux noté",
+      "production_cards": 5,
+      "candidate_cards": 0,
+      "distinct_hotels": {
+        "candidate": 0,
+        "legacy": 5
+      },
+      "turns": [
+        {
+          "turn": 1,
+          "production_cards": 5,
+          "candidate_cards": 0,
+          "presence": "legacy_only",
+          "gap_observation": "geo"
+        },
+        {
+          "turn": 2,
+          "production_cards": 0,
+          "candidate_cards": 0,
+          "presence": "neither",
+          "gap_observation": null
+        }
+      ],
+      "diagnostic": "La prod choisit Liverpool et montre notamment un prix nul ; le candidat clarifie Liverpool Street ou Lime Street. Le suivi d’hôtel nommé reste ensuite insuffisamment résolu des deux côtés.",
+      "next_check": "Tester station confirmée puis recherche d’hôtel nommé indépendante."
+    },
+    {
+      "number": 45,
+      "label": "C045",
+      "title": "Hôtel Five 6 Splendour mal écrit",
+      "production_grade": "C",
+      "candidate_grade": "C",
+      "grade_comparison": "Même note",
+      "production_cards": 0,
+      "candidate_cards": 0,
+      "distinct_hotels": {
+        "candidate": 0,
+        "legacy": 0
+      },
+      "turns": [
+        {
+          "turn": 1,
+          "production_cards": 0,
+          "candidate_cards": 0,
+          "presence": "neither",
+          "gap_observation": null
+        },
+        {
+          "turn": 2,
+          "production_cards": 0,
+          "candidate_cards": 0,
+          "presence": "neither",
+          "gap_observation": null
+        }
+      ],
+      "diagnostic": "Aucun hôtel des deux côtés. Le candidat pose une question générique au lieu d’une récupération ciblée du nom ; la prod répète aussi une demande de ville.",
+      "next_check": "Proposer une identité fournisseur plausible à confirmer."
+    },
+    {
+      "number": 46,
+      "label": "C046",
+      "title": "Séjour romantique à New York",
+      "production_grade": "B",
+      "candidate_grade": "B",
+      "grade_comparison": "Même note",
+      "production_cards": 5,
+      "candidate_cards": 5,
+      "distinct_hotels": {
+        "candidate": 5,
+        "legacy": 5
+      },
+      "turns": [
+        {
+          "turn": 1,
+          "production_cards": 0,
+          "candidate_cards": 0,
+          "presence": "neither",
+          "gap_observation": null
+        },
+        {
+          "turn": 2,
+          "production_cards": 5,
+          "candidate_cards": 5,
+          "presence": "both",
+          "gap_observation": null
+        }
+      ],
+      "diagnostic": "Même volume de cartes. Le candidat annonce son secteur mais la sélection reste générique et ne démontre pas le caractère romantique.",
+      "next_check": "Justifier les critères qualitatifs sans inventer de prestations."
+    },
+    {
+      "number": 47,
+      "label": "C047",
+      "title": "Alghero puis retrait de piscine",
+      "production_grade": "C",
+      "candidate_grade": "B",
+      "grade_comparison": "Mieux noté",
+      "production_cards": 0,
+      "candidate_cards": 0,
+      "distinct_hotels": {
+        "candidate": 0,
+        "legacy": 0
+      },
+      "turns": [
+        {
+          "turn": 1,
+          "production_cards": 0,
+          "candidate_cards": 0,
+          "presence": "neither",
+          "gap_observation": null
+        },
+        {
+          "turn": 2,
+          "production_cards": 0,
+          "candidate_cards": 0,
+          "presence": "neither",
+          "gap_observation": null
+        },
+        {
+          "turn": 3,
+          "production_cards": 0,
+          "candidate_cards": 0,
+          "presence": "neither",
+          "gap_observation": null
+        }
+      ],
+      "diagnostic": "Aucune carte des deux côtés. La prod dit retirer la piscine mais garde le filtre ; le candidat le retire réellement. Gain d’état même sans résultat disponible.",
+      "next_check": "Contrôle positif du retrait explicite de filtre."
+    },
+    {
+      "number": 48,
+      "label": "C048",
+      "title": "Rueil puis département 92",
+      "production_grade": "C",
+      "candidate_grade": "C",
+      "grade_comparison": "Même note",
+      "production_cards": 3,
+      "candidate_cards": 0,
+      "distinct_hotels": {
+        "candidate": 0,
+        "legacy": 3
+      },
+      "turns": [
+        {
+          "turn": 1,
+          "production_cards": 0,
+          "candidate_cards": 0,
+          "presence": "neither",
+          "gap_observation": null
+        },
+        {
+          "turn": 2,
+          "production_cards": 0,
+          "candidate_cards": 0,
+          "presence": "neither",
+          "gap_observation": null
+        },
+        {
+          "turn": 3,
+          "production_cards": 3,
+          "candidate_cards": 0,
+          "presence": "legacy_only",
+          "gap_observation": "geo"
+        }
+      ],
+      "diagnostic": "La prod interprète 92 comme budget et ville ; le candidat reconnaît le département mais perd Rueil et redemande la ville. Les cartes legacy ne suffisent pas à valider le parcours.",
+      "next_check": "Associer le département au lieu déjà demandé sans créer de budget."
+    },
+    {
+      "number": 49,
+      "label": "C049",
+      "title": "Hong Kong de 04 h à 17 h",
+      "production_grade": "B",
+      "candidate_grade": "B",
+      "grade_comparison": "Même note",
+      "production_cards": 5,
+      "candidate_cards": 0,
+      "distinct_hotels": {
+        "candidate": 0,
+        "legacy": 5
+      },
+      "turns": [
+        {
+          "turn": 1,
+          "production_cards": 5,
+          "candidate_cards": 0,
+          "presence": "legacy_only",
+          "gap_observation": "offers"
+        }
+      ],
+      "diagnostic": "La prod propose des recouvrements partiels explicités. Le candidat ne trouve pas de formule complète ; la date d’octobre est rejouée en 2027. Disponibilité et stratégie d’alternative sont confondues.",
+      "next_check": "Rejouer à date relative avec compromis d’horaire explicite."
+    },
+    {
+      "number": 50,
+      "label": "C050",
+      "title": "Secteur est de Rome",
+      "production_grade": "C",
+      "candidate_grade": "C",
+      "grade_comparison": "Même note",
+      "production_cards": 5,
+      "candidate_cards": 0,
+      "distinct_hotels": {
+        "candidate": 0,
+        "legacy": 5
+      },
+      "turns": [
+        {
+          "turn": 1,
+          "production_cards": 5,
+          "candidate_cards": 0,
+          "presence": "legacy_only",
+          "gap_observation": "geo"
+        }
+      ],
+      "diagnostic": "La prod ignore est et affiche Rome entière. Le candidat refuse de résoudre le secteur et demande un repère, en français malgré la demande italienne. Ni couverture correcte ni récupération fluide.",
+      "next_check": "Clarifier le secteur utilement et préserver la langue."
+    },
+    {
+      "number": 51,
+      "label": "C051",
+      "title": "Près de moi sans GPS en italien A",
+      "production_grade": "A",
+      "candidate_grade": "A",
+      "grade_comparison": "Même note",
+      "production_cards": 0,
+      "candidate_cards": 0,
+      "distinct_hotels": {
+        "candidate": 0,
+        "legacy": 0
+      },
+      "turns": [
+        {
+          "turn": 1,
+          "production_cards": 0,
+          "candidate_cards": 0,
+          "presence": "neither",
+          "gap_observation": null
+        }
+      ],
+      "diagnostic": "Les deux demandent un lieu. Aucun hôtel n’est inventé et aucun déficit de sélection n’est établi.",
+      "next_check": "Contrôle négatif à conserver."
+    },
+    {
+      "number": 52,
+      "label": "C052",
+      "title": "Près de moi sans GPS en italien B",
+      "production_grade": "A",
+      "candidate_grade": "A",
+      "grade_comparison": "Même note",
+      "production_cards": 0,
+      "candidate_cards": 0,
+      "distinct_hotels": {
+        "candidate": 0,
+        "legacy": 0
+      },
+      "turns": [
+        {
+          "turn": 1,
+          "production_cards": 0,
+          "candidate_cards": 0,
+          "presence": "neither",
+          "gap_observation": null
+        }
+      ],
+      "diagnostic": "Les deux demandent un lieu. Il s’agit d’un autre parcours conservé, pas d’une preuve indépendante sur une nouvelle famille.",
+      "next_check": "Conserver sans surpondérer les doublons de comportement."
+    },
+    {
+      "number": 53,
+      "label": "C053",
+      "title": "Deux codes postaux britanniques",
+      "production_grade": "B",
+      "candidate_grade": "C",
+      "grade_comparison": "Moins bien noté",
+      "production_cards": 5,
+      "candidate_cards": 0,
+      "distinct_hotels": {
+        "candidate": 0,
+        "legacy": 5
+      },
+      "turns": [
+        {
+          "turn": 1,
+          "production_cards": 5,
+          "candidate_cards": 0,
+          "presence": "legacy_only",
+          "gap_observation": "geo"
+        },
+        {
+          "turn": 2,
+          "production_cards": 0,
+          "candidate_cards": 0,
+          "presence": "neither",
+          "gap_observation": null
+        }
+      ],
+      "diagnostic": "La prod recherche depuis une origine et demande la priorité ; la proximité aux deux points n’est pas démontrée. Le candidat perd les points dans une question générique sans sélection.",
+      "next_check": "Rejouer la clarification structurée des deux origines."
+    },
+    {
+      "number": 54,
+      "label": "C054",
+      "title": "Hong Kong de 04 h à 17 h avec répétition",
+      "production_grade": "B",
+      "candidate_grade": "B",
+      "grade_comparison": "Même note",
+      "production_cards": 5,
+      "candidate_cards": 0,
+      "distinct_hotels": {
+        "candidate": 0,
+        "legacy": 5
+      },
+      "turns": [
+        {
+          "turn": 1,
+          "production_cards": 5,
+          "candidate_cards": 0,
+          "presence": "legacy_only",
+          "gap_observation": "offers"
+        },
+        {
+          "turn": 2,
+          "production_cards": 0,
+          "candidate_cards": 0,
+          "presence": "neither",
+          "gap_observation": null
+        }
+      ],
+      "diagnostic": "La prod affiche un recouvrement partiel puis clarifie. Le candidat garde tout le séjour mais reste vide sur une date rejouée en 2027. Même objectif que C049 avec un suivi supplémentaire.",
+      "next_check": "Contrôle complémentaire de conservation des heures, pas nouveau cas indépendant."
+    },
+    {
+      "number": 55,
+      "label": "C055",
+      "title": "Paris de 22 h à 03 h",
+      "production_grade": "B",
+      "candidate_grade": "B",
+      "grade_comparison": "Même note",
+      "production_cards": 0,
+      "candidate_cards": 0,
+      "distinct_hotels": {
+        "candidate": 0,
+        "legacy": 0
+      },
+      "turns": [
+        {
+          "turn": 1,
+          "production_cards": 0,
+          "candidate_cards": 0,
+          "presence": "neither",
+          "gap_observation": null
+        },
+        {
+          "turn": 2,
+          "production_cards": 0,
+          "candidate_cards": 0,
+          "presence": "neither",
+          "gap_observation": null
+        }
+      ],
+      "diagnostic": "Aucune carte. Le candidat explicite le créneau non supporté ; les affirmations générales sur les nuitées relèvent du périmètre FAQ à traiter séparément.",
+      "next_check": "Valider la frontière séjour diurne et nuit en phase dédiée."
+    },
+    {
+      "number": 56,
+      "label": "C056",
+      "title": "Chambre fumeur à Mons puis Bruxelles",
+      "production_grade": "B",
+      "candidate_grade": "B",
+      "grade_comparison": "Même note",
+      "production_cards": 0,
+      "candidate_cards": 10,
+      "distinct_hotels": {
+        "candidate": 7,
+        "legacy": 0
+      },
+      "turns": [
+        {
+          "turn": 1,
+          "production_cards": 0,
+          "candidate_cards": 0,
+          "presence": "neither",
+          "gap_observation": null
+        },
+        {
+          "turn": 2,
+          "production_cards": 0,
+          "candidate_cards": 2,
+          "presence": "candidate_only",
+          "gap_observation": null
+        },
+        {
+          "turn": 3,
+          "production_cards": 0,
+          "candidate_cards": 2,
+          "presence": "candidate_only",
+          "gap_observation": null
+        },
+        {
+          "turn": 4,
+          "production_cards": 0,
+          "candidate_cards": 1,
+          "presence": "candidate_only",
+          "gap_observation": null
+        },
+        {
+          "turn": 5,
+          "production_cards": 0,
+          "candidate_cards": 0,
+          "presence": "neither",
+          "gap_observation": null
+        },
+        {
+          "turn": 6,
+          "production_cards": 0,
+          "candidate_cards": 5,
+          "presence": "candidate_only",
+          "gap_observation": null
+        },
+        {
+          "turn": 7,
+          "production_cards": 0,
+          "candidate_cards": 0,
+          "presence": "neither",
+          "gap_observation": null
+        }
+      ],
+      "diagnostic": "Le candidat montre des offres dans les villes demandées et conserve la référence de détail ; la prod n’affiche aucune carte. L’autorisation de fumer reste inconnue, donc le volume ne valide pas ce critère.",
+      "next_check": "Vérifier les conditions sans assimiler inconnu à autorisé."
+    },
+    {
+      "number": 57,
+      "label": "C057",
+      "title": "Piscine enfants puis Annapolis et baignoire",
+      "production_grade": "C",
+      "candidate_grade": "C",
+      "grade_comparison": "Même note",
+      "production_cards": 17,
+      "candidate_cards": 12,
+      "distinct_hotels": {
+        "candidate": 7,
+        "legacy": 8
+      },
+      "turns": [
+        {
+          "turn": 1,
+          "production_cards": 0,
+          "candidate_cards": 0,
+          "presence": "neither",
+          "gap_observation": null
+        },
+        {
+          "turn": 2,
+          "production_cards": 5,
+          "candidate_cards": 5,
+          "presence": "both",
+          "gap_observation": null
+        },
+        {
+          "turn": 3,
+          "production_cards": 0,
+          "candidate_cards": 1,
+          "presence": "candidate_only",
+          "gap_observation": null
+        },
+        {
+          "turn": 4,
+          "production_cards": 5,
+          "candidate_cards": 0,
+          "presence": "legacy_only",
+          "gap_observation": "geo"
+        },
+        {
+          "turn": 5,
+          "production_cards": 5,
+          "candidate_cards": 5,
+          "presence": "both",
+          "gap_observation": null
+        },
+        {
+          "turn": 6,
+          "production_cards": 1,
+          "candidate_cards": 1,
+          "presence": "both",
+          "gap_observation": null
+        },
+        {
+          "turn": 7,
+          "production_cards": 1,
+          "candidate_cards": 0,
+          "presence": "legacy_only",
+          "gap_observation": "offers"
+        }
+      ],
+      "diagnostic": "Le candidat perd le contexte Maryland pour Annapolis et cumule piscine, jacuzzi et baignoire au dernier tour. Les deux agents promettent parfois trop sur l’accès. Le candidat ajoute un détail mais perd des recherches utiles.",
+      "next_check": "Réutiliser le parent et distinguer ajout de préférence et remplacement."
+    },
+    {
+      "number": 58,
+      "label": "C058",
+      "title": "École Montessori à Mississauga",
+      "production_grade": "B",
+      "candidate_grade": "B",
+      "grade_comparison": "Même note",
+      "production_cards": 5,
+      "candidate_cards": 0,
+      "distinct_hotels": {
+        "candidate": 0,
+        "legacy": 5
+      },
+      "turns": [
+        {
+          "turn": 1,
+          "production_cards": 0,
+          "candidate_cards": 0,
+          "presence": "neither",
+          "gap_observation": null
+        },
+        {
+          "turn": 2,
+          "production_cards": 5,
+          "candidate_cards": 0,
+          "presence": "legacy_only",
+          "gap_observation": "geo"
+        }
+      ],
+      "diagnostic": "La prod montre cinq hôtels sans preuve que les distances partent de l’école. Le candidat demande une adresse pour vérifier le repère avant de classer par proximité.",
+      "next_check": "Comparer l’origine réelle avant de qualifier les cartes manquantes de régression."
+    },
+    {
+      "number": 59,
+      "label": "C059",
+      "title": "Gare de Lyon à Paris",
+      "production_grade": "C",
+      "candidate_grade": "B",
+      "grade_comparison": "Mieux noté",
+      "production_cards": 0,
+      "candidate_cards": 5,
+      "distinct_hotels": {
+        "candidate": 5,
+        "legacy": 0
+      },
+      "turns": [
+        {
+          "turn": 1,
+          "production_cards": 0,
+          "candidate_cards": 5,
+          "presence": "candidate_only",
+          "gap_observation": null
+        }
+      ],
+      "diagnostic": "La prod redemande quelle ville malgré le repère. Le candidat géocode et montre cinq offres ; une formulation mélange minutes et distance aérienne.",
+      "next_check": "Conserver la résolution et corriger la formulation des distances."
+    },
+    {
+      "number": 60,
+      "label": "C060",
+      "title": "Heathrow avec GPS distant",
+      "production_grade": "C",
+      "candidate_grade": "A",
+      "grade_comparison": "Mieux noté",
+      "production_cards": 0,
+      "candidate_cards": 3,
+      "distinct_hotels": {
+        "candidate": 3,
+        "legacy": 0
+      },
+      "turns": [
+        {
+          "turn": 1,
+          "production_cards": 0,
+          "candidate_cards": 3,
+          "presence": "candidate_only",
+          "gap_observation": null
+        }
+      ],
+      "diagnostic": "La prod redemande quel aéroport. Le candidat privilégie l’aéroport explicitement nommé et montre trois offres cohérentes malgré le GPS distant.",
+      "next_check": "Contrôle positif de priorité à la destination explicite."
+    },
+    {
+      "number": 61,
+      "label": "C061",
+      "title": "Dublin centre demain puis budget et piscine",
+      "production_grade": "B",
+      "candidate_grade": "C",
+      "grade_comparison": "Moins bien noté",
+      "production_cards": 15,
+      "candidate_cards": 0,
+      "distinct_hotels": {
+        "candidate": 0,
+        "legacy": 7
+      },
+      "turns": [
+        {
+          "turn": 1,
+          "production_cards": 5,
+          "candidate_cards": 0,
+          "presence": "legacy_only",
+          "gap_observation": "geo"
+        },
+        {
+          "turn": 2,
+          "production_cards": 5,
+          "candidate_cards": 0,
+          "presence": "legacy_only",
+          "gap_observation": "geo"
+        },
+        {
+          "turn": 3,
+          "production_cards": 5,
+          "candidate_cards": 0,
+          "presence": "legacy_only",
+          "gap_observation": "geo"
+        }
+      ],
+      "diagnostic": "La prod avance à chaque tour en signalant le manque de piscine. Le candidat bloque trois fois sur le centre de Dublin malgré les contraintes suffisantes. C’est une perte claire de progression.",
+      "next_check": "Valider le centre fournisseur et rejouer les trois tours."
+    },
+    {
+      "number": 62,
+      "label": "C062",
+      "title": "Kimpton nommé à Los Angeles",
+      "production_grade": "D",
+      "candidate_grade": "B",
+      "grade_comparison": "Mieux noté",
+      "production_cards": 6,
+      "candidate_cards": 2,
+      "distinct_hotels": {
+        "candidate": 1,
+        "legacy": 6
+      },
+      "turns": [
+        {
+          "turn": 1,
+          "production_cards": 1,
+          "candidate_cards": 1,
+          "presence": "both",
+          "gap_observation": null
+        },
+        {
+          "turn": 2,
+          "production_cards": 5,
+          "candidate_cards": 1,
+          "presence": "both",
+          "gap_observation": null
+        }
+      ],
+      "diagnostic": "La prod affiche d’abord un hôtel de Miami puis se reprend. Le candidat garde la bonne identité et ne mélange pas la propriété au suivi piscine. Moins de cartes, identité plus fiable.",
+      "next_check": "Conserver le contrôle d’identité et éviter les précisions inutiles."
+    },
+    {
+      "number": 63,
+      "label": "C063",
+      "title": "Biltmore mal orthographié à Los Angeles",
+      "production_grade": "B",
+      "candidate_grade": "C",
+      "grade_comparison": "Moins bien noté",
+      "production_cards": 1,
+      "candidate_cards": 0,
+      "distinct_hotels": {
+        "candidate": 0,
+        "legacy": 1
+      },
+      "turns": [
+        {
+          "turn": 1,
+          "production_cards": 1,
+          "candidate_cards": 0,
+          "presence": "legacy_only",
+          "gap_observation": "geo"
+        },
+        {
+          "turn": 2,
+          "production_cards": 0,
+          "candidate_cards": 0,
+          "presence": "neither",
+          "gap_observation": null
+        }
+      ],
+      "diagnostic": "La prod récupère le nom. Le candidat demande encore nom et ville déjà fournie, puis ne peut traiter les horaires. Régression de récupération du nom.",
+      "next_check": "Tester un candidat fournisseur à confirmer sans inventer l’identité."
+    },
+    {
+      "number": 64,
+      "label": "C064",
+      "title": "Rockville Centre puis horaires",
+      "production_grade": "C",
+      "candidate_grade": "B",
+      "grade_comparison": "Mieux noté",
+      "production_cards": 10,
+      "candidate_cards": 10,
+      "distinct_hotels": {
+        "candidate": 5,
+        "legacy": 6
+      },
+      "turns": [
+        {
+          "turn": 1,
+          "production_cards": 5,
+          "candidate_cards": 5,
+          "presence": "both",
+          "gap_observation": null
+        },
+        {
+          "turn": 2,
+          "production_cards": 5,
+          "candidate_cards": 5,
+          "presence": "both",
+          "gap_observation": null
+        }
+      ],
+      "diagnostic": "Même volume. La prod coupe à tort le nom de municipalité ; le candidat conserve Rockville Centre comme un tout et les heures demandées.",
+      "next_check": "Contrôle positif des noms composés."
+    },
+    {
+      "number": 65,
+      "label": "C065",
+      "title": "Adresse à Madrid puis moins cher et plus près",
+      "production_grade": "C",
+      "candidate_grade": "B",
+      "grade_comparison": "Mieux noté",
+      "production_cards": 0,
+      "candidate_cards": 5,
+      "distinct_hotels": {
+        "candidate": 5,
+        "legacy": 0
+      },
+      "turns": [
+        {
+          "turn": 1,
+          "production_cards": 0,
+          "candidate_cards": 0,
+          "presence": "neither",
+          "gap_observation": null
+        },
+        {
+          "turn": 2,
+          "production_cards": 0,
+          "candidate_cards": 5,
+          "presence": "candidate_only",
+          "gap_observation": null
+        },
+        {
+          "turn": 3,
+          "production_cards": 0,
+          "candidate_cards": 0,
+          "presence": "neither",
+          "gap_observation": null
+        },
+        {
+          "turn": 4,
+          "production_cards": 0,
+          "candidate_cards": 0,
+          "presence": "neither",
+          "gap_observation": null
+        }
+      ],
+      "diagnostic": "La prod perd la rue et élargit sans résultat. Le candidat résout l’adresse simple et propose cinq hôtels ; ensuite le plafond moins cher limite la recherche sans compromis de proximité assez clair.",
+      "next_check": "Comparer le point géocodé et expliciter le compromis prix distance."
+    },
+    {
+      "number": 66,
+      "label": "C066",
+      "title": "Animaux acceptés à Glendora à 11 h",
+      "production_grade": "B",
+      "candidate_grade": "A",
+      "grade_comparison": "Mieux noté",
+      "production_cards": 5,
+      "candidate_cards": 5,
+      "distinct_hotels": {
+        "candidate": 5,
+        "legacy": 5
+      },
+      "turns": [
+        {
+          "turn": 1,
+          "production_cards": 0,
+          "candidate_cards": 0,
+          "presence": "neither",
+          "gap_observation": null
+        },
+        {
+          "turn": 2,
+          "production_cards": 5,
+          "candidate_cards": 5,
+          "presence": "both",
+          "gap_observation": null
+        }
+      ],
+      "diagnostic": "Les deux affichent cinq hôtels. Le candidat conserve l’arrivée et vérifie la couverture du créneau ; la prod confond parfois heure de début de formule et heure demandée.",
+      "next_check": "Contrôle positif de couverture de l’arrivée."
+    },
+    {
+      "number": 67,
+      "label": "C067",
+      "title": "Hong Kong puis Tuen Mun et Tung Chung",
+      "production_grade": "C",
+      "candidate_grade": "C",
+      "grade_comparison": "Même note",
+      "production_cards": 10,
+      "candidate_cards": 0,
+      "distinct_hotels": {
+        "candidate": 0,
+        "legacy": 6
+      },
+      "turns": [
+        {
+          "turn": 1,
+          "production_cards": 0,
+          "candidate_cards": 0,
+          "presence": "neither",
+          "gap_observation": null
+        },
+        {
+          "turn": 2,
+          "production_cards": 0,
+          "candidate_cards": 0,
+          "presence": "neither",
+          "gap_observation": null
+        },
+        {
+          "turn": 3,
+          "production_cards": 5,
+          "candidate_cards": 0,
+          "presence": "legacy_only",
+          "gap_observation": "offers"
+        },
+        {
+          "turn": 4,
+          "production_cards": 0,
+          "candidate_cards": 0,
+          "presence": "neither",
+          "gap_observation": null
+        },
+        {
+          "turn": 5,
+          "production_cards": 0,
+          "candidate_cards": 0,
+          "presence": "neither",
+          "gap_observation": null
+        },
+        {
+          "turn": 6,
+          "production_cards": 5,
+          "candidate_cards": 0,
+          "presence": "legacy_only",
+          "gap_observation": "conversation"
+        }
+      ],
+      "diagnostic": "La prod finit par élargir au centre sans consentement. Le candidat reste vide sur 17–23 puis perd le parent Hong Kong et ne peut produire une référence moins chère. Défaillance de suivi distincte de l’inventaire vide initial.",
+      "next_check": "Restaurer le parent des deux zones et négocier explicitement les horaires."
+    },
+    {
+      "number": 68,
+      "label": "C068",
+      "title": "Farnborough en soirée",
+      "production_grade": "B",
+      "candidate_grade": "A",
+      "grade_comparison": "Mieux noté",
+      "production_cards": 5,
+      "candidate_cards": 3,
+      "distinct_hotels": {
+        "candidate": 3,
+        "legacy": 5
+      },
+      "turns": [
+        {
+          "turn": 1,
+          "production_cards": 0,
+          "candidate_cards": 0,
+          "presence": "neither",
+          "gap_observation": null
+        },
+        {
+          "turn": 2,
+          "production_cards": 5,
+          "candidate_cards": 3,
+          "presence": "both",
+          "gap_observation": null
+        }
+      ],
+      "diagnostic": "La prod propose cinq alternatives dont certaines peu adaptées au soir. Le candidat affiche trois formules 16–22 et annonce les villes voisines. Une sélection plus courte peut être plus pertinente.",
+      "next_check": "Contrôle positif du créneau de soirée."
+    },
+    {
+      "number": 69,
+      "label": "C069",
+      "title": "Sauna puis Washington et moins cher",
+      "production_grade": "C",
+      "candidate_grade": "B",
+      "grade_comparison": "Mieux noté",
+      "production_cards": 2,
+      "candidate_cards": 10,
+      "distinct_hotels": {
+        "candidate": 10,
+        "legacy": 1
+      },
+      "turns": [
+        {
+          "turn": 1,
+          "production_cards": 0,
+          "candidate_cards": 0,
+          "presence": "neither",
+          "gap_observation": null
+        },
+        {
+          "turn": 2,
+          "production_cards": 1,
+          "candidate_cards": 5,
+          "presence": "both",
+          "gap_observation": null
+        },
+        {
+          "turn": 3,
+          "production_cards": 1,
+          "candidate_cards": 5,
+          "presence": "both",
+          "gap_observation": null
+        }
+      ],
+      "diagnostic": "La prod transforme sauna en spa. Le candidat sait ensuite rechercher et comparer moins cher, mais la première référence à ces hôtels ne possède pas de liste source. Les cartes diffèrent fortement entre branches.",
+      "next_check": "Séparer le critère sauna de spa et répondre aux références réellement présentes."
+    },
+    {
+      "number": 70,
+      "label": "C070",
+      "title": "Downey avec faute puis incompréhension",
+      "production_grade": "B",
+      "candidate_grade": "B",
+      "grade_comparison": "Même note",
+      "production_cards": 5,
+      "candidate_cards": 0,
+      "distinct_hotels": {
+        "candidate": 0,
+        "legacy": 5
+      },
+      "turns": [
+        {
+          "turn": 1,
+          "production_cards": 0,
+          "candidate_cards": 0,
+          "presence": "neither",
+          "gap_observation": null
+        },
+        {
+          "turn": 2,
+          "production_cards": 5,
+          "candidate_cards": 0,
+          "presence": "legacy_only",
+          "gap_observation": "geo"
+        }
+      ],
+      "diagnostic": "La prod finit par rechercher Downey. Le candidat propose la bonne correction mais attend une confirmation que le suivi ne donne pas ; il prétend aussi avoir recherché avant confirmation.",
+      "next_check": "Rejouer une confirmation adaptative et retirer la fausse annonce de recherche."
+    },
+    {
+      "number": 71,
+      "label": "C071",
+      "title": "Baignoire à Hong Kong",
+      "production_grade": "C",
+      "candidate_grade": "A",
+      "grade_comparison": "Mieux noté",
+      "production_cards": 5,
+      "candidate_cards": 0,
+      "distinct_hotels": {
+        "candidate": 0,
+        "legacy": 5
+      },
+      "turns": [
+        {
+          "turn": 1,
+          "production_cards": 0,
+          "candidate_cards": 0,
+          "presence": "neither",
+          "gap_observation": null
+        },
+        {
+          "turn": 2,
+          "production_cards": 5,
+          "candidate_cards": 0,
+          "presence": "legacy_only",
+          "gap_observation": "offers"
+        }
+      ],
+      "diagnostic": "La prod affiche cinq hôtels sans maintenir le filtre baignoire. Le candidat garde ce critère et ne dispose d’aucune offre datée vérifiable. Les cartes legacy ne prouvent donc pas la satisfaction de la demande.",
+      "next_check": "Comparer les caractéristiques de chambre et les offres datées."
+    },
+    {
+      "number": 72,
+      "label": "C072",
+      "title": "Venise en mai avec plafond en euros",
+      "production_grade": "C",
+      "candidate_grade": "B",
+      "grade_comparison": "Mieux noté",
+      "production_cards": 11,
+      "candidate_cards": 0,
+      "distinct_hotels": {
+        "candidate": 0,
+        "legacy": 5
+      },
+      "turns": [
+        {
+          "turn": 1,
+          "production_cards": 5,
+          "candidate_cards": 0,
+          "presence": "legacy_only",
+          "gap_observation": "offers"
+        },
+        {
+          "turn": 2,
+          "production_cards": 3,
+          "candidate_cards": 0,
+          "presence": "legacy_only",
+          "gap_observation": "offers"
+        },
+        {
+          "turn": 3,
+          "production_cards": 3,
+          "candidate_cards": 0,
+          "presence": "legacy_only",
+          "gap_observation": "offers"
+        }
+      ],
+      "diagnostic": "La prod mélange EUR et USD et répète des cartes non confirmées. Le candidat conserve 110 EUR et rejoue mai en 2027, mais répète sa réponse vide sans aide utile.",
+      "next_check": "Rejouer à date proche et proposer un compromis concret en restant dans la bonne devise."
+    },
+    {
+      "number": 73,
+      "label": "C073",
+      "title": "Philadelphie escale puis moins cher",
+      "production_grade": "C",
+      "candidate_grade": "B",
+      "grade_comparison": "Mieux noté",
+      "production_cards": 15,
+      "candidate_cards": 11,
+      "distinct_hotels": {
+        "candidate": 10,
+        "legacy": 10
+      },
+      "turns": [
+        {
+          "turn": 1,
+          "production_cards": 5,
+          "candidate_cards": 5,
+          "presence": "both",
+          "gap_observation": null
+        },
+        {
+          "turn": 2,
+          "production_cards": 5,
+          "candidate_cards": 1,
+          "presence": "both",
+          "gap_observation": null
+        },
+        {
+          "turn": 3,
+          "production_cards": 5,
+          "candidate_cards": 0,
+          "presence": "legacy_only",
+          "gap_observation": "offers"
+        },
+        {
+          "turn": 4,
+          "production_cards": 0,
+          "candidate_cards": 5,
+          "presence": "candidate_only",
+          "gap_observation": null
+        }
+      ],
+      "diagnostic": "La prod prétend parfois couvrir tout le séjour avec des créneaux incompatibles. Le candidat couvre réellement les heures, refuse un moins cher non vérifiable, puis reprend avec cinq cartes près de l’aéroport.",
+      "next_check": "Conserver la formule de référence et améliorer la proposition de compromis."
+    },
+    {
+      "number": 74,
+      "label": "C074",
+      "title": "New Jersey puis GW Bridge",
+      "production_grade": "D",
+      "candidate_grade": "C",
+      "grade_comparison": "Mieux noté",
+      "production_cards": 5,
+      "candidate_cards": 3,
+      "distinct_hotels": {
+        "candidate": 3,
+        "legacy": 5
+      },
+      "turns": [
+        {
+          "turn": 1,
+          "production_cards": 0,
+          "candidate_cards": 1,
+          "presence": "candidate_only",
+          "gap_observation": null
+        },
+        {
+          "turn": 2,
+          "production_cards": 5,
+          "candidate_cards": 0,
+          "presence": "legacy_only",
+          "gap_observation": "geo"
+        },
+        {
+          "turn": 3,
+          "production_cards": 0,
+          "candidate_cards": 0,
+          "presence": "neither",
+          "gap_observation": null
+        },
+        {
+          "turn": 4,
+          "production_cards": 0,
+          "candidate_cards": 2,
+          "presence": "candidate_only",
+          "gap_observation": null
+        }
+      ],
+      "diagnostic": "La prod affiche des hôtels de Virginie pour le pont. Le candidat demande une rive déjà contextualisée puis perd le pont après Bergen County. Les deux sélections ont des problèmes géographiques.",
+      "next_check": "Conserver le New Jersey et le point fin du pont après affinage."
+    },
+    {
+      "number": 75,
+      "label": "C075",
+      "title": "Piscine à Londres puis journée entière",
+      "production_grade": "B",
+      "candidate_grade": "B",
+      "grade_comparison": "Même note",
+      "production_cards": 5,
+      "candidate_cards": 10,
+      "distinct_hotels": {
+        "candidate": 5,
+        "legacy": 5
+      },
+      "turns": [
+        {
+          "turn": 1,
+          "production_cards": 5,
+          "candidate_cards": 5,
+          "presence": "both",
+          "gap_observation": null
+        },
+        {
+          "turn": 2,
+          "production_cards": 0,
+          "candidate_cards": 5,
+          "presence": "candidate_only",
+          "gap_observation": null
+        }
+      ],
+      "diagnostic": "Le candidat garde les cartes et indique le plus long créneau réel 10–18 ; la prod répond sans cartes au second tour. L’accès piscine reste à prouver.",
+      "next_check": "Demander les heures exactes et vérifier l’accès de formule."
+    },
+    {
+      "number": 76,
+      "label": "C076",
+      "title": "Piscine et spa à Heemskerk",
+      "production_grade": "B",
+      "candidate_grade": "A",
+      "grade_comparison": "Mieux noté",
+      "production_cards": 5,
+      "candidate_cards": 0,
+      "distinct_hotels": {
+        "candidate": 0,
+        "legacy": 5
+      },
+      "turns": [
+        {
+          "turn": 1,
+          "production_cards": 0,
+          "candidate_cards": 0,
+          "presence": "neither",
+          "gap_observation": null
+        },
+        {
+          "turn": 2,
+          "production_cards": 0,
+          "candidate_cards": 0,
+          "presence": "neither",
+          "gap_observation": null
+        },
+        {
+          "turn": 3,
+          "production_cards": 5,
+          "candidate_cards": 0,
+          "presence": "legacy_only",
+          "gap_observation": "offers"
+        }
+      ],
+      "diagnostic": "La prod affiche cinq hôtels avec une contradiction texte carte. Le candidat conserve les deux équipements mais retourne vide et propose des zones proches. Aucun écart de rappel n’est démontré sans comparaison fournisseur.",
+      "next_check": "Comparer les requêtes puis tester un élargissement accepté."
+    },
+    {
+      "number": 77,
+      "label": "C077",
+      "title": "La Quinta à San Antonio puis rue",
+      "production_grade": "D",
+      "candidate_grade": "C",
+      "grade_comparison": "Mieux noté",
+      "production_cards": 1,
+      "candidate_cards": 5,
+      "distinct_hotels": {
+        "candidate": 5,
+        "legacy": 1
+      },
+      "turns": [
+        {
+          "turn": 1,
+          "production_cards": 1,
+          "candidate_cards": 5,
+          "presence": "both",
+          "gap_observation": null
+        },
+        {
+          "turn": 2,
+          "production_cards": 0,
+          "candidate_cards": 0,
+          "presence": "neither",
+          "gap_observation": null
+        }
+      ],
+      "diagnostic": "La prod propose d’abord un hôtel du Colorado. Le candidat reste dans la ville mais applique mal la préférence de chaîne et perd San Antonio au suivi de rue. Plus de cartes ne signifie pas objectif atteint.",
+      "next_check": "Conserver chaîne et rue dans la destination demandée."
+    },
+    {
+      "number": 78,
+      "label": "C078",
+      "title": "Spa puis rooftop le soir à Rome",
+      "production_grade": "B",
+      "candidate_grade": "B",
+      "grade_comparison": "Même note",
+      "production_cards": 5,
+      "candidate_cards": 0,
+      "distinct_hotels": {
+        "candidate": 0,
+        "legacy": 5
+      },
+      "turns": [
+        {
+          "turn": 1,
+          "production_cards": 0,
+          "candidate_cards": 0,
+          "presence": "neither",
+          "gap_observation": null
+        },
+        {
+          "turn": 2,
+          "production_cards": 5,
+          "candidate_cards": 0,
+          "presence": "legacy_only",
+          "gap_observation": "offers"
+        }
+      ],
+      "diagnostic": "La prod montre des alternatives en signalant les services non vérifiés. Le candidat applique soirée à la recherche de chambre et reste vide ; le besoin concernait peut-être surtout l’accès au rooftop après le séjour.",
+      "next_check": "Séparer horaires de chambre et horaires des services."
+    },
+    {
+      "number": 79,
+      "label": "C079",
+      "title": "Budapest puis 100 EUR",
+      "production_grade": "A",
+      "candidate_grade": "B",
+      "grade_comparison": "Moins bien noté",
+      "production_cards": 0,
+      "candidate_cards": 0,
+      "distinct_hotels": {
+        "candidate": 0,
+        "legacy": 0
+      },
+      "turns": [
+        {
+          "turn": 1,
+          "production_cards": 0,
+          "candidate_cards": 0,
+          "presence": "neither",
+          "gap_observation": null
+        },
+        {
+          "turn": 2,
+          "production_cards": 0,
+          "candidate_cards": 0,
+          "presence": "neither",
+          "gap_observation": null
+        }
+      ],
+      "diagnostic": "Aucun hôtel des deux côtés. La prod explique la couverture du marché ; le candidat répète une absence d’offres et propose une autre date. Défaut de récupération sans impact sur le nombre de cartes.",
+      "next_check": "Utiliser une preuve actuelle de couverture, pas une supposition du modèle."
+    },
+    {
+      "number": 80,
+      "label": "C080",
+      "title": "Al Mankool puis Dubai",
+      "production_grade": "C",
+      "candidate_grade": "C",
+      "grade_comparison": "Même note",
+      "production_cards": 5,
+      "candidate_cards": 0,
+      "distinct_hotels": {
+        "candidate": 0,
+        "legacy": 5
+      },
+      "turns": [
+        {
+          "turn": 1,
+          "production_cards": 0,
+          "candidate_cards": 0,
+          "presence": "neither",
+          "gap_observation": null
+        },
+        {
+          "turn": 2,
+          "production_cards": 5,
+          "candidate_cards": 0,
+          "presence": "legacy_only",
+          "gap_observation": "geo"
+        }
+      ],
+      "diagnostic": "La prod se trompe d’abord de pays puis perd le quartier. Le candidat garde quartier et arrivée mais ne le résout pas après Dubai, et prétend avoir recherché. Les deux restent insatisfaisants.",
+      "next_check": "Valider le quartier avec son parent et annoncer honnêtement l’étape bloquante."
+    },
+    {
+      "number": 81,
+      "label": "C081",
+      "title": "Ascenseur sans keycard puis comparaison",
+      "production_grade": "A",
+      "candidate_grade": "B",
+      "grade_comparison": "Moins bien noté",
+      "production_cards": 10,
+      "candidate_cards": 17,
+      "distinct_hotels": {
+        "candidate": 5,
+        "legacy": 10
+      },
+      "turns": [
+        {
+          "turn": 1,
+          "production_cards": 0,
+          "candidate_cards": 0,
+          "presence": "neither",
+          "gap_observation": null
+        },
+        {
+          "turn": 2,
+          "production_cards": 5,
+          "candidate_cards": 5,
+          "presence": "both",
+          "gap_observation": null
+        },
+        {
+          "turn": 3,
+          "production_cards": 5,
+          "candidate_cards": 0,
+          "presence": "legacy_only",
+          "gap_observation": "conversation"
+        },
+        {
+          "turn": 4,
+          "production_cards": 0,
+          "candidate_cards": 5,
+          "presence": "candidate_only",
+          "gap_observation": null
+        },
+        {
+          "turn": 5,
+          "production_cards": 0,
+          "candidate_cards": 5,
+          "presence": "candidate_only",
+          "gap_observation": null
+        },
+        {
+          "turn": 6,
+          "production_cards": 0,
+          "candidate_cards": 2,
+          "presence": "candidate_only",
+          "gap_observation": null
+        }
+      ],
+      "diagnostic": "La prod répond au budget et compare les deux cartes. Le candidat clarifie un nombre dans une branche différente puis réaffiche les hôtels lors de questions informatives. Davantage de cartes cumulées ne prouve pas la règle d’accès.",
+      "next_check": "Rejouer le budget dans son contexte et comparer en gardant la réserve sur l’accès."
+    },
+    {
+      "number": 82,
+      "label": "C082",
+      "title": "Préférence sans destination puis aucune",
+      "production_grade": "B",
+      "candidate_grade": "C",
+      "grade_comparison": "Moins bien noté",
+      "production_cards": 0,
+      "candidate_cards": 0,
+      "distinct_hotels": {
+        "candidate": 0,
+        "legacy": 0
+      },
+      "turns": [
+        {
+          "turn": 1,
+          "production_cards": 0,
+          "candidate_cards": 0,
+          "presence": "neither",
+          "gap_observation": null
+        },
+        {
+          "turn": 2,
+          "production_cards": 0,
+          "candidate_cards": 0,
+          "presence": "neither",
+          "gap_observation": null
+        }
+      ],
+      "diagnostic": "Aucune carte. La prod continue à demander la ville ; le candidat transforme aucune en période temporelle. Le défaut n’apparaît pas dans les volumes.",
+      "next_check": "Rejouer le correctif du sujet de flexibilité."
+    },
+    {
+      "number": 83,
+      "label": "C083",
+      "title": "Entre deux villes avec enfants et piscine",
+      "production_grade": "B",
+      "candidate_grade": "C",
+      "grade_comparison": "Moins bien noté",
+      "production_cards": 5,
+      "candidate_cards": 0,
+      "distinct_hotels": {
+        "candidate": 0,
+        "legacy": 5
+      },
+      "turns": [
+        {
+          "turn": 1,
+          "production_cards": 0,
+          "candidate_cards": 0,
+          "presence": "neither",
+          "gap_observation": null
+        },
+        {
+          "turn": 2,
+          "production_cards": 5,
+          "candidate_cards": 0,
+          "presence": "legacy_only",
+          "gap_observation": "geo"
+        }
+      ],
+      "diagnostic": "La prod avance avec une origine et des choix sous plafond sans prouver toute la compatibilité. Le candidat conserve groupe et budget, mais pose une question générique sur les deux villes.",
+      "next_check": "Rejouer le contrat des origines multiples puis vérifier les capacités."
+    },
+    {
+      "number": 84,
+      "label": "C084",
+      "title": "Deux ZIP puis San Antonio et 40 USD",
+      "production_grade": "B",
+      "candidate_grade": "B",
+      "grade_comparison": "Même note",
+      "production_cards": 17,
+      "candidate_cards": 0,
+      "distinct_hotels": {
+        "candidate": 0,
+        "legacy": 10
+      },
+      "turns": [
+        {
+          "turn": 1,
+          "production_cards": 5,
+          "candidate_cards": 0,
+          "presence": "legacy_only",
+          "gap_observation": "geo"
+        },
+        {
+          "turn": 2,
+          "production_cards": 5,
+          "candidate_cards": 0,
+          "presence": "legacy_only",
+          "gap_observation": "geo"
+        },
+        {
+          "turn": 3,
+          "production_cards": 5,
+          "candidate_cards": 0,
+          "presence": "legacy_only",
+          "gap_observation": "offers"
+        },
+        {
+          "turn": 4,
+          "production_cards": 2,
+          "candidate_cards": 0,
+          "presence": "legacy_only",
+          "gap_observation": "offers"
+        }
+      ],
+      "diagnostic": "La prod expose des alternatives hors ZIP ou budget avec réserve. Le candidat demande deux fois le parent, puis conserve le dernier ZIP et reste sans offre datée sous plafond. Les causes varient selon le tour.",
+      "next_check": "Tester confirmation de ZIP puis élargissement et plafond séparément."
+    },
+    {
+      "number": 85,
+      "label": "C085",
+      "title": "Piscine à Paris sans limite de budget",
+      "production_grade": "C",
+      "candidate_grade": "B",
+      "grade_comparison": "Mieux noté",
+      "production_cards": 10,
+      "candidate_cards": 10,
+      "distinct_hotels": {
+        "candidate": 5,
+        "legacy": 5
+      },
+      "turns": [
+        {
+          "turn": 1,
+          "production_cards": 0,
+          "candidate_cards": 0,
+          "presence": "neither",
+          "gap_observation": null
+        },
+        {
+          "turn": 2,
+          "production_cards": 5,
+          "candidate_cards": 5,
+          "presence": "both",
+          "gap_observation": null
+        },
+        {
+          "turn": 3,
+          "production_cards": 5,
+          "candidate_cards": 5,
+          "presence": "both",
+          "gap_observation": null
+        }
+      ],
+      "diagnostic": "Même volume. La prod fixe pourtant un plafond et promet trop sur l’accès. Le candidat respecte l’absence de limite et distingue équipement et accès, avec texte encore générique.",
+      "next_check": "Conserver absence de plafond et preuve d’accès dans tous les suivis."
+    },
+    {
+      "number": 86,
+      "label": "C086",
+      "title": "Red Deer puis demain",
+      "production_grade": "B",
+      "candidate_grade": "B",
+      "grade_comparison": "Même note",
+      "production_cards": 4,
+      "candidate_cards": 4,
+      "distinct_hotels": {
+        "candidate": 2,
+        "legacy": 2
+      },
+      "turns": [
+        {
+          "turn": 1,
+          "production_cards": 2,
+          "candidate_cards": 2,
+          "presence": "both",
+          "gap_observation": null
+        },
+        {
+          "turn": 2,
+          "production_cards": 2,
+          "candidate_cards": 2,
+          "presence": "both",
+          "gap_observation": null
+        }
+      ],
+      "diagnostic": "Même nombre de cartes et date conservée. Le candidat affirme spontanément une piscine incluse sans preuve de formule ; défaut de prose malgré les résultats.",
+      "next_check": "Étendre les réserves d’accès aux mentions spontanées et aux détails."
+    },
+    {
+      "number": 87,
+      "label": "C087",
+      "title": "Los Angeles deux personnes puis lit douche et LAX",
+      "production_grade": "C",
+      "candidate_grade": "B",
+      "grade_comparison": "Mieux noté",
+      "production_cards": 15,
+      "candidate_cards": 7,
+      "distinct_hotels": {
+        "candidate": 6,
+        "legacy": 13
+      },
+      "turns": [
+        {
+          "turn": 1,
+          "production_cards": 5,
+          "candidate_cards": 4,
+          "presence": "both",
+          "gap_observation": null
+        },
+        {
+          "turn": 2,
+          "production_cards": 5,
+          "candidate_cards": 2,
+          "presence": "both",
+          "gap_observation": null
+        },
+        {
+          "turn": 3,
+          "production_cards": 5,
+          "candidate_cards": 1,
+          "presence": "both",
+          "gap_observation": null
+        }
+      ],
+      "diagnostic": "Le candidat conserve séjour, literie et transfert vers l’aéroport avec des formules vérifiées, mais réduit progressivement la liste. La prod conserve plus de cartes sans garantir tout le séjour ni les équipements de chambre.",
+      "next_check": "Vérifier la distinction dans le terminal et près de l’aéroport."
+    },
+    {
+      "number": 88,
+      "label": "C088",
+      "title": "Denver une heure puis fourchette numérique",
+      "production_grade": "B",
+      "candidate_grade": "B",
+      "grade_comparison": "Même note",
+      "production_cards": 9,
+      "candidate_cards": 5,
+      "distinct_hotels": {
+        "candidate": 5,
+        "legacy": 9
+      },
+      "turns": [
+        {
+          "turn": 1,
+          "production_cards": 0,
+          "candidate_cards": 0,
+          "presence": "neither",
+          "gap_observation": null
+        },
+        {
+          "turn": 2,
+          "production_cards": 5,
+          "candidate_cards": 5,
+          "presence": "both",
+          "gap_observation": null
+        },
+        {
+          "turn": 3,
+          "production_cards": 4,
+          "candidate_cards": 0,
+          "presence": "legacy_only",
+          "gap_observation": "conversation"
+        }
+      ],
+      "diagnostic": "Les deux montrent cinq hôtels. La prod avait demandé un budget ; le candidat pose une autre question puis clarifie la fourchette. Le rejeu fixe crée une partie de la friction.",
+      "next_check": "Rejouer une réponse monétaire explicite dans chaque branche."
+    },
+    {
+      "number": 89,
+      "label": "C089",
+      "title": "Capodistria puis nuit",
+      "production_grade": "B",
+      "candidate_grade": "B",
+      "grade_comparison": "Même note",
+      "production_cards": 0,
+      "candidate_cards": 0,
+      "distinct_hotels": {
+        "candidate": 0,
+        "legacy": 0
+      },
+      "turns": [
+        {
+          "turn": 1,
+          "production_cards": 0,
+          "candidate_cards": 0,
+          "presence": "neither",
+          "gap_observation": null
+        },
+        {
+          "turn": 2,
+          "production_cards": 0,
+          "candidate_cards": 0,
+          "presence": "neither",
+          "gap_observation": null
+        }
+      ],
+      "diagnostic": "Aucune carte. Couverture du marché et demande de nuit dominent le parcours ; la partie FAQ n’est pas validée en phase 1.",
+      "next_check": "Traiter couverture autoritative et nuit dans le périmètre dédié."
+    },
+    {
+      "number": 90,
+      "label": "C090",
+      "title": "San Bruno puis 125 USD",
+      "production_grade": "B",
+      "candidate_grade": "B",
+      "grade_comparison": "Même note",
+      "production_cards": 10,
+      "candidate_cards": 9,
+      "distinct_hotels": {
+        "candidate": 5,
+        "legacy": 6
+      },
+      "turns": [
+        {
+          "turn": 1,
+          "production_cards": 5,
+          "candidate_cards": 5,
+          "presence": "both",
+          "gap_observation": null
+        },
+        {
+          "turn": 2,
+          "production_cards": 5,
+          "candidate_cards": 4,
+          "presence": "both",
+          "gap_observation": null
+        }
+      ],
+      "diagnostic": "Le candidat garde San Bruno, le plafond et les frais et affiche quatre cartes au suivi contre cinq. La prod ajoute une zone aéroport non demandée. Différence de volume mineure sans rappel mesuré.",
+      "next_check": "Contrôler le total et éviter les ancres ajoutées implicitement."
+    },
+    {
+      "number": 91,
+      "label": "C091",
+      "title": "Lower Manhattan avec faute puis 200",
+      "production_grade": "B",
+      "candidate_grade": "C",
+      "grade_comparison": "Moins bien noté",
+      "production_cards": 10,
+      "candidate_cards": 0,
+      "distinct_hotels": {
+        "candidate": 0,
+        "legacy": 6
+      },
+      "turns": [
+        {
+          "turn": 1,
+          "production_cards": 5,
+          "candidate_cards": 0,
+          "presence": "legacy_only",
+          "gap_observation": "geo"
+        },
+        {
+          "turn": 2,
+          "production_cards": 5,
+          "candidate_cards": 0,
+          "presence": "legacy_only",
+          "gap_observation": "geo"
+        }
+      ],
+      "diagnostic": "La prod comprend le quartier et le budget dans sa branche. Le candidat demande confirmation du quartier puis prend le nombre pour un lieu. Régression initiale de récupération, puis effet de branche.",
+      "next_check": "Rejouer normalisation du quartier et clarification du rôle numérique."
+    },
+    {
+      "number": 92,
+      "label": "C092",
+      "title": "Strasbourg calme à 10 h puis classement",
+      "production_grade": "C",
+      "candidate_grade": "B",
+      "grade_comparison": "Mieux noté",
+      "production_cards": 5,
+      "candidate_cards": 0,
+      "distinct_hotels": {
+        "candidate": 0,
+        "legacy": 5
+      },
+      "turns": [
+        {
+          "turn": 1,
+          "production_cards": 0,
+          "candidate_cards": 0,
+          "presence": "neither",
+          "gap_observation": null
+        },
+        {
+          "turn": 2,
+          "production_cards": 5,
+          "candidate_cards": 0,
+          "presence": "legacy_only",
+          "gap_observation": "offers"
+        },
+        {
+          "turn": 3,
+          "production_cards": 0,
+          "candidate_cards": 0,
+          "presence": "neither",
+          "gap_observation": null
+        },
+        {
+          "turn": 4,
+          "production_cards": 0,
+          "candidate_cards": 0,
+          "presence": "neither",
+          "gap_observation": null
+        }
+      ],
+      "diagnostic": "La prod affiche un prix nul et classe sa liste. Le candidat reste vide sur les offres datées, puis ne peut comparer deux hôtels inexistants dans sa branche. Le suivi est peu utile mais ne doit pas inventer de liste.",
+      "next_check": "Comparer l’inventaire daté puis adapter les suivis à la liste réellement affichée."
+    },
+    {
+      "number": 93,
+      "label": "C093",
+      "title": "Adresse partielle à Manhattan",
+      "production_grade": "B",
+      "candidate_grade": "C",
+      "grade_comparison": "Moins bien noté",
+      "production_cards": 0,
+      "candidate_cards": 0,
+      "distinct_hotels": {
+        "candidate": 0,
+        "legacy": 0
+      },
+      "turns": [
+        {
+          "turn": 1,
+          "production_cards": 0,
+          "candidate_cards": 0,
+          "presence": "neither",
+          "gap_observation": null
+        },
+        {
+          "turn": 2,
+          "production_cards": 0,
+          "candidate_cards": 0,
+          "presence": "neither",
+          "gap_observation": null
+        }
+      ],
+      "diagnostic": "Aucune carte des deux côtés. La prod propose une interprétation précise à confirmer ; le candidat redemande des composants déjà donnés au lieu de la ville. Défaut de clarification ciblée.",
+      "next_check": "Rejouer le correctif de ville manquante."
+    },
+    {
+      "number": 94,
+      "label": "C094",
+      "title": "Utrecht sous 80 EUR puis septembre",
+      "production_grade": "C",
+      "candidate_grade": "B",
+      "grade_comparison": "Mieux noté",
+      "production_cards": 20,
+      "candidate_cards": 0,
+      "distinct_hotels": {
+        "candidate": 0,
+        "legacy": 5
+      },
+      "turns": [
+        {
+          "turn": 1,
+          "production_cards": 5,
+          "candidate_cards": 0,
+          "presence": "legacy_only",
+          "gap_observation": "offers"
+        },
+        {
+          "turn": 2,
+          "production_cards": 5,
+          "candidate_cards": 0,
+          "presence": "legacy_only",
+          "gap_observation": "offers"
+        },
+        {
+          "turn": 3,
+          "production_cards": 5,
+          "candidate_cards": 0,
+          "presence": "legacy_only",
+          "gap_observation": "offers"
+        },
+        {
+          "turn": 4,
+          "production_cards": 5,
+          "candidate_cards": 0,
+          "presence": "legacy_only",
+          "gap_observation": "offers"
+        },
+        {
+          "turn": 5,
+          "production_cards": 0,
+          "candidate_cards": 0,
+          "presence": "neither",
+          "gap_observation": null
+        }
+      ],
+      "diagnostic": "La prod répète prix nul, offre hors plafond et disponibilité non étayée. Le candidat garde le plafond, retourne vide puis conserve la date rejouée en 2027. Il manque une récupération utile malgré le filtrage prudent.",
+      "next_check": "Comparer à date proche et offrir un compromis sans augmenter le budget tacitement."
+    },
+    {
+      "number": 95,
+      "label": "C095",
+      "title": "Chambre à thème puis Fayetteville",
+      "production_grade": "B",
+      "candidate_grade": "B",
+      "grade_comparison": "Même note",
+      "production_cards": 0,
+      "candidate_cards": 2,
+      "distinct_hotels": {
+        "candidate": 1,
+        "legacy": 0
+      },
+      "turns": [
+        {
+          "turn": 1,
+          "production_cards": 0,
+          "candidate_cards": 0,
+          "presence": "neither",
+          "gap_observation": null
+        },
+        {
+          "turn": 2,
+          "production_cards": 0,
+          "candidate_cards": 0,
+          "presence": "neither",
+          "gap_observation": null
+        },
+        {
+          "turn": 3,
+          "production_cards": 0,
+          "candidate_cards": 1,
+          "presence": "candidate_only",
+          "gap_observation": null
+        },
+        {
+          "turn": 4,
+          "production_cards": 0,
+          "candidate_cards": 1,
+          "presence": "candidate_only",
+          "gap_observation": null
+        }
+      ],
+      "diagnostic": "Le candidat retrouve une offre après la ville et la conserve après aucune ; la prod reste vide. Le thème adulte demandé n’est pas prouvé, donc le gain d’inventaire ne vaut pas validation du besoin.",
+      "next_check": "Vérifier le thème ou préciser qu’il est inconnu."
+    },
+    {
+      "number": 96,
+      "label": "C096",
+      "title": "Brooklyn avec faible dépôt puis budget",
+      "production_grade": "B",
+      "candidate_grade": "B",
+      "grade_comparison": "Même note",
+      "production_cards": 10,
+      "candidate_cards": 0,
+      "distinct_hotels": {
+        "candidate": 0,
+        "legacy": 7
+      },
+      "turns": [
+        {
+          "turn": 1,
+          "production_cards": 0,
+          "candidate_cards": 0,
+          "presence": "neither",
+          "gap_observation": null
+        },
+        {
+          "turn": 2,
+          "production_cards": 5,
+          "candidate_cards": 0,
+          "presence": "legacy_only",
+          "gap_observation": "geo"
+        },
+        {
+          "turn": 3,
+          "production_cards": 5,
+          "candidate_cards": 0,
+          "presence": "legacy_only",
+          "gap_observation": "geo"
+        }
+      ],
+      "diagnostic": "La prod choisit NYC et affiche des options. Le candidat propose des homonymes ; le suivi budgétaire ne choisit aucun lieu. Le dépôt relève en plus de conditions non établies.",
+      "next_check": "Faire une clarification adaptative du lieu puis vérifier les conditions de dépôt."
+    },
+    {
+      "number": 97,
+      "label": "C097",
+      "title": "23rd Street Manhattan en soirée",
+      "production_grade": "C",
+      "candidate_grade": "C",
+      "grade_comparison": "Même note",
+      "production_cards": 10,
+      "candidate_cards": 5,
+      "distinct_hotels": {
+        "candidate": 5,
+        "legacy": 7
+      },
+      "turns": [
+        {
+          "turn": 1,
+          "production_cards": 5,
+          "candidate_cards": 0,
+          "presence": "legacy_only",
+          "gap_observation": "geo"
+        },
+        {
+          "turn": 2,
+          "production_cards": 5,
+          "candidate_cards": 5,
+          "presence": "both",
+          "gap_observation": null
+        }
+      ],
+      "diagnostic": "La prod montre des cartes avec créneaux partiellement inadéquats. Le candidat clarifie NYC puis affiche Financial District en perdant 23rd Street. Le total final masque une perte du repère fin.",
+      "next_check": "Conserver l’origine précise après confirmation de ville."
+    },
+    {
+      "number": 98,
+      "label": "C098",
+      "title": "Paris famille puis retrait enfant et moins cher",
+      "production_grade": "C",
+      "candidate_grade": "B",
+      "grade_comparison": "Mieux noté",
+      "production_cards": 15,
+      "candidate_cards": 15,
+      "distinct_hotels": {
+        "candidate": 15,
+        "legacy": 10
+      },
+      "turns": [
+        {
+          "turn": 1,
+          "production_cards": 5,
+          "candidate_cards": 5,
+          "presence": "both",
+          "gap_observation": null
+        },
+        {
+          "turn": 2,
+          "production_cards": 5,
+          "candidate_cards": 5,
+          "presence": "both",
+          "gap_observation": null
+        },
+        {
+          "turn": 3,
+          "production_cards": 5,
+          "candidate_cards": 5,
+          "presence": "both",
+          "gap_observation": null
+        }
+      ],
+      "diagnostic": "Même volume. Le candidat applique réellement le retrait de l’enfant et annonce les créneaux alternatifs ; la prod mélange capacité inconnue et produit spa seul. Quelques formulations tarifaires restent ambiguës.",
+      "next_check": "Contrôle positif des mises à jour de groupe et alternatives horaires."
+    },
+    {
+      "number": 99,
+      "label": "C099",
+      "title": "Paris puis autres hôtels sans exigence de baisse",
+      "production_grade": "C",
+      "candidate_grade": "B",
+      "grade_comparison": "Mieux noté",
+      "production_cards": 20,
+      "candidate_cards": 15,
+      "distinct_hotels": {
+        "candidate": 15,
+        "legacy": 11
+      },
+      "turns": [
+        {
+          "turn": 1,
+          "production_cards": 5,
+          "candidate_cards": 5,
+          "presence": "both",
+          "gap_observation": null
+        },
+        {
+          "turn": 2,
+          "production_cards": 5,
+          "candidate_cards": 5,
+          "presence": "both",
+          "gap_observation": null
+        },
+        {
+          "turn": 3,
+          "production_cards": 10,
+          "candidate_cards": 5,
+          "presence": "both",
+          "gap_observation": null
+        }
+      ],
+      "diagnostic": "Les deux avancent, mais la prod dit ne pas avoir d’autres hôtels tout en montrant de nouvelles cartes et en affichant dix au dernier tour. Le candidat conserve le plafond et pagine sans répéter la première sélection.",
+      "next_check": "Vérifier nouvelles identités plutôt que le seul nombre de cartes."
+    },
+    {
+      "number": 100,
+      "label": "C100",
+      "title": "Manhattan en USD puis moins cher et nouveau plafond",
+      "production_grade": "C",
+      "candidate_grade": "B",
+      "grade_comparison": "Mieux noté",
+      "production_cards": 20,
+      "candidate_cards": 9,
+      "distinct_hotels": {
+        "candidate": 5,
+        "legacy": 7
+      },
+      "turns": [
+        {
+          "turn": 1,
+          "production_cards": 5,
+          "candidate_cards": 5,
+          "presence": "both",
+          "gap_observation": null
+        },
+        {
+          "turn": 2,
+          "production_cards": 5,
+          "candidate_cards": 0,
+          "presence": "legacy_only",
+          "gap_observation": "offers"
+        },
+        {
+          "turn": 3,
+          "production_cards": 5,
+          "candidate_cards": 0,
+          "presence": "legacy_only",
+          "gap_observation": "offers"
+        },
+        {
+          "turn": 4,
+          "production_cards": 5,
+          "candidate_cards": 3,
+          "presence": "both",
+          "gap_observation": null
+        },
+        {
+          "turn": 5,
+          "production_cards": 0,
+          "candidate_cards": 1,
+          "presence": "candidate_only",
+          "gap_observation": null
+        }
+      ],
+      "diagnostic": "La prod élargit à Queens sans accord et mélange référence de prix et créneau. Le candidat refuse le moins cher non vérifiable, conserve Manhattan, puis reprend au plafond explicite et détaille le total réel.",
+      "next_check": "Améliorer le compromis prix tout en gardant zone et formule de référence."
+    }
+  ],
+  "new_model_cost_usd": 0
+}

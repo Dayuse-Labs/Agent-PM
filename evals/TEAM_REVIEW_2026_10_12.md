@@ -6,6 +6,14 @@ Cette synthèse s’adresse à l’équipe produit et technique qui doit revoir 
 
 [PR 134 — contexte conversationnel et offres MCP](https://github.com/Dayuse-Labs/AgentB2C/pull/134). Le comparatif porte sur la production exécutée le **10 octobre**, pas sur un nouveau test du déploiement du 12 octobre. Les exemples de demandes ci-dessous illustrent les comportements attendus ; ils ne sont pas des transcriptions client.
 
+## Diagnostic conversation par conversation
+
+[Les 100 fiches comparatives](CONVERSATION_COMPARISON_2026_10_12.md) rapprochent les cartes de chaque tour, les hôtels distincts, les notes historiques et les différences observées. [Version partageable](https://chatgpt.com/space/page_a7138070ece88191b5de19a34435674f).
+
+**Au moins un hôtel affiché : 48 conversations sur 100 côté candidat, contre 76 en prod.** Les 90 réponses où seule la prod affiche des cartes se répartissent en 39 demandes de précision de lieu ou d’identité, 38 annonces d’absence d’offre vérifiable, 12 autres clarifications et un tour FAQ. Il s’agit de comportements observés, pas de causes techniques prouvées : prudence utile, blocages excessifs et différences fournisseur restent à distinguer. Dans 28 de ces 90 tours, au moins une carte prod signale elle-même une contrainte non satisfaite.
+
+Cette analyse rétrospective conserve les notes existantes et vérifie les 200 empreintes de trajectoires ainsi que les 280 messages utilisateur appariés. Aucun nouveau rejeu du runtime 548b739, aucun coût modèle supplémentaire. Les transcriptions complètes restent hors Git.
+
 ## Ce que donne le candidat face à la production
 
 Les deux agents ont traité 100 parcours et 280 messages chacun. Les notes suivent la grille historique : A parfait, B défaut mineur, C significatif, D majeur, F critique.

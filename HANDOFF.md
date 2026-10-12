@@ -1,3 +1,7 @@
+## 2026-10-12 — conversation comparison added for PR review
+
+Documentation only. Added 100 sanitized conversation summaries and per-turn card counts in `evals/CONVERSATION_COMPARISON_2026_10_12.md` and JSON, linked from team review. All 200 trajectory hashes and 280 paired user inputs checked during retrospective analysis. Historical v116 candidate has hotels in 48/100 journeys vs legacy 76/100. Of 90 legacy-only card turns, candidate replies contain 39 location/identity clarifications, 38 no-verifiable-offer statements, 12 other clarifications and one FAQ turn. These are observations, not proven supplier or code causes. Existing grades retained; no independent regrading or live replay of latest runtime548b739. No raw transcripts or GPS published. No application changes, new paid calls, merge or deployment. Exact-head CI status belongs in the PR after publication.
+
 ## 2026-10-12 — team handoff and request-based review artifact
 
 Documentation-only finalization of PR134. `evals/TEAM_REVIEW_2026_10_12.md` explains the change and rationale by customer intent, distinguishes inherited B2C behavior from PR additions, and compares the Oct10 measured legacy production against evaluated runtime3153771. All86 current runtime source hashes match548b739; no code, configuration, scores or budget changed. Existing3336 local tests and225 affected rerun remain historical checks, not rerun today. Source counts and comparison numbers rechecked against their JSON. Guardrails and diff checked for this documentation delivery.
