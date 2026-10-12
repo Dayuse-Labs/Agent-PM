@@ -1,3 +1,78 @@
+## 2026-10-12 — PR134-FIX : correctifs bloquants de #134 (branche `fix/pr134-blockers`, PR vers `codex/production-context-and-proximity`)
+
+Périmètre : `phases/PR134-correctifs-bloquants.md`. Socle `5d9218b` + `8ec57f1` (#115, garde calendrier) ; `origin/main` (#135) **non mergé**, volontairement. Hors ligne uniquement : aucun appel réseau, LLM ni MCP.
+
+### Fait — un commit par point (cherry-pickables)
+| Point | Commit | Test (rouge sur `5d9218b`) | Contrôle négatif |
+|---|---|---|---|
+| B1 disjoncteur | `0c0f340` | `test_mcp_guard.py::test_local_refusals_never_open_the_breaker`, `::test_a_local_refusal_is_not_metered_as_a_tool_error` (vraie chaîne `canonical_*_tool_callbacks`) | fait ; marques des 2 dispatchers prouvées une à une |
+| B2 accès équipement | `c7b3cfd` | `test_spine_profile.py::test_access_disclosure_is_appended_once_per_requested_amenity_set` + assertion `cbe88b9` restaurée | fait |
+| B3 budget sans devise | `094341f`, `9abe88b` | `TestBudgetWithoutWrittenCurrency` (2), `test_a_bare_number_answering_a_budget_question_is_never_auto_widened` | fait |
+| B4 date pourrissante | `bce9251` | `tests/test_calendar_rot.py` | rouge avant, vert après |
+| R5a NYC | `8c6fa75` | fixture `cbe88b9` remise à côté de la nouvelle | rouge avant |
+| R5d « Londres » | `b77c94c` | `test_missing_extraction_allows_the_city_the_customer_wrote_in_another_form` | fait |
+| R6b zones dans le plafond | `884ef5e` | `test_area_batch_dispatches_no_more_reads_than_the_cap`, `..._no_read_left_is_a_budget_stop_not_an_outage` | fait |
+| R6c ordre / garde de schéma | `158774f` | `test_area_queries_pass_the_schema_guard_like_any_search`, `test_budget_page_queries_pass_the_schema_guard` | fait |
+| D date sans casse ni accents | `99e2326` | `test_date_expression_matches_the_message_without_case_or_accents` (3 cas) | rouge avant |
+
+Choix de mise en œuvre à relire :
+- **B1** : au lieu d'un marqueur posé par chaque refus, la chaîne encadre chaque appel MCP. `mcp_call_pending` est placé juste après le timing ; seul un envoi réel lève la marque (`mcp_call_dispatched` en dernier, ou `mark_mcp_dispatched` dans les 2 callbacks qui appellent `tool.run_async` eux-mêmes). Un futur refus est donc couvert sans liste à tenir. La métrique passe par `mcp_tool_metric_after`, qui enveloppe celle de la flotte : un refus local sort en `status=ok` (même traitement que le stop budget).
+- **B2** : nouveau slot concierge-only `access_notice_key` (jamais envoyé à la feuille). L'avertissement est dit une fois par ensemble demandé. `test_party_discovery` attend désormais qu'il ne revienne pas au tour suivant.
+- **B3** : sans devise écrite ni devise widget, l'unité est la devise d'affichage, EUR, comme sur `main`. Après une recherche, la question de devise s'ajoute aux résultats au lieu de les jeter. 3 tests de #134 qui figeaient « Which currency? » avec 0 appel feuille ont été re-ciblés sur une question encore légitime (montant horaire, « $50 » à Paris).
+- **R6c** : déplacer `drop_args_outside_schema` après les dispatchers ne servirait à rien, puisqu'ils court-circuitent la chaîne. Chacun passe donc sa propre requête par la même garde. L'ordre est figé dans `test_agent` avec la raison.
+
+### Décisions de Fabien (2026-10-12, en session)
+- **B3, nombre nu** : on garde la protection de #134 (« 75008 », « 78240 » ne deviennent jamais un plafond). Un nombre nu est un budget seulement s'il répond à une question de budget (`answer_to`). Les anciens tests en session vierge sont VOULU ; leurs assertions sont portées dans ce contexte.
+- **R6b** : chaque zone compte une lecture dans le plafond par outil (2 par défaut, `HOTEL_SEARCH_MAX_MCP_CALLS`). Au-delà, la zone est « non cherchée » (`failed_area_names`, signalée par la synthèse). Une demande de 4 ou 5 zones n'en cherche donc que 2.
+
+### Reste — À TRANCHER (aucun code changé)
+- **R5b** « Milano, Lombardia » (`test_region_hint_that_matches_nothing_does_not_zero_out`). Ignorer un indice de région non confirmé (comportement de `main`) sélectionnerait l'homonyme d'une autre région pour tout « Ville, Région » hors US. Le garder (#134) répond `none`, et l'utilisateur reçoit une question de lieu. Rien hors ligne ne distingue « Lombardia » de « Lombardy ». Reco : une question de confirmation à une seule option au lieu de `none`.
+- **R5c** homonymes sans écho (`test_clarify_surfaces_when_search_box_misses_too`). #134 retire les options qui ratent l'écho : pour « La Défense, Paris », il ne propose plus La Defensa (Colombie) ni Defense (Abu Dhabi), ce qui est mieux. Mais une faute de frappe (« Budapestt ») perd alors des options utiles (HU/GA). Le tour finit quand même sur une question de lieu, rédigée par le LLM.
+- **R6a** règle SKU Search Box (`test_no_zone_never_calls_search_box`, `test_bare_city_miss_with_candidates_still_never_calls_search_box`). La restaurer casse 3 tests de #134 : un POI que le modèle a mis dans `city` (« JFK area », « Solar Pizza ») n'est retrouvé que par l'unique appel Search Box borné. Dans les fixtures, rien ne distingue une faute de ville d'un POI-en-ville. Arbitrage coût contre rappel.
+- **Créneau d'un seul côté** (`test_timeslot_one_sided_start_only_kept_as_is`) : règle d'une heure de #134 contre « une nouvelle heure de début remplace le créneau » (#135). À trancher avec la famille Dates.
+- **Contrat MCP** : `contracts/mcp_b2c_tools.json` a été édité à la main dans #134 (`sortBy`, `timeSlotMode`, `generated_at` inchangé). **Fabien doit relancer `scripts/refresh_mcp_contract.py`** pour vérifier que le MCP déployé publie bien ces clés. Si ce n'est pas le cas, la garde de schéma (R6c) les retire désormais au lieu de faire refuser l'appel.
+- **D, limite** : « le 20/10 » reformulé par le modèle en « 20 octobre » n'est pas une citation, donc toujours rejeté (le concierge ne le rattrape pas non plus).
+
+### Tableau des verdicts — anciens tests `cbe88b9` rejoués contre cette branche
+Rejeu : 28 fichiers modifiés par #134, copiés hors arbre, non commités. Seules les signatures des faux ont été adaptées (`fake_run_leaf(..., *, query_params=None)`, `_fake_get_hotel_details(..., allow_text_name=True)`, `fake_classify(..., previous_reply=None, location_context=None)`). Résultat : **47 échecs sur `5d9218b`, 45 après cette branche** ; aucun sans verdict.
+
+| Ancien test | Verdict |
+|---|---|
+| `test_spine_profile::test_amenities_delta_is_persisted_and_surfaces_in_search_context` | **RESTAURÉ** (B2, repasse tel quel) |
+| `test_geo_guards::test_echo_back_passes_when_no_distinctive_tokens` (NYC) | **RESTAURÉ** (R5a, repasse tel quel) |
+| `test_spine_profile::test_bare_number_reply_overrides_the_leafs_own_source_claim`, `::test_explicit_budget_is_never_auto_widened` | VOULU (décision B3) — assertions portées : `test_bare_number_reply_overrides…` (#134, avec `answer_to`) et `test_a_bare_number_answering_a_budget_question_is_never_auto_widened` |
+| `test_spine::test_search_unavailable_*` ×2 (feuille « Marseille » sur un message « Paris », sans résolution fournisseur) | VOULU — porté : `test_a_city_the_leaf_verified_is_kept_even_when_written_differently` (« Londres » → London) |
+| `test_geo_resolver::test_region_hint_that_matches_nothing_does_not_zero_out` | **À TRANCHER** (R5b) |
+| `test_geocode_tool::test_clarify_surfaces_when_search_box_misses_too` | **À TRANCHER** (R5c) |
+| `test_geocode_tool::test_no_zone_never_calls_search_box`, `::test_bare_city_miss_with_candidates_still_never_calls_search_box` | **À TRANCHER** (R6a) |
+| `test_datetime_resolver::test_timeslot_one_sided_start_only_kept_as_is` | **À TRANCHER** (Dates, #135) |
+| `test_geocode_tool::test_with_no_anchor_at_all_the_turn_never_reaches_this_guard` (Toulon, `box.calls == []` → 1) | VOULU — un indice pays autorise une seule recherche d'aéroport natif ; la garde rejette toujours |
+| `test_display_currency::test_an_unavailable_currency_is_answered_even_without_results` | VOULU (devise non supportée différée) |
+| `test_ground_truth` ×3 (« ZERO results », « Only ONE hotel », « outside the centre ») | VOULU |
+| `test_no_offers` ×5, `test_spine_profile::test_the_reply_opens_with_the_criteria_written_in_code` | VOULU (formulation `no_offers`, minutes gardées) |
+| `test_spine_profile::test_angle_reaches_the_prompt_when_the_data_warrants_one` | VOULU (angles) |
+| `test_profile::test_concierge_only_keys_never_travel` (`distance_origin`) | VOULU — lu par la feuille (proximité) ; remplacé par `test_every_leaf_consumed_slot_is_kept` |
+| `test_profile` `more_options` / `booking_confirmation` ×2 | VOULU (pilotés par le LLM) |
+| `test_templates::test_search_exhausted_response` | VOULU (gabarit « seen every hotel ») |
+| `test_triage::test_no_new_kwargs_when_env_is_unset`, `test_llm_params::test_built_in_defaults` | VOULU (triage `max_tokens` 768) |
+| `test_window_guard::TestSpine` ×2 | VOULU (liste de créneaux) |
+| `faq_agent` / `hotel_search` `test_tool_callbacks_wired_with_budget` | VOULU (3 et 21 callbacks ; l'ordre est figé par R6c) |
+| `test_datetime_resolver` ×5 (date fraîche, absolue, fuseau, année hallucinée ×2) | VOULU — la date doit être citée du message ; mêmes tests avec message dans #134 ; D assouplit la comparaison |
+| `test_datetime_resolver::test_timeslot_sub_hour_window_floors_and_ceils_for_mcp` | VOULU (`timeSlotMode="contain"`) |
+| `test_equipment_ids` ×3 | VOULU (`AMENITY_KEYS` fermé) |
+| `test_geocode_tool::test_zone_included_in_geocode_query` (+1 appel v6 « Miami ») | VOULU, coût noté : recherche dédiée de la ville (régression London, `geocode_tool.py:240`), un appel Mapbox v6 de plus par recherche ville+zone |
+| `test_geocode_tool::test_a_gps_fix_still_wins_over_the_city_coordinate` | VOULU (ville nommée avant GPS) |
+| `test_mcp_contract` ×3 (`enforce_resolved_search_origin`) | VOULU (recherche refusée avant un géocodage réussi) |
+
+### Pièges découverts
+- `tests/test_calendar_rot.py` rejoue **tout l'arbre** : des copies `*_cbe88b9.py` laissées dans `agents/**/tests` le font échouer. Les sortir de l'arbre avant de lancer la suite complète.
+- `tests/test_area_scope.py` et `agents/hotel_search_agent/tests/test_budget_pages.py` ne se collectent pas dans la même commande pytest (collision du package `tests`) ; la suite complète, elle, passe.
+- Les contextes de test du lot de zones doivent d'abord exécuter le vrai garde budget (`_turn_started`), sinon `reserve_mcp_read` refuse tout, comme en production sans garde.
+- Le logger `dayuse.metrics` a `propagate=False` : `caplog` ne le voit pas, il faut y attacher un handler.
+
+### Gates (worktree, 2026-10-12)
+`pytest` : 3358 passés, 1 ignoré (Langfuse payant), calendrier compris · `ruff` OK · `mypy agents libs` : 86 fichiers OK · `dayuse_guardrails.sh` : OK. Aucun merge, aucun déploiement.
+
 ## 2026-10-12 — conversation comparison added for PR review
 
 Documentation only. Added 100 sanitized conversation summaries and per-turn card counts in `evals/CONVERSATION_COMPARISON_2026_10_12.md` and JSON, linked from team review. All 200 trajectory hashes and 280 paired user inputs checked during retrospective analysis. Historical v116 candidate has hotels in 48/100 journeys vs legacy 76/100. Of 90 legacy-only card turns, candidate replies contain 39 location/identity clarifications, 38 no-verifiable-offer statements, 12 other clarifications and one FAQ turn. These are observations, not proven supplier or code causes. Existing grades retained; no independent regrading or live replay of latest runtime548b739. No raw transcripts or GPS published. No application changes, new paid calls, merge or deployment. Exact-head CI status belongs in the PR after publication.
