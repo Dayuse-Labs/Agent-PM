@@ -115,6 +115,32 @@ def _run_turn(runner, session_id, message):
 
 
 class TestOutgoingProfileEnvelope:
+    def test_support_followup_context_reaches_triage_faq_and_final_answer_but_not_another_session(
+        self, monkeypatch, fake_leg, fake_profile_store
+    ):
+        fake_leg.text = "Check the confirmation email for your booking."
+        fake_leg.response_payload = {}
+        llm = _scripted_llm(monkeypatch,
+            '{"family":"faq","language":"en"}', "Check your confirmation email.",
+            '{"family":"faq","language":"en"}', "Guest bookings are in the confirmation email.",
+            '{"family":"faq","language":"en"}', "Check your confirmation email.")
+        runner = InMemoryRunner(root_agent)
+        first = _new_session(runner)
+        _run_turn(runner, first.id, "Where can I find my reservation?")
+        _run_turn(runner, first.id, "I booked as a guest")
+        assert "Where can I find my reservation?" in llm.calls[2]["messages"][1]["content"]
+        envelope = find_datapart(fake_leg.seen_outgoing_parts)
+        assert envelope["query_params"]["recent_user_messages"] == ["Where can I find my reservation?"]
+        synthesis = llm.calls[3]["messages"][1]["content"]
+        assert "RECENT USER MESSAGES" in synthesis
+        assert "Where can I find my reservation?" in synthesis
+        assert "I booked as a guest" in synthesis
+        assert "Check your confirmation email." not in synthesis  # previous assistant text is not memory
+        second = _new_session(runner)
+        _run_turn(runner, second.id, "Where is my reservation?")
+        assert "RECENT USER MESSAGES" not in llm.calls[4]["messages"][1]["content"]
+        assert "RECENT USER MESSAGES" not in llm.calls[5]["messages"][1]["content"]
+
     def test_profile_in_travels_to_the_leaf_as_a_datapart(self, monkeypatch, fake_leg):
         fake_leg.response_payload = {"results": [], "profile_delta": {}}
         _scripted_llm(monkeypatch, '{"family": "search", "language": "en"}', "synthesized reply")
@@ -249,7 +275,7 @@ class TestAutoWidenThroughTheSpine:
         runner = InMemoryRunner(root_agent)
         session = _new_session(runner)
 
-        _run_turn(runner, session.id, "a hotel under 100")
+        _run_turn(runner, session.id, "a cheap hotel")
         fake_leg.response_payload = {"results": []}  # keep budget_max as already stored
         _run_turn(runner, session.id, "still looking")
 
@@ -311,7 +337,7 @@ class TestSearchExhaustionThroughTheSpine:
             "results": [],
             "profile_delta": {"budget_max": 100, "budget_request_source": BUDGET_SOURCE_FLEXIBLE_DEFAULT},
         }
-        _run_turn(runner, session.id, "a hotel under 100")
+        _run_turn(runner, session.id, "a cheap hotel")
         fake_leg.response_payload = {"results": []}
         _run_turn(runner, session.id, "still looking")
         _run_turn(runner, session.id, "no luck")
@@ -348,7 +374,7 @@ class TestSearchExhaustionThroughTheSpine:
             "results": [],
             "profile_delta": {"budget_max": 100, "budget_request_source": BUDGET_SOURCE_FLEXIBLE_DEFAULT},
         }
-        _run_turn(runner, session.id, "a hotel under 100")
+        _run_turn(runner, session.id, "a cheap hotel")
         fake_leg.response_payload = {"results": []}
         _run_turn(runner, session.id, "still looking")
         _run_turn(runner, session.id, "no luck")
@@ -491,26 +517,114 @@ class TestProvenanceHonestyThroughTheSpine:
 
         assert "PROVENANCE" not in llm.calls[-1]["messages"][1]["content"]
 
+    def test_window_and_budget_typed_by_the_user_get_no_provenance_note(
+        self, monkeypatch, fake_leg, fake_profile_store
+    ):
+        """mcp-dayuse#5 (trace 324561ec): the leaf always sends flexible_default,
+        so « de 6h à 16h » was presented as a slot applied by default."""
+        fake_leg.response_payload = {
+            "results": [{"id": 1, "name": "Hotel A"}],
+            "profile_delta": {
+                "city": "Paris",
+                "budget_max": 120, "budget_request_source": BUDGET_SOURCE_FLEXIBLE_DEFAULT,
+                "timeslot_start": "10:00", "timeslot_end": "15:00",
+                "timeslot_request_source": BUDGET_SOURCE_FLEXIBLE_DEFAULT,
+            },
+        }
+        llm = _scripted_llm(monkeypatch, '{"family": "search", "language": "fr"}', "Voici un hôtel.")
+        runner = InMemoryRunner(root_agent)
+        session = _new_session(runner)
+
+        _run_turn(runner, session.id, "hôtel à Paris demain de 10h à 15h moins de 120 euros")
+
+        assert "PROVENANCE" not in llm.calls[-1]["messages"][1]["content"]
+
+
+class TestNoOffersCitesTheSearchThatRan:
+    """mcp-dayuse#5 (live 2026-10-06): "near Gare du Nord from 7am to 9am with a
+    sauna under 30 euros" came back as "No offers in Paris … with a sauna under
+    30 euros" — the zone and the window gone."""
+
+    _CONTEXT = {
+        "city": "Paris", "zone": "Gare du Nord", "date": "2026-10-07", "daypart": None,
+        "timeslot_start": "07:00", "timeslot_end": "09:00", "budget_max": 30.0,
+        "amenities": ["sauna"], "adults": None, "children": None, "radius_km": 3,
+    }
+
+    def test_the_reply_opens_with_the_criteria_written_in_code(
+        self, monkeypatch, fake_leg, fake_profile_store
+    ):
+        fake_leg.response_payload = {"results": [], "search_context": self._CONTEXT}
+        llm = _scripted_llm(
+            monkeypatch, '{"family": "search", "language": "en"}', "Try a later time or a wider area.",
+        )
+        runner = InMemoryRunner(root_agent)
+        session = _new_session(runner)
+
+        answer = _run_turn(runner, session.id, "a hotel near Gare du Nord tomorrow 7am-9am with a sauna")
+
+        assert answer.startswith(
+            "No offers around Gare du Nord, Paris on Wednesday, October 7, 2026, "
+            "from 7:00 to 9:00, under €30, with a sauna."
+        )
+        assert answer.endswith("Try a later time or a wider area.")
+        user_msg = llm.calls[-1]["messages"][1]["content"]
+        assert "NO OFFERS (already shown" in user_msg and "SEARCH CONTEXT (what" not in user_msg
+
+    def test_a_search_with_results_gets_no_such_sentence(
+        self, monkeypatch, fake_leg, fake_profile_store
+    ):
+        fake_leg.response_payload = {
+            "results": [{"id": 1, "name": "Hotel A"}], "search_context": self._CONTEXT,
+        }
+        _scripted_llm(monkeypatch, '{"family": "search", "language": "en"}', "Here is a hotel.")
+        runner = InMemoryRunner(root_agent)
+        session = _new_session(runner)
+
+        answer = _run_turn(runner, session.id, "a hotel near Gare du Nord")
+
+        assert not answer.startswith("No offers")
+
 
 class TestCurrencyDisclosureThroughTheSpine:
     """S-G7 (A6-a): display stays EUR, never an invented conversion — the
     CURRENCY marker mirrors the existing PROVENANCE/AUTO_WIDEN precedent.
-    Two independent triggers: the user's own native-context currency
-    (profile.currency), and a shown hotel's own `currency_code` (live-probed
-    2026-07-23 — MCP sends it, but the numeric price stays EUR regardless)."""
+    Owed only once the user has asked for a currency (mcp-dayuse#5): the
+    widget's own currency and a hotel's own `currency_code` are not requests."""
 
-    def test_non_eur_user_currency_triggers_a_disclosure(
+    def test_the_widget_currency_alone_gets_no_disclosure(
         self, monkeypatch, fake_leg, fake_profile_store
     ):
+        """mcp-dayuse#5: 22 of 29 traces of 2026-09-30 carried the note, the
+        test widget sending currency USD, nobody having asked."""
         fake_leg.response_payload = {
-            "results": [{"id": 1, "name": "Hotel A"}],
-            "profile_delta": {"city": "Miami", "currency": "USD"},
+            "results": [{"id": 1, "name": "Hotel A", "currency_code": "USD"}],
+            "profile_delta": {"city": "San Francisco", "currency": "USD"},
         }
-        llm = _scripted_llm(monkeypatch, '{"family": "search", "language": "en"}', "Here is a hotel.")
+        _scripted_llm(monkeypatch, '{"family": "search", "language": "en"}', "Here is a hotel.")
         runner = InMemoryRunner(root_agent)
         session = _new_session(runner)
 
-        _run_turn(runner, session.id, "hotels in Miami")
+        answer = _run_turn(runner, session.id, "a hotel in San Francisco tomorrow")
+
+        assert "no conversion" not in answer.lower()
+
+    def test_a_requested_currency_shown_in_eur_triggers_a_disclosure(
+        self, monkeypatch, fake_leg, fake_profile_store
+    ):
+        fake_leg.response_payload = {
+            "results": [{"id": 1, "name": "Hotel A", "currency_code": "USD"}],
+            "profile_delta": {"city": "Miami"},
+        }
+        llm = _scripted_llm(
+            monkeypatch,
+            '{"family": "search", "language": "en", "display_currency": "USD"}',
+            "Here is a hotel.",
+        )
+        runner = InMemoryRunner(root_agent)
+        session = _new_session(runner)
+
+        _run_turn(runner, session.id, "hotels in Miami, prices in dollars")
 
         user_msg = llm.calls[-1]["messages"][1]["content"]
         system_msg = llm.calls[-1]["messages"][0]["content"]
@@ -518,22 +632,25 @@ class TestCurrencyDisclosureThroughTheSpine:
         assert "USD" in user_msg
         assert "no conversion" in system_msg.lower()
 
-    def test_non_eur_hotel_currency_triggers_a_disclosure_even_without_user_currency(
+    def test_the_request_is_remembered_on_the_next_turns(
         self, monkeypatch, fake_leg, fake_profile_store
     ):
         fake_leg.response_payload = {
             "results": [{"id": 1, "name": "Hotel A", "currency_code": "USD"}],
             "profile_delta": {"city": "Miami"},
         }
-        llm = _scripted_llm(monkeypatch, '{"family": "search", "language": "en"}', "Here is a hotel.")
+        llm = _scripted_llm(
+            monkeypatch,
+            '{"family": "search", "language": "en", "display_currency": "USD"}', "Here is a hotel.",
+            '{"family": "search", "language": "en"}', "Another one.",
+        )
         runner = InMemoryRunner(root_agent)
         session = _new_session(runner)
 
-        _run_turn(runner, session.id, "hotels in Miami")
+        _run_turn(runner, session.id, "hotels in Miami, prices in dollars")
+        _run_turn(runner, session.id, "another one with a pool")
 
-        user_msg = llm.calls[-1]["messages"][1]["content"]
-        assert "CURRENCY" in user_msg
-        assert "USD" in user_msg
+        assert "CURRENCY" in llm.calls[-1]["messages"][1]["content"]
 
     def test_eur_currency_never_gets_a_disclosure(self, monkeypatch, fake_leg, fake_profile_store):
         fake_leg.response_payload = {
@@ -572,13 +689,13 @@ class TestCurrencyDisclosureThroughTheSpine:
             "profile_delta": {"city": "Bangkok"},
         }
         _scripted_llm(
-            monkeypatch, '{"family": "search", "language": "en"}',
+            monkeypatch, '{"family": "search", "language": "en", "display_currency": "THB"}',
             "Here is a hotel with a great discount.",  # no currency mention, exactly the prod repro
         )
         runner = InMemoryRunner(root_agent)
         session = _new_session(runner)
 
-        answer = _run_turn(runner, session.id, "hotels in Bangkok")
+        answer = _run_turn(runner, session.id, "hotels in Bangkok, in baht please")
 
         assert "Prices are shown in EUR, with no conversion applied." in answer
 
@@ -1134,3 +1251,52 @@ class TestWrittenOutDateThroughTheSpine:
         assert "2026-09-24" not in synthesis_prompt
         assert "Pour demain (jeudi 24 septembre 2026) à Paris" in reply
         assert "2026-09-24" not in reply
+
+
+def test_recognized_bare_budget_reaches_actual_search_arguments(
+    monkeypatch, fake_leg, fake_profile_store
+):
+    """Observed prod comparison: triage knew 60 but MCP received no cap."""
+    from hotel_search_agent.budget_injection import inject_profile_budget
+
+    fake_leg.response_payload = {"results": [], "profile_delta": {}}
+    llm = _scripted_llm(
+        monkeypatch,
+        '{"family":"search","language":"en","bare_budget_value":60}',
+        "No matching offers under your budget.",
+    )
+    runner = InMemoryRunner(root_agent)
+    session = _new_session(runner)
+    asyncio.run(fake_profile_store.set(session.id, SessionProfile(city="Orange County", budget_max=150)))
+    _run_turn(runner, session.id, "60")
+
+    payload = find_datapart(fake_leg.seen_outgoing_parts)
+    assert payload["profile_in"]["budget_max"] == 60
+    assert payload["profile_in"]["budget_request_source"] == BUDGET_SOURCE_EXPLICIT
+    # Exercise the real leaf callback, not just a profile or UI assertion.
+    context = SimpleNamespace(user_content=genai_types.Content(parts=fake_leg.seen_outgoing_parts))
+    args = {"lat": 33.78, "lon": -117.85}
+    inject_profile_budget(SimpleNamespace(name="search_offers"), args, context)
+    assert args["priceRangeMax"] == 60
+    assert asyncio.run(fake_profile_store.get(session.id)).budget_max == 60
+    assert len(llm.calls) == 2  # Existing triage + synthesis, no extra model call.
+
+
+def test_bare_shortlist_position_does_not_become_a_budget(monkeypatch, fake_leg, fake_profile_store):
+    observed = {}
+
+    async def booking(self, ctx, profile, *args, **kwargs):
+        observed["budget"] = profile.budget_max
+        yield self._final(ctx, "Please confirm this offer.")
+
+    monkeypatch.setattr(type(root_agent), "_run_booking", booking)
+    _scripted_llm(monkeypatch, '{"family":"search","language":"en","bare_budget_value":2}')
+    runner = InMemoryRunner(root_agent)
+    session = _new_session(runner)
+    seeded = SessionProfile(city="Paris", budget_max=150, last_results=[
+        {"hotel_id": 1, "name": "First Hotel"}, {"hotel_id": 2, "name": "Second Hotel"},
+    ])
+    asyncio.run(fake_profile_store.set(session.id, seeded))
+    _run_turn(runner, session.id, "2")
+    assert observed["budget"] == 150
+    assert fake_leg.call_count == 0

@@ -75,6 +75,7 @@ export const state = {
     responseLanguage: DEFAULT_MARKET_CONTEXT.language,
     market: DEFAULT_MARKET_CONTEXT.country_code,
     marketContext: { ...DEFAULT_MARKET_CONTEXT },
+    searchPage: null,
     pendingClarification: null,
     entrySource: getInitialEntrySource(),
     dayuseSessionId: null,
@@ -114,6 +115,17 @@ export function applyMarketFromResponse(data) {
     if (typeof merged.country_code === 'string' && merged.country_code) {
         state.market = merged.country_code.toUpperCase();
     }
+    setSearchPage(incoming.search_page);
+}
+
+/**
+ * The site's search page for the last search that ran ({ name, url }), or null
+ * (mcp-dayuse#5): "Voir tout" opens it instead of the country page. Set from
+ * every results frame and response — absent means this search has none.
+ */
+export function setSearchPage(page) {
+    const valid = page && typeof page === 'object' && typeof page.url === 'string' && page.url;
+    state.searchPage = valid ? { url: page.url, name: String(page.name || '') } : null;
 }
 
 // Reset state
@@ -129,6 +141,7 @@ export function resetState() {
     state.isProcessing = false;
     state.totalSlides = 0;
     state.previousResults = [];
+    state.searchPage = null;
     state.activeHotelIds = [];
     state.selectedFilters = {};
     state.selectedPlace = null;

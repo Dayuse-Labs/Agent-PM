@@ -28,8 +28,11 @@ from __future__ import annotations
 
 import math
 import re
+from datetime import date, datetime, timedelta
 from typing import Any
+from zoneinfo import ZoneInfo
 
+from b2c_common.timeslot import parse_hhmm, slot_covers_window
 from langfuse import Evaluation
 
 # --- shared response accessors (deliberately re-implemented rather than
@@ -291,6 +294,85 @@ def _eval_party_total(expected: dict[str, Any], response: dict[str, Any] | None)
     return _bool_eval("party_total", ok, reason)
 
 
+# --- mcp-dayuse#8: QA 2026-09-30 facts, expected values computed by code ----
+# The slot rule is the shared oracle (b2c_common.timeslot, site parity) — the
+# one thing evals import from the repo: a second copy could drift from it.
+_ISO_DATE_RE = re.compile(r"(?<![\d/-])\d{4}-\d{2}-\d{2}(?![\d-])")
+_URL_RE = re.compile(r"https?://\S+")
+_CLOSEST_RE = re.compile(r"plus proches|closest|más cercanas|più vicine|nächstgelegenen|mais próximas|dichtstbijzijnde", re.I)
+
+
+def _minutes(hhmm: Any) -> int | None:
+    return parse_hhmm(hhmm)
+
+
+def _eval_cards_cover_window(
+    expected: dict[str, Any], response: dict[str, Any] | None
+) -> Evaluation | None:
+    """Every card covers the slot by the site rule — or none does and the
+    answer labels them as the closest offers. A mix is always a failure."""
+    window = expected.get("cards_cover_window")
+    if not isinstance(window, dict):
+        return None
+    start, end = _minutes(window.get("start")), _minutes(window.get("end"))
+    hotels = _hotels(response)
+    if not hotels:
+        return _skip("cards_cover_window", "no card to check")
+    failing = []
+    for hotel in hotels:
+        slots = [s for s in hotel.get("timeslots") or [] if isinstance(s, dict)]
+        covered = any(
+            (s_start := _minutes(s.get("start"))) is not None
+            and (s_end := _minutes(s.get("end"))) is not None
+            and slot_covers_window(s_start // 60, s_end // 60, start, end)
+            for s in slots
+        )
+        if not covered:
+            failing.append(str(hotel.get("name")))
+    if not failing:
+        return _bool_eval("cards_cover_window", True, "every card covers the slot")
+    labelled = len(failing) == len(hotels) and bool(_CLOSEST_RE.search(_message(response)))
+    return _bool_eval(
+        "cards_cover_window", labelled,
+        "none covers, labelled as closest" if labelled else f"not covering: {failing}",
+    )
+
+
+def _eval_offers_on_date(
+    expected: dict[str, Any], response: dict[str, Any] | None
+) -> Evaluation | None:
+    """`{"month": M, "day": D}`: every card is an offer for the next
+    occurrence of that day (Europe/Paris), the way a person reads "le 3
+    octobre"; `{"days_ahead": N}`: today + N."""
+    wanted = expected.get("offers_on_date")
+    if not isinstance(wanted, dict):
+        return None
+    today = datetime.now(ZoneInfo("Europe/Paris")).date()
+    if "days_ahead" in wanted:
+        target = today + timedelta(days=int(wanted["days_ahead"]))
+    else:
+        target = date(today.year, int(wanted["month"]), int(wanted["day"]))
+        if target < today:
+            target = date(today.year + 1, target.month, target.day)
+    hotels = _hotels(response)
+    if not hotels:
+        return _skip("offers_on_date", "no card to check")
+    wrong = sorted({str(h.get("offer_date")) for h in hotels if h.get("offer_date") != target.isoformat()})
+    return _bool_eval(
+        "offers_on_date", not wrong, f"expected {target.isoformat()}, got {wrong}" if wrong else "ok"
+    )
+
+
+def _eval_no_iso_date_in_message(
+    expected: dict[str, Any], response: dict[str, Any] | None
+) -> Evaluation | None:
+    if not expected.get("no_iso_date_in_message"):
+        return None
+    text = _URL_RE.sub(" ", _message(response))
+    hit = _ISO_DATE_RE.findall(text)
+    return _bool_eval("no_iso_date_in_message", not hit, f"found {hit}" if hit else "none")
+
+
 _RESPONSE_CHECKS = (
     _eval_min_hotels,
     _eval_max_hotels,
@@ -306,6 +388,9 @@ _RESPONSE_CHECKS = (
     _eval_offers_capacity_gte,
     _eval_offers_children_capacity_gte,
     _eval_party_total,
+    _eval_cards_cover_window,
+    _eval_offers_on_date,
+    _eval_no_iso_date_in_message,
 )
 
 
@@ -316,7 +401,12 @@ def response_evaluator(
     JSON body. `output` is the task's return value (see module docstring)."""
     expected = expected_output or {}
     response = (output or {}).get("response") if isinstance(output, dict) else None
-    return [e for check in _RESPONSE_CHECKS if (e := check(expected, response)) is not None]
+    evaluations = [e for check in _RESPONSE_CHECKS if (e := check(expected, response)) is not None]
+    if response is None:
+        # In particular max_hotels=0 and forbidden-text checks used to pass on
+        # transport failure: an absent reply isn't a correct FAQ answer.
+        return [_skip(e.name, "chat response unavailable; cannot grade this assertion") for e in evaluations]
+    return evaluations
 
 
 # --- trace-level checks -------------------------------------------------------

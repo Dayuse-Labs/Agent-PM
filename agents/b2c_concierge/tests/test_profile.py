@@ -111,9 +111,9 @@ class TestBudgetIntegrity:
         apply_profile_delta(profile, {"city": "New York", "budget_max": 40}, "$40")
         assert profile.budget_request_source == BUDGET_SOURCE_EXPLICIT
 
-    def test_leaf_supplied_source_is_not_overridden_by_a_non_bare_message(self):
-        """A non-bare-number message keeps whatever source the delta claims —
-        the guard only OVERRIDES toward explicit, it never invents a source."""
+    def test_amount_written_in_the_message_marks_budget_explicit(self):
+        """mcp-dayuse#5: the leaf always claims flexible_default; a figure the
+        user typed is theirs, never a system default."""
         profile = SessionProfile()
         apply_profile_delta(
             profile,
@@ -121,7 +121,50 @@ class TestBudgetIntegrity:
             "find me something under 150 please",
         )
         assert profile.budget_max == 150.0
+        assert profile.budget_request_source == BUDGET_SOURCE_EXPLICIT
+
+    def test_amount_absent_from_the_message_keeps_the_leaf_source(self):
+        """The guard only OVERRIDES toward explicit, it never invents a source."""
+        profile = SessionProfile()
+        apply_profile_delta(
+            profile,
+            {"city": "New York", "budget_max": 150, "budget_request_source": BUDGET_SOURCE_FLEXIBLE_DEFAULT},
+            "something cheap in Manhattan, 2 people",
+        )
         assert profile.budget_request_source == BUDGET_SOURCE_FLEXIBLE_DEFAULT
+
+    def test_carried_explicit_budget_is_not_downgraded_by_the_next_turn(self):
+        profile = SessionProfile()
+        delta = {"city": "Paris", "budget_max": 120, "budget_request_source": BUDGET_SOURCE_FLEXIBLE_DEFAULT}
+        apply_profile_delta(profile, delta, "Paris moins de 120 euros")
+        apply_profile_delta(profile, delta, "et pour après-demain ?")
+        assert profile.budget_request_source == BUDGET_SOURCE_EXPLICIT
+
+
+class TestTimeslotProvenance:
+    """mcp-dayuse#5 (trace 324561ec): « de 06h00 à 16h00 » was presented as a
+    slot applied by default, because the leaf always sends flexible_default."""
+
+    _WINDOW = {
+        "city": "Lyon", "timeslot_start": "06:00", "timeslot_end": "16:00",
+        "timeslot_request_source": BUDGET_SOURCE_FLEXIBLE_DEFAULT,
+    }
+
+    def test_window_written_in_the_message_is_explicit(self):
+        profile = SessionProfile()
+        apply_profile_delta(profile, dict(self._WINDOW), "un hôtel à Lyon demain de 6h à 16h")
+        assert profile.timeslot_request_source == BUDGET_SOURCE_EXPLICIT
+
+    def test_window_without_any_time_in_the_message_keeps_the_leaf_source(self):
+        profile = SessionProfile()
+        apply_profile_delta(profile, dict(self._WINDOW), "un hôtel à Lyon demain")
+        assert profile.timeslot_request_source == BUDGET_SOURCE_FLEXIBLE_DEFAULT
+
+    def test_carried_explicit_window_is_not_downgraded_by_the_next_turn(self):
+        profile = SessionProfile()
+        apply_profile_delta(profile, dict(self._WINDOW), "Lyon de 6h à 16h")
+        apply_profile_delta(profile, dict(self._WINDOW), "avec piscine")
+        assert profile.timeslot_request_source == BUDGET_SOURCE_EXPLICIT
 
     def test_auto_widen_skips_bare_number_budget_marked_explicit(self):
         profile = SessionProfile()
@@ -1539,3 +1582,27 @@ class TestP1BudgetGuardStaysRegex:
         assert profile.budget_max == 80.0
         assert profile.budget_request_source == BUDGET_SOURCE_EXPLICIT
         assert "budget_integrity" in fired
+
+
+@pytest.mark.parametrize("message,value,mode,city", [
+    ("$60", 60, "EUR", "Paris"),
+    ("60 USD", 60, "EUR", "Paris"),
+    ("60", 60, "HOTEL", "Paris"),
+    ("60", 60, "EUR", None),
+    ("60", None, "EUR", "Paris"),
+    ("60", 80, "EUR", "Paris"),
+    ("60 minutes", 60, "EUR", "Paris"),
+])
+def test_recognized_budget_never_invents_units_or_reinterprets_other_numbers(message, value, mode, city):
+    from b2c_concierge.profile import apply_recognized_bare_budget
+    profile = SessionProfile(city=city, display_currency=mode, budget_max=150)
+    assert not apply_recognized_bare_budget(profile, message, value, set())
+    assert profile.budget_max == 150
+
+
+def test_recognized_euro_amount_preserves_other_search_constraints():
+    from b2c_concierge.profile import apply_recognized_bare_budget
+    profile = SessionProfile(city="Paris", budget_max=150, amenities=["pool"], timeslot_start="10:00")
+    assert apply_recognized_bare_budget(profile, "60,50 €", 60.5, set())
+    assert profile.budget_max == 60.5 and profile.budget_request_source == BUDGET_SOURCE_EXPLICIT
+    assert profile.city == "Paris" and profile.amenities == ["pool"] and profile.timeslot_start == "10:00"

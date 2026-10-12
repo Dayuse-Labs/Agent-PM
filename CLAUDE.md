@@ -20,7 +20,7 @@ Orchestrateur conversationnel B2C (ADK Python) remplaçant `agent-usa` (POC Flas
 
 `b2c-concierge` = **spine code-owned** (pattern `cs_copilot` de dayuse-agent-fleet) : triage 1 appel LLM éco + fallback regex, table de routage en code, `RemoteA2aAgent` → feuilles `hotel-search-agent` (Mapbox + guards géo + MCP `search_offers`/`find_hotel_by_name`) et `faq-agent` (MCP `get_faq_conditions`) ; tools MCP inline : `get_hotel_details`, `compare_hotels`, `generate_booking_link`. Façade iso-contrat `POST /v3/chat` + SSE (event `progress` < 300 ms = TTFT mesuré, event `hotels`, puis tokens).
 
-**15 guards déterministes** (recompté 2026-08-27, contre le code réel — `GUARD_SCORE_NAMES` dans `libs/b2c_common/b2c_common/scores.py` en est le contrat figé) : 11 portés depuis l'audit prod d'agent-usa (`tests/unit/application/test_audit_fixes_2026_06.py` + `test_loop_enforcement_and_name_lookup.py`, `test_named_hotel_card.py`, ~150 tests) — 3 guards géo (`geocode_echo_back`, `generic_location_demotion`, `state_anchoring`), 2 guards date (`date_hallucinated_year_rolled_forward`, `date_carryover_stale_floored`), `budget_integrity`, `timeslot_sanitization`, `recovery_ack`, `anti_clarification_loop`, `amenity_truthfulness`, `named_hotel_lookup` — plus 2 ajouts spécifiques à AgentB2C : le 12e = R9 (`booking_confirmation`) : `generate_booking_link` inappelable sans flag de confirmation dans l'état du tour ; le 13e = S-G12 (`hotel_link_truthfulness`, 2026-07-24) : aucun lien hôtel non vérifié contre le ground-truth du tour ; le 14e = M4 (`poi_anchor_coherence`, 2026-08-26) : un POI tier-2 à plus de 40 km de l'ancre du tour est jeté ; le 15e = UX1 (`filter_relaxation_honored`, 2026-08-27) : une rétraction de filtre d'équipement (« enlève le spa ») a réellement retiré la clé de la recherche.
+**17 guards déterministes** (recompté 2026-10-06, contre le code réel — `GUARD_SCORE_NAMES` dans `libs/b2c_common/b2c_common/scores.py` en est le contrat figé) : 11 portés depuis l'audit prod d'agent-usa (`tests/unit/application/test_audit_fixes_2026_06.py` + `test_loop_enforcement_and_name_lookup.py`, `test_named_hotel_card.py`, ~150 tests) — 3 guards géo (`geocode_echo_back`, `generic_location_demotion`, `state_anchoring`), 2 guards date (`date_hallucinated_year_rolled_forward`, `date_carryover_stale_floored`), `budget_integrity`, `timeslot_sanitization`, `recovery_ack`, `anti_clarification_loop`, `amenity_truthfulness`, `named_hotel_lookup` — plus 2 ajouts spécifiques à AgentB2C : le 12e = R9 (`booking_confirmation`) : `generate_booking_link` inappelable sans flag de confirmation dans l'état du tour ; le 13e = S-G12 (`hotel_link_truthfulness`, 2026-07-24) : aucun lien hôtel non vérifié contre le ground-truth du tour ; le 14e = M4 (`poi_anchor_coherence`, 2026-08-26) : un POI tier-2 à plus de 40 km de l'ancre du tour est jeté ; le 15e = UX1 (`filter_relaxation_honored`, 2026-08-27) : une rétraction de filtre d'équipement (« enlève le spa ») a réellement retiré la clé de la recherche ; le 16e (`date_served`, mcp-dayuse#8) : la recherche a tourné sur le jour demandé, sinon la réponse le dit ; le 17e (`window_match`, mcp-dayuse#8) : chaque carte affichée couvre le créneau selon la règle du site (`b2c_common.timeslot`, l'unique définition), sinon elle est retirée ou toutes sont annoncées comme « les plus proches ». Les replis qui répondent quand même (synthèse vide/coupée, erreur MCP, hôtel nommé introuvable) ont leurs scores `fallback_*` (`FALLBACK_SCORE_NAMES`, même contrat).
 
 **Budgets/timeouts (propriétaire unique par dépendance)** : feuille → Mapbox 1,5 s (1 retry), MCP 5 s (circuit-breaker) ; orchestrateur → appel feuille 10 s SANS retry (dégradation honnête) ; retries LLM au seul niveau LiteLLM. Min-instances 1 partout.
 
@@ -55,11 +55,20 @@ bash scripts/run_local.sh
 # Smoke e2e (les 3 services doivent tourner) — 1 tour ack + 1 search + 1 faq via l'orchestrateur
 python scripts/smoke_e2e.py
 
-# Tests (offline — ni réseau ni clé API)
+# Tests (offline — ni réseau ni clé API) — ~23 s, dont ~12 s pour le SEUL
+# tests/test_calendar_rot.py, qui rejoue toute la suite dans un sous-processus
+# avec l'horloge décalée de +400 j (plugin tests/timeshift_plugin.py). C'est le
+# garde anti-pourrissement calendaire : il tombe si un test est épinglé à un
+# littéral de date qui a cessé de tester ce qu'il annonce (2 vagues : PR #71, #114).
 .venv/bin/pytest -q
 
 # Lint + typecheck (mêmes jobs qu'en CI)
 .venv/bin/ruff check . && .venv/bin/mypy agents libs
+
+# Contrat MCP (mcp-dayuse#8) : snapshot des inputSchema + list_amenities (contracts/), vérifié
+# offline par tests/test_mcp_contract.py. À relancer après tout déploiement MCP qui touche un
+# schéma, puis committer le diff — l'humain le lance (lit MCP_B2C_URL / MCP_B2C_AUTH_TOKEN, cf.
+# la docstring de scripts/refresh_mcp_contract.py pour la commande exacte).
 
 # Guardrails statiques Dayuse (aussi exécutés par le hook pre-commit)
 bash scripts/dayuse_guardrails.sh .

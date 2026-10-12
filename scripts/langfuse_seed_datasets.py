@@ -4,6 +4,8 @@ Companion of `evals/datasets/*.jsonl` (audit 2026-07-30 — POI + occupancy +
 language-robustness families). HOSTED datasets on purpose: a local dataset
 creates no DatasetRun, hence no comparison view (OBS6 pitfall #1). Items carry
 deterministic ids, so re-running is an upsert — never a duplicate.
+Upsert can overwrite hosted corrections for those ids. Export and reconcile
+hosted annotations before maintenance imports; CI must not run this script.
 
 This script only SEEDS data. Experiments, evaluators and the CI gate belong to
 the OBS6 session (`phases/OBS6-datasets-experiments.md`); the item format here
@@ -34,6 +36,7 @@ DATASET_NAMES = {
     "b2c-geo-poi": "b2c/geo-poi",
     "b2c-occupancy": "b2c/occupancy",
     "b2c-language-robustness": "b2c/language-robustness",
+    "b2c-qa-2026-09-30": "b2c/qa-2026-09-30",
 }
 
 # OBS6 §2 — lock the item shape server-side so hand-added items can't drift.

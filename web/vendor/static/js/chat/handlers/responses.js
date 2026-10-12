@@ -295,7 +295,11 @@ export function resultsSeeAllLinkHtml(hotels) {
     const meta = getResultsMarketMeta(hotels);
     let url;
     let market;
-    if (meta) {
+    if (state.searchPage) {
+        // mcp-dayuse#5: the site's own search for this place, day and hours.
+        url = sanitizeDayuseUrl(appendAmplitudeIdToUrl(state.searchPage.url));
+        market = meta ? meta.code : '';
+    } else if (meta) {
         url = meta.browseUrl ? sanitizeDayuseUrl(appendAmplitudeIdToUrl(meta.browseUrl)) : '';
         market = meta.code;
     } else {

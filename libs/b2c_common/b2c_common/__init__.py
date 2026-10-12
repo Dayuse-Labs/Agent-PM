@@ -9,11 +9,20 @@ from .pricing import (
     minor_units,
 )
 from .llm_params import max_tokens_for, reasoning_kwargs_for, role_model, temperature_kwargs_for
-from .scores import GUARD_SCORE_NAMES, score_degraded, score_guards, score_ttft, score_turn
+from .scores import (
+    FALLBACK_SCORE_NAMES,
+    GUARD_SCORE_NAMES,
+    score_degraded,
+    score_fallbacks,
+    score_guards,
+    score_ttft,
+    score_turn,
+)
 
 __all__ = [
     "AGENT_CARD_PATH",
     "BearerAuthMiddleware",
+    "FALLBACK_SCORE_NAMES",
     "GUARD_SCORE_NAMES",
     "build_hotel_page_url",
     "display_price_euro",
@@ -26,6 +35,7 @@ __all__ = [
     "require_bearer_token",
     "role_model",
     "score_degraded",
+    "score_fallbacks",
     "score_guards",
     "score_ttft",
     "score_turn",

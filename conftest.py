@@ -15,3 +15,13 @@ import os
 
 for _key in ("LANGFUSE_PUBLIC_KEY", "LANGFUSE_SECRET_KEY"):
     os.environ[_key] = ""
+
+# Same for the prod-parity knobs a local .env carries (per-role models,
+# reasoning cap, leaf timeout): the suite asserts the code defaults.
+for _key in (
+    "DAYUSE_MODEL_TRIAGE",
+    "DAYUSE_MODEL_SYNTHESIS",
+    "DAYUSE_REASONING_EFFORT",
+    "CONCIERGE_LEAF_TIMEOUT_SECONDS",
+):
+    os.environ[_key] = ""

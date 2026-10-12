@@ -3,7 +3,7 @@
  * Main message sending logic and API calls
  */
 
-import { state, resetState, applyMarketFromResponse } from '../state.js';
+import { state, resetState, applyMarketFromResponse, setSearchPage } from '../state.js';
 import { appendAmplitudeIdToUrl, trackEvent } from '../tracking.js';
 import { getMarketFallbackLink } from './responses.js';
 import { replaceHotelIdTags, handleContextUpdate, hasEffectiveTimeslot, getNativeContext, getClientTimeContext } from '../utils.js';
@@ -447,6 +447,7 @@ function renderHotelsEarly(frame, thinking) {
     // in place would gate this turn's cards on last turn's shortlist, so an
     // overlapping hotel id would show a CTA sourced from stale state.
     state.hotelPicks = Array.isArray(frame.hotel_picks) ? frame.hotel_picks : [];
+    setSearchPage(frame.search_page);
 
     const hotelsHtml = createHotelCarousel(results.slice(0, 6));
     // No intro text yet — it is still being written upstream.

@@ -4,6 +4,109 @@
 
 > 📋 **Pour savoir QUOI faire ensuite, ouvrir [`CHANTIERS.md`](CHANTIERS.md)** (état vérifié au 2026-09-14) : la liste des chantiers ouverts, chacun avec sa preuve, ses actions et un prompt prêt à coller — plus la liste de ce qu'il ne faut **pas** relancer parce que c'est déjà livré. `tasks/todo.md` est périmé et ne doit plus servir de référence.
 
+## ✅ 2026-10-07 (quater) — « Voir tout » sans les heures quand aucune carte ne couvre le créneau
+
+**Fait** (branche `fix/see-all-drops-window-when-closest`, sur `main` à `cbe88b9` ; gates : pytest **2 140 passés / 1 skippé**, ruff, mypy, guardrails **verts**). QA Mathias : « Je veux un hotel a miami de 6h a 23h » → cartes « les plus proches », mais « Voir tout » ouvrait le site filtré `checkinTime=6am&checkoutTime=11pm` → « No hotel available ».
+1. `b2c_common.search_page.without_hours()` retire `checkinTime`/`checkoutTime` de l'URL (lieu + date gardés).
+2. Concierge (`agent.py`, juste après la lecture de `search_context.search_page`) : appliqué quand `window_fallback` est posé — repli signalé par la feuille OU filet `enforce_window_match`. Des cartes qui couvrent le créneau → le lien garde les heures (décision Mathias).
+3. `conftest.py` neutralise aussi `DAYUSE_MODEL_TRIAGE`/`_SYNTHESIS`, `DAYUSE_REASONING_EFFORT`, `CONCIERGE_LEAF_TIMEOUT_SECONDS` : `import litellm` charge le `.env` local, et un `.env` aligné sur la prod faisait tomber `test_synthesis_retry_policy`.
+
+Contrôle négatif : avec `agent.py` de `main`, les 2 cas « aucune carte ne couvre » de `TestSeeAllLink` tombent.
+
+**Parité locale / prod (vérifiée ce jour contre Railway)** — prod sur `cbe88b9` pour les 4 services. Concierge : `DAYUSE_MODEL_TRIAGE=gpt-4o-mini`, `DAYUSE_MODEL_SYNTHESIS=gpt-5.2`, `DAYUSE_REASONING_EFFORT=low`, `CONCIERGE_LEAF_TIMEOUT_SECONDS=30` ; feuilles : `DAYUSE_MODEL=gpt-4o-mini` ; tous : `MCP_B2C_URL=https://dayuse.mcp-servers.dayuse-dev.com/mcp`.
+
+**Pièges** :
+- 🪤 `DAYUSE_REASONING_EFFORT` ne va **pas** dans le `.env` local : `run_local.sh` le donne aux 3 services, et `build_model` (fleet) envoie alors `extra_body.reasoning` à `gpt-4o-mini` → `Unrecognized request argument supplied: reasoning`, feuilles en « je n'arrive pas à joindre ». Parité exacte = une surcharge par service dans `run_local.sh` (non faite).
+- 🪤 `run_local.sh` lance uvicorn sans `--reload` : relancer après chaque modif, sinon on teste l'ancien code (services locaux trouvés sur le code de la veille).
+
+## ✅ 2026-10-07 (ter) — #121 de Victor découpée en 3 PR rebasées sur `main` (référence = main post-#126)
+
+**Fait** (comparaison #121/#123 vs MR de Mathias, puis extraction de ce qui n'est pas déjà sur `main`) :
+1. `fix/bare-budget-reaches-mcp` — un budget nu (« 60 ») reconnu par le triage atteint enfin `priceRangeMax` (sur `main`, `inject_profile_budget` réappliquait l'ancien 150). pytest 1 986 ✅.
+2. `fix/faq-followup-context` — suivis SAV : 3 derniers messages utilisateur → triage, feuille FAQ, synthèse (tours faq) ; règles « pas de recherche/annulation de réservation ». pytest 1 979 ✅.
+3. `evals/production-replay-harness` (cette PR) — banc de rejeu apparié legacy-prod vs AgentB2C ; job CI `eval` = batterie 32 scénarios au lieu de `adk eval` (plus d'extra `google-adk[eval]`). pytest 2 123 ✅.
+
+**Écarté de #121** (déjà sur `main`, ou en conflit avec) : la règle créneau à la minute (`main` = règle site de #122, `slot_covers_window`) ; la divulgation devise sur FAQ (#126).
+
+**Reste** :
+- #123 (contexte géo multi-tour) **non porté** : il déplace l'extraction du lieu de la feuille vers le triage (schéma JSON strict + `gpt-4.1-mini` figé dans le Dockerfile) — décision d'architecture à trancher avant tout portage. Seul le budget nu en a été repris (identique à #121).
+- `scripts/eval_ranking.py` : miroir du filtre créneau, cite encore `_offer_fits_exact_window` (renommé `_offer_covers_window` sur `main`) et ne fait pas l'arrondi à l'heure de `slot_covers_window`.
+- #121 et #123 restent ouvertes côté Victor : à fermer en renvoyant vers ces PR.
+
+## ✅ 2026-10-07 (bis) — mcp-dayuse#4 : compteur et réserve parking (le reste du ticket était déjà livré)
+
+**Fait** (branche `fix/mcp-4-parking-reserve-page-count`, sur `main` à `d973775` ; gates : pytest **1 976 passés / 1 skippé**, ruff, mypy, guardrails **verts**). Ticket https://gitlab.com/dayuse/dayuse/mcp-dayuse/-/work_items/4. Points 1, 2, 3, 5 du correctif immédiat déjà sur `main` (#122, mcp-dayuse#8) — vérifiés dans le code et en live (Lyon 12h–13h : plus de « exactement » ; Lyon 6h–16h : « aucune offre ne couvre tout le créneau ; voici les plus proches »).
+
+1. **Compteur (point 4)** — la ligne de la feuille disait « 5 offre(s) de jour trouvée(s) » = taille de page (`MAX_RESULTS`). Elle ne porte plus de nombre (« Offres de jour affichées : … », 7 langues) et la synthèse a la consigne de ne jamais annoncer un nombre trouvé. Un vrai décompte (offres couvrantes sur toutes les pages, `total` réservable) dépend du MCP #1.
+2. **Réserve parking (point 6)** — reproduite en live : « parking et piscine » → « toutes avec piscine », rien sur le parking. `fallback_text.enforce_parking_reserve` est maintenant appliquée à toute réponse de recherche avec cartes (plus seulement au repli), jamais en double. Revérifiée en live après correctif. Métrique `concierge_metric=parking_reserve`.
+
+Contrôle négatif : les nouveaux tests tombent avec `agent.py` / `response_bridge.py` de `main` (9 échecs).
+
+**Reste** :
+- La réserve parking lit le message du tour : un parking demandé au tour 1 n'est pas rappelé au tour 2 (« moins cher »).
+- Côté MCP (#1) : `timeSlot` par contenance, `total` réservable, groupes OU (parking, rooftop, navette, sauna).
+- Id piscine 3001 absent de `list_amenities` : laissé tel quel (sans effet en OU, exception documentée dans `tests/test_mcp_contract.py`).
+
+🪤 **Pièges découverts** :
+- Dans le shell de session, `cat` est un alias vers `bat` (non installé) : un `cat >> fichier <<EOF` n'écrit RIEN et ne renvoie qu'un message sur stderr. Ajouter du texte avec Edit/Write.
+- zsh ne découpe pas une variable non quotée (`pytest $T` = un seul argument) : écrire les chemins en clair.
+- `main` a été pull dans le worktree principal pendant la session (autre session) : vérifier `git log` avant de brancher.
+
+## ✅ 2026-10-07 — « Voir tout » branché sur le `searchPage` du MCP mergé
+
+**Fait** (branche `fix/see-all-search-page-contract`). Le #2 côté MCP a été mergé par une autre branche (!32) avec un autre contrat que celui de #126 : `search_offers` renvoie un **`searchPage` unique** `{slug, label, countryCode}` (élu parmi les hôtels actifs proches, indépendant de la date et des filtres, `null` sinon), pas des `searchPages` par hôtel. Avec #126 seul, « Voir tout » retombait toujours, sans erreur, sur la page pays (reproduit en live contre mcp-dayuse `main`). `b2c_common.search_page.search_page_from` lit ce champ (slug validé, sinon rien) ; le choix par nom de lieu (`pick_search_page`) est supprimé ; l'URL garde date, heures et `selectedAddress`, hôte du marché de `countryCode`. Live : Lyon, Lyon 6h–16h (0 offre : la page existe quand même), San Francisco 10h–14h, Gare du Nord, Londres → 5 URLs en 200 ; widget vérifié en SSE. Ma branche MCP `feature/14707-search-page-breadcrumb` est **abandonnée** (jamais proposée en MR).
+
+**Reste** : le MCP choisit la page la plus proche du point cherché, donc « un hôtel à Lyon » ouvre « Lyon 2eme arrondissement » et « Gare du Nord » ouvre « Paris 10eme » (choix documenté côté MCP, à arbitrer par le produit si on veut la ville). L'état vide du widget n'affiche aucun lien (pas de CTA de repli sur ce chemin, avant comme après) : en ajouter un est une décision produit.
+
+## ✅ 2026-10-06 (bis) — mcp-dayuse#5 : périphérie de la réponse dérivée de la recherche exécutée
+
+**Fait** (branche `fix/search-context-see-all`, PR #126 mergée ; « Voir tout » corrigé le 2026-10-07, voir au-dessus ; 1 commit par chantier ; gates : pytest **1 969 passés / 1 skippé**, ruff, mypy, guardrails **verts**). Ticket https://gitlab.com/dayuse/dayuse/mcp-dayuse/-/work_items/5 (+ #2 pour le MCP). Chaque défaut reproduit en live avant correctif, revérifié après, contrôle négatif fait (les nouveaux tests tombent sans le correctif). Décisions Mathias du jour : options recommandées sur les 4 questions.
+
+1. **Provenance** — la feuille envoie toujours `flexible_default` : « de 6h à 16h » / « moins de 120 euros » tapés par l'utilisateur partaient en PROVENANCE « valeur par défaut ». `apply_profile_delta` les passe `explicit` quand le message les énonce (`_mentions_explicit_time`, `_states_amount`) et ne les rétrograde plus quand la même valeur est reportée. ⚠️ Effet voulu : un budget tapé n'est plus auto-élargi (`maybe_auto_widen` l'interdisait déjà pour un budget explicite) ; 2 tests qui élargissaient « a hotel under 100 » réécrits avec « a cheap hotel ».
+2. **Note devise** — « Prix affichés en euros, sans conversion » seulement si l'utilisateur a demandé une devise (`profile.requested_currency`, dernier slot `display_currency` du triage). La devise du widget (`profile.currency`) et la devise propre d'un hôtel ne déclenchent plus rien seules (22 traces sur 29 le 30/09).
+3. **États vides** — la feuille émet `search_context` (lieu, jour servi, créneau ou moment, budget, équipements appliqués, occupation, rayon, page de recherche) depuis les vrais arguments de `search_offers`. À 0 résultat, `b2c_concierge/no_offers.py` écrit la phrase en code (7 langues, « Aucune offre autour de Gare du Nord, Paris le … de 7h à 9h, à moins de 30 €, avec sauna. »), la synthèse n'ajoute que la piste ; une phrase du LLM qui la recopie est retirée (`drop_restated`, vu en live).
+4. **« Voir tout »** — MCP (branche `feature/14707-search-page-breadcrumb` de mcp-dayuse, commit `82c4204`) : `searchPages` sur chaque hôtel de `search_offers` = items `/s/…` du `breadcrumb` indexé. `b2c_common/search_page.py` choisit la page du lieu (nom = zone puis ville, sinon page la plus précise commune à tous les hôtels, jamais le seul pays) et construit l'URL du site (`selectedAddress`, `checkinDate`, `checkinTime=6am`, `checkoutTime=4pm`). Transport : `search_context.search_page` → `profile.search_page` → marqueur `hotels` (SSE) et `market.search_page` (JSON). Widget : « Voir tout » et « Voir tous les hôtels à Lyon → » l'utilisent, page pays en repli. Vérifié en Chrome headless (POST et SSE) et 4 URLs générées en 200 sur le vrai site (Lyon, San Francisco, Paris/Gare du Nord, Londres).
+
+**Non-régression** : pytest/ruff/mypy/guardrails verts ; le rejeu des datasets `evals/datasets/*.jsonl` main vs branche a été **lancé puis interrompu à la demande de Mathias — non fait**, à relancer avant merge.
+
+**Reste** :
+- **Déployer le MCP d'abord** (sinon pas de `searchPages` → repli page pays, sans erreur).
+- Londres → page « Greater London » (aucun nœud « London » dans le fil d'Ariane des hôtels rendus) ; Monaco → pas de lien (marché absent de `_MARKET`).
+- Un moment de la journée (« l'après-midi ») n'envoie pas d'heures au site.
+- ~~Compteur (taille de page présentée comme nombre d'offres) : hors périmètre, tickets #4 / MCP #1.~~ Fait côté agent le 2026-10-07 (bis) ; le `total` réservable reste au MCP #1.
+- État vide sans hôtel : « Voir tout » reste la page pays (pas d'hôtel → pas de fil d'Ariane).
+
+🪤 **Pièges découverts** :
+- **`/s/san-francisco` seul répond 404** sans `placeId` ; le chemin du fil d'Ariane (`/s/united-states/california/san-francisco-county/san-francisco`) marche, et les chemins sont identiques sur tous les domaines.
+- **Plusieurs sessions en parallèle** : la session #6 a lancé sa stack sur 8120-8122 pendant que la mienne redémarrait (ma stack : `PORT_OFFSET=40`, MCP :8083). Et `git stash` est partagé entre worktrees : un de mes stash a été dépilé dans le worktree principal. Contrôle négatif par copie de fichier uniquement.
+- Le LLM recopie une phrase qu'on lui montre même quand on lui dit de ne pas le faire : dédoublonner en code.
+
+## ✅ 2026-10-06 — mcp-dayuse#8 : oracle sur les faits, replis observables, contrat MCP
+
+**Fait** (branche `fix/qa-oracle-facts-silent-fallbacks`, 1 commit par chantier ; gates : pytest **1 928 passés / 1 skippé**, ruff, mypy, guardrails **verts**). Ticket https://gitlab.com/dayuse/dayuse/mcp-dayuse/-/work_items/8 (parent dayuse-com#14707). Chaque défaut a été **reproduit en local avant le correctif**, puis revérifié après, sur une 2e stack (`PORT_OFFSET=20`) face au MCP mcp-dayuse `main` local.
+
+1. **Synthèse vide ou coupée** (trace 62207822) — `finish_reason=length` ou contenu vide = synthèse inutilisable (métrique `llm_call status=truncated|empty`, jamais servie, même à moitié). Le repli est la ligne de la feuille rendue présentable en code (`b2c_concierge/fallback_text.py`) : date en toutes lettres, réserves auto-widen / parking non filtrable / devise. `max_tokens` synthèse 1000 → 2000. Nouveau contrat `FALLBACK_SCORE_NAMES` → scores BOOLEAN `fallback_synthesis|mcp_error|named_hotel_not_found` à chaque tour.
+2. **Date servie ≠ date demandée** (Côte d'Azur) — `b2c_concierge/requested_date.py` lit une date non ambiguë du message (7 langues ; jours de semaine, plages, « le 3 » → None) et la pose dans le profil AVANT la feuille : elle survit à une clarification. Guard **#16 `date_served`** : jour cherché ≠ jour demandé → la réponse le dit, le profil garde le jour demandé (bascule cutoff déjà annoncée exclue). Live : « Côte d'Azur le 10 octobre » → 2 clarifications → offres du 10 (avant : du 6).
+3. **Replis silencieux** — `mcp_guard.classify_mcp_error` (not_found / rejected / failed) ; un argument refusé par le schéma (`-32602`) n'alimente plus le disjoncteur et répond « reformulez » au lieu de « réessayez » ; hôtel nommé introuvable puis recherche ville → annoncé en tête (sauf si l'hôtel est quand même dans les cartes : la recherche par nom est plus stricte que la recherche, cf. mcp-dayuse#3) ; introuvable sans texte de la feuille → réponse en code.
+4. **Créneau** — règle du site (décision Mathias 2026-10-06, ticket #4) : l'offre CONTIENT la fenêtre, heures entières, minutes à l'heure la plus proche. Unique définition `b2c_common/timeslot.py` (`slot_covers_window`), utilisée par le filtre de la feuille (fenêtres à un seul bord comprises) et par le guard **#17 `window_match`** du concierge (carte non couvrante retirée ; aucune → toutes annoncées « les plus proches », phrase imposée en code). Plus jamais « exactement ». Le guard exige que les cartes soient annoncées « les plus proches » ; dire « aucune ne couvre » ne suffit pas (cas vu en live).
+   **Moments de la journée (option B, décision Mathias 2026-10-06)** : « le matin / l'après-midi / en soirée » (7 langues, `b2c_common.timeslot.daypart_in`) sont lus en code et filtrent en SOUPLE. Une offre passe dès qu'une partie tombe dans la période (`slot_overlaps_daypart` : matin 6h–12h, après-midi 12h–18h, soirée 18h–23h ; une offre qui touche seulement la borne ne compte pas). C'est aussi la sémantique native du `timeSlot` MCP. Nouveau slot de profil `daypart`, exclusif avec un créneau horaire : l'un efface l'autre, et il est repris aux tours suivants. Une heure explicite dans le message l'emporte toujours (règle du site). Un `timeSlot` inventé par le LLM sans heure ni moment (« un hôtel demain » → 12h-23h) est retiré (`timeslot_sanitization`).
+5. **Contrat MCP** — `contracts/mcp_b2c_tools.json` (8 inputSchema + catalogue `list_amenities`, pris le 2026-10-06), `scripts/refresh_mcp_contract.py`, `tests/test_mcp_contract.py` (args réels de la chaîne before-tool de la feuille validés contre le schéma ; ids d'équipement vs catalogue) ; la fausse session de `test_inline_tools.py` valide les 69 tests du concierge. En production : `schema_guard` (dernier before-tool) retire tout argument hors schéma publié — live : `currency` injecté → retiré, 5 hôtels au lieu d'une erreur.
+6. **Évalset** `evals/datasets/b2c-qa-2026-09-30.jsonl` (10 items OBS6, cas tirés des tickets — choix Mathias, pas des traces) + évaluateurs déterministes `cards_cover_window` / `offers_on_date` / `no_iso_date_in_message`. Rejeu live : 16/19 sur `main`, 22/22 sur la branche.
+
+**Non-régression** : rejeu des 58 items des datasets geo-poi / occupancy / language-robustness / qa contre `main` et la branche, mêmes évaluateurs : **108 → 116** vérifications vertes. Les cas qui basculent dans l'autre sens (Tour Eiffel, JFK, Sagrada Família, code-switching) échouent aléatoirement sur les DEUX stacks (rejoués 3× chacun) : géocodage, ticket mcp-dayuse#7.
+
+**Reste** :
+- **Score configs Langfuse** (Fabien) : `guard_date_served`, `guard_window_match`, `fallback_synthesis`, `fallback_mcp_error`, `fallback_named_hotel_not_found` émettent sans `config_id` tant que les configs n'existent pas dans l'instance (puis les ajouter à `_SCORE_CONFIG_IDS` et `score-configs.json`). Le score `degraded` CATÉGORIEL n'a pas été étendu exprès : sa config fige la liste des catégories.
+- Seed Langfuse du nouveau dataset : `scripts/langfuse_seed_datasets.py --only b2c-qa-2026-09-30`.
+- Hors périmètre, à ticketer : « Nice » seul → salutation en anglais (« nice ») ; « Je veux réserver au Grand Hôtel X à Lyon » → parcours réservation au lieu d'une recherche ; `total` et groupes OU d'équipements (MCP #1). Compteur et réserve parking dans la synthèse normale : faits le 2026-10-07 (bis).
+- Bornes des moments de la journée (6-12 / 12-18 / 18-23) choisies par défaut : à valider par le produit (`DAYPART_HOURS`). `active_filters` n'expose pas encore le moment de la journée (pas de puce dans le widget).
+
+🪤 **Pièges découverts** :
+- **Inverser la règle du créneau rend nuisible ce qui était inoffensif** : un créneau inventé par le LLM passait sous « offre ⊆ fenêtre », il vide tout sous « fenêtre ⊆ offre ». Seul le rejeu avant/après des datasets l'a montré.
+- Le MCP renvoie `HotelNotFoundError` pour « Pullman Lyon » alors que la recherche ville le renvoie : ne jamais annoncer « introuvable » sans regarder les cartes.
+- `id` piscine **3001** : dans le groupe OU du serveur, absent de `list_amenities` — gardé, exception documentée dans le test de contrat (décision au ticket #4).
+- Le hook readonly bloque toute commande Bash dont le TEXTE contient `. ./.env`, même dans un heredoc de doc : éditer ces fichiers avec Edit.
+
 ## ✅ 2026-09-29 — Redéploiement Railway de `07be07e` + procédure écrite dans `DEPLOY.md`
 
 **Fait** : les 4 services redéployés depuis `main` propre (`07be07e`, pytest **1 786 passés / 1 skippé**) — `widget`/`concierge`/`hotel-search` étaient sur `451c7e6`, `faq` sur `7d41d41` (en retard via `libs/b2c_common`). Estampille `LANGFUSE_RELEASE=07be07e` posée avec `--skip-deploys` puis `railway up --detach` feuilles d'abord → 4 × `SUCCESS` (~10:04Z).
@@ -78,7 +181,7 @@ Règle produit (Mathias, 2026-09-23) : `showPricesWithoutBookingFees` (booléen,
 
 **Pourquoi les autres littéraux ne pourrissent pas** : `tests/test_eval_hardening.py` injecte une horloge explicite (`clock="2026-07-10T10:00:00Z"`) ; `test_market_table_drift.py` et consorts n'ont que des dates en commentaire/provenance ; les payloads de `test_inline_tools.py` (78 littéraux) ne sont jamais confrontés à today. Côté non-pytest : `evalset/` ne contient **qu'une** date (`"generated": "2026-07-15"`, métadonnée de provenance) et **aucun** scénario ne formule de date — rien à immuniser. Il n'existe que **2 lectures d'horloge** dans le code applicatif : `datetime_resolver.reference_today` et `agent.py:283` (`inject_today_before_model`).
 
-**Non fait, à trancher** : le plugin de décalage est resté dans le scratchpad, il n'est pas commité. Le versionner (+ un job qui rejoue la suite à +400 j) empêcherait une 3e vague ; à arbitrer, ce n'était pas demandé.
+**Suite (même jour, PR #115) — le garde est commité, une 3e vague est désormais impossible en silence.** `tests/timeshift_plugin.py` (le plugin) + `tests/test_calendar_rot.py` (UN test qui rejoue toute la suite dans un sous-processus à +400 j et échoue en nommant le test fautif). **Pas de nouveau job CI** : la CI est morte depuis le 2026-07-23 (facturation Actions — tous les runs échouent en 4-5 s sans exécuter la moindre étape, cf. [`CHANTIERS.md`]), un job y serait du poids mort ; le garde étant DANS la suite, le job `pytest` existant le récupérera tout seul le jour où la facturation repart. Contrôle négatif rejoué sur le garde commité : littéral `2026-12-01` réintroduit → `pytest -q` reste vert sur le fichier concerné (le pourrissement est invisible aujourd'hui) mais `test_calendar_rot` tombe en citant `test_resolve_search_date_marks_a_carried_over_future_date_as_not_today`. **Coût : la suite passe de ~12 s à ~23 s** (documenté dans `CLAUDE.md`). Recursion évitée par `CALENDAR_ROT_CHILD=1`, que le fils voit et sur lequel il se skippe.
 
 Gates locaux : pytest **1 707 passés / 1 skippé**, ruff **OK**, mypy **48 fichiers, 0 erreur**, `dayuse_guardrails.sh` **OK**.
 
