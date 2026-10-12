@@ -1200,6 +1200,8 @@ def record_search_shortlist(profile: SessionProfile, results: list[dict[str, Any
             "offer_id", "offer_date", "price", "price_eur_cents",
             "image_urls", "url", "city", "rating", "rating_count", "stars",
             "hotel_currency_code",
+            # Fee-inclusive totals of THIS offer (b2c_common.pricing.offer_totals).
+            "offer_totals",
         ):
             if hotel.get(key) is not None:
                 entry[key] = hotel[key]

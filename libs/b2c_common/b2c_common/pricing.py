@@ -89,3 +89,27 @@ def hotel_currency_price(
     if isinstance(original, int) and not isinstance(original, bool) and original > amount > 0:
         fields["hotel_original_price"] = round(original / 10 ** minor_units(code), 3)
     return fields
+
+
+def has_unverified_zero_price(offer: Mapping[str, Any], hotel: Mapping[str, Any] | None) -> bool:
+    """A zero indexed rate has no commercial proof of a free stay.
+
+    The MCP contract currently exposes no explicit complimentary-rate authority.
+    Keep positive alternatives; do not turn this sentinel into a cheapest quote
+    or a booking choice. Missing prices retain their existing unknown behavior.
+    """
+    return display_price_euro(offer, hotel) == 0 or display_price_hotel(offer, hotel) == 0
+
+
+def offer_totals(offer: Mapping[str, Any]) -> dict[str, int]:
+    """The offer's fee-inclusive totals in minor units, keyed by currency: EUR
+    always, plus the hotel's own currency when MCP indexes it. Whatever the
+    hotel chooses to SHOW on its card, this is what the customer pays (before
+    optional extras). A missing or non-positive quote is simply absent: never
+    a total of zero, never derived from the fee-less price."""
+    quotes = {"EUR": offer.get("priceEuroWithBookingFees")}
+    code = offer.get("hotelCurrency")
+    if isinstance(code, str) and code != "EUR" and len(code) == 3 and code.isascii() and code.isupper() and code.isalpha():
+        quotes[code] = offer.get("hotelPriceWithBookingFees")
+    return {code: value for code, value in quotes.items()
+            if isinstance(value, int) and not isinstance(value, bool) and value > 0}

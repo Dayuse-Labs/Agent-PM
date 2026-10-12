@@ -47,6 +47,8 @@ from b2c_common import (
     with_checkin_date,
 )
 from b2c_common.observability import mark_level, observation, trace_context_carrier
+from b2c_common.offer_facts import selected_offer_facts
+from b2c_common.pricing import has_unverified_zero_price, offer_totals
 from mcp import ClientSession
 from mcp.client.streamable_http import streamable_http_client
 
@@ -329,6 +331,13 @@ def _normalize_hotel_for_display(hotel: dict[str, Any], best_offer: dict[str, An
     if url:
         normalized["url"] = url
     if best_offer:
+        # Same selected-offer evidence as the search leaf's card.
+        facts = selected_offer_facts(hotel, best_offer)
+        if facts:
+            normalized["offer_facts"] = facts
+        totals = offer_totals(best_offer)
+        if totals:
+            normalized["offer_totals"] = totals
         shown_price = display_price_euro(best_offer, hotel)
         normalized["price"] = _format_price_eur_cents(shown_price)
         normalized["price_eur_cents"] = _price_eur_cents(shown_price)
@@ -497,7 +506,7 @@ def _best_offer(
     Within a day, "cheapest" is the same rule the card itself applies
     (`response_bridge._best_offer`), mirrored rather than imported (B3: each
     side owns its tiny helpers, like `_hhmm` above)."""
-    pool = [o for o in offers if isinstance(o, dict)]
+    pool = [o for o in offers if isinstance(o, dict) and not has_unverified_zero_price(o, hotel)]
     if not pool:
         return None
     target = date or min(
@@ -540,6 +549,8 @@ def _rate_plan_view(
     reports/PROMPT-MCP-B2C-RATEPLANS.md), so this must produce a usable row
     from price + slot alone, and gain the labels the day they appear rather
     than needing a second implementation."""
+    if has_unverified_zero_price(offer, hotel):
+        return None
     offer_id = offer.get("ratePlanUuid")
     offer_date = offer.get("availabilityDate")
     if not (isinstance(offer_id, str) and offer_id.strip()):

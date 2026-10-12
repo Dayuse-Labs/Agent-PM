@@ -51,6 +51,8 @@ from google.adk.models.llm_response import LlmResponse
 from google.genai import types as genai_types
 
 from b2c_common import build_hotel_page_url, display_price_euro, hotel_currency_price, with_checkin_date
+from b2c_common.offer_facts import selected_offer_facts
+from b2c_common.pricing import has_unverified_zero_price, offer_totals
 from b2c_common.search_page import build_search_page_url, search_page_from
 from b2c_common.timeslot import (
     DAYPART_HOURS,
@@ -621,11 +623,20 @@ def normalize_hotel(
     currency_code = _iso_currency(hotel.get("currencyCode"))
     if currency_code:
         card["currency_code"] = currency_code
-    offers = hotel.get("offers") or []
+    offers = [o for o in (hotel.get("offers") or [])
+              if isinstance(o, dict) and not has_unverified_zero_price(o, hotel)]
     if exact_window is not None:
-        offers = [o for o in offers if isinstance(o, dict) and _offer_matches(o, exact_window)]
+        offers = [o for o in offers if _offer_matches(o, exact_window)]
     best = _best_offer(offers, hotel)
     if best:
+        # Facts and fee-inclusive totals of THIS offer only — never merged
+        # across formulas or days (b2c_common.offer_facts).
+        facts = selected_offer_facts(hotel, best)
+        if facts:
+            card["offer_facts"] = facts
+        totals = offer_totals(best)
+        if totals:
+            card["offer_totals"] = totals
         shown_price = display_price_euro(best, hotel)
         price = _format_price_eur_cents(shown_price)
         if price:
@@ -719,6 +730,11 @@ def normalize_search_results(
     for item in items or []:
         if not isinstance(item, dict):
             continue
+        original_offers = item.get("offers") or []
+        offers = [o for o in original_offers if isinstance(o, dict) and not has_unverified_zero_price(o, item)]
+        if original_offers and not offers:
+            continue  # Only unverified zero rates: nothing this card can quote.
+        item = {**item, "offers": offers}
         if exact_window is not None:
             fits_any = any(
                 isinstance(o, dict) and _offer_matches(o, exact_window)
