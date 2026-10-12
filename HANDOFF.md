@@ -25,16 +25,18 @@ Choix de mise en œuvre à relire :
 - **B3, nombre nu** : on garde la protection de #134 (« 75008 », « 78240 » ne deviennent jamais un plafond). Un nombre nu est un budget seulement s'il répond à une question de budget (`answer_to`). Les anciens tests en session vierge sont VOULU ; leurs assertions sont portées dans ce contexte.
 - **R6b** : chaque zone compte une lecture dans le plafond par outil (2 par défaut, `HOTEL_SEARCH_MAX_MCP_CALLS`). Au-delà, la zone est « non cherchée » (`failed_area_names`, signalée par la synthèse). Une demande de 4 ou 5 zones n'en cherche donc que 2.
 
-### Reste — À TRANCHER (aucun code changé)
-- **R5b** « Milano, Lombardia » (`test_region_hint_that_matches_nothing_does_not_zero_out`). Ignorer un indice de région non confirmé (comportement de `main`) sélectionnerait l'homonyme d'une autre région pour tout « Ville, Région » hors US. Le garder (#134) répond `none`, et l'utilisateur reçoit une question de lieu. Rien hors ligne ne distingue « Lombardia » de « Lombardy ». Reco : une question de confirmation à une seule option au lieu de `none`.
-- **R5c** homonymes sans écho (`test_clarify_surfaces_when_search_box_misses_too`). #134 retire les options qui ratent l'écho : pour « La Défense, Paris », il ne propose plus La Defensa (Colombie) ni Defense (Abu Dhabi), ce qui est mieux. Mais une faute de frappe (« Budapestt ») perd alors des options utiles (HU/GA). Le tour finit quand même sur une question de lieu, rédigée par le LLM.
-- **R6a** règle SKU Search Box (`test_no_zone_never_calls_search_box`, `test_bare_city_miss_with_candidates_still_never_calls_search_box`). La restaurer casse 3 tests de #134 : un POI que le modèle a mis dans `city` (« JFK area », « Solar Pizza ») n'est retrouvé que par l'unique appel Search Box borné. Dans les fixtures, rien ne distingue une faute de ville d'un POI-en-ville. Arbitrage coût contre rappel.
-- **Créneau d'un seul côté** (`test_timeslot_one_sided_start_only_kept_as_is`) : règle d'une heure de #134 contre « une nouvelle heure de début remplace le créneau » (#135). À trancher avec la famille Dates.
+### Tranché — le plus robuste (Fabien : « choisis le résultat le plus robuste », 2026-10-12) : comportement de #134 gardé, aucun code
+- **R5b** « Milano, Lombardia » → **VOULU**. En production, `region_hint` ne reçoit que `state_hint`, un État US : `resolve_state_hint` renvoie `None` pour « Milano, Lombardia », sondé hors ligne. Le filtre ne voit donc que des États US. Si aucun candidat n'est dans l'État demandé (« Springfield, Ohio » sans Ohio), `none` mène à une question de lieu. Sélectionner (comportement de `main`) chercherait dans le mauvais État. Une confirmation proposant un autre État serait de toute façon rejetée par la garde d'écho (sondé : `geocode_echo_matches('Springfield, Illinois…', state_hint='Ohio')` → False). L'ancien test n'exerçait qu'une entrée que la production n'envoie pas.
+- **R5c** homonymes sans écho → **VOULU**. On ne propose jamais un lieu qui rate l'écho (Colombie, Abu Dhabi pour « La Défense, Paris ») ; le tour finit sur une question de lieu. La faute de frappe (« Budapestt ») perd des options, mais elle ne mène jamais à un mauvais lieu.
+- **R6a** règle SKU Search Box → **VOULU**. Un seul appel borné, dont les résultats doivent passer l'écho d'identité POI : une faute de ville ne devient jamais un POI faux. Il retrouve un POI que le modèle a mis dans `city` (« JFK area », « Solar Pizza »). Coût plafonné à 1 appel Search Box, uniquement quand v6 rate l'écho sur une ville nue.
+- **Créneau d'un seul côté** → **VOULU**. #134 applique la règle partagée du site (`b2c_common.timeslot`, l'unique définition, garde n°17). Le conflit avec #135 (« une nouvelle heure de début remplace le créneau ») porte sur l'affinage, pas sur cette règle ; il se règle lors du portage de la famille Dates.
+
+### Reste
 - **Contrat MCP** : `contracts/mcp_b2c_tools.json` a été édité à la main dans #134 (`sortBy`, `timeSlotMode`, `generated_at` inchangé). **Fabien doit relancer `scripts/refresh_mcp_contract.py`** pour vérifier que le MCP déployé publie bien ces clés. Si ce n'est pas le cas, la garde de schéma (R6c) les retire désormais au lieu de faire refuser l'appel.
 - **D, limite** : « le 20/10 » reformulé par le modèle en « 20 octobre » n'est pas une citation, donc toujours rejeté (le concierge ne le rattrape pas non plus).
 
 ### Tableau des verdicts — anciens tests `cbe88b9` rejoués contre cette branche
-Rejeu : 28 fichiers modifiés par #134, copiés hors arbre, non commités. Seules les signatures des faux ont été adaptées (`fake_run_leaf(..., *, query_params=None)`, `_fake_get_hotel_details(..., allow_text_name=True)`, `fake_classify(..., previous_reply=None, location_context=None)`). Résultat : **47 échecs sur `5d9218b`, 45 après cette branche** ; aucun sans verdict.
+Rejeu : 28 fichiers modifiés par #134, copiés hors arbre, non commités. Seules les signatures des faux ont été adaptées (`fake_run_leaf(..., *, query_params=None)`, `_fake_get_hotel_details(..., allow_text_name=True)`, `fake_classify(..., previous_reply=None, location_context=None)`). Résultat : **47 échecs sur `5d9218b`, 45 après cette branche** ; aucun sans verdict, aucun À TRANCHER restant.
 
 | Ancien test | Verdict |
 |---|---|
@@ -42,10 +44,10 @@ Rejeu : 28 fichiers modifiés par #134, copiés hors arbre, non commités. Seule
 | `test_geo_guards::test_echo_back_passes_when_no_distinctive_tokens` (NYC) | **RESTAURÉ** (R5a, repasse tel quel) |
 | `test_spine_profile::test_bare_number_reply_overrides_the_leafs_own_source_claim`, `::test_explicit_budget_is_never_auto_widened` | VOULU (décision B3) — assertions portées : `test_bare_number_reply_overrides…` (#134, avec `answer_to`) et `test_a_bare_number_answering_a_budget_question_is_never_auto_widened` |
 | `test_spine::test_search_unavailable_*` ×2 (feuille « Marseille » sur un message « Paris », sans résolution fournisseur) | VOULU — porté : `test_a_city_the_leaf_verified_is_kept_even_when_written_differently` (« Londres » → London) |
-| `test_geo_resolver::test_region_hint_that_matches_nothing_does_not_zero_out` | **À TRANCHER** (R5b) |
-| `test_geocode_tool::test_clarify_surfaces_when_search_box_misses_too` | **À TRANCHER** (R5c) |
-| `test_geocode_tool::test_no_zone_never_calls_search_box`, `::test_bare_city_miss_with_candidates_still_never_calls_search_box` | **À TRANCHER** (R6a) |
-| `test_datetime_resolver::test_timeslot_one_sided_start_only_kept_as_is` | **À TRANCHER** (Dates, #135) |
+| `test_geo_resolver::test_region_hint_that_matches_nothing_does_not_zero_out` | VOULU (R5b tranché, voir plus haut) |
+| `test_geocode_tool::test_clarify_surfaces_when_search_box_misses_too` | VOULU (R5c tranché) |
+| `test_geocode_tool::test_no_zone_never_calls_search_box`, `::test_bare_city_miss_with_candidates_still_never_calls_search_box` | VOULU (R6a tranché) |
+| `test_datetime_resolver::test_timeslot_one_sided_start_only_kept_as_is` | VOULU (règle partagée du site, tranché) |
 | `test_geocode_tool::test_with_no_anchor_at_all_the_turn_never_reaches_this_guard` (Toulon, `box.calls == []` → 1) | VOULU — un indice pays autorise une seule recherche d'aéroport natif ; la garde rejette toujours |
 | `test_display_currency::test_an_unavailable_currency_is_answered_even_without_results` | VOULU (devise non supportée différée) |
 | `test_ground_truth` ×3 (« ZERO results », « Only ONE hotel », « outside the centre ») | VOULU |
