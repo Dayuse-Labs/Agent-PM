@@ -413,6 +413,39 @@ class TestAutoWidenThroughTheSpine:
         assert stored.budget_max == 100.0
         assert stored.auto_widen_disclosure is None
 
+    def test_a_bare_number_answering_a_budget_question_is_never_auto_widened(
+        self, monkeypatch, fake_leg, fake_profile_store
+    ):
+        # cbe88b9's "100" case, ported (PR134-FIX B3, Fabien 2026-10-12): a bare
+        # number is a budget when it answers a budget question — #134 keeps a
+        # number nobody asked for ambiguous (postcodes). No widget currency:
+        # the display currency (EUR) is its unit, never a blocking question.
+        question = "What is your maximum total budget?"
+        fake_leg.response_payload = {"results": ["hotel A"]}
+        _scripted_llm(
+            monkeypatch,
+            '{"family": "search", "language": "en"}', question,
+            '{"family":"search","language":"en","requested_budget":'
+            '{"amount":100,"unit":"total","evidence":"100","answer_to":"What is your maximum total budget?"}}',
+            "No luck yet.",
+            '{"family": "search", "language": "en"}', "Still nothing.",
+        )
+        runner = InMemoryRunner(root_agent)
+        session = _new_session(runner)
+
+        _run_turn(runner, session.id, "A day room in Paris please")
+        fake_leg.response_payload = {"results": [], "profile_delta": {"budget_max": 100}}
+        _run_turn(runner, session.id, "100")
+        fake_leg.response_payload = {"results": []}
+        _run_turn(runner, session.id, "still looking")
+
+        stored = asyncio.run(fake_profile_store.get(session.id))
+        assert fake_leg.call_count == 3
+        assert stored.budget_request_source == BUDGET_SOURCE_EXPLICIT
+        assert stored.consecutive_empty_searches == 2
+        assert stored.budget_max == 100.0
+        assert stored.auto_widen_disclosure is None
+
 
 class TestSearchExhaustionThroughTheSpine:
     """S12 audit 2026-07-20 (prod session 034c97c4, Rimini): 2 widens, then a
