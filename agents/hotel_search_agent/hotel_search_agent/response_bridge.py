@@ -53,6 +53,7 @@ from google.genai import types as genai_types
 from b2c_common import build_hotel_page_url, display_price_euro, hotel_currency_price, with_checkin_date
 from b2c_common.offer_facts import selected_offer_facts
 from b2c_common.pricing import has_unverified_zero_price, offer_totals
+from b2c_common.search_budget import offer_within_budget, resolve_budget_currency
 from b2c_common.search_page import build_search_page_url, search_page_from
 from b2c_common.timeslot import (
     DAYPART_HOURS,
@@ -699,6 +700,7 @@ def normalize_search_results(
     structured: Any,
     exclude_ids: set[Any] | None = None,
     exact_window: Window | None = None,
+    requested_budget: dict[str, Any] | None = None,
 ) -> list[dict[str, Any]]:
     """Top-5 compact cards from a tool's structuredContent. Handles the
     `search_offers` envelope (`{"results": [...]}`, confirmed live) and the
@@ -734,6 +736,12 @@ def normalize_search_results(
         offers = [o for o in original_offers if isinstance(o, dict) and not has_unverified_zero_price(o, item)]
         if original_offers and not offers:
             continue  # Only unverified zero rates: nothing this card can quote.
+        if requested_budget:
+            # Filter every offer before selecting a card or truncating hotels:
+            # the fee-inclusive total, in the budget's own currency, no FX.
+            offers = [o for o in offers if offer_within_budget(o, item, requested_budget)]
+            if not offers:
+                continue
         item = {**item, "offers": offers}
         if exact_window is not None:
             fits_any = any(
@@ -1088,12 +1096,22 @@ def capture_after_tool(
         daypart = tool_context.state.get(STATE_DAYPART_KEY)
         if daypart in DAYPART_HOURS:
             strict_window = daypart
-    results = normalize_search_results(structured, exclude_ids, strict_window)
+    # PORT1 slice 3: the concierge's typed budget filters the cards. A dollar
+    # amount takes its code from THIS search's verified country only.
+    requested_budget = resolve_budget_currency(
+        read_profile_in(tool_context).get("requested_budget") if name == "search_offers" else None,
+        tool_context.state.get(_STATE_COUNTRY_KEY),
+    )
+    if isinstance(requested_budget, dict) and requested_budget and not requested_budget.get("currency"):
+        # A "$" this market does not settle cannot be checked: keep the cards,
+        # the concierge appends its currency question (B3: never an empty page).
+        requested_budget = None
+    results = normalize_search_results(structured, exclude_ids, strict_window, requested_budget)
     timeslot_fallback = False
     if strict_window is not None and not results:
         # The exact-minute filter emptied the set: fall back to the coarser
         # hour-rounded results (never a silent 0) — the outcome text discloses it.
-        fallback_results = normalize_search_results(structured, exclude_ids, None)
+        fallback_results = normalize_search_results(structured, exclude_ids, None, requested_budget)
         if fallback_results:
             results = fallback_results
             timeslot_fallback = True
@@ -1107,9 +1125,9 @@ def capture_after_tool(
         stashed = tool_context.state.get(STATE_DATE_FALLBACK_KEY)
         payload = stashed.get("payload") if isinstance(stashed, dict) else None
         if isinstance(payload, dict):
-            swapped = normalize_search_results(payload, exclude_ids, strict_window)
+            swapped = normalize_search_results(payload, exclude_ids, strict_window, requested_budget)
             if not swapped and strict_window is not None:
-                swapped = normalize_search_results(payload, exclude_ids, None)
+                swapped = normalize_search_results(payload, exclude_ids, None, requested_budget)
                 timeslot_fallback = bool(swapped)
             if swapped:
                 results = swapped

@@ -247,18 +247,27 @@ class TestProfileDeltaAppliedAndPersisted:
         """The P1 safety net: even if the leaf's own extraction mislabels a
         plain-number reply as a system default, the orchestrator's guard
         forces `explicit` — the exact bug the 2026-06 audit found in prod."""
+        # PORT1 slice 3 (PR134-FIX B3, Fabien 2026-10-12): a bare number is a
+        # budget only when it answers a budget question — ported from #134.
         fake_leg.response_payload = {
             "results": ["hotel A"],
             "profile_delta": {"budget_max": 180, "budget_request_source": BUDGET_SOURCE_FLEXIBLE_DEFAULT},
         }
-        _scripted_llm(monkeypatch, '{"family": "search", "language": "en"}', "Got it.")
+        question = "What is your maximum total budget?"
+        _scripted_llm(monkeypatch,
+            '{"family": "search", "language": "en"}', question,
+            '{"family":"search","language":"en","requested_budget":'
+            '{"amount":180,"unit":"total","evidence":"180",'
+            '"answer_to":"What is your maximum total budget?"}}', "Got it.")
         runner = InMemoryRunner(root_agent)
         session = _new_session(runner)
-
+        asyncio.run(fake_profile_store.set(session.id, SessionProfile(currency="EUR")))
+        _run_turn(runner, session.id, "A day room please")
         _run_turn(runner, session.id, "180")
 
         stored = asyncio.run(fake_profile_store.get(session.id))
         assert stored.budget_request_source == BUDGET_SOURCE_EXPLICIT
+        assert stored.budget_max == 180.0
 
 
 class TestAutoWidenThroughTheSpine:
@@ -292,25 +301,9 @@ class TestAutoWidenThroughTheSpine:
         synthesis_calls = [c for c in llm.calls if "AUTO_WIDEN" in c["messages"][1]["content"]]
         assert len(synthesis_calls) == 1
         assert "100.0 to 150.0" in synthesis_calls[0]["messages"][1]["content"]
-
-    def test_explicit_budget_is_never_auto_widened(self, monkeypatch, fake_leg, fake_profile_store):
-        fake_leg.response_payload = {"results": [], "profile_delta": {"budget_max": 100}}
-        _scripted_llm(
-            monkeypatch,
-            '{"family": "search", "language": "en"}', "No luck yet.",
-            '{"family": "search", "language": "en"}', "Still nothing.",
-        )
-        runner = InMemoryRunner(root_agent)
-        session = _new_session(runner)
-
-        _run_turn(runner, session.id, "100")  # bare number -> explicit
-        fake_leg.response_payload = {"results": []}
-        _run_turn(runner, session.id, "still looking")
-
-        stored = asyncio.run(fake_profile_store.get(session.id))
-        assert stored.consecutive_empty_searches == 2
-        assert stored.budget_max == 100.0
-        assert stored.auto_widen_disclosure is None
+    # test_explicit_budget_is_never_auto_widened ("100" in a fresh session):
+    # superseded by PR134-FIX B3 — ported as test_typed_budget_spine.py::
+    # TestBareNumber::test_a_bare_number_answering_a_budget_question_is_never_auto_widened.
 
 
 class TestSearchExhaustionThroughTheSpine:
@@ -1296,18 +1289,22 @@ class TestWrittenOutDateThroughTheSpine:
 def test_recognized_bare_budget_reaches_actual_search_arguments(
     monkeypatch, fake_leg, fake_profile_store
 ):
-    """Observed prod comparison: triage knew 60 but MCP received no cap."""
+    """Observed prod comparison: triage knew 60 but MCP received no cap.
+    PORT1 slice 3: the bare "60" answers a budget question (PR134-FIX B3)."""
     from hotel_search_agent.budget_injection import inject_profile_budget
 
     fake_leg.response_payload = {"results": [], "profile_delta": {}}
     llm = _scripted_llm(
         monkeypatch,
-        '{"family":"search","language":"en","bare_budget_value":60}',
+        '{"family":"search","language":"en","requested_budget":{"amount":60,"unit":"total",'
+        '"evidence":"60","answer_to":"What is your maximum budget?"}}',
         "No matching offers under your budget.",
     )
     runner = InMemoryRunner(root_agent)
     session = _new_session(runner)
-    asyncio.run(fake_profile_store.set(session.id, SessionProfile(city="Orange County", budget_max=150)))
+    asyncio.run(fake_profile_store.set(session.id, SessionProfile(
+        city="Orange County", budget_max=150, last_clarifying_question="What is your maximum budget?",
+    )))
     _run_turn(runner, session.id, "60")
 
     payload = find_datapart(fake_leg.seen_outgoing_parts)
@@ -1330,7 +1327,7 @@ def test_bare_shortlist_position_does_not_become_a_budget(monkeypatch, fake_leg,
         yield self._final(ctx, "Please confirm this offer.")
 
     monkeypatch.setattr(type(root_agent), "_run_booking", booking)
-    _scripted_llm(monkeypatch, '{"family":"search","language":"en","bare_budget_value":2}')
+    _scripted_llm(monkeypatch, '{"family":"search","language":"en","requested_budget":{"amount":2,"unit":"total","evidence":"2"}}')
     runner = InMemoryRunner(root_agent)
     session = _new_session(runner)
     seeded = SessionProfile(city="Paris", budget_max=150, last_results=[

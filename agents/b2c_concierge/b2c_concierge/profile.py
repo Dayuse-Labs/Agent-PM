@@ -278,6 +278,11 @@ class SessionProfile:
     # mcp-dayuse#7: a homonym the last turn asked about (« which Manhattan? »)
     # with the options offered, so the answer completes it. Next search only.
     pending_place: dict[str, Any] | None = None
+    # PORT1 slice 3: the triage's grounded budget {amount, currency, unit}
+    # (b2c_common.search_budget). None = never checked (legacy leaf-owned
+    # `budget_max`), {} = checked and no cap. Concierge-owned: a leaf delta
+    # can neither set nor clear it; `budget_max` is its EUR projection.
+    requested_budget: dict[str, Any] | None = None
 
     def to_dict(self) -> dict[str, Any]:
         return {
@@ -326,6 +331,7 @@ class SessionProfile:
             "pending_search": self.pending_search,
             "named_candidates": self.named_candidates,
             "pending_place": self.pending_place,
+            "requested_budget": self.requested_budget,
             "schema_version": PROFILE_SCHEMA_VERSION,
         }
 
@@ -409,28 +415,6 @@ def _bare_number_value(message: str) -> float | None:
     if not match:
         return None
     return float(match.group(1).replace(",", "."))
-
-
-def apply_recognized_bare_budget(
-    profile: SessionProfile, message: str, value: float | None, fired: set[str]
-) -> bool:
-    """Carry a triage-recognized EUR budget into the outgoing search profile.
-
-    Routing alone does not apply the cap: the stateless leaf may omit it. Code
-    validates the LLM slot against the literal amount before persisting it. Do
-    not interpret a foreign-currency amount or hotel-currency display as EUR;
-    those require a currency-aware extraction, not an invented conversion.
-    Caller must first resolve search vs hotel-position/booking/FAQ routing.
-    """
-    if value is None or profile.display_currency not in (None, "EUR") or not _has_prior_search_context(profile):
-        return False
-    match = re.fullmatch(r"\s*€?\s*(\d+(?:[.,]\d+)?)\s*€?\s*", message)
-    if not match or float(match.group(1).replace(",", ".")) != value or value <= 0:
-        return False
-    apply_profile_delta(profile, {
-        "budget_max": value, "budget_request_source": BUDGET_SOURCE_EXPLICIT,
-    }, message, fired)
-    return True
 
 
 def _looks_like_time_derived_budget(message: str, budget_max: float) -> bool:
@@ -648,7 +632,7 @@ def apply_profile_delta(
     # the delta's own source claim says. A number that looks time/distance-
     # derived ("less than 20 minutes away") is never persisted as a budget at
     # all (S12 audit 2026-07-20) — profile.budget_max is simply left as-is.
-    if values.get("budget_max") is not None:
+    if values.get("budget_max") is not None and profile.requested_budget is None:
         new_budget = float(values["budget_max"])
         if _looks_like_time_derived_budget(user_message, new_budget):
             if fired is not None:
@@ -808,6 +792,8 @@ def apply_profile_delta(
     # so there is no ordering conflict — this is just the generic path for
     # slots the guards above don't already special-case).
     for slot in clears:
+        if slot == "requested_budget" or (slot == "budget_max" and profile.requested_budget is not None):
+            continue  # concierge-owned (PORT1 slice 3)
         if slot in known_fields:
             setattr(profile, slot, _slot_default(slot))
 
@@ -1026,7 +1012,11 @@ def search_context_line(profile: SessionProfile) -> str:
     bits: list[str] = []
     if profile.city:
         bits.append(f"destination: {profile.city}")
-    if profile.budget_max:
+    typed = profile.requested_budget
+    if typed and typed.get("amount"):
+        unit = typed.get("currency") or "currency unknown"
+        bits.append(f"budget max: {typed['amount']:g} {unit} ({typed.get('unit')}, booking fees included)")
+    elif profile.budget_max:
         bits.append(f"budget max: €{profile.budget_max:.0f}")
     slot = _timeslot_label(profile) or profile.daypart
     if slot:

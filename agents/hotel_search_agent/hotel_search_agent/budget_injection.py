@@ -22,6 +22,8 @@ from __future__ import annotations
 import logging
 from typing import Any
 
+from b2c_common.search_budget import native_eur_cap
+
 from hotel_search_agent.response_bridge import find_datapart, positive_budget
 
 _metrics_logger = logging.getLogger("dayuse.metrics")
@@ -53,6 +55,20 @@ def inject_profile_budget(tool: Any, args: dict[str, Any], tool_context: Any) ->
     never receive one, so there is nothing to pop on them."""
     name = getattr(tool, "name", "") or ""
     if name != "search_offers":
+        return None
+
+    content = getattr(tool_context, "user_content", None)
+    data = find_datapart(getattr(content, "parts", None))
+    profile = data.get("profile_in") if isinstance(data, dict) else None
+    if isinstance(profile, dict) and isinstance(profile.get("requested_budget"), dict):
+        # PORT1 slice 3: the concierge's grounded request owns the cap. MCP's
+        # filter is EUR: only an EUR total reaches it; any other currency is
+        # checked on the cards (response_bridge), never converted here.
+        args.pop("priceRangeMax", None)
+        args.pop("priceRangeMin", None)
+        cap = native_eur_cap(profile["requested_budget"])
+        if cap is not None:
+            args["priceRangeMax"] = cap
         return None
 
     sent = positive_budget(args.get("priceRangeMax"))
