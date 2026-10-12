@@ -166,7 +166,11 @@ class TestMetricsWiring:
         from hotel_search_agent.named_destination_plan import enforce_named_destination
         assert before.index(enforce_named_destination) > before.index(mcp_circuit_before_tool)
         # mcp-dayuse#8: the schema guard must see the args every other
-        # callback has finished rewriting.
+        # callback has finished rewriting. PR134-FIX R6: the two callbacks
+        # after it DISPATCH MCP themselves (they short-circuit, so nothing
+        # after them would run): they pass every query they add keys to
+        # through the same guard (test_area_scope / test_budget_pages
+        # ..._schema_guard), so it stays the last filter on what is sent.
         from hotel_search_agent.area_scope import search_areas_before_tool
         from hotel_search_agent.budget_pages import search_budget_pages_before_tool
         assert before[-4] is drop_args_outside_schema

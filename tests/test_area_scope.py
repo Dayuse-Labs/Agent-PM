@@ -864,3 +864,23 @@ def test_area_batch_with_no_read_left_is_a_budget_stop_not_an_outage():
     result = search_areas_before_tool(SimpleNamespace(name="search_offers", run_async=run_async), {}, ctx)
     result = asyncio.run(result) if asyncio.iscoroutine(result) else result
     assert result == {"ok": False, "error": STOP_MESSAGE}
+
+
+def test_area_queries_pass_the_schema_guard_like_any_search(monkeypatch):
+    # PR134-FIX R6: the batch adds sortBy/radiusKm/size AFTER the chain's
+    # drop_args_outside_schema ran, so a key the deployed MCP does not publish
+    # made its .strict() schema refuse every area call. The guard is the last
+    # thing applied to whatever is sent.
+    monkeypatch.setattr('hotel_search_agent.geocode_tool.get_mapbox_client', lambda: SimpleNamespace())
+    sent = []
+
+    async def run_async(*, args, tool_context):
+        sent.append(dict(args))
+        return {"structuredContent": {"results": []}}
+
+    schema = {"type": "object", "additionalProperties": False,
+              "properties": {k: {} for k in ("lat", "lon", "radiusKm", "size", "date")}}
+    tool = SimpleNamespace(name="search_offers", run_async=run_async,
+                           raw_mcp_tool=SimpleNamespace(inputSchema=schema))
+    asyncio.run(search_areas_before_tool(tool, {"date": "2026-10-14"}, _budgeted(_areas(1))))
+    assert sent and "sortBy" not in sent[0] and sent[0]["radiusKm"] == 10

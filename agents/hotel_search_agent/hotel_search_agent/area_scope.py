@@ -346,6 +346,7 @@ async def _search_areas(tool: Any, args: dict[str, Any], tool_context: Any, area
     from hotel_search_agent.geocode_tool import get_mapbox_client
     from hotel_search_agent.mcp_guard import mark_mcp_dispatched
     from hotel_search_agent.response_bridge import read_structured_payload
+    from hotel_search_agent.schema_guard import drop_args_outside_schema
 
     mark_mcp_dispatched(tool_context)
 
@@ -355,6 +356,8 @@ async def _search_areas(tool: Any, args: dict[str, Any], tool_context: Any, area
         query = {**args, "lat": area["latitude"], "lon": area["longitude"],
                  "radiusKm": area["radius_km"], "size": PAGE_SIZE,
                  "sortBy": area.get("sort_by") or ("distance" if area.get("required_parent_id") else "relevance")}
+        # Keys added after the chain's schema guard: it stays the last filter.
+        drop_args_outside_schema(tool, query, tool_context)
         try:
             raw = await tool.run_async(args=query, tool_context=tool_context)
         except Exception:

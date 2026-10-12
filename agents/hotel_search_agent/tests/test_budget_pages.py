@@ -203,3 +203,14 @@ def test_a_failed_budget_page_still_feeds_the_mcp_breaker(monkeypatch):
         assert response["isError"] is True
         mcp_circuit_after_tool(tool, {}, ctx, response)
     assert not breaker.allow()
+
+
+def test_budget_page_queries_pass_the_schema_guard(monkeypatch):
+    # PR134-FIX R6: `size` is added after the chain's schema guard ran.
+    schema = {"type": "object", "additionalProperties": False,
+              "properties": {k: {} for k in ("date", "from", "lat", "lon")}}
+    tool = PagedTool()
+    tool.raw_mcp_tool = SimpleNamespace(inputSchema=schema)
+    ctx, _ = context()
+    run_callbacks(tool, ctx, {"date": "2026-10-08", "from": 0})
+    assert tool.calls and all("size" not in call for call in tool.calls)
