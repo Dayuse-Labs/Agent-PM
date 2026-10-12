@@ -329,13 +329,12 @@ class TestP1Slots:
             monkeypatch,
             '{"family": "booking", "language": "es", "affirmative": true,'
             ' "booking_confirmation": "confirm", "wants_more_options": false,'
-            ' "bare_budget_value": 80, "hotel_name": "Villa Paris Orly"}',
+            ' "hotel_name": "Villa Paris Orly"}',
         )
         t = _classify("sí, confírmalo")
         assert t.affirmative is True
         assert t.booking_confirmation == "confirm"
         assert t.wants_more_options is False
-        assert t.bare_budget_value == 80.0
         assert t.hotel_name == "Villa Paris Orly"
 
     def test_absent_keys_are_none_not_false(self, monkeypatch):
@@ -344,7 +343,7 @@ class TestP1Slots:
         assert t.affirmative is None
         assert t.booking_confirmation is None
         assert t.wants_more_options is None
-        assert t.bare_budget_value is None
+        assert t.requested_budget is None
         assert t.hotel_name is None
 
     def test_the_llm_being_down_leaves_every_slot_none(self, monkeypatch):
@@ -355,7 +354,7 @@ class TestP1Slots:
         t = _classify("d'autres options")
         assert t.used_llm is False
         assert (t.affirmative, t.booking_confirmation, t.wants_more_options) == (None, None, None)
-        assert t.bare_budget_value is None and t.hotel_name is None
+        assert t.requested_budget is None and t.hotel_name is None
 
     @pytest.mark.parametrize("raw", ['"true"', "1", '"yes"', "null"])
     def test_only_a_real_json_bool_is_accepted(self, monkeypatch, raw):
@@ -371,17 +370,6 @@ class TestP1Slots:
 
     def test_booking_confirmation_enum_is_the_closed_set(self):
         assert BOOKING_CONFIRMATIONS == ("none", "confirm", "refuse", "change")
-
-    @pytest.mark.parametrize(
-        "raw,expected",
-        [("80", 80.0), ('"120"', 120.0), ('"80,5"', 80.5), ("true", None), ("0", None), ("-5", None)],
-    )
-    def test_budget_slot_validation(self, monkeypatch, raw, expected):
-        _script(
-            monkeypatch,
-            '{"family": "search", "language": "en", "bare_budget_value": %s}' % raw,
-        )
-        assert _classify("80").bare_budget_value == expected
 
     def test_an_over_long_hotel_name_degrades_to_none(self, monkeypatch):
         # The slot becomes MCP find_hotel_by_name's `name` argument: a model
@@ -412,7 +400,7 @@ class TestP1Slots:
             "affirmative",
             "booking_confirmation",
             "wants_more_options",
-            "bare_budget_value",
+            "requested_budget",
             "hotel_name",
         ):
             assert f'"{key}"' in triage_module._TRIAGE_INSTRUCTION

@@ -32,9 +32,12 @@ same "honest degradation" posture as `_run_leaf`.
 from __future__ import annotations
 
 import asyncio
+import math
 import os
 import re
 from contextlib import asynccontextmanager
+from dataclasses import replace
+from datetime import UTC, datetime
 from typing import Any, AsyncIterator
 
 import httpx
@@ -47,6 +50,11 @@ from b2c_common import (
     with_checkin_date,
 )
 from b2c_common.observability import mark_level, observation, trace_context_carrier
+from b2c_common.offer_facts import selected_offer_facts
+from b2c_common.party_discovery import possible_party
+from b2c_common.pricing import has_unverified_zero_price, offer_totals
+from b2c_common.room_requirements import bedding_matches
+from b2c_common.timeslot import parse_hhmm, slot_covers_window
 from mcp import ClientSession
 from mcp.client.streamable_http import streamable_http_client
 
@@ -329,6 +337,17 @@ def _normalize_hotel_for_display(hotel: dict[str, Any], best_offer: dict[str, An
     if url:
         normalized["url"] = url
     if best_offer:
+        # Same selected-offer evidence as the search leaf's card.
+        facts = selected_offer_facts(hotel, best_offer)
+        if facts:
+            normalized["offer_facts"] = facts
+        totals = offer_totals(best_offer)
+        if totals:
+            normalized["offer_totals"] = totals
+        start = _hhmm(best_offer.get("startHour"), best_offer.get("startMinute"))
+        end = _hhmm(best_offer.get("endHour"), best_offer.get("endMinute"))
+        if start and end:
+            normalized["timeslots"] = [{"start": start, "end": end}]
         shown_price = display_price_euro(best_offer, hotel)
         normalized["price"] = _format_price_eur_cents(shown_price)
         normalized["price_eur_cents"] = _price_eur_cents(shown_price)
@@ -355,6 +374,7 @@ async def get_hotel_details(
     profile: SessionProfile,
     picked_hotel_id: int | None = None,
     llm_hotel_name: str | None = None,
+    preserve_shown_offer: bool = False,
 ) -> dict[str, Any]:
     """Real MCP_B2C `get_hotel_details`, hotel resolved via the named-hotel
     lookup guard — or taken straight from `picked_hotel_id` when the spine
@@ -376,13 +396,72 @@ async def get_hotel_details(
                     guards_fired.append("named_hotel_lookup")
                 if hotel_id is None:
                     return {"ok": False, "error": "hotel not found", "guards_fired": guards_fired}
-                result = await _call_tool(session, "get_hotel_details", {"hotelId": hotel_id})
+                # Dated lookup: the session's day, else the day of the offer on
+                # screen. Undated, MCP returns every upcoming offer and the
+                # first one can belong to another day or formula.
+                args: dict[str, Any] = {"hotelId": hotel_id}
+                shown = _shortlist_offer(hotel_id, profile)
+                requested_date = profile.date or (shown.get("offer_date") if shown else None)
+                if requested_date:
+                    args["date"] = requested_date
+                result = await _call_tool(session, "get_hotel_details", args)
                 if not result["ok"]:
                     return {**result, "guards_fired": guards_fired}
                 data = result["data"]
                 hotel = data.get("hotel") or {}
+                if preserve_shown_offer and hotel.get("hotelId", hotel.get("id")) != hotel_id:
+                    return {"ok": False, "error": "details returned a different hotel identity"}
                 offers = data.get("offers") or []
-                normalized = _normalize_hotel_for_display(hotel, offers[0] if offers else None)
+                available_offers = []
+                if requested_date:
+                    day_profile = replace(profile, date=requested_date)
+                    for offer in offers:
+                        if _search_offer([offer], hotel, day_profile) is None:
+                            continue
+                        normalized_offer = _normalize_hotel_for_display(hotel, offer)
+                        available_offers.append({k: normalized_offer[k] for k in
+                            ("offer_id", "offer_date", "timeslots", "price", "offer_totals",
+                             "hotel_price", "hotel_price_minor", "hotel_currency_code")
+                            if k in normalized_offer})
+                if profile.date:
+                    offers = [o for o in offers if o.get("availabilityDate") == profile.date]
+                if shown is not None:
+                    # A details question keeps the formula already displayed.
+                    # If it disappeared, report hotel facts without another price.
+                    offers = [o for o in offers if
+                              o.get("ratePlanUuid") == shown.get("offer_id")
+                              and o.get("availabilityDate") == shown.get("offer_date")]
+                if preserve_shown_offer:
+                    offers = [o for o in offers if shown
+                              and _hhmm(o.get("startHour"), o.get("startMinute")) == shown.get("start_time")
+                              and _hhmm(o.get("endHour"), o.get("endMinute")) == shown.get("end_time")]
+                    # Identity, day, slot, cutoff and price only: a card shown
+                    # as "closest" to the hours never covered them, and the
+                    # search filters already passed when it was displayed.
+                    best = _search_offer(offers, hotel, replace(
+                        profile, date=requested_date, timeslot_start=None, timeslot_end=None,
+                        budget_max=None, adults=None, children=None,
+                        room_requirements=None, pending_party_total=None,
+                    ))
+                elif shown is None and requested_date:
+                    # An older hotel can have left the visible shortlist. Its
+                    # first/cheapest formula is not evidence for the requested
+                    # hours. Details may quote a higher price, so the budget
+                    # stays a search filter, separate from this slot choice.
+                    best = _search_offer(offers, hotel, replace(
+                        profile, date=requested_date, budget_max=None,
+                        adults=None, children=None,
+                    ))
+                else:
+                    best = offers[0] if offers else None
+                normalized = _normalize_hotel_for_display(hotel, best)
+                if shown is None and requested_date and best is None:
+                    normalized["requested_offer_unavailable"] = True
+                if available_offers:
+                    normalized["available_offers"] = available_offers[:20]
+                    normalized["available_offers_truncated"] = len(available_offers) > 20
+                if preserve_shown_offer and best is None:
+                    normalized["shown_offer_unavailable"] = True
                 # Same rule as the search leaf's cards: `profile.date` only ever
                 # holds a user-given date (or the same-day cutoff swap), so the
                 # hotel page opens on the day the user asked for, not today.
@@ -391,6 +470,63 @@ async def get_hotel_details(
                 return {"ok": True, "hotel": normalized, "guards_fired": guards_fired}
     except Exception as exc:  # noqa: BLE001 — degrade honestly, never crash the turn
         return {"ok": False, "error": f"get_hotel_details failed: {type(exc).__name__}"}
+
+
+def _search_offer(offers: list[Any], hotel: dict[str, Any], profile: SessionProfile) -> dict[str, Any] | None:
+    """The cheapest offer bookable on `profile.date` that fits the session's
+    budget (fee-inclusive EUR total) and hours (the site's shared rule,
+    `slot_covers_window`) — never an expired, unpriced, undated or unidentified
+    one. Property amenities and policy eligibility are separate evidence, not
+    implied by the existence of this offer."""
+    start, end = parse_hhmm(profile.timeslot_start), parse_hhmm(profile.timeslot_end)
+    candidates = []
+    for offer in offers:
+        if not isinstance(offer, dict) or not profile.date or offer.get("availabilityDate") != profile.date:
+            continue
+        if not isinstance(offer.get("ratePlanUuid"), str) or not offer["ratePlanUuid"].strip():
+            continue
+        if parse_hhmm(_hhmm(offer.get("startHour"), offer.get("startMinute"))) is None or parse_hhmm(_hhmm(
+            offer.get("endHour"), offer.get("endMinute")
+        )) is None:
+            continue
+        deadline = offer.get("cutoffDeadlineUtc")
+        if deadline is not None:
+            try:
+                cutoff = datetime.fromisoformat(deadline.replace("Z", "+00:00"))
+                if cutoff.tzinfo is None or cutoff <= datetime.now(UTC):
+                    continue
+            except (AttributeError, TypeError, ValueError):
+                continue
+        price = display_price_euro(offer, hotel)
+        if (isinstance(price, bool) or not isinstance(price, (int, float))
+                or not math.isfinite(price) or price <= 0):
+            continue
+        if profile.budget_max is not None:
+            total = offer_totals(offer).get("EUR")
+            if total is None or total > profile.budget_max * 100:
+                continue
+        if (start is not None or end is not None) and not slot_covers_window(
+            offer.get("startHour"), offer.get("endHour"), start, end
+        ):
+            continue
+        # PORT1 slice 5: the bed asked for, and a capacity for the party —
+        # a possible one while its composition is unknown, else a proven one
+        # (missing capacity cannot prove a stated party fits).
+        if not bedding_matches(offer, profile.room_requirements):
+            continue
+        if profile.pending_party_total is not None:
+            if not possible_party(offer, profile.pending_party_total):
+                continue
+        elif any(
+            needed is not None and needed > 0 and (
+                isinstance(offer.get(field), bool) or not isinstance(offer.get(field), int)
+                or offer[field] < needed
+            )
+            for field, needed in (("capacity", profile.adults), ("childrenCapacity", profile.children))
+        ):
+            continue
+        candidates.append(offer)
+    return min(candidates, key=lambda offer: display_price_euro(offer, hotel)) if candidates else None
 
 
 async def compare_hotels(message: str, profile: SessionProfile) -> dict[str, Any]:
@@ -420,6 +556,20 @@ async def compare_hotels(message: str, profile: SessionProfile) -> dict[str, Any
         return {"ok": False, "error": "need at least 2 hotels to compare"}
     try:
         async with asyncio.timeout(_INLINE_MCP_TIMEOUT):
+            if profile.date or any(_shortlist_offer(i, profile) for i in hotel_ids):
+                # MCP `compare_hotels` returns ONE `bestOffer` per hotel: even
+                # with its optional `date` it can be another formula than the
+                # card's, and without it another day. Revalidate ONLY the
+                # displayed offers through the dated details tool; never
+                # replace them. At most five read-only calls, concurrent under
+                # this one timeout.
+                details = await asyncio.gather(*(
+                    get_hotel_details("", profile, picked_hotel_id=i, preserve_shown_offer=True)
+                    for i in hotel_ids[:5]
+                ))
+                if not all(r.get("ok") for r in details):
+                    return {"ok": False, "error": "comparison details unavailable"}
+                return {"ok": True, "hotels": [r["hotel"] for r in details], "best_by": {}}
             async with _mcp_session() as session:
                 result = await _call_tool(session, "compare_hotels", {"hotelIds": hotel_ids[:10]})
                 if not result["ok"]:
@@ -497,7 +647,7 @@ def _best_offer(
     Within a day, "cheapest" is the same rule the card itself applies
     (`response_bridge._best_offer`), mirrored rather than imported (B3: each
     side owns its tiny helpers, like `_hhmm` above)."""
-    pool = [o for o in offers if isinstance(o, dict)]
+    pool = [o for o in offers if isinstance(o, dict) and not has_unverified_zero_price(o, hotel)]
     if not pool:
         return None
     target = date or min(
@@ -540,6 +690,8 @@ def _rate_plan_view(
     reports/PROMPT-MCP-B2C-RATEPLANS.md), so this must produce a usable row
     from price + slot alone, and gain the labels the day they appear rather
     than needing a second implementation."""
+    if has_unverified_zero_price(offer, hotel):
+        return None
     offer_id = offer.get("ratePlanUuid")
     offer_date = offer.get("availabilityDate")
     if not (isinstance(offer_id, str) and offer_id.strip()):
@@ -811,6 +963,7 @@ async def _quote_fresh_offer(
                     if not details["ok"]:
                         return {**details, "guards_fired": guards_fired}
                     offers = details["data"].get("offers") or []
+                    offers = [o for o in offers if bedding_matches(o, profile.room_requirements)]
                     details_hotel = details["data"].get("hotel")
                     best = _best_offer(offers, profile.date, details_hotel)
                     if best is None:
@@ -893,6 +1046,7 @@ async def _quote_picked_rate_plans(hotel_id: int, profile: SessionProfile) -> di
                 if not details["ok"]:
                     return details
                 offers = details["data"].get("offers") or []
+                offers = [o for o in offers if bedding_matches(o, profile.room_requirements)]
                 plans = _day_rate_plans(
                     offers, profile.date, details["data"].get("hotel"), profile.display_currency
                 )
@@ -1028,6 +1182,10 @@ async def _generate_booking_link_impl(
          pointing at another hotel must not confirm the stale one — it
          re-resolves the newly named one instead).
     """
+    if profile.pending_party_total is not None:
+        # PORT1 slice 5: no link for a party whose adults/children are unknown.
+        profile.pending_booking = None
+        return {"ok": False, "error": "party_composition_required"}
     pending = profile.pending_booking
     if user_confirmed and pending is not None:
         named_hit = resolve_hotel_reference(hotel_reference or "", profile.last_results)

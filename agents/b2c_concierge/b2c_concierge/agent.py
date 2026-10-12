@@ -96,6 +96,23 @@ from b2c_common.observability import (
     stamp_langfuse_turn_session,
     trace_context_carrier,
 )
+from b2c_common.party_discovery import discovery_message
+from b2c_common.party_update import party_composition_question, resolve_party_update
+from b2c_common.room_requirements import apply_room_update
+from b2c_common.price_comparison import (
+    cheaper_reference,
+    comparison_context,
+    empty_comparison_notice,
+    reference_question,
+)
+from b2c_common.search_budget import (
+    budget_notice,
+    budget_question,
+    cards_fit_budget,
+    merge_budget,
+    native_eur_cap,
+    resolve_budget_currency,
+)
 from b2c_common.search_page import without_hours
 from dayuse_agent_common import (
     cost_from_tokens,
@@ -137,7 +154,6 @@ from .profile import (
     SessionProfile,
     advance_search_cursor,
     apply_profile_delta,
-    apply_recognized_bare_budget,
     build_hotel_picks,
     extract_final_question,
     is_bare_affirmative,
@@ -798,6 +814,8 @@ class _B2cConcierge(BaseAgent):
         profile.auto_widen_disclosure = None  # surfaced at most once, regardless of outcome below
         # Transparency: let the reply restate the understood search params (S9+).
         search_context = search_context_line(profile)
+        if profile.price_comparison and "results" in (response or {}):
+            search_context += "; " + comparison_context(profile.price_comparison, response["results"])
         # Provenance honesty (S12 audit 2026-07-20): a non-explicit budget/
         # timeslot must never be claimed as user-requested (rule 8) — this
         # is independent of auto-widen, so it fires from turn 1 whenever a
@@ -812,6 +830,23 @@ class _B2cConcierge(BaseAgent):
             and profile.timeslot_request_source not in (None, BUDGET_SOURCE_EXPLICIT)
         ):
             prov_bits.append(f"timeslot source: {profile.timeslot_request_source}")
+        # PORT1 slice 3: what the code verified about the typed budget — it
+        # rides PROVENANCE because that block reaches the prompt on every path
+        # (SEARCH CONTEXT yields to NO OFFERS on an empty page).
+        if profile.requested_budget and "results" in (response or {}):
+            if not response["results"] or cards_fit_budget(response["results"], profile.requested_budget):
+                prov_bits.append("BUDGET VERIFICATION: " + budget_notice(
+                    profile.requested_budget, bool(response["results"]), language
+                ))
+            else:
+                prov_bits.append(
+                    "BUDGET NOT VERIFIED on these cards: never claim they fit the budget"
+                )
+        elif profile.requested_budget == {} and not profile.price_comparison:
+            prov_bits.append(
+                "No numeric budget was established: never claim any numerical "
+                "cap or affordability threshold"
+            )
         provenance_note = "; ".join(prov_bits)
 
         # Currency honesty (S-G7, A6-a: display stays EUR, never an invented
@@ -966,6 +1001,13 @@ class _B2cConcierge(BaseAgent):
             hotels = result.get("hotels") or [] if result.get("ok") else []
             names = ", ".join(str(h.get("name")) for h in hotels)
             leaf_text = f"Comparison retrieved for: {names}." if hotels else ""
+            unavailable = ", ".join(str(h.get("name")) for h in hotels if h.get("shown_offer_unavailable"))
+            if unavailable:
+                leaf_text += (
+                    f" The previously displayed offer could not be revalidated for: {unavailable}. "
+                    "Compare their property facts only and explicitly disclose this; do not "
+                    "invent another date, slot, price or availability."
+                )
         budget.fired.update(result.get("guards_fired") or [])
         if result.get("error") == "hotel not found":
             budget.fallbacks.add("named_hotel_not_found")
@@ -1179,7 +1221,10 @@ class _B2cConcierge(BaseAgent):
 
         # 2. Triage (ONE economy LLM + regex fallback). Off the session/stream.
         recent_messages = recent_user_messages(ctx.session.events, message)
-        triage = await classify(message, budget, inv, recent_messages=recent_messages)
+        triage = await classify(
+            message, budget, inv, recent_messages=recent_messages,
+            previous_question=profile.last_clarifying_question,
+        )
         family = triage.family
         route = ROUTES[family]
         # P1-1: the two code-owned override signals are RE-derived here, now fed
@@ -1199,7 +1244,7 @@ class _B2cConcierge(BaseAgent):
             profile,
             llm_affirmative=triage.affirmative,
             llm_wants_more=triage.wants_more_options,
-            llm_bare_budget=triage.bare_budget_value,
+            llm_bare_budget=(triage.requested_budget or {}).get("amount"),
         )
         booking_signal = is_booking_confirmation_signal(
             message, profile, llm_booking_confirmation=triage.booking_confirmation
@@ -1316,15 +1361,34 @@ class _B2cConcierge(BaseAgent):
         # answers a question.
         profile.pending_search = None
 
-        currency = resolve_currency_request(triage.display_currency, profile.last_results)
-        if triage.display_currency:
-            profile.requested_currency = triage.display_currency
+        # PORT1 slice 3: an answer to a pending budget question ("USD", "au
+        # total") completes that budget — a search turn, and never a request
+        # to change the display currency.
+        budget_update = triage.requested_budget
+        budget_answer = (
+            bool(profile.requested_budget)
+            and bool(budget_question(profile.requested_budget, reply_language, after_search=True))
+            and budget_update is not None and not booking_signal and picked is None
+            and family != "faq"
+        )
+        if budget_answer:
+            family, route = "search", ROUTES["search"]
+        display_request = None if budget_answer else triage.display_currency
+        currency = resolve_currency_request(display_request, profile.last_results)
+        if display_request:
+            profile.requested_currency = display_request
         repeat_search = False
         currency_notice: str | None = None
         # A code the hotels on screen don't use may still be the currency of the
         # hotels a NEW search is about to return ("un hôtel à Tokyo en yens"):
         # decided once the results are in.
-        pending_currency: str | None = None
+        # Deferred once: only the turn answering the unsearched request that
+        # asked for the currency decides it, never every later search.
+        pending_currency: str | None = (
+            profile.requested_currency if family == "search"
+            and pending is not None and bool(pending.get("request"))
+            and profile.requested_currency not in (None, "EUR", HOTEL) else None
+        )
         if currency.kind == "unsupported":
             if family == "search":
                 pending_currency = currency.requested
@@ -1366,6 +1430,17 @@ class _B2cConcierge(BaseAgent):
                 family, route = "search", ROUTES["search"]
                 repeat_search = True
 
+        # PORT1 slice 5: the party and the bed are concierge-owned. A total
+        # whose adult/child split is unknown stays pending — never guessed.
+        next_room = apply_room_update(profile.room_requirements, triage.requested_room)
+        occupancy_update, next_party_total = resolve_party_update(
+            profile.adults, profile.children, profile.pending_party_total, triage.requested_occupancy,
+        )
+        party_question_asked = (
+            next_party_total is not None and profile.pending_party_total == next_party_total
+            and profile.last_clarifying_question == party_composition_question(next_party_total, reply_language)
+        )
+
         # 3-5. Code-owned routing.
         if route.kind == "template":
             # The LLM classified ack where the regex fast-path didn't match.
@@ -1381,6 +1456,20 @@ class _B2cConcierge(BaseAgent):
             return
 
         if route.kind == "inline":
+            if route.target == "generate_booking_link":
+                # The composition may be answered together with "book it".
+                profile.pending_party_total = next_party_total
+                for key, value in (occupancy_update or {}).items():
+                    setattr(profile, key, value)
+            if route.target == "generate_booking_link" and next_party_total is not None:
+                # No link for a party whose adults/children are unknown.
+                profile.pending_party_total = next_party_total
+                profile.pending_booking = None
+                profile.last_clarifying_question = party_composition_question(next_party_total, reply_language)
+                await store.set(ctx.session.id, profile)
+                self._emit_turn_metric(family, "template:party_clarification", budget, t_start, "ok", inv)
+                yield self._final(ctx, profile.last_clarifying_question)
+                return
             if route.target == "generate_booking_link":
                 # R9 (guard #12): fully deterministic, ZERO extra LLM — see
                 # _run_booking's docstring for why a booking confirmation is
@@ -1434,6 +1523,9 @@ class _B2cConcierge(BaseAgent):
             route.target == LEAF_HOTEL_SEARCH
             and bool(profile.shown_hotel_ids)
             and not (named_choice or triage.hotel_name)
+            # PORT1 slice 4: "cheaper" is a new search from page 1, even when
+            # the model also flagged "more".
+            and triage.price_comparison in (None, "clear")
             and is_more_options_signal(message, triage.wants_more_options)
         )
         if more_options:
@@ -1448,10 +1540,67 @@ class _B2cConcierge(BaseAgent):
             reset_search_cursor(profile)
 
         if route.target == LEAF_HOTEL_SEARCH:
-            # Triage already recognized the amount. Put it in profile_in so
-            # the real MCP budget-injection callback can enforce it even if
-            # the stateless leaf model does not repeat the bare-number intent.
-            apply_recognized_bare_budget(profile, message, triage.bare_budget_value, budget.fired)
+            profile.pending_party_total = next_party_total
+            profile.room_requirements = next_room or None
+            for key, value in (occupancy_update or {}).items():
+                setattr(profile, key, value)
+
+        if route.target == LEAF_HOTEL_SEARCH:
+            # PORT1 slice 3: the triage's grounded budget owns the cap. It
+            # travels in profile_in; the leaf filters its cards on it and only
+            # an EUR total reaches MCP's priceRangeMax (`native_eur_cap`).
+            if budget_update is not None:
+                # The unit of an amount written without a currency: the
+                # widget's market currency, else the currency the user asked to
+                # see prices in, else — B3 — the display currency, EUR on B2C.
+                # Never a question that blocks the search.
+                native_currency = profile.currency
+                if profile.requested_currency and profile.requested_currency != HOTEL:
+                    native_currency = profile.requested_currency
+                elif profile.requested_currency == HOTEL:
+                    currencies = shortlist_currencies(profile.last_results)
+                    native_currency = currencies[0] if len(currencies) == 1 else None
+                if native_currency is None and profile.display_currency is None:
+                    native_currency = "EUR"
+                requested = merge_budget(profile.requested_budget, budget_update, native_currency)
+                if requested is not None:
+                    profile.requested_budget = requested
+                    profile.price_comparison = None  # a stated amount replaces "cheaper"
+                    profile.budget_max = native_eur_cap(requested)
+                    profile.budget_request_source = BUDGET_SOURCE_EXPLICIT if requested else None
+                    profile.auto_widen_disclosure = None
+            elif triage.budget_checked and profile.requested_budget is None and profile.budget_max is None:
+                profile.requested_budget = {}  # checked, none stated: no invented cap
+            # PORT1 slice 4: "cheaper" is measured against the verified,
+            # fee-inclusive totals of the offers on screen — never an amount
+            # the model invents. Without one, ask before searching.
+            if triage.price_comparison == "lower":
+                reference = cheaper_reference(profile.last_results, profile.display_currency)
+                if reference is None:
+                    profile.last_clarifying_question = reference_question(reply_language)
+                    await store.set(ctx.session.id, profile)
+                    self._emit_turn_metric(family, "template:price_reference_missing", budget, t_start, "ok", inv)
+                    yield self._final(ctx, profile.last_clarifying_question)
+                    return
+                profile.price_comparison = reference
+            elif not more_options:
+                # Relative to the offers shown, not a standing cap: only the
+                # next page of the same "cheaper" search keeps it.
+                profile.price_comparison = None
+            # Nothing retrieved yet, so nothing is thrown away by asking here:
+            # only an amount whose unit cannot be assumed (per hour, several
+            # hotel currencies on screen).
+            clarification = budget_question(profile.requested_budget, reply_language)
+            if clarification and budget_update is None:
+                # Asked already and not answered: drop it, never block the
+                # search again on a cap that cannot be checked.
+                profile.requested_budget = {}
+            elif clarification:
+                profile.last_clarifying_question = clarification
+                await store.set(ctx.session.id, profile)
+                self._emit_turn_metric(family, "template:budget_clarification", budget, t_start, "ok", inv)
+                yield self._final(ctx, clarification)
+                return
 
         # Leaf leg (search / faq): charge the leaf's 0-1 internal LLM slot, then
         # ONE call, per-family budget (_leaf_timeout), no retry. Session profile
@@ -1484,6 +1633,15 @@ class _B2cConcierge(BaseAgent):
             # mcp-dayuse#7: a hotel the user names is looked up by name, never
             # geocoded as a landmark.
             leaf_kwargs = {"query_params": {"hotel_name": hotel_name}}
+        if route.target == LEAF_HOTEL_SEARCH and (occupancy_update or profile.pending_party_total is not None):
+            # PORT1 slice 5: the validated party update wins over the leaf
+            # model's reading; an unresolved total filters on possible capacity.
+            query_params = dict(leaf_kwargs.get("query_params") or {})
+            if occupancy_update:
+                query_params["occupancy_update"] = occupancy_update
+            if profile.pending_party_total is not None:
+                query_params["party_total"] = profile.pending_party_total
+            leaf_kwargs["query_params"] = query_params
         context_text = pending_search_context(pending) if route.target == LEAF_HOTEL_SEARCH else None
         if context_text:
             leaf_kwargs["context_text"] = context_text
@@ -1588,6 +1746,36 @@ class _B2cConcierge(BaseAgent):
                 else templates.leaf_degraded_response(family, reply_language, profile.city),
             )
             return
+        if (route.target == LEAF_HOTEL_SEARCH and profile.pending_party_total is not None
+                and response.get("results") == []):
+            # PORT1 slice 5: an empty page for an unknown composition proves
+            # nothing about availability — ask it, never widen or exhaust.
+            profile.pending_booking = None
+            question = party_composition_question(profile.pending_party_total, reply_language)
+            profile.last_clarifying_question = question
+            await store.set(ctx.session.id, profile)
+            yield self._hotels_event(ctx, response, reply_language)
+            self._emit_turn_metric(family, "template:party_clarification", budget, t_start, "ok", inv)
+            yield self._final(ctx, question)
+            return
+        budget_followup: str | None = None
+        if route.target == LEAF_HOTEL_SEARCH and profile.requested_budget and "results" in response:
+            # PORT1 slice 3: a dollar amount takes the code of the market the
+            # search verified. If the unit still cannot be settled, B3: the
+            # question is APPENDED to the hotels found — results are never
+            # thrown away to ask it — and asked alone only over an empty page.
+            profile.requested_budget = resolve_budget_currency(profile.requested_budget, profile.country_anchor)
+            clarification = budget_question(profile.requested_budget, reply_language, after_search=True)
+            if clarification and budget_update is None:
+                profile.requested_budget = {}  # asked once already: drop it
+            elif clarification and response["results"]:
+                budget_followup = clarification
+            elif clarification:
+                profile.last_clarifying_question = clarification
+                await store.set(ctx.session.id, profile)
+                self._emit_turn_metric(family, "template:budget_clarification", budget, t_start, "ok", inv)
+                yield self._final(ctx, clarification)
+                return
         window_fallback: str | None = None
         no_offers = ""
         unchanged = False
@@ -1631,7 +1819,10 @@ class _B2cConcierge(BaseAgent):
             if results_count == 0:
                 # mcp-dayuse#5: the criteria of the search that actually ran,
                 # cited in code — never what the model remembers of the request.
-                no_offers = no_offers_line(response.get("search_context"), reply_language)
+                no_offers = no_offers_line(
+                    response.get("search_context"), reply_language,
+                    requested_budget=profile.requested_budget,
+                )
             # S-CX6: today's booking window closed on a market that DOES have
             # matching hotels (leaf-owned `cutoff_closed`; it already probed the
             # next day and found nothing usable either). The chips must then
@@ -1682,7 +1873,8 @@ class _B2cConcierge(BaseAgent):
                     ),
                 )
                 return
-            maybe_auto_widen(profile)
+            if not profile.price_comparison:
+                maybe_auto_widen(profile)  # never widen a "cheaper than" search
 
         # `hotels` marker — still before the synthesis, which is the whole point
         # (S06): the shortlist reaches a streaming client ~4-5 s before the text.
@@ -1700,12 +1892,36 @@ class _B2cConcierge(BaseAgent):
             ctx, response, reply_language, build_hotel_picks(profile), profile.search_page
         )
 
-        synth = await self._synthesize_with_guards(
-            message=message, language=reply_language, leaf_text=leaf_text, response=response,
-            profile=profile, budget=budget, invocation_id=inv, no_offers=no_offers,
-            recent_messages=recent_messages if family == "faq" else None,
-            unchanged=unchanged,
-        )
+        if (route.target == LEAF_HOTEL_SEARCH and profile.price_comparison
+                and response.get("results") == []):
+            # PORT1 slice 4: a filtered empty page says nothing about all
+            # availability — the code-owned notice, no synthesis to broaden it.
+            line = empty_comparison_notice(profile.price_comparison, reply_language)
+            if line:
+                for notice in (date_notice, budget_followup, currency_notice):
+                    if notice:
+                        line += "\n\n" + notice
+                profile.last_clarifying_question = None
+                await store.set(ctx.session.id, profile)
+                self._emit_turn_metric(family, "template:comparison_no_verified_offer", budget, t_start, "ok", inv)
+                yield self._final(ctx, line)
+                return
+
+        synth: str | None
+        if route.target == LEAF_HOTEL_SEARCH and profile.pending_party_total is not None and response.get("results"):
+            # PORT1 slice 5: the cards show the exact offers; no prose may
+            # claim group eligibility or guess a composition — no synthesis.
+            synth = discovery_message(profile.pending_party_total, reply_language, ask=not party_question_asked)
+            profile.last_clarifying_question = party_composition_question(profile.pending_party_total, reply_language)
+        else:
+            synth = await self._synthesize_with_guards(
+                message=message, language=reply_language, leaf_text=leaf_text, response=response,
+                profile=profile, budget=budget, invocation_id=inv, no_offers=no_offers,
+                recent_messages=recent_messages if family == "faq" else None,
+                unchanged=unchanged,
+            )
+        if budget_followup:
+            profile.last_clarifying_question = budget_followup  # what a bare "80" answers
         if route.target == LEAF_HOTEL_SEARCH:
             profile.pending_search = next_pending_search(
                 pending, message, "results" in response, profile.last_clarifying_question
@@ -1722,12 +1938,6 @@ class _B2cConcierge(BaseAgent):
         final_text = synth or templates.leaf_degraded_response(
             family, reply_language, profile.city
         )
-        if pending_currency is not None and currency_notice is None and "results" not in response:
-            # No hotels came back (e.g. the leaf asked "where?"): the request must
-            # not vanish — answer it with the generic choices.
-            currency_notice = unsupported_currency_message(
-                resolve_currency_request(pending_currency, None), reply_language
-            )
         if (
             isinstance(named_not_found, str)
             and response.get("results")
@@ -1767,6 +1977,14 @@ class _B2cConcierge(BaseAgent):
                 metrics_logger.info("concierge_metric=parking_reserve appended=1")
         if date_notice:
             final_text = f"{final_text.rstrip()}\n\n{date_notice}"
+        if budget_followup:
+            final_text = f"{final_text.rstrip()}\n\n{budget_followup}"
+        elif profile.requested_budget and cards_fit_budget(response.get("results"), profile.requested_budget):
+            # The cap is checked in code on each card's fee-inclusive total.
+            final_text = (
+                f"{final_text.rstrip()}\n\n"
+                f"{budget_notice(profile.requested_budget, True, reply_language)}"
+            )
         if currency_notice:
             final_text = f"{final_text.rstrip()}\n\n{currency_notice}"
         for chunk in _chunk_text(final_text):

@@ -475,7 +475,7 @@ class TestSecondReviewFixes:
         assert "CURRENCY" not in llm.calls[-1]["messages"][1]["content"]
         assert "Prix affichés en euros" not in reply
 
-    def test_an_unavailable_currency_is_answered_even_without_results(
+    def test_unknown_destination_currency_is_deferred_without_results(
         self, monkeypatch, fake_leg, fake_profile_store
     ):
         runner = InMemoryRunner(root_agent)
@@ -490,4 +490,57 @@ class TestSecondReviewFixes:
 
         reply = _run_turn(runner, session.id, "un hôtel en zlotys")
 
-        assert reply.endswith(unsupported_currency_message(resolve_currency_request("PLN", None), "fr"))
+        assert "Je ne peux pas encore afficher" not in reply
+        saved = asyncio.run(fake_profile_store.get(session.id))
+        assert saved.requested_currency == "PLN"
+
+    def test_an_unsupported_currency_notice_is_not_repeated_on_later_searches(
+        self, monkeypatch, fake_leg, fake_profile_store
+    ):
+        runner = InMemoryRunner(root_agent)
+        session = _new_session(runner)
+        _scripted_llm(
+            monkeypatch,
+            '{"family": "search", "language": "fr", "display_currency": "PLN"}', "Voici un hôtel.",
+            '{"family": "search", "language": "fr"}', "Voici un autre hôtel.",
+        )
+        fake_leg.response_payload = {"results": [copy.deepcopy(HK_CARD)], "profile_delta": {"city": "Hong Kong"}}
+        first = _run_turn(runner, session.id, "un hôtel à Hong Kong en zlotys")
+        second = _run_turn(runner, session.id, "et demain ?")
+        assert "Je ne peux pas encore" in first
+        assert "Je ne peux pas encore" not in second
+
+    def test_deferred_currency_is_resolved_by_the_answer_to_the_pending_question(
+        self, monkeypatch, fake_leg, fake_profile_store
+    ):
+        # PORT1 open question 2 (#134 rewrite vs #135): the deferral leaves
+        # #135's pending question intact, and the currency asked on turn 1 is
+        # decided against the hotels the answer's search returns.
+        runner = InMemoryRunner(root_agent)
+        session = _new_session(runner)
+        _scripted_llm(
+            monkeypatch,
+            '{"family": "search", "language": "fr", "display_currency": "PLN"}',
+            "Dans quelle ville cherchez-vous ?",
+            '{"family": "search", "language": "fr"}',
+            "Voici un hôtel.",
+        )
+        fake_leg.text = "Dans quelle ville cherchez-vous ?"
+        fake_leg.response_payload = None
+        _run_turn(runner, session.id, "un hôtel en zlotys")
+        assert asyncio.run(fake_profile_store.get(session.id)).pending_search == {
+            "request": "un hôtel en zlotys", "question": "Dans quelle ville cherchez-vous ?",
+        }
+
+        warsaw = {**copy.deepcopy(HK_CARD), "hotel_price": "PLN 400.00", "hotel_price_minor": 40000,
+                  "hotel_currency_code": "PLN", "currency_code": "PLN"}
+        fake_leg.text = "Voici un hôtel."
+        fake_leg.response_payload = {"results": [warsaw], "profile_delta": {"city": "Varsovie"}}
+        reply = _run_turn(runner, session.id, "Varsovie")
+
+        outgoing = " ".join(p.text or "" for p in fake_leg.seen_outgoing_parts)
+        assert "EARLIER REQUEST" in outgoing and "un hôtel en zlotys" in outgoing
+        stored = asyncio.run(fake_profile_store.get(session.id))
+        assert stored.display_currency == HOTEL
+        assert stored.last_results[0]["price"] == "PLN 400.00"
+        assert "Je ne peux pas encore" not in reply

@@ -17,6 +17,26 @@ def _profile(**kwargs) -> SessionProfile:
     return SessionProfile(**kwargs)
 
 
+def test_total_with_fees_is_not_described_as_the_displayed_card_quote():
+    block = shortlist_ground_truth_block({'results': [{'name': 'Example', 'price': 'USD 125.00',
+        'display_currency': 'USD', 'display_price_minor': 12500, 'offer_totals': {'USD': 13100}}]}, _profile())
+    assert 'USD 125.00' in block and 'verified total including booking fees: 131.00 USD' in block
+    assert 'never call it the price displayed on the card' in block
+
+
+def test_total_equal_to_the_card_quote_adds_no_fee_line():
+    block = shortlist_ground_truth_block({'results': [{'name': 'Example', 'price': '€80.00',
+        'price_eur_cents': 8000, 'offer_totals': {'EUR': 8000}}]}, _profile())
+    assert 'verified total including booking fees' not in block
+
+
+def test_verified_alternative_formulas_are_distinct_from_card_times():
+    block = shortlist_ground_truth_block({'results': [{'name': 'Example', 'timeslots': [{'start': '10:00', 'end': '17:00'}],
+        'available_offers': [{'price': 'EUR 50', 'offer_date': '2026-11-01', 'timeslots': [{'start': '07:00', 'end': '12:00'}]}]}]}, _profile())
+    assert 'offered times: 10:00–17:00' in block and '07:00–12:00' in block
+    assert 'not displayed on the selected card' in block
+
+
 class TestEmptyBlock:
     def test_no_results_and_no_streak_is_empty(self):
         assert shortlist_ground_truth_block({}, _profile()) == ""

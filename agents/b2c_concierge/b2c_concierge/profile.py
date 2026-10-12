@@ -278,6 +278,21 @@ class SessionProfile:
     # mcp-dayuse#7: a homonym the last turn asked about (« which Manhattan? »)
     # with the options offered, so the answer completes it. Next search only.
     pending_place: dict[str, Any] | None = None
+    # PORT1 slice 3: the triage's grounded budget {amount, currency, unit}
+    # (b2c_common.search_budget). None = never checked (legacy leaf-owned
+    # `budget_max`), {} = checked and no cap. Concierge-owned: a leaf delta
+    # can neither set nor clear it; `budget_max` is its EUR projection.
+    requested_budget: dict[str, Any] | None = None
+    # PORT1 slice 4: "cheaper" — strictly below the lowest verified total of
+    # the offers shown (b2c_common.price_comparison.cheaper_reference). Kept
+    # apart from requested_budget: it is not an amount the user stated.
+    price_comparison: dict[str, Any] | None = None
+    # PORT1 slice 5: the bed asked for ({"bedding": ...}, b2c_common.
+    # room_requirements) and a party total whose adult/child split is not
+    # known yet — both concierge-owned. While the total is pending, the
+    # leaf sees no adults/children (they would be guesses).
+    room_requirements: dict[str, Any] | None = None
+    pending_party_total: int | None = None
 
     def to_dict(self) -> dict[str, Any]:
         return {
@@ -326,6 +341,10 @@ class SessionProfile:
             "pending_search": self.pending_search,
             "named_candidates": self.named_candidates,
             "pending_place": self.pending_place,
+            "requested_budget": self.requested_budget,
+            "price_comparison": self.price_comparison,
+            "room_requirements": self.room_requirements,
+            "pending_party_total": self.pending_party_total,
             "schema_version": PROFILE_SCHEMA_VERSION,
         }
 
@@ -358,6 +377,7 @@ _CONCIERGE_ONLY_KEYS = (
     "search_page",
     "pending_search",
     "named_candidates",
+    "pending_party_total",  # the leaf gets it as query_params.party_total
 )
 
 
@@ -376,6 +396,9 @@ def leaf_profile_view(profile: SessionProfile) -> dict[str, Any]:
     view = profile.to_dict()
     for key in _CONCIERGE_ONLY_KEYS:
         view.pop(key, None)
+    if profile.pending_party_total is not None:
+        view.pop("adults", None)  # a stale composition is not this party
+        view.pop("children", None)
     view["last_results"] = [
         {"hotel_id": entry.get("hotel_id"), "name": entry.get("name")}
         for entry in (profile.last_results or [])
@@ -409,28 +432,6 @@ def _bare_number_value(message: str) -> float | None:
     if not match:
         return None
     return float(match.group(1).replace(",", "."))
-
-
-def apply_recognized_bare_budget(
-    profile: SessionProfile, message: str, value: float | None, fired: set[str]
-) -> bool:
-    """Carry a triage-recognized EUR budget into the outgoing search profile.
-
-    Routing alone does not apply the cap: the stateless leaf may omit it. Code
-    validates the LLM slot against the literal amount before persisting it. Do
-    not interpret a foreign-currency amount or hotel-currency display as EUR;
-    those require a currency-aware extraction, not an invented conversion.
-    Caller must first resolve search vs hotel-position/booking/FAQ routing.
-    """
-    if value is None or profile.display_currency not in (None, "EUR") or not _has_prior_search_context(profile):
-        return False
-    match = re.fullmatch(r"\s*€?\s*(\d+(?:[.,]\d+)?)\s*€?\s*", message)
-    if not match or float(match.group(1).replace(",", ".")) != value or value <= 0:
-        return False
-    apply_profile_delta(profile, {
-        "budget_max": value, "budget_request_source": BUDGET_SOURCE_EXPLICIT,
-    }, message, fired)
-    return True
 
 
 def _looks_like_time_derived_budget(message: str, budget_max: float) -> bool:
@@ -624,6 +625,13 @@ def apply_profile_delta(
     replacement apart from a fragment to merge."""
     values, clears, explicit_sets = _normalize_delta(dict(delta))
     known_fields = set(SessionProfile.__dataclass_fields__)
+    # PORT1 slices 3-4: user-grounded constraints are concierge-owned — a leaf
+    # delta can neither set nor clear them, nor clear their EUR projection.
+    for owned_slot in ("requested_budget", "price_comparison", "room_requirements", "pending_party_total"):
+        values.pop(owned_slot, None)
+        clears.discard(owned_slot)
+    if profile.requested_budget is not None:
+        clears.difference_update({"budget_max", "budget_request_source"})
 
     # City change clears the geo anchors/zone/metro/search-anchor (S04 +
     # S-G1) and resets the pagination state — unless the SAME delta also
@@ -648,7 +656,7 @@ def apply_profile_delta(
     # the delta's own source claim says. A number that looks time/distance-
     # derived ("less than 20 minutes away") is never persisted as a budget at
     # all (S12 audit 2026-07-20) — profile.budget_max is simply left as-is.
-    if values.get("budget_max") is not None:
+    if values.get("budget_max") is not None and profile.requested_budget is None:
         new_budget = float(values["budget_max"])
         if _looks_like_time_derived_budget(user_message, new_budget):
             if fired is not None:
@@ -796,9 +804,11 @@ def apply_profile_delta(
     # here is a contract break worth failing loudly rather than storing. A slot
     # is only written when present: a refinement turn that mentions nobody must
     # never wipe a party size stated three turns ago.
-    if values.get("adults") is not None:
+    # PORT1 slice 5: while a party total awaits its composition, the leaf's
+    # counts are guesses — the concierge resolves them from the user's answer.
+    if values.get("adults") is not None and profile.pending_party_total is None:
         profile.adults = int(values["adults"])
-    if values.get("children") is not None:
+    if values.get("children") is not None and profile.pending_party_total is None:
         profile.children = int(values["children"])
 
     # Explicit clears (A3-a: an auditable per-slot clear, never a silent
@@ -1026,7 +1036,11 @@ def search_context_line(profile: SessionProfile) -> str:
     bits: list[str] = []
     if profile.city:
         bits.append(f"destination: {profile.city}")
-    if profile.budget_max:
+    typed = profile.requested_budget
+    if typed and typed.get("amount"):
+        unit = typed.get("currency") or "currency unknown"
+        bits.append(f"budget max: {typed['amount']:g} {unit} ({typed.get('unit')}, booking fees included)")
+    elif profile.budget_max:
         bits.append(f"budget max: €{profile.budget_max:.0f}")
     slot = _timeslot_label(profile) or profile.daypart
     if slot:
@@ -1200,6 +1214,8 @@ def record_search_shortlist(profile: SessionProfile, results: list[dict[str, Any
             "offer_id", "offer_date", "price", "price_eur_cents",
             "image_urls", "url", "city", "rating", "rating_count", "stars",
             "hotel_currency_code",
+            # Fee-inclusive totals of THIS offer (b2c_common.pricing.offer_totals).
+            "offer_totals",
         ):
             if hotel.get(key) is not None:
                 entry[key] = hotel[key]

@@ -2168,3 +2168,44 @@ def test_emit_carries_the_homonym_asked_about_to_the_profile():
     content = emit_search_datapart(ctx)
     data = find_datapart(content.parts)
     assert data["profile_delta"]["pending_place"] == {"op": "set", "value": pending}
+
+
+# --- PORT1 slice 3: typed budget on the leaf's cards (from #134) --------------------------------
+
+
+def _usd_hotel(i, local_total, **offer):
+    hotel = _hotel(i, 9000)
+    for o in hotel["offers"]:
+        o.update(hotelCurrency="USD", hotelPrice=local_total, hotelPriceWithBookingFees=local_total,
+                 ratePlanUuid=f"offer-{i}", **offer)
+    return hotel
+
+
+def test_window_fallback_never_reintroduces_offer_over_currency_budget():
+    ctx = _Ctx(state={STATE_EXACT_WINDOW_KEY: {"start_total": 600, "end_total": 1020}},
+               user_content=_user_content_with_profile_in({
+                   "requested_budget": {"amount": 100, "currency": "USD", "unit": "total"}}))
+    expensive = _usd_hotel(1, 10400, startHour=18, endHour=22)
+    returned = capture_after_tool(_Tool("search_offers"), {}, ctx,
+                                  {"structuredContent": {"results": [expensive]}})
+    assert returned["hotels"] == []
+
+
+def test_a_dollar_budget_is_resolved_by_the_verified_search_country():
+    ctx = _Ctx(state={"temp:hotel_search_country_code": "US"},
+               user_content=_user_content_with_profile_in({"requested_budget": {
+                   "amount": 100, "currency": None, "currency_basis": "dollar_market", "unit": "total"}}))
+    returned = capture_after_tool(_Tool("search_offers"), {}, ctx, {"structuredContent": {"results": [
+        _usd_hotel(1, 9900), _usd_hotel(2, 10100)]}})
+    assert [h["hotel_id"] for h in returned["hotels"]] == [1]
+
+
+def test_an_unresolved_dollar_budget_never_empties_the_page():
+    # Review fix (B3): "$100" in a non-dollar market cannot be checked — the
+    # cards stay and the concierge appends its currency question.
+    ctx = _Ctx(state={"temp:hotel_search_country_code": "FR"},
+               user_content=_user_content_with_profile_in({"requested_budget": {
+                   "amount": 100, "currency": None, "currency_basis": "dollar_market", "unit": "total"}}))
+    returned = capture_after_tool(_Tool("search_offers"), {}, ctx, {"structuredContent": {"results": [
+        _usd_hotel(1, 9900)]}})
+    assert [h["hotel_id"] for h in returned["hotels"]] == [1]
