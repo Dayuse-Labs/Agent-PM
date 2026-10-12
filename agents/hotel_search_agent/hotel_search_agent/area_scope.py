@@ -334,7 +334,10 @@ def search_areas_before_tool(tool: Any, args: dict[str, Any], tool_context: Any)
 
 async def _search_areas(tool: Any, args: dict[str, Any], tool_context: Any, areas: list[dict]) -> dict:
     from hotel_search_agent.geocode_tool import get_mapbox_client
+    from hotel_search_agent.mcp_guard import mark_mcp_dispatched
     from hotel_search_agent.response_bridge import read_structured_payload
+
+    mark_mcp_dispatched(tool_context)
 
     # The same guarded filters are used for EVERY area. No model-provided
     # coordinates/radius can alter the provider-derived retrieval geometry.

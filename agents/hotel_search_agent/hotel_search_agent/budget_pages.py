@@ -13,6 +13,7 @@ from typing import Any, Awaitable
 from b2c_common.price_comparison import comparison_budget
 
 from hotel_search_agent.area_scope import STATE_AREAS
+from hotel_search_agent.mcp_guard import mark_mcp_dispatched
 from hotel_search_agent.response_bridge import (
     normalize_search_results,
     read_profile_in,
@@ -44,6 +45,7 @@ def search_budget_pages_before_tool(tool: Any, args: dict[str, Any], tool_contex
 async def _search(tool: Any, args: dict[str, Any], ctx: Any, cap: dict, profile: dict) -> dict:
     # All location/date/window/occupancy/equipment guards have already run.
     query = {**args, "size": 5}
+    mark_mcp_dispatched(ctx)
     first = await tool.run_async(args=query, tool_context=ctx)
     payload = read_structured_payload(first)
     if not isinstance(first, dict) or first.get("isError") or first.get("ok") is False:

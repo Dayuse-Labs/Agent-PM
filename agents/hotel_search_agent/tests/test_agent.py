@@ -162,33 +162,45 @@ class TestMetricsWiring:
         # the geocode's after_tool stash, which it does by construction
         # (different phase).
         assert before[0] is tool_timing_before
-        assert len(before) == 19
+        assert len(before) == 21
         from hotel_search_agent.named_destination_plan import enforce_named_destination
         assert before.index(enforce_named_destination) > before.index(mcp_circuit_before_tool)
         # mcp-dayuse#8: the schema guard must see the args every other
         # callback has finished rewriting.
         from hotel_search_agent.area_scope import search_areas_before_tool
         from hotel_search_agent.budget_pages import search_budget_pages_before_tool
-        assert before[-3] is drop_args_outside_schema
-        assert before[-2] is search_areas_before_tool
-        assert before[-1] is search_budget_pages_before_tool
+        assert before[-4] is drop_args_outside_schema
+        assert before[-3] is search_areas_before_tool
+        assert before[-2] is search_budget_pages_before_tool
         assert resolve_search_date in before
         assert resolve_search_timeslot in before
-        assert before[2] is mcp_circuit_before_tool
+        assert before[3] is mcp_circuit_before_tool
         from hotel_search_agent.owned_origin_plan import reuse_owned_origin
         from hotel_search_agent.landmark_alternatives import reuse_landmark_alternatives
-        assert before[4] is reuse_landmark_alternatives
-        assert before[3] is enforce_named_destination
-        assert before[5] is reuse_owned_origin
-        assert before[6] is enforce_resolved_search_origin
-        assert before[7] is enforce_equipment_filters
-        assert before[8] is inject_profile_occupancy
-        assert before[9] is inject_profile_budget
-        assert before[10] is inject_profile_geo_context
-        assert before[11] is inject_pagination_offset
-        assert before[12] is inject_landmark_radius
-        assert before[13] is inject_origin_sort
-        assert tool_timing_after in self._as_list(root_agent.after_tool_callback)
+        assert before[5] is reuse_landmark_alternatives
+        assert before[4] is enforce_named_destination
+        assert before[6] is reuse_owned_origin
+        assert before[7] is enforce_resolved_search_origin
+        assert before[8] is enforce_equipment_filters
+        assert before[9] is inject_profile_occupancy
+        assert before[10] is inject_profile_budget
+        assert before[11] is inject_profile_geo_context
+        assert before[12] is inject_pagination_offset
+        assert before[13] is inject_landmark_radius
+        assert before[14] is inject_origin_sort
+        # PR134-FIX B1: the chain brackets every MCP call — pending right
+        # after timing, dispatched only at the very end — and the tool_call
+        # metric goes through the guard's wrapper, which knows the difference.
+        from hotel_search_agent.mcp_guard import (
+            mcp_call_dispatched,
+            mcp_call_pending,
+            mcp_tool_metric_after,
+        )
+        assert before[1] is mcp_call_pending
+        assert before[-1] is mcp_call_dispatched
+        after = self._as_list(root_agent.after_tool_callback)
+        assert after[0] is mcp_tool_metric_after
+        assert tool_timing_after not in after
         assert mcp_circuit_after_tool in self._as_list(root_agent.after_tool_callback)
         assert tool_error_metric in self._as_list(root_agent.on_tool_error_callback)
         assert mcp_circuit_on_error in self._as_list(root_agent.on_tool_error_callback)

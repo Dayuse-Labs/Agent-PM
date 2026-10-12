@@ -179,3 +179,27 @@ def test_two_pages_block_a_second_model_search_dispatch():
     result = run_callbacks(tool, ctx, {'date':'2026-10-08','from':10})
     assert result['ok'] is False
     assert len(tool.calls) == 2
+
+
+def test_a_failed_budget_page_still_feeds_the_mcp_breaker(monkeypatch):
+    # PR134-FIX B1: this callback dispatches MCP itself, so its short-circuit is
+    # a real MCP outcome — the breaker must see it like any direct call.
+    from hotel_search_agent import mcp_guard
+    from hotel_search_agent.mcp_guard import mcp_call_pending, mcp_circuit_after_tool
+    from hotel_search_agent.resilience import CircuitBreaker
+
+    breaker = CircuitBreaker(failure_threshold=3, cooldown_seconds=30.0)
+    monkeypatch.setattr(mcp_guard, "breaker", breaker)
+
+    class DownTool(PagedTool):
+        async def run_async(self, *, args, tool_context):
+            return {"isError": True, "content": [{"type": "text", "text": "ES timeout"}]}
+
+    for _ in range(3):
+        ctx, _ = context()
+        tool = DownTool()
+        mcp_call_pending(tool, {}, ctx)
+        response = run_callbacks(tool, ctx, {"date": "2026-10-08", "from": 0})
+        assert response["isError"] is True
+        mcp_circuit_after_tool(tool, {}, ctx, response)
+    assert not breaker.allow()
