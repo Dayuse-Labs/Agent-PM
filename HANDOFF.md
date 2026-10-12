@@ -4,6 +4,56 @@
 
 > 📋 **Pour savoir QUOI faire ensuite, ouvrir [`CHANTIERS.md`](CHANTIERS.md)** (état vérifié au 2026-09-14) : la liste des chantiers ouverts, chacun avec sa preuve, ses actions et un prompt prêt à coller — plus la liste de ce qu'il ne faut **pas** relancer parce que c'est déjà livré. `tasks/todo.md` est périmé et ne doit plus servir de référence.
 
+## 🟡 2026-10-12 (bis) — PORT1 « vérité des cartes » : #134 portée sur `main` en 5 tranches (PR à revoir, prompt de triage non mesuré)
+
+Périmètre : `phases/PORT1-verite-des-cartes.md`. Branche `port/card-truth` (worktree `../AgentB2C-card-truth`), base `main` @ `49d5bd3`, source `origin/codex/production-context-and-proximity` @ `d8832b6` (#134 + #136), lue par `git show`, jamais mergée. Modèle d'état de #135 gardé ; hôtel nommé côté concierge (`named_hotel_id`) **non porté**. Hors ligne uniquement : aucun appel LLM, MCP ni réseau.
+
+**Fait — un commit par tranche** (chacune : tests rouges d'abord, contrôle négatif, gates vertes avant la suivante) :
+
+| Tranche | Commit | Tests | Contrôle négatif |
+|---|---|---|---|
+| 1 Preuves d'offre et frais | `cadf859` | `tests/test_offer_evidence.py`, `test_ground_truth::test_total_with_fees_…` | 8 retombent |
+| 2 Revalidation datée détails/comparaison | `418ce0e` | `agents/b2c_concierge/tests/test_dated_details.py`, `test_ground_truth::test_verified_alternative_formulas_…` | 15 retombent |
+| 3 Budget typé + B3 de #136 | `726c8bd` | `tests/test_requested_budget.py`, `tests/test_numeric_budget_context.py`, `test_typed_budget_spine.py`, `test_budget_injection::TestTypedRequest`, `test_response_bridge` (2), `test_display_currency` (2) | 40 retombent |
+| 4 « Moins cher » | `aaa721b` | `tests/test_price_comparison.py`, `test_typed_budget_spine.py` (6) | 13 retombent |
+| 5 Capacité chambre et groupe | `9f13ef3` | `tests/test_party_update.py`, `tests/test_room_requirements.py`, `test_party_discovery.py`, `test_occupancy` (4), `test_dated_details` (2), `test_inline_tools::…owned_bedding…` | 19 + 1 erreur de collecte |
+
+Gates **à chaque commit** (rejouées commit par commit après la revue) : pytest 2 271 → 2 289 → 2 334 → 2 359 → **2 416 passés / 1 skippé**, garde calendrier comprise · ruff · mypy `agents libs` · `dayuse_guardrails.sh` : verts.
+
+**Revue indépendante (agent de revue, puis vérifiée) : 8 défauts corrigés**, chacun avec un test rouge d'abord, replié dans le commit de sa tranche (fixup + autosquash, arbre final identique) :
+- T2 — une carte affichée « la plus proche » du créneau était déclarée « non revalidée » par la comparaison : `preserve_shown_offer` ne revérifie plus que l'identité, le jour, le créneau, le cutoff et le prix.
+- T3 — « $100 » à Paris vidait la page puis posait la question seule (contraire à B3) : un budget dont la devise n'est pas résolue ne filtre plus les cartes, la question s'ajoute aux résultats.
+- T3 — « vos offres respectent votre budget » était dit sur des cartes non filtrées (hôtel nommé) : `cards_fit_budget` exige un total vérifié ≤ plafond sur chaque carte, sinon « BUDGET NOT VERIFIED ».
+- T3 — les questions de budget du code n'étaient pas mémorisées (`last_clarifying_question`), donc un « 80 » en réponse était jeté ; et une question non répondue bloquait toutes les recherches suivantes : elle est posée une fois, puis abandonnée (`requested_budget = {}`).
+- T3 — la devise non supportée différée se répétait à chaque recherche : le différé ne vaut que pour le tour qui répond à la demande non cherchée (`pending_search` de #135).
+- T4 — la référence « moins cher » restait active après un changement de ville ou de critère : elle ne survit qu'à la page suivante de la même recherche ; la question de référence est mémorisée.
+- T5 — une composition donnée dans un tour de réservation (« 2 adultes et 1 enfant, je réserve ») était perdue et la réservation refusée : la route réservation l'enregistre aussi.
+
+Non corrigé (signalé par la revue, à arbitrer) : montants avec séparateur de milliers (« 1 000 € », « $1,000 ») rejetés par `_amounts` puis budget = `{}` ; comparaison datée = 5 sessions MCP concurrentes, un seul échec fait échouer la comparaison (MCP renvoie des 429 sur appels enchaînés — à vérifier en live).
+
+**Réponses aux 2 questions ouvertes du fichier de phase (par test, avant le code)** :
+1. `budget_integrity` ne contredit pas `offer_within_budget` : la garde décide seulement si un montant devient `budget_max`, elle ne lit aucune offre ; MCP applique `priceRangeMax` au prix frais compris, le même total que le filtre typé. Le prix sans frais d'une carte ne décide d'aucun côté. Test : `test_requested_budget.py::test_budget_integrity_and_offer_within_budget_agree_on_a_hotel_hiding_its_fees`.
+2. La réécriture de `test_display_currency` (devise inconnue sans résultat → différée) ne casse **aucun** test de #135 (suite complète verte avec le seul différé) et compose avec sa question en attente (`pending_search`) : la devise demandée au tour 1 est décidée sur les hôtels du tour de réponse. Test : `test_display_currency.py::test_deferred_currency_is_resolved_by_the_answer_to_the_pending_question`. Le différé est porté (tranche 3).
+
+**Tranche 2, vérification demandée** : le `compare_hotels` de `main` **ne suffit pas**. Il n'envoie jamais `date` (ni à `compare_hotels` ni à `get_hotel_details`) et lit le `bestOffer` du MCP. Le contrat publie bien `date` sur les deux outils, mais `compare_hotels` ne rend qu'**un** `bestOffer` par hôtel : même daté, il peut citer une autre formule que celle de la carte. Porté tel quel : shortlist datée → ≤ 5 `get_hotel_details` datés concurrents (`best_by` vide), shortlist non datée → 1 `compare_hotels`. (Le commentaire de #134 « compare_hotels has no date parameter » était faux et n'est pas repris.)
+
+**Écarts voulus avec #134** :
+- **Pas de listes de mots** (règle PORT1) : `_literal_currency` et `currency_answer` de `search_budget.py` (noms de devises en 6 langues) ne sont pas portés. Le triage pose un enum fermé `currency_basis: "dollar"` pour « $100 » sans pays ; le code résout par le pays géocodé (`_DOLLAR_MARKETS`). Un code ISO nommé est **cru sur parole** du LLM (format seulement vérifié).
+- `bare_budget_value` et `apply_recognized_bare_budget` **supprimés** : un seul slot, `requested_budget` (requis). La dernière question posée (`last_clarifying_question`) est passée au triage pour `answer_to`.
+- `offer_totals` vit dans `pricing.py` (pas dans `price_comparison.py`).
+- Pas de template « est-ce votre budget ? » : un nombre nu non prouvé n'est simplement pas un budget, la recherche part.
+- Page vide avec budget typé : la ligne « aucune offre » de `main` (#126) cite le plafond, la synthèse ajoute la piste (pas de template sans synthèse comme dans #134).
+
+**Reste** :
+- ⚠️ **Prompt de triage non mesuré** (tranches 3, 4, 5 : `requested_budget`, `currency_basis`, `answer_to`, `price_comparison`, `requested_occupancy`, `requested_room`, + bloc `LAST ASSISTANT QUESTION`). Aucune mesure LLM faite (pas d'accord de coût). À faire avant merge : rejeu `evals/production_replay.py` sur la config prod (triage gpt-4o-mini), en surveillant : nombre nu (« 75008 », « 60 » après « quel budget ? »), « $100 » à Toronto vs New York, « moins cher » sans/avec cartes, « nous sommes 3 », « sans les enfants », longueur/latence du prompt (timeout triage 5 s).
+- **Non porté** : `budget_pages` (attend `reserve_mcp_read`, B1/R6b de #136, absent de `main`) → un budget hors EUR ne filtre que la 1re page MCP ; accès privatif/inclus aux équipements et avertissement B2 (famille Équipements) ; `displayed_slot_fact`, `requested_window`, `arrival_daypart` (famille Dates) ; `area_scope`/`confirmed_location`/`destination_request` (Géographie) ; `comparison_positions`, `hotel_scope`, `get_shown_hotel_details` (prompt) ; `pagination_search_key`, `detail_results` ; élargissement du schéma `children` côté feuille.
+- Tests de `main` réécrits (VOULU, décision B3 de Fabien) : `test_explicit_budget_is_never_auto_widened` (remplacé par la version `answer_to`), `test_bare_number_reply_overrides…`, `test_recognized_bare_budget_reaches…`, 2 tests d'`apply_recognized_bare_budget` (supprimés), slots P1 de `test_triage`. Signatures des faux `classify` : `+previous_question`.
+
+**Pièges** :
+- Dans les heredocs Python de session, `$S:t…` est un modificateur zsh : `git show $S:tests/x` lit `…ests/x`. Écrire `"${S}:tests/x"`.
+- `echo =====` échoue en zsh (expansion `=`) : utiliser `echo '#####'`.
+- Contrôle négatif quand un test importe un module neuf : la collecte s'arrête ; ajouter `--continue-on-collection-errors` pour compter les échecs.
+
 ## ✅ 2026-10-12 — Ménage des PR + #124/#125 enfin ramenées sur `main`
 
 **Fait** : #115 (garde calendrier +400 j), #133 (« Voir tout » sans les heures) et #120 (`DEPLOY.md`) mergées dans cet ordre, chacune testée sur le `main` qui la recevait. #123 fermée (delta repris par #134), **branche conservée** : #121 est empilée dessus.
