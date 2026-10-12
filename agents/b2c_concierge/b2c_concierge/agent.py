@@ -966,6 +966,13 @@ class _B2cConcierge(BaseAgent):
             hotels = result.get("hotels") or [] if result.get("ok") else []
             names = ", ".join(str(h.get("name")) for h in hotels)
             leaf_text = f"Comparison retrieved for: {names}." if hotels else ""
+            unavailable = ", ".join(str(h.get("name")) for h in hotels if h.get("shown_offer_unavailable"))
+            if unavailable:
+                leaf_text += (
+                    f" The previously displayed offer could not be revalidated for: {unavailable}. "
+                    "Compare their property facts only and explicitly disclose this; do not "
+                    "invent another date, slot, price or availability."
+                )
         budget.fired.update(result.get("guards_fired") or [])
         if result.get("error") == "hotel not found":
             budget.fallbacks.add("named_hotel_not_found")

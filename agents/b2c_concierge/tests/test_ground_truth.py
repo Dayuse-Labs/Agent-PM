@@ -30,6 +30,13 @@ def test_total_equal_to_the_card_quote_adds_no_fee_line():
     assert 'verified total including booking fees' not in block
 
 
+def test_verified_alternative_formulas_are_distinct_from_card_times():
+    block = shortlist_ground_truth_block({'results': [{'name': 'Example', 'timeslots': [{'start': '10:00', 'end': '17:00'}],
+        'available_offers': [{'price': 'EUR 50', 'offer_date': '2026-11-01', 'timeslots': [{'start': '07:00', 'end': '12:00'}]}]}]}, _profile())
+    assert 'offered times: 10:00–17:00' in block and '07:00–12:00' in block
+    assert 'not displayed on the selected card' in block
+
+
 class TestEmptyBlock:
     def test_no_results_and_no_streak_is_empty(self):
         assert shortlist_ground_truth_block({}, _profile()) == ""

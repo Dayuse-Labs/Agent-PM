@@ -14,6 +14,7 @@ applies to the "no results" branch, never alongside a real shortlist.
 from __future__ import annotations
 
 import json
+from datetime import date, time
 from decimal import Decimal
 from typing import Any
 
@@ -157,6 +158,50 @@ def _hotel_line(hotel: dict[str, Any]) -> str:
         line += (f" — verified total including booking fees: {Decimal(total_minor).scaleb(-minor_units(shown_currency))} {shown_currency}. "
                  "This differs from the card quote; explain the fee basis if mentioning this total or savings, "
                  "never call it the price displayed on the card")
+    # Expose the same dated slot the card shows. A requested profile window
+    # is not proof of an available offer, and must never fill missing data.
+    offered_date = hotel.get("offer_date")
+    if isinstance(offered_date, str):
+        try:
+            date.fromisoformat(offered_date)
+        except ValueError:
+            pass
+        else:
+            line += f" — offer date: {offered_date}"
+    slots = []
+    for slot in (hotel.get("timeslots") or [])[:5]:
+        if not isinstance(slot, dict):
+            continue
+        start, end = slot.get("start"), slot.get("end")
+        if not isinstance(start, str) or not isinstance(end, str) or len(start) != 5 or len(end) != 5:
+            continue
+        try:
+            time.fromisoformat(start)
+            time.fromisoformat(end)
+        except ValueError:
+            continue
+        minutes = (int(end[:2]) * 60 + int(end[3:])) - (int(start[:2]) * 60 + int(start[3:]))
+        slots.append(f"{start}–{end}" + (f" ({minutes} minutes)" if minutes > 0 else ""))
+    if slots:
+        line += " — offered times: " + ", ".join(slots)
+    if hotel.get("requested_offer_unavailable"):
+        line += (" — no dated formula matching the requested hours was verified. "
+                 "Describe property facts only; explicitly disclose this and do not invent a price or availability")
+    alternatives = hotel.get("available_offers") or []
+    if alternatives:
+        # These dated formulas passed the same date/budget/hours/cutoff checks
+        # as the chosen offer. Each price belongs to its own formula.
+        rows = []
+        for offer in alternatives[:20]:
+            if not isinstance(offer, dict):
+                continue
+            for slot in (offer.get("timeslots") or [])[:5]:
+                if not isinstance(slot, dict):
+                    continue
+                rows.append(f"{slot.get('start')}–{slot.get('end')} {offer.get('price')} (date {offer.get('offer_date')})")
+        line += " — other verified formulas (not displayed on the selected card; do not reuse its price): " + "; ".join(dict.fromkeys(rows))
+        if hotel.get("available_offers_truncated"):
+            line += " (partial list; additional formulas may exist)"
     line += f" — amenities: {amenity_text}"
     facts = matching_offer_facts(hotel)
     if facts:
