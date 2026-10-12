@@ -46,7 +46,9 @@ from __future__ import annotations
 import logging
 from typing import Any
 
-from hotel_search_agent.response_bridge import find_datapart, party_count
+from b2c_common.party_discovery import discovery_total
+
+from hotel_search_agent.response_bridge import STATE_ZERO_CHILDREN_KEY, find_datapart, party_count
 
 _metrics_logger = logging.getLogger("dayuse.metrics")
 
@@ -94,7 +96,24 @@ def inject_profile_occupancy(
             args.pop(arg_name, None)
         return None
 
+    tool_context.state[STATE_ZERO_CHILDREN_KEY] = False
     profile_occupancy = _profile_occupancy(tool_context)
+    # PORT1 slice 5: the concierge owns the party. An unresolved total (its
+    # composition not known yet) filters no capacity here — the bridge keeps
+    # only offers that could host it; a validated update wins over the model.
+    content = getattr(tool_context, "user_content", None)
+    envelope = find_datapart(getattr(content, "parts", None) or [])
+    params = envelope.get("query_params") if isinstance(envelope, dict) else None
+    if discovery_total(params) is not None:
+        for key in _ARG_TO_SLOT:
+            args.pop(key, None)
+        return None
+    update = params.get("occupancy_update") if isinstance(params, dict) else None
+    if isinstance(update, dict):
+        for key in _ARG_TO_SLOT:
+            value = update.get(key)
+            if type(value) is int and (1 if key == "adults" else 0) <= value <= 30:
+                args[key] = value
     carried = 0
     for arg_name in _ARG_TO_SLOT:
         sent = arg_name in args
@@ -111,6 +130,13 @@ def inject_profile_occupancy(
         if arg_name in profile_occupancy:
             args[arg_name] = profile_occupancy[arg_name]
             carried += 1
+
+    # MCP accepts positive minimum capacities only. Zero children imposes no
+    # restriction: omit the wire filter but keep the explicit zero for the
+    # profile capture (never revive an earlier positive child count).
+    if args.get("children") == 0:
+        args.pop("children")
+        tool_context.state[STATE_ZERO_CHILDREN_KEY] = True
 
     # Content-free counter (flags only): says whether the party size came from
     # this message or from the profile — i.e. whether the carryover is working.

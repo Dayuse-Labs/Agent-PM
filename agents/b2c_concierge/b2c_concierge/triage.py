@@ -34,6 +34,7 @@ from typing import Any
 import litellm
 from b2c_common import max_tokens_for, reasoning_kwargs_for, role_model, temperature_kwargs_for
 from b2c_common.price_comparison import grounded_price_comparison
+from b2c_common.room_requirements import grounded_room_update
 from b2c_common.search_budget import grounded_budget
 from dayuse_agent_common import (
     cost_from_tokens,
@@ -171,6 +172,10 @@ class Triage:
     # PORT1 slice 4: "lower" (cheaper than the offers shown) or "clear" (drop
     # that preference), quoted from the message; code owns the reference.
     price_comparison: str | None = None
+    # PORT1 slice 5: a CURRENT party change {adults, children, total} and a
+    # bed requirement {bedding}, each quoted from the message.
+    requested_occupancy: dict[str, int] | None = None
+    requested_room: dict | None = None
 
 
 def is_social_ack(message: str) -> bool:
@@ -430,6 +435,18 @@ with exactly these keys:
   cher de ceux-là" picks a displayed offer: that is "pick", not "lower". Omit
   for a neutral "other options", for a numeric budget, and when no offers were
   displayed yet. Never put an amount here: code computes the reference.
+- "requested_occupancy": ONLY a CURRENT change to the user's party:
+  {{"adults": integer or null, "children": integer or null, "total": integer or null,
+  "evidence": "exact current party-size statement"}}. Omit unchanged counts.
+  "nous sommes 3" / "we are three" is total=3, NOT adults=3. Use adults/children
+  ONLY for explicitly stated adult/child counts; given together with a total,
+  they must agree. Removing the children is children=0 ("finalement sans les
+  enfants"); never infer children=0 from "two adults". Ages are not counts. A
+  room's capacity, an adults-only policy, a price or a duration is not a party.
+- "requested_room": {{"bedding": "double" | "king" | "queen" | "twin" | "any",
+  "evidence": "verbatim bed request"}} when the user CURRENTLY asks for a bed
+  type: double/matrimonial = double, an explicit king or queen = that key,
+  separate beds = twin, "any" removes the requirement. Omit if unchanged.
 - "hotel_name": the hotel name the user names, stripped of the request phrasing
   around it ("book the Villa Paris Orly for me" → "Villa Paris Orly", "détails
   sur l'Ibis Lyon Gare" → "Ibis Lyon Gare"). Null when no hotel is named by
@@ -585,7 +602,36 @@ async def classify(message: str, budget: TurnBudget, invocation_id: str = "",
         requested_budget=_contextual_budget(data.get("requested_budget"), message, previous_question),
         budget_checked="requested_budget" in data or numeric_only_message(message),
         price_comparison=grounded_price_comparison(data.get("price_comparison"), message),
+        requested_occupancy=(_grounded_occupancy(data.get("requested_occupancy"), message)
+                             if family in {"search", "booking"} else None),
+        requested_room=(grounded_room_update(data.get("requested_room"), message)
+                        if family in {"search", "booking"} else None),
     )
+
+
+def _grounded_occupancy(raw: Any, message: str) -> dict[str, int] | None:
+    """Validate a party update and its current quote, without parsing prose."""
+    if not isinstance(raw, dict):
+        return None
+    evidence = raw.get("evidence")
+    if (not isinstance(evidence, str) or not evidence.strip() or len(evidence) > 240
+            or evidence.casefold() not in message.casefold()):
+        return None
+    update = {}
+    for key in ("adults", "children", "total"):
+        value = raw.get(key)
+        if value is None:
+            continue
+        minimum = 0 if key == "children" else 1
+        if type(value) is not int or not minimum <= value <= 30:
+            return None
+        update[key] = value
+    if "total" in update:
+        if "adults" in update and "children" in update and update["adults"] + update["children"] != update["total"]:
+            return None
+        if update.get("adults", 0) > update["total"] or update.get("children", 0) >= update["total"]:
+            return None
+    return update or None
 
 
 def _display_currency_slot(value: Any) -> str | None:

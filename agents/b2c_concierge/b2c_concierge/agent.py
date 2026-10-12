@@ -96,6 +96,9 @@ from b2c_common.observability import (
     stamp_langfuse_turn_session,
     trace_context_carrier,
 )
+from b2c_common.party_discovery import discovery_message
+from b2c_common.party_update import party_composition_question, resolve_party_update
+from b2c_common.room_requirements import apply_room_update
 from b2c_common.price_comparison import (
     cheaper_reference,
     comparison_context,
@@ -1427,6 +1430,17 @@ class _B2cConcierge(BaseAgent):
                 family, route = "search", ROUTES["search"]
                 repeat_search = True
 
+        # PORT1 slice 5: the party and the bed are concierge-owned. A total
+        # whose adult/child split is unknown stays pending — never guessed.
+        next_room = apply_room_update(profile.room_requirements, triage.requested_room)
+        occupancy_update, next_party_total = resolve_party_update(
+            profile.adults, profile.children, profile.pending_party_total, triage.requested_occupancy,
+        )
+        party_question_asked = (
+            next_party_total is not None and profile.pending_party_total == next_party_total
+            and profile.last_clarifying_question == party_composition_question(next_party_total, reply_language)
+        )
+
         # 3-5. Code-owned routing.
         if route.kind == "template":
             # The LLM classified ack where the regex fast-path didn't match.
@@ -1442,6 +1456,20 @@ class _B2cConcierge(BaseAgent):
             return
 
         if route.kind == "inline":
+            if route.target == "generate_booking_link":
+                # The composition may be answered together with "book it".
+                profile.pending_party_total = next_party_total
+                for key, value in (occupancy_update or {}).items():
+                    setattr(profile, key, value)
+            if route.target == "generate_booking_link" and next_party_total is not None:
+                # No link for a party whose adults/children are unknown.
+                profile.pending_party_total = next_party_total
+                profile.pending_booking = None
+                profile.last_clarifying_question = party_composition_question(next_party_total, reply_language)
+                await store.set(ctx.session.id, profile)
+                self._emit_turn_metric(family, "template:party_clarification", budget, t_start, "ok", inv)
+                yield self._final(ctx, profile.last_clarifying_question)
+                return
             if route.target == "generate_booking_link":
                 # R9 (guard #12): fully deterministic, ZERO extra LLM — see
                 # _run_booking's docstring for why a booking confirmation is
@@ -1510,6 +1538,12 @@ class _B2cConcierge(BaseAgent):
             # the user had just seen (prod 2026-07-27: "book the cheapest"
             # returned pricier ones because the cheap five were on screen).
             reset_search_cursor(profile)
+
+        if route.target == LEAF_HOTEL_SEARCH:
+            profile.pending_party_total = next_party_total
+            profile.room_requirements = next_room or None
+            for key, value in (occupancy_update or {}).items():
+                setattr(profile, key, value)
 
         if route.target == LEAF_HOTEL_SEARCH:
             # PORT1 slice 3: the triage's grounded budget owns the cap. It
@@ -1599,6 +1633,15 @@ class _B2cConcierge(BaseAgent):
             # mcp-dayuse#7: a hotel the user names is looked up by name, never
             # geocoded as a landmark.
             leaf_kwargs = {"query_params": {"hotel_name": hotel_name}}
+        if route.target == LEAF_HOTEL_SEARCH and (occupancy_update or profile.pending_party_total is not None):
+            # PORT1 slice 5: the validated party update wins over the leaf
+            # model's reading; an unresolved total filters on possible capacity.
+            query_params = dict(leaf_kwargs.get("query_params") or {})
+            if occupancy_update:
+                query_params["occupancy_update"] = occupancy_update
+            if profile.pending_party_total is not None:
+                query_params["party_total"] = profile.pending_party_total
+            leaf_kwargs["query_params"] = query_params
         context_text = pending_search_context(pending) if route.target == LEAF_HOTEL_SEARCH else None
         if context_text:
             leaf_kwargs["context_text"] = context_text
@@ -1702,6 +1745,18 @@ class _B2cConcierge(BaseAgent):
                 if response.get("unavailable_reason") == "rejected"
                 else templates.leaf_degraded_response(family, reply_language, profile.city),
             )
+            return
+        if (route.target == LEAF_HOTEL_SEARCH and profile.pending_party_total is not None
+                and response.get("results") == []):
+            # PORT1 slice 5: an empty page for an unknown composition proves
+            # nothing about availability — ask it, never widen or exhaust.
+            profile.pending_booking = None
+            question = party_composition_question(profile.pending_party_total, reply_language)
+            profile.last_clarifying_question = question
+            await store.set(ctx.session.id, profile)
+            yield self._hotels_event(ctx, response, reply_language)
+            self._emit_turn_metric(family, "template:party_clarification", budget, t_start, "ok", inv)
+            yield self._final(ctx, question)
             return
         budget_followup: str | None = None
         if route.target == LEAF_HOTEL_SEARCH and profile.requested_budget and "results" in response:
@@ -1852,12 +1907,19 @@ class _B2cConcierge(BaseAgent):
                 yield self._final(ctx, line)
                 return
 
-        synth = await self._synthesize_with_guards(
-            message=message, language=reply_language, leaf_text=leaf_text, response=response,
-            profile=profile, budget=budget, invocation_id=inv, no_offers=no_offers,
-            recent_messages=recent_messages if family == "faq" else None,
-            unchanged=unchanged,
-        )
+        synth: str | None
+        if route.target == LEAF_HOTEL_SEARCH and profile.pending_party_total is not None and response.get("results"):
+            # PORT1 slice 5: the cards show the exact offers; no prose may
+            # claim group eligibility or guess a composition — no synthesis.
+            synth = discovery_message(profile.pending_party_total, reply_language, ask=not party_question_asked)
+            profile.last_clarifying_question = party_composition_question(profile.pending_party_total, reply_language)
+        else:
+            synth = await self._synthesize_with_guards(
+                message=message, language=reply_language, leaf_text=leaf_text, response=response,
+                profile=profile, budget=budget, invocation_id=inv, no_offers=no_offers,
+                recent_messages=recent_messages if family == "faq" else None,
+                unchanged=unchanged,
+            )
         if budget_followup:
             profile.last_clarifying_question = budget_followup  # what a bare "80" answers
         if route.target == LEAF_HOTEL_SEARCH:

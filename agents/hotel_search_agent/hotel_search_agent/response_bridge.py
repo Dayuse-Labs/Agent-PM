@@ -52,8 +52,10 @@ from google.genai import types as genai_types
 
 from b2c_common import build_hotel_page_url, display_price_euro, hotel_currency_price, with_checkin_date
 from b2c_common.offer_facts import selected_offer_facts
+from b2c_common.party_discovery import discovery_total, possible_party
 from b2c_common.price_comparison import offer_below_reference
 from b2c_common.pricing import has_unverified_zero_price, offer_totals
+from b2c_common.room_requirements import bedding_matches
 from b2c_common.search_budget import offer_within_budget, resolve_budget_currency
 from b2c_common.search_page import build_search_page_url, search_page_from
 from b2c_common.timeslot import (
@@ -115,6 +117,9 @@ STATE_NAMED_AMBIGUOUS_KEY = "temp:hotel_search_named_ambiguous"
 # auto-widen/exhaustion, provenance) finally run on real traffic (S9/S12 gap).
 _STATE_BUDGET_TIMESLOT_KEY = "temp:hotel_search_budget_timeslot"
 _STATE_RADIUS_KEY = "temp:hotel_search_radius_km"
+# PORT1 slice 5: an explicit "no children" this turn (occupancy.py omits the
+# zero from MCP's positive-only filter; the capture keeps it for the profile).
+STATE_ZERO_CHILDREN_KEY = "temp:hotel_search_zero_children"
 _STATE_SEARCH_PAGE_KEY = "temp:hotel_search_search_page"
 # Public (unlike the keys above): written by equipment_ids.enforce_equipment_filters,
 # read back here for card stamping + the profile_delta — same cross-callback
@@ -703,6 +708,8 @@ def normalize_search_results(
     exact_window: Window | None = None,
     requested_budget: dict[str, Any] | None = None,
     price_comparison: dict[str, Any] | None = None,
+    party_total: int | None = None,
+    room_requirements: dict[str, Any] | None = None,
 ) -> list[dict[str, Any]]:
     """Top-5 compact cards from a tool's structuredContent. Handles the
     `search_offers` envelope (`{"results": [...]}`, confirmed live) and the
@@ -738,6 +745,13 @@ def normalize_search_results(
         offers = [o for o in original_offers if isinstance(o, dict) and not has_unverified_zero_price(o, item)]
         if original_offers and not offers:
             continue  # Only unverified zero rates: nothing this card can quote.
+        if room_requirements or party_total is not None:
+            # PORT1 slice 5: the bed asked for (the formula's own code), and
+            # for an unresolved party total a capacity that could host it.
+            offers = [o for o in offers if bedding_matches(o, room_requirements)
+                      and (party_total is None or possible_party(o, party_total))]
+            if not offers:
+                continue
         if requested_budget or price_comparison:
             # Filter every offer before selecting a card or truncating hotels:
             # the fee-inclusive total, in the budget's own currency, no FX —
@@ -1113,16 +1127,17 @@ def capture_after_tool(
         requested_budget = None
     # PORT1 slice 4: "cheaper" = strictly below the concierge's reference.
     price_comparison = read_profile_in(tool_context).get("price_comparison") if name == "search_offers" else None
-    results = normalize_search_results(
-        structured, exclude_ids, strict_window, requested_budget, price_comparison
-    )
+    # PORT1 slice 5: bedding and an unresolved party total (concierge-owned).
+    envelope = find_datapart(getattr(getattr(tool_context, "user_content", None), "parts", None) or []) or {}
+    party_total = discovery_total(envelope.get("query_params")) if name == "search_offers" else None
+    room_requirements = read_profile_in(tool_context).get("room_requirements") if name == "search_offers" else None
+    filters = (requested_budget, price_comparison, party_total, room_requirements)
+    results = normalize_search_results(structured, exclude_ids, strict_window, *filters)
     timeslot_fallback = False
     if strict_window is not None and not results:
         # The exact-minute filter emptied the set: fall back to the coarser
         # hour-rounded results (never a silent 0) — the outcome text discloses it.
-        fallback_results = normalize_search_results(
-            structured, exclude_ids, None, requested_budget, price_comparison
-        )
+        fallback_results = normalize_search_results(structured, exclude_ids, None, *filters)
         if fallback_results:
             results = fallback_results
             timeslot_fallback = True
@@ -1136,13 +1151,9 @@ def capture_after_tool(
         stashed = tool_context.state.get(STATE_DATE_FALLBACK_KEY)
         payload = stashed.get("payload") if isinstance(stashed, dict) else None
         if isinstance(payload, dict):
-            swapped = normalize_search_results(
-                payload, exclude_ids, strict_window, requested_budget, price_comparison
-            )
+            swapped = normalize_search_results(payload, exclude_ids, strict_window, *filters)
             if not swapped and strict_window is not None:
-                swapped = normalize_search_results(
-                    payload, exclude_ids, None, requested_budget, price_comparison
-                )
+                swapped = normalize_search_results(payload, exclude_ids, None, *filters)
                 timeslot_fallback = bool(swapped)
             if swapped:
                 results = swapped
@@ -1219,6 +1230,10 @@ def capture_after_tool(
         # until this capture existed nothing read them, so they never reached
         # the profile and could not survive to the next turn.
         budget_timeslot.update(occupancy_from_args(args))
+        if tool_context.state.get(STATE_ZERO_CHILDREN_KEY) is True:
+            # Zero = no child-capacity filter, which MCP expresses by omitting
+            # children. Keep the customer's update for the profile.
+            budget_timeslot["children"] = 0
         if budget_timeslot:
             tool_context.state[_STATE_BUDGET_TIMESLOT_KEY] = budget_timeslot
         # Content-free counter (flags only): lets a live run confirm whether the

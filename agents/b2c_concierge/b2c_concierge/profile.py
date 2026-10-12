@@ -287,6 +287,12 @@ class SessionProfile:
     # the offers shown (b2c_common.price_comparison.cheaper_reference). Kept
     # apart from requested_budget: it is not an amount the user stated.
     price_comparison: dict[str, Any] | None = None
+    # PORT1 slice 5: the bed asked for ({"bedding": ...}, b2c_common.
+    # room_requirements) and a party total whose adult/child split is not
+    # known yet — both concierge-owned. While the total is pending, the
+    # leaf sees no adults/children (they would be guesses).
+    room_requirements: dict[str, Any] | None = None
+    pending_party_total: int | None = None
 
     def to_dict(self) -> dict[str, Any]:
         return {
@@ -337,6 +343,8 @@ class SessionProfile:
             "pending_place": self.pending_place,
             "requested_budget": self.requested_budget,
             "price_comparison": self.price_comparison,
+            "room_requirements": self.room_requirements,
+            "pending_party_total": self.pending_party_total,
             "schema_version": PROFILE_SCHEMA_VERSION,
         }
 
@@ -369,6 +377,7 @@ _CONCIERGE_ONLY_KEYS = (
     "search_page",
     "pending_search",
     "named_candidates",
+    "pending_party_total",  # the leaf gets it as query_params.party_total
 )
 
 
@@ -387,6 +396,9 @@ def leaf_profile_view(profile: SessionProfile) -> dict[str, Any]:
     view = profile.to_dict()
     for key in _CONCIERGE_ONLY_KEYS:
         view.pop(key, None)
+    if profile.pending_party_total is not None:
+        view.pop("adults", None)  # a stale composition is not this party
+        view.pop("children", None)
     view["last_results"] = [
         {"hotel_id": entry.get("hotel_id"), "name": entry.get("name")}
         for entry in (profile.last_results or [])
@@ -615,7 +627,7 @@ def apply_profile_delta(
     known_fields = set(SessionProfile.__dataclass_fields__)
     # PORT1 slices 3-4: user-grounded constraints are concierge-owned — a leaf
     # delta can neither set nor clear them, nor clear their EUR projection.
-    for owned_slot in ("requested_budget", "price_comparison"):
+    for owned_slot in ("requested_budget", "price_comparison", "room_requirements", "pending_party_total"):
         values.pop(owned_slot, None)
         clears.discard(owned_slot)
     if profile.requested_budget is not None:
@@ -792,9 +804,11 @@ def apply_profile_delta(
     # here is a contract break worth failing loudly rather than storing. A slot
     # is only written when present: a refinement turn that mentions nobody must
     # never wipe a party size stated three turns ago.
-    if values.get("adults") is not None:
+    # PORT1 slice 5: while a party total awaits its composition, the leaf's
+    # counts are guesses — the concierge resolves them from the user's answer.
+    if values.get("adults") is not None and profile.pending_party_total is None:
         profile.adults = int(values["adults"])
-    if values.get("children") is not None:
+    if values.get("children") is not None and profile.pending_party_total is None:
         profile.children = int(values["children"])
 
     # Explicit clears (A3-a: an auditable per-slot clear, never a silent

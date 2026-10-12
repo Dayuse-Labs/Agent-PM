@@ -375,4 +375,6 @@ def shortlist_ground_truth_block(
             return "\n\n## CURRENT RESULTS (GROUND TRUTH)\n" + _EMPTY_SCREEN_NOTE + date_block
         return ""
     lines = [_hotel_line(hotel) for hotel in hotels]
-    return "\n\n## CURRENT SHORTLIST (GROUND TRUTH)\n" + date_block + _HEADER + "\n".join(lines)
+    room = ("ROOM REQUIREMENTS (customer intent, not verified facts): " + str(profile.room_requirements) + "\n"
+            if profile.room_requirements else "")
+    return "\n\n## CURRENT SHORTLIST (GROUND TRUTH)\n" + date_block + _HEADER + room + "\n".join(lines)

@@ -1057,6 +1057,15 @@ class TestRatePlanSelector:
             )
         )
 
+    def test_pick_keeps_owned_bedding_in_all_formula_choices(self, monkeypatch):
+        # PORT1 slice 5 (from #134): the formulas offered all keep the bed asked for.
+        self._mcp(monkeypatch)
+        profile = SessionProfile(last_results=self.SHOWN, date="2026-07-28",
+                                 room_requirements={"bedding": "double"})
+        result = self._pick(profile)
+        assert result["ok"]
+        assert {p["offer_id"] for p in result["rate_plans"]} == {"rp-day", "rp-spa"}
+
     def test_the_day_s_formulas_come_back_cheapest_first_each_with_its_link(self, monkeypatch):
         self._mcp(monkeypatch)
         profile = SessionProfile(last_results=self.SHOWN, date="2026-07-28")

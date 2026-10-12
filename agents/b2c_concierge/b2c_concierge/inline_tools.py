@@ -51,7 +51,9 @@ from b2c_common import (
 )
 from b2c_common.observability import mark_level, observation, trace_context_carrier
 from b2c_common.offer_facts import selected_offer_facts
+from b2c_common.party_discovery import possible_party
 from b2c_common.pricing import has_unverified_zero_price, offer_totals
+from b2c_common.room_requirements import bedding_matches
 from b2c_common.timeslot import parse_hhmm, slot_covers_window
 from mcp import ClientSession
 from mcp.client.streamable_http import streamable_http_client
@@ -439,6 +441,7 @@ async def get_hotel_details(
                     best = _search_offer(offers, hotel, replace(
                         profile, date=requested_date, timeslot_start=None, timeslot_end=None,
                         budget_max=None, adults=None, children=None,
+                        room_requirements=None, pending_party_total=None,
                     ))
                 elif shown is None and requested_date:
                     # An older hotel can have left the visible shortlist. Its
@@ -447,6 +450,7 @@ async def get_hotel_details(
                     # stays a search filter, separate from this slot choice.
                     best = _search_offer(offers, hotel, replace(
                         profile, date=requested_date, budget_max=None,
+                        adults=None, children=None,
                     ))
                 else:
                     best = offers[0] if offers else None
@@ -503,6 +507,22 @@ def _search_offer(offers: list[Any], hotel: dict[str, Any], profile: SessionProf
                 continue
         if (start is not None or end is not None) and not slot_covers_window(
             offer.get("startHour"), offer.get("endHour"), start, end
+        ):
+            continue
+        # PORT1 slice 5: the bed asked for, and a capacity for the party —
+        # a possible one while its composition is unknown, else a proven one
+        # (missing capacity cannot prove a stated party fits).
+        if not bedding_matches(offer, profile.room_requirements):
+            continue
+        if profile.pending_party_total is not None:
+            if not possible_party(offer, profile.pending_party_total):
+                continue
+        elif any(
+            needed is not None and needed > 0 and (
+                isinstance(offer.get(field), bool) or not isinstance(offer.get(field), int)
+                or offer[field] < needed
+            )
+            for field, needed in (("capacity", profile.adults), ("childrenCapacity", profile.children))
         ):
             continue
         candidates.append(offer)
@@ -943,6 +963,7 @@ async def _quote_fresh_offer(
                     if not details["ok"]:
                         return {**details, "guards_fired": guards_fired}
                     offers = details["data"].get("offers") or []
+                    offers = [o for o in offers if bedding_matches(o, profile.room_requirements)]
                     details_hotel = details["data"].get("hotel")
                     best = _best_offer(offers, profile.date, details_hotel)
                     if best is None:
@@ -1025,6 +1046,7 @@ async def _quote_picked_rate_plans(hotel_id: int, profile: SessionProfile) -> di
                 if not details["ok"]:
                     return details
                 offers = details["data"].get("offers") or []
+                offers = [o for o in offers if bedding_matches(o, profile.room_requirements)]
                 plans = _day_rate_plans(
                     offers, profile.date, details["data"].get("hotel"), profile.display_currency
                 )
@@ -1160,6 +1182,10 @@ async def _generate_booking_link_impl(
          pointing at another hotel must not confirm the stale one — it
          re-resolves the newly named one instead).
     """
+    if profile.pending_party_total is not None:
+        # PORT1 slice 5: no link for a party whose adults/children are unknown.
+        profile.pending_booking = None
+        return {"ok": False, "error": "party_composition_required"}
     pending = profile.pending_booking
     if user_confirmed and pending is not None:
         named_hit = resolve_hotel_reference(hotel_reference or "", profile.last_results)

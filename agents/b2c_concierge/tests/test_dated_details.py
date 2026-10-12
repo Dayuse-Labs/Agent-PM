@@ -251,3 +251,26 @@ def test_closest_slot_cards_are_still_revalidated_by_identity(monkeypatch):
     result = _run(inline_tools.compare_hotels("Compare these hotels", profile))
     assert [h["offer_id"] for h in result["hotels"]] == ["offer-1", "offer-2"]
     assert not any(h.get("shown_offer_unavailable") for h in result["hotels"])
+
+
+# --- PORT1 slice 5: capacity and bedding in the dated offer choice (from #134) ----------------
+
+
+def test_details_formulas_respect_the_party_and_the_bedding(monkeypatch):
+    _install(monkeypatch, {'get_hotel_details': FakeResult({'hotel': HOTEL_DETAILS_RESPONSE['hotel'], 'offers': [
+        _offer(ratePlanUuid='fits', bedding='double_king'),
+        _offer(ratePlanUuid='too-small', capacity=1, bedding='double_king'),
+        _offer(ratePlanUuid='no-child-proof', childrenCapacity=None, bedding='double_king'),
+        _offer(ratePlanUuid='twin', bedding='twin_single')]})})
+    profile = SessionProfile(date='2030-10-09', adults=2, children=1, room_requirements={'bedding': 'double'})
+    card = _run(inline_tools.get_hotel_details('', profile, picked_hotel_id=22293))['hotel']
+    assert [o['offer_id'] for o in card['available_offers']] == ['fits']
+
+
+def test_a_pending_total_keeps_only_offers_that_could_host_it(monkeypatch):
+    _install(monkeypatch, {'get_hotel_details': FakeResult({'hotel': HOTEL_DETAILS_RESPONSE['hotel'], 'offers': [
+        _offer(ratePlanUuid='possible', capacity=2, childrenCapacity=1),
+        _offer(ratePlanUuid='impossible', capacity=2, childrenCapacity=0)]})})
+    profile = SessionProfile(date='2030-10-09', adults=4, pending_party_total=3)
+    card = _run(inline_tools.get_hotel_details('', profile, picked_hotel_id=22293))['hotel']
+    assert [o['offer_id'] for o in card['available_offers']] == ['possible']
