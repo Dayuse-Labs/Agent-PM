@@ -96,6 +96,12 @@ from b2c_common.observability import (
     stamp_langfuse_turn_session,
     trace_context_carrier,
 )
+from b2c_common.price_comparison import (
+    cheaper_reference,
+    comparison_context,
+    empty_comparison_notice,
+    reference_question,
+)
 from b2c_common.search_budget import (
     budget_notice,
     budget_question,
@@ -805,6 +811,8 @@ class _B2cConcierge(BaseAgent):
         profile.auto_widen_disclosure = None  # surfaced at most once, regardless of outcome below
         # Transparency: let the reply restate the understood search params (S9+).
         search_context = search_context_line(profile)
+        if profile.price_comparison and "results" in (response or {}):
+            search_context += "; " + comparison_context(profile.price_comparison, response["results"])
         # Provenance honesty (S12 audit 2026-07-20): a non-explicit budget/
         # timeslot must never be claimed as user-requested (rule 8) — this
         # is independent of auto-widen, so it fires from turn 1 whenever a
@@ -831,7 +839,7 @@ class _B2cConcierge(BaseAgent):
                 prov_bits.append(
                     "BUDGET NOT VERIFIED on these cards: never claim they fit the budget"
                 )
-        elif profile.requested_budget == {}:
+        elif profile.requested_budget == {} and not profile.price_comparison:
             prov_bits.append(
                 "No numeric budget was established: never claim any numerical "
                 "cap or affordability threshold"
@@ -1487,6 +1495,9 @@ class _B2cConcierge(BaseAgent):
             route.target == LEAF_HOTEL_SEARCH
             and bool(profile.shown_hotel_ids)
             and not (named_choice or triage.hotel_name)
+            # PORT1 slice 4: "cheaper" is a new search from page 1, even when
+            # the model also flagged "more".
+            and triage.price_comparison in (None, "clear")
             and is_more_options_signal(message, triage.wants_more_options)
         )
         if more_options:
@@ -1520,11 +1531,28 @@ class _B2cConcierge(BaseAgent):
                 requested = merge_budget(profile.requested_budget, budget_update, native_currency)
                 if requested is not None:
                     profile.requested_budget = requested
+                    profile.price_comparison = None  # a stated amount replaces "cheaper"
                     profile.budget_max = native_eur_cap(requested)
                     profile.budget_request_source = BUDGET_SOURCE_EXPLICIT if requested else None
                     profile.auto_widen_disclosure = None
             elif triage.budget_checked and profile.requested_budget is None and profile.budget_max is None:
                 profile.requested_budget = {}  # checked, none stated: no invented cap
+            # PORT1 slice 4: "cheaper" is measured against the verified,
+            # fee-inclusive totals of the offers on screen — never an amount
+            # the model invents. Without one, ask before searching.
+            if triage.price_comparison == "lower":
+                reference = cheaper_reference(profile.last_results, profile.display_currency)
+                if reference is None:
+                    profile.last_clarifying_question = reference_question(reply_language)
+                    await store.set(ctx.session.id, profile)
+                    self._emit_turn_metric(family, "template:price_reference_missing", budget, t_start, "ok", inv)
+                    yield self._final(ctx, profile.last_clarifying_question)
+                    return
+                profile.price_comparison = reference
+            elif not more_options:
+                # Relative to the offers shown, not a standing cap: only the
+                # next page of the same "cheaper" search keeps it.
+                profile.price_comparison = None
             # Nothing retrieved yet, so nothing is thrown away by asking here:
             # only an amount whose unit cannot be assumed (per hour, several
             # hotel currencies on screen).
@@ -1790,7 +1818,8 @@ class _B2cConcierge(BaseAgent):
                     ),
                 )
                 return
-            maybe_auto_widen(profile)
+            if not profile.price_comparison:
+                maybe_auto_widen(profile)  # never widen a "cheaper than" search
 
         # `hotels` marker — still before the synthesis, which is the whole point
         # (S06): the shortlist reaches a streaming client ~4-5 s before the text.
@@ -1807,6 +1836,21 @@ class _B2cConcierge(BaseAgent):
         yield self._hotels_event(
             ctx, response, reply_language, build_hotel_picks(profile), profile.search_page
         )
+
+        if (route.target == LEAF_HOTEL_SEARCH and profile.price_comparison
+                and response.get("results") == []):
+            # PORT1 slice 4: a filtered empty page says nothing about all
+            # availability — the code-owned notice, no synthesis to broaden it.
+            line = empty_comparison_notice(profile.price_comparison, reply_language)
+            if line:
+                for notice in (date_notice, budget_followup, currency_notice):
+                    if notice:
+                        line += "\n\n" + notice
+                profile.last_clarifying_question = None
+                await store.set(ctx.session.id, profile)
+                self._emit_turn_metric(family, "template:comparison_no_verified_offer", budget, t_start, "ok", inv)
+                yield self._final(ctx, line)
+                return
 
         synth = await self._synthesize_with_guards(
             message=message, language=reply_language, leaf_text=leaf_text, response=response,

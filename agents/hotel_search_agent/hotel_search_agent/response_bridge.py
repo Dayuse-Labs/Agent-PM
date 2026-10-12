@@ -52,6 +52,7 @@ from google.genai import types as genai_types
 
 from b2c_common import build_hotel_page_url, display_price_euro, hotel_currency_price, with_checkin_date
 from b2c_common.offer_facts import selected_offer_facts
+from b2c_common.price_comparison import offer_below_reference
 from b2c_common.pricing import has_unverified_zero_price, offer_totals
 from b2c_common.search_budget import offer_within_budget, resolve_budget_currency
 from b2c_common.search_page import build_search_page_url, search_page_from
@@ -701,6 +702,7 @@ def normalize_search_results(
     exclude_ids: set[Any] | None = None,
     exact_window: Window | None = None,
     requested_budget: dict[str, Any] | None = None,
+    price_comparison: dict[str, Any] | None = None,
 ) -> list[dict[str, Any]]:
     """Top-5 compact cards from a tool's structuredContent. Handles the
     `search_offers` envelope (`{"results": [...]}`, confirmed live) and the
@@ -736,10 +738,13 @@ def normalize_search_results(
         offers = [o for o in original_offers if isinstance(o, dict) and not has_unverified_zero_price(o, item)]
         if original_offers and not offers:
             continue  # Only unverified zero rates: nothing this card can quote.
-        if requested_budget:
+        if requested_budget or price_comparison:
             # Filter every offer before selecting a card or truncating hotels:
-            # the fee-inclusive total, in the budget's own currency, no FX.
-            offers = [o for o in offers if offer_within_budget(o, item, requested_budget)]
+            # the fee-inclusive total, in the budget's own currency, no FX —
+            # and, for "cheaper", strictly below the reference shown before.
+            offers = [o for o in offers
+                      if (not requested_budget or offer_within_budget(o, item, requested_budget))
+                      and (not price_comparison or offer_below_reference(o, item, price_comparison))]
             if not offers:
                 continue
         item = {**item, "offers": offers}
@@ -1106,12 +1111,18 @@ def capture_after_tool(
         # A "$" this market does not settle cannot be checked: keep the cards,
         # the concierge appends its currency question (B3: never an empty page).
         requested_budget = None
-    results = normalize_search_results(structured, exclude_ids, strict_window, requested_budget)
+    # PORT1 slice 4: "cheaper" = strictly below the concierge's reference.
+    price_comparison = read_profile_in(tool_context).get("price_comparison") if name == "search_offers" else None
+    results = normalize_search_results(
+        structured, exclude_ids, strict_window, requested_budget, price_comparison
+    )
     timeslot_fallback = False
     if strict_window is not None and not results:
         # The exact-minute filter emptied the set: fall back to the coarser
         # hour-rounded results (never a silent 0) — the outcome text discloses it.
-        fallback_results = normalize_search_results(structured, exclude_ids, None, requested_budget)
+        fallback_results = normalize_search_results(
+            structured, exclude_ids, None, requested_budget, price_comparison
+        )
         if fallback_results:
             results = fallback_results
             timeslot_fallback = True
@@ -1125,9 +1136,13 @@ def capture_after_tool(
         stashed = tool_context.state.get(STATE_DATE_FALLBACK_KEY)
         payload = stashed.get("payload") if isinstance(stashed, dict) else None
         if isinstance(payload, dict):
-            swapped = normalize_search_results(payload, exclude_ids, strict_window, requested_budget)
+            swapped = normalize_search_results(
+                payload, exclude_ids, strict_window, requested_budget, price_comparison
+            )
             if not swapped and strict_window is not None:
-                swapped = normalize_search_results(payload, exclude_ids, None, requested_budget)
+                swapped = normalize_search_results(
+                    payload, exclude_ids, None, requested_budget, price_comparison
+                )
                 timeslot_fallback = bool(swapped)
             if swapped:
                 results = swapped

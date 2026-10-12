@@ -283,6 +283,10 @@ class SessionProfile:
     # `budget_max`), {} = checked and no cap. Concierge-owned: a leaf delta
     # can neither set nor clear it; `budget_max` is its EUR projection.
     requested_budget: dict[str, Any] | None = None
+    # PORT1 slice 4: "cheaper" — strictly below the lowest verified total of
+    # the offers shown (b2c_common.price_comparison.cheaper_reference). Kept
+    # apart from requested_budget: it is not an amount the user stated.
+    price_comparison: dict[str, Any] | None = None
 
     def to_dict(self) -> dict[str, Any]:
         return {
@@ -332,6 +336,7 @@ class SessionProfile:
             "named_candidates": self.named_candidates,
             "pending_place": self.pending_place,
             "requested_budget": self.requested_budget,
+            "price_comparison": self.price_comparison,
             "schema_version": PROFILE_SCHEMA_VERSION,
         }
 
@@ -608,6 +613,13 @@ def apply_profile_delta(
     replacement apart from a fragment to merge."""
     values, clears, explicit_sets = _normalize_delta(dict(delta))
     known_fields = set(SessionProfile.__dataclass_fields__)
+    # PORT1 slices 3-4: user-grounded constraints are concierge-owned — a leaf
+    # delta can neither set nor clear them, nor clear their EUR projection.
+    for owned_slot in ("requested_budget", "price_comparison"):
+        values.pop(owned_slot, None)
+        clears.discard(owned_slot)
+    if profile.requested_budget is not None:
+        clears.difference_update({"budget_max", "budget_request_source"})
 
     # City change clears the geo anchors/zone/metro/search-anchor (S04 +
     # S-G1) and resets the pagination state — unless the SAME delta also
@@ -792,8 +804,6 @@ def apply_profile_delta(
     # so there is no ordering conflict — this is just the generic path for
     # slots the guards above don't already special-case).
     for slot in clears:
-        if slot == "requested_budget" or (slot == "budget_max" and profile.requested_budget is not None):
-            continue  # concierge-owned (PORT1 slice 3)
         if slot in known_fields:
             setattr(profile, slot, _slot_default(slot))
 

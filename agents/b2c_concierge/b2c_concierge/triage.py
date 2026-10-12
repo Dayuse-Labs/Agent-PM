@@ -33,6 +33,7 @@ from typing import Any
 
 import litellm
 from b2c_common import max_tokens_for, reasoning_kwargs_for, role_model, temperature_kwargs_for
+from b2c_common.price_comparison import grounded_price_comparison
 from b2c_common.search_budget import grounded_budget
 from dayuse_agent_common import (
     cost_from_tokens,
@@ -167,6 +168,9 @@ class Triage:
     # extraction can then no longer invent a cap.
     requested_budget: dict | None = None
     budget_checked: bool = False
+    # PORT1 slice 4: "lower" (cheaper than the offers shown) or "clear" (drop
+    # that preference), quoted from the message; code owns the reference.
+    price_comparison: str | None = None
 
 
 def is_social_ack(message: str) -> bool:
@@ -419,6 +423,13 @@ with exactly these keys:
   Removal ("sans limite de prix") → {{"clear":true,"evidence":"sans limite de prix"}}.
   NOT budgets (→ null): "moins cher"/"cheaper" alone, a duration, a distance,
   a fee or refund question, a request only to DISPLAY prices in a currency.
+- "price_comparison": {{"value":"lower" | "clear", "evidence":"verbatim current phrase"}}
+  when the user asks for cheaper alternatives than the offers displayed
+  ("moins cher", "plus économique", "cheaper") — then wants_more_options=false —
+  or explicitly drops that price preference ("peu importe le prix"). "Le moins
+  cher de ceux-là" picks a displayed offer: that is "pick", not "lower". Omit
+  for a neutral "other options", for a numeric budget, and when no offers were
+  displayed yet. Never put an amount here: code computes the reference.
 - "hotel_name": the hotel name the user names, stripped of the request phrasing
   around it ("book the Villa Paris Orly for me" → "Villa Paris Orly", "détails
   sur l'Ibis Lyon Gare" → "Ibis Lyon Gare"). Null when no hotel is named by
@@ -573,6 +584,7 @@ async def classify(message: str, budget: TurnBudget, invocation_id: str = "",
         display_currency=_display_currency_slot(data.get("display_currency")),
         requested_budget=_contextual_budget(data.get("requested_budget"), message, previous_question),
         budget_checked="requested_budget" in data or numeric_only_message(message),
+        price_comparison=grounded_price_comparison(data.get("price_comparison"), message),
     )
 
 

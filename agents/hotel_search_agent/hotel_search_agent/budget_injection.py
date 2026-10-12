@@ -22,6 +22,7 @@ from __future__ import annotations
 import logging
 from typing import Any
 
+from b2c_common.price_comparison import comparison_budget
 from b2c_common.search_budget import native_eur_cap
 
 from hotel_search_agent.response_bridge import find_datapart, positive_budget
@@ -69,6 +70,11 @@ def inject_profile_budget(tool: Any, args: dict[str, Any], tool_context: Any) ->
         cap = native_eur_cap(profile["requested_budget"])
         if cap is not None:
             args["priceRangeMax"] = cap
+        # PORT1 slice 4: "cheaper" in EUR narrows MCP's cap too — never
+        # loosens a stated one.
+        relative_cap = native_eur_cap(comparison_budget(profile.get("price_comparison")))
+        if relative_cap is not None:
+            args["priceRangeMax"] = min(cap, relative_cap) if cap is not None else relative_cap
         return None
 
     sent = positive_budget(args.get("priceRangeMax"))
