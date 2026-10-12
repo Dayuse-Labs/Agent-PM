@@ -105,6 +105,56 @@ class TestSpine:
         assert "window_match" not in fired[-1]
 
 
+_MIAMI_PAGE = (
+    "https://www.dayuse.com/s/united-states/florida/miami-dade-county/miami"
+    "?selectedAddress=Downtown+Miami&checkinDate=2026-10-07&checkinTime=6am&checkoutTime=11pm"
+)
+
+
+class TestSeeAllLink:
+    """QA 2026-10-07, « Miami de 6h à 23h »: no card covered the slot, and
+    "Voir tout" opened the site filtered on 6am–11pm — "No hotel available"."""
+
+    def _search_page(self, scripted, monkeypatch, response):  # noqa: F811
+        pages: list[dict | None] = []
+        original = agent_module._B2cConcierge._hotels_event
+
+        def spy(self, ctx, resp, language, picks, search_page=None):
+            pages.append(search_page)
+            return original(self, ctx, resp, language, picks, search_page)
+
+        monkeypatch.setattr(agent_module._B2cConcierge, "_hotels_event", spy)
+        response["search_context"] = {"search_page": {"name": "Downtown Miami", "url": _MIAMI_PAGE}}
+        scripted('{"family": "search", "language": "fr"}', "Voici des options.", response=response)
+        _drive("Je veux un hotel a miami de 6h a 23h")
+        return pages[-1]["url"]
+
+    def test_leaf_fallback_drops_the_hours(self, scripted, monkeypatch):  # noqa: F811
+        url = self._search_page(scripted, monkeypatch, {
+            "results": [_card(1, "07:00", "13:00")],
+            "timeslot_fallback": "06:00–23:00",
+            "profile_delta": {"city": "Miami", "timeslot_start": "06:00", "timeslot_end": "23:00"},
+        })
+        assert url == (
+            "https://www.dayuse.com/s/united-states/florida/miami-dade-county/miami"
+            "?selectedAddress=Downtown+Miami&checkinDate=2026-10-07"
+        )
+
+    def test_backstop_fallback_drops_the_hours(self, scripted, monkeypatch):  # noqa: F811
+        url = self._search_page(scripted, monkeypatch, {
+            "results": [_card(1, "07:00", "13:00"), _card(2, "09:00", "17:00")],
+            "profile_delta": {"city": "Miami", "timeslot_start": "06:00", "timeslot_end": "23:00"},
+        })
+        assert "checkinTime" not in url and "checkoutTime" not in url
+
+    def test_covering_cards_keep_the_hours(self, scripted, monkeypatch):  # noqa: F811
+        url = self._search_page(scripted, monkeypatch, {
+            "results": [_card(1, "06:00", "23:00")],
+            "profile_delta": {"city": "Miami", "timeslot_start": "06:00", "timeslot_end": "23:00"},
+        })
+        assert url == _MIAMI_PAGE
+
+
 def test_saying_none_covers_is_not_enough_the_cards_must_be_labelled_closest():
     # Live 2026-10-06: "aucune ne couvre entièrement le créneau de 6h à 16h".
     text, added = enforce_window_disclosure(

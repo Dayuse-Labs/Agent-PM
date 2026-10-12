@@ -4,6 +4,21 @@
 
 > 📋 **Pour savoir QUOI faire ensuite, ouvrir [`CHANTIERS.md`](CHANTIERS.md)** (état vérifié au 2026-09-14) : la liste des chantiers ouverts, chacun avec sa preuve, ses actions et un prompt prêt à coller — plus la liste de ce qu'il ne faut **pas** relancer parce que c'est déjà livré. `tasks/todo.md` est périmé et ne doit plus servir de référence.
 
+## ✅ 2026-10-07 (quater) — « Voir tout » sans les heures quand aucune carte ne couvre le créneau
+
+**Fait** (branche `fix/see-all-drops-window-when-closest`, sur `main` à `cbe88b9` ; gates : pytest **2 140 passés / 1 skippé**, ruff, mypy, guardrails **verts**). QA Mathias : « Je veux un hotel a miami de 6h a 23h » → cartes « les plus proches », mais « Voir tout » ouvrait le site filtré `checkinTime=6am&checkoutTime=11pm` → « No hotel available ».
+1. `b2c_common.search_page.without_hours()` retire `checkinTime`/`checkoutTime` de l'URL (lieu + date gardés).
+2. Concierge (`agent.py`, juste après la lecture de `search_context.search_page`) : appliqué quand `window_fallback` est posé — repli signalé par la feuille OU filet `enforce_window_match`. Des cartes qui couvrent le créneau → le lien garde les heures (décision Mathias).
+3. `conftest.py` neutralise aussi `DAYUSE_MODEL_TRIAGE`/`_SYNTHESIS`, `DAYUSE_REASONING_EFFORT`, `CONCIERGE_LEAF_TIMEOUT_SECONDS` : `import litellm` charge le `.env` local, et un `.env` aligné sur la prod faisait tomber `test_synthesis_retry_policy`.
+
+Contrôle négatif : avec `agent.py` de `main`, les 2 cas « aucune carte ne couvre » de `TestSeeAllLink` tombent.
+
+**Parité locale / prod (vérifiée ce jour contre Railway)** — prod sur `cbe88b9` pour les 4 services. Concierge : `DAYUSE_MODEL_TRIAGE=gpt-4o-mini`, `DAYUSE_MODEL_SYNTHESIS=gpt-5.2`, `DAYUSE_REASONING_EFFORT=low`, `CONCIERGE_LEAF_TIMEOUT_SECONDS=30` ; feuilles : `DAYUSE_MODEL=gpt-4o-mini` ; tous : `MCP_B2C_URL=https://dayuse.mcp-servers.dayuse-dev.com/mcp`.
+
+**Pièges** :
+- 🪤 `DAYUSE_REASONING_EFFORT` ne va **pas** dans le `.env` local : `run_local.sh` le donne aux 3 services, et `build_model` (fleet) envoie alors `extra_body.reasoning` à `gpt-4o-mini` → `Unrecognized request argument supplied: reasoning`, feuilles en « je n'arrive pas à joindre ». Parité exacte = une surcharge par service dans `run_local.sh` (non faite).
+- 🪤 `run_local.sh` lance uvicorn sans `--reload` : relancer après chaque modif, sinon on teste l'ancien code (services locaux trouvés sur le code de la veille).
+
 ## ✅ 2026-10-07 (ter) — #121 de Victor découpée en 3 PR rebasées sur `main` (référence = main post-#126)
 
 **Fait** (comparaison #121/#123 vs MR de Mathias, puis extraction de ce qui n'est pas déjà sur `main`) :
