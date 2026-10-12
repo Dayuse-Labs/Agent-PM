@@ -1321,8 +1321,12 @@ def inject_profile_geo_context(tool: object, args: dict, tool_context: object) -
             params["device_authoritative"] = True
     current_message = " ".join(part.text for part in (getattr(content, "parts", None) or [])
                                if isinstance(getattr(part, "text", None), str))
+    # The customer's own words must name the city — through the same echo
+    # rule the geocode result passes (accent fold, exonyms: "Londres" names
+    # London), never a raw substring that refuses a city they did write.
     literal_city = (isinstance(args.get("city"), str) and bool(args["city"].strip())
-                    and args["city"].strip().casefold() in current_message.casefold())
+                    and bool(current_message.strip())
+                    and geocode_echo_matches(current_message, city=args["city"], zone=None, state_hint=None))
     if (envelope.get("query_params") or {}).get("destination_missing") is True and not literal_city:
         questions = {
             "fr": "Dans quelle ville ou près de quelle adresse souhaitez-vous chercher ?",

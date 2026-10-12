@@ -723,6 +723,19 @@ class TestInjectProfileGeoContext:
         args = {'city': 'Anaheim'}
         assert inject_profile_geo_context(_Tool('geocode_location'), args, _Ctx(user_content=content)) is None
 
+    @pytest.mark.parametrize('message,city', [
+        ('un hôtel à Londres demain', 'London'),   # exonym (existing echo table)
+        ('ein Hotel in Munchen', 'München'),        # typed without the umlaut
+    ])
+    def test_missing_extraction_allows_the_city_the_customer_wrote_in_another_form(self, message, city):
+        # PR134-FIX R5: the literal-current-city gate compared raw substrings,
+        # so a city the customer DID write ("Londres") was refused as a guess.
+        data = {'profile_in': {'language': 'fr'}, 'query_params': {'destination_missing': True}}
+        content = genai_types.Content(role='user', parts=[genai_types.Part(text=message),
+            convert_a2a_part_to_genai_part(a2a_types.Part(root=a2a_types.DataPart(data=data)))])
+        args = {'city': city}
+        assert inject_profile_geo_context(_Tool('geocode_location'), args, _Ctx(user_content=content)) is None
+
     @pytest.mark.parametrize("field", ["zone", "metro"])
     @pytest.mark.parametrize("copied", [None, "23rd st"])
     def test_owned_pending_refinement_keeps_specific_place_under_new_parent(self, field, copied):

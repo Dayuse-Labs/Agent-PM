@@ -520,6 +520,33 @@ class TestHonestDegradation:
         assert profile.consecutive_empty_searches == 0
         assert not profile.last_suggestions
 
+    def test_a_city_the_leaf_verified_is_kept_even_when_written_differently(
+        self, scripted, fake_profile_store
+    ):
+        # cbe88b9's "Marseille" degradation case, ported (PR134-FIX R5): #134
+        # rewrote it to "Paris" to stay green. The leaf's delta city alone is
+        # dropped when not written; a provider-verified resolution still
+        # commits it (receive_location). The defect was the leaf refusing to
+        # geocode "Londres" at all — see test_geocode_tool.
+        runner, session = _new_session()
+        scripted(
+            '{"family": "search", "language": "fr"}',
+            leaf_text="indisponible",
+            response={
+                "status": "search_unavailable",
+                "profile_delta": {"city": "London"},
+                "resolved_location": {
+                    "provider_id": "dXJuOm1ieHBsYzpBUVRC", "name": "London",
+                    "label": "London, England, United Kingdom", "country_code": "GB",
+                    "feature_type": "place", "latitude": 51.5072, "longitude": -0.1276,
+                },
+            },
+        )
+        answer = _answer(_drive_in(runner, session.id, "je cherche un hôtel à Londres demain"))
+        profile = asyncio.run(fake_profile_store.get(session.id))
+        assert profile.city == "London"
+        assert answer == templates.leaf_degraded_response("search", "fr", "London")
+
     def test_same_day_dead_end_swaps_in_the_date_chips(self, scripted, fake_profile_store):
         # S-CX6 wiring: the leaf says the empty search was for TODAY, so the
         # recovery chips must offer other days — budget/zone/filter cannot
