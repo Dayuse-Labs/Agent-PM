@@ -527,7 +527,7 @@ class TestClarificationSeam:
         monkeypatch.setattr(geocode_tool, "get_mapbox_client", lambda: _V6([]))
         monkeypatch.setattr(geocode_tool, "get_searchbox_client", lambda: _NoSearchBox())
         monkeypatch.setattr(geocode_tool, "get_inventory", lambda: _Inventory({}))
-        result = geocode_tool.geocode_location(
+        result = geocode_tool.geocode_core(
             zone="Gare du Nord", raw_user_message="un hôtel près de Gare du Nord demain"
         )
         assert result["clarification"]["kind"] == "city_needed"  # the leaf asked
@@ -552,7 +552,7 @@ class TestClarificationSeam:
         monkeypatch.setattr(
             geocode_tool, "get_inventory", lambda: _Inventory({48.43: 20, 28.80: 15, -37.47: 1})
         )
-        result = geocode_tool.geocode_location(city="Victoria", raw_user_message="un hôtel à Victoria")
+        result = geocode_tool.geocode_core(city="Victoria", raw_user_message="un hôtel à Victoria")
 
         answer = _concierge_answer(monkeypatch, _over_the_wire(result), "un hôtel à Victoria")
 
