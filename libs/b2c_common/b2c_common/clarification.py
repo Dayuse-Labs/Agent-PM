@@ -8,8 +8,9 @@ tell a real option from an invented one.
 
 This model is the question as DATA. The search leaf builds it from the
 geocoder's own candidates and sends it to the concierge in its DataPart, by the
-same channel as `search_context`; the concierge renders it by template, without
-the synthesis (decision DQ2). Two rules make the "no invented option" guarantee
+same channel as `search_context`; the concierge is to render it by template,
+without the synthesis (decision DQ2, task Q04 — until then it ignores the key).
+Two rules make the "no invented option" guarantee
 structural rather than a prompt wish:
 
 - `options` come ONLY from the geocoder's candidates kept by the leaf's
