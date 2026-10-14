@@ -11,6 +11,7 @@ owned_files:
   - agents/b2c_concierge/b2c_concierge/profile.py
   - agents/b2c_concierge/b2c_concierge/agent.py
   - agents/b2c_concierge/tests/**
+  - agents/b2c_concierge/b2c_concierge/inline_tools.py
 resources: []
 prerequisites: [E2, H1, H3]
 context_budget: 35%
@@ -31,6 +32,8 @@ definition_of_done:
   - "Test: when the answer to a pending clarification takes the search route, `pending_clarification` is None after the turn, so the same question asked again later starts at `asked = 1`."
   - "Test: `next_pending_clarification` with an `earlier` slot whose `asked` is missing or not an integer (a profile written by another writer) does not raise and counts from 1."
   - "Test: after a third ask (`last_clarifying_question` None, `pending_clarification` kept), a reply naming a city takes the search route with the pending request in the leaf's context. A fake triage `{\"family\":\"booking\",\"booking_confirmation\":\"confirm\"}` with no pending offer calls neither `generate_booking_link` nor `find_hotel_by_name`."
+  - "Test: on the details route, with no `hotel_name` from the triage, `find_hotel_by_name` is never called with the turn's raw message (the same rule Q05 applied to the booking path, `name_from_reference=False`)."
+  - "`_extract_hotel_name_candidate` no longer feeds `find_hotel_by_name` on any route (`git grep -n _extract_hotel_name_candidate -- agents` shows no caller on that path), or the remaining caller is noted in a `debt` entry (S-L7)."
 ---
 
 ## Launch prompt

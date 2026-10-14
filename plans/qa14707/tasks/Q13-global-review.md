@@ -23,6 +23,7 @@ definition_of_done:
   - "Each KO is written up as a `review` or `debt` entry for the plan's HANDOFF."
   - "No file changed (empty diff)."
   - "Point 7 also checks that Q04's offline tests for `city_needed` without options and for homonym options exactly from the `Clarification` exist and are green (file:line)."
+  - "Point 4 also checks, with file:line evidence, that `find_hotel_by_name` never receives the raw message on the booking path (test_clarification_routing.py) or on the details route (Q11's test), or it reports the remaining `debt` entry."
 ---
 
 ## Launch prompt
