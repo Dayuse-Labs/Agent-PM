@@ -186,6 +186,30 @@ class TestTraceC:
         # One lookup: the full mention with its postcode, address and street types.
         assert mapbox.queries == [("2 Boulevard Poissonnière 75009", "address,street")]
 
+    @pytest.mark.parametrize("city_first", [True, False])
+    def test_the_postcode_is_read_from_the_zone_place_at_any_rank(
+        self, mapbox, statuses, city_first
+    ):
+        # Q14 (moved from Q08): the rank-independent mapping of Q07. The city
+        # listed as a place, before or after the address, changes nothing.
+        paris = Place(mention="Paris", kind="city", canonical="Paris")
+        places = [paris, _address()] if city_first else [_address(), paris]
+
+        result = geocode_location(
+            intent=GeoIntent(places=places),
+            tool_context=_ctx("Un hôtel à Paris près du 2 boulevard Poissonnière 75009 demain"),
+        )
+
+        assert "geocode_city_needed" not in statuses
+        assert "clarification" not in result
+        assert result["ok"] is True
+        assert result["resolved_place"] == "2 Boulevard Poissonnière, 75009 Paris, France"
+        assert result["distance_origin_type"] == "poi"
+        assert result["profile_delta"]["last_city"] == "Paris"
+        assert result["profile_delta"]["zone"] == "2 Boulevard Poissonnière"
+        # The postcode applied, and no city-wide lookup of Paris.
+        assert mapbox.queries == [("2 Boulevard Poissonnière 75009", "address,street")]
+
     def test_a_postcode_the_model_also_left_in_the_mention_is_not_sent_twice(self, mapbox):
         place = Place(mention="2 boulevard Poissonnière 75009", kind="address",
                       postal_code="75009")
