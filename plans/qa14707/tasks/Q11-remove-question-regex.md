@@ -5,7 +5,7 @@ phase: 4
 model: sonnet
 model_reason: "Source plan's model, kept: a bounded removal on the concierge side, replaced by Q04's structured state and Q05's closed field."
 effort: medium
-depends_on: [Q09]
+depends_on: [Q09, Q15]
 parallel_batch: 4B
 owned_files:
   - agents/b2c_concierge/b2c_concierge/profile.py
@@ -23,6 +23,7 @@ verification:
   - "/Users/fabiendauvergne/Projects/AgentB2C/.venv/bin/ruff check ."
   - "/Users/fabiendauvergne/Projects/AgentB2C/.venv/bin/mypy agents libs"
   - "bash scripts/dayuse_guardrails.sh ."
+  - "/Users/fabiendauvergne/Projects/AgentB2C/.venv/bin/pytest -q tests/test_leaf_concierge_seam.py"
 definition_of_done:
   - "No regex feeds \"YOU ASKED\" any more (`extract_final_question` has no caller on that path, diff)."
   - "The decisions \"answer to the pending question\" no longer call `is_bare_affirmative`. That covers the fast path (`answers_pending`, `agent.py:1206` on `main`) and the ack branch towards the search (`:1352-1359` on `main`). Both read the triage's `answers_pending` / `affirmative` (diff)."
@@ -34,6 +35,7 @@ definition_of_done:
   - "Test: after a third ask (`last_clarifying_question` None, `pending_clarification` kept), a reply naming a city takes the search route with the pending request in the leaf's context. A fake triage `{\"family\":\"booking\",\"booking_confirmation\":\"confirm\"}` with no pending offer calls neither `generate_booking_link` nor `find_hotel_by_name`."
   - "Test: on the details route, with no `hotel_name` from the triage, `find_hotel_by_name` is never called with the turn's raw message (the same rule Q05 applied to the booking path, `name_from_reference=False`)."
   - "`_extract_hotel_name_candidate` no longer feeds `find_hotel_by_name` on any route (`git grep -n _extract_hotel_name_candidate -- agents` shows no caller on that path), or the remaining caller is noted in a `debt` entry (S-L7)."
+  - "`_attach_outgoing_datapart` still sends the concierge's context text as its own text part, placed before the user's words. The seam tests of `tests/test_leaf_concierge_seam.py` (Q15) pass without change to their assertions."
 ---
 
 ## Launch prompt
