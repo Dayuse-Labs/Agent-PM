@@ -35,6 +35,10 @@ definition_of_done:
   - "The leaf's prompt no longer tells the LLM to leave `city` blank for a place named after a city it is not in. The S5 rule is expressed as the `ambiguity.reason` rule (diff)."
   - "A case of `tests/test_mcp_contract.py` runs the before-tool chain after a `geocode_location(intent=…)` result: the `search_offers` arguments sent to the MCP hold no key outside the published schema."
   - "`scripts/probe_geo_landmarks.py` calls the new interface or the internal core (diff)."
+  - "Test (Mapbox mocked): `country_named` is normalized by the code before it becomes the hard Mapbox `country` filter. \"fr\" gives \"FR\". A value that is not a 2-letter ISO code (\"France\", \"USA\", \"FRA\") is discarded, the mocked Mapbox call receives no `country` filter, and the rest of the intent is still geocoded."
+  - "Test: `places[].country` and `city.country` go through the same `_iso2` normalization before they become `country_guess`. A malformed value degrades to no hint, never to a wrong scope."
+  - "Test: when the `intent` argument fails `GeoIntent` validation (an unknown `kind`, three places), ADK 2.4 passes it to the function as a raw dict. The tool validates it with `GeoIntent.model_validate` and does not raise. It never uses the raw values: it goes on as with an empty `GeoIntent()`, so the carry-over from `profile_in` still applies. The failure is counted in a metric that carries no message content."
+  - "Test: the leaf's real `geocode_location` FunctionTool, called with a dict `intent`, receives a `GeoIntent` instance. The parameter is declared `intent: GeoIntent = GeoIntent()`, not `GeoIntent | None`."
 ---
 
 ## Launch prompt
