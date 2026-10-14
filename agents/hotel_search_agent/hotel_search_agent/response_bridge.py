@@ -49,8 +49,10 @@ from google.adk.a2a.converters.part_converter import (
 )
 from google.adk.models.llm_response import LlmResponse
 from google.genai import types as genai_types
+from pydantic import ValidationError
 
 from b2c_common import build_hotel_page_url, display_price_euro, hotel_currency_price, with_checkin_date
+from b2c_common.clarification import Clarification
 from b2c_common.offer_facts import selected_offer_facts
 from b2c_common.party_discovery import discovery_total, possible_party
 from b2c_common.price_comparison import offer_below_reference
@@ -173,6 +175,11 @@ _STATE_TURN_T0_KEY = "temp:hotel_search_turn_t0"
 # deterministic `requires_clarification` DataPart flag so the orchestrator's
 # facade can report the clarification honestly (it used to be hardcoded False).
 _STATE_CLARIFY_QUESTION_KEY = "temp:hotel_search_clarify_question"
+# QA14707: the same clarify as DATA (`b2c_common.clarification.Clarification`,
+# already dumped to a dict by geocode_location) — relayed in the DataPart under
+# `clarification`, the channel `search_context` uses, so the concierge can
+# render the question by template with the geocoder's own options (DQ2, DQ5).
+_STATE_CLARIFICATION_KEY = "temp:hotel_search_clarification"
 # S-CX2 (audit CX 2026-07-24, F2): the MCP search tools were unavailable THIS
 # turn (circuit open observed on a call). Together with the anchor-without-
 # results signal in emit_search_datapart, this drives the deterministic
@@ -998,6 +1005,17 @@ def _record_mcp_error(
         tool_context.state[_STATE_MCP_ERROR_KEY] = "failed" if kind == "failed" else "rejected"
 
 
+def _valid_clarification(raw: Any) -> dict[str, Any] | None:
+    """The clarify payload re-checked against `Clarification`, as a plain
+    dict ready for the DataPart, or None when absent or off-contract."""
+    if not isinstance(raw, dict):
+        return None
+    try:
+        return Clarification.model_validate(raw).model_dump(mode="json")
+    except ValidationError:
+        return None
+
+
 def capture_after_tool(
     tool: Any, args: dict[str, Any], tool_context: Any, tool_response: Any
 ) -> dict[str, Any] | None:
@@ -1052,6 +1070,14 @@ def capture_after_tool(
             question = (tool_response.get("diagnostics") or {}).get("question")
             if isinstance(question, str) and question.strip():
                 tool_context.state[_STATE_CLARIFY_QUESTION_KEY] = question.strip()
+            # QA14707: the question as data rides next to its text. Validated
+            # against the contract here, at the leaf's edge: a payload that does
+            # not hold to it is dropped, never relayed half-right. A later
+            # clarify in the same turn replaces it, like the question text.
+            # (`None`, not a delete: ADK's `State` has no `pop`.)
+            tool_context.state[_STATE_CLARIFICATION_KEY] = _valid_clarification(
+                tool_response.get("clarification")
+            )
         return None
 
     if name not in _TARGET_TOOLS or not isinstance(tool_response, dict):
@@ -1763,6 +1789,13 @@ def emit_search_datapart(callback_context: Any) -> genai_types.Content | None:
         # `requires_clarification` honestly (it used to be hardcoded False and
         # safe clarifying questions scored as hard failures).
         payload["requires_clarification"] = True
+        # QA14707: and the question itself as data, top-level like
+        # `search_context` (never inside profile_delta: it is this turn's
+        # question, not profile state). Only on a clarify turn — a clarify
+        # followed by a search the same turn asked nothing.
+        clarification = state.get(_STATE_CLARIFICATION_KEY)
+        if isinstance(clarification, dict):
+            payload["clarification"] = clarification
     fallbacks = state.get(_STATE_FALLBACKS_KEY)
     if isinstance(fallbacks, list) and fallbacks:
         payload["fallbacks_fired"] = list(fallbacks)
