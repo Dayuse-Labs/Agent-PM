@@ -187,6 +187,22 @@ class TestHomonym:
         assert all(label in result["diagnostics"]["question"] for label in labels)
         assert text == result["diagnostics"]["question"]
 
+    def test_a_nameless_candidate_is_left_out_and_every_label_is_in_the_question(self):
+        # Mapbox can return a feature with no `name` (only a context and a
+        # `place_name`). The question prints it as a bare context: it has no
+        # city to answer with, so it is not offered — and every label that IS
+        # offered stays verbatim in the question.
+        nameless = _c("", "CA", "British Columbia", rank=4, lat=48.6)
+        kept = [_BC, nameless, _TX]
+
+        clarification = geocode_tool._homonym_clarification("Victoria", kept)
+
+        assert clarification is not None
+        assert [o.country_code for o in clarification.options] == ["CA", "US"]
+        question = geo_resolver._clarify_question(kept)
+        assert all(o.label in question for o in clarification.options)
+        assert geocode_tool._homonym_clarification("Victoria", [nameless]) is None
+
     def test_a_homonym_asked_after_tier_two_missed_also_carries_its_options(self, monkeypatch):
         # The clarify with a zone in hand (`geocode_tool`, after the Search-Box
         # tier misses) is the second source of the same question.

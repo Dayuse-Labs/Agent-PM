@@ -322,13 +322,11 @@ def _searchbox_query(zone: str | None, city: str | None, metro: str | None) -> s
 
 
 def _option_label(candidate: GeocodeCandidate) -> str:
-    """How a homonym option reads in the question — the same `name (context)`
-    form `geo_resolver._clarify_question` writes, so a consumer that renders
-    the options says exactly what the leaf's own question says."""
+    """How a homonym option reads in the question — the very formula
+    `geo_resolver._clarify_question` uses for each label, so a consumer that
+    renders the options says exactly what the leaf's own question says."""
     context = candidate.place_formatted or candidate.country_code or ""
-    if candidate.name and context:
-        return f"{candidate.name} ({context})"
-    return candidate.name or context or candidate.place_name
+    return f"{candidate.name} ({context})" if context else candidate.name
 
 
 def _homonym_clarification(
@@ -337,19 +335,19 @@ def _homonym_clarification(
     """QA14707 / DQ5: the homonym question as data, its options taken ONLY
     from the candidates the resolver kept (`Resolution.options`: same
     inventory tier as the winner, a genuinely different place). Nothing here
-    adds, renames or reorders a place. A candidate with no name and no
-    context at all cannot be offered and is left out; a question left with
-    nothing to pick carries no object (the text question still goes out)."""
+    adds, renames or reorders a place. A candidate with no name is left out:
+    it has no city to answer with, and the text question shows it as a bare
+    context nobody can pick. A question left with nothing to pick carries no
+    object (the text question still goes out)."""
     options = []
     # The resolver already caps a question at 3 options; the slice only keeps
     # the contract bound from ever raising in a tool that never raises.
     for c in candidates[:MAX_OPTIONS]:
-        label = _option_label(c)
-        if not label:
+        if not c.name:
             continue
         options.append(
             ClarificationOption(
-                label=label,
+                label=_option_label(c),
                 city=c.name,
                 region=c.region,
                 country_code=_iso2(c.country_code),
