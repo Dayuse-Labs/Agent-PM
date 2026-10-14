@@ -48,6 +48,7 @@ Notes on these commands:
 - **Tests are offline**:
   - Redis is fakeredis: the autouse `ProfileStore` in `agents/b2c_concierge/tests/conftest.py`, and `tests/api/conftest.py`.
   - No port, no database, no shared service, so no task declares a resource.
+- From a worktree, the 5 verifications run with `/Users/fabiendauvergne/Projects/AgentB2C/.venv/bin/{pytest,python,ruff,mypy}` and `bash scripts/dayuse_guardrails.sh .`. `evals/` is not typechecked by mypy (66 files), but ruff covers it.
 
 ## Quick map
 
@@ -108,6 +109,7 @@ Notes on these commands:
 - Metrics carry zero message content, and a test locks this. A counter of discarded `mention`s carries no text.
 - **A plan task is not a session.** CLAUDE.md's "Fin de session" (update `HANDOFF.md`, commit + MR) applies to the plan as a whole. Only Q12 touches the repository's `HANDOFF.md`, and no task opens a PR or pushes. Each task reports in its own report, and the scribe writes the plan's HANDOFF.
 - `git grep` checks of a removal carry a path filter (`-- agents libs`, `-- web tests`). `plans/` and `phases/` quote the removed names, and the tasks don't own them.
+- Tests for async harness code: no pytest-asyncio in the repo, so use `asyncio.run` and monkeypatch `exp._TRACE_LOOKUP_DELAY_SECONDS = 0`. Fakes patch `exp._call_facade` and `exp._prime_profile`; the Langfuse fake exposes `async_api.sessions.get` and `async_api.trace.get`.
 
 ## Pitfalls and fixes
 
@@ -137,5 +139,11 @@ Notes on these commands:
   - `postcode_75009.json`: Paris FR, then **Celina US**, then UA and EE. This is the FR/US tie of DQ8.
   - `postcode_11580.json`: **Mexico City MX first**, then Valley Stream US, then ES, UA and FR. Mapbox's ranking alone would send "near 11580" to Mexico, so the tie-break (the LLM's guess, then the market) is what keeps the US case (DQ8, Q10).
   - `postcode_13001_marseille.json`: Marseille FR first, then PE, ES, TR, UA and KR.
+- **Harness traces (Q01)**
+  - Trace scoping assumes one trace per turn (OBS4) and orders them by `timestamp`. After n replayed turns, fewer than n traces visible means the facts stay None (never the previous turn's). `/v3/chat` does not return a trace_id (only the SSE `progress` frame does), so there is no direct trace match.
+  - `geocode_location` result: the facts read `obs.output` (dict or JSON string, with a `{"result": ...}` unwrap as a precaution), `diagnostics.options`, and `status_message == "geocode_city_needed"` or an error `geocode_ambiguous` with no option. The real shape of the ADK `execute_tool` output as exported to Langfuse could not be verified offline. At H1, check that `geocode_city_needed` / `tools_not_called` are not all `skipped`. A skipped result there means the observation name or shape differs.
+  - `tools_not_called` stops polling once any observation of the last trace is visible. If the inline `mcp-*` observation is exported after the AGENT observation, a false green is possible. The `mcp-` prefix is the exact concierge name (`inline_tools.py:106`), and a test locks that a bare name does not count.
+  - For Q04/Q05: the response contract has no structured clarification options and no trace_id. `clarify_options_from_geocoder` and `reply_differs_from_previous` work on `message` text only. A structured `options` field in the response or the leaf DataPart would let the check become exact.
+  - Pre-existing, out of scope: CHANTIERS.md and HANDOFF.md note that `_call_facade` does not send `X-Dayuse-Synthetic`, so replay turns are untagged traces eligible for judge sampling. One-line fix in a file Q01 owns, but outside the task scope. Not changed.
 
 ## Context recommendations (end of run)

@@ -2,7 +2,7 @@
 
 | ID  | Title                                                                                    | Phase | Batch | Depends on | Model  | Status | Attempts | Branch   | Tokens est. / actual  |
 |-----|------------------------------------------------------------------------------------------|-------|-------|------------|--------|--------|----------|----------|-----------------------|
-| Q01 | Proof bench — QA14707 eval set, evaluators and multi-turn replay                         | 1     | 1A    | —          | sonnet | todo   | 1        | —        | 2.7M / —              |
+| Q01 | Proof bench — QA14707 eval set, evaluators and multi-turn replay                         | 1     | 1A    | —          | sonnet | merged | 1        | task/Q01 | 2.7M / see /workflows |
 | Q02 | Time slot in the language of the conversation                                            | 1     | 1B    | —          | sonnet | merged | 2        | task/Q02 | 0.8M / see /workflows |
 | Q03 | `Clarification` contract and structured emission by the leaf                             | 2     | 2A    | —          | opus   | todo   | 0        | —        | 3.1M / —              |
 | Q04 | Concierge: clarification rendered by template, persistent state, anti-loop on the state  | 2     | 2B    | Q03        | opus   | todo   | 0        | —        | 4.7M / —              |
