@@ -34,6 +34,8 @@ definition_of_done:
   - "Seam test in `tests/test_leaf_concierge_seam.py`: the `Clarification` emitted by the leaf (Q03) goes through the encoded and then decoded DataPart and comes out as the concierge's template. This guards against a placement bug that each side's unit tests would miss (S-G9)."
   - "Negative control, as report evidence (the command run and its failing output): without the fix, the \"no synthesis call\" test fails."
   - "`GUARD_SCORE_NAMES` is unchanged: `anti_clarification_loop` keeps its name."
+  - "Test: a `city_needed` `Clarification` (`options=[]`) renders a reply that names its `subject` and offers no numbered option, in `fr` and `en`."
+  - "Test: a `homonym` `Clarification` with 2 options renders exactly those 2 labels, numbered in the order of the object, and no other option line."
 ---
 
 ## Launch prompt

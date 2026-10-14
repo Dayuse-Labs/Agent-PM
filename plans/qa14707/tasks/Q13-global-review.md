@@ -22,6 +22,7 @@ definition_of_done:
   - "Review report: each of the 10 points below marked OK, or KO with its evidence (file:line, command)."
   - "Each KO is written up as a `review` or `debt` entry for the plan's HANDOFF."
   - "No file changed (empty diff)."
+  - "Point 7 also checks that Q04's offline tests for `city_needed` without options and for homonym options exactly from the `Clarification` exist and are green (file:line)."
 ---
 
 ## Launch prompt
