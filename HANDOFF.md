@@ -4,6 +4,36 @@
 
 > 📋 **Pour savoir QUOI faire ensuite, ouvrir [`CHANTIERS.md`](CHANTIERS.md)** (état vérifié au 2026-09-14) : la liste des chantiers ouverts, chacun avec sa preuve, ses actions et un prompt prêt à coller — plus la liste de ce qu'il ne faut **pas** relancer parce que c'est déjà livré. `tasks/todo.md` est périmé et ne doit plus servir de référence.
 
+## 📐 2026-10-14 — Retours QA de Raphael sur dayuse-com#14707 : diagnostic + plan orchestre (zéro code)
+
+**Fait** : diagnostic prouvé sur 14 traces Langfuse, et plan source `phases/QA14707/` (README, DIAGNOSTIC, tâches Q01-Q13), prêt pour `/orchestre:prepare phases/QA14707`.
+
+**Constats** (détail dans `phases/QA14707/DIAGNOSTIC.md`) :
+- 🔴 **La prod sert `cbe88b9`** (release de toutes les traces de Raphael). #135 (= #124 + #125) n'est **pas déployée**, et la QA du 14/10 a testé un build sans les correctifs du 30/09.
+- Créneau `10am - 4pm` en conversation FR : `formatTimeAMPM` (`web/vendor/static/js/chat/utils.js:46`) ignore la langue. Le « cut-off » de Raphael désigne bien le créneau (confirmé par Fabien).
+- Ville, adresse ou code postal ignorés :
+  - le 4o-mini de la feuille met `city=""` (« paris Gare du nord »), enfouit la ville dans `zone` (Versailles) ou jette le code postal (75009) ;
+  - le code pose alors `city_needed` sans option ;
+  - **la synthèse gpt-5.2 invente les options** (« Bruxelles », « Versailles (78) »).
+- Boucle :
+  - la feuille ne voit pas la question posée et ne comprend pas « Pari » ;
+  - la garde anti-boucle compare des paraphrases ;
+  - « Je confirme » est trié `booking`, et le routage ne renvoie une demande en attente vers la recherche que si `family == "ack"`. **`main` ne corrige pas ce cas** (lu dans le code).
+- Défaut latent, prouvé hors ligne : `select_us_postal_anchor` lit 75009 et 13001 comme des ZIP américains et force `country_code=US`.
+- `fc5cbd9` (sur `main`) répare le cas A par une regex de prépositions, qui n'attrape ni « a room in paris », ni Versailles, ni le code postal.
+
+**Décisions (Fabien, 14/10, recommandations retenues)** :
+- **D-Q1** : le `GeoIntent` est d'abord produit par la feuille de recherche actuelle, comme argument de `geocode_location` (contrat S-L §3, plus `postal_code` et `mention` / `canonical`). S-L3/S-L4 deviennent conditionnels.
+- **D-Q2** : une clarification est rendue par gabarit, sans synthèse.
+- **D-Q3** : déployer `main` après le rejeu de référence.
+
+**Reste** :
+- merger cette PR de docs, `git pull`, puis `/orchestre:prepare phases/QA14707` dans une nouvelle session ;
+- H1 (rejeu de référence, `cbe88b9` contre `main`) puis H2 (déploiement de `main`), à faire par Fabien ;
+- demander à Raphael l'URL et le marché de test : `locale:"en"` et `USD` sur toutes ses traces.
+
+🪤 `/orchestre:prepare` prend un dossier contenant `tasks/` ou `taches/` pour un plan déjà converti et s'arrête : le plan source garde ses tâches à plat.
+
 ## 🟡 2026-10-12 (bis) — PORT1 « vérité des cartes » : #134 portée sur `main` en 5 tranches (PR à revoir, prompt de triage non mesuré)
 
 Périmètre : `phases/PORT1-verite-des-cartes.md`. Branche `port/card-truth` (worktree `../AgentB2C-card-truth`), base `main` @ `49d5bd3`, source `origin/codex/production-context-and-proximity` @ `d8832b6` (#134 + #136), lue par `git show`, jamais mergée. Modèle d'état de #135 gardé ; hôtel nommé côté concierge (`named_hotel_id`) **non porté**. Hors ligne uniquement : aucun appel LLM, MCP ni réseau.
@@ -54,6 +84,7 @@ Non corrigé (signalé par la revue, à arbitrer) : montants avec séparateur de
 - `echo =====` échoue en zsh (expansion `=`) : utiliser `echo '#####'`.
 - Contrôle négatif quand un test importe un module neuf : la collecte s'arrête ; ajouter `--continue-on-collection-errors` pour compter les échecs.
 
+
 ## ✅ 2026-10-12 — Ménage des PR + #124/#125 enfin ramenées sur `main`
 
 **Fait** : #115 (garde calendrier +400 j), #133 (« Voir tout » sans les heures) et #120 (`DEPLOY.md`) mergées dans cet ordre, chacune testée sur le `main` qui la recevait. #123 fermée (delta repris par #134), **branche conservée** : #121 est empilée dessus.
@@ -61,6 +92,18 @@ Non corrigé (signalé par la revue, à arbitrer) : montants avec séparateur de
 🪤 **#124 et #125 affichées « Merged » n'étaient pas sur `main`** : #124 a été mergée dans `fix/qa-oracle-facts-silent-fallbacks` (base de #122, déjà mergée), #125 dans `fix/geo-location-class` une minute après le départ de #124. Cette branche les ramène : merge de `fix/geo-location-class` (`2f457f8`) sur `main`, 6 fichiers en conflit, tous des ajouts concurrents au même endroit (paramètres `no_offers`/`recent_messages` de main + `unchanged` de la garde #18 ; route FAQ + route hôtel nommé dans `leaf_kwargs`). `no_offers` (0 résultat) et `unchanged` (>0 résultat) sont exclusifs. Gates : pytest **2 245 passés / 1 skippé** (= 2 142 de main + 104 de la branche, compte exact), ruff, mypy, guardrails verts, garde calendrier comprise.
 
 **Reste** : #134 (Victor) doit se rebaser sur ce `main` — ~14 fichiers en conflit avec cette branche, plus un littéral « 12 novembre 2026 » (`test_location_confirmation.py`) que la garde +400 j fait tomber. Décision ouverte : le `location_intent` du triage de #134 contre la feuille géo (L1, `reports/PLAN-LEAF-GEO-2026-10-08.md`, dont la prémisse « #124 ouverte » est fausse).
+
+## 📐 2026-10-08 — Plan de la leaf de compréhension géo (série S-L) : documents seulement, zéro code
+
+**Fait** (session Cowork de revue, rien de commité) : plan arbitré `reports/PLAN-LEAF-GEO-2026-10-08.md` (décisions L1-L6 de Fabien, écarts E1-E15 entre le plan de la discovery et le code, contrat `GeoIntent` v1) ; phases `phases/SL1…SL8-*.md`, prompt de lancement inclus ; section S-L de `SESSIONS-CLAUDE-CODE.md` ; chantier L de `CHANTIERS.md` ; demande « coordonnées dans `find_hotel_by_name` » dans `reports/MCP-B2C-REQUESTS.md`.
+
+**Constats vérifiés dans le code** (détail au plan §2) :
+- Le plafond de 3 appels LLM par tour est appliqué en code (`agents/b2c_concierge/b2c_concierge/budget.py:18`, exception à la 4e charge) : une leaf de plus impose la décision D-1 avant S-L4.
+- #124 envoie `sort` ; le MCP `main` 08f3764d attend `sortBy`. Le MCP `main` ne renvoie pas non plus les coordonnées dans `find_hotel_by_name`, dont `named_hotel.py:196` (#124) a besoin pour montrer les voisins.
+- `contracts/mcp_b2c_tools.json` n'a ni `sortBy` ni `timeSlotMode` : déployer le MCP puis rafraîchir le contrat avant S-L1.
+- Le test de contrat (`tests/test_mcp_contract.py`) n'exerce pas l'ancre de type lieu, ce qui explique que `sort` soit passé.
+
+**Reste** : décisions D-1 à D-7 (plan §5) ; S-L1 et S-L2 peuvent démarrer.
 
 ## ✅ 2026-10-07 (quater) — « Voir tout » sans les heures quand aucune carte ne couvre le créneau
 

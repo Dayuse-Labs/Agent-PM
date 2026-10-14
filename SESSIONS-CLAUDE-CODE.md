@@ -82,3 +82,43 @@ Ordre de merge des fenêtres parallèles : **numéro le plus bas d'abord**, les 
 ### Décisions arbitrées (2026-07-23, Fabien) — ne pas re-litiger en session
 
 A1-a snapshot inventaire statique (provider swappable) · A2-b Search Box tranché par le probe S-G3 · A3-a ops typées · A4-c demi-heures : post-filtre intérim + demande schéma MCP (⚠️ vérifié NON corrigé sur main : `agent.py:144` heures entières, `response_bridge.py:202-203` minute=0 — seul l'AFFICHAGE des offres lit les minutes) · A5-a budgets statiques par famille (deadline propagation = plus tard) · A6-a contexte maintenant, pricing gated sur probe MCP · A7 probe search_offers d'abord · A8-a instrumenter avant tout reranker. Hedging : rejeté. Flag ops : contrôle plateforme de `DAYUSE_MODEL` requis avant toute comparaison canary.
+
+## Sessions S-L — leaf de compréhension géo (arbitrée 2026-10-08)
+
+> Source : discovery « Leaf géo AgentB2C » (2026-10-07) + `reports/PLAN-LEAF-GEO-2026-10-08.md` (plan arbitré, revu contre le code : décisions L1-L6, écarts E1-E15, contrat `GeoIntent` v1). Détail par session : `phases/SL1…SL8-*.md` (prompt de lancement inclus dans chaque fichier).
+
+| # | Scope (1 session) | Zone | Prérequis |
+|---|---|---|---|
+| S-L1 | #124 réconciliée avec le MCP mergé : `sort` → `sortBy`, cas « ancre lieu » dans le test de contrat, coordonnées de l'hôtel nommé (D-2), limites d'outils figées | feuille | MCP `main` déployé + contrat rafraîchi, D-2 |
+| S-L2 | Contrat `GeoIntent` v1 (`b2c_common`, snapshot dans `contracts/`) + jeux `b2c-geo-intent` (dev/test) et `b2c-geo-preservation` (24 familles du registre) + évaluateurs | libs, contracts, evals | — |
+| S-L3 | Leaf `geo_understanding_agent` : LlmAgent sans outil, `output_schema=GeoIntent`, D7, port 8103, `scripts/eval_geo_intent.py` | nouvel agent | S-L2 |
+| S-L4 | Concierge : `GEO_LEAF_MODE` (off / shadow / on), leg dédié en parallèle, timeout propre, budget (D-1), mesure sur le banc de rejeu | concierge | S-L3, D-1 |
+| S-L5 | Bascule : la feuille géocode en code depuis le `GeoIntent` (1 appel au modèle au lieu de 2), reprise en code, repli `fallback_geo_leaf` | feuille + concierge | S-L4, D-3, D-4 |
+| S-L6 | Périmètre hybride annoncé : table de politique, partage « dedans / juste à côté » en code, libellés jusqu'à la synthèse | feuille + synthèse | S-L5, D-5 |
+| S-L8 | Déploiement Railway, registre de la flotte, `shadow` puis `on` | infra | S-L5, S-L6, go de Fabien |
+| S-L7a…f | Retrait des règles de langage, une MR par règle | feuille | S-L8, taux de repli mesuré |
+
+### Timeline & parallélisation
+
+```
+Fenêtre 1        Fenêtre 2   Fenêtre 3   Fenêtre 4   Fenêtre 5   Fenêtre 6                Fenêtre 7+
+S-L1 ∥ S-L2  →   S-L3   →    S-L4   →    S-L5   →    S-L6   →    S-L8 (shadow, puis on)  →  S-L7a … S-L7f
+(worktrees ;                                                                                 (une règle
+ merger S-L1                                                                                  par session)
+ d'abord)
+```
+
+Durées : non estimées (à mesurer sur S-L1 et S-L2).
+
+### Modèles & modes
+
+| Session | Modèle | Mode |
+|---|---|---|
+| S-L2, S-L3, S-L4, S-L5 | **Opus** | piloté (contrat, prompt, invariant de budget, bascule = jugement) |
+| S-L1, S-L6 | Sonnet | piloté |
+| S-L7a…f | Sonnet | piloté pour la première, puis **boucle possible** (critère mécanique : le cas qui couvre la règle reste vert sans elle) |
+| S-L8 | Sonnet | piloté, **jamais en boucle** (production) |
+
+### Décisions arbitrées (2026-10-08, Fabien) — ne pas re-litiger en session
+
+L1 leaf A2A après le triage, tours de recherche seulement · L2 comprendre d'abord, résoudre en phase 2 · L3 retrait des règles de langage une par une, chacune couverte par un cas d'éval · L4 hybride annoncé (dedans d'abord, puis « juste à côté » avec la distance) · L5 #124 d'abord · L6 budget d'outils constant, enchaînements en code. Encore ouvertes : D-1 à D-7 (plan §5) — D-1 bloque S-L4.
