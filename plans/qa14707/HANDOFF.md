@@ -147,6 +147,11 @@ Entries: `deviation`, `blind-spot`, `decision`, `debt`, `needs-human`, `ticket`,
 - amendment · major · Q12: The S-L §3 mapping that DQ1 fixed was extended by Q07 (da7f1a7), and the Q07 debt line about `places[1]` is out of date.
 - amendment · major · Q13: The mapping changed from the one DQ1 cites, so the review must check that the documents match the code.
 - blind-spot · major · amendment not applied to Q08: Q08 is already merged, so it can no longer be amended. Its postcode rule must still read `postal_code` from the zone place at any rank; Q08's merged code is to be checked for it (Q13).
+decision · major · An inferred city beats the city the user wrote (« Gare du Nord à Bruxelles » searched in Paris): option A settled by the user — Fix it in Q08 with a deterministic guard. When a city place or the `city` field has a mention found in the user's own words of this turn (`read_user_words`), and it differs after folding from the zone place's inferred city, the user's city wins once checked by `_verified_city`. A city anchored only in the concierge's prefix keeps today's order. The disagreement is counted on the `dayuse_metric=geo_intent` line, with no text, for H3.
+decision · major · Q07: when the zone place's inferred city differs from a city whose mention is in the user's own words of this turn, the user's city wins once checked by `_verified_city`. A city anchored only in the concierge's prefix keeps the zone place's own city first. Q08 implements and tests this, and counts disagreements (`city_conflicts`, no text) on the `dayuse_metric=geo_intent` line.
+blind-spot · major · amendment not applied to Q08: Q08 is already merged, so it can no longer be amended; the user-city precedence guard and its `city_conflicts` counter are not implemented. The ruling stays open for a new task.
+amendment · major · Q12: H3 must read the new disagreement counter.
+amendment · major · Q13: The review must check the city precedence guard.
 
 ## Q08
 
