@@ -28,6 +28,8 @@ definition_of_done:
   - "The assertions of the \"near 11580\" tests pass without change."
   - "No new regex or word list in the diff."
   - "Test (H5 fixture `11580`, Mapbox mocked, after the removal): a GeoIntent with postal_code \"11580\", no country named and no model guess, with profile_in `locale: \"en\"` and `entry_market_country: \"US\"`, is searched in the United States, and no Mapbox call carries a `country` filter."
+  - "Test (H5 fixture `postcode_75009`, Mapbox mocked, after the removal): a GeoIntent with postal_code \"75009\", city Paris, no country named, no model guess and profile_in locale \"en-US\" resolves to the French candidate (`context.place` Paris), and no Mapbox call carries a `country` filter."
+  - "Test: when the turn's city matches no candidate with the same postcode, `_postcode_match` keeps the order guess, then market, then Mapbox rank (the city step only narrows)."
 ---
 
 ## Launch prompt

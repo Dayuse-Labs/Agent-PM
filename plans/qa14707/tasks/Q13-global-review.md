@@ -28,6 +28,7 @@ definition_of_done:
   - "Point 9 (DQ8) also checks, with file:line, that the facade stores the request's `entry_market_country` after an ISO2 check, that the profile sends it in `profile_in`, and that the leaf reads it only as a tie-break in `_postcode_match`, never as the Mapbox `country` filter."
   - "Point 8 also checks, with file:line, that §3 of `reports/PLAN-LEAF-GEO-2026-10-08.md` describes the rank-independent mapping of `_place_args` (agents/hotel_search_agent/hotel_search_agent/geocode_tool.py) and that Q07's tests for `[station, city]` and `[city, station]` exist and are green."
   - "Point 9 also checks, with file:line, that a user-written city beats the zone place's inferred city (Q08's « Gare du Nord à Bruxelles » test), and that a city carried only by the EARLIER REQUEST prefix keeps the zone's own city first."
+  - "Point 9 (DQ8) also checks, with file:line, that `_postcode_match` applies the named-city step before the guess and the market, that this step only narrows, and that Q10's test of « 75009 Paris » without the anchor exists and is green."
 ---
 
 ## Launch prompt
