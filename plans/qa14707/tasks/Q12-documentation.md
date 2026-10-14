@@ -36,6 +36,8 @@ definition_of_done:
   - "The dated QA14707 block of `HANDOFF.md` documents the shape of `profile.pending_clarification` = `{clarification, request, asked}` (with the meaning of `asked`) as the model the port of #134 must conform to, citing `agents/b2c_concierge/b2c_concierge/profile.py`."
   - "The dated QA14707 block of `HANDOFF.md` lists, under remaining (H3), the live checks of the GeoIntent interface: the rates of valid=0, mentions_discarded and canonicals_rejected on the `dayuse_metric=geo_intent` lines, traces A and B, and the S5 flag on « gare de Lyon », citing `agents/hotel_search_agent/hotel_search_agent/geocode_tool.py`."
   - "The DQ8 country rule written in `reports/PLAN-LEAF-GEO-2026-10-08.md` §3, and the dated QA14707 block of `HANDOFF.md`, state where the market's country comes from: the request's `entry_market_country`, stored in the profile (Q16), then the locale region, then the language prior. They cite `_market_country` in `agents/hotel_search_agent/hotel_search_agent/geocode_tool.py`."
+  - "`reports/PLAN-LEAF-GEO-2026-10-08.md` §3 states the mapping as `_place_args` implements it (agents/hotel_search_agent/hotel_search_agent/geocode_tool.py): zone = the first place that is neither a city nor a hotel, a city place counts at any rank, and city precedence is the zone place's own city, then a city place, then the `city` field."
+  - "The dated QA14707 block of `HANDOFF.md` does not repeat that `places[1]` is used only when places[0] is a hotel or was discarded."
 ---
 
 ## Launch prompt
