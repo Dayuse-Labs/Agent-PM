@@ -31,6 +31,7 @@ definition_of_done:
   - "The existing geo tests (Budapest, La Défense, gare de Lyon, Saint-Paul, Manhattan, \"near 11580\") pass without change to their assertions."
   - "`MAX_LLM_CALLS_PER_TURN` is unchanged, and the diff adds no regex or word list."
   - "The report records the new field of the concierge-to-leaf data as a `decision` entry (name, location, consumer)."
+  - "The chosen option's region is read and applied inside the tool (`geocode_location` / `_fill_place_from_profile`, from `profile_in` or `query_params`), never as a new argument written by a before-tool callback. A test runs the leaf's real `geocode_location` FunctionTool with the region in the inbound DataPart and Mapbox mocked, and gets the chosen candidate."
 ---
 
 ## Launch prompt
