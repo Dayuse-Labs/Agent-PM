@@ -15,6 +15,7 @@ session OBS6 (qui possède les experiments, les évaluateurs et le gate CI), pas
 | `b2c-qa-2026-09-30.jsonl` | `b2c/qa-2026-09-30` | 10 — retours QA du 30/09 (mcp-dayuse#8), attendus calculés par code |
 | `b2c-dialogue-state.jsonl` | `b2c/dialogue-state` | 9 — état de dialogue multi-tours (mcp-dayuse#6) : critères conservés après une question, « oui » seul, créneau remplacé, affinage sans effet |
 | `b2c-geo-class-2026-10-06.jsonl` | `b2c/geo-class-2026-10-06` | 10 — classe géographique (mcp-dayuse#7) : hôtel nommé, quartier, homonyme |
+| `b2c-qa-14707-2026-10-14.jsonl` | `b2c/qa-14707-2026-10-14` | 11 — les 3 retours QA de Raphael (dayuse-com#14707) : 9 `target` (ville/adresse/code postal écrits dans le message, réponse à la question de ville en 1 tour, « je confirme » après une question) + 2 `regression_guard` (la ville est demandée, règle S5). Barre des rejeux live H1 (référence) et H3 (après la phase 3) |
 
 Import (crée les datasets hébergés + upsert des items, idempotent — les `id` sont déterministes) :
 
@@ -46,6 +47,23 @@ Un dataset absent fait échouer l'experiment ; il n'est pas recréé silencieuse
 }
 ```
 
+### Rejeu multi-tours (`evals/langfuse_experiment.py`, QA14707 DQ4)
+
+Le runner rejoue **chaque tour `user`** de `input.messages`, dans l'ordre, sur **une seule session**
+(même id de conversation), après avoir amorcé `input.profile` (une fois, avant le 1er tour rejoué).
+Les tours `assistant` enregistrés ne sont **pas** rejoués : les vraies réponses les remplacent — c'est
+le but (la question posée au tour 1 est celle à laquelle le tour 2 répond). Les évaluateurs notent la
+réponse au **dernier** tour ; celle de l'avant-dernier est exposée comme `previous_reply` (à défaut,
+pour un item à un seul tour `user`, le dernier tour `assistant` enregistré). Un échec de transport sur
+un tour intermédiaire arrête le rejeu : la réponse notée est alors cet échec.
+
+Les faits de trace (`expected_output.trace`) sont ceux de la trace du **dernier tour** : une trace par
+tour depuis OBS4, donc la plus récente de la session ; tant que la session n'a pas autant de traces que
+de tours rejoués, rien n'est rendu (l'export est asynchrone : on ne rend jamais les faits du tour
+précédent comme s'ils étaient ceux-ci). Les items à un seul tour lisent toute la session, comme avant.
+Les items multi-tours existants (`b2c-dialogue-state`, items `*-multiturn-*`) sont donc désormais
+réellement multi-tours : leur référence se refait (H1).
+
 `metadata.status` :
 - `target` — échoue AUJOURD'HUI (c'est le but : baseline avant fix, la barre à faire passer au vert).
 - `regression_guard` — passe aujourd'hui, ne doit jamais redescendre (guards S-G9/S-G11, R9…).
@@ -76,6 +94,7 @@ Pensé pour des évaluateurs Python déterministes (D-OBS-3), en deux niveaux.
 | `offers_on_date {month, day}` / `{days_ahead}` | chaque carte est une offre du jour demandé (prochaine occurrence, Europe/Paris) |
 | `no_iso_date_in_message` | aucune date ISO dans le texte (hors URL) |
 | `first_hotel_name_contains` | la 1re carte est l'hôtel nommé (sous-chaîne, sans casse) |
+| `reply_differs_from_previous` | la réponse au dernier tour n'est pas, mot pour mot (casse et blancs ignorés), la réponse au tour précédent (`previous_reply`) — « je confirme » ne rend pas la question du tour 1. `skipped` sans réponse précédente |
 
 **Niveau trace** (`expected_output.trace`) — nécessite la trace Langfuse du run (args réels des tools,
 route de triage). À brancher en évaluateur second temps (OBS6/OBS7) ; le réflexe consigné au HANDOFF :
@@ -87,6 +106,15 @@ route de triage). À brancher en évaluateur second temps (OBS6/OBS7) ; le réfl
 | `search_offers_args_absent [..]` | args qui ne doivent PAS être envoyés (non-invention) |
 | `expected_route` | `search_refinement` / `ack` / `faq` / `booking_confirmed` / `not_booking_confirmed` |
 | `expected_pick {pick, pick_position}` | slot PICKS du triage |
+| `geocode_city_needed` | le résultat de `geocode_location` (observation TOOL `geocode_location`, dernier appel du tour) est — ou n'est pas — la question « quelle ville ? » sans option (`geocode_ambiguous` sans candidat, statut `geocode_city_needed`). `skipped` si l'outil n'a pas été appelé |
+| `tools_not_called [..]` | aucun de ces outils inline du concierge n'a été appelé au dernier tour (`generate_booking_link`, `find_hotel_by_name`). Clé sur le nom EXACT de l'observation TOOL, `mcp-<outil>` (`inline_tools._call_tool`) : une observation sous un autre nom (le nom nu, par exemple) n'est pas un appel. `skipped` si aucune observation n'a été vue |
+| `clarify_options_from_geocoder [..]` | aucune option inventée : parmi les lieux listés (ceux qu'un modèle est tenté de proposer, ex. `["Paris", "Bruxelles"]`), chacun que la réponse nomme doit être un candidat renvoyé par le géocodeur (`geocode_location`, options) ou un mot de l'utilisateur. Signal faible (la réponse n'expose pas d'options structurées : c'est une recherche de texte sur les seuls noms listés). Sans aucun candidat (`geocode_city_needed`), aucun nom n'est permis. `skipped` si `geocode_location` n'a pas été appelé |
+
+Les faits de trace du harnais : `search_offers_args`, `geocode` (`ok`, `error`, `city_needed`, `options`,
+`country_code`), `tool_calls` (noms exacts des observations TOOL `mcp-*` ; `None` = aucune observation vue,
+`[]` = trace vue sans appel inline), `pick`, `family`, `route`. Ne pas asserter une route de triage pour
+un comportement d'outil (`_derive_route` déduit la route de la famille de triage, ce qui cessera d'être
+fidèle après Q05) : asserter sur ces faits.
 
 ## Esquisse d'évaluateurs (pour OBS6)
 
