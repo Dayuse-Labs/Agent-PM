@@ -433,8 +433,9 @@ class TestOrdinalSelection:
         profile = SessionProfile(last_results=self.SHORTLIST3)
         result = _run(inline_tools.generate_booking_link("9", profile, user_confirmed=False))
         assert result["ok"] is False
-        # it did try the name path (not silently swallowed as a bogus ordinal).
-        assert any(c[0] == "find_hotel_by_name" for c in session.calls)
+        # QA14707 (Q05): the booking path never asks MCP for the raw message —
+        # with no name from the triage, "9" reaches no name lookup at all.
+        assert not any(c[0] == "find_hotel_by_name" for c in session.calls)
 
 
 class TestGenerateBookingLinkR9:
@@ -734,7 +735,9 @@ class TestQuotesTheOfferTheUserSaw:
             },
         )
         profile = SessionProfile(last_results=self.SHOWN, date="2026-07-28")
-        result = _run(inline_tools.generate_booking_link("Moxy", profile, user_confirmed=False))
+        result = _run(inline_tools.generate_booking_link(
+            "Moxy", profile, user_confirmed=False, llm_hotel_name="Moxy",
+        ))
         assert result["ok"] is True
         details_call = next(c for c in session.calls if c[0] == "get_hotel_details")
         assert details_call[1] == {"hotelId": 99001, "date": "2026-07-28"}

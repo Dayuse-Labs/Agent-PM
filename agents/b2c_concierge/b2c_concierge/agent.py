@@ -159,6 +159,7 @@ from .profile import (
     advance_search_cursor,
     apply_profile_delta,
     build_hotel_picks,
+    chosen_clarification_option,
     extract_final_question,
     is_bare_affirmative,
     is_booking_confirmation_signal,
@@ -1227,12 +1228,15 @@ class _B2cConcierge(BaseAgent):
             profile.pending_clarification if isinstance(profile.pending_clarification, dict) else None
         )
         earlier = pending or pending_clar  # what the last turn left open
-        answers_pending = earlier is not None and is_bare_affirmative(message)
+        # Q05: with a place question pending, whether the message answers it
+        # is the triage's call (`answers_pending`), read from the state — the
+        # zero-LLM fast path never decides it, whatever the words.
         if (
             is_social_ack(message)
             and not refinement_signal
             and not booking_signal
-            and not answers_pending
+            and pending_clar is None
+            and not (pending is not None and is_bare_affirmative(message))
         ):
             self._emit_turn_metric("ack", "template:ack", budget, t_start, "ok", inv)
             # S-CX2 (audit F5): a bare "ok" carries no language signal — the
@@ -1349,8 +1353,33 @@ class _B2cConcierge(BaseAgent):
         ):
             profile.language = triage.language
 
+        # QA14707 (Q05, trace C2): « Je confirme » answering a city question
+        # was triaged booking, reached generate_booking_link, then
+        # find_hotel_by_name("Je confirme"). The answer to a pending place
+        # question goes back to the search with the request it completes —
+        # ahead of every pick, ordinal and booking reading of the message.
+        # Only a real booking signal (an offer pending, R9) goes first. And a
+        # booking needs something to book: with no offer and no list on
+        # screen, a message triaged booking answers the question instead.
+        answers_clarification = pending_clar is not None and clicked_id is None and (
+            triage.answers_pending == "yes"
+            or (family == "booking" and not profile.pending_booking and not profile.last_results)
+        )
         if booking_signal:
             family, route = "booking", ROUTES["booking"]
+        elif answers_clarification:
+            family, route = "search", ROUTES["search"]
+            picked = None  # "le 2" chose an option of the question, not a card
+            # An option chosen by its number: code resolves its city from the
+            # state and the leaf's carry-over (`inject_profile_geo_context`)
+            # fills it into geocode_location — with the option's country, so
+            # a homonym does not come back ambiguous.
+            option = chosen_clarification_option(pending_clar, triage.answer_option)
+            if option is not None:
+                profile.city = option["city"]
+                profile.country_anchor = option.get("country_code")
+                profile.state_anchor = profile.zone = profile.metro = None
+                profile.search_anchor = None
         elif named_choice is not None:
             family, route = "search", ROUTES["search"]
         elif picked is not None:
@@ -1365,7 +1394,7 @@ class _B2cConcierge(BaseAgent):
                 if family == "booking" or clicked_id is not None
                 else ("details", ROUTES["details"])
             )
-        elif resolve_shortlist_ordinal(message, profile.last_results) is not None:
+        elif pending_clar is None and resolve_shortlist_ordinal(message, profile.last_results) is not None:
             # A bare list position ("2") replying to the numbered shortlist is a
             # hotel PICK, not a new search — route it to the booking flow, which
             # resolves it from the shortlist. Without this, a lone digit
@@ -1375,11 +1404,12 @@ class _B2cConcierge(BaseAgent):
             family, route = "search", ROUTES["search"]
         elif (
             family == "ack"
-            and earlier is not None
-            and (earlier.get("request") or is_bare_affirmative(message, triage.affirmative))
+            and pending is not None
+            and (pending.get("request") or is_bare_affirmative(message, triage.affirmative))
         ):
             # mcp-dayuse#6: the short reply to the last search turn's question
-            # ("oui", "Monaco") goes back to the search with that context.
+            # ("oui", "Monaco") goes back to the search with that context. A
+            # place question is decided above, by `answers_pending`.
             family, route = "search", ROUTES["search"]
         # Consumed by this turn, whatever it does: only the very next reply
         # answers a question.
