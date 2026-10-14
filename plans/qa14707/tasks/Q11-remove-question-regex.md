@@ -28,6 +28,9 @@ definition_of_done:
   - "The tests of mcp-dayuse#6 (\"piscine < 150 € demain 14h-18h\" then \"Lyon\" keeps everything; \"oui\" answers the question) pass without change to their assertions."
   - "`git grep -n pending_place -- agents libs` returns nothing, or the reader that remains is noted in a `debt` entry."
   - "No new regex or word list in the diff."
+  - "Test: when the answer to a pending clarification takes the search route, `pending_clarification` is None after the turn, so the same question asked again later starts at `asked = 1`."
+  - "Test: `next_pending_clarification` with an `earlier` slot whose `asked` is missing or not an integer (a profile written by another writer) does not raise and counts from 1."
+  - "Test: after a third ask (`last_clarifying_question` None, `pending_clarification` kept), a reply naming a city takes the search route with the pending request in the leaf's context. A fake triage `{\"family\":\"booking\",\"booking_confirmation\":\"confirm\"}` with no pending offer calls neither `generate_booking_link` nor `find_hotel_by_name`."
 ---
 
 ## Launch prompt

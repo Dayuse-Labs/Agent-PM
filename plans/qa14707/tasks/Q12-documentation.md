@@ -33,6 +33,7 @@ definition_of_done:
   - "`phases/SL2…`, `SL5…` and `SL7…` carry a banner saying what this plan delivered in their place (Q06, Q07, Q09-Q11), and their rows have up-to-date statuses."
   - "`SESSIONS-CLAUDE-CODE.md`: the S-L section points to this plan."
   - "The dated QA14707 block of `HANDOFF.md` states that the eval `clarify_options_from_geocoder` is a weak live signal (listed place names only), and that the exact guarantee is Q04's offline rendering tests, citing their test file."
+  - "The dated QA14707 block of `HANDOFF.md` documents the shape of `profile.pending_clarification` = `{clarification, request, asked}` (with the meaning of `asked`) as the model the port of #134 must conform to, citing `agents/b2c_concierge/b2c_concierge/profile.py`."
 ---
 
 ## Launch prompt
