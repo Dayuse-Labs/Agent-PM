@@ -17,6 +17,8 @@ informal except pt which stays formal — pt-PT, not pt-BR) and the vocabulary
 """
 from __future__ import annotations
 
+from b2c_common.clarification import Clarification
+
 
 def _pick(language: str, table: dict[str, str]) -> str:
     """Language-table lookup with an EN fallback (`table["en"]` must always be
@@ -573,6 +575,102 @@ def named_hotel_ambiguous_response(
         for c in candidates
     )
     return _pick(language, _NAMED_AMBIGUOUS).format(name=name, options=options)
+
+
+# QA14707 (decision DQ2): a question about a place is rendered here, from the
+# search leaf's `Clarification`, and never by the synthesis. The only words
+# that vary are the object's own `subject` and option `label`s, so no option
+# the geocoder did not return can reach the user (the synthesis invented
+# « Bruxelles » and « Versailles (78) » on trace C1). Three steps when the
+# SAME question (same kind, same subject) comes back on the following turns:
+# the question, then a reworded one, then no question at all.
+
+#: How many turns in a row the same place question is asked; the next one
+#: answers without a question.
+CLARIFICATION_MAX_ASKS = 2
+
+_CLARIFY_CITY_NEEDED: dict[str, str] = {
+    "fr": "Près de « {subject} », dans quelle ville cherchez-vous ?",
+    "en": "Near \"{subject}\" — in which city are you looking?",
+    "es": "Cerca de «{subject}», ¿en qué ciudad buscas?",
+    "it": "Vicino a «{subject}», in quale città stai cercando?",
+    "de": "In der Nähe von „{subject}“ – in welcher Stadt suchst du?",
+    "pt": "Perto de «{subject}», em que cidade procura?",
+    "nl": "In de buurt van \"{subject}\" – in welke stad zoek je?",
+}
+
+_CLARIFY_CITY_NEEDED_AGAIN: dict[str, str] = {
+    "fr": "Je ne peux pas situer « {subject} » sans la ville. Répondez simplement par le nom "
+    "de la ville : un seul mot suffit.",
+    "en": "I can't place \"{subject}\" without the city. Just reply with the city's name: "
+    "one word is enough.",
+    "es": "No puedo situar «{subject}» sin la ciudad. Responde solo con el nombre de la "
+    "ciudad: basta una palabra.",
+    "it": "Non riesco a individuare «{subject}» senza la città. Rispondi solo con il nome "
+    "della città: basta una parola.",
+    "de": "Ohne die Stadt kann ich „{subject}“ nicht finden. Antworte einfach mit dem Namen "
+    "der Stadt: Ein Wort genügt.",
+    "pt": "Não consigo situar «{subject}» sem a cidade. Responda apenas com o nome da "
+    "cidade: basta uma palavra.",
+    "nl": "Zonder de stad kan ik \"{subject}\" niet vinden. Antwoord gewoon met de naam van "
+    "de stad: één woord is genoeg.",
+}
+
+_CLARIFY_HOMONYM: dict[str, str] = {
+    "fr": "Plusieurs lieux s'appellent « {subject} ». Lequel voulez-vous dire ?",
+    "en": "Several places are called \"{subject}\". Which one do you mean?",
+    "es": "Hay varios lugares llamados «{subject}». ¿Cuál quieres decir?",
+    "it": "Ci sono diversi luoghi chiamati «{subject}». Quale intendi?",
+    "de": "Mehrere Orte heißen „{subject}“. Welchen meinst du?",
+    "pt": "Há vários lugares chamados «{subject}». Qual deles quer dizer?",
+    "nl": "Er zijn meerdere plaatsen die \"{subject}\" heten. Welke bedoel je?",
+}
+
+_CLARIFY_HOMONYM_AGAIN: dict[str, str] = {
+    "fr": "Il me faut encore savoir de quel « {subject} » il s'agit. Voici ceux que j'ai trouvés :",
+    "en": "I still need to know which \"{subject}\" you mean. These are the ones I found:",
+    "es": "Todavía necesito saber a qué «{subject}» te refieres. Estos son los que encontré:",
+    "it": "Devo ancora sapere quale «{subject}» intendi. Ecco quelli che ho trovato:",
+    "de": "Ich muss noch wissen, welches „{subject}“ du meinst. Diese habe ich gefunden:",
+    "pt": "Ainda preciso de saber a que «{subject}» se refere. Estes são os que encontrei:",
+    "nl": "Ik moet nog weten welk \"{subject}\" je bedoelt. Deze heb ik gevonden:",
+}
+
+_CLARIFY_GIVE_UP: dict[str, str] = {
+    "fr": "Je n'arrive toujours pas à situer « {subject} », alors je ne vous repose pas la "
+    "question. Indiquez-moi simplement une ville et je lance la recherche avec le reste de "
+    "votre demande.",
+    "en": "I still can't place \"{subject}\", so I won't ask again. Just name a city and I'll "
+    "run the search with the rest of your request.",
+    "es": "Sigo sin poder situar «{subject}», así que no te lo vuelvo a preguntar. Dime "
+    "simplemente una ciudad y lanzo la búsqueda con el resto de tu petición.",
+    "it": "Non riesco ancora a individuare «{subject}», quindi non te lo richiedo. Dimmi "
+    "semplicemente una città e avvio la ricerca con il resto della tua richiesta.",
+    "de": "Ich kann „{subject}“ immer noch nicht zuordnen, deshalb frage ich nicht noch "
+    "einmal. Nenn mir einfach eine Stadt, und ich starte die Suche mit dem Rest deiner Anfrage.",
+    "pt": "Continuo sem conseguir situar «{subject}», por isso não volto a perguntar. "
+    "Indique-me simplesmente uma cidade e lanço a pesquisa com o resto do seu pedido.",
+    "nl": "Ik kan \"{subject}\" nog steeds niet plaatsen, dus ik vraag het niet nog een keer. "
+    "Noem gewoon een stad en ik start de zoekopdracht met de rest van je vraag.",
+}
+
+
+def clarification_response(clarification: Clarification, language: str, asked: int = 1) -> str:
+    """The place question of the search leaf, in the conversation's language.
+
+    `asked` is how many turns in a row this same question has come back
+    (1 = first time). Past `CLARIFICATION_MAX_ASKS` there is no question any
+    more: the answer offers to search by city instead. Options are listed one
+    per line, numbered in the object's order, each exactly its `label`."""
+    subject = clarification.subject
+    if asked > CLARIFICATION_MAX_ASKS:
+        return _pick(language, _CLARIFY_GIVE_UP).format(subject=subject)
+    if clarification.kind == "city_needed":
+        table = _CLARIFY_CITY_NEEDED if asked == 1 else _CLARIFY_CITY_NEEDED_AGAIN
+        return _pick(language, table).format(subject=subject)
+    table = _CLARIFY_HOMONYM if asked == 1 else _CLARIFY_HOMONYM_AGAIN
+    lines = [f"{n}. {option.label}" for n, option in enumerate(clarification.options, start=1)]
+    return "\n".join([_pick(language, table).format(subject=subject), *lines])
 
 
 _NAMED_NOT_OFFERED: dict[str, str] = {

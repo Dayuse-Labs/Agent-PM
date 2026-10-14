@@ -69,6 +69,7 @@ keeps everything else (date/timeslot/budget/amenities) — the audit's
 """
 from __future__ import annotations
 
+import json
 import logging
 import re
 from dataclasses import MISSING, dataclass, field
@@ -278,6 +279,12 @@ class SessionProfile:
     # mcp-dayuse#7: a homonym the last turn asked about (« which Manhattan? »)
     # with the options offered, so the answer completes it. Next search only.
     pending_place: dict[str, Any] | None = None
+    # QA14707 (Q04): the place question the search leaf asked instead of
+    # searching, for the very next turn — {"clarification": the leaf's
+    # `Clarification` as a dict, "request": the user's own words not searched
+    # yet, "asked": how many turns in a row this same question came back}.
+    # Concierge-owned; replaces `pending_search` on that path.
+    pending_clarification: dict[str, Any] | None = None
     # PORT1 slice 3: the triage's grounded budget {amount, currency, unit}
     # (b2c_common.search_budget). None = never checked (legacy leaf-owned
     # `budget_max`), {} = checked and no cap. Concierge-owned: a leaf delta
@@ -341,6 +348,7 @@ class SessionProfile:
             "pending_search": self.pending_search,
             "named_candidates": self.named_candidates,
             "pending_place": self.pending_place,
+            "pending_clarification": self.pending_clarification,
             "requested_budget": self.requested_budget,
             "price_comparison": self.price_comparison,
             "room_requirements": self.room_requirements,
@@ -376,6 +384,7 @@ _CONCIERGE_ONLY_KEYS = (
     "requested_currency",
     "search_page",
     "pending_search",
+    "pending_clarification",  # the leaf gets it on the answer turn, in query_params
     "named_candidates",
     "pending_party_total",  # the leaf gets it as query_params.party_total
 )
@@ -1012,6 +1021,48 @@ def pending_search_context(pending: dict[str, Any] | None) -> str | None:
     if not lines:
         return None
     return "\n".join([*lines, "REPLY:"])
+
+
+# --- Pending clarification (QA14707, Q04) --------------------------------
+
+
+def _same_question(a: Any, b: dict[str, Any]) -> bool:
+    """Same place question: same kind, same subject (case and spacing apart)."""
+    if not isinstance(a, dict):
+        return False
+    subject_a = " ".join(str(a.get("subject") or "").split()).casefold()
+    subject_b = " ".join(str(b.get("subject") or "").split()).casefold()
+    return a.get("kind") == b.get("kind") and subject_a == subject_b
+
+
+def next_pending_clarification(
+    earlier: dict[str, Any] | None, message: str, clarification: dict[str, Any]
+) -> dict[str, Any]:
+    """What a turn that asked a place question leaves for the next one.
+
+    `earlier` is what the previous turn left open (`pending_search` or
+    `pending_clarification`): its request is accumulated with this message,
+    as `next_pending_search` does, and `asked` counts the turns in a row that
+    asked this same question — the state the anti-loop reads, never the text."""
+    request = (next_pending_search(earlier, message, False, None) or {}).get("request")
+    asked = 1
+    if earlier and _same_question(earlier.get("clarification"), clarification):
+        asked = int(earlier.get("asked") or 1) + 1
+    return {"clarification": clarification, "request": request, "asked": asked}
+
+
+def pending_clarification_context(pending: dict[str, Any] | None) -> str | None:
+    """The text placed before the user's answer to a place question: the
+    request not searched yet and the question as the leaf sent it (data, not
+    a paraphrase), so the leaf re-reads the date, slot and budget from the
+    user's own words."""
+    if not pending:
+        return None
+    clarification = pending.get("clarification")
+    return pending_search_context({
+        "request": pending.get("request"),
+        "question": json.dumps(clarification, ensure_ascii=False) if clarification else None,
+    })
 
 
 def _timeslot_label(profile: SessionProfile) -> str | None:
