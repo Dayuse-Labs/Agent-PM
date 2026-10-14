@@ -16,6 +16,12 @@ Two entry points:
   bbox, rank). v6 returns NO numeric relevance score for place features (probed
   live 2026-07-23 — `match_code`/`confidence` are address-only), so list
   position is the only relevance proxy the API hands us; the ranking is ours.
+
+QA14707 (Q08): a candidate also carries its `context.postcode` and
+`context.place` names, and an address its `match_code.confidence`. The
+postcode rule (`geocode_tool._postcode_match`, decision DQ8) compares these
+structured fields; it never reads the postcode out of free text. Their shape is
+the one of the real v6 responses in `tests/fixtures/mapbox_v6/` (DQ9).
 """
 from __future__ import annotations
 
@@ -34,6 +40,10 @@ GEOCODE_URL = "https://api.mapbox.com/search/geocode/v6/forward"
 # live) and state-type destinations survive tier-1 (POIs stay Search-Box turf).
 DEFAULT_TYPES = "place,locality,neighborhood"
 CANDIDATE_TYPES = "place,locality,neighborhood,district,region"
+# QA14707 (Q08): the two lookups of a postcode the user wrote — an address or a
+# street with its postcode, and a postcode alone.
+ADDRESS_TYPES = "address,street"
+POSTCODE_TYPES = "postcode"
 
 # Mapbox v6 default limit is already 5; 10 is its documented max — the old
 # limit=1 threw away candidates the API returns for free.
@@ -58,7 +68,12 @@ class GeocodeCandidate:
     deterministic `geo_resolver` re-ranks on. `place_name` (full_address) is
     kept for the echo-back sanity check on the CHOSEN candidate; `place_formatted`
     (the context without the name — "British Columbia, Canada") is the ready-made
-    clarify-question label."""
+    clarify-question label.
+
+    `postcode` and `place` are the names of the candidate's `context.postcode`
+    and `context.place` ("75009", "Paris"), empty when Mapbox gives none.
+    `match_confidence` is `match_code.confidence` ("exact", "high", "medium",
+    "low"), which v6 sends for an address only: empty for anything else."""
 
     latitude: float
     longitude: float
@@ -70,6 +85,9 @@ class GeocodeCandidate:
     region: str
     bbox: tuple[float, float, float, float] | None
     rank: int
+    postcode: str = ""
+    place: str = ""
+    match_confidence: str = ""
 
     def as_result(self) -> GeocodeResult:
         return GeocodeResult(
@@ -254,6 +272,7 @@ class MapboxClient:
             if isinstance(raw_bbox, (list, tuple)) and len(raw_bbox) == 4:
                 bbox = (float(raw_bbox[0]), float(raw_bbox[1]), float(raw_bbox[2]), float(raw_bbox[3]))
             name = str(props.get("name") or "")
+            match_code = props.get("match_code") or {}
             out.append(
                 GeocodeCandidate(
                     latitude=lat,
@@ -266,6 +285,9 @@ class MapboxClient:
                     region=str(region_ctx.get("name") or region_ctx.get("region_code") or ""),
                     bbox=bbox,
                     rank=rank,
+                    postcode=str((context.get("postcode") or {}).get("name") or ""),
+                    place=str((context.get("place") or {}).get("name") or ""),
+                    match_confidence=str(match_code.get("confidence") or ""),
                 )
             )
         return out
