@@ -54,7 +54,13 @@ from hotel_search_agent.geo_guards import (
     select_us_postal_anchor,
 )
 from hotel_search_agent.inventory import get_inventory, haversine_km
-from hotel_search_agent.mapbox_client import GeocodeCandidate, GeocodeResult, MapboxClient
+from hotel_search_agent.mapbox_client import (
+    ADDRESS_TYPES,
+    POSTCODE_TYPES,
+    GeocodeCandidate,
+    GeocodeResult,
+    MapboxClient,
+)
 from hotel_search_agent.response_bridge import read_input_text, read_profile_in, read_user_words
 from hotel_search_agent.searchbox_client import SearchBoxClient
 
@@ -144,6 +150,58 @@ def _soft_country(
     NAME, so a perfect name match in the wrong country sails through it (M4).
     A country scope is the only signal that separates those two."""
     return named or _iso2(guess) or _locale_country(locale)
+
+
+def _market_country(locale: str | None) -> str | None:
+    """The market's country, the last tie-break of a postcode (DQ8): the
+    region of the client's locale tag ("en-US" -> "US", "pt-PT" -> "PT"),
+    else the language prior above. A bare "en" names no country, so it gives
+    none — the tag's structure is read, never a word."""
+    parts = (locale or "").replace("_", "-").split("-")
+    region = _iso2(parts[1]) if len(parts) > 1 else None
+    return region or _locale_country(locale)
+
+
+def _postcode_match(
+    candidates: list[GeocodeCandidate],
+    postal_code: str,
+    *,
+    city: str | None,
+    guess: str | None,
+    market: str | None,
+) -> GeocodeCandidate | None:
+    """The candidate a postcode the user wrote designates, or None (DQ8).
+
+    Only a candidate whose `context.postcode` equals the written code is
+    kept: an equality of structured fields, so a geocoder fuzz to another
+    postcode (« 2 Rue Poissonnière, 75002 ») is refused outright. The same
+    code exists in several countries (75009: Paris and Celina, Texas), so
+    among those left: one in the city the user named, if any is, then the
+    country the model guessed, then the market's country, then Mapbox's own
+    order. The guess and the market only break a tie, they never filter: a
+    country the user NAMED is the one hard filter, applied by Mapbox itself.
+
+    The named city goes first because it is the user's own word, stronger
+    than both a guess and a market (« 75009 Paris » on a US market is Paris)."""
+    wanted = _comparable(postal_code)
+    same = [c for c in candidates if wanted and _comparable(c.postcode) == wanted]
+    if city:
+        in_city = [c for c in same if _comparable(c.place) == _comparable(city)]
+        same = in_city or same
+    if not same:
+        return None
+    return min(
+        same,
+        key=lambda c: (c.country_code != guess, c.country_code != market, c.rank),
+    )
+
+
+def _with_postcode(zone: str, postal_code: str) -> str:
+    """« 2 Boulevard Poissonnière » + « 75009 » -> one address query; the code
+    is not appended twice when the zone already holds it."""
+    if f" {_comparable(postal_code)} " in f" {_comparable(zone)} ":
+        return zone
+    return f"{zone} {postal_code}"
 
 
 def _echoes(place_name: str, *, city: str | None, zone: str | None, state_hint: str | None) -> bool:
@@ -470,6 +528,8 @@ def geocode_core(
     proximity_lon: float | None = None,
     country_guess: str | None = None,
     region_named: str | None = None,
+    postal_code: str | None = None,
+    zone_kind: str | None = None,
 ) -> dict:
     """Resolve a destination to coordinates for `search_offers`, guarded — the
     deterministic pipeline behind the `geocode_location` tool.
@@ -566,6 +626,19 @@ def geocode_core(
             free-text tier must skip, "OR"/"ME"/"IN", are safe), and it is
             ignored whenever a country other than the US is in play: "WA" is
             Western Australia as well as Washington.
+        postal_code: A postcode the user wrote (`GeoIntent` `places[].postal_code`,
+            checked against the message), QA14707 Q08. It is resolved by the
+            geocoder before anything else, under DQ8's country rule
+            (`_postcode_match`): `country_code` is the only hard filter, then
+            `context.postcode` equality, then the named city, the guess and the
+            market break ties. An address or a street (`zone_kind`) is looked up
+            with its postcode and searched around; a postcode alone is searched
+            around its own centroid; with any other zone, the postcode's city
+            (`context.place`) is the city the zone is searched in — so a
+            postcode is enough to never ask which city. While a postcode is in
+            play, the US-ZIP anchor below stays out of the way.
+        zone_kind: The `GeoIntent` kind of the place `zone` came from
+            ("address", "street", "station", ...), or None.
 
     Returns a dict — NEVER raises. On success:
         {"ok": True, "latitude", "longitude", "resolved_place",
@@ -616,6 +689,94 @@ def geocode_core(
     # other a hard filter, and conflating them would turn a model guess into a
     # candidate filter — exactly what the doctrine forbids.
     guess_iso = _iso2(country_guess)
+
+    # QA14707 (Q08, DQ8): a postcode the user wrote is resolved first, from the
+    # geocoder's own fields. Trace C, « près du 2 boulevard Poissonnière 75009 »:
+    # the code was thrown away and the user was asked which city.
+    postal = (postal_code or "").strip()
+    if postal:
+        market = _market_country(locale)
+        mapbox = get_mapbox_client()
+        if effective_zone and zone_kind in ("address", "street"):
+            address = _postcode_match(
+                mapbox.geocode_candidates(
+                    _with_postcode(effective_zone, postal),
+                    country=country_code,
+                    language=lang,
+                    proximity=proximity_str,
+                    types=ADDRESS_TYPES,
+                ),
+                postal,
+                city=effective_city,
+                guess=guess_iso,
+                market=market,
+            )
+            # Mapbox grades an address match itself: a "low" one matched the
+            # postcode, not the street. The echo guard checks the name, as on
+            # every other path.
+            if (
+                address is not None
+                and address.match_confidence != "low"
+                and _echoes(address.place_name, city=None, zone=effective_zone, state_hint=None)
+            ):
+                return _ok(
+                    address.as_result(),
+                    feature_type=address.feature_type,
+                    profile_delta=_anchor_state(
+                        city=address.place or effective_city,
+                        raw_user_message=raw_user_message,
+                        profile_state_context=profile_state_context,
+                        profile_location_hint=profile_location_hint,
+                        guards_fired=guards_fired,
+                    ),
+                    distance_origin_type="poi",
+                    # Mapbox's own name of the address, without its postcode:
+                    # the zone carried to the next turn never holds a bare code.
+                    zone=address.name or effective_zone,
+                    metro=effective_metro,
+                    guards_fired=guards_fired,
+                )
+        area = _postcode_match(
+            mapbox.geocode_candidates(
+                " ".join(part for part in (postal, effective_city) if part),
+                country=country_code,
+                language=lang,
+                proximity=proximity_str,
+                types=POSTCODE_TYPES,
+            ),
+            postal,
+            city=effective_city,
+            guess=guess_iso,
+            market=market,
+        )
+        if area is not None and not effective_zone:
+            # « dans le 75009 »: the postcode is the place. Its centroid, its
+            # city; no zone persisted, since a carried bare code would come back
+            # next turn without the postcode rule.
+            return _ok(
+                area.as_result(),
+                feature_type=area.feature_type,
+                profile_delta=_anchor_state(
+                    city=area.place or effective_city,
+                    raw_user_message=raw_user_message,
+                    profile_state_context=profile_state_context,
+                    profile_location_hint=profile_location_hint,
+                    guards_fired=guards_fired,
+                ),
+                distance_origin_type="city_centroid",
+                metro=effective_metro,
+                guards_fired=guards_fired,
+            )
+        if area is not None:
+            # Any other zone (a station, or an address the lookup above did not
+            # confirm) is searched as before, in the postcode's city: that city
+            # counts as named, so the city question below never fires for it.
+            effective_city = effective_city or area.place or None
+            guess_iso = guess_iso or _iso2(area.country_code)
+        elif not (effective_zone or effective_city or effective_metro):
+            # Nothing else to search: an honest miss. Never the device fix in
+            # place of a postcode the user wrote (Gate 3).
+            return _fail("geocode_no_match", {"query": postal}, guards_fired)
 
     if zone_is_specific and not effective_city and not effective_metro and proximity_tuple is None:
         effective_city = _city_named_in_message(
@@ -760,9 +921,11 @@ def geocode_core(
     # evidence than trusting the model to also extract country_code — without
     # this, an unscoped ZIP can geocode worldwide (prod bug: "near 11580"
     # resolved outside the US). Only fills the gap when the model gave no
-    # country signal at all; an explicit country_code always wins.
+    # country signal at all; an explicit country_code always wins. QA14707
+    # (Q08): nor when the user's postcode was extracted — DQ8's rule above has
+    # decided its country, and this one reads 75009 as a US ZIP.
     effective_country_code = country_code
-    if not effective_country_code and select_us_postal_anchor(
+    if not effective_country_code and not postal and select_us_postal_anchor(
         raw_user_message, effective_city, effective_zone, effective_metro
     ):
         effective_country_code = "US"
@@ -1076,7 +1239,15 @@ def _fill_place_from_profile(args: dict, profile_in: dict) -> None:
     QA14707 (Q07): applied by `geocode_location` right after it maps the
     model's `GeoIntent`, no longer by the before-tool callback. These four are
     not tool arguments any more, and ADK drops any key a tool does not
-    declare, so a callback could only ever fill what the model sees."""
+    declare, so a callback could only ever fill what the model sees.
+
+    QA14707 (Q08): a postcode written this turn names a new place by itself, so
+    nothing of the earlier one is carried onto it: not the zone (it would be
+    searched instead of the postcode), not the city (it would outrank the
+    postcode's own city and bias its lookup), and not the country, a HARD
+    filter, while DQ8 keeps only a country the user named as one."""
+    if not _is_blank(args.get("postal_code")):
+        return
     _complete_pending_place(args, profile_in.get("pending_place"))
     if _is_blank(args.get("city")) and profile_in.get("city"):
         args["city"] = profile_in["city"]
@@ -1173,6 +1344,17 @@ class _Claims:
             self.mentions_discarded += 1
         return False
 
+    def written(self, value: str | None) -> str | None:
+        """A value the model reports as written (a postcode), kept only when it
+        is in the input text, whole words — the same check as a mention."""
+        text = (value or "").strip()
+        claim = _comparable(text)
+        if claim and f" {claim} " in self._said:
+            return text
+        if text:
+            self.mentions_discarded += 1
+        return None
+
     def country(self, value: str | None) -> str | None:
         """Every country value goes through `_iso2` before it becomes a hard
         filter or a soft hint: "fr" -> "FR"; a name, an alpha-3 code or noise
@@ -1242,7 +1424,10 @@ def _place_args(
     - `ambiguity.reason == "city_needed"` (DQ6, the S5 rule): no city at all,
       so `geocode_core` asks which one — the code decides the question, the
       model only flags it. `homonym` and `too_vague` are logged, not mapped:
-      the geocoder keeps deciding homonyms.
+      the geocoder keeps deciding homonyms;
+    - a `postal_code` (Q08), from the zone place else a city place, checked
+      against the message → `postal_code`, with the zone place's kind as
+      `zone_kind`: `geocode_core` resolves it under DQ8's country rule.
 
     A place or a city whose mention is not in the message is dropped first.
     A hotel is never a zone (it has its own path, `find_hotel_by_name`).
@@ -1252,7 +1437,22 @@ def _place_args(
     # places, in either order, must lose neither Paris (the city question of
     # trace A again) nor the station (a city-wide search).
     zone_place = next((p for p in places if p.kind not in ("city", "hotel")), None)
-    cities: list[Place | CityRef] = [p for p in places if p.kind == "city"]
+    city_places = [p for p in places if p.kind == "city"]
+    # Q08: the postcode the user wrote, read from the zone place first, then
+    # from a city place (« 13001 marseille »), and checked against the message
+    # like a mention. A place that is nothing but that code (« dans le 75009 »)
+    # is neither a zone nor a city: the postcode lookup resolves it.
+    postal_place = next(
+        (p for p in [zone_place, *city_places] if p is not None and (p.postal_code or "").strip()),
+        None,
+    )
+    postal_code = claims.written(postal_place.postal_code) if postal_place is not None else None
+
+    def only_the_code(ref: Place) -> bool:
+        code = _comparable(postal_code or "")
+        return bool(code) and code in (_comparable(ref.mention), _comparable(ref.canonical))
+
+    cities: list[Place | CityRef] = [p for p in city_places if not only_the_code(p)]
     if geo.city is not None and claims.anchored(geo.city):
         cities.append(geo.city)
     named = claims.country(geo.country_named)
@@ -1274,7 +1474,7 @@ def _place_args(
 
     zone: str | None = None
     city: str | None = None
-    if zone_place is not None:
+    if zone_place is not None and not only_the_code(zone_place):
         zone = (zone_place.canonical or zone_place.mention).strip() or None
     if not city_needed:
         inferred = (zone_place.city or "").strip() if zone_place is not None else ""
@@ -1285,6 +1485,8 @@ def _place_args(
         "country_code": named,
         "country_guess": guess,
         "region_named": (geo.region_named or "").strip() or None,
+        "postal_code": postal_code,
+        "zone_kind": zone_place.kind if zone and zone_place is not None else None,
     }
 
 
