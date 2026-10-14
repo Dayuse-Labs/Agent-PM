@@ -127,4 +127,12 @@ Notes on these commands:
 - **Shell**: in the user's shell, `cat` is an alias for `bat`, so use `command cat` or Read. Watch zsh's `$S:t` and `echo =====` (HANDOFF PORT1).
 - **Data never touched, read or committed**: `.env`, `baseline/`, `dayuse_eval_pack/data/`, `.run-logs/`, `evals/reports/`. The eval cases are synthetic, or Raphael's test sentences.
 
+- **Mapbox v6 fixtures (H5)**, in `agents/hotel_search_agent/tests/fixtures/mapbox_v6/` (recorded 2026-10-14, no `country` filter, `limit=10`, `autocomplete=false`). They show what Q08 and Q10 must handle:
+  - `address_2_bd_poissonniere_75009.json`, 9 candidates:
+    - the 1st is the right one: `2 Boulevard Poissonnière`, `context.postcode=75009`, `context.place=Paris`, FR, `match_code.confidence=high`;
+    - no other candidate has 75009 (they have 75002, 92230, BE and CA codes). The postcode equality alone isolates the right one.
+  - `postcode_75009.json`: Paris FR, then **Celina US**, then UA and EE. This is the FR/US tie of DQ8.
+  - `postcode_11580.json`: **Mexico City MX first**, then Valley Stream US, then ES, UA and FR. Mapbox's ranking alone would send "near 11580" to Mexico, so the tie-break (the LLM's guess, then the market) is what keeps the US case (DQ8, Q10).
+  - `postcode_13001_marseille.json`: Marseille FR first, then PE, ES, TR, UA and KR.
+
 ## Context recommendations (end of run)
