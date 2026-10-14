@@ -530,6 +530,7 @@ def geocode_core(
     region_named: str | None = None,
     postal_code: str | None = None,
     zone_kind: str | None = None,
+    region_chosen: str | None = None,
 ) -> dict:
     """Resolve a destination to coordinates for `search_offers`, guarded — the
     deterministic pipeline behind the `geocode_location` tool.
@@ -639,6 +640,13 @@ def geocode_core(
             play, the US-ZIP anchor below stays out of the way.
         zone_kind: The `GeoIntent` kind of the place `zone` came from
             ("address", "street", "station", ...), or None.
+        region_chosen: The region of the homonym option the user picked by
+            its number (QA14707 Q14, `profile_in.region_anchor`, filled by
+            `_fill_place_from_profile`). It narrows the candidates Mapbox
+            returned to those whose `context.region` is that region — a
+            structured equality, applied only when it keeps at least one and
+            no state is in play this turn. Never a query term, never a
+            coordinate: « Springfield » option 2 is the Missouri candidate.
 
     Returns a dict — NEVER raises. On success:
         {"ok": True, "latitude", "longitude", "resolved_place",
@@ -947,6 +955,14 @@ def geocode_core(
     candidates = get_mapbox_client().geocode_candidates(
         query, country=effective_country_code, language=lang, proximity=proximity_str
     )
+    # QA14707 (Q14): the option the user picked among homonyms that share a
+    # name and a country (Springfield IL / MO). Without it the same question
+    # came back. A state named this turn (or anchored) speaks for itself.
+    if region_chosen and not state_hint:
+        chosen_region = _comparable(region_chosen)
+        narrowed = [c for c in candidates if _comparable(c.region) == chosen_region]
+        if narrowed:
+            candidates = narrowed
 
     resolution = geo_resolver.resolve(
         candidates,
@@ -1245,7 +1261,12 @@ def _fill_place_from_profile(args: dict, profile_in: dict) -> None:
     nothing of the earlier one is carried onto it: not the zone (it would be
     searched instead of the postcode), not the city (it would outrank the
     postcode's own city and bias its lookup), and not the country, a HARD
-    filter, while DQ8 keeps only a country the user named as one."""
+    filter, while DQ8 keeps only a country the user named as one.
+
+    QA14707 (Q14): `region_anchor` is the region of the homonym option the
+    user picked by its number (the concierge sets it from the stored
+    `Clarification`, never from the message). It goes with the city it was
+    chosen for: applied only while the turn's city is that same city."""
     if not _is_blank(args.get("postal_code")):
         return
     _complete_pending_place(args, profile_in.get("pending_place"))
@@ -1257,6 +1278,13 @@ def _fill_place_from_profile(args: dict, profile_in: dict) -> None:
         args["metro"] = profile_in["metro"]
     if _is_blank(args.get("country_code")) and profile_in.get("country_anchor"):
         args["country_code"] = profile_in["country_anchor"]
+    region, carried_city = profile_in.get("region_anchor"), profile_in.get("city")
+    if (
+        isinstance(region, str) and region.strip()
+        and isinstance(carried_city, str) and carried_city.strip()
+        and _comparable(carried_city) == _comparable(str(args.get("city") or ""))
+    ):
+        args["region_chosen"] = region.strip()
 
 
 def inject_profile_geo_context(tool: object, args: dict, tool_context: object) -> None:
