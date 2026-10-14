@@ -29,6 +29,7 @@ definition_of_done:
   - "Point 8 also checks, with file:line, that §3 of `reports/PLAN-LEAF-GEO-2026-10-08.md` describes the rank-independent mapping of `_place_args` (agents/hotel_search_agent/hotel_search_agent/geocode_tool.py) and that Q07's tests for `[station, city]` and `[city, station]` exist and are green."
   - "Point 9 also checks, with file:line, that a user-written city beats the zone place's inferred city (Q08's « Gare du Nord à Bruxelles » test), and that a city carried only by the EARLIER REQUEST prefix keeps the zone's own city first."
   - "Point 9 (DQ8) also checks, with file:line, that `_postcode_match` applies the named-city step before the guess and the market, that this step only narrows, and that Q10's test of « 75009 Paris » without the anchor exists and is green."
+  - "Point 5 (GDPR) also checks, with file:line, that no address or postcode text reaches a metric line (the `dayuse_metric=geo_intent` line and the `mentions_discarded` counter carry counts only), and that the persisted `zone` lives only in the Redis profile under the existing TTL."
 ---
 
 ## Launch prompt

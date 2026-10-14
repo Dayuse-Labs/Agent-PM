@@ -40,6 +40,7 @@ definition_of_done:
   - "The dated QA14707 block of `HANDOFF.md` does not repeat that `places[1]` is used only when places[0] is a hotel or was discarded."
   - "The H3 checklist in the dated QA14707 block of `HANDOFF.md` also lists the `city_conflicts` rate on the `dayuse_metric=geo_intent` lines, citing `agents/hotel_search_agent/hotel_search_agent/geocode_tool.py`."
   - "The DQ8 country rule written in `reports/PLAN-LEAF-GEO-2026-10-08.md` §3 gives the tie-break order of `_postcode_match` (`agents/hotel_search_agent/hotel_search_agent/geocode_tool.py`): the turn's named city (`context.place`), then the LLM's guess, then the market's country, then Mapbox's order."
+  - "The dated QA14707 block of `HANDOFF.md` states what a postcode turn persists (bare postcode: its city only, no zone, `city_centroid` radius; address: Mapbox's name without the postcode in `zone`, `poi` radius; a low-confidence address match is refused), citing `agents/hotel_search_agent/hotel_search_agent/geocode_tool.py`."
 ---
 
 ## Launch prompt
