@@ -34,6 +34,7 @@ definition_of_done:
   - "`SESSIONS-CLAUDE-CODE.md`: the S-L section points to this plan."
   - "The dated QA14707 block of `HANDOFF.md` states that the eval `clarify_options_from_geocoder` is a weak live signal (listed place names only), and that the exact guarantee is Q04's offline rendering tests, citing their test file."
   - "The dated QA14707 block of `HANDOFF.md` documents the shape of `profile.pending_clarification` = `{clarification, request, asked}` (with the meaning of `asked`) as the model the port of #134 must conform to, citing `agents/b2c_concierge/b2c_concierge/profile.py`."
+  - "The dated QA14707 block of `HANDOFF.md` lists, under remaining (H3), the live checks of the GeoIntent interface: the rates of valid=0, mentions_discarded and canonicals_rejected on the `dayuse_metric=geo_intent` lines, traces A and B, and the S5 flag on « gare de Lyon », citing `agents/hotel_search_agent/hotel_search_agent/geocode_tool.py`."
 ---
 
 ## Launch prompt
