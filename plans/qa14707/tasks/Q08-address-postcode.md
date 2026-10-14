@@ -31,6 +31,9 @@ definition_of_done:
   - "Test: \"Gare du Nord\" with neither city nor postcode still gives the city_needed question."
   - "Test: the existing case \"near 11580\" (prod US ZIP bug) keeps its behaviour."
   - "No new regex or word list in the diff."
+  - "Test: the declaration of the leaf's real `geocode_location` FunctionTool (`_get_declaration().parameters_json_schema`) has no `country_code`, `country_guess`, `city`, `zone` or `raw_user_message` property."
+  - "Test (Mapbox mocked): the real FunctionTool run with an extra `country_code: \"US\"` argument and a GeoIntent without `country_named` sends no `country` filter to Mapbox. The only sources of the hard filter are `country_named` and `profile_in.country_anchor`, both after `_iso2`."
+  - "Test: `google.adk.models.lite_llm._function_declaration_to_tool_param` on the leaf's real `geocode_location` FunctionTool gives an OpenAI function whose `intent` parameter keeps the GeoIntent object (its `$defs` or an inlined equivalent), the field descriptions and `maxItems: 2` on `places`, as `tests/test_geo_intent_contract.py` proves for its stand-in."
 ---
 
 ## Launch prompt
