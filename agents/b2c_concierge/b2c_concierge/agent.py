@@ -1371,13 +1371,15 @@ class _B2cConcierge(BaseAgent):
             family, route = "search", ROUTES["search"]
             picked = None  # "le 2" chose an option of the question, not a card
             # An option chosen by its number: code resolves its city from the
-            # state and the leaf's carry-over (`inject_profile_geo_context`)
-            # fills it into geocode_location — with the option's country, so
-            # a homonym does not come back ambiguous.
+            # state and the leaf's carry-over (`_fill_place_from_profile`)
+            # fills it into geocode_location — with the option's country and
+            # region (Q14: Springfield IL / MO share both name and country),
+            # so a homonym does not come back ambiguous.
             option = chosen_clarification_option(pending_clar, triage.answer_option)
             if option is not None:
                 profile.city = option["city"]
                 profile.country_anchor = option.get("country_code")
+                profile.region_anchor = option.get("region") or None
                 profile.state_anchor = profile.zone = profile.metro = None
                 profile.search_anchor = None
         elif named_choice is not None:

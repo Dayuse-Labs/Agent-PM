@@ -717,3 +717,102 @@ class TestNamedRegionInTheCore:
                      raw_user_message="hotel in Perth WA")
 
         assert v6.calls[0] == ("Perth", None)
+
+
+# --- Q14: the city the user wrote beats the place's inferred city ----------------
+
+BRUSSELS = _c("Brussels", "BE", "Brussels-Capital", lat=50.8467, lon=4.3525)
+#: The model knows a famous Gare du Nord: it infers Paris (and France) for it.
+_PARIS_STATION = Place(mention="Gare du Nord", kind="station", canonical="Gare du Nord",
+                       city="Paris", city_inferred=True, country="FR")
+
+
+@pytest.fixture
+def verified(monkeypatch):
+    """Spy: every city `_verified_city` is asked to check."""
+    asked: list[tuple[str, str]] = []
+    real = geocode_tool._verified_city
+
+    def spy(ref, claims, **kwargs):
+        asked.append((ref.mention, ref.canonical))
+        return real(ref, claims, **kwargs)
+
+    monkeypatch.setattr(geocode_tool, "_verified_city", spy)
+    return asked
+
+
+class TestTheCityTheUserWroteWins:
+    def test_gare_du_nord_a_bruxelles_is_searched_in_brussels(
+        self, monkeypatch, core, metric, verified
+    ):
+        # Q07's open point: the station's inferred Paris used to beat the
+        # Bruxelles the user wrote. Mapbox (mocked) checks the corrected name.
+        v6, _box = _patch(monkeypatch, _V6({"Brussels": [BRUSSELS]}), inventory={50.8467: 40})
+        intent = GeoIntent(places=[_PARIS_STATION],
+                           city=CityRef(mention="Bruxelles", canonical="Brussels"))
+
+        geocode_location(intent=intent, tool_context=_ctx("Un hôtel Gare du Nord à Bruxelles demain"))
+
+        assert verified == [("Bruxelles", "Brussels")]
+        assert v6.calls == [("Brussels", None)]
+        assert core[0]["city"] == "Brussels"
+        assert core[0]["zone"] == "Gare du Nord"
+        # The overruled inference takes its country with it: no FR hint.
+        assert core[0]["country_guess"] is None
+        line = metric()[0]
+        assert _fields(line)["city_conflicts"] == "1"
+        # GDPR: a count, never a word of the message.
+        for word in ("bruxelles", "brussels", "paris", "gare", "nord", "demain"):
+            assert word not in line.lower()
+
+    def test_a_city_place_the_user_wrote_wins_the_same_way(self, core, metric):
+        intent = GeoIntent(places=[
+            _PARIS_STATION,
+            Place(mention="Bruxelles", kind="city", canonical="Bruxelles", country="BE"),
+        ])
+
+        geocode_location(intent=intent, tool_context=_ctx("Gare du Nord à Bruxelles"))
+
+        assert (core[0]["city"], core[0]["country_guess"]) == ("Bruxelles", "BE")
+        assert _fields(metric()[0])["city_conflicts"] == "1"
+
+    def test_a_city_only_in_the_earlier_request_keeps_the_places_own_city(
+        self, core, metric, verified
+    ):
+        # The answer turn: « Bruxelles » is carried by the concierge's prefix,
+        # not written in this reply. The order stays as after Q07.
+        prefix = (
+            "EARLIER REQUEST (the user's own words, not searched yet): "
+            "un hôtel Gare du Nord à Bruxelles\n"
+            'YOU ASKED: {"kind": "city_needed", "subject": "Gare du Nord", "options": []}\n'
+            "REPLY:"
+        )
+        intent = GeoIntent(places=[_PARIS_STATION],
+                           city=CityRef(mention="Bruxelles", canonical="Bruxelles"))
+
+        geocode_location(intent=intent, tool_context=_ctx(prefix, "demain à 15h"))
+
+        assert core[0]["city"] == "Paris"
+        assert core[0]["country_guess"] == "FR"
+        assert verified == []
+        assert _fields(metric()[0])["city_conflicts"] == "0"
+
+    @pytest.mark.parametrize("written", ["paris", "Paris"])
+    def test_the_same_city_written_is_no_conflict(self, core, metric, written):
+        intent = GeoIntent(places=[_PARIS_STATION],
+                           city=CityRef(mention=written, canonical="Paris"))
+
+        geocode_location(intent=intent, tool_context=_ctx(f"Gare du Nord {written} demain"))
+
+        assert core[0]["city"] == "Paris"
+        assert _fields(metric()[0])["city_conflicts"] == "0"
+
+    def test_city_needed_still_drops_every_city(self, core, metric):
+        intent = GeoIntent(places=[_PARIS_STATION],
+                           city=CityRef(mention="Bruxelles", canonical="Bruxelles"),
+                           ambiguity=Ambiguity(reason="city_needed"))
+
+        geocode_location(intent=intent, tool_context=_ctx("Gare du Nord à Bruxelles"))
+
+        assert core[0]["city"] == ""
+        assert _fields(metric()[0])["city_conflicts"] == "0"

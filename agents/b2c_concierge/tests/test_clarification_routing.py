@@ -29,7 +29,7 @@ from b2c_concierge import templates
 from b2c_concierge.a2a_datapart import find_datapart
 from b2c_concierge.agent import root_agent
 from b2c_concierge.budget import MAX_LLM_CALLS_PER_TURN, TurnBudget
-from b2c_concierge.profile import SessionProfile, chosen_clarification_option
+from b2c_concierge.profile import SessionProfile, apply_profile_delta, chosen_clarification_option
 from b2c_concierge.triage import ANSWERS_PENDING, classify
 
 from .test_spine_profile import _llm_response, _new_session, _run_turn, _scripted_llm, fake_leg  # noqa: F401
@@ -241,6 +241,101 @@ class TestChosenOption:
             {"clarification": _CITY_NEEDED.model_dump(mode="json")}, 1
         ) is None
         assert chosen_clarification_option(pending, 2)["country_code"] == "US"
+
+
+_SPRINGFIELD = Clarification.model_validate({
+    "kind": "homonym",
+    "subject": "Springfield",
+    "options": [
+        {"label": "Springfield (Illinois, United States)", "city": "Springfield",
+         "region": "Illinois", "country_code": "US"},
+        {"label": "Springfield (Missouri, United States)", "city": "Springfield",
+         "region": "Missouri", "country_code": "US"},
+    ],
+})
+
+
+class TestOptionsSharingCityAndCountry:
+    """QA14707 (Q14): two options with the same `city` and `country_code`
+    differ only by their region. The chosen option's region travels to the
+    leaf as data (`profile_in.region_anchor`), taken from the stored
+    `Clarification` — city and country alone re-geocode the same homonym."""
+
+    def _answer(self, monkeypatch, fake_leg, store, index: int, message: str, *extra_llm):  # noqa: F811
+        _scripted_llm(
+            monkeypatch,
+            '{"family": "search", "language": "en"}',
+            '{"family": "search", "language": "en", "answers_pending": "yes",'
+            f' "answer_option": {index}}}',
+            "Here are hotels in Springfield.",
+            *extra_llm,
+        )
+        runner = InMemoryRunner(root_agent)
+        session = _new_session(runner)
+        _ask(runner, session, fake_leg, _SPRINGFIELD, "a hotel in Springfield tomorrow afternoon")
+        fake_leg.response_payload = {"results": [{"hotel_id": 7, "name": "Hotel S"}],
+                                     "profile_delta": {"city": "Springfield"}}
+        _run_turn(runner, session.id, message)
+        return runner, session
+
+    @pytest.mark.parametrize(
+        ("index", "message", "region"),
+        [(2, "the second one", "Missouri"), (1, "1", "Illinois")],
+    )
+    def test_the_chosen_options_region_reaches_the_leaf_as_data(
+        self, monkeypatch, fake_leg, fake_profile_store, mcp_calls, index, message, region  # noqa: F811
+    ):
+        self._answer(monkeypatch, fake_leg, fake_profile_store, index, message)
+
+        assert fake_leg.call_count == 2  # the leaf call is the turn's only search
+        assert mcp_calls == []
+        profile_in = find_datapart(fake_leg.seen_outgoing_parts)["profile_in"]
+        assert (profile_in["city"], profile_in["country_anchor"], profile_in["region_anchor"]) == (
+            "Springfield", "US", region
+        )
+        # The user's words name no region: it comes from the stored question.
+        assert fake_leg.seen_outgoing_parts[-2].text == message
+
+    def test_the_region_stays_with_its_city_on_the_next_turn(
+        self, monkeypatch, fake_leg, fake_profile_store, mcp_calls  # noqa: F811
+    ):
+        runner, session = self._answer(
+            monkeypatch, fake_leg, fake_profile_store, 2, "2",
+            '{"family": "search", "language": "en"}', "Later ones in Springfield.",
+        )
+
+        _run_turn(runner, session.id, "something later in the evening")
+
+        assert fake_leg.call_count == 3
+        profile_in = find_datapart(fake_leg.seen_outgoing_parts)["profile_in"]
+        assert (profile_in["city"], profile_in["region_anchor"]) == ("Springfield", "Missouri")
+
+    def test_a_city_change_clears_it_and_a_leaf_delta_never_sets_it(self):
+        profile = SessionProfile(city="Springfield", country_anchor="US", region_anchor="Missouri")
+
+        apply_profile_delta(profile, {"region_anchor": "Texas"}, "")
+        assert profile.region_anchor == "Missouri"
+        apply_profile_delta(profile, {"region_anchor": {"op": "clear"}}, "")
+        assert profile.region_anchor == "Missouri"
+
+        apply_profile_delta(profile, {"city": "Paris"}, "Paris")
+        assert profile.region_anchor is None
+
+    def test_a_city_typed_as_the_answer_sets_no_region(
+        self, monkeypatch, fake_leg, fake_profile_store, mcp_calls  # noqa: F811
+    ):
+        _scripted_llm(
+            monkeypatch,
+            '{"family": "search", "language": "en"}',
+            '{"family": "search", "language": "en", "answers_pending": "yes"}',
+            "Here are hotels.",
+        )
+        runner = InMemoryRunner(root_agent)
+        session = _new_session(runner)
+        _ask(runner, session, fake_leg, _SPRINGFIELD, "a hotel in Springfield tomorrow")
+        _run_turn(runner, session.id, "Missouri")
+
+        assert find_datapart(fake_leg.seen_outgoing_parts)["profile_in"]["region_anchor"] is None
 
 
 class TestFastPath:

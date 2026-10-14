@@ -530,6 +530,7 @@ def geocode_core(
     region_named: str | None = None,
     postal_code: str | None = None,
     zone_kind: str | None = None,
+    region_chosen: str | None = None,
 ) -> dict:
     """Resolve a destination to coordinates for `search_offers`, guarded — the
     deterministic pipeline behind the `geocode_location` tool.
@@ -639,6 +640,13 @@ def geocode_core(
             play, the US-ZIP anchor below stays out of the way.
         zone_kind: The `GeoIntent` kind of the place `zone` came from
             ("address", "street", "station", ...), or None.
+        region_chosen: The region of the homonym option the user picked by
+            its number (QA14707 Q14, `profile_in.region_anchor`, filled by
+            `_fill_place_from_profile`). It narrows the candidates Mapbox
+            returned to those whose `context.region` is that region — a
+            structured equality, applied only when it keeps at least one and
+            no state is in play this turn. Never a query term, never a
+            coordinate: « Springfield » option 2 is the Missouri candidate.
 
     Returns a dict — NEVER raises. On success:
         {"ok": True, "latitude", "longitude", "resolved_place",
@@ -947,6 +955,14 @@ def geocode_core(
     candidates = get_mapbox_client().geocode_candidates(
         query, country=effective_country_code, language=lang, proximity=proximity_str
     )
+    # QA14707 (Q14): the option the user picked among homonyms that share a
+    # name and a country (Springfield IL / MO). Without it the same question
+    # came back. A state named this turn (or anchored) speaks for itself.
+    if region_chosen and not state_hint:
+        chosen_region = _comparable(region_chosen)
+        narrowed = [c for c in candidates if _comparable(c.region) == chosen_region]
+        if narrowed:
+            candidates = narrowed
 
     resolution = geo_resolver.resolve(
         candidates,
@@ -1245,7 +1261,12 @@ def _fill_place_from_profile(args: dict, profile_in: dict) -> None:
     nothing of the earlier one is carried onto it: not the zone (it would be
     searched instead of the postcode), not the city (it would outrank the
     postcode's own city and bias its lookup), and not the country, a HARD
-    filter, while DQ8 keeps only a country the user named as one."""
+    filter, while DQ8 keeps only a country the user named as one.
+
+    QA14707 (Q14): `region_anchor` is the region of the homonym option the
+    user picked by its number (the concierge sets it from the stored
+    `Clarification`, never from the message). It goes with the city it was
+    chosen for: applied only while the turn's city is that same city."""
     if not _is_blank(args.get("postal_code")):
         return
     _complete_pending_place(args, profile_in.get("pending_place"))
@@ -1257,6 +1278,13 @@ def _fill_place_from_profile(args: dict, profile_in: dict) -> None:
         args["metro"] = profile_in["metro"]
     if _is_blank(args.get("country_code")) and profile_in.get("country_anchor"):
         args["country_code"] = profile_in["country_anchor"]
+    region, carried_city = profile_in.get("region_anchor"), profile_in.get("city")
+    if (
+        isinstance(region, str) and region.strip()
+        and isinstance(carried_city, str) and carried_city.strip()
+        and _comparable(carried_city) == _comparable(str(args.get("city") or ""))
+    ):
+        args["region_chosen"] = region.strip()
 
 
 def inject_profile_geo_context(tool: object, args: dict, tool_context: object) -> None:
@@ -1328,13 +1356,23 @@ class _Claims:
     when it is in the leaf's real input text (`read_input_text`, the
     concierge's EARLIER REQUEST prefix included), whole words, case, accents
     and punctuation aside. That checks a claim; it does not understand the
-    language. With no mention, the canonical name is what is claimed."""
+    language. With no mention, the canonical name is what is claimed.
 
-    def __init__(self, text: str):
+    `user_words` is the user's own words of this turn (`read_user_words`, the
+    last text part, without the concierge's prefix): `typed` tells a place
+    the user wrote now from one only carried in the earlier request."""
+
+    def __init__(self, text: str, user_words: str = ""):
         self._said = f" {_comparable(text)} "
+        self._typed = f" {_comparable(user_words)} "
         self.mentions_discarded = 0
         self.canonicals_rejected = 0
         self.countries_discarded = 0
+        self.city_conflicts = 0
+
+    def typed(self, ref: Place | CityRef) -> bool:
+        claim = _comparable(ref.mention) or _comparable(ref.canonical)
+        return bool(claim) and f" {claim} " in self._typed
 
     def anchored(self, ref: Place | CityRef) -> bool:
         claim = _comparable(ref.mention) or _comparable(ref.canonical)
@@ -1417,7 +1455,10 @@ def _place_args(
     - a `city` place → `city`;
     - the first place of any other kind but `hotel` → `zone` = its name, with
       `city` = the place's own city (inferred or not, as today), else the city
-      the user named (a `city` place, then the `city` field);
+      the user named (a `city` place, then the `city` field) — except that a
+      city the user wrote THIS turn (`_Claims.typed`) and that differs from
+      the place's own city wins over it, checked by `_verified_city`, and is
+      counted as `city_conflicts` (Q14);
     - `country_named` → `country_code`, the hard filter; a country not named
       (the zone place's, else a city's) → `country_guess`, a hint;
     - `region_named` → the state tier;
@@ -1455,13 +1496,29 @@ def _place_args(
     cities: list[Place | CityRef] = [p for p in city_places if not only_the_code(p)]
     if geo.city is not None and claims.anchored(geo.city):
         cities.append(geo.city)
+    city_needed = geo.ambiguity is not None and geo.ambiguity.reason == "city_needed"
+    inferred = (zone_place.city or "").strip() if zone_place is not None else ""
+    # Q14 (the user's ruling on Q07's open point): « Gare du Nord à Bruxelles »
+    # with Paris inferred for the station. A city the user wrote THIS turn
+    # beats the place's inferred city — the place's whole inference (its
+    # country too) is then set aside. A city carried only by the concierge's
+    # EARLIER REQUEST prefix keeps the place's own city first, as before.
+    typed = next((ref for ref in cities if claims.typed(ref)), None)
+    overruled = (
+        not city_needed
+        and bool(inferred)
+        and typed is not None
+        and _comparable(inferred) not in (_comparable(typed.mention), _comparable(typed.canonical))
+    )
+    if overruled:
+        claims.city_conflicts += 1
     named = claims.country(geo.country_named)
     guess: str | None = None
-    for ref in ([zone_place] if zone_place is not None else []) + cities:
+    first: Place | CityRef | None = typed if overruled else zone_place
+    for ref in ([first] if first is not None else []) + cities:
         guess = claims.country(ref.country)
         if guess:
             break
-    city_needed = geo.ambiguity is not None and geo.ambiguity.reason == "city_needed"
 
     def verified(ref: Place | CityRef) -> str | None:
         return _verified_city(
@@ -1476,8 +1533,9 @@ def _place_args(
     city: str | None = None
     if zone_place is not None and not only_the_code(zone_place):
         zone = (zone_place.canonical or zone_place.mention).strip() or None
-    if not city_needed:
-        inferred = (zone_place.city or "").strip() if zone_place is not None else ""
+    if overruled and typed is not None:
+        city = verified(typed)
+    elif not city_needed:
         city = inferred or (verified(cities[0]) if cities else None)
     return {
         "city": city or "",
@@ -1523,22 +1581,24 @@ def geocode_location(
     # never does, `tests/test_geo_intent_contract.py`), and the default keeps
     # the argument optional. The frozen default instance is safe to share.
     geo, valid = _valid_intent(intent)
-    claims = _Claims(read_input_text(tool_context))
+    # The message is read from the invocation, never copied by the model.
+    user_words = read_user_words(tool_context)
+    claims = _Claims(read_input_text(tool_context), user_words)
     args = _place_args(geo, claims, locale=locale, language_hint=language_hint)
     args["metro"] = metro
-    # The message is read from the invocation, never copied by the model.
-    args["raw_user_message"] = read_user_words(tool_context)
+    args["raw_user_message"] = user_words
     _fill_place_from_profile(args, read_profile_in(tool_context))
     args["country_code"] = _iso2(args.get("country_code"))
     _metrics_logger.info(
         "dayuse_metric=geo_intent agent=b2c_hotel_search valid=%d places=%d "
         "mentions_discarded=%d canonicals_rejected=%d countries_discarded=%d "
-        "ambiguity=%s carryover=%s",
+        "city_conflicts=%d ambiguity=%s carryover=%s",
         int(valid),
         len(geo.places),
         claims.mentions_discarded,
         claims.canonicals_rejected,
         claims.countries_discarded,
+        claims.city_conflicts,
         (geo.ambiguity.reason if geo.ambiguity is not None else None) or "none",
         geo.carryover,
     )
