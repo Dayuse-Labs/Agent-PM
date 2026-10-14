@@ -327,6 +327,37 @@ def read_profile_in(tool_context: Any) -> dict[str, Any]:
     return {}
 
 
+def _text_parts(tool_context: Any) -> list[str]:
+    content = getattr(tool_context, "user_content", None)
+    parts = getattr(content, "parts", None) if content is not None else None
+    return [
+        part.text for part in parts or []
+        if isinstance(getattr(part, "text", None), str) and part.text.strip()
+    ]
+
+
+def read_input_text(tool_context: Any) -> str:
+    """The leaf's whole inbound text this turn, every text part joined: the
+    user's words AND, on a turn that answers a question, the concierge's
+    EARLIER REQUEST / YOU ASKED / REPLY context sent before them. QA14707
+    (Q07): what a `GeoIntent` mention is checked against, so a place named in
+    the earlier request (« Gare du Nord ») stays anchored when the reply only
+    gives the city (« Pari »). "" when there is none, never a crash."""
+    return "\n".join(_text_parts(tool_context))
+
+
+def read_user_words(tool_context: Any) -> str:
+    """The user's own words this turn: the LAST text part. The concierge sends
+    its context as a separate part placed BEFORE them
+    (`b2c_concierge.agent._attach_outgoing_datapart`), and a direct caller
+    sends one part. QA14707 (Q07): this replaces the `raw_user_message` the
+    model used to copy into `geocode_location` — the code reads it from the
+    invocation instead. Never the YOU ASKED part: its options name every
+    place of a homonym question at once."""
+    parts = _text_parts(tool_context)
+    return parts[-1] if parts else ""
+
+
 # --- display normalization (mirrors b2c_concierge.inline_tools shape, S07) -------------------
 def _flatten_amenities(raw: Any) -> list[str]:
     names: list[str] = []

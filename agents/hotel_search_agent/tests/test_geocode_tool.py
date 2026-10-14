@@ -1,6 +1,11 @@
-"""geocode_location — composition of the 3 geo guards + Mapbox, tested with a
+"""geocode_core — composition of the 3 geo guards + Mapbox, tested with a
 fake client (no network): degrade honestly on every rejection path, never
 raise.
+
+QA14707 (Q07): `geocode_core` is the pipeline the `geocode_location` tool
+maps the model's `GeoIntent` onto; these tests call it with the flat
+arguments, unchanged. The mapping itself is tested in
+`test_geo_intent_mapping.py`.
 """
 from __future__ import annotations
 
@@ -11,7 +16,7 @@ from google.adk.a2a.converters.part_converter import convert_a2a_part_to_genai_p
 from google.genai import types as genai_types
 
 from hotel_search_agent import geocode_tool
-from hotel_search_agent.geocode_tool import geocode_location, inject_profile_geo_context
+from hotel_search_agent.geocode_tool import geocode_core, geocode_location, inject_profile_geo_context
 from hotel_search_agent.mapbox_client import GeocodeCandidate, GeocodeResult, MapboxClient
 
 
@@ -104,7 +109,7 @@ class TestSuccess:
     def test_resolves_city_to_coordinates(self, monkeypatch):
         fake = _patch_client(monkeypatch, FLORENCE_KY)
 
-        result = geocode_location(city="Florence", raw_user_message="florence kentucky")
+        result = geocode_core(city="Florence", raw_user_message="florence kentucky")
 
         assert result["ok"] is True
         assert result["latitude"] == 38.9989
@@ -116,7 +121,7 @@ class TestSuccess:
     def test_profile_delta_anchors_state_context(self, monkeypatch):
         _patch_client(monkeypatch, FLORENCE_KY)
 
-        result = geocode_location(city="Florence", raw_user_message="florence kentucky")
+        result = geocode_core(city="Florence", raw_user_message="florence kentucky")
 
         assert result["profile_delta"]["last_state_context"] == "KY"
         assert result["profile_delta"]["last_city"] == "Florence"
@@ -133,7 +138,7 @@ class TestSuccess:
             ),
         )
 
-        result = geocode_location(city="Miami", zone="Hollywood")
+        result = geocode_core(city="Miami", zone="Hollywood")
 
         assert result["ok"] is True
         assert fake.calls == [("Hollywood, Miami", None)]
@@ -143,7 +148,7 @@ class TestGenericCityDemotion:
     def test_bare_generic_city_never_reaches_the_geocoder(self, monkeypatch):
         fake = _patch_client(monkeypatch, FLORENCE_KY)
 
-        result = geocode_location(city="airport")
+        result = geocode_core(city="airport")
 
         assert result == {
             "ok": False,
@@ -162,7 +167,7 @@ class TestGenericCityDemotion:
     def test_missing_city_and_metro_is_a_clean_diagnostic(self, monkeypatch):
         fake = _patch_client(monkeypatch, FLORENCE_KY)
 
-        result = geocode_location(city="")
+        result = geocode_core(city="")
 
         assert result["ok"] is False
         assert result["error"] == "no_geocodable_location"
@@ -184,7 +189,7 @@ class TestEchoBackGuard:
             ),
         )
 
-        result = geocode_location(city="Budapest", zone="Keleti train station")
+        result = geocode_core(city="Budapest", zone="Keleti train station")
 
         assert result["ok"] is False
         assert result["error"] == "geocode_echo_mismatch"
@@ -202,7 +207,7 @@ class TestEchoBackGuard:
             ),
         )
 
-        result = geocode_location(city="Florence", raw_user_message="florence kentucky")
+        result = geocode_core(city="Florence", raw_user_message="florence kentucky")
 
         assert result["ok"] is False
         assert result["error"] == "geocode_echo_mismatch"
@@ -217,7 +222,7 @@ class TestGeocoderDegradation:
         box = _FakeSearchBox(None)
         monkeypatch.setattr(geocode_tool, "get_searchbox_client", lambda: box)
 
-        result = geocode_location(city="Nowhereville")
+        result = geocode_core(city="Nowhereville")
 
         assert result == {
             "ok": False,
@@ -239,21 +244,21 @@ class TestUsZipCountryScoping:
     def test_zip_anchor_forces_country_code_on_the_fake_client(self, monkeypatch):
         fake = _patch_client(monkeypatch, FLORENCE_KY)
 
-        geocode_location(city="11580", raw_user_message="Allows cats. Near 11580")
+        geocode_core(city="11580", raw_user_message="Allows cats. Near 11580")
 
         assert fake.calls == [("11580", "US")]
 
     def test_no_zip_and_no_country_signal_stays_unscoped(self, monkeypatch):
         fake = _patch_client(monkeypatch, FLORENCE_KY)
 
-        geocode_location(city="Florence", raw_user_message="florence kentucky")
+        geocode_core(city="Florence", raw_user_message="florence kentucky")
 
         assert fake.calls == [("Florence, Kentucky", None)]
 
     def test_explicit_country_code_wins_over_a_stray_five_digit_number(self, monkeypatch):
         fake = _patch_client(monkeypatch, FLORENCE_KY)
 
-        geocode_location(city="Paris", raw_user_message="paris 75015", country_code="FR")
+        geocode_core(city="Paris", raw_user_message="paris 75015", country_code="FR")
 
         assert fake.calls == [("Paris", "FR")]
 
@@ -285,7 +290,7 @@ class TestUsZipCountryScoping:
         )
         monkeypatch.setattr(geocode_tool, "get_mapbox_client", lambda: real_client)
 
-        result = geocode_location(city="11580", raw_user_message="Allows cats. Near 11580")
+        result = geocode_core(city="11580", raw_user_message="Allows cats. Near 11580")
 
         assert result["ok"] is True
         assert result["country_code"] == "US"
@@ -303,7 +308,7 @@ class TestUsZipCountryScoping:
         )
         monkeypatch.setattr(geocode_tool, "get_mapbox_client", lambda: real_client)
 
-        geocode_location(city="Florence", raw_user_message="florence kentucky")
+        geocode_core(city="Florence", raw_user_message="florence kentucky")
 
         assert "country" not in seen["params"]
 
@@ -386,7 +391,7 @@ class TestMultiCandidateResolution:
         texas = _c("Milano", "US", "Texas", lat=30.71, rank=1)
         _patch_multi(monkeypatch, [milan, texas], inventory={45.46: 40, 30.71: 0})
 
-        result = geocode_location(city="Milano", raw_user_message="hotel a Milano")
+        result = geocode_core(city="Milano", raw_user_message="hotel a Milano")
 
         assert result["ok"] is True
         assert result["resolved_place"] == "Milano, Milan, IT"
@@ -398,7 +403,7 @@ class TestMultiCandidateResolution:
         tx = _c("Victoria", "US", "Texas", lat=28.80, rank=1)
         _patch_multi(monkeypatch, [bc, tx], inventory={48.43: 20, 28.80: 15})
 
-        result = geocode_location(city="Victoria", raw_user_message="hotel in Victoria")
+        result = geocode_core(city="Victoria", raw_user_message="hotel in Victoria")
 
         assert result["ok"] is False
         assert result["error"] == "geocode_ambiguous"
@@ -412,7 +417,7 @@ class TestMultiCandidateResolution:
         ks = _c("Manhattan", "US", "Kansas", lat=39.18, rank=1)
         _patch_multi(monkeypatch, [ny, ks], inventory={40.78: 20, 39.18: 15})
 
-        result = geocode_location(city="Manhattan", raw_user_message="hôtel à Manhattan")
+        result = geocode_core(city="Manhattan", raw_user_message="hôtel à Manhattan")
 
         pending = result["profile_delta"]["pending_place"]
         assert pending["name"] == "Manhattan"
@@ -422,7 +427,7 @@ class TestMultiCandidateResolution:
         manhattan = _c("Manhattan", "US", "New York", ftype="locality", lat=40.78, rank=0)
         _patch_multi(monkeypatch, [manhattan], inventory={40.78: 40})
 
-        result = geocode_location(city="Manhattan", raw_user_message="hotels in Manhattan")
+        result = geocode_core(city="Manhattan", raw_user_message="hotels in Manhattan")
 
         assert result["ok"] is True
         assert result["distance_origin_type"] == "poi"
@@ -431,7 +436,7 @@ class TestMultiCandidateResolution:
         lisbon = _c("Lisbon", "PT", "Lisboa", lat=38.72, rank=0)
         client = _patch_multi(monkeypatch, [lisbon], inventory={38.72: 26})
 
-        geocode_location(city="Lisboa", raw_user_message="hotel em Lisboa", locale="pt")
+        geocode_core(city="Lisboa", raw_user_message="hotel em Lisboa", locale="pt")
 
         assert client.langs == ["pt"]
 
@@ -442,7 +447,7 @@ class TestMultiCandidateResolution:
         paris = _c("Paris", "FR", "Île-de-France", lat=48.85, rank=0)
         client = _patch_multi(monkeypatch, [paris], inventory={48.85: 40})
 
-        geocode_location(city="Paris", raw_user_message="hôtel à Paris", language_hint="fr")
+        geocode_core(city="Paris", raw_user_message="hôtel à Paris", language_hint="fr")
 
         assert client.langs == ["fr"]
 
@@ -450,7 +455,7 @@ class TestMultiCandidateResolution:
         lisbon = _c("Lisbon", "PT", "Lisboa", lat=38.72, rank=0)
         client = _patch_multi(monkeypatch, [lisbon], inventory={38.72: 26})
 
-        geocode_location(
+        geocode_core(
             city="Lisboa", raw_user_message="hoteis", locale="pt-PT", language_hint="fr"
         )
 
@@ -465,7 +470,7 @@ class TestMultiCandidateResolution:
         fr = _c("Clermont", "FR", "Auvergne", lat=45.78, rank=1)
         _patch_multi(monkeypatch, [us, fr], inventory={28.55: 20, 45.78: 20})
 
-        result = geocode_location(
+        result = geocode_core(
             city="Clermont", raw_user_message="hotel in Clermont", language_hint="fr"
         )
 
@@ -480,7 +485,7 @@ class TestGpsOnlyResolution:
         # could never search at all for the widget's real GPS-only requests.
         _patch_multi(monkeypatch, [], inventory={})
 
-        result = geocode_location(
+        result = geocode_core(
             city="", raw_user_message="a room in the daytime near me",
             proximity_lat=48.9385, proximity_lon=2.4906,
         )
@@ -497,7 +502,7 @@ class TestGpsOnlyResolution:
         box = _FakeSearchBox(None)
         monkeypatch.setattr(geocode_tool, "get_searchbox_client", lambda: box)
 
-        result = geocode_location(
+        result = geocode_core(
             city="", zone="the airport", raw_user_message="near the airport",
             proximity_lat=48.9385, proximity_lon=2.4906,
         )
@@ -508,7 +513,7 @@ class TestGpsOnlyResolution:
     def test_near_me_without_gps_still_asks_for_a_destination(self, monkeypatch):
         _patch_multi(monkeypatch, [], inventory={})
 
-        result = geocode_location(city="", raw_user_message="near me")
+        result = geocode_core(city="", raw_user_message="near me")
 
         assert result["ok"] is False
         assert result["error"] == "no_geocodable_location"
@@ -529,7 +534,7 @@ class TestSearchBoxTier2:
         box = _FakeSearchBox(poi)
         monkeypatch.setattr(geocode_tool, "get_searchbox_client", lambda: box)
 
-        result = geocode_location(city="Paris", zone="La Défense", raw_user_message="hotel la défense")
+        result = geocode_core(city="Paris", zone="La Défense", raw_user_message="hotel la défense")
 
         assert result["ok"] is True
         assert result["resolved_place"] == "La Défense, 92800 Puteaux, France"
@@ -542,7 +547,7 @@ class TestSearchBoxTier2:
         box = _FakeSearchBox(None)
         monkeypatch.setattr(geocode_tool, "get_searchbox_client", lambda: box)
 
-        result = geocode_location(city="Budapestttt", raw_user_message="hotel budapestttt")
+        result = geocode_core(city="Budapestttt", raw_user_message="hotel budapestttt")
 
         assert result["ok"] is False
         assert result["error"] == "geocode_echo_mismatch"
@@ -565,7 +570,7 @@ class TestSearchBoxTier2:
         box = _FakeSearchBox(poi)
         monkeypatch.setattr(geocode_tool, "get_searchbox_client", lambda: box)
 
-        result = geocode_location(city="JFK", raw_user_message="Layover in JFK")
+        result = geocode_core(city="JFK", raw_user_message="Layover in JFK")
 
         assert result["ok"] is True
         assert result["distance_origin_type"] == "poi"
@@ -580,7 +585,7 @@ class TestSearchBoxTier2:
         box = _FakeSearchBox(None)
         monkeypatch.setattr(geocode_tool, "get_searchbox_client", lambda: box)
 
-        result = geocode_location(city="Budapestttt", raw_user_message="hotel budapestttt")
+        result = geocode_core(city="Budapestttt", raw_user_message="hotel budapestttt")
 
         assert result["error"] == "geocode_echo_mismatch"
         assert box.calls == []
@@ -602,7 +607,7 @@ class TestSearchBoxTier2:
         box = _FakeSearchBox(poi)
         monkeypatch.setattr(geocode_tool, "get_searchbox_client", lambda: box)
 
-        result = geocode_location(city="Paris", zone="La Défense", raw_user_message="hotel la défense")
+        result = geocode_core(city="Paris", zone="La Défense", raw_user_message="hotel la défense")
 
         assert result["ok"] is True
         assert result["country_code"] == "FR"
@@ -615,7 +620,7 @@ class TestSearchBoxTier2:
         box = _FakeSearchBox(None)
         monkeypatch.setattr(geocode_tool, "get_searchbox_client", lambda: box)
 
-        result = geocode_location(city="Paris", zone="La Défense", raw_user_message="hotel la défense")
+        result = geocode_core(city="Paris", zone="La Défense", raw_user_message="hotel la défense")
 
         assert result["ok"] is False
         assert result["error"] == "geocode_ambiguous"
@@ -641,7 +646,7 @@ class TestCityNamedInMessage:
         cathedral = _c("St Paul's Cathedral", "GB", "Londres", ftype="neighborhood", lat=51.51)
         _patch_multi(monkeypatch, [cathedral], inventory={51.51: 30})
 
-        result = geocode_location(
+        result = geocode_core(
             city="", zone="St Paul's Cathedral",
             raw_user_message="un hôtel près de St Paul's à Londres demain",
         )
@@ -651,7 +656,7 @@ class TestCityNamedInMessage:
 
     def test_nothing_confirmed_still_asks_the_city(self, monkeypatch):
         self._probe(monkeypatch, set())
-        result = geocode_location(
+        result = geocode_core(
             city="", zone="St Paul's Cathedral",
             raw_user_message="un hôtel près de St Paul's à Bidule demain",
         )
@@ -660,7 +665,7 @@ class TestCityNamedInMessage:
     def test_an_article_or_a_generic_word_is_never_probed(self, monkeypatch):
         # « à la gare de Lyon » names a station, not a city called « la » or « gare ».
         probes = self._probe(monkeypatch, set())
-        geocode_location(city="", zone="gare de lyon", raw_user_message="un hôtel à la gare de lyon")
+        geocode_core(city="", zone="gare de lyon", raw_user_message="un hôtel à la gare de lyon")
         assert probes == []
 
 
@@ -673,21 +678,21 @@ class TestZoneMetroDelta:
             inventory={25.79: 5},
         )
 
-        result = geocode_location(city="Miami", zone="Hollywood")
+        result = geocode_core(city="Miami", zone="Hollywood")
 
         assert result["profile_delta"]["zone"] == "Hollywood"
 
     def test_metro_included_in_delta_when_resolved(self, monkeypatch):
         _patch_multi(monkeypatch, [_c("Paris", "FR", "Île-de-France", lat=48.85)], inventory={48.85: 5})
 
-        result = geocode_location(city="Paris", metro="Île-de-France")
+        result = geocode_core(city="Paris", metro="Île-de-France")
 
         assert result["profile_delta"]["metro"] == "Île-de-France"
 
     def test_zone_absent_from_delta_when_not_given(self, monkeypatch):
         _patch_multi(monkeypatch, [_c("Milano", "IT", "Milan", lat=45.46)], inventory={45.46: 5})
 
-        result = geocode_location(city="Milano")
+        result = geocode_core(city="Milano")
 
         assert "zone" not in result["profile_delta"]
         assert "metro" not in result["profile_delta"]
@@ -702,7 +707,7 @@ class TestZoneMetroDelta:
         )
         monkeypatch.setattr(geocode_tool, "get_searchbox_client", lambda: _FakeSearchBox(poi))
 
-        result = geocode_location(city="Paris", zone="La Défense", raw_user_message="hotel la défense")
+        result = geocode_core(city="Paris", zone="La Défense", raw_user_message="hotel la défense")
 
         assert result["ok"] is True
         assert result["profile_delta"]["zone"] == "La Défense"
@@ -723,7 +728,7 @@ class TestProximityWiring:
 
         monkeypatch.setattr(geocode_tool.geo_resolver, "resolve", spy_resolve)
 
-        geocode_location(city="Milano", proximity_lat=45.0, proximity_lon=9.0)
+        geocode_core(city="Milano", proximity_lat=45.0, proximity_lon=9.0)
 
         assert client.proximities == ["9.0,45.0"]
         assert captured["proximity"] == (45.0, 9.0)
@@ -732,7 +737,7 @@ class TestProximityWiring:
         milan = _c("Milano", "IT", "Milan", lat=45.46, rank=0)
         client = _patch_multi(monkeypatch, [milan], inventory={45.46: 10})
 
-        geocode_location(city="Milano", proximity_lat=45.0, proximity_lon=None)
+        geocode_core(city="Milano", proximity_lat=45.0, proximity_lon=None)
 
         assert client.proximities == [None]
 
@@ -740,7 +745,7 @@ class TestProximityWiring:
         milan = _c("Milano", "IT", "Milan", lat=45.46, rank=0)
         client = _patch_multi(monkeypatch, [milan], inventory={45.46: 10})
 
-        geocode_location(city="Milano")
+        geocode_core(city="Milano")
 
         assert client.proximities == [None]
 
@@ -782,8 +787,9 @@ class TestPendingPlace:
     """mcp-dayuse#7: the answer to « which Manhattan? » completes the place."""
 
     def _inject(self, args):
-        ctx = _Ctx(user_content=_user_content_with_profile_in({"pending_place": _PENDING_MANHATTAN}))
-        inject_profile_geo_context(_Tool("geocode_location"), args, ctx)
+        # QA14707 (Q07): the destination half of the bridge runs inside the
+        # tool, after the `GeoIntent` is mapped — same function, same order.
+        geocode_tool._fill_place_from_profile(args, {"pending_place": _PENDING_MANHATTAN})
         return args
 
     def test_an_answer_naming_one_option_searches_the_homonym_there(self):
@@ -803,6 +809,45 @@ class TestPendingPlace:
         assert args["city"] != "Manhattan"
 
 
+class TestFillPlaceFromProfile:
+    """The destination half of the profile bridge (P0 #4 / S-G5). QA14707
+    (Q07): `city`/`zone`/`metro`/`country_code` are no longer tool arguments,
+    so the tool fills them itself once it has mapped the `GeoIntent` — the
+    before-tool callback below keeps the pure profile signals."""
+
+    @staticmethod
+    def _fill(args, profile_in):
+        ctx = _Ctx(user_content=_user_content_with_profile_in(profile_in))
+        geocode_tool._fill_place_from_profile(args, geocode_tool.read_profile_in(ctx))
+        return args
+
+    def test_fresh_city_wins_over_profile(self):
+        args = self._fill({"city": "Lisbon"}, {"city": "Paris"})
+        assert args["city"] == "Lisbon"
+
+    def test_blank_city_filled_from_profile(self):
+        for blank_city in ("", "   "):
+            args = self._fill({"city": blank_city}, {"city": "Paris"})
+            assert args["city"] == "Paris"
+
+    def test_zone_metro_country_code_filled_when_blank(self):
+        args = self._fill(
+            {"city": "Paris"},
+            {"zone": "La Défense", "metro": "Île-de-France", "country_anchor": "FR"},
+        )
+        assert args["zone"] == "La Défense"
+        assert args["metro"] == "Île-de-France"
+        assert args["country_code"] == "FR"
+
+    def test_zone_metro_country_code_not_overwritten_when_fresh(self):
+        args = self._fill(
+            {"city": "Paris", "zone": "Montmartre", "country_code": "FR"},
+            {"zone": "La Défense", "country_anchor": "US"},
+        )
+        assert args["zone"] == "Montmartre"
+        assert args["country_code"] == "FR"
+
+
 class TestInjectProfileGeoContext:
     def test_ignores_other_tools(self):
         args = {"lat": 1}
@@ -814,42 +859,6 @@ class TestInjectProfileGeoContext:
         args = {"city": "Paris"}
         assert inject_profile_geo_context(_Tool("geocode_location"), args, _Ctx()) is None
         assert args == {"city": "Paris"}
-
-    def test_fresh_city_wins_over_profile(self):
-        args = {"city": "Lisbon"}
-        ctx = _Ctx(user_content=_user_content_with_profile_in({"city": "Paris"}))
-        inject_profile_geo_context(_Tool("geocode_location"), args, ctx)
-        assert args["city"] == "Lisbon"
-
-    def test_blank_city_filled_from_profile(self):
-        for blank_city in ("", "   "):
-            args = {"city": blank_city}
-            ctx = _Ctx(user_content=_user_content_with_profile_in({"city": "Paris"}))
-            inject_profile_geo_context(_Tool("geocode_location"), args, ctx)
-            assert args["city"] == "Paris"
-
-    def test_zone_metro_country_code_filled_when_blank(self):
-        args = {"city": "Paris"}
-        ctx = _Ctx(
-            user_content=_user_content_with_profile_in(
-                {"zone": "La Défense", "metro": "Île-de-France", "country_anchor": "FR"}
-            )
-        )
-        inject_profile_geo_context(_Tool("geocode_location"), args, ctx)
-        assert args["zone"] == "La Défense"
-        assert args["metro"] == "Île-de-France"
-        assert args["country_code"] == "FR"
-
-    def test_zone_metro_country_code_not_overwritten_when_fresh(self):
-        args = {"city": "Paris", "zone": "Montmartre", "country_code": "FR"}
-        ctx = _Ctx(
-            user_content=_user_content_with_profile_in(
-                {"zone": "La Défense", "country_anchor": "US"}
-            )
-        )
-        inject_profile_geo_context(_Tool("geocode_location"), args, ctx)
-        assert args["zone"] == "Montmartre"
-        assert args["country_code"] == "FR"
 
     def test_profile_state_context_and_location_hint_always_profile_sourced(self):
         # Pure profile lookups by definition — set regardless of what the model
@@ -936,7 +945,7 @@ class TestZoneOnlyLandmarkReachesSearchBox:
         _patch_multi(monkeypatch, [], inventory={})
         box = self._box(monkeypatch, _CHAMPS)
 
-        result = geocode_location(
+        result = geocode_core(
             city="", zone="champs élysées",
             raw_user_message="je cherche un hôtel autour des champs élysées",
             locale="fr-FR", country_guess="FR",
@@ -957,7 +966,7 @@ class TestZoneOnlyLandmarkReachesSearchBox:
         _patch_multi(monkeypatch, [], inventory={})
         box = self._box(monkeypatch, _CHAMPS)
 
-        result = geocode_location(
+        result = geocode_core(
             city="", zone="the airport", raw_user_message="near the airport"
         )
 
@@ -971,7 +980,7 @@ class TestZoneOnlyLandmarkReachesSearchBox:
         _patch_multi(monkeypatch, [], inventory={})
         self._box(monkeypatch, None)
 
-        result = geocode_location(
+        result = geocode_core(
             city="", zone="the airport", raw_user_message="near the airport",
             proximity_lat=48.9385, proximity_lon=2.4906,
         )
@@ -983,7 +992,7 @@ class TestZoneOnlyLandmarkReachesSearchBox:
         _patch_multi(monkeypatch, [], inventory={})
         self._box(monkeypatch, None)
 
-        result = geocode_location(
+        result = geocode_core(
             city="", zone="zzz nonexistent landmark", raw_user_message="hotel there",
             proximity_lat=48.87, proximity_lon=2.31,
         )
@@ -1001,7 +1010,7 @@ class TestZoneOnlyLandmarkReachesSearchBox:
         )
         self._box(monkeypatch, elsewhere)
 
-        result = geocode_location(
+        result = geocode_core(
             city="", zone="champs élysées", raw_user_message="hotel champs élysées",
             proximity_lat=48.87, proximity_lon=2.31,
         )
@@ -1034,7 +1043,7 @@ class TestSearchBoxIsScoped:
         _patch_multi(monkeypatch, [], inventory={})
         box = self._box(monkeypatch)
 
-        geocode_location(
+        geocode_core(
             city="", zone="champs élysées", raw_user_message="hotel",
             country_guess="FR", proximity_lat=48.87, proximity_lon=2.31,
         )
@@ -1045,7 +1054,7 @@ class TestSearchBoxIsScoped:
         _patch_multi(monkeypatch, [], inventory={})
         box = self._box(monkeypatch)
 
-        geocode_location(city="", zone="champs élysées", raw_user_message="h", locale="fr-FR",
+        geocode_core(city="", zone="champs élysées", raw_user_message="h", locale="fr-FR",
                          proximity_lat=48.87, proximity_lon=2.31)
 
         assert box.countries == ["FR"]
@@ -1055,7 +1064,7 @@ class TestSearchBoxIsScoped:
         _patch_multi(monkeypatch, [], inventory={})
         box = self._box(monkeypatch)
 
-        geocode_location(
+        geocode_core(
             city="", zone="champs élysées", raw_user_message="h",
             country_code="BE", country_guess="FR", locale="fr-FR",
             proximity_lat=48.87, proximity_lon=2.31,
@@ -1067,7 +1076,7 @@ class TestSearchBoxIsScoped:
         _patch_multi(monkeypatch, [], inventory={})
         box = self._box(monkeypatch)
 
-        geocode_location(
+        geocode_core(
             city="", zone="champs élysées", raw_user_message="h",
             proximity_lat=48.87, proximity_lon=2.31,
         )
@@ -1081,7 +1090,7 @@ class TestSearchBoxIsScoped:
         _patch_multi(monkeypatch, [junk], inventory={24.2: 0})
         box = self._box(monkeypatch)
 
-        geocode_location(
+        geocode_core(
             city="Paris", zone="champs élysées", raw_user_message="h",
             country_guess="FR", proximity_lat=48.87, proximity_lon=2.31,
         )
@@ -1093,7 +1102,7 @@ class TestSearchBoxIsScoped:
         _patch_multi(monkeypatch, [], inventory={})
         box = self._box(monkeypatch)
 
-        geocode_location(
+        geocode_core(
             city="", zone="champs élysées", raw_user_message="h", country_guess="France",
             proximity_lat=48.87, proximity_lon=2.31,
         )
@@ -1117,7 +1126,7 @@ class TestCountryGuessIsASoftPrior:
         fr = _c("Clermont", "FR", "Auvergne", lat=45.78, rank=1)
         _patch_multi(monkeypatch, [us, fr], inventory={28.55: 20, 45.78: 20})
 
-        result = geocode_location(
+        result = geocode_core(
             city="Clermont", raw_user_message="hotel in Clermont", country_guess="FR"
         )
 
@@ -1129,7 +1138,7 @@ class TestCountryGuessIsASoftPrior:
         milan = _c("Milano", "IT", "Milan", lat=45.46, rank=0)
         _patch_multi(monkeypatch, [milan], inventory={45.46: 40})
 
-        result = geocode_location(
+        result = geocode_core(
             city="Milano", raw_user_message="hotel a Milano", country_guess="JP"
         )
 
@@ -1141,7 +1150,7 @@ class TestCountryGuessIsASoftPrior:
         us = _c("Clermont", "US", "Florida", lat=28.55, rank=0)
         _patch_multi(monkeypatch, [us], inventory={28.55: 20})
 
-        result = geocode_location(
+        result = geocode_core(
             city="Clermont", raw_user_message="hotel", country_code="FR", country_guess="US"
         )
 
@@ -1151,7 +1160,7 @@ class TestCountryGuessIsASoftPrior:
         milan = _c("Milano", "IT", "Milan", lat=45.46, rank=0)
         _patch_multi(monkeypatch, [milan], inventory={45.46: 40})
 
-        result = geocode_location(
+        result = geocode_core(
             city="Milano", raw_user_message="h", country_guess="not-a-code"
         )
 
@@ -1174,7 +1183,7 @@ class TestCityIsNotAMandatoryParameter:
         monkeypatch.setattr(geocode_tool, "get_searchbox_client", lambda: _FakeSearchBox(poi))
 
         # No `city=` — the shape that used to fail before the function ran.
-        result = geocode_location(zone="les champs élysées", country_guess="FR",
+        result = geocode_core(zone="les champs élysées", country_guess="FR",
                                   raw_user_message="je cherche un hôtel autour des champs élysées")
 
         # Still callable (that is this class's subject, and the signature test
@@ -1201,7 +1210,7 @@ class TestCityIsNotAMandatoryParameter:
         # happened.
         _patch_multi(monkeypatch, [])
 
-        result = geocode_location(city="", zone="notre dame", country_code="FR",
+        result = geocode_core(city="", zone="notre dame", country_code="FR",
                                   raw_user_message="day use autour de notre dame",
                                   proximity_lat=48.85, proximity_lon=2.35)
 
@@ -1211,7 +1220,7 @@ class TestCityIsNotAMandatoryParameter:
     def test_a_genuinely_generic_zone_still_reports_generic(self, monkeypatch):
         _patch_multi(monkeypatch, [])
 
-        result = geocode_location(city="", zone="gare", country_code="FR",
+        result = geocode_core(city="", zone="gare", country_code="FR",
                                   raw_user_message="un hôtel près de la gare")
 
         assert result["ok"] is False
@@ -1238,7 +1247,7 @@ class TestSearchBoxProximityIsNeverLeftToMapbox:
         box = _FakeSearchBox(poi)
         monkeypatch.setattr(geocode_tool, "get_searchbox_client", lambda: box)
 
-        result = geocode_location(city="Paris", zone="les champs élysées",
+        result = geocode_core(city="Paris", zone="les champs élysées",
                                   raw_user_message="un hôtel vers les champs élysées à paris")
 
         assert result["ok"] is True
@@ -1255,7 +1264,7 @@ class TestSearchBoxProximityIsNeverLeftToMapbox:
         box = _FakeSearchBox(poi)
         monkeypatch.setattr(geocode_tool, "get_searchbox_client", lambda: box)
 
-        result = geocode_location(city="Paris", zone="les champs élysées",
+        result = geocode_core(city="Paris", zone="les champs élysées",
                                   raw_user_message="un hôtel vers les champs élysées à paris")
 
         assert result["ok"] is True
@@ -1269,7 +1278,7 @@ class TestSearchBoxProximityIsNeverLeftToMapbox:
         box = _FakeSearchBox(poi)
         monkeypatch.setattr(geocode_tool, "get_searchbox_client", lambda: box)
 
-        result = geocode_location(city="Paris", zone="les champs élysées",
+        result = geocode_core(city="Paris", zone="les champs élysées",
                                   raw_user_message="un hôtel vers les champs élysées à paris",
                                   proximity_lat=48.87, proximity_lon=2.31)
 
@@ -1290,7 +1299,7 @@ class TestPoiAnchorCoherenceGuard:
                                " France", "FR", "PACA")
         monkeypatch.setattr(geocode_tool, "get_searchbox_client", lambda: _FakeSearchBox(toulon))
 
-        result = geocode_location(city="Paris", zone="les champs élysées",
+        result = geocode_core(city="Paris", zone="les champs élysées",
                                   raw_user_message="un hôtel vers les champs élysées à paris")
 
         assert result["ok"] is False
@@ -1305,7 +1314,7 @@ class TestPoiAnchorCoherenceGuard:
         park = GeocodeResult(48.8674, 2.7836, "Disneyland Paris, 77700 Chessy, France", "FR", "IdF")
         monkeypatch.setattr(geocode_tool, "get_searchbox_client", lambda: _FakeSearchBox(park))
 
-        result = geocode_location(city="Paris", zone="disneyland paris",
+        result = geocode_core(city="Paris", zone="disneyland paris",
                                   raw_user_message="hôtel près de disneyland paris")
 
         assert result["ok"] is True
@@ -1322,7 +1331,7 @@ class TestPoiAnchorCoherenceGuard:
         box = _FakeSearchBox(far)
         monkeypatch.setattr(geocode_tool, "get_searchbox_client", lambda: box)
 
-        result = geocode_location(city="", zone="les champs élysées", country_guess="FR",
+        result = geocode_core(city="", zone="les champs élysées", country_guess="FR",
                                   raw_user_message="autour des champs élysées")
 
         assert result["ok"] is False
@@ -1343,7 +1352,7 @@ class TestRadiusFollowsTheRequestNotTheGeocoder:
                       ftype="neighborhood", lat=48.8698, lon=2.3078)
         _patch_multi(monkeypatch, [quartier], inventory={48.8698: 780})
 
-        result = geocode_location(city="Paris", zone="Champs-Élysées",
+        result = geocode_core(city="Paris", zone="Champs-Élysées",
                                   raw_user_message="un hôtel vers les champs élysées à paris")
 
         assert result["ok"] is True
@@ -1353,7 +1362,7 @@ class TestRadiusFollowsTheRequestNotTheGeocoder:
         boston = _c("Boston", "US", "Massachusetts", lat=42.3601, lon=-71.0589)
         _patch_multi(monkeypatch, [boston], inventory={42.3601: 200})
 
-        result = geocode_location(city="Boston", zone="airport",
+        result = geocode_core(city="Boston", zone="airport",
                                   raw_user_message="hotel near the airport in Boston tomorrow")
 
         assert result["ok"] is True
@@ -1363,7 +1372,7 @@ class TestRadiusFollowsTheRequestNotTheGeocoder:
         paris = _c("Paris", "FR", "Île-de-France", lat=48.8566, lon=2.3522)
         _patch_multi(monkeypatch, [paris], inventory={48.8566: 780})
 
-        result = geocode_location(city="Paris", raw_user_message="un hôtel à paris demain")
+        result = geocode_core(city="Paris", raw_user_message="un hôtel à paris demain")
 
         assert result["ok"] is True
         assert result["distance_origin_type"] == "city_centroid"
@@ -1390,7 +1399,7 @@ class TestCityAnchorMustBeInventoryCredible:
         box = _FakeSearchBox(poi)
         monkeypatch.setattr(geocode_tool, "get_searchbox_client", lambda: box)
 
-        result = geocode_location(city="Paris", zone="gare de lyon", country_code="FR",
+        result = geocode_core(city="Paris", zone="gare de lyon", country_code="FR",
                                   raw_user_message="hotel pres de la gare de lyon demain")
 
         assert result["ok"] is True
@@ -1406,7 +1415,7 @@ class TestCityAnchorMustBeInventoryCredible:
         box = _FakeSearchBox(poi)
         monkeypatch.setattr(geocode_tool, "get_searchbox_client", lambda: box)
 
-        result = geocode_location(city="Paris", zone="les champs élysées",
+        result = geocode_core(city="Paris", zone="les champs élysées",
                                   raw_user_message="un hôtel vers les champs élysées à paris")
 
         assert result["ok"] is True
@@ -1435,7 +1444,7 @@ class TestUnanchoredZoneAsksForTheCity:
         box = _FakeSearchBox(poi)
         monkeypatch.setattr(geocode_tool, "get_searchbox_client", lambda: box)
 
-        result = geocode_location(zone="gare de lyon", country_code="FR", locale="fr-FR",
+        result = geocode_core(zone="gare de lyon", country_code="FR", locale="fr-FR",
                                   raw_user_message="hôtel pres de la gare de lyon demain")
 
         assert result["ok"] is False
@@ -1454,7 +1463,7 @@ class TestUnanchoredZoneAsksForTheCity:
         poi = GeocodeResult(48.8698, 2.3078, "Champs-Élysées, 75008 Paris, France", "FR", "IdF")
         monkeypatch.setattr(geocode_tool, "get_searchbox_client", lambda: _FakeSearchBox(poi))
 
-        result = geocode_location(zone="les champs élysées", country_guess="FR",
+        result = geocode_core(zone="les champs élysées", country_guess="FR",
                                   proximity_lat=48.87, proximity_lon=2.31,
                                   raw_user_message="un hôtel autour des champs élysées")
 
@@ -1471,7 +1480,7 @@ class TestUnanchoredZoneAsksForTheCity:
         box = _FakeSearchBox(poi)
         monkeypatch.setattr(geocode_tool, "get_searchbox_client", lambda: box)
 
-        result = geocode_location(city="Paris", zone="gare de lyon", locale="fr-FR",
+        result = geocode_core(city="Paris", zone="gare de lyon", locale="fr-FR",
                                   raw_user_message="hôtel pres de la gare de lyon a paris demain")
 
         # Which tier answers depends on what v6 returns for "gare de lyon, Paris"
@@ -1484,8 +1493,8 @@ class TestUnanchoredZoneAsksForTheCity:
         _patch_multi(monkeypatch, [])
         monkeypatch.setattr(geocode_tool, "get_searchbox_client", lambda: _FakeSearchBox(None))
 
-        fr = geocode_location(zone="gare de lyon", locale="fr-FR", raw_user_message="x")
-        en = geocode_location(zone="times square", locale="en-US", raw_user_message="x")
+        fr = geocode_core(zone="gare de lyon", locale="fr-FR", raw_user_message="x")
+        en = geocode_core(zone="times square", locale="en-US", raw_user_message="x")
 
         assert "dans quelle ville" in fr["diagnostics"]["question"]
         assert "which city" in en["diagnostics"]["question"]
@@ -1493,12 +1502,12 @@ class TestUnanchoredZoneAsksForTheCity:
     def test_the_question_persists_the_zone_it_asked_about(self, monkeypatch):
         # Without this the answer turn has nothing to attach "paris" to: measured
         # in prod, it searched the bare Paris centroid (Saint-Denis 7,4 km, Orly
-        # 12,6 km) instead of the station. `inject_profile_geo_context` already
-        # refills `zone` from the profile — only the write was missing.
+        # 12,6 km) instead of the station. The tool already refills `zone` from the
+        # profile (`_fill_place_from_profile`) — only the write was missing.
         _patch_multi(monkeypatch, [])
         monkeypatch.setattr(geocode_tool, "get_searchbox_client", lambda: _FakeSearchBox(None))
 
-        result = geocode_location(zone="gare de lyon", locale="fr-FR",
+        result = geocode_core(zone="gare de lyon", locale="fr-FR",
                                   raw_user_message="pres de la gare de lyon demain")
 
         assert result["error"] == "geocode_ambiguous"
@@ -1566,7 +1575,7 @@ class TestACityNameWithoutACoordinate:
             inventory={43.7101: 53, 43.66: 60, 43.6603: 60},
         )
 
-        result = geocode_location(
+        result = geocode_core(
             city="Nice", zone="aéroport de nice",
             raw_user_message="pres de l aeroport de nice demain", locale="fr-FR",
         )
@@ -1592,7 +1601,7 @@ class TestACityNameWithoutACoordinate:
             inventory={46.0457: 2, 43.66: 60, 43.6603: 60},
         )
 
-        geocode_location(
+        geocode_core(
             city="Paris", zone="gare de lyon",
             raw_user_message="pres de la gare de lyon demain", locale="fr-FR",
         )
@@ -1610,7 +1619,7 @@ class TestACityNameWithoutACoordinate:
             inventory={43.6961: 40},
         )
 
-        result = geocode_location(
+        result = geocode_core(
             city="Nice", zone="vieux nice",
             raw_user_message="un hotel vers le vieux nice demain", locale="fr-FR",
         )
@@ -1634,7 +1643,7 @@ class TestACityNameWithoutACoordinate:
             searchbox=far_away,
         )
 
-        result = geocode_location(
+        result = geocode_core(
             city="Nice", zone="aéroport de nice",
             raw_user_message="pres de l aeroport de nice demain", locale="fr-FR",
         )
@@ -1662,7 +1671,7 @@ class TestPoiAnchorCeilingIsTight:
                                  " France", "FR", "Hauts-de-France")
         self._paris(monkeypatch, beauvais)
 
-        result = geocode_location(city="Paris", zone="aéroport de paris",
+        result = geocode_core(city="Paris", zone="aéroport de paris",
                                   raw_user_message="un hotel vers l aeroport de paris")
 
         assert result["ok"] is False
@@ -1673,7 +1682,7 @@ class TestPoiAnchorCeilingIsTight:
         park = GeocodeResult(48.8674, 2.7836, "Disneyland Paris, 77700 Chessy, France", "FR", "IdF")
         self._paris(monkeypatch, park)
 
-        result = geocode_location(city="Paris", zone="disneyland paris",
+        result = geocode_core(city="Paris", zone="disneyland paris",
                                   raw_user_message="hôtel près de disneyland paris")
 
         assert result["ok"] is True
