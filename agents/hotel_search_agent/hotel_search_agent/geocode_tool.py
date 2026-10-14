@@ -21,15 +21,29 @@ profile_state_context / profile_location_hint: this leaf holds no session
 request and reads the relevant fields back out to pass them in here. The
 returned `profile_delta` is what changed and must be forwarded to next
 turn's `profile_in` by whoever owns the session (the orchestrator, S5).
+
+QA14707 (Q07, decision DQ1): the tool the model sees, `geocode_location`, takes
+a `GeoIntent` (`b2c_common.geo_intent`) instead of free `city`/`zone`/
+`raw_user_message` strings. It is a thin wrapper: it checks the model's claims
+against the leaf's real input text, maps the object onto the flat arguments of
+`geocode_core` (the pipeline described above), fills the blanks from
+`profile_in` as before, and calls it. The model understands; the code owns the
+values. Tests and `scripts/probe_geo_landmarks.py` call `geocode_core` directly.
 """
 from __future__ import annotations
 
+import logging
 import os
 import re
 import unicodedata
+from typing import Any
 
 from b2c_common.clarification import MAX_OPTIONS, Clarification, ClarificationOption
+from b2c_common.geo_intent import CityRef, GeoIntent, Place
 from b2c_common.observability import mark_level
+from google.adk.tools.tool_context import ToolContext
+from pydantic import ValidationError
+
 from hotel_search_agent import geo_resolver
 from hotel_search_agent.geo_guards import (
     anchor_state_context,
@@ -41,8 +55,12 @@ from hotel_search_agent.geo_guards import (
 )
 from hotel_search_agent.inventory import get_inventory, haversine_km
 from hotel_search_agent.mapbox_client import GeocodeCandidate, GeocodeResult, MapboxClient
-from hotel_search_agent.response_bridge import read_profile_in
+from hotel_search_agent.response_bridge import read_input_text, read_profile_in, read_user_words
 from hotel_search_agent.searchbox_client import SearchBoxClient
+
+# Same stdout metrics logger as the other leaf modules. GDPR: counts and closed
+# enumerations only, never a place name or a word of the message.
+_metrics_logger = logging.getLogger("dayuse.metrics")
 
 _client: MapboxClient | None = None
 _searchbox: SearchBoxClient | None = None
@@ -91,6 +109,16 @@ def _locale_country(locale: str | None) -> str | None:
     if not locale:
         return None
     return _LOCALE_COUNTRY.get(locale.strip().lower()[:2])
+
+
+def _mapbox_language(locale: str | None, language_hint: str | None) -> str | None:
+    """The Mapbox `language` param: the client's locale, else the conversation
+    language (see `geocode_core`'s `language_hint`)."""
+    return (
+        (locale or "").strip().lower()[:2]
+        or (language_hint or "").strip().lower()[:2]
+        or None
+    )
 
 
 def _iso2(value: str | None) -> str | None:
@@ -428,7 +456,7 @@ def _ok(
     return payload
 
 
-def geocode_location(
+def geocode_core(
     city: str = "",
     zone: str | None = None,
     metro: str | None = None,
@@ -441,23 +469,33 @@ def geocode_location(
     proximity_lat: float | None = None,
     proximity_lon: float | None = None,
     country_guess: str | None = None,
+    region_named: str | None = None,
 ) -> dict:
-    """Resolve a destination to coordinates for `search_offers`, guarded.
+    """Resolve a destination to coordinates for `search_offers`, guarded — the
+    deterministic pipeline behind the `geocode_location` tool.
+
+    QA14707 (Q07): the model no longer calls this directly and never sees this
+    docstring. `geocode_location` maps the model's `GeoIntent` onto these flat
+    arguments (checked against the message, blanks filled from `profile_in`)
+    and calls this; tests and the landmark probe call it with them directly.
+    Every argument keeps a default: an absent one is a legitimate shape.
 
     Args:
-        city: The destination city as extracted from the request (may be a
-            generic word like "airport" — demoted to a zone hint, never
-            geocoded literally).
+        city: The destination city (may be a generic word like "airport" —
+            demoted to a zone hint, never geocoded literally). From the
+            `GeoIntent`: a `city` place, else the place's own city, else the
+            city the user named.
 
-            Defaults to "" and is NOT a mandatory parameter, deliberately. It
-            used to have no default, so ADK declared it mandatory and rejected
-            the whole tool call with "the following mandatory input parameters
-            are not present: city" whenever the model omitted the key — which
-            it does precisely when the user named a landmark and no city. 14
-            such dead turns in the traces between 2026-08-15 and 08-26 (champs
-            élysées, louvre, gare de lyon, eiffel tower, la défense, buckingham
-            palace). An absent `city` is a legitimate shape, so it degrades to
-            the landmark path instead of killing the turn.
+            Defaults to "", deliberately. It used to have no default, so ADK
+            declared it mandatory and rejected the whole tool call with "the
+            following mandatory input parameters are not present: city"
+            whenever the model omitted the key — which it does precisely when
+            the user named a landmark and no city. 14 such dead turns in the
+            traces between 2026-08-15 and 08-26 (champs élysées, louvre, gare
+            de lyon, eiffel tower, la défense, buckingham palace). An absent
+            `city` is a legitimate shape, so it degrades to the landmark path
+            instead of killing the turn. The tool keeps that property
+            (`geocode_location`: every parameter has a default).
         zone: A sub-city area/landmark, if any. A landmark/POI here ("La Défense",
             "Tour Eiffel") is what triggers the Search-Box tier-2 fallback when
             v6 can't resolve it.
@@ -467,13 +505,17 @@ def geocode_location(
             anywhere in the request (`select_us_postal_anchor`) deterministically
             forces "US" — never a locale→country guess otherwise. A named country
             is a HARD filter on the candidates, never a boost.
-        raw_user_message: The turn's raw text — feeds state-hint extraction
-            ("Milford ct") and the state anchor.
+        raw_user_message: The user's own words this turn — feeds state-hint
+            extraction ("Milford ct") and the state anchor. The tool reads it
+            from the invocation (`response_bridge.read_user_words`); the model
+            no longer copies it.
         profile_state_context: The US state anchored on an earlier turn
             (from profile_in), if any.
         country_guess: The ISO-3166-1 alpha-2 country this place is
             world-famously in, from the model's own world knowledge, when it is
-            confident ("champs élysées" -> FR, "times square" -> US). A SOFT
+            confident ("champs élysées" -> FR, "times square" -> US) — the
+            `GeoIntent`'s `places[].country` or `city.country`, normalized by
+            `_iso2` before it gets here. A SOFT
             prior only: it is scored with the same bounded weight as the locale
             prior and scopes the Search-Box fallback, but it NEVER filters
             candidates and never becomes coordinates. `country_code` above stays
@@ -518,6 +560,12 @@ def geocode_location(
             `inject_profile_geo_context` before_tool_callback — never expected
             from the model itself (it has no real GPS awareness).
         proximity_lon: paired with `proximity_lat`; either alone is ignored.
+        region_named: A US state the user NAMED (`GeoIntent.region_named`,
+            "Milford ct" -> "CT"). It is the most explicit tier of
+            `resolve_state_hint` (an extracted token, so even the codes the
+            free-text tier must skip, "OR"/"ME"/"IN", are safe), and it is
+            ignored whenever a country other than the US is in play: "WA" is
+            Western Australia as well as Washington.
 
     Returns a dict — NEVER raises. On success:
         {"ok": True, "latitude", "longitude", "resolved_place",
@@ -553,11 +601,7 @@ def geocode_location(
     # Computed BEFORE the early return below, because the zone-only landmark
     # path now needs both (P0-2 fix 1) — they depend only on the call's own
     # arguments, so hoisting them changes nothing for the paths further down.
-    lang = (
-        (locale or "").strip().lower()[:2]
-        or (language_hint or "").strip().lower()[:2]
-        or None
-    )
+    lang = _mapbox_language(locale, language_hint)
     # GPS proximity (S-G5): a Mapbox "lon,lat" bias string for the API call,
     # and a (lat, lon) tuple for the resolver's own bounded scoring credit —
     # both derived from the SAME two floats, present only when BOTH are given
@@ -723,7 +767,9 @@ def geocode_location(
     ):
         effective_country_code = "US"
 
+    region_in_play = (effective_country_code or guess_iso or "US").upper() == "US"
     state_hint = resolve_state_hint(
+        keywords=[region_named] if region_named and region_in_play else None,
         city=effective_city,
         zone=effective_zone,
         profile_location_hint=profile_location_hint,
@@ -1020,17 +1066,35 @@ def _complete_pending_place(args: dict, pending: object) -> None:
         args["country_code"] = matched[0]["country_code"]
 
 
+def _fill_place_from_profile(args: dict, profile_in: dict) -> None:
+    """The destination half of the profile→geocode bridge (P0 #4 fix, S-G5):
+    a `city`/`zone`/`metro`/`country_code` THIS turn gave always wins; a blank
+    one is filled from `profile_in` (the city-reuse case the leaf's instruction
+    used to spell out in prose). Never rewrites a fresh extraction. A homonym
+    answer (`pending_place`) completes the place first, as before.
+
+    QA14707 (Q07): applied by `geocode_location` right after it maps the
+    model's `GeoIntent`, no longer by the before-tool callback. These four are
+    not tool arguments any more, and ADK drops any key a tool does not
+    declare, so a callback could only ever fill what the model sees."""
+    _complete_pending_place(args, profile_in.get("pending_place"))
+    if _is_blank(args.get("city")) and profile_in.get("city"):
+        args["city"] = profile_in["city"]
+    if _is_blank(args.get("zone")) and profile_in.get("zone"):
+        args["zone"] = profile_in["zone"]
+    if _is_blank(args.get("metro")) and profile_in.get("metro"):
+        args["metro"] = profile_in["metro"]
+    if _is_blank(args.get("country_code")) and profile_in.get("country_anchor"):
+        args["country_code"] = profile_in["country_anchor"]
+
+
 def inject_profile_geo_context(tool: object, args: dict, tool_context: object) -> None:
-    """`before_tool_callback` (P0 #4 fix, S-G5) — the deterministic
-    profile→tool-args bridge for `geocode_location`, same pattern as
-    `equipment_ids.enforce_equipment_filters`: the leaf's own instruction used
-    to ask the model to COPY `city`/`state_anchor` into
+    """`before_tool_callback` (P0 #4 fix, S-G5) — the profile-signal half of
+    the deterministic profile→tool-args bridge for `geocode_location`, same
+    pattern as `equipment_ids.enforce_equipment_filters`: the leaf's own
+    instruction used to ask the model to COPY `city`/`state_anchor` into
     `profile_location_hint`/`profile_state_context` itself (the audit's P0 #4
-    — "the model stops being a copy machine" is this fix). Precedence:
-    - `city`/`zone`/`metro`/`country_code`: a value the model DID extract for
-      THIS turn always wins; a blank one is filled from `profile_in` (the
-      city-reuse case the leaf's instruction used to spell out in prose).
-      Never rewrites a fresh extraction.
+    — "the model stops being a copy machine" is this fix):
     - `profile_state_context`/`profile_location_hint`: PURE profile lookups by
       definition (an earlier turn's anchor, never something extracted from
       THIS message) — always set here, deterministically, whatever the model
@@ -1046,21 +1110,15 @@ def inject_profile_geo_context(tool: object, args: dict, tool_context: object) -
       could never actually carry the Lisboa case's locale prior ("pt-PT").
       Fixed by injecting the real field deterministically, same doctrine as
       everything else in this callback.
+    - `language_hint`: the conversation language, same category.
+    The destination itself (`city`/`zone`/`metro`/`country_code`) is filled
+    from the same `profile_in` by the tool, once it has mapped the model's
+    `GeoIntent` (`_fill_place_from_profile`, QA14707 Q07).
     A profile with nothing to offer (first turn, no DataPart) leaves `args`
     exactly as the model wrote them."""
     if getattr(tool, "name", "") != "geocode_location":
         return None
     profile_in = read_profile_in(tool_context)
-
-    _complete_pending_place(args, profile_in.get("pending_place"))
-    if _is_blank(args.get("city")) and profile_in.get("city"):
-        args["city"] = profile_in["city"]
-    if _is_blank(args.get("zone")) and profile_in.get("zone"):
-        args["zone"] = profile_in["zone"]
-    if _is_blank(args.get("metro")) and profile_in.get("metro"):
-        args["metro"] = profile_in["metro"]
-    if _is_blank(args.get("country_code")) and profile_in.get("country_anchor"):
-        args["country_code"] = profile_in["country_anchor"]
 
     if profile_in.get("state_anchor"):
         args["profile_state_context"] = profile_in["state_anchor"]
@@ -1078,3 +1136,218 @@ def inject_profile_geo_context(tool: object, args: dict, tool_context: object) -
             args["proximity_lat"] = float(lat)
             args["proximity_lon"] = float(lon)
     return None
+
+
+# --- the tool the model sees (QA14707, Q07) ----------------------------------
+
+
+def _comparable(text: str) -> str:
+    """Case, accents and punctuation folded away, words kept apart: « Gare-du-
+    Nord, » and « gare du nord » compare equal. Character classes only — no
+    word list, nothing about any language."""
+    spaced = "".join(ch if ch.isalnum() else " " for ch in _folded(text))
+    return " ".join(spaced.split())
+
+
+class _Claims:
+    """The model's claims about the message, checked by the code — and what
+    that check discarded, as counts only (GDPR: never a word of the message).
+
+    A `mention` is the model's claim of what the user wrote. It is kept only
+    when it is in the leaf's real input text (`read_input_text`, the
+    concierge's EARLIER REQUEST prefix included), whole words, case, accents
+    and punctuation aside. That checks a claim; it does not understand the
+    language. With no mention, the canonical name is what is claimed."""
+
+    def __init__(self, text: str):
+        self._said = f" {_comparable(text)} "
+        self.mentions_discarded = 0
+        self.canonicals_rejected = 0
+        self.countries_discarded = 0
+
+    def anchored(self, ref: Place | CityRef) -> bool:
+        claim = _comparable(ref.mention) or _comparable(ref.canonical)
+        if claim and f" {claim} " in self._said:
+            return True
+        if ref.mention.strip():
+            self.mentions_discarded += 1
+        return False
+
+    def country(self, value: str | None) -> str | None:
+        """Every country value goes through `_iso2` before it becomes a hard
+        filter or a soft hint: "fr" -> "FR"; a name, an alpha-3 code or noise
+        ("France", "USA", "FRA") is discarded — no hint, never a wrong scope."""
+        code = _iso2(value)
+        if code is None and (value or "").strip():
+            self.countries_discarded += 1
+        return code
+
+
+def _valid_intent(intent: object) -> tuple[GeoIntent, bool]:
+    """The model's `intent` as a `GeoIntent`, and whether it was one.
+
+    ADK 2.4 converts the model's dict with `model_validate` (the parameter is
+    declared as the class itself, see `geocode_location`), but an argument that
+    fails validation — an unknown `kind`, a third place, an extra key — is NOT
+    rejected: ADK logs a warning and passes the raw dict through. It is
+    re-validated here and, if it still fails, NOTHING of it is used: the turn
+    goes on as with an empty intent, so the carry-over from `profile_in` still
+    applies. Never raises."""
+    if isinstance(intent, GeoIntent):
+        return intent, True
+    if intent is None:
+        return GeoIntent(), True
+    try:
+        return GeoIntent.model_validate(intent), True
+    except ValidationError:
+        return GeoIntent(), False
+
+
+def _verified_city(
+    ref: Place | CityRef,
+    claims: _Claims,
+    *,
+    country: str | None,
+    locale_country: str | None,
+    language: str | None,
+) -> str | None:
+    """The city to geocode for a city the user wrote as `ref.mention`.
+
+    `canonical` is the model's spelling of it (« Pari » -> « Paris »). It is
+    kept only when it geocodes to a city with real inventory (`_city_coordinate`,
+    the city anchor's own credibility test); otherwise the user's own words are
+    what gets geocoded. Free when both name the same thing: the user wrote it,
+    and `geocode_core` checks it as always."""
+    mention, canonical = ref.mention.strip(), ref.canonical.strip()
+    if not mention or not canonical or _comparable(mention) == _comparable(canonical):
+        return canonical or mention or None
+    if _city_coordinate(canonical, country=country, locale_country=locale_country, language=language):
+        return canonical
+    claims.canonicals_rejected += 1
+    return mention
+
+
+def _place_args(
+    geo: GeoIntent, claims: _Claims, *, locale: str | None, language_hint: str | None
+) -> dict[str, Any]:
+    """The `GeoIntent` as `geocode_core` arguments — the S-L plan's §3 mapping:
+
+    - a `city` place → `city`;
+    - the first place of any other kind but `hotel` → `zone` = its name, with
+      `city` = the place's own city (inferred or not, as today), else the city
+      the user named (a `city` place, then the `city` field);
+    - `country_named` → `country_code`, the hard filter; a country not named
+      (the zone place's, else a city's) → `country_guess`, a hint;
+    - `region_named` → the state tier;
+    - `ambiguity.reason == "city_needed"` (DQ6, the S5 rule): no city at all,
+      so `geocode_core` asks which one — the code decides the question, the
+      model only flags it. `homonym` and `too_vague` are logged, not mapped:
+      the geocoder keeps deciding homonyms.
+
+    A place or a city whose mention is not in the message is dropped first.
+    A hotel is never a zone (it has its own path, `find_hotel_by_name`).
+    `relation`, `carryover` and `exclusions` are read, not applied (S-L5)."""
+    places = [p for p in geo.places if claims.anchored(p)]
+    # Rank in `places` decides nothing: « Gare du nord Paris » listed as two
+    # places, in either order, must lose neither Paris (the city question of
+    # trace A again) nor the station (a city-wide search).
+    zone_place = next((p for p in places if p.kind not in ("city", "hotel")), None)
+    cities: list[Place | CityRef] = [p for p in places if p.kind == "city"]
+    if geo.city is not None and claims.anchored(geo.city):
+        cities.append(geo.city)
+    named = claims.country(geo.country_named)
+    guess: str | None = None
+    for ref in ([zone_place] if zone_place is not None else []) + cities:
+        guess = claims.country(ref.country)
+        if guess:
+            break
+    city_needed = geo.ambiguity is not None and geo.ambiguity.reason == "city_needed"
+
+    def verified(ref: Place | CityRef) -> str | None:
+        return _verified_city(
+            ref,
+            claims,
+            country=named,
+            locale_country=guess or _locale_country(locale),
+            language=_mapbox_language(locale, language_hint),
+        )
+
+    zone: str | None = None
+    city: str | None = None
+    if zone_place is not None:
+        zone = (zone_place.canonical or zone_place.mention).strip() or None
+    if not city_needed:
+        inferred = (zone_place.city or "").strip() if zone_place is not None else ""
+        city = inferred or (verified(cities[0]) if cities else None)
+    return {
+        "city": city or "",
+        "zone": zone,
+        "country_code": named,
+        "country_guess": guess,
+        "region_named": (geo.region_named or "").strip() or None,
+    }
+
+
+def geocode_location(
+    intent: GeoIntent = GeoIntent(),
+    metro: str | None = None,
+    profile_state_context: str | None = None,
+    profile_location_hint: str | None = None,
+    locale: str | None = None,
+    language_hint: str | None = None,
+    proximity_lat: float | None = None,
+    proximity_lon: float | None = None,
+    tool_context: ToolContext | None = None,
+) -> dict:
+    """Resolve where the user wants to search into coordinates for search_offers.
+
+    Fill `intent` with what the message says about the place (its fields are
+    described in its schema): the user's own words in each `mention`, never
+    coordinates. When the message names no new place, send an empty `intent`
+    ({}): the system reuses the earlier destination. The system reads the
+    user's message itself, checks every place you report against it and
+    against the geocoder, and fills in the earlier destination, the state
+    anchor, the GPS bias and the client's locale from profile_in.
+
+    `metro`: a metro-area name the user gave, distinct from the city; usually
+    omitted. Never set the other arguments: the system sets them.
+
+    Returns {"ok": true, "latitude", "longitude", "resolved_place", ...} or
+    {"ok": false, "error", "diagnostics"}. On error "geocode_ambiguous", do not
+    search: the user is asked the question in diagnostics.
+    """
+    # The declaration form is load-bearing: `GeoIntent = GeoIntent()` is the
+    # only one ADK 2.4 converts from the model's dict (`GeoIntent | None`
+    # never does, `tests/test_geo_intent_contract.py`), and the default keeps
+    # the argument optional. The frozen default instance is safe to share.
+    geo, valid = _valid_intent(intent)
+    claims = _Claims(read_input_text(tool_context))
+    args = _place_args(geo, claims, locale=locale, language_hint=language_hint)
+    args["metro"] = metro
+    # The message is read from the invocation, never copied by the model.
+    args["raw_user_message"] = read_user_words(tool_context)
+    _fill_place_from_profile(args, read_profile_in(tool_context))
+    args["country_code"] = _iso2(args.get("country_code"))
+    _metrics_logger.info(
+        "dayuse_metric=geo_intent agent=b2c_hotel_search valid=%d places=%d "
+        "mentions_discarded=%d canonicals_rejected=%d countries_discarded=%d "
+        "ambiguity=%s carryover=%s",
+        int(valid),
+        len(geo.places),
+        claims.mentions_discarded,
+        claims.canonicals_rejected,
+        claims.countries_discarded,
+        (geo.ambiguity.reason if geo.ambiguity is not None else None) or "none",
+        geo.carryover,
+    )
+    return geocode_core(
+        **args,
+        profile_state_context=profile_state_context,
+        profile_location_hint=profile_location_hint,
+        locale=locale,
+        language_hint=language_hint,
+        proximity_lat=proximity_lat,
+        proximity_lon=proximity_lon,
+    )
+
+

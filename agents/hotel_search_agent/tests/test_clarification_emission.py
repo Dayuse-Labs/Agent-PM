@@ -1,6 +1,6 @@
 """QA14707 (Q03): the leaf's clarify questions travel as `Clarification` data.
 
-Path under test, end to end and offline: `geocode_location` builds the object,
+Path under test, end to end and offline: `geocode_core` builds the object,
 `capture_after_tool` stashes it, `emit_search_datapart` relays it in the
 DataPart, decoded here through the REAL ADK A2A converter (the hop the
 concierge relies on). The fakes stand in for Mapbox and the inventory only.
@@ -17,7 +17,7 @@ from google.adk.a2a.converters.part_converter import convert_genai_part_to_a2a_p
 from b2c_common.clarification import Clarification
 from hotel_search_agent import geo_resolver, geocode_tool
 from hotel_search_agent.contract import SearchResponse
-from hotel_search_agent.geocode_tool import geocode_location
+from hotel_search_agent.geocode_tool import geocode_core
 from hotel_search_agent.mapbox_client import GeocodeCandidate
 from hotel_search_agent.response_bridge import capture_after_tool, emit_search_datapart
 
@@ -126,7 +126,7 @@ class TestCityNeeded:
             geocode_tool, "mark_level", lambda level, status_message="": statuses.append(status_message)
         )
 
-        result = geocode_location(
+        result = geocode_core(
             zone="Gare du Nord", locale="fr-FR", raw_user_message="un hôtel près de Gare du Nord demain"
         )
 
@@ -149,7 +149,7 @@ class TestCityNeeded:
         # Persisting the subject (2026-08-26) is untouched by the new object.
         _patch(monkeypatch, [], {})
 
-        result = geocode_location(zone="Gare du Nord", raw_user_message="near Gare du Nord")
+        result = geocode_core(zone="Gare du Nord", raw_user_message="near Gare du Nord")
         data, _ = _through_the_leaf(result)
 
         assert data["profile_delta"]["zone"] == {"op": "set", "value": "Gare du Nord"}
@@ -159,7 +159,7 @@ class TestHomonym:
     def test_the_options_are_exactly_the_candidates_the_resolver_kept(self, monkeypatch):
         inv, _ = _patch(monkeypatch, _HOMONYMS, _HOMONYM_INVENTORY)
 
-        result = geocode_location(city="Victoria", raw_user_message="hotel in Victoria")
+        result = geocode_core(city="Victoria", raw_user_message="hotel in Victoria")
         data, _ = _through_the_leaf(result)
 
         clarification = Clarification.model_validate(data["clarification"])
@@ -179,7 +179,7 @@ class TestHomonym:
     def test_each_option_reads_as_it_does_in_the_question(self, monkeypatch):
         _patch(monkeypatch, _HOMONYMS, _HOMONYM_INVENTORY)
 
-        result = geocode_location(city="Victoria", raw_user_message="hotel in Victoria")
+        result = geocode_core(city="Victoria", raw_user_message="hotel in Victoria")
         data, text = _through_the_leaf(result)
 
         labels = [o["label"] for o in data["clarification"]["options"]]
@@ -208,7 +208,7 @@ class TestHomonym:
         # tier misses) is the second source of the same question.
         _, box = _patch(monkeypatch, _HOMONYMS, _HOMONYM_INVENTORY)
 
-        result = geocode_location(
+        result = geocode_core(
             city="Victoria", zone="Chinatown", raw_user_message="hotel near Chinatown in Victoria"
         )
 
@@ -223,7 +223,7 @@ class TestHomonym:
         _patch(monkeypatch, _HOMONYMS, _HOMONYM_INVENTORY)
 
         data, _ = _through_the_leaf(
-            geocode_location(city="Victoria", raw_user_message="hotel in Victoria")
+            geocode_core(city="Victoria", raw_user_message="hotel in Victoria")
         )
 
         assert not _keys(data["clarification"]) & {"latitude", "longitude", "lat", "lon", "bbox"}
@@ -232,7 +232,7 @@ class TestHomonym:
         _patch(monkeypatch, _HOMONYMS, _HOMONYM_INVENTORY)
 
         data, _ = _through_the_leaf(
-            geocode_location(city="Victoria", raw_user_message="hotel in Victoria")
+            geocode_core(city="Victoria", raw_user_message="hotel in Victoria")
         )
 
         response = SearchResponse.model_validate({"clarification": data["clarification"]})
@@ -303,7 +303,7 @@ class TestRelay:
     def test_a_successful_geocode_carries_no_question(self, monkeypatch):
         _patch(monkeypatch, [_BC], {48.43: 20})
 
-        result = geocode_location(city="Victoria", raw_user_message="hotel in Victoria")
+        result = geocode_core(city="Victoria", raw_user_message="hotel in Victoria")
 
         assert result["ok"] is True
         assert "clarification" not in result
