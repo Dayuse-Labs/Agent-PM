@@ -12,7 +12,7 @@
 | Q07 | The leaf extracts the place into a `GeoIntent`                                           | 3     | 3A    | Q06        | opus   | merged | 1        | task/Q07 | 4.7M / see /workflows |
 | Q15 | Seam: the leaf reads the user's own words apart from the concierge's context             | 3     | 3B    | Q07        | sonnet | merged | 1        | task/Q15 | 0.8M / see /workflows |
 | Q08 | Address and postcode resolved by the geocoder                                            | 3     | 3B    | Q07        | opus   | merged | 1        | task/Q08 | 3.1M / see /workflows |
-| Q16 | The market's country reaches the leaf's postcode tie-break                               | 3     | 3D    | Q14        | opus   | added  | 0        | —        | 2.0M / —              |
+| Q16 | The market's country reaches the leaf's postcode tie-break                               | 3     | 3D    | Q14        | opus   | merged | 1        | task/Q16 | 2.0M / see /workflows |
 | Q09 | Removal: city rescue by preposition, `pending_place` text matching                       | 4     | 4A    | Q08, Q15   | sonnet | todo   | 0        | —        | 1.6M / —              |
 | Q10 | Removal: US ZIP by regex (S-L7f)                                                         | 4     | 4B    | Q09, Q16   | sonnet | todo   | 0        | —        | 1.6M / —              |
 | Q11 | Removal: question extracted by regex and yes/no by word list, on the clarification route | 4     | 4B    | Q09, Q15   | sonnet | todo   | 0        | —        | 2.3M / —              |
