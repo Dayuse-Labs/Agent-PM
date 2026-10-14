@@ -152,14 +152,17 @@ def _soft_country(
     return named or _iso2(guess) or _locale_country(locale)
 
 
-def _market_country(locale: str | None) -> str | None:
+def _market_country(locale: str | None, entry_market_country: str | None = None) -> str | None:
     """The market's country, the last tie-break of a postcode (DQ8): the
-    region of the client's locale tag ("en-US" -> "US", "pt-PT" -> "PT"),
-    else the language prior above. A bare "en" names no country, so it gives
-    none — the tag's structure is read, never a word."""
+    market the request came from (`profile_in.entry_market_country`, QA14707
+    Q16 — the widget's market, set by the concierge), else the region of the
+    client's locale tag ("en-US" -> "US", "pt-PT" -> "PT"), else the language
+    prior above. A bare "en" names no country — which is what the en/USD
+    market sends, hence the first source. Structured fields only, never a
+    word; a malformed code is ignored."""
     parts = (locale or "").replace("_", "-").split("-")
     region = _iso2(parts[1]) if len(parts) > 1 else None
-    return region or _locale_country(locale)
+    return _iso2(entry_market_country) or region or _locale_country(locale)
 
 
 def _postcode_match(
@@ -531,6 +534,7 @@ def geocode_core(
     postal_code: str | None = None,
     zone_kind: str | None = None,
     region_chosen: str | None = None,
+    market_country: str | None = None,
 ) -> dict:
     """Resolve a destination to coordinates for `search_offers`, guarded — the
     deterministic pipeline behind the `geocode_location` tool.
@@ -647,6 +651,10 @@ def geocode_core(
             structured equality, applied only when it keeps at least one and
             no state is in play this turn. Never a query term, never a
             coordinate: « Springfield » option 2 is the Missouri candidate.
+        market_country: The market the request came from (QA14707 Q16,
+            `profile_in.entry_market_country`, read by `geocode_location`).
+            Only the market tie-break of a postcode (`_market_country`): it
+            comes after the named city and the guess, and is never a filter.
 
     Returns a dict — NEVER raises. On success:
         {"ok": True, "latitude", "longitude", "resolved_place",
@@ -703,7 +711,7 @@ def geocode_core(
     # the code was thrown away and the user was asked which city.
     postal = (postal_code or "").strip()
     if postal:
-        market = _market_country(locale)
+        market = _market_country(locale, market_country)
         mapbox = get_mapbox_client()
         if effective_zone and zone_kind in ("address", "street"):
             address = _postcode_match(
@@ -1587,8 +1595,17 @@ def geocode_location(
     args = _place_args(geo, claims, locale=locale, language_hint=language_hint)
     args["metro"] = metro
     args["raw_user_message"] = user_words
-    _fill_place_from_profile(args, read_profile_in(tool_context))
+    profile_in = read_profile_in(tool_context)
+    _fill_place_from_profile(args, profile_in)
     args["country_code"] = _iso2(args.get("country_code"))
+    # Q16: the market is read here, not declared: the model neither writes nor
+    # sees it. Added only when valid, so the core's arguments are otherwise
+    # unchanged. Read on a postcode turn too (`_fill_place_from_profile`
+    # returns early there), which is the one place it is used.
+    market = profile_in.get("entry_market_country")
+    market_country = _iso2(market) if isinstance(market, str) else None
+    if market_country:
+        args["market_country"] = market_country
     _metrics_logger.info(
         "dayuse_metric=geo_intent agent=b2c_hotel_search valid=%d places=%d "
         "mentions_discarded=%d canonicals_rejected=%d countries_discarded=%d "

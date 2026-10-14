@@ -8,7 +8,8 @@ now carries `places[].postal_code`, and the country of a postcode follows DQ8:
 - only a country the user NAMED is a hard Mapbox filter;
 - otherwise only the candidates whose `context.postcode` equals the written
   code are kept, and among those the named city, then the model's guess, then
-  the market's country break the tie.
+  the market's country break the tie. The market is the request's own
+  (`profile_in.entry_market_country`, Q16), else the locale's.
 
 Every Mapbox answer here is a REAL v6 response recorded by Fabien (H5, DQ9) in
 `fixtures/mapbox_v6/`, served to the real `MapboxClient` over an
@@ -35,7 +36,13 @@ from google.genai import types as genai_types
 
 from b2c_common.geo_intent import CityRef, GeoIntent, Place
 from hotel_search_agent import geocode_tool
-from hotel_search_agent.geocode_tool import geocode_core, geocode_location
+from hotel_search_agent.geocode_tool import (
+    _market_country,
+    _postcode_match,
+    geocode_core,
+    geocode_location,
+    inject_profile_geo_context,
+)
 from hotel_search_agent.mapbox_client import CANDIDATE_TYPES, GeocodeCandidate, MapboxClient
 
 FIXTURES = Path(__file__).resolve().parent / "fixtures" / "mapbox_v6"
@@ -581,3 +588,165 @@ class TestTheLiteLlmConversion:
         assert not validator.is_valid({"intent": {"latitude": 48.87}})
         for gone in ("country_code", "country_guess", "city", "zone", "raw_user_message"):
             assert gone not in parameters["properties"]
+
+
+# --- the market's country (Q16) ---------------------------------------------------
+#
+# DQ8's last tie-break is the MARKET's country. The widget's locale on the
+# en/USD market is a bare "en", which names no country, so before Q16 the
+# market step was inert there: « near 11580 » with no guess followed Mapbox's
+# own order, Mexico City first. The concierge now sends the market the request
+# came from (`profile_in.entry_market_country`, validated ISO2), and the leaf
+# reads it inside the tool: the model can neither write it nor see it, and it
+# is never a `country` filter.
+
+NEAR_11580 = "Allows cats. Near 11580"
+VALLEY_STREAM = "Valley Stream, New York 11580, United States"
+MEXICO_CITY = "Mexico City, 11580, Mexico"
+
+
+def _through_the_leaf(args: dict, ctx) -> dict:
+    """The leaf's real chain for one model call: the before-tool callback
+    (which injects `locale` from profile_in), then the real `FunctionTool`,
+    which drops any argument the tool does not declare."""
+    tool = FunctionTool(geocode_location)
+    inject_profile_geo_context(tool, args, ctx)
+    return asyncio.run(tool.run_async(args=args, tool_context=ctx))
+
+
+def _intent_11580() -> dict:
+    # A postal code, no country named and no model guess.
+    return GeoIntent(places=[_postcode("11580")]).model_dump(mode="json")
+
+
+class TestNear11580OnTheEnglishMarket:
+    @pytest.mark.parametrize(
+        ("market", "place", "country"),
+        [("US", VALLEY_STREAM, "US"), ("MX", MEXICO_CITY, "MX")],
+    )
+    def test_the_market_decides_between_the_two_11580(self, mapbox, market, place, country):
+        result = _through_the_leaf(
+            {"intent": _intent_11580()},
+            _ctx(NEAR_11580, profile_in={"locale": "en", "entry_market_country": market}),
+        )
+
+        assert result["ok"] is True
+        assert result["resolved_place"] == place
+        assert result["country_code"] == country
+        assert mapbox.queries == [("11580", "postcode")]
+        assert all("country" not in r for r in mapbox.requests)
+
+    def test_without_the_market_a_bare_en_follows_mapbox_order(self, mapbox):
+        # The gap Q16 closes: « en » names no country, so Mexico City (Mapbox's
+        # first answer) wins. The cases above differ only by the market.
+        result = _through_the_leaf(
+            {"intent": _intent_11580()}, _ctx(NEAR_11580, profile_in={"locale": "en"})
+        )
+
+        assert result["resolved_place"] == MEXICO_CITY
+
+    @pytest.mark.parametrize("bad", ["USA", "", "U1", 12, None, ["US"]])
+    def test_a_malformed_market_is_ignored(self, mapbox, bad):
+        result = _through_the_leaf(
+            {"intent": _intent_11580()},
+            _ctx(NEAR_11580, profile_in={"locale": "en-US", "entry_market_country": bad}),
+        )
+
+        # The locale region decides, as before Q16.
+        assert result["resolved_place"] == VALLEY_STREAM
+
+
+class TestTheModelCannotSetTheMarket:
+    def test_the_declaration_has_no_market_property(self):
+        declaration = FunctionTool(geocode_location)._get_declaration()
+        assert declaration is not None
+        properties = declaration.parameters_json_schema["properties"]
+
+        assert not {"market_country", "entry_market_country", "market"} & set(properties)
+
+    def test_a_market_the_model_writes_is_dropped(self, mapbox):
+        result = _through_the_leaf(
+            {"intent": _intent_11580(), "market_country": "MX", "entry_market_country": "MX"},
+            _ctx(NEAR_11580, profile_in={"locale": "en", "entry_market_country": "US"}),
+        )
+
+        assert result["resolved_place"] == VALLEY_STREAM
+
+    def test_the_core_gets_the_market_only_when_there_is_one(self, monkeypatch):
+        seen: list[dict] = []
+        monkeypatch.setattr(geocode_tool, "geocode_core", lambda **kw: seen.append(kw) or {})
+
+        for profile_in in ({"entry_market_country": "us"}, {"entry_market_country": "USA"}, {}):
+            geocode_location(intent=GeoIntent(), tool_context=_ctx("moins cher ?", profile_in=profile_in))
+
+        assert seen[0]["market_country"] == "US"
+        assert "market_country" not in seen[1]
+        assert "market_country" not in seen[2]
+
+
+class TestMarketCountry:
+    def test_the_request_market_comes_first(self):
+        assert _market_country("en", "US") == "US"
+        assert _market_country("fr-FR", "us") == "US"  # before the locale region
+        assert _market_country("fr", "MX") == "MX"  # before the language prior
+
+    def test_then_the_locale_region_then_the_language_prior(self):
+        assert _market_country("en-GB", None) == "GB"
+        assert _market_country("pt-BR", None) == "BR"  # region before the prior (PT)
+        assert _market_country("fr", None) == "FR"
+        assert _market_country("en", None) is None
+        assert _market_country(None, None) is None
+
+    @pytest.mark.parametrize("bad", ["USA", "", " ", "U1", "United States"])
+    def test_a_malformed_market_is_ignored(self, bad):
+        assert _market_country("fr-FR", bad) == "FR"
+        assert _market_country("en", bad) is None
+
+
+class TestTheMarketNeverComesFirst:
+    """75009 is Paris, FR and Celina, TX (the recording's 1st and 2nd answers)."""
+
+    def test_in_the_tie_break_the_city_and_the_guess_come_before_the_market(self):
+        candidates = _candidates("postcode_75009.json")
+
+        def place(city, guess, market):
+            match = _postcode_match(candidates, "75009", city=city, guess=guess, market=market)
+            assert match is not None
+            return match.place
+
+        assert place(None, None, "US") == "Celina"  # the market does break a tie
+        assert place("Paris", None, "US") == "Paris"  # the named city first
+        assert place(None, "FR", "US") == "Paris"  # then the guess
+
+    def test_through_the_tool_a_named_city_beats_the_market(self, mapbox):
+        # 13001 is also Ciudad Real, ES: on a Spanish market with no city, the
+        # market would take it (asserted on the recording's candidates). The
+        # city the user wrote keeps Marseille.
+        spain = _postcode_match(_candidates("postcode_13001_marseille.json"), "13001",
+                                city=None, guess=None, market="ES")
+        assert spain is not None and spain.country_code == "ES"
+        intent = GeoIntent(places=[_postcode("13001")],
+                           city=CityRef(mention="marseille", canonical="Marseille"))
+
+        result = _through_the_leaf(
+            {"intent": intent.model_dump(mode="json")},
+            _ctx("hotel 13001 marseille",
+                 profile_in={"locale": "en", "entry_market_country": "ES"}),
+        )
+
+        assert result["ok"] is True
+        assert result["country_code"] == "FR"
+        assert result["profile_delta"]["last_city"] == "Marseille"
+        assert mapbox.queries == [("13001 Marseille", "postcode")]
+        assert all("country" not in r for r in mapbox.requests)
+
+    def test_through_the_tool_a_guess_beats_a_us_market(self, mapbox):
+        intent = GeoIntent(places=[_postcode("75009", country="FR")])
+        result = _through_the_leaf(
+            {"intent": intent.model_dump(mode="json")},
+            _ctx("un hôtel dans le 75009",
+                 profile_in={"locale": "en", "entry_market_country": "US"}),
+        )
+
+        assert result["profile_delta"]["last_city"] == "Paris"
+        assert all("country" not in r for r in mapbox.requests)

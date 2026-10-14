@@ -229,6 +229,14 @@ class SessionProfile:
     currency: str | None = None
     locale: str | None = None
     domain: str | None = None
+    # QA14707 (Q16): the market's country (ISO 3166-1 alpha-2, uppercase), from
+    # the request body's `entry_market_country` (the widget's
+    # `marketContext.country_code`), validated by the facade. The leaf reads it
+    # as the last tie-break of a postcode (DQ8), never as a filter: « near
+    # 11580 » on the en/USD market, whose locale is a bare "en". Concierge-
+    # owned: a leaf delta never sets or clears it, and an invalid value in a
+    # request is carried over, never a clear.
+    entry_market_country: str | None = None
     search_anchor: dict[str, Any] | None = None  # {type, lat, lon, label, set_at_turn}
     distance_origin: dict[str, Any] | None = None  # {latitude, longitude, label, type}
     shown_hotel_ids: list[Any] = field(default_factory=list)
@@ -340,6 +348,7 @@ class SessionProfile:
             "currency": self.currency,
             "locale": self.locale,
             "domain": self.domain,
+            "entry_market_country": self.entry_market_country,
             "search_anchor": self.search_anchor,
             "distance_origin": self.distance_origin,
             "shown_hotel_ids": list(self.shown_hotel_ids),
@@ -643,10 +652,11 @@ def apply_profile_delta(
     known_fields = set(SessionProfile.__dataclass_fields__)
     # PORT1 slices 3-4: user-grounded constraints are concierge-owned — a leaf
     # delta can neither set nor clear them, nor clear their EUR projection.
-    # Q14: so is the region of a homonym option the user picked.
+    # Q14: so is the region of a homonym option the user picked. Q16: and the
+    # market's country, which only the facade writes (`_apply_native_context`).
     for owned_slot in (
         "requested_budget", "price_comparison", "room_requirements", "pending_party_total",
-        "region_anchor",
+        "region_anchor", "entry_market_country",
     ):
         values.pop(owned_slot, None)
         clears.discard(owned_slot)
