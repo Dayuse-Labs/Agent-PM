@@ -51,7 +51,8 @@ l'équipe, dès que tu donnes la copy) → `E2` puis `E1` puis `E4` (la boucle Q
 | **A2** | S10 shadow-run / S11 canary | L | accès ES prod |
 | **A3** | `conversation_logs` + `InMemorySessionService` | M | S10/S11 |
 | **G1→G12** | Backlog produit / géo | — | — |
-| **L** | Leaf de compréhension géo — série S-L (ajouté le 2026-10-08) | L | **Fabien** (D-1) · MCP déployé |
+| **L** | Leaf de compréhension géo — série S-L (ajouté le 2026-10-08) ; séquence revue par QA14707 (D-Q1) | L | **Fabien** (D-1) · MCP déployé |
+| **QA14707** | Retours QA de Raphael du 14/10 : créneau localisé, lieu compris (`GeoIntent` dans la feuille), clarification tenue par le code. Plan orchestre : `phases/QA14707/` | L | **Fabien** (H1 rejeu, H2 déploiement de `main`) |
 | **X1→X3** | 3 demandes chez MCP_B2C | — | **MCP_B2C** |
 
 **La seule échéance datée du projet : fin janvier 2027**, fin des patchs de sécurité Langfuse v3

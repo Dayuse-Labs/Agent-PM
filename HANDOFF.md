@@ -4,6 +4,36 @@
 
 > 📋 **Pour savoir QUOI faire ensuite, ouvrir [`CHANTIERS.md`](CHANTIERS.md)** (état vérifié au 2026-09-14) : la liste des chantiers ouverts, chacun avec sa preuve, ses actions et un prompt prêt à coller — plus la liste de ce qu'il ne faut **pas** relancer parce que c'est déjà livré. `tasks/todo.md` est périmé et ne doit plus servir de référence.
 
+## 📐 2026-10-14 — Retours QA de Raphael sur dayuse-com#14707 : diagnostic + plan orchestre (zéro code)
+
+**Fait** : diagnostic prouvé sur 14 traces Langfuse, et plan source `phases/QA14707/` (README, DIAGNOSTIC, tâches Q01-Q13), prêt pour `/orchestre:prepare phases/QA14707`.
+
+**Constats** (détail dans `phases/QA14707/DIAGNOSTIC.md`) :
+- 🔴 **La prod sert `cbe88b9`** (release de toutes les traces de Raphael). #135 (= #124 + #125) n'est **pas déployée**, et la QA du 14/10 a testé un build sans les correctifs du 30/09.
+- Créneau `10am - 4pm` en conversation FR : `formatTimeAMPM` (`web/vendor/static/js/chat/utils.js:46`) ignore la langue. Le « cut-off » de Raphael désigne bien le créneau (confirmé par Fabien).
+- Ville, adresse ou code postal ignorés :
+  - le 4o-mini de la feuille met `city=""` (« paris Gare du nord »), enfouit la ville dans `zone` (Versailles) ou jette le code postal (75009) ;
+  - le code pose alors `city_needed` sans option ;
+  - **la synthèse gpt-5.2 invente les options** (« Bruxelles », « Versailles (78) »).
+- Boucle :
+  - la feuille ne voit pas la question posée et ne comprend pas « Pari » ;
+  - la garde anti-boucle compare des paraphrases ;
+  - « Je confirme » est trié `booking`, et le routage ne renvoie une demande en attente vers la recherche que si `family == "ack"`. **`main` ne corrige pas ce cas** (lu dans le code).
+- Défaut latent, prouvé hors ligne : `select_us_postal_anchor` lit 75009 et 13001 comme des ZIP américains et force `country_code=US`.
+- `fc5cbd9` (sur `main`) répare le cas A par une regex de prépositions, qui n'attrape ni « a room in paris », ni Versailles, ni le code postal.
+
+**Décisions (Fabien, 14/10, recommandations retenues)** :
+- **D-Q1** : le `GeoIntent` est d'abord produit par la feuille de recherche actuelle, comme argument de `geocode_location` (contrat S-L §3, plus `postal_code` et `mention` / `canonical`). S-L3/S-L4 deviennent conditionnels.
+- **D-Q2** : une clarification est rendue par gabarit, sans synthèse.
+- **D-Q3** : déployer `main` après le rejeu de référence.
+
+**Reste** :
+- merger cette PR de docs, `git pull`, puis `/orchestre:prepare phases/QA14707` dans une nouvelle session ;
+- H1 (rejeu de référence, `cbe88b9` contre `main`) puis H2 (déploiement de `main`), à faire par Fabien ;
+- demander à Raphael l'URL et le marché de test : `locale:"en"` et `USD` sur toutes ses traces.
+
+🪤 `/orchestre:prepare` prend un dossier contenant `tasks/` ou `taches/` pour un plan déjà converti et s'arrête : le plan source garde ses tâches à plat.
+
 ## 🟡 2026-10-12 (bis) — PORT1 « vérité des cartes » : #134 portée sur `main` en 5 tranches (PR à revoir, prompt de triage non mesuré)
 
 Périmètre : `phases/PORT1-verite-des-cartes.md`. Branche `port/card-truth` (worktree `../AgentB2C-card-truth`), base `main` @ `49d5bd3`, source `origin/codex/production-context-and-proximity` @ `d8832b6` (#134 + #136), lue par `git show`, jamais mergée. Modèle d'état de #135 gardé ; hôtel nommé côté concierge (`named_hotel_id`) **non porté**. Hors ligne uniquement : aucun appel LLM, MCP ni réseau.
@@ -53,6 +83,7 @@ Non corrigé (signalé par la revue, à arbitrer) : montants avec séparateur de
 - Dans les heredocs Python de session, `$S:t…` est un modificateur zsh : `git show $S:tests/x` lit `…ests/x`. Écrire `"${S}:tests/x"`.
 - `echo =====` échoue en zsh (expansion `=`) : utiliser `echo '#####'`.
 - Contrôle négatif quand un test importe un module neuf : la collecte s'arrête ; ajouter `--continue-on-collection-errors` pour compter les échecs.
+
 
 ## ✅ 2026-10-12 — Ménage des PR + #124/#125 enfin ramenées sur `main`
 
