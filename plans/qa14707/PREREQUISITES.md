@@ -18,3 +18,5 @@
 | E2 | environment | The main checkout's venv works: `/Users/fabiendauvergne/Projects/AgentB2C/.venv/bin/pytest --version` | done | pytest 8.4.2; full suite 2416 passed on `main` c76f0a2 (2026-10-14) |
 
 Types: decision · manual · environment. Statuses: open · done · dropped.
+
+Checked by /orchestre:ready on 2026-10-14: phases 1 and 2 ready (dry run of phase 1 green: 2416 passed, ruff, mypy, guardrails, widget 16/16, seed dry-run); Q08 waits for H5; phase 4 waits for H1 and H3.
