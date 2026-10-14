@@ -1,19 +1,19 @@
 # PROGRESS — qa14707
 
-| ID  | Title | Phase | Batch | Depends on | Model  | Status | Attempts | Branch | Tokens est. / actual |
-|-----|-------|-------|-------|------------|--------|--------|----------|--------|----------------------|
-| Q01 | Proof bench — QA14707 eval set, evaluators and multi-turn replay | 1 | 1A | — | sonnet | todo | 0 | — | 2.7M / — |
-| Q02 | Time slot in the language of the conversation | 1 | 1B | — | sonnet | todo | 0 | — | 0.8M / — |
-| Q03 | `Clarification` contract and structured emission by the leaf | 2 | 2A | — | opus | todo | 0 | — | 3.1M / — |
-| Q04 | Concierge: clarification rendered by template, persistent state, anti-loop on the state | 2 | 2B | Q03 | opus | todo | 0 | — | 4.7M / — |
-| Q05 | Routing: the answer to the question goes before the booking | 2 | 2C | Q04 | opus | todo | 0 | — | 4.1M / — |
-| Q06 | `GeoIntent` v1.1 contract and offline ADK proof | 2 | 2A | — | opus | todo | 0 | — | 2.0M / — |
-| Q07 | The leaf extracts the place into a `GeoIntent` | 3 | 3A | Q06 | opus | todo | 0 | — | 4.7M / — |
-| Q08 | Address and postcode resolved by the geocoder | 3 | 3B | Q07 | opus | todo | 0 | — | 3.1M / — |
-| Q09 | Removal: city rescue by preposition, `pending_place` text matching | 4 | 4A | Q08 | sonnet | todo | 0 | — | 1.6M / — |
-| Q10 | Removal: US ZIP by regex (S-L7f) | 4 | 4B | Q09 | sonnet | todo | 0 | — | 1.6M / — |
-| Q11 | Removal: question extracted by regex and yes/no by word list, on the clarification route | 4 | 4B | Q09 | sonnet | todo | 0 | — | 2.3M / — |
-| Q12 | Documentation: HANDOFF, CHANTIERS, S-L plan | 5 | 5A | — | sonnet | todo | 0 | — | 1.6M / — |
-| Q13 | Global review (read-only) | 5 | 5B | Q12 | opus | todo | 0 | — | 2.6M / — |
+| ID  | Title                                                                                    | Phase | Batch | Depends on | Model  | Status | Attempts | Branch | Tokens est. / actual |
+|-----|------------------------------------------------------------------------------------------|-------|-------|------------|--------|--------|----------|--------|----------------------|
+| Q01 | Proof bench — QA14707 eval set, evaluators and multi-turn replay                         | 1     | 1A    | —          | sonnet | todo   | 0        | —      | 2.7M / —             |
+| Q02 | Time slot in the language of the conversation                                            | 1     | 1B    | —          | sonnet | todo   | 0        | —      | 0.8M / —             |
+| Q03 | `Clarification` contract and structured emission by the leaf                             | 2     | 2A    | —          | opus   | todo   | 0        | —      | 3.1M / —             |
+| Q04 | Concierge: clarification rendered by template, persistent state, anti-loop on the state  | 2     | 2B    | Q03        | opus   | todo   | 0        | —      | 4.7M / —             |
+| Q05 | Routing: the answer to the question goes before the booking                              | 2     | 2C    | Q04        | opus   | todo   | 0        | —      | 4.1M / —             |
+| Q06 | `GeoIntent` v1.1 contract and offline ADK proof                                          | 2     | 2A    | —          | opus   | todo   | 0        | —      | 2.0M / —             |
+| Q07 | The leaf extracts the place into a `GeoIntent`                                           | 3     | 3A    | Q06        | opus   | todo   | 0        | —      | 4.7M / —             |
+| Q08 | Address and postcode resolved by the geocoder                                            | 3     | 3B    | Q07        | opus   | todo   | 0        | —      | 3.1M / —             |
+| Q09 | Removal: city rescue by preposition, `pending_place` text matching                       | 4     | 4A    | Q08        | sonnet | todo   | 0        | —      | 1.6M / —             |
+| Q10 | Removal: US ZIP by regex (S-L7f)                                                         | 4     | 4B    | Q09        | sonnet | todo   | 0        | —      | 1.6M / —             |
+| Q11 | Removal: question extracted by regex and yes/no by word list, on the clarification route | 4     | 4B    | Q09        | sonnet | todo   | 0        | —      | 2.3M / —             |
+| Q12 | Documentation: HANDOFF, CHANTIERS, S-L plan                                              | 5     | 5A    | —          | sonnet | todo   | 0        | —      | 1.6M / —             |
+| Q13 | Global review (read-only)                                                                | 5     | 5B    | Q12        | opus   | todo   | 0        | —      | 2.6M / —             |
 
 Statuses: todo · added · merged · blocked · failed · needs-human · cancelled
