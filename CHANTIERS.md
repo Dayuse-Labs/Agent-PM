@@ -51,6 +51,7 @@ l'équipe, dès que tu donnes la copy) → `E2` puis `E1` puis `E4` (la boucle Q
 | **A2** | S10 shadow-run / S11 canary | L | accès ES prod |
 | **A3** | `conversation_logs` + `InMemorySessionService` | M | S10/S11 |
 | **G1→G12** | Backlog produit / géo | — | — |
+| **L** | Leaf de compréhension géo — série S-L (ajouté le 2026-10-08) | L | **Fabien** (D-1) · MCP déployé |
 | **X1→X3** | 3 demandes chez MCP_B2C | — | **MCP_B2C** |
 
 **La seule échéance datée du projet : fin janvier 2027**, fin des patchs de sécurité Langfuse v3
@@ -629,6 +630,24 @@ au redémarrage du process (le profil Redis, lui, survit). À traiter avec S10/S
 | G10 | Variance de `_lookup_trace_facts` | Un miss dégrade en `skipped` silencieux. Backoff plus long ou échec explicite. |
 | G11 | Cas `lang-confirm-implicit` impassable | `pending_booking.hotel_id = 123` fabriqué → aucun lien possible, plafond 6/7 définitif. Le re-semer avec un vrai id, ou l'acter. |
 | G12 | `booking_url_fallback` illisible | Le proxy jette le corps (`scripts/run_widget_proxy.py:133-135`). ~10 lignes pour logger `event` + `reason` (liste blanche, jamais le payload). |
+
+---
+
+# 6 bis · Leaf de compréhension géo — série S-L (ajouté le 2026-10-08)
+
+## L — Une leaf comprend le lieu, le code vérifie les faits
+
+**Taille : L** · **bloqué par : décision D-1 de Fabien (budget d'appels) pour S-L4 ; MCP `main` déployé pour S-L1**
+
+**Contexte.** La compréhension du lieu repose sur le prompt de la feuille et sur des règles de langage en code (regex de prépositions, mots génériques, état lu dans le texte, exceptions écrites dans le prompt) : chaque incident ajoute une condition. Décision du 2026-10-08 : une leaf A2A rend un `GeoIntent` fermé, sans coordonnées ; le code garde la vérification des faits. Plan : `reports/PLAN-LEAF-GEO-2026-10-08.md` ; sessions : `SESSIONS-CLAUDE-CODE.md` § S-L.
+
+**Preuve (vérifiée le 2026-10-08).** `git show origin/fix/geo-location-class:agents/hotel_search_agent/hotel_search_agent/response_bridge.py | grep -n '"sort"'` (le MCP `main` attend `sortBy`) ; `agents/b2c_concierge/b2c_concierge/budget.py:18` (plafond de 3 appels qui refuse une 4e charge).
+
+**Actions.** S-L1 ∥ S-L2 → S-L3 → S-L4 → S-L5 → S-L6 → S-L8, puis S-L7a…f (une règle par session).
+
+**Prompt.** Celui de `phases/SL1-pr124-contrat-mcp.md`, et celui de `phases/SL2-contrat-geointent-evals.md` en parallèle.
+
+**Terminé quand.** `GEO_LEAF_MODE=on` en production, jeux géo sans régression par rapport à la référence de S-L2, règles S-L7a à S-L7e retirées.
 
 ---
 

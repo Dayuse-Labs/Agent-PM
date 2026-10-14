@@ -176,6 +176,24 @@ the hotel's own currency, or a live FX rate to convert `priceEuro` ourselves
 pricing staged); open for a future phase if multi-currency display becomes a
 priority.
 
+### `find_hotel_by_name`: return the hotel's coordinates (`lat`/`lon`)
+
+**Requested:** 2026-10-08 (leaf géo plan review)
+**Status:** open — pending Fabien's decision D-2 (`reports/PLAN-LEAF-GEO-2026-10-08.md` §5)
+
+**What:** add `lat`/`lon` (from `_geoloc`) to the `find_hotel_by_name` result and
+document them in the tool description. Read-only, no new indexed field.
+
+**Why:** AgentB2C shows a named hotel together with its neighbours: once
+`find_hotel_by_name` resolves the hotel, a dated `search_offers` runs centred on
+it (`named_hotel.py`, PR #124). MCP `main` 08f3764d returns the identity only
+(id, name, cityName slug, country, address, star rating, rating, photo — per the
+tool description), so that follow-up search has no centre.
+
+**Client-side workaround:** the named hotel is shown alone, without neighbours.
+**Removal condition:** the coordinates are in the published schema and in
+`contracts/mcp_b2c_tools.json`.
+
 ## Already answered / not applicable
 
 - Pagination (`from`/`size` offset) — already exists server-side (S-G5,

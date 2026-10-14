@@ -62,6 +62,18 @@ Non corrigé (signalé par la revue, à arbitrer) : montants avec séparateur de
 
 **Reste** : #134 (Victor) doit se rebaser sur ce `main` — ~14 fichiers en conflit avec cette branche, plus un littéral « 12 novembre 2026 » (`test_location_confirmation.py`) que la garde +400 j fait tomber. Décision ouverte : le `location_intent` du triage de #134 contre la feuille géo (L1, `reports/PLAN-LEAF-GEO-2026-10-08.md`, dont la prémisse « #124 ouverte » est fausse).
 
+## 📐 2026-10-08 — Plan de la leaf de compréhension géo (série S-L) : documents seulement, zéro code
+
+**Fait** (session Cowork de revue, rien de commité) : plan arbitré `reports/PLAN-LEAF-GEO-2026-10-08.md` (décisions L1-L6 de Fabien, écarts E1-E15 entre le plan de la discovery et le code, contrat `GeoIntent` v1) ; phases `phases/SL1…SL8-*.md`, prompt de lancement inclus ; section S-L de `SESSIONS-CLAUDE-CODE.md` ; chantier L de `CHANTIERS.md` ; demande « coordonnées dans `find_hotel_by_name` » dans `reports/MCP-B2C-REQUESTS.md`.
+
+**Constats vérifiés dans le code** (détail au plan §2) :
+- Le plafond de 3 appels LLM par tour est appliqué en code (`agents/b2c_concierge/b2c_concierge/budget.py:18`, exception à la 4e charge) : une leaf de plus impose la décision D-1 avant S-L4.
+- #124 envoie `sort` ; le MCP `main` 08f3764d attend `sortBy`. Le MCP `main` ne renvoie pas non plus les coordonnées dans `find_hotel_by_name`, dont `named_hotel.py:196` (#124) a besoin pour montrer les voisins.
+- `contracts/mcp_b2c_tools.json` n'a ni `sortBy` ni `timeSlotMode` : déployer le MCP puis rafraîchir le contrat avant S-L1.
+- Le test de contrat (`tests/test_mcp_contract.py`) n'exerce pas l'ancre de type lieu, ce qui explique que `sort` soit passé.
+
+**Reste** : décisions D-1 à D-7 (plan §5) ; S-L1 et S-L2 peuvent démarrer.
+
 ## ✅ 2026-10-07 (quater) — « Voir tout » sans les heures quand aucune carte ne couvre le créneau
 
 **Fait** (branche `fix/see-all-drops-window-when-closest`, sur `main` à `cbe88b9` ; gates : pytest **2 140 passés / 1 skippé**, ruff, mypy, guardrails **verts**). QA Mathias : « Je veux un hotel a miami de 6h a 23h » → cartes « les plus proches », mais « Voir tout » ouvrait le site filtré `checkinTime=6am&checkoutTime=11pm` → « No hotel available ».
