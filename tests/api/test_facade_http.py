@@ -11,6 +11,7 @@ from __future__ import annotations
 import json
 
 import b2c_concierge.agent as agent_module
+from b2c_common.clarification import Clarification
 import b2c_concierge.facade as facade_module
 from b2c_concierge import templates
 from b2c_concierge.facade import CONTRACT_KEYS
@@ -274,6 +275,45 @@ def test_sse_hotels_frame_carries_the_clarify_flag(monkeypatch, client):
     hotels_event = next(d for e, d in events if e == "hotels")
     assert hotels_event["requires_clarification"] is True
     assert events[-1][1]["requires_clarification"] is True
+
+
+def test_sse_clarification_turn_streams_progress_then_the_template(monkeypatch, client):
+    """QA14707 (Q04, DQ2): a place question from the leaf skips the synthesis.
+    The stream must not lose its shape for it: `progress` first, the template's
+    text as tokens, `done` carrying the same text and the clarify flag."""
+    clarification = Clarification(kind="city_needed", subject="Gare du Nord")
+
+    async def fake_classify(message, budget, invocation_id="", *, recent_messages=None, previous_question=None):
+        budget.charge("triage")
+        return Triage("search", "fr", used_llm=False)
+
+    async def fake_run_leaf(leaf, ctx, profile_in):
+        return (
+            "Near Gare du Nord — which city?",
+            {"requires_clarification": True, "clarification": clarification.model_dump(mode="json")},
+        )
+
+    async def no_synthesis(self, **kwargs):
+        raise AssertionError("a clarification turn makes no synthesis call")
+
+    monkeypatch.setattr(agent_module, "classify", fake_classify)
+    monkeypatch.setattr(agent_module, "_run_leaf", fake_run_leaf)
+    monkeypatch.setattr(agent_module._B2cConcierge, "_generate_once", no_synthesis)
+
+    r = client.post("/v3/chat/stream", json={"message": "un hôtel près de Gare du Nord demain"})
+    assert r.status_code == 200
+    events = _parse_sse(r.text)
+    kinds = [e for e, _ in events]
+    expected = templates.clarification_response(clarification, "fr")
+
+    assert kinds[0] == "progress"
+    assert kinds[-1] == "done"
+    assert "token" in kinds and kinds.index("progress") < kinds.index("token")
+    streamed = "".join(d["text"] for e, d in events if e == "token")
+    assert streamed.strip() == expected
+    done_payload = events[-1][1]
+    assert done_payload["message"].strip() == expected
+    assert done_payload["requires_clarification"] is True
 
 
 def test_sse_hotels_frame_picks_are_this_turns_not_the_previous_turns(monkeypatch, client):
