@@ -16,7 +16,7 @@ owned_files:
 resources: []
 prerequisites: [E2]
 context_budget: 40%
-token_estimate: 2.5M
+token_estimate: 3.2M
 max_turns: 60
 verification:
   - "/Users/fabiendauvergne/Projects/AgentB2C/.venv/bin/pytest -q"
@@ -32,6 +32,11 @@ definition_of_done:
   - "`MAX_LLM_CALLS_PER_TURN` is unchanged, and the diff adds no regex or word list."
   - "The report records the new field of the concierge-to-leaf data as a `decision` entry (name, location, consumer)."
   - "The chosen option's region is read and applied inside the tool (`geocode_location` / `_fill_place_from_profile`, from `profile_in` or `query_params`), never as a new argument written by a before-tool callback. A test runs the leaf's real `geocode_location` FunctionTool with the region in the inbound DataPart and Mapbox mocked, and gets the chosen candidate."
+  - "Test (Mapbox mocked): message « Gare du Nord à Bruxelles », `GeoIntent(places=[station \"Gare du Nord\" city \"Paris\"], city={mention \"Bruxelles\"})`: `geocode_core` receives city Bruxelles (checked by `_verified_city`), not Paris. (Moved from Q08, merged: in `_place_args` the zone place's inferred city must no longer beat a city the user wrote in this turn.)"
+  - "Test (Mapbox mocked): on an answer turn whose city comes only from the concierge's EARLIER REQUEST prefix (no mention in the user's own words, `read_user_words`), the zone place's own city keeps precedence, as after Q07."
+  - "Test: a disagreement between the zone place's inferred city and a user-written city is counted as `city_conflicts` on the `dayuse_metric=geo_intent` log line, which carries no message text."
+  - "Q07's tests for `places=[station, city Paris]` and `[city Paris, station]` pass without change to their assertions."
+  - "Test (Mapbox mocked, H5 fixture): `GeoIntent(places=[city \"Paris\", address \"2 boulevard Poissonnière\" postal_code \"75009\"])` and the same two places in the reverse order give the same result: zone = the address, city Paris, the postcode applied, and no city-wide search and no question. (Moved from Q08, merged.)"
 ---
 
 ## Launch prompt
