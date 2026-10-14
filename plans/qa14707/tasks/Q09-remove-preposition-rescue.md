@@ -28,6 +28,7 @@ definition_of_done:
   - "The assertions of the tests \"St Paul's à Londres\" and \"champs élysées\" pass without change; only their inputs move to a `GeoIntent`."
   - "The Manhattan → \"New York\" behaviour is covered by a test through the `GeoIntent` path. The tests of the removed mechanism (`test_geocode_tool.py:415-418`, `:782-803`, which assert on `pending_place`) are deleted and listed in the report."
   - "No new regex or word list in the diff."
+  - "If the leaf reads `query_params.clarification`, it validates the value with `Clarification.model_validate` and ignores an off-contract one. A test covers a valid and an off-contract value."
 ---
 
 ## Launch prompt

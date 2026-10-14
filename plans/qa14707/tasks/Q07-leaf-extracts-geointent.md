@@ -39,6 +39,8 @@ definition_of_done:
   - "Test: `places[].country` and `city.country` go through the same `_iso2` normalization before they become `country_guess`. A malformed value degrades to no hint, never to a wrong scope."
   - "Test: when the `intent` argument fails `GeoIntent` validation (an unknown `kind`, three places), ADK 2.4 passes it to the function as a raw dict. The tool validates it with `GeoIntent.model_validate` and does not raise. It never uses the raw values: it goes on as with an empty `GeoIntent()`, so the carry-over from `profile_in` still applies. The failure is counted in a metric that carries no message content."
   - "Test: the leaf's real `geocode_location` FunctionTool, called with a dict `intent`, receives a `GeoIntent` instance. The parameter is declared `intent: GeoIntent = GeoIntent()`, not `GeoIntent | None`."
+  - "The leaf's prompt documents `query_params.clarification`: the place question already asked, to be read as data and never copied into a tool argument (diff)."
+  - "A case of `tests/test_mcp_contract.py` runs with `query_params.clarification` (a homonym `Clarification` with 2 options) in the inbound DataPart: the `search_offers` arguments sent to the MCP hold no key outside the published schema."
 ---
 
 ## Launch prompt
