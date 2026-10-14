@@ -1051,6 +1051,21 @@ def next_pending_clarification(
     return {"clarification": clarification, "request": request, "asked": asked}
 
 
+def chosen_clarification_option(
+    pending: dict[str, Any] | None, index: int | None
+) -> dict[str, Any] | None:
+    """The option a 1-based `index` (the triage's `answer_option`) points at
+    in the pending place question, or None when there is no such option.
+    Read from the state, never from the message: the options are the ones
+    the geocoder returned and the template numbered (Q05)."""
+    clarification = (pending or {}).get("clarification")
+    options = clarification.get("options") if isinstance(clarification, dict) else None
+    if index is None or not isinstance(options, list) or not 1 <= index <= len(options):
+        return None
+    option = options[index - 1]
+    return option if isinstance(option, dict) and option.get("city") else None
+
+
 def pending_clarification_context(pending: dict[str, Any] | None) -> str | None:
     """The text placed before the user's answer to a place question: the
     request not searched yet and the question as the leaf sent it (data, not
