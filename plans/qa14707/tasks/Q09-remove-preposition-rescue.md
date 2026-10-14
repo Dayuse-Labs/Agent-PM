@@ -23,6 +23,7 @@ verification:
   - "/Users/fabiendauvergne/Projects/AgentB2C/.venv/bin/mypy agents libs"
   - "bash scripts/dayuse_guardrails.sh ."
   - "/Users/fabiendauvergne/Projects/AgentB2C/.venv/bin/pytest -q tests/test_leaf_concierge_seam.py"
+  - "/Users/fabiendauvergne/Projects/AgentB2C/.venv/bin/pytest -q agents/hotel_search_agent/tests/test_homonym_option_region.py"
 definition_of_done:
   - "`git grep -n -e _CITY_AFTER_PREPOSITION_RE -e _city_named_in_message -e _complete_pending_place -- agents libs` returns nothing, and `_ARTICLES` is gone from `geocode_tool.py` (diff)."
   - "The leaf no longer writes `pending_place`: neither `geocode_tool.py` nor `response_bridge.py` (diff)."
@@ -31,6 +32,7 @@ definition_of_done:
   - "No new regex or word list in the diff."
   - "If the leaf reads `query_params.clarification`, it validates the value with `Clarification.model_validate` and ignores an off-contract one. A test covers a valid and an off-contract value."
   - "`raw_user_message` given to `geocode_core` still comes from `response_bridge.read_user_words` (the last text part), never from `read_input_text`. The seam tests of `tests/test_leaf_concierge_seam.py` (Q15) pass without change to their assertions."
+  - "`_fill_place_from_profile` still turns `profile_in.region_anchor` into `region_chosen` while the turn's city equals the carried city. `agents/hotel_search_agent/tests/test_homonym_option_region.py` (Q14) passes without change to its assertions."
 ---
 
 ## Launch prompt
