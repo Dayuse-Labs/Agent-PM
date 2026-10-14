@@ -62,7 +62,7 @@ A slot simply ABSENT from the delta is always carryover. The leaf still
 emits today's flat `{key: value}` shape (it migrates in S-G5/S-G6) — that
 shape is treated as an implicit "set", so nothing here breaks in the
 meantime. A city change clears the geo-scoped slots (`zone`/`metro`/
-`search_anchor`/`state_anchor`/`country_anchor`) and resets the pagination
+`search_anchor`/`state_anchor`/`country_anchor`/`region_anchor`) and resets the pagination
 state (`shown_hotel_ids`/`search_cursor`); a zone-only change deliberately
 keeps everything else (date/timeslot/budget/amenities) — the audit's
 "context lost on a suburb change" failure.
@@ -190,6 +190,12 @@ class SessionProfile:
     city: str | None = None
     state_anchor: str | None = None
     country_anchor: str | None = None
+    # QA14707 (Q14): the region of the homonym option the user picked by its
+    # number, read from the stored `Clarification` (never from the message).
+    # It goes with `city`: the leaf narrows that city's candidates to this
+    # region (Springfield IL / MO share name and country). Concierge-owned: a
+    # leaf delta never sets it, and a city change clears it.
+    region_anchor: str | None = None
     budget_max: float | None = None
     budget_request_source: str | None = None
     timeslot: str | None = None
@@ -306,6 +312,7 @@ class SessionProfile:
             "city": self.city,
             "state_anchor": self.state_anchor,
             "country_anchor": self.country_anchor,
+            "region_anchor": self.region_anchor,
             "budget_max": self.budget_max,
             "budget_request_source": self.budget_request_source,
             "timeslot": self.timeslot,
@@ -636,7 +643,11 @@ def apply_profile_delta(
     known_fields = set(SessionProfile.__dataclass_fields__)
     # PORT1 slices 3-4: user-grounded constraints are concierge-owned — a leaf
     # delta can neither set nor clear them, nor clear their EUR projection.
-    for owned_slot in ("requested_budget", "price_comparison", "room_requirements", "pending_party_total"):
+    # Q14: so is the region of a homonym option the user picked.
+    for owned_slot in (
+        "requested_budget", "price_comparison", "room_requirements", "pending_party_total",
+        "region_anchor",
+    ):
         values.pop(owned_slot, None)
         clears.discard(owned_slot)
     if profile.requested_budget is not None:
@@ -650,6 +661,7 @@ def apply_profile_delta(
         if profile.city and new_city != profile.city:
             profile.state_anchor = None
             profile.country_anchor = None
+            profile.region_anchor = None
             profile.zone = None
             profile.metro = None
             profile.search_anchor = None
