@@ -95,6 +95,7 @@ Entries: `deviation`, `blind-spot`, `decision`, `debt`, `needs-human`, `ticket`,
 - decision · major · Q04: on the turn that answers a place question, the concierge sends the `Clarification` to the leaf twice. It goes as JSON in the context-text prefix (EARLIER REQUEST / YOU ASKED / REPLY), which the LLM reads, and as `query_params.clarification`, which code reads. `query_params.clarification` is part of the concierge-to-leaf interface. Q07 documents it in the leaf's prompt, and any leaf-side reader (Q09) validates it with `Clarification`.
 - amendment · major · Q07: Q07 rewrites the leaf's prompt and owns the MCP argument contract test. The new inbound key must be described to the LLM, and it must not leak into MCP arguments.
 - amendment · major · Q09: If Q09 replaces `profile_in.pending_place` with `query_params.clarification`, an upstream payload becomes trusted input for choosing a city.
+- decision · major · After a third ask the triage sees no question while a clarification is still pending: option human settled by the user — Option A, with the test moved to Q11 (Q05 is merged): the pilot added to Q11 the test of the turn after a third ask (a city reply searches with the pending request; a booking-shaped triage with no pending offer reaches neither generate_booking_link nor find_hotel_by_name) (commit 9993fef).
 
 ## Q05
 
