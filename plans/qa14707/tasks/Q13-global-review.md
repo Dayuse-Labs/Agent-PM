@@ -32,6 +32,7 @@ definition_of_done:
   - "Point 5 (GDPR) also checks, with file:line, that no address or postcode text reaches a metric line (the `dayuse_metric=geo_intent` line and the `mentions_discarded` counter carry counts only), and that the persisted `zone` lives only in the Redis profile under the existing TTL."
   - "Point 5 (GDPR) also checks, with file:line, that `region_anchor` lives only in the Redis profile under the existing TTL and in `profile_in`, that it reaches no metric line, and that it is not in the `search_offers` arguments."
   - "Point 9 also checks, with file:line, that `region_chosen` only narrows the candidates Mapbox returned and is never the Mapbox `country` filter, and that `agents/hotel_search_agent/tests/test_homonym_option_region.py` exists and is green."
+  - "Point 5 (GDPR) also checks, with file:line, that `city_conflicts` on the `dayuse_metric=geo_intent` line is an integer count, and that a test asserts no word of the message appears on that line (agents/hotel_search_agent/tests/test_geo_intent_mapping.py)."
 ---
 
 ## Launch prompt

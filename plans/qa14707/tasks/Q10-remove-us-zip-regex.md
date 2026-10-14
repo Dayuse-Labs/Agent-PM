@@ -33,6 +33,7 @@ definition_of_done:
   - "Test (Mapbox mocked, after the removal): after a turn on « hotel dans le 75009 » (city Paris persisted, no zone), a follow-up turn with no new place and locale \"en\" is not geocoded in the United States."
   - "Test: after a turn on « 2 boulevard Poissonnière 75009 », the persisted `zone` is the address name without the postcode, and a follow-up turn with no new place searches that address with distance_origin `poi`."
   - "Test (H5 fixture `address_poissonniere_75009` or its recorded name): an address candidate with `match_code.confidence == \"low\"` is refused, and the turn falls back to the postcode lookup."
+  - "The `city_conflicts` tests of `agents/hotel_search_agent/tests/test_geo_intent_mapping.py` (Q14) pass without change to their assertions, and the `dayuse_metric=geo_intent` line still carries no message text."
 ---
 
 ## Launch prompt

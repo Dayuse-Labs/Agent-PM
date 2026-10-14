@@ -33,6 +33,7 @@ definition_of_done:
   - "If the leaf reads `query_params.clarification`, it validates the value with `Clarification.model_validate` and ignores an off-contract one. A test covers a valid and an off-contract value."
   - "`raw_user_message` given to `geocode_core` still comes from `response_bridge.read_user_words` (the last text part), never from `read_input_text`. The seam tests of `tests/test_leaf_concierge_seam.py` (Q15) pass without change to their assertions."
   - "`_fill_place_from_profile` still turns `profile_in.region_anchor` into `region_chosen` while the turn's city equals the carried city. `agents/hotel_search_agent/tests/test_homonym_option_region.py` (Q14) passes without change to its assertions."
+  - "The `city_conflicts` tests of `agents/hotel_search_agent/tests/test_geo_intent_mapping.py` (Q14) pass without change to their assertions, and the `dayuse_metric=geo_intent` line still carries no message text."
 ---
 
 ## Launch prompt

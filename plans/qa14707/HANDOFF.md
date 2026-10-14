@@ -190,6 +190,12 @@ amendment · major · Q13: The review must check the city precedence guard.
 - amendment · major · Q12: Q14 added a field to the Redis profile shape that the #134 port must carry, and a narrowing rule in the leaf.
 - amendment · major · Q13: `region_anchor` is new persisted session data that crosses the concierge-to-leaf interface.
 - blind-spot · major · amendment not applied to Q16: task is merged (Q16 edits profile.py and geocode_tool.py next to Q14's `region_anchor`; `SessionProfile.from_dict` copies stored values without type checks). The malformed-value test was already moved into Q11's definition_of_done.
+- decision · major · `city_conflicts` on the `dayuse_metric=geo_intent` line: broader trigger than the ruling's wording: option A settled by the user — Accept the broader trigger, which is a superset that the precedence code already uses. Have Q12 document the exact definition and the precedence exception, Q09 and Q10 keep the metric tests unchanged, and Q13 check the line carries counts only.
+- decision · major · Q14: `city_conflicts=N` on the `dayuse_metric=geo_intent` line (between `countries_discarded` and `ambiguity`) counts a user-written city of this turn that differs after folding from any non-empty city on the zone place, not only an inferred one. Under `city_needed`, nothing is counted. It is a count only, and agents/hotel_search_agent/tests/test_geo_intent_mapping.py pins it. When the user's city wins, the zone place's country is dropped as the first source of the soft guess. Q12 documents both for H3 and in S-L §3. Q09 and Q10 keep the tests unchanged, and Q13 checks them.
+- amendment · major · Q12: Q14 implemented the user-city precedence exception and defined `city_conflicts` more broadly than the ruling's wording. The existing §3 criterion lists only the old precedence.
+- amendment · major · Q09: Q09 edits geocode_tool.py, where the `dayuse_metric=geo_intent` line and its `city_conflicts` count are built.
+- amendment · major · Q10: Q10 edits geocode_tool.py, where the `dayuse_metric=geo_intent` line and its `city_conflicts` count are built.
+- amendment · major · Q13: A new field on a metric line that falls under the 'no message content in metrics' invariant.
 
 ## Q16
 
