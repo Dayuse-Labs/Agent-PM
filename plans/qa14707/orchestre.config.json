@@ -1,0 +1,15 @@
+{
+  "max_parallelism": 2,
+  "default_mode": "phase",
+  "integration_branch": "plan/qa14707",
+  "base_branch": "main",
+  "evaluator": "always",
+  "max_fixes": 2,
+  "escalation": ["sonnet", "opus"],
+  "fable": false,
+  "max_auto_decisions": 3,
+  "pilot_context_cap": 0.65,
+  "language": "en",
+  "setup": [],
+  "shared_setup": {}
+}
