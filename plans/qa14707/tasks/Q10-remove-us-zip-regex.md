@@ -5,7 +5,7 @@ phase: 4
 model: sonnet
 model_reason: "Source plan's model, kept: a bounded removal, replaced by the `postal_code` and the country rule of Q06-Q08."
 effort: medium
-depends_on: [Q09]
+depends_on: [Q09, Q16]
 parallel_batch: 4B
 owned_files:
   - agents/hotel_search_agent/hotel_search_agent/geo_guards.py
@@ -27,6 +27,7 @@ definition_of_done:
   - "Test: \"2 boulevard Poissonnière 75009 Paris\" and \"hotel 13001 marseille\", with no country named, stay in France."
   - "The assertions of the \"near 11580\" tests pass without change."
   - "No new regex or word list in the diff."
+  - "Test (H5 fixture `11580`, Mapbox mocked, after the removal): a GeoIntent with postal_code \"11580\", no country named and no model guess, with profile_in `locale: \"en\"` and `entry_market_country: \"US\"`, is searched in the United States, and no Mapbox call carries a `country` filter."
 ---
 
 ## Launch prompt

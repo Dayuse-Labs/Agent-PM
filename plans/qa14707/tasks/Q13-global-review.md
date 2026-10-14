@@ -25,6 +25,7 @@ definition_of_done:
   - "Point 7 also checks that Q04's offline tests for `city_needed` without options and for homonym options exactly from the `Clarification` exist and are green (file:line)."
   - "Point 4 also checks, with file:line evidence, that `find_hotel_by_name` never receives the raw message on the booking path (test_clarification_routing.py) or on the details route (Q11's test), or it reports the remaining `debt` entry."
   - "Point 9 (DQ8) also checks, with file:line, that the model-facing `geocode_location` has no `country_code` or `country_guess` parameter, and that every value reaching the Mapbox `country` filter went through `_iso2`."
+  - "Point 9 (DQ8) also checks, with file:line, that the facade stores the request's `entry_market_country` after an ISO2 check, that the profile sends it in `profile_in`, and that the leaf reads it only as a tie-break in `_postcode_match`, never as the Mapbox `country` filter."
 ---
 
 ## Launch prompt
