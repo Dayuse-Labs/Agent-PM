@@ -40,22 +40,6 @@ export function getClientTimeContext() {
     };
 }
 
-/**
- * Convert 24h format to AM/PM (e.g., "08:00" → "8am", "15:00" → "3pm")
- */
-export function formatTimeAMPM(time24) {
-    if (!time24) return '';
-    const [hourStr, minuteStr] = time24.split(':');
-    let hour = parseInt(hourStr);
-    const minute = parseInt(minuteStr || 0);
-    const period = hour >= 12 ? 'pm' : 'am';
-
-    if (hour === 0) hour = 12;
-    else if (hour > 12) hour -= 12;
-
-    return minute > 0 ? `${hour}:${minuteStr}${period}` : `${hour}${period}`;
-}
-
 /** ES hands the raw average through (4.666666666666667) — one decimal, in the
  *  reader's language. Non-numeric ratings pass through untouched.
  *

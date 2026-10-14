@@ -5,6 +5,7 @@
 
 import { state } from '../state.js';
 import { getLanguage, t } from '../i18n.js';
+import { formatSlotRange } from '../slot_time.js';
 import { escapeAttr, escapeHtml, sanitizeDayuseUrl, sanitizeImageUrl } from '../security.js';
 import { formatBackendPrice, parsePrice } from '../hotels/card.js';
 import { formatRating } from '../utils.js';
@@ -661,7 +662,7 @@ function renderRatePlans(plans) {
         if (!url) return '';
 
         const slot = [plan.start_time, plan.end_time].every(Boolean)
-            ? `${plan.start_time} – ${plan.end_time}`
+            ? formatSlotRange(plan.start_time, plan.end_time, getLanguage())
             : '';
         const typeLabel = planTypeLabel(plan.offer_type);
         // The room name is the partner's own wording, shown untranslated on
@@ -755,7 +756,7 @@ export function createBookingCard(card) {
     ].filter(Boolean).join(' · ');
 
     const slot = [card.start_time, card.end_time].every(Boolean)
-        ? `${escapeHtml(String(card.start_time))} – ${escapeHtml(String(card.end_time))}`
+        ? escapeHtml(formatSlotRange(card.start_time, card.end_time, getLanguage()))
         : '';
     const facts = [
         card.date ? { k: t('card_date'), v: escapeHtml(formatCardDate(card.date)) } : null,
