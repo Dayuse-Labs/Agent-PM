@@ -5,9 +5,10 @@
 
 import { state, carousels } from '../state.js';
 import { appendAmplitudeIdToUrl, trackEvent } from '../tracking.js';
-import { formatRating, formatTimeAMPM } from '../utils.js';
+import { formatRating } from '../utils.js';
 import { selectBestImage } from './images.js';
 import { getLanguage, t } from '../i18n.js';
+import { formatSlotRange } from '../slot_time.js';
 import { escapeAttr, escapeHtml, sanitizeDayuseUrl, sanitizeImageUrl } from '../security.js';
 
 let imageCarouselInstanceCounter = 0;
@@ -674,14 +675,13 @@ function renderTimeslots(hotel) {
             ? 'timeslot-pill--matched'
             : (matchLevel === 'close' ? 'timeslot-pill--near' : 'timeslot-pill--default');
 
-        const startAMPM = formatTimeAMPM(slot.start);
-        const endAMPM = formatTimeAMPM(slot.end);
+        const slotRange = formatSlotRange(slot.start, slot.end, getLanguage());
 
         return `
             <div class="timeslot-section">
                 ${renderTimeslotLabel(matchLevel, label, labelClass)}
                 <div class="timeslot-pills">
-                    <span class="timeslot-pill ${pillClass}">${clockSvg} ${startAMPM} – ${endAMPM}</span>
+                    <span class="timeslot-pill ${pillClass}">${clockSvg} ${slotRange}</span>
                 </div>
             </div>
         `;
@@ -714,8 +714,7 @@ function renderTimeslots(hotel) {
     if (filteredSlots.length === 0) filteredSlots = hotel.timeslots;
     const dedupedFallbackSlots = dedupeTimeslots(filteredSlots, 1);
     const slot = dedupedFallbackSlots[0] || filteredSlots[0];
-    const startAMPM = formatTimeAMPM(slot.start);
-    const endAMPM = formatTimeAMPM(slot.end);
+    const slotRange = formatSlotRange(slot.start, slot.end, getLanguage());
 
     return `
         <div class="timeslot-section">
@@ -725,7 +724,7 @@ function renderTimeslots(hotel) {
                 'timeslot-label--default',
             )}
             <div class="timeslot-pills">
-                <span class="timeslot-pill timeslot-pill--default">${clockSvg} ${startAMPM} – ${endAMPM}</span>
+                <span class="timeslot-pill timeslot-pill--default">${clockSvg} ${slotRange}</span>
             </div>
         </div>
     `;
