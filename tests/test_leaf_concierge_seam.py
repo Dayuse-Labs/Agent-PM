@@ -417,3 +417,148 @@ def test_a_daypart_replaces_a_clock_window_across_the_seam():
     assert profile.daypart == "afternoon"
     assert (profile.timeslot_start, profile.timeslot_end, profile.timeslot_mode) == (None, None, None)
     assert leaf_profile_view(profile)["daypart"] == "afternoon"
+
+
+# --- QA14707 (Q04): the leaf's place question comes out as the concierge's template -----------
+#
+# The leaf (Q03) builds a `Clarification` and relays it top-level in its
+# DataPart; the concierge (Q04) reads `data["clarification"]` and renders it by
+# template. Each side's unit tests build the object by hand, so only this walk
+# can catch a placement bug between them (S-G9): the real `geocode_location`,
+# the real leaf callbacks, the real ADK genai↔A2A converters both ways, the real
+# `_run_leaf` decode, then the spine's template.
+
+
+class _V6:
+    def __init__(self, candidates):
+        self.candidates = candidates
+
+    def geocode_candidates(self, query, **kwargs):
+        return list(self.candidates)
+
+
+class _NoSearchBox:
+    def forward_candidates(self, query, **kwargs):
+        return []
+
+
+class _Inventory:
+    def __init__(self, by_lat):
+        self.by_lat = by_lat
+
+    def count_near(self, lat, lon, *, radius_km=25.0):
+        return self.by_lat.get(round(lat, 4), 0)
+
+
+def _victoria(cc, region, *, rank, lat):
+    from hotel_search_agent.mapbox_client import GeocodeCandidate
+
+    return GeocodeCandidate(
+        latitude=lat, longitude=0.0, name="Victoria",
+        place_name=f"Victoria, {region}, {cc}", place_formatted=f"{region}, {cc}",
+        feature_type="place", country_code=cc, region=region, bbox=None, rank=rank,
+    )
+
+
+def _over_the_wire(tool_result: dict) -> list[genai_types.Part]:
+    """The leaf's turn as the concierge's leg receives it: leaf callbacks →
+    genai parts → A2A parts (leaf executor) → genai parts (RemoteA2aAgent)."""
+    from google.adk.a2a.converters.part_converter import convert_genai_part_to_a2a_part
+    from hotel_search_agent.response_bridge import capture_after_tool
+
+    ctx = _LeafCtx()
+    assert capture_after_tool(_LeafTool("geocode_location"), {}, ctx, tool_result) is None
+    content = emit_search_datapart(ctx)
+    return [convert_a2a_part_to_genai_part(convert_genai_part_to_a2a_part(p)) for p in content.parts]
+
+
+def _concierge_answer(monkeypatch, parts: list[genai_types.Part], message: str) -> str:
+    import asyncio
+
+    import fakeredis.aioredis
+    from google.adk.events import Event
+    from google.adk.runners import InMemoryRunner
+
+    import b2c_concierge.agent as agent_module
+    from b2c_concierge.profile_store import ProfileStore
+    from b2c_concierge.triage import Triage
+
+    class _Leg:
+        async def run_async(self, ctx):
+            yield Event(
+                author="hotel_search_leg", invocation_id=ctx.invocation_id,
+                content=genai_types.Content(role="model", parts=parts),
+            )
+
+    async def fake_classify(message, budget, invocation_id="", **kwargs):
+        budget.charge("triage")
+        return Triage("search", "fr", used_llm=False)
+
+    async def no_llm(**kwargs):
+        raise AssertionError("a clarification turn makes no synthesis call")
+
+    store = ProfileStore(fakeredis.aioredis.FakeRedis(decode_responses=True))
+    monkeypatch.setattr(agent_module, "get_profile_store", lambda: store)
+    monkeypatch.setattr(agent_module, "_get_leg", lambda leaf: _Leg())
+    monkeypatch.setattr(agent_module, "classify", fake_classify)
+    monkeypatch.setattr(agent_module.litellm, "acompletion", no_llm)
+    runner = InMemoryRunner(agent_module.root_agent)
+
+    async def go():
+        session = await runner.session_service.create_session(app_name=runner.app_name, user_id="u")
+        content = genai_types.Content(role="user", parts=[genai_types.Part(text=message)])
+        return [
+            e async for e in runner.run_async(user_id="u", session_id=session.id, new_message=content)
+        ]
+
+    events = asyncio.run(go())
+    return "".join(
+        p.text for e in events if not e.partial and e.content for p in e.content.parts or [] if p.text
+    )
+
+
+class TestClarificationSeam:
+    def test_a_city_needed_question_comes_out_as_the_concierge_template(self, monkeypatch):
+        from b2c_common.clarification import Clarification
+        from hotel_search_agent import geocode_tool
+
+        from b2c_concierge import templates
+
+        monkeypatch.setattr(geocode_tool, "get_mapbox_client", lambda: _V6([]))
+        monkeypatch.setattr(geocode_tool, "get_searchbox_client", lambda: _NoSearchBox())
+        monkeypatch.setattr(geocode_tool, "get_inventory", lambda: _Inventory({}))
+        result = geocode_tool.geocode_location(
+            zone="Gare du Nord", raw_user_message="un hôtel près de Gare du Nord demain"
+        )
+        assert result["clarification"]["kind"] == "city_needed"  # the leaf asked
+
+        answer = _concierge_answer(monkeypatch, _over_the_wire(result), "un hôtel près de Gare du Nord demain")
+
+        assert answer == templates.clarification_response(
+            Clarification(kind="city_needed", subject="Gare du Nord"), "fr"
+        )
+
+    def test_a_homonym_comes_out_with_exactly_the_geocoders_options(self, monkeypatch):
+        from b2c_common.clarification import Clarification
+        from hotel_search_agent import geocode_tool
+
+        from b2c_concierge import templates
+
+        bc = _victoria("CA", "British Columbia", rank=0, lat=48.43)
+        tx = _victoria("US", "Texas", rank=1, lat=28.80)
+        micro = _victoria("AU", "Victoria", rank=2, lat=-37.47)  # 1 hotel: below the inventory tier
+        monkeypatch.setattr(geocode_tool, "get_mapbox_client", lambda: _V6([bc, tx, micro]))
+        monkeypatch.setattr(geocode_tool, "get_searchbox_client", lambda: _NoSearchBox())
+        monkeypatch.setattr(
+            geocode_tool, "get_inventory", lambda: _Inventory({48.43: 20, 28.80: 15, -37.47: 1})
+        )
+        result = geocode_tool.geocode_location(city="Victoria", raw_user_message="un hôtel à Victoria")
+
+        answer = _concierge_answer(monkeypatch, _over_the_wire(result), "un hôtel à Victoria")
+
+        expected = templates.clarification_response(Clarification.model_validate(result["clarification"]), "fr")
+        assert answer == expected
+        assert [line for line in answer.splitlines() if line[:1].isdigit()] == [
+            "1. Victoria (British Columbia, CA)",
+            "2. Victoria (Texas, US)",
+        ]
