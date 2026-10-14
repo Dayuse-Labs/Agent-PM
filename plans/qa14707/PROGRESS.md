@@ -5,7 +5,7 @@
 | Q01 | Proof bench — QA14707 eval set, evaluators and multi-turn replay                         | 1     | 1A    | —          | sonnet | merged | 1        | task/Q01 | 2.7M / see /workflows |
 | Q02 | Time slot in the language of the conversation                                            | 1     | 1B    | —          | sonnet | merged | 2        | task/Q02 | 0.8M / see /workflows |
 | Q03 | `Clarification` contract and structured emission by the leaf                             | 2     | 2A    | —          | opus   | merged | 2        | task/Q03 | 3.1M / see /workflows |
-| Q04 | Concierge: clarification rendered by template, persistent state, anti-loop on the state  | 2     | 2B    | Q03        | opus   | todo   | 0        | —        | 4.7M / —              |
+| Q04 | Concierge: clarification rendered by template, persistent state, anti-loop on the state  | 2     | 2B    | Q03        | opus   | merged | 1        | task/Q04 | 4.7M / see /workflows |
 | Q05 | Routing: the answer to the question goes before the booking                              | 2     | 2C    | Q04        | opus   | todo   | 0        | —        | 4.1M / —              |
 | Q06 | `GeoIntent` v1.1 contract and offline ADK proof                                          | 2     | 2A    | —          | opus   | merged | 1        | task/Q06 | 2.0M / see /workflows |
 | Q07 | The leaf extracts the place into a `GeoIntent`                                           | 3     | 3A    | Q06        | opus   | todo   | 0        | —        | 4.7M / —              |
