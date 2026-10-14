@@ -28,6 +28,7 @@ import os
 import re
 import unicodedata
 
+from b2c_common.clarification import MAX_OPTIONS, Clarification, ClarificationOption
 from b2c_common.observability import mark_level
 from hotel_search_agent import geo_resolver
 from hotel_search_agent.geo_guards import (
@@ -320,11 +321,49 @@ def _searchbox_query(zone: str | None, city: str | None, metro: str | None) -> s
     return zone_part or anchor
 
 
+def _option_label(candidate: GeocodeCandidate) -> str:
+    """How a homonym option reads in the question — the very formula
+    `geo_resolver._clarify_question` uses for each label, so a consumer that
+    renders the options says exactly what the leaf's own question says."""
+    context = candidate.place_formatted or candidate.country_code or ""
+    return f"{candidate.name} ({context})" if context else candidate.name
+
+
+def _homonym_clarification(
+    subject: str, candidates: list[GeocodeCandidate]
+) -> Clarification | None:
+    """QA14707 / DQ5: the homonym question as data, its options taken ONLY
+    from the candidates the resolver kept (`Resolution.options`: same
+    inventory tier as the winner, a genuinely different place). Nothing here
+    adds, renames or reorders a place. A candidate with no name is left out:
+    it has no city to answer with, and the text question shows it as a bare
+    context nobody can pick. A question left with nothing to pick carries no
+    object (the text question still goes out)."""
+    options = []
+    # The resolver already caps a question at 3 options; the slice only keeps
+    # the contract bound from ever raising in a tool that never raises.
+    for c in candidates[:MAX_OPTIONS]:
+        if not c.name:
+            continue
+        options.append(
+            ClarificationOption(
+                label=_option_label(c),
+                city=c.name,
+                region=c.region,
+                country_code=_iso2(c.country_code),
+            )
+        )
+    if not subject or not options:
+        return None
+    return Clarification(kind="homonym", subject=subject, options=options)
+
+
 def _fail(
     error: str,
     diagnostics: dict,
     guards_fired: list[str] | None = None,
     profile_delta: dict | None = None,
+    clarification: Clarification | None = None,
 ) -> dict:
     """A guarded failure. Carries `guards_fired` like `_ok` does: a guard that
     fired and then made the turn fail honestly is exactly the event OBS3 wants
@@ -342,6 +381,12 @@ def _fail(
         payload["guards_fired"] = sorted(set(guards_fired))
     if profile_delta:
         payload["profile_delta"] = profile_delta
+    # QA14707: a clarify also carries its question as data (`Clarification`),
+    # which `response_bridge` relays to the concierge in the DataPart. The
+    # `diagnostics.question` text is unchanged, so a concierge that ignores the
+    # object keeps working.
+    if clarification is not None:
+        payload["clarification"] = clarification.model_dump(mode="json")
     return payload
 
 
@@ -482,7 +527,8 @@ def geocode_location(
     all (no city, no metro, no device fix), where the answer would otherwise be
     a function of this container's egress IP — a clarify request (ask ONE
     question, don't search):
-        {"ok": False, "error": "geocode_ambiguous", "diagnostics": {"question", "options"}}
+        {"ok": False, "error": "geocode_ambiguous", "diagnostics": {"question", "options"},
+         "clarification": <b2c_common.clarification.Clarification, as a dict>}
     On any guard rejection or geocoder failure, a clean diagnostic:
         {"ok": False, "error": "<reason>", "diagnostics": {...}}
     """
@@ -607,6 +653,9 @@ def geocode_location(
                     # so the answering turn resolves "<zone> + <city>" instead of
                     # the bare city (verified broken in prod before this).
                     {"zone": effective_zone} if effective_zone else None,
+                    # QA14707: no option, by design — see `city_needed_question`.
+                    # `zone_is_specific` guarantees a non-empty subject here.
+                    Clarification(kind="city_needed", subject=effective_zone or ""),
                 )
             landmark_candidates = get_searchbox_client().forward_candidates(
                 # No city to append here by definition (this branch is "no city
@@ -769,6 +818,9 @@ def geocode_location(
             # → « New York »), so it travels with the options it was asked about.
             {"zone": effective_zone} if effective_zone
             else {"pending_place": {"name": echo_city or "", "options": options}},
+            # The question is about the name the resolver was asked to resolve
+            # (`requested_name` above), its options the resolver's own.
+            _homonym_clarification(echo_city or "", resolution.options),
         )
         # A named zone/landmark can make v6's whole candidate list fuzz (the
         # real place isn't a v6 feature at all — "La Défense" only exists in

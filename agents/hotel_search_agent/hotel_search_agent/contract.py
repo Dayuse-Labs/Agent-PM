@@ -13,6 +13,8 @@ from __future__ import annotations
 
 from pydantic import BaseModel, Field
 
+from b2c_common.clarification import Clarification
+
 
 class SearchRequest(BaseModel):
     """Inbound DataPart: one search turn, self-contained."""
@@ -41,4 +43,11 @@ class SearchResponse(BaseModel):
     diagnostics: dict = Field(
         default_factory=dict,
         description="Tool calls made, degradations, errors — for observability, never user-facing.",
+    )
+    clarification: Clarification | None = Field(
+        default=None,
+        description=(
+            "QA14707: the question this turn asked instead of searching, as data — options only "
+            "from the geocoder, never from an LLM. None when the turn asked nothing."
+        ),
     )
