@@ -25,6 +25,7 @@ verification:
   - "bash scripts/dayuse_guardrails.sh ."
   - "/Users/fabiendauvergne/Projects/AgentB2C/.venv/bin/pytest -q tests/test_leaf_concierge_seam.py"
   - "/Users/fabiendauvergne/Projects/AgentB2C/.venv/bin/pytest -q agents/b2c_concierge/tests/test_clarification_routing.py"
+  - "/Users/fabiendauvergne/Projects/AgentB2C/.venv/bin/pytest -q agents/b2c_concierge/tests/test_entry_market_country.py"
 definition_of_done:
   - "No regex feeds \"YOU ASKED\" any more (`extract_final_question` has no caller on that path, diff)."
   - "The decisions \"answer to the pending question\" no longer call `is_bare_affirmative`. That covers the fast path (`answers_pending`, `agent.py:1206` on `main`) and the ack branch towards the search (`:1352-1359` on `main`). Both read the triage's `answers_pending` / `affirmative` (diff)."
@@ -39,6 +40,7 @@ definition_of_done:
   - "`_attach_outgoing_datapart` still sends the concierge's context text as its own text part, placed before the user's words. The seam tests of `tests/test_leaf_concierge_seam.py` (Q15) pass without change to their assertions."
   - "Test: a stored profile whose `region_anchor` is not a string (e.g. `12`, `{\"op\": \"clear\"}`) loads through `SessionProfile.from_dict` without raising, the turn's leaf call goes out, and the leaf applies no `region_chosen` from it. (Moved from Q16, merged.)"
   - "`region_anchor` stays in the concierge-owned slot list of `apply_profile_delta` and in the city-change wipe. Its writer in the `answers_clarification` branch still reads the stored `Clarification`. The `region_anchor` tests of `agents/b2c_concierge/tests/test_clarification_routing.py` (Q14) pass without change to their assertions."
+  - "The tests of `agents/b2c_concierge/tests/test_entry_market_country.py` (Q16) pass without change to their assertions: `entry_market_country` stays concierge-owned in `apply_profile_delta`, survives the city-change wipe, round-trips through `to_dict`/`from_dict` and reaches the hotel-search leaf in `profile_in`."
 ---
 
 ## Launch prompt
