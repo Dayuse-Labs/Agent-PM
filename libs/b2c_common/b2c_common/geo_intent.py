@@ -1,0 +1,243 @@
+"""`GeoIntent` v1.1 — what the user means by "where", as a closed schema.
+
+The search leaf's LLM fills this object as a structured argument of
+`geocode_location` (plan qa14707, DQ1). The LLM understands; the code owns the
+values and checks them against the provider's facts (Mapbox, inventory).
+Contract: `reports/PLAN-LEAF-GEO-2026-10-08.md` §3, plus the v1.1 additions:
+
+- `places[].postal_code`: the postcode as written. In QA trace C
+  (« 2 boulevard Poissonnière 75009 », `phases/QA14707/DIAGNOSTIC.md`) the
+  two free strings `city` / `zone` had no room for it, and it was thrown away.
+- `mention` / `canonical`, for `places[]` and for `city`: `mention` is the
+  user's exact text, `canonical` the name the LLM normalized (« Pari » →
+  « Paris »). The code checks that the mention is anchored in the message and
+  that the canonical name is real (Q07).
+- `ambiguity` holds only `reason` — no `options` (DQ5): no option of a question
+  is ever written by an LLM, they come from the geocoder only.
+- `ambiguity.reason = "city_needed"` carries the S5 rule (DQ6): a place named
+  after a city it is not in (gare de Lyon, in Paris).
+
+Invariants, each locked by a test:
+
+- NO coordinate field, anywhere: latitude/longitude only ever come from the
+  geocoder.
+- `extra="forbid"` on every model, closed enumerations.
+- A default on EVERY field, so an absent or partial argument is never rejected
+  by ADK before the tool runs (an ADK parameter with no default is) and still
+  converts to a `GeoIntent`.
+
+How to declare it on an ADK 2.4 tool (proved offline in
+`tests/test_geo_intent_contract.py`): `geo_intent: GeoIntent = GeoIntent()`.
+ADK converts the LLM's dict with `model_validate` only when the resolved
+annotation is the class itself or a `typing.Optional[...]` that is not a
+string. `GeoIntent | None` never converts, and `Optional[GeoIntent]` stops
+converting under `from __future__ import annotations` (which
+`geocode_tool.py` has): the function then gets a plain dict. An argument that
+fails validation (an unknown `kind`, a third place…) also reaches the function
+as the raw dict, not rejected: the tool has to validate it itself. The
+declaration keeps the field descriptions only on ADK's default
+`JSON_SCHEMA_FOR_FUNC_DECL` path; the legacy path drops them.
+
+Every `description` and every class docstring below ends up in the JSON schema
+of the tool declaration the LLM reads: they are prompt, written for
+gpt-4o-mini. Rationale goes in this module docstring or in comments, never
+there. `contracts/geo_intent.schema.json` is the frozen snapshot of
+`GeoIntent.model_json_schema()` (`tests/test_geo_intent_contract.py`);
+regenerate it with
+`python libs/b2c_common/b2c_common/geo_intent.py > contracts/geo_intent.schema.json`.
+
+Import it as a submodule (`from b2c_common.geo_intent import GeoIntent`).
+"""
+from __future__ import annotations
+
+import json
+from typing import Literal
+
+from pydantic import BaseModel, ConfigDict, Field
+
+SchemaVersion = Literal["1.1"]
+SCHEMA_VERSION: SchemaVersion = "1.1"
+MAX_PLACES = 2
+
+PlaceKind = Literal[
+    "city",
+    "admin_district",
+    "neighborhood",
+    "landmark",
+    "street",
+    "station",
+    "airport",
+    "address",
+    "hotel",
+    "region",
+]
+Relation = Literal["in", "near", "whole_city"]
+Carryover = Literal["new", "keep", "replace_place_keep_city", "refine"]
+AmbiguityReason = Literal["homonym", "city_needed", "too_vague"]
+
+# frozen: the code reads the LLM's intent and never rewrites it in place, and a
+# frozen `GeoIntent()` is safe as a shared parameter default (see below).
+_FORBID = ConfigDict(extra="forbid", frozen=True)
+
+
+class Place(BaseModel):
+    """A place the user named."""
+
+    model_config = _FORBID
+
+    mention: str = Field(
+        default="",
+        description="The user's exact words for the place, copied as written, typos included.",
+    )
+    kind: PlaceKind | None = Field(default=None, description="What the place is.")
+    canonical: str = Field(
+        default="",
+        description=(
+            "The place's correct full name, spelling fixed "
+            "(\"champs elysee\" -> \"Champs-Élysées\", \"St Paul's\" in London -> "
+            "\"St Paul's Cathedral\")."
+        ),
+    )
+    postal_code: str | None = Field(
+        default=None,
+        description="The postcode or ZIP code exactly as written (\"75009\"). Null when none is written.",
+    )
+    city: str | None = Field(
+        default=None,
+        description=(
+            "The city the place is in, even if the user did not write it, ONLY when "
+            "the place's name leaves no doubt (\"les champs élysées\" -> \"Paris\"). "
+            "Null when places of that name exist in several cities (\"Gare du Nord\": "
+            "Paris, Brussels), and null when the place is itself a city."
+        ),
+    )
+    region: str | None = Field(
+        default=None,
+        description="Code of the state or province the place is in, when known (\"CT\"). Else null.",
+    )
+    country: str | None = Field(
+        default=None,
+        description=(
+            "ISO-3166-1 alpha-2 country you know the place is in (\"FR\"). "
+            "A soft hint, never a filter. Null when unsure."
+        ),
+    )
+    city_inferred: bool = Field(
+        default=False,
+        description="true when `city` comes from your knowledge, false when the user wrote it.",
+    )
+
+
+class CityRef(BaseModel):
+    """The city of the search."""
+
+    model_config = _FORBID
+
+    mention: str = Field(
+        default="",
+        description="The user's exact words for the city, as written. Empty when not written in this message.",
+    )
+    canonical: str = Field(
+        default="",
+        description="The city's correct name (\"paris\" -> \"Paris\", \"Pari\" -> \"Paris\").",
+    )
+    region: str | None = Field(
+        default=None,
+        description="Code of the state or province of the city, when known (\"CT\"). Else null.",
+    )
+    country: str | None = Field(
+        default=None,
+        description="ISO-3166-1 alpha-2 country of the city (\"FR\"). Null when unsure.",
+    )
+
+
+class Exclusion(BaseModel):
+    """A place the user wants to avoid."""
+
+    model_config = _FORBID
+
+    mention: str = Field(default="", description="The user's exact words for the place, as written.")
+    canonical: str = Field(default="", description="The place's correct full name.")
+    kind: PlaceKind | None = Field(default=None, description="What the place is.")
+
+
+class Ambiguity(BaseModel):
+    """Why you cannot tell where to search."""
+
+    # No `options` field, ever (DQ5): the options of a question come from the
+    # geocoder, through `Clarification` (Q03), never from an LLM.
+    model_config = _FORBID
+
+    reason: AmbiguityReason | None = Field(
+        default=None,
+        description=(
+            "homonym: the name fits several places and nothing says which one. "
+            "city_needed: the place is named after a city it is NOT in "
+            "(\"gare de Lyon\" is a station in Paris): then give no city. Not when the "
+            "place is in that city (\"vieux Lyon\" is in Lyon). "
+            "too_vague: no searchable place (\"somewhere nice\")."
+        ),
+    )
+
+
+class GeoIntent(BaseModel):
+    """Where the user wants to search, as understood from the message. Never coordinates."""
+
+    model_config = _FORBID
+
+    schema_version: SchemaVersion = Field(default=SCHEMA_VERSION, description="Always \"1.1\".")
+    places: list[Place] = Field(
+        default_factory=list,
+        max_length=MAX_PLACES,
+        description=(
+            "The places named in THIS message, most important first, at most 2. "
+            "Empty when the message names no place."
+        ),
+    )
+    city: CityRef | None = Field(
+        default=None,
+        description=(
+            "The city of the search: written in the message, or kept from the earlier "
+            "request when this message names none. Null when unknown."
+        ),
+    )
+    country_named: str | None = Field(
+        default=None,
+        description=(
+            "ISO-3166-1 alpha-2 code of a country the user NAMED in words (\"in Italy\" "
+            "-> \"IT\"). Null when no country is written: never guess here."
+        ),
+    )
+    region_named: str | None = Field(
+        default=None,
+        description="Code of a state or province the user NAMED (\"Milford ct\" -> \"CT\"). Else null.",
+    )
+    relation: Relation = Field(
+        default="in",
+        description=(
+            "in: inside the place. near: around it (\"near\", \"close to\"). "
+            "whole_city: anywhere in the city."
+        ),
+    )
+    # Default `keep` = fill the empty slots from the earlier search, which is
+    # what `geocode_location` does today: an omitted carryover changes nothing.
+    carryover: Carryover = Field(
+        default="keep",
+        description=(
+            "How this message relates to the earlier destination. new: a new destination. "
+            "keep: no new place, same destination. replace_place_keep_city: a new place "
+            "in the same city. refine: narrows the earlier destination."
+        ),
+    )
+    exclusions: list[Exclusion] = Field(
+        default_factory=list,
+        description="Places the user wants to AVOID (\"not in NYC\"). Usually empty.",
+    )
+    ambiguity: Ambiguity | None = Field(
+        default=None,
+        description="Null in most cases. Set only when you cannot tell where to search.",
+    )
+
+
+if __name__ == "__main__":
+    print(json.dumps(GeoIntent.model_json_schema(), indent=2, ensure_ascii=False))
