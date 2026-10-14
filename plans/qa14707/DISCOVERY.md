@@ -40,6 +40,9 @@ Notes on these commands:
   - It includes `tests/test_calendar_rot.py` (about 12 s), which replays the whole suite with the clock shifted by +400 days.
   - It also runs the widget suite: `tests/test_market_table_drift.py:284-313` calls `node --test` on every `tests/widget/*.test.mjs`.
 - ⚠️ **`node --test tests/widget/` (a directory) FAILS** on node 24 ("test at tests/widget:1:1 … failed"). Pass the glob.
+- **Widget tests**: `node --test 'tests/widget/*.test.mjs'` (glob) works; the directory form fails on node 24. `web/vendor/static/js/chat/slot_time.js` has no imports and can be tested in bare node. Pytest runs the widget tests through `tests/test_market_table_drift.py`, so a new `.test.mjs` is picked up with no config change.
+- **Negative-control recipe** (widget): `git show plan/qa14707:web/vendor/static/js/chat/utils.js | sed -n 46,58p` extracts the old `formatTimeAMPM`. Re-export it under the new names in a scratch module, sed the test's CHAT URL to the scratch dir, then run `node --test --test-name-pattern='^fr' <copy>`. This avoids importing `utils.js`, which touches the DOM through `state.js`.
+- **Isolation guard**: heredocs with chaining are refused, so write files with the Write tool.
 - **`--dry-run`** checks only that `id`, `input`, `expected_output` and `metadata` are present, that `input.messages` is not empty, and that ids are unique. `--only <stem>` fails if the stem is not in `DATASET_NAMES`.
 - **`evals/langfuse_experiment.py` is live only**: it needs the concierge on :8100, a real Redis and Langfuse keys. It is never a verification. The live replays are H1 and H3, done by Fabien.
 - **Tests are offline**:
