@@ -40,7 +40,7 @@ Notes on these commands:
   - It includes `tests/test_calendar_rot.py` (about 12 s), which replays the whole suite with the clock shifted by +400 days.
   - It also runs the widget suite: `tests/test_market_table_drift.py:284-313` calls `node --test` on every `tests/widget/*.test.mjs`.
 - ⚠️ **`node --test tests/widget/` (a directory) FAILS** on node 24 ("test at tests/widget:1:1 … failed"). Pass the glob.
-- **Widget tests**: `node --test 'tests/widget/*.test.mjs'` (glob) works; the directory form fails on node 24. `web/vendor/static/js/chat/slot_time.js` has no imports and can be tested in bare node. Pytest runs the widget tests through `tests/test_market_table_drift.py`, so a new `.test.mjs` is picked up with no config change.
+- **Widget tests**: `web/vendor/static/js/chat/slot_time.js` has no imports and can be tested in bare node. Pytest runs the widget tests through `tests/test_market_table_drift.py`, so a new `.test.mjs` is picked up with no config change.
 - **Negative-control recipe** (widget): `git show plan/qa14707:web/vendor/static/js/chat/utils.js | sed -n 46,58p` extracts the old `formatTimeAMPM`. Re-export it under the new names in a scratch module, sed the test's CHAT URL to the scratch dir, then run `node --test --test-name-pattern='^fr' <copy>`. This avoids importing `utils.js`, which touches the DOM through `state.js`.
 - **Worktree b2c_common checks**: in the worktree, b2c_common tests and mypy pick up the worktree's geo_intent.py through pytest.ini and mypy.ini. jsonschema is available in the venv (pulled in by litellm) and is already used by tests/test_mcp_contract.py.
 - **Isolation guard**: heredocs with chaining are refused, so write files with the Write tool.
@@ -50,6 +50,7 @@ Notes on these commands:
   - Redis is fakeredis: the autouse `ProfileStore` in `agents/b2c_concierge/tests/conftest.py`, and `tests/api/conftest.py`.
   - No port, no database, no shared service, so no task declares a resource.
 - From a worktree, the 5 verifications run with `/Users/fabiendauvergne/Projects/AgentB2C/.venv/bin/{pytest,python,ruff,mypy}` and `bash scripts/dayuse_guardrails.sh .`. `evals/` is not typechecked by mypy (66 files), but ruff covers it.
+- Q07 final commit da7f1a7 on task/Q07: `pytest -q` 2716 passed, 1 skipped (25 s); leaf tests + test_mcp_contract.py 710 passed; ruff all checks passed; `mypy agents libs` no issues in 68 files; dayuse_guardrails OK. No negative-control rerun for the older criteria. The two new tests were run red against the old mapping (city '' and zone None), then green after the fix.
 
 ## Quick map
 
@@ -100,6 +101,7 @@ Notes on these commands:
 - `scripts/langfuse_seed_datasets.py`: `DATASET_NAMES` `:35-42`.
 - Interface (Q07): tool `geocode_location(intent: GeoIntent = GeoIntent(), metro=None, profile_state_context=None, profile_location_hint=None, locale=None, language_hint=None, proximity_lat=None, proximity_lon=None, tool_context: ToolContext | None = None)`. Core `geocode_core(city="", zone=None, metro=None, country_code=None, raw_user_message="", ..., country_guess=None, region_named=None)`. The mapping is `_place_args(geo, claims, locale=, language_hint=) -> {city, zone, country_code, country_guess, region_named}`. Q08 extends it for `places[0].postal_code`; Q14 adds the chosen option's region after the mapping or in `_fill_place_from_profile`.
 - Readers in `response_bridge.py`: `read_input_text(tool_context)` joins every text part (concierge prefix included); `read_user_words(tool_context)` returns the last text part. `_Claims` in `geocode_tool.py` has `anchored(ref)`, `country(value)` and the counters.
+- Interface for Q08, Q14, Q15: `_place_args(geo, claims, locale=, language_hint=)` now chooses `zone_place` (the first place whose kind is not city or hotel) and `cities` (places of kind city, then the anchored `city` field). Q08's postal_code is read from zone_place, not from places[0]. Q14's region goes after the mapping or into `_fill_place_from_profile`, never into a callback argument (ADK drops undeclared keys).
 
 ## Observed conventions
 
@@ -129,6 +131,7 @@ Notes on these commands:
 - Test helpers (Q07), `agents/hotel_search_agent/tests/test_geo_intent_mapping.py`: `_ctx(*texts, profile_in=, query_params=)` builds a real a2a→genai tool_context; fakes `_V6(by_query)` (records (query, country)), `_SearchBox(*candidates)`, `_Inventory(by_lat)`, `_patch(monkeypatch, v6, box, inventory)`; fixtures `metric`, `statuses` (mark_level), `core` (spy on geocode_core returning the flat arguments). Anchored-landmark pattern: v6 returns `V6_MISS` for « Gare du Nord, Paris » and PARIS for « Paris », and the Search Box returns the station. A v6 city candidate alone is accepted by the echo guard (its longest token is the city), so the station is never reached. In `tests/test_mcp_contract.py`: `_ToolContext(profile_in, query_params=, text=)` and `_arguments_sent(..., ctx=, guard=)`.
 - For Q09: `_complete_pending_place` now runs inside `_fill_place_from_profile` (called by the tool) and reads `args['raw_user_message']`, the user's words. `TestPendingPlace` in `test_geocode_tool.py` calls `geocode_tool._fill_place_from_profile(args, {...})`: those are the tests Q09 deletes. `_city_named_in_message` still runs as a fallback on the user's words only. To move the St Paul's / champs élysées tests to a GeoIntent, call `geocode_location(intent=..., tool_context=_ctx(...))`. « Londres » -> « London » is a corrected name, so it triggers one `_city_coordinate('London')` lookup; mock v6 for that query.
 - Negative-control recipe without touching the repo: write a pytest plugin in `<scratchpad>/<task>/` with an autouse fixture that monkeypatches the property away, then `PYTHONPATH=<scratch> .venv/bin/pytest -p <module> <tests>`. To run a patched copy of a test file you don't own: `.venv/bin/pytest -c pytest.ini --rootdir=. <scratch copy>` from the repo root. Used in Q07 for the mention check, the city mapping, `_iso2`, the city_needed flag, the user-words reader and MCP argument leaks.
+- Test helpers (Q07 mapping): in `agents/hotel_search_agent/tests/test_geo_intent_mapping.py`, the `core` fixture spies on geocode_core and returns the flat args, `_ctx(*texts, profile_in=, query_params=)` builds a real a2a->genai tool_context, and `metric` collects the geo_intent metric lines. A mapping test needs no Mapbox fake when it uses `core`.
 
 ## Pitfalls and fixes
 
@@ -172,5 +175,7 @@ Notes on these commands:
 - **Bare digit vs numbered homonym list**: a bare digit such as '2', answering the numbered list, still takes the `resolve_shortlist_ordinal` → booking branch (agent.py routing) whenever a shortlist from an earlier search is on screen. This predates Q04, but numbered options now invite it. Q05 must put a pending clarification (the option index) ahead of the ordinal/booking branches.
 - **Pre-commit hook**: it runs `dayuse_guardrails.sh` on every commit (it printed 'Dayuse guardrails: OK' twice). A `git commit -F - <<EOF` heredoc message is accepted.
 - **Leaf INSTRUCTION is a `str.format` template**: literal braces must be doubled (`{{}}`). The prompt tests in `test_agent.py` flatten whitespace with `" ".join(INSTRUCTION.split())` because phrases wrap across lines.
+- **Task branch behind the plan**: task/Q07 lacked the plan's latest progress and plan commits (Q15 task file, HANDOFF amendments). They were merged with `git merge --no-edit plan/qa14707` (afdc1eb), without conflicts. The pilot's seam-test fix (64a32ae) is on the branch, so tests/test_leaf_concierge_seam.py appears in the diff against plan/qa14707 although Q07 does not own it.
+- **`.worktreeinclude`** is untracked in the main checkout. It predates Q07 and is not part of it; leave it alone.
 
 ## Context recommendations (end of run)
