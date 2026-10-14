@@ -4,10 +4,10 @@
 |-----|------------------------------------------------------------------------------------------|-------|-------|------------|--------|--------|----------|----------|-----------------------|
 | Q01 | Proof bench — QA14707 eval set, evaluators and multi-turn replay                         | 1     | 1A    | —          | sonnet | merged | 1        | task/Q01 | 2.7M / see /workflows |
 | Q02 | Time slot in the language of the conversation                                            | 1     | 1B    | —          | sonnet | merged | 2        | task/Q02 | 0.8M / see /workflows |
-| Q03 | `Clarification` contract and structured emission by the leaf                             | 2     | 2A    | —          | opus   | todo   | 0        | —        | 3.1M / —              |
+| Q03 | `Clarification` contract and structured emission by the leaf                             | 2     | 2A    | —          | opus   | todo   | 2        | —        | 3.1M / —              |
 | Q04 | Concierge: clarification rendered by template, persistent state, anti-loop on the state  | 2     | 2B    | Q03        | opus   | todo   | 0        | —        | 4.7M / —              |
 | Q05 | Routing: the answer to the question goes before the booking                              | 2     | 2C    | Q04        | opus   | todo   | 0        | —        | 4.1M / —              |
-| Q06 | `GeoIntent` v1.1 contract and offline ADK proof                                          | 2     | 2A    | —          | opus   | todo   | 0        | —        | 2.0M / —              |
+| Q06 | `GeoIntent` v1.1 contract and offline ADK proof                                          | 2     | 2A    | —          | opus   | merged | 1        | task/Q06 | 2.0M / see /workflows |
 | Q07 | The leaf extracts the place into a `GeoIntent`                                           | 3     | 3A    | Q06        | opus   | todo   | 0        | —        | 4.7M / —              |
 | Q08 | Address and postcode resolved by the geocoder                                            | 3     | 3B    | Q07        | opus   | todo   | 0        | —        | 3.1M / —              |
 | Q09 | Removal: city rescue by preposition, `pending_place` text matching                       | 4     | 4A    | Q08        | sonnet | todo   | 0        | —        | 1.6M / —              |

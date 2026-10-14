@@ -42,6 +42,7 @@ Notes on these commands:
 - ⚠️ **`node --test tests/widget/` (a directory) FAILS** on node 24 ("test at tests/widget:1:1 … failed"). Pass the glob.
 - **Widget tests**: `node --test 'tests/widget/*.test.mjs'` (glob) works; the directory form fails on node 24. `web/vendor/static/js/chat/slot_time.js` has no imports and can be tested in bare node. Pytest runs the widget tests through `tests/test_market_table_drift.py`, so a new `.test.mjs` is picked up with no config change.
 - **Negative-control recipe** (widget): `git show plan/qa14707:web/vendor/static/js/chat/utils.js | sed -n 46,58p` extracts the old `formatTimeAMPM`. Re-export it under the new names in a scratch module, sed the test's CHAT URL to the scratch dir, then run `node --test --test-name-pattern='^fr' <copy>`. This avoids importing `utils.js`, which touches the DOM through `state.js`.
+- **Worktree b2c_common checks**: in the worktree, b2c_common tests and mypy pick up the worktree's geo_intent.py through pytest.ini and mypy.ini. jsonschema is available in the venv (pulled in by litellm) and is already used by tests/test_mcp_contract.py.
 - **Isolation guard**: heredocs with chaining are refused, so write files with the Write tool.
 - **`--dry-run`** checks only that `id`, `input`, `expected_output` and `metadata` are present, that `input.messages` is not empty, and that ids are unique. `--only <stem>` fails if the stem is not in `DATASET_NAMES`.
 - **`evals/langfuse_experiment.py` is live only**: it needs the concierge on :8100, a real Redis and Langfuse keys. It is never a verification. The live replays are H1 and H3, done by Fabien.
@@ -110,6 +111,7 @@ Notes on these commands:
 - **A plan task is not a session.** CLAUDE.md's "Fin de session" (update `HANDOFF.md`, commit + MR) applies to the plan as a whole. Only Q12 touches the repository's `HANDOFF.md`, and no task opens a PR or pushes. Each task reports in its own report, and the scribe writes the plan's HANDOFF.
 - `git grep` checks of a removal carry a path filter (`-- agents libs`, `-- web tests`). `plans/` and `phases/` quote the removed names, and the tasks don't own them.
 - Tests for async harness code: no pytest-asyncio in the repo, so use `asyncio.run` and monkeypatch `exp._TRACE_LOOKUP_DELAY_SECONDS = 0`. Fakes patch `exp._call_facade` and `exp._prime_profile`; the Langfuse fake exposes `async_api.sessions.get` and `async_api.trace.get`.
+- Every Field description and every class docstring of geo_intent.py ends up in the tool declaration the LLM reads (the class docstring becomes the $defs description). They are prompt text, so rationale goes in comments or in the module docstring. To regenerate the snapshot after a model change, run `/Users/fabiendauvergne/Projects/AgentB2C/.venv/bin/python libs/b2c_common/b2c_common/geo_intent.py > contracts/geo_intent.schema.json` from the worktree. Run it as a file path, not with -m: the venv's editable b2c_common points at the main checkout.
 
 ## Pitfalls and fixes
 
@@ -123,6 +125,9 @@ Notes on these commands:
   - A tool parameter without a default is rejected before the function runs, and it reads like model non-determinism.
   - ADK 2.4 builds the declaration of a pydantic parameter (`.venv/lib/python3.12/site-packages/google/adk/tools/_function_parameter_parse_util.py:169-178`) and converts the argument back with `model_validate` (`google/adk/tools/function_tool.py:173-182`).
   - The pydantic field descriptions end up in the tool declaration the LLM reads.
+  - Signature form for Q07, proved offline: declare `geo_intent: GeoIntent = GeoIntent()`. ADK's FunctionTool._preprocess_args converts the LLM's dict with model_validate only when the resolved annotation is the class itself or a non-string typing.Union. With `GeoIntent | None` the function always receives a plain dict. With `Optional[GeoIntent]` it receives a plain dict under `from __future__ import annotations`, and geocode_tool.py has that import. tests/test_geo_intent_contract.py declares its stand-in tool under that same import.
+  - An argument that fails validation (unknown kind, a 3rd place, schema_version other than "1.1", extra key) is NOT rejected by ADK: ADK logs a warning and passes the raw dict to the function. Q07's wrapper must therefore handle `isinstance(geo_intent, dict)` itself, either with a tolerant model_validate or with a fallback. A test locks this pass-through.
+  - Negative control for the conversion property: in an exploratory run, the forms `GeoIntent | None` and stringified `Optional[GeoIntent]` delivered a dict, while `GeoIntent = GeoIntent()` delivered a GeoIntent. So the dict-arrives-as-GeoIntent test can fail, and only the working form is locked. The LiteLLM tool schema keeps $defs/$ref and anyOf-null. jsonschema accepts it, but OpenAI accepting it has not been checked live: the first live leaf call in Q07 or H3 is the proof.
 - **Mapbox**: Search Box without `proximity` is biased by the caller's IP, so A/B replays must share one IP.
 - **The LLM copies a sentence shown to it**, even when told not to. Imposed text is deduplicated in code, or never goes through the LLM (DQ2).
 - **`evals/langfuse_experiment.py`**:
