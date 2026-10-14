@@ -36,6 +36,7 @@ definition_of_done:
   - "Test: on the details route, with no `hotel_name` from the triage, `find_hotel_by_name` is never called with the turn's raw message (the same rule Q05 applied to the booking path, `name_from_reference=False`)."
   - "`_extract_hotel_name_candidate` no longer feeds `find_hotel_by_name` on any route (`git grep -n _extract_hotel_name_candidate -- agents` shows no caller on that path), or the remaining caller is noted in a `debt` entry (S-L7)."
   - "`_attach_outgoing_datapart` still sends the concierge's context text as its own text part, placed before the user's words. The seam tests of `tests/test_leaf_concierge_seam.py` (Q15) pass without change to their assertions."
+  - "Test: a stored profile whose `region_anchor` is not a string (e.g. `12`, `{\"op\": \"clear\"}`) loads through `SessionProfile.from_dict` without raising, the turn's leaf call goes out, and the leaf applies no `region_chosen` from it. (Moved from Q16, merged.)"
 ---
 
 ## Launch prompt
