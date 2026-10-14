@@ -1232,11 +1232,12 @@ def _place_args(
 ) -> dict[str, Any]:
     """The `GeoIntent` as `geocode_core` arguments — the S-L plan's §3 mapping:
 
-    - `places[0].kind == "city"` → `city`;
-    - any other kind but `hotel` → `zone` = its name, with `city` = the place's
-      own city (inferred or not, as today), else the city the user named;
+    - a `city` place → `city`;
+    - the first place of any other kind but `hotel` → `zone` = its name, with
+      `city` = the place's own city (inferred or not, as today), else the city
+      the user named (a `city` place, then the `city` field);
     - `country_named` → `country_code`, the hard filter; a country not named
-      (`places[0].country`, else `city.country`) → `country_guess`, a hint;
+      (the zone place's, else a city's) → `country_guess`, a hint;
     - `region_named` → the state tier;
     - `ambiguity.reason == "city_needed"` (DQ6, the S5 rule): no city at all,
       so `geocode_core` asks which one — the code decides the question, the
@@ -1247,12 +1248,19 @@ def _place_args(
     A hotel is never a zone (it has its own path, `find_hotel_by_name`).
     `relation`, `carryover` and `exclusions` are read, not applied (S-L5)."""
     places = [p for p in geo.places if claims.anchored(p)]
-    city_ref = geo.city if geo.city is not None and claims.anchored(geo.city) else None
-    primary = next((p for p in places if p.kind != "hotel"), None)
+    # Rank in `places` decides nothing: « Gare du nord Paris » listed as two
+    # places, in either order, must lose neither Paris (the city question of
+    # trace A again) nor the station (a city-wide search).
+    zone_place = next((p for p in places if p.kind not in ("city", "hotel")), None)
+    cities: list[Place | CityRef] = [p for p in places if p.kind == "city"]
+    if geo.city is not None and claims.anchored(geo.city):
+        cities.append(geo.city)
     named = claims.country(geo.country_named)
-    guess = (claims.country(primary.country) if primary is not None else None) or (
-        claims.country(city_ref.country) if city_ref is not None else None
-    )
+    guess: str | None = None
+    for ref in ([zone_place] if zone_place is not None else []) + cities:
+        guess = claims.country(ref.country)
+        if guess:
+            break
     city_needed = geo.ambiguity is not None and geo.ambiguity.reason == "city_needed"
 
     def verified(ref: Place | CityRef) -> str | None:
@@ -1264,16 +1272,13 @@ def _place_args(
             language=_mapbox_language(locale, language_hint),
         )
 
-    city: str | None = None
     zone: str | None = None
-    if primary is not None and primary.kind == "city":
-        city = None if city_needed else verified(primary)
-    else:
-        if primary is not None:
-            zone = (primary.canonical or primary.mention).strip() or None
-        if not city_needed:
-            inferred = (primary.city or "").strip() if primary is not None else ""
-            city = inferred or (verified(city_ref) if city_ref is not None else None)
+    city: str | None = None
+    if zone_place is not None:
+        zone = (zone_place.canonical or zone_place.mention).strip() or None
+    if not city_needed:
+        inferred = (zone_place.city or "").strip() if zone_place is not None else ""
+        city = inferred or (verified(cities[0]) if cities else None)
     return {
         "city": city or "",
         "zone": zone,

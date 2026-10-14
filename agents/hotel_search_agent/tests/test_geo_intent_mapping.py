@@ -632,6 +632,33 @@ class TestMapping:
         assert core[0]["city"] == "Paris"
         assert core[0]["country_guess"] == "FR"
 
+    def test_a_city_the_model_put_second_in_places_is_still_the_city(self, core, statuses):
+        # Trace A filled another way: the schema lets the model list the city
+        # as a place. Reading `places[0]` only would drop Paris and ask which
+        # city — the very defect of trace A.
+        intent = GeoIntent(places=[
+            _station(mention="Gare du nord"),
+            Place(mention="paris", kind="city", canonical="Paris", country="FR"),
+        ])
+
+        geocode_location(intent=intent, tool_context=_ctx("paris Gare du nord demain"))
+
+        assert core[0]["zone"] == "Gare du Nord"
+        assert core[0]["city"] == "Paris"
+        assert core[0]["country_guess"] == "FR"
+
+    def test_a_place_the_model_put_after_the_city_is_still_the_zone(self, core):
+        # The other order: the station must not be lost to a city-wide search.
+        intent = GeoIntent(places=[
+            Place(mention="paris", kind="city", canonical="Paris"),
+            _station(mention="Gare du nord"),
+        ])
+
+        geocode_location(intent=intent, tool_context=_ctx("paris Gare du nord demain"))
+
+        assert core[0]["zone"] == "Gare du Nord"
+        assert core[0]["city"] == "Paris"
+
     def test_a_hotel_is_never_a_zone(self, core):
         intent = GeoIntent(
             places=[Place(mention="Pullman", kind="hotel", canonical="Pullman")],
