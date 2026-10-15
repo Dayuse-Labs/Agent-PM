@@ -167,6 +167,8 @@ Notes on these commands:
 - When a change alters a rule, grep the docstrings of the neighbouring functions (class, helper, mapper) for the old wording. Four docstrings had gone stale after the Q18 anchoring change.
 - Design (Q18): the similarity check applies only to mentions and canonicals in `_Claims.anchored` (order: exact mention, exact canonical, similarity >= 0.85, counted in `mentions_fuzzy`). `written` (postcode) and `typed` stay exact, as the task requires. The 0.85 threshold would also accept a one-character slip on a short name (« Pari » vs « Paris » scores 0.89). That is intended, and the negative controls clear it with margin (Bruxelles 0.46, London 0.62).
 - Convention (Q19): the country key of the `geocode_location` result is `country_code`, not `resolved_country_code`; the latter is only the eval trace key.
+- The geocode profile_delta for a city is typed: `{'city': {'op': 'set', 'value': 'Lyon'}}`, not a flat string.
+- `named_hotel._dated_search(tool_context, lat, lon, anchor=None) -> status` is the single bound-search path, shared by the found-hotel follow-up and the not-found city fallback.
 
 ## Pitfalls and fixes
 
@@ -225,5 +227,9 @@ Notes on these commands:
 - Passing the progress `--json` argument: write the JSON with plain ASCII quotes and no apostrophes or backticks; the harness escapes break zsh quoting.
 - The synthetic `_V6` fake in test_geo_intent_mapping.py ignores `types`, and `_c()` candidates had an empty `context.place`. Any test where a `street`/`address` zone has no postcode now sees an extra v6 call with the same query string, unless the fake candidate carries `place=` (the new `_c` kwarg).
 - In place_manhattan_new_york_us_fr.json, Manhattan NY (locality) comes first. The parent commit still resolved New York City: `region_hint='New York'` matches nearly every candidate through `place_name` (« New York, Floride »...), and the type prior (place 5.0 > locality 4.0) plus the inventory picks NYC. Narrowing by region equality is what isolates the locality.
+- **HotelNotFoundError test fixture**: it must carry `retryable: False` in structuredContent.error. Without it, mcp_guard._business_error_envelope ignores the envelope, capture_after_tool never records named_hotel_not_found, and the DataPart has no `named_hotel_not_found` key. The real MCP sends retryable False.
+- **geocode_core fallthrough**: `geocode_core(city=X)` falls through to the Search Box tier-2 with the bare city query when Mapbox v6 returns nothing. A test of a city that does not geocode needs an empty Search Box fake, not a raising one.
+- **Leaf prompt after HotelNotFoundError**: agent.py:291-293 still tells the model to call geocode_location + search_offers. That wording is out of scope for Q22. On a successful city fallback, skip_final_generation skips the next generation, so the rule is never reached. When the city does not geocode, no results are stored, so the model still gets one generation and may try the geocode itself, through its own budgeted tools.
+- **Test helpers (Q22)**: agents/hotel_search_agent/tests/test_named_hotel_city_fallback.py has reusable helpers. `_turn(ctx, args, find)` runs one find_hotel_by_name call through prepare, follow and capture. `_datapart(ctx)` and `_next_generation_skipped(ctx)` read what the concierge and the model would see. Two fixtures: `mapbox` (real MapboxClient over MockTransport, `.requests`, `.features`, `.searchbox.proximities`) and `statuses` (the named_hotel_city_search metric statuses).
 
 ## Context recommendations (end of run)
