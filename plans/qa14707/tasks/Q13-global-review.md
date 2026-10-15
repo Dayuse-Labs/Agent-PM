@@ -37,6 +37,7 @@ definition_of_done:
   - "Point 5 (GDPR) also checks, with file:line, that `repaired` on the `dayuse_metric=geo_intent` line is an integer count, and that agents/hotel_search_agent/tests/test_geo_intent_mapping.py asserts its values, 0 on an intent that still fails validation after the repair included, and that no word of the message appears on that line."
   - "Point 2 (Budget) also checks, with file:line, that the Q20 address lookup runs only for a specific `street`/`address` zone with no postcode (agents/hotel_search_agent/hotel_search_agent/geocode_tool.py), and that `agents/hotel_search_agent/tests/test_street_without_postcode.py` exists and is green."
   - "Point 9 also checks, with file:line, two things about the Q20 street branch (`_street_match` in agents/hotel_search_agent/hotel_search_agent/geocode_tool.py). The Mapbox `country` filter comes only from a named country. A candidate whose region contradicts a named, anchored or chosen state is never kept, as Q21's Springfield test shows, and that test exists and is green."
+  - "Point 6 also checks, with file:line, that `TestTheManhattanAnswer` in `agents/hotel_search_agent/tests/test_picked_option_query.py` exists and is green, and that it asserts the locality « Manhattan, État de New York » with a v6 query that carries no state term."
 ---
 
 ## Launch prompt
