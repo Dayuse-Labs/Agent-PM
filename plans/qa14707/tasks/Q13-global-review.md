@@ -35,6 +35,7 @@ definition_of_done:
   - "Point 5 (GDPR) also checks, with file:line, that `city_conflicts` on the `dayuse_metric=geo_intent` line is an integer count, and that a test asserts no word of the message appears on that line (agents/hotel_search_agent/tests/test_geo_intent_mapping.py)."
   - "Point 5 (GDPR) also checks, with file:line, that the profile field `entry_market_country` holds only an uppercase ISO2 code, lives only in the Redis session profile under the existing TTL, and appears on no `dayuse_metric` line. It also checks that a leaf `profile_delta` can neither set nor clear the field (`agents/b2c_concierge/tests/test_entry_market_country.py`)."
   - "Point 5 (GDPR) also checks, with file:line, that `repaired` on the `dayuse_metric=geo_intent` line is an integer count, and that agents/hotel_search_agent/tests/test_geo_intent_mapping.py asserts its values, 0 on an intent that still fails validation after the repair included, and that no word of the message appears on that line."
+  - "Point 2 (Budget) also checks, with file:line, that the Q20 address lookup runs only for a specific `street`/`address` zone with no postcode (agents/hotel_search_agent/hotel_search_agent/geocode_tool.py), and that `agents/hotel_search_agent/tests/test_street_without_postcode.py` exists and is green."
 ---
 
 ## Launch prompt
