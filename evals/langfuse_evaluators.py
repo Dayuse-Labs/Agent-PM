@@ -112,6 +112,9 @@ def _eval_hotels_within_km(
         return None
     spec = expected["hotels_within_km"]
     hotels = _hotels(response)
+    if not hotels:
+        # No hotel is not "all hotels within the radius": min_hotels scores the absence.
+        return _skip("hotels_within_km", "no hotel in the response — nothing to measure")
     bad: list[str] = []
     for h in hotels:
         lat, lon = h.get("latitude"), h.get("longitude")

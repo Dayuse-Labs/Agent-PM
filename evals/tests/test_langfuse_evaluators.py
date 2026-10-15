@@ -52,12 +52,28 @@ def test_hotels_within_km_flags_a_far_hotel():
     assert "Far" in result["hotels_within_km"].comment
 
 
-def test_hotels_within_km_vacuously_passes_on_empty_results():
-    expected = {"hotels_within_km": {"lat": 48.8698, "lon": 2.3078, "km": 3}, "min_hotels": 0}
-    result = _by_name(
-        response_evaluator(input=None, output=_output({"hotels": []}), expected_output=expected, metadata=None)
-    )
-    assert result["hotels_within_km"].value == 1
+_WITHIN = {"hotels_within_km": {"lat": 48.8698, "lon": 2.3078, "km": 3}}
+
+
+def _within(response: dict):
+    out = response_evaluator(input=None, output=_output(response), expected_output=_WITHIN, metadata=None)
+    return _by_name(out)["hotels_within_km"]
+
+
+def test_hotels_within_km_skips_on_empty_or_null_hotels():
+    # H3 artefact: 0 hotels used to score 1 ("all 0 hotels within radius").
+    assert _within({"hotels": []}).value == "skipped"
+    assert _within({"hotels": None}).value == "skipped"
+
+
+def test_hotels_within_km_all_inside_scores_one():
+    assert _within({"hotels": [{"name": "A", "latitude": 48.87, "longitude": 2.31}]}).value == 1
+
+
+def test_hotels_within_km_missing_coordinates_scores_zero():
+    result = _within({"hotels": [{"name": "NoGeo"}]})
+    assert result.value == 0
+    assert "no coordinates" in result.comment
 
 
 def test_if_resolved_country_code_skips_when_clarified():
