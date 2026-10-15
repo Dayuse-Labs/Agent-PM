@@ -209,7 +209,12 @@ def _with_postcode(zone: str, postal_code: str) -> str:
 
 
 def _street_match(
-    candidates: list[GeocodeCandidate], zone: str, *, city: str | None
+    candidates: list[GeocodeCandidate],
+    zone: str,
+    *,
+    city: str | None,
+    state_hint: str | None = None,
+    region_chosen: str | None = None,
 ) -> GeocodeCandidate | None:
     """The street or address a zone with no postcode designates, or None
     (QA14707 Q20). Mapbox's first candidate that passes, in its own order.
@@ -221,7 +226,14 @@ def _street_match(
     Poissonnière, 75009 Paris »), which no street can show, so a bare street
     name is never taken in some other country. Either way a "low" match
     (Mapbox matched the city, not the street) is refused, and the name must
-    echo the zone, as on every other path. Structured fields only."""
+    echo the zone, as on every other path. Structured fields only.
+
+    Q21: the US state of the turn holds here as on the generic path. A state
+    named, anchored or read in the message (`state_hint`) must echo in the
+    candidate's name, and the region of a picked homonym option
+    (`region_chosen`, Mapbox's own `context.region`) must equal the
+    candidate's. A candidate that fails either is skipped; when none is left,
+    the turn falls through to the generic lookup, which applies the state."""
     for c in candidates:
         if c.match_confidence == "low":
             continue
@@ -230,7 +242,9 @@ def _street_match(
                 continue
         elif "matched" not in (c.match_place, c.match_postcode):
             continue
-        if _echoes(c.place_name, city=None, zone=zone, state_hint=None):
+        if region_chosen and _comparable(c.region) != _comparable(region_chosen):
+            continue
+        if _echoes(c.place_name, city=None, zone=zone, state_hint=state_hint):
             return c
     return None
 
@@ -679,9 +693,15 @@ def geocode_core(
             its number (QA14707 Q14, `profile_in.region_anchor`, filled by
             `_fill_place_from_profile`). It narrows the candidates Mapbox
             returned to those whose `context.region` is that region — a
-            structured equality, applied only when it keeps at least one and
-            no state is in play this turn. Never a query term, never a
+            structured equality, applied only when it keeps at least one. A
+            state in play this turn wins: the narrowing keeps only candidates
+            that state's echo accepts. Never a query term, never a
             coordinate: « Springfield » option 2 is the Missouri candidate.
+            While it is set, the turn's state is not a query term either
+            (Q21, H3 RC6: « Manhattan » picked by « New York » was looked up
+            as « Manhattan, New York » and resolved New York City); the state
+            still steers the resolver and the echo. The street branch keeps
+            only a candidate of this region (Q21).
         market_country: The market the request came from (QA14707 Q16,
             `profile_in.entry_market_country`, read by `geocode_location`).
             Only the market tie-break of a postcode (`_market_country`): it
@@ -830,13 +850,42 @@ def geocode_core(
             raw_user_message, lang, guess_iso or _locale_country(locale)
         )
 
+    # A 5-digit US ZIP anywhere in the request is stronger, deterministic
+    # evidence than trusting the model to also extract country_code — without
+    # this, an unscoped ZIP can geocode worldwide (prod bug: "near 11580"
+    # resolved outside the US). Only fills the gap when the model gave no
+    # country signal at all; an explicit country_code always wins. QA14707
+    # (Q08): nor when the user's postcode was extracted — DQ8's rule above has
+    # decided its country, and this one reads 75009 as a US ZIP.
+    # QA14707 (Q21): computed before the street branch below, which must hold
+    # the same state as the lookup further down. Pure: nothing between here
+    # and that lookup changes its inputs.
+    effective_country_code = country_code
+    if not effective_country_code and not postal and select_us_postal_anchor(
+        raw_user_message, effective_city, effective_zone, effective_metro
+    ):
+        effective_country_code = "US"
+
+    region_in_play = (effective_country_code or guess_iso or "US").upper() == "US"
+    state_hint = resolve_state_hint(
+        keywords=[region_named] if region_named and region_in_play else None,
+        city=effective_city,
+        zone=effective_zone,
+        profile_location_hint=profile_location_hint,
+        raw_user_message=raw_user_message,
+        profile_state_context=profile_state_context,
+        country_code=effective_country_code,
+    )
+
     # QA14707 (Q20, H3 RC5): a street or an address with no postcode. The
     # lookup below never returns a street (`CANDIDATE_TYPES`), so « Boulevard
     # de la République, Versailles » resolved to Leipzig, and « 2 Boulevard
     # Poissonnière, Paris » to a Paris homonym question. The address lookup the
     # postcode branch uses comes first; when it designates nothing
     # (`_street_match`), the turn goes on exactly as before. Only a NAMED
-    # country filters it (DQ8).
+    # country filters it (DQ8). Q21: a named, anchored or chosen state holds
+    # here too — « Main Street, Springfield » with Illinois named never
+    # resolves a Missouri street.
     if zone_is_specific and zone_kind in ("address", "street") and not postal:
         street = _street_match(
             get_mapbox_client().geocode_candidates(
@@ -848,6 +897,8 @@ def geocode_core(
             ),
             effective_zone or "",
             city=effective_city,
+            state_hint=state_hint,
+            region_chosen=region_chosen,
         )
         if street is not None:
             return _ok(
@@ -954,9 +1005,8 @@ def geocode_core(
                 # exposed to Mapbox's IP-biased ranking, which is why it ranks
                 # the whole candidate list instead of trusting top-1.
                 effective_zone or "",
-                # The raw `country_code` param, not `effective_country_code`:
-                # the US-ZIP anchor that derives the latter runs further down,
-                # after this early return. A bare landmark with no city and a US
+                # The raw `country_code` param, not `effective_country_code`
+                # (the US-ZIP anchor): a bare landmark with no city and a US
                 # ZIP is not a real shape, so nothing is lost.
                 country=_soft_country(country_code, country_guess, locale),
                 language=lang,
@@ -1002,42 +1052,36 @@ def geocode_core(
             guards_fired,
         )
 
-    # A 5-digit US ZIP anywhere in the request is stronger, deterministic
-    # evidence than trusting the model to also extract country_code — without
-    # this, an unscoped ZIP can geocode worldwide (prod bug: "near 11580"
-    # resolved outside the US). Only fills the gap when the model gave no
-    # country signal at all; an explicit country_code always wins. QA14707
-    # (Q08): nor when the user's postcode was extracted — DQ8's rule above has
-    # decided its country, and this one reads 75009 as a US ZIP.
-    effective_country_code = country_code
-    if not effective_country_code and not postal and select_us_postal_anchor(
-        raw_user_message, effective_city, effective_zone, effective_metro
-    ):
-        effective_country_code = "US"
-
-    region_in_play = (effective_country_code or guess_iso or "US").upper() == "US"
-    state_hint = resolve_state_hint(
-        keywords=[region_named] if region_named and region_in_play else None,
-        city=effective_city,
-        zone=effective_zone,
-        profile_location_hint=profile_location_hint,
-        raw_user_message=raw_user_message,
-        profile_state_context=profile_state_context,
-        country_code=effective_country_code,
-    )
-
+    # QA14707 (Q21, H3 RC6): a picked option is looked up by its own name. The
+    # reply that picked it (« New York » for « Manhattan ») yields a state; in
+    # the query it made Mapbox answer New York City, which the echo of
+    # « Manhattan » refused. The state still steers the resolver (`region_hint`)
+    # and the echo below; only the query of a picked option leaves it out.
     query = ", ".join(
-        part for part in (effective_zone, effective_city or effective_metro, state_hint) if part
+        part
+        for part in (
+            effective_zone,
+            effective_city or effective_metro,
+            None if region_chosen else state_hint,
+        )
+        if part
     )
     candidates = get_mapbox_client().geocode_candidates(
         query, country=effective_country_code, language=lang, proximity=proximity_str
     )
     # QA14707 (Q14): the option the user picked among homonyms that share a
     # name and a country (Springfield IL / MO). Without it the same question
-    # came back. A state named this turn (or anchored) speaks for itself.
-    if region_chosen and not state_hint:
+    # came back. A state named this turn (or anchored) speaks for itself: Q21,
+    # the pick narrows only to candidates that state's echo accepts, so a
+    # contradicting state (« Springfield IL » after picking Missouri) narrows
+    # nothing and the resolver follows the state.
+    if region_chosen:
         chosen_region = _comparable(region_chosen)
-        narrowed = [c for c in candidates if _comparable(c.region) == chosen_region]
+        narrowed = [
+            c for c in candidates
+            if _comparable(c.region) == chosen_region
+            and (not state_hint or _echoes(c.place_name, city=None, zone=None, state_hint=state_hint))
+        ]
         if narrowed:
             candidates = narrowed
 
