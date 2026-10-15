@@ -7,8 +7,10 @@ Nord » (Paris, Brussels) as a null case: the model then gave no city and the
 bare-landmark branch asked the user which one. DQ6 gives homonyms to the
 geocoder; the only LLM-side city rule left is S5 (« gare de Lyon »).
 
-This proves what the model READS and what the code does with a null city, not
-what the model writes: that is H3'.
+This proves only what the model READS (the `Place.city` description and the leaf
+instruction), not what the model writes: that is H3'. What the code does with a
+null city (the `city_needed` fallback) is covered by test_geo_intent_mapping.py
+and test_geo_intent_field_order.py.
 """
 from __future__ import annotations
 
