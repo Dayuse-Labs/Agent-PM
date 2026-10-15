@@ -59,6 +59,8 @@ Notes on these commands:
 - To run a test against the parent commit, use a detached worktree in the scratchpad: `git worktree add --detach <scratchpad>/Q21/parent plan/qa14707`, copy the new test in, then `cd <wt> && /Users/fabiendauvergne/Projects/AgentB2C/.venv/bin/pytest -q -s -p no:cacheprovider <test>`. pytest.ini's relative `pythonpath` makes the worktree's code win, so no PYTHONPATH is needed. Remove it afterwards with `git worktree remove --force`.
 - Regenerate the GeoIntent snapshot with `.venv/bin/python libs/b2c_common/b2c_common/geo_intent.py > contracts/geo_intent.schema.json`. The recorded gpt-6-luna intents are in `<scratchpad>/h3/probe_out_luna-v1.json` (variant V1 = the current schema).
 
+Q26 results: pytest -q 2935 passed, 1 skipped (316 s). hotel_search_agent tests plus test_leaf_concierge_seam.py 890 passed. ruff, mypy and dayuse_guardrails are clean. Parent-commit run (geocode_tool.py restored from 543e8aa^, then restored back): 4 failed and 3 passed. The 4 fixed-behaviour tests fail with `'city_centroid' == 'poi'` (3 of them) and `KeyError: 'radiusKm'` (sparse-ring test); the negative controls pass.
+
 ## Quick map
 
 **Search leaf** (`agents/hotel_search_agent/hotel_search_agent/`)
@@ -176,6 +178,9 @@ Notes on these commands:
 - Q25: test_gare_du_nord_city_from_model.py proves only what the model reads. The city_needed fallback for a city-less landmark is tested in test_geo_intent_mapping.py (around lines 222 and 239) and test_geo_intent_field_order.py (around line 253).
 - H3' checklist for Q12 and Q13: check that a bare « Gare du Nord » (eval items qa14707-guard-gare-du-nord-asks-city-fr and geo-poi-gare-du-nord) searches near Gare du Nord in Paris 3/3, and that qa14707-guard-gare-de-lyon-asks-city-fr still asks 3/3. If the model still writes city null for the bare « Gare du Nord » on gpt-6-luna, the bare-landmark branch asks the city question (the safe fallback, unchanged). That is a model behaviour, not a code regression.
 
+- **Empty tight disc (Q26)**: there is no automatic widening after an empty answer. The ring is picked before the call (response_bridge.py:865-870 site_radius_km, inject_landmark_radius poi branch around 903-910) from inventory density and widens to 50 km where the area is sparse. A zero-offer result takes the same path as a POI: results [] plus the code-built 'No day-use offers found' line, _OUTCOME_EMPTY at response_bridge.py:1456, used by _outcome_text at :1511 and emitted at :1858 and :1926. test_zero_offers_around_the_postcode_is_an_honest_empty_outcome pins this.
+- **Postcode test (Q26)**: the new test drives geocode_location through FunctionTool.run_async (args = intent.model_dump(mode='json') plus kwargs), then capture_after_tool and inject_landmark_radius. It adds no Mapbox or MCP call and no regex or word list. It uses its own copy of the postcode-resolution harness, reading the same H5 fixtures.
+
 ## Pitfalls and fixes
 
 - **Worktrees**
@@ -240,5 +245,8 @@ Notes on these commands:
 - The `dayuse.metrics` logger may not propagate to the root logger. To capture it with caplog, attach `caplog.handler` to `logging.getLogger("dayuse.metrics")` and call `caplog.set_level(logging.INFO, logger="dayuse.metrics")`. See the `metric_lines` fixture in test_named_hotel_city_fallback.py.
 - pytest runs with `--import-mode=importlib`, so test modules cannot import each other. Fakes such as _V6, _SearchBox and _ctx are copied into each test file.
 - With gpt-6-luna, a postcode alone gets an inferred city (`city: Paris`) and sometimes `kind: admin_district` with canonical « 9th arrondissement of Paris ». `_place_args` still treats it as « only the code », because the mention equals the code. The Q08 Mapbox query then becomes « 75009 Paris », and no H5 recording covers it.
+
+- Live replay of qa14707-postcode-only-fr on gpt-6-luna is still owed, as the plan states. It is not required for the merge.
+- macOS sed needs `sed -i ''`; a failed sed in an && chain silently skips the commit.
 
 ## Context recommendations (end of run)
