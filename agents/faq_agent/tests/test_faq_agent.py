@@ -93,9 +93,22 @@ class TestModel:
         # rationale as b2c_hotel_search's include_contents test.
         assert root_agent.include_contents == "none"
 
-    def test_model_defaults_to_gpt_4o_mini(self, monkeypatch, reload_agent):
+    def test_model_defaults_to_gpt_6_luna_with_tool_calling_params(self, monkeypatch, reload_agent):
         monkeypatch.delenv("DAYUSE_MODEL", raising=False)
-        assert reload_agent().root_agent.model.model == "gpt-4o-mini"
+        monkeypatch.delenv("DAYUSE_REASONING_EFFORT", raising=False)
+        model = reload_agent().root_agent.model
+        assert model.model == "openai/gpt-6-luna"
+        # Without effort "none", OpenAI rejects every tool call of gpt-6-luna on
+        # chat completions (probed 2026-10-15); litellm needs the whitelist.
+        assert model._additional_args == {
+            "reasoning_effort": "none",
+            "allowed_openai_params": ["reasoning_effort"],
+        }
+
+    def test_gpt_4o_mini_gets_no_reasoning_params(self, monkeypatch, reload_agent):
+        monkeypatch.setenv("DAYUSE_MODEL", "gpt-4o-mini")
+        monkeypatch.setenv("DAYUSE_REASONING_EFFORT", "low")
+        assert reload_agent().root_agent.model._additional_args == {}
 
     def test_model_is_driven_by_dayuse_model(self, monkeypatch, reload_agent):
         monkeypatch.setenv("DAYUSE_MODEL", "openrouter/some/model")

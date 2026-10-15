@@ -8,7 +8,14 @@ from .pricing import (
     hotel_currency_price,
     minor_units,
 )
-from .llm_params import max_tokens_for, reasoning_kwargs_for, role_model, temperature_kwargs_for
+from .llm_params import (
+    DEFAULT_MODEL,
+    max_tokens_for,
+    max_tokens_kwargs_for,
+    reasoning_kwargs_for,
+    role_model,
+    temperature_kwargs_for,
+)
 from .scores import (
     FALLBACK_SCORE_NAMES,
     GUARD_SCORE_NAMES,
@@ -22,6 +29,7 @@ from .scores import (
 __all__ = [
     "AGENT_CARD_PATH",
     "BearerAuthMiddleware",
+    "DEFAULT_MODEL",
     "FALLBACK_SCORE_NAMES",
     "GUARD_SCORE_NAMES",
     "build_hotel_page_url",
@@ -30,6 +38,7 @@ __all__ = [
     "format_minor_amount",
     "hotel_currency_price",
     "max_tokens_for",
+    "max_tokens_kwargs_for",
     "minor_units",
     "reasoning_kwargs_for",
     "require_bearer_token",

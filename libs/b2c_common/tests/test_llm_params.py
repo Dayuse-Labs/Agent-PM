@@ -8,7 +8,14 @@ from __future__ import annotations
 
 import pytest
 
-from b2c_common import max_tokens_for, reasoning_kwargs_for, role_model, temperature_kwargs_for
+from b2c_common import (
+    DEFAULT_MODEL,
+    max_tokens_for,
+    max_tokens_kwargs_for,
+    reasoning_kwargs_for,
+    role_model,
+    temperature_kwargs_for,
+)
 
 
 @pytest.fixture(autouse=True)
@@ -25,8 +32,10 @@ def _clean_env(monkeypatch):
 
 
 class TestRoleModelPrecedence:
-    def test_defaults_to_gpt_4o_mini_with_nothing_set(self):
-        assert role_model("TRIAGE") == "gpt-4o-mini"
+    def test_defaults_to_gpt_6_luna_with_nothing_set(self):
+        # gpt-4o-mini shuts down 2027-01-14; the provider prefix is mandatory
+        # (the pinned litellm cannot infer it for gpt-6*).
+        assert role_model("TRIAGE") == DEFAULT_MODEL == "openai/gpt-6-luna"
 
     def test_dayuse_model_wins_over_the_default(self, monkeypatch):
         monkeypatch.setenv("DAYUSE_MODEL", "gpt-5.2")
@@ -133,3 +142,48 @@ class TestMaxTokens:
     def test_zero_disables_the_cap(self, monkeypatch):
         monkeypatch.setenv("DAYUSE_MAX_TOKENS_SYNTHESIS", "0")
         assert max_tokens_for("SYNTHESIS") is None
+
+
+class TestUnmappedReasoningFamilies:
+    """gpt-6* — live-probed 2026-10-15 on gpt-6-luna through the pinned litellm
+    (1.90.2): `reasoning_effort` must be whitelisted, OpenAI wants
+    `max_completion_tokens`, and function tools 400 unless the effort is "none"."""
+
+    def test_unset_effort_means_none_and_is_whitelisted(self):
+        for slug in ("openai/gpt-6-luna", "gpt-6-luna", "openai/gpt-6.1-sol"):
+            assert reasoning_kwargs_for(slug) == {
+                "reasoning_effort": "none",
+                "allowed_openai_params": ["reasoning_effort"],
+            }
+
+    def test_disable_spellings_and_explicit_efforts(self, monkeypatch):
+        monkeypatch.setenv("DAYUSE_REASONING_EFFORT", "off")
+        assert reasoning_kwargs_for("openai/gpt-6-luna")["reasoning_effort"] == "none"
+        monkeypatch.setenv("DAYUSE_REASONING_EFFORT", "low")
+        assert reasoning_kwargs_for("openai/gpt-6-luna") == {
+            "reasoning_effort": "low",
+            "allowed_openai_params": ["reasoning_effort"],
+        }
+
+    def test_openrouter_routing_keeps_the_fleet_path(self):
+        # Through OpenRouter the slug is not OpenAI-direct: unset stays a no-op.
+        assert reasoning_kwargs_for("openrouter/openai/gpt-6-luna") == {}
+
+    def test_temperature_legal_at_none_dropped_otherwise(self, monkeypatch):
+        assert temperature_kwargs_for("openai/gpt-6-luna", 0.0) == {"temperature": 0.0}
+        monkeypatch.setenv("DAYUSE_REASONING_EFFORT", "low")
+        # Probed: effort=low + temperature=0.0 is a 400 on gpt-6-luna.
+        assert temperature_kwargs_for("openai/gpt-6-luna", 0.0) == {}
+
+    def test_ceiling_uses_max_completion_tokens(self):
+        assert max_tokens_kwargs_for("openai/gpt-6-luna", "TRIAGE") == {"max_completion_tokens": 200}
+        assert max_tokens_kwargs_for("openai/gpt-6-luna", "SYNTHESIS") == {"max_completion_tokens": 2000}
+
+    def test_mapped_families_keep_max_tokens(self):
+        for slug in ("gpt-4o-mini", "gpt-5.2", "openrouter/openai/gpt-6-luna"):
+            assert max_tokens_kwargs_for(slug, "TRIAGE") == {"max_tokens": 200}
+
+    def test_uncapped_role_sends_no_ceiling(self, monkeypatch):
+        monkeypatch.setenv("DAYUSE_MAX_TOKENS_TRIAGE", "0")
+        assert max_tokens_kwargs_for("openai/gpt-6-luna", "TRIAGE") == {}
+        assert max_tokens_kwargs_for("unknown-role-model", "UNKNOWN") == {}

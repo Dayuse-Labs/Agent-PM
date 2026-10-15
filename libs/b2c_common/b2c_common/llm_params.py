@@ -23,7 +23,9 @@ a reasoning model (`DAYUSE_MODEL=gpt-5.2`) with NO cap anywhere — a measured
 Everything reads the environment AT CALL TIME (the `_leaf_timeout` pattern:
 monkeypatch-friendly, no restart needed for a router-level change) and is a
 strict NO-OP when the env vars are unset — requests stay bit-identical to the
-pre-audit behaviour, locked by tests.
+pre-audit behaviour, locked by tests. One exception: the reasoning families the
+pinned litellm does not map (gpt-6*), which need their params even when unset
+(`_UNMAPPED_REASONING_PREFIXES`).
 """
 from __future__ import annotations
 
@@ -31,7 +33,10 @@ import os
 
 from dayuse_agent_common import reasoning_kwargs as _openrouter_reasoning_kwargs
 
-_DEFAULT_MODEL = "gpt-4o-mini"
+# gpt-4o-mini shuts down 2027-01-14; gpt-6-luna is OpenAI's named replacement
+# (cheaper, EU-residency eligible). The `openai/` prefix is required: the
+# pinned litellm (1.90.2) has no gpt-6 entry to infer the provider from.
+DEFAULT_MODEL = "openai/gpt-6-luna"
 
 # The fleet's "disable" spellings all map to "none" — live-probed on gpt-5.2
 # (2026-07-28): its accepted set is {none, low, medium, high, xhigh}; "minimal"
@@ -42,7 +47,16 @@ _DISABLE_SPELLINGS = {"none", "off", "false", "0", "disabled", "disable"}
 
 # Model families that take LiteLLM's unified `reasoning_effort` param on the
 # OpenAI-direct path. Prefix match on the bare slug (no provider prefix).
-_OPENAI_REASONING_PREFIXES = ("gpt-5", "o1", "o3", "o4")
+_OPENAI_REASONING_PREFIXES = ("gpt-5", "gpt-6", "o1", "o3", "o4")
+
+# Reasoning families the pinned litellm (1.90.2) does not map yet. Live-probed
+# on gpt-6-luna (2026-10-15): litellm rejects `reasoning_effort` client-side
+# unless it is whitelisted in `allowed_openai_params`; OpenAI rejects
+# `max_tokens` (it wants `max_completion_tokens`); and OpenAI rejects function
+# tools on /v1/chat/completions unless `reasoning_effort` is "none" — so an
+# UNSET effort means "none" here, never the provider's default (medium), or
+# every leaf tool call would 400. Drop a prefix once litellm maps it natively.
+_UNMAPPED_REASONING_PREFIXES = ("gpt-6",)
 
 _MAX_TOKENS_DEFAULTS = {
     # Triage answers ~40 tokens of JSON; headroom covers reasoning tokens
@@ -60,13 +74,23 @@ def role_model(role: str) -> str:
     return (
         os.environ.get(f"DAYUSE_MODEL_{role.upper()}", "").strip()
         or os.environ.get("DAYUSE_MODEL", "").strip()
-        or _DEFAULT_MODEL
+        or DEFAULT_MODEL
+    )
+
+
+def _unmapped(model_slug: str) -> bool:
+    """An OpenAI-direct slug of a family the pinned litellm does not map."""
+    return not model_slug.startswith("openrouter/") and model_slug.rsplit("/", 1)[-1].startswith(
+        _UNMAPPED_REASONING_PREFIXES
     )
 
 
 def reasoning_kwargs_for(model_slug: str) -> dict:
     """Provider-aware translation of DAYUSE_REASONING_EFFORT for one model slug.
 
+    - unmapped families (gpt-6*) → {"reasoning_effort": …, "allowed_openai_params":
+      ["reasoning_effort"]}, with unset/disable spellings → "none" (see
+      `_UNMAPPED_REASONING_PREFIXES`) — checked first: unset is NOT a no-op there
     - unset/empty         → {} (bit-identical requests — the safe default)
     - `openrouter/…`      → the fleet's validated OpenRouter shape (delegated)
     - OpenAI reasoning families (gpt-5*, o1/o3/o4*) → {"reasoning_effort": …},
@@ -74,6 +98,9 @@ def reasoning_kwargs_for(model_slug: str) -> dict:
     - anything else (gpt-4o-mini, …) → {} — never send an unsupported param
     """
     effort = (os.environ.get("DAYUSE_REASONING_EFFORT") or "").strip().lower()
+    if _unmapped(model_slug):
+        value = "none" if not effort or effort in _DISABLE_SPELLINGS else effort
+        return {"reasoning_effort": value, "allowed_openai_params": ["reasoning_effort"]}
     if not effort:
         return {}
     if model_slug.startswith("openrouter/"):
@@ -113,3 +140,15 @@ def max_tokens_for(role: str) -> int | None:
         return value if value > 0 else None
     default = _MAX_TOKENS_DEFAULTS.get(role.upper())
     return default
+
+
+def max_tokens_kwargs_for(model_slug: str, role: str) -> dict:
+    """A role's completion ceiling as request kwargs, {} when uncapped.
+
+    `max_tokens` everywhere litellm maps it; `max_completion_tokens` on the
+    unmapped families, where OpenAI rejects `max_tokens` (probed on gpt-6-luna).
+    """
+    cap = max_tokens_for(role)
+    if cap is None:
+        return {}
+    return {"max_completion_tokens" if _unmapped(model_slug) else "max_tokens": cap}

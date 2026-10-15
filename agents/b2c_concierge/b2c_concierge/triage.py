@@ -32,7 +32,7 @@ from dataclasses import dataclass
 from typing import Any
 
 import litellm
-from b2c_common import max_tokens_for, reasoning_kwargs_for, role_model, temperature_kwargs_for
+from b2c_common import max_tokens_kwargs_for, reasoning_kwargs_for, role_model, temperature_kwargs_for
 from b2c_common.price_comparison import grounded_price_comparison
 from b2c_common.room_requirements import grounded_room_update
 from b2c_common.search_budget import grounded_budget
@@ -499,9 +499,7 @@ async def classify(message: str, budget: TurnBudget, invocation_id: str = "",
     # (gpt-5* + effort ≠ none — see temperature_kwargs_for).
     extra_params: dict = dict(reasoning_kwargs_for(model_slug))
     extra_params.update(temperature_kwargs_for(model_slug, 0.0))
-    max_tokens = max_tokens_for("TRIAGE")
-    if max_tokens is not None:
-        extra_params["max_tokens"] = max_tokens
+    extra_params.update(max_tokens_kwargs_for(model_slug, "TRIAGE"))
     t0 = time.monotonic()
     try:
         resp = await litellm.acompletion(

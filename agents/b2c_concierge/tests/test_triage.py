@@ -245,8 +245,23 @@ class TestPerRoleLlmParams:
         monkeypatch.setattr(triage_module.litellm, "acompletion", fake_acompletion)
         return captured
 
-    def test_no_new_kwargs_when_env_is_unset(self, monkeypatch):
+    def test_default_model_gets_its_unmapped_params_when_env_is_unset(self, monkeypatch):
         for var in ("DAYUSE_MODEL", "DAYUSE_MODEL_TRIAGE", "DAYUSE_REASONING_EFFORT"):
+            monkeypatch.delenv(var, raising=False)
+        captured = self._capture(monkeypatch)
+        _classify("un hôtel à Paris")
+        # gpt-6-luna through the pinned litellm (llm_params, probed 2026-10-15).
+        assert captured["model"] == "openai/gpt-6-luna"
+        assert captured["reasoning_effort"] == "none"
+        assert captured["allowed_openai_params"] == ["reasoning_effort"]
+        assert captured["temperature"] == 0.0
+        assert captured["max_completion_tokens"] == 200
+        assert "max_tokens" not in captured
+        assert "extra_body" not in captured
+
+    def test_no_new_kwargs_for_gpt_4o_mini(self, monkeypatch):
+        monkeypatch.setenv("DAYUSE_MODEL", "gpt-4o-mini")
+        for var in ("DAYUSE_MODEL_TRIAGE", "DAYUSE_REASONING_EFFORT"):
             monkeypatch.delenv(var, raising=False)
         captured = self._capture(monkeypatch)
         _classify("un hôtel à Paris")
@@ -289,6 +304,7 @@ class TestPerRoleLlmParams:
         captured = self._capture(monkeypatch)
         _classify("un hôtel à Paris")
         assert "max_tokens" not in captured
+        assert "max_completion_tokens" not in captured
 
     def test_regex_recovery_only_when_the_llm_is_down(self, monkeypatch):
         async def fake_acompletion(**kwargs):

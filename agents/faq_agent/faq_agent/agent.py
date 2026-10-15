@@ -17,7 +17,7 @@ tools — search, details, compare and booking-link belong to other components
 (hotel-search-agent, orchestrator inline tools) and must never be reachable
 from here.
 
-S3 wired dayuse_agent_common: build_model, day-1 metrics callbacks (stdout +
+S3 wired dayuse_agent_common: day-1 metrics callbacks (stdout +
 llm_metric_events, no-op without DATABASE_URL, never any message content) and
 the tool budget. The agent NAME is the metrics `service` label — b2c_ prefixed
 so B2C rows are distinguishable from fleet rows in the shared Postgres.
@@ -26,9 +26,9 @@ from __future__ import annotations
 
 import os
 
+from b2c_common import DEFAULT_MODEL, reasoning_kwargs_for
 from b2c_common.observability import stamp_a2a_turn
 from dayuse_agent_common import (
-    build_model,
     llm_error_metric,
     llm_timing_after,
     llm_timing_before,
@@ -38,6 +38,7 @@ from dayuse_agent_common import (
     tool_timing_before,
 )
 from google.adk.agents import Agent
+from google.adk.models.lite_llm import LiteLlm
 from google.adk.tools.mcp_tool import McpToolset, StreamableHTTPConnectionParams
 
 # The only MCP_B2C tool this leaf may call, passed to McpToolset(tool_filter=...)
@@ -46,10 +47,13 @@ ALLOWED_MCP_TOOLS = [
     "get_faq_conditions",
 ]
 
-# D3: model via the lib's LiteLLM factory (reasoning kwargs included). B2C keeps
-# its OWN departure default (iso-model comparison vs agent-usa): the lib's
-# DEFAULT_MODEL is an OpenRouter slug and must never silently take over.
-MODEL = build_model(os.environ.get("DAYUSE_MODEL", "gpt-4o-mini"))
+# D3: LiteLLM model. B2C keeps its OWN departure default (b2c_common's — the
+# lib's DEFAULT_MODEL is an OpenRouter slug and must never silently take over)
+# and its OWN reasoning kwargs: the lib's `build_model` only knows the
+# OpenRouter shape, while gpt-6-luna needs `reasoning_effort="none"` on the
+# OpenAI-direct path or every tool call is a 400 (llm_params, probed 2026-10-15).
+_MODEL_SLUG = os.environ.get("DAYUSE_MODEL", DEFAULT_MODEL)
+MODEL = LiteLlm(model=_MODEL_SLUG, **reasoning_kwargs_for(_MODEL_SLUG))
 
 # Hard cap on real tool calls per turn (one FAQ lookup; 2 leaves margin for a
 # refined retry the model may attempt). Beyond it: deterministic short-circuit.
