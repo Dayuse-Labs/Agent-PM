@@ -42,6 +42,12 @@ Entries: `deviation`, `blind-spot`, `decision`, `debt`, `needs-human`, `ticket`,
 - needs-human · major · H4 (source plan). After the plan is merged: final deployment, retest by Raphael, then a point-by-point answer on dayuse-com#14707 (build, proof, what remains).
 - ticket · minor · Ask Raphael which URL and market he tested. All his traces carry `locale:"en"` and `currency:"USD"`, so the geocoder's question comes out in English and only the synthesis turns it back into French. This blocks no task.
 
+- decision · major · DQ10. A named hotel not found in a named city falls back to that city's search in code (Q22), not in the prompt. (settled by the user, 2026-10-15)
+- decision · major · DQ11. H3 failed on gpt-4o-mini (evidence in PREREQUISITES): its main cause is the model, which never gives a landmark its city under the GeoIntent schema (0/25; gpt-6-luna 25/25 in an isolated probe). The bar is measured with gpt-6-luna on the leaves, the prod model since 2026-10-15 (#139): `main` is merged into the plan (d972bb5), Q17-Q24 fix the code defects, then H1 and H3 are re-run on gpt-6-luna. DQ1 is revisited only if that still fails. (settled by the user, 2026-10-15)
+- decision · major · DQ12. A bare « Gare du Nord » (no city) searches Paris: it is not an S5 case, `main` and prod already do it, and the QA asked for fewer city questions. `geo-poi-gare-du-nord` stays; the QA14707 guard item changes (Q24). The « gare de Lyon » guard (S5, DQ6) stays. (settled by the user, 2026-10-15)
+- decision · minor · H6. The H3 diagnosis agent recorded nine real Mapbox v6 responses for Q19-Q21; accepted as DQ9-compliant (real, never synthetic). (settled by the user, 2026-10-15)
+- decision · major · Q17-Q24 come from the H3 diagnosis (2026-10-15): RC2 mention check too strict (Q18), RC3 one bad field voids the intent (Q17), RC4 carried country stays a hard filter on a city switch (Q19), RC5 street without postcode never reaches the address lookup (Q20), RC6 picked option re-queried with the reply's state (Q21), not-found hotel fallback (Q22), schema field order for gpt-6-luna (Q23), `hotels_within_km` vacuous on 0 hotels (Q24). Added by the pilot after the user's rulings. (settled by the user, 2026-10-15)
+
 ## Q01
 
 - deviation · minor · Q01: `evals/tests/test_langfuse_experiment.py` did not exist and was created, as listed in owned_files. The existing `test_langfuse_experiment_gate.py` is untouched. The private helper `_last_user_message` became `_user_turns`, and nothing else imported it. All of this stays inside owned files and changes no contract.
