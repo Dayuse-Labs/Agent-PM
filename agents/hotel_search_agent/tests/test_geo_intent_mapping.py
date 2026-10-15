@@ -30,7 +30,7 @@ from hotel_search_agent.geocode_tool import geocode_core, geocode_location
 from hotel_search_agent.mapbox_client import GeocodeCandidate, MapboxClient
 
 
-def _c(name, cc, region, *, ftype="place", rank=0, lat=0.0, lon=0.0, place_name=None):
+def _c(name, cc, region, *, ftype="place", rank=0, lat=0.0, lon=0.0, place_name=None, place=""):
     return GeocodeCandidate(
         latitude=lat,
         longitude=lon,
@@ -42,6 +42,7 @@ def _c(name, cc, region, *, ftype="place", rank=0, lat=0.0, lon=0.0, place_name=
         region=region,
         bbox=None,
         rank=rank,
+        place=place,
     )
 
 
@@ -185,10 +186,14 @@ class TestTheNamedCityIsKept:
 
     def test_a_street_followed_by_versailles_keeps_versailles(self, monkeypatch, statuses):
         # Trace B: « Versailles » was buried in `zone` and the city lost.
+        # `place` is the street's `context.place`, as Mapbox records it (H6
+        # `street_bd_republique_versailles.json`): since Q20 the address lookup
+        # takes the street on that equality, in the one call asserted below.
         street = _c(
             "Boulevard de la République", "FR", "Versailles", ftype="street",
             lat=48.8077, lon=2.1301,
             place_name="Boulevard de la République, 78000 Versailles, France",
+            place="Versailles",
         )
         v6, _box = _patch(
             monkeypatch,
