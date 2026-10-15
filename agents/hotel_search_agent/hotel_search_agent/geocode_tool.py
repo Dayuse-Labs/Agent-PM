@@ -1360,9 +1360,9 @@ def _comparable(text: str) -> str:
 # Q18: a claim is anchored by similarity when its comparable text is at least
 # this close (difflib ratio, 0..1) to a window of the input text of the same
 # number of words. Measured: « les champs elysees » / « des champs elysees »
-# 0.94, « pres des champs elysees » / « pres des champ elysee » 0.96,
-# « champs elysees » / « champ elysee » 0.93; refused: « bruxelles » vs the
-# best word of « un hotel pres de la gare du nord demain » < 0.5, « london » /
+# 0.94, « pres des champs elysees » / « pres des champ elysee » 0.955,
+# « champs elysees » / « champ elysee » 0.923; refused: « bruxelles » vs the
+# best window of « un hotel pres de la gare du nord demain » 0.46, « london » /
 # « londres » 0.62, « tour eiffel » vs any 2-word window of « un hotel a paris
 # demain » < 0.4.
 _MENTION_SIMILARITY = 0.85

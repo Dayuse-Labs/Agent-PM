@@ -1042,10 +1042,12 @@ class TestAPlaceSurvivesAnAddedArticleOrATypo:
             places=[Place(mention="les Champs", kind="landmark", canonical="Champs-Élysées")]
         )
 
-        geocode_location(intent=intent, tool_context=_ctx("un hôtel vers les champs elysees"))
+        geocode_location(intent=intent, tool_context=_ctx("un hôtel autour des champs elysees"))
 
         assert core[0]["zone"] == "Champs-Élysées"
-        assert _fields(metric()[0])["mentions_discarded"] == "0"
+        fields = _fields(metric()[0])
+        assert fields["mentions_discarded"] == "0"
+        assert fields["mentions_fuzzy"] == "0"
 
     @pytest.mark.parametrize(
         "text, mention",
