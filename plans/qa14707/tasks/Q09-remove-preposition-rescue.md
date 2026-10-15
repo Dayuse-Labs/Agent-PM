@@ -26,6 +26,7 @@ verification:
   - "/Users/fabiendauvergne/Projects/AgentB2C/.venv/bin/pytest -q agents/hotel_search_agent/tests/test_homonym_option_region.py"
   - "/Users/fabiendauvergne/Projects/AgentB2C/.venv/bin/pytest -q agents/hotel_search_agent/tests/test_street_without_postcode.py"
   - "/Users/fabiendauvergne/Projects/AgentB2C/.venv/bin/pytest -q agents/hotel_search_agent/tests/test_picked_option_query.py"
+  - "/Users/fabiendauvergne/Projects/AgentB2C/.venv/bin/pytest -q agents/hotel_search_agent/tests/test_geo_intent_field_order.py"
 definition_of_done:
   - "`git grep -n -e _CITY_AFTER_PREPOSITION_RE -e _city_named_in_message -e _complete_pending_place -- agents libs` returns nothing, and `_ARTICLES` is gone from `geocode_tool.py` (diff)."
   - "The leaf no longer writes `pending_place`: neither `geocode_tool.py` nor `response_bridge.py` (diff)."
@@ -38,6 +39,7 @@ definition_of_done:
   - "The `city_conflicts` tests of `agents/hotel_search_agent/tests/test_geo_intent_mapping.py` (Q14) pass without change to their assertions, and the `dayuse_metric=geo_intent` line still carries no message text."
   - "The Q20 tests of `agents/hotel_search_agent/tests/test_street_without_postcode.py` pass without change to their assertions after `_city_named_in_message` is removed. A case whose city came only from that function gets it from a GeoIntent city instead (`city.mention`/`canonical` or a city place), and the report lists every such case."
   - "The Q21 tests of `agents/hotel_search_agent/tests/test_picked_option_query.py` pass without change to their assertions after the removals."
+  - "The Q23 tests of `agents/hotel_search_agent/tests/test_geo_intent_field_order.py` pass without change to their assertions after the removals."
 ---
 
 ## Launch prompt
