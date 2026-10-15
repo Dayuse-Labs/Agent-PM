@@ -39,9 +39,23 @@ declaration keeps the field descriptions only on ADK's default
 `JSON_SCHEMA_FOR_FUNC_DECL` path; the legacy path drops them.
 
 Every `description` and every class docstring below ends up in the JSON schema
-of the tool declaration the LLM reads: they are prompt, written for
-gpt-4o-mini. Rationale goes in this module docstring or in comments, never
-there. `contracts/geo_intent.schema.json` is the frozen snapshot of
+of the tool declaration the LLM reads: they are prompt, written for the leaves'
+model, gpt-6-luna since 2026-10-15 (DQ11). Rationale goes in this module
+docstring or in comments, never there.
+
+`Place`'s field ORDER and its JSON-schema `required` list are prompt too
+(Q23). The model writes the keys in the order it reads them: in H3, with
+`city` 5th and `country` 7th after `postal_code`, gpt-4o-mini filled a
+landmark's city 0 times in 25 and its country never, so every landmark without
+a typed city got the city question. Hence mention, kind, canonical, then city
+and country, then postal_code. `PLACE_REQUIRED` makes the model write those six
+keys, null when unknown. It binds the model's output only: no field is
+required by pydantic, so an absent or partial argument still converts with the
+defaults above. The probe also showed gpt-4o-mini breaking both city guards
+under this wording (Gare du Nord given Paris, gare de Lyon not flagged): it is
+tuned for gpt-6-luna, not for gpt-4o-mini.
+
+`contracts/geo_intent.schema.json` is the frozen snapshot of
 `GeoIntent.model_json_schema()` (`tests/test_geo_intent_contract.py`);
 regenerate it with
 `python libs/b2c_common/b2c_common/geo_intent.py > contracts/geo_intent.schema.json`.
@@ -75,6 +89,9 @@ Relation = Literal["in", "near", "whole_city"]
 Carryover = Literal["new", "keep", "replace_place_keep_city", "refine"]
 AmbiguityReason = Literal["homonym", "city_needed", "too_vague"]
 
+#: The `Place` keys the model must write, in the order it reads them (Q23).
+PLACE_REQUIRED = ("mention", "kind", "canonical", "city", "country", "postal_code")
+
 # frozen: the code reads the LLM's intent and never rewrites it in place, and a
 # frozen `GeoIntent()` is safe as a shared parameter default (see below).
 _FORBID = ConfigDict(extra="forbid", frozen=True)
@@ -83,7 +100,16 @@ _FORBID = ConfigDict(extra="forbid", frozen=True)
 class Place(BaseModel):
     """A place the user named."""
 
-    model_config = _FORBID
+    # Field order and `required` are prompt too (Q23, see the module docstring):
+    # the model writes the keys in the order it reads them, so the place's city
+    # and country come right after its name. `required` binds the model's
+    # output only: every field keeps its default, and a partial dict still
+    # validates.
+    model_config = ConfigDict(
+        extra="forbid",
+        frozen=True,
+        json_schema_extra={"required": list(PLACE_REQUIRED)},
+    )
 
     mention: str = Field(
         default="",
@@ -98,29 +124,34 @@ class Place(BaseModel):
             "\"St Paul's Cathedral\")."
         ),
     )
-    postal_code: str | None = Field(
-        default=None,
-        description="The postcode or ZIP code exactly as written (\"75009\"). Null when none is written.",
-    )
     city: str | None = Field(
         default=None,
         description=(
-            "The city the place is in, even if the user did not write it, ONLY when "
-            "the place's name leaves no doubt (\"les champs élysées\" -> \"Paris\"). "
-            "Null when places of that name exist in several cities (\"Gare du Nord\": "
-            "Paris, Brussels), and null when the place is itself a city."
+            "The city the place is in, from your knowledge when the user did not write it "
+            "(\"Buckingham Palace\" -> \"London\", \"le Louvre\" -> \"Paris\", "
+            "\"times square\" -> \"New York\"). "
+            "null only when places of that name are in several cities (\"Gare du Nord\": "
+            "Paris and Brussels), when the place is named after a city it is not in "
+            "(\"gare de Lyon\"), or when the place is itself a city."
+        ),
+    )
+    country: str | None = Field(
+        default=None,
+        description=(
+            "ISO-3166-1 alpha-2 code of the country the place is in (\"FR\"), from your "
+            "knowledge. null when unsure."
+        ),
+    )
+    postal_code: str | None = Field(
+        default=None,
+        description=(
+            "The postcode or ZIP code exactly as written (\"75009\"), also when the postcode "
+            "alone is the place (\"dans le 75009\"). null when none is written."
         ),
     )
     region: str | None = Field(
         default=None,
         description="Code of the state or province the place is in, when known (\"CT\"). Else null.",
-    )
-    country: str | None = Field(
-        default=None,
-        description=(
-            "ISO-3166-1 alpha-2 country you know the place is in (\"FR\"). "
-            "A soft hint, never a filter. Null when unsure."
-        ),
     )
     city_inferred: bool = Field(
         default=False,

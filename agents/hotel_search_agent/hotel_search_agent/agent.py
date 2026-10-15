@@ -195,6 +195,9 @@ How to act, frugally (at most ONE reasoning pass — no tool-call loops):
     square" -> US) goes in that place's `country`: a soft hint the tool scores
     and verifies, never a filter. Never coordinates: latitude and longitude only
     ever come from the tool.
+  * A postcode the user writes goes in that place's `postal_code`, exactly as
+    written, also when the postcode alone is the place ("dans le 75009" -> a
+    place with mention "75009" and postal_code "75009").
   If it returns ok=False with error "geocode_ambiguous", DO NOT search: ask the
   user the exact clarifying question in its diagnostics (the place is a homonym).
   For any other ok=False, DO NOT call search_offers: relay its diagnostics

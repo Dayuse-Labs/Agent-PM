@@ -13,6 +13,8 @@ toolset, the real leaf chain around the call (`prepare_named_hotel_lookup`,
 from __future__ import annotations
 
 import asyncio
+import logging
+import re
 from types import SimpleNamespace
 
 import httpx
@@ -271,3 +273,99 @@ class TestNegativeControls:
         assert mapbox.requests == []
         assert search.calls == []
         assert statuses == []
+
+
+# --- the metric lines carry no text (Q23, the user's ruling on Q22) ----------------
+#
+# GDPR invariant « zero message content in metrics »: the two lines the
+# named-hotel path logs carry a fixed status and an integer duration, nothing
+# else — no word of the message, no hotel name, no city.
+
+_LINE = re.compile(
+    r"dayuse_metric=(named_hotel_city_search|named_hotel_search) agent=b2c_hotel_search "
+    r"status=(ok|no_place|blocked|unbound|error) ms=\d+"
+)
+_WORDS = sorted({*TEXT.split(), *NAME.split(), "Lyon"})
+
+
+@pytest.fixture
+def metric_lines(caplog):
+    """The real `dayuse.metrics` records of the turn, formatted. caplog's
+    handler is put on the logger itself: the metrics logger is configured on
+    its own and may not propagate to the root logger caplog listens on."""
+    logger = logging.getLogger("dayuse.metrics")
+    logger.addHandler(caplog.handler)
+    caplog.set_level(logging.INFO, logger="dayuse.metrics")
+    try:
+        yield lambda: [
+            r.getMessage() for r in caplog.records
+            if r.name == "dayuse.metrics" and r.getMessage().startswith(
+                ("dayuse_metric=named_hotel_city_search ", "dayuse_metric=named_hotel_search ")
+            )
+        ]
+    finally:
+        logger.removeHandler(caplog.handler)
+
+
+def _found(hotel_id: int = 11) -> dict:
+    return {"structuredContent": {"hotel": {
+        "hotelId": hotel_id, "name": NAME, "lat": 45.7600, "lon": 4.8400,
+    }}}
+
+
+def _found_turn(ctx: SimpleNamespace) -> None:
+    find = _Tool("find_hotel_by_name")
+    args = {"name": NAME, "cityName": "Lyon", "date": TOMORROW}
+    named_hotel.prepare_named_hotel_lookup(find, args, ctx)
+    asyncio.run(named_hotel.follow_named_hotel(find, args, ctx, _found()))
+    capture_after_tool(find, args, ctx, _found())
+
+
+def _assert_content_free(line: str) -> None:
+    assert _LINE.fullmatch(line), line
+    for word in _WORDS:
+        assert word.casefold() not in line.casefold(), (word, line)
+
+
+class TestTheMetricLinesCarryNoText:
+    def test_not_found_in_lyon(self, mapbox, search, metric_lines):
+        _turn(_ctx(), {"name": NAME, "cityName": "Lyon", "date": TOMORROW},
+              _Tool("find_hotel_by_name", [_not_found()]))
+
+        lines = metric_lines()
+        assert [line.split()[0] for line in lines] == ["dayuse_metric=named_hotel_city_search"]
+        assert " status=ok " in lines[0]
+        for line in lines:
+            _assert_content_free(line)
+
+    def test_a_city_that_does_not_geocode(self, mapbox, search, metric_lines):
+        mapbox.features = []
+
+        _turn(_ctx(), {"name": NAME, "cityName": "Lyon"}, _Tool("find_hotel_by_name", [_not_found()]))
+
+        lines = metric_lines()
+        assert [line.split()[0] for line in lines] == ["dayuse_metric=named_hotel_city_search"]
+        assert " status=no_place " in lines[0]
+        for line in lines:
+            _assert_content_free(line)
+
+    def test_a_found_hotel(self, search, metric_lines):
+        _found_turn(_ctx())
+
+        lines = metric_lines()
+        assert [line.split()[0] for line in lines] == ["dayuse_metric=named_hotel_search"]
+        assert " status=ok " in lines[0]
+        assert len(search.calls) == 1
+        for line in lines:
+            _assert_content_free(line)
+
+    def test_a_found_hotel_with_no_bound_toolset_reports_unbound(self, metric_lines):
+        named_hotel.bind(None, [], [])
+
+        _found_turn(_ctx())
+
+        lines = metric_lines()
+        assert [line.split()[0] for line in lines] == ["dayuse_metric=named_hotel_search"]
+        assert " status=unbound " in lines[0]
+        for line in lines:
+            _assert_content_free(line)

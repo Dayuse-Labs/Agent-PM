@@ -148,7 +148,22 @@ class TestLiteLlmToolSchema:
         validator = jsonschema.Draft202012Validator(parameters)
         validator.validate(_FULL_ARGS)
         validator.validate({})
-        validator.validate({"geo_intent": {"places": [{"mention": "gare de lyon"}]}})
+        validator.validate({"geo_intent": {"places": [{
+            "mention": "gare de lyon", "kind": "station", "canonical": "Gare de Lyon",
+            "city": None, "country": "FR", "postal_code": None,
+        }]}})
+
+    def test_the_place_keys_are_required_of_the_model_only(self):
+        # Q23: the JSON schema the model reads asks it to write a place's six
+        # keys (null when unknown). It binds the model's output, never the
+        # tool's input: the same partial place still reaches the function as a
+        # `GeoIntent` (`TestArgumentConversion`).
+        validator = jsonschema.Draft202012Validator(_tool_param()["function"]["parameters"])
+        partial = {"geo_intent": {"places": [{"mention": "gare de lyon"}]}}
+        assert not validator.is_valid(partial)
+        received = _run(partial)["received"]
+        assert isinstance(received, GeoIntent)
+        assert received.places[0] == Place(mention="gare de lyon")
 
     def test_the_schema_refuses_what_the_model_refuses(self):
         validator = jsonschema.Draft202012Validator(_tool_param()["function"]["parameters"])
