@@ -819,7 +819,9 @@ def geocode_core(
         if area is not None and not effective_zone:
             # « dans le 75009 »: the postcode is the place. Its centroid, its
             # city; no zone persisted, since a carried bare code would come back
-            # next turn without the postcode rule.
+            # next turn without the postcode rule. Q26: the user named a small
+            # area, so it is a "poi" origin (S4 tight disc), not the city-wide
+            # radius that let hotels 3-6 km away and in the suburbs through.
             return _ok(
                 area.as_result(),
                 feature_type=area.feature_type,
@@ -830,7 +832,7 @@ def geocode_core(
                     profile_location_hint=profile_location_hint,
                     guards_fired=guards_fired,
                 ),
-                distance_origin_type="city_centroid",
+                distance_origin_type="poi",
                 metro=effective_metro,
                 guards_fired=guards_fired,
             )

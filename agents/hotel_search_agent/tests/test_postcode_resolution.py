@@ -357,7 +357,7 @@ class TestTiesBetweenCountries:
 
         assert (result["latitude"], result["longitude"]) == (48.875676, 2.343131)
         assert result["resolved_feature_type"] == "postcode"
-        assert result["distance_origin_type"] == "city_centroid"
+        assert result["distance_origin_type"] == "poi"
         # A carried bare code would come back without the postcode rule.
         assert "zone" not in result["profile_delta"]
 
