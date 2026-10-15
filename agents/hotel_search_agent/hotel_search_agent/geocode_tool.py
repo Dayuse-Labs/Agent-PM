@@ -1285,7 +1285,17 @@ def _fill_place_from_profile(args: dict, profile_in: dict) -> None:
         args["zone"] = profile_in["zone"]
     if _is_blank(args.get("metro")) and profile_in.get("metro"):
         args["metro"] = profile_in["metro"]
-    if _is_blank(args.get("country_code")) and profile_in.get("country_anchor"):
+    # QA14707 (Q19): the carried country is the country of the CARRIED city. It
+    # is a hard Mapbox filter, so it goes only with that city: « actually make
+    # it paris » from London must not look for Paris inside GB.
+    carried_anchor_city = profile_in.get("city")
+    if (
+        _is_blank(args.get("country_code")) and profile_in.get("country_anchor")
+        and (
+            not (isinstance(carried_anchor_city, str) and carried_anchor_city.strip())
+            or _comparable(carried_anchor_city) == _comparable(str(args.get("city") or ""))
+        )
+    ):
         args["country_code"] = profile_in["country_anchor"]
     region, carried_city = profile_in.get("region_anchor"), profile_in.get("city")
     if (
