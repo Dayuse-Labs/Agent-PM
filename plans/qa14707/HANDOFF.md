@@ -52,6 +52,8 @@ Entries: `deviation`, `blind-spot`, `decision`, `debt`, `needs-human`, `ticket`,
 - decision · major · DQ13. Phases 1-3 (with Q26) ship in a first PR of `plan/qa14707` to `main`, before phase 4: Raphael's fixes are validated by H3 on gpt-6-luna. Phase 4 (Q09-Q11, removing the old regex fallbacks) and phase 5 (docs, global review) follow in a second PR. (settled by the user, 2026-10-15)
 - ticket · minor · `geo-poi-gare-de-lyon` (evals/datasets/b2c-geo-poi.jsonl) expects a search in Paris, which contradicts the S5 guard `qa14707-guard-gare-de-lyon-asks-city-fr` (DQ6). It fails on both builds (H1 and H3 on gpt-6-luna). Align the geo-poi item on S5 after the PR.
 
+- ticket · minor · `geo7-gare-du-nord-no-city` (evals/datasets/b2c-geo-class-2026-10-06.jsonl) has `clarify_allowed: true` and no `min_hotels`, so since Q24 a city question on a bare « Gare du Nord » scores `skipped` on `hotels_within_km` and fails nothing. It contradicts DQ12 (the two other Gare du Nord items require a search). Not hit on gpt-6-luna (searched 3/3 with 5 hotels on both builds). Align it on DQ12 (`clarify_expected: false`, `min_hotels: 1`, like `geo-poi-gare-du-nord`) in the second PR, not in the first, to keep the H1/H3 evidence reproducible. (settled by the user, 2026-10-16)
+
 ## Q01
 
 - deviation · minor · Q01: `evals/tests/test_langfuse_experiment.py` did not exist and was created, as listed in owned_files. The existing `test_langfuse_experiment_gate.py` is untouched. The private helper `_last_user_message` became `_user_turns`, and nothing else imported it. All of this stays inside owned files and changes no contract.
