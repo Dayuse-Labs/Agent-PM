@@ -76,8 +76,9 @@ class _Inventory:
 @pytest.fixture
 def mapbox(monkeypatch):
     recorded = _RecordedMapbox()
+    recorded.searchbox = _SearchBox()
     monkeypatch.setattr(geocode_tool, "get_mapbox_client", lambda: recorded.client)
-    monkeypatch.setattr(geocode_tool, "get_searchbox_client", lambda: _SearchBox())
+    monkeypatch.setattr(geocode_tool, "get_searchbox_client", lambda: recorded.searchbox)
     monkeypatch.setattr(geocode_tool, "get_inventory", lambda: _Inventory())
     return recorded
 
@@ -100,6 +101,7 @@ def test_a_new_city_leaves_the_carried_country_behind(mapbox):
     result = geocode_location(intent=intent, tool_context=_ctx("actually make it paris", profile_in=LONDON))
 
     assert all("country" not in r for r in mapbox.requests)
+    assert all(country is None for _, country in mapbox.searchbox.calls)
     assert result["ok"] is True
     assert "Paris" in result["resolved_place"] and "Baguette" not in result["resolved_place"]
     assert result["country_code"] == "FR"
@@ -115,6 +117,7 @@ def test_the_real_tool_does_the_same(mapbox):
     ))
 
     assert all("country" not in r for r in mapbox.requests)
+    assert all(country is None for _, country in mapbox.searchbox.calls)
     assert result["country_code"] == "FR"
 
 
