@@ -8,12 +8,16 @@ the inventory ranking returned hotels 3.3 km and 6.4 km away and in Gennevillier
 
 The user named a small area: the origin is a `poi`, and the S4 rule gives
 `search_offers` the site's tight ring, nearest first. The Mapbox answers are the
-REAL v6 recordings of H5 (DQ9), served to the real client by the harness of
-`test_postcode_resolution.py`; the chain run here is the leaf's own callbacks:
-`geocode_location` -> `capture_after_tool` -> `inject_landmark_radius`.
+REAL v6 recordings of H5 (DQ9), read from the same fixture files as
+`test_postcode_resolution.py` but served here by a COPY of its harness (this
+file defines its own `_RECORDED`, `_handle`, `_SearchBox` and `_NoInventory`).
+The chain run here is the leaf's own: the real `FunctionTool(geocode_location)`
+driven through `run_async`, then the callbacks `capture_after_tool` ->
+`inject_landmark_radius`.
 """
 from __future__ import annotations
 
+import asyncio
 import json
 from pathlib import Path
 from types import SimpleNamespace
@@ -74,7 +78,8 @@ class _NoInventory:
 
 @pytest.fixture
 def mapbox(monkeypatch):
-    """The H5 recordings behind the real `MapboxClient` (as test_postcode_resolution)."""
+    """The H5 recordings behind the real `MapboxClient`, via this file's own copy of
+    the harness of test_postcode_resolution.py."""
     client = MapboxClient("test-token", client=httpx.Client(transport=httpx.MockTransport(_handle)))
     monkeypatch.setattr(geocode_tool, "get_mapbox_client", lambda: client)
     monkeypatch.setattr(geocode_tool, "get_searchbox_client", lambda: _SearchBox())
@@ -114,10 +119,10 @@ class _Ring:
 
 
 def _geocode(intent, ctx, **kwargs):
-    # Through the real FunctionTool declaration path of the leaf: the tool the
-    # model calls is this function, wrapped.
-    assert FunctionTool(geocode_location).name == "geocode_location"
-    return geocode_location(intent=intent, tool_context=ctx, **kwargs)
+    # The real ADK tool-call path: FunctionTool.run_async validates and drops
+    # undeclared arguments, then calls `geocode_location`.
+    args = {"intent": intent.model_dump(mode="json"), **kwargs}
+    return asyncio.run(FunctionTool(geocode_location).run_async(args=args, tool_context=ctx))
 
 
 def _search_args(monkeypatch, result, ctx, per_km=10):
@@ -200,8 +205,9 @@ class TestAnEmptyTightDiscIsNeverASilentAnswer:
     def test_zero_offers_around_the_postcode_is_an_honest_empty_outcome(self, mapbox, monkeypatch):
         """Same path as a POI with no offer: `search_offers` ran and came back
         empty, the leaf emits `results: []` plus the code-built « no offers »
-        line (`_outcome_text`, response_bridge.py), which the synthesis must
-        report. There is no automatic widening of the ring on an empty answer:
+        line (`_OUTCOME_EMPTY`, response_bridge.py:1456, returned by
+        `_outcome_text` at :1511 and emitted at :1858 and :1926), which the
+        synthesis must report. There is no automatic widening of the ring on an empty answer:
         the ring is chosen BEFORE the call, from the inventory, and widens to
         50 km where the area is sparse (previous test)."""
         ctx = _ctx("un hôtel dans le 75009")
