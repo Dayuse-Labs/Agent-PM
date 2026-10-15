@@ -1010,3 +1010,70 @@ class TestTheCityTheUserWroteWins:
 
         assert core[0]["city"] == ""
         assert _fields(metric()[0])["city_conflicts"] == "0"
+
+
+class TestAPlaceSurvivesAnAddedArticleOrATypo:
+    """Q18 (H3): the model writes « les champs élysées » for « des champs
+    élysées », or the corrected « près des Champs-Élysées » for a typo."""
+
+    @pytest.mark.parametrize(
+        "text, mention, fuzzy",
+        [
+            # The canonical is in the text, whole words: anchored exactly.
+            ("je cherche un hôtel autour des champs élysées", "les champs élysées", "0"),
+            ("hotel pres des champ elysee pour demain", "près des Champs-Élysées", "1"),
+            ("hotel pres des champ elysee pour demain", "Champs-Élysées", "1"),
+        ],
+    )
+    def test_the_place_is_anchored(self, core, metric, text, mention, fuzzy):
+        intent = GeoIntent(
+            places=[Place(mention=mention, kind="landmark", canonical="Champs-Élysées")]
+        )
+
+        geocode_location(intent=intent, tool_context=_ctx(text))
+
+        assert core[0]["zone"] == "Champs-Élysées"
+        fields = _fields(metric()[0])
+        assert fields["mentions_discarded"] == "0"
+        assert fields["mentions_fuzzy"] == fuzzy
+
+    def test_a_mention_absent_from_the_text_is_anchored_by_its_canonical(self, core, metric):
+        intent = GeoIntent(
+            places=[Place(mention="les Champs", kind="landmark", canonical="Champs-Élysées")]
+        )
+
+        geocode_location(intent=intent, tool_context=_ctx("un hôtel vers les champs elysees"))
+
+        assert core[0]["zone"] == "Champs-Élysées"
+        assert _fields(metric()[0])["mentions_discarded"] == "0"
+
+    @pytest.mark.parametrize(
+        "text, mention",
+        [
+            ("un hôtel près de la Gare du Nord demain", "Bruxelles"),
+            ("un hôtel à Londres demain", "London"),
+        ],
+    )
+    def test_a_city_the_user_never_wrote_is_still_discarded(self, core, metric, text, mention):
+        intent = GeoIntent(city=CityRef(mention=mention, canonical=mention))
+
+        geocode_location(intent=intent, tool_context=_ctx(text))
+
+        assert core[0]["city"] == ""
+        fields = _fields(metric()[0])
+        assert fields["mentions_discarded"] == "1"
+        assert fields["mentions_fuzzy"] == "0"
+
+    def test_no_word_of_the_message_is_on_the_line(self, core, metric):
+        intent = GeoIntent(
+            places=[Place(mention="près des Champs-Élysées", kind="landmark", canonical="Champs-Élysées")]
+        )
+
+        geocode_location(
+            intent=intent, tool_context=_ctx("hotel pres des champ elysee pour demain")
+        )
+
+        [line] = metric()
+        assert _fields(line)["mentions_fuzzy"] == "1"
+        for word in ("champ", "elysee", "pres", "demain"):
+            assert word not in line.lower()

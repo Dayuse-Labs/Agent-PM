@@ -32,6 +32,7 @@ values. Tests and `scripts/probe_geo_landmarks.py` call `geocode_core` directly.
 """
 from __future__ import annotations
 
+import difflib
 import logging
 import os
 import re
@@ -1356,6 +1357,31 @@ def _comparable(text: str) -> str:
     return " ".join(spaced.split())
 
 
+# Q18: a claim is anchored by similarity when its comparable text is at least
+# this close (difflib ratio, 0..1) to a window of the input text of the same
+# number of words. Measured: « les champs elysees » / « des champs elysees »
+# 0.94, « pres des champs elysees » / « pres des champ elysee » 0.96,
+# « champs elysees » / « champ elysee » 0.93; refused: « bruxelles » vs the
+# best word of « un hotel pres de la gare du nord demain » < 0.5, « london » /
+# « londres » 0.62, « tour eiffel » vs any 2-word window of « un hotel a paris
+# demain » < 0.4.
+_MENTION_SIMILARITY = 0.85
+
+
+def _similar_in(claim: str, said: str) -> bool:
+    """Whether `claim` is close, character by character, to a window of `said`
+    with the same number of words. No word list, no language rule."""
+    words = said.split()
+    size = len(claim.split())
+    if not claim or size == 0 or len(words) < size:
+        return False
+    return any(
+        difflib.SequenceMatcher(None, claim, " ".join(words[i : i + size])).ratio()
+        >= _MENTION_SIMILARITY
+        for i in range(len(words) - size + 1)
+    )
+
+
 class _Claims:
     """The model's claims about the message, checked by the code — and what
     that check discarded, as counts only (GDPR: never a word of the message).
@@ -1374,6 +1400,7 @@ class _Claims:
         self._said = f" {_comparable(text)} "
         self._typed = f" {_comparable(user_words)} "
         self.mentions_discarded = 0
+        self.mentions_fuzzy = 0
         self.canonicals_rejected = 0
         self.countries_discarded = 0
         self.city_conflicts = 0
@@ -1383,8 +1410,15 @@ class _Claims:
         return bool(claim) and f" {claim} " in self._typed
 
     def anchored(self, ref: Place | CityRef) -> bool:
-        claim = _comparable(ref.mention) or _comparable(ref.canonical)
+        mention, canonical = _comparable(ref.mention), _comparable(ref.canonical)
+        claim = mention or canonical
         if claim and f" {claim} " in self._said:
+            return True
+        if canonical and f" {canonical} " in self._said:
+            return True
+        said = self._said.strip()
+        if any(_similar_in(c, said) for c in (mention, canonical) if c):
+            self.mentions_fuzzy += 1
             return True
         if ref.mention.strip():
             self.mentions_discarded += 1
@@ -1649,12 +1683,13 @@ def geocode_location(
         args["market_country"] = market_country
     _metrics_logger.info(
         "dayuse_metric=geo_intent agent=b2c_hotel_search valid=%d repaired=%d places=%d "
-        "mentions_discarded=%d canonicals_rejected=%d countries_discarded=%d "
+        "mentions_discarded=%d mentions_fuzzy=%d canonicals_rejected=%d countries_discarded=%d "
         "city_conflicts=%d ambiguity=%s carryover=%s",
         int(valid),
         repaired,
         len(geo.places),
         claims.mentions_discarded,
+        claims.mentions_fuzzy,
         claims.canonicals_rejected,
         claims.countries_discarded,
         claims.city_conflicts,
