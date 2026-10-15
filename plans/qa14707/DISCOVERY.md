@@ -154,6 +154,10 @@ Notes on these commands:
 - H3 comparison (Q24): a run with zero hotels now shows as `skipped` on `hotels_within_km`; `min_hotels` scores the empty case. In the stored runs, 100 passes were vacuous. H3' pass rates are computed over runs that returned at least one hotel, and the number of skipped runs is reported beside them (re-scored counts in the Q24 review entries of HANDOFF.md).
 - Dataset (Q24): `evals/datasets/b2c-qa-14707-2026-10-14.jsonl` item 10 (`qa14707-guard-gare-du-nord-asks-city-fr`) no longer has `must_ask_city` or `trace.geocode_city_needed`; it expects min_hotels 1 and hotels_within_km 3 km around the gare du Nord. Anything counting it as a city-question guard must stop; the gare de Lyon item remains the S5 guard.
 - Test helpers (Q17): agents/hotel_search_agent/tests/test_geo_intent_mapping.py has `_run_tool(intent, *texts, profile_in=None)`, which runs the real FunctionTool(geocode_location).run_async with `_ctx`. It also holds the recorded H3 constants VERSAILLES_TEXT/VERSAILLES_INTENT, GARE_DU_NORD_EN_TEXT/GARE_DU_NORD_EN_INTENT and MONACO_DATE_INTENT, copied verbatim from scratchpad/h3/runs.json (traces 1dc8ced4, 79eea597, 492e82e6). Q18 and Q20 can reuse them.
+- On macOS, use `sed -i ''`. A silent sed failure once left a test red and looked like a calendar-rot failure: tests/test_calendar_rot.py replays the whole suite, so any red test also fails it.
+- To prove a test fails on the parent, copy the parent's source file over the module, run the test, then restore the file from a scratchpad copy. No git reset or rebase is needed.
+- When a change alters a rule, grep the docstrings of the neighbouring functions (class, helper, mapper) for the old wording. Four docstrings had gone stale after the Q18 anchoring change.
+- Design (Q18): the similarity check applies only to mentions and canonicals in `_Claims.anchored` (order: exact mention, exact canonical, similarity >= 0.85, counted in `mentions_fuzzy`). `written` (postcode) and `typed` stay exact, as the task requires. The 0.85 threshold would also accept a one-character slip on a short name (« Pari » vs « Paris » scores 0.89). That is intended, and the negative controls clear it with margin (Bruxelles 0.46, London 0.62).
 
 ## Pitfalls and fixes
 
@@ -206,5 +210,7 @@ Notes on these commands:
 - Tooling (Q24): the re-score needs only runs.json (n_hotels plus stored scores). Run it with `python3 -I` from scratchpad/Q24. To compare evaluators across commits, load the old file with `git show <sha>:evals/langfuse_evaluators.py` into the scratchpad and import it with importlib, with PYTHONPATH=evals:. and the repository venv python.
 - The raw recorded intents are in scratchpad/h3/runs.json, not in mapped.json, which holds only the mapped outcome. To find a tool input, search for `"kind": "date"` or the trace_id. The recorded tool inputs also carry top-level `city`/`language_hint` keys, which ADK drops before the tool runs (out of scope).
 - Any repair applied to model output must check the value's type before a hash or set operation. Model JSON can put a list or an object in any field, and an unhashable value in a frozenset membership test raises TypeError instead of failing validation.
+- The agent name `b2c_hotel_search` is on the `geo_intent` metric line, so a GDPR 'no word of the message' test must not use `hotel` as its sentinel word.
+- A test meant to prove the exact-canonical step must assert `mentions_fuzzy == '0'` AND use a mention whose comparable text is not in the text as whole words. Otherwise the exact-mention step anchors it first and the test proves nothing about the canonical step.
 
 ## Context recommendations (end of run)
