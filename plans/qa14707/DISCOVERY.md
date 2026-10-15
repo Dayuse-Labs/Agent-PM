@@ -54,6 +54,7 @@ Notes on these commands:
 - Q08 final commit 9bcd21f: `/Users/fabiendauvergne/Projects/AgentB2C/.venv/bin/pytest -q` gives 2758 passed, 1 skipped (17 s); `pytest -q agents/hotel_search_agent/tests` gives 743 passed. Just before the commits: `ruff check .` passed, `mypy agents libs` no issues in 68 files, `bash scripts/dayuse_guardrails.sh .` OK.
 - Q24: `pytest -q evals/tests` gives 205 passed, 1 skipped. `ruff check .` passes. Earlier: `pytest -q` 2843 passed, 1 skipped; `dayuse_guardrails.sh .` OK; seed dry-run validated 88 items across 7 files.
 - Q17 evidence: before the first fix, the new tests on the parent commit gave 11 failed and 1 passed. On the Versailles case the core spy saw `{'city': '', 'country_code': None, ...}` and zone None, and ADK logged 'Failed to convert argument intent ... city Input should be a valid dictionary or instance of CityRef'. After the second fix, the 2 new non-string-kind cases raise TypeError against the previous source and pass with the fix (65/65 in test_geo_intent_mapping.py).
+- Run a new test against the parent commit (Q19): `git worktree add --detach <scratchpad>/Q19/parent <sha>`, copy the test in, then `PYTHONPATH=<wt>/agents:<wt>/libs/b2c_common <main repo>/.venv/bin/pytest ...`; remove it afterwards with `git worktree remove --force`. A failing assert hides the Mapbox request and the result, so add a throwaway probe test that prints `mapbox.requests` and the result.
 
 ## Quick map
 
@@ -110,6 +111,8 @@ Notes on these commands:
 - Interface (Q14): `geocode_core` has a new keyword `region_chosen: str | None = None`. `geocode_location` adds the key to the core arguments only when it applies, so the existing `core` spy fixtures still see the same key set otherwise. `_Claims(text, user_words='')` now has `.typed(ref)` and the counter `.city_conflicts`.
 - Interface (Q17): `geocode_tool._valid_intent(intent) -> tuple[GeoIntent, bool, int]` returns (intent, raw-validated, repairs used) and never raises. New helper `geocode_tool._repaired(raw: dict) -> tuple[dict, int]` works on a copy. It removes a place only when its `kind` is a str outside `_PLACE_KINDS`. A null or non-string kind (list, dict) is left for validation to reject. `_PLACE_KINDS = frozenset(get_args(PlaceKind))` is read from the schema, so the repair follows when Q23 changes the enum. A test that spies on `_valid_intent` must pass the 3-tuple through.
 - Metric (Q17): the geo_intent line is now `dayuse_metric=geo_intent agent=b2c_hotel_search valid=%d repaired=%d places=%d mentions_discarded=%d canonicals_rejected=%d countries_discarded=%d city_conflicts=%d ambiguity=%s carryover=%s`. `places` counts the places of the intent actually used, after a removal, not the raw count.
+- Fixtures (Q19): the H6 fixture `place_paris_en.json` holds three Paris homonyms (FR, Texas, Tennessee). A test needs an inventory fake that gives only the French Paris hotels; with `_NoInventory` the result is `geocode_ambiguous`, not Paris FR.
+- Fixtures (Q19): fakes built by a lambda on each `get_*_client()` call (Search Box) hide their calls from the test. Keep one instance on the fixture (`mapbox.searchbox`) to assert on it.
 
 ## Observed conventions
 
@@ -158,6 +161,7 @@ Notes on these commands:
 - To prove a test fails on the parent, copy the parent's source file over the module, run the test, then restore the file from a scratchpad copy. No git reset or rebase is needed.
 - When a change alters a rule, grep the docstrings of the neighbouring functions (class, helper, mapper) for the old wording. Four docstrings had gone stale after the Q18 anchoring change.
 - Design (Q18): the similarity check applies only to mentions and canonicals in `_Claims.anchored` (order: exact mention, exact canonical, similarity >= 0.85, counted in `mentions_fuzzy`). `written` (postcode) and `typed` stay exact, as the task requires. The 0.85 threshold would also accept a one-character slip on a short name (« Pari » vs « Paris » scores 0.89). That is intended, and the negative controls clear it with margin (Bruxelles 0.46, London 0.62).
+- Convention (Q19): the country key of the `geocode_location` result is `country_code`, not `resolved_country_code`; the latter is only the eval trace key.
 
 ## Pitfalls and fixes
 
@@ -212,5 +216,7 @@ Notes on these commands:
 - Any repair applied to model output must check the value's type before a hash or set operation. Model JSON can put a list or an object in any field, and an unhashable value in a frozenset membership test raises TypeError instead of failing validation.
 - The agent name `b2c_hotel_search` is on the `geo_intent` metric line, so a GDPR 'no word of the message' test must not use `hotel` as its sentinel word.
 - A test meant to prove the exact-canonical step must assert `mentions_fuzzy == '0'` AND use a mention whose comparable text is not in the text as whole words. Otherwise the exact-mention step anchors it first and the test proves nothing about the canonical step.
+- On macOS, `sed -i` needs `-i ''`.
+- Passing the progress `--json` argument: write the JSON with plain ASCII quotes and no apostrophes or backticks; the harness escapes break zsh quoting.
 
 ## Context recommendations (end of run)

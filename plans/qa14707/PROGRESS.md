@@ -15,7 +15,7 @@
 | Q16 | The market's country reaches the leaf's postcode tie-break                               | 3     | 3D    | Q14        | opus   | merged | 1        | task/Q16 | 2.0M / see /workflows |
 | Q17 | A malformed GeoIntent field no longer voids the whole intent                             | 3     | 3E    | Q16        | opus   | merged | 2        | task/Q17 | 1.6M / see /workflows |
 | Q18 | A place survives an added article or a corrected typo in its mention                     | 3     | 3F    | Q17        | sonnet | merged | 3        | task/Q18 | 1.2M / see /workflows |
-| Q19 | A carried country is a hard filter only for the city it was carried with                 | 3     | 3G    | Q18        | sonnet | todo   | 0        | —        | 1.2M / —              |
+| Q19 | A carried country is a hard filter only for the city it was carried with                 | 3     | 3G    | Q18        | sonnet | merged | 2        | task/Q19 | 1.2M / see /workflows |
 | Q20 | A street or an address without a postcode is resolved by the address lookup              | 3     | 3H    | Q19        | opus   | todo   | 0        | —        | 2.6M / —              |
 | Q21 | A homonym option picked by the user is resolved without the reply's state in the query   | 3     | 3I    | Q20        | opus   | todo   | 0        | —        | 1.6M / —              |
 | Q22 | A named hotel not found in a named city falls back to that city's search in code         | 3     | 3J    | Q21        | opus   | todo   | 0        | —        | 1.6M / —              |
