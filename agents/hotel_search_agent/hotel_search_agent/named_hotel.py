@@ -15,35 +15,52 @@ What code does around the call:
   callbacks as a search the model makes. The named hotel is the first card when
   it has offers that day, its nearest neighbours follow; when it has none, the
   concierge says so (`named_hotel.offered`). Several matches → their names and
-  cities are kept, and the concierge asks which one.
+  cities are kept, and the concierge asks which one. No hotel by that name,
+  even without the city hint, while the model named a city → that city is
+  geocoded (`geocode_core`, its echo guard decides whether it is a place) and
+  searched on the asked day, through the same callbacks: the concierge says
+  the hotel was not found and shows the city's hotels (QA14707 Q22, DQ10).
 
 One extra MCP call on a found-hotel turn, no extra LLM call: the leaf's final
-generation is skipped as on any search turn.
+generation is skipped as on any search turn. A not-found turn in a named city
+makes one LLM call where it used to take three (find, geocode, search).
 """
 from __future__ import annotations
 
+import asyncio
 import copy
 import inspect
 import logging
 import re
 import time
 import unicodedata
+from types import SimpleNamespace
 from typing import Any, Callable
 
 from hotel_search_agent.datetime_resolver import _DATE_LABEL_PROPERTY
+from hotel_search_agent.geocode_tool import geocode_core
 from hotel_search_agent.response_bridge import (
     _STATE_ANCHOR_KEY as STATE_ANCHOR_KEY,
     _STATE_RESULTS_KEY as STATE_RESULTS_KEY,
     STATE_NAMED_AMBIGUOUS_KEY,
     STATE_NAMED_HOTEL_KEY,
+    capture_after_tool,
+    read_profile_in,
     read_structured_payload,
+    read_user_words,
 )
 
 _metrics_logger = logging.getLogger("dayuse.metrics")
 
 TOOL_NAME = "find_hotel_by_name"
 _STATE_DATE_LABEL_KEY = "temp:hotel_search_named_date_label"
+# The city as the model wrote it (« Lyon », « New York »): `cityName` itself
+# leaves as a slug, which is no input for the geocoder.
+_STATE_CITY_LABEL_KEY = "temp:hotel_search_named_city_label"
 _MAX_CANDIDATES = 5
+# What `capture_after_tool` keys a geocode on: the fallback's geocode is
+# stashed exactly like one the model makes.
+_GEOCODE_TOOL = SimpleNamespace(name="geocode_location")
 
 _toolset: Any = None
 _search_before: list[Callable[..., Any]] = []
@@ -104,6 +121,9 @@ def prepare_named_hotel_lookup(
         args["cityName"] = slug
     else:
         args.pop("cityName", None)
+    # `None`, not a delete: ADK's `State` has no `pop`. A later lookup without
+    # a city must not inherit an earlier one's.
+    tool_context.state[_STATE_CITY_LABEL_KEY] = city.strip() if slug and isinstance(city, str) else None
     ambiguous = tool_context.state.get(STATE_NAMED_AMBIGUOUS_KEY)
     if isinstance(ambiguous, dict) and slug == ambiguous.get("city_slug", ""):
         return {
@@ -159,6 +179,70 @@ async def _run_callbacks(callbacks: list[Callable[..., Any]], *args: Any) -> Any
     return None
 
 
+async def _dated_search(
+    tool_context: Any, lat: float, lon: float, *, anchor: dict[str, Any] | None = None
+) -> str:
+    """The bound `search_offers` around (lat, lon) on the turn's `date` label,
+    through the same before/after callbacks as a search the model makes; its
+    `capture_after_tool` stashes the cards the DataPart reads. `anchor` (label
+    and type) becomes the cards' distance origin. Returns the metric status."""
+    search = await _search_tool()
+    if search is None:
+        return "unbound"
+    if anchor is not None:
+        tool_context.state[STATE_ANCHOR_KEY] = {"latitude": lat, "longitude": lon, **anchor}
+    search_args: dict[str, Any] = {"lat": lat, "lon": lon}
+    label = tool_context.state.get(_STATE_DATE_LABEL_KEY)
+    if isinstance(label, dict):
+        search_args["date"] = label
+    if await _run_callbacks(_search_before, search, search_args, tool_context) is not None:
+        return "blocked"
+    response = await search.run_async(args=search_args, tool_context=tool_context)
+    await _run_callbacks(_search_after, search, search_args, tool_context, response)
+    return "ok"
+
+
+async def _search_the_city(tool_context: Any, city: str) -> None:
+    """No hotel by that name, with or without the city hint (QA14707 Q22,
+    DQ10): the city the model named is searched, in code. H3 measured the
+    model calling no tool after `HotelNotFoundError` (0/3), where `main`
+    geocoded the city and searched it.
+
+    The city is the model's wording, already used for the lookup; the
+    geocoder and its echo guard decide whether it is a place. No device fix
+    and no guessed coordinate: a city that does not geocode searches nothing,
+    and the concierge's not-found reply stands. The geocode is stashed like one
+    the model makes (`capture_after_tool`: distance origin, profile delta), so
+    the concierge says the hotel was not found and shows that city's hotels."""
+    started = time.monotonic()
+    status = "error"
+    try:
+        profile_in = read_profile_in(tool_context)
+        # The same profile signals `inject_profile_geo_context` gives the
+        # tool, the GPS bias excepted.
+        geo = await asyncio.to_thread(
+            geocode_core,
+            city=city,
+            raw_user_message=read_user_words(tool_context),
+            profile_state_context=profile_in.get("state_anchor"),
+            profile_location_hint=profile_in.get("city"),
+            locale=profile_in.get("locale"),
+            language_hint=profile_in.get("language"),
+        )
+        if not geo.get("ok"):
+            status = "no_place"
+            return
+        capture_after_tool(_GEOCODE_TOOL, {"city": city}, tool_context, geo)
+        status = await _dated_search(tool_context, float(geo["latitude"]), float(geo["longitude"]))
+    except Exception:  # noqa: BLE001 — the fallback never breaks the turn
+        status = "error"
+    finally:
+        _metrics_logger.info(
+            "dayuse_metric=named_hotel_city_search agent=b2c_hotel_search status=%s ms=%d",
+            status, int((time.monotonic() - started) * 1000),
+        )
+
+
 async def follow_named_hotel(
     tool: Any, args: dict[str, Any], tool_context: Any, tool_response: Any
 ) -> None:
@@ -188,6 +272,10 @@ async def follow_named_hotel(
                     "candidates": candidates,
                     "city_slug": args.get("cityName") or "",
                 }
+            return None
+        city = tool_context.state.get(_STATE_CITY_LABEL_KEY)
+        if _not_found(tool_response) and isinstance(city, str) and city:
+            await _search_the_city(tool_context, city)
         return None
     structured = read_structured_payload(tool_response) or {}
     hotel = structured.get("hotel")
@@ -198,34 +286,23 @@ async def follow_named_hotel(
         return None  # an MCP without hotel coordinates: the identity card stays as before
 
     started = time.monotonic()
-    status = "ok"
+    status = "error"
     try:
-        search = await _search_tool()
-        if search is None:
-            return None
-        tool_context.state[STATE_ANCHOR_KEY] = {
-            "latitude": float(lat),
-            "longitude": float(lon),
-            "label": hotel.get("name"),
-            "type": "poi",
-        }
-        search_args: dict[str, Any] = {"lat": float(lat), "lon": float(lon)}
-        label = tool_context.state.get(_STATE_DATE_LABEL_KEY)
-        if isinstance(label, dict):
-            search_args["date"] = label
-        if await _run_callbacks(_search_before, search, search_args, tool_context) is not None:
-            status = "blocked"
-            return None
-        response = await search.run_async(args=search_args, tool_context=tool_context)
-        await _run_callbacks(_search_after, search, search_args, tool_context, response)
+        status = await _dated_search(
+            tool_context,
+            float(lat),
+            float(lon),
+            anchor={"label": hotel.get("name"), "type": "poi"},
+        )
     except Exception:  # noqa: BLE001 — the follow-up never breaks the turn
-        status = "error"
         return None
     finally:
         _metrics_logger.info(
             "dayuse_metric=named_hotel_search agent=b2c_hotel_search status=%s ms=%d",
             status, int((time.monotonic() - started) * 1000),
         )
+    if status != "ok":
+        return None
 
     results = tool_context.state.get(STATE_RESULTS_KEY)
     if not isinstance(results, list):
