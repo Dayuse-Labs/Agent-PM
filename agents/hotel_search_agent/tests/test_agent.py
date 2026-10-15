@@ -265,6 +265,18 @@ class TestGeoIntentInstruction:
         s5 = flat.index("NAMED AFTER A CITY IT IS NOT IN")
         assert '`ambiguity.reason` to "city_needed" and give no city' in flat[s5:s5 + 400]
 
+    def test_a_written_postcode_goes_in_the_places_postal_code(self):
+        # Q23: also when the postcode alone is the place (« dans le 75009 »),
+        # which the Q08 postcode path resolves. The S5 bullet and the Gare du
+        # Nord example stay as they were.
+        from hotel_search_agent.agent import INSTRUCTION
+
+        flat = " ".join(INSTRUCTION.split())
+        assert "A postcode the user writes goes in that place's `postal_code`" in flat
+        assert 'also when the postcode alone is the place ("dans le 75009"' in flat
+        assert '("Gare du Nord": Paris, Brussels) and the user names none' in flat
+        assert "A place NAMED AFTER A CITY IT IS NOT IN" in flat
+
     def test_the_tool_takes_an_intent_not_free_strings(self):
         from hotel_search_agent.agent import INSTRUCTION
 
