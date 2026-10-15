@@ -25,6 +25,7 @@ verification:
   - "/Users/fabiendauvergne/Projects/AgentB2C/.venv/bin/pytest -q tests/test_leaf_concierge_seam.py"
   - "/Users/fabiendauvergne/Projects/AgentB2C/.venv/bin/pytest -q agents/hotel_search_agent/tests/test_homonym_option_region.py"
   - "/Users/fabiendauvergne/Projects/AgentB2C/.venv/bin/pytest -q agents/hotel_search_agent/tests/test_street_without_postcode.py"
+  - "/Users/fabiendauvergne/Projects/AgentB2C/.venv/bin/pytest -q agents/hotel_search_agent/tests/test_picked_option_query.py"
 definition_of_done:
   - "`git grep -n -e _CITY_AFTER_PREPOSITION_RE -e _city_named_in_message -e _complete_pending_place -- agents libs` returns nothing, and `_ARTICLES` is gone from `geocode_tool.py` (diff)."
   - "The leaf no longer writes `pending_place`: neither `geocode_tool.py` nor `response_bridge.py` (diff)."
@@ -36,6 +37,7 @@ definition_of_done:
   - "`_fill_place_from_profile` still turns `profile_in.region_anchor` into `region_chosen` while the turn's city equals the carried city. `agents/hotel_search_agent/tests/test_homonym_option_region.py` (Q14) passes without change to its assertions."
   - "The `city_conflicts` tests of `agents/hotel_search_agent/tests/test_geo_intent_mapping.py` (Q14) pass without change to their assertions, and the `dayuse_metric=geo_intent` line still carries no message text."
   - "The Q20 tests of `agents/hotel_search_agent/tests/test_street_without_postcode.py` pass without change to their assertions after `_city_named_in_message` is removed. A case whose city came only from that function gets it from a GeoIntent city instead (`city.mention`/`canonical` or a city place), and the report lists every such case."
+  - "The Q21 tests of `agents/hotel_search_agent/tests/test_picked_option_query.py` pass without change to their assertions after the removals."
 ---
 
 ## Launch prompt

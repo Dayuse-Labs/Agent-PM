@@ -23,6 +23,7 @@ verification:
   - "/Users/fabiendauvergne/Projects/AgentB2C/.venv/bin/mypy agents libs"
   - "bash scripts/dayuse_guardrails.sh ."
   - "/Users/fabiendauvergne/Projects/AgentB2C/.venv/bin/pytest -q agents/hotel_search_agent/tests/test_postcode_resolution.py"
+  - "/Users/fabiendauvergne/Projects/AgentB2C/.venv/bin/pytest -q agents/hotel_search_agent/tests/test_picked_option_query.py"
 definition_of_done:
   - "`git grep -n select_us_postal_anchor -- agents libs` returns nothing, and the `US` forcing has disappeared from `geocode_tool.py` (diff)."
   - "Test: \"2 boulevard Poissonnière 75009 Paris\" and \"hotel 13001 marseille\", with no country named, stay in France."
@@ -36,6 +37,7 @@ definition_of_done:
   - "Test (H5 fixture `address_poissonniere_75009` or its recorded name): an address candidate with `match_code.confidence == \"low\"` is refused, and the turn falls back to the postcode lookup."
   - "The `city_conflicts` tests of `agents/hotel_search_agent/tests/test_geo_intent_mapping.py` (Q14) pass without change to their assertions, and the `dayuse_metric=geo_intent` line still carries no message text."
   - "The Q16 market tests in `agents/hotel_search_agent/tests/test_postcode_resolution.py` pass without change to their assertions: the market is read from `profile_in.entry_market_country` inside `geocode_location`, a malformed value is ignored, and the real tool's declaration has no market-country property."
+  - "The Q21 tests of `agents/hotel_search_agent/tests/test_picked_option_query.py` pass without change to their assertions after `select_us_postal_anchor` is removed."
 ---
 
 ## Launch prompt
