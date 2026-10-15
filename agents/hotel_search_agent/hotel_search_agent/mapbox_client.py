@@ -73,7 +73,11 @@ class GeocodeCandidate:
     `postcode` and `place` are the names of the candidate's `context.postcode`
     and `context.place` ("75009", "Paris"), empty when Mapbox gives none.
     `match_confidence` is `match_code.confidence` ("exact", "high", "medium",
-    "low"), which v6 sends for an address only: empty for anything else."""
+    "low"), which v6 sends for an address only: empty for anything else.
+    `match_place` and `match_postcode` are `match_code.place` and
+    `match_code.postcode` ("matched", "unmatched", ...): whether the query's own
+    text carried the candidate's city or postcode. Address only, like the
+    confidence (QA14707 Q20)."""
 
     latitude: float
     longitude: float
@@ -88,6 +92,8 @@ class GeocodeCandidate:
     postcode: str = ""
     place: str = ""
     match_confidence: str = ""
+    match_place: str = ""
+    match_postcode: str = ""
 
     def as_result(self) -> GeocodeResult:
         return GeocodeResult(
@@ -288,6 +294,8 @@ class MapboxClient:
                     postcode=str((context.get("postcode") or {}).get("name") or ""),
                     place=str((context.get("place") or {}).get("name") or ""),
                     match_confidence=str(match_code.get("confidence") or ""),
+                    match_place=str(match_code.get("place") or ""),
+                    match_postcode=str(match_code.get("postcode") or ""),
                 )
             )
         return out

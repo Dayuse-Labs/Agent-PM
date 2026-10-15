@@ -208,6 +208,33 @@ def _with_postcode(zone: str, postal_code: str) -> str:
     return f"{zone} {postal_code}"
 
 
+def _street_match(
+    candidates: list[GeocodeCandidate], zone: str, *, city: str | None
+) -> GeocodeCandidate | None:
+    """The street or address a zone with no postcode designates, or None
+    (QA14707 Q20). Mapbox's first candidate that passes, in its own order.
+
+    With a city, the candidate must lie in it: its `context.place` equals the
+    city. A street carries no `match_code`, so that equality is its only test.
+    With no city, the zone's own text must have carried the place or the
+    postcode (`match_code.place` or `.postcode` is "matched": « 2 Boulevard
+    Poissonnière, 75009 Paris »), which no street can show, so a bare street
+    name is never taken in some other country. Either way a "low" match
+    (Mapbox matched the city, not the street) is refused, and the name must
+    echo the zone, as on every other path. Structured fields only."""
+    for c in candidates:
+        if c.match_confidence == "low":
+            continue
+        if city:
+            if _comparable(c.place) != _comparable(city):
+                continue
+        elif "matched" not in (c.match_place, c.match_postcode):
+            continue
+        if _echoes(c.place_name, city=None, zone=zone, state_hint=None):
+            return c
+    return None
+
+
 def _echoes(place_name: str, *, city: str | None, zone: str | None, state_hint: str | None) -> bool:
     return geocode_echo_matches(place_name, city=city, zone=zone, state_hint=state_hint)
 
@@ -644,7 +671,10 @@ def geocode_core(
             postcode is enough to never ask which city. While a postcode is in
             play, the US-ZIP anchor below stays out of the way.
         zone_kind: The `GeoIntent` kind of the place `zone` came from
-            ("address", "street", "station", ...), or None.
+            ("address", "street", "station", ...), or None. An address or a
+            street with no postcode is first looked up as one, in the city when
+            there is one (QA14707 Q20, `_street_match`); with nothing designated,
+            the zone is searched as any other.
         region_chosen: The region of the homonym option the user picked by
             its number (QA14707 Q14, `profile_in.region_anchor`, filled by
             `_fill_place_from_profile`). It narrows the candidates Mapbox
@@ -799,6 +829,44 @@ def geocode_core(
         effective_city = _city_named_in_message(
             raw_user_message, lang, guess_iso or _locale_country(locale)
         )
+
+    # QA14707 (Q20, H3 RC5): a street or an address with no postcode. The
+    # lookup below never returns a street (`CANDIDATE_TYPES`), so « Boulevard
+    # de la République, Versailles » resolved to Leipzig, and « 2 Boulevard
+    # Poissonnière, Paris » to a Paris homonym question. The address lookup the
+    # postcode branch uses comes first; when it designates nothing
+    # (`_street_match`), the turn goes on exactly as before. Only a NAMED
+    # country filters it (DQ8).
+    if zone_is_specific and zone_kind in ("address", "street") and not postal:
+        street = _street_match(
+            get_mapbox_client().geocode_candidates(
+                ", ".join(part for part in (effective_zone, effective_city) if part),
+                country=country_code,
+                language=lang,
+                proximity=proximity_str,
+                types=ADDRESS_TYPES,
+            ),
+            effective_zone or "",
+            city=effective_city,
+        )
+        if street is not None:
+            return _ok(
+                street.as_result(),
+                feature_type=street.feature_type,
+                profile_delta=_anchor_state(
+                    city=street.place or effective_city,
+                    raw_user_message=raw_user_message,
+                    profile_state_context=profile_state_context,
+                    profile_location_hint=profile_location_hint,
+                    guards_fired=guards_fired,
+                ),
+                distance_origin_type="poi",
+                # Mapbox's name of the street or address, as the postcode
+                # branch persists it.
+                zone=street.name or effective_zone,
+                metro=effective_metro,
+                guards_fired=guards_fired,
+            )
 
     if not effective_city and not effective_metro:
         # Pure "near me" (S-G10, D1 follow-up): no geocodable destination
