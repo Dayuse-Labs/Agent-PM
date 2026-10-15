@@ -171,6 +171,10 @@ Notes on these commands:
 - The geocode profile_delta for a city is typed: `{'city': {'op': 'set', 'value': 'Lyon'}}`, not a flat string.
 - `named_hotel._dated_search(tool_context, lat, lon, anchor=None) -> status` is the single bound-search path, shared by the found-hotel follow-up and the not-found city fallback.
 - To add `required` to a pydantic schema without making fields required in pydantic, use `ConfigDict(json_schema_extra={"required": [...]})`. ADK 2.4, on its JSON_SCHEMA_FOR_FUNC_DECL path, and then `_function_declaration_to_tool_param` keep it unchanged in `$defs.Place`. The pydantic field declaration order sets the order of `properties` the model reads.
+- Negative control without stash or reset for a wording change: copy the two edited sources to <scratchpad>, run `git show HEAD:<file> > <file>` for each, run the test, then cp the new copies back.
+- Q25: the diff of contracts/geo_intent.schema.json touches only the Place.city description. Q13's frozen-contract check should expect exactly that.
+- Q25: test_gare_du_nord_city_from_model.py proves only what the model reads. The city_needed fallback for a city-less landmark is tested in test_geo_intent_mapping.py (around lines 222 and 239) and test_geo_intent_field_order.py (around line 253).
+- H3' checklist for Q12 and Q13: check that a bare « Gare du Nord » (eval items qa14707-guard-gare-du-nord-asks-city-fr and geo-poi-gare-du-nord) searches near Gare du Nord in Paris 3/3, and that qa14707-guard-gare-de-lyon-asks-city-fr still asks 3/3. If the model still writes city null for the bare « Gare du Nord » on gpt-6-luna, the bare-landmark branch asks the city question (the safe fallback, unchanged). That is a model behaviour, not a code regression.
 
 ## Pitfalls and fixes
 
