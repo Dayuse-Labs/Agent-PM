@@ -48,6 +48,10 @@ Entries: `deviation`, `blind-spot`, `decision`, `debt`, `needs-human`, `ticket`,
 - decision · minor · H6. The H3 diagnosis agent recorded nine real Mapbox v6 responses for Q19-Q21; accepted as DQ9-compliant (real, never synthetic). (settled by the user, 2026-10-15)
 - decision · major · Q17-Q24 come from the H3 diagnosis (2026-10-15): RC2 mention check too strict (Q18), RC3 one bad field voids the intent (Q17), RC4 carried country stays a hard filter on a city switch (Q19), RC5 street without postcode never reaches the address lookup (Q20), RC6 picked option re-queried with the reply's state (Q21), not-found hotel fallback (Q22), schema field order for gpt-6-luna (Q23), `hotels_within_km` vacuous on 0 hotels (Q24). Added by the pilot after the user's rulings. (settled by the user, 2026-10-15)
 
+- decision · major · H3 re-run on gpt-6-luna (2026-10-15) passed; Fabien ruled it done with one exception: `qa14707-postcode-only-fr` 2/3, only on the 3 km radius, the postcode being geocoded correctly 3/3. Added task Q26 (a bare postcode is searched around its centroid) before the PR. Evidence in PREREQUISITES H3. (settled by the user, 2026-10-15)
+- decision · major · DQ13. Phases 1-3 (with Q26) ship in a first PR of `plan/qa14707` to `main`, before phase 4: Raphael's fixes are validated by H3 on gpt-6-luna. Phase 4 (Q09-Q11, removing the old regex fallbacks) and phase 5 (docs, global review) follow in a second PR. (settled by the user, 2026-10-15)
+- ticket · minor · `geo-poi-gare-de-lyon` (evals/datasets/b2c-geo-poi.jsonl) expects a search in Paris, which contradicts the S5 guard `qa14707-guard-gare-de-lyon-asks-city-fr` (DQ6). It fails on both builds (H1 and H3 on gpt-6-luna). Align the geo-poi item on S5 after the PR.
+
 ## Q01
 
 - deviation · minor · Q01: `evals/tests/test_langfuse_experiment.py` did not exist and was created, as listed in owned_files. The existing `test_langfuse_experiment_gate.py` is untouched. The private helper `_last_user_message` became `_user_turns`, and nothing else imported it. All of this stays inside owned files and changes no contract.
