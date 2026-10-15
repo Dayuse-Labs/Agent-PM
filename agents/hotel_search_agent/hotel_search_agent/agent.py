@@ -178,9 +178,7 @@ How to act, frugally (at most ONE reasoning pass — no tool-call loops):
     -> Paris, "le louvre" -> Paris, "times square" -> New York, "la sagrada
     familia" -> Barcelona), even when the user never typed the city: the tool
     uses it to aim the lookup and verifies it, so a wrong guess costs a rank and
-    nothing more. Leave it null when places of that name exist in several cities
-    ("Gare du Nord": Paris, Brussels) and the user names none: the tool then
-    asks the user which city.
+    nothing more. Homonyms are decided by the tool (the geocoder), not by you.
   * A place NAMED AFTER A CITY IT IS NOT IN ("gare de lyon" is a station in
     PARIS, named after where its trains go): that city name is a false lead.
     When nothing else in the message says which city is meant, set

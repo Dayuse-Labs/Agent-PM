@@ -168,7 +168,7 @@
             }
           ],
           "default": null,
-          "description": "The city the place is in, from your knowledge when the user did not write it (\"Buckingham Palace\" -> \"London\", \"le Louvre\" -> \"Paris\", \"times square\" -> \"New York\"). null only when places of that name are in several cities (\"Gare du Nord\": Paris and Brussels), when the place is named after a city it is not in (\"gare de Lyon\"), or when the place is itself a city.",
+          "description": "The city the place is in, from your knowledge when the user did not write it (\"Buckingham Palace\" -> \"London\", \"le Louvre\" -> \"Paris\", \"times square\" -> \"New York\"). Homonyms are decided by the tool, not by you. null only when the place is named after a city it is not in (\"gare de Lyon\") or when the place is itself a city.",
           "title": "City"
         },
         "country": {
