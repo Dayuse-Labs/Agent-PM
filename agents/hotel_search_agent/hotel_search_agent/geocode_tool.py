@@ -1386,11 +1386,15 @@ class _Claims:
     """The model's claims about the message, checked by the code — and what
     that check discarded, as counts only (GDPR: never a word of the message).
 
-    A `mention` is the model's claim of what the user wrote. It is kept only
-    when it is in the leaf's real input text (`read_input_text`, the
-    concierge's EARLIER REQUEST prefix included), whole words, case, accents
-    and punctuation aside. That checks a claim; it does not understand the
-    language. With no mention, the canonical name is what is claimed.
+    A `mention` is the model's claim of what the user wrote. `anchored` keeps
+    a place or a city, in this order, when (1) its mention (the canonical name
+    when there is no mention) is in the leaf's real input text
+    (`read_input_text`, the concierge's EARLIER REQUEST prefix included),
+    whole words, case, accents and punctuation aside; else (2) its canonical
+    name is in the text the same way; else (3) its mention or canonical is
+    similar above `_MENTION_SIMILARITY` to a window of the text's words (an
+    added article, a corrected typo), counted in `mentions_fuzzy`. Otherwise
+    it is dropped. That checks a claim; it does not understand the language.
 
     `user_words` is the user's own words of this turn (`read_user_words`, the
     last text part, without the concierge's prefix): `typed` tells a place
@@ -1426,7 +1430,8 @@ class _Claims:
 
     def written(self, value: str | None) -> str | None:
         """A value the model reports as written (a postcode), kept only when it
-        is in the input text, whole words — the same check as a mention."""
+        is in the input text, whole words. It stays exact: no canonical step and
+        no similarity step, unlike `anchored`."""
         text = (value or "").strip()
         claim = _comparable(text)
         if claim and f" {claim} " in self._said:
@@ -1454,7 +1459,8 @@ def _repaired(raw: dict) -> tuple[dict, int]:
 
     - a bare-string intent-level `city` (the model mixes it up with
       `Place.city`) becomes a `CityRef` with that canonical and no mention, so
-      `_Claims.anchored` still keeps it only when it is in the text;
+      `_Claims.anchored` still keeps it only when that canonical is in the
+      text word for word or similar to a window of it;
     - a place whose `kind` is a string outside `PlaceKind` (« date ») is
       removed alone.
 
@@ -1553,7 +1559,9 @@ def _place_args(
       against the message → `postal_code`, with the zone place's kind as
       `zone_kind`: `geocode_core` resolves it under DQ8's country rule.
 
-    A place or a city whose mention is not in the message is dropped first.
+    A place or a city that `_Claims.anchored` does not keep (neither its
+    mention nor its canonical in the message, nor similar to a part of it) is
+    dropped first.
     A hotel is never a zone (it has its own path, `find_hotel_by_name`).
     `relation`, `carryover` and `exclusions` are read, not applied (S-L5)."""
     places = [p for p in geo.places if claims.anchored(p)]
