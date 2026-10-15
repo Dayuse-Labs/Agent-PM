@@ -1421,10 +1421,12 @@ def _repaired(raw: dict) -> tuple[dict, int]:
     - a bare-string intent-level `city` (the model mixes it up with
       `Place.city`) becomes a `CityRef` with that canonical and no mention, so
       `_Claims.anchored` still keeps it only when it is in the text;
-    - a place whose `kind` is outside `PlaceKind` (« date ») is removed alone.
+    - a place whose `kind` is a string outside `PlaceKind` (« date ») is
+      removed alone.
 
-    Nothing else is touched: any other slip still fails validation. The
-    caller's dict is never modified."""
+    Nothing else is touched: any other slip — a `kind` that is not a string
+    (a list, an object) included — still fails validation. The caller's dict
+    is never modified."""
     fixed = dict(raw)
     repairs = 0
     if isinstance(fixed.get("city"), str):
@@ -1434,7 +1436,7 @@ def _repaired(raw: dict) -> tuple[dict, int]:
     if isinstance(places, list):
         kept = [
             p for p in places
-            if not (isinstance(p, dict) and p.get("kind") is not None and p.get("kind") not in _PLACE_KINDS)
+            if not (isinstance(p, dict) and isinstance(p.get("kind"), str) and p["kind"] not in _PLACE_KINDS)
         ]
         repairs += len(places) - len(kept)
         fixed["places"] = kept

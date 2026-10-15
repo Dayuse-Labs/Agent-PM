@@ -742,6 +742,11 @@ class TestAMalformedFieldIsRepaired:
             # A repaired kind, but still three places.
             {"places": [{"mention": "a"}, {"mention": "b"}, {"mention": "c"},
                         {"mention": "demain", "kind": "date"}]},
+            # A kind that is not a string (unhashable): never removed, never
+            # raises, fails validation as before — even next to a repairable city.
+            {"places": [{"mention": "Gare du nord", "kind": ["station"]}]},
+            {"places": [{"mention": "Gare du nord", "kind": {"type": "station"}}],
+             "city": "Paris"},
         ],
     )
     def test_anything_else_stays_all_or_nothing(self, core, metric, raw):
