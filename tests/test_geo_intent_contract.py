@@ -184,7 +184,8 @@ class TestLiteLlmToolSchema:
         assert "gare de Lyon" in reason
         city = defs["Place"]["properties"]["city"]["description"]
         assert city == Place.model_fields["city"].description
-        assert "Gare du Nord" in city
+        assert "Gare du Nord" not in city  # Q25 (DQ12): a bare one searches Paris
+        assert "gare de Lyon" in city
         assert defs["GeoIntent"]["description"] == GeoIntent.__doc__
 
 
