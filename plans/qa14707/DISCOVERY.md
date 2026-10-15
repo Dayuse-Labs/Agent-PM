@@ -55,6 +55,7 @@ Notes on these commands:
 - Q24: `pytest -q evals/tests` gives 205 passed, 1 skipped. `ruff check .` passes. Earlier: `pytest -q` 2843 passed, 1 skipped; `dayuse_guardrails.sh .` OK; seed dry-run validated 88 items across 7 files.
 - Q17 evidence: before the first fix, the new tests on the parent commit gave 11 failed and 1 passed. On the Versailles case the core spy saw `{'city': '', 'country_code': None, ...}` and zone None, and ADK logged 'Failed to convert argument intent ... city Input should be a valid dictionary or instance of CityRef'. After the second fix, the 2 new non-string-kind cases raise TypeError against the previous source and pass with the fix (65/65 in test_geo_intent_mapping.py).
 - Run a new test against the parent commit (Q19): `git worktree add --detach <scratchpad>/Q19/parent <sha>`, copy the test in, then `PYTHONPATH=<wt>/agents:<wt>/libs/b2c_common <main repo>/.venv/bin/pytest ...`; remove it afterwards with `git worktree remove --force`. A failing assert hides the Mapbox request and the result, so add a throwaway probe test that prints `mapbox.requests` and the result.
+- Negative control (Q20), parent run recipe: back up the new sources to the scratchpad, `git show plan/qa14707:<file> > <file>` for geocode_tool.py and mapbox_client.py, then run a scratch copy of the test with the new-only import removed and FIXTURES pointing at the repo, via `pytest -c pytest.ini --rootdir=. <copy>`. Then copy the sources back and check `git diff --stat`.
 
 ## Quick map
 
@@ -113,6 +114,8 @@ Notes on these commands:
 - Metric (Q17): the geo_intent line is now `dayuse_metric=geo_intent agent=b2c_hotel_search valid=%d repaired=%d places=%d mentions_discarded=%d canonicals_rejected=%d countries_discarded=%d city_conflicts=%d ambiguity=%s carryover=%s`. `places` counts the places of the intent actually used, after a removal, not the raw count.
 - Fixtures (Q19): the H6 fixture `place_paris_en.json` holds three Paris homonyms (FR, Texas, Tennessee). A test needs an inventory fake that gives only the French Paris hotels; with `_NoInventory` the result is `geocode_ambiguous`, not Paris FR.
 - Fixtures (Q19): fakes built by a lambda on each `get_*_client()` call (Search Box) hide their calls from the test. Keep one instance on the fixture (`mapbox.searchbox`) to assert on it.
+- Test helper (Q20): `agents/hotel_search_agent/tests/test_street_without_postcode.py` has `_RecordedMapbox(drop_first)`, keyed by (q.casefold(), types), for the 5 H6 recordings: street Versailles, street no city, generic Versailles candidates, Poissonnière Paris without postcode, Poissonnière with the postcode in the zone. It also has `_install(monkeypatch, drop_first, inventory)`, which keeps a single `_SearchBox` instance as `.searchbox`, and `_LeipzigInventory`. `_today(...)` replays the same call with zone_kind=None, the path that existed before Q20, so a test can assert that 'nothing designated changes nothing'.
+- Interface (Q20): `GeocodeCandidate` gained `match_place` and `match_postcode` (`match_code.place` / `.postcode`, values like 'matched' / 'unmatched' / 'inferred'), empty for anything but an address. Streets carry no match_code. New helper: `geocode_tool._street_match(candidates, zone, *, city) -> GeocodeCandidate | None`.
 
 ## Observed conventions
 
@@ -218,5 +221,6 @@ Notes on these commands:
 - A test meant to prove the exact-canonical step must assert `mentions_fuzzy == '0'` AND use a mention whose comparable text is not in the text as whole words. Otherwise the exact-mention step anchors it first and the test proves nothing about the canonical step.
 - On macOS, `sed -i` needs `-i ''`.
 - Passing the progress `--json` argument: write the JSON with plain ASCII quotes and no apostrophes or backticks; the harness escapes break zsh quoting.
+- The synthetic `_V6` fake in test_geo_intent_mapping.py ignores `types`, and `_c()` candidates had an empty `context.place`. Any test where a `street`/`address` zone has no postcode now sees an extra v6 call with the same query string, unless the fake candidate carries `place=` (the new `_c` kwarg).
 
 ## Context recommendations (end of run)
