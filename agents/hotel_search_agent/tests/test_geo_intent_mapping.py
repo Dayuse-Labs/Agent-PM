@@ -567,6 +567,195 @@ class TestAnInvalidIntentDegrades:
         assert _fields(metric()[0])["valid"] == "0"
 
 
+# --- Q17: one malformed field no longer voids the whole intent ----------------
+#
+# H3 (2026-10-15): 31 of 220 calls failed validation and ran on an empty
+# intent — 29 with the intent-level `city` as a bare string (the model mixes
+# it up with `Place.city`), 2 with a place of kind "date". The intents below
+# are copied from the recorded traces, as ADK hands them over: a raw dict.
+
+
+def _run_tool(intent: object, *texts: str, profile_in=None) -> dict:
+    """The real `geocode_location` FunctionTool, as ADK runs it."""
+    return asyncio.run(
+        FunctionTool(geocode_location).run_async(
+            args={"intent": intent}, tool_context=_ctx(*texts, profile_in=profile_in)
+        )
+    )
+
+
+#: plan-r2 trace 1dc8ced4548bd034a88c8f591e076436 (qa14707-versailles-address-fr).
+VERSAILLES_TEXT = "Trouve moi une chambre à Boulevard de la République Versailles pour 13h demain"
+VERSAILLES_INTENT = {
+    "places": [
+        {
+            "mention": "Boulevard de la République",
+            "kind": "street",
+            "canonical": "Boulevard de la République",
+            "city": "Versailles",
+        }
+    ],
+    "city": "Versailles",
+}
+#: plan-r1 trace 79eea59799c55c6da69d39dfcc055b77 (qa14707-gare-du-nord-en).
+GARE_DU_NORD_EN_TEXT = "I want a room in paris Gare du nord for 10 am tomorrow"
+GARE_DU_NORD_EN_INTENT = {
+    "places": [{"mention": "Gare du nord", "kind": "station", "canonical": "Gare du Nord"}],
+    "city": "Paris",
+}
+#: plan-r1 trace 492e82e61f24d23ea8d69694b4ee8bf6 (ds-clarify-keeps-date-monaco).
+MONACO_DATE_INTENT = {
+    "places": [
+        {"mention": "samedi", "kind": "date", "canonical": "samedi"},
+        {"mention": "10 octobre", "kind": "date", "canonical": "10 octobre"},
+    ]
+}
+
+
+class TestAMalformedFieldIsRepaired:
+    def test_the_versailles_trace_keeps_its_street_and_its_city(self, core, metric):
+        result = _run_tool(VERSAILLES_INTENT, VERSAILLES_TEXT)
+
+        assert result == {"ok": False, "error": "spy"}
+        assert core[0]["zone"] == "Boulevard de la République"
+        assert core[0]["zone_kind"] == "street"
+        assert core[0]["city"] == "Versailles"
+        fields = _fields(metric()[0])
+        # `valid` still says what the model sent: it did not validate.
+        assert fields["valid"] == "0"
+        assert fields["repaired"] == "1"
+        assert fields["places"] == "1"
+
+    def test_the_gare_du_nord_trace_keeps_paris(self, core):
+        _run_tool(GARE_DU_NORD_EN_INTENT, GARE_DU_NORD_EN_TEXT)
+
+        assert core[0]["zone"] == "Gare du Nord"
+        assert core[0]["city"] == "Paris"
+
+    def test_the_gare_du_nord_trace_asks_no_city_question(self, monkeypatch, statuses):
+        v6, box = _patch(
+            monkeypatch,
+            _V6({"Gare du Nord, Paris": [V6_MISS], "Paris": [PARIS]}),
+            _SearchBox(GARE_DU_NORD),
+            PARIS_INVENTORY,
+        )
+
+        result = _run_tool(GARE_DU_NORD_EN_INTENT, GARE_DU_NORD_EN_TEXT)
+
+        assert "geocode_city_needed" not in statuses
+        assert "clarification" not in result
+        assert result["ok"] is True
+        assert result["resolved_place"] == "Gare du Nord, 75010 Paris, France"
+        assert v6.calls == [("Gare du Nord, Paris", None), ("Paris", None)]
+
+    def test_a_repaired_city_the_user_never_wrote_is_still_dropped(
+        self, monkeypatch, statuses, metric
+    ):
+        # Guard kept: the repaired city has no mention, so its canonical must be
+        # in the text (`_Claims.anchored`). « Paris » is not: the city question
+        # goes out, exactly as with a well-formed CityRef, and no lookup runs.
+        v6, box = _patch(monkeypatch)
+        intent = {"places": [{"mention": "Gare du Nord", "kind": "station",
+                              "canonical": "Gare du Nord"}], "city": "Paris"}
+
+        result = _run_tool(intent, "un hôtel près de la Gare du Nord demain")
+
+        assert result["error"] == "geocode_ambiguous"
+        assert "geocode_city_needed" in statuses
+        assert result["clarification"]["kind"] == "city_needed"
+        assert v6.calls == [] and box.calls == []
+        assert _fields(metric()[0])["repaired"] == "1"
+
+    @pytest.mark.parametrize("kind", ["date", "postal_code"])
+    def test_a_place_of_an_unknown_kind_is_dropped_alone(self, core, metric, kind):
+        intent = {
+            "places": [
+                {"mention": "demain", "kind": kind, "canonical": "demain"},
+                {"mention": "Gare du Nord", "kind": "station", "canonical": "Gare du Nord",
+                 "city": "Paris"},
+            ]
+        }
+
+        _run_tool(intent, "un hôtel près de la Gare du Nord demain")
+
+        assert core[0]["zone"] == "Gare du Nord"
+        assert core[0]["zone_kind"] == "station"
+        assert core[0]["city"] == "Paris"
+        fields = _fields(metric()[0])
+        assert fields["valid"] == "0"
+        assert fields["repaired"] == "1"
+        assert fields["places"] == "1"
+
+    def test_the_monaco_trace_maps_to_no_place(self, core, metric):
+        # Two dates in `places`: both dropped, nothing left to map — the same
+        # as an empty intent, which is what the turn had before Q17.
+        _run_tool(MONACO_DATE_INTENT, "je cherche un hôtel samedi 10 octobre")
+
+        assert core[0]["zone"] is None
+        assert core[0]["city"] == ""
+        fields = _fields(metric()[0])
+        assert fields["valid"] == "0"
+        assert fields["repaired"] == "2"
+        assert fields["places"] == "0"
+
+    def test_both_repairs_count_and_the_line_holds_no_word(self, core, metric):
+        intent = {**VERSAILLES_INTENT, "places": [
+            *VERSAILLES_INTENT["places"],
+            {"mention": "demain", "kind": "date", "canonical": "demain"},
+        ]}
+
+        _run_tool(intent, VERSAILLES_TEXT)
+
+        assert core[0]["city"] == "Versailles"
+        [line] = metric()
+        fields = _fields(line)
+        assert fields["valid"] == "0"
+        assert fields["repaired"] == "2"
+        # GDPR: counts and closed enumerations, never a word of the message.
+        for word in ("versailles", "boulevard", "république", "chambre", "demain", "13h"):
+            assert word not in line.lower()
+
+    def test_the_recorded_intent_is_not_modified(self, core):
+        # The tool works on a copy: ADK's dict (and these constants) stay as sent.
+        before = repr(VERSAILLES_INTENT)
+
+        _run_tool(VERSAILLES_INTENT, VERSAILLES_TEXT)
+
+        assert repr(VERSAILLES_INTENT) == before
+
+    def test_a_valid_intent_counts_no_repair(self, core, metric):
+        _run_tool(
+            {"places": [{"mention": "Gare du Nord", "kind": "station"}],
+             "city": {"mention": "Paris", "canonical": "Paris"}},
+            "Gare du Nord Paris",
+        )
+
+        fields = _fields(metric()[0])
+        assert fields["valid"] == "1"
+        assert fields["repaired"] == "0"
+
+    @pytest.mark.parametrize(
+        "raw",
+        [
+            # The other recorded failure: a repaired city, but an extra key.
+            {**GARE_DU_NORD_EN_INTENT, "country": "FR"},
+            # A repaired kind, but still three places.
+            {"places": [{"mention": "a"}, {"mention": "b"}, {"mention": "c"},
+                        {"mention": "demain", "kind": "date"}]},
+        ],
+    )
+    def test_anything_else_stays_all_or_nothing(self, core, metric, raw):
+        _run_tool(raw, "I want a room in paris Gare du nord demain a b c",
+                  profile_in={"city": "Lyon"})
+
+        assert core[0]["city"] == "Lyon"
+        assert core[0]["zone"] is None
+        fields = _fields(metric()[0])
+        assert fields["valid"] == "0"
+        assert fields["repaired"] == "0"
+        assert fields["places"] == "0"
+
+
 # --- the real tool's declaration -----------------------------------------------
 
 

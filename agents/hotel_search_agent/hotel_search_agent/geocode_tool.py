@@ -36,10 +36,10 @@ import logging
 import os
 import re
 import unicodedata
-from typing import Any
+from typing import Any, get_args
 
 from b2c_common.clarification import MAX_OPTIONS, Clarification, ClarificationOption
-from b2c_common.geo_intent import CityRef, GeoIntent, Place
+from b2c_common.geo_intent import CityRef, GeoIntent, Place, PlaceKind
 from b2c_common.observability import mark_level
 from google.adk.tools.tool_context import ToolContext
 from pydantic import ValidationError
@@ -1411,24 +1411,63 @@ class _Claims:
         return code
 
 
-def _valid_intent(intent: object) -> tuple[GeoIntent, bool]:
-    """The model's `intent` as a `GeoIntent`, and whether it was one.
+_PLACE_KINDS = frozenset(get_args(PlaceKind))
+
+
+def _repaired(raw: dict) -> tuple[dict, int]:
+    """A copy of the model's raw intent with exactly two known shape slips
+    fixed (Q17, H3: 31 of 220 calls), and how many fixes were applied:
+
+    - a bare-string intent-level `city` (the model mixes it up with
+      `Place.city`) becomes a `CityRef` with that canonical and no mention, so
+      `_Claims.anchored` still keeps it only when it is in the text;
+    - a place whose `kind` is outside `PlaceKind` (« date ») is removed alone.
+
+    Nothing else is touched: any other slip still fails validation. The
+    caller's dict is never modified."""
+    fixed = dict(raw)
+    repairs = 0
+    if isinstance(fixed.get("city"), str):
+        fixed["city"] = {"canonical": fixed["city"], "mention": ""}
+        repairs += 1
+    places = fixed.get("places")
+    if isinstance(places, list):
+        kept = [
+            p for p in places
+            if not (isinstance(p, dict) and p.get("kind") is not None and p.get("kind") not in _PLACE_KINDS)
+        ]
+        repairs += len(places) - len(kept)
+        fixed["places"] = kept
+    return fixed, repairs
+
+
+def _valid_intent(intent: object) -> tuple[GeoIntent, bool, int]:
+    """The model's `intent` as a `GeoIntent`, whether it validated as sent,
+    and how many repairs (`_repaired`) the intent used carries.
 
     ADK 2.4 converts the model's dict with `model_validate` (the parameter is
     declared as the class itself, see `geocode_location`), but an argument that
     fails validation — an unknown `kind`, a third place, an extra key — is NOT
     rejected: ADK logs a warning and passes the raw dict through. It is
-    re-validated here and, if it still fails, NOTHING of it is used: the turn
-    goes on as with an empty intent, so the carry-over from `profile_in` still
-    applies. Never raises."""
+    re-validated here once repaired; if it still fails, NOTHING of it is used:
+    the turn goes on as with an empty intent (0 repairs), so the carry-over
+    from `profile_in` still applies. Never raises."""
     if isinstance(intent, GeoIntent):
-        return intent, True
+        return intent, True, 0
     if intent is None:
-        return GeoIntent(), True
+        return GeoIntent(), True, 0
     try:
-        return GeoIntent.model_validate(intent), True
+        return GeoIntent.model_validate(intent), True, 0
     except ValidationError:
-        return GeoIntent(), False
+        pass
+    if isinstance(intent, dict):
+        fixed, repairs = _repaired(intent)
+        if repairs:
+            try:
+                return GeoIntent.model_validate(fixed), False, repairs
+            except ValidationError:
+                pass
+    return GeoIntent(), False, 0
 
 
 def _verified_city(
@@ -1588,7 +1627,7 @@ def geocode_location(
     # only one ADK 2.4 converts from the model's dict (`GeoIntent | None`
     # never does, `tests/test_geo_intent_contract.py`), and the default keeps
     # the argument optional. The frozen default instance is safe to share.
-    geo, valid = _valid_intent(intent)
+    geo, valid, repaired = _valid_intent(intent)
     # The message is read from the invocation, never copied by the model.
     user_words = read_user_words(tool_context)
     claims = _Claims(read_input_text(tool_context), user_words)
@@ -1607,10 +1646,11 @@ def geocode_location(
     if market_country:
         args["market_country"] = market_country
     _metrics_logger.info(
-        "dayuse_metric=geo_intent agent=b2c_hotel_search valid=%d places=%d "
+        "dayuse_metric=geo_intent agent=b2c_hotel_search valid=%d repaired=%d places=%d "
         "mentions_discarded=%d canonicals_rejected=%d countries_discarded=%d "
         "city_conflicts=%d ambiguity=%s carryover=%s",
         int(valid),
+        repaired,
         len(geo.places),
         claims.mentions_discarded,
         claims.canonicals_rejected,
