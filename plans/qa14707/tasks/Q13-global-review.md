@@ -34,6 +34,7 @@ definition_of_done:
   - "Point 9 also checks, with file:line, that `region_chosen` only narrows the candidates Mapbox returned and is never the Mapbox `country` filter, and that `agents/hotel_search_agent/tests/test_homonym_option_region.py` exists and is green."
   - "Point 5 (GDPR) also checks, with file:line, that `city_conflicts` on the `dayuse_metric=geo_intent` line is an integer count, and that a test asserts no word of the message appears on that line (agents/hotel_search_agent/tests/test_geo_intent_mapping.py)."
   - "Point 5 (GDPR) also checks, with file:line, that the profile field `entry_market_country` holds only an uppercase ISO2 code, lives only in the Redis session profile under the existing TTL, and appears on no `dayuse_metric` line. It also checks that a leaf `profile_delta` can neither set nor clear the field (`agents/b2c_concierge/tests/test_entry_market_country.py`)."
+  - "Point 5 (GDPR) also checks, with file:line, that `repaired` on the `dayuse_metric=geo_intent` line is an integer count, and that agents/hotel_search_agent/tests/test_geo_intent_mapping.py asserts its values, 0 on an intent that still fails validation after the repair included, and that no word of the message appears on that line."
 ---
 
 ## Launch prompt
