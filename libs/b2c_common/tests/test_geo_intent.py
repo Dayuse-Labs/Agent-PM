@@ -14,6 +14,7 @@ from pydantic import BaseModel, ValidationError
 
 from b2c_common.geo_intent import (
     MAX_PLACES,
+    PLACE_REQUIRED,
     SCHEMA_VERSION,
     Ambiguity,
     CityRef,
@@ -125,6 +126,37 @@ class TestDefaults:
         assert place.city_inferred is False
 
 
+class TestRequiredBindsOnlyTheModelsOutput:
+    """Q23: `Place`'s JSON schema lists the keys the model must write, while
+    pydantic requires none of them (the negative control of the change)."""
+
+    def test_the_schema_lists_the_keys_the_model_must_write(self):
+        schema = Place.model_json_schema()
+        assert schema["required"] == list(PLACE_REQUIRED) == [
+            "mention", "kind", "canonical", "city", "country", "postal_code",
+        ]
+        assert GeoIntent.model_json_schema()["$defs"]["Place"]["required"] == list(PLACE_REQUIRED)
+
+    def test_no_other_model_gains_a_required_list(self):
+        defs = GeoIntent.model_json_schema()["$defs"]
+        assert [name for name, schema in defs.items() if "required" in schema] == ["Place"]
+        assert "required" not in GeoIntent.model_json_schema()
+
+    @pytest.mark.parametrize("raw", [{"places": [{"mention": "x"}]}, {}])
+    def test_a_partial_dict_still_validates_with_the_same_defaults(self, raw):
+        intent = GeoIntent.model_validate(raw)
+        assert intent.model_dump(exclude={"places"}) == GeoIntent().model_dump(exclude={"places"})
+        for place in intent.places:
+            assert place == Place(mention="x")
+            assert place.kind is None
+            assert place.canonical == ""
+            assert place.city is None
+            assert place.country is None
+            assert place.postal_code is None
+            assert place.region is None
+            assert place.city_inferred is False
+
+
 class TestClosedSchema:
     @pytest.mark.parametrize("model", _MODELS, ids=lambda m: m.__name__)
     def test_extra_keys_are_refused_at_every_level(self, model):
@@ -165,8 +197,9 @@ class TestClosedSchema:
 
 class TestFields:
     def test_place_fields(self):
+        # Q23: the order is prompt — the place's city and country right after its name.
         assert list(Place.model_fields) == [
-            "mention", "kind", "canonical", "postal_code", "city", "region", "country", "city_inferred",
+            "mention", "kind", "canonical", "city", "country", "postal_code", "region", "city_inferred",
         ]
 
     def test_city_fields(self):

@@ -158,19 +158,6 @@
           "title": "Canonical",
           "type": "string"
         },
-        "postal_code": {
-          "anyOf": [
-            {
-              "type": "string"
-            },
-            {
-              "type": "null"
-            }
-          ],
-          "default": null,
-          "description": "The postcode or ZIP code exactly as written (\"75009\"). Null when none is written.",
-          "title": "Postal Code"
-        },
         "city": {
           "anyOf": [
             {
@@ -181,8 +168,34 @@
             }
           ],
           "default": null,
-          "description": "The city the place is in, even if the user did not write it, ONLY when the place's name leaves no doubt (\"les champs élysées\" -> \"Paris\"). Null when places of that name exist in several cities (\"Gare du Nord\": Paris, Brussels), and null when the place is itself a city.",
+          "description": "The city the place is in, from your knowledge when the user did not write it (\"Buckingham Palace\" -> \"London\", \"le Louvre\" -> \"Paris\", \"times square\" -> \"New York\"). null only when places of that name are in several cities (\"Gare du Nord\": Paris and Brussels), when the place is named after a city it is not in (\"gare de Lyon\"), or when the place is itself a city.",
           "title": "City"
+        },
+        "country": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "ISO-3166-1 alpha-2 code of the country the place is in (\"FR\"), from your knowledge. null when unsure.",
+          "title": "Country"
+        },
+        "postal_code": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "The postcode or ZIP code exactly as written (\"75009\"), also when the postcode alone is the place (\"dans le 75009\"). null when none is written.",
+          "title": "Postal Code"
         },
         "region": {
           "anyOf": [
@@ -197,19 +210,6 @@
           "description": "Code of the state or province the place is in, when known (\"CT\"). Else null.",
           "title": "Region"
         },
-        "country": {
-          "anyOf": [
-            {
-              "type": "string"
-            },
-            {
-              "type": "null"
-            }
-          ],
-          "default": null,
-          "description": "ISO-3166-1 alpha-2 country you know the place is in (\"FR\"). A soft hint, never a filter. Null when unsure.",
-          "title": "Country"
-        },
         "city_inferred": {
           "default": false,
           "description": "true when `city` comes from your knowledge, false when the user wrote it.",
@@ -217,6 +217,14 @@
           "type": "boolean"
         }
       },
+      "required": [
+        "mention",
+        "kind",
+        "canonical",
+        "city",
+        "country",
+        "postal_code"
+      ],
       "title": "Place",
       "type": "object"
     }
