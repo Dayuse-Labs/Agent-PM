@@ -19,7 +19,7 @@
 | Q20 | A street or an address without a postcode is resolved by the address lookup              | 3     | 3H    | Q19        | opus   | merged | 1        | task/Q20 | 2.6M / see /workflows |
 | Q21 | A homonym option picked by the user is resolved without the reply's state in the query   | 3     | 3I    | Q20        | opus   | merged | 1        | task/Q21 | 1.6M / see /workflows |
 | Q22 | A named hotel not found in a named city falls back to that city's search in code         | 3     | 3J    | Q21        | opus   | merged | 1        | task/Q22 | 1.6M / see /workflows |
-| Q23 | GeoIntent asks the place's city and country right after its name (production leaf model) | 3     | 3K    | Q22        | opus   | todo   | 0        | —        | 2.3M / —              |
+| Q23 | GeoIntent asks the place's city and country right after its name (production leaf model) | 3     | 3K    | Q22        | opus   | merged | 1        | task/Q23 | 2.3M / see /workflows |
 | Q24 | `hotels_within_km` no longer passes on an empty hotel list                               | 3     | 3E    | —          | sonnet | merged | 2        | task/Q24 | 0.8M / see /workflows |
 | Q09 | Removal: city rescue by preposition, `pending_place` text matching                       | 4     | 4A    | Q08, Q15   | sonnet | todo   | 0        | —        | 1.6M / —              |
 | Q10 | Removal: US ZIP by regex (S-L7f)                                                         | 4     | 4B    | Q09, Q16   | sonnet | todo   | 0        | —        | 1.6M / —              |

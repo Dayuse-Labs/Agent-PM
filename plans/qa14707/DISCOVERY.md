@@ -57,6 +57,7 @@ Notes on these commands:
 - Run a new test against the parent commit (Q19): `git worktree add --detach <scratchpad>/Q19/parent <sha>`, copy the test in, then `PYTHONPATH=<wt>/agents:<wt>/libs/b2c_common <main repo>/.venv/bin/pytest ...`; remove it afterwards with `git worktree remove --force`. A failing assert hides the Mapbox request and the result, so add a throwaway probe test that prints `mapbox.requests` and the result.
 - Negative control (Q20), parent run recipe: back up the new sources to the scratchpad, `git show plan/qa14707:<file> > <file>` for geocode_tool.py and mapbox_client.py, then run a scratch copy of the test with the new-only import removed and FIXTURES pointing at the repo, via `pytest -c pytest.ini --rootdir=. <copy>`. Then copy the sources back and check `git diff --stat`.
 - To run a test against the parent commit, use a detached worktree in the scratchpad: `git worktree add --detach <scratchpad>/Q21/parent plan/qa14707`, copy the new test in, then `cd <wt> && /Users/fabiendauvergne/Projects/AgentB2C/.venv/bin/pytest -q -s -p no:cacheprovider <test>`. pytest.ini's relative `pythonpath` makes the worktree's code win, so no PYTHONPATH is needed. Remove it afterwards with `git worktree remove --force`.
+- Regenerate the GeoIntent snapshot with `.venv/bin/python libs/b2c_common/b2c_common/geo_intent.py > contracts/geo_intent.schema.json`. The recorded gpt-6-luna intents are in `<scratchpad>/h3/probe_out_luna-v1.json` (variant V1 = the current schema).
 
 ## Quick map
 
@@ -169,6 +170,7 @@ Notes on these commands:
 - Convention (Q19): the country key of the `geocode_location` result is `country_code`, not `resolved_country_code`; the latter is only the eval trace key.
 - The geocode profile_delta for a city is typed: `{'city': {'op': 'set', 'value': 'Lyon'}}`, not a flat string.
 - `named_hotel._dated_search(tool_context, lat, lon, anchor=None) -> status` is the single bound-search path, shared by the found-hotel follow-up and the not-found city fallback.
+- To add `required` to a pydantic schema without making fields required in pydantic, use `ConfigDict(json_schema_extra={"required": [...]})`. ADK 2.4, on its JSON_SCHEMA_FOR_FUNC_DECL path, and then `_function_declaration_to_tool_param` keep it unchanged in `$defs.Place`. The pydantic field declaration order sets the order of `properties` the model reads.
 
 ## Pitfalls and fixes
 
@@ -231,5 +233,8 @@ Notes on these commands:
 - **geocode_core fallthrough**: `geocode_core(city=X)` falls through to the Search Box tier-2 with the bare city query when Mapbox v6 returns nothing. A test of a city that does not geocode needs an empty Search Box fake, not a raising one.
 - **Leaf prompt after HotelNotFoundError**: agent.py:291-293 still tells the model to call geocode_location + search_offers. That wording is out of scope for Q22. On a successful city fallback, skip_final_generation skips the next generation, so the rule is never reached. When the city does not geocode, no results are stored, so the model still gets one generation and may try the geocode itself, through its own budgeted tools.
 - **Test helpers (Q22)**: agents/hotel_search_agent/tests/test_named_hotel_city_fallback.py has reusable helpers. `_turn(ctx, args, find)` runs one find_hotel_by_name call through prepare, follow and capture. `_datapart(ctx)` and `_next_generation_skipped(ctx)` read what the concierge and the model would see. Two fixtures: `mapbox` (real MapboxClient over MockTransport, `.requests`, `.features`, `.searchbox.proximities`) and `statuses` (the named_hotel_city_search metric statuses).
+- The `dayuse.metrics` logger may not propagate to the root logger. To capture it with caplog, attach `caplog.handler` to `logging.getLogger("dayuse.metrics")` and call `caplog.set_level(logging.INFO, logger="dayuse.metrics")`. See the `metric_lines` fixture in test_named_hotel_city_fallback.py.
+- pytest runs with `--import-mode=importlib`, so test modules cannot import each other. Fakes such as _V6, _SearchBox and _ctx are copied into each test file.
+- With gpt-6-luna, a postcode alone gets an inferred city (`city: Paris`) and sometimes `kind: admin_district` with canonical « 9th arrondissement of Paris ». `_place_args` still treats it as « only the code », because the mention equals the code. The Q08 Mapbox query then becomes « 75009 Paris », and no H5 recording covers it.
 
 ## Context recommendations (end of run)
