@@ -35,7 +35,7 @@ bash scripts/dayuse_guardrails.sh .
 
 | Variable | Défaut | Rôle |
 |---|---|---|
-| `DAYUSE_MODEL` | `gpt-4o-mini` | Slug LiteLLM (D3 — jamais de SDK cloud direct) |
+| `DAYUSE_MODEL` | `openai/gpt-6-luna` | Slug LiteLLM (D3 — jamais de SDK cloud direct). Famille gpt-6 : `reasoning_effort="none"` forcé par `b2c_common.llm_params`, sinon tout appel d'outil est rejeté |
 | `OPENAI_API_KEY` | — | Clé du provider LiteLLM (aucun appel au boot, connexions lazy) |
 | `MCP_B2C_URL` | `http://localhost:8099/mcp` | Serveur MCP_B2C Streamable HTTP (placeholder local ; staging via `.env`) |
 | `MCP_B2C_AUTH_TOKEN` | (vide) | Bearer MCP standard (RFC 6750 — accepté côté serveur depuis le fix du 2026-07-17) ; header omis si vide, jamais dans le contexte modèle |

@@ -79,7 +79,7 @@ from typing import Any, AsyncGenerator
 import httpx
 import litellm
 from b2c_common import (
-    max_tokens_for,
+    max_tokens_kwargs_for,
     reasoning_kwargs_for,
     role_model,
     score_degraded,
@@ -685,9 +685,7 @@ class _B2cConcierge(BaseAgent):
         # falling back to leaf text; see temperature_kwargs_for).
         extra_params: dict[str, Any] = dict(reasoning_kwargs_for(model_slug))
         extra_params.update(temperature_kwargs_for(model_slug, 0.2))
-        max_tokens = max_tokens_for("SYNTHESIS")
-        if max_tokens is not None:
-            extra_params["max_tokens"] = max_tokens
+        extra_params.update(max_tokens_kwargs_for(model_slug, "SYNTHESIS"))
         system = _SYNTHESIS_INSTRUCTION + extra_instruction
         user = (
             f"LANG: {language}\n\n"
