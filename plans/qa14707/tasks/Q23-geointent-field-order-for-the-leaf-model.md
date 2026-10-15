@@ -25,6 +25,7 @@ verification:
   - "/Users/fabiendauvergne/Projects/AgentB2C/.venv/bin/ruff check ."
   - "/Users/fabiendauvergne/Projects/AgentB2C/.venv/bin/mypy agents libs"
   - "bash scripts/dayuse_guardrails.sh ."
+  - "/Users/fabiendauvergne/Projects/AgentB2C/.venv/bin/pytest -q agents/hotel_search_agent/tests/test_named_hotel_city_fallback.py"
 definition_of_done:
   - "Test reproducing the cause measured in H3 (the declaration the model reads): through `google.adk.models.lite_llm._function_declaration_to_tool_param` on the real `geocode_location` FunctionTool, `Place` lists its properties in the order mention, kind, canonical, city, country, postal_code, region, city_inferred, and its `required` holds mention, kind, canonical, city, country and postal_code. On the parent commit, city is the 5th property, country the 7th, and `required` is absent (the report quotes that run)."
   - "Negative control: a partial dict (`{places: [{mention: x}]}`, and `{}`) still validates to a `GeoIntent` with the same defaults. The JSON-schema `required` binds only the model's output, never the tool's input, and Q06's 'a default on every field' invariant test passes without change to its assertions."
@@ -32,6 +33,7 @@ definition_of_done:
   - "`contracts/geo_intent.schema.json` is regenerated, and the diff shows only property order, descriptions and the `required` list (no field, type or enum change). `SCHEMA_VERSION` stays 1.1, unless the report justifies a bump as a `decision`."
   - "The leaf prompt states that a postcode the user writes goes in that place's `postal_code`, also when the postcode alone is the place (diff). The S5 bullet and the Gare du Nord example are unchanged."
   - "`MAX_LLM_CALLS_PER_TURN` is unchanged, and the diff adds no regex or word list."
+  - "In agents/hotel_search_agent/tests/test_named_hotel_city_fallback.py, a test captures the real `dayuse.metrics` records (caplog, formatted message) of the Q22 not-found-in-Lyon turn, of the city-that-does-not-geocode turn, and of a found-hotel turn. It asserts that each `named_hotel_city_search` / `named_hotel_search` line is exactly `dayuse_metric=<name> agent=b2c_hotel_search status=<ok|no_place|blocked|unbound|error> ms=<integer>`, and that no word of the user's message, of the hotel name (« Bidule Imaginaire ») or of the city (« Lyon ») appears on it. A second case asserts that `named_hotel_search` reports status=unbound when no toolset is bound."
 ---
 
 ## Launch prompt
