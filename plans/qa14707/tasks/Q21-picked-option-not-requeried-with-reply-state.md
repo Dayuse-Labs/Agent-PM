@@ -21,12 +21,15 @@ verification:
   - "/Users/fabiendauvergne/Projects/AgentB2C/.venv/bin/ruff check ."
   - "/Users/fabiendauvergne/Projects/AgentB2C/.venv/bin/mypy agents libs"
   - "bash scripts/dayuse_guardrails.sh ."
+  - "/Users/fabiendauvergne/Projects/AgentB2C/.venv/bin/pytest -q agents/hotel_search_agent/tests/test_street_without_postcode.py"
 definition_of_done:
   - "Test reproducing H3 (`geo7-manhattan-answer` plan-r1, trace 0fbae06a9ce3f6d01179f2954134307a), v6 served from the H6 fixtures `place_manhattan_us_fr.json` (q Manhattan) and `place_manhattan_new_york_us_fr.json` (q « Manhattan, New York »): the real `geocode_location` FunctionTool, reply text « New York », profile_in `{city: Manhattan, country_anchor: US, region_anchor: État de New York, language: fr}`, intent `{places: [{mention: Manhattan, kind: city, canonical: Manhattan}]}`. Result: ok on « Manhattan, État de New York, États-Unis » (locality); the v6 query is « Manhattan », with no state term appended. On the parent commit the same test gives `geocode_echo_mismatch` on « New York, État de New York » (the report quotes that run)."
   - "Negative control: with no `region_anchor`, a state written in the message still feeds the state tier and the query as today (the existing « Milford ct » and state-anchoring tests pass without change to their assertions)."
   - "Q14's Springfield IL/MO tests and the Victoria CA/US concierge test pass without change to their assertions."
   - "The report records, as a `decision` entry, how Q14's minor decision 'a state named this turn or anchored wins over an earlier pick' now applies: the state still steers the resolver, and no longer rewrites the query of a picked option."
   - "`MAX_LLM_CALLS_PER_TURN` is unchanged, and the diff adds no regex or word list."
+  - "Test (Mapbox mocked, candidates carrying `context.region`): zone `Main Street`, zone_kind `street`, city `Springfield`, `region_named` IL. The address lookup returns a Springfield MO street first and a Springfield IL street second. The Q20 street branch either keeps the IL street, or keeps none so that the turn falls through to the pre-Q20 path with the state hint. It never resolves the MO street. Two more cases pass the same way: an anchored state (`profile_state_context` IL) and a `region_chosen` from `profile_in.region_anchor`."
+  - "Negative control: with no named, anchored or chosen state, the Q20 tests of `agents/hotel_search_agent/tests/test_street_without_postcode.py` pass without change to their assertions, and no Mapbox call carries a `country` filter other than a named country."
 ---
 
 ## Launch prompt
