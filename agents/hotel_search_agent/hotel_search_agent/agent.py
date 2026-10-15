@@ -18,7 +18,7 @@ geocoding server-side). The MCP circuit breaker (resilience.py, wired via
 mcp_guard.py) degrades the 2 MCP tools honestly when MCP_B2C is down — a
 clean diagnostic dict, never an exception.
 
-S3 wired dayuse_agent_common: build_model, day-1 metrics callbacks (stdout +
+S3 wired dayuse_agent_common: day-1 metrics callbacks (stdout +
 llm_metric_events, no-op without DATABASE_URL, never any message content) and
 the tool budget. The agent NAME is the metrics `service` label — b2c_ prefixed
 so B2C rows are distinguishable from fleet rows in the shared Postgres.
@@ -29,9 +29,9 @@ import os
 from datetime import date
 from typing import Any
 
+from b2c_common import DEFAULT_MODEL, reasoning_kwargs_for
 from b2c_common.observability import stamp_a2a_turn
 from dayuse_agent_common import (
-    build_model,
     llm_error_metric,
     llm_timing_after,
     llm_timing_before,
@@ -40,6 +40,7 @@ from dayuse_agent_common import (
     tool_timing_before,
 )
 from google.adk.agents import Agent
+from google.adk.models.lite_llm import LiteLlm
 from google.adk.tools.mcp_tool import McpToolset, StreamableHTTPConnectionParams
 
 from hotel_search_agent.tool_budget_guard import make_per_tool_budget_callback
@@ -80,10 +81,13 @@ ALLOWED_MCP_TOOLS = [
     "find_hotel_by_name",
 ]
 
-# D3: model via the lib's LiteLLM factory (reasoning kwargs included). B2C keeps
-# its OWN departure default (iso-model comparison vs agent-usa): the lib's
-# DEFAULT_MODEL is an OpenRouter slug and must never silently take over.
-MODEL = build_model(os.environ.get("DAYUSE_MODEL", "gpt-4o-mini"))
+# D3: LiteLLM model. B2C keeps its OWN departure default (b2c_common's — the
+# lib's DEFAULT_MODEL is an OpenRouter slug and must never silently take over)
+# and its OWN reasoning kwargs: the lib's `build_model` only knows the
+# OpenRouter shape, while gpt-6-luna needs `reasoning_effort="none"` on the
+# OpenAI-direct path or every tool call is a 400 (llm_params, probed 2026-10-15).
+_MODEL_SLUG = os.environ.get("DAYUSE_MODEL", DEFAULT_MODEL)
+MODEL = LiteLlm(model=_MODEL_SLUG, **reasoning_kwargs_for(_MODEL_SLUG))
 
 # Hard cap on real tool calls per turn (the instruction says one reasoning pass;
 # geocode_location + search_offers covers a destination search, find_hotel_by_name

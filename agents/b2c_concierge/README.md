@@ -74,7 +74,7 @@ bash scripts/dayuse_guardrails.sh .
 
 | Variable | Défaut | Rôle |
 |---|---|---|
-| `DAYUSE_MODEL` | `gpt-4o-mini` | Slug LiteLLM (D3) — triage ET synthèse en S2 ; per-phase via `build_model()` en S3 |
+| `DAYUSE_MODEL` | `openai/gpt-6-luna` | Slug LiteLLM (D3) — triage ET synthèse, surchargeables par rôle (`DAYUSE_MODEL_TRIAGE`, `DAYUSE_MODEL_SYNTHESIS`, `b2c_common.llm_params`) |
 | `OPENAI_API_KEY` | — | Clé du provider LiteLLM (aucun appel au boot) |
 | `HOTEL_SEARCH_CARD_URL` | `http://localhost:8101/.well-known/agent-card.json` | Carte de la feuille search |
 | `FAQ_AGENT_CARD_URL` | `http://localhost:8102/.well-known/agent-card.json` | Carte de la feuille faq |

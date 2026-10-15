@@ -117,12 +117,16 @@ class TestGenerateOnceUsesTheRouter:
         )
         assert result == "hi"
         assert len(calls) == 1
-        assert calls[0]["model"] == "gpt-4o-mini"  # the real slug, not the Router alias
-        # Latency audit 2026-07-28 — bounded synthesis is the one deliberate
-        # default change; the reasoning cap stays absent while env is unset.
-        assert calls[0]["max_tokens"] == 2000
-        assert "reasoning_effort" not in calls[0]
-        assert calls[0]["temperature"] == 0.2  # unchanged from pre-audit behaviour
+        assert calls[0]["model"] == "openai/gpt-6-luna"  # the real slug, not the Router alias
+        # Latency audit 2026-07-28 — bounded synthesis. The default model is a
+        # family the pinned litellm does not map (llm_params, probed
+        # 2026-10-15): its ceiling is `max_completion_tokens`, and its effort is
+        # "none" (whitelisted) even with the env unset.
+        assert calls[0]["max_completion_tokens"] == 2000
+        assert "max_tokens" not in calls[0]
+        assert calls[0]["reasoning_effort"] == "none"
+        assert calls[0]["allowed_openai_params"] == ["reasoning_effort"]
+        assert calls[0]["temperature"] == 0.2  # legal at effort "none"
 
     def test_per_role_model_and_reasoning_cap(self, monkeypatch):
         """DAYUSE_MODEL_SYNTHESIS wins over DAYUSE_MODEL, and the reasoning cap
