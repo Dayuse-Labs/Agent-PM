@@ -26,8 +26,20 @@
     - GeoIntent invalide sur 0,5 % des tours.
   - La seule exception (« dans le 75009 », rayon) est corrigée par Q26.
 
+**Déployé (16/10, release `0b65159` = merge de #140)** :
+- **Services** : `hotel-search`, `concierge` et `widget`. La `faq` garde `28c485a` : elle n'importe aucun des deux nouveaux modules de `libs/`.
+- **Preuve** : tours synthétiques sur le widget de prod.
+  - Gare du Nord : recherche à Paris, cartes à 0,2-0,3 km.
+  - gare de Lyon : question par gabarit, sans appel à la synthèse.
+  - « dans le 75009 » : anneau serré, cartes à 0,4-1,1 km.
+  - Versailles : hôtels à 1,2-1,4 km.
+  - « Je confirme » après une question : aucune réservation, la question revient reformulée.
+- **Langfuse** : release `0b65159` sur les 6 traces, rôles conformes (feuilles gpt-6-luna, triage gpt-4o-mini, synthèse gpt-5.2).
+  - Une seule erreur : un 520 Cloudflare d'OpenAI sur la synthèse, couvert par le repli honnête (`fallback_synthesis`).
+  - Sur 7 jours, 2 replis pour 1 706 tours.
+- **Widget** : le `utils.js` servi est identique à celui de `main` (plus de `formatTimeAMPM`).
+
 **Reste** :
-- PR des phases 1-3 → `main` (DQ13), revue de Fabien, puis déploiement (DEPLOY.md, 4 services).
 - Seconde PR : phase 4 (Q09-Q11, retrait des regex de secours) puis phase 5 (Q12 documentation, Q13 revue globale).
 - Tickets :
   - aligner `geo-poi-gare-de-lyon` sur S5 et `geo7-gare-du-nord-no-city` sur DQ12 ;
