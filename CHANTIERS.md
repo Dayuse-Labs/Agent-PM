@@ -51,8 +51,8 @@ l'équipe, dès que tu donnes la copy) → `E2` puis `E1` puis `E4` (la boucle Q
 | **A2** | S10 shadow-run / S11 canary | L | accès ES prod |
 | **A3** | `conversation_logs` + `InMemorySessionService` | M | S10/S11 |
 | **G1→G12** | Backlog produit / géo | — | — |
-| **L** | Leaf de compréhension géo — série S-L (ajouté le 2026-10-08) ; séquence revue par QA14707 (D-Q1) | L | **Fabien** (D-1) · MCP déployé |
-| **QA14707** | Retours QA de Raphael du 14/10 : créneau localisé, lieu compris (`GeoIntent` dans la feuille), clarification tenue par le code. Plan orchestre : `phases/QA14707/` | L | **Fabien** (H1 rejeu, H2 déploiement de `main`) |
+| **L** | Compréhension géo — série S-L (ajouté le 2026-10-08) ; `GeoIntent` produit par la feuille (DQ1) : S-L3/S-L4 conditionnelles, S-L7a et S-L7f faites, S-L7d et S-L7e restent | L | MCP déployé (S-L1) |
+| **QA14707** | Retours QA de Raphael du 14/10 : créneau localisé, lieu compris (`GeoIntent` dans la feuille), clarification tenue par le code. Phases 1-3 déployées (`0b65159`) ; phases 4-5 sur `plan/qa14707`. Plan : `plans/qa14707/`, source : `phases/QA14707/` | L | **Fabien** (revue Q13, H3' live, H4 retest) |
 | **X1→X3** | 3 demandes chez MCP_B2C | — | **MCP_B2C** |
 
 **La seule échéance datée du projet : fin janvier 2027**, fin des patchs de sécurité Langfuse v3
@@ -636,19 +636,45 @@ au redémarrage du process (le profil Redis, lui, survit). À traiter avec S10/S
 
 # 6 bis · Leaf de compréhension géo — série S-L (ajouté le 2026-10-08)
 
-## L — Une leaf comprend le lieu, le code vérifie les faits
+## L — Le lieu est compris par le LLM de la feuille, le code vérifie les faits
 
-**Taille : L** · **bloqué par : décision D-1 de Fabien (budget d'appels) pour S-L4 ; MCP `main` déployé pour S-L1**
+**Taille : L** · **séquence revue par QA14707 (DQ1, 2026-10-14)** · bloqué par : MCP `main` déployé pour S-L1
 
-**Contexte.** La compréhension du lieu repose sur le prompt de la feuille et sur des règles de langage en code (regex de prépositions, mots génériques, état lu dans le texte, exceptions écrites dans le prompt) : chaque incident ajoute une condition. Décision du 2026-10-08 : une leaf A2A rend un `GeoIntent` fermé, sans coordonnées ; le code garde la vérification des faits. Plan : `reports/PLAN-LEAF-GEO-2026-10-08.md` ; sessions : `SESSIONS-CLAUDE-CODE.md` § S-L.
+**Contexte.** La compréhension du lieu reposait sur le prompt de la feuille et sur des règles de langage en code (regex de prépositions, mots génériques, état lu dans le texte, exceptions écrites dans le prompt) : chaque incident ajoutait une condition. Décision du 2026-10-08 : un `GeoIntent` fermé, sans coordonnées ; le code garde la vérification des faits. **Décision DQ1 du 2026-10-14 : ce `GeoIntent` est produit par la feuille de recherche existante, comme argument structuré de `geocode_location`** (contrat v1.1, `libs/b2c_common/b2c_common/geo_intent.py`), sans leaf dédiée ni 4e appel au modèle. Plan : `reports/PLAN-LEAF-GEO-2026-10-08.md` (§3 à jour) ; sessions : `SESSIONS-CLAUDE-CODE.md` § S-L ; exécution : `plans/qa14707/`.
 
-**Preuve (vérifiée le 2026-10-08).** `git show origin/fix/geo-location-class:agents/hotel_search_agent/hotel_search_agent/response_bridge.py | grep -n '"sort"'` (le MCP `main` attend `sortBy`) ; `agents/b2c_concierge/b2c_concierge/budget.py:18` (plafond de 3 appels qui refuse une 4e charge).
+**Fait (QA14707).** S-L2 (contrat) = Q06 ; mapping côté feuille de S-L5 = Q07 et Q08 ; retraits S-L7a (regex de prépositions, articles, sondes ; Q09) et S-L7f (`select_us_postal_anchor` ; Q10, DQ7). S-L7b et S-L7c ne sont pas des retraits : la règle S5 est devenue `ambiguity.reason = city_needed` (DQ6) et la règle « nom complet » est le champ `canonical`.
 
-**Actions.** S-L1 ∥ S-L2 → S-L3 → S-L4 → S-L5 → S-L6 → S-L8, puis S-L7a…f (une règle par session).
+**Reste.**
+- **S-L3 et S-L4 sont conditionnelles** : une leaf dédiée (mode ombre, `GEO_LEAF_MODE`) ne se justifie que si les rejeux H3 montrent que gpt-6-luna ne tient pas le schéma dans la feuille (taux de `valid=0` sur les lignes `dayuse_metric=geo_intent`). Elles ne changeraient alors que l'endroit où l'objet est produit. D-1 (budget d'appels) tombe : le plafond reste 3.
+- **S-L1** (#124 réconciliée avec le MCP, `sortBy`) et **S-L6** (périmètre hybride) sont inchangées ; S-L8 (déploiement d'une leaf) sans objet tant que S-L3 n'est pas faite.
+- **Règles S-L7 encore en place** : S-L7d (mots génériques, `_GENERIC_LOCATION_WORDS` / `demote_generic_city`, `geo_guards.py`) et S-L7e (État américain lu dans le texte, `extract_state_hint_from_text` / `resolve_state_hint`, `geo_guards.py`). S-L7b et S-L7c sont transformées, pas à retirer. S-L7a et S-L7f sont retirées.
+- `relation`, `carryover` et `exclusions` du `GeoIntent` sont lus mais non appliqués (S-L5 complète).
 
-**Prompt.** Celui de `phases/SL1-pr124-contrat-mcp.md`, et celui de `phases/SL2-contrat-geointent-evals.md` en parallèle.
+**Preuve (vérifiée le 2026-10-16).** `git grep -n "_city_named_in_message\|select_us_postal_anchor" -- agents libs` ne renvoie rien ; `grep -n "_GENERIC_LOCATION_WORDS\|def extract_state_hint_from_text" agents/hotel_search_agent/hotel_search_agent/geo_guards.py` renvoie les deux règles restantes ; `agents/b2c_concierge/b2c_concierge/budget.py:18` (`MAX_LLM_CALLS_PER_TURN = 3`).
 
-**Terminé quand.** `GEO_LEAF_MODE=on` en production, jeux géo sans régression par rapport à la référence de S-L2, règles S-L7a à S-L7e retirées.
+**Prompt.** Celui de `phases/SL1-pr124-contrat-mcp.md` pour S-L1 ; `phases/SL7-retraits-regles-langage.md` (bandeau QA14707 en tête) pour S-L7d et S-L7e.
+
+**Terminé quand.** Jeux géo sans régression par rapport à la référence H1, règles S-L7d et S-L7e retirées (S-L3/S-L4 seulement si H3 l'exige).
+
+---
+
+## QA14707 — Retours QA de Raphael du 14/10 (dayuse-com#14707)
+
+**Taille : L** · **bloqué par : Fabien** (H3' live, puis H4 retest) · plan : `plans/qa14707/`, source : `phases/QA14707/`
+
+**Contexte.** Trois remontées : un créneau de carte dans la langue de la conversation ; une ville, une adresse ou un code postal écrits dans le message ne déclenchent jamais une question de ville ; quand une question est légitime, une seule réponse relance la recherche avec la date et le créneau d'origine, sans jamais reposer la même question ni inventer d'option.
+
+**Fait.**
+- Phases 1-3, déployées le 2026-10-16 (release `0b65159`, #140) : créneau localisé (`web/vendor/static/js/chat/slot_time.js`), `GeoIntent` dans la feuille, `Clarification` rendue par gabarit sans synthèse (`agents/b2c_concierge/tests/test_clarification_template.py`), routage de la réponse avant la réservation, adresses et codes postaux, correctifs H3 (Q14-Q26). H3 rejoué sur gpt-6-luna : réussi (`plans/qa14707/PREREQUISITES.md`).
+- Phases 4-5, sur `plan/qa14707`, seconde PR : retraits S-L7a et S-L7f (Q09, Q10), plus de regex ni de liste de mots pour la question attendue et le oui/non (Q11, Q27 : `leaf_question` dans `agents/b2c_concierge/b2c_concierge/profile.py`), anti-boucle des questions libres lu sur l'état (Q28 : `agents/b2c_concierge/tests/test_free_question_anti_loop.py`), item live `qa14707-near-11580-en` (Q29), documentation (Q12). Détail et preuves : bloc daté du 2026-10-16 de `HANDOFF.md`.
+
+**Reste.**
+- Q13 : revue globale de la seconde PR, puis la PR elle-même.
+- H3' live (liste des items 3/3 et des taux à lire sur les lignes `geo_intent` dans le bloc daté de `HANDOFF.md`) ; H4 : déploiement final, retest par Raphael, réponse point par point sur dayuse-com#14707.
+- Tickets : aligner `geo-poi-gare-de-lyon` sur S5 et `geo7-gare-du-nord-no-city` sur DQ12 ; mesurer « je confirme » avec une offre en attente ; demander à Raphael l'URL et le marché testés ; migrer le triage et le juge de gpt-4o-mini avant le 14/01/2027.
+- Le port de #134 (famille géo) doit respecter le modèle d'état de session décrit dans le bloc daté de `HANDOFF.md` (`pending_clarification`, `pending_search.asked`, `region_anchor`, `entry_market_country`).
+
+**Terminé quand.** Raphael retest sans retrouver les trois remontées, et H3' à la barre indiquée dans `HANDOFF.md`.
 
 ---
 

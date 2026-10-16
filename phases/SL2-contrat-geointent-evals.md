@@ -1,5 +1,16 @@
 # S-L2 — Contrat `GeoIntent` v1 et jeux d'évals géo (∥ possible avec S-L1)
 
+> **Bandeau 2026-10-16 (plan QA14707, `plans/qa14707/`).** Le contrat de cette phase est livré par **Q06** (`e315fff`, `6de214e`) sous la forme **v1.1** : `libs/b2c_common/b2c_common/geo_intent.py` (`SCHEMA_VERSION = "1.1"`), snapshot `contracts/geo_intent.schema.json`, `tests/test_geo_intent_contract.py`. Écarts avec le v1 de la phase : `places[].postal_code`, `mention` / `canonical`, `ambiguity` sans `options` (DQ5), règle S5 portée par `ambiguity.reason = city_needed` (DQ6). Le `GeoIntent` est produit par la feuille de recherche (DQ1), pas par une leaf.
+>
+> | Point de la phase | Statut |
+> |---|---|
+> | 1. `geo_intent.py` | **fait** (Q06, v1.1) |
+> | 2. Contrat figé : snapshot + test | **fait** (Q06) |
+> | 3. Jeu `b2c-geo-intent` (dev/test) | non construit (sans leaf dédiée, pas de jeu de la leaf) |
+> | 4. Jeu `b2c-geo-preservation` | non construit ; les cas ciblés vivent dans `evals/datasets/b2c-qa-14707-2026-10-14.jsonl` et les jeux géo existants |
+> | 5. Évaluateurs | partiels : Q01 a ajouté `geocode_city_needed`, `tools_not_called`, `clarify_options_from_geocoder`, `reply_differs_from_previous` (`evals/langfuse_evaluators.py`) ; `geo_intent_fields` et `first_hotels_city_slug` ne sont pas faits |
+
+
 | | |
 |---|---|
 | **Mode** | Piloté — conception du contrat = jugement |
