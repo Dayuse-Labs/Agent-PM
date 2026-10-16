@@ -190,6 +190,8 @@ Q26 results: pytest -q 2935 passed, 1 skipped (316 s). hotel_search_agent tests 
 - New helper leaf_question(leaf_text) in b2c_concierge.profile is the only source of last_clarifying_question on the synthesis path (agent._synthesize_with_guards). A test that expects 'YOU ASKED: <q>' after a search turn must put the question in fake_leg.text (the leaf's own text), not in the scripted synthesis line, and must reset fake_leg.text afterwards, otherwise every later turn whose leaf text ends in '?' stores a new question.
 - After Q10, `git grep -n select_us_postal_anchor -- agents libs` returns nothing (checked, exit 1). `effective_country_code` appears in geocode_tool.py only in the historical text of the `_soft_country` docstring, never in code. A 5-digit number in the text forces no country. Only a named country (`country_code`) is a hard Mapbox filter.
 - `turn_question` is in profile.py. The agent.py import list places it out of alphabetical order next to `leaf_question`, and ruff accepted it. Q12 should document the rule: the leaf's last line first, then the synthesis's last line, both by punctuation only with a 300-character cap. Q13 should note that the budget follow-up still overrides the stored question after the synthesis.
+- The new item carries `bug_ref: dayuse-com#14707` and cites DQ7 and DQ8 in its notes, like the other qa14707 items. It has no `min_hotels` or `hotels_within_km`, because the US inventory near Valley Stream is unknown.
+- Human step: the live 3/3 replay of `qa14707-near-11580-en` is still owed to a human and should be recorded in the plan's HANDOFF.
 
 ## Pitfalls and fixes
 
@@ -265,5 +267,6 @@ Q26 results: pytest -q 2935 passed, 1 skipped (316 s). hotel_search_agent tests 
 - On the en/USD market, "near 11580" with no model guess and no `entry_market_country` still follows Mapbox order (Mexico City first). This is pinned by test_without_the_market_a_bare_en_follows_mapbox_order. It is correct only because Q16 forwards the market's country to the leaf; without it the case regresses silently.
 - A follow-up turn with a persisted address zone (profile_in zone "2 Boulevard Poissonnière", city Paris) queries the Search Box with the bare zone and no country, then v6 with "<zone>, Paris". A Search Box fake that ignores its query proves nothing unless `searchbox.calls` is asserted.
 - `leaf_question` takes the last non-empty LINE, not the last sentence. A one-line synthesis such as 'Here you go. Anything else?' is stored whole.
+- On macOS (BSD sed), `sed -i` without a backup suffix fails on multi-byte patterns. Use the Edit tool for README edits.
 
 ## Context recommendations (end of run)
