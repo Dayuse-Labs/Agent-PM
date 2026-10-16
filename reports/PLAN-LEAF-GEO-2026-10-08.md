@@ -3,14 +3,15 @@
 > Revu contre le code le 2026-10-08 : AgentB2C `main` cbe88b9 (dernier fetch : 2026-10-07 14:28) et branche `fix/geo-location-class` (PR #124, 2f457f8) ; MCP_B2C `main` 08f3764d (vérifié sur GitLab).
 > Détail par session : `phases/SL1…SL8-*.md`, prompt de lancement inclus. Vue d'ensemble : `SESSIONS-CLAUDE-CODE.md` § S-L.
 > Origine : discovery « Leaf géo AgentB2C » du 7 octobre (v2) et arbitrages de Fabien du 8 octobre.
+> **Mise à jour 2026-10-16 (plan QA14707, `plans/qa14707/`, `phases/QA14707/`).** Décision DQ1 : le `GeoIntent` est produit par la feuille de recherche existante, comme argument structuré de `geocode_location`, sans leaf dédiée ni 4e appel au modèle. S-L2 est tenue par Q06 (contrat v1.1), S-L5 en son lieu par Q07 (le mapping côté feuille) et Q08, S-L3, S-L4, S-L6 et S-L8 ne sont pas construites. Le §3 décrit désormais le contrat v1.1 et le mapping tels que le code les applique. **Les numéros de ligne cités plus bas (E1-E15, §7) sont ceux de `cbe88b9` (2026-10-08) : ils ont bougé, chercher par symbole.** Plusieurs symboles cités ont changé : `geocode_location` n'accepte plus que `intent` et `metro` côté modèle (le cœur plat est `geocode_core`, `geocode_tool.py:518`), la question sans ville ni GPS est dans la branche `geocode_city_needed` de `geocode_core` (`geocode_tool.py:919`), la garde #14 est `_poi_anchor_incoherent` (`geocode_tool.py:280`), le report de destination est `_fill_place_from_profile` (`geocode_tool.py:1273`).
 
 ## 1. Décisions arbitrées (2026-10-08, Fabien) — ne pas re-litiger en session
 
 | # | Sujet | Décision |
 |---|---|---|
-| L1 | Emplacement | Leaf A2A `geo_understanding_agent`, appelée par le concierge après le triage, sur les tours de recherche seulement |
+| L1 | Emplacement | ~~Leaf A2A `geo_understanding_agent`, appelée par le concierge après le triage, sur les tours de recherche seulement~~ **Remplacée par DQ1 (2026-10-14)** : le `GeoIntent` est produit par la feuille de recherche, comme argument de `geocode_location` |
 | L2 | Périmètre | Comprendre d'abord (phase 1 : la leaf rend un `GeoIntent`, la feuille de recherche garde le géocodage), résoudre ensuite (phase 2) |
-| L3 | Règles de langage existantes | Retrait une par une, chaque retrait couvert par un cas d'éval, jamais en bloc |
+| L3 | Règles de langage existantes | Retrait une par une, chaque retrait couvert par un cas d'éval, jamais en bloc (phase 4 de QA14707 : S-L7a et S-L7f retirées, voir §4) |
 | L4 | « Dans le quartier » | Hybride annoncé : dedans d'abord, puis « juste à côté » avec la distance |
 | L5 | Ordre | #124 réconciliée avec le MCP mergé, puis mergée, avant tout le reste |
 | L6 | Budget d'outils de la feuille | Constant (2 appels par outil). Dedans puis à côté, hôtel puis voisins, plusieurs lieux : enchaînés par le code, jamais par un appel d'outil de plus côté LLM |
@@ -37,12 +38,20 @@ Principe : le LLM comprend, le code vérifie. La leaf ne produit jamais de coord
 | E14 | Une garde n°18 de périmètre | #124 apporte déjà la garde #18 `refinement_unchanged`. `GUARD_SCORE_NAMES` et `FALLBACK_SCORE_NAMES` s'allongent sans jamais retirer (`libs/b2c_common/b2c_common/scores.py:5-8`) | Une garde de périmètre serait la #19 ; une règle retirée garde son nom de garde |
 | E15 | Sortie structurée de la leaf | Aucun `output_schema` dans le repo. ADK 2.4.0 l'accepte (pydantic) et le traduit en `response_format` pour LiteLLM (`google/adk/models/lite_llm.py`, `_to_litellm_response_format`). Modèle par rôle : `DAYUSE_MODEL_{ROLE}` (`libs/b2c_common/b2c_common/llm_params.py:58`) | `output_schema=GeoIntent`, `DAYUSE_MODEL_GEO` ; à valider en live en S-L3 |
 
-## 3. Contrat `GeoIntent` v1 (S-L2)
+## 3. Contrat `GeoIntent` v1.1 (S-L2, tenu par QA14707 Q06 et Q07)
+
+> **v1.1 (2026-10-14, décisions DQ1, DQ5, DQ6, DQ8).** Le modèle est `libs/b2c_common/b2c_common/geo_intent.py` (`SCHEMA_VERSION = "1.1"`), son snapshot est `contracts/geo_intent.schema.json`. Écarts avec le v1 de ce plan :
+> - `places[].postal_code` : le code postal tel qu'écrit. Sans lui, « 2 boulevard Poissonnière 75009 » le perdait (trace C du diagnostic).
+> - `mention` / `canonical` : `mention` = les mots exacts de l'utilisateur, `canonical` = le nom normalisé par le LLM (« Pari » → « Paris »), pour `places[]` et pour `city`. Le code vérifie que la mention est ancrée dans le message et que le nom normalisé est réel.
+> - `ambiguity` = `{reason ∈ homonym | city_needed | too_vague}` **sans `options`** (DQ5) : aucune option de question n'est jamais écrite par un LLM, elles viennent du seul géocodeur, par `Clarification` (`libs/b2c_common/b2c_common/clarification.py`).
+> - **La règle S5 (gare de Lyon, PR #91) est portée par `ambiguity.reason = "city_needed"`** (DQ6) : le LLM pose le drapeau et ne donne aucune ville ; le code décide la question (`geocode_city_needed`). `homonym` et `too_vague` sont lus et journalisés, jamais appliqués : le géocodeur garde la décision sur les homonymes.
+> - Le `GeoIntent` est produit par la **feuille de recherche** elle-même, comme argument structuré de `geocode_location` (DQ1) : pas de leaf dédiée, pas de 4e appel au modèle, pas de décision D-1.
+> - L'ordre des champs de `Place` et sa liste `required` (`PLACE_REQUIRED`) font partie du prompt (Q23) : réglés pour gpt-6-luna, pas pour gpt-4o-mini.
 
 ```text
-GeoIntent v1 — aucune coordonnée, extra="forbid"
-schema_version  "1"
-places[]        0 à 2 × { mention, kind, canonical, city, region, country, city_inferred }
+GeoIntent v1.1 — aucune coordonnée, extra="forbid", tous les champs ont un défaut
+schema_version  "1.1"
+places[]        0 à 2 × { mention, kind, canonical, city, country, postal_code, region, city_inferred }
                 kind ∈ city | admin_district | neighborhood | landmark | street
                        | station | airport | address | hotel | region
 city            null | { mention, canonical, region, country }   nommée dans le message ou reprise du contexte
@@ -50,27 +59,41 @@ country_named   null | ISO-3166-1 alpha-2   pays que l'utilisateur a NOMMÉ → 
 region_named    null | code d'état ou de province nommé (« Milford ct » → "CT")
 relation        in | near | whole_city
 carryover       new | keep | replace_place_keep_city | refine
-exclusions[]    { mention, canonical, kind }   lieux exclus (« pas à NYC ») — réservé en v1
-ambiguity       null | { reason ∈ homonym | city_needed | too_vague, options[] }
+exclusions[]    { mention, canonical, kind }   lieux exclus (« pas à NYC ») — réservé
+ambiguity       null | { reason ∈ homonym | city_needed | too_vague }
 ```
 
-Circulation :
-- Entrée de la leaf (DataPart) : le message du tour et un contexte minimal tiré du profil : ville, zone, ancre d'état, ancre pays, hôtel nommé, locale, langue, devise. Jamais le profil entier (minimisation RGPD).
-- Sortie de la leaf : `{geo_intent, diagnostics}`.
-- Concierge → feuille de recherche : `query_params.geo_intent` (dict ouvert de `agents/hotel_search_agent/hotel_search_agent/contract.py`, réservé aux indications validées par le code).
+`relation`, `carryover` et `exclusions` sont lus mais **non appliqués** (S-L5, hors périmètre de QA14707).
 
-Correspondance vers `geocode_location` (S-L5) :
+Circulation (QA14707, DQ1) : le LLM de la feuille remplit `geocode_location(intent=GeoIntent, metro=…)`. Le code déduit tout le reste du `GeoIntent` et du profil (`country_code` et `country_guess` ne sont plus des arguments du modèle). La conversion de l'argument et ses limites (un argument invalide arrive en dict brut, validé par l'outil) sont décrites dans la docstring de `geo_intent.py`. Le circuit prévu au v1 (leaf A2A, `query_params.geo_intent`) n'est pas construit : S-L3 et S-L4 ne reviennent que si des rejeux montrent que le modèle de la feuille ne tient pas le schéma.
 
-| GeoIntent | Argument | Aujourd'hui |
+Correspondance vers `geocode_core`, telle que l'implémente `_place_args` (`agents/hotel_search_agent/hotel_search_agent/geocode_tool.py`) :
+
+| GeoIntent | Argument | Règle |
 |---|---|---|
-| `places[0].kind = city` | `city = canonical` | écrit par le LLM de la feuille |
-| autre type, sauf `hotel` | `zone = canonical`, `city = places[0].city` ou `city.canonical` | écrit par le LLM de la feuille |
-| `kind = hotel` | chemin `find_hotel_by_name` (`named_hotel.py`, #124) | décidé par le LLM |
-| `country_named` | `country_code` (filtre dur) | inchangé |
-| `places[0].country` non nommé | `country_guess` (indice) | inchangé |
-| `region_named` | ancre d'état | lue dans le texte (`geo_guards.py:88-165`), retirée en S-L7e |
-| `carryover` | remplissage depuis `profile_in` | toute case vide est remplie (`geocode_tool.py:913-936`) ; `new` : rien, `replace_place_keep_city` : la ville seule |
-| `ambiguity` | question | gabarits `geo_resolver.py:193` (`_CLARIFY_MANY`) et `:236` (`_CITY_NEEDED`) |
+| un lieu de `kind = city` | `city` | compte à **n'importe quel rang** de `places` |
+| le **premier** lieu qui n'est ni `city` ni `hotel` | `zone = canonical` (sinon `mention`) | le rang dans `places` ne décide rien |
+| ville de la recherche | `city` | dans l'ordre : la ville propre du lieu de zone, puis un lieu de kind city, puis le champ `city` |
+| `kind = hotel` | chemin `find_hotel_by_name` (`named_hotel.py`) | jamais une zone |
+| `country_named` | `country_code` (filtre dur Mapbox) | seul pays qui filtre ; passe par `_iso2`, une valeur mal formée est écartée |
+| pays d'un lieu ou d'une ville, non nommé | `country_guess` (indice) | suit l'ordre de la ville gagnante ; jamais un filtre |
+| `region_named` | ancre d'état | passe par `resolve_state_hint` |
+| `ambiguity.reason = city_needed` | aucune ville | le code pose la question (S5) |
+| `places[].postal_code` | `postal_code` et `zone_kind` | lu du lieu de zone, sinon d'un lieu de ville, vérifié contre le message |
+
+Exception à la précédence de la ville : une ville **écrite par l'utilisateur dans ses propres mots de ce tour** (`read_user_words`) et vérifiée par `_verified_city` l'emporte sur la ville propre du lieu de zone (« Gare du Nord à Bruxelles » ne cherche plus à Paris). L'estimation du pays vient alors d'abord de la ville gagnante. Une ville portée seulement par le préfixe EARLIER REQUEST du concierge garde la ville propre du lieu de zone en premier. Le désaccord est compté (`city_conflicts`, sans texte) sur la ligne `dayuse_metric=geo_intent`. Un lieu dont ni la mention ni le nom normalisé ne sont ancrés dans le message est écarté d'abord.
+
+**Règle de pays d'un code postal (DQ8).** Quand l'utilisateur ne nomme aucun pays :
+- seul un pays **nommé** est un filtre dur ;
+- sinon le géocodage cherche partout et ne garde que les candidats dont `context.postcode` est égal au `postal_code` extrait (`_postcode_match`) ;
+- parmi eux, l'ordre de départage est : la ville nommée du tour (`context.place` égal à la ville du tour), puis la supposition du LLM (`places[].country`), puis le pays du marché, puis l'ordre de Mapbox. La supposition et le marché ne départagent jamais plus : ce ne sont pas des filtres.
+- Le pays du marché vient d'abord du `entry_market_country` de la requête, stocké dans le profil par la façade (Q16), puis de la région du locale, puis du préjugé de langue (`_market_country`). Le widget envoie un locale `en` nu : sans la première source, « near 11580 » en en/USD suivrait l'ordre de Mapbox (Mexico d'abord).
+- La règle d'origine de ce plan (« la supposition comme filtre ») est remplacée : 75009 est aussi un code postal américain (Celina, TX).
+
+| GeoIntent | Argument | Ce qui est remplacé |
+|---|---|---|
+| `carryover` | remplissage depuis `profile_in` | toute case vide est remplie aujourd'hui (`_fill_place_from_profile`) ; `new` : rien, `replace_place_keep_city` : la ville seule — **non appliqué** |
+| `ambiguity` | question | le gabarit `Clarification` rendu par le concierge sans synthèse (DQ2) ; la question « ville nécessaire » est `geo_resolver.city_needed_question` |
 
 ## 4. Sessions
 
@@ -83,11 +106,24 @@ Correspondance vers `geocode_location` (S-L5) :
 | S-L5 | Bascule : la feuille consomme le `GeoIntent` | feuille + concierge | Opus · piloté | S-L4, D-3, résultats d'ombre validés (D-4) |
 | S-L6 | Périmètre hybride annoncé | feuille + synthèse | Sonnet · piloté | S-L5, D-5 |
 | S-L8 | Déploiement Railway, registre de la flotte, bascule `on` | infra | Sonnet · piloté, validation Fabien | S-L5, S-L6 |
-| S-L7a…f | Retrait des règles de langage, une MR par règle | feuille | Sonnet · piloté, puis boucle possible | S-L8, taux de repli mesuré |
+| S-L7a…f | Retrait des règles de langage, une MR par règle | feuille | Sonnet · piloté, puis boucle possible | S-L8, taux de repli mesuré — **a et f faites par QA14707** (Q09, Q10) |
 
 ```text
 S-L1 ∥ S-L2  →  S-L3  →  S-L4  →  S-L5  →  S-L6  →  S-L8 (déploiement, bascule on)  →  S-L7a … S-L7f
 ```
+
+**Séquence réellement suivie (QA14707, DQ1)** : la feuille de recherche produit le `GeoIntent` (S-L2 = Q06, S-L5 côté feuille = Q07 et Q08) → déploiement (#140) → retraits de phase 4. S-L3 et S-L4 (leaf dédiée, mode ombre) deviennent **conditionnels** : elles ne reviennent que si les rejeux H3 montrent que le modèle de la feuille ne tient pas le schéma (taux de `valid=0`), et ne changeraient alors que l'endroit où l'objet est produit. D-1 (budget d'appels) tombe : `MAX_LLM_CALLS_PER_TURN = 3` est inchangé (`agents/b2c_concierge/b2c_concierge/budget.py:18`).
+
+**Retraits S-L7 faits par QA14707** (une règle, un cas de couverture, aucun nom de garde retiré) :
+
+| Règle | Statut | Où |
+|---|---|---|
+| S-L7a regex de prépositions, articles, sondes | **retirée par Q09** (`3cbeba1`), avec l'appariement de texte sur `pending_place` | `git grep -n _city_named_in_message -- agents libs` ne renvoie rien |
+| S-L7f `select_us_postal_anchor` | **retirée par Q10, décision DQ7** (`b36672d`). Le plan source affirmait que S-L7 l'avait « oubliée » : c'est faux, elle y figure comme S-L7f, « décision de Fabien avant tout retrait », et DQ7 est cette décision | `git grep -n select_us_postal_anchor -- agents libs` ne renvoie rien ; les tests « near 11580 » restent la spécification |
+| S-L7b exception « gare de lyon » du prompt | **non retirée, transformée** par Q07 : la règle S5 devient `ambiguity.reason = city_needed` (DQ6), le mot « laisser `city` vide » du prompt est retiré, pas la règle | `hotel_search_agent/agent.py`, `libs/b2c_common/b2c_common/geo_intent.py` |
+| S-L7c règle « nom complet » | **réécrite** par Q07 en champ `canonical` du `GeoIntent` | idem |
+| S-L7d mots génériques | ouverte (`_GENERIC_LOCATION_WORDS`, `demote_generic_city`, `geo_guards.py`) | |
+| S-L7e État lu dans le texte | ouverte (`extract_state_hint_from_text`, `resolve_state_hint`, `geo_guards.py`) ; `region_named` du `GeoIntent` existe, la lecture du texte reste le repli | |
 
 Chaque retrait de S-L7 affaiblit le chemin de repli (leaf en panne → extraction actuelle). D'où l'ordre : retirer après la bascule, une fois le taux de repli `fallback_geo_leaf` mesuré.
 
@@ -116,4 +152,4 @@ Chaque retrait de S-L7 affaiblit le chemin de repli (leaf en panne → extractio
 - Résolution dans la leaf (phase 2) : `geocode_tool`, `geo_resolver`, `geo_guards`, clients Mapbox et Search Box. Lien avec la demande X1 (`resolve_location` côté MCP, `reports/MCP-B2C-REQUESTS.md`), le correctif structurel du biais IP de Search Box.
 - Frontières de quartier (polygones) : source à choisir (OSM sous ODbL, bbox Mapbox).
 - Option A′ (leaf en parallèle du triage) : seulement si la latence l'exige (S-L8).
-- À garder quoi qu'il arrive : la question sans ville ni GPS (`geocode_tool.py:536-547` ; PRESERVATION.md : ne pas la retirer à l'aveugle), l'écho `geocode_echo_back`, la garde #14 (`geocode_tool.py:141`), le palier d'inventaire (`geo_resolver.py:58`).
+- À garder quoi qu'il arrive : la question sans ville ni GPS (branche `geocode_city_needed` de `geocode_core`, `geocode_tool.py:919` ; PRESERVATION.md : ne pas la retirer à l'aveugle), l'écho `geocode_echo_back`, la garde #14 (`_poi_anchor_incoherent`, `geocode_tool.py:280`), le palier d'inventaire (`in_inventory_tier`, `geo_resolver.py:85`).

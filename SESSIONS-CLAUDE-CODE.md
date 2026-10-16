@@ -85,6 +85,8 @@ A1-a snapshot inventaire statique (provider swappable) · A2-b Search Box tranch
 
 ## Sessions S-L — leaf de compréhension géo (arbitrée 2026-10-08)
 
+> **Mise à jour 2026-10-16 : cette section est en grande partie remplacée par le plan QA14707** (`plans/qa14707/`, source `phases/QA14707/`). Décision DQ1 : le `GeoIntent` (contrat v1.1) est produit par la feuille de recherche, comme argument de `geocode_location`, sans leaf dédiée. S-L2 est tenue par Q06, le mapping côté feuille de S-L5 par Q07 et Q08, S-L7a et S-L7f par Q09 et Q10. S-L3, S-L4 et S-L8 sont conditionnelles (voir `CHANTIERS.md` § L) ; S-L1, S-L6, S-L7d et S-L7e restent à faire. Les statuts sont dans les bandeaux de `phases/SL2…`, `SL5…` et `SL7…`.
+
 > Source : discovery « Leaf géo AgentB2C » (2026-10-07) + `reports/PLAN-LEAF-GEO-2026-10-08.md` (plan arbitré, revu contre le code : décisions L1-L6, écarts E1-E15, contrat `GeoIntent` v1). Détail par session : `phases/SL1…SL8-*.md` (prompt de lancement inclus dans chaque fichier).
 
 | # | Scope (1 session) | Zone | Prérequis |
