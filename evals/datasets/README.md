@@ -15,7 +15,7 @@ session OBS6 (qui possède les experiments, les évaluateurs et le gate CI), pas
 | `b2c-qa-2026-09-30.jsonl` | `b2c/qa-2026-09-30` | 10 — retours QA du 30/09 (mcp-dayuse#8), attendus calculés par code |
 | `b2c-dialogue-state.jsonl` | `b2c/dialogue-state` | 9 — état de dialogue multi-tours (mcp-dayuse#6) : critères conservés après une question, « oui » seul, créneau remplacé, affinage sans effet |
 | `b2c-geo-class-2026-10-06.jsonl` | `b2c/geo-class-2026-10-06` | 10 — classe géographique (mcp-dayuse#7) : hôtel nommé, quartier, homonyme |
-| `b2c-qa-14707-2026-10-14.jsonl` | `b2c/qa-14707-2026-10-14` | 11 — les 3 retours QA de Raphael (dayuse-com#14707) : 9 `target` (ville/adresse/code postal écrits dans le message, réponse à la question de ville en 1 tour, « je confirme » après une question) + 2 `regression_guard` (la ville est demandée, règle S5). Barre des rejeux live H1 (référence) et H3 (après la phase 3) |
+| `b2c-qa-14707-2026-10-14.jsonl` | `b2c/qa-14707-2026-10-14` | 12 — les 3 retours QA de Raphael (dayuse-com#14707) : 9 `target` (ville/adresse/code postal écrits dans le message, réponse à la question de ville en 1 tour, « je confirme » après une question) + 3 `regression_guard` (la ville est demandée, règle S5 ; `qa14707-near-11580-en` : « near 11580 » sans pays nommé reste aux États-Unis, DQ7/DQ8). Barre des rejeux live H1 (référence) et H3 (après la phase 3) |
 
 Import (crée les datasets hébergés + upsert des items, idempotent — les `id` sont déterministes) :
 
