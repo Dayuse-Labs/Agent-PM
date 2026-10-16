@@ -157,6 +157,7 @@ from .profile import (
     apply_profile_delta,
     build_hotel_picks,
     chosen_clarification_option,
+    free_question_streak,
     is_bare_affirmative,
     is_booking_confirmation_signal,
     is_more_options_signal,
@@ -177,6 +178,7 @@ from .profile import (
     search_context_line,
     select_cheapest_hotel,
     select_hotel_by_position,
+    without_final_question,
 )
 from .profile_store import get_profile_store
 from .requested_date import date_served_notice, expected_search_date, reference_today
@@ -552,6 +554,16 @@ _UNCHANGED_NOTE = (
     "Never claim you widened, changed or found anything; offer ONE different next step."
 )
 
+# QA14707 (Q28): the user was already asked a question on the previous turns
+# in a row, with no search. Told on the same synthesis call — never a second
+# one — and a question line the reply still ends on is dropped in code.
+_NO_QUESTION_NOTE = (
+    "the user has already been asked a question on several turns in a row and no "
+    "search has run yet. Do NOT ask anything this time: no question, no question "
+    "mark. End with a plain statement of what you can search as soon as the user "
+    "gives it."
+)
+
 
 class _B2cConcierge(BaseAgent):
     """Code-owned spine: progress marker → ack fast-path → triage → code-routed
@@ -669,7 +681,7 @@ class _B2cConcierge(BaseAgent):
         widen_note: str | None, invocation_id: str,
         search_context: str = "", provenance_note: str = "", currency_note: str = "",
         angle: str = "", no_offers: str = "", recent_messages: list[str] | None = None,
-        unchanged: bool = False,
+        unchanged: bool = False, no_question: bool = False,
     ) -> str | None:
         """ONE litellm call producing a candidate synthesis text, or None on
         failure. The system prompt's STATIC prefix never changes (cache); only
@@ -724,6 +736,8 @@ class _B2cConcierge(BaseAgent):
             user += f"\n\nANGLE (lead on this, in your own words): {angle}"
         if unchanged:
             user += f"\n\nUNCHANGED: {_UNCHANGED_NOTE}"
+        if no_question:
+            user += f"\n\nNO QUESTION: {_NO_QUESTION_NOTE}"
         t0 = time.monotonic()
         try:
             resp = await _get_synthesis_router(model_slug).acompletion(
@@ -780,6 +794,7 @@ class _B2cConcierge(BaseAgent):
         profile: SessionProfile, budget: TurnBudget, invocation_id: str,
         leaf_text_is_user_facing: bool = True, no_offers: str = "",
         recent_messages: list[str] | None = None, unchanged: bool = False,
+        no_question: bool = False,
     ) -> str | None:
         """ONE charged "synthesis" budget slot (internal retries below are an
         implementation detail of this ONE phase — same precedent as the
@@ -792,8 +807,10 @@ class _B2cConcierge(BaseAgent):
         amenity claim verifier (S07): the approved text is checked against
         the SAME hotels the ground-truth block just grounded it in, hedging
         any unbacked amenity claim in place. The anti-clarification-loop guard
-        no longer reads this text: it works on the stored place question
-        (`next_pending_clarification`, Q11). Mutates
+        never reads this text: it works on the state — the stored place
+        question (`next_pending_clarification`, Q11) and the free-question
+        count (`pending_search.asked`, Q28), whose `no_question` rides on this
+        same call as one more line of its input. Mutates
         `profile.last_clarifying_question` (the leaf's own question), clears
         `profile.auto_widen_disclosure`, and updates
         `profile.amenity_claim_corrections` in place; the caller persists the
@@ -891,7 +908,7 @@ class _B2cConcierge(BaseAgent):
             invocation_id=invocation_id, search_context=search_context,
             provenance_note=provenance_note, currency_note=currency_note,
             angle=angle, no_offers=no_offers, recent_messages=recent_messages,
-            unchanged=unchanged,
+            unchanged=unchanged, no_question=no_question,
         )
 
         def fallback() -> str | None:
@@ -1971,26 +1988,47 @@ class _B2cConcierge(BaseAgent):
                 return
 
         synth: str | None
+        free_question: str | None = None
         if route.target == LEAF_HOTEL_SEARCH and profile.pending_party_total is not None and response.get("results"):
             # PORT1 slice 5: the cards show the exact offers; no prose may
             # claim group eligibility or guess a composition — no synthesis.
             synth = discovery_message(profile.pending_party_total, reply_language, ask=not party_question_asked)
             profile.last_clarifying_question = party_composition_question(profile.pending_party_total, reply_language)
         else:
+            # QA14707 (Q28): the anti-loop on free questions reads the state —
+            # how many turns in a row ended on a question without a search
+            # (`pending_search.asked`), never the wording. Past
+            # CLARIFICATION_MAX_ASKS this turn asks nothing: the one synthesis
+            # call is told so, and a question line it still ends on is dropped
+            # (or a fixed template answers). No retry, no extra LLM call.
+            ask_nothing = (
+                route.target == LEAF_HOTEL_SEARCH
+                and "results" not in response
+                and free_question_streak(pending) >= templates.CLARIFICATION_MAX_ASKS
+            )
             synth = await self._synthesize_with_guards(
                 message=message, language=reply_language, leaf_text=leaf_text, response=response,
                 profile=profile, budget=budget, invocation_id=inv, no_offers=no_offers,
                 recent_messages=recent_messages if family == "faq" else None,
-                unchanged=unchanged,
+                unchanged=unchanged, no_question=ask_nothing,
             )
             # QA14707 (Q27): a follow-up question only the synthesis asks is
             # still what a bare "oui" answers; the leaf's own line wins.
-            profile.last_clarifying_question = turn_question(leaf_text, synth)
+            free_question = turn_question(leaf_text, synth)
+            if ask_nothing and free_question:
+                with observation(as_type="guardrail", name="anti-clarification-loop"):
+                    mark_level("WARNING", status_message="anti_clarification_loop")
+                    budget.fired.add("anti_clarification_loop")
+                synth = without_final_question(synth) or templates.no_question_response(reply_language)
+            profile.last_clarifying_question = None if ask_nothing else free_question
         if budget_followup:
             profile.last_clarifying_question = budget_followup  # what a bare "80" answers
         if route.target == LEAF_HOTEL_SEARCH:
+            # The request stays open after a corrected turn (EARLIER REQUEST,
+            # no YOU ASKED), and that turn still counts as one more ask.
             profile.pending_search = next_pending_search(
-                earlier, message, "results" in response, profile.last_clarifying_question
+                earlier, message, "results" in response, profile.last_clarifying_question,
+                ended_on_question=bool(profile.last_clarifying_question or free_question),
             )
         await store.set(ctx.session.id, profile)
 

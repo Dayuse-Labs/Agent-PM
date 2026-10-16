@@ -530,6 +530,7 @@ class TestSecondReviewFixes:
         _run_turn(runner, session.id, "un hôtel en zlotys")
         assert asyncio.run(fake_profile_store.get(session.id)).pending_search == {
             "request": "un hôtel en zlotys", "question": "Dans quelle ville cherchez-vous ?",
+            "asked": 1,  # QA14707 (Q28): the free-question anti-loop's count
         }
 
         warsaw = {**copy.deepcopy(HK_CARD), "hotel_price": "PLN 400.00", "hotel_price_minor": 40000,
