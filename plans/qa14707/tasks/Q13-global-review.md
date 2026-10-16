@@ -18,6 +18,7 @@ verification:
   - "/Users/fabiendauvergne/Projects/AgentB2C/.venv/bin/ruff check ."
   - "/Users/fabiendauvergne/Projects/AgentB2C/.venv/bin/mypy agents libs"
   - "bash scripts/dayuse_guardrails.sh ."
+  - "git diff --stat $(git log -1 --format=%H --grep='^task Q29:' plan/qa14707)^1 $(git log -1 --format=%H --grep='^task Q29:' plan/qa14707)"
 definition_of_done:
   - "Review report: each of the 10 points below marked OK, or KO with its evidence (file:line, command)."
   - "Each KO is written up as a `review` or `debt` entry for the plan's HANDOFF."
@@ -50,6 +51,7 @@ definition_of_done:
   - "Point 6 also checks, with the command used (the diff of the `task Q10:` commit on the integration branch, or `git diff plan/qa14707...task/Q10 -- agents/hotel_search_agent/tests`), that the only test Q10 deleted is `test_geo_guards.py::test_postal_anchor_prefers_zip_after_state_over_street_number`, that it asserted only on the removed `select_us_postal_anchor` / `PostalAnchor`, and that the three renamed 11580 tests kept their assertions unchanged."
   - "Point 6 also checks that `qa14707-near-11580-en` exists in evals/datasets/b2c-qa-14707-2026-10-14.jsonl and that `evals/tests/test_qa14707_near_11580_item.py` is green."
   - "Point 8 also checks, with file:line, that the dated QA14707 block of `HANDOFF.md` says a bare postcode persists its city only, with no zone and a `poi` origin (site ring through `inject_landmark_radius`). This must match the bare-postcode branch of `geocode_core` in agents/hotel_search_agent/hotel_search_agent/geocode_tool.py and agents/hotel_search_agent/tests/test_postcode_origin_radius.py, which must exist and be green. The point also checks that the block does not give a bare postcode the `city_centroid` radius."
+  - "Point 6 also checks, with the command used (`git diff --stat <c>^1 <c>`, where `<c>` is `git log -1 --format=%H --grep='^task Q29:' plan/qa14707`), that Q29 changed only evals/datasets/b2c-qa-14707-2026-10-14.jsonl, evals/datasets/README.md and evals/tests/test_qa14707_near_11580_item.py, that it committed no run artifact (no file under .run-logs/, reports/ or baseline/, and no Langfuse experiment output), and that the 11 earlier items of the dataset file are byte-for-byte unchanged."
 ---
 
 ## Launch prompt

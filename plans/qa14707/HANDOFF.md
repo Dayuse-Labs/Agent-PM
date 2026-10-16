@@ -393,6 +393,9 @@ amendment · major · Q13: The review must check the city precedence guard.
 ## Q29
 
 - blind-spot · minor · criterion unverifiable in the context of the task: No live run is made by the task: neither the diff nor any verification command can prove that something did not happen. The diff only touches the three offline eval files and adds no run artifact. The 3/3 replay is left to the human, and the scribe records it in HANDOFF at the end of the task.
+- decision · major · Q29: 'no live run is made by the task' cannot be proven from the diff: option A settled by the user — Add a scope check to Q13 point 6 to confirm, with a command, that Q29's merged change only touches its three owned eval files and commits no run artifact. Record in HANDOFF that the criterion is closed by the diff scope plus the existing needs-human replay entry. No agent action involves live services.
+- decision · minor · Q29: the DoD criterion 'no live run is made by the task' is a negative that no diff can prove. It is closed by the diff scope instead: only evals/datasets/b2c-qa-14707-2026-10-14.jsonl, evals/datasets/README.md and evals/tests/test_qa14707_near_11580_item.py changed, with no run artifact, and every verification command is offline (seed --dry-run, pytest, ruff, guardrails). Q13 point 6 re-checks that scope with a command. The live 3/3 replay of `qa14707-near-11580-en` stays the human step already recorded under ## Q10 (needs-human, 'Live replay owed'), and Q12 lists it in the H3 checklist.
+- amendment · major · Q13: Q29's criterion 'no live run is made by the task' can only be closed by the scope of its merged change. The global review should confirm that scope with a command.
 
 ## Q28
 
