@@ -9,12 +9,15 @@ arguments, unchanged. The mapping itself is tested in
 """
 from __future__ import annotations
 
+from types import SimpleNamespace
+
 import httpx
 import pytest
 from a2a import types as a2a_types
 from google.adk.a2a.converters.part_converter import convert_a2a_part_to_genai_part
 from google.genai import types as genai_types
 
+from b2c_common.geo_intent import GeoIntent, Place
 from hotel_search_agent import geocode_tool
 from hotel_search_agent.geocode_tool import geocode_core, geocode_location, inject_profile_geo_context
 from hotel_search_agent.mapbox_client import GeocodeCandidate, GeocodeResult, MapboxClient
@@ -624,6 +627,23 @@ class TestSearchBoxTier2:
         assert result["ok"] is False
         assert result["error"] == "geocode_ambiguous"
         assert box.calls  # tier 2 was tried first
+
+
+class TestCityNamedInMessage:
+    """mcp-dayuse#7: « près de St Paul's à Londres » resolves the cathedral in
+    London. The city now travels in the GeoIntent, not mined from the message."""
+
+    def test_a_landmark_with_its_city_in_the_intent_resolves(self, monkeypatch):
+        cathedral = _c("St Paul's Cathedral", "GB", "Londres", ftype="neighborhood", lat=51.51)
+        _patch_multi(monkeypatch, [cathedral], inventory={51.51: 30})
+        intent = GeoIntent(places=[Place(
+            mention="St Paul's", kind="landmark", canonical="St Paul's Cathedral", city="London")])
+        ctx = SimpleNamespace(state={}, user_content=genai_types.Content(
+            role="user", parts=[genai_types.Part(text="un hôtel près de St Paul's à Londres demain")]))
+
+        result = geocode_location(intent=intent, tool_context=ctx)
+
+        assert result["ok"] is True
 
 
 class TestLandmarkWithoutCity:
