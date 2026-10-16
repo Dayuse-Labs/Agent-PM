@@ -807,10 +807,14 @@ class _B2cConcierge(BaseAgent):
         amenity claim verifier (S07): the approved text is checked against
         the SAME hotels the ground-truth block just grounded it in, hedging
         any unbacked amenity claim in place. The anti-clarification-loop guard
-        never reads this text: it works on the state — the stored place
-        question (`next_pending_clarification`, Q11) and the free-question
-        count (`pending_search.asked`, Q28), whose `no_question` rides on this
-        same call as one more line of its input. Mutates
+        compares no wording. Its trigger is stored state: the place question
+        (`next_pending_clarification`, Q11) and the free-question count
+        (`pending_search.asked`, Q28), whose `no_question` rides on this same
+        call as one more line of its input. On the free-question path, the
+        punctuation of the reply's last line (the leaf's, else this
+        synthesis's, by the `leaf_question` rule) only decides whether a
+        question line is there to drop; that drop happens after this call
+        returns, in the spine (`without_final_question`). Mutates
         `profile.last_clarifying_question` (the leaf's own question), clears
         `profile.auto_widen_disclosure`, and updates
         `profile.amenity_claim_corrections` in place; the caller persists the
