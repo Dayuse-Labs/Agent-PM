@@ -5,7 +5,7 @@ phase: 5
 model: opus
 model_reason: "Source plan's model, kept: a skeptical review of the whole plan, read-only."
 effort: high
-depends_on: [Q12]
+depends_on: [Q12, Q29]
 parallel_batch: 5B
 owned_files: []
 resources: []
@@ -46,6 +46,9 @@ definition_of_done:
   - "Point 6 also checks, with file:line and the command used (`git diff plan/qa14707...task/Q09 -- agents/hotel_search_agent/tests/test_geocode_tool.py` or its equivalent on the merged branch), that every test Q09 deleted from agents/hotel_search_agent/tests/test_geocode_tool.py asserted only on a removed mechanism (`_city_named_in_message`, `_complete_pending_place`, `pending_place`), and that the HANDOFF listing of Q09 (deleted, renamed, rewritten) matches the diff."
   - "Point 1 also checks, with file:line, that `last_clarifying_question` is filled from the leaf's last line and then from the synthesis's last line, both through `leaf_question` (agents/b2c_concierge/b2c_concierge/profile.py) with no regex, and that agents/b2c_concierge/tests/test_synthesis_question_memory.py exists and is green."
   - "Point 2 (Budget) also checks, with file:line, that the free-question anti-loop (Q28) makes no added LLM call and no retry, and that agents/b2c_concierge/tests/test_free_question_anti_loop.py exists and is green. Point 3 also checks that `anti_clarification_loop` is still in `GUARD_SCORE_NAMES` and fires on both anti-loops."
+  - "Point 6 also checks, with file:line, that the « near 11580 » case for a user who names no country is held by tests that name no country: `TestNear11580::test_a_us_guess_or_a_us_market_stays_in_the_us` and `TestNear11580OnTheEnglishMarket` (agents/hotel_search_agent/tests/test_postcode_resolution.py). It counts the Q10-renamed tests that carry a named US (`test_without_a_postal_code_a_named_us_scopes_the_lookup`, and in agents/hotel_search_agent/tests/test_geocode_tool.py `test_a_named_us_forces_country_code_on_the_fake_client` and `test_a_named_us_scopes_the_real_mapbox_request_url`) only as tests of the named-country filter."
+  - "Point 6 also checks, with the command used (the diff of the `task Q10:` commit on the integration branch, or `git diff plan/qa14707...task/Q10 -- agents/hotel_search_agent/tests`), that the only test Q10 deleted is `test_geo_guards.py::test_postal_anchor_prefers_zip_after_state_over_street_number`, that it asserted only on the removed `select_us_postal_anchor` / `PostalAnchor`, and that the three renamed 11580 tests kept their assertions unchanged."
+  - "Point 6 also checks that `qa14707-near-11580-en` exists in evals/datasets/b2c-qa-14707-2026-10-14.jsonl and that `evals/tests/test_qa14707_near_11580_item.py` is green."
 ---
 
 ## Launch prompt

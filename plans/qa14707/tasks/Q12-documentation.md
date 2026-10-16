@@ -5,7 +5,7 @@ phase: 5
 model: sonnet
 model_reason: "Source plan's model, kept: documentation that must state exactly what the code does; not mechanical."
 effort: medium
-depends_on: [Q28]
+depends_on: [Q28, Q29]
 parallel_batch: 5A
 owned_files:
   - HANDOFF.md
@@ -55,6 +55,8 @@ definition_of_done:
   - "The H3 checklist in the dated QA14707 block of `HANDOFF.md` lists `qa14707-guard-gare-du-nord-asks-city-fr` and `geo-poi-gare-du-nord` (3/3 required on gpt-6-luna, searched near Gare du Nord in Paris, `clarify_expected` false, DQ12), and `qa14707-guard-gare-de-lyon-asks-city-fr` (3/3 still asked, S5, DQ6). It states that a landmark the model leaves without a city, with no device fix, still gets the city question in code, and cites agents/hotel_search_agent/tests/test_gare_du_nord_city_from_model.py."
   - "The dated QA14707 block of `HANDOFF.md` states how the question the next turn answers is chosen. A place question is the template text from `pending_clarification`. Otherwise it is the leaf's own last line when that line ends on a question mark, else the synthesis's last line by the same rule (`leaf_question` in agents/b2c_concierge/b2c_concierge/profile.py, Q11 and Q27). No regex extracts it. The block cites agents/b2c_concierge/tests/test_synthesis_question_memory.py."
   - "The dated QA14707 block of `HANDOFF.md` states the two anti-loops: place questions on `pending_clarification.asked` (Q04), and free questions on `pending_search.asked` (Q28: past `CLARIFICATION_MAX_ASKS`, the reply asks nothing, in the same synthesis call, with no retry). It lists `asked` in `pending_search` as part of the profile shape the #134 port must carry. The block cites agents/b2c_concierge/b2c_concierge/profile.py and agents/b2c_concierge/tests/test_free_question_anti_loop.py."
+  - "The dated QA14707 block of `HANDOFF.md` states, under pitfalls, that since Q10 (DQ7) a « near 11580 » turn stays in the United States only when the leaf extracts `postal_code`, and that the DQ8 guess or market then keeps the US candidate. It also states that a turn where the model leaves the postcode out is no longer scoped to a country. It cites `TestNear11580` in agents/hotel_search_agent/tests/test_postcode_resolution.py and agents/hotel_search_agent/tests/test_us_zip_removal.py."
+  - "The H3 checklist in the dated QA14707 block of `HANDOFF.md` lists `qa14707-near-11580-en` (3/3 required on gpt-6-luna, `active_filters.country_code` US), citing evals/datasets/b2c-qa-14707-2026-10-14.jsonl."
 ---
 
 ## Launch prompt
