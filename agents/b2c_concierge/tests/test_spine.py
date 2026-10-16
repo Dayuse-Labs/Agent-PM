@@ -939,7 +939,9 @@ class TestSynthesisQuestionIsNotPolicedByText:
         )
         _drive_in(runner, session.id, "let's do nova")
         stored = asyncio.run(fake_profile_store.get(session.id))
-        assert stored.last_clarifying_question is None
+        # Q27: the stale question is gone; the synthesis's own last line
+        # (the leaf asked nothing) is what the next turn answers.
+        assert stored.last_clarifying_question == "Here you go. Anything else?"
 
 
 class TestRecoveryAck:

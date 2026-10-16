@@ -163,6 +163,7 @@ from .profile import (
     is_search_refinement_signal,
     leaf_profile_view,
     leaf_question,
+    turn_question,
     maybe_auto_widen,
     next_pending_clarification,
     next_pending_search,
@@ -1982,6 +1983,9 @@ class _B2cConcierge(BaseAgent):
                 recent_messages=recent_messages if family == "faq" else None,
                 unchanged=unchanged,
             )
+            # QA14707 (Q27): a follow-up question only the synthesis asks is
+            # still what a bare "oui" answers; the leaf's own line wins.
+            profile.last_clarifying_question = turn_question(leaf_text, synth)
         if budget_followup:
             profile.last_clarifying_question = budget_followup  # what a bare "80" answers
         if route.target == LEAF_HOTEL_SEARCH:
