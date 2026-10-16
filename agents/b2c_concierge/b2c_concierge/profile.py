@@ -1146,11 +1146,23 @@ def leaf_question(leaf_text: str | None) -> str | None:
     a turn that does not end on a question mark asked nothing.
 
     A place question the code asked is not read from text at all: it is the
-    stored `Clarification` (`next_pending_clarification`)."""
+    stored `Clarification` (`next_pending_clarification`).
+
+    What is read, in order (Q27): the leaf's last line first; only when the
+    leaf asked nothing, the last line of the final user-facing synthesis
+    (`turn_question`). Both by punctuation only, with the same cap."""
     lines = [line.strip() for line in (leaf_text or "").splitlines() if line.strip()]
     if not lines or not lines[-1].endswith("?"):
         return None
     return lines[-1][-_MAX_LEAF_QUESTION_CHARS:]
+
+
+def turn_question(leaf_text: str | None, synthesis: str | None) -> str | None:
+    """The question the next turn answers: the leaf's own last line when it
+    asked one, else the synthesis's last line (a follow-up only the synthesis
+    asks). Same `leaf_question` rule for both — a trailing '?' and nothing
+    else."""
+    return leaf_question(leaf_text) or leaf_question(synthesis)
 
 
 # --- Named-hotel lookup (S07) — the `_last_results` equivalent -------------
