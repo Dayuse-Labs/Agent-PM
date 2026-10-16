@@ -63,6 +63,7 @@ Q26 results: pytest -q 2935 passed, 1 skipped (316 s). hotel_search_agent tests 
 - Run the verifications one by one with the guard: pytest -q (full, ~347 s, needs a long timeout: 2953 passed, 1 skipped), then pytest -q agents/b2c_concierge/tests (1254 passed), tests/test_leaf_concierge_seam.py (18), test_clarification_routing.py (31), test_entry_market_country.py (27), ruff check ., mypy agents libs (68 files), bash scripts/dayuse_guardrails.sh . . Passing several test paths in one pytest command made the counts look partial; run them separately.
 - In this worktree, inline python edits (`python3 - file <<'EOF'`) were accepted. The full `pytest -q` takes about 5.7 to 6.3 minutes (340 to 377 s), so use a 600000 ms timeout.
 - The full pytest run takes about 340 s, well over the 120 s default tool timeout (the calendar-rot test replays the suite). Run it with a 600000 ms timeout or in the background. The fast loop is `pytest -q agents/b2c_concierge/tests tests/test_leaf_concierge_seam.py`.
+- `/Users/fabiendauvergne/Projects/AgentB2C/.venv/bin/pytest -q` gives 2991 passed and 1 skipped in about 300 s. It needs a 600000 ms timeout because tests/test_calendar_rot.py replays the whole suite. `bash scripts/dayuse_guardrails.sh .` passes.
 
 ## Quick map
 
@@ -127,6 +128,7 @@ Q26 results: pytest -q 2935 passed, 1 skipped (316 s). hotel_search_agent tests 
 - After Q09 the concierge still carries `pending_place` (profile.py:295/366/804, agent.py:1785, and test_spine.py:566-582). Nothing on the leaf side writes it any more, so Q11 can remove it freely.
 - Contract (Q28): the persisted `pending_search` slot for Q12 and the #134 port is `{request: str|None, question: str|None, asked: int}`. `asked` holds no message text, is concierge-only (in `_CONCIERGE_ONLY_KEYS` through `pending_search`) and lives under the existing Redis TTL. New public helpers in profile.py: `free_question_streak(slot) -> int` (0 for a place-question slot or an unusable count) and `without_final_question(text) -> str`. New in templates.py: `no_question_response(language)`. New in agent.py: `_NO_QUESTION_NOTE`, appended as `NO QUESTION: ...` to the synthesis user message, so the cached system prompt is unchanged. The new `no_question` parameter is on `_generate_once` and `_synthesize_with_guards`.
 - Observability (Q28): on a free-question correction the guardrail span is `anti-clarification-loop` with status_message `anti_clarification_loop`, the same name as the place-question path. The turn route stays `leaf:hotel_search` with llm_calls=3 (triage, leaf_llm, synthesis). The score covers both place and free questions again. Q13 point 2: no new LLM call.
+- The only untracked file is `.worktreeinclude`. It predates the plan and was left alone. No code file was touched by Q12.
 
 ## Observed conventions
 
@@ -196,6 +198,8 @@ Q26 results: pytest -q 2935 passed, 1 skipped (316 s). hotel_search_agent tests 
 - Human step: the live 3/3 replay of `qa14707-near-11580-en` is still owed to a human and should be recorded in the plan's HANDOFF.
 - Contract (Q28): the free-question anti-loop trigger is the stored count (`free_question_streak(pending) >= CLARIFICATION_MAX_ASKS` on a no-results search-leaf turn); no wording is compared. In the spine, `turn_question(leaf_text, synth)` checks the punctuation of the leaf's last line, or else the synthesis's last line. It decides whether there is a question line to drop and whether `anti_clarification_loop` goes into `budget.fired`. Any later change to that spine block must keep the `_synthesize_with_guards` docstring true.
 - Test idiom (Q28): synthesis calls are told apart from the triage in `ScriptedLlm.calls` by `call['messages'][0]['content'].startswith('You are the synthesis step')`. In test_free_question_anti_loop.py, `_ask_turn(runner, session_id, fake_leg, n)` makes a turn on which the leaf asks a free question (`response_payload=None`). Negative control without stash or reset: copy the 3 sources to `<scratchpad>/Q28/new/`, run `git show 816b119:<file> > <file>`, run the one test, `cp` the sources back, then check `git diff --stat` (empty). On the parent it fails at test_free_question_anti_loop.py:101 `assert not _last_line(replies[n]).endswith("?"), replies[n]` with turn-3 reply 'I need one more detail.\nCould you tell me the area?'.
+- On the model side, the docs say `geocode_location` accepts only `intent` and `metro`. The flat interface is `geocode_core` (`geocode_tool.py:518`), as plan §3 and the SL5 banner say. The S-L plan's line numbers are those of cbe88b9, and a banner in the plan says to search by symbol.
+- `--import-mode=importlib` comes from `pytest.ini:4`, added by commit 1bbdc4b. Cite that file and commit for any test-import pitfall.
 
 ## Pitfalls and fixes
 
@@ -274,5 +278,9 @@ Q26 results: pytest -q 2935 passed, 1 skipped (316 s). hotel_search_agent tests 
 - On macOS (BSD sed), `sed -i` without a backup suffix fails on multi-byte patterns. Use the Edit tool for README edits.
 - Debt (Q28, untouched, outside the DoD): the inline details/compare path's stale `last_clarifying_question` (Q27 debt; agent.py around line 914, after the `candidate is None` early return) is still open. The ack template and the faq route consume `pending_search` and do not rewrite it, so they end a free-question streak. That is intended: only consecutive no-search search-leaf turns count.
 - The full `pytest -q` takes about 5 min in this worktree (301 s, mostly the calendar-rot replay). Run it in the background and wait on its exit marker before reporting.
+- macOS BSD sed needs `sed -i ''`. Without the empty string it fails with 'extra characters at the end of p command', and in a `&&` chain the commands after it never run. A small python3 heredoc doing an asserted single replace is safer for edits to Markdown table cells.
+- Since Q26 (543e8aa), a bare postcode returns `distance_origin_type="poi"` (geocode_tool.py:780-793), not `city_centroid`. Any doc or criterion that says otherwise is stale.
+- The DoD asks for many exact citations. Everything needed is in plans/qa14707/HANDOFF.md (by task) and in DISCOVERY.md (contracts, helpers). The Q13 pointers there list what to check.
+- In the S-L7 rows, S-L7b and S-L7c are 'transformed (not removed)': the S5 exception is still in the leaf instruction at `agents/hotel_search_agent/hotel_search_agent/agent.py:182-185`, and `TestLeafInstruction::test_s5_bullet_stays` locks it in. The banner, the table row and S-L plan §4 have to say the same thing, so check all three before declaring a status.
 
 ## Context recommendations (end of run)
