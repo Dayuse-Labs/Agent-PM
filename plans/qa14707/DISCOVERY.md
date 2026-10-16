@@ -121,6 +121,7 @@ Q26 results: pytest -q 2935 passed, 1 skipped (316 s). hotel_search_agent tests 
 - Test helper (Q20): `agents/hotel_search_agent/tests/test_street_without_postcode.py` has `_RecordedMapbox(drop_first)`, keyed by (q.casefold(), types), for the 5 H6 recordings: street Versailles, street no city, generic Versailles candidates, Poissonnière Paris without postcode, Poissonnière with the postcode in the zone. It also has `_install(monkeypatch, drop_first, inventory)`, which keeps a single `_SearchBox` instance as `.searchbox`, and `_LeipzigInventory`. `_today(...)` replays the same call with zone_kind=None, the path that existed before Q20, so a test can assert that 'nothing designated changes nothing'.
 - Interface (Q20): `GeocodeCandidate` gained `match_place` and `match_postcode` (`match_code.place` / `.postcode`, values like 'matched' / 'unmatched' / 'inferred'), empty for anything but an address. Streets carry no match_code. New helper: `geocode_tool._street_match(candidates, zone, *, city) -> GeocodeCandidate | None`.
 - Test helpers (Q21) in agents/hotel_search_agent/tests/test_picked_option_query.py: `_answer_turn(profile_in)` runs a whole leaf tool call (`inject_profile_geo_context`, then the real `FunctionTool(geocode_location).run_async`, with the Manhattan PREFIX and the reply « New York »). `_RecordedMapbox` serves the H6 Manhattan recordings, keyed by (q.casefold(), types). `_V6(streets)` is a Mapbox fake returning the streets for ADDRESS_TYPES and Springfield IL/MO cities otherwise; it also defines MO_STREET, IL_STREET, IL_CITY and MO_CITY. Q09 must keep these tests green when it removes `_complete_pending_place` and `_city_named_in_message`: the Manhattan profile carries no `pending_place`, and every street test passes `city` explicitly.
+- After Q09 the concierge still carries `pending_place` (profile.py:295/366/804, agent.py:1785, and test_spine.py:566-582). Nothing on the leaf side writes it any more, so Q11 can remove it freely.
 
 ## Observed conventions
 
@@ -180,6 +181,9 @@ Q26 results: pytest -q 2935 passed, 1 skipped (316 s). hotel_search_agent tests 
 
 - **Empty tight disc (Q26)**: there is no automatic widening after an empty answer. The ring is picked before the call (response_bridge.py:865-870 site_radius_km, inject_landmark_radius poi branch around 903-910) from inventory density and widens to 50 km where the area is sparse. A zero-offer result takes the same path as a POI: results [] plus the code-built 'No day-use offers found' line, _OUTCOME_EMPTY at response_bridge.py:1456, used by _outcome_text at :1511 and emitted at :1858 and :1926. test_zero_offers_around_the_postcode_is_an_honest_empty_outcome pins this.
 - **Postcode test (Q26)**: the new test drives geocode_location through FunctionTool.run_async (args = intent.model_dump(mode='json') plus kwargs), then capture_after_tool and inject_landmark_radius. It adds no Mapbox or MCP call and no regex or word list. It uses its own copy of the postcode-resolution harness, reading the same H5 fixtures.
+- The full `.venv/bin/pytest -q` takes about 6.5 minutes (391 s, mostly the calendar-rot subprocess), so it exceeds the 120 s default tool timeout. Run it with a long timeout or in the background. There is no `timeout` binary on macOS.
+- To test geocode_location through a GeoIntent without DataParts, a tool_context of `SimpleNamespace(state={}, user_content=genai_types.Content(role='user', parts=[genai_types.Part(text=...)]))` is enough. See `_ctx` in test_carried_country_anchor.py for the version with profile_in.
+- A worker report must name each deleted or rewritten test individually. A generic line such as 'the mechanism tests were deleted' fails the evaluation for DoD 4.
 
 ## Pitfalls and fixes
 
@@ -248,5 +252,6 @@ Q26 results: pytest -q 2935 passed, 1 skipped (316 s). hotel_search_agent tests 
 
 - Live replay of qa14707-postcode-only-fr on gpt-6-luna is still owed, as the plan states. It is not required for the merge.
 - macOS sed needs `sed -i ''`; a failed sed in an && chain silently skips the commit.
+- macOS sed -i needs an extension argument, so a `sed -i '/pattern/d' file` call misparses its arguments. Use a Python edit instead.
 
 ## Context recommendations (end of run)
