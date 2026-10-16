@@ -30,6 +30,6 @@
 | Q27 | A follow-up question only the synthesis asks is still remembered for the next turn                                                         | 4     | 4C    | Q11        | sonnet | merged | 1        | task/Q27 | 1.2M / see /workflows |
 | Q28 | Anti-loop on free questions, read from the state: a third free question in a row without a search asks nothing                             | 5     | 5A    | Q11        | opus   | merged | 3        | task/Q28 | 2.0M / see /workflows |
 | Q12 | Documentation: HANDOFF, CHANTIERS, S-L plan                                                                                                | 5     | 5A    | Q28, Q29   | sonnet | merged | 3        | task/Q12 | 1.6M / see /workflows |
-| Q13 | Global review (read-only)                                                                                                                  | 5     | 5B    | Q12, Q29   | opus   | todo   | 0        | —        | 2.6M / —              |
+| Q13 | Global review (read-only)                                                                                                                  | 5     | 5B    | Q12, Q29   | opus   | merged | 2        | task/Q13 | 2.6M / see /workflows |
 
 Statuses: todo · added · merged · blocked · failed · needs-human · cancelled
