@@ -32,14 +32,14 @@ from b2c_concierge.profile import (
     _split_one_sided_clock,
     advance_search_cursor,
     apply_profile_delta,
-    extract_final_question,
+    leaf_question,
     is_bare_affirmative,
     is_booking_confirmation_signal,
     is_more_options_signal,
     is_search_refinement_signal,
     leaf_profile_view,
     maybe_auto_widen,
-    questions_equivalent,
+    next_pending_clarification,
     record_search_outcome,
     record_search_shortlist,
     reset_search_cursor,
@@ -803,42 +803,60 @@ class TestSearchContextLine:
         assert search_context_line(SessionProfile()) == ""
 
 
-# ── P10 (S06): anti-clarification-loop pure detectors ───────────────────────
+# ── QA14707 (Q11): the question the leaf asked, as it wrote it ──────────────
 
 
-class TestExtractFinalQuestion:
-    def test_returns_last_question(self):
-        message = (
-            "Thanks — 5pm works.\n"
-            "Quick note: I can't re-run the same list from here, but I can refine "
-            "if you tell me one thing: do you want Queens or Brooklyn?"
-        )
-        question = extract_final_question(message)
-        assert question is not None
-        assert "Queens or Brooklyn" in question
+class TestLeafQuestion:
+    def test_is_the_leafs_own_last_line_unchanged(self):
+        text = "Everything is outside the centre.\nVoulez-vous des hôtels plus proches du centre ?"
+        assert leaf_question(text) == "Voulez-vous des hôtels plus proches du centre ?"
 
-    def test_none_without_a_trailing_question(self):
-        assert extract_final_question("Here are your hotels.") is None
-        assert extract_final_question("") is None
+    def test_none_without_a_trailing_question_mark(self):
+        assert leaf_question("Here are your hotels.") is None
+        assert leaf_question("") is None
+        assert leaf_question(None) is None
 
-    def test_none_when_the_question_is_not_the_last_sentence(self):
-        assert extract_final_question("Which area? Anyway, here are your hotels.") is None
+    def test_none_when_the_question_is_not_the_last_line(self):
+        assert leaf_question("Which area?\nAnyway, here are your hotels.") is None
+
+    def test_reads_no_wording_only_the_final_mark(self):
+        # Any language: the only test is the closing question mark.
+        assert leaf_question("¿Qué zona prefiere?") == "¿Qué zona prefiere?"
+        assert leaf_question("Welche Gegend?") == "Welche Gegend?"
+
+    def test_is_bounded(self):
+        assert len(leaf_question("x" * 2000 + "?") or "") == 300
 
 
-class TestQuestionsEquivalent:
-    QUESTION = "Which airport area exactly should I prioritize?"
+class TestNextPendingClarificationCount:
+    """`asked` is persisted by the concierge, but a profile can be written by
+    another writer: a missing or non-integer count must never raise."""
 
-    def test_exact_and_fuzzy_match(self):
-        assert questions_equivalent(self.QUESTION, self.QUESTION)
-        assert questions_equivalent(self.QUESTION, "Which airport area, exactly, should I prioritize?")
+    CLARIFICATION = {"kind": "city_needed", "subject": "Gare du Nord", "options": []}
 
-    def test_different_question_does_not_match(self):
-        assert not questions_equivalent(self.QUESTION, "What budget should I use for the search?")
+    @pytest.mark.parametrize("asked", [None, "two", 2.5, {"n": 2}, [2], True, 0, -3])
+    def test_an_unusable_stored_count_does_not_raise_and_counts_from_1(self, asked):
+        earlier = {"clarification": dict(self.CLARIFICATION), "request": "x"}
+        if asked is not None:
+            earlier["asked"] = asked
+        result = next_pending_clarification(earlier, "Je confirme", dict(self.CLARIFICATION))
+        assert result["asked"] == 2  # the earlier ask counts once
 
-    def test_none_or_empty_never_matches(self):
-        assert not questions_equivalent(self.QUESTION, None)
-        assert not questions_equivalent(self.QUESTION, "")
-        assert not questions_equivalent(None, None)
+    def test_a_missing_key_counts_from_1(self):
+        earlier = {"clarification": dict(self.CLARIFICATION)}
+        assert next_pending_clarification(earlier, "m", dict(self.CLARIFICATION))["asked"] == 2
+
+    def test_a_stored_integer_is_continued(self):
+        earlier = {"clarification": dict(self.CLARIFICATION), "asked": 2}
+        assert next_pending_clarification(earlier, "m", dict(self.CLARIFICATION))["asked"] == 3
+
+    def test_another_question_starts_at_1_whatever_the_stored_count(self):
+        earlier = {"clarification": dict(self.CLARIFICATION), "asked": "junk"}
+        other = {"kind": "city_needed", "subject": "Gare de Lyon", "options": []}
+        assert next_pending_clarification(earlier, "m", other)["asked"] == 1
+
+    def test_no_earlier_question_starts_at_1(self):
+        assert next_pending_clarification(None, "m", dict(self.CLARIFICATION))["asked"] == 1
 
 
 # ── S07: named-hotel lookup (the `_last_results` equivalent) ───────────────

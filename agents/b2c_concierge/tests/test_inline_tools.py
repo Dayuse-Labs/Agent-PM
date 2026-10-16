@@ -243,7 +243,7 @@ class TestGetHotelDetails:
             },
         )
         profile = SessionProfile(last_results=[])
-        result = _run(inline_tools.get_hotel_details("Moxy Chelsea", profile))
+        result = _run(inline_tools.get_hotel_details("Moxy Chelsea", profile, llm_hotel_name="Moxy Chelsea"))
         assert result["ok"] is True
         assert [c[0] for c in session.calls] == ["find_hotel_by_name", "get_hotel_details"]
 
@@ -269,17 +269,20 @@ class TestGetHotelDetails:
             },
         )
         profile = SessionProfile(last_results=[])
-        result = _run(inline_tools.get_hotel_details("Villa Paris Orly", profile))
+        result = _run(
+            inline_tools.get_hotel_details(
+                "Villa Paris Orly", profile, llm_hotel_name="Villa Paris Orly"
+            )
+        )
         assert result["ok"] is True
         details_call = next(c for c in session.calls if c[0] == "get_hotel_details")
         assert details_call[1]["hotelId"] == 22293
 
-    def test_a_full_sentence_reference_is_stripped_before_the_mcp_fallback(self, monkeypatch):
+    def test_a_full_sentence_reference_reaches_mcp_as_the_triage_name_only(self, monkeypatch):
         # Verified live: MCP find_hotel_by_name tolerates typos/partial input
         # in the NAME itself, but not a whole surrounding sentence ("Book
-        # Villa Paris Orly for me" -> HotelNotFoundError). No LLM entity
-        # extraction runs in this spine, so the fallback strips common
-        # request phrasing itself before querying.
+        # Villa Paris Orly for me" -> HotelNotFoundError). The name is the
+        # triage's `hotel_name` (Q11: no regex strips the sentence any more).
         session = _install(
             monkeypatch,
             {
@@ -288,10 +291,23 @@ class TestGetHotelDetails:
             },
         )
         profile = SessionProfile(last_results=[])
-        result = _run(inline_tools.get_hotel_details("Book Villa Paris Orly for me", profile))
+        result = _run(
+            inline_tools.get_hotel_details(
+                "Book Villa Paris Orly for me", profile, llm_hotel_name="Villa Paris Orly"
+            )
+        )
         assert result["ok"] is True
         find_call = next(c for c in session.calls if c[0] == "find_hotel_by_name")
         assert find_call[1]["name"] == "Villa Paris Orly"
+
+    def test_with_no_triage_name_the_raw_message_never_reaches_mcp(self, monkeypatch):
+        # QA14707 (Q11, trace C2 class): the details route used to fall back to
+        # the raw message when the phrase stripper removed nothing.
+        session = _install(monkeypatch, {})
+        profile = SessionProfile(last_results=[])
+        result = _run(inline_tools.get_hotel_details("Je confirme", profile))
+        assert result["ok"] is False
+        assert session.calls == []
 
     def test_empty_reference_degrades_without_any_mcp_call(self, monkeypatch):
         session = _install(monkeypatch, {})
@@ -315,7 +331,11 @@ class TestGetHotelDetails:
             },
         )
         profile = SessionProfile(last_results=[{"hotel_id": 99, "name": "Wren Valley Inn"}])
-        result = _run(inline_tools.get_hotel_details("Sir Christopher Wren Hotel", profile))
+        result = _run(
+            inline_tools.get_hotel_details(
+                "Sir Christopher Wren Hotel", profile, llm_hotel_name="Sir Christopher Wren Hotel"
+            )
+        )
         assert result["ok"] is True
         assert [c[0] for c in session.calls] == ["find_hotel_by_name", "get_hotel_details"]
         details_call = next(c for c in session.calls if c[0] == "get_hotel_details")
@@ -1640,9 +1660,8 @@ class TestObs4McpTraceContext:
 
 class TestP1HotelNameSlot:
     """P1-1: triage's `hotel_name` slot is the PRIMARY extraction for MCP
-    `find_hotel_by_name`; `_extract_hotel_name_candidate` stays the fallback.
-    Unlike the boolean slots this one is a VALUE, so it is LLM-primary rather
-    than additive — there is no "OR" to take between two strings."""
+    `find_hotel_by_name` and, since Q11, the only one: no regex strips the
+    message, so with no slot MCP is never asked."""
 
     def _script(self, monkeypatch):
         return _install(
@@ -1667,14 +1686,12 @@ class TestP1HotelNameSlot:
         by_name = [args for name, args in session.calls if name == "find_hotel_by_name"]
         assert by_name[0]["name"] == "Moxy NYC Chelsea"
 
-    def test_without_the_slot_the_phrase_stripper_still_runs(self, monkeypatch):
+    def test_without_the_slot_mcp_is_never_asked_with_the_message(self, monkeypatch):
+        # Q11: no phrase stripper any more — no slot, no find_hotel_by_name.
         session = self._script(monkeypatch)
         profile = SessionProfile()
         _run(inline_tools.get_hotel_details("book the Moxy NYC Chelsea for me", profile))
-        by_name = [args for name, args in session.calls if name == "find_hotel_by_name"]
-        # The fr/en stripper removes "book the" and "for me" — which is exactly
-        # all it can do, and why the slot exists for every other phrasing.
-        assert by_name[0]["name"] == "Moxy NYC Chelsea"
+        assert [name for name, _ in session.calls if name == "find_hotel_by_name"] == []
 
     def test_a_strong_shortlist_hit_never_reaches_mcp_even_with_the_slot(self, monkeypatch):
         """The slot changes EXTRACTION, never MATCHING: a hotel already on

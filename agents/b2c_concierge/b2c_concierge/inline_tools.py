@@ -34,7 +34,6 @@ from __future__ import annotations
 import asyncio
 import math
 import os
-import re
 from contextlib import asynccontextmanager
 from dataclasses import replace
 from datetime import UTC, datetime
@@ -121,49 +120,14 @@ async def _call_tool(session: ClientSession, name: str, arguments: dict[str, Any
         return {"ok": False, "error": f"{name}: no structured response"}
 
 
-
-# MCP `find_hotel_by_name` matches "partial input and typos", NOT a whole
-# sentence around the name (verified live: "Book Villa Paris Orly for me" ->
-# HotelNotFoundError, "Villa Paris Orly" -> a match) — no LLM entity
-# extraction runs in this spine, so a lightweight, deterministic strip of the
-# common request phrasing is the fallback's OWN best-effort extraction
-# before calling MCP. The shortlist fuzzy-match (`resolve_hotel_reference`,
-# checked FIRST, above) needs no such extraction — it already tolerates the
-# full sentence by design, so this heuristic only matters for a hotel named
-# but not currently on screen.
-_LEADING_REQUEST_PHRASES_RE = re.compile(
-    r"^(?:please\s+)?(?:book|reserve|r[ée]serve[rz]?|compare|"
-    r"(?:show|tell)\s+me\s+(?:more\s+)?(?:details\s+)?(?:on|for|about)|"
-    r"details?\s+(?:on|for|about)|what\s+about)\s+(?:the\s+)?",
-    re.IGNORECASE,
-)
-_TRAILING_REQUEST_PHRASES_RE = re.compile(
-    r"\s+(?:for\s+me|please|s'il\s+vous\s+pla[iî]t|svp|now|today|merci)\.?\s*$",
-    re.IGNORECASE,
-)
-
-
-def _extract_hotel_name_candidate(text: str) -> str:
-    """Best-effort strip of common request phrasing around a hotel name.
-    Falls back to `text` unchanged if nothing was stripped (never returns an
-    empty string when `text` itself isn't empty)."""
-    candidate = _LEADING_REQUEST_PHRASES_RE.sub("", text.strip()).strip()
-    candidate = _TRAILING_REQUEST_PHRASES_RE.sub("", candidate).strip()
-    return candidate or text.strip()
-
-
 async def _resolve_hotel_id(
     session: ClientSession,
     reference: str,
     profile: SessionProfile,
     llm_hotel_name: str | None = None,
-    *,
-    name_from_reference: bool = True,
 ) -> tuple[int | None, str | None]:
     with observation(as_type="guardrail", name="resolve-named-hotel"):
-        return await _resolve_hotel_id_impl(
-            session, reference, profile, llm_hotel_name, name_from_reference=name_from_reference
-        )
+        return await _resolve_hotel_id_impl(session, reference, profile, llm_hotel_name)
 
 
 async def _resolve_hotel_id_impl(
@@ -171,8 +135,6 @@ async def _resolve_hotel_id_impl(
     reference: str,
     profile: SessionProfile,
     llm_hotel_name: str | None = None,
-    *,
-    name_from_reference: bool = True,
 ) -> tuple[int | None, str | None]:
     """Named-hotel lookup guard (item 4, hardened S12 audit 2026-07-20): a
     STRONG shortlist hit (exact/substring name match) resolves immediately,
@@ -198,22 +160,14 @@ async def _resolve_hotel_id_impl(
     if strong_hit is not None and strong_hit.get("hotel_id") is not None:
         return int(strong_hit["hotel_id"]), str(strong_hit["name"])
 
-    # P1-1: triage's `hotel_name` slot is the PRIMARY extraction now — it read
-    # the same message and can strip request phrasing in any language, which the
-    # two regexes below only do for a handful of fr/en openers. The stripper
-    # stays as the fallback (slot absent, malformed, or over-long): unlike the
-    # boolean slots, this one is a VALUE, so "LLM primary, regex fallback" is
-    # the right shape here rather than an additive OR.
-    #
-    # QA14707 (Q05, trace C2): `name_from_reference=False` is the booking
-    # path's rule — MCP is asked only for a name the triage read, never for
-    # the raw message (« Je confirme » became find_hotel_by_name's `name`).
-    name = llm_hotel_name or (
-        _extract_hotel_name_candidate(reference) if name_from_reference else None
-    )
+    # The name MCP is asked for is the one the triage read (`hotel_name`), on
+    # every route: it strips request phrasing in any language. QA14707 (Q05
+    # trace C2, Q11): never the raw message — « Je confirme » once became
+    # find_hotel_by_name's `name`. With no name from the triage, nothing is
+    # asked of MCP, and only the on-screen shortlist can still resolve below.
     result: dict[str, Any] = {"ok": False}
-    if name:
-        args: dict[str, Any] = {"name": name}
+    if llm_hotel_name:
+        args: dict[str, Any] = {"name": llm_hotel_name}
         if profile.city:
             args["cityName"] = profile.city
         result = await _call_tool(session, "find_hotel_by_name", args)
@@ -956,7 +910,6 @@ async def _quote_fresh_offer(
                 else:
                     hotel_id, hotel_name = await _resolve_hotel_id(
                         session, hotel_reference, profile, llm_hotel_name,
-                        name_from_reference=False,
                     )
                     guards_fired.append("named_hotel_lookup")
                 if hotel_id is None:
