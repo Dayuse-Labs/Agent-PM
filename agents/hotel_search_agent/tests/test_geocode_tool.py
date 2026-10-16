@@ -236,20 +236,21 @@ class TestGeocoderDegradation:
 
 
 class TestUsZipCountryScoping:
-    """Prod bug: a 5-digit US ZIP ("near 11580") geocoded worldwide when the
-    model didn't also extract country_code. `select_us_postal_anchor`
-    (geo_guards.py, ported S4) existed but was never wired into a real
-    request — this locks the fix at the FakeMapboxClient level (mirrors the
-    existing suite's convention) and once more against the real MapboxClient
-    HTTP layer (httpx.MockTransport) so the actual Mapbox URL is asserted.
+    """Prod bug: a 5-digit US ZIP ("near 11580") geocoded worldwide. QA14707
+    (Q10, DQ7): the regex that forced "US" on any 5-digit number is gone (it
+    read every French postcode as a US ZIP). The US case is now the postcode
+    rule's (`postal_code`, DQ8: the model's guess, then the market), tested in
+    `test_postcode_resolution.py::TestNear11580`. Here, a bare number in the
+    text forces no country, at the FakeMapboxClient level and against the real
+    MapboxClient HTTP layer (httpx.MockTransport).
     """
 
-    def test_zip_anchor_forces_country_code_on_the_fake_client(self, monkeypatch):
+    def test_a_bare_five_digit_number_forces_no_country_on_the_fake_client(self, monkeypatch):
         fake = _patch_client(monkeypatch, FLORENCE_KY)
 
         geocode_core(city="11580", raw_user_message="Allows cats. Near 11580")
 
-        assert fake.calls == [("11580", "US")]
+        assert fake.calls == [("11580", None)]
 
     def test_no_zip_and_no_country_signal_stays_unscoped(self, monkeypatch):
         fake = _patch_client(monkeypatch, FLORENCE_KY)
@@ -265,7 +266,7 @@ class TestUsZipCountryScoping:
 
         assert fake.calls == [("Paris", "FR")]
 
-    def test_zip_anchor_scopes_the_real_mapbox_request_url(self, monkeypatch):
+    def test_a_bare_five_digit_number_leaves_the_real_mapbox_request_unscoped(self, monkeypatch):
         seen: dict = {}
 
         def handler(request: httpx.Request) -> httpx.Response:
@@ -297,7 +298,7 @@ class TestUsZipCountryScoping:
 
         assert result["ok"] is True
         assert result["country_code"] == "US"
-        assert seen["params"]["country"] == "us"
+        assert "country" not in seen["params"]
 
     def test_no_zip_anchor_leaves_the_real_mapbox_request_url_unscoped(self, monkeypatch):
         seen: dict = {}
