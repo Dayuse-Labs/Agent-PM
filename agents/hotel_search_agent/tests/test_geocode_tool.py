@@ -237,17 +237,22 @@ class TestGeocoderDegradation:
 
 class TestUsZipCountryScoping:
     """Prod bug: a 5-digit US ZIP ("near 11580") geocoded worldwide when the
-    model didn't also extract country_code. `select_us_postal_anchor`
-    (geo_guards.py, ported S4) existed but was never wired into a real
-    request — this locks the fix at the FakeMapboxClient level (mirrors the
-    existing suite's convention) and once more against the real MapboxClient
-    HTTP layer (httpx.MockTransport) so the actual Mapbox URL is asserted.
+    model didn't also extract country_code. QA14707 (Q10, DQ7): the regex that
+    read any 5-digit number as a US ZIP and forced "US" is gone (it read every
+    French postcode as a US ZIP). The assertions are unchanged; the input now
+    carries the United States as a NAMED country (`country_code="US"`), the
+    only hard Mapbox filter left (DQ8). Locked at the FakeMapboxClient level
+    and once more against the real MapboxClient HTTP layer
+    (httpx.MockTransport) so the actual Mapbox URL is asserted. Without a named
+    country, a US ZIP stays in the US through the DQ8 tie-break
+    (`test_postcode_resolution.py::TestNear11580`), and a bare number forces
+    no country (`test_us_zip_removal.py`).
     """
 
-    def test_zip_anchor_forces_country_code_on_the_fake_client(self, monkeypatch):
+    def test_a_named_us_forces_country_code_on_the_fake_client(self, monkeypatch):
         fake = _patch_client(monkeypatch, FLORENCE_KY)
 
-        geocode_core(city="11580", raw_user_message="Allows cats. Near 11580")
+        geocode_core(city="11580", country_code="US", raw_user_message="Allows cats. Near 11580, USA")
 
         assert fake.calls == [("11580", "US")]
 
@@ -265,7 +270,7 @@ class TestUsZipCountryScoping:
 
         assert fake.calls == [("Paris", "FR")]
 
-    def test_zip_anchor_scopes_the_real_mapbox_request_url(self, monkeypatch):
+    def test_a_named_us_scopes_the_real_mapbox_request_url(self, monkeypatch):
         seen: dict = {}
 
         def handler(request: httpx.Request) -> httpx.Response:
@@ -293,7 +298,9 @@ class TestUsZipCountryScoping:
         )
         monkeypatch.setattr(geocode_tool, "get_mapbox_client", lambda: real_client)
 
-        result = geocode_core(city="11580", raw_user_message="Allows cats. Near 11580")
+        result = geocode_core(
+            city="11580", country_code="US", raw_user_message="Allows cats. Near 11580, USA"
+        )
 
         assert result["ok"] is True
         assert result["country_code"] == "US"
