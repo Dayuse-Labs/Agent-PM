@@ -27,7 +27,8 @@
 | Q10 | Removal: US ZIP by regex (S-L7f)                                                                                                           | 4     | 4B    | Q09, Q16   | sonnet | merged | 2        | task/Q10 | 1.6M / see /workflows |
 | Q11 | Removal: question extracted by regex and yes/no by word list, on the clarification route                                                   | 4     | 4B    | Q09, Q15   | sonnet | merged | 1        | task/Q11 | 2.3M / see /workflows |
 | Q27 | A follow-up question only the synthesis asks is still remembered for the next turn                                                         | 4     | 4C    | Q11        | sonnet | added  | 0        | —        | 1.2M / —              |
-| Q12 | Documentation: HANDOFF, CHANTIERS, S-L plan                                                                                                | 5     | 5A    | —          | sonnet | todo   | 0        | —        | 1.6M / —              |
+| Q28 | Anti-loop on free questions, read from the state: a third free question in a row without a search asks nothing                             | 5     | 5A    | Q11        | opus   | added  | 0        | —        | 2.0M / —              |
+| Q12 | Documentation: HANDOFF, CHANTIERS, S-L plan                                                                                                | 5     | 5A    | Q28        | sonnet | todo   | 0        | —        | 1.6M / —              |
 | Q13 | Global review (read-only)                                                                                                                  | 5     | 5B    | Q12        | opus   | todo   | 0        | —        | 2.6M / —              |
 
 Statuses: todo · added · merged · blocked · failed · needs-human · cancelled

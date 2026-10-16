@@ -365,6 +365,10 @@ amendment · major · Q13: The review must check the city precedence guard.
 - decision · major · Q11 left a follow-up question asked only by the synthesis unremembered (`last_clarifying_question` None, so the triage sees no `previous_question` on a following « oui »). Added Q27 (phase 4). When the leaf asked nothing, Q27 stores the synthesis's last line through the same `leaf_question` punctuation rule (no regex, no word list, no LLM call), with offline tests. Q12 documents the rule and Q13 checks it.
 - amendment · major · Q12: the rule for the question the next turn answers changed in Q11 and Q27; the repository HANDOFF must state it because the #134 port reads that state.
 - amendment · major · Q13: the global review must confirm that the replacement of the regex extraction keeps synthesis-only questions without reintroducing a regex.
+- decision · major · The anti-clarification loop on free questions is gone and no test covers it: option A settled by the user — Add Q28 (phase 5, before Q12): an anti-loop on free questions read from the state. A persisted `asked` count in `pending_search` triggers, past `CLARIFICATION_MAX_ASKS`, a no-question instruction in the same synthesis call, then a deterministic drop of a remaining question line or a fixed template. Q12 documents the new slot key and Q13 checks the budget and the score.
+- decision · major · Q11 removed the anti-loop on free questions and left it untested. Added Q28 (phase 5, before Q12). The loop is read from the state: `pending_search` carries `asked`, the number of consecutive no-search turns that ended on a free question, with no text comparison. Past `CLARIFICATION_MAX_ASKS`, the single synthesis call is told not to ask. A question line that still remains is dropped, or a fixed template that asks nothing is used. `anti_clarification_loop` fires. No retry, no added LLM call.
+- amendment · major · Q12: Q12 documents the anti-loops and the profile shape the #134 port must carry, and Q28 changes both. It must run after Q28.
+- amendment · major · Q13: the global review must check that the restored guard respects the budget and the frozen score contract.
 
 ## Q10
 
