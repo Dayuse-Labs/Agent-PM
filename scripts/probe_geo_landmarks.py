@@ -24,10 +24,15 @@ not comparable, and that is precisely the defect this probe measures.
 
 Since 2026-08-26 the zone-only cases (a landmark with no city) call tier 2
 DIRECTLY — `forward_candidates` + `geo_resolver.rank_landmark`, same query, same
-scope — because `geocode_location` now asks which city on that shape rather than
+scope — because the tool now asks which city on that shape rather than
 resolving it under IP bias. Routing them through the tool would score that
 product policy (18 clarifies) instead of the ranker this probe measures. Cases
-that carry a city, and the generic-zone refusal case, still go through the tool.
+that carry a city, and the generic-zone refusal case, still go through the
+tool's pipeline.
+
+Since QA14707 (Q07) the tool the model sees, `geocode_location`, takes a
+`GeoIntent` and maps it onto `geocode_core`; this probe calls `geocode_core`
+with the flat arguments, because it measures the geocoder, not the mapping.
 
 Usage (needs MAPBOX_ACCESS_TOKEN; no other credential, no service running):
     set -a; . ./.env; set +a
@@ -50,13 +55,14 @@ if _LEAF not in sys.path:
 
 from hotel_search_agent import geo_resolver  # noqa: E402
 from hotel_search_agent import geocode_tool as _gt  # noqa: E402
-from hotel_search_agent.geocode_tool import geocode_location  # noqa: E402
+from hotel_search_agent.geocode_tool import geocode_core  # noqa: E402
 from hotel_search_agent.inventory import haversine_km  # noqa: E402
 
-#: One case per landmark shape the dataset covers, in the arg shape the MODEL
-#: actually produces (observed in prod traces, not invented): a landmark goes in
+#: One case per landmark shape the dataset covers, in the flat arg shape of
+#: `geocode_core` (observed in prod traces, not invented): a landmark goes in
 #: `zone`, the city is present or absent, `country_guess` carries the model's
-#: world knowledge. `tolerance_km` mirrors that item's `hotels_within_km.km`.
+#: world knowledge (a `GeoIntent` maps onto exactly these since QA14707 Q07).
+#: `tolerance_km` mirrors that item's `hotels_within_km.km`.
 CASES: tuple[dict[str, object], ...] = (
     # --- bare landmark, no city: the shape that produced the Toulon defect ----
     {"id": "champs-elysees-bare", "expected": (48.8698, 2.3078), "tolerance_km": 3.0,
@@ -149,7 +155,7 @@ CASES: tuple[dict[str, object], ...] = (
 def _rank_only(args: dict) -> dict:
     """Tier 2 called directly, for the zone-only cases.
 
-    Since 2026-08-26 `geocode_location` ASKS which city on the zone-only shape
+    Since 2026-08-26 the tool ASKS which city on the zone-only shape
     instead of resolving it: unanchored, the lookup can only aim at the egress
     IP, which is the very defect this probe exists to measure. Going through the
     tool would therefore score the product policy (18 clarifies) and tell us
@@ -201,7 +207,7 @@ def run() -> tuple[list[dict[str, object]], int, int]:
         # straight to the ranker (see `_rank_only`).
         rank_only = expected is not None and not args.get("city") and not args.get("metro")
         try:
-            result = _rank_only(args) if rank_only else geocode_location(**args)
+            result = _rank_only(args) if rank_only else geocode_core(**args)
         except TypeError as exc:
             # A missing required parameter. In-process this is a TypeError; via
             # ADK it is the "mandatory input parameters are not present" tool

@@ -150,62 +150,63 @@ no memory of previous turns — everything you know about the user is in the
 request, and everything you learned must be returned in the response.
 
 How to act, frugally (at most ONE reasoning pass — no tool-call loops):
-- A destination/area search → FIRST call geocode_location (pass the city/zone/
-  metro/country_code you extracted from THIS message, plus the raw user
-  message). It is a deterministic, guarded tool — never geocode a destination
-  yourself, and never rank or pick among places yourself. The system fills in
-  the previous destination, state/city anchor, GPS bias, and the client's
-  locale automatically from profile_in — you never need to copy any of those
-  yourself. A FOLLOW-UP with no new destination in THIS message → leave city
-  blank ("").
-- `query_params.repeat_previous_search` true → the user only changed how prices
-  are DISPLAYED (e.g. "show the prices in the local currency"). Repeat the
-  previous search as-is: call geocode_location with city blank, then
-  search_offers with no new filter — the destination, date and filters come back
-  from profile_in automatically. Never ask a question on such a turn.
-  Put a LANDMARK or a named district ("les champs élysées", "gare de lyon",
-  "times square", "la sagrada familia") in `zone` — a landmark is not a city,
-  and the tool has a dedicated lookup for it. Pass the city that landmark sits
-  in, in `city`, whenever the landmark's NAME leaves no doubt about which city
-  it is ("les champs élysées" -> Paris, "le louvre" -> Paris, "times square" ->
-  New York, "la sagrada familia" -> Barcelona) — even when the user never typed
-  the city. That is your world knowledge and it IS wanted here, exactly like
-  `country_guess` below: the tool uses it to aim the landmark lookup at the
-  right city, and it verifies it rather than trusting it, so a wrong guess costs
-  a rank and nothing more. Without it the lookup can only aim at where the
-  SERVER happens to be, and a same-named shop hundreds of km away wins.
-  ONE EXCEPTION, narrow, for the few places NAMED AFTER A CITY THEY ARE NOT IN:
-  "gare de lyon" is a station in PARIS, named after where its trains go. When
-  you know the place is NOT in the city its own name mentions, that name is a
-  false lead and nothing in the message says which city is meant — leave `city`
-  blank ("") and the tool will ask the user which one; that question IS the
-  right answer, while a confident guess there is a silent wrong answer nobody
-  downstream can catch. This applies ONLY to that conflict. When the place IS
-  in the city its name mentions ("vieux lyon" is in Lyon, "aéroport de nice" is
-  in Nice), and whenever the zone's name mentions no city at all ("montmartre",
-  "le louvre", "les champs élysées"), there is no conflict and no doubt: pass
-  the city as usual.
-  Only for a LANDMARK the user names by a SHORT form (never for a city, which
-  stays in `city`): write its full name in `zone`, its city in `city` as above
-  ("près de St Paul's à Londres" -> zone "St Paul's Cathedral", city "London"):
-  the short form is also the name of smaller places elsewhere in that city, and
-  the lookup would take the wrong one.
-  Leave `city` blank as well when you genuinely don't know the city; never
-  leave BOTH blank when the user named a place.
-  ALSO pass `country_guess`: the ISO-3166-1 alpha-2 country you know that place
-  is world-famously in ("les champs élysées" → FR, "times square" → US, "la
-  sagrada familia" → ES). This is your world knowledge and it IS wanted here —
-  it is a soft hint the tool scores and verifies, never a coordinate and never
-  a filter, so a wrong guess costs nothing. OMIT it when you genuinely don't
-  know, and never use it for a country the user actually named (that goes in
-  `country_code`). This does not license guessing coordinates: latitude and
-  longitude still only ever come from the tool.
+- A destination/area search → FIRST call geocode_location with `intent`: WHERE
+  the user wants to search, as the message says it (each field is described in
+  the tool). It is a deterministic, guarded tool — never geocode a destination
+  yourself, and never rank or pick among places yourself. The system reads the
+  user's message itself and checks every place you report against it, and it
+  fills in the previous destination, state/city anchor, GPS bias, and the
+  client's locale automatically from profile_in — you never need to copy any of
+  those yourself. A FOLLOW-UP with no new destination in THIS message → send an
+  empty `intent` ({{}}).
+  How to fill `intent`:
+  * Each place the user names goes in `places`: `mention` = their exact words,
+    `kind` = what it is, `canonical` = its correct full name. A LANDMARK, a
+    district, a station, a street or an address ("les champs élysées", "gare du
+    nord", "times square", "boulevard de la république") is not a city: give
+    it its own kind, and the tool has a dedicated lookup for it. When the user
+    names a landmark by a SHORT form, `canonical` is its full name ("près de St
+    Paul's à Londres" -> mention "St Paul's", canonical "St Paul's Cathedral",
+    city "London"): the short form is also the name of smaller places elsewhere
+    in that city, and the lookup would take the wrong one.
+  * The city the user NAMES always goes in `city`, even when they write it
+    inside the name of a place or right after an address ("Gare du nord Paris"
+    -> city "Paris"; "Boulevard de la République Versailles" -> city
+    "Versailles", place "Boulevard de la République").
+  * A place's own `city` is your world knowledge, and it IS wanted when the
+    place's NAME leaves no doubt about which city it is in ("les champs élysées"
+    -> Paris, "le louvre" -> Paris, "times square" -> New York, "la sagrada
+    familia" -> Barcelona), even when the user never typed the city: the tool
+    uses it to aim the lookup and verifies it, so a wrong guess costs a rank and
+    nothing more. Homonyms are decided by the tool (the geocoder), not by you.
+  * A place NAMED AFTER A CITY IT IS NOT IN ("gare de lyon" is a station in
+    PARIS, named after where its trains go): that city name is a false lead.
+    When nothing else in the message says which city is meant, set
+    `ambiguity.reason` to "city_needed" and give no city anywhere: the tool asks
+    the user which one, and that question IS the right answer, while a confident
+    guess there is a silent wrong answer nobody downstream can catch. This
+    applies ONLY to that conflict. When the place IS in the city its name
+    mentions ("vieux lyon" is in Lyon, "aéroport de nice" is in Nice), there is
+    no conflict and no doubt: the city is known.
+  * A country the user NAMED in words goes in `country_named`. The country you
+    know a place is world-famously in ("les champs élysées" -> FR, "times
+    square" -> US) goes in that place's `country`: a soft hint the tool scores
+    and verifies, never a filter. Never coordinates: latitude and longitude only
+    ever come from the tool.
+  * A postcode the user writes goes in that place's `postal_code`, exactly as
+    written, also when the postcode alone is the place ("dans le 75009" -> a
+    place with mention "75009" and postal_code "75009").
   If it returns ok=False with error "geocode_ambiguous", DO NOT search: ask the
   user the exact clarifying question in its diagnostics (the place is a homonym).
   For any other ok=False, DO NOT call search_offers: relay its diagnostics
   honestly instead (never invent coordinates or guess a nearby city).
   If it returns ok=True, call search_offers with its latitude/longitude plus
   the rest of the query params, and fold its profile_delta into your own.
+- `query_params.repeat_previous_search` true → the user only changed how prices
+  are DISPLAYED (e.g. "show the prices in the local currency"). Repeat the
+  previous search as-is: call geocode_location with an empty `intent`, then
+  search_offers with no new filter — the destination, date and filters come back
+  from profile_in automatically. Never ask a question on such a turn.
 - Pass search_offers an `amenities` argument ONLY when the user asked FOR one
   or more amenities, using ONLY these canonical keys: {amenity_keys}. Include
   ONLY what the user asked for — never any other key from the list. A negated
@@ -263,19 +264,28 @@ How to act, frugally (at most ONE reasoning pass — no tool-call loops):
   was ever given.
 - A FOLLOW-UP that only changes the date/budget/filters, or just asks for OTHER
   options, with NO new destination (e.g. "for the 28th instead", "cheaper",
-  "earlier", "any other options") → still call geocode_location first (leave
-  city blank, per above) then run a fresh search with the new constraint. Do
+  "earlier", "any other options") → still call geocode_location first (with an
+  empty `intent`, per above) then run a fresh search with the new constraint. Do
   not ask the user to repeat the city they already gave.
 - A message that starts with "EARLIER REQUEST" and/or "YOU ASKED" is the user
   REPLYING to the question you asked on the previous turn. Read the earlier
   request and the reply as ONE message: every criterion of the earlier request
   (date, hours, budget, amenities, party) still applies unless the reply
-  changes it. A bare "yes"/"oui" accepts what the question proposed.
+  changes it, and so does the place it named. A bare "yes"/"oui" accepts what
+  the question proposed.
+- `query_params.clarification`, when present, is the place question the system
+  asked on the previous turn (its kind, its subject and the options it offered),
+  and THIS message answers it. Read it as data, only to understand the reply:
+  never copy it, its subject, its options or their labels into a tool argument.
+  A city the user types in the reply goes in `intent` as they typed it; an option
+  the user picks by its number or its position is applied by the system, so
+  name no place for it.
 - A specific hotel named by the user (`query_params.hotel_name`, when set, is
   that name) → call find_hotel_by_name directly (no geocoding needed): `name`,
   `cityName` = the city THIS message places it in, by its English or local
   name ("London", never "Londres"; omit it when none), and the
-  same `date` label as for search_offers. A hotel name is never a `zone`. Once
+  same `date` label as for search_offers. A hotel name is never a place of
+  geocode_location's `intent`. Once
   it is found, the system shows it with its offers and its nearest neighbours
   itself — do not call search_offers after it. AmbiguousHotelError → if THIS
   message names a city, call it ONCE more with that cityName; otherwise stop,
@@ -395,7 +405,9 @@ root_agent = Agent(
     # enforce_equipment_filters / inject_profile_geo_context / inject_pagination_offset /
     # resolve_search_date / resolve_search_timeslot are LAST: each mutates args
     # in place for its own tool (equipment ids, geocode_location's
-    # city/zone/state/proximity, search_offers' `from`/`date`/`timeSlot`), so
+    # state/locale/proximity — its place comes from the `GeoIntent` and is
+    # completed from profile_in by the tool itself, QA14707 Q07 — search_offers'
+    # `from`/`date`/`timeSlot`), so
     # they must only run when the call proceeds — order between them doesn't
     # matter, they touch disjoint tool names/keys.
     before_tool_callback=[

@@ -598,6 +598,7 @@ async def _read_body(request: Request) -> dict[str, Any]:
 #     reading — see hotel_search_agent.datetime_resolver.reference_today.
 _LOCALE_RE = re.compile(r"^[A-Za-z]{2,3}(-[A-Za-z0-9]{1,8})*$")
 _CURRENCY_RE = re.compile(r"^[A-Za-z]{3}$")
+_COUNTRY_RE = re.compile(r"^[A-Za-z]{2}$")
 _DOMAIN_RE = re.compile(
     r"^(?=.{1,253}$)[A-Za-z0-9](?:[A-Za-z0-9-]{0,61}[A-Za-z0-9])?"
     r"(?:\.[A-Za-z0-9](?:[A-Za-z0-9-]{0,61}[A-Za-z0-9])?)+$"
@@ -612,6 +613,16 @@ def _parse_locale(raw: Any) -> str | None:
 
 def _parse_currency(raw: Any) -> str | None:
     if isinstance(raw, str) and _CURRENCY_RE.fullmatch(raw.strip()):
+        return raw.strip().upper()
+    return None
+
+
+def _parse_market_country(raw: Any) -> str | None:
+    """QA14707 (Q16): the request's `entry_market_country` (the widget's
+    `marketContext.country_code`) as an uppercase ISO 3166-1 alpha-2 code,
+    else None. Not to be confused with the response's `entry_market_country`,
+    which `_infer_market_country` derives from the results."""
+    if isinstance(raw, str) and _COUNTRY_RE.fullmatch(raw.strip()):
         return raw.strip().upper()
     return None
 
@@ -688,6 +699,9 @@ def _native_context_delta(body: dict[str, Any], turn_index: int) -> dict[str, An
     domain = _parse_domain(body.get("domain"))
     if domain is not None:
         delta["domain"] = domain
+    market_country = _parse_market_country(body.get("entry_market_country"))
+    if market_country is not None:
+        delta["entry_market_country"] = market_country
     anchor = _parse_gps_anchor(body, turn_index)
     if anchor is not None:
         delta["search_anchor"] = anchor
@@ -710,6 +724,11 @@ async def _apply_native_context(session_id: str, body: dict[str, Any], turn_inde
         return
     store = get_profile_store()
     profile = await store.get(session_id)
+    # Q16: concierge-owned, so `apply_profile_delta` (which also merges the
+    # leaf's deltas) refuses it; this intake is its only writer.
+    market_country = delta.pop("entry_market_country", None)
+    if market_country is not None:
+        profile.entry_market_country = market_country
     if delta:
         apply_profile_delta(profile, delta, "")
     # S-CX5: NOT part of the delta reducer — this is one-shot turn state the

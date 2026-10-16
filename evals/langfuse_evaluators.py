@@ -16,12 +16,18 @@ honestly red instead of silently skipped.
 `output` (built by evals/langfuse_experiment.py's task function) has the shape:
     {
       "response": <the /v3/chat JSON body, or None on a transport failure>,
-      "trace": {
+      "trace": {                             # facts of the LAST replayed turn's trace
         "search_offers_args": dict | None,   # TOOL observation "search_offers" input, leaf trace
+        "geocode": {"ok", "error", "city_needed", "options", "country_code"} | None,
+                                             # TOOL observation "geocode_location" output (the last call)
+        "tool_calls": [str] | None,          # names of the TOOL observations "mcp-<tool>" (the
+                                             # concierge's inline calls); None = no observation seen
         "pick": {"pick": str, "pick_position": int|None} | None,  # triage generation output
         "family": str | None,                # triage generation output
         "route": str | None,                 # derived, see _derive_route()
       },
+      "previous_reply": str | None,          # the reply to the turn before the last one
+      "turns_replayed": int,                 # user turns posted on the session (QA14707 DQ4)
     }
 """
 from __future__ import annotations
@@ -106,6 +112,9 @@ def _eval_hotels_within_km(
         return None
     spec = expected["hotels_within_km"]
     hotels = _hotels(response)
+    if not hotels:
+        # No hotel is not "all hotels within the radius": min_hotels scores the absence.
+        return _skip("hotels_within_km", "no hotel in the response — nothing to measure")
     bad: list[str] = []
     for h in hotels:
         lat, lon = h.get("latitude"), h.get("longitude")
@@ -389,6 +398,28 @@ def _eval_first_hotel_name_contains(
     )
 
 
+def _same_text(a: str, b: str) -> bool:
+    """Word for word, ignoring case and whitespace runs — never a fuzzy match."""
+    return " ".join(a.casefold().split()) == " ".join(b.casefold().split())
+
+
+def _eval_reply_differs_from_previous(
+    expected: dict[str, Any], response: dict[str, Any] | None, previous_reply: str | None
+) -> Evaluation | None:
+    """QA14707: a turn that answers a question must not hand the same question
+    back (« je confirme » → the turn-1 question again)."""
+    if not expected.get("reply_differs_from_previous"):
+        return None
+    if not previous_reply:
+        return _skip("reply_differs_from_previous", "no previous reply to compare with")
+    message = _message(response)
+    same = _same_text(message, previous_reply)
+    return _bool_eval(
+        "reply_differs_from_previous", not same,
+        "reply repeats the previous one word for word" if same else "reply differs from the previous one",
+    )
+
+
 _RESPONSE_CHECKS = (
     _eval_min_hotels,
     _eval_max_hotels,
@@ -419,6 +450,9 @@ def response_evaluator(
     expected = expected_output or {}
     response = (output or {}).get("response") if isinstance(output, dict) else None
     evaluations = [e for check in _RESPONSE_CHECKS if (e := check(expected, response)) is not None]
+    previous_reply = (output or {}).get("previous_reply") if isinstance(output, dict) else None
+    if (e := _eval_reply_differs_from_previous(expected, response, previous_reply)) is not None:
+        evaluations.append(e)
     if response is None:
         # In particular max_hotels=0 and forbidden-text checks used to pass on
         # transport failure: an absent reply isn't a correct FAQ answer.
@@ -484,11 +518,90 @@ def _eval_expected_route(expected: dict[str, Any], trace_facts: dict[str, Any]) 
     return _bool_eval("expected_route", route == want, f"derived route={route!r}, expected {want!r}")
 
 
+def _eval_geocode_city_needed(expected: dict[str, Any], trace_facts: dict[str, Any]) -> Evaluation | None:
+    """Did `geocode_location` end the turn on « which city? » (the leaf's
+    `geocode_city_needed`, a question without options)?"""
+    if "geocode_city_needed" not in expected:
+        return None
+    geocode = trace_facts.get("geocode")
+    if geocode is None:
+        return _skip(
+            "geocode_city_needed",
+            "geocode_location TOOL observation not found in the last turn's trace (async export lag, "
+            "or the leaf never called it)",
+        )
+    want = bool(expected["geocode_city_needed"])
+    actual = bool(geocode.get("city_needed"))
+    return _bool_eval("geocode_city_needed", actual == want, f"city_needed={actual}, expected {want}")
+
+
+# The observation name of the concierge's inline MCP calls, exactly
+# (`b2c_concierge.inline_tools._call_tool`). A call under any other name is not
+# counted: see `_lookup_trace_facts` in evals/langfuse_experiment.py.
+_INLINE_TOOL_PREFIX = "mcp-"
+
+
+def _eval_tools_not_called(expected: dict[str, Any], trace_facts: dict[str, Any]) -> Evaluation | None:
+    """None of these inline tools was called in the LAST turn
+    (`generate_booking_link`, `find_hotel_by_name`)."""
+    if "tools_not_called" not in expected:
+        return None
+    calls = trace_facts.get("tool_calls")
+    if calls is None:
+        return _skip("tools_not_called", "no observation found in the last turn's trace (async export lag)")
+    called = [name for name in expected["tools_not_called"] if f"{_INLINE_TOOL_PREFIX}{name}" in calls]
+    return _bool_eval(
+        "tools_not_called", not called, f"called in the last turn: {called}" if called else "none called"
+    )
+
+
+def _geocoder_text(geocode: dict[str, Any]) -> str:
+    parts = [
+        str(option.get(key) or "")
+        for option in geocode.get("options") or []
+        for key in ("name", "region", "place_formatted")
+    ]
+    return " ".join(parts).casefold()
+
+
+def _eval_clarify_options_from_geocoder(
+    expected: dict[str, Any],
+    trace_facts: dict[str, Any],
+    response: dict[str, Any] | None,
+    user_text: str,
+) -> Evaluation | None:
+    """No invented option: of the places the assertion lists (`["Paris",
+    "Bruxelles", …]`, the ones a model is tempted to offer), each one the
+    reply names must be a candidate the geocoder returned — or a word the user
+    wrote himself. The reply carries no structured options, so this is a text
+    match on the listed names only: a weak signal, same tier as `must_ask_city`.
+    With no candidate at all (`geocode_city_needed`), nothing is allowed."""
+    watched = expected.get("clarify_options_from_geocoder")
+    if not isinstance(watched, list):
+        return None
+    geocode = trace_facts.get("geocode")
+    if geocode is None:
+        return _skip(
+            "clarify_options_from_geocoder",
+            "geocode_location TOOL observation not found in the last turn's trace (async export lag, "
+            "or the leaf never called it)",
+        )
+    message = _message(response).casefold()
+    grounded = f"{_geocoder_text(geocode)} {user_text.casefold()}"
+    invented = [p for p in watched if str(p).casefold() in message and str(p).casefold() not in grounded]
+    return _bool_eval(
+        "clarify_options_from_geocoder", not invented,
+        f"offered without being a geocoder candidate: {invented}" if invented else "no invented option",
+    )
+
+
 _TRACE_CHECKS = (
     _eval_search_offers_args_include,
     _eval_search_offers_args_absent,
     _eval_expected_pick,
     _eval_expected_route,
+    _eval_geocode_city_needed,
+    _eval_tools_not_called,
 )
 
 
@@ -502,7 +615,25 @@ def trace_evaluator(
     if not expected:
         return []
     trace_facts = (output or {}).get("trace") or {} if isinstance(output, dict) else {}
-    return [e for check in _TRACE_CHECKS if (e := check(expected, trace_facts)) is not None]
+    evaluations = [e for check in _TRACE_CHECKS if (e := check(expected, trace_facts)) is not None]
+    response = (output or {}).get("response") if isinstance(output, dict) else None
+    if (
+        e := _eval_clarify_options_from_geocoder(
+            expected, trace_facts, response, _user_text(input)
+        )
+    ) is not None:
+        evaluations.append(e)
+    return evaluations
+
+
+def _user_text(item_input: Any) -> str:
+    """Everything the user typed in the replayed turns."""
+    messages = item_input.get("messages") if isinstance(item_input, dict) else None
+    return " ".join(
+        str(m.get("content") or "")
+        for m in messages or []
+        if isinstance(m, dict) and m.get("role") == "user"
+    )
 
 
 ALL_EVALUATORS = (response_evaluator, trace_evaluator)

@@ -1,0 +1,335 @@
+{
+  "$defs": {
+    "Ambiguity": {
+      "additionalProperties": false,
+      "description": "Why you cannot tell where to search.",
+      "properties": {
+        "reason": {
+          "anyOf": [
+            {
+              "enum": [
+                "homonym",
+                "city_needed",
+                "too_vague"
+              ],
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "homonym: the name fits several places and nothing says which one. city_needed: the place is named after a city it is NOT in (\"gare de Lyon\" is a station in Paris): then give no city. Not when the place is in that city (\"vieux Lyon\" is in Lyon). too_vague: no searchable place (\"somewhere nice\").",
+          "title": "Reason"
+        }
+      },
+      "title": "Ambiguity",
+      "type": "object"
+    },
+    "CityRef": {
+      "additionalProperties": false,
+      "description": "The city of the search.",
+      "properties": {
+        "mention": {
+          "default": "",
+          "description": "The user's exact words for the city, as written. Empty when not written in this message.",
+          "title": "Mention",
+          "type": "string"
+        },
+        "canonical": {
+          "default": "",
+          "description": "The city's correct name (\"paris\" -> \"Paris\", \"Pari\" -> \"Paris\").",
+          "title": "Canonical",
+          "type": "string"
+        },
+        "region": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Code of the state or province of the city, when known (\"CT\"). Else null.",
+          "title": "Region"
+        },
+        "country": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "ISO-3166-1 alpha-2 country of the city (\"FR\"). Null when unsure.",
+          "title": "Country"
+        }
+      },
+      "title": "CityRef",
+      "type": "object"
+    },
+    "Exclusion": {
+      "additionalProperties": false,
+      "description": "A place the user wants to avoid.",
+      "properties": {
+        "mention": {
+          "default": "",
+          "description": "The user's exact words for the place, as written.",
+          "title": "Mention",
+          "type": "string"
+        },
+        "canonical": {
+          "default": "",
+          "description": "The place's correct full name.",
+          "title": "Canonical",
+          "type": "string"
+        },
+        "kind": {
+          "anyOf": [
+            {
+              "enum": [
+                "city",
+                "admin_district",
+                "neighborhood",
+                "landmark",
+                "street",
+                "station",
+                "airport",
+                "address",
+                "hotel",
+                "region"
+              ],
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "What the place is.",
+          "title": "Kind"
+        }
+      },
+      "title": "Exclusion",
+      "type": "object"
+    },
+    "Place": {
+      "additionalProperties": false,
+      "description": "A place the user named.",
+      "properties": {
+        "mention": {
+          "default": "",
+          "description": "The user's exact words for the place, copied as written, typos included.",
+          "title": "Mention",
+          "type": "string"
+        },
+        "kind": {
+          "anyOf": [
+            {
+              "enum": [
+                "city",
+                "admin_district",
+                "neighborhood",
+                "landmark",
+                "street",
+                "station",
+                "airport",
+                "address",
+                "hotel",
+                "region"
+              ],
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "What the place is.",
+          "title": "Kind"
+        },
+        "canonical": {
+          "default": "",
+          "description": "The place's correct full name, spelling fixed (\"champs elysee\" -> \"Champs-Élysées\", \"St Paul's\" in London -> \"St Paul's Cathedral\").",
+          "title": "Canonical",
+          "type": "string"
+        },
+        "city": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "The city the place is in, from your knowledge when the user did not write it (\"Buckingham Palace\" -> \"London\", \"le Louvre\" -> \"Paris\", \"times square\" -> \"New York\"). Homonyms are decided by the tool, not by you. null only when the place is named after a city it is not in (\"gare de Lyon\") or when the place is itself a city.",
+          "title": "City"
+        },
+        "country": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "ISO-3166-1 alpha-2 code of the country the place is in (\"FR\"), from your knowledge. null when unsure.",
+          "title": "Country"
+        },
+        "postal_code": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "The postcode or ZIP code exactly as written (\"75009\"), also when the postcode alone is the place (\"dans le 75009\"). null when none is written.",
+          "title": "Postal Code"
+        },
+        "region": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Code of the state or province the place is in, when known (\"CT\"). Else null.",
+          "title": "Region"
+        },
+        "city_inferred": {
+          "default": false,
+          "description": "true when `city` comes from your knowledge, false when the user wrote it.",
+          "title": "City Inferred",
+          "type": "boolean"
+        }
+      },
+      "required": [
+        "mention",
+        "kind",
+        "canonical",
+        "city",
+        "country",
+        "postal_code"
+      ],
+      "title": "Place",
+      "type": "object"
+    }
+  },
+  "additionalProperties": false,
+  "description": "Where the user wants to search, as understood from the message. Never coordinates.",
+  "properties": {
+    "schema_version": {
+      "const": "1.1",
+      "default": "1.1",
+      "description": "Always \"1.1\".",
+      "title": "Schema Version",
+      "type": "string"
+    },
+    "places": {
+      "description": "The places named in THIS message, most important first, at most 2. Empty when the message names no place.",
+      "items": {
+        "$ref": "#/$defs/Place"
+      },
+      "maxItems": 2,
+      "title": "Places",
+      "type": "array"
+    },
+    "city": {
+      "anyOf": [
+        {
+          "$ref": "#/$defs/CityRef"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "description": "The city of the search: written in the message, or kept from the earlier request when this message names none. Null when unknown."
+    },
+    "country_named": {
+      "anyOf": [
+        {
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "description": "ISO-3166-1 alpha-2 code of a country the user NAMED in words (\"in Italy\" -> \"IT\"). Null when no country is written: never guess here.",
+      "title": "Country Named"
+    },
+    "region_named": {
+      "anyOf": [
+        {
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "description": "Code of a state or province the user NAMED (\"Milford ct\" -> \"CT\"). Else null.",
+      "title": "Region Named"
+    },
+    "relation": {
+      "default": "in",
+      "description": "in: inside the place. near: around it (\"near\", \"close to\"). whole_city: anywhere in the city.",
+      "enum": [
+        "in",
+        "near",
+        "whole_city"
+      ],
+      "title": "Relation",
+      "type": "string"
+    },
+    "carryover": {
+      "default": "keep",
+      "description": "How this message relates to the earlier destination. new: a new destination. keep: no new place, same destination. replace_place_keep_city: a new place in the same city. refine: narrows the earlier destination.",
+      "enum": [
+        "new",
+        "keep",
+        "replace_place_keep_city",
+        "refine"
+      ],
+      "title": "Carryover",
+      "type": "string"
+    },
+    "exclusions": {
+      "description": "Places the user wants to AVOID (\"not in NYC\"). Usually empty.",
+      "items": {
+        "$ref": "#/$defs/Exclusion"
+      },
+      "title": "Exclusions",
+      "type": "array"
+    },
+    "ambiguity": {
+      "anyOf": [
+        {
+          "$ref": "#/$defs/Ambiguity"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "description": "Null in most cases. Set only when you cannot tell where to search."
+    }
+  },
+  "title": "GeoIntent",
+  "type": "object"
+}

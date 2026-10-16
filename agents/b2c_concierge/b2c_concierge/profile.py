@@ -62,13 +62,14 @@ A slot simply ABSENT from the delta is always carryover. The leaf still
 emits today's flat `{key: value}` shape (it migrates in S-G5/S-G6) — that
 shape is treated as an implicit "set", so nothing here breaks in the
 meantime. A city change clears the geo-scoped slots (`zone`/`metro`/
-`search_anchor`/`state_anchor`/`country_anchor`) and resets the pagination
+`search_anchor`/`state_anchor`/`country_anchor`/`region_anchor`) and resets the pagination
 state (`shown_hotel_ids`/`search_cursor`); a zone-only change deliberately
 keeps everything else (date/timeslot/budget/amenities) — the audit's
 "context lost on a suburb change" failure.
 """
 from __future__ import annotations
 
+import json
 import logging
 import re
 from dataclasses import MISSING, dataclass, field
@@ -189,6 +190,12 @@ class SessionProfile:
     city: str | None = None
     state_anchor: str | None = None
     country_anchor: str | None = None
+    # QA14707 (Q14): the region of the homonym option the user picked by its
+    # number, read from the stored `Clarification` (never from the message).
+    # It goes with `city`: the leaf narrows that city's candidates to this
+    # region (Springfield IL / MO share name and country). Concierge-owned: a
+    # leaf delta never sets it, and a city change clears it.
+    region_anchor: str | None = None
     budget_max: float | None = None
     budget_request_source: str | None = None
     timeslot: str | None = None
@@ -222,6 +229,14 @@ class SessionProfile:
     currency: str | None = None
     locale: str | None = None
     domain: str | None = None
+    # QA14707 (Q16): the market's country (ISO 3166-1 alpha-2, uppercase), from
+    # the request body's `entry_market_country` (the widget's
+    # `marketContext.country_code`), validated by the facade. The leaf reads it
+    # as the last tie-break of a postcode (DQ8), never as a filter: « near
+    # 11580 » on the en/USD market, whose locale is a bare "en". Concierge-
+    # owned: a leaf delta never sets or clears it, and an invalid value in a
+    # request is carried over, never a clear.
+    entry_market_country: str | None = None
     search_anchor: dict[str, Any] | None = None  # {type, lat, lon, label, set_at_turn}
     distance_origin: dict[str, Any] | None = None  # {latitude, longitude, label, type}
     shown_hotel_ids: list[Any] = field(default_factory=list)
@@ -278,6 +293,12 @@ class SessionProfile:
     # mcp-dayuse#7: a homonym the last turn asked about (« which Manhattan? »)
     # with the options offered, so the answer completes it. Next search only.
     pending_place: dict[str, Any] | None = None
+    # QA14707 (Q04): the place question the search leaf asked instead of
+    # searching, for the very next turn — {"clarification": the leaf's
+    # `Clarification` as a dict, "request": the user's own words not searched
+    # yet, "asked": how many turns in a row this same question came back}.
+    # Concierge-owned; replaces `pending_search` on that path.
+    pending_clarification: dict[str, Any] | None = None
     # PORT1 slice 3: the triage's grounded budget {amount, currency, unit}
     # (b2c_common.search_budget). None = never checked (legacy leaf-owned
     # `budget_max`), {} = checked and no cap. Concierge-owned: a leaf delta
@@ -299,6 +320,7 @@ class SessionProfile:
             "city": self.city,
             "state_anchor": self.state_anchor,
             "country_anchor": self.country_anchor,
+            "region_anchor": self.region_anchor,
             "budget_max": self.budget_max,
             "budget_request_source": self.budget_request_source,
             "timeslot": self.timeslot,
@@ -326,6 +348,7 @@ class SessionProfile:
             "currency": self.currency,
             "locale": self.locale,
             "domain": self.domain,
+            "entry_market_country": self.entry_market_country,
             "search_anchor": self.search_anchor,
             "distance_origin": self.distance_origin,
             "shown_hotel_ids": list(self.shown_hotel_ids),
@@ -341,6 +364,7 @@ class SessionProfile:
             "pending_search": self.pending_search,
             "named_candidates": self.named_candidates,
             "pending_place": self.pending_place,
+            "pending_clarification": self.pending_clarification,
             "requested_budget": self.requested_budget,
             "price_comparison": self.price_comparison,
             "room_requirements": self.room_requirements,
@@ -376,6 +400,7 @@ _CONCIERGE_ONLY_KEYS = (
     "requested_currency",
     "search_page",
     "pending_search",
+    "pending_clarification",  # the leaf gets it on the answer turn, in query_params
     "named_candidates",
     "pending_party_total",  # the leaf gets it as query_params.party_total
 )
@@ -627,7 +652,12 @@ def apply_profile_delta(
     known_fields = set(SessionProfile.__dataclass_fields__)
     # PORT1 slices 3-4: user-grounded constraints are concierge-owned — a leaf
     # delta can neither set nor clear them, nor clear their EUR projection.
-    for owned_slot in ("requested_budget", "price_comparison", "room_requirements", "pending_party_total"):
+    # Q14: so is the region of a homonym option the user picked. Q16: and the
+    # market's country, which only the facade writes (`_apply_native_context`).
+    for owned_slot in (
+        "requested_budget", "price_comparison", "room_requirements", "pending_party_total",
+        "region_anchor", "entry_market_country",
+    ):
         values.pop(owned_slot, None)
         clears.discard(owned_slot)
     if profile.requested_budget is not None:
@@ -641,6 +671,7 @@ def apply_profile_delta(
         if profile.city and new_city != profile.city:
             profile.state_anchor = None
             profile.country_anchor = None
+            profile.region_anchor = None
             profile.zone = None
             profile.metro = None
             profile.search_anchor = None
@@ -1012,6 +1043,63 @@ def pending_search_context(pending: dict[str, Any] | None) -> str | None:
     if not lines:
         return None
     return "\n".join([*lines, "REPLY:"])
+
+
+# --- Pending clarification (QA14707, Q04) --------------------------------
+
+
+def _same_question(a: Any, b: dict[str, Any]) -> bool:
+    """Same place question: same kind, same subject (case and spacing apart)."""
+    if not isinstance(a, dict):
+        return False
+    subject_a = " ".join(str(a.get("subject") or "").split()).casefold()
+    subject_b = " ".join(str(b.get("subject") or "").split()).casefold()
+    return a.get("kind") == b.get("kind") and subject_a == subject_b
+
+
+def next_pending_clarification(
+    earlier: dict[str, Any] | None, message: str, clarification: dict[str, Any]
+) -> dict[str, Any]:
+    """What a turn that asked a place question leaves for the next one.
+
+    `earlier` is what the previous turn left open (`pending_search` or
+    `pending_clarification`): its request is accumulated with this message,
+    as `next_pending_search` does, and `asked` counts the turns in a row that
+    asked this same question — the state the anti-loop reads, never the text."""
+    request = (next_pending_search(earlier, message, False, None) or {}).get("request")
+    asked = 1
+    if earlier and _same_question(earlier.get("clarification"), clarification):
+        asked = int(earlier.get("asked") or 1) + 1
+    return {"clarification": clarification, "request": request, "asked": asked}
+
+
+def chosen_clarification_option(
+    pending: dict[str, Any] | None, index: int | None
+) -> dict[str, Any] | None:
+    """The option a 1-based `index` (the triage's `answer_option`) points at
+    in the pending place question, or None when there is no such option.
+    Read from the state, never from the message: the options are the ones
+    the geocoder returned and the template numbered (Q05)."""
+    clarification = (pending or {}).get("clarification")
+    options = clarification.get("options") if isinstance(clarification, dict) else None
+    if index is None or not isinstance(options, list) or not 1 <= index <= len(options):
+        return None
+    option = options[index - 1]
+    return option if isinstance(option, dict) and option.get("city") else None
+
+
+def pending_clarification_context(pending: dict[str, Any] | None) -> str | None:
+    """The text placed before the user's answer to a place question: the
+    request not searched yet and the question as the leaf sent it (data, not
+    a paraphrase), so the leaf re-reads the date, slot and budget from the
+    user's own words."""
+    if not pending:
+        return None
+    clarification = pending.get("clarification")
+    return pending_search_context({
+        "request": pending.get("request"),
+        "question": json.dumps(clarification, ensure_ascii=False) if clarification else None,
+    })
 
 
 def _timeslot_label(profile: SessionProfile) -> str | None:

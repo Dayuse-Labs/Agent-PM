@@ -52,7 +52,9 @@ the leaf makes internally):
                      contract's point of view) followed by ONE final
                      non-partial event — see `_chunk_text`'s docstring for why
                      generation is buffered before replay. On total failure
-                     the leaf text is returned verbatim.
+                     the leaf text is returned verbatim. A search turn that
+                     ended on a place question (the leaf's `Clarification`,
+                     QA14707) skips it: the question is a template.
 
 S07 evaluated `tool_loop.py` (built + unit-tested standalone in S06) for
 details/compare and deliberately did NOT wire it: which hotel(s) a message
@@ -88,6 +90,7 @@ from b2c_common import (
     score_turn,
     temperature_kwargs_for,
 )
+from b2c_common.clarification import Clarification
 from b2c_common.observability import (
     mark_a2a_turn_output,
     mark_level,
@@ -125,6 +128,7 @@ from google.adk.agents.invocation_context import InvocationContext
 from google.adk.agents.remote_a2a_agent import RemoteA2aAgent
 from google.adk.events import Event
 from google.genai import types as genai_types
+from pydantic import ValidationError
 
 from . import inline_tools, templates
 from .a2a_datapart import encode_datapart, find_datapart
@@ -155,6 +159,7 @@ from .profile import (
     advance_search_cursor,
     apply_profile_delta,
     build_hotel_picks,
+    chosen_clarification_option,
     extract_final_question,
     is_bare_affirmative,
     is_booking_confirmation_signal,
@@ -162,7 +167,9 @@ from .profile import (
     is_search_refinement_signal,
     leaf_profile_view,
     maybe_auto_widen,
+    next_pending_clarification,
     next_pending_search,
+    pending_clarification_context,
     pending_search_context,
     questions_equivalent,
     record_search_outcome,
@@ -384,6 +391,18 @@ def _attach_outgoing_datapart(
     # the earlier request and the reply as one message.
     prefix = [genai_types.Part(text=context_text)] if context_text else []
     last_event.content.parts = [*prefix, *(last_event.content.parts or []), encode_datapart(payload)]
+
+
+def _leaf_clarification(raw: Any) -> Clarification | None:
+    """The search leaf's place question (QA14707), or None when absent or off
+    the `Clarification` contract — the turn then keeps its synthesis."""
+    if not isinstance(raw, dict):
+        return None
+    try:
+        return Clarification.model_validate(raw)
+    except ValidationError:
+        logger.warning("b2c_concierge: off-contract clarification from the search leaf, ignored")
+        return None
 
 
 async def _run_leaf(
@@ -1201,12 +1220,21 @@ class _B2cConcierge(BaseAgent):
         # mcp-dayuse#6: a bare "ok" answering the question the last search
         # turn asked is a reply to it, not a greeting.
         pending = profile.pending_search if isinstance(profile.pending_search, dict) else None
-        answers_pending = pending is not None and is_bare_affirmative(message)
+        # QA14707 (Q04): a place question the leaf asked is left open the same
+        # way, in its own slot. At most one of the two is set.
+        pending_clar = (
+            profile.pending_clarification if isinstance(profile.pending_clarification, dict) else None
+        )
+        earlier = pending or pending_clar  # what the last turn left open
+        # Q05: with a place question pending, whether the message answers it
+        # is the triage's call (`answers_pending`), read from the state — the
+        # zero-LLM fast path never decides it, whatever the words.
         if (
             is_social_ack(message)
             and not refinement_signal
             and not booking_signal
-            and not answers_pending
+            and pending_clar is None
+            and not (pending is not None and is_bare_affirmative(message))
         ):
             self._emit_turn_metric("ack", "template:ack", budget, t_start, "ok", inv)
             # S-CX2 (audit F5): a bare "ok" carries no language signal — the
@@ -1323,8 +1351,35 @@ class _B2cConcierge(BaseAgent):
         ):
             profile.language = triage.language
 
+        # QA14707 (Q05, trace C2): « Je confirme » answering a city question
+        # was triaged booking, reached generate_booking_link, then
+        # find_hotel_by_name("Je confirme"). The answer to a pending place
+        # question goes back to the search with the request it completes —
+        # ahead of every pick, ordinal and booking reading of the message.
+        # Only a real booking signal (an offer pending, R9) goes first. And a
+        # booking needs something to book: with no offer and no list on
+        # screen, a message triaged booking answers the question instead.
+        answers_clarification = pending_clar is not None and clicked_id is None and (
+            triage.answers_pending == "yes"
+            or (family == "booking" and not profile.pending_booking and not profile.last_results)
+        )
         if booking_signal:
             family, route = "booking", ROUTES["booking"]
+        elif answers_clarification:
+            family, route = "search", ROUTES["search"]
+            picked = None  # "le 2" chose an option of the question, not a card
+            # An option chosen by its number: code resolves its city from the
+            # state and the leaf's carry-over (`_fill_place_from_profile`)
+            # fills it into geocode_location — with the option's country and
+            # region (Q14: Springfield IL / MO share both name and country),
+            # so a homonym does not come back ambiguous.
+            option = chosen_clarification_option(pending_clar, triage.answer_option)
+            if option is not None:
+                profile.city = option["city"]
+                profile.country_anchor = option.get("country_code")
+                profile.region_anchor = option.get("region") or None
+                profile.state_anchor = profile.zone = profile.metro = None
+                profile.search_anchor = None
         elif named_choice is not None:
             family, route = "search", ROUTES["search"]
         elif picked is not None:
@@ -1339,7 +1394,7 @@ class _B2cConcierge(BaseAgent):
                 if family == "booking" or clicked_id is not None
                 else ("details", ROUTES["details"])
             )
-        elif resolve_shortlist_ordinal(message, profile.last_results) is not None:
+        elif pending_clar is None and resolve_shortlist_ordinal(message, profile.last_results) is not None:
             # A bare list position ("2") replying to the numbered shortlist is a
             # hotel PICK, not a new search — route it to the booking flow, which
             # resolves it from the shortlist. Without this, a lone digit
@@ -1353,11 +1408,13 @@ class _B2cConcierge(BaseAgent):
             and (pending.get("request") or is_bare_affirmative(message, triage.affirmative))
         ):
             # mcp-dayuse#6: the short reply to the last search turn's question
-            # ("oui", "Monaco") goes back to the search with that context.
+            # ("oui", "Monaco") goes back to the search with that context. A
+            # place question is decided above, by `answers_pending`.
             family, route = "search", ROUTES["search"]
         # Consumed by this turn, whatever it does: only the very next reply
         # answers a question.
         profile.pending_search = None
+        profile.pending_clarification = None
 
         # PORT1 slice 3: an answer to a pending budget question ("USD", "au
         # total") completes that budget — a search turn, and never a request
@@ -1384,7 +1441,7 @@ class _B2cConcierge(BaseAgent):
         # asked for the currency decides it, never every later search.
         pending_currency: str | None = (
             profile.requested_currency if family == "search"
-            and pending is not None and bool(pending.get("request"))
+            and earlier is not None and bool(earlier.get("request"))
             and profile.requested_currency not in (None, "EUR", HOTEL) else None
         )
         if currency.kind == "unsupported":
@@ -1640,7 +1697,19 @@ class _B2cConcierge(BaseAgent):
             if profile.pending_party_total is not None:
                 query_params["party_total"] = profile.pending_party_total
             leaf_kwargs["query_params"] = query_params
-        context_text = pending_search_context(pending) if route.target == LEAF_HOTEL_SEARCH else None
+        context_text: str | None = None
+        if route.target == LEAF_HOTEL_SEARCH and pending_clar is not None:
+            # QA14707 (Q04): the answer to a place question travels with the
+            # request not searched yet and the question itself, as data — in
+            # the text the leaf reads as one message, and in query_params for
+            # code. The leaf re-reads the date and slot from the user's words.
+            context_text = pending_clarification_context(pending_clar)
+            leaf_kwargs["query_params"] = {
+                **(leaf_kwargs.get("query_params") or {}),
+                "clarification": pending_clar.get("clarification"),
+            }
+        elif route.target == LEAF_HOTEL_SEARCH:
+            context_text = pending_search_context(pending)
         if context_text:
             leaf_kwargs["context_text"] = context_text
         leaf_text, response = await _run_leaf(
@@ -1660,7 +1729,11 @@ class _B2cConcierge(BaseAgent):
         named_not_found: str | None = None
         named_hotel: Any = None
         named_ambiguous: Any = None
+        leaf_question: Clarification | None = None
         if isinstance(response, dict):
+            # QA14707: the leaf's place question as data, answered by template
+            # below — popped, it is never synthesis material.
+            leaf_question = _leaf_clarification(response.pop("clarification", None))
             budget.fired.update(response.pop("guards_fired", None) or [])
             # mcp-dayuse#8: same hand-off for the degraded paths the leaf
             # answered on, popped for the same reason.
@@ -1890,6 +1963,31 @@ class _B2cConcierge(BaseAgent):
             ctx, response, reply_language, build_hotel_picks(profile), profile.search_page
         )
 
+        if route.target == LEAF_HOTEL_SEARCH and leaf_question is not None and "results" not in response:
+            # QA14707 (decision DQ2): a place question is rendered by template
+            # from the leaf's `Clarification` — no synthesis call, so no option
+            # the geocoder did not return can be offered. The anti-loop reads
+            # the state: the same question on the next turn is reworded, and
+            # past CLARIFICATION_MAX_ASKS the answer asks nothing at all.
+            profile.pending_clarification = next_pending_clarification(
+                earlier, message, leaf_question.model_dump(mode="json")
+            )
+            asked = profile.pending_clarification["asked"]
+            if asked > 1:
+                with observation(as_type="guardrail", name="anti-clarification-loop"):
+                    mark_level("WARNING", status_message="anti_clarification_loop")
+                    budget.fired.add("anti_clarification_loop")
+            text = templates.clarification_response(leaf_question, reply_language, asked)
+            profile.last_clarifying_question = (
+                text if asked <= templates.CLARIFICATION_MAX_ASKS else None
+            )
+            await store.set(ctx.session.id, profile)
+            self._emit_turn_metric(family, "template:clarification", budget, t_start, "ok", inv)
+            for chunk in _chunk_text(text):
+                yield self._chunk_event(ctx, chunk)
+            yield self._final(ctx, text)
+            return
+
         if (route.target == LEAF_HOTEL_SEARCH and profile.price_comparison
                 and response.get("results") == []):
             # PORT1 slice 4: a filtered empty page says nothing about all
@@ -1922,7 +2020,7 @@ class _B2cConcierge(BaseAgent):
             profile.last_clarifying_question = budget_followup  # what a bare "80" answers
         if route.target == LEAF_HOTEL_SEARCH:
             profile.pending_search = next_pending_search(
-                pending, message, "results" in response, profile.last_clarifying_question
+                earlier, message, "results" in response, profile.last_clarifying_question
             )
         await store.set(ctx.session.id, profile)
 

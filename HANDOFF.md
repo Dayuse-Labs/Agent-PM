@@ -4,6 +4,44 @@
 
 > 📋 **Pour savoir QUOI faire ensuite, ouvrir [`CHANTIERS.md`](CHANTIERS.md)** (état vérifié au 2026-09-14) : la liste des chantiers ouverts, chacun avec sa preuve, ses actions et un prompt prêt à coller — plus la liste de ce qu'il ne faut **pas** relancer parce que c'est déjà livré. `tasks/todo.md` est périmé et ne doit plus servir de référence.
 
+## 🚀 2026-10-15/16 — QA14707 phases 1-3 livrées sur `plan/qa14707` + feuilles en gpt-6-luna en prod
+
+**Fait** :
+- **Prod (15/10, release `28c485a`)** : `main` est déployé (#135 + #139).
+  - Les feuilles recherche et FAQ tournent en `openai/gpt-6-luna` : gpt-4o-mini s'arrête le 14/01/2027.
+  - Le triage reste en gpt-4o-mini, la synthèse en gpt-5.2 (effort `low`).
+  - Traces vérifiées : 0 erreur, recherche en 6-7 s contre 22 s avant.
+- **Piège gpt-6 levé par #139** : LiteLLM 1.90.2 ne connaît pas gpt-6.
+  - Il faut `allowed_openai_params`, `max_completion_tokens`, et `reasoning_effort="none"`, sans quoi tout appel d'outil sur chat completions renvoie 400.
+  - Un simple changement d'env aurait cassé la feuille de recherche.
+- **Plan `plans/qa14707`, phases 1-3 sur `plan/qa14707`** : 21 tâches, dont Q14-Q26 ajoutées en cours de route.
+  - Q01-Q08 : `GeoIntent` produit par la feuille, `Clarification` rendue par gabarit sans synthèse, routage réponse avant réservation, adresses et codes postaux, créneau dans la langue de la conversation.
+  - Q14-Q26 : correctifs issus du diagnostic H3.
+  - Tout est testé hors ligne, avec un contrôle négatif à chaque fois.
+- **H1/H3 (preuves dans `plans/qa14707/PREREQUISITES.md`)** :
+  - Premier H3 sur gpt-4o-mini : **échec**. gpt-4o-mini ne donne pas sa ville à un monument sous le schéma imbriqué (0/25).
+  - H3 rejoué sur **gpt-6-luna** (DQ11) : **réussi**.
+    - Le plan est au moins au niveau de `main` sur chaque évaluateur des 5 jeux.
+    - Garde-fous 3/3, cas de Raphael 3/3 sur 8 items sur 9.
+    - GeoIntent invalide sur 0,5 % des tours.
+  - La seule exception (« dans le 75009 », rayon) est corrigée par Q26.
+
+**Reste** :
+- PR des phases 1-3 → `main` (DQ13), revue de Fabien, puis déploiement (DEPLOY.md, 4 services).
+- Seconde PR : phase 4 (Q09-Q11, retrait des regex de secours) puis phase 5 (Q12 documentation, Q13 revue globale).
+- Tickets :
+  - aligner `geo-poi-gare-de-lyon` sur S5 et `geo7-gare-du-nord-no-city` sur DQ12 ;
+  - mesurer « je confirme » avec une offre en attente ;
+  - migrer le triage (effort de raisonnement par rôle) et le juge de gpt-4o-mini avant le 14/01/2027 ;
+  - agent-usa : même piège gpt-6 (`openai_adapter.py:57`).
+
+**Pièges découverts** :
+- `evals/langfuse_experiment.py` doit tourner avec **`--max-concurrency 1`**. À 5, MCP_B2C renvoie des 429 à la création de session et fausse tous les résultats.
+- Redis local : `dayuse-redis-1` occupe le port 6379. Utiliser un Redis dédié sur :6390.
+- Le `.env` local ne fixe aucun `DAYUSE_MODEL*` : le local tourne sur le modèle par défaut du code, pas sur le mélange de la prod.
+- Un merge sur `main` ne déploie rien. Toujours déployer depuis un worktree propre de `main`.
+- Les variables de modèle ne se posent qu'avec `--skip-deploys`.
+
 ## 📐 2026-10-14 — Retours QA de Raphael sur dayuse-com#14707 : diagnostic + plan orchestre (zéro code)
 
 **Fait** : diagnostic prouvé sur 14 traces Langfuse, et plan source `phases/QA14707/` (README, DIAGNOSTIC, tâches Q01-Q13), prêt pour `/orchestre:prepare phases/QA14707`.

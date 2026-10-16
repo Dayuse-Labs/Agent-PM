@@ -52,12 +52,28 @@ def test_hotels_within_km_flags_a_far_hotel():
     assert "Far" in result["hotels_within_km"].comment
 
 
-def test_hotels_within_km_vacuously_passes_on_empty_results():
-    expected = {"hotels_within_km": {"lat": 48.8698, "lon": 2.3078, "km": 3}, "min_hotels": 0}
-    result = _by_name(
-        response_evaluator(input=None, output=_output({"hotels": []}), expected_output=expected, metadata=None)
-    )
-    assert result["hotels_within_km"].value == 1
+_WITHIN = {"hotels_within_km": {"lat": 48.8698, "lon": 2.3078, "km": 3}}
+
+
+def _within(response: dict):
+    out = response_evaluator(input=None, output=_output(response), expected_output=_WITHIN, metadata=None)
+    return _by_name(out)["hotels_within_km"]
+
+
+def test_hotels_within_km_skips_on_empty_or_null_hotels():
+    # H3 artefact: 0 hotels used to score 1 ("all 0 hotels within radius").
+    assert _within({"hotels": []}).value == "skipped"
+    assert _within({"hotels": None}).value == "skipped"
+
+
+def test_hotels_within_km_all_inside_scores_one():
+    assert _within({"hotels": [{"name": "A", "latitude": 48.87, "longitude": 2.31}]}).value == 1
+
+
+def test_hotels_within_km_missing_coordinates_scores_zero():
+    result = _within({"hotels": [{"name": "NoGeo"}]})
+    assert result.value == 0
+    assert "no coordinates" in result.comment
 
 
 def test_if_resolved_country_code_skips_when_clarified():
@@ -200,3 +216,79 @@ def test_first_hotel_name_contains_reads_the_first_card_only():
         "first_hotel_name_contains"
     ].value == 0
     assert _score(expected, {"hotels": []})["first_hotel_name_contains"].value == 0
+
+
+# --- QA14707 (Q01): reply repeated, geocode fact, inline tool calls -----------
+def _trace_score(expected_trace, trace, response=None, messages=None):
+    output = {"response": response or {}, "trace": trace}
+    item_input = {"messages": messages or [{"role": "user", "content": "x"}]}
+    return _by_name(
+        trace_evaluator(
+            input=item_input, output=output, expected_output={"trace": expected_trace}, metadata=None
+        )
+    )
+
+
+def test_reply_differs_from_previous_flags_the_same_question_again():
+    expected = {"reply_differs_from_previous": True}
+    question = "Dans quelle ville est la gare du Nord ?"
+
+    def score(message, previous):
+        out = {"response": {"message": message}, "trace": {}, "previous_reply": previous}
+        return _by_name(response_evaluator(input=None, output=out, expected_output=expected, metadata=None))
+
+    assert score("Voici 3 hôtels.", question)["reply_differs_from_previous"].value == 1
+    # same words, other case and spacing: still the same question
+    repeated = score("  dans quelle VILLE est la gare du  Nord ?", question)["reply_differs_from_previous"]
+    assert repeated.value == 0
+    assert "word for word" in repeated.comment
+    assert score("Voici 3 hôtels.", None)["reply_differs_from_previous"].value == "skipped"
+
+
+def test_geocode_city_needed_reads_the_geocode_fact():
+    expected = {"geocode_city_needed": True}
+    asked = {"geocode": {"ok": False, "error": "geocode_ambiguous", "city_needed": True, "options": []}}
+    resolved = {"geocode": {"ok": True, "error": None, "city_needed": False, "options": []}}
+    assert _trace_score(expected, asked)["geocode_city_needed"].value == 1
+    assert _trace_score(expected, resolved)["geocode_city_needed"].value == 0
+    assert _trace_score({"geocode_city_needed": False}, resolved)["geocode_city_needed"].value == 1
+    # the leaf never called the tool: not a pass, not a fail
+    assert _trace_score(expected, {"geocode": None})["geocode_city_needed"].value == "skipped"
+
+
+def test_tools_not_called_is_keyed_on_the_exact_observation_name():
+    expected = {"tools_not_called": ["generate_booking_link", "find_hotel_by_name"]}
+    clean = {"tool_calls": []}
+    called = {"tool_calls": ["mcp-generate_booking_link"]}
+    other_name = {"tool_calls": ["generate_booking_link"]}  # not the concierge's observation name
+    assert _trace_score(expected, clean)["tools_not_called"].value == 1
+    failed = _trace_score(expected, called)["tools_not_called"]
+    assert failed.value == 0 and "generate_booking_link" in failed.comment
+    assert _trace_score(expected, other_name)["tools_not_called"].value == 1
+    assert _trace_score(expected, {"tool_calls": None})["tools_not_called"].value == "skipped"
+
+
+def test_clarify_options_from_geocoder_flags_an_invented_option():
+    expected = {"clarify_options_from_geocoder": ["Paris", "Bruxelles", "Lyon"]}
+    no_candidate = {"geocode": {"city_needed": True, "options": []}}
+    with_candidates = {
+        "geocode": {
+            "city_needed": False,
+            "options": [{"name": "Paris", "region": "Île-de-France", "place_formatted": "Paris, France"}],
+        }
+    }
+    invented = {"message": "Paris, Bruxelles ou une autre ?"}
+    honest = {"message": "Près de « Gare du Nord » — dans quelle ville cherchez-vous ?"}
+
+    failing = _trace_score(expected, no_candidate, invented)["clarify_options_from_geocoder"]
+    assert failing.value == 0
+    assert "Paris" in failing.comment and "Bruxelles" in failing.comment
+    assert _trace_score(expected, no_candidate, honest)["clarify_options_from_geocoder"].value == 1
+    # Paris is a geocoder candidate here, Bruxelles still is not
+    partial = _trace_score(expected, with_candidates, invented)["clarify_options_from_geocoder"]
+    assert partial.value == 0 and "Bruxelles" in partial.comment and "Paris" not in partial.comment
+    # a name the user typed is grounded
+    typed = [{"role": "user", "content": "un hôtel à la gare de Lyon demain"}]
+    echo = {"message": "La gare de Lyon est dans quelle ville ?"}
+    assert _trace_score(expected, no_candidate, echo, typed)["clarify_options_from_geocoder"].value == 1
+    assert _trace_score(expected, {"geocode": None}, invented)["clarify_options_from_geocoder"].value == "skipped"

@@ -244,6 +244,53 @@ class TestLandmarkInstruction:
     def test_a_short_famous_landmark_is_passed_by_its_full_name(self):
         # mcp-dayuse#7: « St Paul's » resolved to a St Paul's on Burdett Rd (E3),
         # not the cathedral; « St Paul's Cathedral » resolves exactly.
+        # QA14707 (Q07): the full name is now the place's `canonical` in the
+        # `GeoIntent`, the user's short form its `mention`.
         from hotel_search_agent.agent import INSTRUCTION
 
-        assert 'zone "St Paul\'s Cathedral", city "London"' in INSTRUCTION
+        flat = " ".join(INSTRUCTION.split())
+        assert 'mention "St Paul\'s", canonical "St Paul\'s Cathedral", city "London"' in flat
+
+
+class TestGeoIntentInstruction:
+    """QA14707 (Q07): the place section of the prompt fills a `GeoIntent`."""
+
+    def test_the_s5_rule_is_the_city_needed_flag_not_a_blank_city(self):
+        # DQ6: « gare de Lyon » still makes the code ask which city, but the
+        # model now FLAGS it instead of being told to leave a string blank.
+        from hotel_search_agent.agent import INSTRUCTION
+
+        flat = " ".join(INSTRUCTION.split())
+        assert "leave `city` blank" not in flat
+        s5 = flat.index("NAMED AFTER A CITY IT IS NOT IN")
+        assert '`ambiguity.reason` to "city_needed" and give no city' in flat[s5:s5 + 400]
+
+    def test_a_written_postcode_goes_in_the_places_postal_code(self):
+        # Q23: also when the postcode alone is the place (« dans le 75009 »),
+        # which the Q08 postcode path resolves. The S5 bullet stays as it was
+        # (Q25 removed the Gare du Nord null case).
+        from hotel_search_agent.agent import INSTRUCTION
+
+        flat = " ".join(INSTRUCTION.split())
+        assert "A postcode the user writes goes in that place's `postal_code`" in flat
+        assert 'also when the postcode alone is the place ("dans le 75009"' in flat
+        assert '("Gare du Nord": Paris, Brussels)' not in flat  # Q25 (DQ12)
+        assert "A place NAMED AFTER A CITY IT IS NOT IN" in flat
+
+    def test_the_tool_takes_an_intent_not_free_strings(self):
+        from hotel_search_agent.agent import INSTRUCTION
+
+        flat = " ".join(INSTRUCTION.split())
+        assert "geocode_location with `intent`" in flat
+        for gone in ("raw user message", "`country_guess`", "in `zone`", "`country_code`"):
+            assert gone not in flat
+
+    def test_the_concierge_clarification_key_is_documented_as_data(self):
+        # Decision on Q04's new key: the leaf's model reads it, never copies it.
+        from hotel_search_agent.agent import INSTRUCTION
+
+        start = INSTRUCTION.index("`query_params.clarification`")
+        rule = " ".join(INSTRUCTION[start:start + 600].split())
+        assert "Read it as data" in rule
+        assert "never copy it" in rule
+        assert "into a tool argument" in rule

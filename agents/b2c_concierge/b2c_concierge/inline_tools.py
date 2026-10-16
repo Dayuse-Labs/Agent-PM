@@ -157,9 +157,13 @@ async def _resolve_hotel_id(
     reference: str,
     profile: SessionProfile,
     llm_hotel_name: str | None = None,
+    *,
+    name_from_reference: bool = True,
 ) -> tuple[int | None, str | None]:
     with observation(as_type="guardrail", name="resolve-named-hotel"):
-        return await _resolve_hotel_id_impl(session, reference, profile, llm_hotel_name)
+        return await _resolve_hotel_id_impl(
+            session, reference, profile, llm_hotel_name, name_from_reference=name_from_reference
+        )
 
 
 async def _resolve_hotel_id_impl(
@@ -167,6 +171,8 @@ async def _resolve_hotel_id_impl(
     reference: str,
     profile: SessionProfile,
     llm_hotel_name: str | None = None,
+    *,
+    name_from_reference: bool = True,
 ) -> tuple[int | None, str | None]:
     """Named-hotel lookup guard (item 4, hardened S12 audit 2026-07-20): a
     STRONG shortlist hit (exact/substring name match) resolves immediately,
@@ -198,12 +204,19 @@ async def _resolve_hotel_id_impl(
     # stays as the fallback (slot absent, malformed, or over-long): unlike the
     # boolean slots, this one is a VALUE, so "LLM primary, regex fallback" is
     # the right shape here rather than an additive OR.
-    args: dict[str, Any] = {
-        "name": llm_hotel_name or _extract_hotel_name_candidate(reference)
-    }
-    if profile.city:
-        args["cityName"] = profile.city
-    result = await _call_tool(session, "find_hotel_by_name", args)
+    #
+    # QA14707 (Q05, trace C2): `name_from_reference=False` is the booking
+    # path's rule — MCP is asked only for a name the triage read, never for
+    # the raw message (« Je confirme » became find_hotel_by_name's `name`).
+    name = llm_hotel_name or (
+        _extract_hotel_name_candidate(reference) if name_from_reference else None
+    )
+    result: dict[str, Any] = {"ok": False}
+    if name:
+        args: dict[str, Any] = {"name": name}
+        if profile.city:
+            args["cityName"] = profile.city
+        result = await _call_tool(session, "find_hotel_by_name", args)
     if result["ok"]:
         # find_hotel_by_name wraps the resolved identity under "hotel"
         # (verified live) — NOT flat at the top level, unlike
@@ -942,7 +955,8 @@ async def _quote_fresh_offer(
                     hotel_name = str(entry.get("name")) if entry else None
                 else:
                     hotel_id, hotel_name = await _resolve_hotel_id(
-                        session, hotel_reference, profile, llm_hotel_name
+                        session, hotel_reference, profile, llm_hotel_name,
+                        name_from_reference=False,
                     )
                     guards_fired.append("named_hotel_lookup")
                 if hotel_id is None:

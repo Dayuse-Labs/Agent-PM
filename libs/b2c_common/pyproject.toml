@@ -5,6 +5,7 @@ description = "AgentB2C shared foundations: interim D7 identity (static bearer, 
 requires-python = ">=3.12"
 dependencies = [
   "starlette",  # provided transitively by google-adk[a2a]; declared for standalone installs
+  "pydantic>=2",  # geo_intent.py (GeoIntent); provided transitively by google-adk
 ]
 
 [build-system]

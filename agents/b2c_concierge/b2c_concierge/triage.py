@@ -82,6 +82,13 @@ FALLBACK_PICK = "none"
 # duplicated the fr/en word lists in two places.
 BOOKING_CONFIRMATIONS = ("none", "confirm", "refuse", "change")
 
+# QA14707 (Q05, trace C2): whether the message answers LAST ASSISTANT QUESTION.
+# Closed enum, validated here, "no" when absent or off-contract — never a quote
+# to check (unlike `answer_to`): the code already knows from its own state that
+# a question is pending, so this slot only says whether the message answers it.
+ANSWERS_PENDING = ("yes", "no")
+FALLBACK_ANSWERS_PENDING = "no"
+
 # P1-2 widened the classify to RECOGNIZE 7 languages so the semantic slots
 # above work outside fr/en; UX2 (2026-08-27) closed the remaining gap by
 # translating templates.py for the 5 new ones, so TEMPLATE_LANGUAGES now
@@ -176,6 +183,12 @@ class Triage:
     # bed requirement {bedding}, each quoted from the message.
     requested_occupancy: dict[str, int] | None = None
     requested_room: dict | None = None
+    # QA14707 (Q05): "yes" when the message answers the question the
+    # assistant asked last, and the 1-based number of the option it chose
+    # when that question listed numbered options. The code decides what
+    # either means, from its own pending state.
+    answers_pending: str = FALLBACK_ANSWERS_PENDING
+    answer_option: int | None = None
 
 
 def is_social_ack(message: str) -> bool:
@@ -346,7 +359,9 @@ with exactly these keys:
   greets AND asks something is NOT `ack`. A follow-up that ADJUSTS a previous
   search — a new date ("pour le 28", "plutôt demain"), a cheaper budget, another
   area/zone — is `search`, NEVER `booking`; `booking` is only an explicit request
-  to get the link / proceed with a specific hotel already chosen. Asking to SEE
+  to get the link / proceed with a specific hotel already chosen. A reply to
+  LAST ASSISTANT QUESTION about a place ("Paris", "le 2", "je confirme") is
+  `search`, NEVER `booking`. Asking to SEE
   the prices in a currency ("donne le prix en SGD", "dans la monnaie de l'hôtel",
   "en devise locale") is `details`, NEVER `faq`; only a question about PAYING
   ("je peux payer en SGD ?", "quelles devises acceptez-vous ?") is `faq`.
@@ -389,8 +404,20 @@ with exactly these keys:
   request of its own — "ok", "oui", "d'accord", "sure", "yes", "sí", "sì", "ja",
   "sim", "va bene", "einverstanden". False as soon as it says anything else
   ("ok pour demain" carries a date, "oui le premier" carries a choice).
+- "answers_pending": one of {list(ANSWERS_PENDING)} — "yes" when the message
+  answers LAST ASSISTANT QUESTION (a place, a city, a choice among the options
+  it lists — "Paris", "le 2", "celle du Texas", "oui", "je confirme"), "no"
+  otherwise, and always "no" when no LAST ASSISTANT QUESTION is given.
+- "answer_option": when LAST ASSISTANT QUESTION lists NUMBERED options and the
+  message chooses one of them (by its number, its position or its name), that
+  option's 1-based number; otherwise null. Choosing an option of the question
+  is not a "pick": then "pick" is "none".
 - "booking_confirmation": one of {list(BOOKING_CONFIRMATIONS)} — how the message
   answers a pending "do you confirm this booking?" question, in ANY language.
+  "je confirme" is a booking confirmation ONLY when it answers a question about
+  confirming a booking; when LAST ASSISTANT QUESTION asks something else (which
+  city, which place), it answers THAT question: family=search,
+  answers_pending="yes", booking_confirmation="none".
     confirm = agrees to go ahead ("oui je confirme", "je valide", "yes I confirm",
               "vas-y", "sí, confírmalo", "ja, bestätigen").
     refuse  = declines ("non", "no", "laisse tomber", "annule", "nein").
@@ -586,6 +613,9 @@ async def classify(message: str, budget: TurnBudget, invocation_id: str = "",
     booking_confirmation = data.get("booking_confirmation")
     if booking_confirmation not in BOOKING_CONFIRMATIONS:
         booking_confirmation = None
+    answers_pending = data.get("answers_pending")
+    if answers_pending not in ANSWERS_PENDING:
+        answers_pending = FALLBACK_ANSWERS_PENDING
     return Triage(
         family,
         language,
@@ -604,6 +634,9 @@ async def classify(message: str, budget: TurnBudget, invocation_id: str = "",
                              if family in {"search", "booking"} else None),
         requested_room=(grounded_room_update(data.get("requested_room"), message)
                         if family in {"search", "booking"} else None),
+        answers_pending=answers_pending,
+        answer_option=(_positive_position(data.get("answer_option"))
+                       if answers_pending == "yes" else None),
     )
 
 

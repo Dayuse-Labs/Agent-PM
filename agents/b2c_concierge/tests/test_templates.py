@@ -10,6 +10,7 @@ from __future__ import annotations
 from collections.abc import Callable
 
 import pytest
+from b2c_common.clarification import Clarification
 
 from b2c_concierge import templates
 from b2c_concierge.triage import LANGUAGES
@@ -47,6 +48,12 @@ class TestBookingOfferSummaryResponse:
 # fallback itself stays reachable and fr/en stay byte-identical to before. ---
 
 _SHORTLIST = [{"name": "Villa Paris Orly"}, {"name": "Ibis Lyon Gare"}]
+_CITY_NEEDED = Clarification(kind="city_needed", subject="Gare du Nord")
+_HOMONYM = Clarification.model_validate({
+    "kind": "homonym",
+    "subject": "Victoria",
+    "options": [{"label": "Victoria (Texas, US)", "city": "Victoria", "country_code": "US"}],
+})
 
 # One representative call per templates.py function/branch — the fixed
 # (non-language) arguments are irrelevant to the assertion, only `language`
@@ -93,6 +100,17 @@ _CASES: dict[str, Callable[[str | None], str]] = {
     "named_hotel_not_offered_notice": lambda lang: templates.named_hotel_not_offered_notice(
         "St Paul's Hotel", "7", lang
     ),
+    "clarification:city_needed": lambda lang: templates.clarification_response(
+        _CITY_NEEDED, lang, 1
+    ),
+    "clarification:city_needed_again": lambda lang: templates.clarification_response(
+        _CITY_NEEDED, lang, 2
+    ),
+    "clarification:homonym": lambda lang: templates.clarification_response(_HOMONYM, lang, 1),
+    "clarification:homonym_again": lambda lang: templates.clarification_response(
+        _HOMONYM, lang, 2
+    ),
+    "clarification:give_up": lambda lang: templates.clarification_response(_HOMONYM, lang, 3),
 }
 
 _NON_ENGLISH_LANGUAGES = [lang for lang in LANGUAGES if lang != "en"]
