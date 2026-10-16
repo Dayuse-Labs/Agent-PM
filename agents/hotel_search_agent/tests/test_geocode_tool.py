@@ -236,21 +236,25 @@ class TestGeocoderDegradation:
 
 
 class TestUsZipCountryScoping:
-    """Prod bug: a 5-digit US ZIP ("near 11580") geocoded worldwide. QA14707
-    (Q10, DQ7): the regex that forced "US" on any 5-digit number is gone (it
-    read every French postcode as a US ZIP). The US case is now the postcode
-    rule's (`postal_code`, DQ8: the model's guess, then the market), tested in
-    `test_postcode_resolution.py::TestNear11580`. Here, a bare number in the
-    text forces no country, at the FakeMapboxClient level and against the real
-    MapboxClient HTTP layer (httpx.MockTransport).
+    """Prod bug: a 5-digit US ZIP ("near 11580") geocoded worldwide when the
+    model didn't also extract country_code. QA14707 (Q10, DQ7): the regex that
+    read any 5-digit number as a US ZIP and forced "US" is gone (it read every
+    French postcode as a US ZIP). The assertions are unchanged; the input now
+    carries the United States as a NAMED country (`country_code="US"`), the
+    only hard Mapbox filter left (DQ8). Locked at the FakeMapboxClient level
+    and once more against the real MapboxClient HTTP layer
+    (httpx.MockTransport) so the actual Mapbox URL is asserted. Without a named
+    country, a US ZIP stays in the US through the DQ8 tie-break
+    (`test_postcode_resolution.py::TestNear11580`), and a bare number forces
+    no country (`test_us_zip_removal.py`).
     """
 
-    def test_a_bare_five_digit_number_forces_no_country_on_the_fake_client(self, monkeypatch):
+    def test_a_named_us_forces_country_code_on_the_fake_client(self, monkeypatch):
         fake = _patch_client(monkeypatch, FLORENCE_KY)
 
-        geocode_core(city="11580", raw_user_message="Allows cats. Near 11580")
+        geocode_core(city="11580", country_code="US", raw_user_message="Allows cats. Near 11580, USA")
 
-        assert fake.calls == [("11580", None)]
+        assert fake.calls == [("11580", "US")]
 
     def test_no_zip_and_no_country_signal_stays_unscoped(self, monkeypatch):
         fake = _patch_client(monkeypatch, FLORENCE_KY)
@@ -266,7 +270,7 @@ class TestUsZipCountryScoping:
 
         assert fake.calls == [("Paris", "FR")]
 
-    def test_a_bare_five_digit_number_leaves_the_real_mapbox_request_unscoped(self, monkeypatch):
+    def test_a_named_us_scopes_the_real_mapbox_request_url(self, monkeypatch):
         seen: dict = {}
 
         def handler(request: httpx.Request) -> httpx.Response:
@@ -294,11 +298,13 @@ class TestUsZipCountryScoping:
         )
         monkeypatch.setattr(geocode_tool, "get_mapbox_client", lambda: real_client)
 
-        result = geocode_core(city="11580", raw_user_message="Allows cats. Near 11580")
+        result = geocode_core(
+            city="11580", country_code="US", raw_user_message="Allows cats. Near 11580, USA"
+        )
 
         assert result["ok"] is True
         assert result["country_code"] == "US"
-        assert "country" not in seen["params"]
+        assert seen["params"]["country"] == "us"
 
     def test_no_zip_anchor_leaves_the_real_mapbox_request_url_unscoped(self, monkeypatch):
         seen: dict = {}

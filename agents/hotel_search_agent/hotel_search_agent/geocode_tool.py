@@ -142,8 +142,9 @@ def _soft_country(
     world-knowledge guess > the locale prior.
 
     This is P0-2 fix 2 (audit §1 M3). Before it, the tier-2 POI lookup was sent
-    with `country=country_code`, which is only populated when the user
-    NAMED a country or named a country — so in the common case it was an
+    with `country=effective_country_code`, which was only populated when the
+    user NAMED a country or typed a US ZIP (the regex US-ZIP anchor, removed
+    since by QA14707 Q10) — so in the common case it was an
     unscoped, worldwide, limit=1 lookup. That is what let a business called
     "Champs Elysées" in another hemisphere win: the echo guard validates the
     NAME, so a perfect name match in the wrong country sails through it (M4).

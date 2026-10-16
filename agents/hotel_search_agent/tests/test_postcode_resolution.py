@@ -399,9 +399,10 @@ class TestTiesBetweenCountries:
 
 class TestNear11580:
     """The prod bug « near 11580 » (geocoded outside the United States). Its
-    US case is the DQ8 tie-break's alone (Q10 removed the US-ZIP anchor):
-    Mapbox's own first answer for 11580 is Mexico City, the guess or the
-    market keeps the United States."""
+    regex US-ZIP anchor is gone (Q10, DQ7); the assertions of its tests are
+    unchanged. With a `postal_code`, Mapbox's own first answer is Mexico City
+    and the DQ8 tie-break (the guess, then the market) keeps the United
+    States. Without one, only a NAMED country scopes the lookup."""
 
     @pytest.mark.parametrize(("guess", "locale"), [("US", None), ("US", "fr-FR"), (None, "en-US")])
     def test_a_us_guess_or_a_us_market_stays_in_the_us(self, mapbox, guess, locale):
@@ -416,10 +417,10 @@ class TestNear11580:
         assert result["resolved_place"] == "Valley Stream, New York 11580, United States"
         assert all("country" not in r for r in mapbox.requests)
 
-    def test_without_a_postal_code_nothing_scopes_the_lookup(self, mapbox):
-        geocode_core(city="11580", raw_user_message="Allows cats. Near 11580")
+    def test_without_a_postal_code_a_named_us_scopes_the_lookup(self, mapbox):
+        geocode_core(city="11580", country_code="US", raw_user_message="Allows cats. Near 11580, USA")
 
-        assert "country" not in mapbox.requests[0]
+        assert mapbox.requests[0]["country"] == "us"
 
     def test_a_landmark_with_its_postal_code_is_searched_in_the_postcodes_city(self, mapbox):
         # A landmark with its postcode goes on to the usual path, in the

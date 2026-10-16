@@ -1,6 +1,6 @@
 """QA14707 (Q10, DQ7): the US-ZIP anchor is gone, the postcode rule (Q08, DQ8) decides.
 
-`select_us_postal_anchor` read ANY 5-digit number as a US ZIP, so every French
+The regex US-ZIP anchor of geo_guards read ANY 5-digit number as a US ZIP, so every French
 postcode ("75009", "13001") was a US ZIP. A US user's ZIP now stays in the
 United States through DQ8 only (the model's guess, then the market), and what
 the postcode turns persist in the session is pinned here: a follow-up turn
@@ -125,9 +125,10 @@ class TestTheAnchorIsGone:
     def test_the_names_are_deleted(self):
         from hotel_search_agent import geo_guards
 
-        assert not hasattr(geo_guards, "select_us_postal_anchor")
-        assert not hasattr(geo_guards, "PostalAnchor")
-        assert not hasattr(geocode_tool, "select_us_postal_anchor")
+        # No name of the old anchor (its selector, its dataclass) is left in
+        # either module, matched without the underscores and the case.
+        for module in (geo_guards, geocode_tool):
+            assert not [n for n in dir(module) if "postalanchor" in n.replace("_", "").lower()]
 
     def test_a_five_digit_number_no_longer_forces_a_country(self, mapbox):
         geocode_core(city="75009", raw_user_message="un hôtel près de 75009")
@@ -241,5 +242,8 @@ class TestFollowUpTurnsAfterAPostcode:
         assert second["ok"] is True
         assert second["country_code"] == "FR"
         assert second["distance_origin_type"] == "poi"
+        # The follow-up looked up the persisted address itself, not a postcode.
+        assert mapbox.searchbox.calls == [(zone, None)]
+        assert mapbox.queries[0][0] == f"{zone}, Paris"
         assert all(r.get("country") != "us" for r in mapbox.requests)
         assert all(country != "US" for _, country in mapbox.searchbox.calls)
