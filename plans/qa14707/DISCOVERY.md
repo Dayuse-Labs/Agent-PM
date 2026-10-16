@@ -60,6 +60,7 @@ Notes on these commands:
 - Regenerate the GeoIntent snapshot with `.venv/bin/python libs/b2c_common/b2c_common/geo_intent.py > contracts/geo_intent.schema.json`. The recorded gpt-6-luna intents are in `<scratchpad>/h3/probe_out_luna-v1.json` (variant V1 = the current schema).
 
 Q26 results: pytest -q 2935 passed, 1 skipped (316 s). hotel_search_agent tests plus test_leaf_concierge_seam.py 890 passed. ruff, mypy and dayuse_guardrails are clean. Parent-commit run (geocode_tool.py restored from 543e8aa^, then restored back): 4 failed and 3 passed. The 4 fixed-behaviour tests fail with `'city_centroid' == 'poi'` (3 of them) and `KeyError: 'radiusKm'` (sparse-ring test); the negative controls pass.
+- Run the verifications one by one with the guard: pytest -q (full, ~347 s, needs a long timeout: 2953 passed, 1 skipped), then pytest -q agents/b2c_concierge/tests (1254 passed), tests/test_leaf_concierge_seam.py (18), test_clarification_routing.py (31), test_entry_market_country.py (27), ruff check ., mypy agents libs (68 files), bash scripts/dayuse_guardrails.sh . . Passing several test paths in one pytest command made the counts look partial; run them separately.
 
 ## Quick map
 
@@ -184,6 +185,7 @@ Q26 results: pytest -q 2935 passed, 1 skipped (316 s). hotel_search_agent tests 
 - The full `.venv/bin/pytest -q` takes about 6.5 minutes (391 s, mostly the calendar-rot subprocess), so it exceeds the 120 s default tool timeout. Run it with a long timeout or in the background. There is no `timeout` binary on macOS.
 - To test geocode_location through a GeoIntent without DataParts, a tool_context of `SimpleNamespace(state={}, user_content=genai_types.Content(role='user', parts=[genai_types.Part(text=...)]))` is enough. See `_ctx` in test_carried_country_anchor.py for the version with profile_in.
 - A worker report must name each deleted or rewritten test individually. A generic line such as 'the mechanism tests were deleted' fails the evaluation for DoD 4.
+- New helper leaf_question(leaf_text) in b2c_concierge.profile is the only source of last_clarifying_question on the synthesis path (agent._synthesize_with_guards). A test that expects 'YOU ASKED: <q>' after a search turn must put the question in fake_leg.text (the leaf's own text), not in the scripted synthesis line, and must reset fake_leg.text afterwards, otherwise every later turn whose leaf text ends in '?' stores a new question.
 
 ## Pitfalls and fixes
 
@@ -253,5 +255,8 @@ Q26 results: pytest -q 2935 passed, 1 skipped (316 s). hotel_search_agent tests 
 - Live replay of qa14707-postcode-only-fr on gpt-6-luna is still owed, as the plan states. It is not required for the merge.
 - macOS sed needs `sed -i ''`; a failed sed in an && chain silently skips the commit.
 - macOS sed -i needs an extension argument, so a `sed -i '/pattern/d' file` call misparses its arguments. Use a Python edit instead.
+- With the fast path now gated on `earlier is None`, any pending_search sends even 'merci' to the triage. A test that scripts only the synthesis line for such a turn will pop the wrong scripted item. In test_clarification_state.py the helper pattern for state tests is: import _CITY_NEEDED, _SEARCH_RESULTS, _seed and the mcp_calls fixture from .test_clarification_routing, fake_leg and _new_session/_run_turn/_scripted_llm from .test_spine_profile; template clarification turns consume ONE scripted triage line and no synthesis.
+- inline_tools._resolve_hotel_id(session, reference, profile, llm_hotel_name) lost its name_from_reference keyword. get_hotel_details / compare_hotels / generate_booking_link tests that reach find_hotel_by_name must pass llm_hotel_name (the triage's hotel_name). The mcp_calls fixture in test_clarification_routing.py returns an OK result for every MCP tool, so assert on the calls recorded, not on the outcome.
+- For Q12 and Q13: the slot shape pending_clarification {clarification, request, asked} is unchanged, but a stored asked that is missing or not a positive int is now read as 1 (so a repeat gives 2). pending_place no longer exists in the profile (Redis keys with that name are ignored on load). Q13 review: check that the corrected Q09 DoD 4 listing in HANDOFF still matches the diff, that the deleted tests listed above are mechanism tests only (the leaf_question / state tests replace them), and that GUARD_SCORE_NAMES is unchanged (anti_clarification_loop is still emitted by the template path, tested in test_clarification_template.py:316).
 
 ## Context recommendations (end of run)
