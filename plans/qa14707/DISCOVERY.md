@@ -62,6 +62,7 @@ Notes on these commands:
 Q26 results: pytest -q 2935 passed, 1 skipped (316 s). hotel_search_agent tests plus test_leaf_concierge_seam.py 890 passed. ruff, mypy and dayuse_guardrails are clean. Parent-commit run (geocode_tool.py restored from 543e8aa^, then restored back): 4 failed and 3 passed. The 4 fixed-behaviour tests fail with `'city_centroid' == 'poi'` (3 of them) and `KeyError: 'radiusKm'` (sparse-ring test); the negative controls pass.
 - Run the verifications one by one with the guard: pytest -q (full, ~347 s, needs a long timeout: 2953 passed, 1 skipped), then pytest -q agents/b2c_concierge/tests (1254 passed), tests/test_leaf_concierge_seam.py (18), test_clarification_routing.py (31), test_entry_market_country.py (27), ruff check ., mypy agents libs (68 files), bash scripts/dayuse_guardrails.sh . . Passing several test paths in one pytest command made the counts look partial; run them separately.
 - In this worktree, inline python edits (`python3 - file <<'EOF'`) were accepted. The full `pytest -q` takes about 5.7 to 6.3 minutes (340 to 377 s), so use a 600000 ms timeout.
+- The full pytest run takes about 340 s, well over the 120 s default tool timeout (the calendar-rot test replays the suite). Run it with a 600000 ms timeout or in the background. The fast loop is `pytest -q agents/b2c_concierge/tests tests/test_leaf_concierge_seam.py`.
 
 ## Quick map
 
@@ -188,6 +189,7 @@ Q26 results: pytest -q 2935 passed, 1 skipped (316 s). hotel_search_agent tests 
 - A worker report must name each deleted or rewritten test individually. A generic line such as 'the mechanism tests were deleted' fails the evaluation for DoD 4.
 - New helper leaf_question(leaf_text) in b2c_concierge.profile is the only source of last_clarifying_question on the synthesis path (agent._synthesize_with_guards). A test that expects 'YOU ASKED: <q>' after a search turn must put the question in fake_leg.text (the leaf's own text), not in the scripted synthesis line, and must reset fake_leg.text afterwards, otherwise every later turn whose leaf text ends in '?' stores a new question.
 - After Q10, `git grep -n select_us_postal_anchor -- agents libs` returns nothing (checked, exit 1). `effective_country_code` appears in geocode_tool.py only in the historical text of the `_soft_country` docstring, never in code. A 5-digit number in the text forces no country. Only a named country (`country_code`) is a hard Mapbox filter.
+- `turn_question` is in profile.py. The agent.py import list places it out of alphabetical order next to `leaf_question`, and ruff accepted it. Q12 should document the rule: the leaf's last line first, then the synthesis's last line, both by punctuation only with a 300-character cap. Q13 should note that the budget follow-up still overrides the stored question after the synthesis.
 
 ## Pitfalls and fixes
 
@@ -262,5 +264,6 @@ Q26 results: pytest -q 2935 passed, 1 skipped (316 s). hotel_search_agent tests 
 - For Q12 and Q13: the slot shape pending_clarification {clarification, request, asked} is unchanged, but a stored asked that is missing or not a positive int is now read as 1 (so a repeat gives 2). pending_place no longer exists in the profile (Redis keys with that name are ignored on load). Q13 review: check that the corrected Q09 DoD 4 listing in HANDOFF still matches the diff, that the deleted tests listed above are mechanism tests only (the leaf_question / state tests replace them), and that GUARD_SCORE_NAMES is unchanged (anti_clarification_loop is still emitted by the template path, tested in test_clarification_template.py:316).
 - On the en/USD market, "near 11580" with no model guess and no `entry_market_country` still follows Mapbox order (Mexico City first). This is pinned by test_without_the_market_a_bare_en_follows_mapbox_order. It is correct only because Q16 forwards the market's country to the leaf; without it the case regresses silently.
 - A follow-up turn with a persisted address zone (profile_in zone "2 Boulevard Poissonnière", city Paris) queries the Search Box with the bare zone and no country, then v6 with "<zone>, Paris". A Search Box fake that ignores its query proves nothing unless `searchbox.calls` is asserted.
+- `leaf_question` takes the last non-empty LINE, not the last sentence. A one-line synthesis such as 'Here you go. Anything else?' is stored whole.
 
 ## Context recommendations (end of run)
