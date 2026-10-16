@@ -26,12 +26,10 @@ S06 adds two more, both deterministic and code-owned (never LLM-decided):
     prose (agent-usa's older approach — the synthesis text here is
     LLM-authored and streamed, so its exact wording is not a stable regex
     target).
-  - anti-clarification-loop (P10): `extract_final_question`/
-    `questions_equivalent` are the pure detectors the spine (agent.py) uses
-    to notice a synthesized reply repeats the PREVIOUS turn's trailing
-    question — the retry-then-strip orchestration itself lives in agent.py
-    since it must re-invoke the synthesis LLM, which this module intentionally
-    stays free of (guards here are pure, Redis/LLM-free, unit-testable alone).
+  - anti-clarification-loop (P10): since QA14707 (Q11) it reads the state,
+    never the synthesized text: `next_pending_clarification` counts how many
+    turns in a row asked the same place question (`asked`), and
+    `leaf_question` takes the leaf's own question, before the synthesis.
 
 S07 adds the `_last_results` equivalent this spine was structurally missing
 (S06's HANDOFF noted the difference from agent-usa on purpose — inline tools
@@ -290,9 +288,6 @@ class SessionProfile:
     # mcp-dayuse#7: the hotels the last turn asked the user to choose between
     # (a name several hotels share). Read on the next turn only, then cleared.
     named_candidates: list[str] | None = None
-    # mcp-dayuse#7: a homonym the last turn asked about (« which Manhattan? »)
-    # with the options offered, so the answer completes it. Next search only.
-    pending_place: dict[str, Any] | None = None
     # QA14707 (Q04): the place question the search leaf asked instead of
     # searching, for the very next turn — {"clarification": the leaf's
     # `Clarification` as a dict, "request": the user's own words not searched
@@ -363,7 +358,6 @@ class SessionProfile:
             "daypart": self.daypart,
             "pending_search": self.pending_search,
             "named_candidates": self.named_candidates,
-            "pending_place": self.pending_place,
             "pending_clarification": self.pending_clarification,
             "requested_budget": self.requested_budget,
             "price_comparison": self.price_comparison,
@@ -801,8 +795,6 @@ def apply_profile_delta(
     # zone-only change is exactly the audit's "keep everything else" case.
     if "zone" in values:
         profile.zone = values["zone"]
-    if "pending_place" in values:
-        profile.pending_place = values["pending_place"]
     if "metro" in values:
         profile.metro = values["metro"]
     if "named_hotel" in values:
@@ -1069,7 +1061,10 @@ def next_pending_clarification(
     request = (next_pending_search(earlier, message, False, None) or {}).get("request")
     asked = 1
     if earlier and _same_question(earlier.get("clarification"), clarification):
-        asked = int(earlier.get("asked") or 1) + 1
+        # A profile written by another writer may carry no usable count: the
+        # earlier ask itself still counts, so the count starts from 1.
+        count = earlier.get("asked")
+        asked = (count if isinstance(count, int) and not isinstance(count, bool) and count >= 1 else 1) + 1
     return {"clarification": clarification, "request": request, "asked": asked}
 
 
@@ -1138,39 +1133,24 @@ def search_context_line(profile: SessionProfile) -> str:
     return "; ".join(bits)
 
 
-# --- Anti-clarification-loop (P10) --------------------------------------
+# --- Question the leaf asked (QA14707, Q11) ------------------------------
 
-_FINAL_QUESTION_RE = re.compile(r"([^.!?\n]*\?)\s*$")
-
-# Cheap normalization for fuzzy equivalence: lowercase, drop punctuation, and
-# collapse whitespace — "Which airport area exactly should I prioritize?" and
-# "Which airport area, exactly, should I prioritize?" must compare equal.
-_NORMALIZE_RE = re.compile(r"[^\w\s]")
+_MAX_LEAF_QUESTION_CHARS = 300
 
 
-def extract_final_question(text: str) -> str | None:
-    """The last sentence of `text` if it is a question, else None. Used to
-    detect a synthesized reply that ends by asking something — the shape a
-    repeated clarifying question always takes (prod sessions 493b86e8 /
-    cfa9c579 repeated the SAME trailing question up to 7 times)."""
-    if not text:
+def leaf_question(leaf_text: str | None) -> str | None:
+    """The question the search leaf itself ended its turn on, as the leaf
+    wrote it — its own last line, taken before the synthesis rewrites the
+    reply. It fills "YOU ASKED" and the triage's `previous_question`, so a
+    paraphrase of the synthesis never stands in for it. No wording is read:
+    a turn that does not end on a question mark asked nothing.
+
+    A place question the code asked is not read from text at all: it is the
+    stored `Clarification` (`next_pending_clarification`)."""
+    lines = [line.strip() for line in (leaf_text or "").splitlines() if line.strip()]
+    if not lines or not lines[-1].endswith("?"):
         return None
-    match = _FINAL_QUESTION_RE.search(text.strip())
-    if not match:
-        return None
-    question = match.group(1).strip()
-    return question or None
-
-
-def questions_equivalent(a: str | None, b: str | None) -> bool:
-    """Fuzzy equality tolerant of punctuation/whitespace drift — the LLM
-    rarely repeats a question byte-for-byte, but a human recognizes it as
-    the same question."""
-    if not a or not b:
-        return False
-    norm_a = _NORMALIZE_RE.sub("", a).lower().split()
-    norm_b = _NORMALIZE_RE.sub("", b).lower().split()
-    return bool(norm_a) and norm_a == norm_b
+    return lines[-1][-_MAX_LEAF_QUESTION_CHARS:]
 
 
 # --- Named-hotel lookup (S07) — the `_last_results` equivalent -------------

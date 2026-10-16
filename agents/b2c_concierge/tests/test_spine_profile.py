@@ -1351,7 +1351,9 @@ class TestPendingSearchThroughTheSpine:
         self, monkeypatch, fake_leg, fake_profile_store
     ):
         # QA 2026-09-30: "demain matin 7h" then "New york" searched without 7h.
-        fake_leg.text = "Which city?"
+        # Q11: "YOU ASKED" is the question as the LEAF wrote it, so it is the
+        # leaf's text here (the synthesis only paraphrases it).
+        fake_leg.text = "Dans quelle ville souhaitez-vous réserver ?"
         _scripted_llm(
             monkeypatch,
             '{"family": "search", "language": "fr"}', "Dans quelle ville souhaitez-vous réserver ?",
@@ -1361,6 +1363,7 @@ class TestPendingSearchThroughTheSpine:
         session = _new_session(runner)
 
         _run_turn(runner, session.id, "un hotel avec piscine demain de 14h à 18h")
+        fake_leg.text = "results: hotel A"
         fake_leg.response_payload = {"results": ["hotel A"], "profile_delta": {"city": "Lyon"}}
         _run_turn(runner, session.id, "Lyon")
 
@@ -1389,7 +1392,10 @@ class TestPendingSearchThroughTheSpine:
         runner = InMemoryRunner(root_agent)
         session = _new_session(runner)
 
+        # Q11: the question is the leaf's own text, not the synthesis's.
+        fake_leg.text = "Voulez-vous des hôtels plus proches du centre ?"
         _run_turn(runner, session.id, "un hotel à Nice")
+        fake_leg.text = "results: hotel A"
         answer = _run_turn(runner, session.id, reply)
 
         assert answer == "Voici plus près."

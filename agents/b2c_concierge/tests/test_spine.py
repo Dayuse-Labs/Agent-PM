@@ -550,8 +550,8 @@ class TestHonestDegradation:
         self, monkeypatch, fake_profile_store
     ):
         # mcp-dayuse#7: « New York » answering « which Manhattan? » came back in
-        # English, and the place asked about must reach the answer turn once.
-        pending = {"name": "Manhattan", "options": [{"region": "New York"}]}
+        # English. (Q11: the place asked about no longer travels as a profile
+        # slot any more; the language assertions stand.)
         plan = [
             '{"family": "search", "language": "fr"}',
             "Quel Manhattan ?",
@@ -562,8 +562,7 @@ class TestHonestDegradation:
         monkeypatch.setattr(agent_module.litellm, "acompletion", llm)
         seen: list[dict] = []
         responses = [
-            {"requires_clarification": True,
-             "profile_delta": {"pending_place": {"op": "set", "value": pending}}},
+            {"requires_clarification": True},
             {"results": [{"hotel_id": 1, "name": "Moxy NYC Downtown"}],
              "profile_delta": {"city": "Manhattan"}},
         ]
@@ -576,10 +575,8 @@ class TestHonestDegradation:
         runner, session = _new_session()
         _drive_in(runner, session.id, "un hôtel à Manhattan demain")
         _drive_in(runner, session.id, "New York")
-        assert seen[1]["pending_place"] == pending
         assert "LANG: fr" in str(llm.calls[3]["messages"])
         profile = asyncio.run(fake_profile_store.get(session.id))
-        assert profile.pending_place is None
         assert profile.language == "fr"
 
     def test_named_hotel_not_found_without_any_text_is_answered_in_code(self, scripted, caplog):
@@ -877,49 +874,34 @@ class TestInternalEvents:
         assert all(e.partial for e in events if e is not events[_final_index(events)])
 
 
-class TestAntiClarificationLoopGuard:
-    """P10 (2026-06-11 audit): a synthesized reply repeating the PREVIOUS
-    turn's trailing question gets exactly ONE bounded retry with a do-not-ask
-    directive, then a deterministic strip — never a full loop restart."""
+class TestSynthesisQuestionIsNotPolicedByText:
+    """QA14707 (Q11): the P10 text guard (extract the synthesis's last sentence,
+    compare it to the previous question, retry once, then strip) is gone. The
+    anti-loop works on the stored place question (`pending_clarification.asked`,
+    see test_clarification_template.py); a synthesized reply is shown as written
+    and costs ONE synthesis call, whatever it ends on."""
 
     QUESTION = "Which airport area exactly should I prioritize?"
 
-    def test_repeated_question_triggers_one_bounded_retry(self, scripted, fake_profile_store, caplog):
-        runner, session = _new_session()
-        asyncio.run(
-            fake_profile_store.set(session.id, SessionProfile(last_clarifying_question=self.QUESTION))
-        )
-        scripted(
-            '{"family": "search", "language": "en"}',
-            f"Happy to help! {self.QUESTION}",
-            "Here are the Queens options.",
-            leaf_text="results: hotel A",
-        )
-        with caplog.at_level(logging.INFO, logger="b2c_concierge.metrics"):
-            events = _drive_in(runner, session.id, "let's do nova")
-        assert _answer(events) == "Here are the Queens options."
-        # The retry is an internal detail of ONE "synthesis" budget slot.
-        assert _turn_metric(caplog)["llm_calls"] == "3"
-
-    def test_still_looping_after_retry_strips_the_question_deterministically(
-        self, scripted, fake_profile_store
+    def test_a_synthesis_repeating_the_previous_question_is_not_retried(
+        self, scripted, fake_profile_store, caplog
     ):
         runner, session = _new_session()
         asyncio.run(
             fake_profile_store.set(session.id, SessionProfile(last_clarifying_question=self.QUESTION))
         )
-        scripted(
+        llm, _ = scripted(
             '{"family": "search", "language": "en"}',
             f"Happy to help! {self.QUESTION}",
-            f"Of course. {self.QUESTION}",
             leaf_text="results: hotel A",
         )
-        events = _drive_in(runner, session.id, "let's do nova")
-        answer = _answer(events)
-        assert self.QUESTION not in answer
-        assert answer == "Of course."
+        with caplog.at_level(logging.INFO, logger="b2c_concierge.metrics"):
+            events = _drive_in(runner, session.id, "let's do nova")
+        assert _answer(events) == f"Happy to help! {self.QUESTION}"
+        assert len(llm.calls) == 2  # triage + ONE synthesis, no retry
+        assert _turn_metric(caplog)["llm_calls"] == "3"  # + the leaf's own slot
 
-    def test_new_question_is_not_treated_as_a_repeat(self, scripted, fake_profile_store):
+    def test_a_new_synthesized_question_is_left_alone(self, scripted, fake_profile_store):
         runner, session = _new_session()
         asyncio.run(
             fake_profile_store.set(session.id, SessionProfile(last_clarifying_question=self.QUESTION))
@@ -931,6 +913,33 @@ class TestAntiClarificationLoopGuard:
         )
         events = _drive_in(runner, session.id, "let's do nova")
         assert _answer(events) == "Got it. What budget should I plan for?"
+
+    def test_what_the_next_turn_answers_is_the_leafs_question_not_the_synthesis(
+        self, scripted, fake_profile_store
+    ):
+        runner, session = _new_session()
+        scripted(
+            '{"family": "search", "language": "en"}',
+            "A completely different paraphrase, shall we continue?",
+            leaf_text="Here are some options.\nWould you like hotels closer to the centre?",
+        )
+        _drive_in(runner, session.id, "a hotel in Nice")
+        stored = asyncio.run(fake_profile_store.get(session.id))
+        assert stored.last_clarifying_question == "Would you like hotels closer to the centre?"
+
+    def test_a_leaf_that_asked_nothing_leaves_no_question(self, scripted, fake_profile_store):
+        runner, session = _new_session()
+        asyncio.run(
+            fake_profile_store.set(session.id, SessionProfile(last_clarifying_question=self.QUESTION))
+        )
+        scripted(
+            '{"family": "search", "language": "en"}',
+            "Here you go. Anything else?",
+            leaf_text="results: hotel A",
+        )
+        _drive_in(runner, session.id, "let's do nova")
+        stored = asyncio.run(fake_profile_store.get(session.id))
+        assert stored.last_clarifying_question is None
 
 
 class TestRecoveryAck:
@@ -1372,24 +1381,6 @@ class TestObs3GuardScores:
         assert _answer(events) == templates.leaf_degraded_response("search", "fr", None)
         # ...and the guard is still scored.
         assert "generic_location_demotion" in guard_calls[-1]
-
-    def test_anti_clarification_loop_guard_is_scored(self, scripted, fake_profile_store, monkeypatch):
-        question = "Which airport area exactly should I prioritize?"
-        runner, session = _new_session()
-        asyncio.run(
-            fake_profile_store.set(session.id, SessionProfile(last_clarifying_question=question))
-        )
-        scripted(
-            '{"family": "search", "language": "en"}',
-            f"Happy to help! {question}",
-            "Here are the Queens options.",
-            leaf_text="results: hotel A",
-        )
-        guard_calls: list[set] = []
-        monkeypatch.setattr(agent_module, "score_guards", lambda fired: guard_calls.append(set(fired)))
-        monkeypatch.setattr(agent_module, "score_turn", lambda **kw: None)
-        _drive_in(runner, session.id, "let's do nova")
-        assert "anti_clarification_loop" in guard_calls[-1]
 
     def test_booking_confirmation_and_named_hotel_lookup_are_scored(self, scripted, monkeypatch):
         scripted('{"family": "booking", "language": "en"}')
