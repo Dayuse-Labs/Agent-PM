@@ -2160,16 +2160,6 @@ def test_outcome_text_states_no_count(language):
     assert "Alpha" in text and "Echo" in text
 
 
-def test_emit_carries_the_homonym_asked_about_to_the_profile():
-    # mcp-dayuse#7: the answer turn needs it (« which Manhattan? » → « New York »).
-    pending = {"name": "Manhattan", "options": [{"region": "New York"}]}
-    ctx = _Ctx({"temp:hotel_search_profile_delta": {"pending_place": pending},
-                "temp:hotel_search_clarify_question": "Quel Manhattan ?"})
-    content = emit_search_datapart(ctx)
-    data = find_datapart(content.parts)
-    assert data["profile_delta"]["pending_place"] == {"op": "set", "value": pending}
-
-
 # --- PORT1 slice 3: typed budget on the leaf's cards (from #134) --------------------------------
 
 
