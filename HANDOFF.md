@@ -36,7 +36,7 @@ Plan : `plans/qa14707/` (décisions DQ1-DQ13 dans `plans/qa14707/HANDOFF.md`), s
   - `clarification` : l'objet `Clarification` (kind, sujet, options venues du seul géocodeur).
   - `request` : la demande d'origine, cumulée (date, créneau) pour que la réponse relance la recherche avec elle.
   - `asked` : combien de tours de suite ont posé **la même** question (même kind, sujet comparé sans casse ni espaces) ; revient à 1 sur toute autre question. C'est l'état que lit l'anti-boucle de lieu. Un `asked` absent ou non entier positif est lu comme 1.
-- `profile.pending_search` = `{request, question, asked}` (`profile.py:289-290`, `free_question_streak` `:1013`, `next_pending_search` `:1038`). Ici `asked` compte les tours de suite qui ont fini sur une question libre sans recherche ; il ne porte aucun texte de message, il est propre au concierge (`_CONCIERGE_ONLY_KEYS`) et vit sous le TTL Redis existant. Un `asked` absent, booléen, chaîne ou < 1 compte pour « pas de série ».
+- `profile.pending_search` = `{request, question, asked}` (`profile.py:289-290`, `free_question_streak` `:1013`, `next_pending_search` `:1026`). Ici `asked` compte les tours de suite qui ont fini sur une question libre sans recherche ; il ne porte aucun texte de message, il est propre au concierge (`_CONCIERGE_ONLY_KEYS`) et vit sous le TTL Redis existant. Un `asked` absent, booléen, chaîne ou < 1 compte pour « pas de série ».
 - `profile.region_anchor` (str | None, `profile.py:199`), champ **propriété du concierge** (Q14, `38060e5`).
   - Écrit uniquement depuis l'option choisie du `Clarification` stocké, jamais depuis le message.
   - Envoyé à la feuille dans `profile_in`, stocké dans Redis sous le TTL existant, effacé par un changement de ville (`profile.py:673`).
@@ -55,7 +55,7 @@ Plan : `plans/qa14707/` (décisions DQ1-DQ13 dans `plans/qa14707/HANDOFF.md`), s
 - Questions libres : lues sur `pending_search.asked` (Q28, `8ec450c`). Au-delà de `CLARIFICATION_MAX_ASKS`, la **même** synthèse reçoit l'instruction de ne rien demander, puis le code retire la ligne de question qui resterait (`without_final_question`), sans relance ni appel LLM de plus. La garde `anti_clarification_loop` se déclenche pour les deux. Tests : `agents/b2c_concierge/tests/test_free_question_anti_loop.py` et `test_clarification_template.py`.
 
 **Postcode et adresse : ce que le tour persiste (Q08, Q26, `543e8aa`)** — `agents/hotel_search_agent/hotel_search_agent/geocode_tool.py` :
-- Code postal seul : seule sa ville (`context.place`) est persistée, pas de `zone`, rayon `city_centroid` autour de son centroïde.
+- Code postal seul : seule sa ville (`context.place`) est persistée, pas de `zone`, rayon `poi` (disque serré) autour de son centroïde (Q26, `543e8aa`).
 - Adresse : `zone` = le nom de l'adresse donné par Mapbox **sans** son code postal, rayon `poi`.
 - Une adresse dont le `match_code.confidence` est `low` est refusée, et le code retombe sur la recherche du code postal.
 - Sur un tour qui porte un `postal_code`, rien n'est repris du profil (ni ville, zone, métro, ancre pays, option choisie).

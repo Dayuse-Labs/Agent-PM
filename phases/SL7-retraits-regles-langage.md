@@ -34,7 +34,7 @@ Numéros de ligne relevés le 2026-10-08 sur `main` (ou sur la branche #124 quan
 |---|---|---|---|---|
 | S-L7a | Regex de 12 prépositions, liste de 22 articles, 3 sondes pour repêcher la ville | `geocode_tool.py:232-265` (#124, commit fc5cbd9) | « Saint Paul à Londres » et ses variantes dans les 7 langues | **supprimée (Q09)** |
 | S-L7b | Exception « gare de lyon » dans l'instruction de la feuille | `hotel_search_agent/agent.py:172-182` | gare de Lyon (Paris) ; Part-Dieu (Lyon) | supprimée — **transformée en champ `ambiguity.reason = city_needed` (Q07, DQ6)** |
-| S-L7c | Règle « nom complet » des monuments | `hotel_search_agent/agent.py:185-186` (#124, commit 8671594) | St Paul's Cathedral contre « St Paul's, Burdett Rd, E3 » | supprimée |
+| S-L7c | Règle « nom complet » des monuments | `hotel_search_agent/agent.py:185-186` (#124, commit 8671594) | St Paul's Cathedral contre « St Paul's, Burdett Rd, E3 » | réécrite par Q07 en champ `canonical` |
 | S-L7d | Mots génériques (`_GENERIC_LOCATION_WORDS`, `demote_generic_city`) | `geo_guards.py:167-225` | « airport », « downtown », « terminal 2 » | réécrite en vérification du `GeoIntent` (un aéroport ou un quartier n'est jamais une ville) ; garde `generic_location_demotion` conservée sous le même nom |
 | S-L7e | État américain lu dans le texte (`extract_state_hint_from_text`, `resolve_state_hint`) | `geo_guards.py:88-165` | « Milford ct » ; « AZ » qui n'est pas l'Arizona (registre) | lu dans `GeoIntent.region_named` ; garde `state_anchoring` conservée sous le même nom |
 | S-L7f | Code postal américain (`select_us_postal_anchor`) | `geo_guards.py:458` | code postal à 5 chiffres | **retirée par Q10 (DQ7, 2026-10-14)** : la décision de Fabien a été prise, la règle est supprimée |
