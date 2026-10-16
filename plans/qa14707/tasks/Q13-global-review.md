@@ -19,6 +19,7 @@ verification:
   - "/Users/fabiendauvergne/Projects/AgentB2C/.venv/bin/mypy agents libs"
   - "bash scripts/dayuse_guardrails.sh ."
   - "git diff --stat $(git log -1 --format=%H --grep='^task Q29:' plan/qa14707)^1 $(git log -1 --format=%H --grep='^task Q29:' plan/qa14707)"
+  - "/Users/fabiendauvergne/Projects/AgentB2C/.venv/bin/pytest -q agents/b2c_concierge/tests/test_free_question_anti_loop.py"
 definition_of_done:
   - "Review report: each of the 10 points below marked OK, or KO with its evidence (file:line, command)."
   - "Each KO is written up as a `review` or `debt` entry for the plan's HANDOFF."
@@ -52,6 +53,7 @@ definition_of_done:
   - "Point 6 also checks that `qa14707-near-11580-en` exists in evals/datasets/b2c-qa-14707-2026-10-14.jsonl and that `evals/tests/test_qa14707_near_11580_item.py` is green."
   - "Point 8 also checks, with file:line, that the dated QA14707 block of `HANDOFF.md` says a bare postcode persists its city only, with no zone and a `poi` origin (site ring through `inject_landmark_radius`). This must match the bare-postcode branch of `geocode_core` in agents/hotel_search_agent/hotel_search_agent/geocode_tool.py and agents/hotel_search_agent/tests/test_postcode_origin_radius.py, which must exist and be green. The point also checks that the block does not give a bare postcode the `city_centroid` radius."
   - "Point 6 also checks, with the command used (`git diff --stat <c>^1 <c>`, where `<c>` is `git log -1 --format=%H --grep='^task Q29:' plan/qa14707`), that Q29 changed only evals/datasets/b2c-qa-14707-2026-10-14.jsonl, evals/datasets/README.md and evals/tests/test_qa14707_near_11580_item.py, that it committed no run artifact (no file under .run-logs/, reports/ or baseline/, and no Langfuse experiment output), and that the 11 earlier items of the dataset file are byte-for-byte unchanged."
+  - "Point 5 (GDPR) also checks, with file:line, that `pending_search.asked` is an integer that holds no message text, and that it lives only in the Redis session profile under the existing TTL. It also checks that `TestStoredCount::test_an_unusable_count_loads_and_counts_from_one` and `TestStoredCount::test_the_count_holds_no_message_text` (agents/b2c_concierge/tests/test_free_question_anti_loop.py) exist and are green. It checks that the dated QA14707 block of `HANDOFF.md` states the reading rule and the deploy transition (4th ask instead of the 3rd for sessions stored before deploy)."
 ---
 
 ## Launch prompt
