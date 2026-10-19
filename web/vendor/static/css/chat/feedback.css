@@ -8,12 +8,12 @@
     gap: var(--space-2);
     margin-top: var(--space-3);
     padding-top: var(--space-2);
-    border-top: 1px solid var(--border-subtle);
+    border-top: 1px solid var(--divider-subtle);
 }
 
 .feedback-control__label {
-    font-size: var(--fs-xs);
-    color: var(--fg-subtle);
+    font-size: var(--text-caption);
+    color: var(--fg-placeholder);
 }
 
 .feedback-control__btn {
@@ -24,24 +24,22 @@
     height: 28px;
     padding: 0;
     border: 1px solid var(--border-default);
-    border-radius: var(--radius-full);
-    background: var(--bg-surface);
-    font-size: var(--fs-base);
+    border-radius: var(--radius-action);
+    background: var(--bg-default);
+    font-size: var(--text-body);
     line-height: 1;
     cursor: pointer;
-    transition: background var(--dur-fast) var(--ease-out),
-                border-color var(--dur-fast) var(--ease-out);
 }
 
-.feedback-control__btn:hover {
-    background: var(--bg-muted);
-}
-
+/* Choisi par l'utilisateur : Solid/Selected (l'étiquette porte le sens, pas la teinte) */
 .feedback-control__btn.is-selected {
-    border-color: var(--border-focus);
-    background: var(--bg-muted);
+    border-color: var(--solid-selected-default);
+    background: var(--solid-selected-default);
 }
+
+.feedback-control__btn.is-selected:hover { background: var(--solid-selected-hover); border-color: var(--solid-selected-hover); }
+.feedback-control__btn.is-selected:active { background: var(--solid-selected-press); border-color: var(--solid-selected-press); }
 
 .feedback-control.is-submitted .feedback-control__label {
-    color: var(--fg-muted);
+    color: var(--fg-secondary);
 }

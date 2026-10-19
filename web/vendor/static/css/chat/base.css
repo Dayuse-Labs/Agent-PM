@@ -7,7 +7,7 @@
 @font-face {
     font-family: 'MaisonNeueExtended-Bold';
     src: url('/static/fonts/MaisonNeueExtended-Bold.otf') format('opentype');
-    font-weight: 800;
+    font-weight: 700;
     font-style: normal;
     font-display: swap;
 }
@@ -15,12 +15,12 @@
 /* ===== BASE ===== */
 body {
     font-family: 'Manrope', sans-serif;
-    font-size: 14px;
-    color: #292935;
+    font-size: var(--text-body);
+    color: var(--fg-primary);
     line-height: 1.6;
     margin: 0;
     padding: 0;
-    background: #F9F9F9;
+    background: var(--bg-subtle);
 }
 
 /* ===== CONTEXT MESSAGE ===== */
@@ -28,16 +28,16 @@ body {
     font-weight: 600;
     margin-bottom: 20px;
     padding: 12px 16px;
-    background: #F5F5F7;
-    border-radius: 12px;
+    background: var(--palette-neutral-6);
+    border-radius: var(--radius-card);
 }
 
 /* ===== DISCLAIMER ===== */
 .disclaimer {
     padding: 8px 20px 12px 20px;
     text-align: center;
-    color: #8E8E93;
-    font-size: 11px;
+    color: var(--fg-placeholder);
+    font-size: var(--text-caption);
 }
 
 /* ===== STARS ===== */
@@ -54,6 +54,30 @@ body {
 }
 
 .star {
-    color: #292935;
-    font-size: 12px;
+    color: var(--fg-primary);
+    font-size: var(--text-caption);
+}
+
+/* ===== FOCUS CLAVIER (fondations : Focus/Ring, loi 3) =====
+   Anneau #005FCC sur une couche blanche (Ring-Invert) pour rester visible sur tout fond.
+   Clavier uniquement : :focus-visible. Jamais un style de survol ou de sélection.
+   :where() = spécificité 0, un composant peut toujours surcharger. */
+:where(a[href], button, [role="button"], [tabindex]:not([tabindex="-1"]), summary, select, input, textarea):focus-visible {
+    outline: 2px solid var(--focus-ring);
+    outline-offset: 2px;
+    box-shadow: 0 0 0 2px var(--focus-ring-invert);
+}
+
+/* Les champs de saisie vivent dans un conteneur (capsule du hero, bulle du composer) :
+   l'anneau se dessine sur le conteneur, pas sur le champ nu. */
+.chat-input input:focus-visible,
+.composer-input textarea:focus-visible {
+    outline: none;
+    box-shadow: none;
+}
+
+.chat-input:has(input:focus-visible),
+.composer-bubble:has(textarea:focus-visible) {
+    outline: 2px solid var(--focus-ring);
+    outline-offset: 2px;
 }

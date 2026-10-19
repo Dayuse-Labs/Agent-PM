@@ -30,15 +30,15 @@
     }
 
     .initial-state h1 {
-        font-size: 30px;
-        letter-spacing: -0.5px;
-        margin: 0 0 12px 0;
-        line-height: 1.1;
-        font-family: 'MaisonNeueExtended-Bold', 'Manrope', sans-serif;
+        font-size: 32px;
+        line-height: 40px;
+        letter-spacing: -1.1px;
+        margin: 0 0 var(--space-3) 0;
+        font-family: var(--font-display);
     }
 
     .initial-state .subtitle {
-        font-size: 15px;
+        font-size: var(--text-body);
         margin-bottom: 28px;
         line-height: 1.5;
     }
@@ -58,7 +58,7 @@
     }
 
     .initial-input-container input[type="text"] {
-        font-size: 16px;
+        font-size: var(--text-body-large);
         padding: 12px 16px;
         flex: 1;
         min-width: 0;
@@ -66,7 +66,7 @@
     }
 
     .initial-input-container button {
-        font-size: 14px;
+        font-size: var(--text-body);
         padding: 12px 18px;
         white-space: nowrap;
         flex-shrink: 0;
@@ -95,7 +95,7 @@
 
     .search-example {
         padding: 10px 14px;
-        font-size: 13px;
+        font-size: var(--text-body);
         flex: 0 0 auto;
         flex-shrink: 0;
         white-space: nowrap;
@@ -114,7 +114,7 @@
 
     .reassurance-item {
         flex-shrink: 0;
-        font-size: 12px;
+        font-size: var(--text-caption);
         gap: 6px;
         flex: 0 0 auto;
     }
@@ -124,7 +124,7 @@
     }
 
     .reassurance-icon {
-        font-size: 14px;
+        font-size: var(--text-body);
     }
 
     /* Chat mobile: rely on native page scroll (more reliable on iOS/Android) */
@@ -182,12 +182,12 @@
     }
 
     .chat-header-name {
-        font-size: 14px;
+        font-size: var(--text-body);
     }
 
     .chat-header-reset {
         padding: 5px 10px;
-        font-size: 11px;
+        font-size: var(--text-caption);
     }
 
     .chat-header-reset svg {
@@ -219,7 +219,7 @@
         right: 0;
         bottom: 0;
         z-index: 20;
-        background: #FFFFFF;
+        background: var(--bg-default);
         border-top: 1px solid var(--border-default);
         padding: 10px 12px calc(10px + env(safe-area-inset-bottom)) 12px;
     }
@@ -235,7 +235,7 @@
     }
 
     .chat-composer .chat-input input {
-        font-size: 16px;
+        font-size: var(--text-body-large);
         width: 100%;
         box-sizing: border-box;
     }
@@ -243,12 +243,12 @@
     /* Composer bubble (Concierge) — mobile tuning */
     .composer-bubble {
         padding: 8px 10px 10px 10px;
-        border-radius: 16px;
+        border-radius: var(--radius-card);
     }
 
     .composer-input textarea {
         /* 16px prevents iOS zoom on focus */
-        font-size: 16px;
+        font-size: var(--text-body-large);
         line-height: 1.35;
         padding: 8px 0;
     }
@@ -266,12 +266,12 @@
     .chat-composer .disclaimer {
         padding: 0;
         text-align: left;
-        color: var(--fg-subtle);
-        font-size: 10px;
+        color: var(--fg-placeholder);
+        font-size: var(--text-caption);
     }
 
     .composer-char-count {
-        font-size: 11px;
+        font-size: var(--text-caption);
     }
 
     /* Bottom bar (disclaimer + char count): must not shrink or vanish */
@@ -301,11 +301,11 @@
     }
 
     .current-price {
-        font-size: 22px;
+        font-size: var(--text-section);
     }
 
     .chip {
-        font-size: 11px;
+        font-size: var(--text-caption);
         padding: 6px 10px;
     }
 
@@ -323,19 +323,20 @@
 
     .hotel-cards-wrapper {
         display: flex;
-        padding: 8px 10px 12px;
-        gap: 12px;
+        padding: 8px 16px 12px; /* Swipe/Mobile: margin 16, end padding 16 */
+        gap: 12px; /* gutter */
         overflow-x: auto;
         overflow-y: hidden;
         -webkit-overflow-scrolling: touch;
         overscroll-behavior-x: contain;
         scroll-behavior: auto;
         scroll-snap-type: x mandatory;
-        scroll-padding-left: 10px;
+        scroll-padding-left: 16px; /* snap 16 */
     }
 
     .hotel-cards-container .hotel-card {
-        flex: 0 0 100%;
+        /* Card = viewport − margin − gutter − peek: 16 + 12 + 32 of the row's width */
+        flex: 0 0 calc(100% - 44px);
         min-width: 0;
         max-width: 100%;
         scroll-snap-align: start;
@@ -363,7 +364,7 @@
     }
 
     .message-content.with-hotels .hotel-cards-wrapper {
-        gap: 13px;
+        gap: var(--space-6);
         margin: 0 -18px 0 -14px;
         padding: 8px 18px 13px 14px;
         scroll-padding-left: 14px;
@@ -373,12 +374,17 @@
         zoom: 0.8;
     }
 
+    /* Arrows follow the photo centre: wrapper padding 8 + (320px × 0.8 zoom card × 2/3) / 2 */
+    .message-content.with-hotels .carousel-nav-button {
+        top: calc(8px + 256px / 3);
+    }
+
     .message-content.with-hotels .carousel-nav-button {
         width: 32px;
         height: 32px;
         min-width: 32px;
         min-height: 32px;
-        font-size: 14px;
+        font-size: var(--text-body);
     }
 
     .message-content.with-hotels .carousel-nav-button.next {
@@ -388,6 +394,6 @@
     .message-content.with-hotels .carousel-indicator {
         margin-top: 10px;
         padding: 0 13px;
-        font-size: 11px;
+        font-size: var(--text-caption);
     }
 }
