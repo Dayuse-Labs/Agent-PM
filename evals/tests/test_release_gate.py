@@ -98,6 +98,9 @@ def test_a_run_with_judge_errors_never_becomes_the_baseline():
     battery["summary"]["errors"] = 2
     assert "judge error" in gate.baseline_refusal(units, battery)
     assert "unit failure" in gate.baseline_refusal({"failed": 1}, _battery())
+    unhealthy = _battery()
+    unhealthy["summary"]["degraded_turns"] = 112
+    assert "degraded" in gate.baseline_refusal(units, unhealthy)
 
 
 def test_a_judge_change_is_flagged():

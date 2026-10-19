@@ -103,6 +103,7 @@ def test_summarize_aggregates_families_and_budget():
     assert summary["passed"] == 3
     assert summary["failed"] == 2
     assert summary["errors"] == 1
+    assert summary["degraded_turns"] == 0
     assert summary["over_budget_turns"] == 1
     assert summary["max_llm_calls_per_turn_observed"] == 4
     assert summary["by_family"]["simple_search"] == {"passed": 1, "count": 2, "pass_rate": 0.5}
@@ -117,3 +118,9 @@ def test_max_llm_calls_mirrors_spine_invariant():
     from b2c_concierge.budget import MAX_LLM_CALLS_PER_TURN as spine_cap
 
     assert battery.MAX_LLM_CALLS_PER_TURN == spine_cap == 3
+
+
+def test_summarize_counts_degraded_turns():
+    result = _result("simple_search", "fail", 2)
+    result["turns"] = [{"status": "degraded"}, {"status": "ok"}, {"status": "degraded"}]
+    assert summarize([result])["degraded_turns"] == 2

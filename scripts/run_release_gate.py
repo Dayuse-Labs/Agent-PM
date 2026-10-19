@@ -174,9 +174,15 @@ def baseline_refusal(units: dict, battery: dict | None) -> str | None:
     """Why this run must not become the baseline, or None. A judge `error`
     (e.g. a provider 400 on a new judge model) reads as a plain fail in the
     pass count, and `max_failed` is copied from this run's unit failures."""
-    errors = (battery or {}).get("summary", {}).get("errors", 0)
+    summary = (battery or {}).get("summary", {})
+    errors = summary.get("errors", 0)
     if errors:
         return f"{errors} judge error(s) in this run: fix the judge before recording a baseline"
+    degraded = summary.get("degraded_turns", 0)
+    if degraded:
+        # Live-caught 2026-10-19: MCP_B2C unreachable from the egress IP, 112/118
+        # turns degraded, 0/32 — recorded as the new floor before this check.
+        return f"{degraded} degraded turn(s) (a leaf failed: MCP, Mapbox, timeout): the stack was not healthy"
     if units.get("failed", 0):
         return f"{units['failed']} unit failure(s): a baseline must not absorb them"
     return None
@@ -273,7 +279,7 @@ def main() -> int:
         s = battery["summary"]
         print(
             f"  battery: {s['passed']}/{s['total']} passed · "
-            f"{s.get('errors', 0)} judge error(s) · "
+            f"{s.get('errors', 0)} judge error(s) · {s.get('degraded_turns', 0)} degraded turn(s) · "
             f"budget max {s['max_llm_calls_per_turn_observed']}/turn · "
             f"{s['over_budget_turns']} over-budget"
         )
