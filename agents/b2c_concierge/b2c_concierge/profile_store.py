@@ -109,9 +109,3 @@ def get_profile_store() -> ProfileStore:
         url = os.environ.get("CONCIERGE_REDIS_URL", "redis://localhost:6379/0")
         _store = ProfileStore(redis.Redis.from_url(url, decode_responses=True))
     return _store
-
-
-def reset_profile_store() -> None:
-    """Test hook: drop the cached store (it captures env at first use)."""
-    global _store
-    _store = None
