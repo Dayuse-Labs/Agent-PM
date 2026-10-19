@@ -70,14 +70,22 @@ railway up --service <s> --detach
 Toujours `--detach`, **jamais `--ci`** (il streame le build log, qui contient le PAT en clair —
 voir pièges). `railway up` n'accepte pas `-m`.
 
-**5. Attendre `SUCCESS`** — le statut est sous `services…latestDeployment`, pas à la racine :
+**5. Attendre `SUCCESS`** — le snippet parcourt tout le JSON, car son imbrication change avec la version de la CLI (l'ancien chemin `services.edges[].node.serviceInstances` a cassé le 2026-10-19) :
 
 ```bash
 railway status --json | python3 -c "
 import json,sys
-for e in json.load(sys.stdin)['services']['edges']:
-    for i in e['node']['serviceInstances']['edges']:
-        d=i['node'].get('latestDeployment') or {}; print(e['node']['name'], d.get('status'), d.get('createdAt'))"
+seen=set()
+def walk(o,name=None):
+    if isinstance(o,dict):
+        name=o.get('serviceName') or o.get('name') or name
+        d=o.get('latestDeployment')
+        if isinstance(d,dict) and (name,d.get('id')) not in seen:
+            seen.add((name,d.get('id'))); print(name, d.get('status'), d.get('createdAt'))
+        for v in o.values(): walk(v,name)
+    elif isinstance(o,list):
+        for v in o: walk(v,name)
+walk(json.load(sys.stdin))"
 ```
 
 **6. Prouver** — un tour réel via le widget, marqué synthétique (hors échantillonnage des juges

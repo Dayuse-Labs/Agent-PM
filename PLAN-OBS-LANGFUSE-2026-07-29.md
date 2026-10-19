@@ -2,7 +2,7 @@
 
 Arbitré le 2026-07-29. Référence technique : **`OBS2-LANGFUSE-BRIEF.md`** (le brief porte le détail
 vérifié : features, versions, pièges, sources). Ce fichier porte **le découpage en sessions, les
-dépendances et le suivi**. Prompts de lancement : **`PROMPTS-OBS-LANGFUSE.md`**.
+dépendances et le suivi**. Les prompts de lancement des sessions livrées ont été retirés au nettoyage du 2026-10-19 (historique git) ; celui d'OBS9 est dans `CHANTIERS.md` (O4).
 
 État de départ : OBS1 livré et déployé (cf. HANDOFF addendum 2026-07-28). Instance vérifiée le
 2026-07-29 : `GET /api/public/health` → `{"status":"OK","version":"3.205.1"}`.
@@ -51,7 +51,7 @@ dépendances et le suivi**. Prompts de lancement : **`PROMPTS-OBS-LANGFUSE.md`**
 | **OBS9** | **Migration serveur v4** dès la GA stable (avant fin janv. 2027) : `legacy` → `dual` → cutover, retrait des `langfuse.trace.*` restants, lectures métriques v1 → v2, **test `create_score` via `/ingestion`** | Railway + AgentB2C | OBS8 + v4 GA publiée | 1 j | **Opus** · piloté, GO humain par étape |
 | **OBS10** | Traceparent W3C dans le champ `_meta` des appels de tools MCP → les requêtes ES dans la trace du tour | **MCP_B2C** (serveur TS) + client dans AgentB2C | OBS4 | 1 j | Sonnet · piloté |
 
-Détail par session : `phases/OBS0…OBS7.md`. OBS5, OBS8, OBS9, OBS10 : cadrés ici, fichier de phase à
+Détail par session : `phases/OBS5…OBS8.md` (OBS0-OBS4 livrés : fichiers de phase retirés au nettoyage du 2026-10-19, historique git). OBS5, OBS8, OBS9, OBS10 : cadrés ici, fichier de phase à
 écrire au moment du lancement (dépendent d'événements externes ou d'un autre repo).
 
 ### Timeline & parallélisation

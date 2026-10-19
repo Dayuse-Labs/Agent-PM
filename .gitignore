@@ -9,7 +9,6 @@ baseline/
 
 # Rapports d'eval / release gate (générés — baselines.json EST committé)
 evals/reports/
-dayuse_eval_pack//model
 
 # Exports d'inventaire bruts (source des fixtures — la fixture compacte EST committée)
 dayuse_eval_pack/data/

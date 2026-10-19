@@ -7,7 +7,9 @@ the postcode turns persist in the session is pinned here: a follow-up turn
 carries no postcode and must not land in the US either.
 
 Every Mapbox answer is a REAL v6 recording from `fixtures/mapbox_v6/` (H5, H6;
-DQ9), served to the real `MapboxClient`. The « near 11580 » tests themselves
+DQ9), served to the real `MapboxClient`. One reuse: « 75009 Paris » was never
+recorded and is served the « 75009 » recording (same postcode, real shape; its
+list, with Celina TX in it, is the harder tie-break). The « near 11580 » tests themselves
 stay where they were (`test_postcode_resolution.py`, `test_geocode_tool.py`).
 """
 from __future__ import annotations

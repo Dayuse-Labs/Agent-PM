@@ -1,8 +1,8 @@
 """Minimal circuit breaker for this leaf's owned outbound dependencies.
 
-S1: real and tested, but wired to nothing critical yet. TODO S4: wrap the
-Mapbox geocoding call with it (1.5 s budget, 1 retry, then breaker) and the
-MCP path per the single-owner budget rule. Deliberately synchronous and
+Wired on the MCP path through `mcp_guard.py` (3 failures, then a 30 s
+cooldown). Mapbox keeps its own budget (1.5 s, 1 retry) without the breaker.
+Deliberately synchronous and
 dependency-free — a counter and a clock, not a resilience framework.
 """
 from __future__ import annotations

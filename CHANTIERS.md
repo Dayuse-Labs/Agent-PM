@@ -1,4 +1,4 @@
-# Chantiers AgentB2C — état vérifié au 2026-09-14
+# Chantiers AgentB2C — état vérifié au 2026-09-14 (sections L et QA14707 : 2026-10-16 ; Q1 et Q3 fermés le 2026-10-19)
 
 > **Ce fichier remplace `tasks/todo.md`**, dont les cases sont fausses (les sessions S-G1→S-G9 y
 > sont décochées alors que toutes sont mergées). Il est destiné à être ouvert au début d'une
@@ -25,13 +25,13 @@ jamais de merge en autonomie.
 
 ## Vue d'ensemble
 
-**Ordre suggéré pour repartir :** `Q1` (10 min, remet la suite au vert) → `W1` (visible par
+**Ordre suggéré pour repartir :** `W1` (visible par
 l'équipe, dès que tu donnes la copy) → `E2` puis `E1` puis `E4` (la boucle QA devient utilisable)
 → `O1` (lever le risque v4 pendant qu'il reste 4 mois) → `Q2`/`Q3` (hygiène) → le reste.
 
 | # | Chantier | Taille | Bloqué par |
 |---|---|---|---|
-| **Q1** | Réparer le test pourri par le calendrier | S | — |
+| ~~**Q1**~~ | ✅ Fait : test pourri par le calendrier réparé (PR #114/#115, garde `tests/test_calendar_rot.py`) | S | — |
 | **W1** | Les 2 libellés de réassurance du widget (QA 7 et 8) | S | **Fabien** (copy) |
 | **Q2** | Corriger les 3 documents qui enseignent du faux | S | — |
 | **Q3** | Hygiène : `todo.md` périmé + 78 branches mergées | S | — |
@@ -52,7 +52,7 @@ l'équipe, dès que tu donnes la copy) → `E2` puis `E1` puis `E4` (la boucle Q
 | **A3** | `conversation_logs` + `InMemorySessionService` | M | S10/S11 |
 | **G1→G12** | Backlog produit / géo | — | — |
 | **L** | Compréhension géo — série S-L (ajouté le 2026-10-08) ; `GeoIntent` produit par la feuille (DQ1) : S-L3/S-L4 conditionnelles, S-L7a et S-L7f faites, S-L7d et S-L7e restent | L | MCP déployé (S-L1) |
-| **QA14707** | Retours QA de Raphael du 14/10 : créneau localisé, lieu compris (`GeoIntent` dans la feuille), clarification tenue par le code. Phases 1-3 déployées (`0b65159`) ; phases 4-5 sur `plan/qa14707`. Plan : `plans/qa14707/`, source : `phases/QA14707/` | L | **Fabien** (revue Q13, H3' live, H4 retest) |
+| **QA14707** | Retours QA de Raphael du 14/10 : créneau localisé, lieu compris (`GeoIntent` dans la feuille), clarification tenue par le code. Phases 1-3 déployées (`0b65159`) ; phases 4-5 sur `plan/qa14707`. Plan : `plans/qa14707/`, source : `phases/QA14707/` | L | **Fabien** (revue de la seconde PR, H3' live, H4 retest) |
 | **X1→X3** | 3 demandes chez MCP_B2C | — | **MCP_B2C** |
 
 **La seule échéance datée du projet : fin janvier 2027**, fin des patchs de sécurité Langfuse v3
@@ -121,6 +121,8 @@ C'est la section qui économise le plus de temps.
 # 1 · À faire maintenant (rien ne les bloque)
 
 ## Q1 — Réparer le test pourri par le calendrier
+
+> ✅ **Fait** (vérifié le 2026-10-19) : `test_resolve_search_date_marks_a_carried_over_future_date_as_not_today` est relatif à l'horloge (`date.today() + timedelta(days=7)`, `agents/hotel_search_agent/tests/test_datetime_resolver.py`), et `tests/test_calendar_rot.py` garde toute la suite à +400 j (PR #114/#115). Ne pas relancer.
 
 **Taille : S** · aucune dépendance
 
@@ -255,6 +257,8 @@ les vues "observations" sur notre v3).
 ---
 
 ## Q3 — Hygiène du dépôt
+
+> ✅ **Fait le 2026-10-19** (branche `chore/cleanup`) : `tasks/todo.md` archivé dans `tasks/archive/todo-2026-09.md` et remplacé par un pointeur ; branches locales mergées supprimées. Ne pas relancer.
 
 **Taille : S** · aucune dépendance
 
@@ -552,6 +556,22 @@ Chemin : `platform.openai.com/settings/organization/limits` → *Spend*, puis Se
 Jamais démarrée. 3 étapes prévues (serveur v4 en legacy/dual-write → SDK/API/evaluators → bascule
 `events_only`). À planifier une fois O1 répondu et O2 exécutée.
 
+Prompt de lancement (repris de l'ancien `PROMPTS-OBS-LANGFUSE.md`, retiré au nettoyage du 2026-10-19 ; la v4 est GA depuis le 2026-08-17, l'étape 0 reste à rejouer) :
+
+```
+Lis CLAUDE.md, HANDOFF.md, OBS2-LANGFUSE-BRIEF.md (§12), PLAN-OBS-LANGFUSE-2026-07-29.md.
+ÉTAPE 0 obligatoire : vérifie que la v4 self-hosted est publiée en STABLE (tags Docker : un 4.x.y
+sans suffixe -rc, et où pointe `latest`). Si ce n'est pas le cas, STOP immédiat et rapport.
+Ensuite, écris phases/OBS9-migration-v4.md et soumets-le moi. Points obligatoires du plan : ClickHouse
+≥ 25.12 déjà fait (OBS8) ; séquence legacy → dual → cutover events_only ; le backfill historique ne
+tourne QU'UNE FOIS (tout ce qui est ingéré avant l'activation du dual write est définitivement absent
+des nouvelles tables) ; si une politique de rétention globale existe, sauter le backfill (option B)
+évite la contrainte de 3× le disque ClickHouse ; TEST PRÉALABLE de create_score via
+POST /api/public/ingestion (question Q5 — tout OBS3 en dépend) ; passage des lectures métriques v1 → v2
+dans le module unique ; le cutover events_only est le point de non-retour.
+Règle absolue : aucune action sur l'instance sans mon GO écrit, étape par étape.
+```
+
 ## O5 — Deux variables d'env sur le service MCP (OBS10)
 
 **Taille : S** · **hors dépôt** (service MCP_B2C)
@@ -669,7 +689,7 @@ au redémarrage du process (le profil Redis, lui, survit). À traiter avec S10/S
 - Phases 4-5, sur `plan/qa14707`, seconde PR : retraits S-L7a et S-L7f (Q09, Q10), plus de regex ni de liste de mots pour la question attendue et le oui/non (Q11, Q27 : `leaf_question` dans `agents/b2c_concierge/b2c_concierge/profile.py`), anti-boucle des questions libres lu sur l'état (Q28 : `agents/b2c_concierge/tests/test_free_question_anti_loop.py`), item live `qa14707-near-11580-en` (Q29), documentation (Q12). Détail et preuves : bloc daté du 2026-10-16 de `HANDOFF.md`.
 
 **Reste.**
-- Q13 : revue globale de la seconde PR, puis la PR elle-même.
+- La seconde PR (`plan/qa14707` → `main`) : Q13, la revue globale, est faite (29/29 tâches) ; reste à l'ouvrir et à la revoir.
 - H3' live (liste des items 3/3 et des taux à lire sur les lignes `geo_intent` dans le bloc daté de `HANDOFF.md`) ; H4 : déploiement final, retest par Raphael, réponse point par point sur dayuse-com#14707.
 - Tickets : aligner `geo-poi-gare-de-lyon` sur S5 et `geo7-gare-du-nord-no-city` sur DQ12 ; mesurer « je confirme » avec une offre en attente ; demander à Raphael l'URL et le marché testés ; migrer le triage et le juge de gpt-4o-mini avant le 14/01/2027.
 - Le port de #134 (famille géo) doit respecter le modèle d'état de session décrit dans le bloc daté de `HANDOFF.md` (`pending_clarification`, `pending_search.asked`, `region_anchor`, `entry_market_country`).

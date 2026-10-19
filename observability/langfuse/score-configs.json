@@ -12,7 +12,7 @@
       "id": "544fbf28-27a0-44e9-a73a-4e9a1851f507",
       "name": "guard_geocode_echo_back",
       "dataType": "BOOLEAN",
-      "description": "Geo guard 1 (ported agent-usa audit): geocode echo-back match rejected (incl. state hints + ZIP anchor) — hotel_search_agent/geocode_tool.py. WIRED 2026-08-26: the leaf reports it on its A2A DataPart (`guards_fired`) and the spine folds it into budget.fired. Before that it emitted 0.0 on every turn."
+      "description": "Geo guard 1 (ported agent-usa audit): geocode echo-back match rejected (incl. state hints; the US ZIP anchor was removed in QA14707 Q10) — hotel_search_agent/geocode_tool.py. WIRED 2026-08-26: the leaf reports it on its A2A DataPart (`guards_fired`) and the spine folds it into budget.fired. Before that it emitted 0.0 on every turn."
     },
     {
       "id": "82c3932a-6815-4390-9343-9f152e1713c9",
@@ -30,7 +30,7 @@
       "id": "c8779d65-cd76-47e6-bb03-936376b7ad2e",
       "name": "guard_date_carryover_stale_floored",
       "dataType": "BOOLEAN",
-      "description": "PR#57 date guard: a stale carried-over date floored to reference \"today\" instead of trusting a pre-midnight value — hotel_search_agent/datetime_resolver.py. Not yet wired for emission (leaf out of OBS3 zone); reserved name."
+      "description": "PR#57 date guard: a stale carried-over date floored to reference \"today\" instead of trusting a pre-midnight value — hotel_search_agent/datetime_resolver.py. WIRED via the leaf's `guards_fired` DataPart key (PR #95)."
     },
     {
       "id": "6eb7b23e-7e1a-4dde-ac32-f5229cb93e3c",
@@ -54,7 +54,7 @@
       "id": "e202146e-050a-467a-b3b7-4a39f6d7a2af",
       "name": "guard_anti_clarification_loop",
       "dataType": "BOOLEAN",
-      "description": "P10 (ported agent-usa audit): a synthesized reply repeated the previous turn's trailing question — 1 bounded retry, then a deterministic strip — b2c_concierge/agent.py::_synthesize_with_guards."
+      "description": "P10 (ported agent-usa audit): the clarification anti-loop. Since QA14707 it reads the session state, never the wording: place questions on `pending_clarification.asked` (rendered by template; the 3rd ask asks nothing, Q04) and free questions on `pending_search.asked` (past CLARIFICATION_MAX_ASKS the single synthesis call asks nothing and a remaining question line is dropped, Q28; no retry) — b2c_concierge/agent.py."
     },
     {
       "id": "871219e0-affd-4fcd-999a-5c3907daa031",
@@ -143,7 +143,7 @@
       "id": "bad09ed2-8066-4c84-864d-09a445377773",
       "name": "guard_poi_anchor_coherence",
       "dataType": "BOOLEAN",
-      "description": "Geo guard 14 (AgentB2C-specific, 2026-08-26): a tier-2 Search Box landmark POI thrown away for sitting >100 km from the turn's own anchor (device GPS fix, or the v6 candidate that echoed the city the user named). Closes audit M4 - the echo-back guard validates the NAME, which a homonym passes perfectly (a shop called \"Champs Elysees\" in Toulon, 830 km from the avenue); this validates the PLACE. hotel_search_agent/geocode_tool.py, wired via the leaf's `guards_fired` DataPart key. No anchor (bare landmark, no city, no GPS) = no-op by design."
+      "description": "Geo guard 14 (AgentB2C-specific, 2026-08-26): a tier-2 Search Box landmark POI thrown away for sitting >40 km from the turn's own anchor (ceiling lowered from 100 km in PR #92) (device GPS fix, or the v6 candidate that echoed the city the user named). Closes audit M4 - the echo-back guard validates the NAME, which a homonym passes perfectly (a shop called \"Champs Elysees\" in Toulon, 830 km from the avenue); this validates the PLACE. hotel_search_agent/geocode_tool.py, wired via the leaf's `guards_fired` DataPart key. No anchor (bare landmark, no city, no GPS) = no-op by design."
     },
     {
       "id": "964592d3-2214-44c4-9754-aae6fe9ca5aa",
