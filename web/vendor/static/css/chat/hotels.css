@@ -163,11 +163,6 @@
 
 .pick-cta:active { transform: translateY(0); box-shadow: none; }
 
-.pick-cta:focus-visible {
-    outline: 2px solid var(--focus-ring);
-    outline-offset: 2px;
-}
-
 
 /* .hotel-details wrapped the price block until S-CX9 flattened the footer —
    the price row is now .price-section's own flex context, one box fewer. */
@@ -757,11 +752,6 @@
 .booking-card__plan.is-selected {
     border-color: var(--border-selected);
     background: var(--bg-subtle);
-}
-
-.booking-card__plan:focus-visible {
-    outline: 2px solid var(--focus-ring);
-    outline-offset: 2px;
 }
 
 /* Radio affordance drawn in CSS: it must read as "one of these" before the

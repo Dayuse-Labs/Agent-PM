@@ -63,3 +63,17 @@
     max-width: 85%;
     padding: 4px 0;
 }
+
+/* ===== MOUVEMENT RÉDUIT (fondations, loi 11) =====
+   Physical retombe sur Instant : plus de transition ni d'animation. Les états restent lisibles
+   (couleur, ombre), seul le mouvement disparaît. Le défilement lissé est géré en JS (motion.js). */
+@media (prefers-reduced-motion: reduce) {
+    *, *::before, *::after {
+        animation-duration: 0.01ms !important;
+        animation-iteration-count: 1 !important;
+        animation-delay: 0s !important;
+        transition-duration: 0.01ms !important;
+        transition-delay: 0s !important;
+        scroll-behavior: auto !important;
+    }
+}

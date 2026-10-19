@@ -3,6 +3,7 @@
  * Hotel image gallery with swipe support
  */
 
+import { scrollBehavior } from '../motion.js';
 import { state, carousels } from '../state.js';
 
 /**
@@ -98,7 +99,7 @@ export function updateImageCarousel(hotelId) {
     const width = wrapper.clientWidth;
     wrapper.scrollTo({
         left: carousel.currentImage * width,
-        behavior: 'smooth'
+        behavior: scrollBehavior()
     });
 
     updateCarouselDots(hotelId, carousel.currentImage);

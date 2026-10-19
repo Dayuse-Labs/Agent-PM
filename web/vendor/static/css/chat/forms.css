@@ -10,7 +10,14 @@ input[type="text"] {
     border: 1px solid var(--border-default);
     border-radius: var(--radius-action);
     font-family: inherit;
-    font-size: inherit;
+    font-size: var(--text-body-large);   /* Input : jamais sous 16 px (zoom iOS) */
+    font-weight: var(--fw-medium);
+    line-height: 1.5;
+}
+
+input[type="text"]::placeholder {
+    font-weight: var(--fw-regular);
+    color: var(--fg-placeholder);
 }
 
 button {

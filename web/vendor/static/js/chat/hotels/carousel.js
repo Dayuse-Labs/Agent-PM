@@ -3,6 +3,7 @@
  * Horizontal scrolling carousel of hotel cards
  */
 
+import { scrollBehavior } from '../motion.js';
 import { state } from '../state.js';
 import { appendAmplitudeIdToUrl } from '../tracking.js';
 import { createHotelCard } from './card.js';
@@ -82,7 +83,7 @@ export function scrollCarousel(carouselId, direction) {
 
     wrapper.scrollBy({
         left: direction * step,
-        behavior: 'smooth'
+        behavior: scrollBehavior()
     });
 
     setTimeout(() => updateCarouselIndicator(carouselId), 300);
