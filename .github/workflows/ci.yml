@@ -55,9 +55,10 @@ jobs:
       MCP_B2C_URL: ${{ secrets.MCP_B2C_URL }}
       MCP_B2C_AUTH_TOKEN: ${{ secrets.MCP_B2C_AUTH_TOKEN }}
       MAPBOX_ACCESS_TOKEN: ${{ secrets.MAPBOX_ACCESS_TOKEN }}
-      # The baselines.json setup: code defaults (openai/gpt-6-luna) for triage,
-      # leaves and judge, gpt-5.2 for the synthesis. gpt-4o-mini shuts down
-      # 2027-01-14.
+      # The baselines.json setup = the demo's mix: leaves and judge on the code
+      # default (openai/gpt-6-luna), synthesis gpt-5.2, triage gpt-4o-mini until
+      # its switch (reports/TRIAGE-GPT6-AB-2026-10.md; shutdown 2027-01-14).
+      DAYUSE_MODEL_TRIAGE: gpt-4o-mini
       DAYUSE_MODEL_SYNTHESIS: gpt-5.2
     steps:
       - uses: actions/checkout@v4

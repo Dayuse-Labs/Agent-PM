@@ -1,4 +1,4 @@
-# Chantiers AgentB2C — état vérifié au 2026-09-14 (sections L et QA14707 : 2026-10-16 ; Q1 et Q3 fermés le 2026-10-19)
+# Chantiers AgentB2C — état vérifié au 2026-09-14 (sections L et QA14707 : 2026-10-16 ; Q1 et Q3 fermés, M1 ouvert le 2026-10-19)
 
 > **Ce fichier remplace `tasks/todo.md`**, dont les cases sont fausses (les sessions S-G1→S-G9 y
 > sont décochées alors que toutes sont mergées). Il est destiné à être ouvert au début d'une
@@ -54,9 +54,14 @@ l'équipe, dès que tu donnes la copy) → `E2` puis `E1` puis `E4` (la boucle Q
 | **L** | Compréhension géo — série S-L (ajouté le 2026-10-08) ; `GeoIntent` produit par la feuille (DQ1) : S-L3/S-L4 conditionnelles, S-L7a et S-L7f faites, S-L7d et S-L7e restent | L | MCP déployé (S-L1) |
 | **QA14707** | Retours QA de Raphael du 14/10 : créneau localisé, lieu compris (`GeoIntent` dans la feuille), clarification tenue par le code. Phases 1-3 déployées (`0b65159`) ; phases 4-5 sur `plan/qa14707`. Plan : `plans/qa14707/`, source : `phases/QA14707/` | L | **Fabien** (revue de la seconde PR, H3' live, H4 retest) |
 | **X1→X3** | 3 demandes chez MCP_B2C | — | **MCP_B2C** |
+| **M1** | Sortir de gpt-4o-mini (arrêt 2027-01-14) : juge du gate passé (baseline à refaire) ; triage (3 règles du prompt à resserrer, puis remesurer) ; 3 évaluateurs Langfuse (réglages UI) | M | **Fabien** (OK Langfuse, bascule Railway) · ⏰ **2027-01-14** |
 
-**La seule échéance datée du projet : fin janvier 2027**, fin des patchs de sécurité Langfuse v3
-(chaîne `O1 → O2 → O4`). Tout le reste est arbitrable.
+**Deux échéances datées** :
+- **2027-01-14** : arrêt de gpt-4o-mini, qui fait encore tourner le triage et les juges Langfuse
+  (`M1`) ;
+- **fin janvier 2027** : fin des patchs de sécurité Langfuse v3 (chaîne `O1 → O2 → O4`).
+
+Tout le reste est arbitrable.
 
 ---
 
@@ -475,7 +480,71 @@ fait), ou accepte-t-on de ne mesurer qu'au coup par coup ?
 
 ---
 
-# 3 · Observabilité — la seule vraie échéance du projet
+# 2 bis · M1 — Sortir de gpt-4o-mini (ouvert le 2026-10-19)
+
+**Taille : M** · ⏰ **2027-01-14** · **bloqué par : Fabien** (OK Langfuse, bascule Railway)
+
+**Contexte.** OpenAI arrête gpt-4o-mini le 2027-01-14. Les feuilles sont passées à
+`openai/gpt-6-luna` (#139).
+
+**Fait** (PR du 2026-10-19, branche `chore/off-gpt-4o-mini`) :
+- **Effort de raisonnement par rôle.** Le triage et le juge sont fixés à `none`, et le `low` de la
+  démo ne les atteint plus. Avant ce correctif, poser la seule variable Railway aurait tronqué 2
+  triages luna sur 20.
+- **Triage `max_retries=0`.** Le SDK OpenAI relançait les timeouts : jusqu'à 16,4 s mesurées en prod
+  pour un budget annoncé de 5 s.
+- **Juge du gate.** Il passe sur luna, via `llm_params`, et ne suit plus `DAYUSE_MODEL`. Les erreurs
+  du juge et les tours dégradés sont comptés, et `--update-baseline` refuse de les enregistrer.
+  `baselines.json` **n'est pas refait** : MCP_B2C staging était injoignable depuis l'IP de sortie du
+  soir (voir Reste).
+- **Instrument de triage** `scripts/measure_triage_models.py`, avec sa fixture figée.
+
+**Preuves** : `reports/TRIAGE-GPT6-AB-2026-10.md` et `reports/JUDGE-GPT6-DRIFT-2026-10.md`.
+
+**Reste.**
+1. **Triage.** luna ne tient pas tel quel. Il gagne sur `family`, `language`, budget, occupancy et
+   `answers_pending`, et coûte 35 % de moins. Il régresse sur :
+   - `price_comparison`, émis à tort 7 fois (un `lower` sur un changement de zone) ;
+   - l'ordinal pris dans une phrase (« ok pour la deuxième ») ;
+   - `affirmative` hors fr/en.
+
+   Il faut resserrer ces 3 règles du prompt, puis remesurer les deux modèles avec l'instrument (le
+   prompt est partagé). Ensuite : le rejeu live au montage H3, comparé à
+   `h3p-2026-10-19-plan-r1..3`, puis la bascule.
+2. **Bascule triage (humaine)** :
+   - déployer `concierge` ;
+   - poser `DAYUSE_MODEL_TRIAGE=openai/gpt-6-luna` avec `--skip-deploys` avant `railway up` ;
+   - en cas de **retour arrière, remettre la variable AVANT ou AVEC le code**, sinon l'ancien code
+     envoie luna à effort `low` ;
+   - aligner `ci.yml` (`DAYUSE_MODEL_TRIAGE`) et refaire la baseline.
+3. **Évaluateurs Langfuse** (Hallucination, Relevance, User Distress (no history)).
+   - La dérive mesurée est faible, la barre est tenue. Relevance baisse de 0,09 en moyenne sur les
+     relances courtes : noter la date du changement de juge.
+   - gpt-6-luna exige `max_completion_tokens` (pas `max_tokens`) et `reasoning_effort: "none"`.
+     Ces réglages se font dans l'UI de chaque évaluateur, pas par le MCP.
+   - Ensuite : relire les règles, faire un contrôle live sur une règle temporaire à 100 %, puis
+     mettre à jour `observability/langfuse/evaluators.json`.
+   - **Repli** : couper les 3 règles jusqu'à la v4. Elles ont produit 3 scores depuis le 09/09.
+4. **Baseline du gate à refaire avec le juge luna.** Elle doit tourner depuis un réseau qui joint
+   MCP_B2C staging (IP `45.156.191.77`).
+   - Montage : celui de la démo, `DAYUSE_MODEL_TRIAGE=gpt-4o-mini DAYUSE_MODEL_SYNTHESIS=gpt-5.2`.
+   - Commande : `run_release_gate.py --update-baseline`.
+   - Ensuite, re-juger les MÊMES transcriptions avec `LLMJudge(model="gpt-4o-mini")`, pour chiffrer
+     l'effet du seul juge.
+   - Le premier essai, le 2026-10-19 : 112 tours dégradés sur 118, 0/32, refusé et non commité.
+5. **agent-usa (repo voisin, prod client), hors périmètre ici** : `src/api/config.py:81` met
+   gpt-4o-mini par défaut, et `openai_adapter.py:57` ne détecte les modèles de raisonnement que
+   par `startswith("gpt-5")`. C'est le même piège gpt-6. À porter par son équipe.
+6. Non bloquant : `cost_usd` vaut `None` sur luna, parce que litellm 1.90.2 n'a pas son prix.
+   `DAYUSE_MODEL_PRICES` enregistre sous `openrouter` : à vérifier pour `openai/gpt-6-luna`.
+
+**Terminé quand** plus aucun appel de prod ni d'éval ne part sur gpt-4o-mini. À vérifier par une
+requête `/api/public/metrics` (`providedModelName=gpt-4o-mini`, 0 depuis la bascule) et par
+`grep -rn 4o-mini` sur la config.
+
+---
+
+# 3 · Observabilité — l'échéance Langfuse v3 (fin janvier 2027)
 
 > **Fin janvier 2027 : Langfuse v3 n'est plus patché en sécurité.** Il reste ~4 mois.
 > La chaîne est : **O1 (lever le risque) → O2 (ClickHouse) → O4 (migration v4)**. O2 est un
@@ -691,7 +760,7 @@ au redémarrage du process (le profil Redis, lui, survit). À traiter avec S10/S
 **Reste.**
 - La seconde PR (`plan/qa14707` → `main`) : Q13, la revue globale, est faite (29/29 tâches) ; reste à l'ouvrir et à la revoir.
 - H3' live (liste des items 3/3 et des taux à lire sur les lignes `geo_intent` dans le bloc daté de `HANDOFF.md`) ; H4 : déploiement final, retest par Raphael, réponse point par point sur dayuse-com#14707.
-- Tickets : aligner `geo-poi-gare-de-lyon` sur S5 et `geo7-gare-du-nord-no-city` sur DQ12 ; mesurer « je confirme » avec une offre en attente ; demander à Raphael l'URL et le marché testés ; migrer le triage et le juge de gpt-4o-mini avant le 14/01/2027.
+- Tickets : aligner `geo-poi-gare-de-lyon` sur S5 et `geo7-gare-du-nord-no-city` sur DQ12 ; mesurer « je confirme » avec une offre en attente ; demander à Raphael l'URL et le marché testés ; sortie de gpt-4o-mini : voir `M1`.
 - Le port de #134 (famille géo) doit respecter le modèle d'état de session décrit dans le bloc daté de `HANDOFF.md` (`pending_clarification`, `pending_search.asked`, `region_anchor`, `entry_market_country`).
 
 **Terminé quand.** Raphael retest sans retrouver les trois remontées, et H3' à la barre indiquée dans `HANDOFF.md`.

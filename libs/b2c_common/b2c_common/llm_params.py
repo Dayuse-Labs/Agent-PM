@@ -63,10 +63,11 @@ _OPENAI_REASONING_PREFIXES = ("gpt-5", "gpt-6", "o1", "o3", "o4")
 _UNMAPPED_REASONING_PREFIXES = ("gpt-6",)
 
 _MAX_TOKENS_DEFAULTS = {
-    # Triage answers 15 JSON keys: ~148 tokens pretty-printed on gpt-4o-mini,
-    # ~75-100 compact on gpt-6-luna (scripts/measure_triage_models.py,
-    # 2026-10-19). Reasoning tokens count against this cap too, which is why
-    # the triage pins its effort to "none" (_REASONING_EFFORT_DEFAULTS).
+    # Triage answers 15 JSON keys: p95 150 / max 183 tokens on gpt-4o-mini
+    # (indented JSON), p95 97 / max 110 on gpt-6-luna (compact) — measured
+    # 2026-10-19, reports/TRIAGE-GPT6-AB-2026-10.md. Reasoning tokens count
+    # against this cap too, which is why the triage pins effort "none"
+    # (_REASONING_EFFORT_DEFAULTS): at "low", 2 of 20 luna calls hit it.
     "TRIAGE": 200,
     # Synthesis replies are ~150-300 tokens; same reasoning-token headroom.
     # 1000 was all spent on reasoning once (QA trace 62207822, gpt-5.2:
