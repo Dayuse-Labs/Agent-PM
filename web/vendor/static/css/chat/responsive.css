@@ -323,19 +323,20 @@
 
     .hotel-cards-wrapper {
         display: flex;
-        padding: 8px 10px 12px;
-        gap: 12px;
+        padding: 8px 16px 12px; /* Swipe/Mobile: margin 16, end padding 16 */
+        gap: 12px; /* gutter */
         overflow-x: auto;
         overflow-y: hidden;
         -webkit-overflow-scrolling: touch;
         overscroll-behavior-x: contain;
         scroll-behavior: auto;
         scroll-snap-type: x mandatory;
-        scroll-padding-left: 10px;
+        scroll-padding-left: 16px; /* snap 16 */
     }
 
     .hotel-cards-container .hotel-card {
-        flex: 0 0 100%;
+        /* Card = viewport − margin − gutter − peek: 16 + 12 + 32 of the row's width */
+        flex: 0 0 calc(100% - 44px);
         min-width: 0;
         max-width: 100%;
         scroll-snap-align: start;
@@ -363,7 +364,7 @@
     }
 
     .message-content.with-hotels .hotel-cards-wrapper {
-        gap: 13px;
+        gap: var(--space-6);
         margin: 0 -18px 0 -14px;
         padding: 8px 18px 13px 14px;
         scroll-padding-left: 14px;
