@@ -1,4 +1,8 @@
-"""Offline guard for the live item `qa14707-near-11580-en` (QA14707 Q29)."""
+"""Offline guard for the live item `qa14707-near-11580-en` (QA14707 Q29).
+
+The item primes the US market the way a US-market widget session holds it
+(`entry_market_country` in the profile, Q16): without it, it would only measure
+the model's guess for a bare ZIP, which is MX (H3', 2026-10-19)."""
 from __future__ import annotations
 
 import json
@@ -25,7 +29,7 @@ def test_message_has_bare_zip_and_names_no_country() -> None:
     text = item["input"]["messages"][-1]["content"]
     assert "11580" in text
     assert not re.search(r"\b(USA|US|United States|America)\b", text, re.IGNORECASE)
-    assert item["input"]["profile"] == {}
+    assert item["input"]["profile"] == {"entry_market_country": "US"}
     assert item["expected_output"]["resolved_country_code"] == "US"
     assert item["metadata"]["status"] == "regression_guard"
 
