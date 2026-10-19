@@ -819,7 +819,8 @@ def geocode_core(
     # Poissonnière, Paris » to a Paris homonym question. The address lookup the
     # postcode branch uses comes first; when it designates nothing
     # (`_street_match`), the turn goes on exactly as before. Only a NAMED
-    # country filters it (DQ8). Q21: a named, anchored or chosen state holds
+    # country, or the carried `country_anchor` of the same city (Q19,
+    # `_fill_place_from_profile`), filters it (DQ8). Q21: a named, anchored or chosen state holds
     # here too — « Main Street, Springfield » with Illinois named never
     # resolves a Missouri street.
     if zone_is_specific and zone_kind in ("address", "street") and not postal:

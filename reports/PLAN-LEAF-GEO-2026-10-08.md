@@ -76,7 +76,7 @@ Correspondance vers `geocode_core`, telle que l'implémente `_place_args` (`agen
 | ville de la recherche | `city` | dans l'ordre : la ville propre du lieu de zone, puis un lieu de kind city, puis le champ `city` |
 | `kind = hotel` | chemin `find_hotel_by_name` (`named_hotel.py`) | jamais une zone |
 | `country_named` | `country_code` (filtre dur Mapbox) | seul pays qui filtre ; passe par `_iso2`, une valeur mal formée est écartée |
-| pays d'un lieu ou d'une ville, non nommé | `country_guess` (indice) | suit l'ordre de la ville gagnante ; jamais un filtre |
+| pays d'un lieu ou d'une ville, non nommé | `country_guess` (indice) | suit l'ordre de la ville gagnante ; jamais un filtre sur Mapbox v6 (il borne en revanche le palier Search Box des monuments, via `_soft_country`) |
 | `region_named` | ancre d'état | passe par `resolve_state_hint` |
 | `ambiguity.reason = city_needed` | aucune ville | le code pose la question (S5) |
 | `places[].postal_code` | `postal_code` et `zone_kind` | lu du lieu de zone, sinon d'un lieu de ville, vérifié contre le message |

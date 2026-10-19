@@ -927,7 +927,7 @@ class TestSynthesisQuestionIsNotPolicedByText:
         stored = asyncio.run(fake_profile_store.get(session.id))
         assert stored.last_clarifying_question == "Would you like hotels closer to the centre?"
 
-    def test_a_leaf_that_asked_nothing_leaves_no_question(self, scripted, fake_profile_store):
+    def test_a_leaf_that_asked_nothing_keeps_the_synthesis_question(self, scripted, fake_profile_store):
         runner, session = _new_session()
         asyncio.run(
             fake_profile_store.set(session.id, SessionProfile(last_clarifying_question=self.QUESTION))
