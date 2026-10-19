@@ -3,6 +3,7 @@
  * Handle different API response types
  */
 
+import { scrollBehavior } from '../motion.js';
 import { state } from '../state.js';
 import { addMessage } from '../ui/messages.js';
 import { replaceHotelIdTags, handleContextUpdate, hasEffectiveTimeslot } from '../utils.js';
@@ -409,7 +410,7 @@ export function handleResultsResponse(data, hasTimeslotRequest, skipCarousel = f
         // pinning this later text block to the top would scroll them away.
         if (!skipCarousel) {
             setTimeout(() => {
-                contextMsg.scrollIntoView({ behavior: 'smooth', block: 'start' });
+                contextMsg.scrollIntoView({ behavior: scrollBehavior(), block: 'start' });
             }, 150);
         }
 

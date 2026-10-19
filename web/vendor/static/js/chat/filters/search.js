@@ -3,6 +3,7 @@
  * Run search with applied filters
  */
 
+import { scrollBehavior } from '../motion.js';
 import { state, applyMarketFromResponse } from '../state.js';
 import { addMessage } from '../ui/messages.js';
 import { showFilterThinking, hideThinkingAnimation } from '../ui/thinking.js';
@@ -192,7 +193,7 @@ export async function runSearchWithFilters() {
                     const scrollTarget = carouselMessage.offsetTop - 20;
                     chatMessages.scrollTo({
                         top: scrollTarget,
-                        behavior: 'smooth'
+                        behavior: scrollBehavior()
                     });
                 }
             }, 200);
@@ -202,7 +203,7 @@ export async function runSearchWithFilters() {
             // No results: keep the intro as a standalone bot message.
             const contextMsg = addMessage(data.context, false, false, true);
             setTimeout(() => {
-                contextMsg.scrollIntoView({ behavior: 'smooth', block: 'start' });
+                contextMsg.scrollIntoView({ behavior: scrollBehavior(), block: 'start' });
             }, 100);
         }
 

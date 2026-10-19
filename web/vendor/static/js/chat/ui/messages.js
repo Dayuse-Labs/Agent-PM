@@ -3,6 +3,7 @@
  * Add messages to chat, handle content rendering
  */
 
+import { scrollBehavior } from '../motion.js';
 import { state } from '../state.js';
 import { getLanguage, t } from '../i18n.js';
 import { formatSlotRange } from '../slot_time.js';
@@ -188,7 +189,7 @@ export function addMessage(content, isUser = false, isHotelResults = false, skip
         setTimeout(() => {
             messagesDiv.scrollTo({
                 top: messagesDiv.scrollHeight,
-                behavior: 'smooth'
+                behavior: scrollBehavior()
             });
         }, 100);
     }

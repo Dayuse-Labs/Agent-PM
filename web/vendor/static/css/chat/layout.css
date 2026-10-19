@@ -8,7 +8,7 @@
     max-width: 800px;
     margin: 20px auto;
     background: white;
-    border-radius: 10px;
+    border-radius: var(--radius-card);
     box-shadow: 0px 0px 10px rgba(0, 0, 0, 0.10);
     overflow: hidden;
     opacity: 0;
@@ -35,9 +35,9 @@
     background: rgba(255, 255, 255, 0.72);
     backdrop-filter: blur(16px);
     -webkit-backdrop-filter: blur(16px);
-    color: var(--fg-default);
+    color: var(--fg-primary);
     padding: var(--space-3) var(--space-5);
-    border-bottom: 1px solid var(--border-subtle);
+    border-bottom: 1px solid var(--divider-subtle);
     z-index: 10;
     position: relative;
     display: flex;
@@ -55,9 +55,9 @@
 .chat-header-brand-mark {
     width: 32px;
     height: 32px;
-    border-radius: var(--radius-full);
-    background: var(--dy-gradient-primary);
-    color: var(--fg-inverse);
+    border-radius: var(--radius-action);
+    background: var(--universe-sunny-default);
+    color: var(--fg-invert);
     display: flex;
     align-items: center;
     justify-content: center;
@@ -78,18 +78,18 @@
 }
 
 .chat-header-kicker {
-    font-size: var(--fs-xs);
+    font-size: var(--text-caption);
     font-weight: var(--fw-semi);
-    color: var(--fg-muted);
+    color: var(--fg-secondary);
     text-transform: uppercase;
     letter-spacing: 0.06em;
 }
 
 .chat-header-name {
     font-family: var(--font-display);
-    font-size: var(--fs-md);
+    font-size: var(--text-body);
     font-weight: var(--fw-black);
-    color: var(--fg-brand);
+    color: var(--fg-primary);
     letter-spacing: 0.01em;
 }
 
@@ -103,27 +103,20 @@
     display: inline-flex;
     align-items: center;
     gap: var(--space-2);
-    border: 1px solid rgba(41, 41, 53, 0.14);
-    background: rgba(255, 255, 255, 0.82);
-    color: var(--fg-default);
-    border-radius: var(--radius-full);
+    border: 1px solid var(--border-default);
+    background: var(--solid-default);
+    color: var(--fg-primary);
+    border-radius: var(--radius-action);
     padding: 6px 12px;
-    font-size: var(--fs-sm);
+    font-size: var(--text-caption);
     font-weight: var(--fw-semi);
     line-height: 1;
     cursor: pointer;
-    transition: background-color var(--dur-base) var(--ease-out),
-                border-color var(--dur-base) var(--ease-out);
 }
 
 .chat-header-reset svg {
     width: 12px;
     height: 12px;
-}
-
-.chat-header-reset:hover {
-    background: #ffffff;
-    border-color: rgba(41, 41, 53, 0.26);
 }
 
 .chat-header-reset:disabled {
@@ -171,9 +164,9 @@
 }
 
 .avatar--ai {
-    border-radius: var(--radius-full);
-    background: var(--dy-gradient-primary);
-    color: var(--fg-inverse);
+    border-radius: var(--radius-action);
+    background: var(--universe-sunny-default);
+    color: var(--fg-invert);
     box-shadow: var(--shadow-100);
 }
 
@@ -204,8 +197,8 @@
     align-items: center;
     gap: var(--space-3);
     margin: var(--space-4) 0;
-    color: var(--fg-muted);
-    font-size: 12px;
+    color: var(--fg-secondary);
+    font-size: var(--text-caption);
     text-align: center;
 }
 
@@ -213,7 +206,7 @@
 .chat-notice::after {
     content: '';
     flex: 1;
-    border-top: 1px solid var(--border-subtle);
+    border-top: 1px solid var(--divider-subtle);
 }
 
 .message-content {
@@ -226,10 +219,10 @@
 }
 
 .user .message-content {
-    background: #EEEEF0;
-    color: #292935;
+    background: var(--palette-neutral-6);
+    color: var(--fg-primary);
     padding: 12px 16px;
-    border-radius: 18px;
+    border-radius: var(--radius-card);
 }
 
 /* ===== CHAT INPUT ===== */
@@ -243,8 +236,8 @@
 /* ===== COMPOSER BUBBLE (Concierge layout) ===== */
 .chat-composer {
     padding: var(--space-3) var(--space-4) var(--space-4) var(--space-4);
-    border-top: 1px solid var(--border-subtle);
-    background: var(--bg-surface);
+    border-top: 1px solid var(--divider-subtle);
+    background: var(--bg-default);
     /* Keep the composer fully visible at the bottom of the bounded
        container — without this, a busy .chat-messages can squeeze it
        and the textarea ends up clipped off-screen. */
@@ -252,9 +245,9 @@
 }
 
 .composer-bubble {
-    background: var(--bg-surface);
+    background: var(--bg-default);
     border: 1px solid var(--border-default);
-    border-radius: var(--radius-lg);
+    border-radius: var(--radius-card);
     padding: var(--space-2) var(--space-3) var(--space-3) var(--space-3);
     box-shadow: var(--shadow-100);
     display: flex;
@@ -265,7 +258,7 @@
 }
 
 .composer-bubble:focus-within {
-    border-color: var(--border-focus);
+    border-color: var(--border-selected);
     box-shadow: var(--shadow-200);
 }
 
@@ -274,7 +267,7 @@
     flex-wrap: wrap;
     gap: var(--space-2);
     padding-bottom: var(--space-1);
-    border-bottom: 1px solid var(--border-subtle);
+    border-bottom: 1px solid var(--divider-subtle);
 }
 
 .composer-suggestions[hidden] {
@@ -283,18 +276,18 @@
 
 .composer-suggestions .chip {
     padding: 6px 12px;
-    background: var(--bg-muted);
+    background: var(--palette-neutral-6);
     border: 0;
-    border-radius: var(--radius-full);
-    font-size: var(--fs-sm);
+    border-radius: var(--radius-action);
+    font-size: var(--text-caption);
     font-weight: var(--fw-semi);
-    color: var(--fg-default);
+    color: var(--fg-primary);
     cursor: pointer;
     transition: background-color var(--dur-fast) var(--ease-out);
 }
 
 .composer-suggestions .chip:hover {
-    background: var(--dy-ink-200);
+    background: var(--divider-subtle);
 }
 
 .composer-input {
@@ -308,10 +301,11 @@
     appearance: none;
     border: 0;
     background: transparent;
-    color: var(--fg-default);
+    color: var(--fg-primary);
     font-family: inherit;
-    font-size: var(--fs-base);
-    line-height: var(--lh-snug);
+    font-size: var(--text-body-large);   /* Input : jamais sous 16 px */
+    font-weight: var(--fw-medium);
+    line-height: var(--lh-base);
     resize: none;
     outline: none;
     padding: 8px 0;
@@ -320,7 +314,8 @@
 }
 
 .composer-input textarea::placeholder {
-    color: var(--fg-subtle);
+    font-weight: var(--fw-regular);
+    color: var(--fg-placeholder);
 }
 
 .composer-actions {
@@ -336,20 +331,22 @@
     border: 0;
     width: 32px;
     height: 32px;
-    border-radius: var(--radius-full);
+    border-radius: var(--radius-action);
     display: inline-flex;
     align-items: center;
     justify-content: center;
-    color: var(--fg-muted);
+    color: var(--fg-secondary);
     cursor: pointer;
     padding: 0;
-    transition: background-color var(--dur-fast) var(--ease-out),
-                color var(--dur-fast) var(--ease-out);
 }
 
 .composer-icon-btn:hover {
-    background: var(--bg-muted);
-    color: var(--fg-default);
+    background: var(--hoverlay-surface-hover);
+    color: var(--fg-primary);
+}
+
+.composer-icon-btn:active {
+    background: var(--hoverlay-surface-press);
 }
 
 .composer-icon-btn svg {
@@ -359,20 +356,20 @@
 
 /* Voice input: red pulse while recording, dimmed spinner while uploading. */
 .composer-icon-btn.is-recording {
-    color: #E53935;
-    background: rgba(229, 57, 53, 0.12);
+    color: var(--feedback-error-fg);
+    background: var(--feedback-error-bg);
     animation: voice-input-pulse 1.2s ease-in-out infinite;
 }
 
 .composer-icon-btn.is-processing {
-    color: var(--fg-muted);
+    color: var(--fg-secondary);
     opacity: 0.6;
     pointer-events: none;
 }
 
 .composer-icon-btn.is-error {
-    color: #E53935;
-    background: rgba(229, 57, 53, 0.12);
+    color: var(--feedback-error-fg);
+    background: var(--feedback-error-bg);
 }
 
 @keyframes voice-input-pulse {
@@ -385,29 +382,16 @@
     width: 36px;
     height: 36px;
     border: 0;
-    border-radius: var(--radius-full);
-    background: var(--dy-gradient-cta);
-    color: var(--fg-brand);
-    display: inline-flex;
+    border-radius: var(--radius-action);
+    display: inline-flex;   /* fond et couleur : Universe Sunny, voir buttons.css */
     align-items: center;
     justify-content: center;
     cursor: pointer;
     padding: 0;
-    transition: transform var(--dur-fast) var(--ease-out),
-                box-shadow var(--dur-fast) var(--ease-out);
-}
-
-.composer-send-btn:hover:not(:disabled) {
-    transform: translateY(-1px);
-    box-shadow: var(--shadow-200);
 }
 
 .composer-send-btn:disabled {
-    background: var(--bg-muted);
-    color: var(--fg-subtle);
     cursor: not-allowed;
-    transform: none;
-    box-shadow: none;
 }
 
 .composer-send-btn svg {
@@ -428,14 +412,14 @@
     padding: 0;
     margin: 0;
     text-align: left;
-    font-size: var(--fs-xs);
-    color: var(--fg-subtle);
+    font-size: var(--text-caption);
+    color: var(--fg-placeholder);
 }
 
 .composer-char-count {
     flex-shrink: 0;
-    font-size: var(--fs-sm);
-    color: var(--fg-subtle);
+    font-size: var(--text-caption);
+    color: var(--fg-placeholder);
 }
 
 /* ===== INLINE MARKDOWN ===== */
@@ -472,7 +456,7 @@
 .typing-indicator {
     display: none;
     padding: 10px;
-    color: #54545D;
+    color: var(--fg-secondary);
 }
 
 .typing-indicator.active {
