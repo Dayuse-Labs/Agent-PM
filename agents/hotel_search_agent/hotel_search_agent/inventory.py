@@ -10,8 +10,8 @@ counting hotels within a radius of the candidate centroid.
 Radius (not the candidate's Mapbox bbox) is the unit on purpose: it mirrors how
 `search_offers` actually finds hotels (a `lat`/`lon` + `radiusKm` query — probed
 live 2026-07-23), and a region/district bbox would be so large it would count a
-whole country's hotels and wrongly boost a coarse candidate. The bbox is kept on
-the parsed candidate for the clarify label, not for counting.
+whole country's hotels and wrongly boost a coarse candidate. The candidate's bbox
+is parsed (`GeocodeCandidate.bbox`) but nothing reads it, counting included.
 
 The provider is an injectable `Protocol` (A1-a is the v1 implementation; a live
 MCP `count_hotels_near` would be A1-c — same interface, no resolver change).

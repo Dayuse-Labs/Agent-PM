@@ -5,9 +5,10 @@ workload replacing agent-usa: a custom BaseAgent (NOT LlmAgent + free
 sub_agents) where ALL control flow lives in Python — the LLM only classifies
 (triage) and writes (synthesis), never routes.
 
-Flow per turn, structural budget <= 3 LLM calls (budget.py — a guard's own
-bounded retry, S06, is an internal detail of the "synthesis" phase, not an
-extra charged slot: the leaf's own internal tool calls are already the same
+Flow per turn, structural budget <= 3 LLM calls (budget.py — LiteLLM's own
+retries of the synthesis call (Router + RetryPolicy, below) are an internal
+detail of the "synthesis" phase, not an extra charged slot: the leaf's own
+internal tool calls are already the same
 precedent, one charged "leaf_llm" slot regardless of how many MCP/tool calls
 the leaf makes internally):
   0. Progress     — an internal `progress` marker event emitted BEFORE any

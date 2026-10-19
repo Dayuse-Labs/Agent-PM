@@ -6,15 +6,16 @@ is disabled and never raises (observability must never break a turn).
 `f"guard_{name}"` — a permanent per-guard time series (OBS2-LANGFUSE-BRIEF.md
 §2). Renaming or dropping an entry breaks its history: add new guards, never
 rename or remove one. 11 are ported from agent-usa's 2026-06 production audit
-(`tests/unit/application/test_audit_fixes_2026_06.py` + the loop-enforcement/
-named-hotel-card specs); 2 are AgentB2C-specific additions beyond that spec
-(`booking_confirmation` = R9/guard #12, `hotel_link_truthfulness` = S-G12,
-guard #13) — see CLAUDE.md's "17 guards déterministes" — plus
-`poi_anchor_coherence` (#14), `filter_relaxation_honored` (#15, UX1),
-`date_served` (#16) and `window_match` (#17, both mcp-dayuse#8), and
-`refinement_unchanged` (#18, mcp-dayuse#6).
+(spec in the sibling repo: `../agent-usa/tests/unit/application/
+test_audit_fixes_2026_06.py` + the loop-enforcement/named-hotel-card specs);
+7 are AgentB2C-specific additions beyond that spec: `booking_confirmation`
+(R9, #12), `hotel_link_truthfulness` (S-G12, #13), `poi_anchor_coherence`
+(#14), `filter_relaxation_honored` (#15, UX1), `date_served` (#16) and
+`window_match` (#17, both mcp-dayuse#8), and `refinement_unchanged` (#18,
+mcp-dayuse#6) — see CLAUDE.md's "18 guards déterministes".
 
-Seven of the 15 (the geo/date guards + `filter_relaxation_honored`) fire
+Seven of the 18 (the geo/date guards, `poi_anchor_coherence` and
+`filter_relaxation_honored`) fire
 inside `hotel_search_agent`, out of the OBS3 phase's zone
 (`libs/b2c_common/**` + `agents/b2c_concierge/**`).
 
@@ -59,7 +60,7 @@ GUARD_SCORE_NAMES: tuple[str, ...] = (
     "anti_clarification_loop",
     "amenity_truthfulness",
     "named_hotel_lookup",
-    # --- 3 AgentB2C-specific additions (beyond the ported spec) --------------
+    # --- 7 AgentB2C-specific additions (beyond the ported spec) --------------
     "booking_confirmation",
     "hotel_link_truthfulness",
     # #14 (2026-08-26): a tier-2 landmark POI absurdly far from the turn's own

@@ -6,7 +6,7 @@
 
 ## 🧭 2026-10-16 — QA14707 phases 4-5 sur `plan/qa14707` : retraits des règles de langage, mémoire de question, anti-boucles, documentation (seconde PR)
 
-Plan : `plans/qa14707/` (décisions DQ1-DQ13 dans `plans/qa14707/HANDOFF.md`), source `phases/QA14707/`. Cette seconde PR ne déploie rien : la production est sur `0b65159` (phases 1-3, #140). **La revue globale Q13 reste à faire avant la PR.**
+Plan : `plans/qa14707/` (décisions DQ1-DQ13 dans `plans/qa14707/HANDOFF.md`), source `phases/QA14707/`. Cette seconde PR ne déploie rien : la production est sur `0b65159` (phases 1-3, #140). **La revue globale Q13 est faite (29/29 tâches, 2026-10-16) : reste à ouvrir la PR.**
 
 **Fait (phase 4 : retraits, chacun sous test, aucun nom de garde retiré)** :
 - **Q09, `3cbeba1` + `410b78e`** : plus de regex de prépositions ni de liste d'articles pour repêcher la ville, plus d'appariement de texte sur `pending_place`.
@@ -125,7 +125,7 @@ Plan : `plans/qa14707/` (décisions DQ1-DQ13 dans `plans/qa14707/HANDOFF.md`), s
 - **Widget** : le `utils.js` servi est identique à celui de `main` (plus de `formatTimeAMPM`).
 
 **Reste** :
-- Seconde PR : la phase 4 (Q09-Q11, Q27) et Q28, Q29, Q12 sont faites, voir le bloc du 2026-10-16 en tête ; reste Q13 (revue globale).
+- Seconde PR : la phase 4 (Q09-Q11, Q27) et Q28, Q29, Q12 sont faites, voir le bloc du 2026-10-16 en tête ; Q13 (revue globale) faite le 2026-10-16.
 - Tickets :
   - aligner `geo-poi-gare-de-lyon` sur S5 et `geo7-gare-du-nord-no-city` sur DQ12 ;
   - mesurer « je confirme » avec une offre en attente ;

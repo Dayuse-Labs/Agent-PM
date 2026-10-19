@@ -1,7 +1,8 @@
 """QA14707 Q23 (DQ11): the `Place` of the `GeoIntent` asks for the place's city
 and country right after its name, as the production leaf model reads it.
 
-H3 (`scratchpad/h3-diagnosis.md`, RC1): in the declaration the leaf's model
+H3 diagnosis of 2026-10-15 (RC1; the diagnosis notes were never committed, the
+decision is DQ11 in plans/qa14707/HANDOFF.md): in the declaration the leaf's model
 read, `city` was `Place`'s 5th property and `country` its 7th, after
 `postal_code`, and none was required. gpt-4o-mini filled `places[].city` on 9
 of 222 places and `country` on 0, so every landmark without a typed city got

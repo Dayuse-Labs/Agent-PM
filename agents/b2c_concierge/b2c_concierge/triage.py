@@ -76,8 +76,10 @@ FALLBACK_PICK = "none"
 #
 # Unlike `pick`, these slots carry NO fallback of their own here: an absent or
 # malformed value stays `None` and the CONSUMER falls back to its existing
-# regex (profile.is_* / inline_tools._extract_hotel_name_candidate). That keeps
-# each regex owned at its point of use — the alternative (a fallback_* helper
+# regex (profile.is_*). `hotel_name` is the exception since QA14707 Q11: its
+# phrase-stripper fallback is gone, so `None` means no MCP name lookup and only
+# the on-screen shortlist can resolve the hotel. That keeps each regex owned at
+# its point of use — the alternative (a fallback_* helper
 # per slot in this module) would have forced triage to import profile and
 # duplicated the fr/en word lists in two places.
 BOOKING_CONFIRMATIONS = ("none", "confirm", "refuse", "change")
@@ -162,7 +164,8 @@ class Triage:
     pick_position: int | None = None
     # P1-1 slots. `None` means "the classify produced no usable value" (bad
     # JSON, absent key, LLM down) — NOT "the answer is no". Consumers must read
-    # `None` as "fall back to the regex", never as a negative answer.
+    # `None` as "fall back to the regex", never as a negative answer
+    # (`hotel_name` has no regex fallback since QA14707 Q11: `None` = no name).
     affirmative: bool | None = None
     booking_confirmation: str | None = None
     wants_more_options: bool | None = None
@@ -294,8 +297,9 @@ def _contextual_budget(value: Any, message: str, previous_question: str | None) 
 def _hotel_name_slot(value: object) -> str | None:
     """A trimmed hotel name, or None. Length-capped: this string becomes the
     `name` argument of MCP `find_hotel_by_name`, so an over-eager model that
-    pastes the whole message must degrade to "no name" (and thus to the
-    existing phrase-stripper), never to an unbounded query."""
+    pastes the whole message must degrade to "no name" (and thus to no MCP
+    name lookup: the phrase-stripper was removed in QA14707 Q11), never to an
+    unbounded query."""
     if not isinstance(value, str):
         return None
     name = value.strip()
