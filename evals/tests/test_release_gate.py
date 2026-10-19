@@ -89,3 +89,21 @@ def test_full_gate_needs_battery_and_quick_gate_needs_real_tests():
 def test_missing_family_coverage_fails():
     baseline = {**BASELINES, "conversation": {**BASELINES["conversation"], "by_family": {"faq": {"count": 4}}}}
     assert gate.evaluate({"passed": 300, "failed": 0, "line": "ok"}, _battery(), baseline, quick=False)
+
+
+def test_a_run_with_judge_errors_never_becomes_the_baseline():
+    units = {"passed": 300, "failed": 0, "line": "ok"}
+    battery = _battery()
+    assert gate.baseline_refusal(units, battery) is None
+    battery["summary"]["errors"] = 2
+    assert "judge error" in gate.baseline_refusal(units, battery)
+    assert "unit failure" in gate.baseline_refusal({"failed": 1}, _battery())
+
+
+def test_a_judge_change_is_flagged():
+    battery = {**_battery(), "judge_model": "openai/gpt-6-luna"}
+    assert gate.judge_mismatch(battery, BASELINES) is None  # no recorded judge
+    recorded = {"conversation": {"judge_model": "gpt-4o-mini"}}
+    assert "gpt-4o-mini" in gate.judge_mismatch(battery, recorded)
+    same = {"conversation": {"judge_model": "openai/gpt-6-luna"}}
+    assert gate.judge_mismatch(battery, same) is None

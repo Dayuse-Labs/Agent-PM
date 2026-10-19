@@ -84,6 +84,7 @@ def main() -> int:
         return 2
 
     from evals.battery import load_scenarios, run_battery_sync
+    from evals.judge import JUDGE_MODEL
 
     families = [f.strip() for f in args.families.split(",") if f.strip()] or None
     scenarios = load_scenarios(families=families, limit=args.limit)
@@ -91,15 +92,11 @@ def main() -> int:
         print("run_dynamic_conversation_regression: no scenarios matched the filter.", file=sys.stderr)
         return 2
 
-    print(
-        f"battery → {len(scenarios)} scenario(s), judge={os.environ.get('RELEASE_GATE_JUDGE_MODEL', os.environ.get('DAYUSE_MODEL', 'gpt-4o-mini'))}",
-        flush=True,
-    )
+    # The label is the judge's own resolved model, never a re-derived copy of it.
+    print(f"battery → {len(scenarios)} scenario(s), judge={JUDGE_MODEL}", flush=True)
     report = run_battery_sync(scenarios, progress=not args.quiet)
     report["generated_at"] = datetime.datetime.now(datetime.timezone.utc).isoformat()
-    report["judge_model"] = os.environ.get(
-        "RELEASE_GATE_JUDGE_MODEL", os.environ.get("DAYUSE_MODEL", "gpt-4o-mini")
-    )
+    report["judge_model"] = JUDGE_MODEL
 
     out_path = Path(args.output)
     out_path.parent.mkdir(parents=True, exist_ok=True)
@@ -107,7 +104,8 @@ def main() -> int:
 
     summary = report["summary"]
     print(f"\n{'='*56}")
-    print(f"battery: {summary['passed']}/{summary['total']} scenarios passed")
+    print(f"battery: {summary['passed']}/{summary['total']} scenarios passed, "
+          f"{summary['errors']} judge error(s)")
     print("per-family:")
     for fam, stat in summary["by_family"].items():
         print(f"  {fam:<18} {stat['passed']}/{stat['count']}  ({stat['pass_rate']:.0%})")
