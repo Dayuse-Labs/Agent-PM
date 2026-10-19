@@ -30,11 +30,11 @@
     }
 
     .initial-state h1 {
-        font-size: var(--text-page);
-        letter-spacing: -0.5px;
-        margin: 0 0 12px 0;
-        line-height: 1.1;
-        font-family: 'MaisonNeueExtended-Bold', 'Manrope', sans-serif;
+        font-size: 32px;
+        line-height: 40px;
+        letter-spacing: -1.1px;
+        margin: 0 0 var(--space-3) 0;
+        font-family: var(--font-display);
     }
 
     .initial-state .subtitle {

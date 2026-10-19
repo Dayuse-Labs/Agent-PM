@@ -56,7 +56,7 @@
     width: 32px;
     height: 32px;
     border-radius: var(--radius-action);
-    background: var(--dy-gradient-primary);
+    background: var(--universe-sunny-default);
     color: var(--fg-invert);
     display: flex;
     align-items: center;
@@ -165,7 +165,7 @@
 
 .avatar--ai {
     border-radius: var(--radius-action);
-    background: var(--dy-gradient-primary);
+    background: var(--universe-sunny-default);
     color: var(--fg-invert);
     box-shadow: var(--shadow-100);
 }

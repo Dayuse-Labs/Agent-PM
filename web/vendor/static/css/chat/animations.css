@@ -4,6 +4,11 @@
  */
 
 /* ===== KEYFRAMES ===== */
+@keyframes thinkingPulse {
+    0%, 100% { opacity: 1; }
+    50% { opacity: 0.5; }
+}
+
 @keyframes pulse {
     0%, 100% {
         opacity: 1;
@@ -29,7 +34,7 @@
     width: 12px;
     height: 12px;
     border-radius: 50%;
-    background: #FFB800;
+    background: var(--fg-secondary);
     animation: pulse 1s infinite;
 }
 
@@ -51,12 +56,8 @@
     font-weight: 600;
     line-height: 1.35;
     text-align: left;
-    background: linear-gradient(90deg, #F55F30 0%, #FFAF36 25%, #FFC536 50%, #FFAF36 75%, #F55F30 100%);
-    background-size: 200% 100%;
-    -webkit-background-clip: text;
-    -webkit-text-fill-color: transparent;
-    background-clip: text;
-    animation: gradientShift 2s linear infinite;
+    color: var(--fg-secondary);
+    animation: thinkingPulse 1.6s ease-in-out infinite;
 }
 
 .thinking-message .thinking-content {

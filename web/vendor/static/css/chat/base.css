@@ -7,7 +7,7 @@
 @font-face {
     font-family: 'MaisonNeueExtended-Bold';
     src: url('/static/fonts/MaisonNeueExtended-Bold.otf') format('opentype');
-    font-weight: 800;
+    font-weight: 700;
     font-style: normal;
     font-display: swap;
 }

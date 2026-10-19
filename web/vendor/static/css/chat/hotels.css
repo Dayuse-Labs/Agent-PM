@@ -302,7 +302,7 @@
     width: 18px;
     height: 18px;
     border-radius: var(--radius-action);
-    background: var(--dy-gradient-primary);
+    background: var(--universe-sunny-default);
     color: var(--fg-invert);
     display: inline-flex;
     align-items: center;
