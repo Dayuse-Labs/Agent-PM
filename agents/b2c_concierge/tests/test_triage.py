@@ -306,6 +306,14 @@ class TestPerRoleLlmParams:
         # The metric row names the effort actually sent, not the global one.
         assert rows[-1]["reasoning_effort"] == "none"
 
+    def test_a_timeout_is_never_retried_by_the_sdk(self, monkeypatch):
+        # Probed 2026-10-19: without it litellm hands the OpenAI SDK
+        # max_retries=2, which retries timeouts — 3 attempts of 5 s each.
+        captured = self._capture(monkeypatch)
+        _classify("un hôtel à Paris")
+        assert captured["max_retries"] == 0
+        assert captured["timeout"] == 5.0
+
     def test_the_triage_effort_variable_still_reaches_a_reasoning_model(self, monkeypatch):
         monkeypatch.setenv("DAYUSE_MODEL", "gpt-5.2")
         monkeypatch.delenv("DAYUSE_MODEL_TRIAGE", raising=False)
