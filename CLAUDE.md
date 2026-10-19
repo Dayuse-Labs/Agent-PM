@@ -1,34 +1,41 @@
 # CLAUDE.md — AgentB2C
 
-Orchestrateur conversationnel B2C (ADK Python) remplaçant `agent-usa` (POC Flask en prod). Recherche hôtelière day-use : orchestrateur + 2 feuilles A2A + serveur MCP_B2C (Elasticsearch lecture seule).
+Orchestrateur conversationnel B2C (ADK Python) qui doit remplacer `agent-usa` (POC Flask, toujours la prod client). Recherche hôtelière day-use : orchestrateur + 2 feuilles A2A + serveur MCP_B2C (Elasticsearch lecture seule) + widget. Dans `HANDOFF.md`, « prod » désigne la démo Railway (`DEPLOY.md`), pas la prod client.
 
 ## À lire AVANT de travailler
 
-1. **`HANDOFF.md`** — état exact du chantier. **Ne jamais reconstruire ce qu'il dit exister.**
-2. `SESSIONS-CLAUDE-CODE.md` — le découpage en sessions : une session = un scope, pas plus.
-3. Selon la session : `SCAFFOLDING-BRIEF-PH2.md` (exécution Ph2), `PLAN-REWORK-AGENT-USA.md` (décisions A1-A4/D1-D7), `AUDIT-REWORK-2026-07.md` (baseline, spec des guards).
+1. **`CHANTIERS.md`** — la liste vérifiée des chantiers ouverts (preuve, actions, prompt prêt) et ce qu'il ne faut PAS relancer. Prouver par une commande qu'un item est encore ouvert avant de planifier dessus. `tasks/todo.md` n'est pas une liste de chantiers (l'ancienne, fausse, est archivée).
+2. **`HANDOFF.md`** — ses blocs datés en tête donnent l'état exact. **Ne jamais reconstruire ce qu'il dit exister.** Les blocs antérieurs au 2026-09-14 sont dans `HANDOFF-ARCHIVE.md` : à chercher par date ou `grep`, jamais à lire en entier.
+3. Si la session exécute un plan orchestre : `plans/<nom>/` (`HANDOFF.md` = décisions, `PROGRESS.md`, `PREREQUISITES.md` = étapes humaines) ; sa source est dans `phases/<NOM>/`, sa branche d'intégration est `plan/<nom>`.
+4. `tasks/lessons.md` — les corrections de Fabien, à ne pas refaire.
+
+Historique, à n'ouvrir que sur besoin précis : `SESSIONS-CLAUDE-CODE.md` (découpage S1-S11, S-G, S-L), `PLAN-REWORK-AGENT-USA.md` (décisions A1-A4/D1-D7), `AUDIT-REWORK-2026-07.md` (baseline agent-usa), `SCAFFOLDING-BRIEF-PH2.md`.
 
 ## Invariants (non négociables)
 
-- **LiteLLM uniquement** (`DAYUSE_MODEL`, départ `gpt-4o-mini`) — jamais de SDK modèle direct. Zéro lock-in cloud (OCI, cibles Cloud Run/k8s, GCP = test).
-- **A2A** entre orchestrateur et feuilles (Agent Cards signées) ; **MCP** vers les outils. Feuilles **stateless** : profil in/out via `DataPart` A2A, le Redis de session n'appartient qu'à l'orchestrateur.
+- **LiteLLM uniquement** — jamais de SDK modèle direct. Zéro lock-in cloud (OCI, cibles Cloud Run/k8s, GCP = test).
+- **Modèles par rôle** (`libs/b2c_common/b2c_common/llm_params.py`) : `DAYUSE_MODEL_TRIAGE` / `DAYUSE_MODEL_SYNTHESIS` > `DAYUSE_MODEL` > défaut du code `openai/gpt-6-luna` ; les feuilles ne lisent que `DAYUSE_MODEL`. Démo Railway depuis le 2026-10-15 : feuilles `openai/gpt-6-luna`, triage `gpt-4o-mini`, synthèse `gpt-5.2` (`DAYUSE_REASONING_EFFORT=low`). Le `.env` local ne fixe aucun `DAYUSE_MODEL*` : en local tout tourne sur le défaut, pas sur le mélange de la démo.
+- **Piège gpt-6** : litellm 1.90.2 ne connaît pas gpt-6, `llm_params` ajoute `allowed_openai_params`, `max_completion_tokens` et `reasoning_effort="none"`. Un effort autre que `none` sur une feuille gpt-6 = tout appel d'outil en 400 : ne jamais mettre `DAYUSE_REASONING_EFFORT` dans le `.env` local (`run_local.sh` l'exporte aux 3 services), ne jamais changer de famille de modèle par la seule variable d'env. gpt-4o-mini s'arrête le 2027-01-14 : triage, juge (`evals/judge.py`) et job CI `eval` à migrer avant.
+- **A2A** entre orchestrateur et feuilles (Agent Cards servies NON signées : exception D7, échéance = bascule oidc-mtls) ; **MCP** vers les outils. Feuilles **stateless** : profil in/out via `DataPart` A2A, le Redis de session n'appartient qu'à l'orchestrateur.
 - **Identité intérimaire (D7)** : réseau privé Railway + bearer vérifié côté feuille, exception documentée avec échéance. `dev-insecure` jamais déployé.
-- **RGPD** : résidence EU, zéro contenu de message dans les métriques (verrouillé par test), colonne `is_synthetic` sur les logs, TTL Redis + rétention documentées. `baseline/` ne se commit JAMAIS (messages utilisateurs bruts).
-- **Budget structurel ≤ 3 appels LLM/tour** typique (triage éco + LLM feuille éventuel + UNE synthèse streamée). Un guard ne relance jamais une boucle : 1 retry borné, puis correction déterministe.
+- **RGPD** : résidence EU, zéro contenu de message dans les métriques (verrouillé par test), colonne `is_synthetic` sur les logs, TTL Redis + rétention documentées. `baseline/` ne se commit JAMAIS (messages utilisateurs bruts, exports de prod).
+- **Budget structurel : 3 créneaux LLM par tour, plafond dur** (`MAX_LLM_CALLS_PER_TURN`, `agents/b2c_concierge/b2c_concierge/budget.py` ; le 4e lève `LlmBudgetExceededError`) : triage éco + feuille (1 créneau ; la feuille recherche fait 2 appels réels) + UNE synthèse streamée (ses retries LiteLLM restent dans son créneau). Un guard ne relance jamais une boucle : correction déterministe.
 
-## Architecture cible (résumé)
+## Architecture (résumé)
 
-`b2c-concierge` = **spine code-owned** (pattern `cs_copilot` de dayuse-agent-fleet) : triage 1 appel LLM éco + fallback regex, table de routage en code, `RemoteA2aAgent` → feuilles `hotel-search-agent` (Mapbox + guards géo + MCP `search_offers`/`find_hotel_by_name`) et `faq-agent` (MCP `get_faq_conditions`) ; tools MCP inline : `get_hotel_details`, `compare_hotels`, `generate_booking_link`. Façade iso-contrat `POST /v3/chat` + SSE (event `progress` < 300 ms = TTFT mesuré, event `hotels`, puis tokens).
+`b2c-concierge` (:8100) = **spine code-owned** (pattern `cs_copilot` de dayuse-agent-fleet) : triage 1 appel LLM éco + repli regex, table de routage en code, `RemoteA2aAgent` → feuilles `hotel-search-agent` (:8101 ; outil code `geocode_location` qui reçoit un `GeoIntent` v1.1, Mapbox + guards géo, MCP `search_offers`/`find_hotel_by_name`) et `faq-agent` (:8102 ; MCP `get_faq_conditions`). Tools MCP inline du concierge : `get_hotel_details`, `compare_hotels`, `generate_booking_link`, `find_hotel_by_name` (nom lu par le triage, jamais le message brut). Façade iso-contrat `POST /v3/chat` (JSON) et `POST /v3/chat/stream` (SSE : `progress` < 300 ms = TTFT mesuré, `hotels`, `booking_card`, `token`, puis toujours `done`) ; aussi `/v3/chat/session/reset` et `/v3/feedback`. Widget : `web/` servi par `scripts/run_widget_proxy.py` (:8090 → :8100), seul service public de la démo, non lancé par `run_local.sh`.
 
-**18 guards déterministes** (recompté 2026-10-06, contre le code réel — `GUARD_SCORE_NAMES` dans `libs/b2c_common/b2c_common/scores.py` en est le contrat figé) : 11 portés depuis l'audit prod d'agent-usa (`tests/unit/application/test_audit_fixes_2026_06.py` + `test_loop_enforcement_and_name_lookup.py`, `test_named_hotel_card.py`, ~150 tests) — 3 guards géo (`geocode_echo_back`, `generic_location_demotion`, `state_anchoring`), 2 guards date (`date_hallucinated_year_rolled_forward`, `date_carryover_stale_floored`), `budget_integrity`, `timeslot_sanitization`, `recovery_ack`, `anti_clarification_loop`, `amenity_truthfulness`, `named_hotel_lookup` — plus 2 ajouts spécifiques à AgentB2C : le 12e = R9 (`booking_confirmation`) : `generate_booking_link` inappelable sans flag de confirmation dans l'état du tour ; le 13e = S-G12 (`hotel_link_truthfulness`, 2026-07-24) : aucun lien hôtel non vérifié contre le ground-truth du tour ; le 14e = M4 (`poi_anchor_coherence`, 2026-08-26) : un POI tier-2 à plus de 40 km de l'ancre du tour est jeté ; le 15e = UX1 (`filter_relaxation_honored`, 2026-08-27) : une rétraction de filtre d'équipement (« enlève le spa ») a réellement retiré la clé de la recherche ; le 16e (`date_served`, mcp-dayuse#8) : la recherche a tourné sur le jour demandé, sinon la réponse le dit ; le 17e (`window_match`, mcp-dayuse#8) : chaque carte affichée couvre le créneau selon la règle du site (`b2c_common.timeslot`, l'unique définition), sinon elle est retirée ou toutes sont annoncées comme « les plus proches » ; le 18e (`refinement_unchanged`, mcp-dayuse#6) : un affinage qui remet à l'écran exactement les mêmes offres le dit, la synthèse ne prétend jamais avoir changé quoi que ce soit. Les replis qui répondent quand même (synthèse vide/coupée, erreur MCP, hôtel nommé introuvable) ont leurs scores `fallback_*` (`FALLBACK_SCORE_NAMES`, même contrat).
+**État de session** (concierge seul, Redis) : `pending_clarification`, `pending_search`, `region_anchor`, `entry_market_country` — modèle décrit dans le bloc QA14707 du 2026-10-16 de `HANDOFF.md` ; tout portage (dont #134) s'y aligne.
 
-**Budgets/timeouts (propriétaire unique par dépendance)** : feuille → Mapbox 1,5 s (1 retry), MCP 5 s (circuit-breaker) ; orchestrateur → appel feuille 10 s SANS retry (dégradation honnête) ; retries LLM au seul niveau LiteLLM. Min-instances 1 partout.
+**18 guards déterministes** — contrat figé = `GUARD_SCORE_NAMES` (`libs/b2c_common/b2c_common/scores.py`, compte verrouillé par `libs/b2c_common/tests/test_scores.py`) : ajouter en fin de tuple, jamais renommer ni retirer. 11 portés de l'audit prod d'agent-usa (spec d'origine dans le repo voisin `../agent-usa/tests/unit/application/`, pas ici) : 3 géo (`geocode_echo_back`, `generic_location_demotion`, `state_anchoring`), 2 date (`date_hallucinated_year_rolled_forward`, `date_carryover_stale_floored`), `budget_integrity`, `timeslot_sanitization`, `recovery_ack`, `anti_clarification_loop`, `amenity_truthfulness`, `named_hotel_lookup`. 7 propres à AgentB2C : `booking_confirmation` (R9 : `generate_booking_link` inappelable sans confirmation dans l'état du tour), `hotel_link_truthfulness` (aucun lien hôtel non vérifié), `poi_anchor_coherence` (POI tier-2 à plus de 40 km de l'ancre jeté), `filter_relaxation_honored` (« enlève le spa » retire vraiment le filtre), `date_served` (la recherche a tourné sur le jour demandé, sinon la réponse le dit), `window_match` (chaque carte couvre le créneau selon `b2c_common.timeslot`, l'unique définition), `refinement_unchanged` (un affinage qui remet les mêmes offres le dit). Les guards géo/date, `poi_anchor_coherence` et `filter_relaxation_honored` se déclenchent dans la feuille et remontent par la clé `guards_fired` du DataPart. Depuis QA14707, `anti_clarification_loop` lit l'état, jamais le texte : `pending_clarification.asked` pour les questions de lieu (gabarit ; au 3e envoi, aucune question) et `pending_search.asked` pour les questions libres (au-delà de `CLARIFICATION_MAX_ASKS = 2`, la synthèse ne demande rien). Les replis qui répondent quand même ont leurs scores `FALLBACK_SCORE_NAMES` (`synthesis`, `mcp_error`, `named_hotel_not_found`), même contrat.
+
+**Budgets/timeouts (propriétaire unique par dépendance)** : feuille recherche → Mapbox 1,5 s + 1 retry, MCP 5 s + circuit-breaker (3 échecs, 30 s ; `mcp_guard.py`) ; feuille FAQ → MCP 5 s ; concierge → MCP inline 5 s, triage 5 s, synthèse 15 s, appel feuille SANS retry à 15 s (recherche) / 25 s (FAQ) par défaut, `CONCIERGE_LEAF_TIMEOUT_SECONDS` écrase les deux (30 s sur la démo). Retries LLM au seul niveau LiteLLM.
 
 ## Interdits de session (contexte)
 
-- Ne JAMAIS lire `agent-usa/` en entier (53k lignes) : seulement les fichiers de tests pointés comme spec, et un fichier source précis si un test l'exige.
-- Ne pas recharger le CSV de `baseline/` (82 Mo) — les chiffres sont dans `AUDIT-REWORK-2026-07.md` et `baseline-summary.json`.
-- MCP_B2C : consommer ses tools, ne pas relire son code (repo séparé, contrat = descriptions des 6 tools).
+- Ne JAMAIS lire le repo voisin `../agent-usa` en entier (~60k lignes de `src/`) : seulement les tests pointés comme spec, et un fichier source précis si un test l'exige.
+- Ne pas recharger `baseline/conversation_logs.csv` (82 Mo) — les chiffres sont dans `AUDIT-REWORK-2026-07.md` et `baseline/baseline-summary.json` (local, non versionné).
+- MCP_B2C (repo voisin `../MCP_B2C`, GitLab `mcp-dayuse`) : consommer ses tools, ne pas relire son code sauf un fichier précis justifié. Le contrat = `contracts/mcp_b2c_tools.json` (8 tools + catalogue `list_amenities`), vérifié hors ligne par `tests/test_mcp_contract.py`.
 
 ## Commandes
 
@@ -40,50 +47,55 @@ uv pip install --python .venv/bin/python \
   -r agents/hotel_search_agent/requirements.txt -r agents/faq_agent/requirements.txt \
   -r agents/b2c_concierge/requirements.txt -r requirements-dev.txt -e libs/b2c_common
 git config core.hooksPath .githooks   # guardrails en pre-commit
-
-# ⚠️ NE PAS ajouter "google-adk[eval]==2.4.0" à la commande ci-dessus : l'extra tire
-# google-cloud-aiplatform[evaluation], qui exige litellm<1.86 alors qu'on pin litellm==1.90.2
-# -> résolution uv insatisfiable (les versions PyPI ont bougé depuis S3). google-adk[a2a] des
-# requirements suffit pour pytest, run_local.sh et smoke. L'extra eval n'est nécessaire QUE pour
-# `adk eval` : l'installer dans un venv jetable dédié (litellm y sera downgradé), comme le fait le
-# job CI `eval` séparé — jamais dans le venv de dev.
+# ⚠️ Ne jamais ajouter "google-adk[eval]" à ce venv : l'extra exige litellm<1.86 alors qu'on pin
+# litellm==1.90.2 (résolution uv insatisfiable). Rien dans le repo n'en a plus besoin.
 
 # Run local — 3 services : concierge :8100, search :8101, faq :8102 (pids + logs dans .run-logs/ ;
-# source .env si présent ; aucun appel LLM/MCP au boot). Stop : bash scripts/run_local.sh stop
+# source .env si présent ; aucun appel LLM/MCP au boot ; pas de reload : relancer après chaque
+# modification). Stop : bash scripts/run_local.sh stop
 bash scripts/run_local.sh
 
 # Smoke e2e (les 3 services doivent tourner) — 1 tour ack + 1 search + 1 faq via l'orchestrateur
 python scripts/smoke_e2e.py
 
-# Tests (offline — ni réseau ni clé API) — ~23 s, dont ~12 s pour le SEUL
-# tests/test_calendar_rot.py, qui rejoue toute la suite dans un sous-processus
-# avec l'horloge décalée de +400 j (plugin tests/timeshift_plugin.py). C'est le
-# garde anti-pourrissement calendaire : il tombe si un test est épinglé à un
-# littéral de date qui a cessé de tester ce qu'il annonce (2 vagues : PR #71, #114).
+# Tests (offline — ni réseau ni clé API) — ~5 min 20 s pour ~3 000 tests (2026-10-16) :
+# tests/test_calendar_rot.py rejoue TOUTE la suite dans un sous-processus, horloge décalée de
+# +400 j (tests/timeshift_plugin.py), donc chaque test tourne deux fois et tout test rouge fait
+# aussi tomber ce garde (2 vagues de pourrissement : PR #71, #114). Timeout 600000 ms ; pour
+# itérer, cibler un fichier. Les tests JS du widget (tests/widget/*.test.mjs) passent par pytest
+# (node --test, skip sans node). dayuse_eval_pack/tests est hors testpaths.
 .venv/bin/pytest -q
 
-# Lint + typecheck (mêmes jobs qu'en CI)
+# Lint + typecheck
 .venv/bin/ruff check . && .venv/bin/mypy agents libs
-
-# Contrat MCP (mcp-dayuse#8) : snapshot des inputSchema + list_amenities (contracts/), vérifié
-# offline par tests/test_mcp_contract.py. À relancer après tout déploiement MCP qui touche un
-# schéma, puis committer le diff — l'humain le lance (lit MCP_B2C_URL / MCP_B2C_AUTH_TOKEN, cf.
-# la docstring de scripts/refresh_mcp_contract.py pour la commande exacte).
 
 # Guardrails statiques Dayuse (aussi exécutés par le hook pre-commit)
 bash scripts/dayuse_guardrails.sh .
 
-# Eval ADK (32 scénarios, 8 familles — score libre au stade squelette ; services up requis)
-.venv/bin/adk eval agents/b2c_concierge/b2c_concierge evalset/evalset-v0.adk.json \
-  --config_file_path evalset/test_config.json
+# Contrats figés, vérifiés hors ligne : contracts/mcp_b2c_tools.json (tests/test_mcp_contract.py ;
+# l'humain le rafraîchit après tout déploiement MCP qui touche un schéma, cf. la docstring de
+# scripts/refresh_mcp_contract.py) et contracts/geo_intent.schema.json
+# (tests/test_geo_intent_contract.py), régénéré par :
+python libs/b2c_common/b2c_common/geo_intent.py > contracts/geo_intent.schema.json
+
+# Évals live (services up ; coûtent OpenAI/Mapbox/MCP — l'humain décide). Chemin réel : les
+# experiments Langfuse sur evals/datasets/*.jsonl, un jeu par appel de seed, puis le run.
+# Pièges : concurrence 5 par défaut → 429 MCP, toujours 1 ; Redis réel obligatoire sinon les cas
+# multi-tours échouent en silence (:6379 est pris par dayuse-redis-1 → un Redis dédié sur :6390) ;
+# même IP de sortie entre deux runs comparés (biais de proximité Mapbox Search Box).
+.venv/bin/python scripts/langfuse_seed_datasets.py --only <stem>
+CONCIERGE_REDIS_URL=redis://localhost:6390/0 .venv/bin/python -m evals.langfuse_experiment \
+  --datasets b2c/<jeu> --run-name <nom-unique> --max-concurrency 1
+# Batterie 32 scénarios / 8 familles avec juge LiteLLM (ce que lance le job CI `eval`) :
+.venv/bin/python scripts/run_dynamic_conversation_regression.py
 ```
 
 Déploiement de la démo Railway : **`DEPLOY.md`** (topologie, procédure pas à pas, pièges) — ne jamais déployer sans l'avoir suivi.
 
-CI GitHub Actions : `.github/workflows/ci.yml` (ruff, mypy, pytest, guardrails, job eval non bloquant). Secrets requis : `FLEET_READ_TOKEN` (lecture du repo fleet privé), `OPENAI_API_KEY` (job eval).
+CI GitHub Actions **morte** : facturation coupée depuis le 2026-07-23, non réactivée (décision du 2026-09-14) — chaque run échoue en ~4 s sans exécuter d'étape. Le rouge d'une PR ne veut rien dire ; le gate = les commandes locales ci-dessus. `.github/workflows/ci.yml` reste en place (jobs `checks`, `eval`, `langfuse-experiments`).
 
 ## Fin de session — OBLIGATOIRE
 
 1. Tests + guardrails verts (jamais de HANDOFF « fait » sur du rouge).
-2. **Mettre à jour `HANDOFF.md`** : bloc daté en tête (fait / reste / pièges découverts), remplacer les sections périmées.
-3. Commit sur branche + MR — la review humaine de Fabien est le gate, ne jamais merger soi-même.
+2. **Mettre à jour `HANDOFF.md`** : bloc daté en tête (fait / reste / pièges découverts), remplacer les sections périmées. Mettre aussi à jour `CHANTIERS.md` quand un chantier s'ouvre ou se ferme.
+3. Commit sur branche + PR GitHub — la review humaine de Fabien est le gate, ne jamais merger soi-même.
