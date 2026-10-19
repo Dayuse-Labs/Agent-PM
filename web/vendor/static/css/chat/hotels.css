@@ -150,19 +150,8 @@
     font-weight: var(--fw-bold);
     line-height: 1;
     cursor: pointer;
-    transition: background var(--dur-base) var(--ease-out),
-                transform var(--dur-base) var(--ease-out),
-                box-shadow var(--dur-base) var(--ease-out);
+
 }
-
-.pick-cta:hover {
-    background: var(--solid-selected-hover);
-    transform: translateY(-1px);
-    box-shadow: 0 6px 16px rgba(41, 41, 53, 0.22);
-}
-
-.pick-cta:active { transform: translateY(0); box-shadow: none; }
-
 
 /* .hotel-details wrapped the price block until S-CX9 flattened the footer —
    the price row is now .price-section's own flex context, one box fewer. */
@@ -568,12 +557,11 @@
 
 .message-content.with-hotels .time-slot {
     font-weight: 600;
-    transition: all 0.2s ease;
     cursor: pointer;
 }
 
 .message-content.with-hotels .time-slot:hover {
-    background: var(--bg-subtle);
+    background: var(--solid-hover);
     border-color: var(--border-hover);
 }
 
@@ -932,19 +920,11 @@
     justify-content: center;
     gap: 6px;
     padding: 12px 22px;
-    background: linear-gradient(62deg, #FFAF36 0%, #FFC536 100%);
-    color: var(--fg-primary);
-    border-radius: var(--radius-action);
+    border-radius: var(--radius-action);   /* fond et couleur : Universe Sunny, voir buttons.css */
     font-size: var(--text-body);
     font-weight: 600;
     text-decoration: none;
-    transition: background 0.2s, transform 0.2s;
     width: 100%;
-}
-
-.booking-card__cta:hover {
-    background: linear-gradient(62deg, #FF9F26 0%, #FFB526 100%);
-    transform: translateY(-1px);
 }
 
 .booking-card__cta svg { flex-shrink: 0; }
@@ -1041,19 +1021,14 @@
 
 .response-card__link {
     display: inline-block;
-    background: var(--feedback-info-fg);
-    color: white;
+    background: var(--solid-default);
+    border: 1px solid var(--border-default);
+    color: var(--fg-primary);
     padding: 10px 20px;
     border-radius: var(--radius-action);
     text-decoration: none;
     font-weight: 600;
     margin-top: 12px;
-    transition: transform 0.2s, box-shadow 0.2s;
-}
-
-.response-card__link:hover {
-    transform: translateY(-2px);
-    box-shadow: 0 4px 12px rgba(13, 121, 166, 0.3);
 }
 
 /* Hotel-level perks (S-CX8): informational, so neutral ink rather than the

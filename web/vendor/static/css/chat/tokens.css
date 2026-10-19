@@ -108,6 +108,30 @@
     --veil-state-hover:   rgba(0, 0, 0, 0.06);
     --veil-state-press:   rgba(0, 0, 0, 0.13);
 
+    /* Action Universe — Sunny (Day Room). Dégradé radial : ellipse 3 × largeur par 2 × hauteur,
+       centre sur le bord haut du bouton, 4 stops à 13/50/75/87 %. Le centre se décale :
+       Default (Morning) +1 largeur à droite, Hover (Noon) centré, Press (Afternoon) 1 largeur à gauche. */
+    --universe-sunny-bg: #fffdf9;
+    --universe-sunny-fg: #422f00;
+    --universe-sunny-default: radial-gradient(ellipse 300% 200% at 150% 0%, #ffc536 13%, #fa9f64 50%, #f78584 75%, #f66236 87%);
+    --universe-sunny-hover:   radial-gradient(ellipse 300% 200% at 50% 0%,  #ffc536 13%, #fa9f64 50%, #f78584 75%, #f66236 87%);
+    --universe-sunny-press:   radial-gradient(ellipse 300% 200% at -50% 0%, #ffc536 13%, #fa9f64 50%, #f78584 75%, #f66236 87%);
+    --universe-sunny-shadow-hover: 0 -4px 16px 0 rgba(255, 197, 54, 0.25), 0 4px 16px 0 rgba(246, 98, 54, 0.13);
+    --universe-sunny-shadow-press: inset -4px -4px 8px 0 rgba(255, 197, 54, 0.13), inset 4px 4px 4px 0 rgba(255, 197, 54, 0.25);
+
+    /* Action Default : calme au repos et au survol, il s'enfonce à l'appui */
+    --shadow-press-default: inset -4px -4px 8px 0 rgba(41, 41, 53, 0.03), inset 4px 4px 4px 0 rgba(41, 41, 53, 0.06);
+
+    /* Action Translucent Light (boutons sur photo) et Hoverlay On Surface */
+    --translucent-light-default: rgba(255, 255, 255, 0.5);
+    --translucent-light-hover:   rgba(255, 255, 255, 0.75);
+    --translucent-light-press:   rgba(255, 255, 255, 0.87);
+    --hoverlay-surface-hover: rgba(41, 41, 53, 0.03);
+    --hoverlay-surface-press: rgba(41, 41, 53, 0.06);
+
+    /* Depth : un bouton est une touche, il descend de 2 px à l'appui, son empreinte ne bouge pas */
+    --press-offset: 2px;
+
     /* ===== 3. Échelles ================================================== */
     /* Radius : choisi par ce qu'est l'élément, pas par sa taille */
     --radius-detail:  4px;    /* fragments imbriqués */

@@ -1,0 +1,116 @@
+/**
+ * Boutons — fondations Dayuse : Colors (Action Universe / Solid / Translucent), Effects, Depth, Motion.
+ *
+ * Une physique pour tout ce qui se presse : au survol la lumière répond, à l'appui le bouton cède.
+ *   - Hover / Focus : le bouton ne bouge pas (Universe s'illumine, Default grise). Couleur : Instant.
+ *   - Press / Enter : le bouton descend de 2 px DANS son empreinte (transform : la mise en page ne
+ *     bouge pas), avec les ombres internes de sa famille. Mouvement : Physical (300 ms, ease out).
+ *   - Le soleil (dégradé Sunny) appartient à Universe seul : un seul bouton primaire par vue.
+ * Chargé après les feuilles de composants : il fixe fond, couleur et états des boutons.
+ */
+
+/* ===== Mouvement commun : seule la descente à l'appui s'anime ===== */
+#initial-submit-button,
+.composer-send-btn,
+.booking-card__cta,
+.book-button,
+.chip,
+.chat-header-reset,
+.carousel-nav-button:not(.disabled),
+.carousel-button,
+.response-card__link,
+.feedback-control__btn:not(.is-selected),
+.pick-cta,
+.feedback-control__btn.is-selected,
+.search-example,
+.image-carousel-button {
+    transition: transform var(--dur-physical) var(--ease-out);
+}
+
+/* ===== Universe — Sunny : Default (Morning) / Hover (Noon) / Press (Afternoon) ===== */
+#initial-submit-button,
+.composer-send-btn,
+.booking-card__cta,
+.book-button {
+    background: var(--universe-sunny-default);
+    color: var(--universe-sunny-fg);
+    border: none;
+    box-shadow: none;
+}
+#initial-submit-button:hover:not(:disabled):not(.button-loading),
+.composer-send-btn:hover:not(:disabled):not(.button-loading),
+.booking-card__cta:hover:not(:disabled):not(.button-loading),
+.book-button:hover:not(:disabled):not(.button-loading) {
+    background: var(--universe-sunny-hover);
+    box-shadow: var(--universe-sunny-shadow-hover);
+}
+#initial-submit-button:active:not(:disabled):not(.button-loading),
+.composer-send-btn:active:not(:disabled):not(.button-loading),
+.booking-card__cta:active:not(:disabled):not(.button-loading),
+.book-button:active:not(:disabled):not(.button-loading) {
+    background: var(--universe-sunny-press);
+    box-shadow: var(--universe-sunny-shadow-press);
+    transform: translateY(var(--press-offset));
+}
+#initial-submit-button:disabled,
+.composer-send-btn:disabled,
+.booking-card__cta:disabled,
+.book-button:disabled {
+    background: var(--solid-disabled);
+    color: var(--fg-disabled);
+    box-shadow: none;
+    transform: none;
+}
+
+/* ===== Default (Solid) : calme au repos et au survol, s'enfonce à l'appui ===== */
+.chip:hover,
+.chat-header-reset:hover,
+.carousel-nav-button:not(.disabled):hover,
+.carousel-button:hover,
+.response-card__link:hover,
+.feedback-control__btn:not(.is-selected):hover {
+    background: var(--solid-hover);
+    border-color: var(--border-hover);
+}
+.chip:active,
+.chat-header-reset:active,
+.carousel-nav-button:not(.disabled):active,
+.carousel-button:active,
+.response-card__link:active,
+.feedback-control__btn:not(.is-selected):active {
+    background: var(--solid-press);
+    border-color: var(--border-press);
+    box-shadow: var(--shadow-press-default);
+    transform: translateY(var(--press-offset));
+}
+
+/* ===== Selected (Solid/Selected) : fond sombre, l'appui s'éclaircit au lieu de s'ombrer ===== */
+.pick-cta,
+.feedback-control__btn.is-selected {
+    color: var(--fg-invert);
+}
+.pick-cta:hover { background: var(--solid-selected-hover); }
+.pick-cta:active {
+    background: var(--solid-selected-press);
+    transform: translateY(var(--press-offset));
+}
+.feedback-control__btn.is-selected:active { transform: translateY(var(--press-offset)); }
+
+/* ===== Translucent Light (sur photo) : 50 / 75 / 87 %, flou statique 4 px ===== */
+.search-example:hover,
+.image-carousel-button:hover {
+    background: var(--translucent-light-hover);
+}
+.search-example:active,
+.image-carousel-button:active {
+    background: var(--translucent-light-press);
+    box-shadow: var(--shadow-press-default);
+}
+.search-example:active { transform: translateY(var(--press-offset)); }
+
+/* Boutons flottants positionnés par transform : la descente s'ajoute au centrage vertical */
+.carousel-nav-button:active:not(.disabled),
+.carousel-button:active,
+.image-carousel-button:active {
+    transform: translateY(calc(-50% + var(--press-offset)));
+}

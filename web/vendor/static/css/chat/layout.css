@@ -103,8 +103,8 @@
     display: inline-flex;
     align-items: center;
     gap: var(--space-2);
-    border: 1px solid rgba(41, 41, 53, 0.14);
-    background: rgba(255, 255, 255, 0.82);
+    border: 1px solid var(--border-default);
+    background: var(--solid-default);
     color: var(--fg-primary);
     border-radius: var(--radius-action);
     padding: 6px 12px;
@@ -112,18 +112,11 @@
     font-weight: var(--fw-semi);
     line-height: 1;
     cursor: pointer;
-    transition: background-color var(--dur-base) var(--ease-out),
-                border-color var(--dur-base) var(--ease-out);
 }
 
 .chat-header-reset svg {
     width: 12px;
     height: 12px;
-}
-
-.chat-header-reset:hover {
-    background: var(--bg-default);
-    border-color: rgba(41, 41, 53, 0.26);
 }
 
 .chat-header-reset:disabled {
@@ -345,13 +338,15 @@
     color: var(--fg-secondary);
     cursor: pointer;
     padding: 0;
-    transition: background-color var(--dur-fast) var(--ease-out),
-                color var(--dur-fast) var(--ease-out);
 }
 
 .composer-icon-btn:hover {
-    background: var(--palette-neutral-6);
+    background: var(--hoverlay-surface-hover);
     color: var(--fg-primary);
+}
+
+.composer-icon-btn:active {
+    background: var(--hoverlay-surface-press);
 }
 
 .composer-icon-btn svg {
@@ -388,28 +383,15 @@
     height: 36px;
     border: 0;
     border-radius: var(--radius-action);
-    background: var(--dy-gradient-cta);
-    color: var(--fg-primary);
-    display: inline-flex;
+    display: inline-flex;   /* fond et couleur : Universe Sunny, voir buttons.css */
     align-items: center;
     justify-content: center;
     cursor: pointer;
     padding: 0;
-    transition: transform var(--dur-fast) var(--ease-out),
-                box-shadow var(--dur-fast) var(--ease-out);
-}
-
-.composer-send-btn:hover:not(:disabled) {
-    transform: translateY(-1px);
-    box-shadow: var(--shadow-200);
 }
 
 .composer-send-btn:disabled {
-    background: var(--palette-neutral-6);
-    color: var(--fg-placeholder);
     cursor: not-allowed;
-    transform: none;
-    box-shadow: none;
 }
 
 .composer-send-btn svg {
