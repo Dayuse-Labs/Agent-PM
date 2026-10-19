@@ -22,3 +22,12 @@ test('mobile swipe: card = row − gutter 12 − peek 32, margin 16, snap 16', (
 test('gallery photo gets no hover zoom (Image depth does not apply to galleries)', () => {
     assert.doesNotMatch(css('carousel.css'), /\.image-carousel[^{]*:hover[^{]*\{[^}]*(scale|width)/);
 });
+
+test('carousel arrows are centred on the 3:2 photo, not on the card', () => {
+    assert.match(css('carousel.css'), /\.carousel-nav-button\s*\{[^}]*top:\s*calc\(16px \+ 320px \/ 3\)/);
+    assert.match(css('responsive.css'), /with-hotels \.carousel-nav-button\s*\{\s*top:\s*calc\(8px \+ 256px \/ 3\)/);
+});
+
+test('hotel name reserves two lines so slots align across cards', () => {
+    assert.match(css('hotels.css'), /\.hotel-name\s*\{[^}]*min-height:\s*2lh/);
+});

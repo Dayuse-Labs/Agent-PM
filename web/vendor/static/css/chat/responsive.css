@@ -374,6 +374,11 @@
         zoom: 0.8;
     }
 
+    /* Arrows follow the photo centre: wrapper padding 8 + (320px × 0.8 zoom card × 2/3) / 2 */
+    .message-content.with-hotels .carousel-nav-button {
+        top: calc(8px + 256px / 3);
+    }
+
     .message-content.with-hotels .carousel-nav-button {
         width: 32px;
         height: 32px;

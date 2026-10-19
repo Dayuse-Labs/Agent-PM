@@ -39,7 +39,8 @@
 /* ===== CAROUSEL NAV BUTTONS ===== */
 .carousel-nav-button {
     position: absolute;
-    top: 50%;
+    /* Centred on the 3:2 photo, not on the card: wrapper padding 16 + (320px card × 2/3) / 2 */
+    top: calc(16px + 320px / 3);
     transform: translateY(-50%);
     background: var(--solid-default);
     border-radius: 50%;

@@ -91,6 +91,7 @@
     -webkit-box-orient: vertical;
     overflow: hidden;
     text-overflow: ellipsis;
+    min-height: 2lh; /* two lines reserved: time slots and footers align across a row */
 }
 
 /* Legacy single-row .hotel-location kept for older callers (CARTE inline cards) */
