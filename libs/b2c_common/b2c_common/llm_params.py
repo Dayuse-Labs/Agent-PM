@@ -19,19 +19,23 @@ a reasoning model (`DAYUSE_MODEL=gpt-5.2`) with NO cap anywhere — a measured
    sane ceilings — on a reasoning model, unbounded thinking tokens are
    unbounded latency. Triage truncation degrades to the regex fallback by
    design (triage.py: any failure → fallback, never a hard fail).
+4. **One effort ruled every role of a process** (2026-10-19). The demo's
+   concierge sets `DAYUSE_REASONING_EFFORT=low` for its gpt-5.2 synthesis; a
+   gpt-6-luna triage would have inherited it (measured: 64-101 reasoning tokens
+   of a 200-token cap, temperature dropped). `_effort_for()` reads
+   `DAYUSE_REASONING_EFFORT_{ROLE}` first, then the role's built-in default
+   (`_REASONING_EFFORT_DEFAULTS`), then the global.
 
 Everything reads the environment AT CALL TIME (the `_leaf_timeout` pattern:
 monkeypatch-friendly, no restart needed for a router-level change) and is a
 strict NO-OP when the env vars are unset — requests stay bit-identical to the
-pre-audit behaviour, locked by tests. One exception: the reasoning families the
+pre-audit behaviour, locked by tests. Two exceptions: the reasoning families the
 pinned litellm does not map (gpt-6*), which need their params even when unset
-(`_UNMAPPED_REASONING_PREFIXES`).
+(`_UNMAPPED_REASONING_PREFIXES`), and the roles with a built-in effort.
 """
 from __future__ import annotations
 
 import os
-
-from dayuse_agent_common import reasoning_kwargs as _openrouter_reasoning_kwargs
 
 # gpt-4o-mini shuts down 2027-01-14; gpt-6-luna is OpenAI's named replacement
 # (cheaper, EU-residency eligible). The `openai/` prefix is required: the
@@ -59,14 +63,21 @@ _OPENAI_REASONING_PREFIXES = ("gpt-5", "gpt-6", "o1", "o3", "o4")
 _UNMAPPED_REASONING_PREFIXES = ("gpt-6",)
 
 _MAX_TOKENS_DEFAULTS = {
-    # Triage answers ~40 tokens of JSON; headroom covers reasoning tokens
-    # (they count against max_tokens on OpenAI reasoning models).
+    # Triage answers 15 JSON keys: ~148 tokens pretty-printed on gpt-4o-mini,
+    # ~75-100 compact on gpt-6-luna (scripts/measure_triage_models.py,
+    # 2026-10-19). Reasoning tokens count against this cap too, which is why
+    # the triage pins its effort to "none" (_REASONING_EFFORT_DEFAULTS).
     "TRIAGE": 200,
     # Synthesis replies are ~150-300 tokens; same reasoning-token headroom.
     # 1000 was all spent on reasoning once (QA trace 62207822, gpt-5.2:
     # finish_reason=length, empty content) — 2000 per ticket mcp-dayuse#8.
     "SYNTHESIS": 2000,
 }
+
+# A closed-enum classify and an eval judge never want reasoning: it would eat
+# the triage cap and drop temperature 0 (temperature_kwargs_for). Pinned here,
+# not left to a service-wide DAYUSE_REASONING_EFFORT set for another role.
+_REASONING_EFFORT_DEFAULTS = {"TRIAGE": "none", "JUDGE": "none"}
 
 
 def role_model(role: str) -> str:
@@ -85,33 +96,49 @@ def _unmapped(model_slug: str) -> bool:
     )
 
 
-def reasoning_kwargs_for(model_slug: str) -> dict:
-    """Provider-aware translation of DAYUSE_REASONING_EFFORT for one model slug.
+def _effort_for(role: str | None) -> str:
+    """`DAYUSE_REASONING_EFFORT_{ROLE}` > the role's built-in default >
+    `DAYUSE_REASONING_EFFORT`; lowercased, "" when nothing applies."""
+    if role:
+        own = (os.environ.get(f"DAYUSE_REASONING_EFFORT_{role.upper()}") or "").strip().lower()
+        if own:
+            return own
+        if role.upper() in _REASONING_EFFORT_DEFAULTS:
+            return _REASONING_EFFORT_DEFAULTS[role.upper()]
+    return (os.environ.get("DAYUSE_REASONING_EFFORT") or "").strip().lower()
+
+
+def reasoning_kwargs_for(model_slug: str, role: str | None = None) -> dict:
+    """Provider-aware translation of the effort (`_effort_for(role)`) for one slug.
 
     - unmapped families (gpt-6*) → {"reasoning_effort": …, "allowed_openai_params":
       ["reasoning_effort"]}, with unset/disable spellings → "none" (see
       `_UNMAPPED_REASONING_PREFIXES`) — checked first: unset is NOT a no-op there
     - unset/empty         → {} (bit-identical requests — the safe default)
-    - `openrouter/…`      → the fleet's validated OpenRouter shape (delegated)
+    - `openrouter/…`      → the fleet's OpenRouter shape (`dayuse_agent_common.
+      reasoning_kwargs`), built here from the role's effort because the fleet
+      helper only reads the global variable; parity locked by a test
     - OpenAI reasoning families (gpt-5*, o1/o3/o4*) → {"reasoning_effort": …},
       with the disable spellings mapped to "none" (probed on gpt-5.2)
     - anything else (gpt-4o-mini, …) → {} — never send an unsupported param
     """
-    effort = (os.environ.get("DAYUSE_REASONING_EFFORT") or "").strip().lower()
+    effort = _effort_for(role)
     if _unmapped(model_slug):
         value = "none" if not effort or effort in _DISABLE_SPELLINGS else effort
         return {"reasoning_effort": value, "allowed_openai_params": ["reasoning_effort"]}
     if not effort:
         return {}
     if model_slug.startswith("openrouter/"):
-        return _openrouter_reasoning_kwargs()
+        if effort in _DISABLE_SPELLINGS:
+            return {"extra_body": {"reasoning": {"enabled": False}}}
+        return {"extra_body": {"reasoning": {"effort": effort}}}
     bare = model_slug.rsplit("/", 1)[-1]
     if bare.startswith(_OPENAI_REASONING_PREFIXES):
         return {"reasoning_effort": "none" if effort in _DISABLE_SPELLINGS else effort}
     return {}
 
 
-def temperature_kwargs_for(model_slug: str, temperature: float) -> dict:
+def temperature_kwargs_for(model_slug: str, temperature: float, role: str | None = None) -> dict:
     """`{"temperature": …}` — unless the reasoning cap makes it illegal.
 
     Live-caught on the Railway demo (2026-07-28): sending `temperature` and a
@@ -122,7 +149,7 @@ def temperature_kwargs_for(model_slug: str, temperature: float) -> dict:
     fine, and temperature + effort="none" is fine. So temperature is dropped
     ONLY in the one combination that rejects it; the reasoning cap wins (it is
     the latency lever; temperature is a nice-to-have)."""
-    effort = reasoning_kwargs_for(model_slug).get("reasoning_effort")
+    effort = reasoning_kwargs_for(model_slug, role).get("reasoning_effort")
     if effort is not None and effort != "none":
         return {}
     return {"temperature": temperature}

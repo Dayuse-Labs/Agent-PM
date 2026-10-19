@@ -279,10 +279,37 @@ class TestPerRoleLlmParams:
         _classify("un hôtel à Paris")
         assert captured["model"] == "gpt-4o-mini"
 
-    def test_reasoning_cap_reaches_a_reasoning_model(self, monkeypatch):
+    def test_a_service_wide_effort_never_reaches_the_triage(self, monkeypatch):
+        # 2026-10-19: the demo's concierge sets DAYUSE_REASONING_EFFORT=low for
+        # its synthesis. Before the per-role effort, that "low" reached the
+        # triage too (gpt-5.2 here, gpt-6-luna below) and dropped temperature 0.
         monkeypatch.setenv("DAYUSE_MODEL", "gpt-5.2")
         monkeypatch.delenv("DAYUSE_MODEL_TRIAGE", raising=False)
         monkeypatch.setenv("DAYUSE_REASONING_EFFORT", "low")
+        captured = self._capture(monkeypatch)
+        _classify("un hôtel à Paris")
+        assert captured["reasoning_effort"] == "none"
+        assert captured["temperature"] == 0.0
+
+    def test_a_luna_triage_keeps_effort_none_under_a_service_wide_low(self, monkeypatch):
+        # What an env-only prod switch to gpt-6-luna would have sent at "low":
+        # 64-101 reasoning tokens of the 200-token cap (measured 2026-10-19).
+        monkeypatch.setenv("DAYUSE_MODEL_TRIAGE", "openai/gpt-6-luna")
+        monkeypatch.setenv("DAYUSE_REASONING_EFFORT", "low")
+        captured = self._capture(monkeypatch)
+        rows: list[dict] = []
+        monkeypatch.setattr(triage_module, "enqueue_metric_event", lambda event, **kw: rows.append(kw))
+        _classify("un hôtel à Paris")
+        assert captured["reasoning_effort"] == "none"
+        assert captured["temperature"] == 0.0
+        assert captured["max_completion_tokens"] == 200
+        # The metric row names the effort actually sent, not the global one.
+        assert rows[-1]["reasoning_effort"] == "none"
+
+    def test_the_triage_effort_variable_still_reaches_a_reasoning_model(self, monkeypatch):
+        monkeypatch.setenv("DAYUSE_MODEL", "gpt-5.2")
+        monkeypatch.delenv("DAYUSE_MODEL_TRIAGE", raising=False)
+        monkeypatch.setenv("DAYUSE_REASONING_EFFORT_TRIAGE", "low")
         captured = self._capture(monkeypatch)
         _classify("un hôtel à Paris")
         assert captured["reasoning_effort"] == "low"

@@ -40,7 +40,6 @@ from dayuse_agent_common import (
     cost_from_tokens,
     enqueue_metric_event,
     provider_cost_usd,
-    reasoning_effort_label,
 )
 
 from .budget import TurnBudget
@@ -528,8 +527,10 @@ async def classify(message: str, budget: TurnBudget, invocation_id: str = "",
     # strict no-ops with the env unset (temperature 0.0 included as before);
     # temperature yields to the reasoning cap when the combination is illegal
     # (gpt-5* + effort ≠ none — see temperature_kwargs_for).
-    extra_params: dict = dict(reasoning_kwargs_for(model_slug))
-    extra_params.update(temperature_kwargs_for(model_slug, 0.0))
+    # The role pins effort "none" (llm_params._REASONING_EFFORT_DEFAULTS): a
+    # service-wide DAYUSE_REASONING_EFFORT set for the synthesis never reaches it.
+    extra_params: dict = dict(reasoning_kwargs_for(model_slug, "TRIAGE"))
+    extra_params.update(temperature_kwargs_for(model_slug, 0.0, "TRIAGE"))
     extra_params.update(max_tokens_kwargs_for(model_slug, "TRIAGE"))
     t0 = time.monotonic()
     try:
@@ -563,7 +564,7 @@ async def classify(message: str, budget: TurnBudget, invocation_id: str = "",
             status="error",
             error_type=type(exc).__name__,
             phase="triage",
-            reasoning_effort=reasoning_effort_label(),
+            reasoning_effort=extra_params.get("reasoning_effort"),
         )
         return Triage(
             fallback_family(message),
@@ -587,7 +588,7 @@ async def classify(message: str, budget: TurnBudget, invocation_id: str = "",
         completion_tokens=completion_tokens,
         cost_usd=provider_cost_usd(resp) or cost_from_tokens(model_slug, prompt_tokens, completion_tokens),
         phase="triage",
-        reasoning_effort=reasoning_effort_label(),
+        reasoning_effort=extra_params.get("reasoning_effort"),
     )
     data = _parse_triage_json(resp.choices[0].message.content or "") or {}
     family = data.get("family")
