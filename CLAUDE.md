@@ -58,12 +58,14 @@ bash scripts/run_local.sh
 # Smoke e2e (les 3 services doivent tourner) — 1 tour ack + 1 search + 1 faq via l'orchestrateur
 python scripts/smoke_e2e.py
 
-# Tests (offline — ni réseau ni clé API) — ~5 min 20 s pour ~3 000 tests (2026-10-16) :
-# tests/test_calendar_rot.py rejoue TOUTE la suite dans un sous-processus, horloge décalée de
-# +400 j (tests/timeshift_plugin.py), donc chaque test tourne deux fois et tout test rouge fait
-# aussi tomber ce garde (2 vagues de pourrissement : PR #71, #114). Timeout 600000 ms ; pour
-# itérer, cibler un fichier. Les tests JS du widget (tests/widget/*.test.mjs) passent par pytest
-# (node --test, skip sans node). dayuse_eval_pack/tests est hors testpaths.
+# Tests (offline — ni réseau ni clé API) — ~25 s pour ~3 000 tests (2026-10-19), dont ~10 s pour
+# tests/test_calendar_rot.py, qui rejoue TOUTE la suite dans un sous-processus, horloge décalée de
+# +400 j (tests/timeshift_plugin.py) : tout test rouge fait aussi tomber ce garde (2 vagues de
+# pourrissement : PR #71, #114). Une suite à plusieurs minutes est anormale : le 2026-10-16 elle a
+# pris 5-6 min sur cette machine, le même code 21 s le 2026-10-19 (cause d'environnement non
+# trouvée) — lancer `pytest -q --durations=15` avant d'accuser le code. Les tests JS du widget
+# (tests/widget/*.test.mjs) passent par pytest (node --test, skip sans node).
+# dayuse_eval_pack/tests est hors testpaths.
 .venv/bin/pytest -q
 
 # Lint + typecheck

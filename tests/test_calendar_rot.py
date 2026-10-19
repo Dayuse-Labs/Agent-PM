@@ -19,8 +19,8 @@ Grepping cannot tell the two apart: the suite holds ~330 date literals across
 41 files and nearly all are inert fixtures (MCP payloads, trace dumps) never
 confronted with today. Shifting the clock does tell them apart, mechanically.
 
-Runs the full suite in a subprocess (about half of a full `pytest -q`, ~2.5 min
-for ~3,000 tests on 2026-10-16) rather than mutating this one's
+Runs the full suite in a subprocess (~10 s for ~3,000 tests on 2026-10-19)
+rather than mutating this one's
 clock, which would poison every already-imported module. The child skips this
 test via `_CHILD_ENV`, so there is no recursion.
 """
