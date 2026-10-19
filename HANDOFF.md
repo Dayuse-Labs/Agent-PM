@@ -6,6 +6,28 @@
 
 > 📋 **Pour savoir QUOI faire ensuite, ouvrir [`CHANTIERS.md`](CHANTIERS.md)** (état vérifié au 2026-09-14) : la liste des chantiers ouverts, chacun avec sa preuve, ses actions et un prompt prêt à coller — plus la liste de ce qu'il ne faut **pas** relancer parce que c'est déjà livré. `tasks/todo.md` est périmé et ne doit plus servir de référence.
 
+## 🧹 2026-10-19 — Nettoyage du dépôt + `CLAUDE.md` remis d'équerre (branche `chore/cleanup`, sur `plan/qa14707`)
+
+**Fait** (branche `chore/cleanup`, créée depuis `plan/qa14707`) :
+- `CLAUDE.md` réécrit contre le code : lire `CHANTIERS.md` puis les blocs datés de ce fichier ; modèles par rôle, défaut `openai/gpt-6-luna` et son piège litellm ; Agent Cards NON signées (D7) ; budget de 3 créneaux en plafond dur ; timeouts réels (15/25 s, 30 s sur la démo) ; 7 guards propres à AgentB2C et anti-boucle lue sur l'état ; chemin d'éval Langfuse et ses pièges (l'`adk eval` est retiré) ; CI morte ; `agent-usa` et MCP_B2C sont des repos voisins ; contrats de `contracts/`.
+- Ce fichier est coupé : les blocs du 2026-07-16 au 2026-09-09 sont déplacés tels quels dans `HANDOFF-ARCHIVE.md` (768 Ko → 88 Ko).
+- 46 documents finis supprimés : phases livrées (OBS0-4, S01-09, S12-14, SG1-9, PR134, QA14707/Q01-13), `AUDIT-DRIFT-AGENT-USA-2026-07-20.md`, `EVAL-PACK-COMPARISON-2026-07-22.md`, `PROMPTS-OBS-LANGFUSE.md` (le prompt OBS9 est recopié dans `CHANTIERS.md` O4), `PROMPTS-SESSIONS.md`, `reports/judge_*.json`.
+- Code mort supprimé : 4 sondes d'items clos (UX3/UX4/UX6), `scripts/run_llm_meter.py` et son test (recommités par erreur dans 69aa145), le chemin `adk eval` (`evalset/evalset-v0.adk.json`, `evalset/test_config.json`, `scripts/convert_evalset.py` ; `evalset/evalset-v0.json` reste, la batterie le lit), `reset_profile_store` (aucun appelant).
+- Commentaires périmés corrigés (triage, agent, scores « 18 guards / 7 ajouts », resilience, inventory, calendar_rot) et 4 descriptions de `observability/langfuse/score-configs.json` (export versionné).
+- `CHANTIERS.md` : Q1 (déjà réglé par #114/#115) et Q3 (ce nettoyage) fermés, Q13 notée faite ; `tasks/todo.md` archivé dans `tasks/archive/todo-2026-09.md` et remplacé par un pointeur.
+- Local : 128 branches contenues dans `main` ou `plan/qa14707` supprimées, worktree `../AgentB2C-card-truth` (mergé) retiré, sorties ignorées périmées effacées, `.worktreeinclude` commité.
+- Gates : pytest **2 988 passés / 1 skippé en 27 s**, ruff OK, mypy 68 fichiers OK, `dayuse_guardrails.sh` OK.
+
+**Reste** :
+- PR de `chore/cleanup` à ouvrir **après** le merge de la seconde PR (`plan/qa14707` → `main`), reciblée sur `main` AVANT toute suppression de `plan/qa14707`. Rien n'est poussé : `origin/plan/qa14707` est encore à `592120f`, les phases 4-5 sont locales.
+- Instance Langfuse live : reporter les 4 descriptions corrigées (`guard_geocode_echo_back`, `guard_date_carryover_stale_floored`, `guard_anti_clarification_loop`, `guard_poi_anchor_coherence`).
+- Gardés volontairement : `agents/b2c_concierge/b2c_concierge/tool_loop.py` (inutilisé depuis S07), `dayuse_eval_pack/` et les scripts `eval_*` (seuls leurs tests les lisent), les branches de juillet non mergées (`s-d-judge-ab`, `s2-faq-orchestrateur`, `scx6-same-day-cutoff-fallback`), les 106 branches distantes déjà mergées.
+
+**Pièges découverts** :
+- **La suite ne dure pas 5 min** : les 5-6 min du 2026-10-16 venaient de l'environnement ; le même code (`plan/qa14707`) tourne en 21 s le 2026-10-19 (`--durations` : `test_calendar_rot` ~10 s, rien d'autre au-dessus de 2 s).
+- **#136 « Merged » n'est pas sur `main`** : `fix/pr134-blockers` a été mergée dans `codex/production-context-and-proximity` (#134, jamais mergée), soit 144 commits hors de `main`. Garder ces branches tant que le portage de #134 par familles n'est pas fini.
+- Un renvoi « HANDOFF <date> » antérieur au 2026-09-14 (code, documents) se cherche dans `HANDOFF-ARCHIVE.md`.
+
 ## 🧭 2026-10-16 — QA14707 phases 4-5 sur `plan/qa14707` : retraits des règles de langage, mémoire de question, anti-boucles, documentation (seconde PR)
 
 Plan : `plans/qa14707/` (décisions DQ1-DQ13 dans `plans/qa14707/HANDOFF.md`), source `phases/QA14707/`. Cette seconde PR ne déploie rien : la production est sur `0b65159` (phases 1-3, #140). **La revue globale Q13 est faite (29/29 tâches, 2026-10-16) : reste à ouvrir la PR.**
