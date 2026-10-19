@@ -61,7 +61,7 @@
 }
 
 .carousel-nav-button:hover:not(.disabled) {
-    background: #F9F9FB;
+    background: var(--solid-hover);
     transform: translateY(-50%) scale(1.05);
     box-shadow: 0 4px 16px rgba(0,0,0,0.18);
 }
@@ -92,9 +92,9 @@
     gap: 16px;
     margin-top: 12px;
     padding: 0 16px;
-    font-size: 13px;
+    font-size: var(--text-body);
     font-weight: 600;
-    color: #54545D;
+    color: var(--fg-secondary);
 }
 
 .carousel-indicator .carousel-count {
@@ -105,12 +105,13 @@
 .carousel-indicator .see-all-link {
     flex: 0 1 auto;
     text-align: right;
-    color: var(--dy-peach, #ee825f);
+    color: var(--inline-default);
     font-weight: 600;
     text-decoration: none;
 }
 
 .carousel-indicator .see-all-link:hover {
+    color: var(--inline-hover);
     text-decoration: underline;
 }
 
@@ -143,13 +144,13 @@
     width: 8px;
     height: 8px;
     border-radius: 50%;
-    background: #D4D4D7;
+    background: var(--border-default);
     cursor: pointer;
     transition: background-color 0.3s ease;
 }
 
 .carousel-dot.active {
-    background: #292935;
+    background: var(--bg-invert);
 }
 
 .carousel-button {
@@ -160,7 +161,7 @@
     height: 40px;
     border-radius: 50%;
     background: white;
-    border: 1px solid #EAEAEB;
+    border: 1px solid var(--border-default);
     display: flex;
     align-items: center;
     justify-content: center;
@@ -170,8 +171,8 @@
 }
 
 .carousel-button:hover {
-    background: #F9F9F9;
-    border-color: #292935;
+    background: var(--solid-hover);
+    border-color: var(--border-hover);
 }
 
 .carousel-prev {
@@ -192,8 +193,8 @@
     -webkit-overflow-scrolling: touch;
     scrollbar-width: none;
     -ms-overflow-style: none;
-    border-top-left-radius: 10px;
-    border-top-right-radius: 10px;
+    border-top-left-radius: var(--radius-card);
+    border-top-right-radius: var(--radius-card);
 }
 
 .image-carousel::-webkit-scrollbar {
@@ -266,7 +267,7 @@
     justify-content: center;
     cursor: pointer;
     z-index: 2;
-    font-size: 14px;
+    font-size: var(--text-body);
     opacity: 0;
     transition: opacity 0.2s ease, transform 0.2s ease;
     padding: 0;

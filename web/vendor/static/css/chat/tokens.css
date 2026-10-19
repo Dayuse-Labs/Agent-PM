@@ -1,93 +1,122 @@
 /**
- * Dayuse "Sunrise" Design System tokens — v2.3
- * Source: Figma "Sunrise - Dayuse.com Design system" (Colors, Typography, Radius, Shadows)
+ * Dayuse design tokens — fondations de Stéphane Bal (export Figma du 2026-09-25).
+ * Remplace l'ancien « Sunrise v2.3 ». Figma fait foi ; toute valeur ici est copiée, jamais approchée.
  *
- * Two layers:
- *   - Primitives  (--dy-*)   : raw palette / scales. Never use directly in components.
- *   - Semantic    (--fg/--bg/--border/--radius/--space/--font/--shadow/--dur/--ease) :
- *                              what components reference.
+ * Trois couches :
+ *   1. Palette  (--palette-*)  : primitives, jamais utilisées directement par un composant.
+ *   2. Rôles    (--fg-*, --bg-*, --border-*, --divider-*, --solid-*, --inline-*, --indicator-*,
+ *                --feedback-*, --focus-*) : ce que les composants référencent.
+ *   3. Échelles (--radius-*, --space-*, --text-*, --font-*, --dur-*) : valeurs de Numbers, Radius,
+ *                Typography, Motion.
  *
- * Migration plan: existing CSS still uses raw hex values (#FFC536, #292935, …).
- * New work should reference the semantic aliases below; legacy declarations will be
- * migrated file-by-file.
+ * Sections « LEGACY » : alias de l'ancien système, conservés le temps que les lots 2 à 5 migrent
+ * les derniers usages (dégradés, physique des boutons, hero, chat). Ne pas les utiliser dans du
+ * code neuf. Voir le doc « Audit design du widget AgentB2C ».
  */
 
 :root {
-    /* ===== Brand / primary palette ====================================== */
-    --dy-sunshine-yellow: #ffc536;
-    --dy-blue-sky:        #3597c8;
-    --dy-pure-cloud:      #ffffff;
-    --dy-evening-blue:    #120223;
+    /* ===== 1. Palette : Neutral (hex aplati sur blanc) ================== */
+    --palette-neutral-100: #292935;
+    --palette-neutral-97:  #30303b;
+    --palette-neutral-94:  #363641;
+    --palette-neutral-87:  #45454f;
+    --palette-neutral-75:  #5f5f68;
+    --palette-neutral-50:  #94949a;
+    --palette-neutral-25:  #c9c9cc;
+    --palette-neutral-13:  #e3e3e5;
+    --palette-neutral-6:   #f2f2f3;
+    --palette-neutral-3:   #f8f8f9;
+    --palette-neutral-0:   #ffffff;
 
-    /* ===== Secondary palette ============================================ */
-    --dy-watermelon:        #f45c5a;
-    --dy-pacific-blue:      #3cb1cc;
-    --dy-cloud-blue:        #a4bfd2;
-    --dy-cloud-blue-light:  #f4f7fa;
-    --dy-smart-blue:        #51b0b0;
-    --dy-aqua-fria:         #b7d5d5;
-    --dy-aqua-fria-light:   #f3f9f9;
-    --dy-coral-pink:        #ff7a6a;
-    --dy-pale-pink:         #ffe5ea;
-    --dy-pale-pink-light:   #fff7f9;
-    --dy-purple-dawn:       #6e69ac;
-    --dy-pale-purple:       #f1efff;
-    --dy-pale-purple-light: #f8f7fb;
+    /* Teintes utilisées par les rôles ci-dessous (paliers 100 / 25 / 13) */
+    --palette-smart-blue-100: #51b0b0;
+    --palette-smart-blue-25:  #d3ebeb;
+    --palette-smart-blue-13:  #e9f5f5;
+    --palette-hot-tangerine-100: #f66236;
+    --palette-purple-dawn-100: #6e69ac;
 
-    /* ===== Warm accents (gradient stops, promo, hero) =================== */
-    --dy-peach:        #ee825f;
-    --dy-apricot:      #ffaf36;
-    --dy-amber:        #feb900;
-    --dy-mango:        #fd7030;
-    --dy-sunset-pink:  #fdaa9a;
-    --dy-coral-light:  #ff9a9a;
-
-    /* ===== Semantic (success / warning / error / info) ================== */
-    --dy-success: #51b0b0;
-    --dy-warning: #ffc536;
-    --dy-error:   #f45c5a;
-    --dy-info:    #3597c8;
-
-    /* ===== Ink scale (Evening-blue based neutrals) ====================== */
-    --dy-ink-900: #120223;
-    --dy-ink-700: #292935;
-    --dy-ink-500: #54545d;
-    --dy-ink-400: #8e8e93;
-    --dy-ink-300: #d4d4d7;
-    --dy-ink-200: #eaeaeb;
-    --dy-ink-100: #f5f5f7;
-    --dy-ink-50:  #f9f9f9;
-
-    /* ===== Gradients ==================================================== */
-    --dy-gradient-generic: linear-gradient(180deg, #ffd86b 0%, #ffc536 50%, #feb900 100%);
-    --dy-gradient-primary: linear-gradient(135deg, #ffd86b 0%, #ffc536 50%, #feb900 100%);
-    --dy-gradient-sunset:  linear-gradient(135deg, #ffe58a 0%, #ffc536 60%, #ffaf36 100%);
-    --dy-gradient-cta:     linear-gradient(62deg,  #ffaf36 0%, #ffc536 100%);
-
-    /* ===== Semantic aliases (use these in components) =================== */
+    /* ===== 2. Rôles ===================================================== */
     /* Foreground */
-    --fg-default: var(--dy-ink-700);
-    --fg-muted:   var(--dy-ink-500);
-    --fg-subtle:  var(--dy-ink-400);
-    --fg-inverse: var(--dy-pure-cloud);
-    --fg-brand:   var(--dy-evening-blue);
-    --fg-accent:  var(--dy-peach);
-    --fg-link:    var(--dy-evening-blue);
+    --fg-primary:     #292935;
+    --fg-secondary:   #5f5f68;
+    --fg-accent:      #3a8080;   /* ce qui aide à choisir : note, flexibilité, équipements */
+    --fg-spotlight:   #f66236;   /* ce que Dayuse met en avant — volontairement rare */
+    --fg-placeholder: #94949a;
+    --fg-disabled:    #c9c9cc;
+    --fg-invert:      #ffffff;   /* uniquement sur Bg/Invert, Accent, Spotlight, scrim, photo */
 
     /* Background */
-    --bg-page:    var(--dy-ink-50);
-    --bg-surface: var(--dy-pure-cloud);
-    --bg-muted:   var(--dy-ink-100);
-    --bg-brand:   var(--dy-evening-blue);
-    --bg-hero:    var(--dy-sunshine-yellow);
+    --bg-default:   #ffffff;
+    --bg-subtle:    #f8f8f9;
+    --bg-invert:    #292935;
+    --bg-accent:    #3a8080;
+    --bg-spotlight: #f66236;
+    --bg-scrim:     rgba(41, 41, 53, 0.75);   /* fond des modales uniquement */
+    --bg-frosted:   rgba(0, 0, 0, 0.25);      /* contenu non interactif sur photo, + flou 4 px */
 
-    /* Border */
-    --border-subtle:  var(--dy-ink-100);
-    --border-default: var(--dy-ink-200);
-    --border-strong:  var(--dy-ink-300);
-    --border-focus:   var(--dy-evening-blue);
+    /* Action Solid (bouton secondaire, surfaces interactives au repos) */
+    --solid-default:          #ffffff;
+    --solid-hover:            #f8f8f9;
+    --solid-press:            #f8f8f9;   /* même valeur que hover : l'appui vient de l'ombre interne */
+    --solid-disabled:         #e3e3e5;
+    --solid-selected-default: #292935;
+    --solid-selected-hover:   #363641;
+    --solid-selected-press:   #5f5f68;
 
-    /* ===== Spacing (Figma gaps: 4 / 8 / 12 / 16 / 20 / 24 / 32 / 40 / 64 / 80) */
+    /* Action Inline (texte cliquable dans un contenu) */
+    --inline-default: #6e69ac;
+    --inline-hover:   #403c6c;
+    --inline-press:   #2b2848;
+
+    /* Action Indicator (contrôle réglé par l'utilisateur : radio, case, switch) */
+    --indicator-default:  #6e69ac;
+    --indicator-disabled: #dbd9ea;
+
+    /* Border / Divider */
+    --border-default:  #c9c9cc;
+    --border-hover:    #94949a;
+    --border-press:    #5f5f68;
+    --border-selected: #292935;
+    --border-disabled: #e3e3e5;
+    --divider-subtle:  #e3e3e5;
+    --divider-medium:  #94949a;
+    --divider-strong:  #292935;
+    --divider-invert:  #ffffff;
+
+    /* Feedback : Fg = contenu et trait ; Bg = surface du message ; Bg-press = un cran au-dessus */
+    --feedback-info-fg:       #0d79a6;
+    --feedback-info-bg:       #f8fbfc;
+    --feedback-info-bg-press: #f0f7fa;
+    --feedback-success-fg:       #078160;
+    --feedback-success-bg:       #f8fbfa;
+    --feedback-success-bg-press: #f0f7f5;
+    --feedback-warning-fg:       #bd4405;
+    --feedback-warning-bg:       #fdf9f8;
+    --feedback-warning-bg-press: #fbf4f0;
+    --feedback-error-fg:       #d90828;
+    --feedback-error-bg:       #fef8f9;
+    --feedback-error-bg-press: #fdf0f2;
+
+    /* Focus : clavier uniquement, jamais un style de survol ou de sélection */
+    --focus-ring:        #005fcc;
+    --focus-ring-invert: #ffffff;
+    --focus-bg:          #f7fafd;
+    --focus-bg-press:    #f0f6fc;
+
+    /* Veil (cartes à contenu posé sur photo) — #000000, opacités de l'échelle */
+    --veil-state-default: rgba(0, 0, 0, 0);
+    --veil-state-hover:   rgba(0, 0, 0, 0.06);
+    --veil-state-press:   rgba(0, 0, 0, 0.13);
+
+    /* ===== 3. Échelles ================================================== */
+    /* Radius : choisi par ce qu'est l'élément, pas par sa taille */
+    --radius-detail:  4px;    /* fragments imbriqués */
+    --radius-element: 8px;    /* tag, badge, champ */
+    --radius-card:    16px;   /* cartes, médias pleine largeur — en cas de doute */
+    --radius-surface: 32px;   /* feuilles, modales, hero */
+    --radius-action:  999px;  /* boutons, chips, barre de recherche : « touche-moi » */
+
+    /* Spacing : Numbers 2 / 4 / 8 / 12 / 16 / 20 / 24 / 32 / 40 / 48 / 64 / 96 / 128 / 192 */
     --space-1:  4px;
     --space-2:  8px;
     --space-3:  12px;
@@ -97,41 +126,21 @@
     --space-8:  32px;
     --space-10: 40px;
     --space-16: 64px;
-    --space-20: 80px;
 
-    /* ===== Radius ======================================================= */
-    --radius-xs:   5px;   /* small tokens, tabs */
-    --radius-sm:   10px;  /* chips, swatches */
-    --radius-md:   14px;  /* composer bubbles */
-    --radius-lg:   20px;  /* cards, tiles */
-    --radius-xl:   28px;  /* hero surfaces */
-    --radius-full: 9999px;
+    /* Motion : Instant par défaut ; Physical = Smart animate, Ease out, 300 ms */
+    --ease-out:      cubic-bezier(0.22, 0.61, 0.36, 1);   /* inchangé : valeur Figma de « Ease out » à confirmer (lot 3) */
+    --dur-physical:  300ms;
 
-    /* ===== Elevation (Figma Shadow 100 / 200 / 300) ===================== */
-    --shadow-100: 0 1px 2px rgba(18, 2, 35, 0.06);
-    --shadow-200: 0 4px 12px rgba(18, 2, 35, 0.08);
-    --shadow-300: 0 12px 32px rgba(18, 2, 35, 0.12);
-
-    /* ===== Motion ======================================================= */
-    --ease-out:    cubic-bezier(0.22, 0.61, 0.36, 1);
-    --ease-in-out: cubic-bezier(0.65, 0, 0.35, 1);
-    --dur-fast: 120ms;
-    --dur-base: 200ms;
-    --dur-slow: 320ms;
-
-    /* ===== Type ========================================================= */
-    --font-display: 'MaisonNeueExtended-Bold', 'Maison Neue Extended', 'Archivo', 'Helvetica Neue', sans-serif;
+    /* Typographie : deux familles, Manrope pour ce qui est lu, répété ou touché */
+    --font-display: 'MaisonNeueExtended-Bold', 'Maison Neue Extended', 'Helvetica Neue', sans-serif;
     --font-ui:      'Manrope', 'Helvetica Neue', system-ui, sans-serif;
-    --font-alt:     'Poppins', 'Manrope', system-ui, sans-serif;
 
-    --fs-xs:   11px;
-    --fs-sm:   12px;
-    --fs-base: 14px;
-    --fs-md:   15px;
-    --fs-lg:   17px;
-    --fs-xl:   20px;
-    --fs-2xl:  24px;
-    --fs-3xl:  32px;
+    --text-caption:      12px;   /* Caption, Badge, Overline */
+    --text-body:         14px;   /* Body, Action small, Card S, Sub-section */
+    --text-body-large:   16px;   /* Body large, Card M, Action large, Input */
+    --text-section:      20px;   /* Section (mobile), Body lead */
+    --text-highlight-s:  24px;   /* Highlight S, Page (mobile) */
+    --text-page:         32px;   /* Page, Highlight M */
 
     --fw-regular: 400;
     --fw-medium:  500;
@@ -142,5 +151,39 @@
     --lh-tight: 1.2;
     --lh-snug:  1.35;
     --lh-base:  1.5;
-    --lh-loose: 1.7;
+
+    /* ===== LEGACY (à retirer lot par lot, ne pas utiliser dans du code neuf) ===== */
+    /* Alias de l'ancien système, remappés sur les valeurs actuelles */
+    --fg-default: var(--fg-primary);
+    --fg-muted:   var(--fg-secondary);
+    --fg-subtle:  var(--fg-placeholder);
+    --fg-inverse: var(--fg-invert);
+    --fg-brand:   var(--fg-primary);
+    --bg-surface: var(--bg-default);
+    --bg-page:    var(--bg-subtle);
+    --bg-muted:   var(--palette-neutral-6);
+    --bg-brand:   var(--bg-invert);
+    --border-subtle: var(--divider-subtle);
+    --border-strong: var(--border-hover);
+    --border-focus:  var(--border-selected);
+    --dy-pure-cloud:    #ffffff;
+    --dy-evening-blue:  #292935;   /* l'ancienne encre #120223 n'existe plus */
+
+    /* Motion et ombres de l'ancien système : lot 3 (physique des boutons) */
+    --dur-fast: 120ms;
+    --dur-base: 200ms;
+    --dur-slow: 320ms;
+    --shadow-100: 0 1px 2px rgba(41, 41, 53, 0.06);
+    --shadow-200: 0 4px 12px rgba(41, 41, 53, 0.08);
+    --shadow-300: 0 12px 32px rgba(41, 41, 53, 0.12);
+
+    /* Dégradés et teintes chaudes : lot 3 (boutons Universe) et lot 5 (hero, chat) */
+    --dy-sunshine-yellow: #ffc536;
+    --dy-watermelon:      #f45c5a;
+    --dy-pale-pink:       #feeaea;
+    --dy-pale-pink-light: #fff6f5;
+    --dy-mango:           #fd7030;
+    --dy-apricot:          #ffaf36;
+    --dy-gradient-primary: linear-gradient(135deg, #ffd86b 0%, #ffc536 50%, #feb900 100%);
+    --dy-gradient-cta:     linear-gradient(62deg, #ffaf36 0%, #ffc536 100%);
 }

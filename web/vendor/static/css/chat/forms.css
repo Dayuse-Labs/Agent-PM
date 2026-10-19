@@ -7,8 +7,8 @@
 input[type="text"] {
     flex: 1;
     padding: 12px 20px;
-    border: 1px solid #EAEAEB;
-    border-radius: 100px;
+    border: 1px solid var(--border-default);
+    border-radius: var(--radius-action);
     font-family: inherit;
     font-size: inherit;
 }
@@ -16,7 +16,7 @@ input[type="text"] {
 button {
     background: linear-gradient(62deg, #FFAF36 0%, #FFC536 100%);
     border: none;
-    border-radius: 100px;
+    border-radius: var(--radius-action);
     padding: 12px 24px;
     font-weight: 600;
     cursor: pointer;
@@ -30,10 +30,9 @@ button {
 
 button.button-loading {
     background-image: none !important;
-    background-color: #CCCCCC !important;
-    background: #CCCCCC !important;
-    color: #666666 !important;
-    opacity: 0.5;
+    background-color: var(--solid-disabled) !important;
+    background: var(--solid-disabled) !important;
+    color: var(--fg-disabled) !important;
     cursor: not-allowed !important;
     pointer-events: none;
     box-shadow: none !important;
@@ -54,10 +53,10 @@ button .arrow-icon {
 
 .chip {
     padding: 8px 12px;
-    background: #FFFFFF;
-    border: 1px solid #D4D4D7;
-    border-radius: 100px;
-    font-size: 12px;
+    background: var(--bg-default);
+    border: 1px solid var(--border-default);
+    border-radius: var(--radius-action);
+    font-size: var(--text-caption);
     font-weight: 600;
     cursor: pointer;
 }
@@ -67,8 +66,8 @@ button .arrow-icon {
 }
 
 .chip-group__label {
-    font-size: 13px;
-    color: #54545D;
+    font-size: var(--text-body);
+    color: var(--fg-secondary);
     margin-bottom: 8px;
     font-weight: 600;
 }
@@ -82,10 +81,10 @@ button .arrow-icon {
 
 .chips-inline .chip {
     padding: 8px 12px;
-    background: #fff;
-    border: 1px solid #D4D4D7;
-    border-radius: 100px;
-    font-size: 12px;
+    background: var(--bg-default);
+    border: 1px solid var(--border-default);
+    border-radius: var(--radius-action);
+    font-size: var(--text-caption);
     font-weight: 600;
     cursor: pointer;
 }
@@ -104,14 +103,14 @@ button .arrow-icon {
     padding: 9px 15px;
     /* Soft warm tint so the suggestion pills read as inviting, not utilitarian. */
     background: linear-gradient(135deg, #ffffff 0%, var(--dy-pale-pink-light) 100%);
-    color: var(--fg-default);
+    color: var(--fg-primary);
     border: 1px solid var(--border-default);
-    border-radius: var(--radius-full);
-    font-size: var(--fs-sm);
+    border-radius: var(--radius-action);
+    font-size: var(--text-caption);
     font-weight: var(--fw-semi);
     line-height: 1.2;
     cursor: pointer;
-    box-shadow: 0 1px 2px rgba(18, 2, 35, 0.05);
+    box-shadow: 0 1px 2px rgba(41, 41, 53, 0.05);
     transition: transform var(--dur-fast) var(--ease-out),
                 box-shadow var(--dur-fast) var(--ease-out),
                 border-color var(--dur-fast) var(--ease-out),
@@ -138,13 +137,13 @@ button .arrow-icon {
 
 .chip--suggestion:active {
     transform: translateY(0);
-    box-shadow: 0 1px 2px rgba(18, 2, 35, 0.05);
+    box-shadow: 0 1px 2px rgba(41, 41, 53, 0.05);
 }
 
 .suggestions-list {
     margin-top: 12px;
     padding-left: 16px;
-    font-size: 12px;
+    font-size: var(--text-caption);
 }
 
 /* ===== BOOK BUTTON ===== */
@@ -157,14 +156,14 @@ button .arrow-icon {
 .book-button {
     background: var(--dy-gradient-cta);
     border: none;
-    border-radius: var(--radius-full);
+    border-radius: var(--radius-action);
     padding: 10px 18px;
     font-weight: var(--fw-bold);
     cursor: pointer;
-    color: var(--fg-brand);
+    color: var(--fg-primary);
     width: auto;
     margin: 0;
-    font-size: var(--fs-sm);
+    font-size: var(--text-caption);
     line-height: 1;
     transition: background var(--dur-base) var(--ease-out),
                 transform var(--dur-base) var(--ease-out);
