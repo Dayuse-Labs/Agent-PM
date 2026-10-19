@@ -1,6 +1,6 @@
 # Découpage en sessions Claude Code — dev AgentB2C
 
-> **Détail par session : `phases/S01…S11.md`** (un MD autonome par phase : périmètre, étapes, DoD, modèle). **Prompts de lancement, timeline, parallélisation worktrees et modèles : `PROMPTS-SESSIONS.md`.** Ce fichier reste la vue d'ensemble.
+> **Détail par session : `phases/S10…S11.md`** (jamais lancées, cf. `CHANTIERS.md` A2). S01-S09, S12-S14 et leurs prompts (`PROMPTS-SESSIONS.md`) sont livrés : fichiers retirés au nettoyage du 2026-10-19 (historique git). Ce fichier reste la vue d'ensemble.
 
 > Objectif : chaque session tient largement dans une context window et se termine sur un état commité + `HANDOFF.md` à jour. Une session = UN scope. `/clear` entre deux sessions ; ne jamais enchaîner deux scopes dans la même fenêtre.
 
@@ -44,7 +44,7 @@ Principe retenu : sessions fraîches bornées + état durable dans les fichiers 
 
 ## Sessions S-G — remédiation geo/multi-turn (arbitrée 2026-07-23)
 
-> Source : `REVIEW-GEO-MULTITURN-AGENTB2C-2026-07-22.md` (audit) + `reports/PLAN-RESOLUTION-GEO-MULTITURN-2026-07-23.md` (plan arbitré, décisions A1-A8). Détail par session : `phases/SG1…SG9.md` (prompt de lancement inclus dans chaque fichier). Recherche à l'appui : `reports/research/*.md`.
+> Source : `REVIEW-GEO-MULTITURN-AGENTB2C-2026-07-22.md` (audit) + `reports/PLAN-RESOLUTION-GEO-MULTITURN-2026-07-23.md` (plan arbitré, décisions A1-A8). Sessions SG1-SG9 toutes livrées : fichiers de phase retirés au nettoyage du 2026-10-19 (historique git). Recherche à l'appui : `reports/research/*.md`.
 
 | # | Scope (1 session) | Zone | Prérequis | Durée |
 |---|---|---|---|---|

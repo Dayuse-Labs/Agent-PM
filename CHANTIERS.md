@@ -552,6 +552,22 @@ Chemin : `platform.openai.com/settings/organization/limits` → *Spend*, puis Se
 Jamais démarrée. 3 étapes prévues (serveur v4 en legacy/dual-write → SDK/API/evaluators → bascule
 `events_only`). À planifier une fois O1 répondu et O2 exécutée.
 
+Prompt de lancement (repris de l'ancien `PROMPTS-OBS-LANGFUSE.md`, retiré au nettoyage du 2026-10-19 ; la v4 est GA depuis le 2026-08-17, l'étape 0 reste à rejouer) :
+
+```
+Lis CLAUDE.md, HANDOFF.md, OBS2-LANGFUSE-BRIEF.md (§12), PLAN-OBS-LANGFUSE-2026-07-29.md.
+ÉTAPE 0 obligatoire : vérifie que la v4 self-hosted est publiée en STABLE (tags Docker : un 4.x.y
+sans suffixe -rc, et où pointe `latest`). Si ce n'est pas le cas, STOP immédiat et rapport.
+Ensuite, écris phases/OBS9-migration-v4.md et soumets-le moi. Points obligatoires du plan : ClickHouse
+≥ 25.12 déjà fait (OBS8) ; séquence legacy → dual → cutover events_only ; le backfill historique ne
+tourne QU'UNE FOIS (tout ce qui est ingéré avant l'activation du dual write est définitivement absent
+des nouvelles tables) ; si une politique de rétention globale existe, sauter le backfill (option B)
+évite la contrainte de 3× le disque ClickHouse ; TEST PRÉALABLE de create_score via
+POST /api/public/ingestion (question Q5 — tout OBS3 en dépend) ; passage des lectures métriques v1 → v2
+dans le module unique ; le cutover events_only est le point de non-retour.
+Règle absolue : aucune action sur l'instance sans mon GO écrit, étape par étape.
+```
+
 ## O5 — Deux variables d'env sur le service MCP (OBS10)
 
 **Taille : S** · **hors dépôt** (service MCP_B2C)
