@@ -4,6 +4,17 @@
 
 > 📋 **Pour savoir QUOI faire ensuite, ouvrir [`CHANTIERS.md`](CHANTIERS.md)** (état vérifié au 2026-09-14) : la liste des chantiers ouverts, chacun avec sa preuve, ses actions et un prompt prêt à coller — plus la liste de ce qu'il ne faut **pas** relancer parce que c'est déjà livré. `tasks/todo.md` est périmé et ne doit plus servir de référence.
 
+## 🚀 2026-10-19 — Widget redéployé sur `124cd43` (#142, refonte design)
+
+**Fait** (procédure `DEPLOY.md`) : pré-vol sur `main` propre `124cd43`, pytest **2 935 passés / 1 skippé** (25 s). Estampilles lues avant : `widget`, `concierge`, `hotel-search` = `0b65159`, `faq` = `28c485a`. Depuis `0b65159`, seul `web/` a changé (les 7 commits de #142) : **seul `widget` est redéployé** (`LANGFUSE_RELEASE=124cd43` posé avec `--skip-deploys`, puis `railway up --service widget --detach`). Les 3 backends gardent leur estampille, qui reste vraie : `faq` n'a pas bougé depuis `28c485a` (les seuls changements de `libs/` depuis sont `clarification.py` et `geo_intent.py`, que `faq` n'importe pas et que `__init__` n'exporte pas, plus `pydantic`, déjà transitif).
+
+**Preuve** :
+- Les 4 fichiers vérifiés sont servis à l'octet près comme dans `124cd43` (sha256 : `tokens.css` `bf339a5…`, `hotels.css` `3e8dfa7…`, `hotels/card.js` `1613ed8…`, `motion.js` `a8f81f7…`). Avant le déploiement : `tokens.css` à l'ancien hash, `motion.js` en 404.
+- La page servie porte le seul changement de gabarit de #142 (viewport sans `user-scalable=no`).
+- Un tour synthétique via le widget public (`x-dayuse-synthetic: 1`, « un day use à Londres, Royaume-Uni, demain après-midi ») : 200 en 7,3 s, 5 hôtels, réponse cohérente en français — le relais widget → concierge tient.
+
+**Reste** : le rendu visuel de la refonte n'a pas été regardé dans un navigateur après déploiement. Les phases 4-5 de QA14707 (`plan/qa14707`) et le nettoyage (`chore/cleanup`) ne sont ni sur `main` ni poussés : ce déploiement ne les contient pas.
+
 ## 🏔️ 2026-10-19 — Refonte design du widget, lot 5 « hero + chat » (branche `design/widget-design-foundations`)
 
 **Fait (CSS seul)** :
