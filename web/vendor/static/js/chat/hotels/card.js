@@ -266,9 +266,20 @@ function renderImageCarousel(hotelId, images, hotel, discount) {
     `;
 }
 
+/**
+ * The search payload sends zones as slugs ("marina-del-rey"). A lowercase,
+ * hyphenated token is shown as a name ("Marina Del Rey"); anything else
+ * ("Santa Monica", "Beverly Hills") is returned untouched.
+ */
+export function humanizeZone(value) {
+    const text = String(value || '').trim();
+    if (!/^[a-z0-9]+(?:-[a-z0-9]+)*$/.test(text)) return text;
+    return text.split('-').map((w) => w.charAt(0).toUpperCase() + w.slice(1)).join(' ');
+}
+
 function renderHotelHeader(hotel, safeStars) {
     // Determine location: prefer zone, then city, then extract from name
-    const location = hotel.zone || hotel.city || extractLocationFromName(hotel.name) || '';
+    const location = humanizeZone(hotel.zone || hotel.city || extractLocationFromName(hotel.name) || '');
 
     // S-CX9: the guest rating, on the one row of the card that had spare width.
     // `rating`/`rating_count` have been on the search payload since S-CX3a
