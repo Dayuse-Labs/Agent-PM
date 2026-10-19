@@ -6,6 +6,23 @@
 
 > 📋 **Pour savoir QUOI faire ensuite, ouvrir [`CHANTIERS.md`](CHANTIERS.md)** (état vérifié au 2026-09-14) : la liste des chantiers ouverts, chacun avec sa preuve, ses actions et un prompt prêt à coller — plus la liste de ce qu'il ne faut **pas** relancer parce que c'est déjà livré. `tasks/todo.md` est périmé et ne doit plus servir de référence.
 
+## 🚀 2026-10-19 (bis) — QA14707 phases 4-5 déployées : `hotel-search` + `concierge` sur `130caed` (#143)
+
+**Fait** (procédure `DEPLOY.md`) : pré-vol sur `main` propre `130caed` (#143 mergée), pytest **2 991 passés / 1 skippé**. Estampilles avant : `hotel-search`, `concierge` = `0b65159`, `faq` = `28c485a`, `widget` = `124cd43`. Seuls `hotel-search` (Q09, Q10) et `concierge` (Q11, Q27, Q28) ont changé : estampillés `130caed` avec `--skip-deploys`, puis `railway up --detach`, feuille d'abord ; les deux en `SUCCESS` à 13:54Z. `faq` et `widget` n'ont pas changé et gardent leur estampille, qui reste vraie.
+
+**Avant le déploiement, rejeu live H3'** (sur `plan/qa14707` `34a215c`, même montage que H3 : feuilles gpt-6-luna, triage gpt-4o-mini, synthèse gpt-5.2, concurrence 1, Redis :6390, IP `45.156.191.77`, 0 MCP 429 ; runs `h3p-2026-10-19-plan-r1..3`) : au niveau de H3 ou mieux partout. Deux lignes plus basses, expliquées : `geo-poi-generic-gare-no-city` (`must_ask_city` 0/3 contre 1/3 ; la réponse demande bien la ville, l'heuristique de mots-clés la rate) et le nouvel item `qa14707-near-11580-en` (MX 3/3). Ce dernier passe avec le marché : rejoué en direct, « a hotel near 11580 tomorrow » donne **US · Valley Stream, 5 hôtels, 3/3 avec `entry_market_country=US`** (ce qu'envoie le widget) et MX · Mexico City, 0 hôtel, 3/3 sans marché (ce que fait le harnais). Détail : commentaire de #143.
+
+**Preuve** (widget public, tours synthétiques) :
+- Les 3 traces des sessions de preuve portent la release **`130caed`** : c'est bien le nouveau build qui sert.
+- « a hotel near 11580 tomorrow » avec le marché US → US, Valley Stream, 5 hôtels.
+- « un hôtel près de la gare de Lyon demain » → question par gabarit « Près de « Gare de Lyon », dans quelle ville cherchez-vous ? » ; la réponse « Paris » relance la recherche à Gare de Lyon, Paris, avec la date du 2026-10-20 conservée, 5 hôtels (chemin Q11 sans regex).
+
+**Reste** :
+- H4 : retest par Raphael, puis réponse point par point sur dayuse-com#14707.
+- À décider (ne bloque pas la démo) : un ZIP US nu envoyé SANS marché part maintenant au Mexique (avant Q10, la regex supprimée forçait les États-Unis). Soit l'item live porte le marché pour mesurer le cas du widget (le harnais ne poste que `{session_id, message}`), soit c'est une décision produit au-delà de DQ8.
+
+**Piège** : le snippet de statut de `DEPLOY.md` (étape 5) cassait sur la CLI Railway actuelle (`KeyError: 'serviceInstances'`) ; remplacé par une version qui parcourt tout le JSON.
+
 ## 🧹 2026-10-19 — Nettoyage du dépôt + `CLAUDE.md` remis d'équerre (branche `chore/cleanup`, sur `plan/qa14707`)
 
 **Fait** (branche `chore/cleanup`, créée depuis `plan/qa14707`) :
@@ -19,7 +36,7 @@
 - Gates : pytest **2 988 passés / 1 skippé en 27 s**, ruff OK, mypy 68 fichiers OK, `dayuse_guardrails.sh` OK.
 
 **Reste** :
-- PR de `chore/cleanup` à ouvrir **après** le merge de la seconde PR (`plan/qa14707` → `main`), reciblée sur `main` AVANT toute suppression de `plan/qa14707`. Rien n'est poussé : `origin/plan/qa14707` est encore à `592120f`, les phases 4-5 sont locales.
+- La seconde PR (#143) est mergée et déployée (bloc ci-dessus) ; `chore/cleanup` contient `main` et part en PR vers `main`.
 - Instance Langfuse live : reporter les 4 descriptions corrigées (`guard_geocode_echo_back`, `guard_date_carryover_stale_floored`, `guard_anti_clarification_loop`, `guard_poi_anchor_coherence`).
 - Gardés volontairement : `agents/b2c_concierge/b2c_concierge/tool_loop.py` (inutilisé depuis S07), `dayuse_eval_pack/` et les scripts `eval_*` (seuls leurs tests les lisent), les branches de juillet non mergées (`s-d-judge-ab`, `s2-faq-orchestrateur`, `scx6-same-day-cutoff-fallback`), les 106 branches distantes déjà mergées.
 
@@ -27,6 +44,101 @@
 - **La suite ne dure pas 5 min** : les 5-6 min du 2026-10-16 venaient de l'environnement ; le même code (`plan/qa14707`) tourne en 21 s le 2026-10-19 (`--durations` : `test_calendar_rot` ~10 s, rien d'autre au-dessus de 2 s).
 - **#136 « Merged » n'est pas sur `main`** : `fix/pr134-blockers` a été mergée dans `codex/production-context-and-proximity` (#134, jamais mergée), soit 144 commits hors de `main`. Garder ces branches tant que le portage de #134 par familles n'est pas fini.
 - Un renvoi « HANDOFF <date> » antérieur au 2026-09-14 (code, documents) se cherche dans `HANDOFF-ARCHIVE.md`.
+
+## 🚀 2026-10-19 — Widget redéployé sur `124cd43` (#142, refonte design)
+
+**Fait** (procédure `DEPLOY.md`) : pré-vol sur `main` propre `124cd43`, pytest **2 935 passés / 1 skippé** (25 s). Estampilles lues avant : `widget`, `concierge`, `hotel-search` = `0b65159`, `faq` = `28c485a`. Depuis `0b65159`, seul `web/` a changé (les 7 commits de #142) : **seul `widget` est redéployé** (`LANGFUSE_RELEASE=124cd43` posé avec `--skip-deploys`, puis `railway up --service widget --detach`). Les 3 backends gardent leur estampille, qui reste vraie : `faq` n'a pas bougé depuis `28c485a` (les seuls changements de `libs/` depuis sont `clarification.py` et `geo_intent.py`, que `faq` n'importe pas et que `__init__` n'exporte pas, plus `pydantic`, déjà transitif).
+
+**Preuve** :
+- Les 4 fichiers vérifiés sont servis à l'octet près comme dans `124cd43` (sha256 : `tokens.css` `bf339a5…`, `hotels.css` `3e8dfa7…`, `hotels/card.js` `1613ed8…`, `motion.js` `a8f81f7…`). Avant le déploiement : `tokens.css` à l'ancien hash, `motion.js` en 404.
+- La page servie porte le seul changement de gabarit de #142 (viewport sans `user-scalable=no`).
+- Un tour synthétique via le widget public (`x-dayuse-synthetic: 1`, « un day use à Londres, Royaume-Uni, demain après-midi ») : 200 en 7,3 s, 5 hôtels, réponse cohérente en français — le relais widget → concierge tient.
+
+**Reste** : le rendu visuel de la refonte n'a pas été regardé dans un navigateur après déploiement. Les phases 4-5 de QA14707 (`plan/qa14707`) et le nettoyage (`chore/cleanup`) ne sont ni sur `main` ni poussés : ce déploiement ne les contient pas.
+
+## 🏔️ 2026-10-19 — Refonte design du widget, lot 5 « hero + chat » (branche `design/widget-design-foundations`)
+
+**Fait (CSS seul)** :
+- Titre du hero en Display : 56 / 64 / −2 px desktop, 32 / 40 / −1,1 px mobile, Maison Neue Extended 700. `@font-face` recalé en 700 (le fichier est un Bold : plus de gras synthétique).
+- Photo du hero : titre et sous-titre en blanc pur, plus d'ombre portée ni de dégradé coloré dans `.gradient-text` (loi 5). Voile plat noir 50 % (plancher « Veil / Top of content »).
+- Thinking : texte `--fg-secondary` qui respire en opacité (`thinkingPulse`), plus de dégradé animé ni de #F55F30 ; point de chargement en `--fg-secondary`. `gradientShift` n'est plus utilisé.
+- Avatar IA, pastille du header et `.ai-glyph` : `--universe-sunny-default` à la place de `--dy-gradient-primary` (plus aucun usage hors `tokens.css`).
+- Test `tests/widget/widget_hero.test.mjs` ; 43 tests JS verts, guardrail OK. Captures Playwright sur mock : hero desktop 1440 et mobile 390 conformes.
+
+**Décisions à valider par Stéphane** : titre du hero entièrement blanc (le dégradé de marque est retiré) ; voile du hero plat 50 % (la spec décrit un dégradé depuis le bord du contenu, le hero est centré, pas de dérivation officielle) ; thinking en texte secondaire pulsé (mouvement « Custom », non documenté) ; avatar IA en Universe Sunny.
+
+**Pas fait / reste** :
+- Bulles de message, composer et feedback : boutons et focus déjà couverts (lots 2 et 3), pas de nouvelle règle de forme appliquée.
+- Dans `tokens.css`, les alias `--dy-*`, `--shadow-*` et `--dur-*` hérités sont à supprimer après relecture (plus utilisés, à confirmer par grep avant).
+- Rendu vérifié sur mock seulement ; le passage clavier réel reste à faire.
+
+## 🃏 2026-10-19 — Refonte design du widget, lot 4 « cartes + carrousel » (branche `design/widget-design-foundations`)
+
+**Fait (CSS seul, aucun JS)** :
+- Photo de carte hôtel et galerie en 3:2 (`aspect-ratio`), fini les 160 px fixes (`hotels.css`, `carousel.css`).
+- Swipe mobile (règle 13) : carte = largeur de la rangée − 44 px (gutter 12 + peek 32), marge et fin de rangée 16, snap 16 ; la carte suivante dépasse donc de 32 px (avant : 100 %, aucun indice de swipe). Gutter desktop 24.
+- Image depth volontairement NON appliqué : la photo est une galerie avec flèches au survol, la spec l'exclut dans ce cas. Veils (protection de texte, state layer) non applicables : le contenu de la carte est sous la photo, pas dessus.
+- Test `tests/widget/widget_cards.test.mjs` ; 34 tests JS verts, guardrail OK.
+
+**Pièges / à valider** :
+- Non vérifié visuellement : le mock ne rend pas le carrousel de cartes (à regarder en local, desktop 1440 et mobile 390).
+- Le hack `zoom: 0.8` desktop sur `.hotel-card` (responsive.css) est conservé : il contredit « la carte se déduit du viewport » ; à traiter avec Stéphane (desktop = grille, flèches en confort).
+- Desktop : la rangée défile toujours (cartes 320 px fixes), pas encore posée sur la grille.
+- Cartes `.simplified` (120 px, hors 3:2) non touchées.
+- Retouche après relecture de Fabien : flèches du carrousel desktop recentrées sur la photo 3:2 (elles tombaient sur le titre) ; `.hotel-name` réserve 2 lignes (`min-height: 2lh`) pour aligner créneaux et pied de carte. Valeurs de `top` calculées pour une carte de 320 px (zoom 0.8 desktop) : à recalculer si le zoom saute.
+- Quartier : le payload envoie la zone en slug (« marina-del-rey ») ; `humanizeZone()` dans `hotels/card.js` l'affiche « Marina Del Rey » (test `widget_zone.test.mjs`). Correctif côté widget ; la vraie correction serait d'envoyer un nom lisible depuis le backend (`response_bridge.py` / zone du profil), non touché.
+- Prix en € pour Los Angeles : voulu (règle produit du 2026-09-25, EUR par défaut, devise de l'hôtel sur demande). Décision de Fabien 2026-10-19 : on ne touche pas au backend, chantier = front uniquement. Le MCP interrogé n'expose pas encore `hotelCurrency`/`hotelPrice` (vérifié sur une recherche Los Angeles) ; `cityName` y arrive en slug, d'où `humanizeZone()` côté widget.
+- Reste : `--shadow-*`, dégradés/teintes `--dy-*` des cartes → lot 5 ou nettoyage.
+
+## 🔘 2026-10-19 — Refonte design du widget, lot 3 « physique des boutons + Universe Sunny » (branche `design/widget-design-foundations`)
+
+**Fait** :
+- `tokens.css` : tokens Universe Sunny (dégradé radial ellipse 300 % × 200 %, centres 150 / 50 / −50 %, stops 13 / 50 / 75 / 87 %), ombres hover / press, ombre inset du press Default, Translucent Light 50 / 75 / 87 %, Hoverlay 3 / 6 %, `--press-offset: 2px`.
+- Nouveau `buttons.css` (importé avant `hero.css`) : familles Universe, Default, Selected, Translucent. Hover = lumière seule, aucun mouvement ; press = +2 px dans l'empreinte avec ombres inset ; boutons flottants en `translateY(calc(-50% + var(--press-offset)))`.
+- Plus aucun `translateY`/`scale` au hover, plus de `transition: all` ; durées Physical 300 ms ease-out.
+- Test `tests/widget/widget_buttons.test.mjs` ; 31 tests JS verts, guardrail OK.
+- Captures Playwright sur mock (hero, résultats, hover/press du CTA, mobile 390) : états conformes.
+
+**Décisions à valider par Stéphane** : l'univers du widget est Sunny (supposé) ; `.book-button` traité en Universe ; `.response-card__link` passe en Default ; `.search-example` en Translucent Light, texte sombre ; Glass approximé par un flou ; `--ease-out` (valeur Figma à confirmer).
+
+**Pièges / à vérifier** :
+- Rendu vérifié sur un mock, pas sur le vrai backend ; pas de passage clavier réel.
+- Le mock n'affiche pas le carrousel de cartes (seule la booking card) : cartes = lot 4.
+- Le titre du hero garde son dégradé (lot 5).
+- `.claude/preview/web.tgz` (non suivi) laissé dans le dépôt : à supprimer.
+- Verrous git renommés (`.git/stale-*`, `.git/objects/stale-*`) : à supprimer à la main.
+
+## ♿ 2026-10-19 — Refonte design du widget, lot 2 « accessibilité » (branche `design/widget-design-foundations`)
+
+**Fait** :
+- Saisie à 16 px / 500 / interligne 1,5 partout (`input[type=text]` du hero, textarea du composer) : règle Input des fondations, plus de dépendance au correctif mobile.
+- `templates/chat_clean.html` : `maximum-scale=1.0, user-scalable=no` retirés du viewport, le zoom utilisateur n'est plus bloqué.
+- Focus clavier global dans `base.css` : anneau `--focus-ring` #005FCC sur couche blanche, `:focus-visible`, via `:where()` (spécificité 0). Les deux règles ad hoc de `hotels.css` (`.pick-cta`, `.booking-card__plan`) sont supprimées. Pour la capsule du hero et la bulle du composer, l'anneau se dessine sur le conteneur (`:has(...:focus-visible)`), le champ nu n'a plus d'outline.
+- `prefers-reduced-motion: reduce` dans `animations.css` (animations et transitions coupées) ; nouveau `static/js/chat/motion.js` (`scrollBehavior()`) branché sur les 6 `scrollTo/scrollBy/scrollIntoView` lissés ; plus aucun `behavior: 'smooth'` en dur.
+- Test `tests/widget/widget_motion.test.mjs` (5 cas) : 26 tests JS verts, guardrail OK.
+
+**Pièges / à vérifier** :
+- Les champs texte déclenchent `:focus-visible` même à la souris (heuristique navigateur) : l'anneau du composer apparaît donc aussi au clic. Écart avec la loi 3 (« anneau = clavier seulement »), non contournable en CSS pur.
+- Le champ à 16 px agrandit un peu le hero et le composer sur desktop : à regarder en captures (1440 et 390).
+- La navigation clavier réelle (puces, envoi, flèches du carrousel, feedback) n'a pas été parcourue : aucun navigateur côté session.
+- Un seul jeu de commits sur la branche, un par lot.
+
+## 🎨 2026-10-19 — Refonte design du widget, lot 1 « tokens » (branche `design/widget-design-foundations`, créée depuis `main`)
+
+Source : audit « Audit design du widget AgentB2C » (doc Claude) contre les fondations Dayuse de Stéphane (Figma, export du 2026-09-25). Plan en 5 lots, un par session : 1 tokens, 2 accessibilité, 3 physique des boutons, 4 cartes et carrousel, 5 hero et chat.
+
+**Fait (lot 1, CSS uniquement, aucune mise en page ni JS touchés)** :
+- `web/vendor/static/css/chat/tokens.css` réécrit : palette Neutral, rôles (fg/bg/solid/inline/indicator/border/divider/feedback/focus/veil), radius 4/8/16/32/999, échelle de texte. Les anciens alias (`--fg-default`, `--bg-surface`, `--border-focus`…) restent en section LEGACY, remappés sur les nouvelles valeurs.
+- Sweep des 9 autres CSS : hex en dur → tokens (hors dégradés), `--radius-*` et `--fs-*` anciens → nouveaux noms, tailles hors échelle recalées (9,5 à 11,5 et 12,5 → 12 ; 13, 13,5, 15 → 14 ; 22 → 20 ; 25, 26 → 24 ; 30 → 32), `100px` → `--radius-action`, encre #120223 → #292935, prix en Manrope (loi 9), prix barrés en `--fg-secondary`, focus en `--focus-ring`, radio du plan de réservation en `--indicator-default`.
+- Gris et bordures plus soutenus qu'avant (`--border-default` #C9C9CC au lieu de #EAEAEB) : c'est la valeur du système.
+
+**Décisions prises, à valider par Stéphane** : badges « meilleur prix / populaire / mieux noté » tous en `--bg-accent` ; `.timeslot-pill--near` en Feedback/Warning ; `.response-card--*` en Feedback info/warning/success ; bulle utilisateur en Neutral 6 % (dérivation D1) ; `.deal-badge` reste en `--dy-watermelon` (rôle du badge promo non documenté) ; `--ease-out` inchangé (valeur Figma à confirmer, lot 3).
+
+**Reste / pièges** :
+- Dégradés, ombres (`--shadow-*`), durées (`--dur-*`) et `transition: all` : lot 3. `.initial-state h1` (46 px, 800, dégradé), thinking en dégradé, puces de suggestion en dégradé, `#FFB800` du loading-dot : lot 5.
+- `@font-face` Maison Neue déclaré en 800 sur un fichier Bold et titre hero en 800 : volontairement laissés ensemble, à corriger avec le hero (lot 5), sinon gras synthétique.
+- Non vérifié : aucune capture du rendu (pas de navigateur sur la machine locale de la session). Passer desktop 1440 et mobile 390 sur hero, carte hôtel, carrousel, booking card, composer avant de merger. Tests exécutés : `node --test tests/widget/*.test.mjs` (21 verts) et `scripts/dayuse_guardrails.sh` (OK) ; pytest non lancé (le `.venv` du dépôt est un venv macOS, inutilisable depuis la session).
+- Aucun push ni PR : relecture de Fabien d'abord.
 
 ## 🧭 2026-10-16 — QA14707 phases 4-5 sur `plan/qa14707` : retraits des règles de langage, mémoire de question, anti-boucles, documentation (seconde PR)
 
