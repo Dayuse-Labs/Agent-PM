@@ -26,12 +26,13 @@ S06 adds two more, both deterministic and code-owned (never LLM-decided):
     prose (agent-usa's older approach — the synthesis text here is
     LLM-authored and streamed, so its exact wording is not a stable regex
     target).
-  - anti-clarification-loop (P10): `extract_final_question`/
-    `questions_equivalent` are the pure detectors the spine (agent.py) uses
-    to notice a synthesized reply repeats the PREVIOUS turn's trailing
-    question — the retry-then-strip orchestration itself lives in agent.py
-    since it must re-invoke the synthesis LLM, which this module intentionally
-    stays free of (guards here are pure, Redis/LLM-free, unit-testable alone).
+  - anti-clarification-loop (P10): since QA14707 (Q11) it reads the state,
+    never the synthesized text: `next_pending_clarification` counts how many
+    turns in a row asked the same place question (`asked`), and
+    `leaf_question` takes the leaf's own question, before the synthesis.
+    Since Q28, free questions too: `next_pending_search` counts the turns in
+    a row that ended on one without a search (`pending_search.asked`), and
+    past the bound the reply asks nothing (`without_final_question`).
 
 S07 adds the `_last_results` equivalent this spine was structurally missing
 (S06's HANDOFF noted the difference from agent-usa on purpose — inline tools
@@ -285,14 +286,13 @@ class SessionProfile:
     daypart: str | None = None
     # mcp-dayuse#6: what the last search turn left open, consumed by the very
     # next turn — "request": the user's own words it could not search yet (it
-    # asked a question instead), "question": the question its answer ended on.
+    # asked a question instead), "question": the question its answer ended on,
+    # "asked" (QA14707, Q28): how many turns in a row ended on a free question
+    # without a search — a count, no message text (`next_pending_search`).
     pending_search: dict[str, Any] | None = None
     # mcp-dayuse#7: the hotels the last turn asked the user to choose between
     # (a name several hotels share). Read on the next turn only, then cleared.
     named_candidates: list[str] | None = None
-    # mcp-dayuse#7: a homonym the last turn asked about (« which Manhattan? »)
-    # with the options offered, so the answer completes it. Next search only.
-    pending_place: dict[str, Any] | None = None
     # QA14707 (Q04): the place question the search leaf asked instead of
     # searching, for the very next turn — {"clarification": the leaf's
     # `Clarification` as a dict, "request": the user's own words not searched
@@ -363,7 +363,6 @@ class SessionProfile:
             "daypart": self.daypart,
             "pending_search": self.pending_search,
             "named_candidates": self.named_candidates,
-            "pending_place": self.pending_place,
             "pending_clarification": self.pending_clarification,
             "requested_budget": self.requested_budget,
             "price_comparison": self.price_comparison,
@@ -801,8 +800,6 @@ def apply_profile_delta(
     # zone-only change is exactly the audit's "keep everything else" case.
     if "zone" in values:
         profile.zone = values["zone"]
-    if "pending_place" in values:
-        profile.pending_place = values["pending_place"]
     if "metro" in values:
         profile.metro = values["metro"]
     if "named_hotel" in values:
@@ -1013,21 +1010,49 @@ def is_search_refinement_signal(
 _MAX_PENDING_REQUEST_CHARS = 500
 
 
+def free_question_streak(pending: Any) -> int:
+    """How many turns in a row ended on a free question without a search, as
+    the earlier `pending_search` slot recorded it (QA14707, Q28) — a count,
+    never a wording. A place question's slot (`pending_clarification`, which
+    carries a `clarification`) keeps its own count and starts no streak here.
+    A count another writer left unusable (missing, a bool, a string, below 1)
+    starts the streak over: the next free question counts 1."""
+    if not isinstance(pending, dict) or "clarification" in pending:
+        return 0
+    count = pending.get("asked")
+    return count if isinstance(count, int) and not isinstance(count, bool) and count >= 1 else 0
+
+
 def next_pending_search(
-    pending: dict[str, Any] | None, message: str, searched: bool, question: str | None
+    pending: dict[str, Any] | None, message: str, searched: bool, question: str | None,
+    ended_on_question: bool | None = None,
 ) -> dict[str, Any] | None:
     """What a search turn leaves open for the next one. Without a search the
     turn's message joins the request still waiting (QA 2026-09-30: "demain
     matin 7h" then "New york" searched without the 7h); after a search only
-    the question its answer ended on is left."""
+    the question its answer ended on is left.
+
+    `ended_on_question` (QA14707, Q28): whether the turn ended on a free
+    question, stored or not — a turn the anti-loop corrected stores none, yet
+    it is one more ask of the streak. When it is given, the slot carries
+    `asked`, the anti-loop's state: the turns in a row that ended on a free
+    question without a search, from 1; a search or a turn that asked nothing
+    ends the streak (0). A caller that only wants the request leaves it out
+    and gets no count."""
     request = None
     if not searched:
         earlier = (pending or {}).get("request")
         joined = "\n".join(part for part in (earlier, message.strip()) if part)
         request = joined[-_MAX_PENDING_REQUEST_CHARS:] or None
-    if request is None and not question:
+    asked: int | None = None
+    if ended_on_question is not None:
+        asked = free_question_streak(pending) + 1 if ended_on_question and not searched else 0
+    if request is None and not question and not asked:
         return None
-    return {"request": request, "question": question}
+    slot: dict[str, Any] = {"request": request, "question": question}
+    if asked is not None:
+        slot["asked"] = asked
+    return slot
 
 
 def pending_search_context(pending: dict[str, Any] | None) -> str | None:
@@ -1069,7 +1094,10 @@ def next_pending_clarification(
     request = (next_pending_search(earlier, message, False, None) or {}).get("request")
     asked = 1
     if earlier and _same_question(earlier.get("clarification"), clarification):
-        asked = int(earlier.get("asked") or 1) + 1
+        # A profile written by another writer may carry no usable count: the
+        # earlier ask itself still counts, so the count starts from 1.
+        count = earlier.get("asked")
+        asked = (count if isinstance(count, int) and not isinstance(count, bool) and count >= 1 else 1) + 1
     return {"clarification": clarification, "request": request, "asked": asked}
 
 
@@ -1138,39 +1166,47 @@ def search_context_line(profile: SessionProfile) -> str:
     return "; ".join(bits)
 
 
-# --- Anti-clarification-loop (P10) --------------------------------------
+# --- Question the leaf asked (QA14707, Q11) ------------------------------
 
-_FINAL_QUESTION_RE = re.compile(r"([^.!?\n]*\?)\s*$")
-
-# Cheap normalization for fuzzy equivalence: lowercase, drop punctuation, and
-# collapse whitespace — "Which airport area exactly should I prioritize?" and
-# "Which airport area, exactly, should I prioritize?" must compare equal.
-_NORMALIZE_RE = re.compile(r"[^\w\s]")
+_MAX_LEAF_QUESTION_CHARS = 300
 
 
-def extract_final_question(text: str) -> str | None:
-    """The last sentence of `text` if it is a question, else None. Used to
-    detect a synthesized reply that ends by asking something — the shape a
-    repeated clarifying question always takes (prod sessions 493b86e8 /
-    cfa9c579 repeated the SAME trailing question up to 7 times)."""
-    if not text:
+def leaf_question(leaf_text: str | None) -> str | None:
+    """The question the search leaf itself ended its turn on, as the leaf
+    wrote it — its own last line, taken before the synthesis rewrites the
+    reply. It fills "YOU ASKED" and the triage's `previous_question`, so a
+    paraphrase of the synthesis never stands in for it. No wording is read:
+    a turn that does not end on a question mark asked nothing.
+
+    A place question the code asked is not read from text at all: it is the
+    stored `Clarification` (`next_pending_clarification`).
+
+    What is read, in order (Q27): the leaf's last line first; only when the
+    leaf asked nothing, the last line of the final user-facing synthesis
+    (`turn_question`). Both by punctuation only, with the same cap."""
+    lines = [line.strip() for line in (leaf_text or "").splitlines() if line.strip()]
+    if not lines or not lines[-1].endswith("?"):
         return None
-    match = _FINAL_QUESTION_RE.search(text.strip())
-    if not match:
-        return None
-    question = match.group(1).strip()
-    return question or None
+    return lines[-1][-_MAX_LEAF_QUESTION_CHARS:]
 
 
-def questions_equivalent(a: str | None, b: str | None) -> bool:
-    """Fuzzy equality tolerant of punctuation/whitespace drift — the LLM
-    rarely repeats a question byte-for-byte, but a human recognizes it as
-    the same question."""
-    if not a or not b:
-        return False
-    norm_a = _NORMALIZE_RE.sub("", a).lower().split()
-    norm_b = _NORMALIZE_RE.sub("", b).lower().split()
-    return bool(norm_a) and norm_a == norm_b
+def turn_question(leaf_text: str | None, synthesis: str | None) -> str | None:
+    """The question the next turn answers: the leaf's own last line when it
+    asked one, else the synthesis's last line (a follow-up only the synthesis
+    asks). Same `leaf_question` rule for both — a trailing '?' and nothing
+    else."""
+    return leaf_question(leaf_text) or leaf_question(synthesis)
+
+
+def without_final_question(text: str | None) -> str:
+    """`text` without the question it ends on (QA14707, Q28): while its last
+    non-empty line is a question by the `leaf_question` rule (a trailing '?',
+    no wording read), that exact line is dropped. Empty when nothing else
+    remains — the caller then answers with a fixed template."""
+    lines = (text or "").rstrip().splitlines()
+    while lines and leaf_question(lines[-1]):
+        lines = "\n".join(lines[:-1]).rstrip().splitlines()
+    return "\n".join(lines).strip()
 
 
 # --- Named-hotel lookup (S07) — the `_last_results` equivalent -------------

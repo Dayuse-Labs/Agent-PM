@@ -35,7 +35,6 @@ from __future__ import annotations
 import difflib
 import logging
 import os
-import re
 import unicodedata
 from typing import Any, get_args
 
@@ -52,7 +51,6 @@ from hotel_search_agent.geo_guards import (
     geocode_echo_matches,
     is_generic_location_token,
     resolve_state_hint,
-    select_us_postal_anchor,
 )
 from hotel_search_agent.inventory import get_inventory, haversine_km
 from hotel_search_agent.mapbox_client import (
@@ -144,8 +142,9 @@ def _soft_country(
     world-knowledge guess > the locale prior.
 
     This is P0-2 fix 2 (audit §1 M3). Before it, the tier-2 POI lookup was sent
-    with `country=effective_country_code`, which is only populated when the user
-    NAMED a country or typed a US ZIP — so in the common case it was an
+    with `country=effective_country_code`, which was only populated when the
+    user NAMED a country or typed a US ZIP (the regex US-ZIP anchor, removed
+    since by QA14707 Q10) — so in the common case it was an
     unscoped, worldwide, limit=1 lookup. That is what let a business called
     "Champs Elysées" in another hemisphere win: the echo guard validates the
     NAME, so a perfect name match in the wrong country sails through it (M4).
@@ -359,49 +358,6 @@ def _city_coordinate(
     return None
 
 
-# « près de St Paul's à Londres », « near Gare du Nord in Paris », « cerca de la
-# Sagrada Familia en Barcelona »: the word(s) after a place preposition.
-_CITY_AFTER_PREPOSITION_RE = re.compile(
-    r"(?:^|\s)(?:à|a|au|aux|en|in|at|em|no|na|nach|te)\s+([^\W\d_][\w'’-]*(?:\s[^\W\d_][\w'’-]*)?)",
-    re.IGNORECASE,
-)
-_MAX_CITY_PROBES = 3
-_ARTICLES = frozenset({
-    "la", "le", "les", "l", "the", "el", "los", "las", "il", "lo", "der", "die", "das",
-    "de", "du", "des", "o", "os", "het", "een", "un", "une",
-})
-
-
-def _city_named_in_message(
-    raw_user_message: str, language: str | None, locale_country: str | None
-) -> str | None:
-    """mcp-dayuse#7: a landmark arrived without its city although the message
-    names one (« près de St Paul's à Londres » — the model dropped « Londres »
-    one time in five). Before asking the user a question the message already
-    answers, the words after a place preposition are tried as a city: kept only
-    when the geocoder resolves them to a city that echoes them and carries real
-    inventory (`_city_coordinate`, the same test as the landmark anchor). At
-    most 3 lookups, on this path only."""
-    probes: list[str] = []
-    for match in _CITY_AFTER_PREPOSITION_RE.finditer(raw_user_message or ""):
-        words = match.group(1).split()
-        if words[0].casefold() in _ARTICLES:
-            continue  # « à la gare de Lyon » names a place in the city, not the city
-        for candidate in (" ".join(words), words[0]):
-            if (
-                len(candidate) >= 3
-                and candidate not in probes
-                and not is_generic_location_token(candidate)
-            ):
-                probes.append(candidate)
-    for candidate in probes[:_MAX_CITY_PROBES]:
-        if _city_coordinate(
-            candidate, country=None, locale_country=locale_country, language=language
-        ):
-            return candidate
-    return None
-
-
 def _anchor_state(
     *,
     city: str | None,
@@ -608,10 +564,10 @@ def geocode_core(
             v6 can't resolve it.
         metro: A metro-area name, if distinct from city.
         country_code: A trusted ISO-3166-1 alpha-2 country to scope the
-            geocode to, if already known. When omitted, a 5-digit US ZIP
-            anywhere in the request (`select_us_postal_anchor`) deterministically
-            forces "US" — never a locale→country guess otherwise. A named country
-            is a HARD filter on the candidates, never a boost.
+            geocode to, if already known. When omitted, nothing is forced: a
+            postcode's country follows DQ8 (`_postcode_match`), never a locale→
+            country guess. A named country is a HARD filter on the candidates,
+            never a boost.
         raw_user_message: The user's own words this turn — feeds state-hint
             extraction ("Milford ct") and the state anchor. The tool reads it
             from the invocation (`response_bridge.read_user_words`); the model
@@ -682,8 +638,7 @@ def geocode_core(
             with its postcode and searched around; a postcode alone is searched
             around its own centroid; with any other zone, the postcode's city
             (`context.place`) is the city the zone is searched in — so a
-            postcode is enough to never ask which city. While a postcode is in
-            play, the US-ZIP anchor below stays out of the way.
+            postcode is enough to never ask which city.
         zone_kind: The `GeoIntent` kind of the place `zone` came from
             ("address", "street", "station", ...), or None. An address or a
             street with no postcode is first looked up as one, in the city when
@@ -847,28 +802,7 @@ def geocode_core(
             # place of a postcode the user wrote (Gate 3).
             return _fail("geocode_no_match", {"query": postal}, guards_fired)
 
-    if zone_is_specific and not effective_city and not effective_metro and proximity_tuple is None:
-        effective_city = _city_named_in_message(
-            raw_user_message, lang, guess_iso or _locale_country(locale)
-        )
-
-    # A 5-digit US ZIP anywhere in the request is stronger, deterministic
-    # evidence than trusting the model to also extract country_code — without
-    # this, an unscoped ZIP can geocode worldwide (prod bug: "near 11580"
-    # resolved outside the US). Only fills the gap when the model gave no
-    # country signal at all; an explicit country_code always wins. QA14707
-    # (Q08): nor when the user's postcode was extracted — DQ8's rule above has
-    # decided its country, and this one reads 75009 as a US ZIP.
-    # QA14707 (Q21): computed before the street branch below, which must hold
-    # the same state as the lookup further down. Pure: nothing between here
-    # and that lookup changes its inputs.
-    effective_country_code = country_code
-    if not effective_country_code and not postal and select_us_postal_anchor(
-        raw_user_message, effective_city, effective_zone, effective_metro
-    ):
-        effective_country_code = "US"
-
-    region_in_play = (effective_country_code or guess_iso or "US").upper() == "US"
+    region_in_play = (country_code or guess_iso or "US").upper() == "US"
     state_hint = resolve_state_hint(
         keywords=[region_named] if region_named and region_in_play else None,
         city=effective_city,
@@ -876,7 +810,7 @@ def geocode_core(
         profile_location_hint=profile_location_hint,
         raw_user_message=raw_user_message,
         profile_state_context=profile_state_context,
-        country_code=effective_country_code,
+        country_code=country_code,
     )
 
     # QA14707 (Q20, H3 RC5): a street or an address with no postcode. The
@@ -1007,9 +941,6 @@ def geocode_core(
                 # exposed to Mapbox's IP-biased ranking, which is why it ranks
                 # the whole candidate list instead of trusting top-1.
                 effective_zone or "",
-                # The raw `country_code` param, not `effective_country_code`
-                # (the US-ZIP anchor): a bare landmark with no city and a US
-                # ZIP is not a real shape, so nothing is lost.
                 country=_soft_country(country_code, country_guess, locale),
                 language=lang,
                 proximity=proximity_str,
@@ -1069,7 +1000,7 @@ def geocode_core(
         if part
     )
     candidates = get_mapbox_client().geocode_candidates(
-        query, country=effective_country_code, language=lang, proximity=proximity_str
+        query, country=country_code, language=lang, proximity=proximity_str
     )
     # QA14707 (Q14): the option the user picked among homonyms that share a
     # name and a country (Springfield IL / MO). Without it the same question
@@ -1090,7 +1021,7 @@ def geocode_core(
     resolution = geo_resolver.resolve(
         candidates,
         inventory=get_inventory(),
-        country_hint=effective_country_code,
+        country_hint=country_code,
         region_hint=state_hint,
         # P0-2 fix 3: the model's world-knowledge guess enters here, sharing
         # the locale prior's BOUNDED weight (_W_LOCALE) — a boost among
@@ -1162,10 +1093,8 @@ def geocode_core(
             # Same reason as the unanchored gate above: this clarify can also be
             # returned with a zone in hand (line ~758, once tier 2 has missed
             # too), and the answer turn needs it. mcp-dayuse#7: without a zone,
-            # the homonym itself is what the answer turn completes (« Manhattan »
-            # → « New York »), so it travels with the options it was asked about.
-            {"zone": effective_zone} if effective_zone
-            else {"pending_place": {"name": echo_city or "", "options": options}},
+            # the homonym options travel in the Clarification below.
+            {"zone": effective_zone} if effective_zone else None,
             # The question is about the name the resolver was asked to resolve
             # (`requested_name` above), its options the resolver's own.
             _homonym_clarification(echo_city or "", resolution.options),
@@ -1247,7 +1176,7 @@ def geocode_core(
     if poi_anchor is None and echo_city and effective_zone:
         city_anchor = _city_coordinate(
             echo_city,
-            country=effective_country_code,
+            country=country_code,
             locale_country=guess_iso or _locale_country(locale),
             language=lang,
         )
@@ -1267,7 +1196,7 @@ def geocode_core(
     if searchbox_query:
         poi_candidates = get_searchbox_client().forward_candidates(
             searchbox_query,
-            country=_soft_country(effective_country_code, country_guess, locale),
+            country=_soft_country(country_code, country_guess, locale),
             language=lang,
             proximity=searchbox_proximity,
         )
@@ -1341,39 +1270,11 @@ def _folded(text: str) -> str:
     return "".join(ch for ch in decomposed if not unicodedata.combining(ch)).casefold()
 
 
-def _complete_pending_place(args: dict, pending: object) -> None:
-    """mcp-dayuse#7: the previous turn asked which « Manhattan » (a homonym
-    clarify); THIS message answers it. When the message names exactly one of
-    the options it was asked about (« New York », « Illinois », « Portugal »),
-    the homonym is searched there — the answer completes the place, it does
-    not replace it (before: « New York » searched the whole of New York City).
-    A message that names none of them is a new destination: left alone."""
-    if not isinstance(pending, dict) or not pending.get("name"):
-        return
-    message = f" {_folded(str(args.get('raw_user_message') or ''))} "
-    said = re.sub(r"[^\w]+", " ", message)
-    matched = []
-    for option in pending.get("options") or []:
-        if not isinstance(option, dict):
-            continue
-        labels = [option.get("region") or ""]
-        labels += str(option.get("place_formatted") or "").split(",")
-        if any(len(lbl.strip()) >= 2 and f" {_folded(lbl.strip())} " in said for lbl in labels):
-            matched.append(option)
-    if len(matched) != 1:
-        return
-    args["city"] = pending["name"]
-    args.pop("zone", None)
-    if _is_blank(args.get("country_code")) and matched[0].get("country_code"):
-        args["country_code"] = matched[0]["country_code"]
-
-
 def _fill_place_from_profile(args: dict, profile_in: dict) -> None:
     """The destination half of the profile→geocode bridge (P0 #4 fix, S-G5):
     a `city`/`zone`/`metro`/`country_code` THIS turn gave always wins; a blank
     one is filled from `profile_in` (the city-reuse case the leaf's instruction
-    used to spell out in prose). Never rewrites a fresh extraction. A homonym
-    answer (`pending_place`) completes the place first, as before.
+    used to spell out in prose). Never rewrites a fresh extraction.
 
     QA14707 (Q07): applied by `geocode_location` right after it maps the
     model's `GeoIntent`, no longer by the before-tool callback. These four are
@@ -1392,7 +1293,6 @@ def _fill_place_from_profile(args: dict, profile_in: dict) -> None:
     chosen for: applied only while the turn's city is that same city."""
     if not _is_blank(args.get("postal_code")):
         return
-    _complete_pending_place(args, profile_in.get("pending_place"))
     if _is_blank(args.get("city")) and profile_in.get("city"):
         args["city"] = profile_in["city"]
     if _is_blank(args.get("zone")) and profile_in.get("zone"):

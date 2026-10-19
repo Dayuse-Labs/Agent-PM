@@ -1,9 +1,9 @@
 """Geo guards — ported from agent-usa's production audit fixes.
 
 Spec: agent-usa `tests/unit/application/test_audit_fixes_2026_06.py`, sections
-geocode echo-back (+ state hints, ZIP anchor), generic place words, state
+geocode echo-back (+ state hints), generic place words, state
 anchoring. Test names mirror the originals 1:1 where the underlying function
-is pure (state hints, echo-back, postal anchor, resolve_state_hint, generic
+is pure (state hints, echo-back, resolve_state_hint, generic
 tokens) — same inputs, same expected outputs, just imported from
 `geo_guards` instead of agent-usa's `SearchTool`/`SearchProfileBuilder`.
 
@@ -17,14 +17,12 @@ dict-in/dict-out shape they actually have here (`demote_generic_city`,
 from __future__ import annotations
 
 from hotel_search_agent.geo_guards import (
-    PostalAnchor,
     anchor_state_context,
     demote_generic_city,
     extract_state_hint_from_text,
     geocode_echo_matches,
     is_generic_location_token,
     resolve_state_hint,
-    select_us_postal_anchor,
 )
 
 # ── State hint extraction from free text ─────────────────────────────────────
@@ -181,16 +179,6 @@ def test_echo_back_folds_german_eszett():
     assert not geocode_echo_matches(
         "Tilburg, Noord-Brabant, Netherlands", city="giessen", zone=None, state_hint=None
     )
-
-
-# ── ZIP anchor (same spec section as echo-back) ──────────────────────────────
-
-
-def test_postal_anchor_prefers_zip_after_state_over_street_number():
-    anchor = select_us_postal_anchor("10308 North 65th lane Glendale AZ 85302")
-    assert anchor is not None
-    assert isinstance(anchor, PostalAnchor)
-    assert anchor.value == "85302"
 
 
 # ── resolve_state_hint: tiered resolution (keywords > text > profile anchor) ─

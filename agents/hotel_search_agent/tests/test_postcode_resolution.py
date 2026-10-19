@@ -399,10 +399,10 @@ class TestTiesBetweenCountries:
 
 class TestNear11580:
     """The prod bug « near 11580 » (geocoded outside the United States). Its
-    tests in `test_geocode_tool.py::TestUsZipCountryScoping` are unchanged and
-    still pass: without a `postal_code` the US-ZIP anchor still applies. With
-    one, Mapbox's own first answer is Mexico City; the DQ8 tie-break keeps the
-    US case."""
+    regex US-ZIP anchor is gone (Q10, DQ7); the assertions of its tests are
+    unchanged. With a `postal_code`, Mapbox's own first answer is Mexico City
+    and the DQ8 tie-break (the guess, then the market) keeps the United
+    States. Without one, only a NAMED country scopes the lookup."""
 
     @pytest.mark.parametrize(("guess", "locale"), [("US", None), ("US", "fr-FR"), (None, "en-US")])
     def test_a_us_guess_or_a_us_market_stays_in_the_us(self, mapbox, guess, locale):
@@ -417,17 +417,15 @@ class TestNear11580:
         assert result["resolved_place"] == "Valley Stream, New York 11580, United States"
         assert all("country" not in r for r in mapbox.requests)
 
-    def test_without_a_postal_code_the_us_anchor_still_scopes_the_lookup(self, mapbox):
-        geocode_core(city="11580", raw_user_message="Allows cats. Near 11580")
+    def test_without_a_postal_code_a_named_us_scopes_the_lookup(self, mapbox):
+        geocode_core(city="11580", country_code="US", raw_user_message="Allows cats. Near 11580, USA")
 
         assert mapbox.requests[0]["country"] == "us"
 
-    def test_with_a_postal_code_the_us_anchor_stays_out_of_the_way(self, mapbox):
+    def test_a_landmark_with_its_postal_code_is_searched_in_the_postcodes_city(self, mapbox):
         # A landmark with its postcode goes on to the usual path, in the
-        # postcode's city. The anchor would read 75009 there as a US ZIP and
-        # scope every later lookup to the US; the postcode rule decided instead.
+        # postcode's city; no later lookup is scoped to a country.
         message = "un hôtel près de l'Opéra Garnier 75009"
-        assert geocode_tool.select_us_postal_anchor(message) is not None
 
         geocode_core(zone="Palais Garnier", zone_kind="landmark", postal_code="75009",
                      raw_user_message=message)

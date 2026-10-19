@@ -586,7 +586,8 @@ def named_hotel_ambiguous_response(
 # the question, then a reworded one, then no question at all.
 
 #: How many turns in a row the same place question is asked; the next one
-#: answers without a question.
+#: answers without a question. The free-question anti-loop (Q28) uses the
+#: same bound on its own count (`pending_search.asked`).
 CLARIFICATION_MAX_ASKS = 2
 
 _CLARIFY_CITY_NEEDED: dict[str, str] = {
@@ -653,6 +654,34 @@ _CLARIFY_GIVE_UP: dict[str, str] = {
     "nl": "Ik kan \"{subject}\" nog steeds niet plaatsen, dus ik vraag het niet nog een keer. "
     "Noem gewoon een stad en ik start de zoekopdracht met de rest van je vraag.",
 }
+
+
+# QA14707 (Q28): the anti-loop on FREE questions (any question the search leaf
+# or the synthesis wrote, not a place question). Past CLARIFICATION_MAX_ASKS
+# turns in a row without a search, the reply asks nothing; when the
+# synthesis left nothing but its question, this fixed text answers instead.
+_NO_QUESTION: dict[str, str] = {
+    "fr": "Je ne vous repose pas la question. Dès que vous m'indiquez ce qui vous convient, "
+    "je lance la recherche avec le reste de votre demande.",
+    "en": "I won't ask again. As soon as you tell me what suits you, I'll run the search "
+    "with the rest of your request.",
+    "es": "No te lo vuelvo a preguntar. En cuanto me digas lo que te conviene, lanzo la "
+    "búsqueda con el resto de tu petición.",
+    "it": "Non te lo richiedo. Appena mi dici cosa ti va bene, avvio la ricerca con il resto "
+    "della tua richiesta.",
+    "de": "Ich frage nicht noch einmal. Sobald du mir sagst, was dir passt, starte ich die "
+    "Suche mit dem Rest deiner Anfrage.",
+    "pt": "Não volto a perguntar. Assim que me indicar o que lhe convém, lanço a pesquisa "
+    "com o resto do seu pedido.",
+    "nl": "Ik vraag het niet nog een keer. Zodra je me vertelt wat je wilt, start ik de "
+    "zoekopdracht met de rest van je vraag.",
+}
+
+
+def no_question_response(language: str) -> str:
+    """The reply of a turn the free-question anti-loop corrected when the
+    synthesis wrote nothing but a question: it asks nothing."""
+    return _pick(language, _NO_QUESTION)
 
 
 def clarification_response(clarification: Clarification, language: str, asked: int = 1) -> str:

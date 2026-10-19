@@ -2,10 +2,10 @@
 
 Spec (agent-usa, read-only reference — never copy the whole file):
 `tests/unit/application/test_audit_fixes_2026_06.py`, sections geocode echo-back
-(incl. state hints + ZIP anchor), generic place words, state anchoring.
+(incl. state hints), generic place words, state anchoring.
 Source consulted only for those sections: `search_tool.py::_geocode_echo_matches`
 / `extract_state_hint_from_text` / `_resolve_state_hint`,
-`search_profile.py::is_generic_location_token` / `_select_us_postal_anchor` /
+`search_profile.py::is_generic_location_token` /
 the `last_state_context` anchor block in `apply_request_data`.
 
 Adapted to THIS leaf's STATELESS contract (decision B3, CLAUDE.md): agent-usa
@@ -33,7 +33,6 @@ from __future__ import annotations
 
 import re
 import unicodedata
-from dataclasses import dataclass
 
 import us
 from anyascii import anyascii
@@ -407,111 +406,6 @@ def geocode_echo_matches(
     # IS the longest token ("kingston upon thames" → Kingston).
     longest_len = max(len(tok) for tok in request_tokens)
     return any(_token_matches(tok) for tok in request_tokens if len(tok) == longest_len)
-
-
-# ── ZIP anchor (part of the echo-back guard's spec section) ─────────────────
-
-US_STATE_CODES = set(US_STATE_ABBREV_TO_NAME) | {"dc"}
-US_STATE_NAMES = set(US_STATE_NAME_TO_CANONICAL.values()) | {"District of Columbia"}
-US_STATE_NAMES = {name.lower() for name in US_STATE_NAMES} | {"washington"}
-STREET_SUFFIX_TOKENS = {
-    "aly",
-    "alley",
-    "ave",
-    "avenue",
-    "blvd",
-    "boulevard",
-    "cir",
-    "circle",
-    "ct",
-    "court",
-    "dr",
-    "drive",
-    "hwy",
-    "highway",
-    "ln",
-    "lane",
-    "pkwy",
-    "parkway",
-    "pl",
-    "place",
-    "rd",
-    "road",
-    "st",
-    "street",
-    "ter",
-    "terrace",
-    "trl",
-    "trail",
-    "way",
-}
-
-
-@dataclass(frozen=True)
-class PostalAnchor:
-    value: str
-    candidates: list[str]
-    reason: str
-    conflict: bool
-
-
-def select_us_postal_anchor(*texts: str | None) -> PostalAnchor | None:
-    """Select the best US ZIP candidate from free text without city-specific rules."""
-    combined = " ".join(str(text or "") for text in texts if str(text or "").strip()).strip()
-    if not combined:
-        return None
-
-    raw_tokens = re.findall(r"[A-Za-z]+|\d{5}(?:-\d{4})?|\d+(?:st|nd|rd|th)?", combined)
-    if not raw_tokens:
-        return None
-    tokens = [token.lower().strip(".") for token in raw_tokens]
-
-    candidate_indexes = [
-        index for index, token in enumerate(tokens) if re.fullmatch(r"\d{5}(?:-\d{4})?", token)
-    ]
-    if not candidate_indexes:
-        return None
-
-    state_indexes = {
-        index
-        for index, token in enumerate(tokens)
-        if token in US_STATE_CODES or token in US_STATE_NAMES
-    }
-    scored: list[tuple[int, int, str, str]] = []
-    for index in candidate_indexes:
-        value = tokens[index][:5]
-        score = 0
-        reasons: list[str] = []
-        if index == len(tokens) - 1:
-            score += 30
-            reasons.append("terminal_postal_token")
-        if any(0 < index - state_index <= 3 for state_index in state_indexes):
-            score += 60
-            reasons.append("after_state")
-        if any(0 < state_index - index <= 3 for state_index in state_indexes):
-            score += 20
-            reasons.append("before_state")
-        following = set(tokens[index + 1 : index + 5])
-        looks_like_street_number = index == 0 and bool(following.intersection(STREET_SUFFIX_TOKENS))
-        if looks_like_street_number:
-            score -= 70
-            reasons.append("street_number_like")
-        if len(candidate_indexes) == 1 and not looks_like_street_number:
-            score += 10
-            reasons.append("single_candidate")
-        scored.append((score, -index, value, "+".join(reasons) or "postal_candidate"))
-
-    scored.sort(reverse=True)
-    top_score, _neg_index, selected, reason = scored[0]
-    if top_score < -20:
-        return None
-    candidates = []
-    for index in candidate_indexes:
-        value = tokens[index][:5]
-        if value not in candidates:
-            candidates.append(value)
-    conflict = len(candidates) > 1 or "street_number_like" in reason
-    return PostalAnchor(value=selected, candidates=candidates, reason=reason, conflict=conflict)
 
 
 # ── State anchoring — guard 3 ────────────────────────────────────────────────

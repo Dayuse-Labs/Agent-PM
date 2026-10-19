@@ -9,12 +9,15 @@ arguments, unchanged. The mapping itself is tested in
 """
 from __future__ import annotations
 
+from types import SimpleNamespace
+
 import httpx
 import pytest
 from a2a import types as a2a_types
 from google.adk.a2a.converters.part_converter import convert_a2a_part_to_genai_part
 from google.genai import types as genai_types
 
+from b2c_common.geo_intent import GeoIntent, Place
 from hotel_search_agent import geocode_tool
 from hotel_search_agent.geocode_tool import geocode_core, geocode_location, inject_profile_geo_context
 from hotel_search_agent.mapbox_client import GeocodeCandidate, GeocodeResult, MapboxClient
@@ -234,17 +237,22 @@ class TestGeocoderDegradation:
 
 class TestUsZipCountryScoping:
     """Prod bug: a 5-digit US ZIP ("near 11580") geocoded worldwide when the
-    model didn't also extract country_code. `select_us_postal_anchor`
-    (geo_guards.py, ported S4) existed but was never wired into a real
-    request — this locks the fix at the FakeMapboxClient level (mirrors the
-    existing suite's convention) and once more against the real MapboxClient
-    HTTP layer (httpx.MockTransport) so the actual Mapbox URL is asserted.
+    model didn't also extract country_code. QA14707 (Q10, DQ7): the regex that
+    read any 5-digit number as a US ZIP and forced "US" is gone (it read every
+    French postcode as a US ZIP). The assertions are unchanged; the input now
+    carries the United States as a NAMED country (`country_code="US"`), the
+    only hard Mapbox filter left (DQ8). Locked at the FakeMapboxClient level
+    and once more against the real MapboxClient HTTP layer
+    (httpx.MockTransport) so the actual Mapbox URL is asserted. Without a named
+    country, a US ZIP stays in the US through the DQ8 tie-break
+    (`test_postcode_resolution.py::TestNear11580`), and a bare number forces
+    no country (`test_us_zip_removal.py`).
     """
 
-    def test_zip_anchor_forces_country_code_on_the_fake_client(self, monkeypatch):
+    def test_a_named_us_forces_country_code_on_the_fake_client(self, monkeypatch):
         fake = _patch_client(monkeypatch, FLORENCE_KY)
 
-        geocode_core(city="11580", raw_user_message="Allows cats. Near 11580")
+        geocode_core(city="11580", country_code="US", raw_user_message="Allows cats. Near 11580, USA")
 
         assert fake.calls == [("11580", "US")]
 
@@ -262,7 +270,7 @@ class TestUsZipCountryScoping:
 
         assert fake.calls == [("Paris", "FR")]
 
-    def test_zip_anchor_scopes_the_real_mapbox_request_url(self, monkeypatch):
+    def test_a_named_us_scopes_the_real_mapbox_request_url(self, monkeypatch):
         seen: dict = {}
 
         def handler(request: httpx.Request) -> httpx.Response:
@@ -290,7 +298,9 @@ class TestUsZipCountryScoping:
         )
         monkeypatch.setattr(geocode_tool, "get_mapbox_client", lambda: real_client)
 
-        result = geocode_core(city="11580", raw_user_message="Allows cats. Near 11580")
+        result = geocode_core(
+            city="11580", country_code="US", raw_user_message="Allows cats. Near 11580, USA"
+        )
 
         assert result["ok"] is True
         assert result["country_code"] == "US"
@@ -411,7 +421,7 @@ class TestMultiCandidateResolution:
         countries = {o["country_code"] for o in result["diagnostics"]["options"]}
         assert {"CA", "US"} <= countries
 
-    def test_a_homonym_clarify_keeps_the_place_and_its_options_for_the_answer(self, monkeypatch):
+    def test_a_homonym_clarify_carries_its_options_without_pending_place(self, monkeypatch):
         # mcp-dayuse#7: « Manhattan » → « New York » searched all of New York.
         ny = _c("Manhattan", "US", "New York", lat=40.78, rank=0)
         ks = _c("Manhattan", "US", "Kansas", lat=39.18, rank=1)
@@ -419,9 +429,8 @@ class TestMultiCandidateResolution:
 
         result = geocode_core(city="Manhattan", raw_user_message="hôtel à Manhattan")
 
-        pending = result["profile_delta"]["pending_place"]
-        assert pending["name"] == "Manhattan"
-        assert {o["region"] for o in pending["options"]} == {"New York", "Kansas"}
+        assert "profile_delta" not in result  # the leaf no longer writes pending_place
+        assert {o["region"] for o in result["diagnostics"]["options"]} == {"New York", "Kansas"}
 
     def test_a_district_resolved_as_the_destination_gets_the_site_rule(self, monkeypatch):
         manhattan = _c("Manhattan", "US", "New York", ftype="locality", lat=40.78, rank=0)
@@ -628,45 +637,32 @@ class TestSearchBoxTier2:
 
 
 class TestCityNamedInMessage:
-    """mcp-dayuse#7: the model dropped « Londres » from « près de St Paul's à
-    Londres » one time in five, and the turn asked which city."""
+    """mcp-dayuse#7: « près de St Paul's à Londres » resolves the cathedral in
+    London. The city now travels in the GeoIntent, not mined from the message."""
 
-    def _probe(self, monkeypatch, known):
-        probes: list[str] = []
-
-        def fake_city_coordinate(city, **_):
-            probes.append(city)
-            return (51.51, -0.13) if city in known else None
-
-        monkeypatch.setattr(geocode_tool, "_city_coordinate", fake_city_coordinate)
-        return probes
-
-    def test_a_city_after_a_preposition_is_used_once_the_geocoder_confirms_it(self, monkeypatch):
-        probes = self._probe(monkeypatch, {"Londres"})
+    def test_a_landmark_with_its_city_in_the_intent_resolves(self, monkeypatch):
         cathedral = _c("St Paul's Cathedral", "GB", "Londres", ftype="neighborhood", lat=51.51)
         _patch_multi(monkeypatch, [cathedral], inventory={51.51: 30})
+        intent = GeoIntent(places=[Place(
+            mention="St Paul's", kind="landmark", canonical="St Paul's Cathedral", city="London")])
+        ctx = SimpleNamespace(state={}, user_content=genai_types.Content(
+            role="user", parts=[genai_types.Part(text="un hôtel près de St Paul's à Londres demain")]))
 
-        result = geocode_core(
-            city="", zone="St Paul's Cathedral",
-            raw_user_message="un hôtel près de St Paul's à Londres demain",
-        )
+        result = geocode_location(intent=intent, tool_context=ctx)
 
-        assert probes == ["Londres demain", "Londres"]
         assert result["ok"] is True
 
-    def test_nothing_confirmed_still_asks_the_city(self, monkeypatch):
-        self._probe(monkeypatch, set())
+
+class TestLandmarkWithoutCity:
+    """A landmark with no city asks the city: the message is no longer mined for
+    one (the GeoIntent carries it, QA14707)."""
+
+    def test_the_message_is_not_mined_for_a_city(self):
         result = geocode_core(
             city="", zone="St Paul's Cathedral",
             raw_user_message="un hôtel près de St Paul's à Bidule demain",
         )
         assert result["error"] == "geocode_ambiguous"
-
-    def test_an_article_or_a_generic_word_is_never_probed(self, monkeypatch):
-        # « à la gare de Lyon » names a station, not a city called « la » or « gare ».
-        probes = self._probe(monkeypatch, set())
-        geocode_core(city="", zone="gare de lyon", raw_user_message="un hôtel à la gare de lyon")
-        assert probes == []
 
 
 # --- zone/metro in profile_delta (S-G5: previously never persisted) --------------------------
@@ -770,43 +766,6 @@ def _user_content_with_profile_in(profile_in: dict) -> genai_types.Content:
         role="user",
         parts=[genai_types.Part(text="autres options"), convert_a2a_part_to_genai_part(datapart)],
     )
-
-
-_PENDING_MANHATTAN = {
-    "name": "Manhattan",
-    "options": [
-        {"name": "Manhattan", "country_code": "US", "region": "New York",
-         "place_formatted": "New York, United States"},
-        {"name": "Manhattan", "country_code": "US", "region": "Kansas",
-         "place_formatted": "Kansas, United States"},
-    ],
-}
-
-
-class TestPendingPlace:
-    """mcp-dayuse#7: the answer to « which Manhattan? » completes the place."""
-
-    def _inject(self, args):
-        # QA14707 (Q07): the destination half of the bridge runs inside the
-        # tool, after the `GeoIntent` is mapped — same function, same order.
-        geocode_tool._fill_place_from_profile(args, {"pending_place": _PENDING_MANHATTAN})
-        return args
-
-    def test_an_answer_naming_one_option_searches_the_homonym_there(self):
-        args = self._inject({"city": "New York", "raw_user_message": "New York"})
-        assert args["city"] == "Manhattan"
-        assert args["country_code"] == "US"
-
-    def test_the_answer_is_read_without_case_or_accents(self):
-        assert self._inject({"city": "", "raw_user_message": "plutôt le kansas"})["city"] == "Manhattan"
-
-    def test_an_answer_naming_no_option_is_a_new_destination(self):
-        args = self._inject({"city": "Lyon", "raw_user_message": "non, plutôt Lyon"})
-        assert args["city"] == "Lyon"
-
-    def test_an_answer_naming_every_option_decides_nothing(self):
-        args = self._inject({"city": "", "raw_user_message": "New York ou Kansas ?"})
-        assert args["city"] != "Manhattan"
 
 
 class TestFillPlaceFromProfile:

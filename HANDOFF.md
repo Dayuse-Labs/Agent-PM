@@ -4,6 +4,17 @@
 
 > 📋 **Pour savoir QUOI faire ensuite, ouvrir [`CHANTIERS.md`](CHANTIERS.md)** (état vérifié au 2026-09-14) : la liste des chantiers ouverts, chacun avec sa preuve, ses actions et un prompt prêt à coller — plus la liste de ce qu'il ne faut **pas** relancer parce que c'est déjà livré. `tasks/todo.md` est périmé et ne doit plus servir de référence.
 
+## 🚀 2026-10-19 — Widget redéployé sur `124cd43` (#142, refonte design)
+
+**Fait** (procédure `DEPLOY.md`) : pré-vol sur `main` propre `124cd43`, pytest **2 935 passés / 1 skippé** (25 s). Estampilles lues avant : `widget`, `concierge`, `hotel-search` = `0b65159`, `faq` = `28c485a`. Depuis `0b65159`, seul `web/` a changé (les 7 commits de #142) : **seul `widget` est redéployé** (`LANGFUSE_RELEASE=124cd43` posé avec `--skip-deploys`, puis `railway up --service widget --detach`). Les 3 backends gardent leur estampille, qui reste vraie : `faq` n'a pas bougé depuis `28c485a` (les seuls changements de `libs/` depuis sont `clarification.py` et `geo_intent.py`, que `faq` n'importe pas et que `__init__` n'exporte pas, plus `pydantic`, déjà transitif).
+
+**Preuve** :
+- Les 4 fichiers vérifiés sont servis à l'octet près comme dans `124cd43` (sha256 : `tokens.css` `bf339a5…`, `hotels.css` `3e8dfa7…`, `hotels/card.js` `1613ed8…`, `motion.js` `a8f81f7…`). Avant le déploiement : `tokens.css` à l'ancien hash, `motion.js` en 404.
+- La page servie porte le seul changement de gabarit de #142 (viewport sans `user-scalable=no`).
+- Un tour synthétique via le widget public (`x-dayuse-synthetic: 1`, « un day use à Londres, Royaume-Uni, demain après-midi ») : 200 en 7,3 s, 5 hôtels, réponse cohérente en français — le relais widget → concierge tient.
+
+**Reste** : le rendu visuel de la refonte n'a pas été regardé dans un navigateur après déploiement. Les phases 4-5 de QA14707 (`plan/qa14707`) et le nettoyage (`chore/cleanup`) ne sont ni sur `main` ni poussés : ce déploiement ne les contient pas.
+
 ## 🏔️ 2026-10-19 — Refonte design du widget, lot 5 « hero + chat » (branche `design/widget-design-foundations`)
 
 **Fait (CSS seul)** :
@@ -88,6 +99,91 @@ Source : audit « Audit design du widget AgentB2C » (doc Claude) contre les fon
 - Non vérifié : aucune capture du rendu (pas de navigateur sur la machine locale de la session). Passer desktop 1440 et mobile 390 sur hero, carte hôtel, carrousel, booking card, composer avant de merger. Tests exécutés : `node --test tests/widget/*.test.mjs` (21 verts) et `scripts/dayuse_guardrails.sh` (OK) ; pytest non lancé (le `.venv` du dépôt est un venv macOS, inutilisable depuis la session).
 - Aucun push ni PR : relecture de Fabien d'abord.
 
+## 🧭 2026-10-16 — QA14707 phases 4-5 sur `plan/qa14707` : retraits des règles de langage, mémoire de question, anti-boucles, documentation (seconde PR)
+
+Plan : `plans/qa14707/` (décisions DQ1-DQ13 dans `plans/qa14707/HANDOFF.md`), source `phases/QA14707/`. Cette seconde PR ne déploie rien : la production est sur `0b65159` (phases 1-3, #140). **La revue globale Q13 reste à faire avant la PR.**
+
+**Fait (phase 4 : retraits, chacun sous test, aucun nom de garde retiré)** :
+- **Q09, `3cbeba1` + `410b78e`** : plus de regex de prépositions ni de liste d'articles pour repêcher la ville, plus d'appariement de texte sur `pending_place`.
+  - `git grep -n "_city_named_in_message\|_complete_pending_place\|_CITY_AFTER_PREPOSITION_RE" -- agents libs` ne renvoie plus de code (trois mentions de `pending_place` subsistent, toutes dans des tests : un nom de test et un commentaire, `agents/hotel_search_agent/tests/test_geocode_tool.py:424` et `:432`, et une docstring, `agents/b2c_concierge/tests/test_clarification_state.py:10`).
+  - La spécification « St Paul's à Londres » passe par un `GeoIntent` : `TestCityNamedInMessage.test_a_landmark_with_its_city_in_the_intent_resolves` (`agents/hotel_search_agent/tests/test_geocode_tool.py`).
+- **Q10, `b36672d` (S-L7f, DQ7)** : `select_us_postal_anchor` est retiré, avec `PostalAnchor` et les tables d'États du module.
+  - Contrôle : `git grep -n select_us_postal_anchor -- agents libs` ne renvoie rien.
+  - Tests : `agents/hotel_search_agent/tests/test_us_zip_removal.py` (8 tests sur des enregistrements Mapbox v6 réels, DQ9).
+- **Q11, `41b0d29` + `9914d43`** : la question attendue et le oui/non ne sont plus extraits par regex ni par liste de mots sur la route de clarification, et `find_hotel_by_name` ne reçoit plus jamais le message brut (routes réservation et détails).
+- **Q27, `df2451b`** : voir « Question que le tour suivant reprend » plus bas.
+- **Q28, `8ec450c`** : voir « Les deux anti-boucles » plus bas.
+- **Q29, `c2b9ac6`** : item live `qa14707-near-11580-en` (`evals/datasets/b2c-qa-14707-2026-10-14.jsonl`).
+
+**Fait (phases 1-3, rappel avec preuve)** :
+- **Q01, `c90a9b0`** : banc de preuve. `evals/langfuse_experiment.py` rejoue maintenant **chaque tour utilisateur d'un cas, dans l'ordre, sur une seule session** (avant : seul le dernier message partait). Les jeux multi-tours existants (`b2c-dialogue-state`, `geo-poi-multiturn-*`, certains jeux occupation et langues) sont donc devenus réellement multi-tours : **leurs anciens résultats live ne sont plus comparables**, H1 fixe la nouvelle référence. Tests : `evals/tests/test_langfuse_experiment.py`.
+- **Q02, `f0b9a1e`** : créneau dans la langue de la conversation, `web/vendor/static/js/chat/slot_time.js`, test `tests/widget/widget_slot_time.test.mjs`.
+- **Q03 `b3ecb1a`, Q04 `4a8fc52`, Q05 `6763465`** : `Clarification` (`libs/b2c_common/b2c_common/clarification.py`), rendue par gabarit sans synthèse (DQ2), la réponse à une question de lieu passe avant la réservation.
+- **Q06 `e315fff`, Q07 `2d9b56d` + `da7f1a7`** : `GeoIntent` v1.1 (`libs/b2c_common/b2c_common/geo_intent.py`, snapshot `contracts/geo_intent.schema.json`), produit par la feuille de recherche (DQ1). Détail du mapping dans `reports/PLAN-LEAF-GEO-2026-10-08.md` §3.
+- **Q08 `038ffd1`, Q14 `38060e5`, Q16 `b29a9ed`, Q17-Q26** : codes postaux et adresses, option d'homonyme choisie, marché, et les correctifs du diagnostic H3 (liste dans `plans/qa14707/HANDOFF.md`, sections Q17 à Q26).
+
+**Preuve exacte et preuve approximative de « aucune option inventée »** :
+- L'évaluateur live `clarify_options_from_geocoder` (`evals/langfuse_evaluators.py`) est un **signal live faible** : il compare seulement les noms de lieux que chaque item liste (Paris, Bruxelles…) aux candidats du géocodeur. Un lieu inventé que l'item ne liste pas passe inaperçu. Il est gardé tel quel pour que H1 et H3 restent comparables.
+- La **garantie exacte** est hors ligne, en pytest : `TestRendering::test_no_word_of_a_reply_comes_from_outside_the_object` et `test_every_option_line_is_one_label_of_the_object` dans `agents/b2c_concierge/tests/test_clarification_template.py` (rendu par gabarit depuis l'objet `Clarification`, sans LLM), plus les deux tests de couture de `tests/test_leaf_concierge_seam.py`.
+
+**Modèle de l'état de session que le port de #134 doit respecter** (décision #134 : c'est #134 qui s'aligne, pas l'inverse) — `agents/b2c_concierge/b2c_concierge/profile.py` :
+- `profile.pending_clarification` = `{clarification, request, asked}` (`profile.py:301`, `next_pending_clarification` `:1085`).
+  - `clarification` : l'objet `Clarification` (kind, sujet, options venues du seul géocodeur).
+  - `request` : la demande d'origine, cumulée (date, créneau) pour que la réponse relance la recherche avec elle.
+  - `asked` : combien de tours de suite ont posé **la même** question (même kind, sujet comparé sans casse ni espaces) ; revient à 1 sur toute autre question. C'est l'état que lit l'anti-boucle de lieu. Un `asked` absent ou non entier positif est lu comme 1.
+- `profile.pending_search` = `{request, question, asked}` (`profile.py:292`, `free_question_streak` `:1013`, `next_pending_search` `:1026`). Ici `asked` compte les tours de suite qui ont fini sur une question libre sans recherche ; il ne porte aucun texte de message, il est propre au concierge (`_CONCIERGE_ONLY_KEYS`) et vit sous le TTL Redis existant. Un `asked` absent, booléen, chaîne ou < 1 compte pour « pas de série » : la question libre suivante compte 1 (`free_question_streak`). C'est l'inverse de `pending_clarification.asked`, qui lit un compte invalide comme 1. Un appelant qui ne veut que la demande (`next_pending_search` sans `ended_on_question`) écrit le slot sans clé `asked`. Tests : `TestStoredCount` dans `agents/b2c_concierge/tests/test_free_question_anti_loop.py`.
+- `profile.region_anchor` (str | None, `profile.py:199`), champ **propriété du concierge** (Q14, `38060e5`).
+  - Écrit uniquement depuis l'option choisie du `Clarification` stocké, jamais depuis le message.
+  - Envoyé à la feuille dans `profile_in`, stocké dans Redis sous le TTL existant, effacé par un changement de ville (`profile.py:673`).
+  - La feuille ne s'en sert que pour restreindre les candidats homonymes tant que la ville n'a pas changé (`_fill_place_from_profile`, `agents/hotel_search_agent/hotel_search_agent/geocode_tool.py:1273`) : un État nommé ce tour-ci ou ancré l'emporte, une région sans correspondance ne restreint rien, et il n'est pas appliqué sur un tour de code postal.
+  - **Raffinement Q21 (`773cbad`)** : tant qu'une région choisie s'applique, la requête v6 de l'option choisie ne porte aucun terme d'État. Un État nommé ce tour-ci, ancré ou lu dans le texte oriente toujours le résolveur (`region_hint`) et la garde d'écho ; la restriction ne garde que les candidats de la région choisie que l'écho de cet État accepte, et seulement s'il en reste au moins un. Un État qui contredit le choix ne restreint donc rien et le résolveur suit l'État. Tests : `agents/hotel_search_agent/tests/test_picked_option_query.py` ; code : `geocode_core` dans `geocode_tool.py`.
+- `profile.entry_market_country` (str | None, `profile.py:240`, Q16, `b29a9ed`), champ **propriété du concierge**.
+  - Écrivain unique : la façade, depuis le corps de la requête, vérifié ISO2 (`agents/b2c_concierge/b2c_concierge/facade.py:702-731`) ; une valeur invalide est abandonnée et la valeur stockée est conservée.
+  - Stocké dans Redis sous le TTL existant, **non effacé** par un changement de ville, envoyé à la feuille de recherche dans `profile_in`.
+  - Il sert uniquement de départage du marché (DQ8), jamais de filtre Mapbox.
+  - **Ce n'est pas** le `entry_market_country` / `market_country` de la charge utile de réponse, que `_infer_market_country` déduit des résultats.
+
+**Question que le tour suivant reprend (Q11 + Q27)** : un texte de question de lieu est le texte du gabarit tiré de `pending_clarification`. Sinon c'est la dernière ligne de la feuille quand elle finit par un point d'interrogation, sinon la dernière ligne de la synthèse par la même règle (`leaf_question` / `turn_question`, `profile.py:1174` et `:1193`, branchés dans `agent.py`). Aucune regex : la ponctuation de la dernière ligne non vide, plafonnée à 300 caractères. Tests : `agents/b2c_concierge/tests/test_synthesis_question_memory.py`.
+
+**Les deux anti-boucles (Q04 + Q28)** :
+- Questions de lieu : lues sur `pending_clarification.asked` (Q04). À partir du troisième envoi (`CLARIFICATION_MAX_ASKS = 2`), la réponse ne demande rien.
+- Questions libres : lues sur `pending_search.asked` (Q28, `8ec450c`). Au-delà de `CLARIFICATION_MAX_ASKS`, la **même** synthèse reçoit l'instruction de ne rien demander, puis le code retire la ligne de question qui resterait (`without_final_question`), sans relance ni appel LLM de plus. La garde `anti_clarification_loop` se déclenche pour les deux. Tests : `agents/b2c_concierge/tests/test_free_question_anti_loop.py` et `test_clarification_template.py`.
+
+**Postcode et adresse : ce que le tour persiste (Q08, Q26, `543e8aa`)** — `agents/hotel_search_agent/hotel_search_agent/geocode_tool.py` :
+- Code postal seul : seule sa ville (`context.place`) est persistée, pas de `zone`, rayon `poi` (disque serré) autour de son centroïde (Q26, `543e8aa`).
+- Adresse : `zone` = le nom de l'adresse donné par Mapbox **sans** son code postal, rayon `poi`.
+- Une adresse dont le `match_code.confidence` est `low` est refusée, et le code retombe sur la recherche du code postal.
+- Sur un tour qui porte un `postal_code`, rien n'est repris du profil (ni ville, zone, métro, ancre pays, option choisie).
+
+**Reste** :
+- **H3' live sur gpt-6-luna (Fabien)**, une fois le build de la seconde PR lancé en local ; lire les lignes `dayuse_metric=geo_intent` (`.run-logs/`) produites par `agents/hotel_search_agent/hotel_search_agent/geocode_tool.py` (`:1717`) :
+  - **Taux** de `valid=0`, `mentions_discarded` et `canonicals_rejected`. `valid=0` élevé = le modèle ne tient pas le schéma imbriqué (DQ1 à revoir).
+  - **`repaired=N`** : nombre de réparations portées par l'intention que l'outil a utilisée (une `city` chaîne devenue `CityRef`, une place de `kind` chaîne inconnu retirée ; `_repaired` / `_valid_intent`). Lecture : `valid=0` avec `repaired>0` = intention récupérée ; `valid=0` avec `repaired=0` = écartée en entier.
+  - **`city_conflicts`** : une ville écrite par l'utilisateur CE tour-ci qui diffère, après pliage, de toute ville non vide portée par la place de zone (pas seulement une ville inférée) ; rien n'est compté sous `city_needed`. Un taux non nul = le modèle infère pour un lieu une autre ville que celle écrite.
+  - **Traces A et B** : A = « Gare du Nord » + Paris, B = « Boulevard de la République Versailles » remplissent `city`.
+  - **Drapeau S5** : `ambiguity.reason=city_needed` sur « gare de Lyon ».
+- **Items à tenir 3/3 sur gpt-6-luna** :
+  - `qa14707-versailles-address-fr` et `qa14707-poissonniere-75009-no-country-en` (Q20). Un tour de rue ou d'adresse sans code postal fait maintenant **un appel Mapbox v6 de plus** (types `address,street`) avant le chemin générique (`_street_match`, `geocode_tool.py:210`) : lire la latence (timeout 1,5 s, 1 retry).
+  - `geo7-manhattan-answer` (Q21) : au tour de réponse il doit résoudre « Manhattan, État de New York » (localité) ; un passage par un POI commercial nommé Manhattan **ne compte pas**. Preuve hors ligne : `TestTheManhattanAnswer` dans `agents/hotel_search_agent/tests/test_picked_option_query.py`.
+  - `geo7-named-not-found` (Q22, DQ10), « Bidule Imaginaire à Lyon » : la trace de la feuille montre `find_hotel_by_name` deux fois (avec `cityName`, puis sans), aucun `geocode_location` ni `search_offers` fait par le modèle, une ligne `named_hotel_city_search` en `status=ok`, des hôtels de Lyon après l'avis de non-trouvé. Preuve hors ligne : `TestNotFoundInANamedCity` dans `agents/hotel_search_agent/tests/test_named_hotel_city_fallback.py`.
+  - Barre de Q23 sur gpt-6-luna : ville d'un monument remplie sans ville tapée, « gare de Lyon » `city_needed` 3/3, la réponse « Pari » 3/3, « dans le 75009 » extrait `postal_code` 3/3, et aucune intention écartée (`valid=0` avec `repaired=0`) sur les lignes `geo_intent`. Preuve hors ligne : `agents/hotel_search_agent/tests/test_geo_intent_field_order.py`. L'ordre des champs de `Place` et la liste `required` (`PLACE_REQUIRED`, `libs/b2c_common/b2c_common/geo_intent.py`) sont **réglés pour gpt-6-luna**, pas pour gpt-4o-mini.
+  - `qa14707-guard-gare-du-nord-asks-city-fr` et `geo-poi-gare-du-nord` : 3/3 requis sur gpt-6-luna, recherche près de la gare du Nord à Paris, `clarify_expected` faux (DQ12). `qa14707-guard-gare-de-lyon-asks-city-fr` : 3/3 qui demandent toujours la ville (S5, DQ6). Un monument que le modèle laisse sans ville, sans correction d'appareil, reçoit quand même la question de ville en code (`agents/hotel_search_agent/tests/test_gare_du_nord_city_from_model.py` ne prouve que ce que le modèle lit ; le repli est testé dans `test_geo_intent_mapping.py`).
+  - `qa14707-near-11580-en` (Q29) : 3/3 requis, `active_filters.country_code` US (`evals/datasets/b2c-qa-14707-2026-10-14.jsonl`), avec la configuration de H1/H3 (concurrence 1, Redis :6390, même IP de sortie).
+- **Lignes de métrique de la feuille** (aucune ne porte de texte) :
+  - `dayuse_metric=named_hotel_city_search agent=b2c_hotel_search status=ok|no_place|blocked|unbound|error ms=N` (`agents/hotel_search_agent/hotel_search_agent/named_hotel.py`) : `ok` = la ville a été géocodée et la recherche a tourné ; `no_place` = la ville n'a pas été géocodée, rien n'est cherché ; `blocked` = un before-tool a refusé la recherche ; `unbound` = aucun toolset MCP n'est lié ; `error` = exception avalée.
+  - La ligne `named_hotel_search` rend maintenant `status=unbound` (avant `ok`) quand aucun toolset MCP n'est lié, ce qui n'arrive jamais en production.
+- **Tickets restants** : aligner `geo-poi-gare-de-lyon` sur S5 et `geo7-gare-du-nord-no-city` sur DQ12 (seconde PR, décision du 2026-10-16) ; mesurer « je confirme » avec une offre en attente ; demander à Raphael quelle URL et quel marché il a testés (toutes ses traces portent `locale:"en"` et `currency:"USD"`) ; migrer le triage et le juge de gpt-4o-mini avant le 14/01/2027.
+- **H4** après le merge : déploiement final, retest par Raphael, réponse point par point sur dayuse-com#14707.
+
+**Pièges découverts** :
+- **« near 11580 » sans pays nommé** : depuis Q10 (DQ7), un tour « near 11580 » reste aux États-Unis **seulement si la feuille extrait `postal_code`** ; la supposition DQ8 du modèle ou le marché garde alors le candidat US (`TestNear11580` dans `agents/hotel_search_agent/tests/test_postcode_resolution.py` et `agents/hotel_search_agent/tests/test_us_zip_removal.py`). Un tour où le modèle oublie le code postal n'est **plus rattaché à un pays**. Les trois tests qui nomment « USA » ne prouvent que le filtre dur du pays nommé ; la seule vérification live du cas de prod est `qa14707-near-11580-en`.
+- **Source du pays du marché (DQ8)** : le `entry_market_country` de la requête (stocké dans le profil par Q16), puis la région du locale, puis le préjugé de langue (`_market_country`, `geocode_tool.py:155`). Le widget envoie un locale `en` nu, d'où la première source. Sans elle, « near 11580 » en en/USD suit l'ordre de Mapbox (Mexico d'abord), ce que fige `test_without_the_market_a_bare_en_follows_mapbox_order`.
+- **Transition au déploiement de l'anti-boucle libre (Q28)** : les sessions stockées dans Redis avant le déploiement n'ont pas de `pending_search.asked` et comptent donc « pas de série » ; elles ne sont corrigées qu'à leur 4e question libre de suite au lieu de la 3e, jusqu'à l'expiration de leur TTL (`free_question_streak`, `agents/b2c_concierge/b2c_concierge/profile.py:1013` ; `TestStoredCount` dans `agents/b2c_concierge/tests/test_free_question_anti_loop.py`).
+- **Un test rouge fait aussi tomber le garde calendaire** : `tests/test_calendar_rot.py` rejoue toute la suite, donc tout test rouge le fait tomber aussi ; la suite complète dure 5 à 6 min (timeout 600000 ms).
+- **Imports de tests** : avec `--import-mode=importlib` (`pytest.ini:4`, commit 1bbdc4b), deux modules de test ne peuvent pas s'importer, et deux fichiers de même nom dans `agents/*/tests` font échouer la collecte complète.
+- **Contexte du concierge et mots de l'utilisateur** : la feuille lit le texte du concierge (EARLIER REQUEST / YOU ASKED) dans une partie texte séparée placée **avant** les mots de l'utilisateur ; `read_user_words` ne lit que la dernière partie. Le test de couture `tests/test_leaf_concierge_seam.py` verrouille cette convention.
+- **Dette notée** : le chemin détails/comparaison inline peut garder une question périmée dans `last_clarifying_question` quand sa synthèse est inutilisable (Q27, `agent.py` après le retour anticipé `candidate is None`) ; `is_bare_affirmative` sert encore `_ack_text` (`agents/b2c_concierge/b2c_concierge/agent.py:1167`), `search_exhausted` (`agent.py:1550`) et `is_search_refinement_signal` (`agents/b2c_concierge/b2c_concierge/profile.py:989`), et `_AFFIRMATIVE_RE` sert encore la confirmation de réservation (`is_booking_confirmation_signal`, `profile.py:1632`) (S-L7, hors périmètre) ; le commentaire de `agents/b2c_concierge/b2c_concierge/triage.py:79` cite encore `_extract_hotel_name_candidate`.
+
 ## 🚀 2026-10-15/16 — QA14707 phases 1-3 livrées sur `plan/qa14707` + feuilles en gpt-6-luna en prod
 
 **Fait** :
@@ -110,9 +206,21 @@ Source : audit « Audit design du widget AgentB2C » (doc Claude) contre les fon
     - GeoIntent invalide sur 0,5 % des tours.
   - La seule exception (« dans le 75009 », rayon) est corrigée par Q26.
 
+**Déployé (16/10, release `0b65159` = merge de #140)** :
+- **Services** : `hotel-search`, `concierge` et `widget`. La `faq` garde `28c485a` : elle n'importe aucun des deux nouveaux modules de `libs/`.
+- **Preuve** : tours synthétiques sur le widget de prod.
+  - Gare du Nord : recherche à Paris, cartes à 0,2-0,3 km.
+  - gare de Lyon : question par gabarit, sans appel à la synthèse.
+  - « dans le 75009 » : anneau serré, cartes à 0,4-1,1 km.
+  - Versailles : hôtels à 1,2-1,4 km.
+  - « Je confirme » après une question : aucune réservation, la question revient reformulée.
+- **Langfuse** : release `0b65159` sur les 6 traces, rôles conformes (feuilles gpt-6-luna, triage gpt-4o-mini, synthèse gpt-5.2).
+  - Une seule erreur : un 520 Cloudflare d'OpenAI sur la synthèse, couvert par le repli honnête (`fallback_synthesis`).
+  - Sur 7 jours, 2 replis pour 1 706 tours.
+- **Widget** : le `utils.js` servi est identique à celui de `main` (plus de `formatTimeAMPM`).
+
 **Reste** :
-- PR des phases 1-3 → `main` (DQ13), revue de Fabien, puis déploiement (DEPLOY.md, 4 services).
-- Seconde PR : phase 4 (Q09-Q11, retrait des regex de secours) puis phase 5 (Q12 documentation, Q13 revue globale).
+- Seconde PR : la phase 4 (Q09-Q11, Q27) et Q28, Q29, Q12 sont faites, voir le bloc du 2026-10-16 en tête ; reste Q13 (revue globale).
 - Tickets :
   - aligner `geo-poi-gare-de-lyon` sur S5 et `geo7-gare-du-nord-no-city` sur DQ12 ;
   - mesurer « je confirme » avec une offre en attente ;

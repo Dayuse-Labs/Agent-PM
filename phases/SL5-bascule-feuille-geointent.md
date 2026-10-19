@@ -1,5 +1,19 @@
 # S-L5 — Bascule : la feuille de recherche consomme le `GeoIntent`
 
+> **Bandeau 2026-10-16 (plan QA14707, `plans/qa14707/`).** La bascule a été faite **autrement, en un seul pas, sans leaf ni mode ombre** (DQ1) : la feuille de recherche produit elle-même le `GeoIntent` et le code le mappe vers `geocode_core`.
+>
+> | Point de la phase | Statut |
+> |---|---|
+> | 1. Concierge : `query_params.geo_intent` | **sans objet** (DQ1 : pas de leaf, rien à transmettre) |
+> | 2. Pont déterministe côté feuille | **fait par Q07** (`2d9b56d`, `da7f1a7`) : `geocode_location(intent, metro, …)` et le mapping `_place_args` (`agents/hotel_search_agent/hotel_search_agent/geocode_tool.py`), puis Q08 (codes postaux, adresses), Q14-Q26. Le tour garde ses 2 appels de la feuille : le modèle remplit le `GeoIntent` dans son appel de géocodage |
+> | 3. Reprise en code (`carryover`) | **non appliquée** : `carryover`, `relation` et `exclusions` sont lus, pas appliqués ; le report reste `_fill_place_from_profile` |
+> | 4. Questions par gabarit | **fait** : `ambiguity.reason = city_needed` → `geocode_city_needed` (DQ6) ; les homonymes passent par `Clarification`, rendue par le concierge sans synthèse (Q03-Q05, DQ2) |
+> | 5. Repli `fallback_geo_leaf` | **sans objet** (pas de leaf) ; un `GeoIntent` invalide est réparé ou écarté, compté par `valid=` et `repaired=` sur la ligne `dayuse_metric=geo_intent` (Q17) |
+> | `GEO_LEAF_MODE` | non créé |
+>
+> Le mapping de cette phase (§3 du plan) est celui de `reports/PLAN-LEAF-GEO-2026-10-08.md` mis à jour. L'ordre des champs de `Place` est réglé pour gpt-6-luna (Q23).
+
+
 | | |
 |---|---|
 | **Mode** | Piloté — changement de comportement sur le chemin principal |

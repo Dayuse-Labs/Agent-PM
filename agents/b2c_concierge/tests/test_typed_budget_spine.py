@@ -237,7 +237,9 @@ class TestBareNumber:
         runner = InMemoryRunner(root_agent)
         session = _new_session(runner)
 
+        fake_leg.text = QUESTION  # Q11: the question is the LEAF's own text, not the synthesis's
         _run_turn(runner, session.id, "A day room in Paris please")
+        fake_leg.text = "results: hotel A"
         fake_leg.response_payload = {"results": [], "profile_delta": {"budget_max": 100}}
         _run_turn(runner, session.id, "100")
         fake_leg.response_payload = {"results": []}
