@@ -62,6 +62,13 @@
   absente : luna applique la règle, et c'est mini qui la viole.
 - **Le juge Langfuse ne passe pas par litellm**, donc `allowed_openai_params` ne le concerne pas : ce
   sont les paramètres de modèle de l'évaluateur qui comptent.
+- **La suite à 6 min 42 s (contre 29 s le matin même) vient du réseau, pas du code.**
+  - `--durations` : les setups de `test_serve_auth.py` / `test_faq_serve_auth.py` prennent 10 à 20 s
+    chacun, par multiples de 5 s. `test_calendar_rot` (207 s) les rejoue.
+  - Ce sont des timeouts réseau, alors que MCP_B2C est injoignable. C'est très probablement la cause
+    « non trouvée » de la suite à 5-6 min du 2026-10-16.
+  - Ces tests se disent « No network ». Quelque chose y contacte quand même un hôte (probablement le
+    `McpToolset` à l'import ou au démarrage). Non diagnostiqué plus loin.
 
 ## 🚀 2026-10-19 (bis) — QA14707 phases 4-5 déployées : `hotel-search` + `concierge` sur `130caed` (#143)
 
