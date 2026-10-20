@@ -182,7 +182,7 @@ from .profile import (
     without_final_question,
 )
 from .profile_store import get_profile_store
-from .requested_date import date_served_notice, expected_search_date, reference_today
+from .requested_date import date_served_notice, expected_search_date, mentions_a_date, reference_today
 from .no_offers import drop_restated, no_offers_line
 from .window_guard import enforce_window_disclosure, enforce_window_match, window_label
 from .routing import LEAF_FAQ, LEAF_HOTEL_SEARCH, ROUTES, bearer_token, card_url
@@ -1404,6 +1404,8 @@ class _B2cConcierge(BaseAgent):
             family, route = "search", ROUTES["search"]
         # Consumed by this turn, whatever it does: only the very next reply
         # answers a question.
+        if pending is not None and pending.get("date_question"):
+            profile.last_suggestions = None  # the day chips answer that turn only
         profile.pending_search = None
         profile.pending_clarification = None
 
@@ -1659,14 +1661,42 @@ class _B2cConcierge(BaseAgent):
         # "le 3 octobre" asked, today served on the next turn).
         expected_date: str | None = None
         if route.target == LEAF_HOTEL_SEARCH:
-            expected_date, from_message = expected_search_date(
-                message, profile.date, reference_today(profile.client_timezone)
-            )
+            today = reference_today(profile.client_timezone)
+            expected_date, from_message = expected_search_date(message, profile.date, today)
             if expected_date and from_message:
                 profile.date = expected_date
                 profile.date_reference = {"resolved_from": "concierge"}
                 if profile.client_timezone:
                     profile.date_reference["client_tz"] = profile.client_timezone
+            # QA 2026-10-20 (Fabien): the session's first hotel search names a
+            # day or asks for one, before the leaf — nothing is searched on a
+            # day the user never chose. Once only: a reply that still names
+            # none searches today. A named hotel is looked up as asked: its
+            # name reaches the lookup on this turn only (mcp-dayuse#7). With
+            # Redis down every turn starts empty: the reply could never find
+            # the request again, so the search runs on today instead.
+            if not repeat_search and not profile.date_checked:
+                profile.date_checked = True
+                if (
+                    expected_date is None
+                    and not (named_choice or triage.hotel_name)
+                    and not triage.day_stated
+                    and not mentions_a_date(message, today)
+                    and await store.exists(ctx.session.id) is not None
+                ):
+                    question = templates.date_question(reply_language)
+                    profile.last_clarifying_question = question
+                    profile.last_suggestions = templates.date_chips(reply_language)
+                    # The request is kept for the reply (EARLIER REQUEST), and
+                    # the question counts as one ask of the free-question streak.
+                    profile.pending_search = {
+                        **(next_pending_search(earlier, message, False, question, ended_on_question=True) or {}),
+                        "date_question": True,
+                    }
+                    await store.set(ctx.session.id, profile)
+                    self._emit_turn_metric(family, "template:date_question", budget, t_start, "ok", inv)
+                    yield self._final(ctx, question)
+                    return
 
         budget.charge("leaf_llm")
         leaf_kwargs: dict[str, Any] = (
