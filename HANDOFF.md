@@ -6,6 +6,21 @@
 
 > 📋 **Pour savoir QUOI faire ensuite, ouvrir [`CHANTIERS.md`](CHANTIERS.md)** (état vérifié au 2026-09-14) : la liste des chantiers ouverts, chacun avec sa preuve, ses actions et un prompt prêt à coller — plus la liste de ce qu'il ne faut **pas** relancer parce que c'est déjà livré. `tasks/todo.md` est périmé et ne doit plus servir de référence.
 
+## 🧩 2026-10-20 — Retours QA widget : flèches coupées + carrousel mobile (branche `fix/widget-results-overflow`)
+
+**Constat mesuré** (widget local servi par `run_widget_proxy.py`, `/v3/chat` routé vers un payload construit par `facade.build_chat_payload` avec les hôtels de la trace QA `d327c03d…`, Chrome headless) :
+- Desktop : `.message-content.with-hotels` (item flex sans `min-width: 0`) faisait 760 px dans 724 px disponibles → 16 px au-delà du panneau. À 1440 : flèche « suivant » `r=1124` et « See all hotels in USA → » `r=1123` pour un panneau à 1120 ; à 800 la flèche était coupée en deux. C'est la « flèche en bas à droite hors cadre » et la « flèche du carrousel cassée ».
+- Mobile 390 : rangée de x=52 à x=374 (colonne de l'avatar + padding du chat + `overflow:hidden`), cartes à 246 px au lieu de 330, aperçu de la suivante coupé net, liseré de 4 px de la carte précédente après un swipe.
+
+**Fait** (CSS seul) :
+- `hotels.css` : `min-width: 0` sur `.message-content.with-hotels` (toutes tailles) ; retrait des `padding-right: 20px` de `.results-intro`/`.results-meta` qui masquaient ce débordement.
+- `responsive.css` (≤768) : la rangée de cartes sort du padding du chat et de la colonne de l'avatar (`margin: 12px -16px 12px calc(-16px - 28px - var(--space-2))`), carte `calc(100% - 28px)` = viewport − 16 − 12 − 32 ; doublon mobile de la règle `with-hotels` réduit à `width: 100%`.
+- `tests/widget/widget_cards.test.mjs` : géométrie mobile, sortie de la colonne, `min-width: 0` (contre-épreuve : le test tombe sans la règle). 45 tests JS verts.
+
+**Preuve** (mesures après correctif) : 1440/900/800 → bloc, flèche et « See all » ≤ bord de contenu (1100/830/780) ; 390/360 → rangée de 0 à la largeur de l'écran, carte 1 à x=16, aperçu 32 px, carte calée à x=16 après swipe, `scrollWidth === innerWidth`. pytest 2 988 passés / 1 skippé, ruff, mypy, guardrails OK.
+
+**Reste** : déploiement du seul service `widget` (`DEPLOY.md`) puis capture sur le widget public à 1440 et 390. Les captures de la QA n'ont pas été vues (non transmises) : l'appariement retour ↔ défaut repose sur les mesures. Non touchés : flèches de la galerie photo (correctes, n'apparaissent qu'avec plus d'une photo, jamais en résultats de recherche), compteur « 1 / 5 ».
+
 ## 📈 2026-10-20 — Tracking Amplitude de l'agent (AM1, branche `feat/amplitude-tracking`)
 
 **Décidé avec Ali** (session « grill », réponses Q1-Q28) : l'analytics produit part dans Amplitude **depuis le widget seul** ; les `chat_*` d'agent-usa sont retirés, pas repris ; préfixe `ai_agent__*` + `pageview` copié de dayuse.com (6 propriétés de page, `page_type = 'ai_agent'`) ; le `prompt` est envoyé (tronqué à 500, accès restreint), jamais la réponse ; pas d'A/B test, bascule franche ; Production seulement sur `ai.dayuse.{tld}`, Staging/Dev partout ailleurs (local, évals, démo) ; Session Replay à 5 %, non modifiable depuis Amplitude.

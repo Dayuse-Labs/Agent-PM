@@ -429,15 +429,12 @@
 }
 
 /* ===== RESULTS HEADER (intro + meta) ===== */
-/* Cards run full-bleed; intro and meta need right padding so they don't
-   clip "Voir tout →" or the trailing intro text against the panel edge. */
 .results-intro {
     font-size: var(--text-body);
     font-weight: var(--fw-medium);
     color: var(--fg-primary);
     line-height: var(--lh-snug);
     margin-bottom: var(--space-2);
-    padding-right: var(--space-5);
 }
 
 .results-meta {
@@ -446,7 +443,6 @@
     justify-content: space-between;
     gap: var(--space-3);
     margin-bottom: 0;
-    padding-right: var(--space-5);
 }
 
 .results-count {
@@ -472,8 +468,12 @@
 }
 
 /* ===== MESSAGE WITH HOTELS ===== */
+/* A flex item next to the avatar: without min-width 0 the card row's width
+   holds it at 100% of the message, 36px (avatar + gap) past the column, and
+   the panel clips "See all hotels →" and the next arrow (QA 2026-10-20). */
 .message-content.with-hotels {
     max-width: 100% !important;
+    min-width: 0;
     background: transparent;
     padding: 0;
     margin-top: 0;
