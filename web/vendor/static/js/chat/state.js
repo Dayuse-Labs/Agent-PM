@@ -65,8 +65,6 @@ export const state = {
     // CTA. Losing that gate would put a booking button on a shortlist the
     // backend never qualified.
     hotelPicks: [],
-    // The hotel id of a pick button awaiting its request (one-shot).
-    pendingPickHotelId: null,
     activeHotelIds: [],
     selectedFilters: {},
     selectedPlace: null,
@@ -74,15 +72,25 @@ export const state = {
     currentUserQuery: '',
     responseLanguage: DEFAULT_MARKET_CONTEXT.language,
     market: DEFAULT_MARKET_CONTEXT.country_code,
+    knownMarket: null,
     marketContext: { ...DEFAULT_MARKET_CONTEXT },
     searchPage: null,
-    pendingClarification: null,
     entrySource: getInitialEntrySource(),
-    dayuseSessionId: null,
 };
 
 // Image carousel state
 export const carousels = new Map();
+
+export function startTurn() {
+    state.turnSequence += 1;
+    state.currentTurnId = `${state.clientSessionId}_t${state.turnSequence}`;
+    return { turnId: state.currentTurnId, turnIndex: state.turnSequence };
+}
+
+export function rememberMarket(countryCode) {
+    const code = String(countryCode || '').trim().toUpperCase();
+    if (/^[A-Z]{2}$/.test(code)) state.knownMarket = code;
+}
 
 /**
  * Merge a chat response's `market` payload into state.marketContext. The
@@ -110,8 +118,9 @@ export function applyMarketFromResponse(data) {
         }
     });
     state.marketContext = merged;
+    rememberMarket(incoming.country_code);
     // Keep the legacy two-letter `state.market` in sync for any consumer
-    // that still reads it (amplitude tagging, etc.).
+    // that still reads it.
     if (typeof merged.country_code === 'string' && merged.country_code) {
         state.market = merged.country_code.toUpperCase();
     }
@@ -149,6 +158,5 @@ export function resetState() {
     state.currentUserQuery = '';
     state.responseLanguage = detectPreferredLanguage();
     state.market = 'US';
-    state.pendingClarification = null;
     carousels.clear();
 }
