@@ -53,11 +53,13 @@ from .profile import SessionProfile, apply_profile_delta, build_hotel_picks
 from .profile_store import get_profile_store, ttl_minutes
 from .triage import SERVICE, guess_language
 from .triage import locale_response_language as _locale_response_language
+from .turn_facts import TurnFacts, facade_turn_facts
 
 logger = logging.getLogger(__name__)
 
 # session id shape — mirrors agent-usa's SESSION_ID_PATTERN so a cookie/legacy id
-# minted by either stack is mutually valid (invisible switch).
+# minted by either stack is mutually valid (invisible switch). The widget's turn
+# id (`{clientSessionId}_t{n}`) has the same shape.
 SESSION_ID_PATTERN = re.compile(r"^[a-zA-Z0-9_-]{1,128}$")
 
 # OBS5: shape of the `trace_id` the `progress` SSE frame hands back to the
@@ -95,6 +97,8 @@ CONTRACT_KEYS: frozenset[str] = frozenset(
         # mcp-dayuse#6: the profile expired mid-conversation — the widget shows
         # it, the message already says it.
         "session_expired",
+        # What the widget's analytics event copies (contracts/amplitude_events.json).
+        "turn_facts",
     }
 )
 
@@ -282,7 +286,7 @@ def _parse_event(event: Any) -> tuple[str, Any] | None:
     """Maps one raw ADK event to a facade item, or None if it carries nothing:
     - a marker (`\\x1f{...}`) → ("progress", None) / ("hotels", full marker
       payload dict — carries `hotels` plus per-turn flags like
-      `requires_clarification`, S-G10)
+      `requires_clarification`, S-G10) / ("turn_facts", the facts minus `event`)
     - a partial text chunk → ("token", str)
     - the terminal non-partial event → ("final", str)."""
     if not event.content or not event.content.parts:
@@ -299,6 +303,8 @@ def _parse_event(event: Any) -> tuple[str, Any] | None:
             return ("hotels", payload)
         if payload.get("event") == "booking":
             return ("booking", payload)
+        if payload.get("event") == "turn_facts":
+            return ("turn_facts", {k: v for k, v in payload.items() if k != "event"})
         return ("progress", None)
     if event.partial:
         return ("token", text)
@@ -459,6 +465,7 @@ def build_chat_payload(
     requires_clarification: bool = False,
     booking_card: dict | None = None,
     session_expired: bool = False,
+    turn_facts: TurnFacts | None = None,
 ) -> dict[str, Any]:
     """Assemble the iso-contract v3 payload (pure). Mapping notes:
     - message/response/context: the same synthesized text (response/context are
@@ -508,6 +515,7 @@ def build_chat_payload(
         "search_country": market_country,
         "turn_id": turn_id,
         "session_expired": session_expired,
+        "turn_facts": turn_facts or facade_turn_facts("unknown", status="unknown"),
     }
     return _json_safe(payload)
 
@@ -515,8 +523,9 @@ def build_chat_payload(
 # --- turn orchestration (shared by JSON + SSE) ----------------------------------------------
 async def _finalize(
     *, session_id: str, message: str, final_text: str, hotels: list | None,
-    is_synthetic: bool, turn_index: int, requires_clarification: bool = False,
-    booking_card: dict | None = None, session_expired: bool = False,
+    is_synthetic: bool, turn_index: int, turn_id: str, turn_facts: TurnFacts,
+    requires_clarification: bool = False, booking_card: dict | None = None,
+    session_expired: bool = False,
 ) -> dict[str, Any]:
     """Build the payload from the post-turn profile and persist the conversation
     log (best-effort). Returns the payload."""
@@ -531,9 +540,9 @@ async def _finalize(
         final_text = f"{notice}\n\n{final_text}" if final_text else notice
     payload = build_chat_payload(
         session_id=session_id, final_text=final_text, hotels=hotels,
-        profile=profile, language=language, turn_id=uuid.uuid4().hex,
+        profile=profile, language=language, turn_id=turn_id,
         requires_clarification=requires_clarification, booking_card=booking_card,
-        session_expired=session_expired,
+        session_expired=session_expired, turn_facts=turn_facts,
     )
     row = build_conversation_log_row(
         session_id=session_id, turn_index=turn_index, user_message=message,
@@ -559,6 +568,24 @@ def _parse_picked_hotel_id(body: dict[str, Any]) -> int | None:
         return int(raw)
     except (TypeError, ValueError):
         return None
+
+
+def _turn_id(body: dict[str, Any]) -> str:
+    raw = body.get("turn_id")
+    if isinstance(raw, str) and SESSION_ID_PATTERN.fullmatch(raw):
+        return raw
+    return uuid.uuid4().hex
+
+
+def _turn_facts(spine_facts: TurnFacts | None, trace_id: str | None) -> TurnFacts:
+    if spine_facts is None:
+        logger.warning("the spine ran a turn without emitting its turn_facts marker")
+        spine_facts = facade_turn_facts("unknown", status="unknown")
+    return {**spine_facts, "trace_id": trace_id}
+
+
+def _empty_message_facts() -> TurnFacts:
+    return facade_turn_facts("template:empty_ack", family="ack")
 
 
 async def _read_body(request: Request) -> dict[str, Any]:
@@ -757,7 +784,8 @@ def _empty_ack_text(message: str, locale: str | None = None) -> str:
 
 # --- last-resort shield (S-CX1) --------------------------------------------------------------
 def _shield_payload(
-    session_id: str, body: dict[str, Any], message: str, path: str, exc: Exception
+    session_id: str, body: dict[str, Any], message: str, path: str, exc: Exception,
+    trace_id: str | None = None,
 ) -> dict[str, Any]:
     """An unexpected exception escaped every inner degradation net (spine legs
     each catch their own failures — this is the seam around them). Build a full
@@ -789,7 +817,11 @@ def _shield_payload(
         session_id=session_id,
         final_text=templates.service_degraded_response(language),
         hotels=None, profile=SessionProfile(), language=language,
-        turn_id=uuid.uuid4().hex,
+        turn_id=_turn_id(body),
+        turn_facts={
+            **facade_turn_facts("facade_shield", status="degraded", empty_reason="error"),
+            "trace_id": trace_id,
+        },
     )
 
 
@@ -806,6 +838,8 @@ async def chat(request: Request) -> Response:
         return JSONResponse({"error": "Invalid session_id"}, status_code=400)
 
     message = str(body.get("message") or "").strip()
+    turn_id = _turn_id(body)
+    trace_id: str | None = None
     try:
         user_id = _user_id(session_id)
         session = await _get_or_create_session(session_id, user_id)
@@ -823,13 +857,16 @@ async def chat(request: Request) -> Response:
             metadata={"turn_index": turn_index, "locale": body.get("locale"),
                       "currency": body.get("currency"), "domain": body.get("domain")},
         ) as lf_span:
+            trace_id = lf_span.trace_id if lf_span is not None else None
             hotels: list | None = None
             booking_card: dict | None = None
             requires_clarification = False
             final_text = ""
+            spine_facts: TurnFacts | None = None
             try:
                 if not message:
                     final_text = _empty_ack_text(message, _parse_locale(body.get("locale")))
+                    spine_facts = _empty_message_facts()
                 else:
                     async for kind, data in _drive(session_id, user_id, message):
                         if kind == "hotels":
@@ -837,12 +874,15 @@ async def chat(request: Request) -> Response:
                             requires_clarification = bool(data.get("requires_clarification"))
                         elif kind == "booking":
                             booking_card = data.get("booking_card") or None
+                        elif kind == "turn_facts":
+                            spine_facts = data
                         elif kind == "final":
                             final_text = data
 
                 payload = await _finalize(
                     session_id=session_id, message=message, final_text=final_text,
                     hotels=hotels, is_synthetic=is_synthetic, turn_index=turn_index,
+                    turn_id=turn_id, turn_facts=_turn_facts(spine_facts, trace_id),
                     requires_clarification=requires_clarification, booking_card=booking_card,
                     session_expired=session_expired,
                 )
@@ -856,7 +896,7 @@ async def chat(request: Request) -> Response:
                 score_degraded("facade_shield")
                 raise
     except Exception as exc:  # noqa: BLE001 — last-resort shield: contract payload, never a bare 500
-        payload = _shield_payload(session_id, body, message, "json", exc)
+        payload = _shield_payload(session_id, body, message, "json", exc, trace_id)
     response = JSONResponse(payload)
     _set_session_cookie(response, session_id)
     return response
@@ -893,6 +933,7 @@ async def chat_stream(request: Request) -> Response:
         return JSONResponse({"error": "Invalid session_id"}, status_code=400)
 
     message = str(body.get("message") or "").strip()
+    turn_id = _turn_id(body)
     try:
         user_id = _user_id(session_id)
         session = await _get_or_create_session(session_id, user_id)
@@ -916,6 +957,8 @@ async def chat_stream(request: Request) -> Response:
         booking_card: dict | None = None
         requires_clarification = False
         final_text = ""
+        trace_id: str | None = None
+        spine_facts: TurnFacts | None = None
         try:
             # Langfuse audit trace for the turn (no-op without LANGFUSE_* keys):
             # span open + updates are local, export is a background batch — the
@@ -926,26 +969,23 @@ async def chat_stream(request: Request) -> Response:
                 metadata={"turn_index": turn_index, "locale": body.get("locale"),
                           "currency": body.get("currency"), "domain": body.get("domain")},
             ) as lf_span:
+                trace_id = lf_span.trace_id if lf_span is not None else None
                 try:
                     if not message:
-                        # OBS5: trace_id rides `progress` (never `done` — that
-                        # payload IS the frozen CONTRACT_KEYS iso-contract, a
-                        # new key there would break the strict-equality lock).
-                        yield _sse("progress", {
-                            "trace_id": lf_span.trace_id if lf_span is not None else None,
-                        })
+                        # OBS5: trace_id rides `progress`, before any work, for
+                        # the feedback control; `done` repeats it in `turn_facts`.
+                        yield _sse("progress", {"trace_id": trace_id})
                         # OBS2: TTFT measurement point (CLAUDE.md SLO: progress < 300 ms).
                         # OBS3: scored (metadata stays too — filterable per-trace copy).
                         ttft_ms = round((time.monotonic() - t_request_start) * 1000, 1)
                         mark_metadata({"ttft_ms": ttft_ms})
                         score_ttft(ttft_ms)
                         final_text = _empty_ack_text(message, _parse_locale(body.get("locale")))
+                        spine_facts = _empty_message_facts()
                     else:
                         async for kind, data in _drive(session_id, user_id, message):
                             if kind == "progress":
-                                yield _sse("progress", {
-                                    "trace_id": lf_span.trace_id if lf_span is not None else None,
-                                })
+                                yield _sse("progress", {"trace_id": trace_id})
                                 ttft_ms = round((time.monotonic() - t_request_start) * 1000, 1)
                                 mark_metadata({"ttft_ms": ttft_ms})
                                 score_ttft(ttft_ms)
@@ -974,11 +1014,14 @@ async def chat_stream(request: Request) -> Response:
                                 yield _sse("booking_card", {"booking_card": booking_card})
                             elif kind == "token":
                                 yield _sse("token", {"text": data})
+                            elif kind == "turn_facts":
+                                spine_facts = data
                             elif kind == "final":
                                 final_text = data
                     payload = await _finalize(
                         session_id=session_id, message=message, final_text=final_text,
                         hotels=hotels, is_synthetic=is_synthetic, turn_index=turn_index,
+                        turn_id=turn_id, turn_facts=_turn_facts(spine_facts, trace_id),
                         requires_clarification=requires_clarification, booking_card=booking_card,
                         session_expired=session_expired,
                     )
@@ -991,7 +1034,7 @@ async def chat_stream(request: Request) -> Response:
                     mark_level("ERROR", status_message="facade_shield")
                     raise
         except Exception as exc:  # noqa: BLE001 — mid-stream shield: status is committed, only `done` can signal
-            payload = _shield_payload(session_id, body, message, "sse_stream", exc)
+            payload = _shield_payload(session_id, body, message, "sse_stream", exc, trace_id)
         yield _sse("done", payload)
 
     return _sse_response(_body(), session_id)

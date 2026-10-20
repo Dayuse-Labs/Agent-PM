@@ -3,6 +3,7 @@
  */
 
 import { state } from './state.js';
+import { isSyntheticRun } from './tracking.js';
 
 function readMeta(name) {
     return document.querySelector(`meta[name="${name}"]`)?.content?.trim() || '';
@@ -57,6 +58,9 @@ export function getChatHeaders() {
 
     if (state.clientSessionId) {
         headers['X-Client-Session-Id'] = state.clientSessionId;
+    }
+    if (isSyntheticRun()) {
+        headers['X-Dayuse-Synthetic'] = '1';
     }
     const market = state.marketContext || {};
     if (market.domain) {

@@ -11,6 +11,13 @@ import { escapeAttr, escapeHtml, sanitizeDayuseUrl, sanitizeImageUrl } from '../
 import { formatBackendPrice, parsePrice } from '../hotels/card.js';
 import { formatRating } from '../utils.js';
 import { submitFeedback } from '../feedback.js';
+import {
+    appendAmplitudeIdToUrl,
+    trackBookingCardClick,
+    trackFeedbackSubmit,
+    trackHotelClick,
+    trackSuggestionClick,
+} from '../tracking.js';
 
 function renderInlineText(rawText) {
     const text = String(rawText ?? '');
@@ -90,6 +97,7 @@ export function addMessage(content, isUser = false, isHotelResults = false, skip
     const messagesDiv = document.getElementById('chat-messages');
     const messageDiv = document.createElement('div');
     messageDiv.className = `message ${isUser ? 'user' : 'bot'}`;
+    if (!isUser && state.currentTurnId) messageDiv.dataset.turnId = state.currentTurnId;
     messageDiv.style.opacity = '0';
     messageDiv.style.transform = 'translateY(20px)';
     messageDiv.style.transition = 'opacity 0.3s ease-in-out, transform 0.3s ease-in-out';
@@ -244,18 +252,41 @@ function setupFallbackImages(messageContent) {
     });
 }
 
+function renderingTurnId(element) {
+    return element.closest('.message')?.dataset.turnId || '';
+}
+
+function hotelCardPosition(card) {
+    const siblings = card.parentElement
+        ? Array.from(card.parentElement.querySelectorAll(':scope > .hotel-card'))
+        : [];
+    return Math.max(1, siblings.indexOf(card) + 1);
+}
+
+function chipPosition(chip) {
+    const siblings = chip.parentElement
+        ? Array.from(chip.parentElement.querySelectorAll(':scope > .chip'))
+        : [];
+    return Math.max(1, siblings.indexOf(chip) + 1);
+}
+
+function trackHotelCardElementClick(element, clickedElement) {
+    const card = element.closest('.hotel-card');
+    if (!card) return;
+    trackHotelClick({
+        turnId: renderingTurnId(element),
+        hotelId: element.dataset.hotelId,
+        position: hotelCardPosition(card),
+        clickedElement,
+    });
+}
+
 function setupHotelTrackingLinks(messageContent) {
-    messageContent.querySelectorAll('a[data-track-hotel-click="1"]').forEach(link => {
+    messageContent.querySelectorAll('a[data-track-hotel-click]').forEach(link => {
         if (link.dataset.trackBound === '1') return;
         link.dataset.trackBound = '1';
         link.addEventListener('click', () => {
-            emitTrackEvent('hotel_card_click', {
-                hotel_name: String(link.dataset.hotelName || ''),
-                hotel_id: String(link.dataset.hotelId || ''),
-                price: String(link.dataset.hotelPrice || ''),
-                url: String(link.dataset.hotelUrl || ''),
-                intent: 'booking',
-            });
+            trackHotelCardElementClick(link, link.dataset.trackHotelClick);
         });
     });
 }
@@ -265,46 +296,10 @@ function setupCtaTrackingLinks(messageContent) {
         if (link.dataset.ctaTrackBound === '1') return;
         link.dataset.ctaTrackBound = '1';
         link.addEventListener('click', () => {
-            emitTrackEvent('booking_card_click', {
-                hotel_name: String(link.dataset.hotelName || ''),
-                hotel_id: String(link.dataset.hotelId || ''),
-                url: String(link.dataset.bookingUrl || link.getAttribute('href') || ''),
-                cta_label: String(link.textContent || '').trim().slice(0, 80),
-            });
-        });
-    });
-
-    messageContent.querySelectorAll('a.results-see-all').forEach(link => {
-        if (link.dataset.ctaTrackBound === '1') return;
-        link.dataset.ctaTrackBound = '1';
-        link.addEventListener('click', () => {
-            emitTrackEvent('market_see_all_click', {
-                market: String(link.dataset.market || ''),
-                url: String(link.getAttribute('href') || ''),
-            });
-        });
-    });
-
-    messageContent.querySelectorAll('a.fallback-cta').forEach(link => {
-        if (link.dataset.ctaTrackBound === '1') return;
-        link.dataset.ctaTrackBound = '1';
-        link.addEventListener('click', () => {
-            emitTrackEvent('fallback_cta_click', {
-                fallback_type: String(link.dataset.fallbackType || 'unknown'),
-                city: String(link.dataset.city || ''),
-                market: String(link.dataset.market || ''),
-                url: String(link.getAttribute('href') || ''),
-            });
-        });
-    });
-
-    messageContent.querySelectorAll('a.response-card__link').forEach(link => {
-        if (link.dataset.ctaTrackBound === '1') return;
-        link.dataset.ctaTrackBound = '1';
-        link.addEventListener('click', () => {
-            emitTrackEvent('support_link_click', {
-                url: String(link.getAttribute('href') || ''),
-                label: String(link.textContent || '').trim().slice(0, 80),
+            trackBookingCardClick({
+                turnId: renderingTurnId(link),
+                hotelId: link.dataset.hotelId,
+                ratePlanId: link.dataset.ratePlanId,
             });
         });
     });
@@ -333,7 +328,7 @@ function selectRatePlan(row) {
     const cta = card.querySelector('.booking-card__cta');
     if (cta && url) {
         cta.setAttribute('href', url);
-        cta.dataset.bookingUrl = url;
+        cta.dataset.ratePlanId = String(row.dataset.planId || '');
     }
 
     const title = String(row.dataset.planTitle || '');
@@ -354,19 +349,6 @@ function selectRatePlan(row) {
     const priceTarget = card.querySelector('[data-plan-price-target="1"]');
     const price = String(row.dataset.planPrice || '');
     if (priceTarget && price) priceTarget.textContent = formatBackendPrice(price);
-
-    emitTrackEvent('rate_plan_select', {
-        hotel_id: String(cta?.dataset.hotelId || ''),
-        plan: title.slice(0, 80),
-        price,
-        url,
-    });
-}
-
-function emitTrackEvent(eventName, payload = {}) {
-    const trackEvent = window.chatApp?.trackEvent;
-    if (typeof trackEvent !== 'function') return;
-    trackEvent(eventName, payload);
 }
 
 function setupActionHandlers(messageContent) {
@@ -378,17 +360,6 @@ function setupActionHandlers(messageContent) {
             if (!action) return;
 
             switch (action) {
-                case 'pick-hotel': {
-                    // S-CX5: the label goes into the transcript as the user's
-                    // own message; the id rides the next request so the
-                    // backend resolves the hotel without matching that text.
-                    event.preventDefault();
-                    const hotelId = String(element.dataset.hotelId || '');
-                    const label = String(element.dataset.pickLabel || '');
-                    emitTrackEvent('hotel_pick_click', { hotel_id: hotelId });
-                    window.chatApp?.pickHotel?.(hotelId, label);
-                    return;
-                }
                 case 'select-rate-plan': {
                     // S-CX8: picking a formula only re-points the card at a link
                     // the backend already generated for it — no request, no turn.
@@ -408,16 +379,17 @@ function setupActionHandlers(messageContent) {
                     event.preventDefault();
                     const carouselId = String(element.dataset.carouselId || '');
                     const direction = Number(element.dataset.direction || 0);
-                    emitTrackEvent('carousel_nav_click', {
-                        carousel_id: carouselId,
-                        direction,
-                    });
                     window.chatApp?.scrollCarousel?.(carouselId, direction);
                     return;
                 }
                 case 'follow-up': {
                     event.preventDefault();
                     const followUp = String(element.dataset.followUp || '');
+                    trackSuggestionClick({
+                        turnId: renderingTurnId(element),
+                        suggestionType: 'timeslot_refine',
+                        position: chipPosition(element),
+                    });
                     window.chatApp?.handleFollowUp?.(followUp);
                     return;
                 }
@@ -470,7 +442,7 @@ function handleFeedbackClick(button, value) {
     if (!control || !traceId) return;
 
     submitFeedback(traceId, value);
-    emitTrackEvent('user_feedback_submitted', { trace_id: traceId, value });
+    trackFeedbackSubmit({ turnId: String(messageDiv.dataset.turnId || ''), traceId, value: value ? 'up' : 'down' });
 
     control.querySelectorAll('.feedback-control__btn').forEach(btn => {
         btn.classList.toggle('is-selected', btn === button);
@@ -488,8 +460,8 @@ function handleFeedbackClick(button, value) {
  * individual response-type renderer (faq/booking/results/clarification/…):
  * one trace_id already represents the whole turn, so tagging whichever bot
  * bubble that turn produced last is the right granularity, not an
- * approximation. No-op without a trace_id (Langfuse disabled, JSON
- * transport, or a crashed turn) — never a dead button.
+ * approximation. No-op without a trace_id (Langfuse disabled or a crashed
+ * turn) — never a dead button.
  */
 export function attachFeedbackControl(traceId) {
     if (!traceId) return;
@@ -659,7 +631,7 @@ function renderRatePlans(plans) {
 
     let selectedTitle = '';
     const rows = plans.map(plan => {
-        const url = sanitizeDayuseUrl(plan.url || '');
+        const url = sanitizeDayuseUrl(appendAmplitudeIdToUrl(plan.url || ''));
         if (!url) return '';
 
         const slot = [plan.start_time, plan.end_time].every(Boolean)
@@ -684,6 +656,7 @@ function renderRatePlans(plans) {
             <button type="button" class="booking-card__plan${plan.selected ? ' is-selected' : ''}"
                     data-action="select-rate-plan"
                     aria-pressed="${plan.selected ? 'true' : 'false'}"
+                    data-plan-id="${escapeAttr(String(plan.offer_id || ''))}"
                     data-plan-url="${escapeAttr(url)}"
                     data-plan-title="${escapeAttr(String(title))}"
                     data-plan-named="${title === slot ? '0' : '1'}"
@@ -744,6 +717,8 @@ export function createBookingCard(card) {
     const safeUrlAttr = escapeAttr(url);
     const safeHotelNameAttr = escapeAttr(card.hotel_name || 'Hotel');
     const safeHotelIdAttr = escapeAttr(String(card.hotel_id || ''));
+    const selectedPlan = Array.isArray(card.rate_plans) ? card.rate_plans.find(plan => plan?.selected) : null;
+    const safeRatePlanIdAttr = escapeAttr(String(selectedPlan?.offer_id || ''));
 
     // S-CX5 — every row is DROPPED when the offer doesn't carry it, never
     // defaulted: the whole point of this card is that it states what the link
@@ -829,9 +804,8 @@ export function createBookingCard(card) {
                 ${priceHtml}
                 <a href="${safeUrlAttr}" target="_blank" rel="noopener" class="booking-card__cta"
                    data-track-booking-card-click="1"
-                   data-hotel-name="${safeHotelNameAttr}"
                    data-hotel-id="${safeHotelIdAttr}"
-                   data-booking-url="${safeUrlAttr}">
+                   data-rate-plan-id="${safeRatePlanIdAttr}">
                     <span data-plan-cta-label="1">${escapeHtml(ctaLabel)}</span>
                     <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5">
                         <path d="M7 17L17 7M17 7H7M17 7V17"/>

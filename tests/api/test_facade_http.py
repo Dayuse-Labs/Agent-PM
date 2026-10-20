@@ -9,6 +9,10 @@ progress → hotels → tokens → done and the hotel/ready_to_search mapping.
 from __future__ import annotations
 
 import json
+import logging
+import re
+
+import pytest
 
 import b2c_concierge.agent as agent_module
 from b2c_common.clarification import Clarification
@@ -556,3 +560,130 @@ def test_a_redis_outage_is_not_an_expiry(monkeypatch, client, store):
     monkeypatch.setattr(store, "exists", _down)
     second = client.post("/v3/chat", json={"message": "Merci !"}, headers=headers).json()
     assert second["session_expired"] is False
+
+
+# --- turn_facts: what the widget's analytics event copies -------------------------------------
+def test_json_turn_carries_the_spines_turn_facts(client):
+    facts = client.post("/v3/chat", json={"message": "Bonjour !"}).json()["turn_facts"]
+    assert facts == {
+        "trace_id": None,
+        "family": "ack",
+        "route": "template:ack",
+        "status": "ok",
+        "response_type": "answer",
+        "results_count": 0,
+        "empty_reason": "none",
+        "clarification_reason": "none",
+        "guards_fired": [],
+        "fallbacks": [],
+        "resolved_city": None,
+    }
+
+
+def test_stream_turn_facts_ride_done_and_no_frame_of_their_own(monkeypatch, client):
+    async def fake_classify(message, budget, invocation_id="", *, recent_messages=None, previous_question=None):
+        budget.charge("triage")
+        return Triage("search", "fr", used_llm=False)
+
+    async def fake_run_leaf(leaf, ctx, profile_in):
+        return ("ok", {"results": [{"id": 1, "name": "Hotel A"}], "profile_delta": {"city": "Nantes"}})
+
+    async def fake_generate_once(self, **kwargs):
+        return "Une réponse."
+
+    monkeypatch.setattr(agent_module, "classify", fake_classify)
+    monkeypatch.setattr(agent_module, "_run_leaf", fake_run_leaf)
+    monkeypatch.setattr(agent_module._B2cConcierge, "_generate_once", fake_generate_once)
+
+    events = _parse_sse(client.post("/v3/chat/stream", json={"message": "un hôtel"}).text)
+    assert {e for e, _ in events} == {"progress", "hotels", "token", "done"}
+    assert [e for e, _ in events].count("progress") == 1
+    facts = events[-1][1]["turn_facts"]
+    assert facts["route"] == "leaf:hotel_search"
+    assert facts["response_type"] == "results"
+    assert facts["results_count"] == 1
+    assert facts["resolved_city"] == "Nantes"
+
+
+def test_empty_message_turn_facts_name_the_empty_ack(client):
+    facts = client.post("/v3/chat", json={"message": "  "}).json()["turn_facts"]
+    assert (facts["family"], facts["route"], facts["status"]) == ("ack", "template:empty_ack", "ok")
+
+
+def test_shield_turn_facts_report_an_error(monkeypatch, client):
+    async def crash(session_id, user_id, message):
+        raise RuntimeError("boom")
+        yield  # pragma: no cover
+
+    monkeypatch.setattr(facade_module, "_drive", crash)
+    facts = client.post("/v3/chat", json={"message": "hôtel"}).json()["turn_facts"]
+    assert facts["family"] == "unknown"
+    assert facts["route"] == "facade_shield"
+    assert facts["status"] == "degraded"
+    assert facts["empty_reason"] == "error"
+    assert facts["trace_id"] is None
+
+
+def test_sse_setup_crash_turn_facts_report_an_error(monkeypatch, client):
+    async def broken_session(session_id, user_id):
+        raise RuntimeError("session backend down")
+
+    monkeypatch.setattr(facade_module, "_get_or_create_session", broken_session)
+    events = _parse_sse(client.post("/v3/chat/stream", json={"message": "hello"}).text)
+    facts = events[-1][1]["turn_facts"]
+    assert (facts["route"], facts["status"], facts["trace_id"]) == ("facade_shield", "degraded", None)
+
+
+def test_a_spine_turn_without_a_marker_is_reported_unknown_and_warned(monkeypatch, client, caplog):
+    async def markerless_drive(session_id, user_id, message):
+        yield "final", "Une réponse."
+
+    monkeypatch.setattr(facade_module, "_drive", markerless_drive)
+    message = "un hôtel secret"
+    with caplog.at_level(logging.WARNING, logger="b2c_concierge.facade"):
+        facts = client.post("/v3/chat", json={"message": message}).json()["turn_facts"]
+    assert facts["status"] == "unknown"
+    warnings = [r.getMessage() for r in caplog.records if r.name == "b2c_concierge.facade"]
+    assert any("turn_facts" in w for w in warnings)
+    assert not any(message in w for w in warnings)
+
+
+def test_a_markerless_stream_turn_is_reported_unknown(monkeypatch, client):
+    async def markerless_drive(session_id, user_id, message):
+        yield "final", "Une réponse."
+
+    monkeypatch.setattr(facade_module, "_drive", markerless_drive)
+    events = _parse_sse(client.post("/v3/chat/stream", json={"message": "un hôtel"}).text)
+    assert events[-1][1]["turn_facts"]["status"] == "unknown"
+
+
+def test_the_empty_message_turn_is_not_unknown(client, caplog):
+    with caplog.at_level(logging.WARNING, logger="b2c_concierge.facade"):
+        facts = client.post("/v3/chat", json={"message": "  "}).json()["turn_facts"]
+    assert facts["status"] == "ok"
+    assert not [r for r in caplog.records if r.name == "b2c_concierge.facade"]
+
+
+def test_a_valid_client_turn_id_is_echoed(client):
+    turn_id = "8f14e45f-ceea-467a-9575-0f1a2b3c4d5e_t3"
+    body = {"message": "Bonjour !", "turn_id": turn_id}
+    assert client.post("/v3/chat", json=body).json()["turn_id"] == turn_id
+    events = _parse_sse(client.post("/v3/chat/stream", json=body).text)
+    assert events[-1][1]["turn_id"] == turn_id
+
+
+def test_the_shield_echoes_the_client_turn_id(monkeypatch, client):
+    async def crash(session_id, user_id, message):
+        raise RuntimeError("boom")
+        yield  # pragma: no cover
+
+    monkeypatch.setattr(facade_module, "_drive", crash)
+    r = client.post("/v3/chat", json={"message": "hôtel", "turn_id": "abc_t1"})
+    assert r.json()["turn_id"] == "abc_t1"
+
+
+@pytest.mark.parametrize("turn_id", ["", "has space", "x" * 129, 42, None, "<script>"])
+def test_an_invalid_client_turn_id_is_replaced(client, turn_id):
+    sent = client.post("/v3/chat", json={"message": "Bonjour !", "turn_id": turn_id}).json()["turn_id"]
+    assert sent != turn_id
+    assert re.fullmatch(r"[0-9a-f]{32}", sent)

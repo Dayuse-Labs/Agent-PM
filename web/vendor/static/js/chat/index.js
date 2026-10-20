@@ -7,7 +7,13 @@
 import { state, carousels } from './state.js';
 
 // Tracking
-import { trackEvent, trackChatOpen, appendAmplitudeIdToUrl } from './tracking.js';
+import {
+    appendAmplitudeIdToUrl,
+    loadAmplitude,
+    syncAmplitudeIdentity,
+    trackPageview,
+    trackSuggestionClick,
+} from './tracking.js';
 
 // UI
 import { addMessage, showTypingIndicator, hideTypingIndicator } from './ui/messages.js';
@@ -23,7 +29,6 @@ import { nextImage, prevImage, handleImageScroll, goToImage } from './hotels/ima
 // Filters
 import {
     applyChip,
-    pickHotel,
     chipsInlineHtml,
     suggestionsInlineHtml,
     renderClarify,
@@ -50,14 +55,7 @@ async function startFromAppContext() {
     const chatContainer = document.getElementById('chat-container');
     if (chatContainer && chatContainer.classList.contains('visible')) return false; // deep link won
     state.entrySource = 'mobile_app';
-    const amplitudeContext = typeof window.syncDayuseAmplitudeContext === 'function'
-        ? window.syncDayuseAmplitudeContext()
-        : null;
-    trackEvent('app_attribution_context_ready', {
-        native_device_id_present: Boolean(native.amp_device_id),
-        native_session_id_present: Boolean(native.amp_session_id),
-        app_platform: amplitudeContext?.appPlatform || 'unknown',
-    });
+    syncAmplitudeIdentity();
 
     openChatView();
     try {
@@ -76,12 +74,11 @@ async function startFromAppContext() {
                 if (greeting) greeting.textContent = data.message;
             }
             const sugg = Array.isArray(data.suggestions) ? data.suggestions : [];
-            const html = suggestionsInlineHtml(sugg);
+            const html = suggestionsInlineHtml(sugg, 'welcome');
             if (html) {
                 const msg = addMessage(html, false, false, true, true);
                 if (msg && msg.classList) msg.classList.add('message--actions');
             }
-            trackEvent('app_welcome_personalized', { chips: sugg.length });
         }
     } catch (e) {
         /* welcome is best-effort — the chat is already open and usable */
@@ -101,47 +98,17 @@ function normalizeQuery(rawValue) {
         .slice(0, 400);
 }
 
-function normalizeSessionId(rawValue) {
-    const value = String(rawValue || '').trim();
-    if (!value) return '';
-    if (!/^[a-zA-Z0-9_-]{1,128}$/.test(value)) return '';
-    return value;
-}
-
-function getReferrerHost() {
-    try {
-        return new URL(document.referrer).hostname.toLowerCase();
-    } catch (_e) {
-        return '';
-    }
-}
-
-function isDayuseHost(hostname) {
-    return Boolean(
-        hostname &&
-        (hostname === 'dayuse.com' || hostname.endsWith('.dayuse.com'))
-    );
-}
-
 function extractEntryContextFromUrl(params) {
     const source = normalizeSource(params.get('source') || '');
-    const dayuseSessionId = normalizeSessionId(
-        params.get('dayuse_session_id') || params.get('du_sid') || params.get('du_dayuse_session_id')
-    );
     if (source) {
         state.entrySource = source;
     }
-    if (dayuseSessionId) {
-        state.dayuseSessionId = dayuseSessionId;
-    }
-    return { source, dayuseSessionId };
 }
 
 function startFromDeepLinkQuery() {
     const params = new URLSearchParams(window.location.search);
     const deepLinkQuery = normalizeQuery(params.get('q') || params.get('query'));
-    const { source, dayuseSessionId } = extractEntryContextFromUrl(params);
-    const referrerHost = getReferrerHost();
+    extractEntryContextFromUrl(params);
 
     if (!deepLinkQuery) {
         return;
@@ -153,13 +120,6 @@ function startFromDeepLinkQuery() {
     }
 
     initialInput.value = deepLinkQuery;
-    trackEvent('chat_deeplink_received', {
-        source: source || 'unknown',
-        query_length: deepLinkQuery.length,
-        referrer_host: referrerHost || 'none',
-        referrer_is_dayuse: isDayuseHost(referrerHost),
-        dayuse_session_id_present: Boolean(dayuseSessionId),
-    });
 
     // Remove handoff params from URL and avoid re-trigger on refresh.
     params.delete('q');
@@ -172,7 +132,7 @@ function startFromDeepLinkQuery() {
     const nextUrl = `${window.location.pathname}${remaining ? `?${remaining}` : ''}${window.location.hash || ''}`;
     window.history.replaceState({}, document.title, nextUrl);
 
-    startChat();
+    startChat('initial_prompt');
 }
 
 /**
@@ -182,11 +142,10 @@ function initChat() {
     setLanguage(state.responseLanguage);
     applyStaticTranslations();
 
-    // Read handoff metadata early so chat_open carries source/session context.
     extractEntryContextFromUrl(new URLSearchParams(window.location.search));
 
-    // Track chat open
-    trackChatOpen();
+    // Before startFromDeepLinkQuery, which strips the deep-link params from the URL.
+    trackPageview();
 
     // Enter key handlers
     const userInput = document.getElementById('user-input');
@@ -243,14 +202,10 @@ function initChat() {
         initialSubmitButton.addEventListener('click', () => startChat());
     }
 
-    document.querySelectorAll('[data-action="fill-search-example"]').forEach(example => {
+    document.querySelectorAll('[data-action="fill-search-example"]').forEach((example, index) => {
         example.addEventListener('click', () => {
-            const query = String(example.textContent || '').trim();
-            trackEvent('search_example_click', {
-                example_id: String(example.id || ''),
-                query_preview: query.slice(0, 120),
-            });
-            fillSearch(query);
+            trackSuggestionClick({ suggestionType: 'search_example', position: index + 1 });
+            fillSearch(String(example.textContent || '').trim());
         });
     });
 
@@ -351,6 +306,8 @@ function setupCharacterCounters() {
     }
 }
 
+loadAmplitude();
+
 // Initialize on DOM ready
 document.addEventListener('DOMContentLoaded', initChat);
 
@@ -368,7 +325,6 @@ window.chatApp = {
     fillSearch,
 
     // Tracking
-    trackEvent,
     appendAmplitudeIdToUrl,
 
     // Messages
@@ -394,7 +350,6 @@ window.chatApp = {
 
     // Filters
     applyChip,
-    pickHotel,
     handleFollowUp,
     runSearchWithFilters,
     seeMore,
@@ -425,6 +380,6 @@ window.nextImage = nextImage;
 window.prevImage = prevImage;
 window.handleImageScroll = handleImageScroll;
 window.bookHotel = bookHotel;
-window.trackEvent = trackEvent;
+window.syncDayuseAmplitudeContext = syncAmplitudeIdentity;
 window.runSearchWithFilters = runSearchWithFilters;
 window.seeMore = seeMore;

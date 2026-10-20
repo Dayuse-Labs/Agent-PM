@@ -764,6 +764,22 @@ class TestGdprMetricEvents:
         assert "Paris" not in blob
         assert USER_MESSAGE_SEARCH not in blob
 
+    def test_turn_facts_never_contain_message_content(self, scripted):
+        """The widget forwards `turn_facts` to a third party (Amplitude): the
+        geocoded city may ride it, the user's words never."""
+        message = "je cherche une chambre calme avec terrasse"
+        scripted(
+            '{"family": "search", "language": "fr"}',
+            "Réponse synthétisée.",
+            response={"results": [{"name": "Hotel A"}], "profile_delta": {"city": "Lyon"}},
+        )
+        facts = _turn_facts(_drive_events(message))
+        assert facts["resolved_city"] == "Lyon"
+        blob = json.dumps(facts, ensure_ascii=False).lower()
+        for word in message.split():
+            if len(word) > 3:
+                assert word not in blob
+
 
 class TestGdprLogs:
     def test_logs_never_contain_message_content(self, scripted, caplog):
@@ -802,7 +818,7 @@ class TestInternalEvents:
     def test_progress_event_fires_even_on_pure_ack_turn(self, scripted):
         scripted()  # empty plan: an ack turn must cost zero LLM calls
         events = _drive_events("Bonjour !")
-        assert _marker_payloads(events) == [{"event": "progress"}]
+        assert [p["event"] for p in _marker_payloads(events)] == ["progress", "turn_facts"]
 
     def test_hotels_event_fires_after_leaf_and_before_the_final_answer(self, scripted):
         scripted(
@@ -835,7 +851,7 @@ class TestInternalEvents:
             _async_result({"ok": False, "error": "hotel not found"}),
         )
         events = _drive_events("quels équipements a cet hôtel ?")
-        assert [p["event"] for p in _marker_payloads(events)] == ["progress"]
+        assert [p["event"] for p in _marker_payloads(events)] == ["progress", "turn_facts"]
 
     def test_resolved_inline_lookup_turn_fires_a_hotels_event(self, scripted, monkeypatch):
         scripted('{"family": "details", "language": "fr"}', "Le voici.")
@@ -872,6 +888,324 @@ class TestInternalEvents:
         assert _answer(events) == final_text
         # every chunk event must be partial (never persisted to the session).
         assert all(e.partial for e in events if e is not events[_final_index(events)])
+
+
+def _turn_facts(events) -> dict:
+    (facts,) = [p for p in _marker_payloads(events) if p["event"] == "turn_facts"]
+    return facts
+
+
+class TestTurnFactsMarker:
+    """The one `turn_facts` marker every turn ends on: what the widget's
+    analytics event needs and only the spine knows."""
+
+    def test_ack_turn_reports_a_template_answer(self, scripted):
+        scripted()
+        events = _drive_events("Bonjour !")
+        assert _turn_facts(events) == {
+            "event": "turn_facts",
+            "trace_id": None,
+            "family": "ack",
+            "route": "template:ack",
+            "status": "ok",
+            "response_type": "answer",
+            "results_count": 0,
+            "empty_reason": "none",
+            "clarification_reason": "none",
+            "guards_fired": [],
+            "fallbacks": [],
+            "resolved_city": None,
+        }
+
+    def test_marker_comes_right_before_the_final_answer(self, scripted):
+        scripted(
+            '{"family": "search", "language": "fr"}',
+            "Voici votre hôtel.",
+            response={"results": [{"name": "Hotel Alameda"}]},
+        )
+        events = _drive_events(USER_MESSAGE_SEARCH)
+        assert _marker_index(events, "turn_facts") == _final_index(events) - 1
+        assert _final_index(events) == len(events) - 1
+
+    def test_search_with_hotels_reports_results_and_the_searched_city(self, scripted):
+        scripted(
+            '{"family": "search", "language": "fr"}',
+            "Voici vos hôtels.",
+            response={
+                "results": [{"name": "Hotel A"}, {"name": "Hotel B"}],
+                "profile_delta": {"city": "Lyon"},
+                "guards_fired": ["state_anchoring"],
+            },
+        )
+        facts = _turn_facts(_drive_events("un hôtel pour demain"))
+        assert facts["family"] == "search"
+        assert facts["route"] == "leaf:hotel_search"
+        assert facts["response_type"] == "results"
+        assert facts["results_count"] == 2
+        assert facts["empty_reason"] == "none"
+        assert facts["resolved_city"] == "Lyon"
+        assert "state_anchoring" in facts["guards_fired"]
+
+    def test_empty_search_reports_no_offers(self, scripted):
+        scripted(
+            '{"family": "search", "language": "fr"}',
+            "Aucune offre.",
+            response={"results": [], "profile_delta": {"city": "Lyon"}},
+        )
+        facts = _turn_facts(_drive_events("un hôtel pour ce soir"))
+        assert facts["response_type"] == "answer"
+        assert facts["results_count"] == 0
+        assert facts["empty_reason"] == "no_offers"
+        assert facts["resolved_city"] == "Lyon"
+
+    def test_empty_search_on_a_closed_day_reports_date_unavailable(self, scripted):
+        scripted(
+            '{"family": "search", "language": "fr"}',
+            "Aucune offre pour aujourd'hui.",
+            response={
+                "results": [],
+                "search_date": {"date": "2026-07-27", "same_day": True, "cutoff_closed": True},
+            },
+        )
+        facts = _turn_facts(_drive_events("un hôtel pour ce soir"))
+        assert facts["empty_reason"] == "date_unavailable"
+
+    def test_search_tools_down_reports_an_error(self, scripted):
+        scripted(
+            '{"family": "search", "language": "fr"}',
+            response={"status": "search_unavailable", "profile_delta": {"city": "Marseille"}},
+        )
+        facts = _turn_facts(_drive_events(USER_MESSAGE_SEARCH))
+        assert facts["status"] == "degraded"
+        assert facts["empty_reason"] == "error"
+        assert facts["resolved_city"] is None
+
+    def test_unreachable_search_leaf_reports_an_error(self, scripted, monkeypatch):
+        scripted('{"family": "search", "language": "fr"}')
+
+        async def failing_leaf(leaf, ctx, profile_in, **kwargs):
+            return None, {}
+
+        monkeypatch.setattr(agent_module, "_run_leaf", failing_leaf)
+        facts = _turn_facts(_drive_events(USER_MESSAGE_SEARCH))
+        assert facts["status"] == "degraded"
+        assert facts["empty_reason"] == "error"
+
+    def test_unreachable_faq_leaf_ran_no_search(self, scripted, monkeypatch):
+        scripted('{"family": "faq", "language": "fr"}')
+
+        async def failing_leaf(leaf, ctx, profile_in, **kwargs):
+            return None, {}
+
+        monkeypatch.setattr(agent_module, "_run_leaf", failing_leaf)
+        facts = _turn_facts(_drive_events("comment annuler ?"))
+        assert facts["status"] == "degraded"
+        assert facts["empty_reason"] == "none"
+
+    @pytest.mark.parametrize(("kind", "reason"), [("city_needed", "location"), ("homonym", "homonym")])
+    def test_place_question_reports_its_kind(self, scripted, kind, reason):
+        from b2c_common.clarification import Clarification, ClarificationOption
+
+        options = (
+            [
+                ClarificationOption(label="Valence (Drôme)", city="Valence", country_code="FR"),
+                ClarificationOption(label="Valencia (Spain)", city="Valencia", country_code="ES"),
+            ]
+            if kind == "homonym"
+            else []
+        )
+        question = Clarification(kind=kind, subject="Valence", options=options)
+        scripted(
+            '{"family": "search", "language": "fr"}',
+            response={"requires_clarification": True, "clarification": question.model_dump(mode="json")},
+        )
+        facts = _turn_facts(_drive_events("un hôtel à Valence"))
+        assert facts["route"] == "template:clarification"
+        assert facts["response_type"] == "clarification"
+        assert facts["clarification_reason"] == reason
+        assert facts["resolved_city"] is None
+
+    def test_free_question_without_a_search_is_a_clarification(self, scripted):
+        scripted(
+            '{"family": "search", "language": "fr"}',
+            "Pour quelle date souhaitez-vous réserver ?",
+            leaf_text="For which date?",
+            response={"profile_delta": {"city": "Lyon"}},
+        )
+        facts = _turn_facts(_drive_events("un hôtel à Lyon"))
+        assert facts["response_type"] == "clarification"
+        assert facts["clarification_reason"] == "other"
+        assert facts["empty_reason"] == "none"
+
+    def test_ambiguous_hotel_name_is_a_homonym_question(self, scripted):
+        scripted(
+            '{"family": "search", "language": "fr", "hotel_name": "Ibis"}',
+            response={
+                "named_hotel_ambiguous": {
+                    "query": "Ibis",
+                    "candidates": [{"name": "Ibis Gare"}, {"name": "Ibis Centre"}],
+                },
+            },
+        )
+        facts = _turn_facts(_drive_events("l'hôtel Ibis"))
+        assert facts["response_type"] == "clarification"
+        assert facts["clarification_reason"] == "homonym"
+
+    def test_resolved_details_lookup_reports_the_hotel_shown(self, scripted, monkeypatch):
+        scripted('{"family": "details", "language": "fr"}', "Le voici.")
+        monkeypatch.setattr(
+            agent_module.inline_tools, "get_hotel_details",
+            _async_result({"ok": True, "hotel": {"id": 1, "name": "Hotel A"}}),
+        )
+        facts = _turn_facts(_drive_events("quels équipements a le Hotel A ?"))
+        assert facts["route"] == "inline:get_hotel_details"
+        assert facts["response_type"] == "results"
+        assert facts["results_count"] == 1
+
+
+_SEARCH = '{"family": "search", "language": "en"}'
+_SHOWN_OFFER = {
+    "hotel_id": 12, "name": "Example", "offer_id": "shown", "offer_date": "2026-10-10",
+    "offer_totals": {"EUR": 11700},
+}
+_PRICE_LOWER = (
+    '{"family": "search", "language": "en",'
+    ' "price_comparison": {"value": "lower", "evidence": "cheaper"}}'
+)
+_CITY_NEEDED_PAYLOAD = {
+    "requires_clarification": True,
+    "clarification": {"kind": "city_needed", "subject": "Gare du Nord", "options": []},
+}
+
+
+def _route_case(case_id, *, triage, seed=None, response=None, message="a hotel", turns=1,
+                expected, booking=None):
+    return pytest.param(
+        dict(triage=triage, seed=seed, response=response, message=message, turns=turns, booking=booking),
+        expected,
+        id=case_id,
+    )
+
+
+ROUTE_FACTS_CASES = [
+    _route_case(
+        "party_question_on_a_booking_turn",
+        triage=json.dumps({
+            "family": "booking", "language": "en", "hotel_name": "Example",
+            "requested_occupancy": {"total": 3, "evidence": "for three"},
+        }),
+        seed=SessionProfile(city="Paris", last_results=[_SHOWN_OFFER]),
+        message="Book Example for three",
+        expected=("clarification", "party", "none"),
+    ),
+    _route_case(
+        "party_question_over_an_empty_page",
+        triage=_SEARCH,
+        seed=SessionProfile(city="Paris", pending_party_total=3),
+        response={"results": []},
+        expected=("clarification", "party", "none"),
+    ),
+    _route_case(
+        "budget_unit_question_before_the_search",
+        triage=json.dumps({
+            "family": "search", "language": "en",
+            "requested_budget": {"amount": 10, "currency": "EUR", "unit": "hour", "evidence": "10 euros per hour"},
+        }),
+        seed=SessionProfile(city="Lyon"),
+        message="Lyon at 10 euros per hour",
+        expected=("clarification", "budget", "none"),
+    ),
+    _route_case(
+        "cheaper_without_a_priced_reference",
+        triage=_PRICE_LOWER,
+        seed=SessionProfile(city="Paris", last_results=[{"hotel_id": 12, "name": "Unpriced"}]),
+        message="Anything cheaper?",
+        expected=("clarification", "budget", "none"),
+    ),
+    _route_case(
+        "booking_degraded_with_a_shortlist_on_screen",
+        triage='{"family": "booking", "language": "en"}',
+        seed=SessionProfile(city="Paris", last_results=[_SHOWN_OFFER]),
+        booking={"ok": False, "error": "no hotel reference in the message"},
+        expected=("clarification", "other", "none"),
+    ),
+    _route_case(
+        "booking_degraded_without_a_shortlist",
+        triage='{"family": "booking", "language": "en"}',
+        booking={"ok": False, "error": "no hotel reference in the message"},
+        expected=("answer", "none", "none"),
+    ),
+    _route_case(
+        "cheaper_page_with_nothing_strictly_cheaper",
+        triage=_PRICE_LOWER,
+        seed=SessionProfile(city="Paris", requested_budget={}, last_results=[_SHOWN_OFFER]),
+        response={"results": []},
+        message="Anything cheaper?",
+        expected=("answer", "none", "filters_too_strict"),
+    ),
+    _route_case(
+        "other_options_over_an_exhausted_pool",
+        triage=_SEARCH,
+        seed=SessionProfile(city="Paris", last_results=[_SHOWN_OFFER]),
+        response={"results": []},
+        message="other options",
+        expected=("answer", "none", "no_offers"),
+    ),
+    _route_case(
+        "third_place_question_gives_up_and_asks_nothing",
+        triage=_SEARCH,
+        response=_CITY_NEEDED_PAYLOAD,
+        turns=3,
+        expected=("answer", "none", "none"),
+    ),
+    _route_case(
+        "second_place_question_is_still_a_clarification",
+        triage=_SEARCH,
+        response=_CITY_NEEDED_PAYLOAD,
+        turns=2,
+        expected=("clarification", "location", "none"),
+    ),
+]
+
+
+class TestRouteTurnFacts:
+    @pytest.mark.parametrize(("case", "expected"), ROUTE_FACTS_CASES)
+    def test_route_reports_its_response_type_and_reasons(
+        self, scripted, monkeypatch, fake_profile_store, case, expected
+    ):
+        scripted(*[case["triage"]] * case["turns"], response=case["response"])
+        if case["booking"] is not None:
+            monkeypatch.setattr(
+                agent_module.inline_tools, "generate_booking_link", _async_result(case["booking"])
+            )
+        runner, session = _new_session()
+        if case["seed"] is not None:
+            asyncio.run(fake_profile_store.set(session.id, case["seed"]))
+        for _ in range(case["turns"]):
+            events = _drive_in(runner, session.id, case["message"])
+        facts = _turn_facts(events)
+        assert (facts["response_type"], facts["clarification_reason"], facts["empty_reason"]) == expected
+
+
+class TestTurnWithTwoFinalEvents:
+    def test_the_earlier_final_is_yielded_not_overwritten_and_the_marker_precedes_the_last(
+        self, scripted, monkeypatch, caplog
+    ):
+        scripted()
+
+        async def two_finals(self, ctx, budget):
+            self._emit_turn_metric("search", "leaf:hotel_search", budget, 0.0, "ok")
+            yield self._final(ctx, "first answer")
+            yield self._final(ctx, "last answer")
+
+        monkeypatch.setattr(type(root_agent), "_run_turn", two_finals)
+        with caplog.at_level(logging.ERROR, logger="b2c_concierge.agent"):
+            events = _drive_events("un hôtel secret")
+        finals = [e.content.parts[0].text for e in events if not e.partial]
+        assert finals == ["first answer", "last answer"]
+        assert _marker_index(events, "turn_facts") == len(events) - 2
+        errors = [r.getMessage() for r in caplog.records if r.levelno == logging.ERROR]
+        assert errors and not any("un hôtel secret" in m or "answer" in m for m in errors)
 
 
 class TestSynthesisQuestionIsNotPolicedByText:

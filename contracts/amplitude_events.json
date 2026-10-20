@@ -1,0 +1,123 @@
+{
+  "version": 1,
+  "rules": {
+    "naming": "Events are lowercase snake_case `ai_agent__<object>_<action>` (plus `pageview`, copied from dayuse.com); properties are snake_case.",
+    "evolution": "Append only: never rename or remove an event, a property or an enum value.",
+    "sentinels": "A string property with no value is sent as \"unknown\" (or \"none\" where listed in its enum), never null. A property marked optional is omitted when it has no value.",
+    "emitter": "Every event is sent by the widget. Properties with \"source\": \"turn_facts\" are copied from the `turn_facts` block of the /v3 response."
+  },
+  "session_replay": {
+    "sample_rate": 0.05,
+    "description": "Share of Amplitude sessions recorded by Session Replay, served by the widget proxy's /sr-config so Amplitude's remote settings cannot change it; synthetic runs are never recorded."
+  },
+  "common_properties": {
+    "conversation_id": {"type": "string", "description": "The conversation's session id, equal to the Langfuse session_id."},
+    "tracking_surface": {"type": "string", "enum": ["web", "mobile_app"], "description": "Where the widget runs: a browser, or the app's WebView."},
+    "app_platform": {"type": "string", "enum": ["ios", "android", "none"], "description": "The app's OS on mobile_app, \"none\" on web."},
+    "entry_source": {"type": "string", "enum": ["banner_home", "banner_search", "section_home", "app", "deeplink", "direct"], "description": "How the user reached the agent: the dayuse.com entry point, the app, another deep link, or none."},
+    "domain": {"type": "string", "description": "Hostname serving the widget, e.g. ai.dayuse.com."},
+    "market_country": {"type": "string", "description": "ISO 3166-1 alpha-2 country of the market, \"unknown\" before one is known."},
+    "language": {"type": "string", "description": "Language the agent answers in, e.g. \"fr\"."},
+    "agent_version": {"type": "string", "description": "Deployed commit SHA, equal to LANGFUSE_RELEASE; \"unknown\" locally."},
+    "is_synthetic": {"type": "boolean", "description": "True for scripted runs (`?du_synthetic=1`); exclude these from every KPI."},
+    "dayuse_event_id": {"type": "string", "description": "A UUID per event, as on dayuse.com."}
+  },
+  "events": {
+    "pageview": {
+      "description": "The widget page loads; fires once per load.",
+      "properties": {
+        "url": {"type": "string", "description": "Full page URL."},
+        "url_path": {"type": "string", "description": "Path of the page URL."},
+        "url_and_query_string": {"type": "string", "description": "Path plus query string of the page URL."},
+        "referrer": {"type": "string", "description": "document.referrer, \"none\" when empty."},
+        "referrer_domain": {"type": "string", "description": "Hostname of the referrer, \"none\" when empty."},
+        "page_type": {"type": "string", "enum": ["ai_agent"], "description": "Always \"ai_agent\"; tells the agent's pageviews apart from dayuse.com's."}
+      }
+    },
+    "ai_agent__message_sent": {
+      "description": "User sends a message to the agent, typed or from a button.",
+      "properties": {
+        "turn_id": {"type": "string", "description": "Client-minted turn id, echoed back by the server."},
+        "turn_index": {"type": "integer", "description": "1 for the conversation's first message."},
+        "prompt": {"type": "string", "description": "The message text, truncated to 500 characters."},
+        "prompt_source": {"type": "string", "enum": ["typed", "initial_prompt", "suggestion"], "description": "What produced the message: typing, the deep link's `q`, or a suggestion chip."},
+        "message_length": {"type": "integer", "description": "Character count of the full, untruncated message."}
+      }
+    },
+    "ai_agent__response_received": {
+      "description": "The agent's answer to a message is complete (`done` frame or JSON response).",
+      "properties": {
+        "turn_id": {"type": "string", "description": "Turn this answer belongs to."},
+        "turn_index": {"type": "integer", "description": "1 for the conversation's first message."},
+        "langfuse_trace_id": {"type": "string", "source": "turn_facts", "description": "Langfuse trace of this turn, \"none\" when tracing is off."},
+        "response_type": {"type": "string", "enum": ["results", "clarification", "answer"], "source": "turn_facts", "description": "Hotels shown, a question back to the user, or a text answer."},
+        "results_count": {"type": "integer", "source": "turn_facts", "description": "Hotels shown this turn."},
+        "hotel_ids": {"type": "array", "items": "integer", "description": "Ids of the hotels shown, in display order."},
+        "empty_reason": {"type": "string", "enum": ["none", "no_offers", "filters_too_strict", "date_unavailable", "error"], "source": "turn_facts", "description": "Why a search showed no hotel; \"none\" when hotels were shown or no search ran."},
+        "clarification_reason": {"type": "string", "enum": ["none", "location", "homonym", "party", "budget", "other"], "source": "turn_facts", "description": "What the agent asked back; \"none\" unless response_type is clarification."},
+        "family": {"type": "string", "enum": ["search", "faq", "details", "compare", "booking", "ack", "unknown"], "source": "turn_facts", "description": "Intent decided by triage."},
+        "route": {"type": "string", "source": "turn_facts", "description": "Component that answered, e.g. leaf:hotel_search, template:ack, inline:generate_booking_link."},
+        "status": {"type": "string", "enum": ["ok", "degraded", "synthesis_fallback", "unknown"], "source": "turn_facts", "description": "Turn outcome as the spine reports it; \"unknown\" when the response carries no turn_facts."},
+        "guards_fired": {"type": "array", "items": "string", "source": "turn_facts", "description": "GUARD_SCORE_NAMES entries that fired this turn, sorted."},
+        "fallbacks": {"type": "array", "items": "string", "source": "turn_facts", "description": "FALLBACK_SCORE_NAMES entries taken this turn, sorted."},
+        "resolved_city": {"type": "string", "source": "turn_facts", "description": "City the search was anchored on after geocoding, \"unknown\" when none."},
+        "has_booking_card": {"type": "boolean", "description": "A booking card was shown this turn."},
+        "search_country": {"type": "string", "description": "ISO country of the search, \"unknown\" when none."},
+        "ttft_ms": {"type": "integer", "optional": true, "description": "Send to first `progress` frame; streaming transport only."},
+        "latency_ms": {"type": "integer", "description": "Send to complete answer."}
+      }
+    },
+    "ai_agent__response_failed": {
+      "description": "A message got no answer: HTTP error, network error, or a widget error while handling the response.",
+      "properties": {
+        "turn_id": {"type": "string", "description": "Turn that failed."},
+        "turn_index": {"type": "integer", "description": "1 for the conversation's first message."},
+        "langfuse_trace_id": {"type": "string", "optional": true, "description": "Present when a `progress` frame arrived before the failure."},
+        "error_type": {"type": "string", "enum": ["http", "network", "client"], "description": "Kind of failure; \"client\" is an exception in the widget after the server answered."},
+        "http_status": {"type": "integer", "optional": true, "description": "Status code when error_type is http."}
+      }
+    },
+    "ai_agent__hotel_click": {
+      "description": "User clicks toward a hotel from the agent's answer.",
+      "properties": {
+        "turn_id": {"type": "string", "description": "Turn whose answer showed the card."},
+        "turn_index": {"type": "integer", "description": "Index of that turn."},
+        "langfuse_trace_id": {"type": "string", "description": "Trace of that turn, \"none\" when unknown."},
+        "hotel_id": {"type": "integer", "description": "Clicked hotel."},
+        "position": {"type": "integer", "description": "1-based position of the card in its list."},
+        "clicked_element": {"type": "string", "enum": ["card_cta"], "description": "Element clicked: a hotel card's call to action."}
+      }
+    },
+    "ai_agent__booking_card_click": {
+      "description": "User clicks the booking card's link to the dayuse.com checkout.",
+      "properties": {
+        "turn_id": {"type": "string", "description": "Turn whose answer showed the booking card."},
+        "turn_index": {"type": "integer", "description": "Index of that turn."},
+        "langfuse_trace_id": {"type": "string", "description": "Trace of that turn, \"none\" when unknown."},
+        "hotel_id": {"type": "integer", "description": "Hotel being booked."},
+        "rate_plan_id": {"type": "string", "description": "Offer or rate plan selected, \"unknown\" when the card has none."}
+      }
+    },
+    "ai_agent__suggestion_click": {
+      "description": "User clicks a suggestion chip in the chat; the message it sends is tracked separately.",
+      "properties": {
+        "turn_id": {"type": "string", "optional": true, "description": "Turn whose answer showed the chip; absent for chips shown before any turn."},
+        "suggestion_type": {"type": "string", "description": "Kind of chip, e.g. search_example or recovery."},
+        "position": {"type": "integer", "description": "1-based position of the chip in its row."}
+      }
+    },
+    "ai_agent__feedback_submit": {
+      "description": "User rates an answer with thumbs up or down.",
+      "properties": {
+        "turn_id": {"type": "string", "description": "Turn rated."},
+        "turn_index": {"type": "integer", "description": "Index of that turn."},
+        "langfuse_trace_id": {"type": "string", "description": "Trace of that turn; the same rating is stored as a Langfuse score on it."},
+        "value": {"type": "string", "enum": ["up", "down"], "description": "Rating."}
+      }
+    },
+    "ai_agent__conversation_reset": {
+      "description": "User restarts the conversation.",
+      "properties": {}
+    }
+  }
+}

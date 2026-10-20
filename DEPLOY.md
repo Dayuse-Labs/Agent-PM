@@ -58,7 +58,9 @@ railway variables --service <s> --set "LANGFUSE_RELEASE=$SHA" --skip-deploys
 ```
 
 Estampiller AVANT `railway up` : Railway fige les variables au moment du déploiement, donc c'est
-ce qui fait porter `$SHA` aux traces Langfuse du nouveau conteneur. Si un `up` échoue ensuite,
+ce qui fait porter `$SHA` aux traces Langfuse du nouveau conteneur. Sur `widget`, la même
+estampille devient la balise `<meta name="agent-version">` de la page, donc la propriété
+`agent_version` de chaque événement Amplitude. Si un `up` échoue ensuite,
 remettre l'ancienne estampille (même commande) — sinon elle revendique un build qui ne tourne pas.
 
 **4. Déployer, feuilles d'abord** : `faq` → `hotel-search` → `concierge` → `widget`

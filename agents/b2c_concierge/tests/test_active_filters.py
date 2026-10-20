@@ -98,6 +98,8 @@ class TestContractKeysUntouched:
                 "hotel_picks", "booking_card",
                 # mcp-dayuse#6 (2026-10-06): the profile expired mid-conversation.
                 "session_expired",
+                # What the widget's analytics event copies (contracts/amplitude_events.json).
+                "turn_facts",
             }
         )
 

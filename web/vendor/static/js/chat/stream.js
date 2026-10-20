@@ -9,6 +9,13 @@
  * No build step: plain ES module, same as every other file under chat/.
  */
 
+/** Flags a transport failure: tracking.js reports it as error_type "network". */
+export function asNetworkFailure(error) {
+    const failure = error instanceof Error ? error : new Error(String(error));
+    failure.networkFailure = true;
+    return failure;
+}
+
 /**
  * Parse one raw SSE frame ("event: hotels\ndata: {...}") into {event, data}.
  * Returns null for anything that carries no JSON data (keep-alive comments,
@@ -44,7 +51,7 @@ export async function* readSseFrames(response) {
     let buffer = '';
     try {
         for (;;) {
-            const { done, value } = await reader.read();
+            const { done, value } = await reader.read().catch((error) => { throw asNetworkFailure(error); });
             if (done) break;
             buffer += decoder.decode(value, { stream: true });
             const frames = buffer.split(/\r?\n\r?\n/);
@@ -71,7 +78,7 @@ export async function openChatStream(endpoint, headers, requestBody) {
         method: 'POST',
         headers: { ...headers, Accept: 'text/event-stream' },
         body: JSON.stringify(requestBody),
-    });
+    }).catch((error) => { throw asNetworkFailure(error); });
     if (!response.ok) {
         throw new Error(`stream HTTP ${response.status}`);
     }
