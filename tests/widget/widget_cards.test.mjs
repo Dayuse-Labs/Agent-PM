@@ -12,11 +12,22 @@ test('hotel photo and gallery are 3:2, no fixed 160px height', () => {
     assert.doesNotMatch(css('hotels.css'), /\.hotel-image\s*\{[^}]*height:\s*160px/);
 });
 
-test('mobile swipe: card = row − gutter 12 − peek 32, margin 16, snap 16', () => {
+test('mobile swipe: card = viewport − margin 16 − gutter 12 − peek 32, snap 16', () => {
     const r = css('responsive.css');
-    assert.match(r, /flex:\s*0 0 calc\(100% - 44px\)/);
+    assert.match(r, /flex:\s*0 0 calc\(100% - 28px\)/);
     assert.match(r, /scroll-padding-left:\s*16px/);
     assert.match(r, /padding:\s*8px 16px 12px/);
+});
+
+test('mobile swipe row runs edge to edge: out of the chat padding and the avatar column', () => {
+    assert.match(
+        css('responsive.css'),
+        /\.hotel-cards-container\s*\{[^}]*margin:\s*12px -16px 12px calc\(-16px - 28px - var\(--space-2\)\)/
+    );
+});
+
+test('hotel results message can shrink beside the avatar (no clipped arrow or "See all")', () => {
+    assert.match(css('hotels.css'), /\.message-content\.with-hotels\s*\{[^}]*min-width:\s*0/);
 });
 
 test('gallery photo gets no hover zoom (Image depth does not apply to galleries)', () => {

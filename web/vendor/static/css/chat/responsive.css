@@ -280,12 +280,9 @@
         margin-top: 6px;
     }
 
-    /* Hotel message must not overflow the scrollable area */
+    /* Hotel message spans the column; its card row bleeds past it (below) */
     .message-content.with-hotels {
-        max-width: 100% !important;
         width: 100%;
-        min-width: 0;
-        overflow: hidden;
     }
 
     /* Hotel cards mobile */
@@ -314,11 +311,12 @@
         display: none;
     }
 
+    /* Swipe row runs edge to edge of the screen: out of the chat padding (16)
+       on both sides and out of the avatar column (28 + gap) on the left. */
     .hotel-cards-container {
         padding: 0;
-        margin: 12px 0;
+        margin: 12px -16px 12px calc(-16px - 28px - var(--space-2));
         overflow: hidden;
-        max-width: 100%;
     }
 
     .hotel-cards-wrapper {
@@ -335,8 +333,9 @@
     }
 
     .hotel-cards-container .hotel-card {
-        /* Card = viewport − margin − gutter − peek: 16 + 12 + 32 of the row's width */
-        flex: 0 0 calc(100% - 44px);
+        /* Card = viewport − margin 16 − gutter 12 − peek 32. 100% is the row
+           minus its two 16px paddings, so 100% − 28px. */
+        flex: 0 0 calc(100% - 28px);
         min-width: 0;
         max-width: 100%;
         scroll-snap-align: start;
