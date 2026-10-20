@@ -4,7 +4,9 @@
  */
 
 import { scrollBehavior } from '../motion.js';
-import { state, applyMarketFromResponse } from '../state.js';
+import { state, applyMarketFromResponse, startTurn } from '../state.js';
+import { trackMessageSent, trackResponseFailed, trackResponseReceived } from '../tracking.js';
+import { asNetworkFailure } from '../stream.js';
 import { addMessage } from '../ui/messages.js';
 import { showFilterThinking, hideThinkingAnimation } from '../ui/thinking.js';
 import { createHotelCarousel } from '../hotels/carousel.js';
@@ -97,9 +99,12 @@ export async function runSearchWithFilters() {
 
     // Build request body for v3/chat
     const q = state.currentUserQuery || document.getElementById('user-input').value || '';
+    const { turnId, turnIndex } = startTurn();
     const requestBody = {
         message: q,
-        session_id: state.currentConversationId || null
+        session_id: state.currentConversationId || null,
+        turn_id: turnId,
+        request_id: turnId
     };
     Object.assign(requestBody, getClientTimeContext());
 
@@ -126,18 +131,32 @@ export async function runSearchWithFilters() {
         requestBody.native_context = nativeCtx;
     }
 
+    trackMessageSent({ turnId, turnIndex, message: q, promptSource: 'suggestion' });
+    const requestStartMs = Date.now();
+    let responseTracked = false;
     try {
         const response = await fetch(getChatEndpoint(), {
             method: 'POST',
             headers: getChatHeaders(),
             body: JSON.stringify(requestBody)
-        });
+        }).catch((error) => { throw asNetworkFailure(error); });
+        if (!response.ok) {
+            throw Object.assign(new Error(`HTTP error! status: ${response.status}`), { httpStatus: response.status });
+        }
         const rawData = await response.json();
         if (rawData.response_language) {
             setLanguage(rawData.response_language);
             state.responseLanguage = rawData.response_language;
         }
         applyMarketFromResponse(rawData);
+        trackResponseReceived({
+            turnId,
+            turnIndex,
+            payload: rawData,
+            latencyMs: Date.now() - requestStartMs,
+            ttftMs: null,
+        });
+        responseTracked = true;
 
         // Normalize v3/chat response
         const data = {
@@ -217,6 +236,9 @@ export async function runSearchWithFilters() {
     } catch (error) {
         hideThinkingAnimation();
         console.error('Search error:', error);
+        if (!responseTracked) {
+            trackResponseFailed({ turnId, turnIndex, error });
+        }
         addMessage(t('search_error'));
     }
 }

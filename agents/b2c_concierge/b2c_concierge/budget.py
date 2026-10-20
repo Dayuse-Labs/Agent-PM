@@ -15,6 +15,8 @@ from __future__ import annotations
 
 from dataclasses import dataclass, field
 
+from .turn_facts import TurnFacts
+
 MAX_LLM_CALLS_PER_TURN = 3
 
 
@@ -32,12 +34,18 @@ class TurnBudget:
     single emission point (`_emit_turn_metric`), into `score_guards`.
 
     `fallbacks`: same mechanics for `FALLBACK_SCORE_NAMES` — the degraded
-    paths that still answered this turn, read into `score_fallbacks`."""
+    paths that still answered this turn, read into `score_fallbacks`.
+
+    `searched_city` / `facts`: same mechanics for the widget's `turn_facts`
+    (turn_facts.py) — the city a search ran on this turn, and the facts
+    `_emit_turn_metric` freezes at the turn's exit."""
 
     llm_calls: int = 0
     phases: list[str] = field(default_factory=list)
     fired: set[str] = field(default_factory=set)
     fallbacks: set[str] = field(default_factory=set)
+    searched_city: str | None = None
+    facts: TurnFacts | None = None
 
     def charge(self, phase: str) -> None:
         if self.llm_calls >= MAX_LLM_CALLS_PER_TURN:

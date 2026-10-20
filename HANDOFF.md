@@ -44,6 +44,29 @@
 
 **Reste** : déploiement du seul service `widget` (`DEPLOY.md`) puis capture sur le widget public à 1440 et 390. Les captures de la QA n'ont pas été vues (non transmises) : l'appariement retour ↔ défaut repose sur les mesures. Non touchés : flèches de la galerie photo (correctes, n'apparaissent qu'avec plus d'une photo, jamais en résultats de recherche), compteur « 1 / 5 ».
 
+## 📈 2026-10-20 — Tracking Amplitude de l'agent (AM1, branche `feat/amplitude-tracking`)
+
+**Décidé avec Ali** (session « grill », réponses Q1-Q28) : l'analytics produit part dans Amplitude **depuis le widget seul** ; les `chat_*` d'agent-usa sont retirés, pas repris ; préfixe `ai_agent__*` + `pageview` copié de dayuse.com (6 propriétés de page, `page_type = 'ai_agent'`) ; le `prompt` est envoyé (tronqué à 500, accès restreint), jamais la réponse ; pas d'A/B test, bascule franche ; Production seulement sur `ai.dayuse.{tld}`, Staging/Dev partout ailleurs (local, évals, démo) ; Session Replay à 5 %, non modifiable depuis Amplitude.
+
+**Fait** :
+- `contracts/amplitude_events.json` : 9 événements, 10 propriétés communes, enums, `session_replay.sample_rate`. Verrouillé par `tests/test_amplitude_contract.py` (serveur) et `tests/widget/widget_amplitude_contract.test.mjs` (widget). Ajouter, jamais renommer ni retirer.
+- Serveur : bloc `turn_facts` dans la réponse JSON et le `done` SSE (`trace_id`, `family`, `route`, `status`, `response_type`, `results_count`, `empty_reason`, `clarification_reason`, `guards_fired`, `fallbacks`, `resolved_city`), construit par `turn_facts.py`, transmis par un marqueur `turn_facts` émis par le seul enrobage de `_run_async_impl` (le final reste le dernier événement). `CONTRACT_KEYS` gagne `turn_facts`. Le `turn_id` du widget est repris s'il est valide. Aucun appel LLM en plus, aucun envoi Amplitude côté serveur.
+- Widget : `tracking.js` réécrit, seul émetteur ; `amplitude-bootstrap.js` supprimé ; balise `/api/track` et sa route proxy supprimées ; `?du_synthetic=1` → `is_synthetic` + `X-Dayuse-Synthetic` (volet widget de E2) ; `?market_country=` et `__DAYUSE_NATIVE__` fixent le marché suivi (`"unknown"` avant) ; liens sortants estampillés `amp_device_id`/`amp_session_id` seulement ; autocapture d'attribution coupée ; feedback 👍/👎 aussi en JSON (trace lue dans `turn_facts`) ; code mort des boutons « pick » retiré.
+- Proxy : `<meta name="agent-version">` depuis `LANGFUSE_RELEASE` ; `GET /sr-config` sert la config Session Replay figée (le plugin 1.13.2 la lit à chaque session et l'écraserait sinon).
+- `CLAUDE.md` : invariant RGPD amendé (exception `prompt`) + invariant Analytics. `CHANTIERS.md` : AM1 ouvert, E2 volet widget fait.
+
+**Reste** (détail dans `CHANTIERS.md` AM1) : revues des MR sœurs déjà ouvertes, dayuse-product-analytics #112 (`ai-agent.md`, `events.yaml`, `tools/langfuse_fetch.py`) et dayuse.com !15273 (ticket #15883, `du_entry_source` + `market_country` sur les 2 bannières) ; lire la rétention Langfuse ; vérifier un tour réel dans chaque projet Amplitude et un enregistrement Session Replay ; faire confirmer par l'équipe mobile que `__DAYUSE_NATIVE__` est injecté au début du document.
+
+**Pièges** :
+- `empty_reason` n'a pas `geocode_failed` : la feuille ne le signale pas (il faudrait une clé de `DataPart`, autre chantier). `filters_too_strict` ne sort que pour le filtre « moins cher que ».
+- Plugin Session Replay 1.13.2 = la dernière version compatible avec le SDK 2.11.2 ; ses envois partent directement vers `api-sr.eu.amplitude.com` (le proxy `alitude` ne sert que `/2/httpapi`) : un bloqueur de pub empêche l'enregistrement. Si `/sr-config` ne répond pas, rien n'est enregistré.
+- `agent_version` = estampille du **widget** ; celle du concierge se lit dans la trace Langfuse (`langfuse_trace_id`).
+- Les propriétés communes sont lues à l'envoi vers le SDK, pas à la mise en file : un `pageview` parti avant que l'app injecte `__DAYUSE_NATIVE__` est bien étiqueté `mobile_app`. Seule limite : si l'app injecte **après** l'init du SDK (chargement SDK + plugin, ou 3 s), les événements déjà partis gardent l'étiquette web et l'identifiant d'appareil du navigateur. À confirmer côté mobile : l'injection a lieu au début du document.
+- `status: "unknown"` = le spine n'a pas émis de marqueur `turn_facts` (avertissement `b2c_concierge.facade` dans les logs) ; `error_type: "client"` = exception du widget après la réponse du serveur, pas une panne réseau.
+- Les puces de créneau (Matin/Journée/Soir) d'une ancienne bulle peuvent rappeler `/v3/chat` (`filters/search.js`, `runSearchWithFilters`) : ce chemin a maintenant le même suivi de tour que `sendMessage` et affiche `search_error` sur une réponse non-2xx.
+- Les liens sortants ne portent plus `amplitude_id` ni les `du_*` d'agent-usa, seulement `amp_device_id`/`amp_session_id` (ce que lit ab-tests).
+- `.venv` absent de ce poste : gates passés avec un venv Python 3.13 reconstruit hors dépôt ; la suite y prend ~3 min 45 (dont ~110 s pour `test_calendar_rot`). `node --test tests/widget/` échoue sur Node 26 (dossier refusé) : passer le glob.
+
 ## 🚀 2026-10-19 (bis) — QA14707 phases 4-5 déployées : `hotel-search` + `concierge` sur `130caed` (#143)
 
 **Fait** (procédure `DEPLOY.md`) : pré-vol sur `main` propre `130caed` (#143 mergée), pytest **2 991 passés / 1 skippé**. Estampilles avant : `hotel-search`, `concierge` = `0b65159`, `faq` = `28c485a`, `widget` = `124cd43`. Seuls `hotel-search` (Q09, Q10) et `concierge` (Q11, Q27, Q28) ont changé : estampillés `130caed` avec `--skip-deploys`, puis `railway up --detach`, feuille d'abord ; les deux en `SUCCESS` à 13:54Z. `faq` et `widget` n'ont pas changé et gardent leur estampille, qui reste vraie.

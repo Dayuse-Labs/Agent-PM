@@ -18,7 +18,8 @@ Historique, à n'ouvrir que sur besoin précis : `SESSIONS-CLAUDE-CODE.md` (déc
 - **Piège gpt-6** : litellm 1.90.2 ne connaît pas gpt-6, `llm_params` ajoute `allowed_openai_params`, `max_completion_tokens` et `reasoning_effort="none"`. Un effort autre que `none` sur une feuille gpt-6 = tout appel d'outil en 400 : ne jamais mettre `DAYUSE_REASONING_EFFORT` dans le `.env` local (`run_local.sh` l'exporte aux 3 services), ne jamais changer de famille de modèle par la seule variable d'env. gpt-4o-mini s'arrête le 2027-01-14 : triage, juge (`evals/judge.py`) et job CI `eval` à migrer avant.
 - **A2A** entre orchestrateur et feuilles (Agent Cards servies NON signées : exception D7, échéance = bascule oidc-mtls) ; **MCP** vers les outils. Feuilles **stateless** : profil in/out via `DataPart` A2A, le Redis de session n'appartient qu'à l'orchestrateur.
 - **Identité intérimaire (D7)** : réseau privé Railway + bearer vérifié côté feuille, exception documentée avec échéance. `dev-insecure` jamais déployé.
-- **RGPD** : résidence EU, zéro contenu de message dans les métriques (verrouillé par test), colonne `is_synthetic` sur les logs, TTL Redis + rétention documentées. `baseline/` ne se commit JAMAIS (messages utilisateurs bruts, exports de prod).
+- **RGPD** : résidence EU, zéro contenu de message dans les métriques, scores Langfuse, logs et `turn_facts` (verrouillé par test), colonne `is_synthetic` sur les logs, TTL Redis + rétention documentées. `baseline/` ne se commit JAMAIS (messages utilisateurs bruts, exports de prod). **Exception décidée (2026-10-20)** : l'événement Amplitude `ai_agent__message_sent` porte le message de l'utilisateur (`prompt`, tronqué à 500 caractères), envoyé par le widget vers Amplitude EU, accès restreint dans l'entreprise ; jamais la réponse de l'agent.
+- **Analytics produit = Amplitude, depuis le widget seul** : contrat figé `contracts/amplitude_events.json` (événements `ai_agent__*` + `pageview`, propriétés, enums, Session Replay à 5 %), verrouillé côté serveur par `tests/test_amplitude_contract.py` et côté widget par `tests/widget/widget_amplitude_contract.test.mjs` : ajouter, jamais renommer ni retirer. Le serveur n'envoie rien à Amplitude ; ce que lui seul sait passe par le bloc `turn_facts` de la réponse `/v3` (`agents/b2c_concierge/b2c_concierge/turn_facts.py`). Clé Production seulement sur `ai.dayuse.{tld}`, Staging/Dev partout ailleurs ; `?du_synthetic=1` marque `is_synthetic` et pose `X-Dayuse-Synthetic`. Réconciliation avec Langfuse : `conversation_id` = `session_id` Langfuse, `langfuse_trace_id` = un tour.
 - **Budget structurel : 3 créneaux LLM par tour, plafond dur** (`MAX_LLM_CALLS_PER_TURN`, `agents/b2c_concierge/b2c_concierge/budget.py` ; le 4e lève `LlmBudgetExceededError`) : triage éco + feuille (1 créneau ; la feuille recherche fait 2 appels réels) + UNE synthèse streamée (ses retries LiteLLM restent dans son créneau). Un guard ne relance jamais une boucle : correction déterministe.
 
 ## Architecture (résumé)
@@ -79,6 +80,9 @@ bash scripts/dayuse_guardrails.sh .
 # scripts/refresh_mcp_contract.py) et contracts/geo_intent.schema.json
 # (tests/test_geo_intent_contract.py), régénéré par :
 python libs/b2c_common/b2c_common/geo_intent.py > contracts/geo_intent.schema.json
+# contracts/amplitude_events.json est écrit à la main (tests/test_amplitude_contract.py +
+# tests/widget/widget_amplitude_contract.test.mjs). Tests JS seuls (Node 26 refuse un dossier) :
+node --test tests/widget/*.test.mjs
 
 # Évals live (services up ; coûtent OpenAI/Mapbox/MCP — l'humain décide). Chemin réel : les
 # experiments Langfuse sur evals/datasets/*.jsonl, un jeu par appel de seed, puis le run.

@@ -4,17 +4,19 @@
 the AgentB2C facade (default :8100) — so the legacy front can be exercised
 against this stack without agent-usa's own Flask backend running at all.
 
-The browser only ever talks to ONE origin (this proxy): no CORS, no CSP
-connect-src issue, no cross-origin cookie problem. `/api/track` (Amplitude
-beacon) is swallowed locally (204) — AgentB2C doesn't implement it and it's
-fire-and-forget analytics.
+Every API call from the browser goes to ONE origin (this proxy): no CORS, no
+CSP connect-src issue, no cross-origin cookie problem. Analytics are the only
+exception: the page loads the Amplitude SDK and its Session Replay plugin from
+cdn.amplitude.com, sends events through alitude.dayuse.com and replays to
+api-sr.eu.amplitude.com.
 
-chat_clean.html has exactly 9 Jinja `{{ var | default('...') }}` meta tags
+chat_clean.html has exactly 10 Jinja `{{ var | default('...') }}` meta tags
 (no loops/conditionals) — substituted here with a tiny regex, no Jinja2
 dependency needed. Only `chat_endpoint` (kept at '/v3/chat', same-origin
 relative — the facade's own auth is CHAT_API_KEY-based and injected by this
 proxy, never by the page, so agent-usa's public-token/cookie dance is
-irrelevant here) and `chat_transport` (see `_meta_overrides`) are overridden.
+irrelevant here), `chat_transport` and `agent_version` (see `_meta_overrides`)
+are overridden.
 
 The widget assets are VENDORED into this repo at `web/vendor/` (templates/ +
 static/ mirror agent-usa's layout) so the proxy is self-contained — no sibling
@@ -23,7 +25,9 @@ repo needed, and the container image can COPY them in. `AGENT_USA_DIR` (or
 
 Container/deploy knobs (Railway): `PORT` and `HOST` env are honored (bind `::`
 for the IPv6 private network), `WIDGET_BACKEND` sets the upstream facade,
-`WIDGET_CHAT_TRANSPORT=sse` switches the widget to the streamed turn, and
+`WIDGET_CHAT_TRANSPORT=sse` switches the widget to the streamed turn,
+`LANGFUSE_RELEASE` becomes the page's `agent-version` meta (Amplitude's
+`agent_version`), and
 `CHAT_API_KEY` (+ optional `CHAT_API_KEY_HEADER`) is injected server-side into
 every forwarded /v3 request so a gated facade accepts us. Set that pair on THIS
 service before setting `CHAT_API_KEY` on the concierge — the concierge starts
@@ -40,6 +44,7 @@ from __future__ import annotations
 
 import argparse
 import hashlib
+import html
 import mimetypes
 import os
 import re
@@ -79,6 +84,9 @@ def _meta_overrides() -> dict[str, str]:
     transport = os.environ.get("WIDGET_CHAT_TRANSPORT", "").strip().lower()
     if transport:
         overrides["chat_transport"] = transport
+    release = os.environ.get("LANGFUSE_RELEASE", "").strip()
+    if release:
+        overrides["agent_version"] = html.escape(release, quote=True)
     return overrides
 
 _HOP_BY_HOP_REQUEST_HEADERS = {"host", "content-length", "connection", "accept-encoding"}
@@ -112,6 +120,12 @@ def render_index(agent_usa_dir: Path) -> bytes:
     return _JINJA_VAR_RE.sub(repl, html).encode("utf-8")
 
 
+SESSION_REPLAY_CONFIG = (
+    b'{"configs":{"sessionReplay":{"sr_sampling_config":'
+    b'{"capture_enabled":true,"sample_rate":0.05}}}}'
+)
+
+
 class WidgetProxyHandler(BaseHTTPRequestHandler):
     agent_usa_dir: Path
     backend: str
@@ -121,6 +135,8 @@ class WidgetProxyHandler(BaseHTTPRequestHandler):
         path = self.path.split("?", 1)[0]
         if path == "/":
             self._respond_html(render_index(self.agent_usa_dir))
+        elif path == "/sr-config":
+            self._respond_session_replay_config()
         elif path.startswith("/static/"):
             self._serve_static(path)
         elif path.startswith("/v3/"):
@@ -130,10 +146,7 @@ class WidgetProxyHandler(BaseHTTPRequestHandler):
 
     def do_POST(self) -> None:  # noqa: N802
         path = self.path.split("?", 1)[0]
-        if path == "/api/track":
-            self.send_response(204)
-            self.end_headers()
-        elif path.startswith("/v3/"):
+        if path.startswith("/v3/"):
             self._proxy("POST")
         else:
             self.send_error(404)
@@ -183,6 +196,15 @@ class WidgetProxyHandler(BaseHTTPRequestHandler):
         self.send_header("Content-Length", str(len(body)))
         self.send_header("ETag", etag)
         self.send_header("Cache-Control", "no-cache")
+        self.end_headers()
+        self.wfile.write(body)
+
+    def _respond_session_replay_config(self) -> None:
+        body = SESSION_REPLAY_CONFIG
+        self.send_response(200)
+        self.send_header("Content-Type", "application/json")
+        self.send_header("Content-Length", str(len(body)))
+        self.send_header("Cache-Control", "no-store")
         self.end_headers()
         self.wfile.write(body)
 
