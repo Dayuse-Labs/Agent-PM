@@ -54,7 +54,7 @@ l'équipe, dès que tu donnes la copy) → `E2` puis `E1` puis `E4` (la boucle Q
 | **L** | Compréhension géo — série S-L (ajouté le 2026-10-08) ; `GeoIntent` produit par la feuille (DQ1) : S-L3/S-L4 conditionnelles, S-L7a et S-L7f faites, S-L7d et S-L7e restent | L | MCP déployé (S-L1) |
 | **QA14707** | Retours QA de Raphael du 14/10 : créneau localisé, lieu compris (`GeoIntent` dans la feuille), clarification tenue par le code. Phases 1-3 déployées (`0b65159`) ; phases 4-5 sur `plan/qa14707`. Plan : `plans/qa14707/`, source : `phases/QA14707/` | L | **Fabien** (revue de la seconde PR, H3' live, H4 retest) |
 | **X1→X3** | 3 demandes chez MCP_B2C | — | **MCP_B2C** |
-| **AM1** | Tracking Amplitude : MR AgentB2C faite (2026-10-20) ; restent la doc analytics, la MR dayuse.com et 3 vérifications | S | **Fabien** (revue de la PR) |
+| **AM1** | Tracking Amplitude : 3 MR ouvertes le 2026-10-20 (AgentB2C #146, dayuse-product-analytics #112, dayuse.com !15273) ; restent les revues et 3 vérifications humaines | S | **Fabien** (revue #146) |
 
 **La seule échéance datée du projet : fin janvier 2027**, fin des patchs de sécurité Langfuse v3
 (chaîne `O1 → O2 → O4`). Tout le reste est arbitrable.
@@ -404,9 +404,13 @@ Les faits que seul le serveur connaît arrivent par le bloc `turn_facts` de la r
 `chat_*` d'agent-usa sont retirés, pas repris. Trois livrables, dans cet ordre : (1) la PR
 AgentB2C, faite ; (2) une MR `dayuse-product-analytics` ; (3) une MR dayuse.com.
 
-**Preuve (encore ouvert).** `dayuse-product-analytics/analytics/tracking/ai-agent.md` ne décrit
-que les `chat_*` ; `AiAgentBanner/index.tsx` et `AiConciergeSection/index.tsx` (dayuse.com)
-n'envoient ni `du_entry_source` ni `market_country`.
+**Preuve (encore ouvert).** Aucune des 3 MR n'est mergée : AgentB2C
+[#146](https://github.com/Dayuse-Labs/AgentB2C/pull/146), dayuse-product-analytics
+[#112](https://github.com/Dayuse-Labs/dayuse-product-analytics/pull/112) (`ai-agent.md`,
+`events.yaml`, `tools/langfuse_fetch.py`), dayuse.com
+[!15273](https://gitlab.com/dayuse/dayuse/dayuse-com/-/merge_requests/15273) (ticket #15883 ;
+`du_entry_source` + `market_country` depuis `useDomainConfig().countryCode`, sans test commité :
+`apps/frontend/web` n'a pas de lanceur de tests). Les actions 1 et 2 ci-dessous sont ces MR.
 
 **Actions**
 1. MR `dayuse-product-analytics` : `tracking/ai-agent.md` (frontmatter des nouveaux événements ;

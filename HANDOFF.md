@@ -17,7 +17,7 @@
 - Proxy : `<meta name="agent-version">` depuis `LANGFUSE_RELEASE` ; `GET /sr-config` sert la config Session Replay figée (le plugin 1.13.2 la lit à chaque session et l'écraserait sinon).
 - `CLAUDE.md` : invariant RGPD amendé (exception `prompt`) + invariant Analytics. `CHANTIERS.md` : AM1 ouvert, E2 volet widget fait.
 
-**Reste** (détail dans `CHANTIERS.md` AM1) : MR `dayuse-product-analytics` (`ai-agent.md` + `tools/langfuse_fetch.py`) ; MR dayuse.com (`du_entry_source` + `market_country` sur les 2 bannières) ; lire la rétention Langfuse ; vérifier un tour réel dans chaque projet Amplitude et un enregistrement Session Replay.
+**Reste** (détail dans `CHANTIERS.md` AM1) : revues des MR sœurs déjà ouvertes, dayuse-product-analytics #112 (`ai-agent.md`, `events.yaml`, `tools/langfuse_fetch.py`) et dayuse.com !15273 (ticket #15883, `du_entry_source` + `market_country` sur les 2 bannières) ; lire la rétention Langfuse ; vérifier un tour réel dans chaque projet Amplitude et un enregistrement Session Replay ; faire confirmer par l'équipe mobile que `__DAYUSE_NATIVE__` est injecté au début du document.
 
 **Pièges** :
 - `empty_reason` n'a pas `geocode_failed` : la feuille ne le signale pas (il faudrait une clé de `DataPart`, autre chantier). `filters_too_strict` ne sort que pour le filtre « moins cher que ».
