@@ -36,7 +36,7 @@ l'équipe, dès que tu donnes la copy) → `E2` puis `E1` puis `E4` (la boucle Q
 | **Q2** | Corriger les 3 documents qui enseignent du faux | S | — |
 | **Q3** | Hygiène : `todo.md` périmé + 78 branches mergées | S | — |
 | **E1** | Une seule commande pour lancer un jeu de cas | S/M | — |
-| **E2** | Marquer les tours de test (`X-Dayuse-Synthetic`) | S | **Fabien** (volet widget) |
+| **E2** | Marquer les tours de test (`X-Dayuse-Synthetic`) — volet widget fait avec AM1 (`?du_synthetic=1`) ; reste le harnais | S | — |
 | **E3** | Une vérification sur l'URL du lien (QA 4) | S/M | — |
 | **E4** | Ouvrir le jeu `b2c/qa-reports` + y verser 3 cas | S | — |
 | **E5** | Que devient le seuil de qualité sans CI ? | S | **Fabien** (décision) |
@@ -54,6 +54,7 @@ l'équipe, dès que tu donnes la copy) → `E2` puis `E1` puis `E4` (la boucle Q
 | **L** | Compréhension géo — série S-L (ajouté le 2026-10-08) ; `GeoIntent` produit par la feuille (DQ1) : S-L3/S-L4 conditionnelles, S-L7a et S-L7f faites, S-L7d et S-L7e restent | L | MCP déployé (S-L1) |
 | **QA14707** | Retours QA de Raphael du 14/10 : créneau localisé, lieu compris (`GeoIntent` dans la feuille), clarification tenue par le code. Phases 1-3 déployées (`0b65159`) ; phases 4-5 sur `plan/qa14707`. Plan : `plans/qa14707/`, source : `phases/QA14707/` | L | **Fabien** (revue de la seconde PR, H3' live, H4 retest) |
 | **X1→X3** | 3 demandes chez MCP_B2C | — | **MCP_B2C** |
+| **AM1** | Tracking Amplitude : MR AgentB2C faite (2026-10-20) ; restent la doc analytics, la MR dayuse.com et 3 vérifications | S | **Fabien** (revue de la PR) |
 
 **La seule échéance datée du projet : fin janvier 2027**, fin des patchs de sécurité Langfuse v3
 (chaîne `O1 → O2 → O4`). Tout le reste est arbitrable.
@@ -347,7 +348,12 @@ qu'une stack éteinte produit un avertissement au lieu d'un faux vert.
 
 ## E2 — Marquer les tours de test (`X-Dayuse-Synthetic`)
 
-**Taille : S** (le harnais) · **décision Fabien** (le widget)
+**Taille : S** (le harnais)
+
+> **Volet widget fait (2026-10-20, avec AM1)** : option « drapeau explicite » retenue. Ouvrir le
+> widget avec `?du_synthetic=1` pose `X-Dayuse-Synthetic: 1` sur chaque appel `/v3/*` et
+> `is_synthetic: true` sur chaque événement Amplitude ; sans le paramètre, le vrai chemin
+> utilisateur reste non tagué. **Reste l'action 1** (le harnais `_call_facade`).
 
 **Contexte.** Le tag `synthetic` est le **seul** mécanisme qui exclut un tour des 3 juges LLM et
 de la file d'annotation. Deux producteurs de trafic de test ne le posent pas : les rejeux
@@ -385,6 +391,41 @@ Gates locaux verts, branche + MR pour le point 1.
 
 **Terminé quand** un rejeu d'experiment produit une trace portant le tag `synthetic` (vérifié sur
 l'instance), et que l'option widget est tranchée.
+
+---
+
+## AM1 — Tracking Amplitude de l'agent (ouvert le 2026-10-20)
+
+**Taille : S** par MR restante · décisions prises avec Ali le 2026-10-20 (session « grill »)
+
+**Contexte.** L'agent est suivi dans Amplitude depuis le widget seul, selon le contrat figé
+`contracts/amplitude_events.json` (9 événements `ai_agent__*` + `pageview`, Session Replay à 5 %).
+Les faits que seul le serveur connaît arrivent par le bloc `turn_facts` de la réponse `/v3`. Les
+`chat_*` d'agent-usa sont retirés, pas repris. Trois livrables, dans cet ordre : (1) la PR
+AgentB2C, faite ; (2) une MR `dayuse-product-analytics` ; (3) une MR dayuse.com.
+
+**Preuve (encore ouvert).** `dayuse-product-analytics/analytics/tracking/ai-agent.md` ne décrit
+que les `chat_*` ; `AiAgentBanner/index.tsx` et `AiConciergeSection/index.tsx` (dayuse.com)
+n'envoient ni `du_entry_source` ni `market_country`.
+
+**Actions**
+1. MR `dayuse-product-analytics` : `tracking/ai-agent.md` (frontmatter des nouveaux événements ;
+   attribution d'un `purchase` = même `amplitude_id`, clic `ai_agent__hotel_click` ou
+   `__booking_card_click` sur le même `hotel_id` dans les 7 jours ; les 4 KPI avant/après face à
+   agent-usa ; `pageview` partagé avec le site, filtrer `page_type = 'ai_agent'` ;
+   `agent_version` = release du widget, celle du concierge se lit dans la trace Langfuse ;
+   `chat_*` retirés à la date de bascule) + `tools/langfuse_fetch.py` (API REST Langfuse, clé
+   lecture seule, `trace_id` ou `conversation_id` → JSON dans le `data/` ignoré d'un bundle).
+2. MR dayuse.com : les 2 bannières ajoutent `du_entry_source=banner_home|banner_search|section_home`
+   et `market_country=<ISO2>` à l'URL de l'agent. Ticket séparé dans l'itération B2C.
+3. Vérifications à faire par un humain : la rétention des traces Langfuse (borne de la
+   réconciliation, à écrire dans `ai-agent.md`) ; un tour réel sur `ai.dayuse.{tld}` arrive dans
+   le projet Production et un tour sur la démo dans Staging/Dev ; Session Replay enregistre bien
+   (la config est servie par `/sr-config` du proxy, les réglages d'échantillonnage de l'UI
+   Amplitude sont sans effet par décision).
+
+**Terminé quand** les deux MR sont mergées et qu'un tour réel de chaque environnement est visible
+dans son projet Amplitude avec ses `turn_facts`.
 
 ---
 

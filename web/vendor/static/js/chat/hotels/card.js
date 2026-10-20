@@ -4,7 +4,7 @@
  */
 
 import { state, carousels } from '../state.js';
-import { appendAmplitudeIdToUrl, trackEvent } from '../tracking.js';
+import { appendAmplitudeIdToUrl } from '../tracking.js';
 import { formatRating } from '../utils.js';
 import { selectBestImage } from './images.js';
 import { getLanguage, t } from '../i18n.js';
@@ -173,19 +173,6 @@ export function createHotelCard(hotel) {
     // to go): a card with no url gets no hotel-page link, which is the contract
     // the backend builder already holds itself to.
     const sanitizedUrl = sanitizeDayuseUrl(appendAmplitudeIdToUrl(hotel.url || ''));
-    if (!sanitizedUrl) {
-        // The card cannot offer a hotel page. Two distinct causes, and the
-        // second one used to be INVISIBLE (the old guard was `if (hotel.url &&
-        // !sanitizedUrl)`, so "no url at all" was never reported — the case
-        // where the widget quietly invented one). Event name kept for series
-        // continuity in Amplitude; `reason` is what splits the two.
-        trackEvent('booking_url_fallback', {
-            hotel_id: String(hotel.id || hotel.hotel_id || ''),
-            hotel_name: String(hotel.name || ''),
-            reason: hotel.url ? 'rejected_by_allowlist' : 'missing_from_payload',
-            rejected_url: String(hotel.url || '').slice(0, 300),
-        });
-    }
     const hotelUrl = sanitizedUrl || '';
 
     // Parse price - handles formats like "$127.00 - $159.00" or just numbers
@@ -227,7 +214,7 @@ export function createHotelCard(hotel) {
                 ${renderHotelHeader(hotel, safeStars)}
                 ${renderTimeslots(hotel)}
                 ${renderAIRecommendation(hotel)}
-                ${renderFooter(priceInfo, originalPrice, hotelUrl, hotel.name, hotelNumericId)}
+                ${renderFooter(priceInfo, originalPrice, hotelUrl, hotelNumericId)}
             </div>
         </div>
     `;
@@ -750,15 +737,13 @@ function renderTimeslots(hotel) {
  * decision: one button, straight to the hotel page. Evening-blue is kept: the
  * warm gradient stays reserved for `.booking-card__cta` (hotels.css).
  */
-function renderFooter(priceInfo, originalPrice, hotelUrl, hotelName, hotelId) {
+function renderFooter(priceInfo, originalPrice, hotelUrl, hotelId) {
     // '' when the payload carried no usable url (UX6 2026-08-28). Never coerce
     // it to '#': a link that goes nowhere reads as a broken button. The card
     // drops its button instead — see `chooseHtml` below.
     const safeHotelUrl = sanitizeDayuseUrl(hotelUrl || '') || '';
     const safeHotelUrlAttr = escapeAttr(safeHotelUrl);
-    const safeHotelNameAttr = escapeAttr(String(hotelName || ''));
     const safeHotelIdAttr = escapeAttr(String(hotelId || ''));
-    const safeHotelPriceAttr = escapeAttr(String(priceInfo.value ? Math.round(priceInfo.value) : ''));
 
     // Currency spacing is already baked into the display symbol (glyphs hug the
     // number — "€139"; ISO codes carry a trailing space — "CHF 139") by
@@ -783,15 +768,9 @@ function renderFooter(priceInfo, originalPrice, hotelUrl, hotelName, hotelId) {
            </div>`
         : '';
 
-    // `data-track-hotel-click` + these four attributes are what tracking.js reads
-    // off the hotel-page link (ui/messages.js); unchanged so the event keeps its
-    // meaning now that the primary button carries it.
     const hotelLinkAttrs = `href="${safeHotelUrlAttr}" target="_blank" rel="noopener noreferrer"
-               data-track-hotel-click="1"
-               data-hotel-name="${safeHotelNameAttr}"
-               data-hotel-id="${safeHotelIdAttr}"
-               data-hotel-price="${safeHotelPriceAttr}"
-               data-hotel-url="${safeHotelUrlAttr}"`;
+               data-track-hotel-click="card_cta"
+               data-hotel-id="${safeHotelIdAttr}"`;
 
     // No url → no button at all (UX6 2026-08-28): the card still shows its
     // price, it just stops promising a page it cannot reach. Before UX6 an
@@ -814,14 +793,6 @@ function renderFooter(priceInfo, originalPrice, hotelUrl, hotelName, hotelId) {
 export function bookHotel(hotelName, hotelId, hotelPrice) {
     const hotel = state.previousResults.find(h => h.name === hotelName);
     const hotelUrl = hotel && hotel.url ? sanitizeDayuseUrl(hotel.url) : null;
-
-    trackEvent('hotel_card_click', {
-        hotel_name: hotelName,
-        hotel_id: hotelId,
-        price: hotelPrice,
-        url: hotelUrl,
-        intent: 'booking'
-    });
 
     if (hotelUrl) {
         window.open(hotelUrl, '_blank');

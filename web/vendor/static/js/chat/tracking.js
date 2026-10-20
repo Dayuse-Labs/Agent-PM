@@ -1,207 +1,400 @@
 /**
- * Amplitude Tracking
- * Analytics and event tracking helpers
+ * Amplitude tracking: the only emitter of the agent's product analytics.
+ * Event names and properties are fixed by contracts/amplitude_events.json.
  */
 
 import { state } from './state.js';
 
-function safeString(value, maxLen = 128) {
-    return String(value || '').trim().slice(0, maxLen);
+const AMPLITUDE_SDK_URL = 'https://cdn.amplitude.com/libs/analytics-browser-2.11.2-min.js.gz';
+const SESSION_REPLAY_URL = 'https://cdn.amplitude.com/libs/plugin-session-replay-browser-1.13.2-min.js.gz';
+const SESSION_REPLAY_SAMPLE_RATE = 0.05;
+const SESSION_REPLAY_LOAD_TIMEOUT_MS = 3000;
+const AMPLITUDE_PROXY_URL = 'https://alitude.dayuse.com/2/httpapi';
+const AMPLITUDE_API_KEYS = {
+    production: 'ba76a8f0fdbac6f02609480ab477de4f',
+    development: '4490e59977a700c2c1651fde48670583',
+};
+
+const UNKNOWN = 'unknown';
+const NONE = 'none';
+const MAX_TEXT_LENGTH = 500;
+const PROMPT_SOURCES = ['typed', 'initial_prompt', 'suggestion'];
+const DAYUSE_ENTRY_SOURCES = ['banner_home', 'banner_search', 'section_home'];
+const DEEPLINK_PARAMS = ['q', 'query', 'source'];
+
+// Captured at load: index.js strips the deep-link params from the URL right after.
+const landingParams = new URLSearchParams(window.location.search);
+
+const pendingEvents = [];
+let amplitude = null;
+const turnsById = new Map();
+
+function truncate(text, maxLength = MAX_TEXT_LENGTH) {
+    return String(text ?? '').slice(0, maxLength);
 }
 
-function getAmplitudeDeviceId() {
+function stringOr(value, sentinel) {
+    const text = String(value ?? '').trim();
+    return text || sentinel;
+}
+
+function readMeta(name) {
+    return document.querySelector(`meta[name="${name}"]`)?.content?.trim() || '';
+}
+
+function nativeContext() {
+    const native = window.__DAYUSE_NATIVE__;
+    return native && typeof native === 'object' ? native : null;
+}
+
+function cleanDeviceId(value) {
+    const deviceId = String(value || '').trim().slice(0, 128);
+    return /^(null|undefined|none)$/i.test(deviceId) ? '' : deviceId;
+}
+
+function cleanSessionId(value) {
+    const sessionId = Number(value);
+    return Number.isSafeInteger(sessionId) && sessionId > 0 ? sessionId : undefined;
+}
+
+function handedOverIdentity() {
+    const native = nativeContext();
+    return {
+        deviceId: cleanDeviceId(native?.amp_device_id) || cleanDeviceId(landingParams.get('amp_device_id')),
+        sessionId: cleanSessionId(native?.amp_session_id) ?? cleanSessionId(landingParams.get('amp_session_id')),
+    };
+}
+
+function appPlatformOf(native) {
+    const declared = String(native.app_platform || native.appPlatform || native.platform || '').toLowerCase();
+    if (['ios', 'iphone', 'ipad'].includes(declared)) return 'ios';
+    if (declared === 'android') return 'android';
+    const userAgent = String(window.navigator?.userAgent || '').toLowerCase();
+    if (/iphone|ipad|ipod/.test(userAgent)) return 'ios';
+    if (/android/.test(userAgent)) return 'android';
+    // The contract's app_platform enum has no "unknown".
+    return NONE;
+}
+
+function entrySource(native) {
+    const declared = String(landingParams.get('du_entry_source') || '').trim().toLowerCase();
+    if (DAYUSE_ENTRY_SOURCES.includes(declared)) return declared;
+    if (native) return 'app';
+    if (DEEPLINK_PARAMS.some(name => landingParams.get(name))) return 'deeplink';
+    return 'direct';
+}
+
+function countryCode(value) {
+    const code = String(value || '').trim().toUpperCase();
+    return /^[A-Z]{2}$/.test(code) ? code : UNKNOWN;
+}
+
+function hostnameOf(url) {
     try {
-        if (typeof amplitude !== 'undefined' && typeof amplitude.getDeviceId === 'function') {
-            const sdkDeviceId = safeString(amplitude.getDeviceId(), 128);
-            if (sdkDeviceId) return sdkDeviceId;
-        }
+        return new URL(url).hostname || NONE;
     } catch (_e) {
-        // no-op
-    }
-    try {
-        const bootstrapDeviceId = window.__DAYUSE_AMPLITUDE_CONTEXT__?.deviceId;
-        if (bootstrapDeviceId) return safeString(bootstrapDeviceId, 128);
-        return safeString(window.__DAYUSE_NATIVE__?.amp_device_id, 128);
-    } catch (_e) {
-        return '';
+        return NONE;
     }
 }
 
-function getAmplitudeSessionId() {
+function declaredMarket() {
+    const native = nativeContext();
+    return countryCode(
+        native?.market_country || native?.country_code || landingParams.get('market_country') || state.knownMarket,
+    );
+}
+
+function uuidV4() {
+    const webCrypto = globalThis.crypto;
+    if (typeof webCrypto?.randomUUID === 'function') return webCrypto.randomUUID();
+    const bytes = new Uint8Array(16);
+    if (typeof webCrypto?.getRandomValues === 'function') webCrypto.getRandomValues(bytes);
+    else bytes.forEach((_byte, index) => { bytes[index] = Math.floor(Math.random() * 256); });
+    // RFC 9562 §5.4: version nibble 4, variant bits 10.
+    bytes[6] = (bytes[6] & 0x0f) | 0x40;
+    bytes[8] = (bytes[8] & 0x3f) | 0x80;
+    const hex = Array.from(bytes, byte => byte.toString(16).padStart(2, '0')).join('');
+    return `${hex.slice(0, 8)}-${hex.slice(8, 12)}-${hex.slice(12, 16)}-${hex.slice(16, 20)}-${hex.slice(20)}`;
+}
+
+function commonProperties() {
+    const native = nativeContext();
+    return {
+        conversation_id: stringOr(state.clientSessionId, UNKNOWN),
+        tracking_surface: native ? 'mobile_app' : 'web',
+        app_platform: native ? appPlatformOf(native) : NONE,
+        entry_source: entrySource(native),
+        domain: stringOr(window.location.hostname, UNKNOWN),
+        market_country: declaredMarket(),
+        language: stringOr(state.responseLanguage, UNKNOWN).toLowerCase(),
+        agent_version: stringOr(readMeta('agent-version'), UNKNOWN),
+        is_synthetic: isSyntheticRun(),
+        dayuse_event_id: uuidV4(),
+    };
+}
+
+function turnReference(turnId) {
+    const turn = turnsById.get(turnId);
+    return {
+        turn_id: stringOr(turnId, UNKNOWN),
+        turn_index: turn?.turnIndex ?? 0,
+        langfuse_trace_id: turn?.traceId || NONE,
+    };
+}
+
+function toHotelId(value) {
+    const id = Number(value);
+    return Number.isSafeInteger(id) ? id : 0;
+}
+
+export function amplitudeApiKeyFor(hostname) {
+    return /^ai\.dayuse\.[a-z]{2,3}(?:\.[a-z]{2})?$/.test(String(hostname || ''))
+        ? AMPLITUDE_API_KEYS.production
+        : AMPLITUDE_API_KEYS.development;
+}
+
+export function isSyntheticRun() {
+    return new URLSearchParams(window.location.search).get('du_synthetic') === '1';
+}
+
+function addSessionReplay(sdk, replay) {
+    if (!replay || isSyntheticRun()) return;
     try {
-        if (typeof amplitude !== 'undefined' && typeof amplitude.getSessionId === 'function') {
-            const sdkSessionId = Number(amplitude.getSessionId());
-            if (Number.isSafeInteger(sdkSessionId) && sdkSessionId > 0) {
-                return String(sdkSessionId);
-            }
-        }
-    } catch (_e) {
-        // no-op
-    }
-    try {
-        const contextSessionId = Number(window.__DAYUSE_AMPLITUDE_CONTEXT__?.sessionId);
-        if (Number.isSafeInteger(contextSessionId) && contextSessionId > 0) {
-            return String(contextSessionId);
-        }
-        const nativeSessionId = Number(window.__DAYUSE_NATIVE__?.amp_session_id);
-        return Number.isSafeInteger(nativeSessionId) && nativeSessionId > 0
-            ? String(nativeSessionId)
-            : '';
-    } catch (_e) {
-        return '';
+        sdk.add(replay.plugin({
+            sampleRate: SESSION_REPLAY_SAMPLE_RATE,
+            serverZone: 'EU',
+            configServerUrl: new URL('/sr-config', window.location.origin).href,
+        }));
+    } catch (e) {
+        console.error('Session Replay error:', e);
     }
 }
 
-function getTrackingSurface() {
-    try {
-        const context = window.__DAYUSE_AMPLITUDE_CONTEXT__ || {};
-        return {
-            tracking_surface: context.surface === 'mobile_app' ? 'mobile_app' : 'web',
-            app_platform: context.surface === 'mobile_app'
-                ? safeString(context.appPlatform || 'unknown', 32).toLowerCase()
-                : null,
-            amplitude_identity_source: safeString(context.identitySource || 'sdk_generated', 32),
-            amplitude_session_id_present: Boolean(context.sessionId),
-        };
-    } catch (_e) {
-        return {
-            tracking_surface: state.entrySource === 'mobile_app' ? 'mobile_app' : 'web',
-            app_platform: state.entrySource === 'mobile_app' ? 'unknown' : null,
-            amplitude_identity_source: 'sdk_generated',
-            amplitude_session_id_present: false,
-        };
-    }
+export function startAmplitude(sdk, replay = null) {
+    const identity = handedOverIdentity();
+    addSessionReplay(sdk, replay);
+    sdk.init(amplitudeApiKeyFor(window.location.hostname), null, {
+        serverUrl: AMPLITUDE_PROXY_URL,
+        serverZone: 'EU',
+        fetchRemoteConfig: true,
+        deviceId: identity.deviceId || undefined,
+        sessionId: identity.sessionId,
+        defaultTracking: false,
+    });
+    amplitude = sdk;
+    pendingEvents.splice(0).forEach(({ name, properties }) => send(name, properties));
 }
 
-function createEventId() {
-    return `ev_${Date.now()}_${Math.random().toString(36).slice(2, 10)}`;
+function loadScript(url, onSettled) {
+    const script = document.createElement('script');
+    script.src = url;
+    script.async = true;
+    script.onload = onSettled;
+    script.onerror = onSettled;
+    document.head.appendChild(script);
 }
 
-function setOrDeleteSearchParam(url, key, value) {
-    const safeValue = safeString(value, 256);
-    if (!safeValue) {
-        url.searchParams.delete(key);
+function startWithOptionalReplay() {
+    if (!window.amplitude) return;
+    if (isSyntheticRun()) {
+        startAmplitude(window.amplitude);
         return;
     }
-    url.searchParams.set(key, safeValue);
+    let started = false;
+    const start = () => {
+        if (started) return;
+        started = true;
+        startAmplitude(window.amplitude, window.sessionReplay);
+    };
+    loadScript(SESSION_REPLAY_URL, start);
+    setTimeout(start, SESSION_REPLAY_LOAD_TIMEOUT_MS);
+}
+
+export function loadAmplitude() {
+    loadScript(AMPLITUDE_SDK_URL, startWithOptionalReplay);
 }
 
 /**
- * Append amplitude device ID to URL for cross-domain tracking
+ * The app can inject window.__DAYUSE_NATIVE__ after the page scripts ran; it
+ * calls this (window.syncDayuseAmplitudeContext) so events join its identity.
+ */
+export function syncAmplitudeIdentity() {
+    const identity = handedOverIdentity();
+    if (amplitude && identity.deviceId) amplitude.setDeviceId?.(identity.deviceId);
+    if (amplitude && identity.sessionId) amplitude.setSessionId?.(identity.sessionId);
+    return identity;
+}
+
+function currentDeviceId() {
+    return cleanDeviceId(amplitude?.getDeviceId?.()) || handedOverIdentity().deviceId;
+}
+
+function currentSessionId() {
+    return cleanSessionId(amplitude?.getSessionId?.()) ?? handedOverIdentity().sessionId;
+}
+
+/**
+ * dayuse.com reads amp_device_id / amp_session_id before its own SDK starts,
+ * which is what joins its checkout and purchase events to this conversation.
  */
 export function appendAmplitudeIdToUrl(href) {
     try {
         const url = new URL(href);
-        const amplitudeDeviceId = getAmplitudeDeviceId();
-        const amplitudeSessionId = getAmplitudeSessionId();
-        // The Dayuse web/app bundle consumes the amp_* contract before its
-        // Amplitude SDK init. Keep amplitude_id temporarily for older landings.
-        setOrDeleteSearchParam(url, 'amp_device_id', amplitudeDeviceId);
-        setOrDeleteSearchParam(url, 'amp_session_id', amplitudeSessionId);
-        setOrDeleteSearchParam(url, 'amplitude_id', amplitudeDeviceId);
-        setOrDeleteSearchParam(url, 'du_client_session_id', state.clientSessionId);
-        setOrDeleteSearchParam(url, 'du_conversation_id', state.currentConversationId);
-        setOrDeleteSearchParam(url, 'du_entry_source', state.entrySource);
-        setOrDeleteSearchParam(url, 'du_app_platform', getTrackingSurface().app_platform);
-        setOrDeleteSearchParam(url, 'du_dayuse_session_id', state.dayuseSessionId);
+        const deviceId = currentDeviceId();
+        const sessionId = currentSessionId();
+        if (deviceId) url.searchParams.set('amp_device_id', deviceId);
+        else url.searchParams.delete('amp_device_id');
+        if (sessionId) url.searchParams.set('amp_session_id', String(sessionId));
+        else url.searchParams.delete('amp_session_id');
         return url.href;
-    } catch (e) {
-        console.warn('appendAmplitudeIdToUrl error:', e);
+    } catch (_e) {
         return href;
     }
 }
 
-/**
- * Track event to Amplitude and backend
- */
-export function trackEvent(event, payload = {}) {
+// Common properties are read when the event reaches the SDK, not when it is
+// queued: the app may inject __DAYUSE_NATIVE__ after the pageview fired.
+function send(name, properties) {
     try {
-        const eventId = createEventId();
-        const amplitudeDeviceId = getAmplitudeDeviceId();
-        const trackingSurface = getTrackingSurface();
-        const clickedHotel = event === 'hotel_card_click'
-            ? state.previousResults.find(hotel => {
-                const hotelId = String(hotel?.id || hotel?.hotel_id || '');
-                const payloadId = String(payload.hotel_id || '');
-                const hotelName = String(hotel?.name || '');
-                const payloadName = String(payload.hotel_name || '');
-                return (payloadId && hotelId === payloadId)
-                    || (payloadName && hotelName === payloadName);
-            })
-            : null;
-        const resultCountries = [...new Set(
-            state.previousResults
-                .map(hotel => String(hotel?.country_code || hotel?.country || '').toUpperCase())
-                .filter(country => /^[A-Z]{2}$/.test(country))
-        )];
-        const resolvedSearchCountry = payload.search_country
-            || clickedHotel?.country_code
-            || clickedHotel?.country
-            || (resultCountries.length === 1 ? resultCountries[0] : null)
-            || state.selectedFilters?.country_code
-            || null;
-        const eventProperties = {
-            ...payload,
-            ...trackingSurface,
-            event_id: eventId,
-            event_version: 'v2',
-            conversation_id: state.currentConversationId,
-            client_session_id: state.clientSessionId,
-            market_country: payload.market_country || state.market,
-            entry_market_country:
-                payload.entry_market_country || state.marketContext?.country_code || state.market,
-            search_country: resolvedSearchCountry,
-            turn_id: payload.turn_id || state.currentTurnId || null,
-            response_language: payload.response_language || state.responseLanguage,
-            entry_source: state.entrySource,
-            dayuse_session_id: state.dayuseSessionId,
-            amplitude_device_id: amplitudeDeviceId,
-        };
-
-        amplitude.track(event, eventProperties);
-
-        // Send to backend tracking API
-        const data = JSON.stringify({
-            event: event,
-            payload: eventProperties,
-            conversation_id: state.currentConversationId,
-            client_session_id: state.clientSessionId,
-            entry_source: state.entrySource,
-            dayuse_session_id: state.dayuseSessionId,
-            amplitude_device_id: amplitudeDeviceId,
-            event_id: eventId,
-        });
-
-        // Use sendBeacon to guarantee delivery even if page closes
-        if (navigator.sendBeacon) {
-            const blob = new Blob([data], { type: 'application/json' });
-            const success = navigator.sendBeacon('/api/track', blob);
-            if (!success) {
-                console.warn('sendBeacon failed, falling back to fetch');
-                fetchTrack(data);
-            }
-        } else {
-            fetchTrack(data);
-        }
+        amplitude.track(name, { ...properties, ...commonProperties() });
     } catch (e) {
         console.error('Track error:', e);
     }
 }
 
-function fetchTrack(data) {
-    fetch('/api/track', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: data
-    }).catch(err => console.error('Track error:', err));
+export function trackEvent(name, properties = {}) {
+    if (amplitude) send(name, properties);
+    else pendingEvents.push({ name, properties });
 }
 
-/**
- * Track chat open event
- */
-export function trackChatOpen() {
-    trackEvent('chat_open', {
-        source: document.referrer || 'direct',
-        locale: navigator.language
+export function noteTurnTrace(turnId, traceId) {
+    const turn = turnsById.get(turnId);
+    if (turn && traceId) turn.traceId = String(traceId);
+}
+
+export function traceIdOfTurn(turnId) {
+    return turnsById.get(turnId)?.traceId || null;
+}
+
+export function trackPageview() {
+    const { href, pathname, search } = window.location;
+    const referrer = document.referrer || '';
+    trackEvent('pageview', {
+        url: href,
+        url_path: pathname,
+        url_and_query_string: `${pathname}${search}`,
+        referrer: referrer || NONE,
+        referrer_domain: referrer ? hostnameOf(referrer) : NONE,
+        page_type: 'ai_agent',
     });
+}
+
+export function trackMessageSent({ turnId, turnIndex, message, promptSource }) {
+    turnsById.set(turnId, { turnIndex, traceId: null });
+    const text = String(message ?? '');
+    trackEvent('ai_agent__message_sent', {
+        turn_id: turnId,
+        turn_index: turnIndex,
+        prompt: truncate(text),
+        prompt_source: PROMPT_SOURCES.includes(promptSource) ? promptSource : 'typed',
+        message_length: text.length,
+    });
+}
+
+function responseTypeWithoutFacts(payload, hotelIds) {
+    if (payload.requires_clarification) return 'clarification';
+    return hotelIds.length > 0 ? 'results' : 'answer';
+}
+
+function stringList(value) {
+    return Array.isArray(value) ? value.map(String) : [];
+}
+
+/** `payload` is the `done` frame or the JSON response of the turn. */
+export function trackResponseReceived({ turnId, turnIndex, payload, latencyMs, ttftMs }) {
+    const facts = payload?.turn_facts || {};
+    const hotels = Array.isArray(payload?.hotels) ? payload.hotels : [];
+    const hotelIds = payload?.requires_clarification
+        ? []
+        : hotels.map(hotel => toHotelId(hotel?.id ?? hotel?.hotel_id)).filter(Boolean);
+    if (!turnsById.has(turnId)) turnsById.set(turnId, { turnIndex, traceId: null });
+    noteTurnTrace(turnId, facts.trace_id);
+
+    const responseType = stringOr(facts.response_type, responseTypeWithoutFacts(payload || {}, hotelIds));
+    // The server echoes the last country anchor on FAQ/ack/details turns too.
+    const searchRan = responseType === 'results' || Boolean(facts.resolved_city);
+
+    const properties = {
+        turn_id: turnId,
+        turn_index: turnIndex,
+        langfuse_trace_id: traceIdOfTurn(turnId) || NONE,
+        response_type: responseType,
+        results_count: Number.isInteger(facts.results_count) ? facts.results_count : hotelIds.length,
+        hotel_ids: hotelIds,
+        empty_reason: stringOr(facts.empty_reason, NONE),
+        clarification_reason: stringOr(facts.clarification_reason, NONE),
+        family: stringOr(facts.family, UNKNOWN),
+        route: stringOr(facts.route, UNKNOWN),
+        status: stringOr(facts.status, UNKNOWN),
+        guards_fired: stringList(facts.guards_fired),
+        fallbacks: stringList(facts.fallbacks),
+        resolved_city: stringOr(facts.resolved_city, UNKNOWN),
+        has_booking_card: Boolean(payload?.booking_card?.url),
+        search_country: searchRan ? countryCode(payload?.search_country || payload?.active_filters?.country_code) : UNKNOWN,
+        latency_ms: Math.round(latencyMs),
+    };
+    if (Number.isFinite(ttftMs)) properties.ttft_ms = Math.round(ttftMs);
+    trackEvent('ai_agent__response_received', properties);
+}
+
+function failureOf(error) {
+    if (Number.isInteger(error?.httpStatus)) return { error_type: 'http', http_status: error.httpStatus };
+    if (error?.networkFailure) return { error_type: 'network' };
+    return { error_type: 'client' };
+}
+
+export function trackResponseFailed({ turnId, turnIndex, error, traceId = null }) {
+    trackEvent('ai_agent__response_failed', {
+        turn_id: turnId,
+        turn_index: turnIndex,
+        ...(traceId ? { langfuse_trace_id: String(traceId) } : {}),
+        ...failureOf(error),
+    });
+}
+
+export function trackHotelClick({ turnId, hotelId, position, clickedElement }) {
+    trackEvent('ai_agent__hotel_click', {
+        ...turnReference(turnId),
+        hotel_id: toHotelId(hotelId),
+        position,
+        clicked_element: clickedElement,
+    });
+}
+
+export function trackBookingCardClick({ turnId, hotelId, ratePlanId }) {
+    trackEvent('ai_agent__booking_card_click', {
+        ...turnReference(turnId),
+        hotel_id: toHotelId(hotelId),
+        rate_plan_id: stringOr(ratePlanId, UNKNOWN),
+    });
+}
+
+export function trackSuggestionClick({ turnId, suggestionType, position }) {
+    trackEvent('ai_agent__suggestion_click', {
+        ...(turnId ? { turn_id: turnId } : {}),
+        suggestion_type: stringOr(suggestionType, UNKNOWN),
+        position,
+    });
+}
+
+export function trackFeedbackSubmit({ turnId, traceId, value }) {
+    trackEvent('ai_agent__feedback_submit', {
+        ...turnReference(turnId),
+        langfuse_trace_id: stringOr(traceId, NONE),
+        value,
+    });
+}
+
+export function trackConversationReset() {
+    trackEvent('ai_agent__conversation_reset', {});
 }

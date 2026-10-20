@@ -3,7 +3,7 @@
  * Time formatting, URL manipulation, etc.
  */
 
-import { state } from './state.js';
+import { rememberMarket, state } from './state.js';
 import { appendAmplitudeIdToUrl } from './tracking.js';
 import { sanitizeDayuseUrl } from './security.js';
 import { normalizeCountryCode } from './markets.js';
@@ -83,7 +83,7 @@ export function replaceHotelIdTags(html) {
         if (!parsedHotelId) return;
         element.setAttribute('data-hotel-id', parsedHotelId);
         if (element.tagName.toLowerCase() === 'a') {
-            applyTrackedHotelLink(element, parsedHotelId, hotelMap);
+            applyHotelLink(element, parsedHotelId, hotelMap);
         }
     });
 
@@ -91,7 +91,7 @@ export function replaceHotelIdTags(html) {
         const rawHref = anchor.getAttribute('href') || '';
         const parsedHotelId = parseHotelIdToken(rawHref);
         if (!parsedHotelId) return;
-        applyTrackedHotelLink(anchor, parsedHotelId, hotelMap);
+        applyHotelLink(anchor, parsedHotelId, hotelMap);
     });
 
     return root.innerHTML.replace(/\[HOTEL_ID:(\d+)\]/g, (_, hotelId) => {
@@ -106,15 +106,13 @@ function buildHotelMap() {
         const id = hotel.id || hotel.hotel_id;
         if (!id) return;
 
-        const name = String(hotel.name || '');
-        const price = String(hotel.price || '');
         // Server-provided url only — no name-slugified fallback (UX6 2026-08-28,
         // see markets.js). No url means the [HOTEL_ID:n] token resolves to '#',
         // which is what the else-branch below already did for an unknown id.
         const trackedUrl = appendAmplitudeIdToUrl(String(hotel.url || ''));
         const safeUrl = sanitizeDayuseUrl(trackedUrl) || '#';
 
-        hotelMap[String(id)] = { url: safeUrl, name, price };
+        hotelMap[String(id)] = { url: safeUrl };
     });
     return hotelMap;
 }
@@ -128,16 +126,12 @@ function parseHotelIdToken(rawValue) {
     return null;
 }
 
-function applyTrackedHotelLink(anchor, hotelId, hotelMap) {
-    const hotelData = hotelMap[String(hotelId)] || { url: '#', name: '', price: '' };
+function applyHotelLink(anchor, hotelId, hotelMap) {
+    const hotelData = hotelMap[String(hotelId)] || { url: '#' };
     anchor.setAttribute('href', hotelData.url);
     anchor.setAttribute('target', '_blank');
     anchor.setAttribute('rel', 'noopener');
-    anchor.setAttribute('data-track-hotel-click', '1');
     anchor.setAttribute('data-hotel-id', String(hotelId));
-    anchor.setAttribute('data-hotel-name', hotelData.name);
-    anchor.setAttribute('data-hotel-price', hotelData.price);
-    anchor.setAttribute('data-hotel-url', hotelData.url);
 }
 
 /**
@@ -147,6 +141,7 @@ export function handleContextUpdate(data) {
     const responseMarket = normalizeCountryCode(data.market_country);
     if (responseMarket) {
         state.market = responseMarket;
+        rememberMarket(responseMarket);
     }
 
     if (data.active_filters) {
@@ -154,6 +149,7 @@ export function handleContextUpdate(data) {
         const filterMarket = normalizeCountryCode(filters.country_code || filters.country);
         if (filterMarket) {
             state.market = filterMarket;
+            rememberMarket(filterMarket);
         }
 
         if (filters.timeslot) {
@@ -200,24 +196,4 @@ export function handleContextUpdate(data) {
         return true;
     }
     return false;
-}
-
-export function hasEffectiveTimeslot(data = {}) {
-    const filters = data.active_filters || data.context_update?.active_filters || {};
-    if (
-        filters.timeslot ||
-        filters.timeslot_start ||
-        filters.timeslot_end ||
-        filters.requested_start_hour != null ||
-        filters.requested_end_hour != null
-    ) {
-        return true;
-    }
-
-    const selected = state.selectedFilters || {};
-    return Boolean(
-        selected.timeslot ||
-        selected.requested_start_hour != null ||
-        selected.requested_end_hour != null
-    );
 }

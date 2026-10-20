@@ -3,16 +3,24 @@
  * Main message sending logic and API calls
  */
 
-import { state, resetState, applyMarketFromResponse, setSearchPage } from '../state.js';
-import { appendAmplitudeIdToUrl, trackEvent } from '../tracking.js';
+import { state, resetState, applyMarketFromResponse, setSearchPage, startTurn } from '../state.js';
+import {
+    appendAmplitudeIdToUrl,
+    noteTurnTrace,
+    traceIdOfTurn,
+    trackConversationReset,
+    trackMessageSent,
+    trackResponseFailed,
+    trackResponseReceived,
+} from '../tracking.js';
 import { getMarketFallbackLink } from './responses.js';
-import { replaceHotelIdTags, handleContextUpdate, hasEffectiveTimeslot, getNativeContext, getClientTimeContext } from '../utils.js';
+import { replaceHotelIdTags, handleContextUpdate, getNativeContext, getClientTimeContext } from '../utils.js';
 import { addMessage, addNotice, showTypingIndicator, hideTypingIndicator, createBookingCard, attachFeedbackControl } from '../ui/messages.js';
 import { createThinkingSteps, hideThinkingAnimation } from '../ui/thinking.js';
 import { createHotelCarousel } from '../hotels/carousel.js';
 import { addFollowUpMessage } from '../filters/search.js';
 import { getChatEndpoint, getChatHeaders, getChatTransport, getStreamEndpoint } from '../api.js';
-import { openChatStream, readSseFrames } from '../stream.js';
+import { asNetworkFailure, openChatStream, readSseFrames } from '../stream.js';
 import { setLanguage, t } from '../i18n.js';
 import { escapeAttr, escapeHtml, sanitizeDayuseUrl } from '../security.js';
 
@@ -337,14 +345,6 @@ function buildRequestBody(isFollowUp, message, turnId, clientGeoContext) {
     if (state.selectedPlace) {
         requestBody.selected_place = state.selectedPlace;
     }
-    // S-CX5: a hotel-pick BUTTON was clicked. The message carries its
-    // label so the transcript reads naturally; this id is what the
-    // backend actually resolves the hotel from (two hotels of the same
-    // chain in one shortlist would make label matching a coin flip).
-    // One-shot: cleared as soon as it has been sent.
-    if (state.pendingPickHotelId) {
-        requestBody.hotel_id = state.pendingPickHotelId;
-    }
     // Forward the app's logged-in context (recent bookings, favourites,
     // geolocation) so the backend can personalize ranking + defaults.
     const nativeCtx = getNativeContext();
@@ -394,10 +394,10 @@ async function makeApiCall(requestBody) {
                 method: 'POST',
                 headers: getChatHeaders(),
                 body: JSON.stringify(requestBody)
-            });
+            }).catch((error) => { throw asNetworkFailure(error); });
 
             if (!response.ok) {
-                throw new Error(`HTTP error! status: ${response.status}`);
+                throw Object.assign(new Error(`HTTP error! status: ${response.status}`), { httpStatus: response.status });
             }
             return response;
         } catch (error) {
@@ -472,26 +472,22 @@ function renderHotelsEarly(frame, thinking) {
  * for this turn. Once a single frame has been consumed there is no fallback:
  * re-sending would run the turn twice server-side.
  */
-async function runStreamedTurn(requestBody, thinking, requestStartMs) {
+async function runStreamedTurn(requestBody, thinking, requestStartMs, progress) {
     let framesSeen = 0;
-    let ttftMs = null;
-    let hotelsMs = null;
     let skipCarousel = false;
     let bookingCard = null;
-    // OBS5: the Langfuse trace_id for THIS turn, read off `progress` — null on
-    // the blocking-POST fallback and whenever Langfuse is disabled server-side
-    // (honest absence, never fabricated: the feedback UI simply stays hidden).
-    let traceId = null;
 
     try {
         const response = await openChatStream(getStreamEndpoint(), getChatHeaders(), requestBody);
         for await (const { event, data } of readSseFrames(response)) {
             framesSeen += 1;
             if (event === 'progress') {
-                if (ttftMs === null) ttftMs = Math.round(nowMs() - requestStartMs);
-                if (traceId === null) traceId = data?.trace_id || null;
+                if (progress.ttftMs === null) progress.ttftMs = Math.round(nowMs() - requestStartMs);
+                if (progress.traceId === null) {
+                    progress.traceId = data?.trace_id || null;
+                    noteTurnTrace(requestBody.turn_id, progress.traceId);
+                }
             } else if (event === 'hotels') {
-                if (hotelsMs === null) hotelsMs = Math.round(nowMs() - requestStartMs);
                 skipCarousel = renderHotelsEarly(data, thinking) || skipCarousel;
             } else if (event === 'booking_card') {
                 // Kept only as a safety net: the `done` payload carries the card
@@ -503,12 +499,12 @@ async function runStreamedTurn(requestBody, thinking, requestStartMs) {
                 if (!rawData.booking_card && bookingCard) {
                     rawData.booking_card = bookingCard;
                 }
-                return { rawData, transport: 'sse', ttftMs, hotelsMs, skipCarousel, traceId };
+                return { rawData, skipCarousel };
             }
             // `token` frames arrive in a burst just before `done` and the full
             // text is in the `done` payload — nothing to render from them.
         }
-        throw new Error('stream ended without a done frame');
+        throw asNetworkFailure(new Error('stream ended without a done frame'));
     } catch (error) {
         if (framesSeen > 0) throw error;
         console.warn('[CHAT] SSE unavailable, falling back to blocking POST:', error?.message || error);
@@ -563,7 +559,7 @@ function handleEmptyResults(data) {
 /**
  * Main send message function
  */
-export async function sendMessage() {
+export async function sendMessage(promptSource = 'typed') {
     if (state.isProcessing) {
         console.log('Message already processing, ignored');
         return;
@@ -573,18 +569,6 @@ export async function sendMessage() {
     const message = input.value.trim();
     if (!message) return;
 
-    const clarificationToAnswer = state.pendingClarification;
-    if (clarificationToAnswer && clarificationToAnswer.awaitingAnswer) {
-        trackEvent('chat_clarification_answered', {
-            answer_length: message.length,
-            delay_to_answer_ms: Math.max(0, Math.round(nowMs() - Number(clarificationToAnswer.shownAtMs || 0))),
-            clarification_reason: String(clarificationToAnswer.reason || ''),
-            question_count: Number(clarificationToAnswer.questionCount || 0),
-            answer_type: 'free_text',
-        });
-        state.pendingClarification = null;
-    }
-
     const submitButton = document.getElementById('main-submit-button');
     if (submitButton) {
         submitButton.disabled = true;
@@ -593,9 +577,7 @@ export async function sendMessage() {
 
     state.isProcessing = true;
     state.currentUserQuery = message;
-    state.turnSequence += 1;
-    state.currentTurnId = `${state.clientSessionId}_t${state.turnSequence}`;
-    const turnId = state.currentTurnId;
+    const { turnId, turnIndex } = startTurn();
     const requestStartMs = nowMs();
     input.value = '';
     input.dispatchEvent(new Event('input', { bubbles: true }));
@@ -603,34 +585,16 @@ export async function sendMessage() {
     showTypingIndicator();
 
     let thinkingInterval = null;
-    // OBS5: set once `turn` resolves (below), read in the outer `finally` —
-    // declared out here so it stays reachable even if an exception fires
-    // before `turn` does (a `let` inside the try would go out of scope).
-    let turnTraceId = null;
+    const progress = { ttftMs: null, traceId: null };
+    let responseTracked = false;
 
     try {
         const messageLower = message.toLowerCase();
         const hasTimeslotRequest = hasTimeslotKeywords(messageLower);
 
         const isFollowUp = state.previousResults && state.previousResults.length > 0;
-        const activeFilterCount = Number(Boolean(state.selectedFilters.city))
-            + Number(Boolean(state.selectedFilters.timeslot))
-            + Number(Boolean(state.selectedFilters.requested_start_hour != null || state.selectedFilters.requested_end_hour != null))
-            + Number(Array.isArray(state.selectedFilters.amenities) && state.selectedFilters.amenities.length > 0);
 
-        const mktCtx = state.marketContext || {};
-        trackEvent('chat_message_sent', {
-            message_length: message.length,
-            is_follow_up: Boolean(isFollowUp),
-            has_timeslot_request: Boolean(hasTimeslotRequest),
-            active_filter_count: activeFilterCount,
-            market_country: String(mktCtx.country_code || state.market || ''),
-            market_currency: String(mktCtx.currency || ''),
-            market_language: String(mktCtx.language || state.responseLanguage || ''),
-            response_language: String(state.responseLanguage || ''),
-            entry_market_country: String(mktCtx.country_code || state.market || ''),
-            turn_id: turnId,
-        });
+        trackMessageSent({ turnId, turnIndex, message, promptSource });
 
         // Create thinking animation
         const thinking = createThinkingSteps(isFollowUp);
@@ -643,80 +607,38 @@ export async function sendMessage() {
         // the `hotels` frame, seconds before the synthesis text. Failing to OPEN
         // the stream degrades to the blocking POST for this turn.
         let turn = getChatTransport() === 'sse'
-            ? await runStreamedTurn(requestBody, thinking, requestStartMs)
+            ? await runStreamedTurn(requestBody, thinking, requestStartMs, progress)
             : null;
         if (!turn) {
-            const transport = getChatTransport() === 'sse' ? 'json_fallback' : 'json';
             const response = await makeApiCall(requestBody);
-            turn = {
-                rawData: await response.json(),
-                transport,
-                ttftMs: null,
-                hotelsMs: null,
-                skipCarousel: false,
-                traceId: null,  // OBS5: only the SSE path carries one (see facade.py)
-            };
+            turn = { rawData: await response.json(), skipCarousel: false };
         }
 
         clearInterval(thinkingInterval);
         thinking.loadingMessage.remove();
 
         const rawData = turn.rawData;
-        turnTraceId = turn.traceId || null;
         // S-CX5: this turn's pick buttons, already sorted cheapest-first by the
         // backend (empty until the request is qualified enough to book). Read
         // BEFORE any renderer runs, since addFollowUpMessage draws from it.
         state.hotelPicks = Array.isArray(rawData.hotel_picks) ? rawData.hotel_picks : [];
-        state.pendingPickHotelId = null;  // consumed by the request just answered
         // Normalize v3/chat response to expected format
         const data = normalizeV3Response(rawData);
         applyMarketFromResponse(data);
-        const resultsCount = Array.isArray(data.results) ? data.results.length : 0;
-        const mktCtxResp = state.marketContext || {};
-        const hasEffectiveTimeslotFilter = hasEffectiveTimeslot(data);
-        trackEvent('chat_response_received', {
-            // Unchanged semantics: time-to-done, so the existing dashboards stay
-            // comparable across transports. ttft_ms / hotels_ms are ADDITIVE and
-            // null on the blocking POST, which has no intermediate signal.
-            latency_ms: Math.round(nowMs() - requestStartMs),
-            transport: turn.transport,
-            ttft_ms: turn.ttftMs,
-            hotels_ms: turn.hotelsMs,
-            response_type: String(data.type || (resultsCount > 0 ? 'results' : 'text')),
-            results_count: resultsCount,
-            has_booking_card: Boolean(rawData.booking_card && rawData.booking_card.url),
-            has_effective_timeslot: hasEffectiveTimeslotFilter,
-            requires_clarification: Boolean(
-                rawData.requires_clarification ||
-                data.requires_clarification ||
-                data.type === 'clarification'
-            ),
-            market_country: String(mktCtxResp.country_code || state.market || ''),
-            entry_market_country: String(mktCtxResp.country_code || state.market || ''),
-            search_country: String(
-                data.search_country || data.active_filters?.country_code || ''
-            ),
-            resolved_city: String(data.active_filters?.resolved_city || ''),
-            location_version: data.active_filters?.location_version || null,
-            location_provenance: String(data.active_filters?.location_provenance || ''),
-            location_confidence: data.active_filters?.location_confidence ?? null,
-            geo_version: String(data.active_filters?.geo_version || ''),
-            geo_outcome: String(data.active_filters?.geo_outcome || ''),
-            geo_reason: String(data.active_filters?.geo_reason || ''),
-            geo_repair_count: data.active_filters?.geo_repair_count || 0,
-            geo_resolution_ms: data.active_filters?.geo_resolution_ms ?? null,
-            geo_review_ms: data.active_filters?.geo_review_ms ?? null,
-            turn_id: turnId,
-            market_currency: String(mktCtxResp.currency || ''),
-            market_language: String(mktCtxResp.language || state.responseLanguage || ''),
-            response_language: String(data.response_language || state.responseLanguage || ''),
-        });
-
         if (data.response_language) {
             state.responseLanguage = data.response_language;
             setLanguage(data.response_language);
             applyRuntimeLanguageLabels();
         }
+        // After the market and language updates: they are common properties of the event.
+        trackResponseReceived({
+            turnId,
+            turnIndex,
+            payload: rawData,
+            latencyMs: nowMs() - requestStartMs,
+            ttftMs: progress.ttftMs,
+        });
+        responseTracked = true;
         hideTypingIndicator();
 
         // mcp-dayuse#6: the server profile expired (30 min idle) while this
@@ -745,28 +667,6 @@ export async function sendMessage() {
             data.type === 'clarification'
         );
         if (isClarification) {
-            const questionCount = Array.isArray(rawData.questions) && rawData.questions.length > 0
-                ? rawData.questions.length
-                : (Array.isArray(data.questions) && data.questions.length > 0 ? data.questions.length : 1);
-            const clarificationReason = String(
-                rawData.clarification_reason ||
-                data.clarification_reason ||
-                rawData.profile_status ||
-                data.profile_status ||
-                ''
-            );
-            trackEvent('chat_clarification_shown', {
-                question_count: questionCount,
-                clarification_reason: clarificationReason,
-                has_previous_results: Boolean(Array.isArray(state.previousResults) && state.previousResults.length > 0),
-                response_type: String(data.type || 'clarification'),
-            });
-            state.pendingClarification = {
-                shownAtMs: nowMs(),
-                awaitingAnswer: true,
-                reason: clarificationReason,
-                questionCount,
-            };
             addMessage(data.response || data.context);
             // Could add question UI here if needed
             return;
@@ -787,12 +687,6 @@ export async function sendMessage() {
             const card = { ...rawData.booking_card };
             card.url = appendAmplitudeIdToUrl(card.url);
             addMessage(createBookingCard(card), false, false, false, true);
-
-            trackEvent('booking_card_shown', {
-                hotel_id: card.hotel_id,
-                hotel_name: card.hotel_name,
-                url: card.url
-            });
             return;
         }
 
@@ -849,21 +743,19 @@ export async function sendMessage() {
         hideThinkingAnimation();
         hideTypingIndicator();
         console.error('Error:', error);
-        trackEvent('chat_request_failed', {
-            latency_ms: Math.round(nowMs() - requestStartMs),
-            transport: getChatTransport(),
-            error_message: String(error?.message || 'unknown').slice(0, 120),
-        });
+        if (!responseTracked) {
+            trackResponseFailed({ turnId, turnIndex, error, traceId: progress.traceId });
+        }
         addMessage(t('generic_error'));
     } finally {
         // OBS5: runs on every exit path of this turn (early returns from the
         // clarification/booking/route-dispatch branches above, the normal
         // fallthrough, AND the catch above) — the one place that reliably
         // fires once per turn regardless of which branch rendered the
-        // response. No-op when turnTraceId never got set (JSON transport,
-        // Langfuse disabled server-side, or the turn crashed before `turn`
-        // resolved) — the feedback control simply doesn't appear.
-        attachFeedbackControl(turnTraceId);
+        // response. No-op when the turn has no trace (Langfuse disabled
+        // server-side, or the turn crashed before any trace arrived) — the
+        // feedback control simply doesn't appear.
+        attachFeedbackControl(traceIdOfTurn(turnId));
         state.isProcessing = false;
         const submitButton = document.getElementById('main-submit-button');
         if (submitButton) {
@@ -879,7 +771,7 @@ export async function sendMessage() {
 export function fillSearch(text) {
     const initialInput = document.getElementById('initial-input');
     initialInput.value = text;
-    startChat();
+    startChat('suggestion');
 }
 
 /**
@@ -910,7 +802,7 @@ export function openChatView() {
     window.scrollTo(0, 0);
 }
 
-export function startChat() {
+export function startChat(promptSource = 'typed') {
     const initialInput = document.getElementById('initial-input');
     const message = initialInput.value.trim();
     if (!message) return;
@@ -926,7 +818,7 @@ export function startChat() {
     document.getElementById('user-input').value = message;
 
     setTimeout(() => {
-        sendMessage();
+        sendMessage(promptSource);
     }, 600);
 }
 
@@ -935,7 +827,6 @@ export async function resetChatSession() {
         return;
     }
 
-    const hadSession = Boolean(state.currentConversationId);
     const resetButton = document.getElementById('new-chat-button');
     if (resetButton) {
         resetButton.disabled = true;
@@ -953,6 +844,7 @@ export async function resetChatSession() {
     } catch (error) {
         console.warn('[CHAT] Session reset request failed', error);
     } finally {
+        trackConversationReset();
         resetState();
         setLanguage(state.responseLanguage);
         applyRuntimeLanguageLabels();
@@ -972,7 +864,5 @@ export async function resetChatSession() {
         if (resetButton) {
             resetButton.disabled = false;
         }
-
-        trackEvent('chat_session_reset', { had_session: hadSession });
     }
 }

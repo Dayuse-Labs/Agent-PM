@@ -146,7 +146,11 @@ def recording(monkeypatch):
         yield ("final", _FINAL)
 
     async def _finalize(**kwargs):
-        return {"response": kwargs["final_text"], "session_id": kwargs["session_id"]}
+        return {
+            "response": kwargs["final_text"],
+            "session_id": kwargs["session_id"],
+            "turn_facts": kwargs["turn_facts"],
+        }
 
     monkeypatch.setattr(facade, "_get_or_create_session", _session)
     monkeypatch.setattr(facade, "_apply_native_context", _native)
@@ -270,9 +274,9 @@ class TestFacadeShieldMarksError:
 
 
 class TestObs5TraceIdOnProgressFrame:
-    """OBS5: `trace_id` rides `progress`, never `done` — `done`'s payload IS
-    `CONTRACT_KEYS` (locked elsewhere by a strict-equality test), so a new key
-    there would silently break the agent-usa iso-contract."""
+    """OBS5: `trace_id` rides `progress` (the feedback control needs it before
+    the answer) and `done` only inside `turn_facts` (the analytics event): the
+    top level of `done` stays `CONTRACT_KEYS`."""
 
     def test_progress_frame_carries_the_root_observation_trace_id(self, recording):
         client, _propagated, _ambient_span = recording
@@ -280,14 +284,28 @@ class TestObs5TraceIdOnProgressFrame:
         raw = asyncio.run(_sse_body(response))
         assert _frame_data(raw, "progress")["trace_id"] == client.span.trace_id
 
-    def test_done_frame_never_gains_a_trace_id_key(self, recording):
-        """Extra safety net alongside test_active_filters.py's CONTRACT_KEYS
-        lock: even if that constant were ever extended, this pins the actual
-        emitted `done` payload, not just the frozenset it's built from."""
-        _client, _propagated, _ambient_span = recording
+    def test_done_frame_carries_the_trace_id_in_turn_facts_only(self, recording):
+        client, _propagated, _ambient_span = recording
         response = asyncio.run(facade.chat_stream(_make_request()))
-        raw = asyncio.run(_sse_body(response))
-        assert "trace_id" not in _frame_data(raw, "done")
+        done = _frame_data(asyncio.run(_sse_body(response)), "done")
+        assert "trace_id" not in done
+        assert done["turn_facts"]["trace_id"] == client.span.trace_id
+
+    def test_json_turn_facts_carry_the_trace_id(self, recording):
+        client, _propagated, _ambient_span = recording
+        response = asyncio.run(facade.chat(_make_request()))
+        assert json.loads(response.body)["turn_facts"]["trace_id"] == client.span.trace_id
+
+    def test_the_shield_keeps_the_trace_id_of_the_failed_turn(self, recording, monkeypatch):
+        client, _propagated, _ambient_span = recording
+
+        async def _boom(**_kwargs):
+            raise RuntimeError("synthesis exploded")
+
+        monkeypatch.setattr(facade, "_finalize", _boom)
+        response = asyncio.run(facade.chat(_make_request()))
+        facts = json.loads(response.body)["turn_facts"]
+        assert (facts["route"], facts["trace_id"]) == ("facade_shield", client.span.trace_id)
 
     def test_crash_body_progress_frame_has_no_trace_id(self, recording, monkeypatch):
         """Setup fails before `turn_observation` ever opens (no span exists
