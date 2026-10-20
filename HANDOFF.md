@@ -28,6 +28,7 @@
 - **À trancher** : `prod-lat-dead-0-same-day-cutoff-fallback` (`b2c/prod-regressions`, importé depuis la trace `e03688e0`, message « je cherche un hotel à Paris avec piscine ») reçoit désormais la question de date, par construction : son `min_hotels: 1` échouera. Le retirer, ou le garder comme garde « question de date » (attendus à réécrire).
 - Limites connues, voulues : sans ville NI jour, deux questions (le jour, puis la ville) ; une question de budget avant recherche est suivie de la question de date.
 - La batterie 32 scénarios et les rejeux Langfuse sont payants : non lancés.
+- Analytics (AM1, #146) : le tour de question part en `response_type: clarification`, `clarification_reason: other` — le contrat `contracts/amplitude_events.json` (convenu avec Ali) n'a pas de valeur `date`. L'ajouter = changer le contrat partagé, à voir avec lui.
 
 ## 🧩 2026-10-20 — Retours QA widget : flèches coupées + carrousel mobile (branche `fix/widget-results-overflow`)
 

@@ -11,6 +11,7 @@ from datetime import timedelta
 
 import pytest
 from google.adk.runners import InMemoryRunner
+from google.genai import types as genai_types
 
 import b2c_concierge.agent as agent_module
 from b2c_concierge import templates
@@ -20,6 +21,7 @@ from b2c_concierge.profile_store import ProfileStore
 from b2c_concierge.requested_date import parse_requested_date, reference_today
 from b2c_concierge.triage import LANGUAGES
 
+from .test_spine import _marker_payloads
 from .test_spine_profile import _new_session, _run_turn, _scripted_llm, fake_leg  # noqa: F401
 
 pytestmark = pytest.mark.date_unsettled
@@ -59,6 +61,21 @@ class TestTheQuestion:
         assert stored.pending_search == {
             "request": _REQUEST, "question": _QUESTION, "asked": 1, "date_question": True,
         }
+
+    def test_the_analytics_facts_count_it_as_a_question(self, monkeypatch, fake_leg):  # noqa: F811
+        _scripted_llm(monkeypatch, _SEARCH_EN)
+        runner = InMemoryRunner(root_agent)
+        session = _new_session(runner)
+
+        async def go():
+            content = genai_types.Content(role="user", parts=[genai_types.Part(text=_REQUEST)])
+            return [e async for e in runner.run_async(user_id="u", session_id=session.id, new_message=content)]
+
+        (facts,) = [p for p in _marker_payloads(asyncio.run(go())) if p["event"] == "turn_facts"]
+        assert facts["route"] == "template:date_question"
+        assert facts["response_type"] == "clarification"
+        assert facts["clarification_reason"] == "other"
+        assert facts["results_count"] == 0
 
     def test_the_reply_searches_that_day_with_the_request_it_completes(
         self, monkeypatch, fake_leg, fake_profile_store  # noqa: F811

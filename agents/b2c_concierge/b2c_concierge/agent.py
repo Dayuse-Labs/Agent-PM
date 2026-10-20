@@ -1745,7 +1745,12 @@ class _B2cConcierge(BaseAgent):
                         "date_question": True,
                     }
                     await store.set(ctx.session.id, profile)
-                    self._emit_turn_metric(family, "template:date_question", budget, t_start, "ok", inv)
+                    # Amplitude (AM1): the contract agreed with the analytics team
+                    # has no "date" reason yet — "other" until it does.
+                    self._emit_turn_metric(
+                        family, "template:date_question", budget, t_start, "ok", inv,
+                        clarification="other",
+                    )
                     yield self._final(ctx, question)
                     return
 
