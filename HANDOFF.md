@@ -6,6 +6,30 @@
 
 > 📋 **Pour savoir QUOI faire ensuite, ouvrir [`CHANTIERS.md`](CHANTIERS.md)** (état vérifié au 2026-09-14) : la liste des chantiers ouverts, chacun avec sa preuve, ses actions et un prompt prêt à coller — plus la liste de ce qu'il ne faut **pas** relancer parce que c'est déjà livré. `tasks/todo.md` est périmé et ne doit plus servir de référence.
 
+## 📅 2026-10-20 — La première recherche sans jour demande la date (branche `feat/ask-search-date`)
+
+**Décision (Fabien, 2026-10-20)** : renverse « A date is NOT required » (2026-07-28). Retour QA, trace `d327c03d` : « Rooftop pool in Los Angeles » cherché aujourd'hui sans rien demander.
+
+**Fait** (concierge seul) :
+- `agent.py` : avant la feuille, si la première recherche de la session ne nomme aucun jour (`expected_search_date`, `mentions_a_date`, slot de triage `day_stated`), réponse par gabarit `templates.date_question` + 3 puces (`date_chips` : aujourd'hui / demain / après-demain, lues par `parse_requested_date` dans les 7 langues). 1 seul appel LLM (le triage). `SessionProfile.date_checked` : une seule fois par session ; une réponse sans jour cherche aujourd'hui. Pas de question pour un hôtel nommé (le nom ne passe qu'à ce tour, mcp-dayuse#7), ni quand Redis ne répond pas (`store.exists` → None : sinon la question reviendrait à chaque tour).
+- `pending_search` garde la demande (`date_question: true`) ; la réponse repart vers la feuille avec la demande SEULE, sans étiquettes (`pending_search_context`) : avec « EARLIER REQUEST / YOU ASKED », la feuille stockait « Rooftop pool » en `zone` 3 fois sur 7 (0 sur 5 en message daté direct) et le tour suivant (« and in San Diego? ») tombait en dégradé ; après correctif 0 sur 8. Les puces sont effacées au tour qui répond.
+- Triage : slot `day_stated` (additif, ne peut qu'épargner la question). Une heure ou une plage sans jour (« de 14h à 18h ») compte comme aujourd'hui : gpt-4o-mini l'a lu ainsi 6 fois sur 6 sous deux formulations contraires, l'échec est sûr (comportement d'avant) — à renverser si tu préfères demander dans ce cas.
+- Tests : `test_search_date_question.py` (21) + `tests/api/test_search_date_http.py` (puces dans le JSON et dans la trame SSE `done`) + triage ; 3 contre-épreuves (porte coupée, puces non effacées, sonde Redis coupée) → rouge. Les ~85 tests antérieurs qui passent par une première recherche sans jour démarrent sur une session au jour réglé (fixture `_search_date_already_settled` du `conftest.py` racine ; marqueur `date_unsettled` pour en sortir).
+- Évals : « demain »/« tomorrow » ajouté aux 7 items `geo-poi` sans jour (ils testent la géographie) ; 2 items `b2c-dialogue-state` (`ds-date-asked-when-none-fr`, `ds-date-answer-keeps-request-fr`). Seed `--dry-run` : 91 items valides.
+
+**Preuve** :
+- Sonde triage réelle, 16 formulations × 3, fr/en/es : **48/48** sur gpt-4o-mini (triage prod) et 48/48 sur gpt-6-luna (défaut du code, migration M1).
+- Live local (3 services + Redis :6390, feuilles luna, en-tête synthétique) : API LA (question + puces → « Tomorrow » → 5 hôtels au 2026-10-21) ; FR 3 tours (question → « demain à partir de 14h » : Nice, J+1, 14h, piscine → « et à Cannes ? » : pas de question, jour/heure/piscine reportés) ; widget SSE dans Chrome à 390 px (puces affichées, clic « Tomorrow » → cartes, « and in San Diego? » → recherche sans nouvelle question, statut `ok`).
+- pytest 3 017 passés / 1 skippé, ruff, mypy, guardrails OK.
+
+**Reste** :
+- Déployer `concierge` seul (`DEPLOY.md`), puis un tour synthétique sur le widget public.
+- Ressemer `b2c/geo-poi` et `b2c/dialogue-state` (`scripts/langfuse_seed_datasets.py --only …`, humain).
+- **À trancher** : `prod-lat-dead-0-same-day-cutoff-fallback` (`b2c/prod-regressions`, importé depuis la trace `e03688e0`, message « je cherche un hotel à Paris avec piscine ») reçoit désormais la question de date, par construction : son `min_hotels: 1` échouera. Le retirer, ou le garder comme garde « question de date » (attendus à réécrire).
+- Limites connues, voulues : sans ville NI jour, deux questions (le jour, puis la ville) ; une question de budget avant recherche est suivie de la question de date.
+- La batterie 32 scénarios et les rejeux Langfuse sont payants : non lancés.
+- Analytics (AM1, #146) : le tour de question part en `response_type: clarification`, `clarification_reason: other` — le contrat `contracts/amplitude_events.json` (convenu avec Ali) n'a pas de valeur `date`. L'ajouter = changer le contrat partagé, à voir avec lui.
+
 ## 🧩 2026-10-20 — Retours QA widget : flèches coupées + carrousel mobile (branche `fix/widget-results-overflow`)
 
 **Constat mesuré** (widget local servi par `run_widget_proxy.py`, `/v3/chat` routé vers un payload construit par `facade.build_chat_payload` avec les hôtels de la trace QA `d327c03d…`, Chrome headless) :

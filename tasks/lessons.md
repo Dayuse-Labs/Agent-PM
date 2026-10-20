@@ -1,5 +1,22 @@
 # Lessons — corrections de Fabien à réappliquer
 
+## 2026-10-20 — question de date (auto-constatées, en live puis par un test rouge)
+
+1. **Un cadrage écrit pour une question biaise la feuille quand on le réutilise
+   pour une autre.** La réponse à la question de date partait avec « EARLIER
+   REQUEST / YOU ASKED / REPLY », écrit pour les questions de lieu, et le prompt
+   de la feuille dit que « the place it named » s'applique encore : « Rooftop
+   pool » lu comme un lieu, `zone` stockée 3 fois sur 7 (0 sur 5 sur le message
+   daté direct), puis « Rooftop pool, San Diego » au tour suivant → echo-back →
+   tour dégradé. La feuille est simulée hors ligne : aucun test ne pouvait le
+   voir. Mesurer l'état PERSISTÉ (le profil Redis) en A/B, pas seulement la
+   réponse ; corrigé en envoyant la demande seule, sans étiquettes (0 sur 8).
+2. **Un test rouge protège peut-être exactement ce qu'on casse.** Redis en panne
+   = profil vide à chaque tour = la question de date revenait à chaque tour et
+   la demande se perdait. `test_turn_still_answers_when_redis_is_unreachable`
+   l'a attrapé au milieu de 88 rouges « attendus » : lire ce que chaque famille
+   de tests rouges protège avant de les adapter en bloc.
+
 ## 2026-10-20 — retours QA widget (flèches coupées, carrousel mobile)
 
 1. **Un `padding-right` qui « évite de couper contre le bord du panneau » est un

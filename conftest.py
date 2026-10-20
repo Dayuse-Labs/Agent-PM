@@ -13,6 +13,8 @@ the local .env contains.
 """
 import os
 
+import pytest
+
 for _key in ("LANGFUSE_PUBLIC_KEY", "LANGFUSE_SECRET_KEY"):
     os.environ[_key] = ""
 
@@ -25,3 +27,24 @@ for _key in (
     "CONCIERGE_LEAF_TIMEOUT_SECONDS",
 ):
     os.environ[_key] = ""
+
+
+@pytest.fixture(autouse=True)
+def _search_date_already_settled(request, monkeypatch):
+    """QA 2026-10-20: a session's first hotel search that names no day asks
+    for one (b2c_concierge agent.py, `SessionProfile.date_checked`). Tests
+    written before it drive such a search to test something else, so every
+    session starts with its day settled. The date question's tests, and the
+    store's own, opt out with `@pytest.mark.date_unsettled`."""
+    if request.node.get_closest_marker("date_unsettled"):
+        return
+    from b2c_concierge.profile_store import ProfileStore
+
+    real_get = ProfileStore.get
+
+    async def get(self, session_id):
+        profile = await real_get(self, session_id)
+        profile.date_checked = True
+        return profile
+
+    monkeypatch.setattr(ProfileStore, "get", get)

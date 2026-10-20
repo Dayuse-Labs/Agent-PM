@@ -192,6 +192,11 @@ class Triage:
     # either means, from its own pending state.
     answers_pending: str = FALLBACK_ANSWERS_PENDING
     answer_option: int | None = None
+    # QA 2026-10-20: whether the message says which day, even with no date
+    # word the regex reads ("now", "this afternoon"). It only ever spares the
+    # date question (`requested_date.mentions_a_date` asks first); None = no
+    # LLM signal.
+    day_stated: bool | None = None
 
 
 def is_social_ack(message: str) -> bool:
@@ -408,6 +413,11 @@ with exactly these keys:
   request of its own — "ok", "oui", "d'accord", "sure", "yes", "sí", "sì", "ja",
   "sim", "va bene", "einverstanden". False as soon as it says anything else
   ("ok pour demain" carries a date, "oui le premier" carries a choice).
+- "day_stated": true when the message says which day: a date, a weekday or a
+  relative day ("le 3", "vendredi", "demain", "today"), words that point at
+  today ("maintenant", "right now", "ce soir", "cet après-midi", "this
+  morning", "esta tarde"), or an hour or time range, read as today ("de 14h à
+  18h", "from 2pm"). False when it gives no day and no time at all.
 - "answers_pending": one of {list(ANSWERS_PENDING)} — "yes" when the message
   answers LAST ASSISTANT QUESTION (a place, a city, a choice among the options
   it lists — "Paris", "le 2", "celle du Texas", "oui", "je confirme"), "no"
@@ -641,6 +651,7 @@ async def classify(message: str, budget: TurnBudget, invocation_id: str = "",
         answers_pending=answers_pending,
         answer_option=(_positive_position(data.get("answer_option"))
                        if answers_pending == "yes" else None),
+        day_stated=_bool_slot(data.get("day_stated")),
     )
 
 
