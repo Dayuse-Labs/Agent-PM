@@ -139,7 +139,8 @@ from .fallback_text import enforce_parking_reserve, synthesis_fallback_text
 from .display_currency import (
     HOTEL,
     already_message,
-    apply_hotel_currency,
+    apply_display_currency,
+    comparison_mode,
     noted_message,
     resolve_currency_request,
     shortlist_currencies,
@@ -1050,8 +1051,7 @@ class _B2cConcierge(BaseAgent):
             yield self._final(ctx, templates.inline_unresolved_response(route.target, language))
             return
 
-        if profile.display_currency == HOTEL:
-            apply_hotel_currency(hotels)
+        apply_display_currency(hotels, profile)
         response = {"results": hotels}
         # Same picks the `done` payload will carry: details/compare do NOT touch
         # `last_results`, so this reads the shortlist a previous search left —
@@ -1668,7 +1668,9 @@ class _B2cConcierge(BaseAgent):
             # fee-inclusive totals of the offers on screen — never an amount
             # the model invents. Without one, ask before searching.
             if triage.price_comparison == "lower":
-                reference = cheaper_reference(profile.last_results, profile.display_currency)
+                reference = cheaper_reference(
+                    profile.last_results, comparison_mode(profile, profile.last_results)
+                )
                 if reference is None:
                     profile.last_clarifying_question = reference_question(reply_language)
                     await store.set(ctx.session.id, profile)
@@ -1967,8 +1969,7 @@ class _B2cConcierge(BaseAgent):
                     profile.display_currency = HOTEL
                 else:
                     currency_notice = unsupported_currency_message(decided, reply_language)
-            if profile.display_currency == HOTEL:
-                apply_hotel_currency(response["results"])
+            apply_display_currency(response["results"], profile)
             results_count = len(response["results"])
             search_context = response.get("search_context")
             page = search_context.get("search_page") if isinstance(search_context, dict) else None

@@ -1,9 +1,17 @@
-"""Display currency — EUR by default, the hotel's own currency on request.
+"""Display currency — the visitor's market currency when the hotel charges in it,
+EUR otherwise, and the hotel's own currency on request.
 
-Product rule (2026-09-25): prices are shown in EUR. When the user asks for the
-hotel's currency, cards, rate plans and reply switch to it — for the rest of the
-conversation, until they ask for euros again. Any OTHER currency is not
-available yet: the user is told so, with the two choices that are.
+Product rule (2026-10-26, décision Victor, à confirmer par Fabien — remplace celle
+du 2026-09-25 « EUR par défaut ») :
+  - By default, a card whose hotel charges in the visitor's MARKET currency
+    (`profile.currency`, the `currency` the widget sends with every turn) is
+    shown in that currency: US market + USD hotel → $, UK + GBP → £. Every other
+    card stays in EUR: FR market + USD hotel → €, US market + EUR hotel → €.
+  - An explicit request wins over that default, both ways, for the rest of the
+    conversation: « en euros » → EUR everywhere, « dans la devise de l'hôtel » (or
+    naming it) → each hotel's own currency. Any OTHER currency is not available
+    yet: the user is told so, with the two choices that are, and the default
+    keeps applying.
 
 Nothing here converts. The search leaf stamps each card with the SAME offer's
 price in the hotel's currency (`hotel_price`, as indexed by MCP_B2C); this module
@@ -66,11 +74,14 @@ def resolve_currency_request(
     return CurrencyDecision("unsupported", requested=requested, hotel_currencies=currencies)
 
 
-def apply_hotel_currency(cards: list[Any] | None) -> None:
+def apply_hotel_currency(cards: list[Any] | None, only: str | None = None) -> None:
     """Switch each card to its hotel-currency price, in place. A card without
-    one keeps its EUR price rather than losing it."""
+    one keeps its EUR price rather than losing it. `only`: switch just the cards
+    whose hotel charges in that currency (the market default), leave the rest."""
     for card in cards or []:
         if not isinstance(card, dict) or not isinstance(card.get("hotel_price"), str):
+            continue
+        if only is not None and card.get("hotel_currency_code") != only:
             continue
         # Dated alternative formulas keep their own indexed hotel prices too.
         for offer in (card.get("available_offers") or [])[:20]:
@@ -87,6 +98,58 @@ def apply_hotel_currency(cards: list[Any] | None) -> None:
                 slot["original_price"] = slot["hotel_original_price"]
             else:
                 slot.pop("original_price", None)
+
+
+def market_currency(profile: Any) -> str | None:
+    """The visitor's market currency when it decides the display (rule of
+    2026-10-26), else None: an explicit choice is in force (the hotel's currency,
+    or euros), or the market is EUR or unknown — EUR is what the cards already
+    show. `profile` is a SessionProfile (duck-typed: no import cycle)."""
+    if getattr(profile, "display_currency", None) is not None:
+        return None
+    if getattr(profile, "requested_currency", None) == "EUR":
+        return None
+    code = getattr(profile, "currency", None)
+    if not isinstance(code, str) or len(code) != 3 or not code.isascii() or not code.isalpha():
+        return None
+    code = code.upper()
+    return None if code == "EUR" else code
+
+
+def apply_display_currency(cards: list[Any] | None, profile: Any) -> None:
+    """Paint cards in the currency this conversation shows: every hotel's own
+    currency on request, else the market currency on the hotels that charge in
+    it, else EUR (the cards as the leaf sent them)."""
+    if getattr(profile, "display_currency", None) == HOTEL:
+        apply_hotel_currency(cards)
+        return
+    market = market_currency(profile)
+    if market is not None:
+        apply_hotel_currency(cards, only=market)
+
+
+def shows_hotel_currency(profile: Any, hotel_currency: Any) -> bool:
+    """Whether a hotel charging in `hotel_currency` is shown in it — the same
+    decision as `apply_display_currency`, for the booking card and its rate
+    plans, which are priced from MCP offers rather than from a card."""
+    if getattr(profile, "display_currency", None) == HOTEL:
+        return True
+    market = market_currency(profile)
+    return market is not None and isinstance(hotel_currency, str) and hotel_currency.upper() == market
+
+
+def comparison_mode(profile: Any, results: list[dict[str, Any]] | None) -> str | None:
+    """The display mode « moins cher » measures against: HOTEL when every card
+    on screen shows its hotel's currency by the market default (all in that one
+    currency), else the conversation's mode — so the reference amount is in the
+    currency the user is looking at."""
+    if getattr(profile, "display_currency", None) is not None:
+        return str(profile.display_currency)
+    market = market_currency(profile)
+    rows = [r for r in results or [] if isinstance(r, dict)]
+    if market is not None and rows and all(r.get("hotel_currency_code") == market for r in rows):
+        return HOTEL
+    return None
 
 
 _UNSUPPORTED = {

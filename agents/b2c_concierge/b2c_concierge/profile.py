@@ -274,9 +274,11 @@ class SessionProfile:
     # `children = 0` is a real statement ("adults only"), distinct from None.
     adults: int | None = None
     children: int | None = None
-    # Prices are shown in EUR unless the user asked for the hotel's own
-    # currency ("HOTEL"), kept for the rest of the conversation until they ask
-    # for euros again (product decision 2026-09-25).
+    # "HOTEL" once the user asked for the hotel's own currency, kept for the
+    # rest of the conversation until they ask for euros again (2026-09-25).
+    # None = no explicit choice: a hotel charging in the market `currency` is
+    # shown in it, every other one in EUR (rule of 2026-10-26,
+    # display_currency.market_currency).
     display_currency: str | None = None
     # Last currency the user asked for ("EUR", "HOTEL" or an ISO code), None
     # until they mention one: the EUR disclosure is only owed after that

@@ -147,6 +147,47 @@ def test_empty_message_ack_prefers_locale_over_default_english(client):
     assert r.json()["response_language"] == "fr"
 
 
+# --- market currency by default (rule of 2026-10-26) -------------------------------------------
+_NY_CARD = {
+    "id": 2, "name": "Hotel Midtown", "price": "€165.10", "price_eur_cents": 16510,
+    "hotel_price": "USD 187.00", "hotel_price_minor": 18700, "hotel_currency_code": "USD",
+    "currency_code": "USD", "offer_totals": {"EUR": 16510, "USD": 18700},
+}
+
+
+def _install_ny_search(monkeypatch):
+    _install_search_turn(monkeypatch, "New York")
+
+    async def fake_run_leaf(leaf, ctx, profile_in):
+        return ("Voici un hôtel.", {"results": [dict(_NY_CARD)], "profile_delta": {"city": "New York"}})
+
+    monkeypatch.setattr(agent_module, "_run_leaf", fake_run_leaf)
+
+
+def test_a_us_visitor_gets_the_card_in_dollars(client, monkeypatch):
+    """Prod 2026-10-26: the widget sent currency=USD and the card said €165.10
+    although it carried hotel_price USD 187.00."""
+    _install_ny_search(monkeypatch)
+    r = client.post(
+        "/v3/chat",
+        json={"message": "a day room in New York tomorrow", "currency": "USD", "entry_market_country": "US"},
+    )
+    card = r.json()["hotels"][0]
+    assert card["price"] == "USD 187.00"
+    assert (card["display_currency"], card["display_price_minor"]) == ("USD", 18700)
+
+
+def test_a_euro_market_keeps_the_same_card_in_euros(client, monkeypatch):
+    _install_ny_search(monkeypatch)
+    r = client.post(
+        "/v3/chat",
+        json={"message": "un hôtel à New York demain", "currency": "EUR", "entry_market_country": "FR"},
+    )
+    card = r.json()["hotels"][0]
+    assert card["price"] == "€165.10"
+    assert card.get("display_currency") is None
+
+
 # --- never a 500 on garbage/opaque optional fields --------------------------------------------
 def test_garbage_native_context_never_500s(client):
     r = client.post(

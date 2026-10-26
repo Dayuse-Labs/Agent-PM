@@ -545,3 +545,231 @@ class TestSecondReviewFixes:
         assert stored.display_currency == HOTEL
         assert stored.last_results[0]["price"] == "PLN 400.00"
         assert "Je ne peux pas encore" not in reply
+
+
+# --- Rule of 2026-10-26: the market currency by default ---------------------------------------
+# A visitor's market currency (`profile.currency`, sent by the widget with every turn) is the
+# default display for the hotels that charge in it; every other hotel stays in EUR; an explicit
+# request wins, both ways, for the rest of the conversation. Prod 2026-10-26: a US visitor saw
+# "€165.10" on a card that carried `hotel_price: "USD 187.00"`.
+NY_CARD = {
+    "id": 2,
+    "name": "Hotel Midtown",
+    "price": "€165.10",
+    "price_eur_cents": 16510,
+    "hotel_price": "USD 187.00",
+    "hotel_price_minor": 18700,
+    "hotel_currency_code": "USD",
+    "currency_code": "USD",
+    "offer_totals": {"EUR": 16510, "USD": 18700},
+    "timeslots": [
+        {"start": "10:00", "end": "17:00", "original_price": 289.0, "hotel_original_price": 327.0}
+    ],
+}
+LONDON_CARD = {
+    "id": 3,
+    "name": "Hotel Soho",
+    "price": "€140.00",
+    "price_eur_cents": 14000,
+    "hotel_price": "GBP 120.00",
+    "hotel_price_minor": 12000,
+    "hotel_currency_code": "GBP",
+    "currency_code": "GBP",
+}
+PARIS_CARD = {
+    "id": 4,
+    "name": "Hôtel Marais",
+    "price": "€89.00",
+    "price_eur_cents": 8900,
+    "hotel_price": "EUR 89.00",
+    "hotel_price_minor": 8900,
+    "hotel_currency_code": "EUR",
+    "currency_code": "EUR",
+}
+
+
+def _profile(**kwargs):
+    from b2c_concierge.profile import SessionProfile
+
+    return SessionProfile(**kwargs)
+
+
+def _painted(card, **profile_fields):
+    from b2c_concierge.display_currency import apply_display_currency
+
+    cards = [copy.deepcopy(card)]
+    apply_display_currency(cards, _profile(**profile_fields))
+    return cards[0]
+
+
+class TestMarketCurrencyDefault:
+    def test_us_market_and_a_usd_hotel_show_dollars(self):
+        card = _painted(NY_CARD, currency="USD")
+        assert card["price"] == "USD 187.00"
+        assert (card["display_currency"], card["display_price_minor"]) == ("USD", 18700)
+        assert card["timeslots"][0]["original_price"] == 327.0  # the struck rate follows
+        assert card["price_eur_cents"] == 16510  # budget logic stays in EUR
+
+    def test_uk_market_and_a_gbp_hotel_show_pounds(self):
+        card = _painted(LONDON_CARD, currency="GBP")
+        assert (card["price"], card["display_currency"]) == ("GBP 120.00", "GBP")
+
+    def test_fr_market_and_a_usd_hotel_stay_in_euros(self):
+        assert _painted(NY_CARD, currency="EUR")["price"] == "€165.10"
+
+    def test_us_market_and_a_eur_hotel_stay_in_euros(self):
+        card = _painted(PARIS_CARD, currency="USD")
+        assert card["price"] == "€89.00" and "display_currency" not in card
+
+    def test_another_market_currency_leaves_the_card_in_euros(self):
+        # Contre-épreuve : la devise du marché ne s'applique qu'aux hôtels qui facturent dedans.
+        assert _painted(NY_CARD, currency="GBP")["price"] == "€165.10"
+        assert _painted(LONDON_CARD, currency="USD")["price"] == "€140.00"
+
+    def test_a_mixed_list_switches_only_the_hotels_in_the_market_currency(self):
+        from b2c_concierge.display_currency import apply_display_currency
+
+        cards = [copy.deepcopy(NY_CARD), copy.deepcopy(PARIS_CARD)]
+        apply_display_currency(cards, _profile(currency="USD"))
+        assert [c["price"] for c in cards] == ["USD 187.00", "€89.00"]
+
+    def test_no_market_currency_keeps_euros(self):
+        assert _painted(NY_CARD)["price"] == "€165.10"
+        assert _painted(NY_CARD, currency="usd ")["price"] == "€165.10"  # malformed: no guess
+
+    def test_a_card_without_a_hotel_price_keeps_its_eur_price(self):
+        card = {"name": "X", "price": "€95.00", "hotel_currency_code": "USD"}
+        assert _painted(card, currency="USD") == card
+
+    def test_asking_for_euros_beats_the_market_default(self):
+        card = _painted(NY_CARD, currency="USD", requested_currency="EUR")
+        assert card["price"] == "€165.10"
+
+    def test_asking_for_the_hotel_currency_beats_the_market_default(self):
+        card = _painted(NY_CARD, currency="EUR", requested_currency="HOTEL", display_currency=HOTEL)
+        assert card["price"] == "USD 187.00"
+
+    def test_an_unavailable_currency_request_keeps_the_market_default(self):
+        # "en yens" answered "not available": no choice was made, the default still holds.
+        assert _painted(NY_CARD, currency="USD", requested_currency="JPY")["price"] == "USD 187.00"
+
+    def test_the_booking_card_follows_the_same_decision(self):
+        from b2c_concierge.display_currency import shows_hotel_currency
+
+        assert shows_hotel_currency(_profile(currency="USD"), "USD")
+        assert not shows_hotel_currency(_profile(currency="USD"), "EUR")
+        assert not shows_hotel_currency(_profile(currency="EUR"), "USD")
+        assert not shows_hotel_currency(_profile(currency="USD", requested_currency="EUR"), "USD")
+        assert shows_hotel_currency(_profile(currency="EUR", display_currency=HOTEL), "USD")
+
+    def test_rate_plans_are_priced_in_the_market_currency(self):
+        from b2c_concierge.inline_tools import _offers_currency, _rate_plan_view
+        from b2c_concierge.display_currency import shows_hotel_currency
+
+        offer = {
+            "ratePlanUuid": "p1", "availabilityDate": "2026-10-27",
+            "priceEuroWithBookingFees": 16510, "hotelCurrency": "USD", "hotelPriceWithBookingFees": 18700,
+        }
+        mode = HOTEL if shows_hotel_currency(_profile(currency="USD"), _offers_currency([offer])) else None
+        assert _rate_plan_view(offer, {}, mode)["price"] == "USD 187.00"
+        mode = HOTEL if shows_hotel_currency(_profile(currency="EUR"), _offers_currency([offer])) else None
+        assert _rate_plan_view(offer, {}, mode)["price"] == "€165.10"
+
+    def test_cheaper_is_measured_in_the_currency_on_screen(self):
+        from b2c_concierge.display_currency import comparison_mode
+
+        usd = [{"hotel_currency_code": "USD"}, {"hotel_currency_code": "USD"}]
+        assert comparison_mode(_profile(currency="USD"), usd) == HOTEL
+        assert comparison_mode(_profile(currency="USD"), usd + [{"hotel_currency_code": "EUR"}]) is None
+        assert comparison_mode(_profile(currency="USD", requested_currency="EUR"), usd) is None
+        assert comparison_mode(_profile(currency="EUR"), usd) is None
+
+
+def _seed_market(store, session_id, currency):
+    """What the facade's native-context intake does before the spine runs."""
+    from b2c_concierge.profile import SessionProfile
+
+    asyncio.run(store.set(session_id, SessionProfile(currency=currency)))
+
+
+class TestMarketCurrencyThroughTheSpine:
+    def test_a_us_visitor_sees_dollars_and_the_reply_quotes_them(
+        self, monkeypatch, fake_leg, fake_profile_store
+    ):
+        runner = InMemoryRunner(root_agent)
+        session = _new_session(runner)
+        _seed_market(fake_profile_store, session.id, "USD")
+        llm = _scripted_llm(monkeypatch, '{"family": "search", "language": "en"}', "Here is a hotel.")
+        fake_leg.response_payload = {"results": [copy.deepcopy(NY_CARD)], "profile_delta": {"city": "New York"}}
+
+        _run_turn(runner, session.id, "a day room in New York tomorrow")
+
+        stored = asyncio.run(fake_profile_store.get(session.id))
+        assert stored.display_currency is None  # a default, not a request
+        assert stored.last_results[0]["price"] == "USD 187.00"
+        synthesis_prompt = llm.calls[-1]["messages"][1]["content"]
+        assert "USD 187.00" in synthesis_prompt and "€165.10" not in synthesis_prompt
+        assert "CURRENCY" not in synthesis_prompt  # no "EUR, no conversion" disclosure
+
+    def test_a_french_visitor_in_new_york_keeps_euros(self, monkeypatch, fake_leg, fake_profile_store):
+        runner = InMemoryRunner(root_agent)
+        session = _new_session(runner)
+        _seed_market(fake_profile_store, session.id, "EUR")
+        _scripted_llm(monkeypatch, '{"family": "search", "language": "fr"}', "Voici un hôtel.")
+        fake_leg.response_payload = {"results": [copy.deepcopy(NY_CARD)], "profile_delta": {"city": "New York"}}
+
+        _run_turn(runner, session.id, "un hôtel à New York demain")
+
+        stored = asyncio.run(fake_profile_store.get(session.id))
+        assert stored.last_results[0]["price"] == "€165.10"
+
+    def test_asking_for_euros_repaints_and_holds_for_the_rest_of_the_conversation(
+        self, monkeypatch, fake_leg, fake_profile_store
+    ):
+        runner = InMemoryRunner(root_agent)
+        session = _new_session(runner)
+        _seed_market(fake_profile_store, session.id, "USD")
+        _scripted_llm(
+            monkeypatch,
+            '{"family": "search", "language": "en"}',
+            "Here is a hotel.",
+            '{"family": "details", "language": "en", "display_currency": "EUR"}',
+            "Here it is in euros.",
+            '{"family": "search", "language": "en"}',
+            "Another one.",
+        )
+        fake_leg.response_payload = {"results": [copy.deepcopy(NY_CARD)], "profile_delta": {"city": "New York"}}
+        _run_turn(runner, session.id, "a day room in New York tomorrow")
+        assert asyncio.run(fake_profile_store.get(session.id)).last_results[0]["price"] == "USD 187.00"
+
+        fake_leg.response_payload = {"results": [copy.deepcopy(NY_CARD)]}
+        _run_turn(runner, session.id, "show me the prices in euros")
+        assert fake_leg.call_count == 2  # repainted, not "already shown"
+        assert asyncio.run(fake_profile_store.get(session.id)).last_results[0]["price"] == "€165.10"
+
+        fake_leg.response_payload = {"results": [copy.deepcopy(NY_CARD)], "profile_delta": {"city": "Brooklyn"}}
+        _run_turn(runner, session.id, "and in Brooklyn?")
+        assert asyncio.run(fake_profile_store.get(session.id)).last_results[0]["price"] == "€165.10"
+
+    def test_asking_for_the_hotel_currency_wins_on_a_euro_market(
+        self, monkeypatch, fake_leg, fake_profile_store
+    ):
+        runner = InMemoryRunner(root_agent)
+        session = _new_session(runner)
+        _seed_market(fake_profile_store, session.id, "EUR")
+        _scripted_llm(
+            monkeypatch,
+            '{"family": "search", "language": "fr"}',
+            "Voici un hôtel.",
+            '{"family": "details", "language": "fr", "display_currency": "USD"}',
+            "Voici les prix en dollars.",
+        )
+        fake_leg.response_payload = {"results": [copy.deepcopy(NY_CARD)], "profile_delta": {"city": "New York"}}
+        _run_turn(runner, session.id, "un hôtel à New York demain")
+        assert asyncio.run(fake_profile_store.get(session.id)).last_results[0]["price"] == "€165.10"
+
+        fake_leg.response_payload = {"results": [copy.deepcopy(NY_CARD)]}
+        _run_turn(runner, session.id, "en dollars s'il te plaît")
+        stored = asyncio.run(fake_profile_store.get(session.id))
+        assert stored.display_currency == HOTEL
+        assert stored.last_results[0]["price"] == "USD 187.00"
