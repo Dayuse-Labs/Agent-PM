@@ -6,6 +6,27 @@
 
 > 📋 **Pour savoir QUOI faire ensuite, ouvrir [`CHANTIERS.md`](CHANTIERS.md)** (état vérifié au 2026-09-14) : la liste des chantiers ouverts, chacun avec sa preuve, ses actions et un prompt prêt à coller — plus la liste de ce qu'il ne faut **pas** relancer parce que c'est déjà livré. `tasks/todo.md` est périmé et ne doit plus servir de référence.
 
+## 🚀 2026-10-26 (bis) — `widget` déployé sur `e2b0c99` (#149 : marché au rendu + protection de l'edge)
+
+**Déployé** : `widget` seul — `WIDGET_ALLOWED_ORIGINS=https://ai.dayuse.com,https://widget-production-3f56.up.railway.app` et `LANGFUSE_RELEASE=e2b0c99` posées avec `--skip-deploys`, puis `railway up --service widget --detach` ; page servie en `e2b0c99` à 11:02Z. `concierge`, `hotel-search`, `faq` restent sur `8d1579b` : `git log 8d1579b..e2b0c99 -- agents libs` est vide, et #148 y tourne déjà (tour synthétique « un hôtel avec piscine à Nice » → question de date + 3 puces + `turn_facts: clarification`). Gates sur `e2b0c99` : pytest 3 130 passés / 1 skippé, ruff, mypy, 78 tests JS.
+
+**Preuves sur le widget public** (sondes synthétiques, un seul appel LLM) :
+- `/?locale=fr&currency=EUR` + Referer dayuse.fr → métas `fr / EUR / FR / dayuse.fr` (avant : en/USD/US).
+- En-têtes : `X-Frame-Options: DENY`, `X-Content-Type-Options: nosniff`, `Content-Security-Policy-Report-Only` (pas d'enforce).
+- POST `Origin: https://evil.example` → 403 ; `Origin: https://ai.dayuse.com` + message de 501 car. → 413 (l'origine passe, donc `WIDGET_ALLOWED_ORIGINS` est lue, sans appel au concierge).
+- GET `/v3/chat` → 404 (avant : 405).
+- Tour réel same-origin (Londres, demain après-midi) → 200, 5 hôtels.
+- `railway logs --service widget` : 3 tours navigateur de Fabien en `POST /v3/chat/stream 200`, aucun `refused cross-site POST` hors la sonde evil.example.
+
+**Tentative précédente** : le widget servait `8d1579b` parce que rien n'avait été déployé dans AgentB2C depuis le 23/10 (4 services `SUCCESS` ce jour-là, même estampille). Le seul dossier sur `feat/contrat-cadre-p3` est `agent-sales-am`, dont `sales-ai-pipeline/` est lié au projet Railway **Sales IA Agent** : un `sales-ai-preprod` y était en `DEPLOYING` à 10:48Z, seul déploiement du créneau (à vérifier côté agent-sales-am).
+
+**Pièges** :
+- `railway up` déploie dans le projet lié au **dossier** courant (`~/.railway/config.json`), quelle que soit la branche : lancé depuis un autre repo, il part ailleurs sans erreur. Toujours depuis ce clone, toujours avec `--service`.
+- Le proxy voit l'edge, pas le visiteur : pairs `::ffff:100.64.0.x`, une IP différente par requête. Sans `X-Real-IP`, la limite par IP s'étalerait sur ~20 clés. Railway documente `X-Real-IP` comme l'IP du client (docs « Specs & Limits ») et c'est prouvé en ligne : 31 `POST /v3/chat/session/reset` (zéro appel LLM, 11:10Z) → 30 × 204 puis 429 (`Retry-After: 59`), et le log écrit `rate_limit_hit … ip=45.156.191.77`, l'IP de sortie du poste. Le défaut de `WIDGET_CLIENT_IP_HEADER` est le bon. Les 30 requêtes ont rempli un seul compteur : un seul réplica sert le widget, ou toutes sont tombées sur le même.
+- `.claude/` ajouté à `.railwayignore` : les worktrees de Claude Code y vivent, `railway up` les aurait envoyés.
+
+**Reste** (hors de cette session) : DNS `ai.dayuse.com` (Route 53 + domaine custom Railway sur `widget`) et plan de retour arrière — à la bascule, vérifier que `X-Forwarded-Host` vaut `ai.dayuse.com` et qu'aucun CDN ne s'intercale devant Railway (sinon `X-Real-IP` serait l'IP du CDN) ; MCP de prod ; CSP `enforce` après quelques jours de `csp-report` ; P5 et rotation des bearers (A1) ; plafond OpenAI (O3), purge Langfuse (DPIA), cron `/sync-availability` d'agent-usa ; merges dayuse-com!15273 et dayuse-product-analytics#112.
+
 ## 🔀 2026-10-26 — Préparer la bascule franche d'ai.dayuse.com (branches `feat/widget-market-at-render` puis `feat/widget-protection`, empilées)
 
 **Décision (Fabien, 2026-10-26)** : bascule franche d'agent-usa vers AgentB2C sur `ai.dayuse.com` (Railway + Route 53) ; MCP de prod branché par Fabien ; Langfuse remplace `conversation_logs`.
@@ -17,7 +38,7 @@
 - `ee36fa2` : protection de l'edge public (détail et variables dans `DEPLOY.md` § Protection) : 20 tours/min et 200/h par IP, origine croisée refusée, 4 routes du concierge seulement, message ≤ 500 car., en-têtes de sécurité, CSP en report-only (`/csp-report` journalisé).
 - Tests : `test_widget_proxy_market.py` (19), `test_widget_proxy_protection.py` (29), contre-épreuves rouges. pytest 3 130 passés / 1 skippé, ruff, mypy, 78 tests JS. Sonde locale du proxy : page FR/EUR/FR depuis le Referer dayuse.fr, 403 cross-site, 413, 429 au 21e tour, GET /v3 en 404.
 
-**Reste avant bascule** : poser `WIDGET_ALLOWED_ORIGINS` puis déployer `widget` ; vérifier sur Railway que `X-Real-IP` porte l'IP du visiteur et que `Host`/`X-Forwarded-Host` vaut `ai.dayuse.com` ; lire les `csp-report` quelques jours puis `WIDGET_CSP_MODE=enforce` ; P5 (supprimer le domaine public du concierge) ; arrêter le service cron `/sync-availability` d'agent-usa quand agent-usa s'éteint (il ne sert qu'au cache d'agent-usa) ; rétention Langfuse (pas d'entitlement `data-retention` en OSS : purge à organiser).
+**Reste avant bascule** : déployé le jour même, voir le bloc 2026-10-26 (bis) ci-dessus ; son « Reste » remplace celui-ci. Le cron `/sync-availability` d'agent-usa ne sert qu'au cache d'agent-usa : à arrêter quand agent-usa s'éteint. Rétention Langfuse : pas d'entitlement `data-retention` en OSS, purge à organiser.
 
 **Écarté volontairement** : `dayuse_session_id` n'est pas repris (décision AM1 : liens sortants = `amp_*` seulement, ce que lit ab-tests ; dayuse-com ne lit aucun `du_dayuse_session_id` entrant).
 
@@ -38,7 +59,7 @@
 - pytest 3 017 passés / 1 skippé, ruff, mypy, guardrails OK.
 
 **Reste** :
-- Déployer `concierge` seul (`DEPLOY.md`), puis un tour synthétique sur le widget public.
+- ~~Déployer `concierge` seul~~ : fait (`8d1579b`), vu en ligne le 2026-10-26 (question de date + puces sur le widget public).
 - Ressemer `b2c/geo-poi` et `b2c/dialogue-state` (`scripts/langfuse_seed_datasets.py --only …`, humain).
 - **À trancher** : `prod-lat-dead-0-same-day-cutoff-fallback` (`b2c/prod-regressions`, importé depuis la trace `e03688e0`, message « je cherche un hotel à Paris avec piscine ») reçoit désormais la question de date, par construction : son `min_hotels: 1` échouera. Le retirer, ou le garder comme garde « question de date » (attendus à réécrire).
 - Limites connues, voulues : sans ville NI jour, deux questions (le jour, puis la ville) ; une question de budget avant recherche est suivie de la question de date.
