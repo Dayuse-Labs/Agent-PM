@@ -35,6 +35,11 @@ reprises d'agent-usa :
 | `WIDGET_ALLOWED_ORIGINS` | vide | origines admises en plus du `Host` / `X-Forwarded-Host` de la requête, séparées par des virgules |
 | `WIDGET_CLIENT_IP_HEADER` | `X-Real-IP` | en-tête posé par l'edge ; sinon l'entrée la plus à droite de `X-Forwarded-For` |
 | `WIDGET_CSP_MODE` | `report-only` | `enforce` une fois les lignes `csp-report` des logs lues (bloque, et signale toujours à `/csp-report`) ; `off` pour couper |
+| `HEALTH_TOKEN` | vide | `/health` (sonde d'Innovation Monitor, reprise d'agent-usa) exige `Authorization: Bearer <token>` ; vide = ouvert. `/healthz` et `/readyz` restent ouverts |
+
+Les 3 sondes d'agent-usa répondent sur le widget avec les mêmes clés : `/health` (toujours 200,
+criticité dans `status` : `ok` / `critical`), `/healthz` (vivant), `/readyz` (503 si le concierge
+ne répond pas). La seule dépendance vérifiée est le concierge, par son Agent Card ouverte.
 
 À poser avant la bascule : `WIDGET_ALLOWED_ORIGINS=https://ai.dayuse.com,https://widget-production-3f56.up.railway.app`
 (filet si l'edge ne transmet pas `Host` tel quel). Après déploiement, vérifier dans les logs
