@@ -11,6 +11,9 @@ import pytest
 from b2c_concierge.profile import SessionProfile
 from b2c_concierge.profile_store import ProfileStore, _ttl_seconds
 
+# The store itself is under test: no settled-day seam (root conftest).
+pytestmark = pytest.mark.date_unsettled
+
 
 @pytest.fixture
 def store():

@@ -1,5 +1,37 @@
 # Lessons — corrections de Fabien à réappliquer
 
+## 2026-10-20 — question de date (auto-constatées, en live puis par un test rouge)
+
+1. **Un cadrage écrit pour une question biaise la feuille quand on le réutilise
+   pour une autre.** La réponse à la question de date partait avec « EARLIER
+   REQUEST / YOU ASKED / REPLY », écrit pour les questions de lieu, et le prompt
+   de la feuille dit que « the place it named » s'applique encore : « Rooftop
+   pool » lu comme un lieu, `zone` stockée 3 fois sur 7 (0 sur 5 sur le message
+   daté direct), puis « Rooftop pool, San Diego » au tour suivant → echo-back →
+   tour dégradé. La feuille est simulée hors ligne : aucun test ne pouvait le
+   voir. Mesurer l'état PERSISTÉ (le profil Redis) en A/B, pas seulement la
+   réponse ; corrigé en envoyant la demande seule, sans étiquettes (0 sur 8).
+2. **Un test rouge protège peut-être exactement ce qu'on casse.** Redis en panne
+   = profil vide à chaque tour = la question de date revenait à chaque tour et
+   la demande se perdait. `test_turn_still_answers_when_redis_is_unreachable`
+   l'a attrapé au milieu de 88 rouges « attendus » : lire ce que chaque famille
+   de tests rouges protège avant de les adapter en bloc.
+
+## 2026-10-20 — retours QA widget (flèches coupées, carrousel mobile)
+
+1. **Un `padding-right` qui « évite de couper contre le bord du panneau » est un
+   symptôme, pas un réglage.** `.message-content.with-hotels` est un item flex à
+   côté de l'avatar : sans `min-width: 0`, la rangée de cartes le tenait à 100 %
+   du message, 36 px au-delà de la colonne. Le panneau coupait la flèche
+   « suivant » et le « → » de « See all hotels » ; deux `padding-right: 20px`
+   masquaient le même débordement sur l'intro. Mesurer `getBoundingClientRect`
+   du conteneur contre le bord de contenu du parent AVANT d'ajouter une marge.
+2. **Une règle de géométrie en `%` hérite de l'endroit où l'élément vit.** Le
+   lot 4 calculait la carte mobile « viewport − 60 » mais en `100% − 44px`
+   d'une rangée nichée dans la colonne de l'avatar : 246 px au lieu de 330, et
+   une rangée coupée 16 px avant le bord. Aucun test de chaîne ne le voit ; la
+   capture à 390 px, si.
+
 ## 2026-10-19 — sortie de gpt-4o-mini (auto-constatées)
 
 1. **Un désaccord entre modèles n'est pas une régression avant d'avoir lu l'entrée EXACTE.** J'ai

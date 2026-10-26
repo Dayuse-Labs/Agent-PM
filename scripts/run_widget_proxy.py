@@ -4,17 +4,21 @@
 the AgentB2C facade (default :8100) — so the legacy front can be exercised
 against this stack without agent-usa's own Flask backend running at all.
 
-The browser only ever talks to ONE origin (this proxy): no CORS, no CSP
-connect-src issue, no cross-origin cookie problem. `/api/track` (Amplitude
-beacon) is swallowed locally (204) — AgentB2C doesn't implement it and it's
-fire-and-forget analytics.
+Every API call from the browser goes to ONE origin (this proxy): no CORS, no
+CSP connect-src issue, no cross-origin cookie problem. Analytics are the only
+exception: the page loads the Amplitude SDK and its Session Replay plugin from
+cdn.amplitude.com, sends events through alitude.dayuse.com and replays to
+api-sr.eu.amplitude.com.
 
-chat_clean.html has exactly 9 Jinja `{{ var | default('...') }}` meta tags
+chat_clean.html has exactly 10 Jinja `{{ var | default('...') }}` meta tags
 (no loops/conditionals) — substituted here with a tiny regex, no Jinja2
-dependency needed. Only `chat_endpoint` (kept at '/v3/chat', same-origin
+dependency needed. Overridden: `chat_endpoint` (kept at '/v3/chat', same-origin
 relative — the facade's own auth is CHAT_API_KEY-based and injected by this
 proxy, never by the page, so agent-usa's public-token/cookie dance is
-irrelevant here) and `chat_transport` (see `_meta_overrides`) are overridden.
+irrelevant here), `chat_transport` and `agent_version` (see `_meta_overrides`),
+and the 4 market metas, resolved per request from the banner URL's
+`?locale` / `?currency` / `?market_country` and the Referer, as agent-usa does
+(see `resolve_page_market`; resolver vendored at web/market_context.py).
 
 The widget assets are VENDORED into this repo at `web/vendor/` (templates/ +
 static/ mirror agent-usa's layout) so the proxy is self-contained — no sibling
@@ -23,7 +27,9 @@ repo needed, and the container image can COPY them in. `AGENT_USA_DIR` (or
 
 Container/deploy knobs (Railway): `PORT` and `HOST` env are honored (bind `::`
 for the IPv6 private network), `WIDGET_BACKEND` sets the upstream facade,
-`WIDGET_CHAT_TRANSPORT=sse` switches the widget to the streamed turn, and
+`WIDGET_CHAT_TRANSPORT=sse` switches the widget to the streamed turn,
+`LANGFUSE_RELEASE` becomes the page's `agent-version` meta (Amplitude's
+`agent_version`), and
 `CHAT_API_KEY` (+ optional `CHAT_API_KEY_HEADER`) is injected server-side into
 every forwarded /v3 request so a gated facade accepts us. Set that pair on THIS
 service before setting `CHAT_API_KEY` on the concierge — the concierge starts
@@ -40,14 +46,26 @@ from __future__ import annotations
 
 import argparse
 import hashlib
+import hmac
+import html
+import importlib.util
 import mimetypes
 import os
 import re
+import json
 import socket
+import sys
+import threading
+import time
+from collections import deque
 import urllib.error
+import urllib.parse
 import urllib.request
+from dataclasses import replace
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
+from types import ModuleType
+from urllib.parse import parse_qs
 
 # Vendored widget lives at <repo>/web/vendor (this file is <repo>/scripts/…).
 _VENDORED_WIDGET_DIR = Path(__file__).resolve().parent.parent / "web" / "vendor"
@@ -60,6 +78,82 @@ elif (_VENDORED_WIDGET_DIR / "templates" / "chat_clean.html").is_file():
     DEFAULT_AGENT_USA_DIR = _VENDORED_WIDGET_DIR
 else:
     DEFAULT_AGENT_USA_DIR = Path.home() / "Projects" / "agent-usa"
+
+
+def _load_market_context() -> ModuleType:
+    """agent-usa's market resolver, vendored verbatim at web/market_context.py
+    (stdlib only). Loaded by path: the widget image has no package layout. It is
+    registered in sys.modules before exec because its dataclass resolves string
+    annotations through its own module."""
+    path = Path(__file__).resolve().parent.parent / "web" / "market_context.py"
+    spec = importlib.util.spec_from_file_location("widget_market_context", path)
+    if spec is None or spec.loader is None:
+        raise SystemExit(f"widget-proxy: cannot load {path}")
+    module = importlib.util.module_from_spec(spec)
+    sys.modules[spec.name] = module
+    spec.loader.exec_module(module)
+    return module
+
+
+market_context = _load_market_context()
+
+# Languages the widget has copy for (web/vendor/static/js/chat/i18n.js
+# SUPPORTED_LANGUAGES). Another locale (zh, ko, tr…) still sets the country and
+# currency, but the language meta is left empty so the widget falls back to the
+# browser's language instead of an untranslated hero.
+_WIDGET_LANGUAGES = frozenset({"en", "fr", "es", "it", "pt", "de", "nl"})
+_ISO2_RE = re.compile(r"[A-Z]{2}")
+
+
+def _first_param(params: dict[str, list[str]], name: str) -> str:
+    """First value of a query param; dayuse-com writes the literal 'null' when it
+    has no value (lib/ai-agent-url.ts), which counts as absent."""
+    value = (params.get(name) or [""])[0].strip()
+    return "" if value.lower() in {"null", "undefined"} else value
+
+
+def resolve_page_market(query: str, referer: str | None):  # noqa: ANN201 (vendored type)
+    """The visitor's market, resolved when the page is rendered — as agent-usa's
+    `/` route does in prod (src/api/routes/frontend.py): `?locale` / `?currency`
+    from the dayuse-com banner URL win, then the Referer's Dayuse domain, then
+    dayuse.com / US / USD / en. On top, dayuse-com's `?market_country` (MR
+    !15273, its domain config's country) pins the country when it is a known
+    market; an explicit `?currency` still wins over that market's currency."""
+    params = parse_qs(query or "", keep_blank_values=False)
+    ctx = market_context.resolve_market_context(
+        referer=referer,
+        locale=_first_param(params, "locale") or None,
+        currency=_first_param(params, "currency") or None,
+    )
+    declared = _first_param(params, "market_country").upper()
+    country_ctx = market_context._COUNTRY_MARKET_TABLE.get(declared) if _ISO2_RE.fullmatch(declared) else None
+    if country_ctx is not None and country_ctx.country_code != ctx.country_code:
+        explicit_currency = "url_currency" in ctx.source.split("+")
+        ctx = replace(
+            ctx,
+            country_code=country_ctx.country_code,
+            display_name=country_ctx.display_name,
+            domain=country_ctx.domain,
+            currency=ctx.currency if explicit_currency else country_ctx.currency,
+            source=f"{ctx.source}+url_market_country",
+        )
+    return ctx
+
+
+def _market_meta(query: str, referer: str | None) -> dict[str, str]:
+    """The 4 market metas of chat_clean.html. `market_browse_url` is left to the
+    template default (empty): the widget then takes the browse link from
+    markets.generated.js, the drift-guarded table (UX6) — agent-usa's own
+    browse slugs are the ones that table was built to replace."""
+    ctx = resolve_page_market(query, referer)
+    language = ctx.language if ctx.language in _WIDGET_LANGUAGES else ""
+    return {
+        "market_language": html.escape(language, quote=True),
+        "market_currency": html.escape(ctx.currency, quote=True),
+        "market_country": html.escape(ctx.country_code, quote=True),
+        "market_domain": html.escape(ctx.domain, quote=True),
+    }
+
 
 _JINJA_VAR_RE = re.compile(r"\{\{\s*(\w+)\s*(?:\|\s*default\(\s*'([^']*)'\s*\)\s*)?\}\}")
 
@@ -79,6 +173,9 @@ def _meta_overrides() -> dict[str, str]:
     transport = os.environ.get("WIDGET_CHAT_TRANSPORT", "").strip().lower()
     if transport:
         overrides["chat_transport"] = transport
+    release = os.environ.get("LANGFUSE_RELEASE", "").strip()
+    if release:
+        overrides["agent_version"] = html.escape(release, quote=True)
     return overrides
 
 _HOP_BY_HOP_REQUEST_HEADERS = {"host", "content-length", "connection", "accept-encoding"}
@@ -101,9 +198,11 @@ def _chat_api_key_header() -> str:
     return os.environ.get("CHAT_API_KEY_HEADER", _CHAT_API_KEY_HEADER_DEFAULT)
 
 
-def render_index(agent_usa_dir: Path) -> bytes:
+def render_index(agent_usa_dir: Path, query: str = "", referer: str | None = None) -> bytes:
+    """`query` / `referer` are the page request's: they carry the visitor's
+    market (see `resolve_page_market`)."""
     html = (agent_usa_dir / "templates" / "chat_clean.html").read_text(encoding="utf-8")
-    overrides = _meta_overrides()
+    overrides = {**_market_meta(query, referer), **_meta_overrides()}
 
     def repl(match: "re.Match[str]") -> str:
         name, default = match.group(1), match.group(2) or ""
@@ -112,31 +211,311 @@ def render_index(agent_usa_dir: Path) -> bytes:
     return _JINJA_VAR_RE.sub(repl, html).encode("utf-8")
 
 
+SESSION_REPLAY_CONFIG = (
+    b'{"configs":{"sessionReplay":{"sr_sampling_config":'
+    b'{"capture_enabled":true,"sample_rate":0.05}}}}'
+)
+
+
+# --- public-edge protection -------------------------------------------------------------
+# This proxy is the ONLY public service and injects the facade key itself, so
+# anything that reaches it reaches the LLMs. agent-usa had flask-limiter (20 chat
+# turns/min/IP), Talisman headers + CSP and a 500-char message cap; this is the
+# stdlib equivalent. Limits are per process (one replica on Railway today): with
+# several replicas, each counts on its own.
+
+# Only the routes the concierge facade serves (facade.py::register_v3_routes).
+_CHAT_ROUTES = frozenset({"/v3/chat", "/v3/chat/stream"})
+_OTHER_POST_ROUTES = frozenset({"/v3/chat/session/reset", "/v3/feedback"})
+_CSP_REPORT_PATH = "/csp-report"
+
+
+def _env_int(name: str, default: int) -> int:
+    try:
+        return int(os.environ.get(name, "").strip() or default)
+    except ValueError:
+        return default
+
+
+class SlidingWindowLimiter:
+    """Per-key request timestamps over fixed windows; thread-safe (the server is
+    a ThreadingHTTPServer). `hit` records the request only when it is allowed."""
+
+    def __init__(self) -> None:
+        self._hits: dict[str, deque[float]] = {}
+        self._lock = threading.Lock()
+        self._last_sweep = 0.0
+
+    def hit(self, key: str, limits: list[tuple[int, float]], now: float | None = None) -> float:
+        """0 when allowed, else the seconds to wait. `limits` = [(max, window_s)];
+        a max ≤ 0 disables that window."""
+        now = time.monotonic() if now is None else now
+        active = [(n, w) for n, w in limits if n > 0]
+        if not active:
+            return 0.0
+        horizon = max(w for _, w in active)
+        with self._lock:
+            self._sweep(now, horizon)
+            stamps = self._hits.setdefault(key, deque())
+            while stamps and now - stamps[0] >= horizon:
+                stamps.popleft()
+            wait = 0.0
+            for max_hits, window in active:
+                recent = [t for t in stamps if now - t < window]
+                if len(recent) >= max_hits:
+                    wait = max(wait, window - (now - recent[-max_hits]))
+            if wait > 0:
+                return wait
+            stamps.append(now)
+            return 0.0
+
+    def _sweep(self, now: float, horizon: float) -> None:
+        if now - self._last_sweep < 60:
+            return
+        self._last_sweep = now
+        for key in [k for k, v in self._hits.items() if not v or now - v[-1] >= horizon]:
+            del self._hits[key]
+
+
+_LIMITER = SlidingWindowLimiter()
+
+
+def _limits_for(path: str) -> tuple[str, list[tuple[int, float]]]:
+    if path in _CHAT_ROUTES:
+        return "chat", [
+            (_env_int("WIDGET_CHAT_PER_MINUTE", 20), 60.0),
+            (_env_int("WIDGET_CHAT_PER_HOUR", 200), 3600.0),
+        ]
+    return "other", [(_env_int("WIDGET_OTHER_PER_MINUTE", 30), 60.0)]
+
+
+def client_ip(headers, peer: str) -> str:  # noqa: ANN001 (HTTPMessage)
+    """The visitor's IP behind Railway's edge. `WIDGET_CLIENT_IP_HEADER`
+    (default X-Real-IP, set by the edge) wins; else the RIGHTMOST X-Forwarded-For
+    entry — the one the edge appended, the leftmost ones are client-supplied and
+    forgeable; else the socket peer."""
+    header = os.environ.get("WIDGET_CLIENT_IP_HEADER", "X-Real-IP")
+    value = (headers.get(header) or "").strip()
+    if value:
+        return value
+    forwarded = [part.strip() for part in (headers.get("X-Forwarded-For") or "").split(",")]
+    forwarded = [part for part in forwarded if part]
+    return forwarded[-1] if forwarded else peer
+
+
+def cross_site_refusal(headers) -> str | None:  # noqa: ANN001
+    """Why a browser POST must be refused as cross-site, or None. A page on
+    another site can make a visitor's browser call /v3 (the proxy adds the key);
+    browsers always send Origin on a cross-origin POST, so it must name this
+    host (or WIDGET_ALLOWED_ORIGINS). No Origin = not a browser request: allowed,
+    the rate limit covers it."""
+    if (headers.get("Sec-Fetch-Site") or "").strip().lower() == "cross-site":
+        return "sec-fetch-site cross-site"
+    origin = (headers.get("Origin") or "").strip()
+    if not origin:
+        return None
+    host = urllib.parse.urlsplit(origin).netloc.lower()
+    own = {
+        (headers.get(name) or "").split(",")[0].strip().lower()
+        for name in ("X-Forwarded-Host", "Host")
+    }
+    allowed = {
+        urllib.parse.urlsplit(o.strip()).netloc.lower() or o.strip().lower()
+        for o in os.environ.get("WIDGET_ALLOWED_ORIGINS", "").split(",")
+        if o.strip()
+    }
+    if host and host in (own | allowed) - {""}:
+        return None
+    return f"origin {origin[:100]}"
+
+
+def message_too_long(body: bytes | None) -> bool:
+    """agent-usa's MAX_MESSAGE_LENGTH (500): the input caps at 400, so only a
+    scripted client goes over. An unparsable body is left to the facade."""
+    if not body:
+        return False
+    try:
+        message = json.loads(body).get("message")
+    except (ValueError, AttributeError):
+        return False
+    return isinstance(message, str) and len(message) > _env_int("WIDGET_MAX_MESSAGE_CHARS", 500)
+
+
+# Prod agent-usa's enforced policy (Talisman, non-strict), plus what this
+# widget loads: Amplitude Session Replay (worker + api-sr), hotel photos.
+_CSP = "; ".join([
+    "default-src 'self'",
+    "script-src 'self' 'unsafe-inline' https://cdn.jsdelivr.net https://cdn.amplitude.com",
+    "style-src 'self' 'unsafe-inline' https://fonts.googleapis.com",
+    "font-src 'self' https://fonts.gstatic.com",
+    "img-src 'self' data: https://dayuse.twic.pics https://images.dayuse.com "
+    "https://static.dayuse.com https://*.dayuse.com",
+    "connect-src 'self' https://alitude.dayuse.com https://sr-client-cfg.eu.amplitude.com "
+    "https://api-sr.eu.amplitude.com https://*.dayuse.com",
+    "worker-src 'self' blob:",
+    "base-uri 'self'",
+    "frame-ancestors 'none'",
+    "object-src 'none'",
+    "form-action 'self'",
+])
+
+
+def security_headers() -> list[tuple[str, str]]:
+    """Sent on every response. The CSP starts REPORT-ONLY (`WIDGET_CSP_MODE`:
+    report-only | enforce | off): this widget loads more than agent-usa's did
+    (Session Replay), so watch the `csp-report` log lines before enforcing.
+    Enforced, it still reports: a resource it blocks stays visible in the logs."""
+    headers = [
+        ("X-Content-Type-Options", "nosniff"),
+        ("Referrer-Policy", "strict-origin-when-cross-origin"),
+        ("X-Frame-Options", "DENY"),
+        ("Strict-Transport-Security", "max-age=31536000"),
+        ("Permissions-Policy", "camera=(), microphone=(), payment=()"),
+    ]
+    mode = os.environ.get("WIDGET_CSP_MODE", "report-only").strip().lower()
+    policy = f"{_CSP}; report-uri {_CSP_REPORT_PATH}"
+    if mode == "enforce":
+        headers.append(("Content-Security-Policy", policy))
+    elif mode != "off":
+        headers.append(("Content-Security-Policy-Report-Only", policy))
+    return headers
+
+
+# agent-usa's three probes (its src/api/routes/health.py), kept on ai.dayuse.com
+# for whatever already polls them: /health is Innovation Monitor's (always 200,
+# criticality in `status`, behind HEALTH_TOKEN when set), /healthz is liveness,
+# /readyz is readiness (503 when not ready). Same keys; the one dependency here
+# is the concierge.
+_HEALTH_ROUTES = frozenset({"/health", "/healthz", "/readyz"})
+_HEALTH_SERVICE = "dayuse-search"  # the name agent-usa reported; monitors key on it
+
+
+def concierge_reachable(backend: str) -> bool:
+    """The concierge serves its agent card: open (no bearer), no LLM, no MCP."""
+    try:
+        with urllib.request.urlopen(f"{backend}/.well-known/agent-card.json", timeout=2) as resp:
+            return resp.status == 200
+    except (urllib.error.URLError, OSError):
+        return False
+
+
+def health_token_refusal(headers) -> bool:  # noqa: ANN001
+    """True when HEALTH_TOKEN is set and the request lacks `Bearer <token>`.
+    Unset = open, as in agent-usa (dev default)."""
+    token = os.environ.get("HEALTH_TOKEN", "").strip()
+    if not token:
+        return False
+    provided = (headers.get("Authorization") or "").strip().encode()
+    return not hmac.compare_digest(provided, f"Bearer {token}".encode())
+
+
 class WidgetProxyHandler(BaseHTTPRequestHandler):
     agent_usa_dir: Path
     backend: str
+    # No version banner; and a socket timeout so a client that opens a
+    # connection and never finishes its request cannot hold a thread forever.
+    server_version = "widget"
+    sys_version = ""
+    timeout = 30
+
+    def end_headers(self) -> None:
+        for name, value in security_headers():
+            self.send_header(name, value)
+        super().end_headers()
 
     # --- routing -------------------------------------------------------------------------
     def do_GET(self) -> None:  # noqa: N802 (stdlib method name)
-        path = self.path.split("?", 1)[0]
+        path, _, query = self.path.partition("?")
         if path == "/":
-            self._respond_html(render_index(self.agent_usa_dir))
+            self._respond_html(
+                render_index(self.agent_usa_dir, query, self.headers.get("Referer"))
+            )
+        elif path == "/sr-config":
+            self._respond_session_replay_config()
+        elif path in _HEALTH_ROUTES:
+            self._health(path)
         elif path.startswith("/static/"):
             self._serve_static(path)
-        elif path.startswith("/v3/"):
-            self._proxy("GET")
         else:
             self.send_error(404)
 
     def do_POST(self) -> None:  # noqa: N802
         path = self.path.split("?", 1)[0]
-        if path == "/api/track":
-            self.send_response(204)
-            self.end_headers()
-        elif path.startswith("/v3/"):
-            self._proxy("POST")
-        else:
+        if path == _CSP_REPORT_PATH:
+            self._csp_report()
+            return
+        if path not in _CHAT_ROUTES and path not in _OTHER_POST_ROUTES:
             self.send_error(404)
+            return
+        refusal = cross_site_refusal(self.headers)
+        if refusal:
+            print(f"widget-proxy: refused cross-site POST {path} ({refusal})")
+            self._json_error(403, "forbidden")
+            return
+        ip = client_ip(self.headers, self.client_address[0] if self.client_address else "-")
+        bucket, limits = _limits_for(path)
+        wait = _LIMITER.hit(f"{bucket}:{ip}", limits)
+        if wait > 0:
+            print(f"widget-proxy: rate_limit_hit path={path} ip={ip}")
+            self._json_error(429, "rate_limited", retry_after=max(1, int(wait + 0.999)))
+            return
+        length = int(self.headers.get("Content-Length") or 0)
+        if length > _env_int("WIDGET_MAX_BODY_BYTES", 16384):
+            self._json_error(413, "payload_too_large")
+            return
+        body = self.rfile.read(length) if length else None
+        if path in _CHAT_ROUTES and message_too_long(body):
+            self._json_error(413, "message_too_long")
+            return
+        self._proxy("POST", body=body)
+
+    def _json_error(self, status: int, error: str, retry_after: int | None = None) -> None:
+        extra = (("Retry-After", str(retry_after)),) if retry_after is not None else ()
+        self._respond_json(status, {"error": error}, extra)
+
+    def _respond_json(self, status: int, data: dict, extra: tuple[tuple[str, str], ...] = ()) -> None:
+        payload = json.dumps(data).encode("utf-8")
+        self.send_response(status)
+        self.send_header("Content-Type", "application/json")
+        self.send_header("Content-Length", str(len(payload)))
+        self.send_header("Cache-Control", "no-store")
+        for name, value in extra:
+            self.send_header(name, value)
+        self.end_headers()
+        self.wfile.write(payload)
+
+    def _health(self, path: str) -> None:
+        """agent-usa's probes, same keys (see `_HEALTH_ROUTES`)."""
+        if path == "/healthz":
+            self._respond_json(200, {"status": "healthy", "service": _HEALTH_SERVICE})
+            return
+        if path == "/health" and health_token_refusal(self.headers):
+            self._respond_json(401, {"error": "unauthorized"}, (("WWW-Authenticate", "Bearer"),))
+            return
+        up = concierge_reachable(self.backend)
+        if path == "/readyz":
+            self._respond_json(200 if up else 503, {
+                "status": "ready" if up else "not_ready",
+                "checks": {"concierge": {"healthy": up}},
+            })
+            return
+        self._respond_json(200, {
+            "service": _HEALTH_SERVICE,
+            "status": "ok" if up else "critical",
+            "version": os.environ.get("LANGFUSE_RELEASE", "").strip() or "dev",
+            "env": os.environ.get("RAILWAY_ENVIRONMENT_NAME", "development"),
+            "dependencies": [{"name": "concierge", "critical": True, "status": "ok" if up else "down"}],
+        })
+
+    def _csp_report(self) -> None:
+        """Log a CSP violation (report-only phase), rate-limited, then 204."""
+        ip = client_ip(self.headers, self.client_address[0] if self.client_address else "-")
+        length = min(int(self.headers.get("Content-Length") or 0), 4096)
+        body = self.rfile.read(length) if length else b""
+        if _LIMITER.hit(f"csp:{ip}", [(_env_int("WIDGET_CSP_REPORTS_PER_MINUTE", 30), 60.0)]) == 0:
+            print(f"widget-proxy: csp-report {body[:600].decode('utf-8', 'replace')}")
+        self.send_response(204)
+        self.end_headers()
 
     # --- static / index --------------------------------------------------------------------
     def _if_none_match_hits(self, etag: str) -> bool:
@@ -186,6 +565,15 @@ class WidgetProxyHandler(BaseHTTPRequestHandler):
         self.end_headers()
         self.wfile.write(body)
 
+    def _respond_session_replay_config(self) -> None:
+        body = SESSION_REPLAY_CONFIG
+        self.send_response(200)
+        self.send_header("Content-Type", "application/json")
+        self.send_header("Content-Length", str(len(body)))
+        self.send_header("Cache-Control", "no-store")
+        self.end_headers()
+        self.wfile.write(body)
+
     def _respond_html(self, body: bytes) -> None:
         self._send_cacheable(body, "text/html; charset=utf-8")
 
@@ -202,9 +590,10 @@ class WidgetProxyHandler(BaseHTTPRequestHandler):
         self._send_cacheable(target.read_bytes(), content_type)
 
     # --- reverse proxy (streams incrementally — SSE-safe) -----------------------------------
-    def _proxy(self, method: str) -> None:
-        length = int(self.headers.get("Content-Length") or 0)
-        body = self.rfile.read(length) if length else None
+    def _proxy(self, method: str, body: bytes | None = None) -> None:
+        if body is None:
+            length = int(self.headers.get("Content-Length") or 0)
+            body = self.rfile.read(length) if length else None
         url = f"{self.backend}{self.path}"
         req = urllib.request.Request(url, data=body, method=method)
         # The API-key header is PROXY-OWNED: always dropped from what the browser

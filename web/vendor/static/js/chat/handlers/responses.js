@@ -4,10 +4,10 @@
  */
 
 import { scrollBehavior } from '../motion.js';
-import { state } from '../state.js';
+import { rememberMarket, state } from '../state.js';
 import { addMessage } from '../ui/messages.js';
-import { replaceHotelIdTags, handleContextUpdate, hasEffectiveTimeslot } from '../utils.js';
-import { appendAmplitudeIdToUrl, trackEvent } from '../tracking.js';
+import { replaceHotelIdTags, handleContextUpdate } from '../utils.js';
+import { appendAmplitudeIdToUrl } from '../tracking.js';
 import { createHotelCarousel } from '../hotels/carousel.js';
 import { addFollowUpMessage } from '../filters/search.js';
 import { suggestionsInlineHtml } from '../filters/chips.js';
@@ -26,6 +26,7 @@ export function updateMarketFromResults(results, explicitMarket = null) {
         || inferCountryCodeFromHotel(Array.isArray(results) ? results[0] : null);
     if (inferredMarket) {
         state.market = inferredMarket;
+        rememberMarket(inferredMarket);
     }
 }
 
@@ -38,7 +39,7 @@ export function updateMarketFromResults(results, explicitMarket = null) {
 export function renderSuggestionsRow(data) {
     const raw = data && Array.isArray(data.suggestions) ? data.suggestions : null;
     if (!raw || raw.length === 0) return;
-    const html = suggestionsInlineHtml(raw);
+    const html = suggestionsInlineHtml(raw, 'recovery');
     if (!html) return;
     const msg = addMessage(html, false, false, true, true);
     if (msg && msg.classList) msg.classList.add('message--actions');
@@ -309,7 +310,6 @@ export function resultsSeeAllLinkHtml(hotels) {
     if (!url || url === '#') return '';
     return `<a href="${escapeAttr(url)}" target="_blank" rel="noopener noreferrer"
                class="results-see-all"
-               data-track-see-all="meta"
                data-market="${escapeAttr(market)}">
                 ${t('see_all')} <span aria-hidden="true">→</span>
             </a>`;
@@ -378,33 +378,6 @@ export function handleResultsResponse(data, hasTimeslotRequest, skipCarousel = f
                 ),
                 false, true, false, true
             );
-        const firstHotel = hotelsToShow[0] || {};
-        const matchLevelCounts = hotelsToShow.reduce((acc, hotel) => {
-            const level = String(hotel.timeslot_match_level || 'unknown').toLowerCase();
-            if (level === 'exact') acc.exact += 1;
-            else if (level === 'close') acc.close += 1;
-            else if (level === 'none') acc.none += 1;
-            else acc.unknown += 1;
-            return acc;
-        }, { exact: 0, close: 0, none: 0, unknown: 0 });
-        trackEvent('results_rendered', {
-            results_count: results.length,
-            shown_count: hotelsToShow.length,
-            response_type: String(data.type || 'results'),
-            has_soft_nudge: Boolean(data.soft_nudge),
-            has_timeslot_request: Boolean(hasTimeslotRequest),
-            has_effective_timeslot: hasEffectiveTimeslot(data),
-            market: String(firstHotel.country_code || state.market || ''),
-            geo_version: String(data.active_filters?.geo_version || ''),
-            geo_outcome: String(data.active_filters?.geo_outcome || ''),
-            geo_reason: String(data.active_filters?.geo_reason || ''),
-            geo_repair_count: data.active_filters?.geo_repair_count || 0,
-            geo_resolution_ms: data.active_filters?.geo_resolution_ms ?? null,
-            geo_review_ms: data.active_filters?.geo_review_ms ?? null,
-            timeslot_match_exact_count: matchLevelCounts.exact,
-            timeslot_match_close_count: matchLevelCounts.close,
-        });
-
         // Scroll to intro message (not carousel) so user sees the context first.
         // Skipped on the hotels-first path: the cards are already in view and
         // pinning this later text block to the top would scroll them away.

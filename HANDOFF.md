@@ -6,6 +6,132 @@
 
 > 📋 **Pour savoir QUOI faire ensuite, ouvrir [`CHANTIERS.md`](CHANTIERS.md)** (état vérifié au 2026-09-14) : la liste des chantiers ouverts, chacun avec sa preuve, ses actions et un prompt prêt à coller — plus la liste de ce qu'il ne faut **pas** relancer parce que c'est déjà livré. `tasks/todo.md` est périmé et ne doit plus servir de référence.
 
+## ⏸️ 2026-10-26 (quater) — `widget` sur `0095a41` (sondes de santé, #152) ; bascule DNS reportée (latence Railway)
+
+**Déployé** : `widget` seul sur `0095a41` (servi à 13:36:07Z, build ~11 min au lieu de ~2). Preuve en ligne : `/healthz` 200 `healthy` ; `/readyz` 200 `ready` (le widget joint le concierge par le réseau privé) ; `/health` 200 `status: ok`, `version: 0095a41`, `env: production` ; CSP toujours appliquée. Backends inchangés sur `8d1579b`.
+
+**`HEALTH_TOKEN`** : copié sans affichage depuis le service `agent-conversationnel-USA` (48 car. ; le service lié au dossier `~/Projects/agent-usa` n'est pas celui-là). Posé avec `--skip-deploys` après le lancement du build, donc activé par `railway redeploy --service widget --yes` : depuis 13:41:56Z, `/health` sans jeton → **401** + `WWW-Authenticate: Bearer`, comme chez agent-usa ; `/healthz`, `/readyz`, la page (`0095a41`) et la CSP inchangés.
+
+**Bascule DNS reportée** : Railway en latence (signalé par Fabien) ; vérification du domaine, certificat et retour arrière passent tous par Railway. État sûr : `ai.dayuse.com` sert toujours agent-usa.
+
+**Reprise de la bascule** (tout est prêt côté AgentB2C ; le redéploiement du jeton est fait) :
+1. ~~`railway redeploy --service widget --yes`~~ fait à 13:41Z.
+2. Surveiller qui sert `ai.dayuse.com` toutes les 5 s (AgentB2C = `X-Frame-Options: DENY` + `<meta name="agent-version">` ; agent-usa = `SAMEORIGIN`).
+3. Sonde, depuis ce clone : `railway domain ai.dayuse.com --service widget --json`. Acceptée → le domaine reste en attente (le TXT pointe encore sur agent-usa) : appliquer son CNAME + TXT dans Route 53. Refusée (« in use ») → `(cd ~/Projects/agent-usa && railway domain delete ai.dayuse.com --yes)` puis relancer l'ajout, puis Route 53. Quelques minutes de coupure probables.
+4. Route 53 : zone `Z37YEHJ2ZH2A80`, UPSERT de `ai.dayuse.com.` CNAME et `_railway-verify.ai.dayuse.com.` TXT, TTL 60.
+5. Preuves sur `ai.dayuse.com` : marché fr/EUR/FR, en-têtes, 403 cross-site, 404 GET `/v3`, tour réel ; `X-Forwarded-Host`, clé Amplitude Production, `/health`, logs (`refused`, `rate_limit_hit ip=`). Puis Fabien ouvre l'assistant dans l'app mobile (MOB1 phase C).
+6. **Critère de retour arrière** : 10 min après la bascule, pas d'AgentB2C avec certificat valide sur `ai.dayuse.com`, ou un tour réel qui échoue.
+
+**Retour arrière, valeurs d'avant bascule** (publiques) : CNAME `ai.dayuse.com.` → `tit3qvdo.up.railway.app` ; TXT `_railway-verify.ai.dayuse.com.` → `"railway-verify=06e2524ef128e3cc7953f9c47eaeb6e1653ffa19bdf606be79f53a6d34a6ee90"`. Si Railway refusait le double rattachement : retirer le domaine de `widget`, le rattacher au service web d'agent-usa (`agent-conversationnel-USA`), qui peut donner un nouveau CNAME/TXT à reporter dans Route 53.
+
+## 🛡️ 2026-10-26 (ter) — CSP appliquée (`68e0f75`, #151), TTL DNS à 60 s, D7 prolongée
+
+**CSP** : #151 — en `enforce`, la politique partait sans `report-uri` (un blocage n'aurait laissé aucune trace) ; même chaîne dans les deux modes, test durci, contre-épreuve rouge. `widget` déployé sur `68e0f75` avec `WIDGET_CSP_MODE=enforce` (servi à 11:28:52Z). Preuve : en-tête `Content-Security-Policy` … `report-uri /csp-report`, plus de report-only ; audit Chrome headless sous la politique appliquée — un tour SSE, 26/26 images (`static.dayuse.com` pour les photos de prod), polices, Amplitude via `alitude`, feedback, **Session Replay** (10 envois `api-sr.eu.amplitude.com`) : 0 violation, 0 échec de chargement. Piège : Session Replay est coupé sur `?du_synthetic=1` (`addSessionReplay`) ; pour l'auditer, tour sans le paramètre + `x-dayuse-synthetic` injecté par un wrapper `fetch`.
+
+**DNS, préparation** : `ai.dayuse.com` (CNAME `tit3qvdo.up.railway.app`, agent-usa, projet Railway `Agent_conversationnel_USA`) et `_railway-verify.ai.dayuse.com` (TXT `railway-verify=06e2524e…`) passés de TTL 300 à **60 s**, valeurs inchangées (change Route 53 `C0580618A8JYGZ0Y7JFY`, zone `Z37YEHJ2ZH2A80`, INSYNC à ~11:35Z). Un domaine personnalisé Railway n'appartient qu'à un service : la bascule = déplacer le domaine d'agent-usa vers `widget` + CNAME/TXT donnés par Railway ; quelques minutes de coupure probables, retour arrière symétrique. agent-usa reste déployé et intact.
+
+**Décision A1 (Fabien)** : exception D7 prolongée jusqu'au **2027-01-31** (l'échéance « avant le canary S11 » tombait avec la bascule franche) ; P5 avant la bascule ; rotation des bearers semaine du 2026-11-02 — prérequis : `BearerAuthMiddleware` n'accepte qu'un jeton. Consigné dans `CHANTIERS.md` A1/P5, `PLAN-REWORK-AGENT-USA.md` D7, `CLAUDE.md`.
+
+**P5 fait** : `railway domain delete concierge-production-aaa2.up.railway.app --service concierge` (seul autre domaine public du projet avec celui du widget ; aucune référence dans le dépôt ; il répondait 502). Après : 404 « Application not found » ; un « Bonjour » synthétique via le widget → 200 avec `turn_facts` (concierge joint par le réseau privé). Le widget est la seule surface publique du projet.
+
+## 🚀 2026-10-26 (bis) — `widget` déployé sur `e2b0c99` (#149 : marché au rendu + protection de l'edge)
+
+**Déployé** : `widget` seul — `WIDGET_ALLOWED_ORIGINS=https://ai.dayuse.com,https://widget-production-3f56.up.railway.app` et `LANGFUSE_RELEASE=e2b0c99` posées avec `--skip-deploys`, puis `railway up --service widget --detach` ; page servie en `e2b0c99` à 11:02Z. `concierge`, `hotel-search`, `faq` restent sur `8d1579b` : `git log 8d1579b..e2b0c99 -- agents libs` est vide, et #148 y tourne déjà (tour synthétique « un hôtel avec piscine à Nice » → question de date + 3 puces + `turn_facts: clarification`). Gates sur `e2b0c99` : pytest 3 130 passés / 1 skippé, ruff, mypy, 78 tests JS.
+
+**Preuves sur le widget public** (sondes synthétiques, un seul appel LLM) :
+- `/?locale=fr&currency=EUR` + Referer dayuse.fr → métas `fr / EUR / FR / dayuse.fr` (avant : en/USD/US).
+- En-têtes : `X-Frame-Options: DENY`, `X-Content-Type-Options: nosniff`, `Content-Security-Policy-Report-Only` (pas d'enforce).
+- POST `Origin: https://evil.example` → 403 ; `Origin: https://ai.dayuse.com` + message de 501 car. → 413 (l'origine passe, donc `WIDGET_ALLOWED_ORIGINS` est lue, sans appel au concierge).
+- GET `/v3/chat` → 404 (avant : 405).
+- Tour réel same-origin (Londres, demain après-midi) → 200, 5 hôtels.
+- `railway logs --service widget` : 3 tours navigateur de Fabien en `POST /v3/chat/stream 200`, aucun `refused cross-site POST` hors la sonde evil.example.
+
+**Tentative précédente** : le widget servait `8d1579b` parce que rien n'avait été déployé dans AgentB2C depuis le 23/10 (4 services `SUCCESS` ce jour-là, même estampille). Le seul dossier sur `feat/contrat-cadre-p3` est `agent-sales-am`, dont `sales-ai-pipeline/` est lié au projet Railway **Sales IA Agent** : un `sales-ai-preprod` y était en `DEPLOYING` à 10:48Z, seul déploiement du créneau (à vérifier côté agent-sales-am).
+
+**Pièges** :
+- `railway up` déploie dans le projet lié au **dossier** courant (`~/.railway/config.json`), quelle que soit la branche : lancé depuis un autre repo, il part ailleurs sans erreur. Toujours depuis ce clone, toujours avec `--service`.
+- Le proxy voit l'edge, pas le visiteur : pairs `::ffff:100.64.0.x`, une IP différente par requête. Sans `X-Real-IP`, la limite par IP s'étalerait sur ~20 clés. Railway documente `X-Real-IP` comme l'IP du client (docs « Specs & Limits ») et c'est prouvé en ligne : 31 `POST /v3/chat/session/reset` (zéro appel LLM, 11:10Z) → 30 × 204 puis 429 (`Retry-After: 59`), et le log écrit `rate_limit_hit … ip=45.156.191.77`, l'IP de sortie du poste. Le défaut de `WIDGET_CLIENT_IP_HEADER` est le bon. Les 30 requêtes ont rempli un seul compteur : un seul réplica sert le widget, ou toutes sont tombées sur le même.
+- `.claude/` ajouté à `.railwayignore` : les worktrees de Claude Code y vivent, `railway up` les aurait envoyés.
+
+**Reste** (hors de cette session) : DNS `ai.dayuse.com` (Route 53 + domaine custom Railway sur `widget`) et plan de retour arrière — à la bascule, vérifier que `X-Forwarded-Host` vaut `ai.dayuse.com` et qu'aucun CDN ne s'intercale devant Railway (sinon `X-Real-IP` serait l'IP du CDN) ; MCP de prod ; CSP `enforce` après quelques jours de `csp-report` ; P5 et rotation des bearers (A1) ; plafond OpenAI (O3), purge Langfuse (DPIA), cron `/sync-availability` d'agent-usa ; merges dayuse-com!15273 et dayuse-product-analytics#112.
+
+## 🔀 2026-10-26 — Préparer la bascule franche d'ai.dayuse.com (branches `feat/widget-market-at-render` puis `feat/widget-protection`, empilées)
+
+**Décision (Fabien, 2026-10-26)** : bascule franche d'agent-usa vers AgentB2C sur `ai.dayuse.com` (Railway + Route 53) ; MCP de prod branché par Fabien ; Langfuse remplace `conversation_logs`.
+
+**Contrat d'entrée lu dans dayuse-com** : `AiConciergeSection` (home, Kameleoon `ai_agent_section_home`) et `AiAgentBanner` (home, recherche) ouvrent un nouvel onglet sur `https://ai.dayuse.com/?amp_device_id&amp_session_id&dayuse_session_id&locale&currency&q` — un seul hôte pour tous les TLD. !15273 (ouverte) ajoute `du_entry_source` + `market_country`.
+
+**Fait** :
+- `f053bb7` : la page est rendue dans le marché du visiteur. Résolveur d'agent-usa copié tel quel dans `web/market_context.py` (stdlib, test de synchro si `../agent-usa` est présent) ; `?market_country` épingle le pays par-dessus ; lien « Voir tout » laissé à `markets.generated.js`. Avant : en/USD/US pour tout le monde.
+- `ee36fa2` : protection de l'edge public (détail et variables dans `DEPLOY.md` § Protection) : 20 tours/min et 200/h par IP, origine croisée refusée, 4 routes du concierge seulement, message ≤ 500 car., en-têtes de sécurité, CSP en report-only (`/csp-report` journalisé).
+- Tests : `test_widget_proxy_market.py` (19), `test_widget_proxy_protection.py` (29), contre-épreuves rouges. pytest 3 130 passés / 1 skippé, ruff, mypy, 78 tests JS. Sonde locale du proxy : page FR/EUR/FR depuis le Referer dayuse.fr, 403 cross-site, 413, 429 au 21e tour, GET /v3 en 404.
+
+**Reste avant bascule** : déployé le jour même, voir le bloc 2026-10-26 (bis) ci-dessus ; son « Reste » remplace celui-ci. Le cron `/sync-availability` d'agent-usa ne sert qu'au cache d'agent-usa : à arrêter quand agent-usa s'éteint. Rétention Langfuse : pas d'entitlement `data-retention` en OSS, purge à organiser.
+
+**Écarté volontairement** : `dayuse_session_id` n'est pas repris (décision AM1 : liens sortants = `amp_*` seulement, ce que lit ab-tests ; dayuse-com ne lit aucun `du_dayuse_session_id` entrant).
+
+## 📅 2026-10-20 — La première recherche sans jour demande la date (branche `feat/ask-search-date`)
+
+**Décision (Fabien, 2026-10-20)** : renverse « A date is NOT required » (2026-07-28). Retour QA, trace `d327c03d` : « Rooftop pool in Los Angeles » cherché aujourd'hui sans rien demander.
+
+**Fait** (concierge seul) :
+- `agent.py` : avant la feuille, si la première recherche de la session ne nomme aucun jour (`expected_search_date`, `mentions_a_date`, slot de triage `day_stated`), réponse par gabarit `templates.date_question` + 3 puces (`date_chips` : aujourd'hui / demain / après-demain, lues par `parse_requested_date` dans les 7 langues). 1 seul appel LLM (le triage). `SessionProfile.date_checked` : une seule fois par session ; une réponse sans jour cherche aujourd'hui. Pas de question pour un hôtel nommé (le nom ne passe qu'à ce tour, mcp-dayuse#7), ni quand Redis ne répond pas (`store.exists` → None : sinon la question reviendrait à chaque tour).
+- `pending_search` garde la demande (`date_question: true`) ; la réponse repart vers la feuille avec la demande SEULE, sans étiquettes (`pending_search_context`) : avec « EARLIER REQUEST / YOU ASKED », la feuille stockait « Rooftop pool » en `zone` 3 fois sur 7 (0 sur 5 en message daté direct) et le tour suivant (« and in San Diego? ») tombait en dégradé ; après correctif 0 sur 8. Les puces sont effacées au tour qui répond.
+- Triage : slot `day_stated` (additif, ne peut qu'épargner la question). Une heure ou une plage sans jour (« de 14h à 18h ») compte comme aujourd'hui : gpt-4o-mini l'a lu ainsi 6 fois sur 6 sous deux formulations contraires, l'échec est sûr (comportement d'avant) — à renverser si tu préfères demander dans ce cas.
+- Tests : `test_search_date_question.py` (21) + `tests/api/test_search_date_http.py` (puces dans le JSON et dans la trame SSE `done`) + triage ; 3 contre-épreuves (porte coupée, puces non effacées, sonde Redis coupée) → rouge. Les ~85 tests antérieurs qui passent par une première recherche sans jour démarrent sur une session au jour réglé (fixture `_search_date_already_settled` du `conftest.py` racine ; marqueur `date_unsettled` pour en sortir).
+- Évals : « demain »/« tomorrow » ajouté aux 7 items `geo-poi` sans jour (ils testent la géographie) ; 2 items `b2c-dialogue-state` (`ds-date-asked-when-none-fr`, `ds-date-answer-keeps-request-fr`). Seed `--dry-run` : 91 items valides.
+
+**Preuve** :
+- Sonde triage réelle, 16 formulations × 3, fr/en/es : **48/48** sur gpt-4o-mini (triage prod) et 48/48 sur gpt-6-luna (défaut du code, migration M1).
+- Live local (3 services + Redis :6390, feuilles luna, en-tête synthétique) : API LA (question + puces → « Tomorrow » → 5 hôtels au 2026-10-21) ; FR 3 tours (question → « demain à partir de 14h » : Nice, J+1, 14h, piscine → « et à Cannes ? » : pas de question, jour/heure/piscine reportés) ; widget SSE dans Chrome à 390 px (puces affichées, clic « Tomorrow » → cartes, « and in San Diego? » → recherche sans nouvelle question, statut `ok`).
+- pytest 3 017 passés / 1 skippé, ruff, mypy, guardrails OK.
+
+**Reste** :
+- ~~Déployer `concierge` seul~~ : fait (`8d1579b`), vu en ligne le 2026-10-26 (question de date + puces sur le widget public).
+- Ressemer `b2c/geo-poi` et `b2c/dialogue-state` (`scripts/langfuse_seed_datasets.py --only …`, humain).
+- **À trancher** : `prod-lat-dead-0-same-day-cutoff-fallback` (`b2c/prod-regressions`, importé depuis la trace `e03688e0`, message « je cherche un hotel à Paris avec piscine ») reçoit désormais la question de date, par construction : son `min_hotels: 1` échouera. Le retirer, ou le garder comme garde « question de date » (attendus à réécrire).
+- Limites connues, voulues : sans ville NI jour, deux questions (le jour, puis la ville) ; une question de budget avant recherche est suivie de la question de date.
+- La batterie 32 scénarios et les rejeux Langfuse sont payants : non lancés.
+- Analytics (AM1, #146) : le tour de question part en `response_type: clarification`, `clarification_reason: other` — le contrat `contracts/amplitude_events.json` (convenu avec Ali) n'a pas de valeur `date`. L'ajouter = changer le contrat partagé, à voir avec lui.
+
+## 🧩 2026-10-20 — Retours QA widget : flèches coupées + carrousel mobile (branche `fix/widget-results-overflow`)
+
+**Constat mesuré** (widget local servi par `run_widget_proxy.py`, `/v3/chat` routé vers un payload construit par `facade.build_chat_payload` avec les hôtels de la trace QA `d327c03d…`, Chrome headless) :
+- Desktop : `.message-content.with-hotels` (item flex sans `min-width: 0`) faisait 760 px dans 724 px disponibles → 16 px au-delà du panneau. À 1440 : flèche « suivant » `r=1124` et « See all hotels in USA → » `r=1123` pour un panneau à 1120 ; à 800 la flèche était coupée en deux. C'est la « flèche en bas à droite hors cadre » et la « flèche du carrousel cassée ».
+- Mobile 390 : rangée de x=52 à x=374 (colonne de l'avatar + padding du chat + `overflow:hidden`), cartes à 246 px au lieu de 330, aperçu de la suivante coupé net, liseré de 4 px de la carte précédente après un swipe.
+
+**Fait** (CSS seul) :
+- `hotels.css` : `min-width: 0` sur `.message-content.with-hotels` (toutes tailles) ; retrait des `padding-right: 20px` de `.results-intro`/`.results-meta` qui masquaient ce débordement.
+- `responsive.css` (≤768) : la rangée de cartes sort du padding du chat et de la colonne de l'avatar (`margin: 12px -16px 12px calc(-16px - 28px - var(--space-2))`), carte `calc(100% - 28px)` = viewport − 16 − 12 − 32 ; doublon mobile de la règle `with-hotels` réduit à `width: 100%`.
+- `tests/widget/widget_cards.test.mjs` : géométrie mobile, sortie de la colonne, `min-width: 0` (contre-épreuve : le test tombe sans la règle). 45 tests JS verts.
+
+**Preuve** (mesures après correctif) : 1440/900/800 → bloc, flèche et « See all » ≤ bord de contenu (1100/830/780) ; 390/360 → rangée de 0 à la largeur de l'écran, carte 1 à x=16, aperçu 32 px, carte calée à x=16 après swipe, `scrollWidth === innerWidth`. pytest 2 988 passés / 1 skippé, ruff, mypy, guardrails OK.
+
+**Reste** : déploiement du seul service `widget` (`DEPLOY.md`) puis capture sur le widget public à 1440 et 390. Les captures de la QA n'ont pas été vues (non transmises) : l'appariement retour ↔ défaut repose sur les mesures. Non touchés : flèches de la galerie photo (correctes, n'apparaissent qu'avec plus d'une photo, jamais en résultats de recherche), compteur « 1 / 5 ».
+
+## 📈 2026-10-20 — Tracking Amplitude de l'agent (AM1, branche `feat/amplitude-tracking`)
+
+**Décidé avec Ali** (session « grill », réponses Q1-Q28) : l'analytics produit part dans Amplitude **depuis le widget seul** ; les `chat_*` d'agent-usa sont retirés, pas repris ; préfixe `ai_agent__*` + `pageview` copié de dayuse.com (6 propriétés de page, `page_type = 'ai_agent'`) ; le `prompt` est envoyé (tronqué à 500, accès restreint), jamais la réponse ; pas d'A/B test, bascule franche ; Production seulement sur `ai.dayuse.{tld}`, Staging/Dev partout ailleurs (local, évals, démo) ; Session Replay à 5 %, non modifiable depuis Amplitude.
+
+**Fait** :
+- `contracts/amplitude_events.json` : 9 événements, 10 propriétés communes, enums, `session_replay.sample_rate`. Verrouillé par `tests/test_amplitude_contract.py` (serveur) et `tests/widget/widget_amplitude_contract.test.mjs` (widget). Ajouter, jamais renommer ni retirer.
+- Serveur : bloc `turn_facts` dans la réponse JSON et le `done` SSE (`trace_id`, `family`, `route`, `status`, `response_type`, `results_count`, `empty_reason`, `clarification_reason`, `guards_fired`, `fallbacks`, `resolved_city`), construit par `turn_facts.py`, transmis par un marqueur `turn_facts` émis par le seul enrobage de `_run_async_impl` (le final reste le dernier événement). `CONTRACT_KEYS` gagne `turn_facts`. Le `turn_id` du widget est repris s'il est valide. Aucun appel LLM en plus, aucun envoi Amplitude côté serveur.
+- Widget : `tracking.js` réécrit, seul émetteur ; `amplitude-bootstrap.js` supprimé ; balise `/api/track` et sa route proxy supprimées ; `?du_synthetic=1` → `is_synthetic` + `X-Dayuse-Synthetic` (volet widget de E2) ; `?market_country=` et `__DAYUSE_NATIVE__` fixent le marché suivi (`"unknown"` avant) ; liens sortants estampillés `amp_device_id`/`amp_session_id` seulement ; autocapture d'attribution coupée ; feedback 👍/👎 aussi en JSON (trace lue dans `turn_facts`) ; code mort des boutons « pick » retiré.
+- Proxy : `<meta name="agent-version">` depuis `LANGFUSE_RELEASE` ; `GET /sr-config` sert la config Session Replay figée (le plugin 1.13.2 la lit à chaque session et l'écraserait sinon).
+- `CLAUDE.md` : invariant RGPD amendé (exception `prompt`) + invariant Analytics. `CHANTIERS.md` : AM1 ouvert, E2 volet widget fait.
+
+**Reste** (détail dans `CHANTIERS.md` AM1) : revues des MR sœurs déjà ouvertes, dayuse-product-analytics #112 (`ai-agent.md`, `events.yaml`, `tools/langfuse_fetch.py`) et dayuse.com !15273 (ticket #15883, `du_entry_source` + `market_country` sur les 2 bannières) ; lire la rétention Langfuse ; vérifier un tour réel dans chaque projet Amplitude et un enregistrement Session Replay ; faire confirmer par l'équipe mobile que `__DAYUSE_NATIVE__` est injecté au début du document.
+
+**Pièges** :
+- `empty_reason` n'a pas `geocode_failed` : la feuille ne le signale pas (il faudrait une clé de `DataPart`, autre chantier). `filters_too_strict` ne sort que pour le filtre « moins cher que ».
+- Plugin Session Replay 1.13.2 = la dernière version compatible avec le SDK 2.11.2 ; ses envois partent directement vers `api-sr.eu.amplitude.com` (le proxy `alitude` ne sert que `/2/httpapi`) : un bloqueur de pub empêche l'enregistrement. Si `/sr-config` ne répond pas, rien n'est enregistré.
+- `agent_version` = estampille du **widget** ; celle du concierge se lit dans la trace Langfuse (`langfuse_trace_id`).
+- Les propriétés communes sont lues à l'envoi vers le SDK, pas à la mise en file : un `pageview` parti avant que l'app injecte `__DAYUSE_NATIVE__` est bien étiqueté `mobile_app`. Seule limite : si l'app injecte **après** l'init du SDK (chargement SDK + plugin, ou 3 s), les événements déjà partis gardent l'étiquette web et l'identifiant d'appareil du navigateur. À confirmer côté mobile : l'injection a lieu au début du document.
+- `status: "unknown"` = le spine n'a pas émis de marqueur `turn_facts` (avertissement `b2c_concierge.facade` dans les logs) ; `error_type: "client"` = exception du widget après la réponse du serveur, pas une panne réseau.
+- Les puces de créneau (Matin/Journée/Soir) d'une ancienne bulle peuvent rappeler `/v3/chat` (`filters/search.js`, `runSearchWithFilters`) : ce chemin a maintenant le même suivi de tour que `sendMessage` et affiche `search_error` sur une réponse non-2xx.
+- Les liens sortants ne portent plus `amplitude_id` ni les `du_*` d'agent-usa, seulement `amp_device_id`/`amp_session_id` (ce que lit ab-tests).
+- `.venv` absent de ce poste : gates passés avec un venv Python 3.13 reconstruit hors dépôt ; la suite y prend ~3 min 45 (dont ~110 s pour `test_calendar_rot`). `node --test tests/widget/` échoue sur Node 26 (dossier refusé) : passer le glob.
+
 ## 🧪 2026-10-19 (ter) — Sortie de gpt-4o-mini : mesures faites, triage pas encore prêt (branche `chore/off-gpt-4o-mini`, chantier `M1`)
 
 **Fait** (code ; rien de déployé, rien d'écrit sur Langfuse) :

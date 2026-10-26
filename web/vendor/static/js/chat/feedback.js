@@ -11,8 +11,7 @@
  * (already public via the `progress` SSE frame) and the same internal API
  * key that already gates every other /v3/* route.
  *
- * Fire-and-forget, same as tracking.js's Amplitude beacon: a feedback click
- * must never block or break the chat UI.
+ * Fire-and-forget: a feedback click must never block or break the chat UI.
  */
 import { getFeedbackEndpoint, getChatHeaders } from './api.js';
 

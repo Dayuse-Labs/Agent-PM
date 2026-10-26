@@ -181,10 +181,11 @@ from .profile import (
     without_final_question,
 )
 from .profile_store import get_profile_store
-from .requested_date import date_served_notice, expected_search_date, reference_today
+from .requested_date import date_served_notice, expected_search_date, mentions_a_date, reference_today
 from .no_offers import drop_restated, no_offers_line
 from .window_guard import enforce_window_disclosure, enforce_window_match, window_label
 from .routing import LEAF_FAQ, LEAF_HOTEL_SEARCH, ROUTES, bearer_token, card_url
+from .turn_facts import ClarificationReason, EmptyReason, TurnStatus, spine_turn_facts
 from .triage import (
     has_language_evidence,
     SERVICE,
@@ -401,6 +402,21 @@ def _leaf_clarification(raw: Any) -> Clarification | None:
     except ValidationError:
         logger.warning("b2c_concierge: off-contract clarification from the search leaf, ignored")
         return None
+
+
+def _search_empty_reason(response: dict[str, Any], fallbacks: set[str]) -> EmptyReason:
+    """Why a search turn showed no hotel, from the leaf's own signals. A leaf
+    that never reached `search_offers` without saying why is not a search."""
+    if "mcp_error" in fallbacks:
+        return "error"
+    if "named_hotel_not_found" in fallbacks:
+        return "no_offers"
+    if "results" not in response:
+        return "none"
+    search_date = response.get("search_date")
+    if isinstance(search_date, dict) and search_date.get("cutoff_closed"):
+        return "date_unavailable"
+    return "no_offers"
 
 
 async def _run_leaf(
@@ -644,8 +660,9 @@ class _B2cConcierge(BaseAgent):
         )
 
     def _emit_turn_metric(
-        self, family: str, route: str, budget: TurnBudget, t_start: float, status: str,
-        invocation_id: str = "", hotels_returned: int = 0,
+        self, family: str, route: str, budget: TurnBudget, t_start: float, status: TurnStatus,
+        invocation_id: str = "", hotels_returned: int = 0, *,
+        empty_reason: EmptyReason = "none", clarification: ClarificationReason = "none",
     ) -> None:
         """One log line + one llm_metric_events row + the OBS3 score set per
         turn — counters only, NO message content (GDPR, locked by test). The
@@ -674,6 +691,11 @@ class _B2cConcierge(BaseAgent):
         score_guards(budget.fired)
         score_fallbacks(budget.fallbacks)
         score_turn(hotels_returned=hotels_returned, llm_calls=budget.llm_calls)
+        budget.facts = spine_turn_facts(
+            family=family, route=route, status=status, hotels_returned=hotels_returned,
+            fired=budget.fired, fallbacks=budget.fallbacks, empty_reason=empty_reason,
+            clarification_reason=clarification, resolved_city=budget.searched_city,
+        )
 
     # --- Synthesis (guarded) ----------------------------------------------------------------
     async def _generate_once(
@@ -1117,7 +1139,10 @@ class _B2cConcierge(BaseAgent):
         await store.set(ctx.session.id, profile)  # persists pending_booking either way
 
         if not result.get("ok"):
-            self._emit_turn_metric(family, "inline:generate_booking_link", budget, t_start, "degraded", inv)
+            self._emit_turn_metric(
+                family, "inline:generate_booking_link", budget, t_start, "degraded", inv,
+                clarification="other" if profile.last_results else "none",
+            )
             # Transparency: don't dead-end — when a shortlist is on screen, list it
             # so the user can pick; otherwise say what's missing (reason-aware).
             yield self._final(
@@ -1170,10 +1195,27 @@ class _B2cConcierge(BaseAgent):
 
     # --- Spine --------------------------------------------------------------------------------
     async def _run_async_impl(self, ctx: InvocationContext) -> AsyncGenerator[Event, None]:
+        """The turn, with its `turn_facts` marker slotted in just before the
+        final answer, so the answer stays the stream's last event."""
+        budget = TurnBudget()
+        final: Event | None = None
+        async for event in self._run_turn(ctx, budget):
+            if event.partial:
+                yield event
+            else:
+                if final is not None:
+                    logger.error("b2c_concierge: a turn produced a second final event")
+                    yield final
+                final = event
+        if budget.facts is not None:
+            yield self._marker_event(ctx, {"event": "turn_facts", **budget.facts})
+        if final is not None:
+            yield final
+
+    async def _run_turn(self, ctx: InvocationContext, budget: TurnBudget) -> AsyncGenerator[Event, None]:
         t_start = time.monotonic()
         inv = ctx.invocation_id
         message = _content_text(ctx.user_content).strip()
-        budget = TurnBudget()
 
         # 0. Progress marker — emitted before ANY work (TTFT target < 300 ms,
         # measured locally by scripts/measure_ttft_local.py).
@@ -1403,6 +1445,8 @@ class _B2cConcierge(BaseAgent):
             family, route = "search", ROUTES["search"]
         # Consumed by this turn, whatever it does: only the very next reply
         # answers a question.
+        if pending is not None and pending.get("date_question"):
+            profile.last_suggestions = None  # the day chips answer that turn only
         profile.pending_search = None
         profile.pending_clarification = None
 
@@ -1512,7 +1556,10 @@ class _B2cConcierge(BaseAgent):
                 profile.pending_booking = None
                 profile.last_clarifying_question = party_composition_question(next_party_total, reply_language)
                 await store.set(ctx.session.id, profile)
-                self._emit_turn_metric(family, "template:party_clarification", budget, t_start, "ok", inv)
+                self._emit_turn_metric(
+                    family, "template:party_clarification", budget, t_start, "ok", inv,
+                    clarification="party",
+                )
                 yield self._final(ctx, profile.last_clarifying_question)
                 return
             if route.target == "generate_booking_link":
@@ -1624,7 +1671,10 @@ class _B2cConcierge(BaseAgent):
                 if reference is None:
                     profile.last_clarifying_question = reference_question(reply_language)
                     await store.set(ctx.session.id, profile)
-                    self._emit_turn_metric(family, "template:price_reference_missing", budget, t_start, "ok", inv)
+                    self._emit_turn_metric(
+                        family, "template:price_reference_missing", budget, t_start, "ok", inv,
+                        clarification="budget",
+                    )
                     yield self._final(ctx, profile.last_clarifying_question)
                     return
                 profile.price_comparison = reference
@@ -1643,7 +1693,10 @@ class _B2cConcierge(BaseAgent):
             elif clarification:
                 profile.last_clarifying_question = clarification
                 await store.set(ctx.session.id, profile)
-                self._emit_turn_metric(family, "template:budget_clarification", budget, t_start, "ok", inv)
+                self._emit_turn_metric(
+                    family, "template:budget_clarification", budget, t_start, "ok", inv,
+                    clarification="budget",
+                )
                 yield self._final(ctx, clarification)
                 return
 
@@ -1658,14 +1711,47 @@ class _B2cConcierge(BaseAgent):
         # "le 3 octobre" asked, today served on the next turn).
         expected_date: str | None = None
         if route.target == LEAF_HOTEL_SEARCH:
-            expected_date, from_message = expected_search_date(
-                message, profile.date, reference_today(profile.client_timezone)
-            )
+            today = reference_today(profile.client_timezone)
+            expected_date, from_message = expected_search_date(message, profile.date, today)
             if expected_date and from_message:
                 profile.date = expected_date
                 profile.date_reference = {"resolved_from": "concierge"}
                 if profile.client_timezone:
                     profile.date_reference["client_tz"] = profile.client_timezone
+            # QA 2026-10-20 (Fabien): the session's first hotel search names a
+            # day or asks for one, before the leaf — nothing is searched on a
+            # day the user never chose. Once only: a reply that still names
+            # none searches today. A named hotel is looked up as asked: its
+            # name reaches the lookup on this turn only (mcp-dayuse#7). With
+            # Redis down every turn starts empty: the reply could never find
+            # the request again, so the search runs on today instead.
+            if not repeat_search and not profile.date_checked:
+                profile.date_checked = True
+                if (
+                    expected_date is None
+                    and not (named_choice or triage.hotel_name)
+                    and not triage.day_stated
+                    and not mentions_a_date(message, today)
+                    and await store.exists(ctx.session.id) is not None
+                ):
+                    question = templates.date_question(reply_language)
+                    profile.last_clarifying_question = question
+                    profile.last_suggestions = templates.date_chips(reply_language)
+                    # The request is kept for the reply (EARLIER REQUEST), and
+                    # the question counts as one ask of the free-question streak.
+                    profile.pending_search = {
+                        **(next_pending_search(earlier, message, False, question, ended_on_question=True) or {}),
+                        "date_question": True,
+                    }
+                    await store.set(ctx.session.id, profile)
+                    # Amplitude (AM1): the contract agreed with the analytics team
+                    # has no "date" reason yet — "other" until it does.
+                    self._emit_turn_metric(
+                        family, "template:date_question", budget, t_start, "ok", inv,
+                        clarification="other",
+                    )
+                    yield self._final(ctx, question)
+                    return
 
         budget.charge("leaf_llm")
         leaf_kwargs: dict[str, Any] = (
@@ -1737,7 +1823,9 @@ class _B2cConcierge(BaseAgent):
                 if isinstance(c, dict) and isinstance(c.get("name"), str)
             ] or None
             await store.set(ctx.session.id, profile)
-            self._emit_turn_metric(family, f"leaf:{route.target}", budget, t_start, "ok", inv)
+            self._emit_turn_metric(
+                family, f"leaf:{route.target}", budget, t_start, "ok", inv, clarification="homonym",
+            )
             yield self._final(
                 ctx,
                 templates.named_hotel_ambiguous_response(
@@ -1751,13 +1839,18 @@ class _B2cConcierge(BaseAgent):
             # The leaf wrote nothing, but code knows why: the hotel does not
             # exist on Dayuse — not "retry in a moment".
             await store.set(ctx.session.id, profile)
-            self._emit_turn_metric(family, f"leaf:{route.target}", budget, t_start, "ok", inv)
+            self._emit_turn_metric(
+                family, f"leaf:{route.target}", budget, t_start, "ok", inv, empty_reason="no_offers",
+            )
             yield self._final(
                 ctx, templates.named_hotel_not_found_response(named_not_found, reply_language)
             )
             return
         if leaf_text is None and not response:
-            self._emit_turn_metric(family, f"leaf:{route.target}", budget, t_start, "degraded", inv)
+            self._emit_turn_metric(
+                family, f"leaf:{route.target}", budget, t_start, "degraded", inv,
+                empty_reason="error" if route.target == LEAF_HOTEL_SEARCH else "none",
+            )
             yield self._final(ctx, templates.leaf_degraded_response(family, reply_language, profile.city))
             return
         # A text-less leaf turn that still carried a DataPart is NOT a leaf
@@ -1772,6 +1865,8 @@ class _B2cConcierge(BaseAgent):
         delta = response.get("profile_delta") or {}
         if delta:
             apply_profile_delta(profile, delta, message, budget.fired)
+        if route.target == LEAF_HOTEL_SEARCH and "results" in response:
+            budget.searched_city = profile.city
         date_notice: str | None = None
         search_date_part = response.get("search_date")
         if expected_date and isinstance(search_date_part, dict):
@@ -1797,7 +1892,9 @@ class _B2cConcierge(BaseAgent):
         # no recovery chips — the inventory was never actually consulted.
         if route.target == LEAF_HOTEL_SEARCH and response.get("status") == "search_unavailable":
             await store.set(ctx.session.id, profile)
-            self._emit_turn_metric(family, f"leaf:{route.target}", budget, t_start, "degraded", inv)
+            self._emit_turn_metric(
+                family, f"leaf:{route.target}", budget, t_start, "degraded", inv, empty_reason="error",
+            )
             yield self._final(
                 ctx,
                 templates.search_rejected_response(reply_language)
@@ -1814,7 +1911,10 @@ class _B2cConcierge(BaseAgent):
             profile.last_clarifying_question = question
             await store.set(ctx.session.id, profile)
             yield self._hotels_event(ctx, response, reply_language)
-            self._emit_turn_metric(family, "template:party_clarification", budget, t_start, "ok", inv)
+            self._emit_turn_metric(
+                family, "template:party_clarification", budget, t_start, "ok", inv,
+                clarification="party",
+            )
             yield self._final(ctx, question)
             return
         budget_followup: str | None = None
@@ -1832,7 +1932,10 @@ class _B2cConcierge(BaseAgent):
             elif clarification:
                 profile.last_clarifying_question = clarification
                 await store.set(ctx.session.id, profile)
-                self._emit_turn_metric(family, "template:budget_clarification", budget, t_start, "ok", inv)
+                self._emit_turn_metric(
+                    family, "template:budget_clarification", budget, t_start, "ok", inv,
+                    clarification="budget",
+                )
                 yield self._final(ctx, clarification)
                 return
         window_fallback: str | None = None
@@ -1924,7 +2027,10 @@ class _B2cConcierge(BaseAgent):
                 # wait for, one empty "other options" page is proof enough.
                 profile.search_exhausted = True
                 await store.set(ctx.session.id, profile)
-                self._emit_turn_metric(family, "template:search_exhausted", budget, t_start, "ok", inv)
+                self._emit_turn_metric(
+                    family, "template:search_exhausted", budget, t_start, "ok", inv,
+                    empty_reason="no_offers",
+                )
                 yield self._final(
                     ctx,
                     templates.search_exhausted_response(
@@ -1966,11 +2072,20 @@ class _B2cConcierge(BaseAgent):
                     mark_level("WARNING", status_message="anti_clarification_loop")
                     budget.fired.add("anti_clarification_loop")
             text = templates.clarification_response(leaf_question, reply_language, asked)
-            profile.last_clarifying_question = (
-                text if asked <= templates.CLARIFICATION_MAX_ASKS else None
-            )
+            gave_up = asked > templates.CLARIFICATION_MAX_ASKS
+            profile.last_clarifying_question = None if gave_up else text
             await store.set(ctx.session.id, profile)
-            self._emit_turn_metric(family, "template:clarification", budget, t_start, "ok", inv)
+            clarification_reason: ClarificationReason
+            if gave_up:
+                clarification_reason = "none"
+            elif leaf_question.kind == "city_needed":
+                clarification_reason = "location"
+            else:
+                clarification_reason = "homonym"
+            self._emit_turn_metric(
+                family, "template:clarification", budget, t_start, "ok", inv,
+                clarification=clarification_reason,
+            )
             for chunk in _chunk_text(text):
                 yield self._chunk_event(ctx, chunk)
             yield self._final(ctx, text)
@@ -1987,7 +2102,10 @@ class _B2cConcierge(BaseAgent):
                         line += "\n\n" + notice
                 profile.last_clarifying_question = None
                 await store.set(ctx.session.id, profile)
-                self._emit_turn_metric(family, "template:comparison_no_verified_offer", budget, t_start, "ok", inv)
+                self._emit_turn_metric(
+                    family, "template:comparison_no_verified_offer", budget, t_start, "ok", inv,
+                    empty_reason="filters_too_strict",
+                )
                 yield self._final(ctx, line)
                 return
 
@@ -2036,10 +2154,17 @@ class _B2cConcierge(BaseAgent):
             )
         await store.set(ctx.session.id, profile)
 
+        searched = route.target == LEAF_HOTEL_SEARCH
         self._emit_turn_metric(
             family, f"leaf:{route.target}", budget, t_start,
             "synthesis_fallback" if "synthesis" in budget.fallbacks else "ok", inv,
             hotels_returned=len(response.get("results") or []),
+            empty_reason=_search_empty_reason(response, budget.fallbacks) if searched else "none",
+            clarification=(
+                "other"
+                if searched and "results" not in response and profile.last_clarifying_question
+                else "none"
+            ),
         )
         # Double failure only (text-less leaf AND failed synthesis): honest
         # degraded template rather than an empty message.

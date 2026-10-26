@@ -227,6 +227,10 @@ class SessionProfile:
     metro: str | None = None
     date: str | None = None  # ISO 8601
     date_reference: dict[str, Any] | None = None  # {expression, resolved_from, client_tz}
+    # QA 2026-10-20: the session's first hotel search has had its day settled
+    # — named by the user, or asked for once. Never asked twice: a reply
+    # that still names no day searches today.
+    date_checked: bool = False
     currency: str | None = None
     locale: str | None = None
     domain: str | None = None
@@ -345,6 +349,7 @@ class SessionProfile:
             "metro": self.metro,
             "date": self.date,
             "date_reference": self.date_reference,
+            "date_checked": self.date_checked,
             "currency": self.currency,
             "locale": self.locale,
             "domain": self.domain,
@@ -402,6 +407,7 @@ _CONCIERGE_ONLY_KEYS = (
     "pending_clarification",  # the leaf gets it on the answer turn, in query_params
     "named_candidates",
     "pending_party_total",  # the leaf gets it as query_params.party_total
+    "date_checked",
 )
 
 
@@ -1057,9 +1063,16 @@ def next_pending_search(
 
 def pending_search_context(pending: dict[str, Any] | None) -> str | None:
     """The text placed before the user's reply in the message sent to the
-    search leaf, so request and reply read as one message."""
+    search leaf, so request and reply read as one message.
+
+    The reply to the day question (QA 2026-10-20) gets the request alone, as
+    the user's own words: the concierge has already read the day, and the
+    labels made the leaf take an amenity for a place (« Rooftop pool »
+    stored as a zone in 3 replies of 7, never in 5 dated first messages)."""
     if not pending:
         return None
+    if pending.get("date_question"):
+        return pending.get("request") or None
     lines = []
     if pending.get("request"):
         lines.append(f"EARLIER REQUEST (the user's own words, not searched yet): {pending['request']}")
@@ -1147,8 +1160,8 @@ def _timeslot_label(profile: SessionProfile) -> str | None:
 def search_context_line(profile: SessionProfile) -> str:
     """One-line summary of the understood search params (destination/budget/time/
     amenities), for the synthesis to restate to the user (transparency). Empty
-    when nothing is known. The DATE isn't a profile field — it stays in the raw
-    message the synthesis already sees."""
+    when nothing is known. The date is not restated here: the synthesis gets
+    the day the search ran on from `ground_truth.date_context_block`."""
     bits: list[str] = []
     if profile.city:
         bits.append(f"destination: {profile.city}")
@@ -1371,7 +1384,9 @@ def build_hotel_picks(profile: SessionProfile) -> list[dict[str, Any]]:
     appear — a destination must be resolved. A date is NOT required (Fabien
     2026-07-28): the search and the booking quote both default the date to
     today, so a date-less shortlist IS bookable — requiring the date dead-ended
-    the pick row for every "hôtel à Paris" search. And in WHICH ORDER — sorted
+    the pick row for every "hôtel à Paris" search. The session's first search
+    now asks for the day (QA 2026-10-20), but a reply naming none still
+    searches today, so this holds. And in WHICH ORDER — sorted
     by price, so "the cheapest" is answerable by eye and the first button is
     always it. Deliberately NO "cheapest" badge: that would be a claim, and
     claims need a guard.

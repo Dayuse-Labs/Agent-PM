@@ -13,13 +13,39 @@ unique `production`. URL publique : **https://widget-production-3f56.up.railway.
 |---|---|---|---|---|
 | `hotel-search` | `agents/hotel_search_agent/Dockerfile` | 8101 | privé | `agents/hotel_search_agent`, `libs` |
 | `faq` | `agents/faq_agent/Dockerfile` | 8102 | privé | `agents/faq_agent`, `libs` |
-| `concierge` | `agents/b2c_concierge/Dockerfile` | 8100 | privé (voir piège 502) | `agents/b2c_concierge`, `libs` |
+| `concierge` | `agents/b2c_concierge/Dockerfile` | 8100 | privé (domaine public supprimé, P5) | `agents/b2c_concierge`, `libs` |
 | `widget` | `web/Dockerfile` | 8090 | **public** | `web`, `scripts/run_widget_proxy.py` |
 | `Redis` | image managée `redis:8.2.9` | — | privé | jamais redéployé par nous |
 
 Le navigateur ne parle qu'au `widget`, qui relaie `/v3/*` vers `concierge.railway.internal:8100`
 en injectant `CHAT_API_KEY` côté serveur. Les secrets vivent en variables de service Railway,
 jamais dans l'image (`.env` est exclu par `.railwayignore`).
+
+### Protection du `widget` (seul service public)
+
+Le proxy limite et filtre avant de relayer (`scripts/run_widget_proxy.py`, tests
+`tests/test_widget_proxy_protection.py`). Réglages par variables de service, valeurs par défaut
+reprises d'agent-usa :
+
+| Variable | Défaut | Effet |
+|---|---|---|
+| `WIDGET_CHAT_PER_MINUTE` / `WIDGET_CHAT_PER_HOUR` | 20 / 200 | tours `/v3/chat` + `/v3/chat/stream` par IP (0 = coupé) |
+| `WIDGET_OTHER_PER_MINUTE` | 30 | reset de session et feedback, par IP |
+| `WIDGET_MAX_MESSAGE_CHARS` / `WIDGET_MAX_BODY_BYTES` | 500 / 16384 | au-delà : 413, rien ne part au concierge |
+| `WIDGET_ALLOWED_ORIGINS` | vide | origines admises en plus du `Host` / `X-Forwarded-Host` de la requête, séparées par des virgules |
+| `WIDGET_CLIENT_IP_HEADER` | `X-Real-IP` | en-tête posé par l'edge ; sinon l'entrée la plus à droite de `X-Forwarded-For` |
+| `WIDGET_CSP_MODE` | `report-only` | `enforce` une fois les lignes `csp-report` des logs lues (bloque, et signale toujours à `/csp-report`) ; `off` pour couper |
+| `HEALTH_TOKEN` | vide | `/health` (sonde d'Innovation Monitor, reprise d'agent-usa) exige `Authorization: Bearer <token>` ; vide = ouvert. `/healthz` et `/readyz` restent ouverts |
+
+Les 3 sondes d'agent-usa répondent sur le widget avec les mêmes clés : `/health` (toujours 200,
+criticité dans `status` : `ok` / `critical`), `/healthz` (vivant), `/readyz` (503 si le concierge
+ne répond pas). La seule dépendance vérifiée est le concierge, par son Agent Card ouverte.
+
+À poser avant la bascule : `WIDGET_ALLOWED_ORIGINS=https://ai.dayuse.com,https://widget-production-3f56.up.railway.app`
+(filet si l'edge ne transmet pas `Host` tel quel). Après déploiement, vérifier dans les logs
+qu'un tour réel n'écrit ni `refused cross-site POST` ni une IP d'edge à la place de celle du
+visiteur dans `rate_limit_hit`. Les compteurs sont par processus : avec plusieurs réplicas,
+chacun compte de son côté.
 
 ## Prérequis
 
@@ -58,7 +84,9 @@ railway variables --service <s> --set "LANGFUSE_RELEASE=$SHA" --skip-deploys
 ```
 
 Estampiller AVANT `railway up` : Railway fige les variables au moment du déploiement, donc c'est
-ce qui fait porter `$SHA` aux traces Langfuse du nouveau conteneur. Si un `up` échoue ensuite,
+ce qui fait porter `$SHA` aux traces Langfuse du nouveau conteneur. Sur `widget`, la même
+estampille devient la balise `<meta name="agent-version">` de la page, donc la propriété
+`agent_version` de chaque événement Amplitude. Si un `up` échoue ensuite,
 remettre l'ancienne estampille (même commande) — sinon elle revendique un build qui ne tourne pas.
 
 **4. Déployer, feuilles d'abord** : `faq` → `hotel-search` → `concierge` → `widget`
@@ -119,8 +147,9 @@ déploiement peut être lent (LLM à froid).
   seule trace du build qui tourne.
 - 🪤 **`railway domain --service X` CRÉE un domaine public**, ce n'est pas une lecture — ne jamais
   le lancer sur une feuille. Les domaines se lisent dans `railway status --json`.
-- 🪤 **Le domaine public du concierge répond 502, c'est normal** : uvicorn `--host ::` n'écoute
-  qu'en IPv6, l'edge public arrive en IPv4. Le privé fonctionne. Toujours passer par le widget.
+- 🪤 **Le concierge n'a plus de domaine public** (supprimé le 2026-10-26, P5 : compensation de la
+  prolongation D7). Ne pas en recréer : il répondrait 502 de toute façon (uvicorn `--host ::`
+  n'écoute qu'en IPv6, l'edge public arrive en IPv4). Toujours passer par le widget.
 - 🪤 **Chemins conteneur ≠ chemins repo** : le code de la feuille est sous
   `/app/hotel_search_agent/…`, pas `/app/agents/…` (utile pour `railway ssh`).
 - 🪤 **Redéployer le MCP_B2C casse la feuille search** (session MCP périmée, `mcp_tool_error`

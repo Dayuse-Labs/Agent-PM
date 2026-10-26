@@ -457,6 +457,34 @@ class TestP1Slots:
             assert f'"{key}"' in triage_module._TRIAGE_INSTRUCTION
 
 
+class TestDayStatedSlot:
+    """QA 2026-10-20: `day_stated` only ever spares the date question, so a
+    skipped or malformed key must read as "no signal" (None), never as a
+    negative that the spine could mistake for "ask"."""
+
+    def test_the_slot_is_carried_through(self, monkeypatch):
+        _script(monkeypatch, '{"family": "search", "language": "fr", "day_stated": true}')
+        assert _classify("un hôtel à Nice maintenant").day_stated is True
+
+    @pytest.mark.parametrize("raw", ['"true"', "1", "null"])
+    def test_only_a_real_json_bool_is_accepted(self, monkeypatch, raw):
+        _script(monkeypatch, '{"family": "search", "language": "fr", "day_stated": %s}' % raw)
+        assert _classify("un hôtel à Nice").day_stated is None
+
+    def test_absent_or_llm_down_is_none(self, monkeypatch):
+        _script(monkeypatch, '{"family": "search", "language": "fr"}')
+        assert _classify("un hôtel à Nice").day_stated is None
+
+        async def _boom(*args, **kwargs):
+            raise TimeoutError("nope")
+
+        monkeypatch.setattr(triage_module.litellm, "acompletion", _boom)
+        assert _classify("un hôtel à Nice").day_stated is None
+
+    def test_the_prompt_asks_for_it(self):
+        assert '"day_stated"' in triage_module._TRIAGE_INSTRUCTION
+
+
 class TestP1LanguageRecognition:
     """P1-2 widened RECOGNITION to 7 languages so the slots above work outside
     fr/en; UX2 (2026-08-27) closed the remaining gap by translating

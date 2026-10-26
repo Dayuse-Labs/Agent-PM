@@ -36,7 +36,7 @@ l'équipe, dès que tu donnes la copy) → `E2` puis `E1` puis `E4` (la boucle Q
 | **Q2** | Corriger les 3 documents qui enseignent du faux | S | — |
 | **Q3** | Hygiène : `todo.md` périmé + 78 branches mergées | S | — |
 | **E1** | Une seule commande pour lancer un jeu de cas | S/M | — |
-| **E2** | Marquer les tours de test (`X-Dayuse-Synthetic`) | S | **Fabien** (volet widget) |
+| **E2** | Marquer les tours de test (`X-Dayuse-Synthetic`) — volet widget fait avec AM1 (`?du_synthetic=1`) ; reste le harnais | S | — |
 | **E3** | Une vérification sur l'URL du lien (QA 4) | S/M | — |
 | **E4** | Ouvrir le jeu `b2c/qa-reports` + y verser 3 cas | S | — |
 | **E5** | Que devient le seuil de qualité sans CI ? | S | **Fabien** (décision) |
@@ -47,7 +47,7 @@ l'équipe, dès que tu donnes la copy) → `E2` puis `E1` puis `E4` (la boucle Q
 | **O5** | 2 variables d'env sur le service MCP | S | **MCP_B2C** |
 | **O6** | Vignette `degraded` manquante | S | — |
 | **P1→P6** | 6 décisions produit en attente | — | **Fabien** |
-| **A1** | Identité D7 → oidc-mtls | L | repo fleet |
+| **A1** | Identité D7 → oidc-mtls ; rotation des bearers semaine du 2026-11-02 | L | repo fleet · ⏰ **2027-01-31** |
 | **A2** | S10 shadow-run / S11 canary | L | accès ES prod |
 | **A3** | `conversation_logs` + `InMemorySessionService` | M | S10/S11 |
 | **G1→G12** | Backlog produit / géo | — | — |
@@ -55,6 +55,8 @@ l'équipe, dès que tu donnes la copy) → `E2` puis `E1` puis `E4` (la boucle Q
 | **QA14707** | Retours QA de Raphael du 14/10 : créneau localisé, lieu compris (`GeoIntent` dans la feuille), clarification tenue par le code. Phases 1-3 déployées (`0b65159`) ; phases 4-5 sur `plan/qa14707`. Plan : `plans/qa14707/`, source : `phases/QA14707/` | L | **Fabien** (revue de la seconde PR, H3' live, H4 retest) |
 | **X1→X3** | 3 demandes chez MCP_B2C | — | **MCP_B2C** |
 | **M1** | Sortir de gpt-4o-mini (arrêt 2027-01-14) : juge du gate passé (baseline à refaire) ; triage (3 règles du prompt à resserrer, puis remesurer) ; 3 évaluateurs Langfuse (réglages UI) | M | **Fabien** (OK Langfuse, bascule Railway) · ⏰ **2027-01-14** |
+| **AM1** | Tracking Amplitude : AgentB2C #146 et dayuse-product-analytics #112 mergées (vu le 2026-10-26) ; restent dayuse.com !15273 et 3 vérifications humaines | S | **Fabien** (!15273) |
+| **MOB1** | Le widget dans l'app mobile (`__DAYUSE_NATIVE__`, pont de navigation, `native_context` opaque côté concierge) : plan de test + prompt | M | phase C : **Fabien** (app de prod) |
 
 **Deux échéances datées** :
 - **2027-01-14** : arrêt de gpt-4o-mini, qui fait encore tourner le triage et les juges Langfuse
@@ -352,7 +354,12 @@ qu'une stack éteinte produit un avertissement au lieu d'un faux vert.
 
 ## E2 — Marquer les tours de test (`X-Dayuse-Synthetic`)
 
-**Taille : S** (le harnais) · **décision Fabien** (le widget)
+**Taille : S** (le harnais)
+
+> **Volet widget fait (2026-10-20, avec AM1)** : option « drapeau explicite » retenue. Ouvrir le
+> widget avec `?du_synthetic=1` pose `X-Dayuse-Synthetic: 1` sur chaque appel `/v3/*` et
+> `is_synthetic: true` sur chaque événement Amplitude ; sans le paramètre, le vrai chemin
+> utilisateur reste non tagué. **Reste l'action 1** (le harnais `_call_facade`).
 
 **Contexte.** Le tag `synthetic` est le **seul** mécanisme qui exclut un tour des 3 juges LLM et
 de la file d'annotation. Deux producteurs de trafic de test ne le posent pas : les rejeux
@@ -390,6 +397,112 @@ Gates locaux verts, branche + MR pour le point 1.
 
 **Terminé quand** un rejeu d'experiment produit une trace portant le tag `synthetic` (vérifié sur
 l'instance), et que l'option widget est tranchée.
+
+---
+
+## AM1 — Tracking Amplitude de l'agent (ouvert le 2026-10-20)
+
+**Taille : S** par MR restante · décisions prises avec Ali le 2026-10-20 (session « grill »)
+
+**Contexte.** L'agent est suivi dans Amplitude depuis le widget seul, selon le contrat figé
+`contracts/amplitude_events.json` (9 événements `ai_agent__*` + `pageview`, Session Replay à 5 %).
+Les faits que seul le serveur connaît arrivent par le bloc `turn_facts` de la réponse `/v3`. Les
+`chat_*` d'agent-usa sont retirés, pas repris. Trois livrables, dans cet ordre : (1) la PR
+AgentB2C, faite ; (2) une MR `dayuse-product-analytics` ; (3) une MR dayuse.com.
+
+**Preuve (encore ouvert).** Au 2026-10-26, #146 et #112 sont mergées, reste !15273. MR d'origine : AgentB2C
+[#146](https://github.com/Dayuse-Labs/AgentB2C/pull/146), dayuse-product-analytics
+[#112](https://github.com/Dayuse-Labs/dayuse-product-analytics/pull/112) (`ai-agent.md`,
+`events.yaml`, `tools/langfuse_fetch.py`), dayuse.com
+[!15273](https://gitlab.com/dayuse/dayuse/dayuse-com/-/merge_requests/15273) (ticket #15883 ;
+`du_entry_source` + `market_country` depuis `useDomainConfig().countryCode`, sans test commité :
+`apps/frontend/web` n'a pas de lanceur de tests). Les actions 1 et 2 ci-dessous sont ces MR.
+
+**Actions**
+1. MR `dayuse-product-analytics` : `tracking/ai-agent.md` (frontmatter des nouveaux événements ;
+   attribution d'un `purchase` = même `amplitude_id`, clic `ai_agent__hotel_click` ou
+   `__booking_card_click` sur le même `hotel_id` dans les 7 jours ; les 4 KPI avant/après face à
+   agent-usa ; `pageview` partagé avec le site, filtrer `page_type = 'ai_agent'` ;
+   `agent_version` = release du widget, celle du concierge se lit dans la trace Langfuse ;
+   `chat_*` retirés à la date de bascule) + `tools/langfuse_fetch.py` (API REST Langfuse, clé
+   lecture seule, `trace_id` ou `conversation_id` → JSON dans le `data/` ignoré d'un bundle).
+2. MR dayuse.com : les 2 bannières ajoutent `du_entry_source=banner_home|banner_search|section_home`
+   et `market_country=<ISO2>` à l'URL de l'agent. Ticket séparé dans l'itération B2C.
+3. Vérifications à faire par un humain : la rétention des traces Langfuse (borne de la
+   réconciliation, à écrire dans `ai-agent.md`) ; un tour réel sur `ai.dayuse.{tld}` arrive dans
+   le projet Production et un tour sur la démo dans Staging/Dev ; Session Replay enregistre bien
+   (la config est servie par `/sr-config` du proxy, les réglages d'échantillonnage de l'UI
+   Amplitude sont sans effet par décision).
+
+**Terminé quand** les deux MR sont mergées et qu'un tour réel de chaque environnement est visible
+dans son projet Amplitude avec ses `turn_facts`.
+
+---
+
+## MOB1 — Le widget dans l'app mobile (`window.__DAYUSE_NATIVE__`) : plan de test (ouvert le 2026-10-26)
+
+**Taille : M** · phase A sans appareil ; phase B demande un build mobile ; phase C = Fabien sur la vraie app
+
+**Contexte.** L'app mobile (dayuse-com, `apps/frontend/mobile/src/screens/aiAssistant/`) ouvre
+`https://ai.dayuse.com/?source=mobile_app&locale=<lang>&currency=<cur>` dans une WebView. Elle injecte
+`window.__DAYUSE_NATIVE__ = {amp_device_id, amp_session_id, favoriteHotelIds, geolocation{lat,lon},
+lastBookings[≤3]{hotelName, hotelCity, price, timeslot}}` **avant** les scripts de la page
+(`aiAssistantBridge.ts::buildContextScript`), puis `NAVIGATION_BRIDGE_SCRIPT` après chargement : il
+détourne `window.open` et les `<a target="_blank">` vers `ReactNativeWebView.postMessage({type:
+'navigate', url})`, que l'app route par `resolveDayuseUrl`. Depuis la bascule d'ai.dayuse.com, c'est
+le widget AgentB2C qui est chargé : `utils.js::getNativeContext` lit le global, `state.js` /
+`index.js` passent en mode `mobile_app` (chat ouvert d'emblée), `tracking.js` relie l'identité
+Amplitude, et `send.js` envoie le bloc en `native_context` dans le corps `/v3`. Le concierge le
+traite en **bloc opaque** (`facade.py`, commentaire « native context intake » : le schéma n'était
+pas connu en juillet) — il l'est désormais, dans `aiAssistantBridge.ts`.
+
+**Preuve (encore ouvert).** Rien n'a été vérifié dans une WebView ni contre le script de pont réel
+(AM1 action 3 : « faire confirmer par l'équipe mobile que `__DAYUSE_NATIVE__` est injecté au début du
+document ») ; `facade.py` dit « Open item for whenever the mobile schema is specified ».
+
+**Actions**
+- **Phase A — simulation fidèle dans Chrome headless (CDP), sur la démo** (`https://widget-production-3f56.up.railway.app`,
+  clé Amplitude de dev ; recette CDP : mémoire `reference-widget-browser-verification-cdp`). Lire
+  `aiAssistantBridge.ts` et `AIAssistantScreen.tsx` sur la **branche par défaut** de dayuse-com (le
+  clone local peut être sur une autre branche : `git fetch` puis `git show origin/<défaut>:<chemin>`).
+  Viewport + user-agent iPhone, `window.ReactNativeWebView.postMessage` bouchonné pour capturer.
+  1. **Ouverture** : contexte injecté par `Page.addScriptToEvaluateOnNewDocument` (= `injectedJavaScriptBeforeContentLoaded`),
+     URL de l'app. Attendu : chat ouvert sans le hero, langue/devise de l'URL, `entry_source` /
+     `tracking_surface` = `mobile_app`. Refaire avec une injection **tardive** (après chargement) :
+     le widget se dit robuste à ce cas (`index.js`, `tracking.js`).
+  2. **Identité Amplitude** : `amplitude.track` et `navigator.sendBeacon` bouchonnés ; `device_id` /
+     `session_id` = ceux injectés.
+  3. **Pont de navigation** : injecter `NAVIGATION_BRIDGE_SCRIPT` **tel quel** (copié du fichier), faire
+     un tour de recherche, puis cliquer chaque sortie : lien de carte (`card.js` `target=_blank`),
+     bouton `window.open` (`card.js`, `messages.js`), CTA de la carte de réservation, « Voir tout »
+     (`carousel.js`). Attendu : **un** `{type:'navigate'}` par clic, et chaque URL acceptée par
+     `resolveDayuseUrl` (exécuter sa logique ou ses tests `resolveDayuseUrl.test.ts` sur ces URLs).
+  4. **`native_context` côté serveur** : le capturer dans le corps `/v3` (Network), vérifier que le tour
+     réussit, et **RGPD** : `lastBookings` (noms d'hôtels, prix) et `geolocation` ne doivent apparaître
+     ni dans les logs, ni dans `turn_facts`, ni dans la trace Langfuse du tour (lire la trace par l'API).
+  5. **Parité avec agent-usa** : ce qu'agent-usa faisait de `native_context` (grep ciblé dans
+     `../agent-usa/src`, jamais tout le repo). S'il exploitait géoloc, favoris ou réservations, c'est
+     une régression de la bascule à lister.
+  Tours synthétiques (`x-dayuse-synthetic: 1` par wrapper `fetch`, pas `?du_synthetic=1` qui coupe
+  Session Replay), 3 à 4 tours au total.
+- **Phase B — vraie WebView (option)** : simulateur iOS avec un build de dev de l'app dont
+  `AI_ASSISTANT_BASE_URL` pointe sur la démo (modification locale, jamais commitée). Rejoue 1 et 3.
+- **Phase C — après la bascule DNS, Fabien** : ouvrir l'assistant dans l'app de prod, connecté
+  (réservations) puis déconnecté ; un tour, un clic sur un hôtel, retour à la conversation.
+
+**Prompt**
+```
+Lis CLAUDE.md, puis CHANTIERS.md § MOB1 en entier : c'est ton plan. Exécute la phase A
+(cas 1 à 5) dans l'ordre, sans modifier de code. Pour chaque cas : attendu, observé, preuve
+(sortie, capture ou extrait de trace). Tours synthétiques uniquement, 4 au plus.
+À la fin : tableau des cas OK/KO, liste des écarts (régressions vs agent-usa, fuites RGPD,
+URLs refusées par resolveDayuseUrl), et pour chaque écart une proposition de correctif
+chiffrée — sans l'implémenter. Consigne le résultat en tête de HANDOFF.md sur une branche
+docs/mob1-<date> et ouvre la PR. Réponds en français.
+```
+
+**Terminé quand** les cas 1 à 5 sont prouvés dans la simulation, les écarts sont listés avec leur
+correctif proposé, et Fabien a validé la phase C dans l'app de prod.
 
 ---
 
@@ -663,11 +776,11 @@ en `min_version = 2` et casserait les vues « observations » sur notre v3).
 
 | # | Sujet | La question exacte à trancher |
 |---|---|---|
-| **P1** | Remontée QA n°1 | La divulgation S-CX6 (« ces offres sont pour demain, pas pour aujourd'hui ») est **volontaire** — le testeur l'a lue comme une contradiction. Quelle formulation ? Le mécanisme est dans `agents/b2c_concierge/b2c_concierge/ground_truth.py::_DATE_FALLBACK_NOTE`. Une fois tranché, un test la verrouille. |
+| **P1** | Remontée QA n°1 | La divulgation S-CX6 (« ces offres sont pour demain, pas pour aujourd'hui ») est **volontaire** — le testeur l'a lue comme une contradiction. Quelle formulation ? Le mécanisme est dans `agents/b2c_concierge/b2c_concierge/ground_truth.py::_DATE_FALLBACK_NOTE`. Une fois tranché, un test la verrouille. Depuis le 2026-10-20, la première recherche sans jour demande la date : la bascule vers demain n'arrive plus que si l'utilisateur choisit « aujourd'hui » (ou répond sans jour) après l'heure limite. |
 | **P2** | Remontée QA n°3 | Doit-on pouvoir sélectionner un hôtel et entrer dans le tunnel depuis l'agent ? Et que se passe-t-il si l'utilisateur veut payer en ligne ? **Aucun test possible avant l'arbitrage.** |
 | **P3** | Remontée QA n°6 | Les Booking Fees ne sont pas respectées à l'affichage. Prix venu de MCP_B2C + config back-office par hôtel → à router vers l'équipe inventaire, ce n'est pas un chantier agent. |
 | **P4** | `response_language` | Le triage ne lit que `language`, jamais `profile.language` (`agents/b2c_concierge/b2c_concierge/triage.py:199-216`). ⚠️ **Le symptôme aurait changé depuis UX2** : un « sí » isolé dans une conversation française répondrait maintenant **en espagnol** (avant : en anglais). **À re-tester avant de décider** — c'est une ligne, mais elle change un comportement de réponse. |
-| **P5** | Edge public du concierge | Supprimer le domaine (recommandé : personne ne le consomme) ou binder un socket dual-stack. La cause du 502 est identifiée (`IPV6_V6ONLY` forcé par asyncio) ; le `targetPort` n'était pas en cause. |
+| **P5** | Edge public du concierge | ✅ **Fait le 2026-10-26** : `concierge-production-aaa2.up.railway.app` supprimé avant la bascule d'ai.dayuse.com (compensation de la prolongation D7, voir A1) ; il répond désormais 404 « Application not found », le widget sert toujours les tours par le réseau privé. La cause du 502 était `IPV6_V6ONLY` forcé par asyncio. |
 | **P6** | Seuil de qualité sans CI | cf. **E5** ci-dessus. |
 
 ---
@@ -685,8 +798,16 @@ Le provider cible est un stub.
 **Preuve (vérifiée) :** `libs/b2c_common/b2c_common/auth.py:4-8` — « its oidc-mtls provider is a
 **NotImplementedError stub** ». Rappelé dans les 3 README de services et dans `CLAUDE.md:15`.
 
-⚠️ L'échéance est **événementielle, pas datée** : elle se déclenche au canary. Comme S11 n'a
-jamais eu lieu, elle n'a jamais mordu — mais elle mordra dès qu'on parlera de trafic réel.
+**Décision (Fabien, 2026-10-26) : exception prolongée jusqu'au 2027-01-31.** L'échéance d'origine
+était « avant le canary S11 » ; la bascule franche d'ai.dayuse.com amène du trafic réel sans
+canary, donc elle tombait. Bloquer la bascule jusqu'à oidc-mtls était irréaliste (taille L, autre
+repo, pas de date) ; prolonger sans date aurait fait de l'exception un trou permanent.
+Compensations :
+- **P5 avant la bascule** : le domaine public du concierge est supprimé, le widget reste la seule
+  surface publique du projet.
+- **Rotation des bearers, semaine du 2026-11-02.** Prérequis : `BearerAuthMiddleware`
+  (`libs/b2c_common/b2c_common/auth.py`) ne compare qu'**un** jeton ; sans un second jeton
+  accepté pendant la transition, la rotation ouvre une fenêtre de 401 (cf. 2026-08-24).
 
 ## A2 — S10 (shadow-run) et S11 (canary) n'ont jamais eu lieu
 

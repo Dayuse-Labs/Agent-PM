@@ -684,6 +684,39 @@ def no_question_response(language: str) -> str:
     return _pick(language, _NO_QUESTION)
 
 
+# QA 2026-10-20 (Fabien): a search that names no day asks for one instead of
+# running on today — once per session, before the first search. The chips
+# are words `requested_date.parse_requested_date` reads in every language
+# (today, +1, +2), so a click comes back as a dated reply with no new path.
+_DATE_QUESTION: dict[str, str] = {
+    "fr": "Pour quel jour souhaitez-vous réserver ?",
+    "en": "Which day would you like to book for?",
+    "es": "¿Para qué día quieres reservar?",
+    "it": "Per quale giorno vuoi prenotare?",
+    "de": "Für welchen Tag möchtest du buchen?",
+    "pt": "Para que dia pretende reservar?",
+    "nl": "Voor welke dag wil je boeken?",
+}
+
+_DATE_CHIPS: dict[str, tuple[str, str, str]] = {
+    "fr": ("Aujourd'hui", "Demain", "Après-demain"),
+    "en": ("Today", "Tomorrow", "The day after tomorrow"),
+    "es": ("Hoy", "Mañana", "Pasado mañana"),
+    "it": ("Oggi", "Domani", "Dopodomani"),
+    "de": ("Heute", "Morgen", "Übermorgen"),
+    "pt": ("Hoje", "Amanhã", "Depois de amanhã"),
+    "nl": ("Vandaag", "Morgen", "Overmorgen"),
+}
+
+
+def date_question(language: str) -> str:
+    return _pick(language, _DATE_QUESTION)
+
+
+def date_chips(language: str) -> list[str]:
+    return list(_DATE_CHIPS.get(language, _DATE_CHIPS["en"]))
+
+
 def clarification_response(clarification: Clarification, language: str, asked: int = 1) -> str:
     """The place question of the search leaf, in the conversation's language.
 
