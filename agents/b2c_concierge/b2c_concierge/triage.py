@@ -399,6 +399,10 @@ with exactly these keys:
                ("le premier", "ok pour la première", "je prends le 2",
                "the third one", "celui du milieu" -> no, that is not a
                position). Set "pick_position" to that 1-based number.
+               An ordinal stays a position INSIDE a longer sentence, whatever
+               verb or agreement word surrounds it ("je préfère la troisième",
+               "let's go with the second one", "zeig mir das zweite",
+               "quiero el segundo").
     none     = anything else — INCLUDING a request for something cheaper than
                what was shown ("moins cher", "un hôtel moins cher", "cheaper",
                "c'est trop cher", "quelque chose de moins cher"). That asks for
@@ -414,8 +418,11 @@ with exactly these keys:
   position 28.
 - "affirmative": true when the message is ONLY an agreement token and carries no
   request of its own — "ok", "oui", "d'accord", "sure", "yes", "sí", "sì", "ja",
-  "sim", "va bene", "einverstanden". False as soon as it says anything else
-  ("ok pour demain" carries a date, "oui le premier" carries a choice).
+  "sim", "va bene", "einverstanden". Colloquial agreement counts in ALL the
+  languages above, also when it adds only a go-ahead ("top", "geht klar",
+  "perfecto, adelante", "perfetto, procedi", "fine, go for it", "prima, doe
+  maar"). False as soon as it says anything else ("ok pour demain" carries a
+  date, "oui le premier" carries a choice).
 - "day_stated": true when the message says which day: a date, a weekday or a
   relative day ("le 3", "vendredi", "demain", "today"), words that point at
   today ("maintenant", "right now", "ce soir", "cet après-midi", "this
@@ -473,12 +480,21 @@ with exactly these keys:
   NOT budgets (→ null): "moins cher"/"cheaper" alone, a duration, a distance,
   a fee or refund question, a request only to DISPLAY prices in a currency.
 - "price_comparison": {{"value":"lower" | "clear", "evidence":"verbatim current phrase"}}
-  when the user asks for cheaper alternatives than the offers displayed
-  ("moins cher", "plus économique", "cheaper") — then wants_more_options=false —
-  or explicitly drops that price preference ("peu importe le prix"). "Le moins
-  cher de ceux-là" picks a displayed offer: that is "pick", not "lower". Omit
-  for a neutral "other options", for a numeric budget, and when no offers were
-  displayed yet. Never put an amount here: code computes the reference.
+  ONLY when the CURRENT message itself talks about price; the evidence is those
+  price words. Omitting the key is the usual case.
+    lower = asks for cheaper alternatives than the offers displayed, with a
+            price comparative ("moins cher", "plus économique", "cheaper",
+            "más barato", "günstiger") — then wants_more_options=false.
+    clear = explicitly drops that price preference ("peu importe le prix",
+            "price doesn't matter").
+  Omit for a change of place, date, time, party or filter, a correction or a
+  hesitation — even right after a "cheaper" turn ("plutôt à Lyon", "et dimanche
+  ?", "un autre quartier", "wait, actually no"): none of them talks about price.
+  Omit for a price wish that compares with nothing ("un hôtel abordable",
+  "nothing too pricey"), for a neutral "other options", for a numeric budget,
+  and when no offers were displayed yet. "Le moins cher de ceux-là" picks a
+  displayed offer: that is "pick", not "lower". Never put an amount here: code
+  computes the reference.
 - "requested_occupancy": ONLY a CURRENT change to the user's party:
   {{"adults": integer or null, "children": integer or null, "total": integer or null,
   "evidence": "exact current party-size statement"}}. Omit unchanged counts.
