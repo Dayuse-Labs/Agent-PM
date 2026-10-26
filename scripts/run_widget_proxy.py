@@ -51,9 +51,14 @@ import importlib.util
 import mimetypes
 import os
 import re
+import json
 import socket
 import sys
+import threading
+import time
+from collections import deque
 import urllib.error
+import urllib.parse
 import urllib.request
 from dataclasses import replace
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
@@ -211,9 +216,183 @@ SESSION_REPLAY_CONFIG = (
 )
 
 
+# --- public-edge protection -------------------------------------------------------------
+# This proxy is the ONLY public service and injects the facade key itself, so
+# anything that reaches it reaches the LLMs. agent-usa had flask-limiter (20 chat
+# turns/min/IP), Talisman headers + CSP and a 500-char message cap; this is the
+# stdlib equivalent. Limits are per process (one replica on Railway today): with
+# several replicas, each counts on its own.
+
+# Only the routes the concierge facade serves (facade.py::register_v3_routes).
+_CHAT_ROUTES = frozenset({"/v3/chat", "/v3/chat/stream"})
+_OTHER_POST_ROUTES = frozenset({"/v3/chat/session/reset", "/v3/feedback"})
+_CSP_REPORT_PATH = "/csp-report"
+
+
+def _env_int(name: str, default: int) -> int:
+    try:
+        return int(os.environ.get(name, "").strip() or default)
+    except ValueError:
+        return default
+
+
+class SlidingWindowLimiter:
+    """Per-key request timestamps over fixed windows; thread-safe (the server is
+    a ThreadingHTTPServer). `hit` records the request only when it is allowed."""
+
+    def __init__(self) -> None:
+        self._hits: dict[str, deque[float]] = {}
+        self._lock = threading.Lock()
+        self._last_sweep = 0.0
+
+    def hit(self, key: str, limits: list[tuple[int, float]], now: float | None = None) -> float:
+        """0 when allowed, else the seconds to wait. `limits` = [(max, window_s)];
+        a max ≤ 0 disables that window."""
+        now = time.monotonic() if now is None else now
+        active = [(n, w) for n, w in limits if n > 0]
+        if not active:
+            return 0.0
+        horizon = max(w for _, w in active)
+        with self._lock:
+            self._sweep(now, horizon)
+            stamps = self._hits.setdefault(key, deque())
+            while stamps and now - stamps[0] >= horizon:
+                stamps.popleft()
+            wait = 0.0
+            for max_hits, window in active:
+                recent = [t for t in stamps if now - t < window]
+                if len(recent) >= max_hits:
+                    wait = max(wait, window - (now - recent[-max_hits]))
+            if wait > 0:
+                return wait
+            stamps.append(now)
+            return 0.0
+
+    def _sweep(self, now: float, horizon: float) -> None:
+        if now - self._last_sweep < 60:
+            return
+        self._last_sweep = now
+        for key in [k for k, v in self._hits.items() if not v or now - v[-1] >= horizon]:
+            del self._hits[key]
+
+
+_LIMITER = SlidingWindowLimiter()
+
+
+def _limits_for(path: str) -> tuple[str, list[tuple[int, float]]]:
+    if path in _CHAT_ROUTES:
+        return "chat", [
+            (_env_int("WIDGET_CHAT_PER_MINUTE", 20), 60.0),
+            (_env_int("WIDGET_CHAT_PER_HOUR", 200), 3600.0),
+        ]
+    return "other", [(_env_int("WIDGET_OTHER_PER_MINUTE", 30), 60.0)]
+
+
+def client_ip(headers, peer: str) -> str:  # noqa: ANN001 (HTTPMessage)
+    """The visitor's IP behind Railway's edge. `WIDGET_CLIENT_IP_HEADER`
+    (default X-Real-IP, set by the edge) wins; else the RIGHTMOST X-Forwarded-For
+    entry — the one the edge appended, the leftmost ones are client-supplied and
+    forgeable; else the socket peer."""
+    header = os.environ.get("WIDGET_CLIENT_IP_HEADER", "X-Real-IP")
+    value = (headers.get(header) or "").strip()
+    if value:
+        return value
+    forwarded = [part.strip() for part in (headers.get("X-Forwarded-For") or "").split(",")]
+    forwarded = [part for part in forwarded if part]
+    return forwarded[-1] if forwarded else peer
+
+
+def cross_site_refusal(headers) -> str | None:  # noqa: ANN001
+    """Why a browser POST must be refused as cross-site, or None. A page on
+    another site can make a visitor's browser call /v3 (the proxy adds the key);
+    browsers always send Origin on a cross-origin POST, so it must name this
+    host (or WIDGET_ALLOWED_ORIGINS). No Origin = not a browser request: allowed,
+    the rate limit covers it."""
+    if (headers.get("Sec-Fetch-Site") or "").strip().lower() == "cross-site":
+        return "sec-fetch-site cross-site"
+    origin = (headers.get("Origin") or "").strip()
+    if not origin:
+        return None
+    host = urllib.parse.urlsplit(origin).netloc.lower()
+    own = {
+        (headers.get(name) or "").split(",")[0].strip().lower()
+        for name in ("X-Forwarded-Host", "Host")
+    }
+    allowed = {
+        urllib.parse.urlsplit(o.strip()).netloc.lower() or o.strip().lower()
+        for o in os.environ.get("WIDGET_ALLOWED_ORIGINS", "").split(",")
+        if o.strip()
+    }
+    if host and host in (own | allowed) - {""}:
+        return None
+    return f"origin {origin[:100]}"
+
+
+def message_too_long(body: bytes | None) -> bool:
+    """agent-usa's MAX_MESSAGE_LENGTH (500): the input caps at 400, so only a
+    scripted client goes over. An unparsable body is left to the facade."""
+    if not body:
+        return False
+    try:
+        message = json.loads(body).get("message")
+    except (ValueError, AttributeError):
+        return False
+    return isinstance(message, str) and len(message) > _env_int("WIDGET_MAX_MESSAGE_CHARS", 500)
+
+
+# Prod agent-usa's enforced policy (Talisman, non-strict), plus what this
+# widget loads: Amplitude Session Replay (worker + api-sr), hotel photos.
+_CSP = "; ".join([
+    "default-src 'self'",
+    "script-src 'self' 'unsafe-inline' https://cdn.jsdelivr.net https://cdn.amplitude.com",
+    "style-src 'self' 'unsafe-inline' https://fonts.googleapis.com",
+    "font-src 'self' https://fonts.gstatic.com",
+    "img-src 'self' data: https://dayuse.twic.pics https://images.dayuse.com "
+    "https://static.dayuse.com https://*.dayuse.com",
+    "connect-src 'self' https://alitude.dayuse.com https://sr-client-cfg.eu.amplitude.com "
+    "https://api-sr.eu.amplitude.com https://*.dayuse.com",
+    "worker-src 'self' blob:",
+    "base-uri 'self'",
+    "frame-ancestors 'none'",
+    "object-src 'none'",
+    "form-action 'self'",
+])
+
+
+def security_headers() -> list[tuple[str, str]]:
+    """Sent on every response. The CSP starts REPORT-ONLY (`WIDGET_CSP_MODE`:
+    report-only | enforce | off): this widget loads more than agent-usa's did
+    (Session Replay), so watch the `csp-report` log lines before enforcing."""
+    headers = [
+        ("X-Content-Type-Options", "nosniff"),
+        ("Referrer-Policy", "strict-origin-when-cross-origin"),
+        ("X-Frame-Options", "DENY"),
+        ("Strict-Transport-Security", "max-age=31536000"),
+        ("Permissions-Policy", "camera=(), microphone=(), payment=()"),
+    ]
+    mode = os.environ.get("WIDGET_CSP_MODE", "report-only").strip().lower()
+    if mode == "enforce":
+        headers.append(("Content-Security-Policy", _CSP))
+    elif mode != "off":
+        headers.append(
+            ("Content-Security-Policy-Report-Only", f"{_CSP}; report-uri {_CSP_REPORT_PATH}")
+        )
+    return headers
+
+
 class WidgetProxyHandler(BaseHTTPRequestHandler):
     agent_usa_dir: Path
     backend: str
+    # No version banner; and a socket timeout so a client that opens a
+    # connection and never finishes its request cannot hold a thread forever.
+    server_version = "widget"
+    sys_version = ""
+    timeout = 30
+
+    def end_headers(self) -> None:
+        for name, value in security_headers():
+            self.send_header(name, value)
+        super().end_headers()
 
     # --- routing -------------------------------------------------------------------------
     def do_GET(self) -> None:  # noqa: N802 (stdlib method name)
@@ -226,17 +405,59 @@ class WidgetProxyHandler(BaseHTTPRequestHandler):
             self._respond_session_replay_config()
         elif path.startswith("/static/"):
             self._serve_static(path)
-        elif path.startswith("/v3/"):
-            self._proxy("GET")
         else:
             self.send_error(404)
 
     def do_POST(self) -> None:  # noqa: N802
         path = self.path.split("?", 1)[0]
-        if path.startswith("/v3/"):
-            self._proxy("POST")
-        else:
+        if path == _CSP_REPORT_PATH:
+            self._csp_report()
+            return
+        if path not in _CHAT_ROUTES and path not in _OTHER_POST_ROUTES:
             self.send_error(404)
+            return
+        refusal = cross_site_refusal(self.headers)
+        if refusal:
+            print(f"widget-proxy: refused cross-site POST {path} ({refusal})")
+            self._json_error(403, "forbidden")
+            return
+        ip = client_ip(self.headers, self.client_address[0] if self.client_address else "-")
+        bucket, limits = _limits_for(path)
+        wait = _LIMITER.hit(f"{bucket}:{ip}", limits)
+        if wait > 0:
+            print(f"widget-proxy: rate_limit_hit path={path} ip={ip}")
+            self._json_error(429, "rate_limited", retry_after=max(1, int(wait + 0.999)))
+            return
+        length = int(self.headers.get("Content-Length") or 0)
+        if length > _env_int("WIDGET_MAX_BODY_BYTES", 16384):
+            self._json_error(413, "payload_too_large")
+            return
+        body = self.rfile.read(length) if length else None
+        if path in _CHAT_ROUTES and message_too_long(body):
+            self._json_error(413, "message_too_long")
+            return
+        self._proxy("POST", body=body)
+
+    def _json_error(self, status: int, error: str, retry_after: int | None = None) -> None:
+        payload = json.dumps({"error": error}).encode("utf-8")
+        self.send_response(status)
+        self.send_header("Content-Type", "application/json")
+        self.send_header("Content-Length", str(len(payload)))
+        self.send_header("Cache-Control", "no-store")
+        if retry_after is not None:
+            self.send_header("Retry-After", str(retry_after))
+        self.end_headers()
+        self.wfile.write(payload)
+
+    def _csp_report(self) -> None:
+        """Log a CSP violation (report-only phase), rate-limited, then 204."""
+        ip = client_ip(self.headers, self.client_address[0] if self.client_address else "-")
+        length = min(int(self.headers.get("Content-Length") or 0), 4096)
+        body = self.rfile.read(length) if length else b""
+        if _LIMITER.hit(f"csp:{ip}", [(_env_int("WIDGET_CSP_REPORTS_PER_MINUTE", 30), 60.0)]) == 0:
+            print(f"widget-proxy: csp-report {body[:600].decode('utf-8', 'replace')}")
+        self.send_response(204)
+        self.end_headers()
 
     # --- static / index --------------------------------------------------------------------
     def _if_none_match_hits(self, etag: str) -> bool:
@@ -311,9 +532,10 @@ class WidgetProxyHandler(BaseHTTPRequestHandler):
         self._send_cacheable(target.read_bytes(), content_type)
 
     # --- reverse proxy (streams incrementally — SSE-safe) -----------------------------------
-    def _proxy(self, method: str) -> None:
-        length = int(self.headers.get("Content-Length") or 0)
-        body = self.rfile.read(length) if length else None
+    def _proxy(self, method: str, body: bytes | None = None) -> None:
+        if body is None:
+            length = int(self.headers.get("Content-Length") or 0)
+            body = self.rfile.read(length) if length else None
         url = f"{self.backend}{self.path}"
         req = urllib.request.Request(url, data=body, method=method)
         # The API-key header is PROXY-OWNED: always dropped from what the browser
