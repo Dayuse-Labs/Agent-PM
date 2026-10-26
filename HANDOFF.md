@@ -6,7 +6,46 @@
 
 > 📋 **Pour savoir QUOI faire ensuite, ouvrir [`CHANTIERS.md`](CHANTIERS.md)** (état vérifié au 2026-09-14) : la liste des chantiers ouverts, chacun avec sa preuve, ses actions et un prompt prêt à coller — plus la liste de ce qu'il ne faut **pas** relancer parce que c'est déjà livré. `tasks/todo.md` est périmé et ne doit plus servir de référence.
 
-## 🟡 2026-10-26 (quinquies) — Branche `fix/widget-dayuse-brand` : widget aux couleurs Dayuse + prix dans la devise et la locale du marché (PR ouverte, NON mergée, NON déployée)
+## 🚀 2026-10-26 (sexies) — `concierge` + `widget` déployés sur `54c6a09` (#155, #156, #157) ; triage luna mesuré, pas encore basculé
+
+**Déployé** (`DEPLOY.md`, par Claude à la demande de Fabien, depuis le worktree propre
+`../AgentB2C-deploy`, lié au projet Railway) :
+- Pré-vol : pytest **3 186 passés / 1 skippé**.
+- Estampilles lues avant : `concierge`, `hotel-search`, `faq` = `8d1579b`, `widget` = `0095a41`.
+- `concierge` et `widget` estampillés `54c6a09` avec `--skip-deploys`, puis `railway up --detach` ;
+  les deux en `SUCCESS` à 16:28:46Z (déploiements `7183fbbc` et `208aa175`).
+- **`hotel-search` et `faq` non redéployés** (restent sur `8d1579b`) : `serve.py` n'y change qu'un
+  commentaire, et `llm_params` (#157) ne change rien sur leur chemin (`reasoning_kwargs_for(slug)`
+  sans rôle = l'effort global, comme avant ; seule la branche `openrouter/` est réécrite).
+- Le triage reste sur `gpt-4o-mini` (variable inchangée). #157 ne lui envoie aucun paramètre (modèle
+  non raisonnant), mais coupe la relance SDK sur timeout.
+
+**Preuves sur le widget public** (tours synthétiques) :
+- `<meta name="agent-version">` = `54c6a09` ; `tokens.css` sert le jaune `#FFAF36`.
+- « Bonjour ! » rend ses `turn_facts`.
+- Visiteur US (`currency=USD`, `entry_market_country=US`), « a day room in New York tomorrow » :
+  5 cartes sur 5 en `USD` (`USD 85.00`…, `display_currency=USD`). C'est la règle de #155 ; l'ancien
+  concierge affichait `€`.
+- **Non tranché** : « le texte de la synthèse doit citer `$` ». Sur 2 tours, le texte ne cite aucun
+  prix (« about 72% off its usual night rate ») : ni `$` ni `€`.
+
+**Triage gpt-6-luna** (branche `feat/triage-gpt-6-luna`, M1 partie 2, pas encore de PR) :
+- 2 itérations du prompt, mesurées avec `scripts/measure_triage_models.py`.
+- Lignes brutes : `evals/reports/triage_ab_2026-10-26-iter{1,2}.jsonl`, gitignorées.
+- Itération 2, côté luna : `price_comparison` 1 désaccord (7 au départ) ; plus aucun `lower` au
+  premier message ; « ok pour la deuxième » 2 tirages sur 3 ; « passt, mach das » et « 150 » justes ;
+  0 erreur, 0 `length`.
+- Côté mini, avec le prompt compact : mini omet les clés à leur valeur par défaut, et `null` renvoie
+  `affirmative` / `booking_confirmation` / `wants_more_options` aux regex fr/en. Sans effet si la
+  bascule est atomique (variable + code ensemble, retour arrière des deux).
+- « celui de St Pauls » : `hotel_name` passe à `null` sur luna, mais la ligne de fixture est
+  reconstruite sans la question d'origine. À juger au rejeu live : y ajouter le jeu `geo-class`.
+
+**Outillage** : `../AgentB2C-deploy` (worktree détaché, lié à Railway) sert aux prochains
+déploiements : `git -C ../AgentB2C-deploy checkout --detach origin/main` avant chaque usage, et ne
+jamais y éditer.
+
+## 🟡 2026-10-26 (quinquies) — Branche `fix/widget-dayuse-brand` : widget aux couleurs Dayuse + prix dans la devise et la locale du marché (#155, mergée et déployée sur `54c6a09` : bloc sexies)
 
 **Widget** (retours PO) : boutons d'action en jaune Dayuse (rôle `--action-primary-*` de `tokens.css` : dégradé 62° `#FFAF36` → `#FFC536`, survol `#FF9F26` → `#FFB526`, texte `#292935`, comme le bouton primaire de dayuse.com) ; `.pick-cta` passe du sombre au jaune ; badge « -X% » en Shadow Black (`--bg-invert`) au lieu du rouge pastèque ; prix formatés par `Intl.NumberFormat` dans la locale langue-pays du marché (`web/vendor/static/js/chat/price_format.js`) sur la carte, la carte simplifiée et la booking card (fr « 165,10 € », en-US « $187.00 », en-GB « £120.00 »). `mapV3Hotels` transmet désormais `price_eur_cents` / `display_currency` / `display_price_minor`.
 
@@ -14,7 +53,9 @@
 
 **Preuve** : pytest 3 159 passés / 2 skippés, 94 tests JS, ruff, mypy, guardrails verts ; contre-épreuves rouges (tests du widget contre `main`, tests concierge sans le correctif). Captures avant/après 1440 et 390 px sur widget local + backend simulé (pas de tour réel).
 
-**Reste** : go de Fabien sur la règle de devise ; déployer `concierge` ET `widget` (`DEPLOY.md`) ; capture sur le widget public ; vérifier en réel la synthèse d'un tour US (le texte doit citer `$`).
+**Reste** : capture sur le widget public. Le go (merge) et le déploiement sont faits, les cartes US
+sont en `USD` (bloc sexies). « La synthèse cite `$` » n'est pas tranché : sur 2 tours, le texte ne
+cite aucun prix.
 
 ## ⏸️ 2026-10-26 (quater) — `widget` sur `0095a41` (sondes de santé, #152) ; bascule DNS reportée (latence Railway)
 
