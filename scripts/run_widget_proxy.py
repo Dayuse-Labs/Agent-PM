@@ -12,11 +12,13 @@ api-sr.eu.amplitude.com.
 
 chat_clean.html has exactly 10 Jinja `{{ var | default('...') }}` meta tags
 (no loops/conditionals) — substituted here with a tiny regex, no Jinja2
-dependency needed. Only `chat_endpoint` (kept at '/v3/chat', same-origin
+dependency needed. Overridden: `chat_endpoint` (kept at '/v3/chat', same-origin
 relative — the facade's own auth is CHAT_API_KEY-based and injected by this
 proxy, never by the page, so agent-usa's public-token/cookie dance is
-irrelevant here), `chat_transport` and `agent_version` (see `_meta_overrides`)
-are overridden.
+irrelevant here), `chat_transport` and `agent_version` (see `_meta_overrides`),
+and the 4 market metas, resolved per request from the banner URL's
+`?locale` / `?currency` / `?market_country` and the Referer, as agent-usa does
+(see `resolve_page_market`; resolver vendored at web/market_context.py).
 
 The widget assets are VENDORED into this repo at `web/vendor/` (templates/ +
 static/ mirror agent-usa's layout) so the proxy is self-contained — no sibling
@@ -45,14 +47,19 @@ from __future__ import annotations
 import argparse
 import hashlib
 import html
+import importlib.util
 import mimetypes
 import os
 import re
 import socket
+import sys
 import urllib.error
 import urllib.request
+from dataclasses import replace
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
+from types import ModuleType
+from urllib.parse import parse_qs
 
 # Vendored widget lives at <repo>/web/vendor (this file is <repo>/scripts/…).
 _VENDORED_WIDGET_DIR = Path(__file__).resolve().parent.parent / "web" / "vendor"
@@ -65,6 +72,82 @@ elif (_VENDORED_WIDGET_DIR / "templates" / "chat_clean.html").is_file():
     DEFAULT_AGENT_USA_DIR = _VENDORED_WIDGET_DIR
 else:
     DEFAULT_AGENT_USA_DIR = Path.home() / "Projects" / "agent-usa"
+
+
+def _load_market_context() -> ModuleType:
+    """agent-usa's market resolver, vendored verbatim at web/market_context.py
+    (stdlib only). Loaded by path: the widget image has no package layout. It is
+    registered in sys.modules before exec because its dataclass resolves string
+    annotations through its own module."""
+    path = Path(__file__).resolve().parent.parent / "web" / "market_context.py"
+    spec = importlib.util.spec_from_file_location("widget_market_context", path)
+    if spec is None or spec.loader is None:
+        raise SystemExit(f"widget-proxy: cannot load {path}")
+    module = importlib.util.module_from_spec(spec)
+    sys.modules[spec.name] = module
+    spec.loader.exec_module(module)
+    return module
+
+
+market_context = _load_market_context()
+
+# Languages the widget has copy for (web/vendor/static/js/chat/i18n.js
+# SUPPORTED_LANGUAGES). Another locale (zh, ko, tr…) still sets the country and
+# currency, but the language meta is left empty so the widget falls back to the
+# browser's language instead of an untranslated hero.
+_WIDGET_LANGUAGES = frozenset({"en", "fr", "es", "it", "pt", "de", "nl"})
+_ISO2_RE = re.compile(r"[A-Z]{2}")
+
+
+def _first_param(params: dict[str, list[str]], name: str) -> str:
+    """First value of a query param; dayuse-com writes the literal 'null' when it
+    has no value (lib/ai-agent-url.ts), which counts as absent."""
+    value = (params.get(name) or [""])[0].strip()
+    return "" if value.lower() in {"null", "undefined"} else value
+
+
+def resolve_page_market(query: str, referer: str | None):  # noqa: ANN201 (vendored type)
+    """The visitor's market, resolved when the page is rendered — as agent-usa's
+    `/` route does in prod (src/api/routes/frontend.py): `?locale` / `?currency`
+    from the dayuse-com banner URL win, then the Referer's Dayuse domain, then
+    dayuse.com / US / USD / en. On top, dayuse-com's `?market_country` (MR
+    !15273, its domain config's country) pins the country when it is a known
+    market; an explicit `?currency` still wins over that market's currency."""
+    params = parse_qs(query or "", keep_blank_values=False)
+    ctx = market_context.resolve_market_context(
+        referer=referer,
+        locale=_first_param(params, "locale") or None,
+        currency=_first_param(params, "currency") or None,
+    )
+    declared = _first_param(params, "market_country").upper()
+    country_ctx = market_context._COUNTRY_MARKET_TABLE.get(declared) if _ISO2_RE.fullmatch(declared) else None
+    if country_ctx is not None and country_ctx.country_code != ctx.country_code:
+        explicit_currency = "url_currency" in ctx.source.split("+")
+        ctx = replace(
+            ctx,
+            country_code=country_ctx.country_code,
+            display_name=country_ctx.display_name,
+            domain=country_ctx.domain,
+            currency=ctx.currency if explicit_currency else country_ctx.currency,
+            source=f"{ctx.source}+url_market_country",
+        )
+    return ctx
+
+
+def _market_meta(query: str, referer: str | None) -> dict[str, str]:
+    """The 4 market metas of chat_clean.html. `market_browse_url` is left to the
+    template default (empty): the widget then takes the browse link from
+    markets.generated.js, the drift-guarded table (UX6) — agent-usa's own
+    browse slugs are the ones that table was built to replace."""
+    ctx = resolve_page_market(query, referer)
+    language = ctx.language if ctx.language in _WIDGET_LANGUAGES else ""
+    return {
+        "market_language": html.escape(language, quote=True),
+        "market_currency": html.escape(ctx.currency, quote=True),
+        "market_country": html.escape(ctx.country_code, quote=True),
+        "market_domain": html.escape(ctx.domain, quote=True),
+    }
+
 
 _JINJA_VAR_RE = re.compile(r"\{\{\s*(\w+)\s*(?:\|\s*default\(\s*'([^']*)'\s*\)\s*)?\}\}")
 
@@ -109,9 +192,11 @@ def _chat_api_key_header() -> str:
     return os.environ.get("CHAT_API_KEY_HEADER", _CHAT_API_KEY_HEADER_DEFAULT)
 
 
-def render_index(agent_usa_dir: Path) -> bytes:
+def render_index(agent_usa_dir: Path, query: str = "", referer: str | None = None) -> bytes:
+    """`query` / `referer` are the page request's: they carry the visitor's
+    market (see `resolve_page_market`)."""
     html = (agent_usa_dir / "templates" / "chat_clean.html").read_text(encoding="utf-8")
-    overrides = _meta_overrides()
+    overrides = {**_market_meta(query, referer), **_meta_overrides()}
 
     def repl(match: "re.Match[str]") -> str:
         name, default = match.group(1), match.group(2) or ""
@@ -132,9 +217,11 @@ class WidgetProxyHandler(BaseHTTPRequestHandler):
 
     # --- routing -------------------------------------------------------------------------
     def do_GET(self) -> None:  # noqa: N802 (stdlib method name)
-        path = self.path.split("?", 1)[0]
+        path, _, query = self.path.partition("?")
         if path == "/":
-            self._respond_html(render_index(self.agent_usa_dir))
+            self._respond_html(
+                render_index(self.agent_usa_dir, query, self.headers.get("Referer"))
+            )
         elif path == "/sr-config":
             self._respond_session_replay_config()
         elif path.startswith("/static/"):

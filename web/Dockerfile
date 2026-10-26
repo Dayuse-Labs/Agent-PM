@@ -13,6 +13,8 @@ WORKDIR /app
 # widget dir (it computes <script>/../web/vendor); flags below make it explicit anyway.
 COPY web/vendor /app/web/vendor
 COPY scripts/run_widget_proxy.py /app/scripts/run_widget_proxy.py
+# Market resolver vendored from agent-usa (stdlib only), loaded by path by the proxy.
+COPY web/market_context.py /app/web/market_context.py
 
 # Railway injects PORT. HOST=:: → dual-stack bind (fleet precedent, IPv6 private net).
 # WIDGET_BACKEND points at the concierge's PRIVATE address (overridable by a Railway var).
