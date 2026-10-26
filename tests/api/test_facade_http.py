@@ -97,7 +97,9 @@ def test_session_reset_clears_cookie_and_starts_fresh(client):
     assert reset.status_code == 204
     assert "Max-Age=0" in reset.headers.get("set-cookie", "")
 
-    second = client.post("/v3/chat", json={"message": "hello again"})
+    # A greeting the ack regex answers without the LLM ("hello again" is not):
+    # this test is about the session cookie and must stay offline.
+    second = client.post("/v3/chat", json={"message": "Hello!"})
     assert second.json()["session_id"] != first_sid
 
 

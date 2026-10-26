@@ -39,7 +39,8 @@ _BEARER_TOKEN = require_bearer_token()
 
 # to_a2a auto-builds a card with no securitySchemes and capabilities.streaming unset; build it
 # ourselves (cs_copilot precedent) to advertise streaming AND the D7 interim bearer scheme so
-# callers discover how to authenticate. build() is async + offline (no remote sub-agents), run once.
+# callers discover how to authenticate. build() lists the agent's tools, so it opens one MCP_B2C
+# session at import (tests stub McpToolset.get_tools); run once.
 _agent_card = asyncio.run(
     AgentCardBuilder(
         agent=root_agent,

@@ -1,13 +1,15 @@
 """D7 interim-bearer tests over the real ASGI app (starlette TestClient, offline).
 
 serve.py reads A2A_BEARER_TOKEN at import, so each test imports it fresh with a
-controlled environment. No network: the agent card is built locally and the MCP
-connection attempt during card build fails instantly and gracefully.
+controlled environment. No network: the card build at import lists the agent's
+tools, which opens a real MCP_B2C session (counted by its rate limit, a timeout
+when unreachable) — the `serve` fixture stubs McpToolset.get_tools.
 """
 import importlib
 import sys
 
 import pytest
+from google.adk.tools.mcp_tool import McpToolset
 from starlette.testclient import TestClient
 
 TOKEN = "test-token-s2-faq"
@@ -20,9 +22,14 @@ def _import_serve_fresh():
     return importlib.import_module(SERVE_MODULE)
 
 
+async def _no_tools(self, readonly_context=None):
+    return []
+
+
 @pytest.fixture
 def serve(monkeypatch):
     monkeypatch.setenv("A2A_BEARER_TOKEN", TOKEN)
+    monkeypatch.setattr(McpToolset, "get_tools", _no_tools)
     module = _import_serve_fresh()
     yield module
     sys.modules.pop(SERVE_MODULE, None)
