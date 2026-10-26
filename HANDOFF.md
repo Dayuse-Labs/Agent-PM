@@ -6,6 +6,21 @@
 
 > 📋 **Pour savoir QUOI faire ensuite, ouvrir [`CHANTIERS.md`](CHANTIERS.md)** (état vérifié au 2026-09-14) : la liste des chantiers ouverts, chacun avec sa preuve, ses actions et un prompt prêt à coller — plus la liste de ce qu'il ne faut **pas** relancer parce que c'est déjà livré. `tasks/todo.md` est périmé et ne doit plus servir de référence.
 
+## 🔀 2026-10-26 — Préparer la bascule franche d'ai.dayuse.com (branches `feat/widget-market-at-render` puis `feat/widget-protection`, empilées)
+
+**Décision (Fabien, 2026-10-26)** : bascule franche d'agent-usa vers AgentB2C sur `ai.dayuse.com` (Railway + Route 53) ; MCP de prod branché par Fabien ; Langfuse remplace `conversation_logs`.
+
+**Contrat d'entrée lu dans dayuse-com** : `AiConciergeSection` (home, Kameleoon `ai_agent_section_home`) et `AiAgentBanner` (home, recherche) ouvrent un nouvel onglet sur `https://ai.dayuse.com/?amp_device_id&amp_session_id&dayuse_session_id&locale&currency&q` — un seul hôte pour tous les TLD. !15273 (ouverte) ajoute `du_entry_source` + `market_country`.
+
+**Fait** :
+- `f053bb7` : la page est rendue dans le marché du visiteur. Résolveur d'agent-usa copié tel quel dans `web/market_context.py` (stdlib, test de synchro si `../agent-usa` est présent) ; `?market_country` épingle le pays par-dessus ; lien « Voir tout » laissé à `markets.generated.js`. Avant : en/USD/US pour tout le monde.
+- `ee36fa2` : protection de l'edge public (détail et variables dans `DEPLOY.md` § Protection) : 20 tours/min et 200/h par IP, origine croisée refusée, 4 routes du concierge seulement, message ≤ 500 car., en-têtes de sécurité, CSP en report-only (`/csp-report` journalisé).
+- Tests : `test_widget_proxy_market.py` (19), `test_widget_proxy_protection.py` (29), contre-épreuves rouges. pytest 3 130 passés / 1 skippé, ruff, mypy, 78 tests JS. Sonde locale du proxy : page FR/EUR/FR depuis le Referer dayuse.fr, 403 cross-site, 413, 429 au 21e tour, GET /v3 en 404.
+
+**Reste avant bascule** : poser `WIDGET_ALLOWED_ORIGINS` puis déployer `widget` ; vérifier sur Railway que `X-Real-IP` porte l'IP du visiteur et que `Host`/`X-Forwarded-Host` vaut `ai.dayuse.com` ; lire les `csp-report` quelques jours puis `WIDGET_CSP_MODE=enforce` ; P5 (supprimer le domaine public du concierge) ; arrêter le service cron `/sync-availability` d'agent-usa quand agent-usa s'éteint (il ne sert qu'au cache d'agent-usa) ; rétention Langfuse (pas d'entitlement `data-retention` en OSS : purge à organiser).
+
+**Écarté volontairement** : `dayuse_session_id` n'est pas repris (décision AM1 : liens sortants = `amp_*` seulement, ce que lit ab-tests ; dayuse-com ne lit aucun `du_dayuse_session_id` entrant).
+
 ## 📅 2026-10-20 — La première recherche sans jour demande la date (branche `feat/ask-search-date`)
 
 **Décision (Fabien, 2026-10-20)** : renverse « A date is NOT required » (2026-07-28). Retour QA, trace `d327c03d` : « Rooftop pool in Los Angeles » cherché aujourd'hui sans rien demander.

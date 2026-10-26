@@ -21,6 +21,27 @@ Le navigateur ne parle qu'au `widget`, qui relaie `/v3/*` vers `concierge.railwa
 en injectant `CHAT_API_KEY` côté serveur. Les secrets vivent en variables de service Railway,
 jamais dans l'image (`.env` est exclu par `.railwayignore`).
 
+### Protection du `widget` (seul service public)
+
+Le proxy limite et filtre avant de relayer (`scripts/run_widget_proxy.py`, tests
+`tests/test_widget_proxy_protection.py`). Réglages par variables de service, valeurs par défaut
+reprises d'agent-usa :
+
+| Variable | Défaut | Effet |
+|---|---|---|
+| `WIDGET_CHAT_PER_MINUTE` / `WIDGET_CHAT_PER_HOUR` | 20 / 200 | tours `/v3/chat` + `/v3/chat/stream` par IP (0 = coupé) |
+| `WIDGET_OTHER_PER_MINUTE` | 30 | reset de session et feedback, par IP |
+| `WIDGET_MAX_MESSAGE_CHARS` / `WIDGET_MAX_BODY_BYTES` | 500 / 16384 | au-delà : 413, rien ne part au concierge |
+| `WIDGET_ALLOWED_ORIGINS` | vide | origines admises en plus du `Host` / `X-Forwarded-Host` de la requête, séparées par des virgules |
+| `WIDGET_CLIENT_IP_HEADER` | `X-Real-IP` | en-tête posé par l'edge ; sinon l'entrée la plus à droite de `X-Forwarded-For` |
+| `WIDGET_CSP_MODE` | `report-only` | `enforce` une fois les lignes `csp-report` des logs lues ; `off` pour couper |
+
+À poser avant la bascule : `WIDGET_ALLOWED_ORIGINS=https://ai.dayuse.com,https://widget-production-3f56.up.railway.app`
+(filet si l'edge ne transmet pas `Host` tel quel). Après déploiement, vérifier dans les logs
+qu'un tour réel n'écrit ni `refused cross-site POST` ni une IP d'edge à la place de celle du
+visiteur dans `rate_limit_hit`. Les compteurs sont par processus : avec plusieurs réplicas,
+chacun compte de son côté.
+
 ## Prérequis
 
 - CLI Railway connecté et lié au projet : `railway status` doit afficher `Project: AgentB2C` /
