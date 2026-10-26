@@ -95,3 +95,43 @@ def test_evaluate_llm_outage_is_error_not_crash(monkeypatch):
         )
     )
     assert j.verdict == "error" and "judge unavailable" in j.red_flags
+
+
+def test_default_judge_is_the_shared_default_and_ignores_the_stack_model(monkeypatch):
+    # DAYUSE_MODEL picks the stack under test; the judge must not follow it.
+    import importlib
+
+    from b2c_common import DEFAULT_MODEL
+
+    monkeypatch.setenv("DAYUSE_MODEL", "gpt-4o-mini")
+    monkeypatch.delenv("RELEASE_GATE_JUDGE_MODEL", raising=False)
+    try:
+        assert importlib.reload(judge_module).JUDGE_MODEL == DEFAULT_MODEL
+        monkeypatch.setenv("RELEASE_GATE_JUDGE_MODEL", "gpt-5.2")
+        assert importlib.reload(judge_module).JUDGE_MODEL == "gpt-5.2"
+    finally:
+        monkeypatch.delenv("RELEASE_GATE_JUDGE_MODEL", raising=False)
+        importlib.reload(judge_module)
+
+
+def test_a_gpt_6_judge_gets_its_unmapped_params(monkeypatch):
+    # The pinned litellm does not map gpt-6: effort "none" must be sent and
+    # whitelisted, and a service-wide effort must not reach the judge.
+    monkeypatch.setenv("DAYUSE_REASONING_EFFORT", "low")
+    captured: dict = {}
+
+    async def _capture(**kwargs):
+        captured.update(kwargs)
+        return _resp('{"verdict":"pass","score":5}')
+
+    monkeypatch.setattr(judge_module.litellm, "acompletion", _capture)
+    asyncio.run(
+        LLMJudge(model="openai/gpt-6-luna").evaluate(
+            scenario_id="s", family="faq", lang="fr",
+            user_turns=["q"], answers=["a"], expected="answers",
+        )
+    )
+    assert captured["reasoning_effort"] == "none"
+    assert captured["allowed_openai_params"] == ["reasoning_effort"]
+    assert captured["temperature"] == 0.0
+    assert "max_tokens" not in captured and "max_completion_tokens" not in captured

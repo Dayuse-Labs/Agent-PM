@@ -132,6 +132,70 @@
 - Les liens sortants ne portent plus `amplitude_id` ni les `du_*` d'agent-usa, seulement `amp_device_id`/`amp_session_id` (ce que lit ab-tests).
 - `.venv` absent de ce poste : gates passés avec un venv Python 3.13 reconstruit hors dépôt ; la suite y prend ~3 min 45 (dont ~110 s pour `test_calendar_rot`). `node --test tests/widget/` échoue sur Node 26 (dossier refusé) : passer le glob.
 
+## 🧪 2026-10-19 (ter) — Sortie de gpt-4o-mini : mesures faites, triage pas encore prêt (branche `chore/off-gpt-4o-mini`, chantier `M1`)
+
+**Fait** (code ; rien de déployé, rien d'écrit sur Langfuse) :
+- **Effort de raisonnement par rôle** (`llm_params._REASONING_EFFORT_DEFAULTS`). Le triage et le juge
+  sont fixés à `none` ; la synthèse a sa propre variable. Avant ce correctif, poser seulement
+  `DAYUSE_MODEL_TRIAGE=openai/gpt-6-luna` aurait envoyé le triage à effort `low`, le `low` global du
+  concierge de la démo. Mesuré : 2 triages sur 20 butent sur le plafond de 200, JSON tronqué, repli
+  regex silencieux.
+- **Triage `max_retries=0`.** litellm passe `max_retries=2` au SDK OpenAI, qui relance les timeouts.
+  Le budget « 5 s » valait donc environ 17 s, et un max de 16,4 s est mesuré en prod sur mini. Le
+  docstring affirmait le contraire.
+- **Juge du gate** (`evals/judge.py`) : `RELEASE_GATE_JUDGE_MODEL` > `DEFAULT_MODEL`, kwargs passés par
+  `llm_params`. Il ne suit plus `DAYUSE_MODEL`, donc il ne juge plus la pile avec son propre modèle.
+  Avec l'ancien appel, gpt-6 aurait renvoyé un 400, avalé en `error`.
+- **Gate** : il compte les erreurs du juge et les tours dégradés. `--update-baseline` refuse dans les
+  deux cas, et un avertissement sort si la baseline a été jugée par un autre modèle.
+- `ci.yml` suit le montage de la démo.
+- **Instrument** `scripts/measure_triage_models.py` (vraie `classify()`), avec la fixture
+  `evals/triage_inputs.jsonl` : 114 entrées, dont 62 tracées depuis les runs h3p.
+
+**Mesures** (rapports `reports/TRIAGE-GPT6-AB-2026-10.md` et `reports/JUDGE-GPT6-DRIFT-2026-10.md`) :
+- **Triage, luna ne tient pas tel quel.**
+  - Meilleur sur `family` (mini classe « vale » / « va bene » en `faq`), `language`, budget
+    (« 150 »), occupancy (2 cas étiquetés) et `answers_pending`. Égal sur `booking_confirmation`
+    (114/114). −35 % de coût, JSON de 97 tokens au p95 contre 150.
+  - Pire sur `price_comparison` (7 émissions à tort, dont un `lower` sur un changement de zone), sur
+    l'ordinal dans une phrase (« ok pour la deuxième », non rattrapé par le code) et sur
+    `affirmative` hors fr/en (« passt, mach das »).
+  - Latence : la queue au-delà de 5 s est la même pour les deux modèles (environ 5 % cet
+    après-midi ; seul mini a calé à 15 s). luna ajoute environ 0,5 s au p50.
+- **Juges Langfuse, dérive faible, barre tenue.** Sur 53 observations, dont 13 annotées humain :
+  Hallucination 98 % d'accord, Relevance 91 %, Distress 100 % ; luna aussi proche de l'humain que
+  mini. Relevance baisse de 0,09 en moyenne (les relances courtes, jugées hors contexte).
+  - **Sonde** : gpt-6-luna n'accepte la requête du juge Langfuse qu'avec `max_completion_tokens` et
+    `reasoning_effort:"none"`, deux réglages accessibles dans l'UI seulement.
+
+**Reste** (détail dans `CHANTIERS.md` M1) :
+1. Resserrer 3 règles du prompt de triage, puis remesurer les deux modèles (le prompt est partagé).
+2. Rejeu live au montage H3, puis bascule Railway (humaine) : déployer `concierge`, puis la variable.
+   En cas de retour arrière, remettre la variable avant ou avec le code.
+3. Baseline du gate avec le juge luna, depuis un réseau qui joint MCP_B2C.
+4. Évaluateurs Langfuse après l'OK de Fabien (UI). Repli : couper les règles jusqu'à la v4.
+5. agent-usa : même piège, signalé seulement.
+
+**Pièges découverts** :
+- **L'IP de sortie a changé en pleine session** : `45.156.191.77` est devenue `86.218.8.120`, et
+  MCP_B2C staging est alors injoignable (`ConnectTimeout`).
+  - Effets : 256 appels « Connection error » contigus dans l'A/B (rejoués), et une batterie à 0/32
+    avec 112 tours dégradés sur 118, que `--update-baseline` a d'abord écrite (revert, puis garde
+    ajouté).
+  - **Avant tout run live : `curl -4 ifconfig.me`, puis vérifier MCP.**
+- **Un écart n'est pas une régression avant d'avoir lu l'entrée exacte.** « Je confirme » / « yes,
+  Paris » ressemblaient à une erreur de luna, mais la trace montre `LAST ASSISTANT QUESTION`
+  absente : luna applique la règle, et c'est mini qui la viole.
+- **Le juge Langfuse ne passe pas par litellm**, donc `allowed_openai_params` ne le concerne pas : ce
+  sont les paramètres de modèle de l'évaluateur qui comptent.
+- **La suite à 6 min 42 s (contre 29 s le matin même) vient du réseau, pas du code.**
+  - `--durations` : les setups de `test_serve_auth.py` / `test_faq_serve_auth.py` prennent 10 à 20 s
+    chacun, par multiples de 5 s. `test_calendar_rot` (207 s) les rejoue.
+  - Ce sont des timeouts réseau, alors que MCP_B2C est injoignable. C'est très probablement la cause
+    « non trouvée » de la suite à 5-6 min du 2026-10-16.
+  - Ces tests se disent « No network ». Quelque chose y contacte quand même un hôte (probablement le
+    `McpToolset` à l'import ou au démarrage). Non diagnostiqué plus loin.
+
 ## 🚀 2026-10-19 (bis) — QA14707 phases 4-5 déployées : `hotel-search` + `concierge` sur `130caed` (#143)
 
 **Fait** (procédure `DEPLOY.md`) : pré-vol sur `main` propre `130caed` (#143 mergée), pytest **2 991 passés / 1 skippé**. Estampilles avant : `hotel-search`, `concierge` = `0b65159`, `faq` = `28c485a`, `widget` = `124cd43`. Seuls `hotel-search` (Q09, Q10) et `concierge` (Q11, Q27, Q28) ont changé : estampillés `130caed` avec `--skip-deploys`, puis `railway up --detach`, feuille d'abord ; les deux en `SUCCESS` à 13:54Z. `faq` et `widget` n'ont pas changé et gardent leur estampille, qui reste vraie.

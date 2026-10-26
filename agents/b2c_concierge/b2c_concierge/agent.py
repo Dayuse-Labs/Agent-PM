@@ -119,7 +119,6 @@ from dayuse_agent_common import (
     cost_from_tokens,
     enqueue_metric_event,
     provider_cost_usd,
-    reasoning_effort_label,
 )
 from google.adk.agents import BaseAgent
 from google.adk.agents.invocation_context import InvocationContext
@@ -726,8 +725,8 @@ class _B2cConcierge(BaseAgent):
         # to the reasoning cap when the combination is illegal (gpt-5* +
         # effort ≠ none — live-caught 2026-07-28, every synthesis was silently
         # falling back to leaf text; see temperature_kwargs_for).
-        extra_params: dict[str, Any] = dict(reasoning_kwargs_for(model_slug))
-        extra_params.update(temperature_kwargs_for(model_slug, 0.2))
+        extra_params: dict[str, Any] = dict(reasoning_kwargs_for(model_slug, "SYNTHESIS"))
+        extra_params.update(temperature_kwargs_for(model_slug, 0.2, "SYNTHESIS"))
         extra_params.update(max_tokens_kwargs_for(model_slug, "SYNTHESIS"))
         system = _SYNTHESIS_INSTRUCTION
         user = (
@@ -780,7 +779,7 @@ class _B2cConcierge(BaseAgent):
                 "llm_call", service=SERVICE, invocation_id=invocation_id, agent=SERVICE,
                 model=model_slug, ms=int((time.monotonic() - t0) * 1000),
                 status="error", error_type=type(exc).__name__, phase="synthesis",
-                reasoning_effort=reasoning_effort_label(),
+                reasoning_effort=extra_params.get("reasoning_effort"),
             )
             return None
         usage = getattr(resp, "usage", None)
@@ -805,7 +804,7 @@ class _B2cConcierge(BaseAgent):
             prompt_tokens=prompt_tokens, completion_tokens=completion_tokens,
             cost_usd=provider_cost_usd(resp) or cost_from_tokens(model_slug, prompt_tokens, completion_tokens),
             phase="synthesis",
-            reasoning_effort=reasoning_effort_label(),
+            reasoning_effort=extra_params.get("reasoning_effort"),
         )
         if status != "ok":
             logger.warning("b2c_concierge: synthesis unusable (%s), serving the fallback", status)

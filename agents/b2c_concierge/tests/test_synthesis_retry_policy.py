@@ -165,6 +165,21 @@ class TestGenerateOnceUsesTheRouter:
         # silent leaf-verbatim fallback): temperature yields to the cap.
         assert "temperature" not in calls[0]
 
+        # The synthesis has its own effort variable, read before the global.
+        monkeypatch.setenv("DAYUSE_REASONING_EFFORT_SYNTHESIS", "none")
+        asyncio.run(
+            agent_module.root_agent._generate_once(
+                message="bonjour",
+                language="fr",
+                leaf_text="2 offers found",
+                ground_truth_block="",
+                widen_note=None,
+                invocation_id="test-inv",
+            )
+        )
+        assert calls[1]["reasoning_effort"] == "none"
+        assert calls[1]["temperature"] == 0.2
+
 
 class TestUnusableSynthesisIsMeasured:
     """mcp-dayuse#8 (QA trace 62207822): finish_reason=length with empty

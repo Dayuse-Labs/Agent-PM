@@ -170,6 +170,35 @@ def evaluate(units: dict, battery: dict | None, baselines: dict, *, quick: bool)
     return failures
 
 
+def baseline_refusal(units: dict, battery: dict | None) -> str | None:
+    """Why this run must not become the baseline, or None. A judge `error`
+    (e.g. a provider 400 on a new judge model) reads as a plain fail in the
+    pass count, and `max_failed` is copied from this run's unit failures."""
+    summary = (battery or {}).get("summary", {})
+    errors = summary.get("errors", 0)
+    if errors:
+        return f"{errors} judge error(s) in this run: fix the judge before recording a baseline"
+    degraded = summary.get("degraded_turns", 0)
+    if degraded:
+        # Live-caught 2026-10-19: MCP_B2C unreachable from the egress IP, 112/118
+        # turns degraded, 0/32 — recorded as the new floor before this check.
+        return f"{degraded} degraded turn(s) (a leaf failed: MCP, Mapbox, timeout): the stack was not healthy"
+    if units.get("failed", 0):
+        return f"{units['failed']} unit failure(s): a baseline must not absorb them"
+    return None
+
+
+def judge_mismatch(battery: dict | None, baselines: dict) -> str | None:
+    """A warning when this run and the baseline were graded by different judges:
+    the pass counts are then not comparable, whatever the verdict says."""
+    recorded = baselines.get("conversation", {}).get("judge_model")
+    current = (battery or {}).get("judge_model")
+    if recorded and current and recorded != current:
+        return (f"baseline judged by {recorded}, this run by {current}: pass counts are not "
+                "comparable — refresh the baseline with --update-baseline")
+    return None
+
+
 def write_baselines(units: dict, battery: dict | None, label: str, prior: dict) -> None:
     """Rewrite baselines.json from this run. Budget maxes are HARDCODED to the
     invariant (cap 3, zero over-budget turns) — never auto-relaxed. Conversation
@@ -250,13 +279,21 @@ def main() -> int:
         s = battery["summary"]
         print(
             f"  battery: {s['passed']}/{s['total']} passed · "
+            f"{s.get('errors', 0)} judge error(s) · {s.get('degraded_turns', 0)} degraded turn(s) · "
             f"budget max {s['max_llm_calls_per_turn_observed']}/turn · "
             f"{s['over_budget_turns']} over-budget"
         )
+        mismatch = judge_mismatch(battery, baselines)
+        if mismatch:
+            print(f"  ⚠ {mismatch}")
 
     failures = evaluate(units, battery, baselines, quick=args.quick)
 
     if args.update_baseline:
+        refusal = baseline_refusal(units, battery)
+        if refusal:
+            print(f"\nERROR: baseline NOT rewritten — {refusal}.")
+            return 2
         write_baselines(units, battery, args.label, baselines)
 
     REPORTS_DIR.mkdir(parents=True, exist_ok=True)

@@ -265,6 +265,12 @@ def summarize(results: list[dict[str, Any]]) -> dict[str, Any]:
     unit-tested offline."""
     total = len(results)
     passed = sum(1 for r in results if r["verdict"] == "pass")
+    # A judge that cannot answer (call failed, unparseable output) scores an
+    # `error`, which `passed` alone would read as an ordinary fail.
+    errors = sum(1 for r in results if r["verdict"] == "error")
+    # A turn whose leaf failed (MCP unreachable, leaf timeout) is `degraded`:
+    # the judge then grades a stack that never searched.
+    degraded_turns = sum(1 for r in results for t in r.get("turns", []) if t.get("status") == "degraded")
     over_budget_turns = sum(1 for r in results if r["over_budget"])
     max_observed = max((r["max_llm_calls"] for r in results), default=0)
 
@@ -288,6 +294,8 @@ def summarize(results: list[dict[str, Any]]) -> dict[str, Any]:
         "total": total,
         "passed": passed,
         "failed": total - passed,
+        "errors": errors,
+        "degraded_turns": degraded_turns,
         "max_llm_calls_per_turn_observed": max_observed,
         "over_budget_turns": over_budget_turns,
         "by_family": by_family,

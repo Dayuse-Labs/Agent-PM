@@ -32,6 +32,21 @@
    une rangée coupée 16 px avant le bord. Aucun test de chaîne ne le voit ; la
    capture à 390 px, si.
 
+## 2026-10-19 — sortie de gpt-4o-mini (auto-constatées)
+
+1. **Un désaccord entre modèles n'est pas une régression avant d'avoir lu l'entrée EXACTE.** J'ai
+   annoncé un « bug de contrat QA14707 » parce que luna répondait `answers_pending="no"` à « Je
+   confirme » / « yes, Paris » là où mini disait « yes ». La trace montrait `LAST ASSISTANT QUESTION`
+   absente (le tour 1 avait cherché sans rien demander, DQ12), et le prompt impose « no » dans ce
+   cas : luna avait raison, mini violait la règle. Règle : pour chaque désaccord décisif, imprimer
+   l'entrée telle que le modèle l'a reçue (message, récents, question) **avant** d'arbitrer, et
+   arbitrer contre le texte du prompt, pas contre l'ancien modèle.
+2. **Un garde qui refuse une baseline doit vérifier la santé de la pile, pas seulement le juge.**
+   Mon garde « 0 erreur de juge, 0 test rouge » a laissé `--update-baseline` écrire un 0/32 mesuré
+   sur une pile dont 112 tours sur 118 étaient `degraded` (MCP injoignable). Et l'IP de sortie avait
+   changé en pleine session. Règle : avant tout run live, `curl -4 ifconfig.me` et un appel MCP ; et
+   lire les `status=` des tours avant de croire un score.
+
 ## 2026-07-29 — sperf4 rebasé (auto-constatée en reprenant une branche vieille d'un jour)
 
 1. **Une branche vérifiée n'est vérifiée que contre le `main` de l'époque.** La PR

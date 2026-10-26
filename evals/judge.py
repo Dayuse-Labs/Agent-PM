@@ -28,12 +28,13 @@ import re
 from dataclasses import dataclass, field
 
 import litellm
+from b2c_common import DEFAULT_MODEL, max_tokens_kwargs_for, reasoning_kwargs_for, temperature_kwargs_for
 
-# The judge model is a config knob (portability): defaults to the same economy
-# model the spine uses, overridable to a stronger judge without code changes.
-JUDGE_MODEL = os.environ.get(
-    "RELEASE_GATE_JUDGE_MODEL", os.environ.get("DAYUSE_MODEL", "gpt-4o-mini")
-)
+# The judge model is a config knob (portability), overridable to a stronger
+# judge without code changes. It does NOT follow DAYUSE_MODEL: that variable
+# picks the stack under test, and a judge following it grades the stack with
+# itself. Default = the shared code default (gpt-4o-mini shuts down 2027-01-14).
+JUDGE_MODEL = os.environ.get("RELEASE_GATE_JUDGE_MODEL", "").strip() or DEFAULT_MODEL
 JUDGE_TIMEOUT = float(os.environ.get("RELEASE_GATE_JUDGE_TIMEOUT_SECONDS", "30"))
 JUDGE_NUM_RETRIES = int(os.environ.get("RELEASE_GATE_JUDGE_NUM_RETRIES", "2"))
 
@@ -157,6 +158,12 @@ class LLMJudge:
         user = _build_user_prompt(
             family=family, lang=lang, user_turns=user_turns, answers=answers, expected=expected
         )
+        # Same provider-aware params as the stack's own calls (llm_params): on
+        # gpt-6* a bare temperature + the provider's default effort is a 400,
+        # which this method would swallow into an `error` verdict.
+        extra_params: dict = dict(reasoning_kwargs_for(self.model, "JUDGE"))
+        extra_params.update(temperature_kwargs_for(self.model, 0.0, "JUDGE"))
+        extra_params.update(max_tokens_kwargs_for(self.model, "JUDGE"))
         try:
             resp = await litellm.acompletion(
                 model=self.model,
@@ -164,9 +171,9 @@ class LLMJudge:
                     {"role": "system", "content": _JUDGE_SYSTEM},
                     {"role": "user", "content": user},
                 ],
-                temperature=0.0,
                 timeout=JUDGE_TIMEOUT,
                 num_retries=JUDGE_NUM_RETRIES,
+                **extra_params,
             )
         except Exception as exc:  # noqa: BLE001 — a judge outage must not crash the gate
             return Judgment(

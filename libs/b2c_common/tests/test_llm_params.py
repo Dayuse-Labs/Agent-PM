@@ -3,10 +3,13 @@ matter: (1) everything is a strict NO-OP when the env vars are unset (requests
 stay bit-identical to the pre-audit behaviour), (2) the reasoning cap is
 provider-aware and NEVER emits a param the target family does not support
 (the fleet's OpenRouter shape would 400 on OpenAI-direct slugs), (3) the
-role precedence is DAYUSE_MODEL_{ROLE} > DAYUSE_MODEL > gpt-4o-mini."""
+role precedence is DAYUSE_MODEL_{ROLE} > DAYUSE_MODEL > DEFAULT_MODEL. Since
+2026-10-19 the effort is per role too: DAYUSE_REASONING_EFFORT_{ROLE} > the
+role's built-in default > DAYUSE_REASONING_EFFORT."""
 from __future__ import annotations
 
 import pytest
+from dayuse_agent_common import reasoning_kwargs as fleet_reasoning_kwargs
 
 from b2c_common import (
     DEFAULT_MODEL,
@@ -25,6 +28,9 @@ def _clean_env(monkeypatch):
         "DAYUSE_MODEL_TRIAGE",
         "DAYUSE_MODEL_SYNTHESIS",
         "DAYUSE_REASONING_EFFORT",
+        "DAYUSE_REASONING_EFFORT_TRIAGE",
+        "DAYUSE_REASONING_EFFORT_SYNTHESIS",
+        "DAYUSE_REASONING_EFFORT_JUDGE",
         "DAYUSE_MAX_TOKENS_TRIAGE",
         "DAYUSE_MAX_TOKENS_SYNTHESIS",
     ):
@@ -84,11 +90,18 @@ class TestReasoningKwargsProviderAware:
         monkeypatch.setenv("DAYUSE_REASONING_EFFORT", "xhigh")
         assert reasoning_kwargs_for("gpt-5.2") == {"reasoning_effort": "xhigh"}
 
-    def test_openrouter_slugs_delegate_to_the_fleet_shape(self, monkeypatch):
+    def test_openrouter_slugs_get_the_fleet_shape(self, monkeypatch):
         monkeypatch.setenv("DAYUSE_REASONING_EFFORT", "low")
         assert reasoning_kwargs_for("openrouter/z-ai/glm-5.2") == {
             "extra_body": {"reasoning": {"effort": "low"}}
         }
+
+    @pytest.mark.parametrize("effort", ["", "low", "xhigh", "none", "off", "false", "0", "disabled"])
+    def test_openrouter_shape_matches_the_fleet_helper(self, monkeypatch, effort):
+        # The shape is built here (the fleet helper only reads the global
+        # variable, never a role's); without a role it must stay the fleet's.
+        monkeypatch.setenv("DAYUSE_REASONING_EFFORT", effort)
+        assert reasoning_kwargs_for("openrouter/z-ai/glm-5.2") == fleet_reasoning_kwargs()
 
     def test_non_reasoning_models_never_get_the_param(self, monkeypatch):
         # gpt-4o-mini would 400 on reasoning_effort — the cap must not leak.
@@ -187,3 +200,41 @@ class TestUnmappedReasoningFamilies:
         monkeypatch.setenv("DAYUSE_MAX_TOKENS_TRIAGE", "0")
         assert max_tokens_kwargs_for("openai/gpt-6-luna", "TRIAGE") == {}
         assert max_tokens_kwargs_for("unknown-role-model", "UNKNOWN") == {}
+
+
+class TestPerRoleReasoningEffort:
+    """2026-10-19: the demo's concierge sets DAYUSE_REASONING_EFFORT=low for its
+    gpt-5.2 synthesis, service-wide. A gpt-6-luna triage inheriting it spent
+    64-101 reasoning tokens of its 200-token cap and lost temperature 0
+    (scripts/measure_triage_models.py) — the triage and the judge pin "none"."""
+
+    def test_a_service_wide_effort_never_reaches_the_triage(self, monkeypatch):
+        monkeypatch.setenv("DAYUSE_REASONING_EFFORT", "low")
+        assert reasoning_kwargs_for("openai/gpt-6-luna", "TRIAGE") == {
+            "reasoning_effort": "none",
+            "allowed_openai_params": ["reasoning_effort"],
+        }
+        assert temperature_kwargs_for("openai/gpt-6-luna", 0.0, "TRIAGE") == {"temperature": 0.0}
+        assert reasoning_kwargs_for("gpt-5.2", "JUDGE") == {"reasoning_effort": "none"}
+
+    def test_the_role_variable_beats_the_built_in_default(self, monkeypatch):
+        monkeypatch.setenv("DAYUSE_REASONING_EFFORT_TRIAGE", "low")
+        assert reasoning_kwargs_for("openai/gpt-6-luna", "triage")["reasoning_effort"] == "low"
+
+    def test_a_role_without_default_falls_back_to_the_global(self, monkeypatch):
+        monkeypatch.setenv("DAYUSE_REASONING_EFFORT", "low")
+        assert reasoning_kwargs_for("gpt-5.2", "SYNTHESIS") == {"reasoning_effort": "low"}
+        monkeypatch.setenv("DAYUSE_REASONING_EFFORT_SYNTHESIS", "medium")
+        assert reasoning_kwargs_for("gpt-5.2", "SYNTHESIS") == {"reasoning_effort": "medium"}
+        # The role variable is the role's alone.
+        assert reasoning_kwargs_for("gpt-5.2") == {"reasoning_effort": "low"}
+
+    def test_the_role_effort_reaches_openrouter_too(self, monkeypatch):
+        monkeypatch.setenv("DAYUSE_REASONING_EFFORT", "low")
+        assert reasoning_kwargs_for("openrouter/z-ai/glm-5.2", "TRIAGE") == {
+            "extra_body": {"reasoning": {"enabled": False}}
+        }
+
+    def test_non_reasoning_models_still_get_nothing(self, monkeypatch):
+        monkeypatch.setenv("DAYUSE_REASONING_EFFORT_TRIAGE", "low")
+        assert reasoning_kwargs_for("gpt-4o-mini", "TRIAGE") == {}

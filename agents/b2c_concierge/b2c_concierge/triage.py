@@ -12,10 +12,14 @@ Control flow stays code-owned (cs_copilot pattern): the LLM only CLASSIFIES
   regex family + language guess: triage can never hard-fail a turn.
 
 S-G4 (budgets/RetryPolicy session) deliberately did NOT add a retry here,
-despite adding one for the concierge's synthesis call: verified live that
-omitting `num_retries` already means zero retries (confirmed against a stub
-endpoint), matching this docstring's claim — so there was no latent bug to
-fix. Unlike synthesis (where a successful retry produces a materially better
+despite adding one for the concierge's synthesis call. Omitting `num_retries`
+is NOT enough, though (probed 2026-10-19): litellm's OpenAI path hands the
+OpenAI SDK `max_retries=2` by default, and the SDK retries a TIMEOUT — a
+0.3 s timeout took 2.5 s and 3 HTTP attempts, so the 5 s budget could block a
+turn ~17 s before the fallback (one gpt-6-luna call measured 12.7 s). Hence
+`max_retries=0` on the call: one attempt, then the regex. (The S-G4 stub
+check saw no retry because it answered a status the SDK does not retry.)
+Unlike synthesis (where a successful retry produces a materially better
 answer than the "leaf text verbatim" fallback), triage's fallback (regex) is
 INSTANT and equally correct on the failures that matter — spending a retry's
 worth of latency here would only delay reaching the exact same regex path,
@@ -40,7 +44,6 @@ from dayuse_agent_common import (
     cost_from_tokens,
     enqueue_metric_event,
     provider_cost_usd,
-    reasoning_effort_label,
 )
 
 from .budget import TurnBudget
@@ -538,8 +541,10 @@ async def classify(message: str, budget: TurnBudget, invocation_id: str = "",
     # strict no-ops with the env unset (temperature 0.0 included as before);
     # temperature yields to the reasoning cap when the combination is illegal
     # (gpt-5* + effort ≠ none — see temperature_kwargs_for).
-    extra_params: dict = dict(reasoning_kwargs_for(model_slug))
-    extra_params.update(temperature_kwargs_for(model_slug, 0.0))
+    # The role pins effort "none" (llm_params._REASONING_EFFORT_DEFAULTS): a
+    # service-wide DAYUSE_REASONING_EFFORT set for the synthesis never reaches it.
+    extra_params: dict = dict(reasoning_kwargs_for(model_slug, "TRIAGE"))
+    extra_params.update(temperature_kwargs_for(model_slug, 0.0, "TRIAGE"))
     extra_params.update(max_tokens_kwargs_for(model_slug, "TRIAGE"))
     t0 = time.monotonic()
     try:
@@ -559,6 +564,8 @@ async def classify(message: str, budget: TurnBudget, invocation_id: str = "",
                 ) + f"MESSAGE:\n<<<\n{message}\n>>>"},
             ],
             timeout=_TRIAGE_TIMEOUT,
+            # No SDK-level retry: the 5 s timeout is the whole budget (docstring).
+            max_retries=0,
             **extra_params,
         )
     except Exception as exc:  # noqa: BLE001 — triage must never hard-fail; fall back to regex
@@ -573,7 +580,7 @@ async def classify(message: str, budget: TurnBudget, invocation_id: str = "",
             status="error",
             error_type=type(exc).__name__,
             phase="triage",
-            reasoning_effort=reasoning_effort_label(),
+            reasoning_effort=extra_params.get("reasoning_effort"),
         )
         return Triage(
             fallback_family(message),
@@ -597,7 +604,7 @@ async def classify(message: str, budget: TurnBudget, invocation_id: str = "",
         completion_tokens=completion_tokens,
         cost_usd=provider_cost_usd(resp) or cost_from_tokens(model_slug, prompt_tokens, completion_tokens),
         phase="triage",
-        reasoning_effort=reasoning_effort_label(),
+        reasoning_effort=extra_params.get("reasoning_effort"),
     )
     data = _parse_triage_json(resp.choices[0].message.content or "") or {}
     family = data.get("family")
