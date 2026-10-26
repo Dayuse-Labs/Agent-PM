@@ -6,6 +6,24 @@
 
 > 📋 **Pour savoir QUOI faire ensuite, ouvrir [`CHANTIERS.md`](CHANTIERS.md)** (état vérifié au 2026-09-14) : la liste des chantiers ouverts, chacun avec sa preuve, ses actions et un prompt prêt à coller — plus la liste de ce qu'il ne faut **pas** relancer parce que c'est déjà livré. `tasks/todo.md` est périmé et ne doit plus servir de référence.
 
+## ⏸️ 2026-10-26 (quater) — `widget` sur `0095a41` (sondes de santé, #152) ; bascule DNS reportée (latence Railway)
+
+**Déployé** : `widget` seul sur `0095a41` (servi à 13:36:07Z, build ~11 min au lieu de ~2). Preuve en ligne : `/healthz` 200 `healthy` ; `/readyz` 200 `ready` (le widget joint le concierge par le réseau privé) ; `/health` 200 `status: ok`, `version: 0095a41`, `env: production` ; CSP toujours appliquée. Backends inchangés sur `8d1579b`.
+
+**`HEALTH_TOKEN`** : copié sans affichage depuis le service `agent-conversationnel-USA` (48 car. ; le service lié au dossier `~/Projects/agent-usa` n'est pas celui-là). Posé avec `--skip-deploys` après le lancement du build, donc activé par `railway redeploy --service widget --yes` : depuis 13:41:56Z, `/health` sans jeton → **401** + `WWW-Authenticate: Bearer`, comme chez agent-usa ; `/healthz`, `/readyz`, la page (`0095a41`) et la CSP inchangés.
+
+**Bascule DNS reportée** : Railway en latence (signalé par Fabien) ; vérification du domaine, certificat et retour arrière passent tous par Railway. État sûr : `ai.dayuse.com` sert toujours agent-usa.
+
+**Reprise de la bascule** (tout est prêt côté AgentB2C ; le redéploiement du jeton est fait) :
+1. ~~`railway redeploy --service widget --yes`~~ fait à 13:41Z.
+2. Surveiller qui sert `ai.dayuse.com` toutes les 5 s (AgentB2C = `X-Frame-Options: DENY` + `<meta name="agent-version">` ; agent-usa = `SAMEORIGIN`).
+3. Sonde, depuis ce clone : `railway domain ai.dayuse.com --service widget --json`. Acceptée → le domaine reste en attente (le TXT pointe encore sur agent-usa) : appliquer son CNAME + TXT dans Route 53. Refusée (« in use ») → `(cd ~/Projects/agent-usa && railway domain delete ai.dayuse.com --yes)` puis relancer l'ajout, puis Route 53. Quelques minutes de coupure probables.
+4. Route 53 : zone `Z37YEHJ2ZH2A80`, UPSERT de `ai.dayuse.com.` CNAME et `_railway-verify.ai.dayuse.com.` TXT, TTL 60.
+5. Preuves sur `ai.dayuse.com` : marché fr/EUR/FR, en-têtes, 403 cross-site, 404 GET `/v3`, tour réel ; `X-Forwarded-Host`, clé Amplitude Production, `/health`, logs (`refused`, `rate_limit_hit ip=`). Puis Fabien ouvre l'assistant dans l'app mobile (MOB1 phase C).
+6. **Critère de retour arrière** : 10 min après la bascule, pas d'AgentB2C avec certificat valide sur `ai.dayuse.com`, ou un tour réel qui échoue.
+
+**Retour arrière, valeurs d'avant bascule** (publiques) : CNAME `ai.dayuse.com.` → `tit3qvdo.up.railway.app` ; TXT `_railway-verify.ai.dayuse.com.` → `"railway-verify=06e2524ef128e3cc7953f9c47eaeb6e1653ffa19bdf606be79f53a6d34a6ee90"`. Si Railway refusait le double rattachement : retirer le domaine de `widget`, le rattacher au service web d'agent-usa (`agent-conversationnel-USA`), qui peut donner un nouveau CNAME/TXT à reporter dans Route 53.
+
 ## 🛡️ 2026-10-26 (ter) — CSP appliquée (`68e0f75`, #151), TTL DNS à 60 s, D7 prolongée
 
 **CSP** : #151 — en `enforce`, la politique partait sans `report-uri` (un blocage n'aurait laissé aucune trace) ; même chaîne dans les deux modes, test durci, contre-épreuve rouge. `widget` déployé sur `68e0f75` avec `WIDGET_CSP_MODE=enforce` (servi à 11:28:52Z). Preuve : en-tête `Content-Security-Policy` … `report-uri /csp-report`, plus de report-only ; audit Chrome headless sous la politique appliquée — un tour SSE, 26/26 images (`static.dayuse.com` pour les photos de prod), polices, Amplitude via `alitude`, feedback, **Session Replay** (10 envois `api-sr.eu.amplitude.com`) : 0 violation, 0 échec de chargement. Piège : Session Replay est coupé sur `?du_synthetic=1` (`addSessionReplay`) ; pour l'auditer, tour sans le paramètre + `x-dayuse-synthetic` injecté par un wrapper `fetch`.
