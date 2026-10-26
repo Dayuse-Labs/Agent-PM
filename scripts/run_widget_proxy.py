@@ -46,6 +46,7 @@ from __future__ import annotations
 
 import argparse
 import hashlib
+import hmac
 import html
 import importlib.util
 import mimetypes
@@ -380,6 +381,34 @@ def security_headers() -> list[tuple[str, str]]:
     return headers
 
 
+# agent-usa's three probes (its src/api/routes/health.py), kept on ai.dayuse.com
+# for whatever already polls them: /health is Innovation Monitor's (always 200,
+# criticality in `status`, behind HEALTH_TOKEN when set), /healthz is liveness,
+# /readyz is readiness (503 when not ready). Same keys; the one dependency here
+# is the concierge.
+_HEALTH_ROUTES = frozenset({"/health", "/healthz", "/readyz"})
+_HEALTH_SERVICE = "dayuse-search"  # the name agent-usa reported; monitors key on it
+
+
+def concierge_reachable(backend: str) -> bool:
+    """The concierge serves its agent card: open (no bearer), no LLM, no MCP."""
+    try:
+        with urllib.request.urlopen(f"{backend}/.well-known/agent-card.json", timeout=2) as resp:
+            return resp.status == 200
+    except (urllib.error.URLError, OSError):
+        return False
+
+
+def health_token_refusal(headers) -> bool:  # noqa: ANN001
+    """True when HEALTH_TOKEN is set and the request lacks `Bearer <token>`.
+    Unset = open, as in agent-usa (dev default)."""
+    token = os.environ.get("HEALTH_TOKEN", "").strip()
+    if not token:
+        return False
+    provided = (headers.get("Authorization") or "").strip().encode()
+    return not hmac.compare_digest(provided, f"Bearer {token}".encode())
+
+
 class WidgetProxyHandler(BaseHTTPRequestHandler):
     agent_usa_dir: Path
     backend: str
@@ -403,6 +432,8 @@ class WidgetProxyHandler(BaseHTTPRequestHandler):
             )
         elif path == "/sr-config":
             self._respond_session_replay_config()
+        elif path in _HEALTH_ROUTES:
+            self._health(path)
         elif path.startswith("/static/"):
             self._serve_static(path)
         else:
@@ -439,15 +470,42 @@ class WidgetProxyHandler(BaseHTTPRequestHandler):
         self._proxy("POST", body=body)
 
     def _json_error(self, status: int, error: str, retry_after: int | None = None) -> None:
-        payload = json.dumps({"error": error}).encode("utf-8")
+        extra = (("Retry-After", str(retry_after)),) if retry_after is not None else ()
+        self._respond_json(status, {"error": error}, extra)
+
+    def _respond_json(self, status: int, data: dict, extra: tuple[tuple[str, str], ...] = ()) -> None:
+        payload = json.dumps(data).encode("utf-8")
         self.send_response(status)
         self.send_header("Content-Type", "application/json")
         self.send_header("Content-Length", str(len(payload)))
         self.send_header("Cache-Control", "no-store")
-        if retry_after is not None:
-            self.send_header("Retry-After", str(retry_after))
+        for name, value in extra:
+            self.send_header(name, value)
         self.end_headers()
         self.wfile.write(payload)
+
+    def _health(self, path: str) -> None:
+        """agent-usa's probes, same keys (see `_HEALTH_ROUTES`)."""
+        if path == "/healthz":
+            self._respond_json(200, {"status": "healthy", "service": _HEALTH_SERVICE})
+            return
+        if path == "/health" and health_token_refusal(self.headers):
+            self._respond_json(401, {"error": "unauthorized"}, (("WWW-Authenticate", "Bearer"),))
+            return
+        up = concierge_reachable(self.backend)
+        if path == "/readyz":
+            self._respond_json(200 if up else 503, {
+                "status": "ready" if up else "not_ready",
+                "checks": {"concierge": {"healthy": up}},
+            })
+            return
+        self._respond_json(200, {
+            "service": _HEALTH_SERVICE,
+            "status": "ok" if up else "critical",
+            "version": os.environ.get("LANGFUSE_RELEASE", "").strip() or "dev",
+            "env": os.environ.get("RAILWAY_ENVIRONMENT_NAME", "development"),
+            "dependencies": [{"name": "concierge", "critical": True, "status": "ok" if up else "down"}],
+        })
 
     def _csp_report(self) -> None:
         """Log a CSP violation (report-only phase), rate-limited, then 204."""
