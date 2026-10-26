@@ -42,3 +42,20 @@ test('carousel arrows are centred on the 3:2 photo, not on the card', () => {
 test('hotel name reserves two lines so slots align across cards', () => {
     assert.match(css('hotels.css'), /\.hotel-name\s*\{[^}]*min-height:\s*2lh/);
 });
+
+// Retour PO du 2026-10-26 : le badge « -X% » en rouge pastèque détonnait. dayuse.com affiche
+// ses remises en pastille Shadow Black, texte blanc gras (`bg-shadow-black text-white
+// font-bold rounded-full`), comme déjà la remise des formules de la booking card.
+test('badge de remise : pastille Shadow Black, texte blanc, comme dayuse.com', () => {
+    const hotels = readFileSync(new URL('../../web/vendor/static/css/chat/hotels.css', import.meta.url), 'utf8');
+    const deal = /\.deal-badge\s*\{([^}]*)\}/.exec(hotels)[1];
+    assert.match(deal, /background:\s*var\(--bg-invert\)/);
+    assert.match(deal, /color:\s*var\(--fg-invert\)/);
+    assert.match(deal, /border-radius:\s*var\(--radius-action\)/);
+    // Contre-épreuve : plus de rouge d'alerte.
+    assert.ok(!/watermelon|feedback-error|#f45c5a/i.test(deal), deal);
+    const plan = /\.booking-card__plan-disc\s*\{([^}]*)\}/.exec(hotels)[1];
+    assert.match(plan, /background:\s*var\(--bg-invert\)/);
+    const tokens = readFileSync(new URL('../../web/vendor/static/css/chat/tokens.css', import.meta.url), 'utf8');
+    assert.match(tokens, /--bg-invert:\s*#292935/);
+});

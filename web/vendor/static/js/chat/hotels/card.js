@@ -9,6 +9,9 @@ import { formatRating } from '../utils.js';
 import { selectBestImage } from './images.js';
 import { getLanguage, t } from '../i18n.js';
 import { formatSlotRange } from '../slot_time.js';
+import {
+    currencyDigits, detectCurrencyCode, extractAmount, formatMoney, formatPriceString, marketLocale,
+} from '../price_format.js';
 import { escapeAttr, escapeHtml, sanitizeDayuseUrl, sanitizeImageUrl } from '../security.js';
 
 let imageCarouselInstanceCounter = 0;
@@ -50,87 +53,63 @@ function extractDirectImageUrl(url) {
     return url;
 }
 
-// Display symbol per ISO currency. Spacing is baked in: alphabetic codes get a
-// trailing space ("CHF 120"), glyphs don't ("€120"). Keyed on the `currency_code`
-// the card carries (MCP_B2C's per-hotel currencyCode, S-G7). There is NO backend
-// mirror of this table in this repo — the comment used to claim it mirrored a
-// `_CURRENCY_DISPLAY` that only ever existed in agent-usa (checked 2026-08-28,
-// UX6 audit): prices reach the widget already formatted, so this table only
-// decides the glyph, never a conversion.
-const CURRENCY_SYMBOLS = {
-    USD: '$', EUR: '€', GBP: '£', CHF: 'CHF ', CAD: 'C$', AUD: 'A$', NZD: 'NZ$',
-    SGD: 'S$', HKD: 'HK$', BRL: 'R$', MXN: 'MX$', AED: 'AED ', SAR: 'SAR ',
-    QAR: 'QAR ', BHD: 'BHD ', THB: '฿', JPY: '¥', KRW: '₩', SEK: 'kr ',
-    CZK: 'Kč ', TRY: '₺', TWD: 'NT$',
-};
+// Prices: the backend sends them formatted ("€165.10", "HKD 780.00"); the
+// widget re-renders them in the MARKET's locale (fr "165,10 €", en-US "$187.00",
+// en-GB "£120.00") via price_format.js. The currency is never chosen here: it is
+// the one the backend put on the price (retour PO 2026-10-26 — the old glyph
+// table hard-wired "€165.10" for every market).
+function marketCurrencyCode() {
+    return String((state.marketContext && state.marketContext.currency) || '').toUpperCase();
+}
+
+function priceLocale() {
+    return marketLocale(state.marketContext);
+}
 
 /**
- * "HKD 780.00" → "HK$780.00". A hotel-currency price comes from the backend with
- * its ISO code first (the parser below keys on it); rendered as-is it would sit
- * next to "€95.00" in the booking card. Any other string is returned unchanged.
+ * A backend price string in the market's locale: "€165.10" → "165,10 €" (fr),
+ * "HKD 780.00" → "HK$780.00" (en-US). A string with no amount or no currency is
+ * returned unchanged — never given the market's currency by default.
  */
 export function formatBackendPrice(price) {
-    const text = String(price || '').trim();
-    const match = /^([A-Z]{3}) (\d[\d.,]*)$/.exec(text);
-    if (!match) return text;
-    const symbol = CURRENCY_SYMBOLS[match[1]];
-    return symbol ? `${symbol}${match[2]}` : text;
+    return formatPriceString(price, priceLocale());
 }
 
-function marketCurrencySymbol() {
-    const code = String((state.marketContext && state.marketContext.currency) || '').toUpperCase();
-    return CURRENCY_SYMBOLS[code] || '';
-}
-
-// Detect the display symbol present in a backend price string ("from CAD 120.00",
-// "from €120.00", "$127.00 - $159.00"). Order matters: ISO codes first, then
-// glyphs, then compound dollar marks (C$, A$…), then a bare "$" (USD) last.
-function detectCurrencySymbol(str) {
-    const s = String(str || '');
-    // A hotel-currency price from the backend starts with its ISO code. One the
-    // table below doesn't know (PLN, INR…) must show as that code, never fall
-    // through to the market's symbol: "PLN 250" rendered as "€250" is a wrong price.
-    const leading = /^([A-Z]{3}) \d/.exec(s.trim());
-    if (leading) return CURRENCY_SYMBOLS[leading[1]] || `${leading[1]} `;
-    const code = s.toUpperCase().match(
-        /\b(USD|EUR|GBP|CHF|CAD|AUD|NZD|SGD|HKD|BRL|MXN|AED|SAR|QAR|BHD|THB|JPY|KRW|SEK|CZK|TRY|TWD)\b/
-    );
-    if (code) return CURRENCY_SYMBOLS[code[1]];
-    for (const glyph of ['€', '£', '¥', '₩', '฿', '₺']) {
-        if (s.includes(glyph)) return glyph;
-    }
-    if (s.includes('Kč')) return 'Kč ';
-    for (const compound of ['C$', 'A$', 'NZ$', 'NT$', 'S$', 'HK$', 'MX$', 'R$']) {
-        if (s.includes(compound)) return compound;
-    }
-    if (s.includes('$')) return '$';
-    return '';
-}
-
-// Extract the first numeric amount, tolerant of a "from "/symbol prefix and a
-// range ("$127.00 - $159.00" → 127). Backend formats with dot decimals.
-function extractAmount(str) {
-    const m = String(str || '').match(/\d[\d,.\s]*\d|\d/);
-    if (!m) return NaN;
-    return parseFloat(m[0].replace(/[,\s]/g, ''));
+/** A card amount in whole units, in the market's locale ("165 €", "$165"). */
+export function formatCardAmount(value, code) {
+    return formatMoney(value, code, priceLocale(), { wholeUnits: true });
 }
 
 /**
- * Parse price from various formats into { value, currency, display } where
- * `currency` is a render-ready display symbol (already spaced).
- * Handles: "from €120.00", "from CAD 120.00", "$127.00 - $159.00", 127, "127".
+ * Parse a price into { value, code } (ISO 4217). Handles "from €120.00",
+ * "from CAD 120.00", "$127.00 - $159.00", 127, "127"; a price with no currency
+ * of its own takes the market's.
  */
-export function parsePrice(price, fallbackCurrency) {
+export function parsePrice(price) {
     if (typeof price === 'number') {
-        return { value: price, currency: marketCurrencySymbol(), display: Math.round(price).toString() };
+        return { value: price, code: marketCurrencyCode() };
     }
     if (typeof price === 'string') {
         const raw = extractAmount(price);
-        const value = isNaN(raw) ? 0 : raw;
-        const currency = detectCurrencySymbol(price) || marketCurrencySymbol();
-        return { value, currency, display: Math.round(value).toString() };
+        return { value: isNaN(raw) ? 0 : raw, code: detectCurrencyCode(price) || marketCurrencyCode() };
     }
-    return { value: 0, currency: marketCurrencySymbol(), display: '0' };
+    return { value: 0, code: marketCurrencyCode() };
+}
+
+/**
+ * The price a card shows, from its NUMERIC source when the payload carries one
+ * in the currency of the displayed string: `display_price_minor` once the card
+ * was switched to the hotel's currency, `price_eur_cents` otherwise (the pair
+ * b2c_concierge/ground_truth.py reads). Otherwise the parsed string.
+ */
+export function cardPrice(hotel) {
+    const parsed = parsePrice(hotel.price || hotel.min_price_ttc || 0);
+    const shownCode = hotel.display_currency ? String(hotel.display_currency).toUpperCase() : 'EUR';
+    const minor = hotel.display_currency ? hotel.display_price_minor : hotel.price_eur_cents;
+    if (parsed.code === shownCode && Number.isInteger(minor) && minor > 0) {
+        return { value: minor / 10 ** currencyDigits(shownCode), code: shownCode };
+    }
+    return parsed;
 }
 
 /**
@@ -175,16 +154,12 @@ export function createHotelCard(hotel) {
     const sanitizedUrl = sanitizeDayuseUrl(appendAmplitudeIdToUrl(hotel.url || ''));
     const hotelUrl = sanitizedUrl || '';
 
-    // Parse price - handles formats like "$127.00 - $159.00" or just numbers
-    const priceInfo = parsePrice(hotel.price || hotel.min_price_ttc || 0, hotel.display_currency);
+    // { value, code } of the price the card shows (numeric source first).
+    const priceInfo = cardPrice(hotel);
     const safeStars = hotel.stars || 4;
 
     // Compute discount from timeslot original_price (night rate) vs day-use price
     const { discount, nightPrice: originalPrice } = computeNightDiscount(hotel, priceInfo);
-
-    // Store currency and price for footer
-    hotel._currency = priceInfo.currency;
-    hotel._formattedPrice = priceInfo.display;
 
     // Initialize carousel with smart image selection
     let images = hotel.image_urls && hotel.image_urls.length > 0
@@ -428,7 +403,7 @@ function buildPersonalizedSnippet(hotel) {
     const zone = hotel.zone || hotel.city || tr('this area', 'cette zone', 'esta zona');
     const seed = String(hotel.id || hotel.hotel_id || hotel.name || '');
 
-    const priceInfo = parsePrice(hotel.price || hotel.min_price_ttc || 0, hotel.display_currency);
+    const priceInfo = cardPrice(hotel);
     const budget = state.selectedFilters.budget_max;
     const underBudget = typeof budget === 'number' && priceInfo.value > 0 && priceInfo.value <= budget;
     const nearBudget = typeof budget === 'number' && priceInfo.value > 0 && priceInfo.value > budget * 0.8;
@@ -734,8 +709,8 @@ function renderTimeslots(hotel) {
  * "Choisir cet hôtel" now LEAVES for the hotel page on dayuse.com. It used to
  * open the in-chat booking card (rate-plan selector) while a second, demoted
  * "Voir la fiche de l'hôtel" link did what users actually expected — product
- * decision: one button, straight to the hotel page. Evening-blue is kept: the
- * warm gradient stays reserved for `.booking-card__cta` (hotels.css).
+ * decision: one button, straight to the hotel page. Since 2026-10-26 (retour
+ * PO) it wears the Dayuse yellow of every primary action (buttons.css).
  */
 function renderFooter(priceInfo, originalPrice, hotelUrl, hotelId) {
     // '' when the payload carried no usable url (UX6 2026-08-28). Never coerce
@@ -745,10 +720,8 @@ function renderFooter(priceInfo, originalPrice, hotelUrl, hotelId) {
     const safeHotelUrlAttr = escapeAttr(safeHotelUrl);
     const safeHotelIdAttr = escapeAttr(String(hotelId || ''));
 
-    // Currency spacing is already baked into the display symbol (glyphs hug the
-    // number — "€139"; ISO codes carry a trailing space — "CHF 139") by
-    // CURRENCY_SYMBOLS / detectCurrencySymbol, so render it as-is.
-    const currencyPrefix = priceInfo.currency;
+    // Price and struck night rate share the card's currency (the backend swaps
+    // the slot's `original_price` along with the price) and the market's locale.
     const hasPrice = Boolean(priceInfo.value && priceInfo.value > 0);
     // The night rate this day-use price undercuts. The percentage itself now
     // lives on the photo (`deal-badge`) where it is scannable; the struck-through
@@ -763,8 +736,8 @@ function renderFooter(priceInfo, originalPrice, hotelUrl, hotelId) {
     const priceHtml = hasPrice
         ? `<div class="price-section">
                <span class="price-from-label">${t('card_from_label')}</span>
-               <span class="current-price">${currencyPrefix}${priceInfo.display}</span>
-               ${hasNightRate ? `<span class="original-price">${currencyPrefix}${Math.round(originalPrice)}${t('night_suffix')}</span>` : ''}
+               <span class="current-price">${escapeHtml(formatCardAmount(priceInfo.value, priceInfo.code))}</span>
+               ${hasNightRate ? `<span class="original-price">${escapeHtml(formatCardAmount(originalPrice, priceInfo.code))}${t('night_suffix')}</span>` : ''}
            </div>`
         : '';
 

@@ -173,6 +173,12 @@ function mapV3Hotels(hotels) {
         // the one way this row can mislead.
         rating_count: h.rating_count ?? null,
         price: h.price,
+        // The numeric side of `price` (EUR cents, or minor units of the hotel's
+        // currency once the card shows it): the card formats the amount in the
+        // market's locale from these rather than re-reading the string.
+        price_eur_cents: h.price_eur_cents ?? null,
+        display_currency: h.display_currency ?? null,
+        display_price_minor: h.display_price_minor ?? null,
         metro: h.metro,
         zone: h.zone,
         city: h.city,

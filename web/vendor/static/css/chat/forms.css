@@ -20,8 +20,8 @@ input[type="text"]::placeholder {
     color: var(--fg-placeholder);
 }
 
-/* Bouton par défaut = Action Default (Solid) : calme. Le soleil (dégradé Universe) appartient
-   au seul bouton primaire, voir buttons.css. */
+/* Bouton par défaut = Action Default (Solid) : calme. Le jaune Dayuse (Primary) appartient
+   aux boutons d'action, voir buttons.css. */
 button {
     background: var(--solid-default);
     border: 1px solid var(--border-default);
@@ -145,7 +145,7 @@ button .arrow-icon {
 }
 
 .book-button {
-    border: none;   /* fond et couleur : Universe Sunny, voir buttons.css */
+    border: none;   /* fond et couleur : Primary (jaune Dayuse), voir buttons.css */
     border-radius: var(--radius-action);
     padding: 10px 18px;
     font-weight: var(--fw-bold);
