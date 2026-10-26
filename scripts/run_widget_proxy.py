@@ -362,7 +362,8 @@ _CSP = "; ".join([
 def security_headers() -> list[tuple[str, str]]:
     """Sent on every response. The CSP starts REPORT-ONLY (`WIDGET_CSP_MODE`:
     report-only | enforce | off): this widget loads more than agent-usa's did
-    (Session Replay), so watch the `csp-report` log lines before enforcing."""
+    (Session Replay), so watch the `csp-report` log lines before enforcing.
+    Enforced, it still reports: a resource it blocks stays visible in the logs."""
     headers = [
         ("X-Content-Type-Options", "nosniff"),
         ("Referrer-Policy", "strict-origin-when-cross-origin"),
@@ -371,12 +372,11 @@ def security_headers() -> list[tuple[str, str]]:
         ("Permissions-Policy", "camera=(), microphone=(), payment=()"),
     ]
     mode = os.environ.get("WIDGET_CSP_MODE", "report-only").strip().lower()
+    policy = f"{_CSP}; report-uri {_CSP_REPORT_PATH}"
     if mode == "enforce":
-        headers.append(("Content-Security-Policy", _CSP))
+        headers.append(("Content-Security-Policy", policy))
     elif mode != "off":
-        headers.append(
-            ("Content-Security-Policy-Report-Only", f"{_CSP}; report-uri {_CSP_REPORT_PATH}")
-        )
+        headers.append(("Content-Security-Policy-Report-Only", policy))
     return headers
 
 

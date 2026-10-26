@@ -34,7 +34,7 @@ reprises d'agent-usa :
 | `WIDGET_MAX_MESSAGE_CHARS` / `WIDGET_MAX_BODY_BYTES` | 500 / 16384 | au-delà : 413, rien ne part au concierge |
 | `WIDGET_ALLOWED_ORIGINS` | vide | origines admises en plus du `Host` / `X-Forwarded-Host` de la requête, séparées par des virgules |
 | `WIDGET_CLIENT_IP_HEADER` | `X-Real-IP` | en-tête posé par l'edge ; sinon l'entrée la plus à droite de `X-Forwarded-For` |
-| `WIDGET_CSP_MODE` | `report-only` | `enforce` une fois les lignes `csp-report` des logs lues ; `off` pour couper |
+| `WIDGET_CSP_MODE` | `report-only` | `enforce` une fois les lignes `csp-report` des logs lues (bloque, et signale toujours à `/csp-report`) ; `off` pour couper |
 
 À poser avant la bascule : `WIDGET_ALLOWED_ORIGINS=https://ai.dayuse.com,https://widget-production-3f56.up.railway.app`
 (filet si l'edge ne transmet pas `Host` tel quel). Après déploiement, vérifier dans les logs
