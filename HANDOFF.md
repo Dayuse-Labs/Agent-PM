@@ -6,6 +6,16 @@
 
 > 📋 **Pour savoir QUOI faire ensuite, ouvrir [`CHANTIERS.md`](CHANTIERS.md)** (état vérifié au 2026-09-14) : la liste des chantiers ouverts, chacun avec sa preuve, ses actions et un prompt prêt à coller — plus la liste de ce qu'il ne faut **pas** relancer parce que c'est déjà livré. `tasks/todo.md` est périmé et ne doit plus servir de référence.
 
+## 🛡️ 2026-10-26 (ter) — CSP appliquée (`68e0f75`, #151), TTL DNS à 60 s, D7 prolongée
+
+**CSP** : #151 — en `enforce`, la politique partait sans `report-uri` (un blocage n'aurait laissé aucune trace) ; même chaîne dans les deux modes, test durci, contre-épreuve rouge. `widget` déployé sur `68e0f75` avec `WIDGET_CSP_MODE=enforce` (servi à 11:28:52Z). Preuve : en-tête `Content-Security-Policy` … `report-uri /csp-report`, plus de report-only ; audit Chrome headless sous la politique appliquée — un tour SSE, 26/26 images (`static.dayuse.com` pour les photos de prod), polices, Amplitude via `alitude`, feedback, **Session Replay** (10 envois `api-sr.eu.amplitude.com`) : 0 violation, 0 échec de chargement. Piège : Session Replay est coupé sur `?du_synthetic=1` (`addSessionReplay`) ; pour l'auditer, tour sans le paramètre + `x-dayuse-synthetic` injecté par un wrapper `fetch`.
+
+**DNS, préparation** : `ai.dayuse.com` (CNAME `tit3qvdo.up.railway.app`, agent-usa, projet Railway `Agent_conversationnel_USA`) et `_railway-verify.ai.dayuse.com` (TXT `railway-verify=06e2524e…`) passés de TTL 300 à **60 s**, valeurs inchangées (change Route 53 `C0580618A8JYGZ0Y7JFY`, zone `Z37YEHJ2ZH2A80`, INSYNC à ~11:35Z). Un domaine personnalisé Railway n'appartient qu'à un service : la bascule = déplacer le domaine d'agent-usa vers `widget` + CNAME/TXT donnés par Railway ; quelques minutes de coupure probables, retour arrière symétrique. agent-usa reste déployé et intact.
+
+**Décision A1 (Fabien)** : exception D7 prolongée jusqu'au **2027-01-31** (l'échéance « avant le canary S11 » tombait avec la bascule franche) ; P5 avant la bascule ; rotation des bearers semaine du 2026-11-02 — prérequis : `BearerAuthMiddleware` n'accepte qu'un jeton. Consigné dans `CHANTIERS.md` A1/P5, `PLAN-REWORK-AGENT-USA.md` D7, `CLAUDE.md`.
+
+**P5 fait** : `railway domain delete concierge-production-aaa2.up.railway.app --service concierge` (seul autre domaine public du projet avec celui du widget ; aucune référence dans le dépôt ; il répondait 502). Après : 404 « Application not found » ; un « Bonjour » synthétique via le widget → 200 avec `turn_facts` (concierge joint par le réseau privé). Le widget est la seule surface publique du projet.
+
 ## 🚀 2026-10-26 (bis) — `widget` déployé sur `e2b0c99` (#149 : marché au rendu + protection de l'edge)
 
 **Déployé** : `widget` seul — `WIDGET_ALLOWED_ORIGINS=https://ai.dayuse.com,https://widget-production-3f56.up.railway.app` et `LANGFUSE_RELEASE=e2b0c99` posées avec `--skip-deploys`, puis `railway up --service widget --detach` ; page servie en `e2b0c99` à 11:02Z. `concierge`, `hotel-search`, `faq` restent sur `8d1579b` : `git log 8d1579b..e2b0c99 -- agents libs` est vide, et #148 y tourne déjà (tour synthétique « un hôtel avec piscine à Nice » → question de date + 3 puces + `turn_facts: clarification`). Gates sur `e2b0c99` : pytest 3 130 passés / 1 skippé, ruff, mypy, 78 tests JS.

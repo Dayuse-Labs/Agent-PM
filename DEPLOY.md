@@ -13,7 +13,7 @@ unique `production`. URL publique : **https://widget-production-3f56.up.railway.
 |---|---|---|---|---|
 | `hotel-search` | `agents/hotel_search_agent/Dockerfile` | 8101 | privé | `agents/hotel_search_agent`, `libs` |
 | `faq` | `agents/faq_agent/Dockerfile` | 8102 | privé | `agents/faq_agent`, `libs` |
-| `concierge` | `agents/b2c_concierge/Dockerfile` | 8100 | privé (voir piège 502) | `agents/b2c_concierge`, `libs` |
+| `concierge` | `agents/b2c_concierge/Dockerfile` | 8100 | privé (domaine public supprimé, P5) | `agents/b2c_concierge`, `libs` |
 | `widget` | `web/Dockerfile` | 8090 | **public** | `web`, `scripts/run_widget_proxy.py` |
 | `Redis` | image managée `redis:8.2.9` | — | privé | jamais redéployé par nous |
 
@@ -147,8 +147,9 @@ déploiement peut être lent (LLM à froid).
   seule trace du build qui tourne.
 - 🪤 **`railway domain --service X` CRÉE un domaine public**, ce n'est pas une lecture — ne jamais
   le lancer sur une feuille. Les domaines se lisent dans `railway status --json`.
-- 🪤 **Le domaine public du concierge répond 502, c'est normal** : uvicorn `--host ::` n'écoute
-  qu'en IPv6, l'edge public arrive en IPv4. Le privé fonctionne. Toujours passer par le widget.
+- 🪤 **Le concierge n'a plus de domaine public** (supprimé le 2026-10-26, P5 : compensation de la
+  prolongation D7). Ne pas en recréer : il répondrait 502 de toute façon (uvicorn `--host ::`
+  n'écoute qu'en IPv6, l'edge public arrive en IPv4). Toujours passer par le widget.
 - 🪤 **Chemins conteneur ≠ chemins repo** : le code de la feuille est sous
   `/app/hotel_search_agent/…`, pas `/app/agents/…` (utile pour `railway ssh`).
 - 🪤 **Redéployer le MCP_B2C casse la feuille search** (session MCP périmée, `mcp_tool_error`

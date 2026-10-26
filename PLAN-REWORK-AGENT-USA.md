@@ -208,7 +208,7 @@ Baseline remplie en Phase 0, re-mesure identique en Phase 6. Cibles = **proposit
 | D3 | Modèle via LiteLLM | Iso-modèle gpt-4o-mini d'abord (comparaison à périmètre constant), essais via `DAYUSE_MODEL_ALLOWLIST` ensuite | Ph2.2 |
 | D4 | Cibles chiffrées des KPIs | ✅ **Validées le 2026-07-15** (gate Ph0 passé) — cf. `AUDIT-REWORK-2026-07.md` §6 | Close |
 | D5 | Sort de `chatgpt-app/` et du widget | Hors scope V1, contrats A2A prêts pour eux | Ph2 |
-| D7 | Identité inter-agents V1 (`oidc-mtls` de la lib = stub, découvert en design review) | ✅ **Tranchée le 2026-07-15** : contrôle intérimaire documenté — réseau privé Railway + bearer statique vérifié côté feuille, exception avec échéance (pattern booking_qa) ; `oidc-mtls` implémenté dans `dayuse_agent_common` quand il servira toute la fleet ; `dev-insecure` jamais déployé | Close |
+| D7 | Identité inter-agents V1 (`oidc-mtls` de la lib = stub, découvert en design review) | ✅ **Tranchée le 2026-07-15** : contrôle intérimaire documenté — réseau privé Railway + bearer statique vérifié côté feuille, exception avec échéance (pattern booking_qa) ; `oidc-mtls` implémenté dans `dayuse_agent_common` quand il servira toute la fleet ; `dev-insecure` jamais déployé. **Prolongée le 2026-10-26** (bascule franche d'ai.dayuse.com = trafic réel sans canary S11) : échéance **2027-01-31**, compensations P5 + rotation des bearers (`CHANTIERS.md` A1) | Close |
 | D6 | Micro-patch observabilité sur agent-usa prod | ❌ **Annulée le 2026-07-15** (pas de patch prod) — latence mesurée en A/B synthétique en Ph5 + instrumentation native AgentB2C dès Ph2 | Close |
 
 ---
