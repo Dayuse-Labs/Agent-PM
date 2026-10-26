@@ -54,7 +54,8 @@ l'équipe, dès que tu donnes la copy) → `E2` puis `E1` puis `E4` (la boucle Q
 | **L** | Compréhension géo — série S-L (ajouté le 2026-10-08) ; `GeoIntent` produit par la feuille (DQ1) : S-L3/S-L4 conditionnelles, S-L7a et S-L7f faites, S-L7d et S-L7e restent | L | MCP déployé (S-L1) |
 | **QA14707** | Retours QA de Raphael du 14/10 : créneau localisé, lieu compris (`GeoIntent` dans la feuille), clarification tenue par le code. Phases 1-3 déployées (`0b65159`) ; phases 4-5 sur `plan/qa14707`. Plan : `plans/qa14707/`, source : `phases/QA14707/` | L | **Fabien** (revue de la seconde PR, H3' live, H4 retest) |
 | **X1→X3** | 3 demandes chez MCP_B2C | — | **MCP_B2C** |
-| **AM1** | Tracking Amplitude : 3 MR ouvertes le 2026-10-20 (AgentB2C #146, dayuse-product-analytics #112, dayuse.com !15273) ; restent les revues et 3 vérifications humaines | S | **Fabien** (revue #146) |
+| **AM1** | Tracking Amplitude : AgentB2C #146 et dayuse-product-analytics #112 mergées (vu le 2026-10-26) ; restent dayuse.com !15273 et 3 vérifications humaines | S | **Fabien** (!15273) |
+| **MOB1** | Le widget dans l'app mobile (`__DAYUSE_NATIVE__`, pont de navigation, `native_context` opaque côté concierge) : plan de test + prompt | M | phase C : **Fabien** (app de prod) |
 
 **La seule échéance datée du projet : fin janvier 2027**, fin des patchs de sécurité Langfuse v3
 (chaîne `O1 → O2 → O4`). Tout le reste est arbitrable.
@@ -404,7 +405,7 @@ Les faits que seul le serveur connaît arrivent par le bloc `turn_facts` de la r
 `chat_*` d'agent-usa sont retirés, pas repris. Trois livrables, dans cet ordre : (1) la PR
 AgentB2C, faite ; (2) une MR `dayuse-product-analytics` ; (3) une MR dayuse.com.
 
-**Preuve (encore ouvert).** Aucune des 3 MR n'est mergée : AgentB2C
+**Preuve (encore ouvert).** Au 2026-10-26, #146 et #112 sont mergées, reste !15273. MR d'origine : AgentB2C
 [#146](https://github.com/Dayuse-Labs/AgentB2C/pull/146), dayuse-product-analytics
 [#112](https://github.com/Dayuse-Labs/dayuse-product-analytics/pull/112) (`ai-agent.md`,
 `events.yaml`, `tools/langfuse_fetch.py`), dayuse.com
@@ -430,6 +431,73 @@ AgentB2C, faite ; (2) une MR `dayuse-product-analytics` ; (3) une MR dayuse.com.
 
 **Terminé quand** les deux MR sont mergées et qu'un tour réel de chaque environnement est visible
 dans son projet Amplitude avec ses `turn_facts`.
+
+---
+
+## MOB1 — Le widget dans l'app mobile (`window.__DAYUSE_NATIVE__`) : plan de test (ouvert le 2026-10-26)
+
+**Taille : M** · phase A sans appareil ; phase B demande un build mobile ; phase C = Fabien sur la vraie app
+
+**Contexte.** L'app mobile (dayuse-com, `apps/frontend/mobile/src/screens/aiAssistant/`) ouvre
+`https://ai.dayuse.com/?source=mobile_app&locale=<lang>&currency=<cur>` dans une WebView. Elle injecte
+`window.__DAYUSE_NATIVE__ = {amp_device_id, amp_session_id, favoriteHotelIds, geolocation{lat,lon},
+lastBookings[≤3]{hotelName, hotelCity, price, timeslot}}` **avant** les scripts de la page
+(`aiAssistantBridge.ts::buildContextScript`), puis `NAVIGATION_BRIDGE_SCRIPT` après chargement : il
+détourne `window.open` et les `<a target="_blank">` vers `ReactNativeWebView.postMessage({type:
+'navigate', url})`, que l'app route par `resolveDayuseUrl`. Depuis la bascule d'ai.dayuse.com, c'est
+le widget AgentB2C qui est chargé : `utils.js::getNativeContext` lit le global, `state.js` /
+`index.js` passent en mode `mobile_app` (chat ouvert d'emblée), `tracking.js` relie l'identité
+Amplitude, et `send.js` envoie le bloc en `native_context` dans le corps `/v3`. Le concierge le
+traite en **bloc opaque** (`facade.py`, commentaire « native context intake » : le schéma n'était
+pas connu en juillet) — il l'est désormais, dans `aiAssistantBridge.ts`.
+
+**Preuve (encore ouvert).** Rien n'a été vérifié dans une WebView ni contre le script de pont réel
+(AM1 action 3 : « faire confirmer par l'équipe mobile que `__DAYUSE_NATIVE__` est injecté au début du
+document ») ; `facade.py` dit « Open item for whenever the mobile schema is specified ».
+
+**Actions**
+- **Phase A — simulation fidèle dans Chrome headless (CDP), sur la démo** (`https://widget-production-3f56.up.railway.app`,
+  clé Amplitude de dev ; recette CDP : mémoire `reference-widget-browser-verification-cdp`). Lire
+  `aiAssistantBridge.ts` et `AIAssistantScreen.tsx` sur la **branche par défaut** de dayuse-com (le
+  clone local peut être sur une autre branche : `git fetch` puis `git show origin/<défaut>:<chemin>`).
+  Viewport + user-agent iPhone, `window.ReactNativeWebView.postMessage` bouchonné pour capturer.
+  1. **Ouverture** : contexte injecté par `Page.addScriptToEvaluateOnNewDocument` (= `injectedJavaScriptBeforeContentLoaded`),
+     URL de l'app. Attendu : chat ouvert sans le hero, langue/devise de l'URL, `entry_source` /
+     `tracking_surface` = `mobile_app`. Refaire avec une injection **tardive** (après chargement) :
+     le widget se dit robuste à ce cas (`index.js`, `tracking.js`).
+  2. **Identité Amplitude** : `amplitude.track` et `navigator.sendBeacon` bouchonnés ; `device_id` /
+     `session_id` = ceux injectés.
+  3. **Pont de navigation** : injecter `NAVIGATION_BRIDGE_SCRIPT` **tel quel** (copié du fichier), faire
+     un tour de recherche, puis cliquer chaque sortie : lien de carte (`card.js` `target=_blank`),
+     bouton `window.open` (`card.js`, `messages.js`), CTA de la carte de réservation, « Voir tout »
+     (`carousel.js`). Attendu : **un** `{type:'navigate'}` par clic, et chaque URL acceptée par
+     `resolveDayuseUrl` (exécuter sa logique ou ses tests `resolveDayuseUrl.test.ts` sur ces URLs).
+  4. **`native_context` côté serveur** : le capturer dans le corps `/v3` (Network), vérifier que le tour
+     réussit, et **RGPD** : `lastBookings` (noms d'hôtels, prix) et `geolocation` ne doivent apparaître
+     ni dans les logs, ni dans `turn_facts`, ni dans la trace Langfuse du tour (lire la trace par l'API).
+  5. **Parité avec agent-usa** : ce qu'agent-usa faisait de `native_context` (grep ciblé dans
+     `../agent-usa/src`, jamais tout le repo). S'il exploitait géoloc, favoris ou réservations, c'est
+     une régression de la bascule à lister.
+  Tours synthétiques (`x-dayuse-synthetic: 1` par wrapper `fetch`, pas `?du_synthetic=1` qui coupe
+  Session Replay), 3 à 4 tours au total.
+- **Phase B — vraie WebView (option)** : simulateur iOS avec un build de dev de l'app dont
+  `AI_ASSISTANT_BASE_URL` pointe sur la démo (modification locale, jamais commitée). Rejoue 1 et 3.
+- **Phase C — après la bascule DNS, Fabien** : ouvrir l'assistant dans l'app de prod, connecté
+  (réservations) puis déconnecté ; un tour, un clic sur un hôtel, retour à la conversation.
+
+**Prompt**
+```
+Lis CLAUDE.md, puis CHANTIERS.md § MOB1 en entier : c'est ton plan. Exécute la phase A
+(cas 1 à 5) dans l'ordre, sans modifier de code. Pour chaque cas : attendu, observé, preuve
+(sortie, capture ou extrait de trace). Tours synthétiques uniquement, 4 au plus.
+À la fin : tableau des cas OK/KO, liste des écarts (régressions vs agent-usa, fuites RGPD,
+URLs refusées par resolveDayuseUrl), et pour chaque écart une proposition de correctif
+chiffrée — sans l'implémenter. Consigne le résultat en tête de HANDOFF.md sur une branche
+docs/mob1-<date> et ouvre la PR. Réponds en français.
+```
+
+**Terminé quand** les cas 1 à 5 sont prouvés dans la simulation, les écarts sont listés avec leur
+correctif proposé, et Fabien a validé la phase C dans l'app de prod.
 
 ---
 
