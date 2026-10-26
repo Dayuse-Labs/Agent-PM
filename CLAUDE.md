@@ -62,9 +62,10 @@ python scripts/smoke_e2e.py
 # Tests (offline — ni réseau ni clé API) — ~25 s pour ~3 000 tests (2026-10-19), dont ~10 s pour
 # tests/test_calendar_rot.py, qui rejoue TOUTE la suite dans un sous-processus, horloge décalée de
 # +400 j (tests/timeshift_plugin.py) : tout test rouge fait aussi tomber ce garde (2 vagues de
-# pourrissement : PR #71, #114). Une suite à plusieurs minutes est anormale : le 2026-10-16 elle a
-# pris 5-6 min sur cette machine, le même code 21 s le 2026-10-19 (cause d'environnement non
-# trouvée) — lancer `pytest -q --durations=15` avant d'accuser le code. Les tests JS du widget
+# pourrissement : PR #71, #114). Une suite à plusieurs minutes est anormale : jusqu'au 2026-10-26,
+# les tests serve-auth ouvraient une vraie session MCP_B2C à chaque import de `serve.py` (52
+# requêtes par run, 5-6 min quand MCP était injoignable) ; ils la stubbent désormais. Lancer
+# `pytest -q --durations=15` avant d'accuser le code. Les tests JS du widget
 # (tests/widget/*.test.mjs) passent par pytest (node --test, skip sans node).
 # dayuse_eval_pack/tests est hors testpaths.
 .venv/bin/pytest -q
