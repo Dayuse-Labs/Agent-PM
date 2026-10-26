@@ -130,12 +130,9 @@
 }
 
 /* ===== CARD ACTIONS (S-CX9) =====
-   The colour hierarchy is a contract, not a preference:
-     warm gradient  → leaves for the booking tunnel (.booking-card__cta ONLY)
-     evening blue   → the card's one action (this button, an <a> to the
-                      hotel page since QA 2026-09-23)
-   Before S-CX9 this card spent the gradient on a detour to a hotel page, which
-   left the actual decision — picking the hotel — looking like a filter chip. */
+   The card's one action (an <a> to the hotel page since QA 2026-09-23). Since
+   2026-10-26 (retour PO) it wears the Dayuse yellow of every primary action, as
+   on dayuse.com — background and colour come from buttons.css (Primary). */
 .pick-cta {
     display: block;
     box-sizing: border-box;
@@ -143,8 +140,6 @@
     text-align: center;
     text-decoration: none;
     padding: 12px 18px;
-    background: var(--solid-selected-default);
-    color: var(--fg-invert);
     border: none;
     border-radius: var(--radius-action);
     font-family: inherit;
@@ -271,16 +266,20 @@
    The discount vs the night rate, promoted from a footer row to the photo. It is
    the one number on the card that earns a glance from across the carousel, and
    `originalPriceEuro` carries it on 98.6% of offers (probed 2026-07-28).
-   Top-LEFT because .pool-badge already owns the right corner. */
+   Top-LEFT because .pool-badge already owns the right corner.
+   Shadow Black pill, white bold text: dayuse.com's own discount badge
+   (`bg-shadow-black text-white font-bold rounded-full`, listing cards) and the
+   booking card's .booking-card__plan-disc. The watermelon red it replaced
+   (retour PO 2026-10-26) read as an alert, not as the brand. */
 .deal-badge {
     position: absolute;
     top: var(--space-3);
     left: var(--space-3);
     z-index: 2;
-    background: var(--dy-watermelon);
+    background: var(--bg-invert);
     color: var(--fg-invert);
     font-size: var(--text-caption);
-    font-weight: var(--fw-black);
+    font-weight: var(--fw-bold);
     padding: 6px 12px;
     border-radius: var(--radius-action);
     box-shadow: var(--shadow-100);
@@ -613,9 +612,7 @@
 }
 
 /* The S-CX5 hotel-pick chip row (.pick-row / .pick-button) lived here until
-   S-CX9 moved the pick onto the result card itself (.pick-cta above). Its rule
-   about the warm gradient survived it: the gradient belongs to the one CTA that
-   actually leaves for the booking tunnel, and that is .booking-card__cta. */
+   S-CX9 moved the pick onto the result card itself (.pick-cta above). */
 
 /* ===== BOOKING CARD (inline CTA) =====
    Fixed 400px so the card reads the same in every thread, shrinking only when
@@ -922,7 +919,7 @@
     justify-content: center;
     gap: 6px;
     padding: 12px 22px;
-    border-radius: var(--radius-action);   /* fond et couleur : Universe Sunny, voir buttons.css */
+    border-radius: var(--radius-action);   /* fond et couleur : Primary (jaune Dayuse), voir buttons.css */
     font-size: var(--text-body);
     font-weight: 600;
     text-decoration: none;

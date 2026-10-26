@@ -6,6 +6,16 @@
 
 > 📋 **Pour savoir QUOI faire ensuite, ouvrir [`CHANTIERS.md`](CHANTIERS.md)** (état vérifié au 2026-09-14) : la liste des chantiers ouverts, chacun avec sa preuve, ses actions et un prompt prêt à coller — plus la liste de ce qu'il ne faut **pas** relancer parce que c'est déjà livré. `tasks/todo.md` est périmé et ne doit plus servir de référence.
 
+## 🟡 2026-10-26 (quinquies) — Branche `fix/widget-dayuse-brand` : widget aux couleurs Dayuse + prix dans la devise et la locale du marché (PR ouverte, NON mergée, NON déployée)
+
+**Widget** (retours PO) : boutons d'action en jaune Dayuse (rôle `--action-primary-*` de `tokens.css` : dégradé 62° `#FFAF36` → `#FFC536`, survol `#FF9F26` → `#FFB526`, texte `#292935`, comme le bouton primaire de dayuse.com) ; `.pick-cta` passe du sombre au jaune ; badge « -X% » en Shadow Black (`--bg-invert`) au lieu du rouge pastèque ; prix formatés par `Intl.NumberFormat` dans la locale langue-pays du marché (`web/vendor/static/js/chat/price_format.js`) sur la carte, la carte simplifiée et la booking card (fr « 165,10 € », en-US « $187.00 », en-GB « £120.00 »). `mapV3Hotels` transmet désormais `price_eur_cents` / `display_currency` / `display_price_minor`.
+
+**Concierge** : règle d'affichage renversée (décision Victor du 2026-10-26, **go de Fabien attendu avant merge**) : par défaut, une carte dont l'hôtel facture dans la devise du marché du visiteur (`profile.currency`, envoyée par le widget) s'affiche dans cette devise ; sinon EUR ; une demande explicite (« en euros » / devise de l'hôtel) garde la priorité pour la conversation. `display_currency.market_currency` / `apply_display_currency` / `shows_hotel_currency` / `comparison_mode`, branchés sur la recherche, les détails/comparaison, la booking card (formules et prix cité) et la référence « moins cher ».
+
+**Preuve** : pytest 3 159 passés / 2 skippés, 94 tests JS, ruff, mypy, guardrails verts ; contre-épreuves rouges (tests du widget contre `main`, tests concierge sans le correctif). Captures avant/après 1440 et 390 px sur widget local + backend simulé (pas de tour réel).
+
+**Reste** : go de Fabien sur la règle de devise ; déployer `concierge` ET `widget` (`DEPLOY.md`) ; capture sur le widget public ; vérifier en réel la synthèse d'un tour US (le texte doit citer `$`).
+
 ## ⏸️ 2026-10-26 (quater) — `widget` sur `0095a41` (sondes de santé, #152) ; bascule DNS reportée (latence Railway)
 
 **Déployé** : `widget` seul sur `0095a41` (servi à 13:36:07Z, build ~11 min au lieu de ~2). Preuve en ligne : `/healthz` 200 `healthy` ; `/readyz` 200 `ready` (le widget joint le concierge par le réseau privé) ; `/health` 200 `status: ok`, `version: 0095a41`, `env: production` ; CSP toujours appliquée. Backends inchangés sur `8d1579b`.

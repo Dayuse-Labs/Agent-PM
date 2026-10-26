@@ -57,7 +57,7 @@ from b2c_common.timeslot import parse_hhmm, slot_covers_window
 from mcp import ClientSession
 from mcp.client.streamable_http import streamable_http_client
 
-from .display_currency import HOTEL
+from .display_currency import HOTEL, shows_hotel_currency
 from .profile import (
     SessionProfile,
     resolve_hotel_reference,
@@ -762,6 +762,15 @@ def _offers_for_day(offers: list[Any], date: str | None) -> list[dict[str, Any]]
     return pool
 
 
+def _offers_currency(offers: list[Any]) -> str | None:
+    """The hotel's own currency, as its offers carry it (`hotelCurrency`, one
+    per hotel)."""
+    for offer in offers:
+        if isinstance(offer, dict) and isinstance(offer.get("hotelCurrency"), str):
+            return str(offer["hotelCurrency"])
+    return None
+
+
 def _day_rate_plans(
     offers: list[Any],
     date: str | None,
@@ -940,7 +949,7 @@ async def _quote_fresh_offer(
                         }
                     offer = best
                     quoted_price = _format_price_eur_cents(display_price_euro(best, details_hotel))
-                    if profile.display_currency == HOTEL:
+                    if shows_hotel_currency(profile, best.get("hotelCurrency")):
                         quoted_price = _hotel_currency_label(best, details_hotel) or quoted_price
                     start_time = _hhmm(best.get("startHour"), best.get("startMinute"))
                     end_time = _hhmm(best.get("endHour"), best.get("endMinute"))
@@ -1015,7 +1024,8 @@ async def _quote_picked_rate_plans(hotel_id: int, profile: SessionProfile) -> di
                 offers = details["data"].get("offers") or []
                 offers = [o for o in offers if bedding_matches(o, profile.room_requirements)]
                 plans = _day_rate_plans(
-                    offers, profile.date, details["data"].get("hotel"), profile.display_currency
+                    offers, profile.date, details["data"].get("hotel"),
+                    HOTEL if shows_hotel_currency(profile, _offers_currency(offers)) else None,
                 )
                 if not plans:
                     return {"ok": False, "error": "no bookable offer for this hotel"}

@@ -1,11 +1,12 @@
 /**
- * Boutons — fondations Dayuse : Colors (Action Universe / Solid / Translucent), Effects, Depth, Motion.
+ * Boutons — fondations Dayuse : Colors (Action Primary / Solid / Translucent), Effects, Depth, Motion.
  *
  * Une physique pour tout ce qui se presse : au survol la lumière répond, à l'appui le bouton cède.
- *   - Hover / Focus : le bouton ne bouge pas (Universe s'illumine, Default grise). Couleur : Instant.
+ *   - Hover / Focus : le bouton ne bouge pas (Primary fonce, Default grise). Couleur : Instant.
  *   - Press / Enter : le bouton descend de 2 px DANS son empreinte (transform : la mise en page ne
  *     bouge pas), avec les ombres internes de sa famille. Mouvement : Physical (300 ms, ease out).
- *   - Le soleil (dégradé Sunny) appartient à Universe seul : un seul bouton primaire par vue.
+ *   - Le jaune Dayuse (Primary) appartient aux boutons d'action : envoyer, choisir un hôtel,
+ *     réserver. Puces, filtres et liens restent en Default : ce sont des choix, pas l'action.
  * Chargé après les feuilles de composants : il fixe fond, couleur et états des boutons.
  */
 
@@ -27,29 +28,31 @@
     transition: transform var(--dur-physical) var(--ease-out);
 }
 
-/* ===== Universe — Sunny : Default (Morning) / Hover (Noon) / Press (Afternoon) ===== */
+/* ===== Primary — jaune Dayuse (retour PO du 2026-10-26) : Default / Hover / Press ===== */
 #initial-submit-button,
 .composer-send-btn,
 .booking-card__cta,
-.book-button {
-    background: var(--universe-sunny-default);
-    color: var(--universe-sunny-fg);
+.book-button,
+.pick-cta {
+    background: var(--action-primary-default);
+    color: var(--action-primary-fg);
     border: none;
     box-shadow: none;
 }
 #initial-submit-button:hover:not(:disabled):not(.button-loading),
 .composer-send-btn:hover:not(:disabled):not(.button-loading),
 .booking-card__cta:hover:not(:disabled):not(.button-loading),
-.book-button:hover:not(:disabled):not(.button-loading) {
-    background: var(--universe-sunny-hover);
-    box-shadow: var(--universe-sunny-shadow-hover);
+.book-button:hover:not(:disabled):not(.button-loading),
+.pick-cta:hover {
+    background: var(--action-primary-hover);
 }
 #initial-submit-button:active:not(:disabled):not(.button-loading),
 .composer-send-btn:active:not(:disabled):not(.button-loading),
 .booking-card__cta:active:not(:disabled):not(.button-loading),
-.book-button:active:not(:disabled):not(.button-loading) {
-    background: var(--universe-sunny-press);
-    box-shadow: var(--universe-sunny-shadow-press);
+.book-button:active:not(:disabled):not(.button-loading),
+.pick-cta:active {
+    background: var(--action-primary-press);
+    box-shadow: var(--shadow-press-default);
     transform: translateY(var(--press-offset));
 }
 #initial-submit-button:disabled,
@@ -85,14 +88,8 @@
 }
 
 /* ===== Selected (Solid/Selected) : fond sombre, l'appui s'éclaircit au lieu de s'ombrer ===== */
-.pick-cta,
 .feedback-control__btn.is-selected {
     color: var(--fg-invert);
-}
-.pick-cta:hover { background: var(--solid-selected-hover); }
-.pick-cta:active {
-    background: var(--solid-selected-press);
-    transform: translateY(var(--press-offset));
 }
 .feedback-control__btn.is-selected:active { transform: translateY(var(--press-offset)); }
 

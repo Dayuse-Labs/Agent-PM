@@ -119,6 +119,15 @@
     --universe-sunny-shadow-hover: 0 -4px 16px 0 rgba(255, 197, 54, 0.25), 0 4px 16px 0 rgba(246, 98, 54, 0.13);
     --universe-sunny-shadow-press: inset -4px -4px 8px 0 rgba(255, 197, 54, 0.13), inset 4px 4px 4px 0 rgba(255, 197, 54, 0.25);
 
+    /* Action Primary — le jaune Dayuse, sur tout bouton primaire (retour PO du 2026-10-26).
+       Même paire que le bouton primaire de dayuse.com (dégradé #FFAF36 → Sunshine Yellow #FFC536,
+       texte Shadow Black #292935) et que le skill de marque (62°, survol #FF9F26 → #FFB526).
+       Universe Sunny (ci-dessus) reste celui des pastilles de marque (avatar, en-tête). */
+    --action-primary-default: linear-gradient(62deg, #ffaf36 0%, #ffc536 100%);
+    --action-primary-hover:   linear-gradient(62deg, #ff9f26 0%, #ffb526 100%);
+    --action-primary-press:   var(--action-primary-hover);
+    --action-primary-fg:      #292935;
+
     /* Action Default : calme au repos et au survol, il s'enfonce à l'appui */
     --shadow-press-default: inset -4px -4px 8px 0 rgba(41, 41, 53, 0.03), inset 4px 4px 4px 0 rgba(41, 41, 53, 0.06);
 
@@ -209,5 +218,5 @@
     --dy-mango:           #fd7030;
     --dy-apricot:          #ffaf36;
     --dy-gradient-primary: linear-gradient(135deg, #ffd86b 0%, #ffc536 50%, #feb900 100%);
-    --dy-gradient-cta:     linear-gradient(62deg, #ffaf36 0%, #ffc536 100%);
+    --dy-gradient-cta:     var(--action-primary-default);
 }

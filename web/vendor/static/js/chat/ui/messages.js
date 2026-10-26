@@ -8,7 +8,7 @@ import { state } from '../state.js';
 import { getLanguage, t } from '../i18n.js';
 import { formatSlotRange } from '../slot_time.js';
 import { escapeAttr, escapeHtml, sanitizeDayuseUrl, sanitizeImageUrl } from '../security.js';
-import { formatBackendPrice, parsePrice } from '../hotels/card.js';
+import { cardPrice, formatBackendPrice, formatCardAmount } from '../hotels/card.js';
 import { formatRating } from '../utils.js';
 import { submitFeedback } from '../feedback.js';
 import {
@@ -126,11 +126,11 @@ export function addMessage(content, isUser = false, isHotelResults = false, skip
             if (hotel) {
                 // hotel.price is a formatted string ("from €139.00"); parse it so
                 // the inline card shows the real amount + currency, not "NaNSGD".
-                const priceInfo = parsePrice(hotel.price || hotel.min_price_ttc || 0, hotel.display_currency);
-                const currencyPrefix = ['$', '€', '£', '¥', '₹', '₩'].includes(priceInfo.currency)
-                    ? priceInfo.currency
-                    : `${priceInfo.currency} `;
-                const formattedPrice = priceInfo.value > 0 ? `${currencyPrefix}${priceInfo.display}` : '';
+                // Same price and locale formatting as the carousel card.
+                const priceInfo = cardPrice(hotel);
+                const formattedPrice = priceInfo.value > 0
+                    ? escapeHtml(formatCardAmount(priceInfo.value, priceInfo.code))
+                    : '';
                 const safeName = escapeHtml(hotel.name || '');
                 const safeNameAttr = escapeAttr(hotel.name || '');
                 const safeHotelId = escapeAttr(String(hotel.id || hotel.hotel_id || ''));

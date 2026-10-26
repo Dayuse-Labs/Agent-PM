@@ -383,7 +383,7 @@
     height: 36px;
     border: 0;
     border-radius: var(--radius-action);
-    display: inline-flex;   /* fond et couleur : Universe Sunny, voir buttons.css */
+    display: inline-flex;   /* fond et couleur : Primary (jaune Dayuse), voir buttons.css */
     align-items: center;
     justify-content: center;
     cursor: pointer;
