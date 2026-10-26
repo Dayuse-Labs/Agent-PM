@@ -47,7 +47,7 @@ l'équipe, dès que tu donnes la copy) → `E2` puis `E1` puis `E4` (la boucle Q
 | **O5** | 2 variables d'env sur le service MCP | S | **MCP_B2C** |
 | **O6** | Vignette `degraded` manquante | S | — |
 | **P1→P6** | 6 décisions produit en attente | — | **Fabien** |
-| **A1** | Identité D7 → oidc-mtls | L | repo fleet |
+| **A1** | Identité D7 → oidc-mtls ; rotation des bearers semaine du 2026-11-02 | L | repo fleet · ⏰ **2027-01-31** |
 | **A2** | S10 shadow-run / S11 canary | L | accès ES prod |
 | **A3** | `conversation_logs` + `InMemorySessionService` | M | S10/S11 |
 | **G1→G12** | Backlog produit / géo | — | — |
@@ -643,7 +643,7 @@ en `min_version = 2` et casserait les vues « observations » sur notre v3).
 | **P2** | Remontée QA n°3 | Doit-on pouvoir sélectionner un hôtel et entrer dans le tunnel depuis l'agent ? Et que se passe-t-il si l'utilisateur veut payer en ligne ? **Aucun test possible avant l'arbitrage.** |
 | **P3** | Remontée QA n°6 | Les Booking Fees ne sont pas respectées à l'affichage. Prix venu de MCP_B2C + config back-office par hôtel → à router vers l'équipe inventaire, ce n'est pas un chantier agent. |
 | **P4** | `response_language` | Le triage ne lit que `language`, jamais `profile.language` (`agents/b2c_concierge/b2c_concierge/triage.py:199-216`). ⚠️ **Le symptôme aurait changé depuis UX2** : un « sí » isolé dans une conversation française répondrait maintenant **en espagnol** (avant : en anglais). **À re-tester avant de décider** — c'est une ligne, mais elle change un comportement de réponse. |
-| **P5** | Edge public du concierge | Supprimer le domaine (recommandé : personne ne le consomme) ou binder un socket dual-stack. La cause du 502 est identifiée (`IPV6_V6ONLY` forcé par asyncio) ; le `targetPort` n'était pas en cause. |
+| **P5** | Edge public du concierge | ✅ **Fait le 2026-10-26** : `concierge-production-aaa2.up.railway.app` supprimé avant la bascule d'ai.dayuse.com (compensation de la prolongation D7, voir A1) ; il répond désormais 404 « Application not found », le widget sert toujours les tours par le réseau privé. La cause du 502 était `IPV6_V6ONLY` forcé par asyncio. |
 | **P6** | Seuil de qualité sans CI | cf. **E5** ci-dessus. |
 
 ---
@@ -661,8 +661,16 @@ Le provider cible est un stub.
 **Preuve (vérifiée) :** `libs/b2c_common/b2c_common/auth.py:4-8` — « its oidc-mtls provider is a
 **NotImplementedError stub** ». Rappelé dans les 3 README de services et dans `CLAUDE.md:15`.
 
-⚠️ L'échéance est **événementielle, pas datée** : elle se déclenche au canary. Comme S11 n'a
-jamais eu lieu, elle n'a jamais mordu — mais elle mordra dès qu'on parlera de trafic réel.
+**Décision (Fabien, 2026-10-26) : exception prolongée jusqu'au 2027-01-31.** L'échéance d'origine
+était « avant le canary S11 » ; la bascule franche d'ai.dayuse.com amène du trafic réel sans
+canary, donc elle tombait. Bloquer la bascule jusqu'à oidc-mtls était irréaliste (taille L, autre
+repo, pas de date) ; prolonger sans date aurait fait de l'exception un trou permanent.
+Compensations :
+- **P5 avant la bascule** : le domaine public du concierge est supprimé, le widget reste la seule
+  surface publique du projet.
+- **Rotation des bearers, semaine du 2026-11-02.** Prérequis : `BearerAuthMiddleware`
+  (`libs/b2c_common/b2c_common/auth.py`) ne compare qu'**un** jeton ; sans un second jeton
+  accepté pendant la transition, la rotation ouvre une fenêtre de 401 (cf. 2026-08-24).
 
 ## A2 — S10 (shadow-run) et S11 (canary) n'ont jamais eu lieu
 
