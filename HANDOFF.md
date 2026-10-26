@@ -38,8 +38,13 @@
 - Côté mini, avec le prompt compact : mini omet les clés à leur valeur par défaut, et `null` renvoie
   `affirmative` / `booking_confirmation` / `wants_more_options` aux regex fr/en. Sans effet si la
   bascule est atomique (variable + code ensemble, retour arrière des deux).
-- « celui de St Pauls » : `hotel_name` passe à `null` sur luna, mais la ligne de fixture est
-  reconstruite sans la question d'origine. À juger au rejeu live : y ajouter le jeu `geo-class`.
+- Côté luna, entre le prompt d'origine et l'itération 2 :
+  - 1 régression : « hotel con piscina a milano oggi », `it` → `es` ;
+  - 3 changements à juger au rejeu live : « non attends… montre-moi plutôt le deuxième » `lower`,
+    « celui de St Pauls » sans `hotel_name` (la ligne de fixture n'a pas la question d'origine), et
+    « oui » à « quelle ville ? » `answers_pending=no`.
+  - Le rejeu live ajoute donc `geo-class` et `language-robustness` aux jeux H3 (rapport §5).
+- **Décision de Fabien** : luna accepté, bascule atomique.
 
 **Outillage** : `../AgentB2C-deploy` (worktree détaché, lié à Railway) sert aux prochains
 déploiements : `git -C ../AgentB2C-deploy checkout --detach origin/main` avant chaque usage, et ne
