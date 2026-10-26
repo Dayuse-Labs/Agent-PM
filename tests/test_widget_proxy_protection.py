@@ -191,6 +191,8 @@ class TestSecurityHeaders:
         names = dict(wp.security_headers())
         assert "Content-Security-Policy-Report-Only" not in names
         assert "default-src 'self'" in names["Content-Security-Policy"]
+        # enforced, a block must still reach the logs
+        assert "report-uri /csp-report" in names["Content-Security-Policy"]
 
     def test_every_response_carries_them(self):
         handler = wp.WidgetProxyHandler.__new__(wp.WidgetProxyHandler)
