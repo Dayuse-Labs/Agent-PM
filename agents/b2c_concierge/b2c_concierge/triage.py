@@ -357,8 +357,8 @@ def fallback_family(message: str) -> str:
 
 _TRIAGE_INSTRUCTION = f"""You are the triage step of the Dayuse b2c-concierge, the
 conversational assistant of dayuse.com (day-use hotel booking). Classify ONE
-incoming end-user message. Return ONLY a JSON object (no prose, no code fence)
-with exactly these keys:
+incoming end-user message. Return ONLY a compact JSON object on one line (no
+indentation, no prose, no code fence) with exactly these keys:
 - "family": one of {list(FAMILIES)} —
     search  = looking for a day-use hotel (destination, area, dates, filters, or a hotel named by the user),
     faq     = a question about Dayuse conditions / policies / how it works (cancellation, refund, check-in/out, payment),
@@ -401,8 +401,7 @@ with exactly these keys:
                position). Set "pick_position" to that 1-based number.
                An ordinal stays a position INSIDE a longer sentence, whatever
                verb or agreement word surrounds it ("je préfère la troisième",
-               "let's go with the second one", "zeig mir das zweite",
-               "quiero el segundo").
+               "let's go with the second one").
     none     = anything else — INCLUDING a request for something cheaper than
                what was shown ("moins cher", "un hôtel moins cher", "cheaper",
                "c'est trop cher", "quelque chose de moins cher"). That asks for
@@ -411,8 +410,8 @@ with exactly these keys:
                "THE cheapest" picks one, "cheaper" searches again.
   This is independent of "family": "je veux booker le moins cher" is
   family=booking + pick=cheapest, "montre-moi le moins cher" is family=search +
-  pick=cheapest. When no hotels have been proposed yet, still answer honestly —
-  the system checks that itself.
+  pick=cheapest. You never see the hotels shown: classify the words alone,
+  even when the context mentions no list — the system checks that one exists.
 - "pick_position": the 1-based number when "pick" is "position", otherwise null.
   Careful with French dates: "le 28" is a DATE (family=search, pick=none), not
   position 28.
@@ -420,9 +419,8 @@ with exactly these keys:
   request of its own — "ok", "oui", "d'accord", "sure", "yes", "sí", "sì", "ja",
   "sim", "va bene", "einverstanden". Colloquial agreement counts in ALL the
   languages above, also when it adds only a go-ahead ("top", "geht klar",
-  "perfecto, adelante", "perfetto, procedi", "fine, go for it", "prima, doe
-  maar"). False as soon as it says anything else ("ok pour demain" carries a
-  date, "oui le premier" carries a choice).
+  "fine, go for it"). False as soon as it says anything else ("ok pour demain"
+  carries a date, "oui le premier" carries a choice).
 - "day_stated": true when the message says which day: a date, a weekday or a
   relative day ("le 3", "vendredi", "demain", "today"), words that point at
   today ("maintenant", "right now", "ce soir", "cet après-midi", "this
@@ -483,18 +481,20 @@ with exactly these keys:
   ONLY when the CURRENT message itself talks about price; the evidence is those
   price words. Omitting the key is the usual case.
     lower = asks for cheaper alternatives than the offers displayed, with a
-            price comparative ("moins cher", "plus économique", "cheaper",
-            "más barato", "günstiger") — then wants_more_options=false.
+            price comparative ("moins cher", "plus économique", "cheaper")
+            — then wants_more_options=false.
     clear = explicitly drops that price preference ("peu importe le prix",
             "price doesn't matter").
+  ALWAYS omit when there are no RECENT USER MESSAGES: it is the first message,
+  no offer was displayed, there is nothing to compare with. ALWAYS omit when the
+  message states an amount: that is "requested_budget" alone.
   Omit for a change of place, date, time, party or filter, a correction or a
   hesitation — even right after a "cheaper" turn ("plutôt à Lyon", "et dimanche
   ?", "un autre quartier", "wait, actually no"): none of them talks about price.
   Omit for a price wish that compares with nothing ("un hôtel abordable",
-  "nothing too pricey"), for a neutral "other options", for a numeric budget,
-  and when no offers were displayed yet. "Le moins cher de ceux-là" picks a
-  displayed offer: that is "pick", not "lower". Never put an amount here: code
-  computes the reference.
+  "nothing too pricey") and for a neutral "other options". "Le moins cher de
+  ceux-là" picks a displayed offer: that is "pick", not "lower". Never put an
+  amount here: code computes the reference.
 - "requested_occupancy": ONLY a CURRENT change to the user's party:
   {{"adults": integer or null, "children": integer or null, "total": integer or null,
   "evidence": "exact current party-size statement"}}. Omit unchanged counts.
