@@ -6,6 +6,16 @@
 
 > 📋 **Pour savoir QUOI faire ensuite, ouvrir [`CHANTIERS.md`](CHANTIERS.md)** (état vérifié au 2026-09-14) : la liste des chantiers ouverts, chacun avec sa preuve, ses actions et un prompt prêt à coller — plus la liste de ce qu'il ne faut **pas** relancer parce que c'est déjà livré. `tasks/todo.md` est périmé et ne doit plus servir de référence.
 
+## 📌 2026-10-27 (undecies) — La pile Railway EST la prod client
+
+Rectification (Fabien) : depuis la bascule d'ai.dayuse.com (2026-10-26), la pile Railway sert les
+vrais utilisateurs, sur **MCP_B2C prod** (vérifié : ai.dayuse.com répond `server: railway-hikari`
+et `<meta name="agent-version">`). `CLAUDE.md`, `DEPLOY.md` et `CHANTIERS.md` (A2, M1) le
+disaient encore « démo », « pas de vrais utilisateurs », « MCP de staging » : corrigés. Les
+déploiements du 2026-10-27 (blocs sexies, octies, decies) ont donc touché la prod, et les
+sessions 8a6576a4 / 1eb2430a étaient de vrais utilisateurs. Les blocs antérieurs à la bascule
+gardent le mot « démo » pour la même pile.
+
 ## 🚀 2026-10-27 (decies) — `concierge` déployé sur `b446a65` (#165)
 
 **Déployé** (`DEPLOY.md`, par Claude à la demande de Fabien) : pré-vol sur `b446a65`, pytest
@@ -71,7 +81,7 @@ avant de deviner sur le message.
 
 ## ↔️ 2026-10-27 (septies) — « Élargir la zone » : le tri au plus proche seulement en secours (branche `fix/widen-sort-after-full-page`)
 
-**Constat** (rejeu en démo du bloc sexies) : « élargir la zone » après une page PLEINE à Paris
+**Constat** (rejeu en prod du bloc sexies) : « élargir la zone » après une page PLEINE à Paris
 passait à 30 km au plus proche, donc montrait les 5 hôtels les plus centraux (0,9 à 2,1 km),
 l'inverse d'un élargissement.
 
@@ -165,7 +175,7 @@ prompt, jamais une regex ; « idéalement » n'est pas un filtre dur ; piscine i
   de `origin/main` : les nouveaux tests échouent (dont les 4 tests géo tirés de la trace).
 - MCP en direct, vrais callbacks : T5 Saint-Ouen 1 → 5 hôtels ; piscine intérieure + spa
   souhaité + 4-5 étoiles à 2 km : 0 → 5.
-- Rejeu local des 2 sessions (Redis :6390, luna sur tous les rôles, pas le mélange de la démo) :
+- Rejeu local des 2 sessions (Redis :6390, luna sur tous les rôles, pas le mélange de la prod) :
   1eb2430a → 5 hôtels à chaque tour après la date, `starRatings [4, 5]` et `[34, 35]` envoyés
   dès T1 ; Galveston T4 → 4 hôtels avec départ 23 h (0 en prod).
 
