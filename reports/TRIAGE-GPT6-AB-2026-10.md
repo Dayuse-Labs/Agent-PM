@@ -4,7 +4,10 @@
 > **avant** toute bascule, sur l'appel de triage seul (la vraie `triage.classify()`, pas toute la pile).
 > Instrument : `scripts/measure_triage_models.py`. Entrées figées : `evals/triage_inputs.jsonl`.
 
-## Verdict
+> **Mise à jour du 2026-10-26** : le verdict ci-dessous est celui du prompt d'origine. Après 2
+> itérations du prompt, luna tient la barre. Fabien a décidé la bascule, atomique (§5).
+
+## Verdict (prompt d'origine, 2026-10-19)
 
 **gpt-6-luna ne tient pas tel quel. Le triage reste sur gpt-4o-mini en prod.**
 
@@ -142,6 +145,132 @@ Langue = locale de l'item : mini 110/114, luna 111/114.
    arrière : remettre la variable avant ou avec le code.
 
 Échéance : 2027-01-14.
+
+## 5. Les 2 itérations du prompt (2026-10-26)
+
+**Montage** : le même que le §1, sans les bras `luna-low` ni « froid » (`--low 0 --cold 0`). Soit 114
+entrées × 3 tirages × 2 modèles, sur le code avec l'effort par rôle et `max_retries=0`.
+- Lignes brutes : `evals/reports/triage_ab_2026-10-26-iter{1,2}.jsonl`, gitignorées.
+- Aucun exemple du prompt n'est tiré de la fixture : celle-ci est aussi le jeu de mesure.
+
+**Barre, fixée avant la mesure :**
+- au plus 1 désaccord `price_comparison` contre luna ;
+- les 3 cas étiquetés justes sur luna ;
+- aucun champ où luna perd l'arbitrage ;
+- mini ne régresse pas ;
+- 0 `length` sur luna.
+
+**Itération 1** (`price_comparison` seulement quand le message parle de prix, ordinal dans une
+phrase, accord familier dans les 7 langues) : barre ratée.
+- Corrigés :
+  - les `clear` parasites (zone, date, « élargir la zone ») ;
+  - le `lower` sur « plutôt vers les champs élysées », qui plafonnait le prix sur un changement de
+    zone ;
+  - « passt, mach das » ;
+  - « montre-moi plutôt le deuxième ».
+- Encore faux, ou nouveau :
+  - `lower` au **premier message** (« moins de 150€ », « pas trop cher ») : rien n'est à l'écran,
+    donc le code pose « moins cher que quoi ? » au lieu de chercher ;
+  - « ok pour la deuxième », 1 tirage sur 3 ;
+  - mini tronqué 3 fois sur 3 sur « moins cher ? » (JSON indenté, plafond de 200 tokens) ;
+  - une dérive de la langue vers `es`.
+
+**Itération 2** (JSON compact sur une ligne ; ni premier message ni montant pour `price_comparison` ;
+le triage classe les mots, il ne voit jamais la liste ; moins d'exemples étrangers) :
+
+| bras | erreurs | JSON KO | `length` | tok. compl. p50/p95/max | latence p50/p95 | coût / appel |
+|---|---|---|---|---|---|---|
+| mini | 1 timeout | 1 | 0 | 79 / 104 / 106 | 1,69 / 2,43 s | 0,000531 $ |
+| luna | 0 | 0 | 0 | 81 / 99 / 116 | **1,49 / 2,49 s** | **0,000364 $** |
+
+**Côté luna, la barre est tenue :**
+- `price_comparison` : **1** désaccord (7, puis 6). Reste « non attends ne confirme pas, montre-moi
+  plutôt le deuxième » : `lower` en majorité, sur un message qui choisit aussi une position.
+- Plus aucun `lower` au premier message.
+- Cas étiquetés : « ok pour la deuxième » 2 tirages sur 3 en `position` ; « passt, mach das »
+  juste ; « 150 » (réponse à la question de budget) juste. mini rate encore ce dernier.
+- `family` 4 sur 4 pour luna. `language` : luna juste sur les 2 désaccords avec mini.
+- 0 `length`, 0 erreur.
+
+**luna, prompt d'origine → itération 2** (vote majoritaire, champ par champ) :
+- Gains :
+  - 2 ordinaux ;
+  - « passt, mach das » ;
+  - `answers_pending` juste sur « vale », « va bene » et « c'est parfait vas-y », qui répondent à
+    la question posée ;
+  - 6 `price_comparison` parasites retirés.
+- **1 régression** : « hotel con piscina a milano oggi », `it` → `es`, sur les deux modèles (langue
+  = locale de l'item : 111 → 110 sur 114).
+- **3 changements à juger en live** (jeux entre parenthèses) :
+  - « non attends ne confirme pas, montre-moi plutôt le deuxième » : `price_comparison` passe de
+    `clear` à `lower`, alors que le message choisit aussi la 2e position (`language-robustness`) ;
+  - « celui de St Pauls » : `hotel_name` passe du nom complet composé à `null` (`geo-class`). La
+    ligne de fixture est reconstruite sans la question d'origine (« quel Leonardo Royal ? »), qui
+    est justement ce qui permet de la trancher ;
+  - « oui » en réponse à « dans quelle ville ? » : `answers_pending` passe de `yes` à `no`, avec
+    `affirmative` vrai (`dialogue-state`).
+
+**Côté mini, la barre est ratée.** En JSON compact, mini omet les clés à leur valeur par défaut (57
+`affirmative`, 57 `booking_confirmation`, 55 `wants_more_options`). Pour le code, `None` veut dire
+« le LLM n'a rien dit », et ces 3 champs repassent par les regex fr/en (`is_bare_affirmative`,
+`is_more_options_signal`, la confirmation). mini dérive aussi vers `es` sur 2 messages français.
+
+**Décision (Fabien, 2026-10-26)** : luna accepté, bascule **atomique**. Le code et la variable
+partent ensemble, et un retour arrière ramène les deux. Ainsi mini ne tourne jamais avec ce prompt.
+Avant la bascule : le rejeu live H3 (`qa-14707`, `dialogue-state`, `geo-poi`) + `geo-class` +
+`language-robustness`, qui couvrent les 4 cas ci-dessus.
+
+## 6. Rejeu live, 2 bras (2026-10-27) : luna au niveau de la prod, bascule
+
+**Montage.**
+- IP `45.156.191.77`, Redis :6390, concurrence 1, 3 tirages par bras.
+- 5 jeux, 67 items : `qa-14707` (12), `dialogue-state` (11), `geo-poi` (21), `geo-class` (10),
+  `language-robustness` (13).
+- **A** = main `54c6a09` (la prod), triage gpt-4o-mini ; **B** = `feat/triage-gpt-6-luna`, triage
+  luna.
+- Réglages communs : feuilles luna, synthèse `gpt-5.2` (`DAYUSE_REASONING_EFFORT_SYNTHESIS=low`,
+  comme la démo), `DISABLE_AIOHTTP_TRANSPORT=True` (voir plus bas).
+- Runs `m1-2026-10-27-httpx-{mini,luna}-r{1,2,3}`.
+- Pas de comparaison à `h3p-2026-10-19` : `dialogue-state` et `geo-poi` ont changé le 2026-10-20
+  (`b3e2318`).
+- Ces 2 jeux étaient restés à leur version d'avant `b3e2318` dans Langfuse (7 items différents, 2
+  manquants). Tous les items hébergés étaient identiques au repo d'avant `b3e2318`, donc aucune
+  correction faite dans Langfuse n'a été perdue. Ils ont été ré-amorcés.
+
+**Premier essai invalide** (`m1-2026-10-27-{mini,luna}-r*`, à ignorer) :
+- Sur les 2 bras, ~42 % des triages sont passés en repli regex.
+- Ces « Timeout » échouaient en **0,02-0,06 s** : le transport aiohttp de litellm réutilise une
+  connexion que le réseau local a coupée.
+- Reproduit hors service sur le même appel : échec après 8 s et 30 s d'inactivité, 7 sur 7 bons
+  avec `DISABLE_AIOHTTP_TRANSPORT=True`.
+- Depuis #157 (`max_retries=0`), plus rien ne masque ce défaut.
+- Prod non touchée : 2 timeouts sur 273 triages depuis le déploiement de `54c6a09`.
+
+**Résultats** (replis du triage : luna 0 sur 276 tours, mini 4 sur 268) :
+- Total des évaluateurs : **mini 575/631 (91,1 %), luna 574/631 (91,0 %)**.
+- 45 lignes (jeu × évaluateur) sur 50 sont identiques ; les 5 autres diffèrent d'un seul item.
+- 2 gains pour luna : `ds-oui-to-clarify-keeps-request` et `qa14707-gare-du-nord-en`, tous deux
+  sur `active_filters_include`, 3 sur 3 contre 2 sur 3.
+- 3 pertes, aucune due au triage :
+  - `geo-poi-generic-gare-no-city`, `must_ask_city` 0/3 contre 1/3 : les 6 réponses des 2 bras
+    **demandent bien la ville**. C'est l'heuristique de mots-clés qui la rate, comme le
+    2026-10-19.
+  - `geo-poi-notre-dame`, `clarify_options_include_country` 2/3 contre 3/3 : aucune
+    clarification dans les 6 runs, tous trouvent des hôtels. L'évaluateur bascule quand la réponse
+    ne nomme pas Paris.
+  - `qa14707-poissonniere-75009-no-country-en`, `resolved_country_code` 2/3 : un tour dégradé
+    (« I can't reach the hotel search »), un incident ponctuel.
+
+**Les 4 cas que la mesure hors ligne ne tranchait pas :**
+- « celui de St Pauls » : 3/3 sur les 2 bras. En contexte réel, la question d'origine est
+  présente.
+- « oui » à « quelle ville ? » : luna 3/3, mini 2/3.
+- « non attends… montre-moi plutôt le deuxième » : `expected_route` échoue 3/3 **sur les 2 bras**.
+  C'est un défaut existant, que le `lower` de luna ne change pas.
+- Milano : la prod (mini) répond **en espagnol 3 fois sur 3** ; luna 2 fois en espagnol, 1 en
+  italien. La dérive `es` est celle du modèle en prod, pas une régression de luna.
+
+**Verdict** : luna tient le niveau de la prod de bout en bout. La bascule peut se faire.
 
 ## Reproduire
 

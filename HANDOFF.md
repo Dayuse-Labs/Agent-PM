@@ -22,7 +22,122 @@ Source : 128 conversations réelles de la nuit du 26 au 27/10 (traces Langfuse),
 
 **Pièges** : le rejeu local part d'une IP française, pas du datacenter de prod — le biais IP de Mapbox n'est pas reproduit à l'identique (il l'a été 7 fois sur 8 pour A malgré tout). Le triage (gpt-4o-mini) n'est pas déterministe d'un rejeu à l'autre (« Layover in JFK » : question de date sur main, accueil sur la branche).
 
-## 🟡 2026-10-26 (quinquies) — Branche `fix/widget-dayuse-brand` : widget aux couleurs Dayuse + prix dans la devise et la locale du marché (PR ouverte, NON mergée, NON déployée)
+## 🚀 2026-10-27 (bis) — Bascule M1 : triage du `concierge` sur gpt-6-luna (`d4f4fb1`, #158)
+
+**Déployé** (`DEPLOY.md`, par Claude à la demande de Fabien, depuis `../AgentB2C-deploy`) :
+- Pré-vol : main = `d4f4fb1` (merge de #158, même arbre que la branche testée), worktree propre,
+  pytest **3 186 passés / 1 skippé**.
+- **`concierge` seul** : son seul changement depuis `54c6a09` est `triage.py`. `widget` reste sur
+  `54c6a09`, `hotel-search` et `faq` sur `8d1579b` (raison dans le bloc sexies ci-dessous).
+- 10:56:35Z, avec `--skip-deploys` : `LANGFUSE_RELEASE=d4f4fb1` et
+  `DAYUSE_MODEL_TRIAGE=openai/gpt-6-luna`. Puis `railway up --service concierge --detach` ;
+  déploiement `4c12003d` en `SUCCESS` à 10:58:14Z.
+
+**Preuves (Langfuse)** :
+- Les 4 traces après 10:58:14Z portent `release=d4f4fb1`. Leur génération de triage tourne sur
+  `openai/gpt-6-luna` : 2 tours synthétiques (`synthetic-33c4c187`) et un visiteur réel, sur
+  `/v3/chat` comme sur `/v3/chat/stream`. Le « Bonjour » sans LLM rend ses `turn_facts`.
+- La règle resserrée tient en ligne : « un hôtel pas trop cher à Lyon demain après-midi » (premier
+  message), puis « et plutôt à Villeurbanne ? ». Aucun `price_comparison` n'est posé. Triage en
+  1,68 s et 1,54 s.
+- 0 génération gpt-4o-mini de 10:58:14Z à 11:02:37Z (13 générations : luna et gpt-5.2).
+- Vu en passant, sans lien avec la bascule : « plutôt à Villeurbanne » rend les mêmes offres que
+  Lyon, car Villeurbanne est dans le rayon de Lyon. `refinement_unchanged` le dit.
+
+**Retour arrière (code ET variable)** :
+1. `LANGFUSE_RELEASE=54c6a09` et `DAYUSE_MODEL_TRIAGE=gpt-4o-mini`, avec `--skip-deploys` ;
+2. `railway up --service concierge --detach` depuis un worktree sur `54c6a09`.
+
+mini avec le nouveau prompt régresse.
+
+**Piège découvert** : les 3 évaluateurs Langfuse tournent toujours sur gpt-4o-mini, et ils sont
+actifs. Environnement `langfuse-llm-as-a-judge` : 228 générations en 7 jours, toutes sur mini.
+- 172 viennent des experiments du rejeu (08h-09h) ;
+- environ 50 viennent du trafic de la démo depuis le 2026-10-26 14h ;
+- 1 seule les 6 jours d'avant.
+
+Tant qu'ils ne sont pas passés sur luna, M1 n'est pas fini, et chaque experiment les appelle.
+
+**Reste** (M1) :
+- les 3 évaluateurs sur luna (UI, Fabien), puis `observability/langfuse/evaluators.json` ;
+- la baseline du gate, une seule fois, dans le montage final ;
+- 2 décisions ouvertes pour Fabien : une relance unique du triage sur échec en moins d'une seconde ;
+  un montant explicite prioritaire sur `lower` (`agent.py`, branche `lower`).
+
+## ✅ 2026-10-27 — Rejeu live du triage luna : au niveau de la prod, prêt pour la bascule (#158)
+
+**Fait** (rapport `reports/TRIAGE-GPT6-AB-2026-10.md` §6) :
+- 2 bras le même jour, depuis l'IP `45.156.191.77` : A = main `54c6a09` + triage gpt-4o-mini (la
+  prod), B = `feat/triage-gpt-6-luna` + luna.
+- 5 jeux (67 items), 3 tirages, concurrence 1, Redis :6390.
+- **mini 575/631 (91,1 %), luna 574/631 (91,0 %).** Les 5 écarts d'un item sont expliqués et ne
+  tiennent pas au triage.
+- Les 4 cas ouverts sont tranchés. « celui de St Pauls » : 3/3 sur les 2 bras. Milano : la prod
+  répond déjà en espagnol 3 fois sur 3.
+- Runs `m1-2026-10-27-httpx-{mini,luna}-r{1,2,3}`.
+
+**Pièges découverts :**
+- **Réseau local + transport aiohttp de litellm + `max_retries=0` (#157)** : le premier appel LLM
+  après ~8 s d'inactivité échoue en 0,04 s, avec « Timeout ». Résultat : 42 % des triages en repli
+  regex sur les 2 bras.
+  - Les runs `m1-2026-10-27-{mini,luna}-r*` sont invalides.
+  - Contournement : `DISABLE_AIOHTTP_TRANSPORT=True`, consigné dans `CLAUDE.md`.
+  - Prod non touchée (2/273). Une relance unique sur échec instantané protégerait la prod :
+    proposé à Fabien, non fait.
+- Les jeux `geo-poi` et `dialogue-state` étaient restés à leur version d'avant le 2026-10-20 dans
+  Langfuse. Ils ont été ré-amorcés après vérification : hébergé = repo d'avant `b3e2318`.
+- Le `.env` local avait un jeton MCP et des clés Langfuse périmés (401). Fabien les a remplacés.
+
+**Reste** (M1, `CHANTIERS.md`) :
+- ~~Fabien merge #158 ; bascule atomique~~ : faits le jour même (bloc bis ci-dessus) ;
+- 3 évaluateurs Langfuse (UI) ;
+- baseline du gate après bascule.
+
+## 🚀 2026-10-26 (sexies) — `concierge` + `widget` déployés sur `54c6a09` (#155, #156, #157) ; triage luna mesuré, pas encore basculé
+
+**Déployé** (`DEPLOY.md`, par Claude à la demande de Fabien, depuis le worktree propre
+`../AgentB2C-deploy`, lié au projet Railway) :
+- Pré-vol : pytest **3 186 passés / 1 skippé**.
+- Estampilles lues avant : `concierge`, `hotel-search`, `faq` = `8d1579b`, `widget` = `0095a41`.
+- `concierge` et `widget` estampillés `54c6a09` avec `--skip-deploys`, puis `railway up --detach` ;
+  les deux en `SUCCESS` à 16:28:46Z (déploiements `7183fbbc` et `208aa175`).
+- **`hotel-search` et `faq` non redéployés** (restent sur `8d1579b`) : `serve.py` n'y change qu'un
+  commentaire, et `llm_params` (#157) ne change rien sur leur chemin (`reasoning_kwargs_for(slug)`
+  sans rôle = l'effort global, comme avant ; seule la branche `openrouter/` est réécrite).
+- Le triage reste sur `gpt-4o-mini` (variable inchangée). #157 ne lui envoie aucun paramètre (modèle
+  non raisonnant), mais coupe la relance SDK sur timeout.
+
+**Preuves sur le widget public** (tours synthétiques) :
+- `<meta name="agent-version">` = `54c6a09` ; `tokens.css` sert le jaune `#FFAF36`.
+- « Bonjour ! » rend ses `turn_facts`.
+- Visiteur US (`currency=USD`, `entry_market_country=US`), « a day room in New York tomorrow » :
+  5 cartes sur 5 en `USD` (`USD 85.00`…, `display_currency=USD`). C'est la règle de #155 ; l'ancien
+  concierge affichait `€`.
+- **Non tranché** : « le texte de la synthèse doit citer `$` ». Sur 2 tours, le texte ne cite aucun
+  prix (« about 72% off its usual night rate ») : ni `$` ni `€`.
+
+**Triage gpt-6-luna** (branche `feat/triage-gpt-6-luna`, M1 partie 2, pas encore de PR) :
+- 2 itérations du prompt, mesurées avec `scripts/measure_triage_models.py`.
+- Lignes brutes : `evals/reports/triage_ab_2026-10-26-iter{1,2}.jsonl`, gitignorées.
+- Itération 2, côté luna : `price_comparison` 1 désaccord (7 au départ) ; plus aucun `lower` au
+  premier message ; « ok pour la deuxième » 2 tirages sur 3 ; « passt, mach das » et « 150 » justes ;
+  0 erreur, 0 `length`.
+- Côté mini, avec le prompt compact : mini omet les clés à leur valeur par défaut, et `null` renvoie
+  `affirmative` / `booking_confirmation` / `wants_more_options` aux regex fr/en. Sans effet si la
+  bascule est atomique (variable + code ensemble, retour arrière des deux).
+- Côté luna, entre le prompt d'origine et l'itération 2 :
+  - 1 régression : « hotel con piscina a milano oggi », `it` → `es` ;
+  - 3 changements à juger au rejeu live : « non attends… montre-moi plutôt le deuxième » `lower`,
+    « celui de St Pauls » sans `hotel_name` (la ligne de fixture n'a pas la question d'origine), et
+    « oui » à « quelle ville ? » `answers_pending=no`.
+  - Le rejeu live ajoute donc `geo-class` et `language-robustness` aux jeux H3 (rapport §5).
+- **Décision de Fabien** : luna accepté, bascule atomique.
+
+**Outillage** : `../AgentB2C-deploy` (worktree détaché, lié à Railway) sert aux prochains
+déploiements : `git -C ../AgentB2C-deploy checkout --detach origin/main` avant chaque usage, et ne
+jamais y éditer.
+
+## 🟡 2026-10-26 (quinquies) — Branche `fix/widget-dayuse-brand` : widget aux couleurs Dayuse + prix dans la devise et la locale du marché (#155, mergée et déployée sur `54c6a09` : bloc sexies)
 
 **Widget** (retours PO) : boutons d'action en jaune Dayuse (rôle `--action-primary-*` de `tokens.css` : dégradé 62° `#FFAF36` → `#FFC536`, survol `#FF9F26` → `#FFB526`, texte `#292935`, comme le bouton primaire de dayuse.com) ; `.pick-cta` passe du sombre au jaune ; badge « -X% » en Shadow Black (`--bg-invert`) au lieu du rouge pastèque ; prix formatés par `Intl.NumberFormat` dans la locale langue-pays du marché (`web/vendor/static/js/chat/price_format.js`) sur la carte, la carte simplifiée et la booking card (fr « 165,10 € », en-US « $187.00 », en-GB « £120.00 »). `mapV3Hotels` transmet désormais `price_eur_cents` / `display_currency` / `display_price_minor`.
 
@@ -30,7 +145,9 @@ Source : 128 conversations réelles de la nuit du 26 au 27/10 (traces Langfuse),
 
 **Preuve** : pytest 3 159 passés / 2 skippés, 94 tests JS, ruff, mypy, guardrails verts ; contre-épreuves rouges (tests du widget contre `main`, tests concierge sans le correctif). Captures avant/après 1440 et 390 px sur widget local + backend simulé (pas de tour réel).
 
-**Reste** : go de Fabien sur la règle de devise ; déployer `concierge` ET `widget` (`DEPLOY.md`) ; capture sur le widget public ; vérifier en réel la synthèse d'un tour US (le texte doit citer `$`).
+**Reste** : capture sur le widget public. Le go (merge) et le déploiement sont faits, les cartes US
+sont en `USD` (bloc sexies). « La synthèse cite `$` » n'est pas tranché : sur 2 tours, le texte ne
+cite aucun prix.
 
 ## ⏸️ 2026-10-26 (quater) — `widget` sur `0095a41` (sondes de santé, #152) ; bascule DNS reportée (latence Railway)
 

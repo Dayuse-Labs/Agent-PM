@@ -54,13 +54,12 @@ l'équipe, dès que tu donnes la copy) → `E2` puis `E1` puis `E4` (la boucle Q
 | **L** | Compréhension géo — série S-L (ajouté le 2026-10-08) ; `GeoIntent` produit par la feuille (DQ1) : S-L3/S-L4 conditionnelles, S-L7a et S-L7f faites, S-L7d et S-L7e restent | L | MCP déployé (S-L1) |
 | **QA14707** | Retours QA de Raphael du 14/10 : créneau localisé, lieu compris (`GeoIntent` dans la feuille), clarification tenue par le code. Phases 1-3 déployées (`0b65159`) ; phases 4-5 sur `plan/qa14707`. Plan : `plans/qa14707/`, source : `phases/QA14707/` | L | **Fabien** (revue de la seconde PR, H3' live, H4 retest) |
 | **X1→X3** | 3 demandes chez MCP_B2C | — | **MCP_B2C** |
-| **M1** | Sortir de gpt-4o-mini (arrêt 2027-01-14) : juge du gate passé (baseline à refaire) ; triage (3 règles du prompt à resserrer, puis remesurer) ; 3 évaluateurs Langfuse (réglages UI) | M | **Fabien** (OK Langfuse, bascule Railway) · ⏰ **2027-01-14** |
+| **M1** | Sortir de gpt-4o-mini (arrêt 2027-01-14) : juge du gate passé (baseline à refaire) ; triage basculé sur luna le 2026-10-27 (`d4f4fb1`, #158) ; restent les 3 évaluateurs Langfuse, encore sur mini et actifs (réglages UI) | M | **Fabien** (UI Langfuse) · ⏰ **2027-01-14** |
 | **AM1** | Tracking Amplitude : AgentB2C #146 et dayuse-product-analytics #112 mergées (vu le 2026-10-26) ; restent dayuse.com !15273 et 3 vérifications humaines | S | **Fabien** (!15273) |
 | **MOB1** | Le widget dans l'app mobile (`__DAYUSE_NATIVE__`, pont de navigation, `native_context` opaque côté concierge) : plan de test + prompt | M | phase C : **Fabien** (app de prod) |
 
 **Deux échéances datées** :
-- **2027-01-14** : arrêt de gpt-4o-mini, qui fait encore tourner le triage et les juges Langfuse
-  (`M1`) ;
+- **2027-01-14** : arrêt de gpt-4o-mini, qui fait encore tourner les 3 juges Langfuse (`M1`) ;
 - **fin janvier 2027** : fin des patchs de sécurité Langfuse v3 (chaîne `O1 → O2 → O4`).
 
 Tout le reste est arbitrable.
@@ -595,7 +594,7 @@ fait), ou accepte-t-on de ne mesurer qu'au coup par coup ?
 
 # 2 bis · M1 — Sortir de gpt-4o-mini (ouvert le 2026-10-19)
 
-**Taille : M** · ⏰ **2027-01-14** · **bloqué par : Fabien** (OK Langfuse, bascule Railway)
+**Taille : M** · ⏰ **2027-01-14** · **bloqué par : Fabien** (réglages UI des évaluateurs Langfuse)
 
 **Contexte.** OpenAI arrête gpt-4o-mini le 2027-01-14. Les feuilles sont passées à
 `openai/gpt-6-luna` (#139).
@@ -614,23 +613,29 @@ fait), ou accepte-t-on de ne mesurer qu'au coup par coup ?
 
 **Preuves** : `reports/TRIAGE-GPT6-AB-2026-10.md` et `reports/JUDGE-GPT6-DRIFT-2026-10.md`.
 
-**Reste.**
-1. **Triage.** luna ne tient pas tel quel. Il gagne sur `family`, `language`, budget, occupancy et
-   `answers_pending`, et coûte 35 % de moins. Il régresse sur :
-   - `price_comparison`, émis à tort 7 fois (un `lower` sur un changement de zone) ;
-   - l'ordinal pris dans une phrase (« ok pour la deuxième ») ;
-   - `affirmative` hors fr/en.
+**Fait le 2026-10-26** : #157 (partie 1) mergée et déployée sur le `concierge` (`54c6a09`), triage
+encore sur gpt-4o-mini. Branche `feat/triage-gpt-6-luna` (partie 2) : le prompt de triage resserré
+en 2 itérations mesurées. luna tient la barre, voir `reports/TRIAGE-GPT6-AB-2026-10.md` §5.
+**Décision de Fabien** : luna accepté, bascule **atomique**. mini régresse avec le nouveau prompt
+(clés omises, donc renvoyées aux regex) ; il ne doit donc jamais tourner avec ce code.
 
-   Il faut resserrer ces 3 règles du prompt, puis remesurer les deux modèles avec l'instrument (le
-   prompt est partagé). Ensuite : le rejeu live au montage H3, comparé à
-   `h3p-2026-10-19-plan-r1..3`, puis la bascule.
-2. **Bascule triage (humaine)** :
-   - déployer `concierge` ;
-   - poser `DAYUSE_MODEL_TRIAGE=openai/gpt-6-luna` avec `--skip-deploys` avant `railway up` ;
-   - en cas de **retour arrière, remettre la variable AVANT ou AVEC le code**, sinon l'ancien code
-     envoie luna à effort `low` ;
-   - aligner `ci.yml` (`DAYUSE_MODEL_TRIAGE`) et refaire la baseline.
-3. **Évaluateurs Langfuse** (Hallucination, Relevance, User Distress (no history)).
+**Reste.**
+1. ~~**Rejeu live**~~ **fait le 2026-10-27** (rapport §6) : 2 bras le même jour, mini 91,1 % contre
+   luna 91,0 %. Les 5 écarts d'un item sont expliqués et ne tiennent pas au triage, et les 4 cas
+   sont tranchés. Verdict : bascule.
+2. ~~**Bascule triage, atomique**~~ **faite le 2026-10-27** (`HANDOFF.md`, bloc bis) : #158
+   mergée, `concierge` sur `d4f4fb1` (déploiement `4c12003d`). Les traces montrent le triage sur
+   `openai/gpt-6-luna`, et aucun appel gpt-4o-mini de l'app depuis. La procédure reste valable pour
+   un retour arrière :
+   - merger la partie 2, déployer `concierge` depuis un worktree propre de main ;
+   - poser `DAYUSE_MODEL_TRIAGE=openai/gpt-6-luna` avec `--skip-deploys` **avant** `railway up`. La
+     **poser, jamais la supprimer** : le concierge porte `DAYUSE_MODEL=gpt-5.2`, sur lequel
+     retomberait le triage ;
+   - **retour arrière = variable ET code ensemble** : l'estampille et le déploiement précédents,
+     plus `DAYUSE_MODEL_TRIAGE=gpt-4o-mini`. Le nouveau prompt sur mini renvoie 3 champs aux regex.
+3. **Évaluateurs Langfuse** (Hallucination, Relevance, User Distress (no history)). **Actifs, sur
+   mini** : 228 générations `langfuse-llm-as-a-judge` en 7 jours au 2026-10-27, dont environ 50 sur le
+   trafic de la démo et 172 sur les experiments du rejeu. C'est le dernier appel à mini.
    - La dérive mesurée est faible, la barre est tenue. Relevance baisse de 0,09 en moyenne sur les
      relances courtes : noter la date du changement de juge.
    - gpt-6-luna exige `max_completion_tokens` (pas `max_tokens`) et `reasoning_effort: "none"`.
@@ -640,14 +645,19 @@ fait), ou accepte-t-on de ne mesurer qu'au coup par coup ?
    - **Repli** : couper les 3 règles jusqu'à la v4. Elles ont produit 3 scores depuis le 09/09.
 4. **Baseline du gate à refaire avec le juge luna.** Elle doit tourner depuis un réseau qui joint
    MCP_B2C staging (IP `45.156.191.77`).
-   - Montage : celui de la démo, `DAYUSE_MODEL_TRIAGE=gpt-4o-mini DAYUSE_MODEL_SYNTHESIS=gpt-5.2`.
+   - Montage : celui de la démo après bascule, `DAYUSE_MODEL_SYNTHESIS=gpt-5.2`, le reste sur
+     luna (défaut du code), une seule fois.
    - Commande : `run_release_gate.py --update-baseline`.
-   - Ensuite, re-juger les MÊMES transcriptions avec `LLMJudge(model="gpt-4o-mini")`, pour chiffrer
-     l'effet du seul juge.
+   - L'effet du seul juge est déjà chiffré (`reports/JUDGE-GPT6-DRIFT-2026-10.md`) : pas de
+     re-jugement sur mini.
    - Le premier essai, le 2026-10-19 : 112 tours dégradés sur 118, 0/32, refusé et non commité.
-5. **agent-usa (repo voisin, prod client), hors périmètre ici** : `src/api/config.py:81` met
-   gpt-4o-mini par défaut, et `openai_adapter.py:57` ne détecte les modèles de raisonnement que
-   par `startswith("gpt-5")`. C'est le même piège gpt-6. À porter par son équipe.
+   - Ne lancer aucune autre suite pytest en même temps depuis la même IP : jusqu'à #156, une suite
+     coûtait 52 requêtes MCP. Le limiteur de staging est à 300 req/min par IP, compté avant l'auth.
+5. **agent-usa (repo voisin, prod client), hors périmètre ici** : `src/api/config.py:92` met
+   gpt-4o-mini par défaut (`OPENAI_MODEL`), et `openai_adapter.py:57` ne détecte les modèles de
+   raisonnement que par `startswith("gpt-5")` : c'est le même piège gpt-6. Seule la variable
+   **déployée** dit si l'arrêt le touche ; la revue du 2026-07-22 l'a fait tourner sur gpt-5.2. À
+   vérifier côté plateforme, puis à porter par son équipe.
 6. Non bloquant : `cost_usd` vaut `None` sur luna, parce que litellm 1.90.2 n'a pas son prix.
    `DAYUSE_MODEL_PRICES` enregistre sous `openrouter` : à vérifier pour `openai/gpt-6-luna`.
 
