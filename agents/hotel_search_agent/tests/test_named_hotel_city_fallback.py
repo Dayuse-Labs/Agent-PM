@@ -224,14 +224,17 @@ class TestNegativeControls:
     def test_not_found_without_a_city_geocodes_nothing_and_searches_nothing(
         self, mapbox, search, statuses
     ):
-        # The concierge's « tell me the city » reply stays.
+        # The concierge's « tell me the city » reply stays. Since 2026-10-27
+        # the name itself is looked up once as a place (« Big Sur », below);
+        # Mapbox answers Lyon, which is not called « Bidule Imaginaire », so
+        # nothing is searched.
         ctx = _ctx("Je cherche l'hôtel Bidule Imaginaire demain")
         find = _Tool("find_hotel_by_name")
 
         _turn(ctx, {"name": NAME, "date": TOMORROW}, find)
 
         assert find.calls == []
-        assert mapbox.requests == []
+        assert {r["q"] for r in mapbox.requests} == {NAME}
         assert search.calls == [] and search.seen == []
         assert _STATE_RESULTS_KEY not in ctx.state
         assert not _next_generation_skipped(ctx)
@@ -270,9 +273,58 @@ class TestNegativeControls:
 
         _turn(ctx, {"name": NAME}, _Tool("find_hotel_by_name"))
 
-        assert mapbox.requests == []
+        # Never Lyon: only the hotel's own name, looked up as a place.
+        assert {r["q"] for r in mapbox.requests} == {NAME}
         assert search.calls == []
         assert statuses == []
+
+
+# --- 2026-10-27: a place the triage took for a hotel ------------------------------
+
+BIG_SUR = (36.269, -121.806)
+
+
+def _big_sur_feature() -> dict:
+    return {
+        "geometry": {"coordinates": [BIG_SUR[1], BIG_SUR[0]]},
+        "properties": {
+            "name": "Big Sur",
+            "full_address": "Big Sur, California, United States",
+            "feature_type": "place",
+            "context": {"country": {"country_code": "us"}, "region": {"name": "California"}},
+        },
+    }
+
+
+class TestAPlaceTakenForAHotel:
+    """Prod trace d5123bb6: « Big Sur » reached `find_hotel_by_name` as a hotel
+    name (no city), and the turn answered "I couldn't find the hotel 'Big Sur'"."""
+
+    def test_the_name_of_a_place_is_searched_as_the_place(self, mapbox, search):
+        mapbox.features = [_big_sur_feature()]
+        ctx = _ctx("Big Sur", profile_in={"country_anchor": "US"})
+
+        _turn(ctx, {"name": "Big Sur", "date": TOMORROW}, _Tool("find_hotel_by_name"))
+
+        assert search.seen == [{"lat": BIG_SUR[0], "lon": BIG_SUR[1], "date": TOMORROW}]
+        assert mapbox.requests[0]["country"] == "us"  # the session's country scopes it
+        data = _datapart(ctx)
+        assert [card["id"] for card in data["results"]] == [11, 12]
+        # No hotel is missing: the user named a place.
+        assert "named_hotel_not_found" not in data
+        assert "named_hotel_not_found" not in (data.get("fallbacks_fired") or [])
+        assert _next_generation_skipped(ctx)
+
+    def test_a_place_with_another_name_keeps_the_not_found_reply(self, mapbox, search):
+        # Negative control: Mapbox's answer is a place, but not one called by
+        # the hotel's name — the name stays a missing hotel.
+        mapbox.features = [_big_sur_feature()]
+        ctx = _ctx("le Grand Hôtel Surréel")
+
+        _turn(ctx, {"name": "Grand Hotel Sur"}, _Tool("find_hotel_by_name"))
+
+        assert search.calls == []
+        assert _datapart(ctx)["named_hotel_not_found"] == NAME
 
 
 # --- the metric lines carry no text (Q23, the user's ruling on Q22) ----------------
@@ -282,7 +334,8 @@ class TestNegativeControls:
 # else — no word of the message, no hotel name, no city.
 
 _LINE = re.compile(
-    r"dayuse_metric=(named_hotel_city_search|named_hotel_search) agent=b2c_hotel_search "
+    r"dayuse_metric=(named_hotel_city_search|named_hotel_search|named_hotel_place_search) "
+    r"agent=b2c_hotel_search "
     r"status=(ok|no_place|blocked|unbound|error) ms=\d+"
 )
 _WORDS = sorted({*TEXT.split(), *NAME.split(), "Lyon"})

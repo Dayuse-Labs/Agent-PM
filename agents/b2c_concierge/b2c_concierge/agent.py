@@ -1009,6 +1009,7 @@ class _B2cConcierge(BaseAgent):
         family: str, language: str, route: Any, budget: TurnBudget, t_start: float, inv: str,
         picked_hotel_id: int | None = None,
         llm_hotel_name: str | None = None,
+        unresolved: dict[str, bool] | None = None,
     ) -> AsyncGenerator[Event, None]:
         """details / compare: the real MCP_B2C call is a CODE decision
         (route.kind == "inline" was already resolved by triage + the routing
@@ -1041,6 +1042,38 @@ class _B2cConcierge(BaseAgent):
         budget.fired.update(result.get("guards_fired") or [])
         if result.get("error") == "hotel not found":
             budget.fallbacks.add("named_hotel_not_found")
+        if (
+            route.target == "get_hotel_details"
+            and picked_hotel_id is None
+            and result.get("error") in ("hotel not found", "no hotel reference in the message")
+            and unresolved is not None
+        ):
+            # 2026-10-27 (prod: « Vasca idromassaggio », « 有浴缸 », « Big Sur »):
+            # no hotel on screen or in the catalogue answers to this message,
+            # so it is not a question about one. The turn goes to the search,
+            # with the session's context — an amenity becomes a filter, a
+            # place the triage took for a hotel is looked up as a place (the
+            # leaf's `find_hotel_by_name` fallback). Never "hotel not found"
+            # for a message that named no hotel.
+            unresolved["search"] = True
+            return
+        if not result.get("ok") and picked_hotel_id is not None and route.target == "get_hotel_details":
+            # The hotel is a card on screen (« le moins cher »), but its
+            # details could not be fetched (prod 2026-10-26: MCP down for that
+            # call). What the search already returned for it is the answer,
+            # not "I couldn't find that hotel".
+            on_screen = next(
+                (h for h in profile.last_results or []
+                 if isinstance(h, dict) and h.get("hotel_id") == picked_hotel_id),
+                None,
+            )
+            if on_screen is not None:
+                hotels = [dict(on_screen)]
+                result = {"ok": True}
+                leaf_text = (
+                    f"Details could not be fetched right now for {on_screen.get('name')}; "
+                    "only what the search result shows is known."
+                )
 
         if not result.get("ok") or not hotels:
             self._emit_turn_metric(
@@ -1580,13 +1613,19 @@ class _B2cConcierge(BaseAgent):
             # the CODE decided to make (routing stays code-owned — no LLM
             # ever chooses whether/which tool to call here), then the same
             # grounded-synthesis pattern as a leaf leg.
+            unresolved: dict[str, bool] = {}
             async for event in self._run_inline_lookup(
                 ctx, profile, store, message, family, reply_language, route, budget, t_start, inv,
                 picked_hotel_id=picked.get("hotel_id") if picked else None,
                 llm_hotel_name=triage.hotel_name,
+                unresolved=unresolved,
             ):
                 yield event
-            return
+            if not unresolved.get("search"):
+                return
+            # Nothing was looked up by name: the message goes to the search,
+            # below, exactly as if the triage had said so.
+            family, route = "search", ROUTES["search"]
 
         # Search-exhaustion terminal gate (S12 audit 2026-07-20): once
         # maybe_auto_widen has capped out, a bare affirmative ("ok"/"oui")

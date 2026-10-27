@@ -60,6 +60,7 @@ from mcp.client.streamable_http import streamable_http_client
 from .display_currency import HOTEL, shows_hotel_currency
 from .profile import (
     SessionProfile,
+    resolve_hotel_name_on_screen,
     resolve_hotel_reference,
     resolve_hotel_reference_strict,
     resolve_hotel_references,
@@ -179,6 +180,13 @@ async def _resolve_hotel_id_impl(
         hotel_id = hotel.get("hotelId") or hotel.get("id")
         if hotel_id is not None:
             return int(hotel_id), hotel.get("name")
+
+    # The name the triage read, against the names on screen, spaces and case
+    # aside (« Double Tree » / « DoubleTree by Hilton … », prod 2026-10-27):
+    # MCP knows no hotel by that spelling, the card the user means is there.
+    on_screen = resolve_hotel_name_on_screen(llm_hotel_name, profile.last_results)
+    if on_screen is not None and on_screen.get("hotel_id") is not None:
+        return int(on_screen["hotel_id"]), str(on_screen["name"])
 
     weak_hit = resolve_hotel_reference(reference, profile.last_results)
     if weak_hit is not None and weak_hit.get("hotel_id") is not None:
