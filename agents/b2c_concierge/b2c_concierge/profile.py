@@ -73,6 +73,7 @@ from __future__ import annotations
 import json
 import logging
 import re
+import unicodedata
 from dataclasses import MISSING, dataclass, field
 from typing import Any
 
@@ -1494,6 +1495,38 @@ def resolve_hotel_reference_strict(
         if _substring_match(stripped, str(hotel.get("name") or "").strip()):
             return hotel
     return None
+
+
+def _compact_name(value: str) -> str:
+    """Letters and digits only, case and accents folded: « Double Tree » and
+    « DoubleTree by Hilton » share « doubletree »."""
+    decomposed = unicodedata.normalize("NFKD", value or "")
+    return "".join(ch for ch in decomposed.casefold() if ch.isalnum())
+
+
+#: Below this many letters a compacted name is too generic to point at one
+#: hotel on screen (« Inn », « Spa »).
+_MIN_COMPACT_NAME = 5
+
+
+def resolve_hotel_name_on_screen(
+    name: str | None, last_results: list[dict[str, Any]] | None
+) -> dict[str, Any] | None:
+    """The ONE hotel on screen whose name contains `name`, spaces and case
+    aside, or None (prod 2026-10-27: « double tree » was not found by MCP
+    while « DoubleTree by Hilton Sharjah… » was the card on screen).
+
+    `name` is the hotel name the triage read (`hotel_name`), never the raw
+    message; the check is a comparison with the names the search returned —
+    no word list. Two matches or none: None."""
+    wanted = _compact_name(name or "")
+    if len(wanted) < _MIN_COMPACT_NAME or not last_results:
+        return None
+    hits = [
+        hotel for hotel in last_results
+        if isinstance(hotel, dict) and wanted in _compact_name(str(hotel.get("name") or ""))
+    ]
+    return hits[0] if len(hits) == 1 else None
 
 
 def resolve_hotel_references(

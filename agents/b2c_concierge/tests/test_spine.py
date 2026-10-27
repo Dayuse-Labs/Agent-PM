@@ -277,15 +277,16 @@ class TestBudget:
         assert _answer(events) == templates.affirmative_relaunch_response("fr", searched=False)
 
     def test_inline_lookup_turn_degrades_on_triage_only_when_unresolved(self, scripted, caplog, monkeypatch):
-        # No shortlist, no MCP reachable in tests — degrades honestly BEFORE
-        # any synthesis call (mirrors the leaf-degradation budget shape).
+        # The details lookup fails for another reason than "no such hotel"
+        # (MCP unreachable): degrades honestly BEFORE any synthesis call
+        # (mirrors the leaf-degradation budget shape).
         llm, leaf_calls = scripted('{"family": "details", "language": "fr"}')
         monkeypatch.setattr(
             agent_module.inline_tools, "get_hotel_details",
-            _async_result({"ok": False, "error": "hotel not found"}),
+            _async_result({"ok": False, "error": "get_hotel_details failed: ConnectError"}),
         )
         with caplog.at_level(logging.INFO, logger="b2c_concierge.metrics"):
-            answer = _drive("quels équipements a cet hôtel ?")
+            answer = _drive("quels équipements a le Sonesta Carmel ?")
         assert answer == templates.inline_unresolved_response("get_hotel_details", "fr")
         assert len(llm.calls) == 1
         assert leaf_calls == []
@@ -293,6 +294,27 @@ class TestBudget:
         assert metric["llm_calls"] == "1"
         assert metric["route"] == "inline:get_hotel_details"
         assert metric["status"] == "degraded"
+
+    def test_a_details_turn_naming_no_hotel_found_goes_to_the_search(self, scripted, caplog, monkeypatch):
+        # 2026-10-27 (prod « Vasca idromassaggio », « 有浴缸 »): no hotel on
+        # screen or in the catalogue answers to the message — it was never a
+        # question about one. The search leaf gets the turn, never the
+        # "I couldn't find that hotel" template. Still 3 LLM slots at most.
+        llm, leaf_calls = scripted(
+            '{"family": "details", "language": "it"}', "Ecco gli hotel con vasca idromassaggio.",
+            response={"results": [{"hotel_id": 1, "name": "Hotel A"}]},
+        )
+        monkeypatch.setattr(
+            agent_module.inline_tools, "get_hotel_details",
+            _async_result({"ok": False, "error": "no hotel reference in the message"}),
+        )
+        with caplog.at_level(logging.INFO, logger="b2c_concierge.metrics"):
+            answer = _drive("Vasca idromassaggio")
+        assert answer != templates.inline_unresolved_response("get_hotel_details", "it")
+        assert leaf_calls == [agent_module.LEAF_HOTEL_SEARCH]
+        metric = _turn_metric(caplog)
+        assert metric["route"] == "leaf:hotel_search"
+        assert int(metric["llm_calls"]) <= 3
 
     def test_inline_lookup_turn_synthesizes_when_resolved(self, scripted, caplog, monkeypatch):
         llm, leaf_calls = scripted(
@@ -848,7 +870,7 @@ class TestInternalEvents:
         scripted('{"family": "details", "language": "fr"}')
         monkeypatch.setattr(
             agent_module.inline_tools, "get_hotel_details",
-            _async_result({"ok": False, "error": "hotel not found"}),
+            _async_result({"ok": False, "error": "get_hotel_details failed: ConnectError"}),
         )
         events = _drive_events("quels équipements a cet hôtel ?")
         assert [p["event"] for p in _marker_payloads(events)] == ["progress", "turn_facts"]

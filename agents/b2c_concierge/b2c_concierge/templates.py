@@ -637,6 +637,32 @@ _CLARIFY_HOMONYM_AGAIN: dict[str, str] = {
     "nl": "Ik moet nog weten welk \"{subject}\" je bedoelt. Deze heb ik gevonden:",
 }
 
+# 2026-10-27: the geocoder answered, but nothing it gave is the place the user
+# named (prod: Galveston, Ojai, Cuneo). Said as such, with what would help —
+# never the "search unavailable" line, which is for real outages.
+_CLARIFY_UNRESOLVED: dict[str, str] = {
+    "fr": "Je n'ai pas réussi à situer « {subject} ». Vous pouvez préciser la ville ou le pays ?",
+    "en": "I couldn't place \"{subject}\". Could you tell me the city or the country?",
+    "es": "No he conseguido ubicar «{subject}». ¿Puedes indicarme la ciudad o el país?",
+    "it": "Non sono riuscito a localizzare «{subject}». Puoi indicarmi la città o il paese?",
+    "de": "Ich konnte „{subject}“ nicht finden. Kannst du mir die Stadt oder das Land nennen?",
+    "pt": "Não consegui localizar «{subject}». Pode indicar a cidade ou o país?",
+    "nl": "Ik kon \"{subject}\" niet plaatsen. Kun je de stad of het land noemen?",
+}
+_CLARIFY_UNRESOLVED_AGAIN: dict[str, str] = {
+    "fr": "« {subject} » reste introuvable de mon côté. Donnez-moi la ville la plus proche, "
+    "avec son pays si possible.",
+    "en": "I still can't find \"{subject}\". Give me the nearest city, with its country if "
+    "you can.",
+    "es": "Sigo sin encontrar «{subject}». Dime la ciudad más cercana, con su país si puedes.",
+    "it": "Non trovo ancora «{subject}». Dimmi la città più vicina, con il suo paese se puoi.",
+    "de": "„{subject}“ finde ich immer noch nicht. Nenn mir die nächste Stadt, wenn möglich "
+    "mit dem Land.",
+    "pt": "Continuo sem encontrar «{subject}». Indique a cidade mais próxima, com o país se "
+    "possível.",
+    "nl": "Ik kan \"{subject}\" nog steeds niet vinden. Noem de dichtstbijzijnde stad, met het "
+    "land als dat kan.",
+}
 _CLARIFY_GIVE_UP: dict[str, str] = {
     "fr": "Je n'arrive toujours pas à situer « {subject} », alors je ne vous repose pas la "
     "question. Indiquez-moi simplement une ville et je lance la recherche avec le reste de "
@@ -729,6 +755,9 @@ def clarification_response(clarification: Clarification, language: str, asked: i
         return _pick(language, _CLARIFY_GIVE_UP).format(subject=subject)
     if clarification.kind == "city_needed":
         table = _CLARIFY_CITY_NEEDED if asked == 1 else _CLARIFY_CITY_NEEDED_AGAIN
+        return _pick(language, table).format(subject=subject)
+    if clarification.kind == "unresolved":
+        table = _CLARIFY_UNRESOLVED if asked == 1 else _CLARIFY_UNRESOLVED_AGAIN
         return _pick(language, table).format(subject=subject)
     table = _CLARIFY_HOMONYM if asked == 1 else _CLARIFY_HOMONYM_AGAIN
     lines = [f"{n}. {option.label}" for n, option in enumerate(clarification.options, start=1)]

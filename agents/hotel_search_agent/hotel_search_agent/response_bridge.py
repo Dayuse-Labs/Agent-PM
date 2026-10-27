@@ -108,6 +108,10 @@ _STATE_MCP_ERROR_KEY = "temp:hotel_search_mcp_error"
 # The name `find_hotel_by_name` could not find, so the concierge can say so
 # when the turn answers with other hotels (QA trace 6ef04c80).
 _STATE_NAMED_NOT_FOUND_KEY = "temp:hotel_search_named_not_found"
+# 2026-10-27 (prod « Big Sur »): the name the triage took for a hotel is the
+# name of a PLACE (named_hotel.py checked it against the geocoder): no hotel
+# is missing, the place was searched — no "hotel not found" to report.
+STATE_NAMED_IS_PLACE_KEY = "temp:hotel_search_named_is_place"
 # mcp-dayuse#7 (named_hotel.py): the hotel a name lookup found, and whether it
 # has offers on the searched day; or, when several hotels matched, which ones.
 STATE_NAMED_HOTEL_KEY = "temp:hotel_search_named_hotel"
@@ -1025,6 +1029,8 @@ def _record_mcp_error(
         return  # several hotels match: a question for the user, not an error
     kind = classify_mcp_error(tool_response) or "failed"
     if kind == "not_found" and tool_name == "find_hotel_by_name":
+        if tool_context.state.get(STATE_NAMED_IS_PLACE_KEY):
+            return  # the name is a place, searched as one (named_hotel.py)
         envelope = (tool_response.get("structuredContent") or {}).get("error") or {}
         query = envelope.get("query") or args.get("name")
         if isinstance(query, str) and query.strip():

@@ -30,7 +30,7 @@ reprises d'agent-usa :
 | Variable | Défaut | Effet |
 |---|---|---|
 | `WIDGET_CHAT_PER_MINUTE` / `WIDGET_CHAT_PER_HOUR` | 20 / 200 | tours `/v3/chat` + `/v3/chat/stream` par IP (0 = coupé) |
-| `WIDGET_OTHER_PER_MINUTE` | 30 | reset de session et feedback, par IP |
+| `WIDGET_OTHER_PER_MINUTE` | 30 | reset de session, feedback et accueil de l'app (`/v3/chat/welcome`), par IP |
 | `WIDGET_MAX_MESSAGE_CHARS` / `WIDGET_MAX_BODY_BYTES` | 500 / 16384 | au-delà : 413, rien ne part au concierge |
 | `WIDGET_ALLOWED_ORIGINS` | vide | origines admises en plus du `Host` / `X-Forwarded-Host` de la requête, séparées par des virgules |
 | `WIDGET_CLIENT_IP_HEADER` | `X-Real-IP` | en-tête posé par l'edge ; sinon l'entrée la plus à droite de `X-Forwarded-For` |

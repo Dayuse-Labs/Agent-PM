@@ -44,6 +44,7 @@ from hotel_search_agent.response_bridge import (
     _STATE_RESULTS_KEY as STATE_RESULTS_KEY,
     STATE_NAMED_AMBIGUOUS_KEY,
     STATE_NAMED_HOTEL_KEY,
+    STATE_NAMED_IS_PLACE_KEY,
     capture_after_tool,
     read_profile_in,
     read_structured_payload,
@@ -243,6 +244,50 @@ async def _search_the_city(tool_context: Any, city: str) -> None:
         )
 
 
+def _compact(value: str) -> str:
+    folded = unicodedata.normalize("NFKD", value or "").casefold()
+    return "".join(ch for ch in folded if ch.isalnum())
+
+
+async def _search_the_place(tool_context: Any, name: str) -> None:
+    """No hotel by that name, and no city to fall back on (prod 2026-10-27,
+    « Big Sur »: the triage read a place as a hotel name, the turn answered
+    "I couldn't find the hotel 'Big Sur'"). The name itself is geocoded, with
+    the same guards as any destination; when the place Mapbox returns is
+    called exactly that name (the name it gives the place, compared letter
+    for letter), the user named a place: it is searched on the asked day, and
+    no hotel is reported missing. Anything else keeps the not-found reply.
+    The session's country anchor scopes the lookup, never filters it."""
+    started = time.monotonic()
+    status = "error"
+    try:
+        profile_in = read_profile_in(tool_context)
+        anchor = profile_in.get("country_anchor") or profile_in.get("entry_market_country")
+        geo = await asyncio.to_thread(
+            geocode_core,
+            city=name,
+            raw_user_message=read_user_words(tool_context),
+            profile_state_context=profile_in.get("state_anchor"),
+            locale=profile_in.get("locale"),
+            language_hint=profile_in.get("language"),
+            country_guess=anchor if isinstance(anchor, str) else None,
+        )
+        place = str(geo.get("resolved_place") or "").split(",")[0]
+        if not geo.get("ok") or _compact(place) != _compact(name):
+            status = "no_place"
+            return
+        tool_context.state[STATE_NAMED_IS_PLACE_KEY] = True
+        capture_after_tool(_GEOCODE_TOOL, {"city": name}, tool_context, geo)
+        status = await _dated_search(tool_context, float(geo["latitude"]), float(geo["longitude"]))
+    except Exception:  # noqa: BLE001 — the fallback never breaks the turn
+        status = "error"
+    finally:
+        _metrics_logger.info(
+            "dayuse_metric=named_hotel_place_search agent=b2c_hotel_search status=%s ms=%d",
+            status, int((time.monotonic() - started) * 1000),
+        )
+
+
 async def follow_named_hotel(
     tool: Any, args: dict[str, Any], tool_context: Any, tool_response: Any
 ) -> None:
@@ -274,8 +319,11 @@ async def follow_named_hotel(
                 }
             return None
         city = tool_context.state.get(_STATE_CITY_LABEL_KEY)
+        name = args.get("name")
         if _not_found(tool_response) and isinstance(city, str) and city:
             await _search_the_city(tool_context, city)
+        elif _not_found(tool_response) and isinstance(name, str) and name.strip():
+            await _search_the_place(tool_context, name.strip())
         return None
     structured = read_structured_payload(tool_response) or {}
     hotel = structured.get("hotel")

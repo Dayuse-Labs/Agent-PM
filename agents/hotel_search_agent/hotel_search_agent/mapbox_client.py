@@ -44,6 +44,12 @@ CANDIDATE_TYPES = "place,locality,neighborhood,district,region"
 # street with its postcode, and a postcode alone.
 ADDRESS_TYPES = "address,street"
 POSTCODE_TYPES = "postcode"
+# 2026-10-27: an administrative area the user names as the destination (a
+# French département, an Italian region). Probed live: « Alpes-Maritimes »,
+# « Hérault », « Var » (FR) and « Puglia » (IT) are `region` features, and the
+# coordinate Mapbox gives each is its main city (Nice, Montpellier, Toulon,
+# Bari) — the natural centre of a search over the area.
+AREA_TYPES = "region,district"
 
 # Mapbox v6 default limit is already 5; 10 is its documented max — the old
 # limit=1 threw away candidates the API returns for free.

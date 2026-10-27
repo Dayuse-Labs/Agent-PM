@@ -19,6 +19,12 @@ structural rather than a prompt wish:
 - `city_needed` carries NO option on purpose: the question is asked before any
   geocoding, because an un-aimed lookup is biased by the container's egress IP
   and its candidates are the wrong answer (`geo_resolver.city_needed_question`).
+- `unresolved` carries NO option either (2026-10-27, prod traces Galveston,
+  Ojai, Cuneo): the geocoder answered, but nothing it returned is the place
+  the user named, even after the leaf's one retry. The honest outcome is to
+  say so and ask for the city or the country — never the "search unavailable"
+  line, which belongs to real MCP/network failures, and never a candidate the
+  echo guard has just refused.
 
 Closed schema (`extra="forbid"`) and no coordinate anywhere: an option is
 something to SAY to the user, and the answer turn geocodes again. A coordinate
@@ -42,7 +48,7 @@ SCHEMA_VERSION: Literal["1"] = "1"
 #: without letting a list grow into something no one can answer.
 MAX_OPTIONS = 5
 
-ClarificationKind = Literal["city_needed", "homonym"]
+ClarificationKind = Literal["city_needed", "homonym", "unresolved"]
 
 
 class ClarificationOption(BaseModel):
@@ -81,8 +87,8 @@ class Clarification(BaseModel):
         # The two kinds differ by exactly this: `city_needed` is asked before
         # any lookup, so an option there could only have come from somewhere
         # other than the geocoder; a homonym with nothing to pick is no question.
-        if self.kind == "city_needed" and self.options:
-            raise ValueError("a city_needed question carries no option")
+        if self.kind in ("city_needed", "unresolved") and self.options:
+            raise ValueError(f"a {self.kind} question carries no option")
         if self.kind == "homonym" and not self.options:
             raise ValueError("a homonym question needs at least one option")
         return self

@@ -150,12 +150,12 @@ class TestPayload:
 
 
 class TestRoutes:
-    @pytest.mark.parametrize("path", ["/v3/chat/logs", "/v3/chat/welcome", "/v3/anything", "/a2a"])
+    @pytest.mark.parametrize("path", ["/v3/chat/logs", "/v3/chat/welcome/public", "/v3/anything", "/a2a"])
     def test_only_the_facade_routes_are_forwarded(self, path):
         status, _, _, forwarded = _post(path, _TURN)
         assert status == 404 and forwarded is None
 
-    @pytest.mark.parametrize("path", ["/v3/chat/session/reset", "/v3/feedback"])
+    @pytest.mark.parametrize("path", ["/v3/chat/session/reset", "/v3/feedback", "/v3/chat/welcome"])
     def test_the_other_facade_routes_are_forwarded(self, path):
         assert _post(path, {})[0] == 200
 

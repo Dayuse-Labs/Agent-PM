@@ -92,6 +92,12 @@ class TestRefuses:
         with pytest.raises(ValidationError, match="city_needed question carries no option"):
             Clarification(kind="city_needed", subject="Gare du Nord", options=[_option()])
 
+    def test_an_unresolved_place_carries_no_option(self):
+        # 2026-10-27: every candidate left is one the echo guard refused.
+        Clarification(kind="unresolved", subject="Galveston")
+        with pytest.raises(ValidationError, match="unresolved question carries no option"):
+            Clarification(kind="unresolved", subject="Galveston", options=[_option()])
+
     def test_a_homonym_question_needs_an_option(self):
         with pytest.raises(ValidationError, match="homonym question needs at least one option"):
             Clarification(kind="homonym", subject="Victoria")

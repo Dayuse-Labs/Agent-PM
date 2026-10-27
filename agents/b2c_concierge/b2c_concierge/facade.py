@@ -25,6 +25,7 @@ facade itself adds ZERO LLM calls — it only consumes the spine's event stream.
 """
 from __future__ import annotations
 
+import asyncio
 import hmac
 import json
 import logging
@@ -45,7 +46,7 @@ from starlette.responses import JSONResponse, Response, StreamingResponse
 
 from dayuse_agent_common import enqueue_metric_event
 
-from . import conversation_log, templates
+from . import conversation_log, templates, welcome
 from .agent import _US, metrics_logger, root_agent
 from .conversation_log import build_conversation_log_row, detect_is_synthetic
 from .inline_tools import _format_price_eur_cents
@@ -914,6 +915,30 @@ def _sse_response(body: AsyncGenerator[bytes, None], session_id: str) -> Streami
     return response
 
 
+#: How long a stream whose client left may still take to drain the spine's
+#: already-computed events and log the turn (`chat_stream`).
+_CLIENT_GONE_DRAIN_SECONDS = 10.0
+
+
+def _record_client_gone(lf_span: Any, text: str, stage: str) -> None:
+    """The stream's client disconnected before `done`: the turn's text so far
+    becomes the trace output, flagged, and a content-free metric says at which
+    frame (`progress` / `hotels` / `token` / `done`). Never raises: it runs on
+    the way out of a cancelled generator."""
+    metrics_logger.info("concierge_metric=stream_client_gone stage=%s", stage)
+    if lf_span is None:
+        return
+    try:
+        lf_span.update(
+            output=text or None,
+            metadata={"client_disconnected": "true", "client_disconnected_at": stage},
+            level="WARNING",
+            status_message="client_disconnected",
+        )
+    except Exception:  # noqa: BLE001 — observability never breaks the turn
+        logger.debug("could not record the client disconnect", exc_info=True)
+
+
 async def chat_stream(request: Request) -> Response:
     """POST /v3/chat/stream — SSE: `progress` (immediate, the TTFT marker) →
     `hotels` → token chunks → `done` (the full iso-contract payload). The
@@ -959,6 +984,9 @@ async def chat_stream(request: Request) -> Response:
         final_text = ""
         trace_id: str | None = None
         spine_facts: TurnFacts | None = None
+        streamed: list[str] = []
+        stage = "before_progress"
+        drive: AsyncGenerator[tuple[str, Any], None] | None = None
         try:
             # Langfuse audit trace for the turn (no-op without LANGFUSE_* keys):
             # span open + updates are local, export is a background batch — the
@@ -983,7 +1011,10 @@ async def chat_stream(request: Request) -> Response:
                         final_text = _empty_ack_text(message, _parse_locale(body.get("locale")))
                         spine_facts = _empty_message_facts()
                     else:
-                        async for kind, data in _drive(session_id, user_id, message):
+                        drive = _drive(session_id, user_id, message)
+                        async for kind, data in drive:
+                            if kind in ("progress", "hotels", "token"):
+                                stage = kind
                             if kind == "progress":
                                 yield _sse("progress", {"trace_id": trace_id})
                                 ttft_ms = round((time.monotonic() - t_request_start) * 1000, 1)
@@ -1013,11 +1044,13 @@ async def chat_stream(request: Request) -> Response:
                                 booking_card = data.get("booking_card") or None
                                 yield _sse("booking_card", {"booking_card": booking_card})
                             elif kind == "token":
+                                streamed.append(data)
                                 yield _sse("token", {"text": data})
                             elif kind == "turn_facts":
                                 spine_facts = data
                             elif kind == "final":
                                 final_text = data
+                    stage = "done"
                     payload = await _finalize(
                         session_id=session_id, message=message, final_text=final_text,
                         hotels=hotels, is_synthetic=is_synthetic, turn_index=turn_index,
@@ -1032,6 +1065,49 @@ async def chat_stream(request: Request) -> Response:
                     # the outer except (below) runs, `with turn_observation` has
                     # already exited and closed it.
                     mark_level("ERROR", status_message="facade_shield")
+                    raise
+                except GeneratorExit:
+                    # The client went away mid-stream (prod 2026-10-26: the app's
+                    # WebView navigating away, a tab closed during a 30 s FAQ
+                    # turn). Starlette (ASGI 2.3) cancels the response on the
+                    # disconnect and this generator is closed at the `yield` it
+                    # was paused on — in prod, while relaying the answer's
+                    # `token` frames, after the spine had answered. The
+                    # `update(output=…)` above never ran (Langfuse `output:
+                    # null`, read as "the agent answered nothing") and the turn
+                    # was never logged. The rest of the spine's events are
+                    # already computed: drain them (bounded), log the turn, and
+                    # record the answer with the disconnect.
+                    if stage != "done" and drive is not None:
+                        try:
+                            async with asyncio.timeout(_CLIENT_GONE_DRAIN_SECONDS):
+                                async for kind, data in drive:
+                                    if kind == "token":
+                                        streamed.append(data)
+                                    elif kind == "final":
+                                        final_text = data
+                                    elif kind == "turn_facts":
+                                        spine_facts = data
+                                    elif kind == "hotels":
+                                        hotels = data.get("hotels") or None
+                                        requires_clarification = bool(data.get("requires_clarification"))
+                                    elif kind == "booking":
+                                        booking_card = data.get("booking_card") or None
+                                await _finalize(
+                                    session_id=session_id, message=message, final_text=final_text,
+                                    hotels=hotels, is_synthetic=is_synthetic, turn_index=turn_index,
+                                    turn_id=turn_id, turn_facts=_turn_facts(spine_facts, trace_id),
+                                    requires_clarification=requires_clarification,
+                                    booking_card=booking_card, session_expired=session_expired,
+                                )
+                        except Exception:  # noqa: BLE001 — best effort on the way out
+                            logger.debug("draining a disconnected stream failed", exc_info=True)
+                    _record_client_gone(lf_span, final_text or "".join(streamed), stage)
+                    raise
+                except asyncio.CancelledError:
+                    # Cancelled while the spine itself was still working: nothing
+                    # more can run in this task. What was produced is recorded.
+                    _record_client_gone(lf_span, final_text or "".join(streamed), stage)
                     raise
         except Exception as exc:  # noqa: BLE001 — mid-stream shield: status is committed, only `done` can signal
             payload = _shield_payload(session_id, body, message, "sse_stream", exc, trace_id)
@@ -1123,6 +1199,26 @@ async def feedback(request: Request) -> Response:
     return JSONResponse({"ok": True})
 
 
+async def chat_welcome(request: Request) -> Response:
+    """POST /v3/chat/welcome — the mobile app's opening greeting and chips
+    (`welcome.py`). Same key check as the other /v3 routes; no session, no
+    LLM, no Langfuse trace; `native_context` is read in memory only."""
+    auth = _api_key_error(request)
+    if auth is not None:
+        return auth
+    body = await _read_body(request)
+    language = _locale_response_language(_parse_locale(body.get("locale"))) or "en"
+    payload = welcome.welcome_payload(
+        body.get("native_context"), language, _parse_currency(body.get("currency"))
+    )
+    # Counts only (GDPR): never a city, a hotel or a price.
+    metrics_logger.info(
+        "concierge_metric=welcome personalized=%d suggestions=%d",
+        int(payload["is_personalized"]), len(payload["suggestions"]),
+    )
+    return JSONResponse(payload)
+
+
 def register_v3_routes(app: Any) -> None:
     """Mount the /v3 facade routes onto the (already-built) Starlette app from
     to_a2a. Called by serve.py, which keeps these routes OUT of the D7 bearer
@@ -1130,4 +1226,5 @@ def register_v3_routes(app: Any) -> None:
     app.add_route("/v3/chat", chat, methods=["POST"])
     app.add_route("/v3/chat/stream", chat_stream, methods=["POST"])
     app.add_route("/v3/chat/session/reset", session_reset, methods=["POST"])
+    app.add_route("/v3/chat/welcome", chat_welcome, methods=["POST"])
     app.add_route("/v3/feedback", feedback, methods=["POST"])

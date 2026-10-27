@@ -20,6 +20,20 @@ export function getWelcomeEndpoint() {
     return getChatEndpoint().replace('/v3/chat', '/v3/chat/welcome');
 }
 
+/**
+ * The body of the mobile app's welcome call: the app's native context, and
+ * the page's market so the greeting speaks its language (2026-10-27 — the
+ * concierge serves /v3/chat/welcome again; without a locale it answers in
+ * English).
+ */
+export function welcomeRequestBody(native) {
+    return {
+        native_context: native,
+        locale: state.marketContext?.language || null,
+        currency: state.marketContext?.currency || null,
+    };
+}
+
 // SSE endpoint, derived the same way (/v3/chat → /v3/chat/stream).
 export function getStreamEndpoint() {
     return getChatEndpoint().replace('/v3/chat', '/v3/chat/stream');
