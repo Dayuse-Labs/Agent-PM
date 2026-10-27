@@ -68,19 +68,40 @@ d'accord juge/juge. **Elle est tenue sur les 3 juges.**
   prompt v1), les deux modèles donnent 0,0 avec le prompt v2. Le montage reproduit bien le correctif
   v2.
 
-## 3. Ce qui reste (écritures sur l'instance, après OK de Fabien)
+## 3. Bascule faite le 2026-10-27
 
-1. Pour chacun des 3 évaluateurs, dans l'UI : modèle `gpt-6-luna` ; `max_tokens` désactivé ;
-   provider options `{"reasoning_effort":"none"}`. Il faut peut-être d'abord ajouter `gpt-6-luna`
-   comme nom de modèle sur la connexion LLM OpenAI.
-2. Relire `listEvaluationRules` : les 3 règles doivent pointer la nouvelle version, l'id de
-   l'évaluateur change à chaque version.
-3. Contrôle live : une règle temporaire à `sampling 1.0` sur un filtre étroit, 1 ou 2 tours, lecture
-   des scores et des erreurs d'exécution, puis suppression de la règle.
-4. Mettre à jour `observability/langfuse/evaluators.json`, avec la date de changement de juge.
+**Écritures sur l'instance (Fabien, UI, 14:08-14:15Z)** :
+- `gpt-6-luna` est ajouté en modèle personnalisé sur la connexion OpenAI.
+- Chaque évaluateur a une nouvelle version : Hallucination v4, Relevance v2, User Distress
+  (no history) v2. Chacune porte `gpt-6-luna`, avec « Output token limit » (`max_tokens`) coupé et
+  « Additional options » = `{"reasoning_effort": "none"}`.
+- Ces réglages se trouvent derrière l'icône à droite de « Custom model configuration ». Un réglage
+  grisé est un réglage coupé, donc non envoyé.
+- Prompt, variables et définition du score sont identiques à la version d'avant (API, ancien id
+  contre nouvel id). Les 3 règles pointent les nouvelles versions.
 
-**Repli** si la v3.224.3 n'envoie pas ces paramètres : couper les 3 règles jusqu'à la v4 (O4, fin
-janvier 2027). Elles ont produit 3 scores depuis le 09/09, la perte est faible.
+**Contrôle live** : pas de règle temporaire. Les 3 règles à 5 % ont tourné sur du trafic réel entre
+14:16 et 14:33Z. Résultat : 4 exécutions sur `gpt-6-luna`, 0 erreur, et chaque score écrit.
+
+| Heure | Règle | Score | Jetons de sortie |
+|---|---|---|---|
+| 14:16:57Z | `obs7-relevance-v3chat` | 1.0 | 44 |
+| 14:29:18Z | `obs7-hallucination-v3chat` | 0.0 | 53 |
+| 14:29:44Z | `obs7-relevance-v3chat` | 0.95 | 43 |
+| 14:32:39Z | `obs7-user-distress-v3chat` | 0.0 | 27 |
+
+Aucune génération gpt-4o-mini, tous environnements, de 14:15:28Z à 14:36Z.
+
+**Ce que le §1 prévoyait mal.** Une version intermédiaire (Hallucination v3, 14:06Z) sur
+`gpt-6-luna` a tourné **sans** 400 : la v3.224.3 demande un JSON structuré en texte, sans forcer
+d'outil.
+- La réponse a coûté 279 jetons de sortie pour environ 60 jetons utiles, donc le modèle
+  raisonnait.
+- `reasoning_effort: "none"` n'est donc pas une condition de fonctionnement sur cette version : il
+  divise les jetons de sortie par 5 à 10 (27-53 contre 279).
+- `max_tokens`, lui, n'a pas été testé allumé : le laisser coupé.
+
+Référence de la configuration : `observability/langfuse/evaluators.json` (`judge_model_change`).
 
 ## Reproduire
 

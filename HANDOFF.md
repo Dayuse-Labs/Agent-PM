@@ -6,7 +6,69 @@
 
 > 📋 **Pour savoir QUOI faire ensuite, ouvrir [`CHANTIERS.md`](CHANTIERS.md)** (état vérifié au 2026-09-14) : la liste des chantiers ouverts, chacun avec sa preuve, ses actions et un prompt prêt à coller — plus la liste de ce qu'il ne faut **pas** relancer parce que c'est déjà livré. `tasks/todo.md` est périmé et ne doit plus servir de référence.
 
-## 🩹 2026-10-27 — Branche `fix/geo-named-hotel-prod-20261027` : les échecs des premières conversations réelles sur ai.dayuse.com (PR ouverte, NON mergée, NON déployée)
+## ⚖️ 2026-10-27 (quater) — Les 3 juges Langfuse passés sur gpt-6-luna : plus aucun appel gpt-4o-mini
+
+**Fait** (UI, par Fabien, 14:08-14:15Z ; vérifié par Claude via l'API) :
+- Nouvelles versions : Hallucination v4, Relevance v2, User Distress (no history) v2.
+  - Modèle `gpt-6-luna`, « Output token limit » coupé, « Additional options » =
+    `{"reasoning_effort": "none"}`.
+  - Prompt, variables et score identiques à la version d'avant ; les 3 règles pointent les
+    nouvelles versions.
+- 4 exécutions réelles sur luna, de 14:16 à 14:33Z, 0 erreur, 27 à 53 jetons de sortie. Scores
+  écrits : relevance 1.0 et 0.95, hallucination 0.0, user-distress 0.0.
+- 0 génération gpt-4o-mini, tous environnements, de 14:15:28Z à 14:36Z.
+- Mis à jour : `observability/langfuse/evaluators.json` (`judge_model_change`, anciens ids),
+  `reports/JUDGE-GPT6-DRIFT-2026-10.md` §3, `CHANTIERS.md` M1, `CLAUDE.md`.
+
+**Pièges** :
+- Le réglage du modèle est derrière l'icône à droite de « Custom model configuration ». Un réglage
+  grisé est un réglage coupé, ce qu'on veut pour « Output token limit ».
+- La bibliothèque d'évaluateurs montre « User Distress » (ancien, sans règle) à côté de « User
+  Distress (no history) » (le seul actif). Pour les distinguer, regarder les variables sous le
+  prompt : l'actif n'a que `last_user_message`.
+  - L'ancien a été édité 2 fois par erreur (v2, v3 sur luna). Sans effet : il n'a aucune règle.
+- Le défaut « default evaluation model » du projet est `openai/gpt-6-luna`. Nos évaluateurs ne
+  l'utilisent pas : ils fixent leur propre modèle.
+- **La série Relevance change de niveau à partir de ce jour**, sans changement produit (−0,09 sur
+  les relances courtes, rapport de dérive).
+
+**Reste (M1)** :
+- la baseline du gate avec le juge luna (`evals/baselines.json` enregistrée avec mini), depuis un
+  réseau qui joint MCP_B2C ;
+- 2 décisions de Fabien : une relance unique du triage sur échec instantané ; le montant explicite
+  prioritaire sur `lower`.
+
+## 🚀 2026-10-27 (ter) — `hotel-search`, `concierge`, `widget` déployés sur `cb361c0` (#160)
+
+**Déployé** (`DEPLOY.md`, par Claude à la demande de Fabien, depuis `../AgentB2C-deploy`) :
+- Pré-vol : main = `cb361c0` (merge de #160), worktree propre. pytest **3 237 passés / 1 skippé**,
+  ruff et guardrails OK.
+- Ordre feuille d'abord, chaque service estampillé `cb361c0` avec `--skip-deploys` avant son `up` :
+  - `hotel-search` : déploiement `2f6d8753`, `SUCCESS` à 13:32:11Z ;
+  - `concierge` : `323c0d20`, `SUCCESS` à 13:34:35Z ;
+  - `widget` : `a72f7bcc`, `SUCCESS` à 13:34:57Z.
+- `faq` reste sur `8d1579b` : rien sous `agents/faq_agent`, et elle n'importe pas `clarification.py`.
+- Compatibilité de la fenêtre feuille neuve / concierge ancien : un `kind="unresolved"` y lève une
+  `ValidationError` que le concierge rattrape (`agent.py:403`). C'est la réponse d'avant #160 pendant
+  ~2 min, pas une nouvelle panne.
+- `DAYUSE_MODEL_TRIAGE=openai/gpt-6-luna` inchangée (bascule M1).
+
+**Preuves sur le widget public** (tours synthétiques) :
+- `<meta name="agent-version">` = `cb361c0`.
+- **E** : `POST /v3/chat/welcome` rend 200 et `{"is_personalized": false, …, "market": {"language":
+  "fr", "currency": "EUR"}}`. C'était 404 avant.
+- **A** : « a day room in Galveston tomorrow afternoon » (marché US). La réponse ne parle plus d'une
+  panne de la recherche : c'est une question d'homonymes, Galveston (Texas) ou Galveston (Indiana),
+  sans repli.
+- **B** : « un day use dans le Var demain après-midi » rend 4 hôtels autour de Toulon (Toulon,
+  La Seyne, Six-Fours), avec `resolved_city=Var`.
+- Langfuse : les 2 traces portent `release=cb361c0`, triage sur `openai/gpt-6-luna`, aucune
+  observation en erreur.
+
+**Non prouvé en ligne** : C (seulement par les tests de la PR) et D (il faut un client qui coupe le
+flux).
+
+## 🩹 2026-10-27 — Branche `fix/geo-named-hotel-prod-20261027` : les échecs des premières conversations réelles sur ai.dayuse.com (#160, mergée et déployée sur `cb361c0` le jour même, bloc ter ci-dessus)
 
 Source : 128 conversations réelles de la nuit du 26 au 27/10 (traces Langfuse), « avec résultats » 68 % contre 75 % pour agent-usa. Un commit par point :
 - **A `2463ee2`** (hotel-search + concierge) : un lieu refusé par l'écho (Galveston -> Alveston, Ojai -> Oost, Cuneo -> Luneo, Malines…) finissait sur « I can't reach the hotel search » : la feuille n'envoyait qu'un DataPart `guards_fired`, lu comme un tour vide. Le pays de `places[].country` scope la recherche v6 (retry mondial si rien ne fait écho : biais IP du conteneur, cf. agent-usa #157) ; seuls les candidats qui font écho sont classés ; l'écho accepte l'autre nom de la demande (mention/canonical) ; un quartier à ≤ 40 km de la ville nommée est accepté ; UNE nouvelle recherche sans le lieu reporté du profil ou sous l'autre nom ; sinon `Clarification(kind="unresolved")` par gabarit (nouveau kind, sans option).
@@ -18,7 +80,7 @@ Source : 128 conversations réelles de la nuit du 26 au 27/10 (traces Langfuse),
 
 **Preuve** : pytest 3 236 passés / 2 skippés, ruff, mypy, guardrails, 96 tests JS. Contre-épreuve : les nouveaux tests rejoués sur `54c6a09` -> 29 rouges, seuls les 9 contrôles négatifs verts. Rejeu local (pile locale, clés des services Railway injectées par `railway run`, Langfuse coupé, jamais ai.dayuse.com) des conversations réelles, main puis branche : lot 1 (24 conversations en échec) erreurs visibles 11 -> 1, tours « panne » 8 -> 0, avec résultats 10 -> 12 ; lot 2 (34 conversations qui marchaient) 33/34 avec résultats des deux côtés. Rapport hors dépôt : `dayuse_aisearchagent_USA-worldwide/dashboard_bascule/data/investigation/replay_report.md`.
 
-**Reste** : revue + déploiement `hotel-search` puis `concierge` puis `widget` (`DEPLOY.md`) ; ressemer `b2c/prod-2026-10-27` ; KPI « réponse vide » à recalculer en excluant `client_disconnected` ; D n'est prouvé que par test (le rejeu lit tout le flux).
+**Reste** : ~~revue + déploiement `hotel-search` puis `concierge` puis `widget`~~ faits (bloc ter) ; ressemer `b2c/prod-2026-10-27` ; KPI « réponse vide » à recalculer en excluant `client_disconnected` ; D n'est prouvé que par test (le rejeu lit tout le flux).
 
 **Pièges** : le rejeu local part d'une IP française, pas du datacenter de prod — le biais IP de Mapbox n'est pas reproduit à l'identique (il l'a été 7 fois sur 8 pour A malgré tout). Le triage (gpt-4o-mini) n'est pas déterministe d'un rejeu à l'autre (« Layover in JFK » : question de date sur main, accueil sur la branche).
 
