@@ -112,9 +112,10 @@ class TestLandmarkRadius:
             "hotel_search_agent.response_bridge.get_inventory", lambda: _CountsInventory(counts)
         )
 
-    def _city(self, monkeypatch, counts, *, nearby=False):
+    def _city(self, monkeypatch, counts, *, nearby=False, empty_before=0):
         self._counts(monkeypatch, counts)
         ctx = self._ctx({"type": "city_centroid"})
+        ctx.user_content = _user_content_with_profile_in({"consecutive_empty_searches": empty_before})
         ctx.state["temp:hotel_search_nearby"] = nearby
         args = {"lat": 29.305554, "lon": -94.793248}
         inject_landmark_radius(_Tool("search_offers"), args, ctx)
@@ -138,9 +139,23 @@ class TestLandmarkRadius:
         assert self._city(monkeypatch, {})["radiusKm"] == 50.0
 
     def test_a_nearby_area_takes_a_dense_city_one_ring_further(self, monkeypatch):
+        """Demo replay 2026-10-27, « élargir la zone » after a full page in
+        Paris: nearest first showed the 5 most central hotels (1-2 km), the
+        opposite of widening. Relevance order stays."""
         args = self._city(monkeypatch, {20.0: 7}, nearby=True)
         assert args["radiusKm"] == 30.0
-        assert args["sortBy"] == "distance"  # nearest first, not 80 km out first
+        assert "sortBy" not in args
+
+    def test_a_widening_after_an_empty_search_is_nearest_first(self, monkeypatch):
+        # The zone chip's own case: it is offered after a search with no hotel.
+        args = self._city(monkeypatch, {20.0: 7}, nearby=True, empty_before=1)
+        assert (args["radiusKm"], args["sortBy"]) == (30.0, "distance")
+
+    def test_a_sparse_city_widening_is_nearest_first(self, monkeypatch):
+        """Galveston (demo replay): in relevance order, the 100 km disc showed
+        hotels 81-96 km out first; nearest first, the site's 21 and 33 km."""
+        args = self._city(monkeypatch, {20.0: 0, 30.0: 1, 50.0: 10}, nearby=True)
+        assert (args["radiusKm"], args["sortBy"]) == (100.0, "distance")
 
     def test_a_nearby_area_goes_past_the_widest_city_ring(self, monkeypatch):
         assert self._city(monkeypatch, {}, nearby=True)["radiusKm"] == 100.0

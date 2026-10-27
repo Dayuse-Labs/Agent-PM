@@ -963,14 +963,23 @@ def inject_landmark_radius(tool: Any, args: dict[str, Any], tool_context: Any) -
         )
         args["sortBy"] = "distance"
     elif anchor_type == "city_centroid" and a_lat is not None and a_lon is not None:
-        radius = site_radius_km(
-            a_lat, a_lon, rings=CITY_RADII_KM, min_hotels=CITY_MIN_HOTELS, nearby=nearby
+        own = site_radius_km(a_lat, a_lon, rings=CITY_RADII_KM, min_hotels=CITY_MIN_HOTELS)
+        radius = (
+            site_radius_km(a_lat, a_lon, rings=CITY_RADII_KM, min_hotels=CITY_MIN_HOTELS, nearby=True)
+            if nearby else own
         )
         if radius != CITY_RADII_KM[0]:
             args["radiusKm"] = radius
-        if nearby:
-            # A nearby area is the nearest hotels first: in relevance order a
-            # 100 km disc around Galveston showed hotels 81-96 km out first.
+        try:
+            came_back_empty = int(read_profile_in(tool_context).get("consecutive_empty_searches") or 0) > 0
+        except (TypeError, ValueError):
+            came_back_empty = False
+        if nearby and (own != CITY_RADII_KM[0] or came_back_empty):
+            # Nearest first when the widening is a rescue: in relevance order a
+            # 100 km disc around Galveston showed hotels 81-96 km out first. Not
+            # after a full page in a dense city: nearest first there are the most
+            # central hotels (1-2 km in Paris, demo replay 2026-10-27), the
+            # opposite of widening.
             args["sortBy"] = "distance"
     # Content-free counter (flags only), and the audit's P0-3 ask: which geo tier
     # a turn actually took is otherwise invisible. It is also what caught the
