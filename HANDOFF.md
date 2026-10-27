@@ -6,6 +6,22 @@
 
 > 📋 **Pour savoir QUOI faire ensuite, ouvrir [`CHANTIERS.md`](CHANTIERS.md)** (état vérifié au 2026-09-14) : la liste des chantiers ouverts, chacun avec sa preuve, ses actions et un prompt prêt à coller — plus la liste de ce qu'il ne faut **pas** relancer parce que c'est déjà livré. `tasks/todo.md` est périmé et ne doit plus servir de référence.
 
+## 🚀 2026-10-27 (decies) — `concierge` déployé sur `b446a65` (#165)
+
+**Déployé** (`DEPLOY.md`, par Claude à la demande de Fabien) : pré-vol sur `b446a65`, pytest
+3 329 passés / 1 skippé ; estampille `2c7dd2a` → `b446a65` posée avec `--skip-deploys` ;
+`concierge` SUCCESS (déploiement de 17:22:02Z). `hotel-search` (`a407144`), `widget` (`cb361c0`)
+et `faq` (`8d1579b`) inchangés : seul le code du concierge a changé.
+
+**Preuve** (widget, synthétique, session `synthetic-deploy-triage-f7836dc7`) : trace en release
+`b446a65` ; l'appel de triage part avec `timeout: 4` (avant : 5) et répond en 1,7 s ; réponse en
+français, 5 hôtels. Un timeout ne se provoque pas à la demande : la relance et la langue de
+session ne sont prouvées que par les tests.
+
+**Reste** : dans quelques jours, mesurer en prod la part de triages en repli (`used_llm` faux :
+observations `acompletion` de niveau ERROR sur luna, 2 par tour en échec désormais) ; attendu :
+de 4,5 % de tours vers ~0,2 % si les blocages sont indépendants.
+
 ## 🔁 2026-10-27 (nonies) — Triage : une relance fraîche, et la langue de la session sur repli (branche `fix/triage-retry-language`)
 
 **Constat** (bloc octies) : le triage a expiré, et le repli par regex a répondu en anglais à une
@@ -33,8 +49,7 @@ par le LLM, peut-être en allongeant le timeout.
 comportements échouent (relance, repli après 2 échecs, langue de session, langue de locale,
 timeout 4 s).
 
-**Reste** : merge, déploiement du `concierge` seul ; puis mesurer le taux de repli du triage en
-prod sur quelques jours (attendu : de 4,5 % vers ~0,2 % si les blocages sont indépendants).
+**Reste** : mergé (#165) et déployé, voir le bloc decies (la mesure du taux de repli y est).
 
 ## 🚀 2026-10-27 (octies) — `hotel-search` déployé sur `a407144` (#164)
 
