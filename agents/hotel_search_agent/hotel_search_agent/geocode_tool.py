@@ -55,6 +55,7 @@ from hotel_search_agent.geo_guards import (
 from hotel_search_agent.inventory import get_inventory, haversine_km
 from hotel_search_agent.mapbox_client import (
     ADDRESS_TYPES,
+    AREA_TYPES,
     POSTCODE_TYPES,
     GeocodeCandidate,
     GeocodeResult,
@@ -276,6 +277,14 @@ _POI_ANCHOR_MAX_KM = 40.0
 #: Mapbox v6 types below a city: a district or a borough, never a whole city.
 _DISTRICT_FEATURE_TYPES = frozenset({"locality", "neighborhood"})
 
+#: `GeoIntent` kinds of a place that is an administrative AREA, not a spot: a
+#: French département (« le 06 » -> Alpes-Maritimes, the LLM's reading), a
+#: region (« Puglia »). The kind is the leaf model's understanding; the code
+#: only checks, against Mapbox, that such an area exists and where it is.
+_AREA_KINDS = frozenset({"admin_district", "region"})
+#: The Mapbox feature types an area resolves to (`AREA_TYPES`).
+_AREA_FEATURE_TYPES = frozenset({"region", "district"})
+
 
 def _poi_anchor_incoherent(
     poi: GeocodeCandidate,
@@ -425,6 +434,42 @@ def _searchbox_query(zone: str | None, city: str | None, metro: str | None) -> s
 def _names(*names: str | None) -> tuple[str, ...]:
     """The distinct non-empty names, in order (a destination and its aliases)."""
     return tuple(dict.fromkeys(n.strip() for n in names if n and n.strip()))
+
+
+def _area_match(
+    area: str,
+    names: tuple[str, ...],
+    *,
+    scope: str | None,
+    hard: bool,
+    language: str | None,
+    proximity: str | None,
+) -> GeocodeCandidate | None:
+    """The administrative area the request names, as Mapbox knows it, or None.
+
+    One `region,district` lookup scoped to the request's country, Mapbox's
+    own order, and the first area feature whose name echoes one of `names`.
+    The country is a scope, never a filter, unless the user named it (`hard`):
+    when the scoped lookup holds no such area, the lookup runs once more
+    without it."""
+    mapbox = get_mapbox_client()
+
+    def first(candidates: list[GeocodeCandidate]) -> GeocodeCandidate | None:
+        for c in candidates:
+            if c.feature_type in _AREA_FEATURE_TYPES and any(
+                _echoes(c.place_name, city=None, zone=n, state_hint=None) for n in names
+            ):
+                return c
+        return None
+
+    hit = first(mapbox.geocode_candidates(
+        area, country=scope, language=language, proximity=proximity, types=AREA_TYPES
+    ))
+    if hit is None and scope and not hard:
+        hit = first(mapbox.geocode_candidates(
+            area, country=None, language=language, proximity=proximity, types=AREA_TYPES
+        ))
+    return hit
 
 
 def _unresolved(subject: str, language: str | None, diagnostics: dict, guards_fired: list[str]) -> dict:
@@ -904,6 +949,66 @@ def geocode_core(
                 metro=effective_metro,
                 guards_fired=guards_fired,
             )
+
+    # 2026-10-27 (prod: « Dans le 06 ou le 83 », « l'Hérault », « Puglia »): an
+    # administrative area named as the destination is searched as one, around
+    # the point Mapbox gives the area (its main city), on the city-wide radius.
+    # It used to reach the zone-without-city question below, asked again and
+    # again even after « peu importe la ville ». The area becomes the session's
+    # destination (`last_city`), so a follow-up looks the same area up again.
+    if (
+        zone_kind in _AREA_KINDS and effective_zone and not postal
+        and not effective_city and not effective_metro
+    ):
+        area_names = _names(effective_zone, *aliases)
+        area = _area_match(
+            effective_zone,
+            area_names,
+            scope=country_code or guess_iso,
+            hard=bool(country_code),
+            language=lang,
+            proximity=proximity_str,
+        )
+        if area is not None:
+            return _ok(
+                area.as_result(),
+                feature_type=area.feature_type,
+                profile_delta=_anchor_state(
+                    city=area.name or effective_zone,
+                    raw_user_message=raw_user_message,
+                    profile_state_context=profile_state_context,
+                    profile_location_hint=profile_location_hint,
+                    guards_fired=guards_fired,
+                ),
+                distance_origin_type="city_centroid",
+                guards_fired=guards_fired,
+            )
+        # Not an area Mapbox's admin layer knows (« Lago di Como », a coast):
+        # the Search-Box tier, scoped to the request's country like any
+        # landmark, and the echo guard as the veto.
+        natural = geo_resolver.rank_landmark(
+            get_searchbox_client().forward_candidates(
+                effective_zone,
+                country=_soft_country(country_code, guess_iso, locale),
+                language=lang,
+                proximity=proximity_str,
+            ),
+            requested_zone=effective_zone,
+            inventory=get_inventory(),
+            proximity=proximity_tuple,
+        )
+        if natural is not None and any(
+            _echoes(natural.place_name, city=None, zone=n, state_hint=None) for n in area_names
+        ):
+            return _ok(
+                natural.as_result(),
+                feature_type=natural.feature_type,
+                profile_delta={},
+                distance_origin_type="poi",
+                zone=effective_zone,
+                guards_fired=guards_fired,
+            )
+        return _unresolved(effective_zone, lang, {"query": effective_zone}, guards_fired)
 
     if not effective_city and not effective_metro:
         # Pure "near me" (S-G10, D1 follow-up): no geocodable destination
@@ -1838,7 +1943,11 @@ def geocode_location(
     # What THIS message said, before the carry-over below fills the blanks.
     own = dict(args)
     profile_in = read_profile_in(tool_context)
-    _fill_place_from_profile(args, profile_in)
+    if args.get("zone_kind") not in _AREA_KINDS:
+        # An area named this turn is the destination by itself: the earlier
+        # city is never searched in it (prod: « Lago di Como » looked up as
+        # « Lago di Como, Sirmione »).
+        _fill_place_from_profile(args, profile_in)
     args["country_code"] = _iso2(args.get("country_code"))
     # Q16: the market is read here, not declared: the model neither writes nor
     # sees it. Added only when valid, so the core's arguments are otherwise

@@ -11,6 +11,8 @@ A. `geocode_echo_mismatch` (8 traces): the echo guard rightly refused a
    namesake (Galveston -> Alveston GB, Ojai -> Oost NL, Cuneo -> Luneo,
    Salzburg -> Sulzburg DE, Mechelen -> its own French name), and the turn
    then ended on "I can't reach the hotel search right now".
+B. an administrative area (« le 06 », « l'Hérault », « Puglia ») reached the
+   zone-without-city question, again and again.
 
 Offline: Mapbox, Search Box and the inventory are fakes answering per
 (query, country), as the real APIs do.
@@ -386,3 +388,108 @@ class TestTheHonestEndIsAQuestion:
         assert data["clarification"]["kind"] == "unresolved"
         assert "Ojai" in text
         assert "status" not in data  # not `search_unavailable`
+
+
+# --- B: an administrative area is searched as one -------------------------------
+
+
+def _area(mention, canonical, kind, country) -> Place:
+    return Place(mention=mention, kind=kind, canonical=canonical, country=country)
+
+
+class TestAnAreaIsSearchedAsOne:
+    def test_le_06_is_searched_around_nice(self, geo):
+        # Prod trace 5f8cb239: « Dans le 06 ou le 83 » -> the LLM read
+        # Alpes-Maritimes and Var; the code checks the area exists in Mapbox.
+        v6, box = geo({("Alpes-Maritimes", "FR", "area"): _ranked(ALPES_MARITIMES)})
+        intent = GeoIntent(places=[
+            _area("06", "Alpes-Maritimes", "admin_district", "FR"),
+            _area("83", "Var", "admin_district", "FR"),
+        ], relation="whole_city", carryover="new")
+
+        result = geocode_location(intent=intent, locale="fr",
+                                  tool_context=_ctx("Dans le 06 ou le 83"))
+
+        assert result["ok"] is True
+        assert (result["latitude"], result["longitude"]) == (43.701, 7.268)
+        assert result["distance_origin_type"] == "city_centroid"
+        assert result["profile_delta"]["last_city"] == "Alpes-Maritimes"
+        assert "clarification" not in result
+        assert v6.calls == [("Alpes-Maritimes", "FR", AREA_TYPES)]
+        assert box.calls == []
+
+    def test_the_herault_without_any_city(self, geo):
+        geo({("Hérault", "FR", "area"): [HERAULT]})
+        intent = GeoIntent(places=[_area("l'hérault", "Hérault", "admin_district", "FR")])
+
+        result = geocode_location(intent=intent, locale="fr", tool_context=_ctx("dans l'hérault"))
+
+        assert result["ok"] is True
+        assert result["resolved_place"] == "Hérault, France"
+
+    def test_puglia(self, geo):
+        geo({("Puglia", "IT", "area"): [PUGLIA]})
+        intent = GeoIntent(places=[_area("Puglia", "Puglia", "region", "IT")])
+
+        result = geocode_location(intent=intent, locale="it", tool_context=_ctx("Puglia"))
+
+        assert result["ok"] is True
+        assert result["country_code"] == "IT"
+
+    def test_the_earlier_city_is_never_searched_in_the_area(self, geo):
+        # Prod trace a07181aa: « Cerca sul lago di como » after Sirmione was
+        # looked up as « Lago di Como, Sirmione » -> a hamlet near Bergamo.
+        v6, box = geo(
+            {("Lago di Como, Sirmione", "IT"): [LAGO_DOSSENA]},
+            {("Lago di Como", "IT"): [LAGO_COMO_POI]},
+        )
+        intent = GeoIntent(places=[_area("lago di como", "Lago di Como", "region", "IT")],
+                           relation="near", carryover="new")
+
+        result = geocode_location(
+            intent=intent, locale="it",
+            tool_context=_ctx("Cerca sul lago di como", profile_in={"city": "Sirmione"}),
+        )
+
+        assert result["ok"] is True
+        assert result["resolved_place"] == "Lago como, 22017 Menaggio, Italia"
+        assert all("Sirmione" not in q for q, _, _ in v6.calls)
+
+    def test_peu_importe_la_ville_searches_the_area_again(self, geo):
+        # The follow-up names no place: the area is the carried destination
+        # (`last_city`), looked up again — no city question. Only the area
+        # echoes it; a neighbourhood called « Alpes » does not.
+        geo({("Alpes-Maritimes", "FR"): _ranked(ALPES_MARITIMES, ALPES_VALENCE)})
+
+        result = geocode_location(
+            intent=GeoIntent(), locale="fr",
+            tool_context=_ctx("Peu importe la ville",
+                              profile_in={"city": "Alpes-Maritimes", "country_anchor": "FR"}),
+        )
+
+        assert result["ok"] is True
+        assert result["resolved_place"] == "Alpes-Maritimes, France"
+
+    def test_an_area_mapbox_does_not_know_is_an_honest_question(self, geo):
+        geo({})
+        intent = GeoIntent(places=[_area("la riviera", "Riviera", "region", "FR")])
+
+        result = geocode_location(intent=intent, locale="fr", tool_context=_ctx("sur la riviera"))
+
+        assert result["error"] == "geocode_ambiguous"
+        assert result["clarification"]["kind"] == "unresolved"
+        # Never the old zone-without-city question.
+        assert result["clarification"]["kind"] != "city_needed"
+
+    def test_a_landmark_without_a_city_still_asks_which_city(self, geo):
+        # Negative control: the S5 rule is untouched — only an AREA kind takes
+        # the new path.
+        v6, _ = geo({})
+        intent = GeoIntent(places=[Place(mention="gare de Lyon", kind="station",
+                                         canonical="Gare de Lyon")])
+
+        result = geocode_location(intent=intent, locale="fr",
+                                  tool_context=_ctx("près de la gare de Lyon"))
+
+        assert result["clarification"]["kind"] == "city_needed"
+        assert v6.calls == []
