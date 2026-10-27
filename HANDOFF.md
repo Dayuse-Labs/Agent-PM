@@ -6,6 +6,48 @@
 
 > 📋 **Pour savoir QUOI faire ensuite, ouvrir [`CHANTIERS.md`](CHANTIERS.md)** (état vérifié au 2026-09-14) : la liste des chantiers ouverts, chacun avec sa preuve, ses actions et un prompt prêt à coller — plus la liste de ce qu'il ne faut **pas** relancer parce que c'est déjà livré. `tasks/todo.md` est périmé et ne doit plus servir de référence.
 
+## 🚀 2026-10-27 (bis) — Bascule M1 : triage du `concierge` sur gpt-6-luna (`d4f4fb1`, #158)
+
+**Déployé** (`DEPLOY.md`, par Claude à la demande de Fabien, depuis `../AgentB2C-deploy`) :
+- Pré-vol : main = `d4f4fb1` (merge de #158, même arbre que la branche testée), worktree propre,
+  pytest **3 186 passés / 1 skippé**.
+- **`concierge` seul** : son seul changement depuis `54c6a09` est `triage.py`. `widget` reste sur
+  `54c6a09`, `hotel-search` et `faq` sur `8d1579b` (raison dans le bloc sexies ci-dessous).
+- 10:56:35Z, avec `--skip-deploys` : `LANGFUSE_RELEASE=d4f4fb1` et
+  `DAYUSE_MODEL_TRIAGE=openai/gpt-6-luna`. Puis `railway up --service concierge --detach` ;
+  déploiement `4c12003d` en `SUCCESS` à 10:58:14Z.
+
+**Preuves (Langfuse)** :
+- Les 4 traces après 10:58:14Z portent `release=d4f4fb1`. Leur génération de triage tourne sur
+  `openai/gpt-6-luna` : 2 tours synthétiques (`synthetic-33c4c187`) et un visiteur réel, sur
+  `/v3/chat` comme sur `/v3/chat/stream`. Le « Bonjour » sans LLM rend ses `turn_facts`.
+- La règle resserrée tient en ligne : « un hôtel pas trop cher à Lyon demain après-midi » (premier
+  message), puis « et plutôt à Villeurbanne ? ». Aucun `price_comparison` n'est posé. Triage en
+  1,68 s et 1,54 s.
+- 0 génération gpt-4o-mini de 10:58:14Z à 11:02:37Z (13 générations : luna et gpt-5.2).
+- Vu en passant, sans lien avec la bascule : « plutôt à Villeurbanne » rend les mêmes offres que
+  Lyon, car Villeurbanne est dans le rayon de Lyon. `refinement_unchanged` le dit.
+
+**Retour arrière (code ET variable)** :
+1. `LANGFUSE_RELEASE=54c6a09` et `DAYUSE_MODEL_TRIAGE=gpt-4o-mini`, avec `--skip-deploys` ;
+2. `railway up --service concierge --detach` depuis un worktree sur `54c6a09`.
+
+mini avec le nouveau prompt régresse.
+
+**Piège découvert** : les 3 évaluateurs Langfuse tournent toujours sur gpt-4o-mini, et ils sont
+actifs. Environnement `langfuse-llm-as-a-judge` : 228 générations en 7 jours, toutes sur mini.
+- 172 viennent des experiments du rejeu (08h-09h) ;
+- environ 50 viennent du trafic de la démo depuis le 2026-10-26 14h ;
+- 1 seule les 6 jours d'avant.
+
+Tant qu'ils ne sont pas passés sur luna, M1 n'est pas fini, et chaque experiment les appelle.
+
+**Reste** (M1) :
+- les 3 évaluateurs sur luna (UI, Fabien), puis `observability/langfuse/evaluators.json` ;
+- la baseline du gate, une seule fois, dans le montage final ;
+- 2 décisions ouvertes pour Fabien : une relance unique du triage sur échec en moins d'une seconde ;
+  un montant explicite prioritaire sur `lower` (`agent.py`, branche `lower`).
+
 ## ✅ 2026-10-27 — Rejeu live du triage luna : au niveau de la prod, prêt pour la bascule (#158)
 
 **Fait** (rapport `reports/TRIAGE-GPT6-AB-2026-10.md` §6) :
@@ -31,9 +73,7 @@
 - Le `.env` local avait un jeton MCP et des clés Langfuse périmés (401). Fabien les a remplacés.
 
 **Reste** (M1, `CHANTIERS.md`) :
-- Fabien merge #158 ;
-- bascule atomique : `concierge` déployé et `DAYUSE_MODEL_TRIAGE=openai/gpt-6-luna` posée en même
-  temps ;
+- ~~Fabien merge #158 ; bascule atomique~~ : faits le jour même (bloc bis ci-dessus) ;
 - 3 évaluateurs Langfuse (UI) ;
 - baseline du gate après bascule.
 

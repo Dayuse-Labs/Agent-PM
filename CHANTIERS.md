@@ -54,13 +54,12 @@ l'équipe, dès que tu donnes la copy) → `E2` puis `E1` puis `E4` (la boucle Q
 | **L** | Compréhension géo — série S-L (ajouté le 2026-10-08) ; `GeoIntent` produit par la feuille (DQ1) : S-L3/S-L4 conditionnelles, S-L7a et S-L7f faites, S-L7d et S-L7e restent | L | MCP déployé (S-L1) |
 | **QA14707** | Retours QA de Raphael du 14/10 : créneau localisé, lieu compris (`GeoIntent` dans la feuille), clarification tenue par le code. Phases 1-3 déployées (`0b65159`) ; phases 4-5 sur `plan/qa14707`. Plan : `plans/qa14707/`, source : `phases/QA14707/` | L | **Fabien** (revue de la seconde PR, H3' live, H4 retest) |
 | **X1→X3** | 3 demandes chez MCP_B2C | — | **MCP_B2C** |
-| **M1** | Sortir de gpt-4o-mini (arrêt 2027-01-14) : juge du gate passé (baseline à refaire) ; triage : prompt resserré, rejeu live au niveau de la prod (2026-10-27), reste la bascule atomique (#158) ; 3 évaluateurs Langfuse (réglages UI) | M | **Fabien** (OK Langfuse, merge #158) · ⏰ **2027-01-14** |
+| **M1** | Sortir de gpt-4o-mini (arrêt 2027-01-14) : juge du gate passé (baseline à refaire) ; triage basculé sur luna le 2026-10-27 (`d4f4fb1`, #158) ; restent les 3 évaluateurs Langfuse, encore sur mini et actifs (réglages UI) | M | **Fabien** (UI Langfuse) · ⏰ **2027-01-14** |
 | **AM1** | Tracking Amplitude : AgentB2C #146 et dayuse-product-analytics #112 mergées (vu le 2026-10-26) ; restent dayuse.com !15273 et 3 vérifications humaines | S | **Fabien** (!15273) |
 | **MOB1** | Le widget dans l'app mobile (`__DAYUSE_NATIVE__`, pont de navigation, `native_context` opaque côté concierge) : plan de test + prompt | M | phase C : **Fabien** (app de prod) |
 
 **Deux échéances datées** :
-- **2027-01-14** : arrêt de gpt-4o-mini, qui fait encore tourner le triage et les juges Langfuse
-  (`M1`) ;
+- **2027-01-14** : arrêt de gpt-4o-mini, qui fait encore tourner les 3 juges Langfuse (`M1`) ;
 - **fin janvier 2027** : fin des patchs de sécurité Langfuse v3 (chaîne `O1 → O2 → O4`).
 
 Tout le reste est arbitrable.
@@ -595,7 +594,7 @@ fait), ou accepte-t-on de ne mesurer qu'au coup par coup ?
 
 # 2 bis · M1 — Sortir de gpt-4o-mini (ouvert le 2026-10-19)
 
-**Taille : M** · ⏰ **2027-01-14** · **bloqué par : Fabien** (OK Langfuse, bascule Railway)
+**Taille : M** · ⏰ **2027-01-14** · **bloqué par : Fabien** (réglages UI des évaluateurs Langfuse)
 
 **Contexte.** OpenAI arrête gpt-4o-mini le 2027-01-14. Les feuilles sont passées à
 `openai/gpt-6-luna` (#139).
@@ -624,14 +623,19 @@ en 2 itérations mesurées. luna tient la barre, voir `reports/TRIAGE-GPT6-AB-20
 1. ~~**Rejeu live**~~ **fait le 2026-10-27** (rapport §6) : 2 bras le même jour, mini 91,1 % contre
    luna 91,0 %. Les 5 écarts d'un item sont expliqués et ne tiennent pas au triage, et les 4 cas
    sont tranchés. Verdict : bascule.
-2. **Bascule triage (humaine), atomique** :
+2. ~~**Bascule triage, atomique**~~ **faite le 2026-10-27** (`HANDOFF.md`, bloc bis) : #158
+   mergée, `concierge` sur `d4f4fb1` (déploiement `4c12003d`). Les traces montrent le triage sur
+   `openai/gpt-6-luna`, et aucun appel gpt-4o-mini de l'app depuis. La procédure reste valable pour
+   un retour arrière :
    - merger la partie 2, déployer `concierge` depuis un worktree propre de main ;
    - poser `DAYUSE_MODEL_TRIAGE=openai/gpt-6-luna` avec `--skip-deploys` **avant** `railway up`. La
      **poser, jamais la supprimer** : le concierge porte `DAYUSE_MODEL=gpt-5.2`, sur lequel
      retomberait le triage ;
    - **retour arrière = variable ET code ensemble** : l'estampille et le déploiement précédents,
      plus `DAYUSE_MODEL_TRIAGE=gpt-4o-mini`. Le nouveau prompt sur mini renvoie 3 champs aux regex.
-3. **Évaluateurs Langfuse** (Hallucination, Relevance, User Distress (no history)).
+3. **Évaluateurs Langfuse** (Hallucination, Relevance, User Distress (no history)). **Actifs, sur
+   mini** : 228 générations `langfuse-llm-as-a-judge` en 7 jours au 2026-10-27, dont environ 50 sur le
+   trafic de la démo et 172 sur les experiments du rejeu. C'est le dernier appel à mini.
    - La dérive mesurée est faible, la barre est tenue. Relevance baisse de 0,09 en moyenne sur les
      relances courtes : noter la date du changement de juge.
    - gpt-6-luna exige `max_completion_tokens` (pas `max_tokens`) et `reasoning_effort: "none"`.
