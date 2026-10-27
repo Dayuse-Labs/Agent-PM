@@ -6,6 +6,38 @@
 
 > 📋 **Pour savoir QUOI faire ensuite, ouvrir [`CHANTIERS.md`](CHANTIERS.md)** (état vérifié au 2026-09-14) : la liste des chantiers ouverts, chacun avec sa preuve, ses actions et un prompt prêt à coller — plus la liste de ce qu'il ne faut **pas** relancer parce que c'est déjà livré. `tasks/todo.md` est périmé et ne doit plus servir de référence.
 
+## ⚖️ 2026-10-27 (quater) — Les 3 juges Langfuse passés sur gpt-6-luna : plus aucun appel gpt-4o-mini
+
+**Fait** (UI, par Fabien, 14:08-14:15Z ; vérifié par Claude via l'API) :
+- Nouvelles versions : Hallucination v4, Relevance v2, User Distress (no history) v2.
+  - Modèle `gpt-6-luna`, « Output token limit » coupé, « Additional options » =
+    `{"reasoning_effort": "none"}`.
+  - Prompt, variables et score identiques à la version d'avant ; les 3 règles pointent les
+    nouvelles versions.
+- 4 exécutions réelles sur luna, de 14:16 à 14:33Z, 0 erreur, 27 à 53 jetons de sortie. Scores
+  écrits : relevance 1.0 et 0.95, hallucination 0.0, user-distress 0.0.
+- 0 génération gpt-4o-mini, tous environnements, de 14:15:28Z à 14:36Z.
+- Mis à jour : `observability/langfuse/evaluators.json` (`judge_model_change`, anciens ids),
+  `reports/JUDGE-GPT6-DRIFT-2026-10.md` §3, `CHANTIERS.md` M1, `CLAUDE.md`.
+
+**Pièges** :
+- Le réglage du modèle est derrière l'icône à droite de « Custom model configuration ». Un réglage
+  grisé est un réglage coupé, ce qu'on veut pour « Output token limit ».
+- La bibliothèque d'évaluateurs montre « User Distress » (ancien, sans règle) à côté de « User
+  Distress (no history) » (le seul actif). Pour les distinguer, regarder les variables sous le
+  prompt : l'actif n'a que `last_user_message`.
+  - L'ancien a été édité 2 fois par erreur (v2, v3 sur luna). Sans effet : il n'a aucune règle.
+- Le défaut « default evaluation model » du projet est `openai/gpt-6-luna`. Nos évaluateurs ne
+  l'utilisent pas : ils fixent leur propre modèle.
+- **La série Relevance change de niveau à partir de ce jour**, sans changement produit (−0,09 sur
+  les relances courtes, rapport de dérive).
+
+**Reste (M1)** :
+- la baseline du gate avec le juge luna (`evals/baselines.json` enregistrée avec mini), depuis un
+  réseau qui joint MCP_B2C ;
+- 2 décisions de Fabien : une relance unique du triage sur échec instantané ; le montant explicite
+  prioritaire sur `lower`.
+
 ## 🚀 2026-10-27 (ter) — `hotel-search`, `concierge`, `widget` déployés sur `cb361c0` (#160)
 
 **Déployé** (`DEPLOY.md`, par Claude à la demande de Fabien, depuis `../AgentB2C-deploy`) :
