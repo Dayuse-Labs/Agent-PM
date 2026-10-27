@@ -6,6 +6,36 @@
 
 > 📋 **Pour savoir QUOI faire ensuite, ouvrir [`CHANTIERS.md`](CHANTIERS.md)** (état vérifié au 2026-09-14) : la liste des chantiers ouverts, chacun avec sa preuve, ses actions et un prompt prêt à coller — plus la liste de ce qu'il ne faut **pas** relancer parce que c'est déjà livré. `tasks/todo.md` est périmé et ne doit plus servir de référence.
 
+## 🔁 2026-10-27 (nonies) — Triage : une relance fraîche, et la langue de la session sur repli (branche `fix/triage-retry-language`)
+
+**Constat** (bloc octies) : le triage a expiré, et le repli par regex a répondu en anglais à une
+session française (« élargir la zone »). Demande de Fabien : éviter les regex au maximum, régler
+par le LLM, peut-être en allongeant le timeout.
+
+**Mesuré avant de choisir** :
+- Prod, triages luna (156 depuis la bascule) : 4,5 % de timeouts à 5,0 s (mini : 0,6 % sur 514).
+  En `development`, les « timeouts » durent 0,02 s : c'est le transport aiohttp local, pas ce cas.
+- Ces timeouts tombent par rafales (15:00-15:07, 17:06-17:08), et ne suivent pas une inactivité.
+  Dans les mêmes minutes, les appels luna de la feuille, sans coupure à 5 s, répondaient en 1,3 à
+  4,6 s : ce sont des requêtes bloquées, pas un modèle lent.
+- Le vrai `classify()` sur la fixture (228 appels, sans timeout effectif) : p99 2,8 s, max 3,9 s.
+- Donc un timeout plus long ferait seulement attendre une requête qui ne revient pas.
+
+**Fait** :
+- `triage.py` : 2 tentatives de 4 s, la 2e sur `litellm.Timeout` ou `APIConnectionError`
+  seulement, dans le même créneau du budget (8 s au pire, contre 5 s puis la regex).
+- `agent.py` : sur un triage que le LLM n'a pas lu, la langue de la réponse est celle de la
+  session (fixée par un triage LLM antérieur), puis celle de la locale ; la devinette regex
+  seulement à défaut des deux.
+- `CLAUDE.md` (budgets), `CHANTIERS.md` M1 (item 7, décision de relance prise).
+
+**Preuves** : pytest vert ; contrôle négatif : sur le code de `main`, les 5 nouveaux
+comportements échouent (relance, repli après 2 échecs, langue de session, langue de locale,
+timeout 4 s).
+
+**Reste** : merge, déploiement du `concierge` seul ; puis mesurer le taux de repli du triage en
+prod sur quelques jours (attendu : de 4,5 % vers ~0,2 % si les blocages sont indépendants).
+
 ## 🚀 2026-10-27 (octies) — `hotel-search` déployé sur `a407144` (#164)
 
 **Déployé** (`DEPLOY.md`, par Claude à la demande de Fabien) : pré-vol sur `a407144`, pytest
@@ -18,7 +48,7 @@ feuille portent `a407144`. Paris avec piscine intérieure + spa < 300 € → pa
 « élargir la zone » tapé → `search_offers` avec `radiusKm: 30` sans `sortBy` (pertinence), et
 Océania Roissy CDG à 25,3 km entre dans les 5 hôtels (avant : les 5 plus centraux, 0,9 à 2,1 km).
 
-**Trouvé, non corrigé (concierge, antérieur)** : au même tour, le triage a expiré (OpenAI, 5 s,
+**Trouvé (concierge, antérieur ; corrigé au bloc nonies)** : au même tour, le triage a expiré (OpenAI, 5 s,
 une seule tentative) ; dans le repli par regex, la langue est sortie `en` pour « élargir la
 zone » alors que la session est en français (locale `fr`, T0 trié `fr`) : la réponse est partie
 en anglais. Le repli devrait garder la langue de la session (`profile.language`, puis la locale)
@@ -167,8 +197,8 @@ prompt, jamais une regex ; « idéalement » n'est pas un filtre dur ; piscine i
 **Reste (M1)** :
 - la baseline du gate avec le juge luna (`evals/baselines.json` enregistrée avec mini), depuis un
   réseau qui joint MCP_B2C ;
-- 2 décisions de Fabien : une relance unique du triage sur échec instantané ; le montant explicite
-  prioritaire sur `lower`.
+- 1 décision de Fabien : le montant explicite prioritaire sur `lower` (la relance unique du
+  triage est faite, bloc nonies).
 
 ## 🚀 2026-10-27 (ter) — `hotel-search`, `concierge`, `widget` déployés sur `cb361c0` (#160)
 

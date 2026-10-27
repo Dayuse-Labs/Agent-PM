@@ -662,6 +662,12 @@ en 2 itérations mesurées. luna tient la barre, voir `reports/TRIAGE-GPT6-AB-20
    vérifier côté plateforme, puis à porter par son équipe.
 6. Non bloquant : `cost_usd` vaut `None` sur luna, parce que litellm 1.90.2 n'a pas son prix.
    `DAYUSE_MODEL_PRICES` enregistre sous `openrouter` : à vérifier pour `openai/gpt-6-luna`.
+7. ~~**Relance unique du triage**~~ **faite le 2026-10-27** (branche `fix/triage-retry-language`,
+   demande de Fabien : régler par le LLM, pas par la regex). En prod, 4,5 % des triages luna
+   expiraient à 5 s (0,6 % sur mini), par rafales pendant lesquelles les appels luna de la feuille
+   répondaient en 1,3 à 4,6 s : des requêtes bloquées, pas un modèle lent. Désormais 2 tentatives
+   de 4 s, la 2e sur timeout ou erreur de connexion seulement. Mesure sans timeout : 228 appels,
+   aucun au-delà de 3,9 s.
 
 **Terminé quand** plus aucun appel de prod ni d'éval ne part sur gpt-4o-mini. À vérifier par une
 requête `/api/public/metrics` (`providedModelName=gpt-4o-mini`, 0 depuis la bascule) et par

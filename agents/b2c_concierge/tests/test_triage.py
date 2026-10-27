@@ -312,7 +312,7 @@ class TestPerRoleLlmParams:
         captured = self._capture(monkeypatch)
         _classify("un hôtel à Paris")
         assert captured["max_retries"] == 0
-        assert captured["timeout"] == 5.0
+        assert captured["timeout"] == 4.0
 
     def test_the_triage_effort_variable_still_reaches_a_reasoning_model(self, monkeypatch):
         monkeypatch.setenv("DAYUSE_MODEL", "gpt-5.2")
@@ -534,3 +534,46 @@ class TestLanguageEvidence:
 
         for message in ("oui", "à Paris", "New York please", "plutôt Lyon"):
             assert has_language_evidence(message) is True
+
+
+
+class TestOneFreshAttempt:
+    """Prod 2026-10-27: 4.5 % of gpt-6-luna triages hit the timeout, in bursts
+    during which the leaf's own luna calls answered in 1.3-4.6 s: stuck
+    requests. One new request, then the regex."""
+
+    @staticmethod
+    def _stuck():
+        return triage_module.litellm.Timeout(message="stuck", model="openai/gpt-6-luna", llm_provider="openai")
+
+    def _install(self, monkeypatch, *outcomes):
+        calls: list[dict] = []
+        queue = list(outcomes)
+
+        async def fake_acompletion(**kwargs):
+            calls.append(kwargs)
+            item = queue.pop(0)
+            if isinstance(item, Exception):
+                raise item
+            return _llm_response(item)
+
+        monkeypatch.setattr(triage_module.litellm, "acompletion", fake_acompletion)
+        return calls
+
+    def test_a_stuck_request_gets_one_fresh_attempt(self, monkeypatch):
+        calls = self._install(monkeypatch, self._stuck(), '{"family": "search", "language": "fr"}')
+        budget = TurnBudget()
+        result = _classify("élargir la zone", budget)
+        assert (result.family, result.language, result.used_llm) == ("search", "fr", True)
+        assert len(calls) == 2
+        assert budget.llm_calls == 1  # the retry stays inside the triage slot
+
+    def test_two_stuck_requests_fall_back_to_the_regex(self, monkeypatch):
+        calls = self._install(monkeypatch, self._stuck(), self._stuck())
+        assert _classify("élargir la zone").used_llm is False
+        assert len(calls) == 2
+
+    def test_a_failure_that_is_not_transient_is_not_retried(self, monkeypatch):
+        calls = self._install(monkeypatch, ValueError("bad request"))
+        assert _classify("élargir la zone").used_llm is False
+        assert len(calls) == 1
