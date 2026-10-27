@@ -41,7 +41,7 @@ import { runSearchWithFilters, addFollowUpMessage, handleFollowUp, seeMore } fro
 import { sendMessage, startChat, openChatView, fillSearch, resetChatSession, syncChatComposerHeight, syncChatViewportLock } from './handlers/send.js';
 import { setLanguage, t } from './i18n.js';
 import { getNativeContext } from './utils.js';
-import { getWelcomeEndpoint, getChatHeaders } from './api.js';
+import { getWelcomeEndpoint, getChatHeaders, welcomeRequestBody } from './api.js';
 
 /**
  * App entry: when the page is opened inside the mobile app's webview, the app
@@ -62,7 +62,7 @@ async function startFromAppContext() {
         const resp = await fetch(getWelcomeEndpoint(), {
             method: 'POST',
             headers: getChatHeaders(),
-            body: JSON.stringify({ native_context: native }),
+            body: JSON.stringify(welcomeRequestBody(native)),
         });
         if (!resp.ok) return true;
         const data = await resp.json();

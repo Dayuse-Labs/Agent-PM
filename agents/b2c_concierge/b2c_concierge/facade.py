@@ -46,7 +46,7 @@ from starlette.responses import JSONResponse, Response, StreamingResponse
 
 from dayuse_agent_common import enqueue_metric_event
 
-from . import conversation_log, templates
+from . import conversation_log, templates, welcome
 from .agent import _US, metrics_logger, root_agent
 from .conversation_log import build_conversation_log_row, detect_is_synthetic
 from .inline_tools import _format_price_eur_cents
@@ -1199,6 +1199,26 @@ async def feedback(request: Request) -> Response:
     return JSONResponse({"ok": True})
 
 
+async def chat_welcome(request: Request) -> Response:
+    """POST /v3/chat/welcome — the mobile app's opening greeting and chips
+    (`welcome.py`). Same key check as the other /v3 routes; no session, no
+    LLM, no Langfuse trace; `native_context` is read in memory only."""
+    auth = _api_key_error(request)
+    if auth is not None:
+        return auth
+    body = await _read_body(request)
+    language = _locale_response_language(_parse_locale(body.get("locale"))) or "en"
+    payload = welcome.welcome_payload(
+        body.get("native_context"), language, _parse_currency(body.get("currency"))
+    )
+    # Counts only (GDPR): never a city, a hotel or a price.
+    metrics_logger.info(
+        "concierge_metric=welcome personalized=%d suggestions=%d",
+        int(payload["is_personalized"]), len(payload["suggestions"]),
+    )
+    return JSONResponse(payload)
+
+
 def register_v3_routes(app: Any) -> None:
     """Mount the /v3 facade routes onto the (already-built) Starlette app from
     to_a2a. Called by serve.py, which keeps these routes OUT of the D7 bearer
@@ -1206,4 +1226,5 @@ def register_v3_routes(app: Any) -> None:
     app.add_route("/v3/chat", chat, methods=["POST"])
     app.add_route("/v3/chat/stream", chat_stream, methods=["POST"])
     app.add_route("/v3/chat/session/reset", session_reset, methods=["POST"])
+    app.add_route("/v3/chat/welcome", chat_welcome, methods=["POST"])
     app.add_route("/v3/feedback", feedback, methods=["POST"])

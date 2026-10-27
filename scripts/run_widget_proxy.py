@@ -226,7 +226,9 @@ SESSION_REPLAY_CONFIG = (
 
 # Only the routes the concierge facade serves (facade.py::register_v3_routes).
 _CHAT_ROUTES = frozenset({"/v3/chat", "/v3/chat/stream"})
-_OTHER_POST_ROUTES = frozenset({"/v3/chat/session/reset", "/v3/feedback"})
+# `/v3/chat/welcome`: the mobile app's opening greeting (2026-10-27, served by
+# agent-usa before the switch; no LLM behind it).
+_OTHER_POST_ROUTES = frozenset({"/v3/chat/session/reset", "/v3/feedback", "/v3/chat/welcome"})
 _CSP_REPORT_PATH = "/csp-report"
 
 
