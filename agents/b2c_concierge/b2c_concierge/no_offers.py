@@ -75,31 +75,37 @@ _WITH: dict[str, str] = {
     "fr": "avec {}", "en": "with {}", "es": "con {}", "it": "con {}", "de": "mit {}", "pt": "com {}", "nl": "met {}",
 }
 _AND: dict[str, str] = {"fr": "et", "en": "and", "es": "y", "it": "e", "de": "und", "pt": "e", "nl": "en"}
+# « très classe » (the leaf's `standing`, mapped to 4- and 5-star hotels).
+_UPSCALE: dict[str, str] = {
+    "fr": "en hôtel 4 ou 5 étoiles", "en": "at a 4- or 5-star hotel", "es": "en un hotel de 4 o 5 estrellas",
+    "it": "in un hotel a 4 o 5 stelle", "de": "in einem 4- oder 5-Sterne-Hotel",
+    "pt": "em hotel de 4 ou 5 estrelas", "nl": "in een 4- of 5-sterrenhotel",
+}
 _ADULTS: dict[str, str] = {
     "fr": "pour {} adultes", "en": "for {} adults", "es": "para {} adultos", "it": "per {} adulti",
     "de": "für {} Erwachsene", "pt": "para {} adultos", "nl": "voor {} volwassenen",
 }
 # The leaf's amenity keys (hotel_search_agent.equipment_ids.EQUIPMENT_IDS).
 _AMENITY: dict[str, dict[str, str]] = {
-    "fr": {"pool": "piscine", "spa": "spa", "gym": "salle de sport", "jacuzzi": "jacuzzi", "sauna": "sauna",
+    "fr": {"indoor_pool": "piscine intérieure", "pool": "piscine", "spa": "spa", "gym": "salle de sport", "jacuzzi": "jacuzzi", "sauna": "sauna",
            "restaurant": "restaurant", "breakfast": "petit-déjeuner", "pet_friendly": "animaux acceptés",
            "shuttle": "navette aéroport"},
-    "en": {"pool": "a pool", "spa": "a spa", "gym": "a gym", "jacuzzi": "a hot tub", "sauna": "a sauna",
+    "en": {"indoor_pool": "an indoor pool", "pool": "a pool", "spa": "a spa", "gym": "a gym", "jacuzzi": "a hot tub", "sauna": "a sauna",
            "restaurant": "a restaurant", "breakfast": "breakfast", "pet_friendly": "pets allowed",
            "shuttle": "an airport shuttle"},
-    "es": {"pool": "piscina", "spa": "spa", "gym": "gimnasio", "jacuzzi": "jacuzzi", "sauna": "sauna",
+    "es": {"indoor_pool": "piscina cubierta", "pool": "piscina", "spa": "spa", "gym": "gimnasio", "jacuzzi": "jacuzzi", "sauna": "sauna",
            "restaurant": "restaurante", "breakfast": "desayuno", "pet_friendly": "mascotas admitidas",
            "shuttle": "traslado al aeropuerto"},
-    "it": {"pool": "piscina", "spa": "spa", "gym": "palestra", "jacuzzi": "idromassaggio", "sauna": "sauna",
+    "it": {"indoor_pool": "piscina coperta", "pool": "piscina", "spa": "spa", "gym": "palestra", "jacuzzi": "idromassaggio", "sauna": "sauna",
            "restaurant": "ristorante", "breakfast": "colazione", "pet_friendly": "animali ammessi",
            "shuttle": "navetta aeroportuale"},
-    "de": {"pool": "Pool", "spa": "Spa", "gym": "Fitnessraum", "jacuzzi": "Whirlpool", "sauna": "Sauna",
+    "de": {"indoor_pool": "Hallenbad", "pool": "Pool", "spa": "Spa", "gym": "Fitnessraum", "jacuzzi": "Whirlpool", "sauna": "Sauna",
            "restaurant": "Restaurant", "breakfast": "Frühstück", "pet_friendly": "Haustiere erlaubt",
            "shuttle": "Flughafenshuttle"},
-    "pt": {"pool": "piscina", "spa": "spa", "gym": "academia", "jacuzzi": "jacuzzi", "sauna": "sauna",
+    "pt": {"indoor_pool": "piscina coberta", "pool": "piscina", "spa": "spa", "gym": "academia", "jacuzzi": "jacuzzi", "sauna": "sauna",
            "restaurant": "restaurante", "breakfast": "café da manhã", "pet_friendly": "animais permitidos",
            "shuttle": "transfer para o aeroporto"},
-    "nl": {"pool": "zwembad", "spa": "spa", "gym": "fitnessruimte", "jacuzzi": "jacuzzi", "sauna": "sauna",
+    "nl": {"indoor_pool": "binnenzwembad", "pool": "zwembad", "spa": "spa", "gym": "fitnessruimte", "jacuzzi": "jacuzzi", "sauna": "sauna",
            "restaurant": "restaurant", "breakfast": "ontbijt", "pet_friendly": "huisdieren toegestaan",
            "shuttle": "luchthavenshuttle"},
 }
@@ -169,6 +175,8 @@ def no_offers_line(
     ]
     if amenities:
         bits.append(_WITH[lang].format(_join(amenities, lang)))
+    if context.get("standing") == "upscale":
+        bits.append(_UPSCALE[lang])
     adults = context.get("adults")
     if isinstance(adults, int) and adults > 1:
         bits.append(_ADULTS[lang].format(adults))

@@ -853,7 +853,7 @@ au redémarrage du process (le profil Redis, lui, survit). À traiter avec S10/S
 | G10 | Variance de `_lookup_trace_facts` | Un miss dégrade en `skipped` silencieux. Backoff plus long ou échec explicite. |
 | G11 | Cas `lang-confirm-implicit` impassable | `pending_booking.hotel_id = 123` fabriqué → aucun lien possible, plafond 6/7 définitif. Le re-semer avec un vrai id, ou l'acter. |
 | G12 | `booking_url_fallback` illisible | Le proxy jette le corps (`scripts/run_widget_proxy.py:133-135`). ~10 lignes pour logger `event` + `reason` (liste blanche, jamais le payload). |
-| G13 | `sort` jeté avant MCP (trouvé le 2026-10-27) | Le MCP déployé a `sortBy`, pas `sort` (`additionalProperties: false`) : `schema_guard` jette le `sort="distance"` d'`inject_landmark_radius`, donc MCP classe les recherches de lieu précis par pertinence (seules les 5 cartes gardées sont retriées). Le modèle pose `sortBy` / `timeSlotMode` lui-même, hors doctrine. Corriger = `sortBy` dans le callback, contrat rafraîchi (humain), `_INJECTED_AHEAD_OF_THE_SCHEMA`. Change l'ordre de toutes les recherches de lieu : décision Fabien. |
+| ~~G13~~ | ✅ Fait le 2026-10-27 (branche `fix/city-radius-sparse-20261027`) : `sortBy` envoyé, `sort` / `sortBy` / `starRatings` du modèle jetés | Reste à rafraîchir `contracts/mcp_b2c_tools.json` (humain). |
 
 ---
 

@@ -1337,6 +1337,25 @@ class TestRecoveryAck:
         events = _drive_in(runner, session.id, "try a nearby area")
         assert leaf_calls == ["hotel_search"]
         assert _answer(events) == "Widening the area now."
+        # The click is a fact the code knows: the leaf widens the ring on it.
+        assert leaf_calls.kwargs[0]["query_params"] == {"widen_area": True}
+
+    def test_another_chip_sends_no_widening(self, scripted, fake_profile_store):
+        runner, session = _new_session()
+        asyncio.run(
+            fake_profile_store.set(
+                session.id,
+                SessionProfile(
+                    last_suggestions=["increase the budget", "try a nearby area", "remove a filter"]
+                ),
+            )
+        )
+        llm, leaf_calls = scripted(
+            '{"family": "ack", "language": "en"}', "Done.", leaf_text="results: hotel A",
+        )
+        _drive_in(runner, session.id, "remove a filter")
+        assert leaf_calls == ["hotel_search"]
+        assert "widen_area" not in (leaf_calls.kwargs[0].get("query_params") or {})
 
     def test_greeting_after_empty_streak_still_goes_to_the_ack_template(
         self, scripted, fake_profile_store

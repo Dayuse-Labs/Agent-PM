@@ -457,18 +457,24 @@ class TestAnAreaIsSearchedAsOne:
 
     def test_peu_importe_la_ville_searches_the_area_again(self, geo):
         # The follow-up names no place: the area is the carried destination
-        # (`last_city`), looked up again — no city question. Only the area
-        # echoes it; a neighbourhood called « Alpes » does not.
-        geo({("Alpes-Maritimes", "FR"): _ranked(ALPES_MARITIMES, ALPES_VALENCE)})
+        # (`last_city` + `city_is_area`), looked up again AS AN AREA — no city
+        # question. This test used to serve the département on the city lookup,
+        # which the real geocoder does not do (session 1eb2430a, class C).
+        v6, _ = geo({
+            ("Alpes-Maritimes", "FR"): _ranked(ALPES_VALENCE),
+            ("Alpes-Maritimes", "FR", "area"): [ALPES_MARITIMES],
+        })
 
         result = geocode_location(
             intent=GeoIntent(), locale="fr",
             tool_context=_ctx("Peu importe la ville",
-                              profile_in={"city": "Alpes-Maritimes", "country_anchor": "FR"}),
+                              profile_in={"city": "Alpes-Maritimes", "city_is_area": True,
+                                          "country_anchor": "FR"}),
         )
 
         assert result["ok"] is True
         assert result["resolved_place"] == "Alpes-Maritimes, France"
+        assert v6.calls == [("Alpes-Maritimes", "FR", AREA_TYPES)]
 
     def test_an_area_mapbox_does_not_know_is_an_honest_question(self, geo):
         geo({})
@@ -493,3 +499,116 @@ class TestAnAreaIsSearchedAsOne:
 
         assert result["clarification"]["kind"] == "city_needed"
         assert v6.calls == []
+
+
+# --- C. Session 1eb2430a: « Île-de-France », then the thread was lost ---------
+#
+# T1 « partout en Île de France » took the area branch. T2 « une chambre très
+# classe » named no place: the area, carried as `last_city`, was looked up as a
+# CITY and came back as a homonym question (a place called « Ile de France » in
+# Les Ulis, the île de Ré). T3 « Dans toute Ile de France autour de paris »:
+# the region became a landmark of Paris (« Parcs, Romainville », 5 km ring, 0
+# hotel; 18 around Paris). T5 « Autour de saint ouen sur seine »: the carried
+# zone « Île-de-France » made it a 2 km search (1 hotel; 19 around the city).
+# The echo guard passes all of them: of « Île-de-France » only « france »
+# (4 letters or more) is checked.
+
+IDF = _c("Île-de-France", "Île-de-France, France", "FR", "Île-de-France", ftype="region",
+         lat=48.922, lon=2.357)
+IDF_LES_ULIS = _c("Ile de France", "Ile de France, Les Ulis, Essonne, France", "FR", "Essonne",
+                  ftype="neighborhood", lat=48.68, lon=2.17)
+ILE_DE_RE = _c("île de Ré", "île de Ré, Charente-Maritime, France", "FR", "Charente-Maritime",
+               lat=46.2, lon=-1.4)
+PARIS = _c("Paris", "Paris, Île-de-France, France", "FR", "Île-de-France", lat=48.857, lon=2.352)
+PARCS_ROMAINVILLE = _c("Parcs", "Parcs, Romainville, Seine-Saint-Denis, France", "FR",
+                       "Seine-Saint-Denis", ftype="neighborhood", lat=48.886, lon=2.439)
+SAINT_OUEN = _c("Saint-Ouen-sur-Seine", "Saint-Ouen-sur-Seine, Seine-Saint-Denis, France", "FR",
+                "Seine-Saint-Denis", lat=48.912, lon=2.334)
+INVENTORY.update({48.922: 300, 48.68: 40, 46.2: 6, 48.857: 400, 48.886: 250, 48.912: 300})
+
+#: The prod intent of T1, from the trace.
+IDF_INTENT = GeoIntent(
+    places=[Place(mention="Île de France", kind="region", canonical="Île-de-France", country="FR")],
+    relation="whole_city", carryover="new",
+)
+#: What the concierge holds after T1, as the leaf receives it.
+AFTER_T1 = {"city": "Île-de-France", "city_is_area": True, "country_anchor": "FR"}
+
+
+class TestSession1eb2430a:
+    def test_t1_the_area_is_marked_as_an_area(self, geo):
+        geo({("Île-de-France", "FR", "area"): [IDF]})
+        result = geocode_location(
+            intent=IDF_INTENT, locale="fr",
+            tool_context=_ctx("Je cherche partout en Île de France une chambre hyper belle"),
+        )
+        assert result["ok"] is True
+        assert result["profile_delta"]["city_is_area"] is True
+        data, _ = _through_the_leaf(result)
+        assert data["profile_delta"]["city_is_area"] == {"op": "set", "value": True}
+
+    def test_t2_a_turn_naming_no_place_searches_the_area_again(self, geo):
+        # The city lookup of « Île-de-France » answers the homonyms prod asked
+        # about; the area lookup answers the region. Only the latter may run.
+        v6, _ = geo({
+            ("Île-de-France", "FR"): _ranked(IDF_LES_ULIS, ILE_DE_RE, IDF),
+            ("Île-de-France", "FR", "area"): [IDF],
+        })
+        result = geocode_location(
+            intent=GeoIntent(), locale="fr",
+            tool_context=_ctx("Je veux une chambre très classe", profile_in=AFTER_T1),
+        )
+        assert result["ok"] is True, result
+        assert result["resolved_place"] == "Île-de-France, France"
+        assert result["distance_origin_type"] == "city_centroid"
+        assert all(types == AREA_TYPES for _, _, types in v6.calls)
+
+    def test_t3_a_region_named_with_a_city_searches_the_city(self, geo):
+        v6, _ = geo({
+            ("Paris", "FR"): [PARIS],
+            ("Île-de-France, Paris", "FR"): [PARCS_ROMAINVILLE],
+        })
+        intent = GeoIntent(
+            places=[Place(mention="Ile de France", kind="region", canonical="Île-de-France", country="FR")],
+            city=CityRef(mention="paris", canonical="Paris", country="FR"),
+            country_named="FR", relation="whole_city", carryover="refine",
+        )
+        result = geocode_location(
+            intent=intent, locale="fr",
+            tool_context=_ctx("Dans toute Ile de France autour de paris", profile_in=AFTER_T1),
+        )
+        assert result["ok"] is True, result
+        assert result["resolved_place"] == "Paris, Île-de-France, France"
+        assert result["distance_origin_type"] == "city_centroid"
+        assert "zone" not in result["profile_delta"]
+        assert not any("Parcs" in str(c) or q.startswith("Île-de-France,") for q, *c in v6.calls)
+
+    def test_t5_a_new_city_does_not_inherit_the_carried_zone(self, geo):
+        v6, _ = geo({
+            ("Saint-Ouen-sur-Seine", "FR"): [SAINT_OUEN],
+            ("Île-de-France, Saint-Ouen-sur-Seine", "FR"): [SAINT_OUEN],
+        })
+        intent = GeoIntent(
+            places=[Place(mention="saint ouen sur seine", kind="city", canonical="Saint-Ouen-sur-Seine",
+                          country="FR")],
+            city=CityRef(mention="saint ouen sur seine", canonical="Saint-Ouen-sur-Seine", country="FR"),
+            relation="near", carryover="new",
+        )
+        result = geocode_location(
+            intent=intent, locale="fr",
+            tool_context=_ctx("Autour de saint ouen sur seine",
+                              profile_in={"city": "Paris", "zone": "Île-de-France", "country_anchor": "FR"}),
+        )
+        assert result["ok"] is True, result
+        assert result["distance_origin_type"] == "city_centroid"
+        assert "zone" not in result["profile_delta"]
+        assert not any("Île-de-France" in q for q, _, _ in v6.calls)
+
+    def test_the_same_city_keeps_its_zone(self, geo):
+        # Negative control of T5: naming the carried city again keeps the zone.
+        v6, _ = geo({("Gare du Nord, Paris", "FR"): [PARCS_ROMAINVILLE], ("Paris", "FR"): [PARIS]})
+        geocode_location(
+            intent=GeoIntent(city=CityRef(mention="Paris", canonical="Paris", country="FR")), locale="fr",
+            tool_context=_ctx("à Paris", profile_in={"city": "Paris", "zone": "Gare du Nord", "country_anchor": "FR"}),
+        )
+        assert any(q == "Gare du Nord, Paris" for q, _, _ in v6.calls)

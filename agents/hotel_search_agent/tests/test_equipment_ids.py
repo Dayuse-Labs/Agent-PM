@@ -376,3 +376,85 @@ def test_the_relaxation_guard_does_not_fire_on_a_collision():
         _Tool("search_offers"), {"amenities": ["pool"], "amenities_removed": ["pool"]}, ctx
     )
     assert "temp:hotel_search_guards_fired" not in ctx.state
+
+
+# --- prod session 1eb2430a (2026-10-27): indoor pool, optional wishes ----------
+
+from hotel_search_agent.response_bridge import STATE_PREFERRED_AMENITIES_KEY  # noqa: E402
+
+
+def _profile_ctx(profile_in: dict) -> _Ctx:
+    datapart = a2a_types.Part(root=a2a_types.DataPart(data={"query_params": {}, "profile_in": profile_in}))
+    return _Ctx(user_content=genai_types.Content(
+        role="user", parts=[genai_types.Part(text="…"), convert_a2a_part_to_genai_part(datapart)],
+    ))
+
+
+def test_an_indoor_pool_is_strict():
+    """« piscine intérieure » in November: never an outdoor pool."""
+    ctx = _profile_ctx({})
+    args = {"amenities": ["indoor_pool"]}
+    enforce_equipment_filters(_Tool("search_offers"), args, ctx)
+    assert args["hotelEquipmentIds"] == [34]
+
+
+def test_indoor_pool_wins_over_the_pool_group():
+    ctx = _profile_ctx({"amenities": ["pool"]})
+    args = {"amenities": ["indoor_pool"]}
+    enforce_equipment_filters(_Tool("search_offers"), args, ctx)
+    assert args["hotelEquipmentIds"] == [34]
+    assert ctx.state[STATE_APPLIED_AMENITIES_KEY] == ["indoor_pool"]
+
+
+def test_an_optional_wish_filters_the_first_search_but_is_not_required():
+    """« une piscine intérieure et idéalement un massage »."""
+    ctx = _profile_ctx({})
+    args = {"amenities": ["indoor_pool"], "amenities_preferred": ["spa"]}
+    enforce_equipment_filters(_Tool("search_offers"), args, ctx)
+    assert args["hotelEquipmentIds"] == [34, 35]
+    assert "amenities_preferred" not in args
+    assert ctx.state[STATE_APPLIED_AMENITIES_KEY] == ["indoor_pool"]
+    assert ctx.state[STATE_PREFERRED_AMENITIES_KEY] == ["spa"]
+
+
+def test_an_optional_wish_is_carried_from_the_profile():
+    ctx = _profile_ctx({"amenities": ["pool"], "preferred_amenities": ["spa"]})
+    args: dict = {}
+    enforce_equipment_filters(_Tool("search_offers"), args, ctx)
+    assert args["hotelEquipmentIds"] == [33, 34, 2982, 3000, 3001, 35]
+    assert ctx.state[STATE_PREFERRED_AMENITIES_KEY] == ["spa"]
+
+
+def test_a_required_amenity_now_marked_optional_stops_being_required():
+    ctx = _profile_ctx({"amenities": ["pool", "spa"]})
+    enforce_equipment_filters(_Tool("search_offers"), {"amenities_preferred": ["spa"]}, ctx)
+    assert ctx.state[STATE_APPLIED_AMENITIES_KEY] == ["pool"]
+    assert ctx.state[STATE_PREFERRED_AMENITIES_KEY] == ["spa"]
+
+
+def test_an_optional_wish_asked_for_outright_becomes_required():
+    ctx = _profile_ctx({"preferred_amenities": ["spa"]})
+    enforce_equipment_filters(_Tool("search_offers"), {"amenities": ["spa"]}, ctx)
+    assert ctx.state[STATE_APPLIED_AMENITIES_KEY] == ["spa"]
+    assert ctx.state[STATE_PREFERRED_AMENITIES_KEY] == []
+
+
+def test_a_removal_drops_an_optional_wish_too():
+    ctx = _profile_ctx({"preferred_amenities": ["spa"]})
+    args = {"amenities_removed": ["spa"]}
+    enforce_equipment_filters(_Tool("search_offers"), args, ctx)
+    assert "hotelEquipmentIds" not in args
+    assert ctx.state[STATE_PREFERRED_AMENITIES_KEY] == []
+
+
+def test_an_optional_pool_never_reopens_a_strict_indoor_pool():
+    ctx = _profile_ctx({})
+    args = {"amenities": ["indoor_pool"], "amenities_preferred": ["pool"]}
+    enforce_equipment_filters(_Tool("search_offers"), args, ctx)
+    assert args["hotelEquipmentIds"] == [34]
+
+
+def test_the_name_lookup_never_receives_the_virtual_params():
+    args = {"name": "Hilton", "amenities_preferred": ["spa"], "standing": "upscale"}
+    enforce_equipment_filters(_Tool("find_hotel_by_name"), args, _profile_ctx({}))
+    assert "amenities_preferred" not in args

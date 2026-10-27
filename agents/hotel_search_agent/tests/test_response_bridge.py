@@ -85,7 +85,7 @@ class TestLandmarkRadius:
         args = {"lat": 48.8698, "lon": 2.3078}
         inject_landmark_radius(_Tool("search_offers"), args, self._ctx({"type": "poi"}))
         assert args["radiusKm"] == 2.0
-        assert args["sort"] == "distance"
+        assert args["sortBy"] == "distance"
 
     def test_the_ring_grows_until_it_holds_ten_hotels(self, monkeypatch):
         self._inventory(monkeypatch, per_km=0.5)  # 5 km → 2, 10 → 5, 20 → 10
@@ -105,7 +105,7 @@ class TestLandmarkRadius:
         args = {"lat": 48.85, "lon": 2.35}
         inject_landmark_radius(_Tool("search_offers"), args, self._ctx({"type": "city_centroid"}))
         assert "radiusKm" not in args
-        assert "sort" not in args
+        assert "sortBy" not in args
 
     def _counts(self, monkeypatch, counts):
         monkeypatch.setattr(
@@ -126,7 +126,7 @@ class TestLandmarkRadius:
     def test_a_thin_city_widens_to_the_first_ring_holding_seven(self, monkeypatch):
         args = self._city(monkeypatch, {20.0: 6, 30.0: 7})
         assert args["radiusKm"] == 30.0
-        assert "sort" not in args  # relevance order stays MCP's, as on the site
+        assert "sortBy" not in args  # relevance order stays MCP's, as on the site
 
     def test_galveston_gets_the_widest_city_ring(self, monkeypatch):
         """Prod session 8a6576a4: the snapshot's counts around Galveston. The
@@ -138,7 +138,9 @@ class TestLandmarkRadius:
         assert self._city(monkeypatch, {})["radiusKm"] == 50.0
 
     def test_a_nearby_area_takes_a_dense_city_one_ring_further(self, monkeypatch):
-        assert self._city(monkeypatch, {20.0: 7}, nearby=True)["radiusKm"] == 30.0
+        args = self._city(monkeypatch, {20.0: 7}, nearby=True)
+        assert args["radiusKm"] == 30.0
+        assert args["sortBy"] == "distance"  # nearest first, not 80 km out first
 
     def test_a_nearby_area_goes_past_the_widest_city_ring(self, monkeypatch):
         assert self._city(monkeypatch, {}, nearby=True)["radiusKm"] == 100.0
@@ -180,10 +182,32 @@ class TestLandmarkRadius:
     def test_a_radius_or_order_the_model_invented_is_dropped(self, monkeypatch):
         # Doctrine: a radius is a filter, and the LLM never owns a filter value.
         self._inventory(monkeypatch, per_km=1)
-        args = {"lat": 48.85, "lon": 2.35, "radiusKm": 200, "sort": "distance"}
+        # Prod session 8a6576a4 turn 6: the model wrote `sortBy` itself.
+        args = {"lat": 48.85, "lon": 2.35, "radiusKm": 200, "sort": "distance", "sortBy": "distance"}
         inject_landmark_radius(_Tool("search_offers"), args, self._ctx({"type": "city_centroid"}))
         assert "radiusKm" not in args
         assert "sort" not in args
+        assert "sortBy" not in args
+
+    def test_the_concierges_zone_chip_widens_without_the_models_help(self, monkeypatch):
+        """Prod session 1eb2430a turn 4: « élargir la zone » reached the leaf as
+        an empty intent (no `near`); the concierge's `widen_area` flag is what
+        widens it."""
+        self._counts(monkeypatch, {20.0: 7})
+        datapart = a2a_types.Part(
+            root=a2a_types.DataPart(data={"query_params": {"widen_area": True}, "profile_in": {}})
+        )
+        ctx = _Ctx(
+            state={"temp:hotel_search_anchor": {"type": "city_centroid"}},
+            user_content=genai_types.Content(
+                role="user",
+                parts=[genai_types.Part(text="élargir la zone"), convert_a2a_part_to_genai_part(datapart)],
+            ),
+        )
+        args = {"lat": 48.8566, "lon": 2.3522}
+        inject_landmark_radius(_Tool("search_offers"), args, ctx)
+        assert args["radiusKm"] == 30.0
+        assert ctx.state["temp:hotel_search_nearby"] is True
 
     def test_a_model_radius_is_replaced_on_a_poi_anchor(self, monkeypatch):
         self._inventory(monkeypatch, per_km=10)
@@ -2179,7 +2203,7 @@ def test_datapart_carries_the_search_that_actually_ran():
     assert context == {
         "search_page": None, "city": "Paris", "zone": "Gare du Nord", "date": "2026-10-07", "daypart": None,
         "timeslot_start": "07:00", "timeslot_end": "09:00", "budget_max": 30.0,
-        "amenities": ["sauna"], "adults": 2, "children": None, "radius_km": 3,
+        "amenities": ["sauna"], "standing": None, "adults": 2, "children": None, "radius_km": 3,
     }
 
 

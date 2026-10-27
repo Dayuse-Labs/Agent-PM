@@ -92,7 +92,7 @@ _STATE_DISTANCE_ORIGIN_KEY = "temp:hotel_search_distance_origin"
 # The geocode result says the user asked for a nearby area
 # (`geocode_tool.asks_nearby`): the search ring goes one step wider
 # (`inject_landmark_radius`).
-_STATE_NEARBY_KEY = "temp:hotel_search_nearby"
+STATE_NEARBY_KEY = "temp:hotel_search_nearby"
 # OBS3 (2026-08-26): the names of the deterministic guards that fired in THIS
 # leaf this turn, on their way to the concierge's `score_guards`.
 #
@@ -135,6 +135,12 @@ _STATE_SEARCH_PAGE_KEY = "temp:hotel_search_search_page"
 # read back here for card stamping + the profile_delta — same cross-callback
 # `temp:` hand-off as _STATE_COUNTRY_KEY.
 STATE_APPLIED_AMENITIES_KEY = "temp:hotel_search_applied_amenities"
+# The optional wishes the first search was ALSO filtered on (same writer): stamped
+# only on that search's cards, and relaxed by `completion.py`.
+STATE_PREFERRED_AMENITIES_KEY = "temp:hotel_search_preferred_amenities"
+# The standing this turn's search filtered on (`standing.enforce_standing`):
+# "upscale", or "" for none (the profile slot is then cleared).
+STATE_STANDING_KEY = "temp:hotel_search_standing"
 # S-G6: written by datetime_resolver.resolve_search_date (public, same cross-
 # callback pattern as STATE_APPLIED_AMENITIES_KEY) — the resolved ISO date +
 # its provenance, mapped into profile_delta by emit_search_datapart. Absent
@@ -171,6 +177,11 @@ STATE_SEARCH_DATE_KEY = "temp:hotel_search_search_date"
 # date itself, latest 16h Paris measured over 63 offers, so after that hour
 # "today" is dead pool-wide). capture_after_tool consumes it below.
 STATE_DATE_FALLBACK_KEY = "temp:hotel_search_date_fallback"
+# Prod session 1eb2430a (2026-10-27): the wider search `completion.py` ran on a
+# thin first page ({payload, radius_km, relaxed}), and what was taken from it
+# ({added, radius_km, relaxed}) for the DataPart's `completion`.
+STATE_COMPLETION_KEY = "temp:hotel_search_completion"
+_STATE_COMPLETION_ADDED_KEY = "temp:hotel_search_completion_added"
 # S-G4 per-phase instrumentation: dayuse_agent_common's tool_timing_before/after
 # already emit a `dayuse_metric=tool_call tool=geocode_location` / `tool=search_offers`
 # row (geocode ms / MCP ms) and llm_timing_before/after a `dayuse_metric=llm_call`
@@ -333,6 +344,15 @@ def read_profile_in(tool_context: Any) -> dict[str, Any]:
         if isinstance(profile, dict):
             return profile
     return {}
+
+
+def read_query_params(tool_context: Any) -> dict[str, Any]:
+    """The inbound `query_params` dict (the concierge's code-owned flags for
+    this turn), {} when missing — same envelope as `read_profile_in`."""
+    content = getattr(tool_context, "user_content", None)
+    data = find_datapart(getattr(content, "parts", None) if content is not None else None)
+    params = data.get("query_params") if isinstance(data, dict) else None
+    return params if isinstance(params, dict) else {}
 
 
 def _text_parts(tool_context: Any) -> list[str]:
@@ -899,17 +919,19 @@ def site_radius_km(
 
 def inject_landmark_radius(tool: Any, args: dict[str, Any], tool_context: Any) -> None:
     """`before_tool_callback`: the ONLY writer of search_offers' `radiusKm` and
-    `sort`.
+    `sortBy`.
 
     A landmark/POI anchor THIS turn gets the site's ring (`site_radius_km`) and
-    `sort="distance"`. A city anchor leaves both keys absent, so MCP applies its
+    `sortBy="distance"`. A city anchor leaves both keys absent, so MCP applies its
     own 20 km default and relevance order, unless that disc is too thin
-    (`CITY_RADII_KM`): then only the radius is set. « Try a nearby area »
-    (`_STATE_NEARBY_KEY`) takes either one ring further. Same doctrine as `from` and
-    `hotelEquipmentIds`: the model is never taught these parameters and any
-    value it invents is dropped — a radius is a filter, and the LLM never owns
-    a filter value. An MCP that does not know `sort` yet never sees it
-    (`schema_guard`), and `capture_after_tool` still orders the cards it keeps.
+    (`CITY_RADII_KM`): then only the radius is set. A nearby area takes either
+    one ring further: asked in words (`STATE_NEARBY_KEY`, from the geocode) or
+    by the concierge's zone chip (`query_params.widen_area`). Same doctrine as
+    `from` and `hotelEquipmentIds`: the model is never taught these parameters
+    and any value it invents is dropped — a radius is a filter, and the LLM
+    never owns a filter value. 2026-10-27: this wrote `sort`, which the
+    deployed MCP does not know (`sortBy`), so `schema_guard` dropped it on every
+    landmark search; `capture_after_tool` still orders the cards it keeps.
 
     Reads the anchor the geocode tool already stashed this turn
     (`_STATE_ANCHOR_KEY`, written by `capture_after_tool`'s GEOCODE branch), so
@@ -923,11 +945,14 @@ def inject_landmark_radius(tool: Any, args: dict[str, Any], tool_context: Any) -
     expectations and changing it is not part of the POI bug."""
     if getattr(tool, "name", "") != "search_offers":
         return None
-    args.pop("radiusKm", None)
-    args.pop("sort", None)
+    for key in ("radiusKm", "sort", "sortBy"):
+        args.pop(key, None)
     origin = tool_context.state.get(_STATE_ANCHOR_KEY)
     anchor_type = origin.get("type") if isinstance(origin, dict) else None
-    nearby = bool(tool_context.state.get(_STATE_NEARBY_KEY))
+    nearby = bool(tool_context.state.get(STATE_NEARBY_KEY)) or bool(
+        read_query_params(tool_context).get("widen_area")
+    )
+    tool_context.state[STATE_NEARBY_KEY] = nearby
     a_lat, a_lon = _coord(args.get("lat")), _coord(args.get("lon"))
     if (a_lat is None or a_lon is None) and isinstance(origin, dict):
         a_lat, a_lon = _coord(origin.get("latitude")), _coord(origin.get("longitude"))
@@ -936,13 +961,17 @@ def inject_landmark_radius(tool: Any, args: dict[str, Any], tool_context: Any) -
             site_radius_km(a_lat, a_lon, nearby=nearby) if a_lat is not None and a_lon is not None
             else SITE_RADII_KM[-1]
         )
-        args["sort"] = "distance"
+        args["sortBy"] = "distance"
     elif anchor_type == "city_centroid" and a_lat is not None and a_lon is not None:
         radius = site_radius_km(
             a_lat, a_lon, rings=CITY_RADII_KM, min_hotels=CITY_MIN_HOTELS, nearby=nearby
         )
         if radius != CITY_RADII_KM[0]:
             args["radiusKm"] = radius
+        if nearby:
+            # A nearby area is the nearest hotels first: in relevance order a
+            # 100 km disc around Galveston showed hotels 81-96 km out first.
+            args["sortBy"] = "distance"
     # Content-free counter (flags only), and the audit's P0-3 ask: which geo tier
     # a turn actually took is otherwise invisible. It is also what caught the
     # first version of this callback reading the wrong state key — it logged
@@ -997,6 +1026,33 @@ def inject_pagination_offset(tool: Any, args: dict[str, Any], tool_context: Any)
         cursor = 0
     args["from"] = max(cursor, 0) * MAX_RESULTS
     return None
+
+
+def _with_completion(
+    tool_context: Any,
+    results: list[dict[str, Any]],
+    exclude_ids: set[Any] | None,
+    strict_window: Any,
+    filters: tuple[Any, ...],
+) -> list[dict[str, Any]]:
+    """The first page plus the completion's hotels not already on it, up to
+    `MAX_RESULTS`, normalized with the same filters (`completion.py`)."""
+    stashed = tool_context.state.get(STATE_COMPLETION_KEY)
+    payload = stashed.get("payload") if isinstance(stashed, dict) else None
+    if not isinstance(payload, dict):
+        return results
+    shown = {card.get("hotel_id") for card in results} | set(exclude_ids or ())
+    extra = [
+        card for card in normalize_search_results(payload, shown, strict_window, *filters)
+        if card.get("hotel_id") not in shown
+    ][: MAX_RESULTS - len(results)]
+    if extra:
+        tool_context.state[_STATE_COMPLETION_ADDED_KEY] = {
+            "added": len(extra),
+            "radius_km": stashed.get("radius_km"),
+            "relaxed": list(stashed.get("relaxed") or []),
+        }
+    return results + extra
 
 
 def _apply_date_fallback(tool_context: Any, stashed: dict[str, Any]) -> None:
@@ -1121,7 +1177,7 @@ def capture_after_tool(
                     "label": tool_response.get("resolved_place"),
                     "type": tool_response.get("distance_origin_type") or "city_centroid",
                 }
-            tool_context.state[_STATE_NEARBY_KEY] = bool(tool_response.get("nearby"))
+            tool_context.state[STATE_NEARBY_KEY] = bool(tool_response.get("nearby"))
         elif isinstance(tool_response, dict) and tool_response.get("error") == "geocode_ambiguous":
             # 2026-08-26: a clarify carries a profile delta too, and it has to be
             # stashed like the ok-path's — otherwise the subject of the question
@@ -1255,6 +1311,12 @@ def capture_after_tool(
                 results = swapped
                 structured = payload
                 _apply_date_fallback(tool_context, stashed)
+    # Prod session 1eb2430a: a thin first page is completed from the wider
+    # search `completion.py` ran — its hotels AFTER the first page's.
+    first_page = len(results)
+    if name == "search_offers" and first_page < MAX_RESULTS:
+        window = None if timeslot_fallback else strict_window
+        results = _with_completion(tool_context, results, exclude_ids, window, filters)
     if timeslot_fallback:
         tool_context.state[_STATE_TIMESLOT_FALLBACK_KEY] = True
     if name == "search_offers":
@@ -1275,8 +1337,12 @@ def capture_after_tool(
             tool_context.state[_STATE_DISTANCE_ORIGIN_KEY] = origin
             if origin.get("type") == "poi":
                 # Nearest first, as asked of MCP (`inject_landmark_radius`) — also
-                # what an MCP without `sort` can still be given on its own page.
-                results.sort(key=lambda card: card.get("distance_km", math.inf))
+                # what an MCP without `sortBy` can still be given on its own page.
+                # The completion's cards stay after the first page's (they
+                # come nearest first from MCP already).
+                results[:first_page] = sorted(
+                    results[:first_page], key=lambda card: card.get("distance_km", math.inf)
+                )
         # The search ran at the geocoded coordinates, so the geocoded country is
         # a legitimate attribute of ITS results (a server-sent countryCode always
         # wins via setdefault). find_hotel_by_name is NOT stamped — a name lookup
@@ -1296,6 +1362,14 @@ def capture_after_tool(
         if applied:
             labels = [key.replace("_", " ") for key in applied]
             for card in results:
+                existing = card.get("amenities") or []
+                card["amenities"] = existing + [lbl for lbl in labels if lbl not in existing]
+        # The optional wishes filtered the first search only: never stamped on
+        # a card the completion added without them.
+        preferred = tool_context.state.get(STATE_PREFERRED_AMENITIES_KEY) or []
+        if preferred:
+            labels = [key.replace("_", " ") for key in preferred]
+            for card in results[:first_page]:
                 existing = card.get("amenities") or []
                 card["amenities"] = existing + [lbl for lbl in labels if lbl not in existing]
         # Capture the budget / time-slot the model actually passed search_offers
@@ -1684,6 +1758,7 @@ def _search_context(
         "timeslot_end": sent.get("timeslot_end"),
         "budget_max": sent.get("budget_max"),
         "amenities": list(state.get(STATE_APPLIED_AMENITIES_KEY) or []),
+        "standing": state.get(STATE_STANDING_KEY) or None,
         "adults": sent.get("adults"),
         "children": sent.get("children"),
         "radius_km": state.get(_STATE_RADIUS_KEY),
@@ -1730,6 +1805,10 @@ def emit_search_datapart(callback_context: Any) -> genai_types.Content | None:
         profile_delta["zone"] = _op_set(raw_delta["zone"])
     if raw_delta.get("metro"):
         profile_delta["metro"] = _op_set(raw_delta["metro"])
+    # The destination is an area (region, département): the concierge keeps the
+    # flag with the city and clears it when the city changes.
+    if raw_delta.get("city_is_area"):
+        profile_delta["city_is_area"] = _op_set(True)
     # S-G6: a FRESH date label this turn (datetime_resolver.resolve_search_date)
     # — only-when-present. When the model extracted no date this turn, nothing
     # is stashed here at all (the code-computed search still used the
@@ -1759,6 +1838,12 @@ def emit_search_datapart(callback_context: Any) -> genai_types.Content | None:
     applied_amenities = state.get(STATE_APPLIED_AMENITIES_KEY)
     if applied_amenities is not None:
         profile_delta["amenities"] = _op_set(list(applied_amenities))
+    preferred_amenities = state.get(STATE_PREFERRED_AMENITIES_KEY)
+    if preferred_amenities is not None:
+        profile_delta["preferred_amenities"] = _op_set(list(preferred_amenities))
+    standing = state.get(STATE_STANDING_KEY)
+    if standing is not None:
+        profile_delta["standing"] = _op_set(standing) if standing else {"op": "clear"}
     # Budget / time-slot → the orchestrator's schema keys (exact match, verified
     # 2026-07-21 against apply_profile_delta). The request-source is ALWAYS the
     # non-explicit constant; the concierge's P1 guard upgrades it to "explicit"
@@ -1834,6 +1919,11 @@ def emit_search_datapart(callback_context: Any) -> genai_types.Content | None:
         payload["search_context"] = _search_context(
             state, raw_delta, read_profile_in(callback_context), search_date
         )
+        # The last `added` cards came from a wider search, without the
+        # `relaxed` wishes (`completion.py`): the concierge says so.
+        completion = state.get(_STATE_COMPLETION_ADDED_KEY)
+        if isinstance(completion, dict) and completion.get("added"):
+            payload["completion"] = dict(completion)
         checkin = _user_checkin_date(state, read_profile_in(callback_context), search_date)
         if checkin:
             payload["results"] = [

@@ -777,6 +777,15 @@ def geocode_core(
     if effective_city != city or effective_metro != metro:
         mark_level("WARNING", status_message="generic_location_demoted")
         guards_fired.append("generic_location_demotion")
+    # Prod session 1eb2430a (2026-10-27), « Dans toute Ile de France autour de
+    # paris »: a region named with a city in it was looked up as a landmark of
+    # that city (« Île-de-France, Paris » → « Parcs, Romainville »), searched on
+    # a 5 km ring. A region is wider than the city: the city is the search. The
+    # region stays a state hint (« Springfield », « Illinois »). `admin_district`
+    # is left alone: an arrondissement or a borough may arrive under that kind.
+    if zone_kind == "region" and effective_zone and (effective_city or effective_metro):
+        region_named = region_named or effective_zone
+        effective_zone = zone_kind = None
 
     # S4 (2026-08-26): the search RADIUS derives from what the user asked for,
     # not from the geocoder's taxonomy. `inject_landmark_radius` tightens the
@@ -973,13 +982,17 @@ def geocode_core(
             return _ok(
                 area.as_result(),
                 feature_type=area.feature_type,
-                profile_delta=_anchor_state(
-                    city=area.name or effective_zone,
-                    raw_user_message=raw_user_message,
-                    profile_state_context=profile_state_context,
-                    profile_location_hint=profile_location_hint,
-                    guards_fired=guards_fired,
-                ),
+                profile_delta={
+                    **_anchor_state(
+                        city=area.name or effective_zone,
+                        raw_user_message=raw_user_message,
+                        profile_state_context=profile_state_context,
+                        profile_location_hint=profile_location_hint,
+                        guards_fired=guards_fired,
+                    ),
+                    # Carried as an area, not a city (`_fill_place_from_profile`).
+                    "city_is_area": True,
+                },
                 distance_origin_type="city_centroid",
                 guards_fired=guards_fired,
             )
@@ -1512,14 +1525,36 @@ def _fill_place_from_profile(args: dict, profile_in: dict) -> None:
     QA14707 (Q14): `region_anchor` is the region of the homonym option the
     user picked by its number (the concierge sets it from the stored
     `Clarification`, never from the message). It goes with the city it was
-    chosen for: applied only while the turn's city is that same city."""
+    chosen for: applied only while the turn's city is that same city.
+
+    Prod session 1eb2430a (2026-10-27), two rules:
+    - an AREA carried as the destination (`city_is_area`, set by the area
+      branch) is carried as an area when the turn names no place: it was
+      looked up as a city instead, and « Île-de-France » came back as a
+      homonym question (Les Ulis or île de Ré);
+    - a city named THIS turn that is not the carried one does not inherit the
+      carried zone or metro: « Île-de-France » stayed the zone of « autour de
+      Saint-Ouen » and made it a 2 km search."""
     if not _is_blank(args.get("postal_code")):
         return
+    carried_city = profile_in.get("city") if isinstance(profile_in.get("city"), str) else None
+    if (
+        profile_in.get("city_is_area") and carried_city and carried_city.strip()
+        and all(_is_blank(args.get(key)) for key in ("city", "zone", "metro"))
+    ):
+        args["zone"], args["zone_kind"] = carried_city.strip(), "region"
+        if _is_blank(args.get("country_code")) and profile_in.get("country_anchor"):
+            args["country_code"] = profile_in["country_anchor"]
+        return
+    new_city = (
+        not _is_blank(args.get("city")) and bool(carried_city and carried_city.strip())
+        and _comparable(carried_city or "") != _comparable(str(args.get("city")))
+    )
     if _is_blank(args.get("city")) and profile_in.get("city"):
         args["city"] = profile_in["city"]
-    if _is_blank(args.get("zone")) and profile_in.get("zone"):
+    if _is_blank(args.get("zone")) and profile_in.get("zone") and not new_city:
         args["zone"] = profile_in["zone"]
-    if _is_blank(args.get("metro")) and profile_in.get("metro"):
+    if _is_blank(args.get("metro")) and profile_in.get("metro") and not new_city:
         args["metro"] = profile_in["metro"]
     # QA14707 (Q19): the carried country is the country of the CARRIED city. It
     # is a hard Mapbox filter, so it goes only with that city: « actually make

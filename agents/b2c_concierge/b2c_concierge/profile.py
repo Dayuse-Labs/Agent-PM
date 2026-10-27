@@ -206,6 +206,13 @@ class SessionProfile:
     timeslot_request_source: str | None = None
     timeslot_mode: str | None = None  # "start_only" | "end_only" | "range"
     amenities: list[str] = field(default_factory=list)
+    # 2026-10-27 (prod session 1eb2430a): wishes the user marked optional
+    # (« idéalement un massage »). The leaf searches with them first and
+    # completes the page without them; never a hard filter.
+    preferred_amenities: list[str] = field(default_factory=list)
+    # « très classe »: the hotel standing the leaf's model read ("upscale"),
+    # mapped by the leaf's code to MCP `starRatings`.
+    standing: str | None = None
     language: str | None = None
     consecutive_empty_searches: int = 0
     auto_widen_disclosure: dict[str, float] | None = None
@@ -226,6 +233,10 @@ class SessionProfile:
     named_hotel: dict[str, Any] | None = None  # {hotel_id, name, source}
     zone: str | None = None
     metro: str | None = None
+    # The destination in `city` is an area (region, département), set by the
+    # leaf's area branch: carried as an area, not looked up as a city
+    # (prod session 1eb2430a). A city change clears it.
+    city_is_area: bool = False
     date: str | None = None  # ISO 8601
     date_reference: dict[str, Any] | None = None  # {expression, resolved_from, client_tz}
     # QA 2026-10-20: the session's first hotel search has had its day settled
@@ -336,6 +347,8 @@ class SessionProfile:
             "timeslot_request_source": self.timeslot_request_source,
             "timeslot_mode": self.timeslot_mode,
             "amenities": list(self.amenities),
+            "preferred_amenities": list(self.preferred_amenities),
+            "standing": self.standing,
             "language": self.language,
             "consecutive_empty_searches": self.consecutive_empty_searches,
             "auto_widen_disclosure": self.auto_widen_disclosure,
@@ -350,6 +363,7 @@ class SessionProfile:
             "named_hotel": self.named_hotel,
             "zone": self.zone,
             "metro": self.metro,
+            "city_is_area": self.city_is_area,
             "date": self.date,
             "date_reference": self.date_reference,
             "date_checked": self.date_checked,
@@ -682,6 +696,7 @@ def apply_profile_delta(
             profile.region_anchor = None
             profile.zone = None
             profile.metro = None
+            profile.city_is_area = False
             profile.search_anchor = None
             profile.shown_hotel_ids = []
             profile.search_cursor = 0
@@ -790,6 +805,10 @@ def apply_profile_delta(
     # append-only: it is an explicit contract of `_normalize_delta` ("today's
     # plain `{key: value}` leaf format") that existing callers and tests rely
     # on, and a plain list genuinely is a fragment with no authority to wipe.
+    if "preferred_amenities" in explicit_sets:
+        profile.preferred_amenities = list(values.get("preferred_amenities") or [])
+    if values.get("standing"):
+        profile.standing = values["standing"]
     if "amenities" in explicit_sets:
         profile.amenities = list(values.get("amenities") or [])
     elif values.get("amenities"):
@@ -811,6 +830,8 @@ def apply_profile_delta(
         profile.zone = values["zone"]
     if "metro" in values:
         profile.metro = values["metro"]
+    if "city_is_area" in values:
+        profile.city_is_area = bool(values["city_is_area"])
     if "named_hotel" in values:
         profile.named_hotel = values["named_hotel"]
     if "date" in values:
@@ -970,6 +991,19 @@ def _has_refinement_modifier(message: str, llm_bare_budget: float | None = None)
 
 def _has_prior_search_context(profile: SessionProfile) -> bool:
     return bool(profile.city) or bool(profile.last_results) or profile.consecutive_empty_searches > 0
+
+
+#: The zone chip, in every language: index 1 of `_RECOVERY_SUGGESTIONS`, the
+#: same label as index 2 of `_DATE_SUGGESTIONS`.
+_WIDEN_CHIPS = frozenset(labels[1].lower() for labels in _RECOVERY_SUGGESTIONS.values())
+
+
+def clicked_widen_chip(message: str) -> bool:
+    """The whole message is the zone chip (« élargir la zone »), clicked or
+    typed. Prod session 1eb2430a (2026-10-27): the click reached the leaf as
+    plain text, its model read no « near » in it, and the same search ran
+    again; the concierge knows the chip's words, so it says so in code."""
+    return (message or "").strip().lower() in _WIDEN_CHIPS
 
 
 def is_search_refinement_signal(
@@ -1179,6 +1213,10 @@ def search_context_line(profile: SessionProfile) -> str:
         bits.append(f"time of day: {slot}")
     if profile.amenities:
         bits.append("amenities: " + ", ".join(profile.amenities))
+    if profile.preferred_amenities:
+        bits.append("ideally (not required): " + ", ".join(profile.preferred_amenities))
+    if profile.standing == "upscale":
+        bits.append("standing: 4- and 5-star hotels")
     return "; ".join(bits)
 
 
