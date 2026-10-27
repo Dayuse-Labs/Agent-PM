@@ -54,7 +54,7 @@ l'équipe, dès que tu donnes la copy) → `E2` puis `E1` puis `E4` (la boucle Q
 | **L** | Compréhension géo — série S-L (ajouté le 2026-10-08) ; `GeoIntent` produit par la feuille (DQ1) : S-L3/S-L4 conditionnelles, S-L7a et S-L7f faites, S-L7d et S-L7e restent | L | MCP déployé (S-L1) |
 | **QA14707** | Retours QA de Raphael du 14/10 : créneau localisé, lieu compris (`GeoIntent` dans la feuille), clarification tenue par le code. Phases 1-3 déployées (`0b65159`) ; phases 4-5 sur `plan/qa14707`. Plan : `plans/qa14707/`, source : `phases/QA14707/` | L | **Fabien** (revue de la seconde PR, H3' live, H4 retest) |
 | **X1→X3** | 3 demandes chez MCP_B2C | — | **MCP_B2C** |
-| **M1** | Sortir de gpt-4o-mini (arrêt 2027-01-14) : juge du gate passé (baseline à refaire) ; triage : prompt resserré, luna accepté, reste le rejeu live puis la bascule atomique ; 3 évaluateurs Langfuse (réglages UI) | M | **Fabien** (OK Langfuse, bascule Railway) · ⏰ **2027-01-14** |
+| **M1** | Sortir de gpt-4o-mini (arrêt 2027-01-14) : juge du gate passé (baseline à refaire) ; triage : prompt resserré, rejeu live au niveau de la prod (2026-10-27), reste la bascule atomique (#158) ; 3 évaluateurs Langfuse (réglages UI) | M | **Fabien** (OK Langfuse, merge #158) · ⏰ **2027-01-14** |
 | **AM1** | Tracking Amplitude : AgentB2C #146 et dayuse-product-analytics #112 mergées (vu le 2026-10-26) ; restent dayuse.com !15273 et 3 vérifications humaines | S | **Fabien** (!15273) |
 | **MOB1** | Le widget dans l'app mobile (`__DAYUSE_NATIVE__`, pont de navigation, `native_context` opaque côté concierge) : plan de test + prompt | M | phase C : **Fabien** (app de prod) |
 
@@ -621,11 +621,9 @@ en 2 itérations mesurées. luna tient la barre, voir `reports/TRIAGE-GPT6-AB-20
 (clés omises, donc renvoyées aux regex) ; il ne doit donc jamais tourner avec ce code.
 
 **Reste.**
-1. **Rejeu live**, triage sur luna, depuis l'IP `45.156.191.77`.
-   - Jeux : ceux de H3, comparés à `h3p-2026-10-19-plan-r1..3`, plus `geo-class` et
-     `language-robustness`.
-   - Ces deux derniers portent les 4 cas que la mesure hors ligne ne tranche pas (rapport §5) :
-     Milano `es`, « non attends… » `lower`, « celui de St Pauls », « oui » à « quelle ville ? ».
+1. ~~**Rejeu live**~~ **fait le 2026-10-27** (rapport §6) : 2 bras le même jour, mini 91,1 % contre
+   luna 91,0 %. Les 5 écarts d'un item sont expliqués et ne tiennent pas au triage, et les 4 cas
+   sont tranchés. Verdict : bascule.
 2. **Bascule triage (humaine), atomique** :
    - merger la partie 2, déployer `concierge` depuis un worktree propre de main ;
    - poser `DAYUSE_MODEL_TRIAGE=openai/gpt-6-luna` avec `--skip-deploys` **avant** `railway up`. La

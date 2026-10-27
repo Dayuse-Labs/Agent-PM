@@ -89,7 +89,12 @@ node --test tests/widget/*.test.mjs
 # experiments Langfuse sur evals/datasets/*.jsonl, un jeu par appel de seed, puis le run.
 # Pièges : concurrence 5 par défaut → 429 MCP, toujours 1 ; Redis réel obligatoire sinon les cas
 # multi-tours échouent en silence (:6379 est pris par dayuse-redis-1 → un Redis dédié sur :6390) ;
-# même IP de sortie entre deux runs comparés (biais de proximité Mapbox Search Box).
+# même IP de sortie entre deux runs comparés (biais de proximité Mapbox Search Box) ;
+# `DISABLE_AIOHTTP_TRANSPORT=True` sur les services ET le harnais. Le transport aiohttp de litellm
+# réutilise une connexion que le réseau local a coupée, et depuis #157 (plus de relance), l'appel
+# échoue en ~0,04 s : 42 % des triages en repli regex le 2026-10-27. La prod n'est pas touchée.
+# Les 2 scripts lisent `LANGFUSE_*` dans l'environnement : charger `.env` avant. Le seed est un
+# upsert qui écrase les corrections faites dans Langfuse : comparer les items hébergés au repo avant.
 .venv/bin/python scripts/langfuse_seed_datasets.py --only <stem>
 CONCIERGE_REDIS_URL=redis://localhost:6390/0 .venv/bin/python -m evals.langfuse_experiment \
   --datasets b2c/<jeu> --run-name <nom-unique> --max-concurrency 1

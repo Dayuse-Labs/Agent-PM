@@ -6,6 +6,37 @@
 
 > 📋 **Pour savoir QUOI faire ensuite, ouvrir [`CHANTIERS.md`](CHANTIERS.md)** (état vérifié au 2026-09-14) : la liste des chantiers ouverts, chacun avec sa preuve, ses actions et un prompt prêt à coller — plus la liste de ce qu'il ne faut **pas** relancer parce que c'est déjà livré. `tasks/todo.md` est périmé et ne doit plus servir de référence.
 
+## ✅ 2026-10-27 — Rejeu live du triage luna : au niveau de la prod, prêt pour la bascule (#158)
+
+**Fait** (rapport `reports/TRIAGE-GPT6-AB-2026-10.md` §6) :
+- 2 bras le même jour, depuis l'IP `45.156.191.77` : A = main `54c6a09` + triage gpt-4o-mini (la
+  prod), B = `feat/triage-gpt-6-luna` + luna.
+- 5 jeux (67 items), 3 tirages, concurrence 1, Redis :6390.
+- **mini 575/631 (91,1 %), luna 574/631 (91,0 %).** Les 5 écarts d'un item sont expliqués et ne
+  tiennent pas au triage.
+- Les 4 cas ouverts sont tranchés. « celui de St Pauls » : 3/3 sur les 2 bras. Milano : la prod
+  répond déjà en espagnol 3 fois sur 3.
+- Runs `m1-2026-10-27-httpx-{mini,luna}-r{1,2,3}`.
+
+**Pièges découverts :**
+- **Réseau local + transport aiohttp de litellm + `max_retries=0` (#157)** : le premier appel LLM
+  après ~8 s d'inactivité échoue en 0,04 s, avec « Timeout ». Résultat : 42 % des triages en repli
+  regex sur les 2 bras.
+  - Les runs `m1-2026-10-27-{mini,luna}-r*` sont invalides.
+  - Contournement : `DISABLE_AIOHTTP_TRANSPORT=True`, consigné dans `CLAUDE.md`.
+  - Prod non touchée (2/273). Une relance unique sur échec instantané protégerait la prod :
+    proposé à Fabien, non fait.
+- Les jeux `geo-poi` et `dialogue-state` étaient restés à leur version d'avant le 2026-10-20 dans
+  Langfuse. Ils ont été ré-amorcés après vérification : hébergé = repo d'avant `b3e2318`.
+- Le `.env` local avait un jeton MCP et des clés Langfuse périmés (401). Fabien les a remplacés.
+
+**Reste** (M1, `CHANTIERS.md`) :
+- Fabien merge #158 ;
+- bascule atomique : `concierge` déployé et `DAYUSE_MODEL_TRIAGE=openai/gpt-6-luna` posée en même
+  temps ;
+- 3 évaluateurs Langfuse (UI) ;
+- baseline du gate après bascule.
+
 ## 🚀 2026-10-26 (sexies) — `concierge` + `widget` déployés sur `54c6a09` (#155, #156, #157) ; triage luna mesuré, pas encore basculé
 
 **Déployé** (`DEPLOY.md`, par Claude à la demande de Fabien, depuis le worktree propre
