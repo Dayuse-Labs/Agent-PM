@@ -6,6 +6,32 @@
 
 > 📋 **Pour savoir QUOI faire ensuite, ouvrir [`CHANTIERS.md`](CHANTIERS.md)** (état vérifié au 2026-09-14) : la liste des chantiers ouverts, chacun avec sa preuve, ses actions et un prompt prêt à coller — plus la liste de ce qu'il ne faut **pas** relancer parce que c'est déjà livré. `tasks/todo.md` est périmé et ne doit plus servir de référence.
 
+## 🚀 2026-10-27 (sexies) — `hotel-search` et `concierge` déployés sur `2c7dd2a` (#162)
+
+**Déployé** (`DEPLOY.md`, par Claude à la demande de Fabien, depuis `../AgentB2C-deploy`) :
+- Pré-vol : `origin/main` = `2c7dd2a` (merge de #162), worktree propre, pytest 3 322 passés /
+  1 skippé.
+- Estampilles posées avec `--skip-deploys` sur `hotel-search` et `concierge` (`cb361c0` →
+  `2c7dd2a`). `widget` (`cb361c0`) et `faq` (`8d1579b`) inchangés : rien dans `web/`, `libs/`
+  ni `agents/faq_agent` depuis.
+- `hotel-search` SUCCESS à 16:38:40Z, `concierge` SUCCESS à 16:38:51Z.
+
+**Preuve** : rejeu des 2 sessions de prod via le widget, en synthétique ; les 12 tours portent la
+release `2c7dd2a` dans Langfuse.
+- `1eb2430a` : 5 hôtels à chaque tour après la date (prod : 0, 0, 1), plus de question homonyme
+  à T2, T3 cherche Paris, piscine intérieure et spa sur chaque carte.
+- `8a6576a4` : Galveston T4 → 5 hôtels (prod : 0) ; T5 « try a nearby area » → Crystal Palace
+  21,5 km et Hotel Bliss Kemah 33,2 km, les hôtels du site.
+
+**Trouvé au rejeu, non corrigé** :
+- « élargir la zone » TAPÉ après une page PLEINE dans une ville dense : l'anneau passe à 30 km au
+  plus proche, donc les 5 hôtels les plus centraux (1-2 km de Paris), l'inverse d'un
+  élargissement. Après une recherche vide (le cas de la puce), le plus proche est le bon ordre.
+  Piste : ne trier au plus proche que si la ville était déjà élargie (ville clairsemée), ou si la
+  recherche précédente était vide.
+- Galveston T4 : le modèle de la feuille n'a pas gardé le départ à 23 h ce coup-ci (« closest
+  offers ») ; fenêtre horaire portée par le modèle, pas par le code (déjà noté).
+
 ## 📏 2026-10-27 (quinquies) — Recherche : rayon, fil géo, complétion, standing (branche `fix/city-radius-sparse-20261027`)
 
 Deux sessions de prod du jour (release `cb361c0`), lues par l'API REST Langfuse (le serveur MCP
@@ -71,8 +97,7 @@ prompt, jamais une regex ; « idéalement » n'est pas un filtre dur ; piscine i
   recopie depuis `profile_in` ; il l'a perdue au rejeu Galveston T5 (23 h oublié).
 - Non corrigé : le garde d'écho et les noms d'aire courts (« france »).
 - `contracts/mcp_b2c_tools.json` est antérieur à `sortBy` / `timeSlotMode` : à rafraîchir (humain).
-- Revue et merge de la PR, puis déploiement de `hotel-search` ET `concierge` (`DEPLOY.md`), puis
-  rejouer les 2 sessions en démo.
+- Mergé (#162) et déployé : voir le bloc sexies.
 
 ## ⚖️ 2026-10-27 (quater) — Les 3 juges Langfuse passés sur gpt-6-luna : plus aucun appel gpt-4o-mini
 
