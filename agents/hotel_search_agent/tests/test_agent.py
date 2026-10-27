@@ -159,6 +159,7 @@ class TestMetricsWiring:
         from hotel_search_agent.geocode_tool import inject_profile_geo_context
         from hotel_search_agent.occupancy import inject_profile_occupancy
         from hotel_search_agent.schema_guard import drop_args_outside_schema
+        from hotel_search_agent.standing import enforce_standing
         from hotel_search_agent.response_bridge import (
             capture_after_tool,
             inject_landmark_radius,
@@ -176,7 +177,7 @@ class TestMetricsWiring:
         from hotel_search_agent.named_hotel import follow_named_hotel, prepare_named_hotel_lookup
 
         assert before[0] is tool_timing_before
-        assert len(before) == 13
+        assert len(before) == 14
         # mcp-dayuse#7: the named-hotel lookup's virtual `date` label is
         # popped before the schema guard would drop it.
         assert before[-2] is prepare_named_hotel_lookup
@@ -187,11 +188,12 @@ class TestMetricsWiring:
         assert resolve_search_timeslot in before
         assert before[2] is mcp_circuit_before_tool
         assert before[3] is enforce_equipment_filters
-        assert before[4] is inject_profile_occupancy
-        assert before[5] is inject_profile_budget
-        assert before[6] is inject_profile_geo_context
-        assert before[7] is inject_pagination_offset
-        assert before[8] is inject_landmark_radius
+        assert before[4] is enforce_standing
+        assert before[5] is inject_profile_occupancy
+        assert before[6] is inject_profile_budget
+        assert before[7] is inject_profile_geo_context
+        assert before[8] is inject_pagination_offset
+        assert before[9] is inject_landmark_radius
         after = self._as_list(root_agent.after_tool_callback)
         # The dated search around a found hotel must stash its cards before
         # capture_after_tool would stash the bare identity card.

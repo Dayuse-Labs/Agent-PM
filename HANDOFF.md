@@ -6,6 +6,74 @@
 
 > 📋 **Pour savoir QUOI faire ensuite, ouvrir [`CHANTIERS.md`](CHANTIERS.md)** (état vérifié au 2026-09-14) : la liste des chantiers ouverts, chacun avec sa preuve, ses actions et un prompt prêt à coller — plus la liste de ce qu'il ne faut **pas** relancer parce que c'est déjà livré. `tasks/todo.md` est périmé et ne doit plus servir de référence.
 
+## 📏 2026-10-27 (quinquies) — Recherche : rayon, fil géo, complétion, standing (branche `fix/city-radius-sparse-20261027`)
+
+Deux sessions de prod du jour (release `cb361c0`), lues par l'API REST Langfuse (le serveur MCP
+Langfuse répondait 401), ont rendu 0 ou 1 hôtel quand MCP en avait 18 à 31.
+
+**Constat, session `8a6576a4` (Galveston, « 11pm check out »)** : une ville n'envoyait jamais
+`radiusKm`, donc le défaut MCP de 20 km, et le snapshot compte 0 hôtel à 20 km de Galveston. Le
+site élargit jusqu'à 50 km (`SearchHotelQueryProcessor::processConcentricNumberOfHotels`).
+
+**Constat, session `1eb2430a` (Île-de-France)**, compté en direct sur MCP (même date, budget, filtres) :
+- T2 « une chambre très classe » : la région, portée en `last_city`, a été relue comme une VILLE,
+  d'où la question homonyme (Les Ulis / île de Ré). Régression de #160 (`4a24d00`).
+- T3 « toute IDF autour de Paris » : région + ville → la région est partie en lieu précis
+  (« Parcs, Romainville », 5 km) → 0 (18 autour de Paris).
+- T4 puce « élargir la zone » : la feuille a envoyé `{}`, même recherche, 0.
+- T5 « autour de Saint-Ouen » : la zone « Île-de-France » portée a survécu à la nouvelle ville
+  → 2 km → 1 (19 autour de la ville).
+- L'anneau d'un lieu précis se dimensionne sur l'inventaire brut, pas sur les hôtels qui
+  passent les filtres ; « idéalement un massage » devenait un filtre dur (18 contre 31) ;
+  « piscine intérieure » prenait tout le groupe piscine ; « très classe » ne mappait rien.
+- Cause commune géo : le garde d'écho ne vérifie que le plus long mot de 4 lettres ou plus ; pour
+  « Île-de-France », c'est « france », que tout lieu français contient.
+
+**Fait** (décisions de Fabien : tout dans la même PR ; « très classe » = 4-5 étoiles par le
+prompt, jamais une regex ; « idéalement » n'est pas un filtre dur ; piscine intérieure stricte) :
+- Rayon des villes : défaut MCP tant que le snapshot compte au moins 7 hôtels à 20 km ; sinon 30
+  puis 50 km. Galveston → 50 km ; Houston, Paris → défaut.
+- « Élargir la zone » : la puce (cliquée ou tapée, 7 langues) envoie `query_params.widen_area` ;
+  le `relation: "near"` de la feuille reste l'autre voie. Un anneau plus loin (ville 20 → 30 → 50
+  → 100 km, au plus proche d'abord).
+- Géo : une région portée l'est comme région (`city_is_area`, profil du concierge) ; région +
+  ville → la ville ; une nouvelle ville ne reprend pas la zone portée.
+- Complétion (`completion.py`) : une première page de moins de 5 hôtels est complétée par UN
+  appel MCP de plus (50 km, ou 100 km si élargi, au plus proche), sans les souhaits optionnels ;
+  ses cartes viennent après celles de la première page, et un bloc COMPLETED le dit à la synthèse
+  (règle 10 amendée). Jamais sur l'impasse du jour même (sonde J+1).
+- `sort` → `sortBy` (G13 fermé) : le tri par distance d'un lieu précis atteint enfin MCP, et les
+  `sortBy` / `starRatings` écrits par le modèle sont jetés.
+- `indoor_pool` (34) strict ; `amenities_preferred` (« idéalement ») cherché d'abord puis
+  relâché ; `standing: "upscale"` → `starRatings: [4, 5]` (`standing.py`), porté par le profil,
+  cité dans la phrase « aucune offre » (7 langues).
+- Prompt du triage inchangé : son `price_comparison: clear` sur « très classe » est sans effet
+  (`clear` se comporte comme `None`), et un changement de ce prompt exige une mesure avant/après.
+
+**Preuves** :
+- pytest 3 322 passés / 1 skippé ; ruff, mypy, guardrails OK. Contrôle négatif dans un worktree
+  de `origin/main` : les nouveaux tests échouent (dont les 4 tests géo tirés de la trace).
+- MCP en direct, vrais callbacks : T5 Saint-Ouen 1 → 5 hôtels ; piscine intérieure + spa
+  souhaité + 4-5 étoiles à 2 km : 0 → 5.
+- Rejeu local des 2 sessions (Redis :6390, luna sur tous les rôles, pas le mélange de la démo) :
+  1eb2430a → 5 hôtels à chaque tour après la date, `starRatings [4, 5]` et `[34, 35]` envoyés
+  dès T1 ; Galveston T4 → 4 hôtels avec départ 23 h (0 en prod).
+
+**Pièges** :
+- Le site cache des créneaux derrière la flèche du carrousel (Hotel Bliss Kemah a un 18-23 h) :
+  sonder `search_offers`, ne pas conclure d'une capture.
+- `search_offers` répond `results` ; le `hotels` des traces est la charge compacte de la feuille.
+- Le Python système n'a pas de certificats : `urllib` échoue en TLS vers Langfuse, `httpx` passe.
+- zsh ne découpe pas une variable non citée en mots : `tar cf x.tar $FICHIERS` reçoit UN nom.
+
+**Reste** :
+- Non corrigé : la feuille ne réinjecte pas une fenêtre horaire portée, c'est le modèle qui la
+  recopie depuis `profile_in` ; il l'a perdue au rejeu Galveston T5 (23 h oublié).
+- Non corrigé : le garde d'écho et les noms d'aire courts (« france »).
+- `contracts/mcp_b2c_tools.json` est antérieur à `sortBy` / `timeSlotMode` : à rafraîchir (humain).
+- Revue et merge de la PR, puis déploiement de `hotel-search` ET `concierge` (`DEPLOY.md`), puis
+  rejouer les 2 sessions en démo.
+
 ## ⚖️ 2026-10-27 (quater) — Les 3 juges Langfuse passés sur gpt-6-luna : plus aucun appel gpt-4o-mini
 
 **Fait** (UI, par Fabien, 14:08-14:15Z ; vérifié par Claude via l'API) :

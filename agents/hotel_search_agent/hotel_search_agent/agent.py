@@ -58,6 +58,8 @@ from hotel_search_agent.equipment_ids import (
 from hotel_search_agent.geocode_tool import geocode_location, inject_profile_geo_context
 from hotel_search_agent.budget_injection import inject_profile_budget
 from hotel_search_agent.occupancy import inject_profile_occupancy
+from hotel_search_agent.standing import enforce_standing
+from hotel_search_agent.completion import complete_thin_search_after_tool
 from hotel_search_agent import named_hotel
 from hotel_search_agent.mcp_guard import (
     mcp_circuit_after_tool,
@@ -224,6 +226,19 @@ How to act, frugally (at most ONE reasoning pass — no tool-call loops):
   applied, and this is the only way to take one back. Never put the same key
   in `amenities` and `amenities_removed`, and omit the argument entirely when
   nothing was dropped or negated.
+- An indoor or covered pool ("piscine intérieure", "piscine couverte", "indoor
+  pool") is `indoor_pool`, never `pool`; a pool with no such word is `pool`.
+- An amenity the user wants but marks as OPTIONAL ("idéalement un massage", "si
+  possible avec piscine", "ideally a gym", "un jacuzzi serait un plus") goes in
+  `amenities_preferred` (same canonical keys), NEVER in `amenities`: the system
+  searches with it first and completes the page without it. A massage is
+  `spa`. Omit the argument when no wish is marked optional.
+- `standing`: "upscale" when the user wants a chic, luxury, high-end or very
+  classy hotel or room ("très classe", "haut de gamme", "luxe", "une chambre
+  hyper belle", "something fancy"); "any" when they drop a standing they stated
+  earlier ("peu importe le standing"). The system turns it into a star filter:
+  never set `starRatings` yourself. Omit `standing` when the message says
+  nothing about it — a standing stated earlier is carried forward automatically.
 - Pass search_offers a `priceRangeMax` (a number, in euros) ONLY when the user
   states an explicit maximum budget ("under 80 euros", "max 120€", "no more
   than 90€"); also pass `priceRangeMin` if they give a lower bound too. Pass
@@ -340,6 +355,7 @@ named_hotel.bind(
     search_before=[
         mcp_circuit_before_tool,
         enforce_equipment_filters,
+        enforce_standing,
         inject_profile_occupancy,
         inject_profile_budget,
         inject_pagination_offset,
@@ -415,6 +431,7 @@ root_agent = Agent(
         make_per_tool_budget_callback(PER_TOOL_CALL_LIMITS, MAX_TOOL_CALLS),
         mcp_circuit_before_tool,
         enforce_equipment_filters,
+        enforce_standing,
         inject_profile_occupancy,
         inject_profile_budget,
         inject_profile_geo_context,
@@ -434,13 +451,16 @@ root_agent = Agent(
     # ingests (response_bridge.py).
     # probe_next_day_after_tool sits between them (S-CX6): it must see the real
     # outcome (so after the breaker's observer) and run BEFORE capture_after_tool,
-    # which is what consumes the D+1 payload it stashes. It is the only async
-    # callback here — ADK awaits an awaitable one mixed among sync ones — and it
-    # always returns None, so it never breaks the chain.
+    # which is what consumes the D+1 payload it stashes. It is async — ADK
+    # awaits an awaitable one mixed among sync ones — and it always returns
+    # None, so it never breaks the chain.
+    # complete_thin_search_after_tool (prod session 1eb2430a) follows the same
+    # rules, and never fires on the dead end the D+1 probe handles.
     after_tool_callback=[
         tool_timing_after,
         mcp_circuit_after_tool,
         probe_next_day_after_tool,
+        complete_thin_search_after_tool,
         named_hotel.follow_named_hotel,
         capture_after_tool,
     ],

@@ -152,10 +152,11 @@ def test_find_hotel_by_name_arguments_match_the_published_schema():
 _SEARCH = {"date": {"type": "relative", "value": "tomorrow", "expression": "demain"}}
 
 #: Keys the leaf's own code injects although the published schema lacks them,
-#: on purpose: `inject_landmark_radius` sends the site's `sort="distance"` on a
-#: landmark search and relies on `schema_guard` to drop it until MCP knows it
-#: (see its docstring). Anything else outside the schema is a leak.
-_INJECTED_AHEAD_OF_THE_SCHEMA = {"sort"}
+#: on purpose: `inject_landmark_radius` sends the site's `sortBy="distance"` on a
+#: landmark search. The deployed MCP declares it; this snapshot (2026-10-06)
+#: predates it, and `schema_guard` drops it against an MCP that does not know
+#: it. Anything else outside the schema is a leak.
+_INJECTED_AHEAD_OF_THE_SCHEMA = {"sortBy"}
 
 
 class _V6:

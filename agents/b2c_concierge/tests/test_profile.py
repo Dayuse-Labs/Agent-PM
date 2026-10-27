@@ -1511,6 +1511,7 @@ class TestLeafProfileView:
             "search_anchor", "locale", "language", "client_timezone", "date",
             "timeslot_start", "amenities", "search_cursor", "shown_hotel_ids",
             "budget_max", "timeslot_end", "timeslot", "schema_version",
+            "city_is_area", "preferred_amenities", "standing",
         ):
             assert key in view, f"leaf-consumed or model-visible slot {key!r} missing"
         assert view["search_cursor"] == 5
@@ -1683,3 +1684,88 @@ class TestChooseNamedCandidate:
 
         assert choose_named_candidate("le Leonardo Royal", self.CANDIDATES) is None
         assert choose_named_candidate("un hôtel à Lyon demain", self.CANDIDATES) is None
+
+
+class TestClickedWidenChip:
+    """Prod session 1eb2430a (2026-10-27): the zone chip is words the concierge
+    knows; the leaf model read no « near » in « élargir la zone »."""
+
+    def test_the_zone_chip_is_the_same_label_in_both_chip_lists(self):
+        from b2c_concierge.profile import _DATE_SUGGESTIONS, _RECOVERY_SUGGESTIONS
+
+        for language, labels in _RECOVERY_SUGGESTIONS.items():
+            assert _DATE_SUGGESTIONS[language][2] == labels[1]
+
+    @pytest.mark.parametrize("message", ["élargir la zone", "  Élargir la zone ", "Umkreis erweitern",
+                                         "try a nearby area"])
+    def test_the_zone_chip_clicked_or_typed(self, message):
+        from b2c_concierge.profile import clicked_widen_chip
+
+        assert clicked_widen_chip(message) is True
+
+    @pytest.mark.parametrize("message", ["retirer un filtre", "élargir la zone à 30 km", "", "ok"])
+    def test_anything_else(self, message):
+        from b2c_concierge.profile import clicked_widen_chip
+
+        assert clicked_widen_chip(message) is False
+
+
+class TestAreaDestination:
+    """Prod session 1eb2430a: « Île-de-France » is an area; the leaf must know
+    it on the next turn, and forget it when the user names a city."""
+
+    def test_the_area_flag_rides_with_the_city(self):
+        profile = SessionProfile()
+        apply_profile_delta(profile, {"city": {"op": "set", "value": "Île-de-France"},
+                                      "city_is_area": {"op": "set", "value": True}}, "")
+        assert (profile.city, profile.city_is_area) == ("Île-de-France", True)
+        assert leaf_profile_view(profile)["city_is_area"] is True
+
+    def test_a_follow_up_on_the_same_area_keeps_it(self):
+        profile = SessionProfile(city="Île-de-France", city_is_area=True)
+        apply_profile_delta(profile, {"amenities": {"op": "set", "value": ["spa"]}}, "")
+        assert profile.city_is_area is True
+
+    def test_a_new_city_clears_it(self):
+        profile = SessionProfile(city="Île-de-France", city_is_area=True, zone="Île-de-France")
+        apply_profile_delta(profile, {"city": {"op": "set", "value": "Paris"}}, "")
+        assert (profile.city, profile.city_is_area, profile.zone) == ("Paris", False, None)
+
+
+class TestPreferredAmenitiesAndStanding:
+    def test_preferred_amenities_are_replaced_by_a_typed_set(self):
+        profile = SessionProfile(preferred_amenities=["spa"])
+        apply_profile_delta(profile, {"preferred_amenities": {"op": "set", "value": []}}, "")
+        assert profile.preferred_amenities == []
+
+    def test_standing_is_set_then_cleared(self):
+        profile = SessionProfile()
+        apply_profile_delta(profile, {"standing": {"op": "set", "value": "upscale"}}, "")
+        assert profile.standing == "upscale"
+        apply_profile_delta(profile, {"standing": {"op": "clear"}}, "")
+        assert profile.standing is None
+
+    def test_both_round_trip(self):
+        profile = SessionProfile(preferred_amenities=["spa"], standing="upscale")
+        again = SessionProfile.from_dict(profile.to_dict())
+        assert (again.preferred_amenities, again.standing) == (["spa"], "upscale")
+
+
+class TestCompletedNote:
+    """Prod session 1eb2430a: the leaf completed a thin page; the reply must say
+    which cards match everything and which were added further out."""
+
+    def test_the_note_names_the_split_and_the_relaxed_wish(self):
+        from b2c_concierge.agent import completed_note
+
+        note = completed_note({"added": 4, "radius_km": 50.0, "relaxed": ["spa"]}, 5)
+        assert note == (
+            "the first 1 card(s) match everything asked; the last 4 were added from a wider "
+            "search (within 50.0 km, nearest first) without the optional wish(es): spa."
+        )
+
+    @pytest.mark.parametrize("completion", [None, {}, {"added": 0}, {"added": "2"}])
+    def test_no_completion_no_note(self, completion):
+        from b2c_concierge.agent import completed_note
+
+        assert completed_note(completion, 5) == ""

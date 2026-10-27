@@ -52,12 +52,17 @@ from typing import Any
 
 from hotel_search_agent.response_bridge import (
     STATE_APPLIED_AMENITIES_KEY,
+    STATE_PREFERRED_AMENITIES_KEY,
     find_datapart,
     record_guards_fired,
 )
+from hotel_search_agent.standing import STANDING_PROPERTY
 
 EQUIPMENT_IDS: dict[str, tuple[int, ...]] = {
     "pool": (33, 34, 2982, 3000, 3001),  # outdoor, indoor, rooftop pool, pool bar, pool
+    # 2026-10-27 (prod session 1eb2430a, « piscine intérieure » in November):
+    # strict, never the pool group. Alone in the pool OR-group, so only it matches.
+    "indoor_pool": (34,),
     "spa": (35,),
     "gym": (38,),  # Fitness room; 37 "Centre de remise en forme" is a legacy duplicate
     "jacuzzi": (41,),  # "Hot tub", slug "jacuzzi"
@@ -99,6 +104,20 @@ _AMENITIES_REMOVED_PROPERTY: dict[str, Any] = {
     ),
 }
 
+# 2026-10-27 (prod session 1eb2430a, « idéalement option de faire un massage »):
+# a wish the user marks optional. Searched with first, then the page is
+# completed without it (`completion.py`) — never a hard filter.
+_AMENITIES_PREFERRED_PROPERTY: dict[str, Any] = {
+    "type": "array",
+    "items": {"type": "string", "enum": list(EQUIPMENT_IDS)},
+    "description": (
+        "Canonical keys of amenities the user would LIKE but marks as optional "
+        "('idéalement un spa', 'si possible avec piscine', 'ideally a gym', "
+        "'a jacuzzi would be a bonus'). NEVER put a key here and in `amenities` "
+        "at the same time. Omit entirely when no wish is marked optional."
+    ),
+}
+
 # Same self-configured stdout logger as dayuse_agent_common.metrics — its
 # handler is installed on import (agent.py imports those callbacks first).
 # GDPR posture: counts only, never the requested keys (an amenity preference is
@@ -132,24 +151,26 @@ def _canonical_keys(values: Any) -> list[str]:
     return keys
 
 
-def _profile_amenities(tool_context: Any) -> Any:
-    """`profile_in.amenities` from the request DataPart riding
-    `tool_context.user_content` (the a2a→genai conversion re-wraps the inbound
-    DataPart in the same tag envelope `find_datapart` decodes). Missing or
-    undecodable → None: the filter simply isn't accumulated, never a crash."""
+def _profile_amenities(tool_context: Any, key: str = "amenities") -> Any:
+    """`profile_in.<key>` (`amenities` or `preferred_amenities`) from the
+    request DataPart riding `tool_context.user_content` (the a2a→genai
+    conversion re-wraps the inbound DataPart in the same tag envelope
+    `find_datapart` decodes). Missing or undecodable → None: the filter simply
+    isn't accumulated, never a crash."""
     content = getattr(tool_context, "user_content", None)
     parts = getattr(content, "parts", None) if content is not None else None
     data = find_datapart(parts)
     if isinstance(data, dict):
         profile = data.get("profile_in")
         if isinstance(profile, dict):
-            return profile.get("amenities")
+            return profile.get(key)
     return None
 
 
 def inject_amenities_declaration(callback_context: Any, llm_request: Any) -> None:
     """`before_model_callback`: widen the search_offers declaration with the
-    virtual `amenities`/`amenities_removed` enum params.
+    virtual `amenities`/`amenities_removed`/`amenities_preferred` enum params,
+    and `standing`.
 
     Runs AFTER ADK's preprocess appended the tool declarations, so the
     declaration is there to widen; declarations are rebuilt on every model
@@ -170,6 +191,10 @@ def inject_amenities_declaration(callback_context: Any, llm_request: Any) -> Non
             properties = widened.setdefault("properties", {})
             properties["amenities"] = copy.deepcopy(_AMENITIES_PROPERTY)
             properties["amenities_removed"] = copy.deepcopy(_AMENITIES_REMOVED_PROPERTY)
+            properties["amenities_preferred"] = copy.deepcopy(_AMENITIES_PREFERRED_PROPERTY)
+            # Not an amenity, same mechanism: a closed enum the code maps
+            # (`standing.enforce_standing`).
+            properties["standing"] = copy.deepcopy(STANDING_PROPERTY)
             decl.parameters_json_schema = widened
             return None
     return None
@@ -188,6 +213,7 @@ def enforce_equipment_filters(
         # additionalProperties:false schema forbids — never let them leak.
         args.pop("amenities", None)
         args.pop("amenities_removed", None)
+        args.pop("amenities_preferred", None)
         return None
     if name != "search_offers":
         return None
@@ -198,7 +224,11 @@ def enforce_equipment_filters(
 
     llm_keys = _canonical_keys(args.pop("amenities", None))
     removed_keys = _canonical_keys(args.pop("amenities_removed", None))
-    profile_keys = _canonical_keys(_profile_amenities(tool_context))
+    llm_preferred = [key for key in _canonical_keys(args.pop("amenities_preferred", None)) if key not in llm_keys]
+    # A wish now marked optional stops being required.
+    profile_keys = [
+        key for key in _canonical_keys(_profile_amenities(tool_context)) if key not in llm_preferred
+    ]
 
     # UX1 precedence — a key in BOTH fields is APPLIED, never removed. This is
     # not a preference, it is the fail-safe direction against gpt-4o-mini's
@@ -211,7 +241,13 @@ def enforce_equipment_filters(
     removed = [key for key in removed_keys if key not in llm_keys]
 
     accumulated = profile_keys + [key for key in llm_keys if key not in profile_keys]
-    requested = [key for key in accumulated if key not in removed]
+    requested = _strictest_pool([key for key in accumulated if key not in removed])
+    preferred = [
+        key
+        for key in _canonical_keys(_profile_amenities(tool_context, "preferred_amenities")) + llm_preferred
+        if key not in requested and key not in removed
+    ]
+    preferred = list(dict.fromkeys(preferred))
     if len(requested) < len(accumulated):
         # OBS3 guard #15: the retraction actually took a key out of the filter
         # that would otherwise have been applied. `record_guards_fired` is the
@@ -224,7 +260,10 @@ def enforce_equipment_filters(
             len(conflicts),
         )
 
-    ids = equipment_ids_for(requested)
+    # The first search is filtered on the wishes too; `completion.py` completes
+    # a thin page without them. Kept apart in state: only `requested` is ever
+    # a hard filter of a later search.
+    ids = equipment_ids_for(_strictest_pool(requested + preferred))
     if ids:
         args["hotelEquipmentIds"] = ids
         _metrics_logger.info(
@@ -237,4 +276,11 @@ def enforce_equipment_filters(
     # search ran with no filter" (→ an explicit empty set) apart from "no search
     # ran this turn" (→ key absent → carryover). Never write it anywhere else.
     tool_context.state[STATE_APPLIED_AMENITIES_KEY] = requested
+    tool_context.state[STATE_PREFERRED_AMENITIES_KEY] = preferred
     return None
+
+
+def _strictest_pool(keys: list[str]) -> list[str]:
+    """`indoor_pool` and `pool` together mean the indoor one: the pool ids are
+    OR-grouped server-side, so sending both would match any pool."""
+    return [key for key in keys if key != "pool"] if "indoor_pool" in keys else keys

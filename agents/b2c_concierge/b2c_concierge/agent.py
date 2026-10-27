@@ -163,6 +163,7 @@ from .profile import (
     is_booking_confirmation_signal,
     is_more_options_signal,
     is_search_refinement_signal,
+    clicked_widen_chip,
     leaf_profile_view,
     leaf_question,
     turn_question,
@@ -558,6 +559,9 @@ ABSOLUTE RULES — a violation is a defect:
 10. You do not control the search radius: never say you widened, enlarged or
    extended the area (mcp-dayuse#6 — "J'ai élargi la zone" over a search run
    on the very same radius). Describe what is on screen, not a change you did.
+   Only a COMPLETED block means the system itself widened the search: then say
+   plainly, in its terms, which cards match everything and which were added
+   further out or without an optional wish.
 
 Output only the reply — no preamble, no headings."""
 
@@ -570,6 +574,27 @@ _UNCHANGED_NOTE = (
     "change did not alter them. Your reply comes right after a sentence saying so. "
     "Never claim you widened, changed or found anything; offer ONE different next step."
 )
+
+def completed_note(completion: Any, shown: int) -> str:
+    """Prod session 1eb2430a: the leaf completed a thin first page from a wider
+    search (its `completion.py`). The last `added` cards came from it, within
+    `radius_km`, and without the `relaxed` optional wishes. Empty when it did
+    not, or when nothing it added is shown."""
+    if not isinstance(completion, dict):
+        return ""
+    added = completion.get("added")
+    if not isinstance(added, int) or added <= 0 or shown <= 0:
+        return ""
+    added = min(added, shown)
+    note = (
+        f"the first {shown - added} card(s) match everything asked; the last {added} were added "
+        f"from a wider search (within {completion.get('radius_km')} km, nearest first)"
+    )
+    relaxed = [key for key in completion.get("relaxed") or [] if isinstance(key, str)]
+    if relaxed:
+        note += " without the optional wish(es): " + ", ".join(key.replace("_", " ") for key in relaxed)
+    return note + "."
+
 
 # QA14707 (Q28): the user was already asked a question on the previous turns
 # in a row, with no search. Told on the same synthesis call — never a second
@@ -704,7 +729,7 @@ class _B2cConcierge(BaseAgent):
         widen_note: str | None, invocation_id: str,
         search_context: str = "", provenance_note: str = "", currency_note: str = "",
         angle: str = "", no_offers: str = "", recent_messages: list[str] | None = None,
-        unchanged: bool = False, no_question: bool = False,
+        unchanged: bool = False, no_question: bool = False, completed: str = "",
     ) -> str | None:
         """ONE litellm call producing a candidate synthesis text, or None on
         failure. The system prompt's STATIC prefix never changes (cache); only
@@ -759,6 +784,8 @@ class _B2cConcierge(BaseAgent):
             user += f"\n\nANGLE (lead on this, in your own words): {angle}"
         if unchanged:
             user += f"\n\nUNCHANGED: {_UNCHANGED_NOTE}"
+        if completed:
+            user += f"\n\nCOMPLETED (the system widened the search itself): {completed}"
         if no_question:
             user += f"\n\nNO QUESTION: {_NO_QUESTION_NOTE}"
         t0 = time.monotonic()
@@ -936,6 +963,7 @@ class _B2cConcierge(BaseAgent):
             provenance_note=provenance_note, currency_note=currency_note,
             angle=angle, no_offers=no_offers, recent_messages=recent_messages,
             unchanged=unchanged, no_question=no_question,
+            completed=completed_note(response.get("completion"), len(shortlist_hotels(response))),
         )
 
         def fallback() -> str | None:
@@ -1814,6 +1842,9 @@ class _B2cConcierge(BaseAgent):
             if profile.pending_party_total is not None:
                 query_params["party_total"] = profile.pending_party_total
             leaf_kwargs["query_params"] = query_params
+        if route.target == LEAF_HOTEL_SEARCH and clicked_widen_chip(message):
+            # The leaf widens the search ring one step (`inject_landmark_radius`).
+            leaf_kwargs["query_params"] = {**(leaf_kwargs.get("query_params") or {}), "widen_area": True}
         context_text: str | None = None
         if route.target == LEAF_HOTEL_SEARCH and pending_clar is not None:
             # QA14707 (Q04): the answer to a place question travels with the

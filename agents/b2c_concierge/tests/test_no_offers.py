@@ -73,3 +73,20 @@ def test_an_unrelated_answer_is_left_alone():
 def test_nothing_to_cite_gives_no_sentence():
     assert no_offers_line(None, "fr") == ""
     assert no_offers_line({}, "fr") == ""
+
+
+def test_an_indoor_pool_and_the_standing_are_cited():
+    """Prod session 1eb2430a: « piscine intérieure », « très classe »."""
+    context = {**_LYON, "budget_max": None, "timeslot_start": None, "timeslot_end": None,
+               "amenities": ["indoor_pool", "spa"], "standing": "upscale"}
+    assert no_offers_line(context, "fr") == (
+        "Aucune offre à Lyon le mercredi 7 octobre 2026, avec piscine intérieure et spa, "
+        "en hôtel 4 ou 5 étoiles."
+    )
+
+
+@pytest.mark.parametrize("language", ["fr", "en", "es", "it", "de", "pt", "nl"])
+def test_every_language_names_the_new_criteria(language):
+    from b2c_concierge.no_offers import _AMENITY, _UPSCALE
+
+    assert "indoor_pool" in _AMENITY[language] and _UPSCALE[language]

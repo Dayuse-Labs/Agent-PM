@@ -145,7 +145,7 @@ class TestABarePostcodeGetsTheTightDisc:
         # Dense Paris: the smallest ring holding 10 hotels is the 2 km one,
         # inside the 3 km the QA item checks; never the 20 km city default.
         assert args["radiusKm"] == 2.0
-        assert args["sort"] == "distance"
+        assert args["sortBy"] == "distance"
         assert (args["lat"], args["lon"]) == (48.875676, 2.343131)
 
     def test_a_sparse_area_widens_the_ring_by_inventory_not_by_the_origin_type(
@@ -175,7 +175,7 @@ class TestABarePostcodeGetsTheTightDisc:
         assert result["ok"] is True
         assert result["country_code"] == country
         assert result["distance_origin_type"] == "poi"
-        assert _search_args(monkeypatch, result, ctx)["sort"] == "distance"
+        assert _search_args(monkeypatch, result, ctx)["sortBy"] == "distance"
 
 
 class TestNothingElseMoves:

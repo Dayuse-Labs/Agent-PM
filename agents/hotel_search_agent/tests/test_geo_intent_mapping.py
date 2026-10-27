@@ -1087,3 +1087,53 @@ class TestAPlaceSurvivesAnAddedArticleOrATypo:
         assert _fields(line)["mentions_fuzzy"] == "1"
         for word in ("champ", "elysee", "pres", "demain"):
             assert word not in line.lower()
+
+
+class TestAsksNearby:
+    """Prod session 8a6576a4 (2026-10-27): « try a nearby area » after an empty
+    Galveston search sent the same intent twice (turns 6 and 8, below), and the
+    search ran on the same 20 km disc. `asks_nearby` is what widens it."""
+
+    @pytest.mark.parametrize(
+        "intent",
+        [
+            {"places": [], "city": None, "carryover": "keep", "relation": "near"},
+            {"schema_version": "1.1", "places": [], "city": None, "relation": "near", "carryover": "keep"},
+        ],
+    )
+    def test_the_prod_intents_ask_for_a_nearby_area(self, intent):
+        assert geocode_tool.asks_nearby(intent) is True
+
+    @pytest.mark.parametrize(
+        "intent",
+        [
+            None,
+            {},
+            {"places": [], "relation": "in"},
+            # « near Galveston » names the place: a city search, not a wider one.
+            {"places": [{"mention": "Galveston", "kind": "city", "canonical": "Galveston",
+                         "city": None, "country": "US", "postal_code": None}], "relation": "near"},
+            {"city": {"mention": "Houston", "canonical": "Houston"}, "relation": "near"},
+            # Fails validation: nothing of it is used, as in `geocode_location`.
+            {"relation": "near", "unknown": 1},
+        ],
+    )
+    def test_anything_else_does_not(self, intent):
+        assert geocode_tool.asks_nearby(intent) is False
+
+    @pytest.mark.parametrize(
+        ("intent", "marked"),
+        [({"places": [], "city": None, "carryover": "keep", "relation": "near"}, True), ({}, False)],
+    )
+    def test_the_real_tool_marks_its_result(self, monkeypatch, intent, marked):
+        galveston = {"ok": True, "latitude": 29.305554, "longitude": -94.793248,
+                     "distance_origin_type": "city_centroid", "profile_delta": {}}
+        monkeypatch.setattr(geocode_tool, "geocode_core", lambda **kwargs: dict(galveston))
+
+        result = _run_tool(intent, "try a nearby area", profile_in={"city": "Galveston"})
+
+        assert result.get("nearby", False) is marked
+
+    def test_a_failed_geocode_is_never_marked(self, core):
+        intent = {"places": [], "city": None, "relation": "near"}
+        assert "nearby" not in _run_tool(intent, "try a nearby area", profile_in={"city": "Galveston"})

@@ -50,7 +50,7 @@ l'équipe, dès que tu donnes la copy) → `E2` puis `E1` puis `E4` (la boucle Q
 | **A1** | Identité D7 → oidc-mtls ; rotation des bearers semaine du 2026-11-02 | L | repo fleet · ⏰ **2027-01-31** |
 | **A2** | S10 shadow-run / S11 canary | L | accès ES prod |
 | **A3** | `conversation_logs` + `InMemorySessionService` | M | S10/S11 |
-| **G1→G12** | Backlog produit / géo | — | — |
+| **G1→G13** | Backlog produit / géo | — | — |
 | **L** | Compréhension géo — série S-L (ajouté le 2026-10-08) ; `GeoIntent` produit par la feuille (DQ1) : S-L3/S-L4 conditionnelles, S-L7a et S-L7f faites, S-L7d et S-L7e restent | L | MCP déployé (S-L1) |
 | **QA14707** | Retours QA de Raphael du 14/10 : créneau localisé, lieu compris (`GeoIntent` dans la feuille), clarification tenue par le code. Phases 1-3 déployées (`0b65159`) ; phases 4-5 sur `plan/qa14707`. Plan : `plans/qa14707/`, source : `phases/QA14707/` | L | **Fabien** (revue de la seconde PR, H3' live, H4 retest) |
 | **X1→X3** | 3 demandes chez MCP_B2C | — | **MCP_B2C** |
@@ -853,6 +853,7 @@ au redémarrage du process (le profil Redis, lui, survit). À traiter avec S10/S
 | G10 | Variance de `_lookup_trace_facts` | Un miss dégrade en `skipped` silencieux. Backoff plus long ou échec explicite. |
 | G11 | Cas `lang-confirm-implicit` impassable | `pending_booking.hotel_id = 123` fabriqué → aucun lien possible, plafond 6/7 définitif. Le re-semer avec un vrai id, ou l'acter. |
 | G12 | `booking_url_fallback` illisible | Le proxy jette le corps (`scripts/run_widget_proxy.py:133-135`). ~10 lignes pour logger `event` + `reason` (liste blanche, jamais le payload). |
+| ~~G13~~ | ✅ Fait le 2026-10-27 (branche `fix/city-radius-sparse-20261027`) : `sortBy` envoyé, `sort` / `sortBy` / `starRatings` du modèle jetés | Reste à rafraîchir `contracts/mcp_b2c_tools.json` (humain). |
 
 ---
 
