@@ -655,7 +655,7 @@ en 2 itérations mesurées. luna tient la barre, voir `reports/TRIAGE-GPT6-AB-20
    - Le premier essai, le 2026-10-19 : 112 tours dégradés sur 118, 0/32, refusé et non commité.
    - Ne lancer aucune autre suite pytest en même temps depuis la même IP : jusqu'à #156, une suite
      coûtait 52 requêtes MCP. Le limiteur de staging est à 300 req/min par IP, compté avant l'auth.
-5. **agent-usa (repo voisin, prod client), hors périmètre ici** : `src/api/config.py:92` met
+5. **agent-usa (repo voisin ; servait ai.dayuse.com avant la bascule du 2026-10-26), hors périmètre ici** : `src/api/config.py:92` met
    gpt-4o-mini par défaut (`OPENAI_MODEL`), et `openai_adapter.py:57` ne détecte les modèles de
    raisonnement que par `startswith("gpt-5")` : c'est le même piège gpt-6. Seule la variable
    **déployée** dit si l'arrêt le touche ; la revue du 2026-07-22 l'a fait tourner sur gpt-5.2. À
@@ -832,8 +832,8 @@ Compensations :
 **Taille : L** · **bloqué : accès ES prod lecture seule, contrôle plateforme de `DAYUSE_MODEL`**
 
 Planifiées dans `SESSIONS-CLAUDE-CODE.md:27-28`, aucune n'a de bloc de clôture dans `HANDOFF.md`.
-Le déploiement Railway existant est une **démo**, pas le canary du plan. Prérequis explicite :
-validation de Fabien avant tout trafic.
+Il n'y a pas eu de canary : la pile Railway sert les vrais utilisateurs depuis la bascule franche
+d'ai.dayuse.com (2026-10-26), sur MCP_B2C prod.
 
 ## A3 — Deux angles morts de persistance
 

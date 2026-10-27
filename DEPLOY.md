@@ -1,13 +1,16 @@
-# DEPLOY — Railway (démo AgentB2C)
+# DEPLOY — Railway (prod AgentB2C, ai.dayuse.com)
 
-Procédure de redéploiement de la démo hébergée. **Ce n'est pas la prod client** (qui reste
-agent-usa) : pas de vrais utilisateurs, MCP_B2C de staging. Vérifiée de bout en bout le 2026-09-29
-(`07be07e`, 4 services).
+Procédure de redéploiement de la **prod client** : depuis la bascule d'ai.dayuse.com
+(2026-10-26), cette pile sert les **vrais utilisateurs**, sur **MCP_B2C prod** (elle s'appelait
+« la démo » avant, avec MCP_B2C de staging). Chaque `railway up` touche du trafic réel : tests verts
+avant, tours de preuve marqués synthétiques après. Vérifiée de bout en bout le 2026-09-29
+(`07be07e`, 4 services) et suivie pour 3 déploiements le 2026-10-27.
 
 ## Topologie
 
 Projet `AgentB2C` (`a200e208-863d-4771-8b4d-03b5a6280904`), workspace Inno Labs, environnement
-unique `production`. URL publique : **https://widget-production-3f56.up.railway.app**
+unique `production`. Domaine client : **https://ai.dayuse.com** ; URL Railway du même service
+`widget` : **https://widget-production-3f56.up.railway.app**
 
 | Service | Dockerfile (`RAILWAY_DOCKERFILE_PATH`) | Port | Exposition | Code concerné |
 |---|---|---|---|---|
