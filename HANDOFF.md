@@ -6,6 +6,27 @@
 
 > 📋 **Pour savoir QUOI faire ensuite, ouvrir [`CHANTIERS.md`](CHANTIERS.md)** (état vérifié au 2026-09-14) : la liste des chantiers ouverts, chacun avec sa preuve, ses actions et un prompt prêt à coller — plus la liste de ce qu'il ne faut **pas** relancer parce que c'est déjà livré. `tasks/todo.md` est périmé et ne doit plus servir de référence.
 
+## ↔️ 2026-10-27 (septies) — « Élargir la zone » : le tri au plus proche seulement en secours (branche `fix/widen-sort-after-full-page`)
+
+**Constat** (rejeu en démo du bloc sexies) : « élargir la zone » après une page PLEINE à Paris
+passait à 30 km au plus proche, donc montrait les 5 hôtels les plus centraux (0,9 à 2,1 km),
+l'inverse d'un élargissement.
+
+**Fait** : un élargissement de ville n'est trié au plus proche que s'il porte secours, soit
+quand la recherche précédente est revenue vide (`profile_in.consecutive_empty_searches`, le cas
+de la puce), soit quand la ville était déjà clairsemée (Galveston). Sinon l'ordre de pertinence
+de MCP reste.
+
+**Preuve** :
+- Snapshot réel : Paris page pleine → 30 km par pertinence ; Paris après une recherche vide →
+  30 km au plus proche ; Galveston → 100 km au plus proche.
+- MCP en direct, filtres de la session 1eb2430a : Paris 20 km = 16 hôtels ; 30 km par pertinence
+  = 18, dont Océania Roissy à 24,9 km dans les 5 affichés (un vrai élargissement).
+- pytest 3 324 passés / 1 skippé ; ruff, mypy, guardrails OK. Sur le code de `main`, le test
+  « ville dense après une page pleine » échoue.
+
+**Reste** : merge, puis déploiement de `hotel-search` seul (`DEPLOY.md`).
+
 ## 🚀 2026-10-27 (sexies) — `hotel-search` et `concierge` déployés sur `2c7dd2a` (#162)
 
 **Déployé** (`DEPLOY.md`, par Claude à la demande de Fabien, depuis `../AgentB2C-deploy`) :
@@ -24,7 +45,7 @@ release `2c7dd2a` dans Langfuse.
   21,5 km et Hotel Bliss Kemah 33,2 km, les hôtels du site.
 
 **Trouvé au rejeu, non corrigé** :
-- « élargir la zone » TAPÉ après une page PLEINE dans une ville dense : l'anneau passe à 30 km au
+- (Corrigé, bloc septies) « élargir la zone » TAPÉ après une page PLEINE dans une ville dense : l'anneau passe à 30 km au
   plus proche, donc les 5 hôtels les plus centraux (1-2 km de Paris), l'inverse d'un
   élargissement. Après une recherche vide (le cas de la puce), le plus proche est le bon ordre.
   Piste : ne trier au plus proche que si la ville était déjà élargie (ville clairsemée), ou si la
