@@ -195,6 +195,7 @@ from .triage import (
     asks_policy,
     classify,
     is_social_ack,
+    locale_response_language,
     response_language,
     template_language,
 )
@@ -1377,11 +1378,19 @@ class _B2cConcierge(BaseAgent):
         # directly at each call site.
         # mcp-dayuse#7: a message of proper nouns only (« New York ») says where,
         # not in which language — the conversation's language stands.
-        reply_language = response_language(
-            profile.language
-            if profile.language and not has_language_evidence(message)
-            else triage.language
-        )
+        # 2026-10-27: so does a turn the triage LLM did not read. Its regex guess
+        # (fr or en) answered « élargir la zone » in English in a French session.
+        # The session's language (an earlier triage's) comes first, then the
+        # client locale; the guess only when there is neither.
+        if triage.used_llm:
+            language = (
+                profile.language
+                if profile.language and not has_language_evidence(message)
+                else triage.language
+            )
+        else:
+            language = profile.language or locale_response_language(profile.locale) or triage.language
+        reply_language = response_language(language)
         # Code-owned overrides (LLM never routes). A pending-offer confirmation
         # wins; otherwise a refinement of a PRIOR search re-routes to a fresh
         # search REGARDLESS of what triage guessed — a terse "le 28"/"moins cher"

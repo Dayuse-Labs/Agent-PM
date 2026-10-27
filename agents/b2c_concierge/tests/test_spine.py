@@ -359,6 +359,36 @@ class TestRoutingThroughTheSpine:
         assert answer == "Voici ce que j'ai trouvé."
 
 
+class TestLanguageWhenTheTriageFails:
+    """Demo 2026-10-27 (session synthetic-deploy-widen-4641f0a9): the triage
+    timed out on « élargir la zone » and its regex guess answered a French
+    session in English."""
+
+    @staticmethod
+    def _stuck():
+        return agent_module.litellm.Timeout(message="stuck", model="openai/gpt-6-luna", llm_provider="openai")
+
+    def _synthesis_lang(self, llm) -> str:
+        user = llm.calls[-1]["messages"][-1]["content"]
+        return next(line for line in user.splitlines() if line.startswith("LANG:"))
+
+    def test_the_session_language_stands(self, scripted, fake_profile_store):
+        runner, session = _new_session()
+        asyncio.run(fake_profile_store.set(session.id, SessionProfile(language="fr", city="Paris")))
+        llm, leaf_calls = scripted(self._stuck(), self._stuck(), "Voici d'autres hôtels.",
+                                   leaf_text="results: hotel A")
+        _drive_in(runner, session.id, "élargir la zone")
+        assert leaf_calls == ["hotel_search"]
+        assert self._synthesis_lang(llm) == "LANG: fr"
+
+    def test_on_a_first_turn_the_locale_stands(self, scripted, fake_profile_store):
+        runner, session = _new_session()
+        asyncio.run(fake_profile_store.set(session.id, SessionProfile(locale="fr-FR", city="Paris")))
+        llm, _ = scripted(self._stuck(), self._stuck(), "Voici d'autres hôtels.", leaf_text="results: hotel A")
+        _drive_in(runner, session.id, "élargir la zone")
+        assert self._synthesis_lang(llm) == "LANG: fr"
+
+
 class TestHonestDegradation:
     def test_leaf_failure_degrades_honestly_without_synthesis(self, scripted, caplog, monkeypatch):
         llm, _ = scripted('{"family": "search", "language": "fr"}')
