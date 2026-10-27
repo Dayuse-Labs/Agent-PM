@@ -89,6 +89,10 @@ _STATE_COUNTRY_KEY = "temp:hotel_search_country_code"
 # being unmeasurable). Additive to the DataPart; the concierge ignores unknown keys.
 _STATE_ANCHOR_KEY = "temp:hotel_search_anchor"
 _STATE_DISTANCE_ORIGIN_KEY = "temp:hotel_search_distance_origin"
+# The geocode result says the user asked for a nearby area
+# (`geocode_tool.asks_nearby`): the search ring goes one step wider
+# (`inject_landmark_radius`).
+_STATE_NEARBY_KEY = "temp:hotel_search_nearby"
 # OBS3 (2026-08-26): the names of the deterministic guards that fired in THIS
 # leaf this turn, on their way to the concierge's `score_guards`.
 #
@@ -860,18 +864,37 @@ def read_structured_payload(tool_response: Any) -> dict[str, Any] | None:
 # (Monaco → Nice airport first, Marais → no card in the Marais).
 #
 # The site counts hotels that match the query; the leaf counts the inventory
-# snapshot, so a ring can come back thinner on a given date. Cities keep MCP's
-# own 20 km default and relevance order: their site page owns both.
+# snapshot, so a ring can come back thinner on a given date.
 SITE_RADII_KM = (2.0, 5.0, 10.0, 20.0, 30.0, 50.0)
 SITE_MIN_HOTELS = 10
+# A city keeps MCP's own 20 km default and relevance order while the snapshot
+# holds CITY_MIN_HOTELS within it. Prod session 8a6576a4 (2026-10-27): Galveston
+# has no hotel within 20 km of its centroid, so every search there came back
+# empty, while the site showed 3 hotels 21-40 km out: it widens a thin search up
+# to 50 km (`HotelElasticSearchService::processSearchQueryToCompleteSearchPage`).
+# A city ring only ever widens, so a dense city is never narrowed.
+CITY_RADII_KM = (20.0, 30.0, 50.0)
+CITY_MIN_HOTELS = 7
+# One ring past the widest, reached only when the user asks for a nearby area.
+NEARBY_RADIUS_KM = 100.0
 
 
-def site_radius_km(lat: float, lon: float) -> float:
+def site_radius_km(
+    lat: float,
+    lon: float,
+    *,
+    rings: tuple[float, ...] = SITE_RADII_KM,
+    min_hotels: int = SITE_MIN_HOTELS,
+    nearby: bool = False,
+) -> float:
+    """The smallest ring holding `min_hotels` hotels, else the widest; one ring
+    further when the user asked for a nearby area (`asks_nearby`)."""
     inventory = get_inventory()
-    for radius in SITE_RADII_KM:
-        if inventory.count_near(lat, lon, radius_km=radius) >= SITE_MIN_HOTELS:
-            return radius
-    return SITE_RADII_KM[-1]
+    ring = next(
+        (i for i, radius in enumerate(rings) if inventory.count_near(lat, lon, radius_km=radius) >= min_hotels),
+        len(rings) - 1,
+    )
+    return (*rings, NEARBY_RADIUS_KM)[ring + int(nearby)]
 
 
 def inject_landmark_radius(tool: Any, args: dict[str, Any], tool_context: Any) -> None:
@@ -879,8 +902,10 @@ def inject_landmark_radius(tool: Any, args: dict[str, Any], tool_context: Any) -
     `sort`.
 
     A landmark/POI anchor THIS turn gets the site's ring (`site_radius_km`) and
-    `sort="distance"`; anything else leaves both keys absent, so MCP applies its
-    own 20 km city default and relevance order. Same doctrine as `from` and
+    `sort="distance"`. A city anchor leaves both keys absent, so MCP applies its
+    own 20 km default and relevance order, unless that disc is too thin
+    (`CITY_RADII_KM`): then only the radius is set. « Try a nearby area »
+    (`_STATE_NEARBY_KEY`) takes either one ring further. Same doctrine as `from` and
     `hotelEquipmentIds`: the model is never taught these parameters and any
     value it invents is dropped — a radius is a filter, and the LLM never owns
     a filter value. An MCP that does not know `sort` yet never sees it
@@ -888,8 +913,8 @@ def inject_landmark_radius(tool: Any, args: dict[str, Any], tool_context: Any) -
 
     Reads the anchor the geocode tool already stashed this turn
     (`_STATE_ANCHOR_KEY`, written by `capture_after_tool`'s GEOCODE branch), so
-    it needs no new plumbing and cannot fire on a city search. It deliberately
-    does NOT read `_STATE_DISTANCE_ORIGIN_KEY`, which carries the same `type`
+    it needs no new plumbing. It deliberately does NOT read
+    `_STATE_DISTANCE_ORIGIN_KEY`, which carries the same `type`
     but is only written in the SEARCH branch — i.e. after `search_offers` has
     already run, far too late for a before-tool callback. Reading that one is
     silent no-op territory: everything type-checks and the radius is simply
@@ -902,15 +927,22 @@ def inject_landmark_radius(tool: Any, args: dict[str, Any], tool_context: Any) -
     args.pop("sort", None)
     origin = tool_context.state.get(_STATE_ANCHOR_KEY)
     anchor_type = origin.get("type") if isinstance(origin, dict) else None
+    nearby = bool(tool_context.state.get(_STATE_NEARBY_KEY))
+    a_lat, a_lon = _coord(args.get("lat")), _coord(args.get("lon"))
+    if (a_lat is None or a_lon is None) and isinstance(origin, dict):
+        a_lat, a_lon = _coord(origin.get("latitude")), _coord(origin.get("longitude"))
     if anchor_type == "poi":
-        a_lat, a_lon = _coord(args.get("lat")), _coord(args.get("lon"))
-        if a_lat is None or a_lon is None:
-            a_lat, a_lon = _coord(origin.get("latitude")), _coord(origin.get("longitude"))
         args["radiusKm"] = (
-            site_radius_km(a_lat, a_lon) if a_lat is not None and a_lon is not None
+            site_radius_km(a_lat, a_lon, nearby=nearby) if a_lat is not None and a_lon is not None
             else SITE_RADII_KM[-1]
         )
         args["sort"] = "distance"
+    elif anchor_type == "city_centroid" and a_lat is not None and a_lon is not None:
+        radius = site_radius_km(
+            a_lat, a_lon, rings=CITY_RADII_KM, min_hotels=CITY_MIN_HOTELS, nearby=nearby
+        )
+        if radius != CITY_RADII_KM[0]:
+            args["radiusKm"] = radius
     # Content-free counter (flags only), and the audit's P0-3 ask: which geo tier
     # a turn actually took is otherwise invisible. It is also what caught the
     # first version of this callback reading the wrong state key — it logged
@@ -1089,6 +1121,7 @@ def capture_after_tool(
                     "label": tool_response.get("resolved_place"),
                     "type": tool_response.get("distance_origin_type") or "city_centroid",
                 }
+            tool_context.state[_STATE_NEARBY_KEY] = bool(tool_response.get("nearby"))
         elif isinstance(tool_response, dict) and tool_response.get("error") == "geocode_ambiguous":
             # 2026-08-26: a clarify carries a profile delta too, and it has to be
             # stashed like the ok-path's — otherwise the subject of the question

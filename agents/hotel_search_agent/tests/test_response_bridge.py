@@ -52,6 +52,16 @@ class _RingInventory:
         return int(radius_km * self.per_km)
 
 
+class _CountsInventory:
+    """Exact hotel counts per ring radius (0 for a ring not listed)."""
+
+    def __init__(self, counts):
+        self.counts = counts
+
+    def count_near(self, lat, lon, *, radius_km):
+        return self.counts.get(radius_km, 0)
+
+
 class TestLandmarkRadius:
     """P0-2 fix 4 + mcp-dayuse#7. A landmark anchor and a city anchor used to
     search the same 20 km disc ranked by relevance, so a geocode precise to
@@ -89,12 +99,73 @@ class TestLandmarkRadius:
         inject_landmark_radius(_Tool("search_offers"), args, self._ctx({"type": "poi"}))
         assert args["radiusKm"] == 50.0
 
-    def test_a_city_anchor_leaves_mcp_its_own_default(self):
+    def test_a_city_anchor_leaves_mcp_its_own_default(self, monkeypatch):
         # Absent keys, NOT an explicit 20 / relevance — MCP owns the city default.
+        self._inventory(monkeypatch, per_km=1)  # 20 hotels within 20 km
         args = {"lat": 48.85, "lon": 2.35}
-        inject_landmark_radius(_Tool("search_offers"), args, self._ctx({"type": "city"}))
+        inject_landmark_radius(_Tool("search_offers"), args, self._ctx({"type": "city_centroid"}))
         assert "radiusKm" not in args
         assert "sort" not in args
+
+    def _counts(self, monkeypatch, counts):
+        monkeypatch.setattr(
+            "hotel_search_agent.response_bridge.get_inventory", lambda: _CountsInventory(counts)
+        )
+
+    def _city(self, monkeypatch, counts, *, nearby=False):
+        self._counts(monkeypatch, counts)
+        ctx = self._ctx({"type": "city_centroid"})
+        ctx.state["temp:hotel_search_nearby"] = nearby
+        args = {"lat": 29.305554, "lon": -94.793248}
+        inject_landmark_radius(_Tool("search_offers"), args, ctx)
+        return args
+
+    def test_seven_hotels_within_20_km_keep_the_city_default(self, monkeypatch):
+        assert "radiusKm" not in self._city(monkeypatch, {20.0: 7})
+
+    def test_a_thin_city_widens_to_the_first_ring_holding_seven(self, monkeypatch):
+        args = self._city(monkeypatch, {20.0: 6, 30.0: 7})
+        assert args["radiusKm"] == 30.0
+        assert "sort" not in args  # relevance order stays MCP's, as on the site
+
+    def test_galveston_gets_the_widest_city_ring(self, monkeypatch):
+        """Prod session 8a6576a4: the snapshot's counts around Galveston. The
+        20 km default held no hotel, so every search came back empty."""
+        args = self._city(monkeypatch, {20.0: 0, 30.0: 1, 50.0: 10})
+        assert args["radiusKm"] == 50.0
+
+    def test_a_city_never_widens_past_50_km_on_its_own(self, monkeypatch):
+        assert self._city(monkeypatch, {})["radiusKm"] == 50.0
+
+    def test_a_nearby_area_takes_a_dense_city_one_ring_further(self, monkeypatch):
+        assert self._city(monkeypatch, {20.0: 7}, nearby=True)["radiusKm"] == 30.0
+
+    def test_a_nearby_area_goes_past_the_widest_city_ring(self, monkeypatch):
+        assert self._city(monkeypatch, {}, nearby=True)["radiusKm"] == 100.0
+
+    def test_a_nearby_area_takes_a_poi_one_ring_further(self, monkeypatch):
+        self._inventory(monkeypatch, per_km=10)  # 2 km ring
+        ctx = self._ctx({"type": "poi"})
+        ctx.state["temp:hotel_search_nearby"] = True
+        args = {"lat": 48.8698, "lon": 2.3078}
+        inject_landmark_radius(_Tool("search_offers"), args, ctx)
+        assert args["radiusKm"] == 5.0
+
+    @pytest.mark.parametrize(("nearby", "radius"), [(True, 100.0), (False, 50.0)])
+    def test_the_geocode_result_carries_the_nearby_ask_to_the_search(self, monkeypatch, nearby, radius):
+        """The chain the chip runs: `capture_after_tool` reads the geocode
+        result's `nearby` mark, then the search ring is one step wider."""
+        self._counts(monkeypatch, {20.0: 0, 30.0: 1, 50.0: 10})
+        ctx = _Ctx()
+        resp = {"ok": True, "latitude": 29.305554, "longitude": -94.793248,
+                "resolved_place": "Galveston, Texas, United States",
+                "distance_origin_type": "city_centroid", "profile_delta": {}}
+        if nearby:
+            resp["nearby"] = True
+        capture_after_tool(_Tool("geocode_location"), {}, ctx, resp)
+        args = {"lat": 29.305554, "lon": -94.793248}
+        inject_landmark_radius(_Tool("search_offers"), args, ctx)
+        assert args["radiusKm"] == radius
 
     def test_a_gps_anchor_is_deliberately_not_tightened(self):
         args = {"lat": 48.85, "lon": 2.35}
@@ -106,10 +177,11 @@ class TestLandmarkRadius:
         inject_landmark_radius(_Tool("search_offers"), args, self._ctx(None))
         assert "radiusKm" not in args
 
-    def test_a_radius_or_order_the_model_invented_is_dropped(self):
+    def test_a_radius_or_order_the_model_invented_is_dropped(self, monkeypatch):
         # Doctrine: a radius is a filter, and the LLM never owns a filter value.
+        self._inventory(monkeypatch, per_km=1)
         args = {"lat": 48.85, "lon": 2.35, "radiusKm": 200, "sort": "distance"}
-        inject_landmark_radius(_Tool("search_offers"), args, self._ctx({"type": "city"}))
+        inject_landmark_radius(_Tool("search_offers"), args, self._ctx({"type": "city_centroid"}))
         assert "radiusKm" not in args
         assert "sort" not in args
 

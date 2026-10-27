@@ -1758,6 +1758,21 @@ def _valid_intent(intent: object) -> tuple[GeoIntent, bool, int]:
     return GeoIntent(), False, 0
 
 
+def asks_nearby(intent: object) -> bool:
+    """« Try a nearby area » (prod session 8a6576a4, 2026-10-27): the request
+    names no new place and asks to search around the earlier destination.
+    `geocode_location` marks its result `nearby`, and the code, not the model,
+    turns it into a wider ring (`inject_landmark_radius`)."""
+    geo, _, _ = _valid_intent(intent)
+    return geo.relation == "near" and not geo.places and geo.city is None
+
+
+def _marked_nearby(result: dict, nearby: bool) -> dict:
+    if nearby and result.get("ok"):
+        result["nearby"] = True
+    return result
+
+
 def _verified_city(
     ref: Place | CityRef,
     claims: _Claims,
@@ -1980,9 +1995,10 @@ def geocode_location(
         "proximity_lat": proximity_lat,
         "proximity_lon": proximity_lon,
     }
+    nearby = asks_nearby(geo)
     result = geocode_core(**args, **context)
     if not _refused(result):
-        return result
+        return _marked_nearby(result, nearby)
     # 2026-10-27: the echo guard refused what came back, or nothing came back.
     # ONE more lookup, with another form of the same request, before giving
     # up: without what the earlier turns carried in (prod: « Alpes-Maritimes,
@@ -2001,7 +2017,7 @@ def geocode_location(
         if second.get("ok") and first_guards:
             second["guards_fired"] = sorted(set(first_guards) | set(second.get("guards_fired") or []))
         if not _refused(second):
-            return second
+            return _marked_nearby(second, nearby)
         result = second
     # Still nothing the user named: say so and ask, never "search unavailable".
     subject = _subject(own, args)

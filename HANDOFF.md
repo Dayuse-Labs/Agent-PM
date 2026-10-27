@@ -6,6 +6,48 @@
 
 > 📋 **Pour savoir QUOI faire ensuite, ouvrir [`CHANTIERS.md`](CHANTIERS.md)** (état vérifié au 2026-09-14) : la liste des chantiers ouverts, chacun avec sa preuve, ses actions et un prompt prêt à coller — plus la liste de ce qu'il ne faut **pas** relancer parce que c'est déjà livré. `tasks/todo.md` est périmé et ne doit plus servir de référence.
 
+## 📏 2026-10-27 (quinquies) — Rayon des villes clairsemées + « try a nearby area » (branche `fix/city-radius-sparse-20261027`)
+
+**Constat** (session prod `8a6576a4-0781-4990-bc8b-5a94bca766e0`, release `cb361c0`, lue par l'API
+REST Langfuse : le serveur MCP Langfuse répondait 401) :
+- « 11pm check out », puis Galveston (TX) le 7 novembre : 5 recherches à 0 résultat, dont une sans
+  aucun filtre (« remove a filter »). Le site montre 3 hôtels à 21,5, 33 et 40 km.
+- Cause : une ville n'envoyait jamais `radiusKm`, donc défaut MCP de 20 km. Le snapshot d'inventaire
+  compte 0 hôtel à 20 km du centroïde de Galveston, 1 à 30 km, 10 à 50 km. Le site élargit jusqu'à
+  50 km (`SearchHotelQueryProcessor::processConcentricNumberOfHotels`,
+  `HotelElasticSearchService::processSearchQueryToCompleteSearchPage`).
+- « try a nearby area » (2 fois) relançait la même recherche, même point, même rayon.
+
+**Fait** :
+- `inject_landmark_radius` : une ancre `city_centroid` garde le défaut MCP (clé absente) si le
+  snapshot compte au moins 7 hôtels à 20 km (seuil fixé par Fabien) ; sinon le premier anneau à
+  7 hôtels parmi 30 et 50 km, 50 km au plus. Jamais de rétrécissement, ordre de pertinence inchangé.
+  Snapshot réel : Galveston → 50 km ; Houston et Paris → défaut.
+- « Try a nearby area » : `geocode_tool.asks_nearby` (intent sans nouveau lieu, `relation: "near"`)
+  marque le résultat du geocode `nearby: true`, `capture_after_tool` le range dans
+  `temp:hotel_search_nearby`, et le rayon passe un anneau plus loin (ville 20 → 30 → 50 → 100 km ;
+  POI de même dans les anneaux du site ; 100 km après le dernier).
+- Preuve MCP en direct (lecture seule, arguments du tour 4 de prod + `radiusKm`) : à 50 km avec
+  `endHour 23` / `contain`, 4 hôtels (3 à Alvin en 17-23h, Hotel Bliss Kemah en 18-23h) ; à 100 km, 30.
+- pytest 3 257 passés / 1 skippé ; ruff, mypy, guardrails OK. Contrôle négatif : 17 des nouveaux
+  tests échouent sur le code de `main`.
+
+**Pièges** :
+- Le site cache des créneaux derrière la flèche du carrousel : ne pas conclure « aucune offre jusqu'à
+  23 h » depuis une capture (Hotel Bliss Kemah a un 18-23h invisible). Sonder `search_offers`.
+- `search_offers` répond `results` ; le `hotels` des traces Langfuse est la charge compacte de la
+  feuille.
+- Le Python système n'a pas de certificats : `urllib` échoue en TLS vers Langfuse, `httpx` passe.
+
+**Trouvé, non corrigé** (`CHANTIERS.md` G13) : le MCP déployé connaît `sortBy`, pas `sort`
+(`additionalProperties: false`). `schema_guard` jette donc le `sort="distance"` d'
+`inject_landmark_radius` sur chaque recherche de lieu précis : MCP classe par pertinence, seules les
+5 cartes gardées sont retriées par distance. Le modèle pose lui-même `sortBy` et `timeSlotMode`
+(tour 6 de la session).
+
+**Reste** : revue et merge de la PR, déploiement de `hotel-search` seul (`DEPLOY.md`), puis rejouer
+la session (Galveston, 7 novembre, 11pm).
+
 ## ⚖️ 2026-10-27 (quater) — Les 3 juges Langfuse passés sur gpt-6-luna : plus aucun appel gpt-4o-mini
 
 **Fait** (UI, par Fabien, 14:08-14:15Z ; vérifié par Claude via l'API) :
