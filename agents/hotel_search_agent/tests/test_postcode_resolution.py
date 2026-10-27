@@ -424,14 +424,18 @@ class TestNear11580:
 
     def test_a_landmark_with_its_postal_code_is_searched_in_the_postcodes_city(self, mapbox):
         # A landmark with its postcode goes on to the usual path, in the
-        # postcode's city; no later lookup is scoped to a country.
+        # postcode's city. The postcode lookup itself is never scoped; the
+        # next one is scoped to the postcode's country (2026-10-27: a scope
+        # against the IP bias, retried worldwide when nothing echoes — only a
+        # NAMED country is a filter).
         message = "un hôtel près de l'Opéra Garnier 75009"
 
         geocode_core(zone="Palais Garnier", zone_kind="landmark", postal_code="75009",
                      raw_user_message=message)
 
         assert mapbox.queries[:2] == [("75009", "postcode"), ("Palais Garnier, Paris", CANDIDATE_TYPES)]
-        assert all("country" not in r for r in mapbox.requests)
+        assert "country" not in mapbox.requests[0]
+        assert mapbox.requests[1]["country"] == "fr"
 
 
 # --- the city question ------------------------------------------------------------
@@ -464,7 +468,9 @@ class TestTheCityQuestion:
         )
 
         assert "geocode_city_needed" not in statuses
-        assert "clarification" not in result
+        # No city question. (The fake Search Box finds nothing, so the turn
+        # ends on the `unresolved` question, 2026-10-27 — never `city_needed`.)
+        assert result.get("clarification", {}).get("kind") != "city_needed"
         assert mapbox.queries[0] == ("75009", "postcode")
         assert box.calls[0][0] == "Palais Garnier, Paris"
 

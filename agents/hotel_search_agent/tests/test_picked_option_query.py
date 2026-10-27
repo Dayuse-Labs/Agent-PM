@@ -154,15 +154,19 @@ class TestTheManhattanAnswer:
 
     def test_without_the_pick_the_reply_still_names_the_state(self, recorded):
         # Negative control: no `region_anchor`, so nothing was picked. The
-        # state written in the message feeds the query exactly as before Q21,
-        # and the turn ends where H3 measured it.
+        # state written in the message feeds the query exactly as before Q21.
+        # H3 measured this turn ending on New York City, refused by the echo
+        # guard. Since 2026-10-27 the candidates the echo guard would refuse
+        # are not ranked at all: among the ones that echo « Manhattan », the
+        # resolver keeps the New York one — still one lookup, no Search Box.
         profile = {key: value for key, value in PICKED.items() if key != "region_anchor"}
 
         result = _answer_turn(profile)
 
         assert [r["q"] for r in recorded.requests] == ["Manhattan, New York"]
-        assert result["error"] == "geocode_echo_mismatch"
-        assert result["diagnostics"]["resolved_place"] == NEW_YORK_CITY
+        assert result["ok"] is True
+        assert result["resolved_place"] == MANHATTAN_NY
+        assert result["resolved_place"] != NEW_YORK_CITY
 
 
 # --- the street branch holds the state ------------------------------------------

@@ -915,7 +915,10 @@ class TestNamedRegionInTheCore:
         geocode_core(city="Perth", region_named="WA", country_guess="AU",
                      raw_user_message="hotel in Perth WA")
 
-        assert v6.calls[0] == ("Perth", None)
+        # No state term in the query. The lookup is scoped to the guessed
+        # country first (2026-10-27), then retried worldwide since the fake
+        # finds nothing there.
+        assert v6.calls[:2] == [("Perth", "AU"), ("Perth", None)]
 
 
 # --- Q14: the city the user wrote beats the place's inferred city ----------------

@@ -358,3 +358,24 @@ class TestThroughTheSpine:
 
         assert _run_turn(runner, session.id, "près de la gare") == "Dans quelle ville ?"
         assert len(llm.calls) == 2
+
+
+class TestTheUnresolvedPlace:
+    """2026-10-27: the leaf could not place what the user named (Galveston,
+    Ojai): a question by template in the conversation's language, reworded
+    once, then dropped like the other place questions."""
+
+    UNRESOLVED = Clarification(kind="unresolved", subject="Galveston")
+
+    @pytest.mark.parametrize("language", ["fr", "en", "es", "it", "de", "pt", "nl"])
+    def test_every_language_names_the_place_and_asks(self, language):
+        first = templates.clarification_response(self.UNRESOLVED, language, 1)
+        again = templates.clarification_response(self.UNRESOLVED, language, 2)
+        assert "Galveston" in first and "Galveston" in again
+        assert first != again
+        assert first.rstrip().endswith("?")
+
+    def test_it_never_reads_like_an_outage(self):
+        text = templates.clarification_response(self.UNRESOLVED, "en", 1)
+        assert text != templates.leaf_degraded_response("search", "en")
+        assert "reach" not in text and "try again" not in text

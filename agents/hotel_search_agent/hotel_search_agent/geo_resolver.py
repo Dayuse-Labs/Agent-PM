@@ -264,6 +264,30 @@ def city_needed_question(zone: str, language: str | None = None) -> str:
     return template.format(label=label)
 
 
+_UNRESOLVED: dict[str, str] = {
+    "fr": "Je n'ai pas réussi à situer « {label} ». Vous pouvez préciser la ville ou le pays ?",
+    "en": 'I couldn\'t place "{label}". Could you tell me the city or the country?',
+    "es": 'No he conseguido ubicar "{label}". ¿Puedes indicarme la ciudad o el país?',
+    "it": 'Non sono riuscito a localizzare "{label}". Puoi indicarmi la città o il paese?',
+    "de": "Ich konnte „{label}“ nicht finden. Kannst du mir die Stadt oder das Land nennen?",
+    "pt": 'Não consegui localizar "{label}". Pode indicar a cidade ou o país?',
+    "nl": 'Ik kon "{label}" niet plaatsen. Kun je de stad of het land noemen?',
+}
+
+
+def unresolved_question(place: str, language: str | None = None) -> str:
+    """Say the place could not be placed, and ask for its city or country.
+
+    2026-10-27, prod traces (Galveston, Ojai, Cuneo, Salzburg): the geocoder
+    answered, but with a fuzzy namesake the echo guard rightly refused, and the
+    turn then read as a search outage. Option-less for the reason
+    `city_needed_question` gives: every candidate left is one the echo guard
+    has just refused. Same 7 languages, same template-only rendering."""
+    label = (place or "").strip()
+    template = _UNRESOLVED.get(language or "", _UNRESOLVED["en"])
+    return template.format(label=label)
+
+
 #: Landmark (tier-2 / Search Box) feature-type prior. Deliberately NOT
 #: `_TYPE_PRIOR`: the priors genuinely INVERT between the two questions. For a
 #: city query a `place` is the best possible answer, so it scores highest up

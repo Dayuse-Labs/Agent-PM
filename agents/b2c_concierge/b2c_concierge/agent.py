@@ -2079,7 +2079,7 @@ class _B2cConcierge(BaseAgent):
             clarification_reason: ClarificationReason
             if gave_up:
                 clarification_reason = "none"
-            elif leaf_question.kind == "city_needed":
+            elif leaf_question.kind in ("city_needed", "unresolved"):
                 clarification_reason = "location"
             else:
                 clarification_reason = "homonym"
