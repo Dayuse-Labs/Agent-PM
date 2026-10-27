@@ -6,6 +6,24 @@
 
 > 📋 **Pour savoir QUOI faire ensuite, ouvrir [`CHANTIERS.md`](CHANTIERS.md)** (état vérifié au 2026-09-14) : la liste des chantiers ouverts, chacun avec sa preuve, ses actions et un prompt prêt à coller — plus la liste de ce qu'il ne faut **pas** relancer parce que c'est déjà livré. `tasks/todo.md` est périmé et ne doit plus servir de référence.
 
+## 🚀 2026-10-27 (octies) — `hotel-search` déployé sur `a407144` (#164)
+
+**Déployé** (`DEPLOY.md`, par Claude à la demande de Fabien) : pré-vol sur `a407144`, pytest
+3 324 passés / 1 skippé ; estampille `2c7dd2a` → `a407144` posée avec `--skip-deploys` ;
+`hotel-search` SUCCESS à 16:50:14Z. `concierge` (`2c7dd2a`), `widget` (`cb361c0`) et `faq`
+(`8d1579b`) inchangés : seul le code de la feuille a changé.
+
+**Preuve** (widget, synthétique, session `synthetic-deploy-widen-4641f0a9`) : les spans de la
+feuille portent `a407144`. Paris avec piscine intérieure + spa < 300 € → page pleine ;
+« élargir la zone » tapé → `search_offers` avec `radiusKm: 30` sans `sortBy` (pertinence), et
+Océania Roissy CDG à 25,3 km entre dans les 5 hôtels (avant : les 5 plus centraux, 0,9 à 2,1 km).
+
+**Trouvé, non corrigé (concierge, antérieur)** : au même tour, le triage a expiré (OpenAI, 5 s,
+une seule tentative) ; dans le repli par regex, la langue est sortie `en` pour « élargir la
+zone » alors que la session est en français (locale `fr`, T0 trié `fr`) : la réponse est partie
+en anglais. Le repli devrait garder la langue de la session (`profile.language`, puis la locale)
+avant de deviner sur le message.
+
 ## ↔️ 2026-10-27 (septies) — « Élargir la zone » : le tri au plus proche seulement en secours (branche `fix/widen-sort-after-full-page`)
 
 **Constat** (rejeu en démo du bloc sexies) : « élargir la zone » après une page PLEINE à Paris
@@ -25,7 +43,7 @@ de MCP reste.
 - pytest 3 324 passés / 1 skippé ; ruff, mypy, guardrails OK. Sur le code de `main`, le test
   « ville dense après une page pleine » échoue.
 
-**Reste** : merge, puis déploiement de `hotel-search` seul (`DEPLOY.md`).
+**Reste** : mergé (#164) et déployé, voir le bloc octies.
 
 ## 🚀 2026-10-27 (sexies) — `hotel-search` et `concierge` déployés sur `2c7dd2a` (#162)
 
