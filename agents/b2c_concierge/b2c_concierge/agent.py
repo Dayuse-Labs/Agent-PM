@@ -182,6 +182,7 @@ from .profile import (
     select_hotel_by_position,
     without_final_question,
 )
+from .place_check import names_a_place
 from .profile_store import get_profile_store
 from .requested_date import date_served_notice, expected_search_date, mentions_a_date, reference_today
 from .no_offers import drop_restated, no_offers_line
@@ -397,6 +398,15 @@ def _attach_outgoing_datapart(
     # the earlier request and the reply as one message.
     prefix = [genai_types.Part(text=context_text)] if context_text else []
     last_event.content.parts = [*prefix, *(last_event.content.parts or []), encode_datapart(payload)]
+
+
+def _knows_a_place(profile: SessionProfile) -> bool:
+    """A place the session already holds — named by the user, picked from a
+    question, or the device's position. The market is not one."""
+    return bool(
+        profile.city or profile.zone or profile.metro or profile.region_anchor
+        or profile.named_hotel or profile.search_anchor
+    )
 
 
 def _leaf_clarification(raw: Any) -> Clarification | None:
@@ -1816,9 +1826,20 @@ class _B2cConcierge(BaseAgent):
                     and not mentions_a_date(message, today)
                     and await store.exists(ctx.session.id) is not None
                 ):
-                    question = templates.date_question(reply_language)
+                    # Prod 7e296e4b (2026-10-27): a request that names no place
+                    # either is asked both at once. The check reads the request
+                    # the reply will hand the leaf; a known place skips it.
+                    request = (next_pending_search(earlier, message, False, None) or {}).get("request")
+                    asks_place = not _knows_a_place(profile) and (
+                        await names_a_place(request or message, budget, inv) is False
+                    )
+                    if asks_place:
+                        question = templates.date_place_question(reply_language)
+                        profile.last_suggestions = None
+                    else:
+                        question = templates.date_question(reply_language)
+                        profile.last_suggestions = templates.date_chips(reply_language)
                     profile.last_clarifying_question = question
-                    profile.last_suggestions = templates.date_chips(reply_language)
                     # The request is kept for the reply (EARLIER REQUEST), and
                     # the question counts as one ask of the free-question streak.
                     profile.pending_search = {
@@ -1827,10 +1848,13 @@ class _B2cConcierge(BaseAgent):
                     }
                     await store.set(ctx.session.id, profile)
                     # Amplitude (AM1): the contract agreed with the analytics team
-                    # has no "date" reason yet — "other" until it does.
+                    # has no "date" reason yet — "other" until it does; the
+                    # question that also asks the place is a "location" one.
                     self._emit_turn_metric(
-                        family, "template:date_question", budget, t_start, "ok", inv,
-                        clarification="other",
+                        family,
+                        "template:date_place_question" if asks_place else "template:date_question",
+                        budget, t_start, "ok", inv,
+                        clarification="location" if asks_place else "other",
                     )
                     yield self._final(ctx, question)
                     return

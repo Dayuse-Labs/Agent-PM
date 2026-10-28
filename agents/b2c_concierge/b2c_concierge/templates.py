@@ -735,8 +735,26 @@ _DATE_CHIPS: dict[str, tuple[str, str, str]] = {
 }
 
 
+# Prod session 7e296e4b (2026-10-27): the same question when the request names
+# no place either (`place_check`) — one turn instead of a day question, then a
+# city question. No chips: a day chip would answer half of it.
+_DATE_PLACE_QUESTION: dict[str, str] = {
+    "fr": "Où et pour quel jour souhaitez-vous réserver ?",
+    "en": "Where and for which day would you like to book?",
+    "es": "¿Dónde y para qué día quieres reservar?",
+    "it": "Dove e per quale giorno vuoi prenotare?",
+    "de": "Wo und für welchen Tag möchtest du buchen?",
+    "pt": "Onde e para que dia pretende reservar?",
+    "nl": "Waar en voor welke dag wil je boeken?",
+}
+
+
 def date_question(language: str) -> str:
     return _pick(language, _DATE_QUESTION)
+
+
+def date_place_question(language: str) -> str:
+    return _pick(language, _DATE_PLACE_QUESTION)
 
 
 def date_chips(language: str) -> list[str]:
