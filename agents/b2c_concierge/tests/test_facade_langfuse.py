@@ -253,6 +253,33 @@ class TestObs4BaggageCarriesOpaqueIdentifiersOnly:
         assert "langfuse.observation.metadata.ttft_ms" in ambient_span.attributes
         assert float(ambient_span.attributes["langfuse.observation.metadata.ttft_ms"]) >= 0
 
+    def test_ttft_is_the_first_progress_frame_not_the_one_after_the_leaf(
+        self, recording, monkeypatch
+    ):
+        """2026-10-28: a second `progress` follows every leaf call (it keeps the
+        widget proxy awake). It is forwarded, but TTFT stays the first frame."""
+        _client, _propagated, ambient_span = recording
+        scored: list[float] = []
+        monkeypatch.setattr(facade, "score_ttft", scored.append)
+
+        async def _drive(session_id, user_id, message):
+            yield ("progress", {})
+            await asyncio.sleep(0.3)  # the leaf
+            yield ("progress", {})
+            yield ("final", _FINAL)
+
+        monkeypatch.setattr(facade, "_drive", _drive)
+
+        async def _consume() -> bytes:
+            response = await facade.chat_stream(_make_request())
+            chunks = [chunk async for chunk in response.body_iterator]
+            return b"".join(c if isinstance(c, bytes) else c.encode() for c in chunks)
+
+        raw = asyncio.run(_consume())
+        assert raw.count(b"event: progress") == 2
+        assert len(scored) == 1 and scored[0] < 300
+        assert float(ambient_span.attributes["langfuse.observation.metadata.ttft_ms"]) < 300
+
 
 class TestFacadeShieldMarksError:
     def test_marks_error_on_the_span_before_it_closes(self, recording, monkeypatch):

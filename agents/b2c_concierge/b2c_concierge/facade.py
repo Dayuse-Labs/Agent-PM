@@ -986,6 +986,7 @@ async def chat_stream(request: Request) -> Response:
         spine_facts: TurnFacts | None = None
         streamed: list[str] = []
         stage = "before_progress"
+        ttft_ms: float | None = None
         drive: AsyncGenerator[tuple[str, Any], None] | None = None
         try:
             # Langfuse audit trace for the turn (no-op without LANGFUSE_* keys):
@@ -1017,9 +1018,12 @@ async def chat_stream(request: Request) -> Response:
                                 stage = kind
                             if kind == "progress":
                                 yield _sse("progress", {"trace_id": trace_id})
-                                ttft_ms = round((time.monotonic() - t_request_start) * 1000, 1)
-                                mark_metadata({"ttft_ms": ttft_ms})
-                                score_ttft(ttft_ms)
+                                # TTFT is the FIRST frame; a later `progress`
+                                # (after the leaf) only keeps the proxy awake.
+                                if ttft_ms is None:
+                                    ttft_ms = round((time.monotonic() - t_request_start) * 1000, 1)
+                                    mark_metadata({"ttft_ms": ttft_ms})
+                                    score_ttft(ttft_ms)
                             elif kind == "hotels":
                                 hotels = data.get("hotels") or None
                                 requires_clarification = bool(data.get("requires_clarification"))

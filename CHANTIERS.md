@@ -46,11 +46,12 @@ l'équipe, dès que tu donnes la copy) → `E2` puis `E1` puis `E4` (la boucle Q
 | **O4** | OBS9 — migration Langfuse v4 | L | O1, O2 · ⏰ **fin janv. 2027** |
 | **O5** | 2 variables d'env sur le service MCP | S | **MCP_B2C** |
 | **O6** | Vignette `degraded` manquante | S | — |
+| **O7** | `leaf_call status=ok` sur une feuille dont le LLM a échoué (ajouté le 2026-10-28) | S | — |
 | **P1→P6** | 6 décisions produit en attente | — | **Fabien** |
 | **A1** | Identité D7 → oidc-mtls ; rotation des bearers semaine du 2026-11-02 | L | repo fleet · ⏰ **2027-01-31** |
 | **A2** | S10 shadow-run / S11 canary | L | accès ES prod |
 | **A3** | `conversation_logs` + `InMemorySessionService` | M | S10/S11 |
-| **G1→G13** | Backlog produit / géo | — | — |
+| **G1→G14** | Backlog produit / géo | — | — |
 | **L** | Compréhension géo — série S-L (ajouté le 2026-10-08) ; `GeoIntent` produit par la feuille (DQ1) : S-L3/S-L4 conditionnelles, S-L7a et S-L7f faites, S-L7d et S-L7e restent | L | MCP déployé (S-L1) |
 | **QA14707** | Retours QA de Raphael du 14/10 : créneau localisé, lieu compris (`GeoIntent` dans la feuille), clarification tenue par le code. Phases 1-3 déployées (`0b65159`) ; phases 4-5 sur `plan/qa14707`. Plan : `plans/qa14707/`, source : `phases/QA14707/` | L | **Fabien** (revue de la seconde PR, H3' live, H4 retest) |
 | **X1→X3** | 3 demandes chez MCP_B2C | — | **MCP_B2C** |
@@ -788,6 +789,16 @@ Le score `degraded` existe et est renseigné (4 occurrences, toutes `leaf_call_f
 aucune vignette ne le suit. **À créer dans l'interface**, jamais via le serveur MCP (il naîtrait
 en `min_version = 2` et casserait les vues « observations » sur notre v3).
 
+## O7 — Une feuille en échec est comptée `leaf_call status=ok` (ajouté le 2026-10-28)
+
+**Taille : S**
+
+Vu en prouvant les budgets des feuilles (HANDOFF 2026-10-28) : le LLM de la feuille expire deux
+fois, la feuille lève `litellm.Timeout`, la tâche A2A échoue… et le concierge écrit
+`concierge_metric=leaf_call leaf=hotel_search ms=32004 status=ok`, puisque le transport A2A a
+réussi. Seul `concierge_metric=turn … status=degraded` (et le score `degraded`) dit la panne.
+Piste : dans `_run_leaf`, compter `status=error` quand la feuille n'a rendu ni texte ni DataPart.
+
 ---
 
 # 4 · Décisions produit en attente (rien n'avance sans toi)
@@ -860,6 +871,7 @@ au redémarrage du process (le profil Redis, lui, survit). À traiter avec S10/S
 | G11 | Cas `lang-confirm-implicit` impassable | `pending_booking.hotel_id = 123` fabriqué → aucun lien possible, plafond 6/7 définitif. Le re-semer avec un vrai id, ou l'acter. |
 | G12 | `booking_url_fallback` illisible | Le proxy jette le corps (`scripts/run_widget_proxy.py:133-135`). ~10 lignes pour logger `event` + `reason` (liste blanche, jamais le payload). |
 | ~~G13~~ | ✅ Fait le 2026-10-27 (branche `fix/city-radius-sparse-20261027`) : `sortBy` envoyé, `sort` / `sortBy` / `starRatings` du modèle jetés | Reste à rafraîchir `contracts/mcp_b2c_tools.json` (humain). |
+| G14 | Plafond de tokens des feuilles (ajouté le 2026-10-28) | Les feuilles n'ont pas de `max_tokens` (`llm_params.max_tokens_for` n'en donne qu'au triage et à la synthèse). La FAQ a écrit 4 970 tokens en 50 s le 2026-10-26 ; son timeout de 20 s le coupe désormais, puis le relance. Mesurer la sortie normale de chaque feuille avant de poser un plafond. |
 
 ---
 
