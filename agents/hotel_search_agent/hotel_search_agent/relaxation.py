@@ -56,6 +56,7 @@ from datetime import date, timedelta
 from typing import Any
 
 from hotel_search_agent.equipment_ids import equipment_ids_for
+from hotel_search_agent.extra_calls import extra_call
 from hotel_search_agent.response_bridge import (
     BUDGET_RAISE_FACTOR,
     NEARBY_RADIUS_KM,
@@ -292,15 +293,6 @@ def _next_day(iso: Any) -> str | None:
         return None
 
 
-async def _run(tool: Any, args: dict[str, Any], tool_context: Any) -> dict[str, Any] | None:
-    try:
-        response = await tool.run_async(args=args, tool_context=tool_context)
-    except Exception:  # noqa: BLE001 — a rescue never breaks the turn
-        return None
-    payload = read_structured_payload(response)
-    return payload if isinstance(payload, dict) else None
-
-
 async def rescue_empty_search_after_tool(
     tool: Any, args: dict[str, Any], tool_context: Any, tool_response: Any
 ) -> None:
@@ -344,7 +336,12 @@ async def rescue_empty_search_after_tool(
         used = upcoming
         sent = {**relaxed_args(args, used, state), "date": day}
         drop_args_outside_schema(tool, sent, tool_context)
-        payload = await _run(tool, sent, tool_context)
+        status, payload = await extra_call(tool, sent, tool_context, kind="rescue")
+        if status != "ok":
+            # R2 (review of #173): an error (a 429 included) is not « empty »:
+            # the ladder stops, and so does the completion (`extra_calls`).
+            _log("error" if status == "error" else "skipped", started, calls, 0)
+            return None
         calls += 1
         if payload is not None and payload.get("results"):
             found = payload

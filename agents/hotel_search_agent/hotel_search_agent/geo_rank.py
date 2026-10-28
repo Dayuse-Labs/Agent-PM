@@ -52,6 +52,7 @@ import os
 import time
 from typing import Any
 
+from hotel_search_agent.extra_calls import may_call, record_outcome, remaining_seconds
 from hotel_search_agent.inventory import haversine_km
 from hotel_search_agent.response_bridge import (
     STATE_NEARBY_KEY,
@@ -181,6 +182,8 @@ def start_local_pool(tool: Any, args: dict[str, Any], tool_context: Any) -> None
     if local_km >= radius:
         _log("skip_sparse", None, local_km)
         return None  # the whole disc is local: its own page says it all
+    if not may_call(tool_context):
+        return None  # R2: after an extra call failed, or past the deadline
     try:
         loop = asyncio.get_running_loop()
     except RuntimeError:
@@ -211,9 +214,18 @@ async def await_local_pool(
     if failed:
         task.cancel()
         return None
+    # R2 (review of #173): the wait never runs past the extra calls' deadline.
+    wait = min(POOL_WAIT_SECONDS, max(0.0, remaining_seconds(tool_context)))
     try:
-        local = await asyncio.wait_for(task, timeout=POOL_WAIT_SECONDS)
-    except Exception:  # noqa: BLE001 — a second page never breaks the turn
+        local = await asyncio.wait_for(task, timeout=wait)
+    except asyncio.TimeoutError:
+        _log("timeout", started, None)
+        return None
+    except Exception as exc:  # noqa: BLE001 — a second page never breaks the turn
+        record_outcome(tool_context, None, exc)
+        _log("error", started, None)
+        return None
+    if record_outcome(tool_context, local):
         _log("error", started, None)
         return None
     payload = read_structured_payload(local)

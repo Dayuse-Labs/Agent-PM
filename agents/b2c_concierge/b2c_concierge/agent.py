@@ -226,7 +226,12 @@ if not metrics_logger.handlers:
 # stuck call and its relaunch, both at T, plus the leaf's tools:
 # - search: T = 15 s, Mapbox 1.5 s + 1 retry, MCP 5 s: 30 + 3 + 5 = 38 s; the
 #   other LLM call (geocode_location, then search_offers) takes the rest at its
-#   healthy p95 (5 s) -> 45 s.
+#   healthy p95 (5 s) -> 45 s. The leaf's EXTRA searches (next-day probe,
+#   zero-result rescue, completion, local page of the proximity ranking —
+#   `hotel_search_agent.extra_calls`) start only within 20 s of the leaf
+#   turn's start and stop on the first error: the last ends by ~25 s (MCP
+#   5 s), the local page's 2 s wait is cut to what remains, and a turn whose
+#   model calls hung (the 38 s case) gets none — they never push it past 45 s.
 # - FAQ: T = 20 s (the answer reads a large document; healthy p99 16.3 s), MCP
 #   5 s: 40 + 5 = 45 s.
 # A hang DURING a slow episode (3 slow calls in a row) is still cut by this

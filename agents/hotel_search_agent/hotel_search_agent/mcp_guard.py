@@ -128,6 +128,11 @@ def _is_tool_failure(tool_response: Any) -> bool:
     return tool_response.get("ok") is False
 
 
+#: Public name: the extra calls made from callbacks (`extra_calls`) feed the
+#: breaker with the same rule.
+is_tool_failure = _is_tool_failure
+
+
 def mcp_circuit_before_tool(tool: Any, args: dict, tool_context: Any) -> dict | None:
     """before_tool_callback: refuse the call instantly while the breaker is open."""
     if tool.name not in MCP_TOOL_NAMES:

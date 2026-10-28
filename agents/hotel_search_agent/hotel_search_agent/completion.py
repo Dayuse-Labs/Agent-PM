@@ -27,6 +27,7 @@ import time
 from typing import Any
 
 from hotel_search_agent.equipment_ids import equipment_ids_for
+from hotel_search_agent.extra_calls import extra_call
 from hotel_search_agent.response_bridge import (
     MAX_RESULTS,
     NEARBY_RADIUS_KM,
@@ -101,12 +102,12 @@ async def complete_thin_search_after_tool(
         completion_args.pop("hotelEquipmentIds", None)
     drop_args_outside_schema(tool, completion_args, tool_context)
     started = time.monotonic()
-    try:
-        response = await tool.run_async(args=completion_args, tool_context=tool_context)
-    except Exception:  # noqa: BLE001 — a completion never breaks the turn
-        _log("error", started, len(results), 0)
+    # R2 (review of #173): never after an extra call failed, nor past the
+    # deadline (`extra_calls`); its own error stops the turn's extra calls.
+    status, payload = await extra_call(tool, completion_args, tool_context, kind="completion")
+    if status != "ok":
+        _log("error" if status == "error" else "skipped", started, len(results), 0)
         return None
-    payload = read_structured_payload(response)
     found = payload.get("results") if isinstance(payload, dict) else None
     if not found:
         _log("empty", started, len(results), 0)

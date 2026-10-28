@@ -54,3 +54,19 @@ def _search_date_already_settled(request, monkeypatch):
         return profile
 
     monkeypatch.setattr(ProfileStore, "get", get)
+
+
+@pytest.fixture(autouse=True)
+def _closed_mcp_breaker():
+    """The search leaf's MCP circuit breaker is a process-wide singleton
+    (`mcp_guard.breaker`). Since R2 (review of #173) the extra calls made from
+    callbacks feed it too: a test driving a failing fake MCP must not leave it
+    open for the next one."""
+    try:
+        from hotel_search_agent import mcp_guard
+    except ImportError:  # a suite run without the leaf on the path
+        yield
+        return
+    mcp_guard.breaker.reset()
+    yield
+    mcp_guard.breaker.reset()

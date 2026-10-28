@@ -218,6 +218,8 @@ STATE_NEXT_DAY_PROBED_KEY = "temp:hotel_search_next_day_probed"
 # 3 and see how much is unaccounted for (A2A/ADK overhead, MCP session setup)
 # instead of just the phases that happen to call a tool or the model.
 _STATE_TURN_T0_KEY = "temp:hotel_search_turn_t0"
+#: Public name of the turn start, for the extra calls' deadline (`extra_calls`).
+STATE_TURN_T0_KEY = _STATE_TURN_T0_KEY
 # S-G10 (D3): the geocode clarify question of THIS turn — emitted as a
 # deterministic `requires_clarification` DataPart flag so the orchestrator's
 # facade can report the clarification honestly (it used to be hardcoded False).

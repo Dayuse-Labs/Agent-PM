@@ -515,15 +515,19 @@ async def probe_next_day_after_tool(
 
     probe_args = {k: v for k, v in args.items() if k != "from"}
     probe_args["date"] = offered
+    started = time.monotonic()
+    # R2 (review of #173): through `extra_calls` — an error stops every extra
+    # call of the turn and reaches the breaker; none starts past the deadline.
+    from hotel_search_agent.extra_calls import extra_call
+
+    status, payload = await extra_call(tool, probe_args, tool_context, kind="next_day_probe")
+    if status == "skipped":
+        return None
     # One MCP call spent on this dead end: the rescue (`relaxation.py`) counts it.
     tool_context.state[STATE_NEXT_DAY_PROBED_KEY] = True
-    started = time.monotonic()
-    try:
-        probe_response = await tool.run_async(args=probe_args, tool_context=tool_context)
-    except Exception:  # noqa: BLE001 — a rescue probe never breaks the turn
+    if status == "error":
         _log_probe("error", started, found=0)
         return None
-    payload = read_structured_payload(probe_response)
     found = payload.get("results") if isinstance(payload, dict) else None
     if not found:
         _log_probe("empty", started, found=0)
