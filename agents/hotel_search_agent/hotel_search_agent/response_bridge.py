@@ -51,7 +51,13 @@ from google.adk.models.llm_response import LlmResponse
 from google.genai import types as genai_types
 from pydantic import ValidationError
 
-from b2c_common import build_hotel_page_url, display_price_euro, hotel_currency_price, with_checkin_date
+from b2c_common import (
+    build_hotel_page_url,
+    display_price_euro,
+    hotel_currency_price,
+    site_host,
+    with_checkin_date,
+)
 from b2c_common.clarification import Clarification
 from b2c_common.offer_facts import selected_offer_facts
 from b2c_common.party_discovery import discovery_total, possible_party
@@ -346,6 +352,15 @@ def read_profile_in(tool_context: Any) -> dict[str, Any]:
     return {}
 
 
+def _site_host(profile_in: dict[str, Any]) -> str | None:
+    """The host every link of this turn goes to: the user's site, in the
+    language the conversation is in (`b2c_common.site_host`). A French user
+    asking for Berlin lands on dayuse.fr, not on dayuse.de in German."""
+    return site_host(
+        profile_in.get("language") or profile_in.get("locale"), profile_in.get("entry_market_country")
+    )
+
+
 def read_query_params(tool_context: Any) -> dict[str, Any]:
     """The inbound `query_params` dict (the concierge's code-owned flags for
     this turn), {} when missing — same envelope as `read_profile_in`."""
@@ -619,7 +634,7 @@ def _photo_url(main_photo_normal: Any) -> str | None:
 
 
 def normalize_hotel(
-    hotel: dict[str, Any], exact_window: Window | None = None
+    hotel: dict[str, Any], exact_window: Window | None = None, *, host: str | None = None
 ) -> dict[str, Any]:
     """One compact hotel card from an MCP_B2C hotel dict (camelCase). Only the
     fields a booking decision / a card needs — never an invented booking link,
@@ -681,12 +696,13 @@ def normalize_hotel(
     if country_code:
         card["country_code"] = country_code
     # S-G12: the hotel-page link, built ONLY from the server's own ES `slug`
-    # (sent per hotel, probed live 2026-07-23) + the destination market table
-    # (b2c_common) — never slugified from the display name (the prod defect:
-    # LLM-invented "a-roport"/"eurohotel" slugs on the wrong domain). None →
-    # the card honestly has no link.
+    # (sent per hotel, probed live 2026-07-23) + the market table (b2c_common)
+    # — never slugified from the display name (the prod defect: LLM-invented
+    # "a-roport"/"eurohotel" slugs on the wrong domain), on the user's site
+    # (`host`, `_site_host`). None → the card honestly has no link.
     url = build_hotel_page_url(
-        hotel.get("slug"), hotel.get("countryCode"), hotel.get("countryName") or hotel.get("country")
+        hotel.get("slug"), hotel.get("countryCode"), hotel.get("countryName") or hotel.get("country"),
+        host=host,
     )
     if url:
         card["url"] = url
@@ -776,6 +792,8 @@ def normalize_search_results(
     price_comparison: dict[str, Any] | None = None,
     party_total: int | None = None,
     room_requirements: dict[str, Any] | None = None,
+    *,
+    host: str | None = None,
 ) -> list[dict[str, Any]]:
     """Top-5 compact cards from a tool's structuredContent. Handles the
     `search_offers` envelope (`{"results": [...]}`, confirmed live) and the
@@ -835,7 +853,7 @@ def normalize_search_results(
             )
             if not fits_any:
                 continue
-        hotels.append(normalize_hotel(item, exact_window))
+        hotels.append(normalize_hotel(item, exact_window, host=host))
     if exclude_ids:
         hotels = [h for h in hotels if h.get("hotel_id") not in exclude_ids]
     return hotels[:MAX_RESULTS]
@@ -1043,6 +1061,7 @@ def _with_completion(
     exclude_ids: set[Any] | None,
     strict_window: Any,
     filters: tuple[Any, ...],
+    host: str | None,
 ) -> list[dict[str, Any]]:
     """The first page plus the completion's hotels not already on it, up to
     `MAX_RESULTS`, normalized with the same filters (`completion.py`)."""
@@ -1052,7 +1071,7 @@ def _with_completion(
         return results
     shown = {card.get("hotel_id") for card in results} | set(exclude_ids or ())
     extra = [
-        card for card in normalize_search_results(payload, shown, strict_window, *filters)
+        card for card in normalize_search_results(payload, shown, strict_window, *filters, host=host)
         if card.get("hotel_id") not in shown
     ][: MAX_RESULTS - len(results)]
     if extra:
@@ -1293,12 +1312,13 @@ def capture_after_tool(
     party_total = discovery_total(envelope.get("query_params")) if name == "search_offers" else None
     room_requirements = read_profile_in(tool_context).get("room_requirements") if name == "search_offers" else None
     filters = (requested_budget, price_comparison, party_total, room_requirements)
-    results = normalize_search_results(structured, exclude_ids, strict_window, *filters)
+    host = _site_host(read_profile_in(tool_context))
+    results = normalize_search_results(structured, exclude_ids, strict_window, *filters, host=host)
     timeslot_fallback = False
     if strict_window is not None and not results:
         # The exact-minute filter emptied the set: fall back to the coarser
         # hour-rounded results (never a silent 0) — the outcome text discloses it.
-        fallback_results = normalize_search_results(structured, exclude_ids, None, *filters)
+        fallback_results = normalize_search_results(structured, exclude_ids, None, *filters, host=host)
         if fallback_results:
             results = fallback_results
             timeslot_fallback = True
@@ -1312,9 +1332,9 @@ def capture_after_tool(
         stashed = tool_context.state.get(STATE_DATE_FALLBACK_KEY)
         payload = stashed.get("payload") if isinstance(stashed, dict) else None
         if isinstance(payload, dict):
-            swapped = normalize_search_results(payload, exclude_ids, strict_window, *filters)
+            swapped = normalize_search_results(payload, exclude_ids, strict_window, *filters, host=host)
             if not swapped and strict_window is not None:
-                swapped = normalize_search_results(payload, exclude_ids, None, *filters)
+                swapped = normalize_search_results(payload, exclude_ids, None, *filters, host=host)
                 timeslot_fallback = bool(swapped)
             if swapped:
                 results = swapped
@@ -1325,7 +1345,7 @@ def capture_after_tool(
     first_page = len(results)
     if name == "search_offers" and first_page < MAX_RESULTS:
         window = None if timeslot_fallback else strict_window
-        results = _with_completion(tool_context, results, exclude_ids, window, filters)
+        results = _with_completion(tool_context, results, exclude_ids, window, filters, host)
     if timeslot_fallback:
         tool_context.state[_STATE_TIMESLOT_FALLBACK_KEY] = True
     if name == "search_offers":
@@ -1754,6 +1774,7 @@ def _search_context(
         url = build_search_page_url(
             page["path"], country, name=page["name"], checkin_date=day,
             timeslot_start=sent.get("timeslot_start"), timeslot_end=sent.get("timeslot_end"),
+            host=_site_host(profile_in),
         )
         if url:
             search_page = {"name": page["name"], "url": url}

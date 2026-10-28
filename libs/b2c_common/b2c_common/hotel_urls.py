@@ -11,10 +11,15 @@ because two hand-kept host lists drifted apart.
 
 Market tables ported from the audited prod reference (agent-usa
 `src/application/shared/hotel_urls.py`): the live path is
-`/hotels/<country-path>/<hotel-slug>` on the DESTINATION market's real host
-(a hotel in France links to dayuse.fr whatever the widget origin). An
-unmapped country or a malformed slug yields None — the card honestly has no
-link rather than a guessed one.
+`/hotels/<country-path>/<hotel-slug>`, where the country path is the
+DESTINATION's. The host is the USER's site (`site_host`: the language the
+conversation is in, on the visitor's own market when it speaks it) — every
+Dayuse host serves every hotel, in its own language and currency (probed
+2026-10-28: a Berlin hotel answers 200, no redirect, on all 23 hosts
+`site_host` can return). Before that, a French user asking for Berlin landed
+on dayuse.de in German. The destination's host remains the fallback when the
+language is unknown. An unmapped country or a malformed slug yields None —
+the card honestly has no link rather than a guessed one.
 """
 from __future__ import annotations
 
@@ -23,7 +28,8 @@ import unicodedata
 from datetime import date
 from urllib.parse import parse_qsl, urlencode, urlsplit, urlunsplit
 
-# Destination-market booking host + English country path-slug, keyed by ISO
+# Market host (the site of a visitor from that market, and the link host when
+# the user's language is unknown) + English country path-slug, keyed by ISO
 # alpha-2. Values verified in prod traffic by agent-usa (Amplitude export
 # 2026-07-06): IT is dayuse-hotels.it (dayuse.it is dead), BR is
 # dayuse.net.br (NOT .com.br); US and every other market not listed here
@@ -206,6 +212,33 @@ _LABEL: dict[str, str] = {
     "QA": "Qatar",
 }
 
+# The language each `_MARKET` host speaks: the primary tag of its
+# `defaultLocale` in dayuse-com's `apps/frontend/web/i18n/production.js`
+# (read 2026-10-28 at c5d6f39e3c). Not guessable from the TLD: dayuse.se is
+# en-SE, www.dayuse.com.hk is zh-HK, www.dayuse.be and www.dayuse.ch are fr.
+_SITE_LANGUAGE: dict[str, str] = {
+    "US": "en", "FR": "fr", "GB": "en", "DE": "de", "ES": "es", "IT": "it",
+    "NL": "nl", "BE": "fr", "CH": "fr", "AT": "de", "IE": "en", "SE": "en",
+    "PT": "pt", "SG": "en", "HK": "zh", "AE": "en", "BR": "pt", "AU": "en",
+    "CA": "en", "NZ": "en", "TH": "th", "MY": "en", "KR": "ko", "TR": "tr",
+    "QA": "ar",
+}
+
+# A market's other-language host, same source: a Dutch-speaking Belgian
+# reads nl.dayuse.be, not the French www.dayuse.be.
+_LANGUAGE_HOST: dict[tuple[str, str], str] = {
+    ("BE", "nl"): "nl.dayuse.be",
+    ("CH", "de"): "de.dayuse.ch",
+    ("HK", "en"): "en.dayuse.com.hk",
+}
+
+# The site of a language whose speaker's own market does not speak it (a
+# French message on the en/US default market of a direct visit). One per
+# language the agent replies in.
+_HOME_MARKET: dict[str, str] = {
+    "en": "US", "fr": "FR", "de": "DE", "es": "ES", "it": "IT", "nl": "NL", "pt": "PT",
+}
+
 # The ES slug shape: lowercase ascii words joined by single hyphens. Anything
 # else (spaces, accents, uppercase, path separators) is NOT a slug — refuse
 # rather than "repair" it, repairing is how invented slugs happen.
@@ -253,22 +286,57 @@ def market_referential() -> list[dict[str, str | None]]:
     return rows
 
 
+def site_host(language: object, visitor_country: object) -> str | None:
+    """The Dayuse host whose pages speak `language` ("fr" or "fr-FR"): the
+    visitor's own market when its site speaks it (their currency too), else
+    that market's other-language host, else the language's home site. None
+    for a language none of them speaks — the caller keeps the destination's
+    host."""
+    lang = language.split("-")[0].strip().lower() if isinstance(language, str) else ""
+    country = visitor_country.strip().upper() if isinstance(visitor_country, str) else ""
+    if country in _MARKET and _SITE_LANGUAGE.get(country) == lang:
+        return _MARKET[country][0]
+    if (country, lang) in _LANGUAGE_HOST:
+        return _LANGUAGE_HOST[(country, lang)]
+    home = _HOME_MARKET.get(lang)
+    return _MARKET[home][0] if home else None
+
+
 def build_hotel_page_url(
-    slug: object, country_code: object = None, country_name: object = None
+    slug: object, country_code: object = None, country_name: object = None,
+    *, host: str | None = None,
 ) -> str | None:
-    """`https://<market-host>/hotels/<country-path>/<es-slug>` or None.
+    """`https://<host>/hotels/<country-path>/<es-slug>` or None.
 
     `slug` must be the server-provided ES slug verbatim; the market resolves
-    from `country_code` (ISO alpha-2, wins if ever sent) then `country_name`.
-    None on any missing/unmappable piece — the caller simply omits the field.
+    from `country_code` (ISO alpha-2, wins if ever sent) then `country_name`,
+    and gives the country path. `host` is the user's site (`site_host`);
+    None falls back to the destination market's host. None on any
+    missing/unmappable piece — the caller simply omits the field.
     """
     if not isinstance(slug, str) or not _SLUG_RE.fullmatch(slug):
         return None
     market = _resolve_market(country_code, country_name)
     if market is None:
         return None
-    host, country_path = market
-    return f"https://{host}/hotels/{country_path}/{slug}"
+    market_host, country_path = market
+    return f"https://{host or market_host}/hotels/{country_path}/{slug}"
+
+
+def on_user_site(url: object, host: str | None) -> object:
+    """`url` moved to the user's site (`site_host`) when it is a link on one
+    of our market hosts — MCP's booking tunnel link is on the hotel's market
+    (a French user booking Berlin got www.dayuse.de/tunnel/booking, German;
+    the same query answers 200 in French on www.dayuse.fr, probed
+    2026-10-28: it carries the offer, never a session). Any other URL, or no
+    host, comes back unchanged."""
+    if not isinstance(url, str) or not host:
+        return url
+    parts = urlsplit(url)
+    sites = {h for h, _ in _MARKET.values()} | set(_LANGUAGE_HOST.values())
+    if parts.scheme != "https" or parts.netloc not in sites:
+        return url
+    return urlunsplit(parts._replace(netloc=host))
 
 
 # The hotel page's own date parameter, as the live site uses it

@@ -46,6 +46,8 @@ from b2c_common import (
     display_price_hotel,
     format_minor_amount,
     hotel_currency_price,
+    on_user_site,
+    site_host,
     with_checkin_date,
 )
 from b2c_common.observability import mark_level, observation, trace_context_carrier
@@ -275,13 +277,21 @@ def _iso_currency(value: Any) -> str | None:
 _PHOTO_BASE_URL = "https://static.dayuse.com"
 
 
+def _site_host(profile: SessionProfile) -> str | None:
+    """The user's site, in the language the conversation is in — the same
+    rule as the search leaf's cards (`b2c_common.site_host`)."""
+    return site_host(profile.language or profile.locale, profile.entry_market_country)
+
+
 def _photo_url(main_photo_normal: Any) -> str | None:
     if not isinstance(main_photo_normal, str) or not main_photo_normal.startswith("/"):
         return None
     return f"{_PHOTO_BASE_URL}{main_photo_normal}"
 
 
-def _normalize_hotel_for_display(hotel: dict[str, Any], best_offer: dict[str, Any] | None) -> dict[str, Any]:
+def _normalize_hotel_for_display(
+    hotel: dict[str, Any], best_offer: dict[str, Any] | None, host: str | None = None
+) -> dict[str, Any]:
     normalized: dict[str, Any] = {
         "id": hotel.get("hotelId") or hotel.get("id"),
         "name": hotel.get("name"),
@@ -303,11 +313,13 @@ def _normalize_hotel_for_display(hotel: dict[str, Any], best_offer: dict[str, An
     if currency_code:
         normalized["currency_code"] = currency_code
     # S-G12: hotel-page link from the server's own ES `slug` + market table
-    # (b2c_common, same builder as the search leaf's cards). Defensive: the
-    # get_hotel_details payload shape was not re-probed for `slug` — absent
-    # fields simply mean no link on the card, never a name-slugified guess.
+    # (b2c_common, same builder as the search leaf's cards), on the user's site
+    # (`host`, `_site_host`). Defensive: the get_hotel_details payload shape
+    # was not re-probed for `slug` — absent fields simply mean no link on the
+    # card, never a name-slugified guess.
     url = build_hotel_page_url(
-        hotel.get("slug"), hotel.get("countryCode"), hotel.get("countryName") or hotel.get("country")
+        hotel.get("slug"), hotel.get("countryCode"), hotel.get("countryName") or hotel.get("country"),
+        host=host,
     )
     if url:
         normalized["url"] = url
@@ -429,7 +441,7 @@ async def get_hotel_details(
                     ))
                 else:
                     best = offers[0] if offers else None
-                normalized = _normalize_hotel_for_display(hotel, best)
+                normalized = _normalize_hotel_for_display(hotel, best, _site_host(profile))
                 if shown is None and requested_date and best is None:
                     normalized["requested_offer_unavailable"] = True
                 if available_offers:
@@ -551,7 +563,7 @@ async def compare_hotels(message: str, profile: SessionProfile) -> dict[str, Any
                     return result
                 data = result["data"]
                 hotels = [
-                    _normalize_hotel_for_display(entry, entry.get("bestOffer"))
+                    _normalize_hotel_for_display(entry, entry.get("bestOffer"), _site_host(profile))
                     for entry in data.get("hotels") or []
                 ]
                 return {"ok": True, "hotels": hotels, "best_by": data.get("bestBy") or {}}
@@ -559,7 +571,7 @@ async def compare_hotels(message: str, profile: SessionProfile) -> dict[str, Any
         return {"ok": False, "error": f"compare_hotels failed: {type(exc).__name__}"}
 
 
-async def _confirm_pending_offer(pending: dict[str, Any]) -> dict[str, Any]:
+async def _confirm_pending_offer(pending: dict[str, Any], host: str | None) -> dict[str, Any]:
     """The confirmed=true branch of R9/guard #12: reuses the EXACT offer
     identity stored at the quote step (never re-derives it from the
     confirmation message — a bare "yes" carries no hotel name to resolve)."""
@@ -585,7 +597,7 @@ async def _confirm_pending_offer(pending: dict[str, Any]) -> dict[str, Any]:
                 return {
                     "ok": True,
                     "confirmed": True,
-                    "url": link.get("url"),
+                    "url": on_user_site(link.get("url"), host),
                     "hotel_id": pending.get("hotel_id"),
                     "hotel_name": pending.get("hotel_name"),
                     "date": pending.get("date"),
@@ -990,7 +1002,8 @@ async def _quote_fresh_offer(
                     profile.pending_booking = None
                     link = result["data"].get("link") or {}
                     return {
-                        **identity, "ok": True, "confirmed": True, "url": link.get("url"),
+                        **identity, "ok": True, "confirmed": True,
+                        "url": on_user_site(link.get("url"), _site_host(profile)),
                         "guards_fired": guards_fired,
                     }
                 profile.pending_booking = identity
@@ -1068,10 +1081,11 @@ async def _quote_picked_rate_plans(hotel_id: int, profile: SessionProfile) -> di
                 # A plan whose link failed is DROPPED: a row the user can select
                 # but not book is worse than a row that was never offered.
                 bookable: list[dict[str, Any]] = []
+                host = _site_host(profile)
                 for plan, link_result in zip(plans, links, strict=True):
                     if not link_result["ok"]:
                         continue
-                    url = ((link_result["data"] or {}).get("link") or {}).get("url")
+                    url = on_user_site(((link_result["data"] or {}).get("link") or {}).get("url"), host)
                     if url:
                         bookable.append({**plan, "url": url})
                 selected_bookable = next(
@@ -1183,7 +1197,7 @@ async def _generate_booking_link_impl(
             mark_level("WARNING", status_message="booking_confirmation_mismatch")
         if not mismatch:
             profile.pending_booking = None
-            result = await _confirm_pending_offer(pending)
+            result = await _confirm_pending_offer(pending, _site_host(profile))
             if not result["ok"]:
                 profile.pending_booking = pending  # confirmation failed: keep the offer quotable
             return result
