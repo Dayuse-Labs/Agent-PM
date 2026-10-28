@@ -15,18 +15,20 @@ the user's words.
 1. The rescue (`rescue_empty_search_after_tool`, after-tool). When the first
    page comes back EMPTY from MCP, ONE rescue per turn, at most
    `MAX_RESCUE_CALLS` MCP calls (one less when the next-day probe already spent
-   one), in Victor's order:
-     timeslot  — the slot is dropped: the cards are the closest to it, and say so
-                 (the concierge's `window_fallback`);
+   one), in the order of what each step SAVES (Fabien's replay on MCP prod,
+   2026-10-28, 27 groups of empty searches, one criterion removed at a time:
+   amenity 14/16, radius ×2 11/26, time slot 1/10 — validated by Victor):
      amenities — the amenity filter is dropped, unless the model marked it
                  `amenities_must_have` (then only the optional wishes go);
      radius    — the next ring (50 km, then 100 km), nearest first;
-     next_day  — the day after, when today's window is closing: MCP counts
-                 offers past their cutoff (`totalBeforeCutoff` > `total`).
-   The first call relaxes the first applicable step only; the second either
-   moves to the next day (today is closing) or adds the next step: with two
-   calls, a third step is never reached (« créneau + jacuzzi » before a ring
-   that would bring hotels 56 km out while one without spa is 600 m away).
+     timeslot  — the slot is dropped: the cards are the closest to it, and say so
+                 (the concierge's `window_fallback`).
+   The first call relaxes the first applicable step; the second adds the next
+   one. When the search ran on TODAY and today's window is closing (MCP
+   counts offers past their cutoff: `totalBeforeCutoff` > `total`), every
+   relaxed call is aimed at the DAY AFTER: the next-day probe already tried it
+   strict, so the rescue is « the day after, minus the next step » — never a
+   relaxed call on a day whose bookings are closed (R1, review of #173).
    What was relaxed rides the DataPart (`relaxation`) and the concierge writes
    it in code, before the synthesis.
 
@@ -103,10 +105,12 @@ _RELAX_PROPERTY: dict[str, Any] = {
 _MUST_HAVE_PROPERTY: dict[str, Any] = {
     "type": "boolean",
     "description": (
-        "true ONLY when the user makes the requested amenities a strict condition "
-        "('only with', 'must have', 'absolutely', 'nothing without', or insisting again "
-        "after being told none had it). A plain request ('with a jacuzzi') is false: "
-        "when no hotel has it, the system shows the closest hotels without it and says so."
+        "true when the requested amenity IS what the user is looking for: the request "
+        "is about it ('a spa afternoon', 'find a room with a jacuzzi', 'a pool day', "
+        "'only with', 'must have', or insisting after being told none had it). false when "
+        "it comes on top of another purpose, as a plus ('near the airport, ideally with a "
+        "pool'). false: when no hotel has it, the system shows the closest hotels without "
+        "it and says so; true: it widens the area instead."
     ),
 }
 
@@ -251,14 +255,15 @@ def _relaxed_amenities(state: Any) -> tuple[list[str], list[str]]:
 
 
 def plan_steps(args: dict[str, Any], state: Any) -> list[str]:
-    """The applicable steps, in order, from the arguments actually sent."""
+    """The applicable steps, in order (most saving first), from the arguments
+    actually sent."""
     steps: list[str] = []
-    if args.get("timeSlot"):
-        steps.append("timeslot")
     if args.get("hotelEquipmentIds") and _relaxed_amenities(state)[0]:
         steps.append("amenities")
     if next_radius_km(args) is not None:
         steps.append("radius")
+    if args.get("timeSlot"):
+        steps.append("timeslot")
     return steps
 
 
@@ -317,43 +322,45 @@ async def rescue_empty_search_after_tool(
     if isinstance(state.get(STATE_DATE_FALLBACK_KEY), dict):
         return None  # the next-day probe already found the day after
     state[STATE_RESCUE_RAN_KEY] = True
-    calls_left = MAX_RESCUE_CALLS - int(bool(state.get(STATE_NEXT_DAY_PROBED_KEY)))
-    search_date = state.get(STATE_SEARCH_DATE_KEY) if isinstance(state.get(STATE_SEARCH_DATE_KEY), dict) else {}
-    same_day = bool(search_date.get("same_day"))
-    searched = search_date.get("date") or args.get("date")
-    steps = plan_steps(args, state)
     probed = bool(state.get(STATE_NEXT_DAY_PROBED_KEY))
-    trimmed = {key: value for key, value in args.items() if key != "from"}
-    if steps:
-        used, sent = steps[:1], relaxed_args(args, steps[:1], state)
-    elif same_day and closing_today(structured) and not probed:
-        used, sent = ["next_day"], {**trimmed, "date": _next_day(searched)}
-    else:
+    calls_left = MAX_RESCUE_CALLS - int(probed)
+    search_date = state.get(STATE_SEARCH_DATE_KEY) if isinstance(state.get(STATE_SEARCH_DATE_KEY), dict) else {}
+    searched = search_date.get("date") or args.get("date")
+    # Today, and today's window closing: every relaxed call is for the day
+    # after (the probe tried it strict). Else the day searched.
+    same_day = bool(search_date.get("same_day"))
+    closing = same_day and closing_today(structured)
+    day = _next_day(searched) if closing else searched
+    steps = plan_steps(args, state)
+    if not steps or not day:
         return None
     started = time.monotonic()
     calls = 0
+    used: list[str] = []
+    upcoming = steps[:1]
+    sent: dict[str, Any] = {}
     found: dict[str, Any] | None = None
-    while sent.get("date") and calls < calls_left:
+    while calls < calls_left and upcoming:
+        used = upcoming
+        sent = {**relaxed_args(args, used, state), "date": day}
         drop_args_outside_schema(tool, sent, tool_context)
         payload = await _run(tool, sent, tool_context)
         calls += 1
         if payload is not None and payload.get("results"):
             found = payload
             break
-        # The second (last) call: today is closing → the day after; else the
-        # next step too, still in order (a third step is never reached).
-        if "next_day" not in used and same_day and not probed and (
-            closing_today(payload) or closing_today(structured)
-        ):
-            used, sent = used + ["next_day"], {**sent, "date": _next_day(searched)}
-        elif len(steps) > len(used) and "next_day" not in used:
-            used = steps[: len(used) + 1]
-            sent = relaxed_args(args, used, state)
+        if not closing and same_day and closing_today(payload):
+            # The relaxed search matched hotels today, all past their cutoff
+            # (Wan Chai at 21h once the slot went): the same relaxation, the
+            # day after — never another relaxation on a closed day.
+            closing, day, upcoming = True, _next_day(searched), used
         else:
-            break
+            upcoming = steps[: len(used) + 1] if len(used) < len(steps) else []
     _log("ok" if found else "empty", started, calls, len(used) if found else 0)
     if found is None:
         return None
+    if closing:
+        used = [*used, "next_day"]
     rescue: dict[str, Any] = {"payload": found, "steps": used, "searched_date": searched}
     if "radius" in used:
         rescue["radius_km"] = sent.get("radiusKm")

@@ -252,10 +252,14 @@ How to act, frugally (at most ONE reasoning pass — no tool-call loops):
   applied, and this is the only way to take one back. Never put the same key
   in `amenities` and `amenities_removed`, and omit the argument entirely when
   nothing was dropped or negated.
-- `amenities_must_have`: true ONLY when the user makes the amenities a strict
-  condition ("only with a jacuzzi", "il me faut absolument un spa", or insisting
-  after being told none had it). Otherwise omit it: when no hotel has a plain
-  requested amenity, the system shows the closest ones without it and says so.
+- `amenities_must_have`: true when the amenity IS what the user is looking
+  for — the request is about it ("je veux un après-midi spa", "find a room with
+  a jacuzzi", "a pool day", "une chambre avec jacuzzi", "only with a jacuzzi",
+  or insisting after being told none had it). false when the amenity comes on
+  top of another purpose, as a plus ("a quiet room near the airport, ideally
+  with a pool", "un hôtel à Lyon demain, avec piscine si possible"). When it
+  is false and no hotel has the amenity, the system shows the closest hotels
+  without it and says so; when it is true, it widens the area instead.
 - `relax`: ONLY when THIS message asks to loosen the current search without a
   new value ("élargir la zone", "try a nearby area" -> "area"; "retirer un
   filtre", "quitar un filtro" -> "filters"; "une autre heure", "any time" ->

@@ -171,31 +171,33 @@ def test_an_amenity_that_is_not_a_must_have_is_relaxed_first_when_no_slot():
     assert rescue["steps"] == ["amenities"] and rescue["amenities"] == ["jacuzzi"]
 
 
-def test_a_strict_slot_the_same_evening_moves_to_the_next_day():
-    """Wan Chai, 21h: without the slot, 4 hotels matched today but all past
-    their cutoff (total 0 < 4 before cutoff): the day after, not a wider ring."""
+def test_a_relaxed_search_that_finds_today_closed_moves_to_the_next_day():
+    """Wan Chai, 21h: once relaxed, hotels matched today but all past their
+    cutoff (total 0 < 4 before cutoff): the same relaxation the day after."""
     tool = _Search(_response(_payload(total=0, before=4, day="2026-10-28")),
                    _response(_payload(*_WANCHAI)))
     ctx = _rescue(tool, _WANCHAI_ARGS, _state("2026-10-28", same_day=True),
                   _response(_payload(total=0, before=0, day="2026-10-28")))
     assert len(tool.calls) == MAX_RESCUE_CALLS
     first, second = tool.calls
-    assert "timeSlot" not in first and "timeSlotMode" not in first and first["radiusKm"] == 2
-    assert first["date"] == "2026-10-28" and second["date"] == "2026-10-29"
+    assert first["radiusKm"] == 50 and first["date"] == "2026-10-28"
+    assert second["radiusKm"] == 50 and second["date"] == "2026-10-29"
     rescue = ctx.state[STATE_RESCUE_KEY]
-    assert rescue["steps"] == ["timeslot", "next_day"] and rescue["offered_date"] == "2026-10-29"
+    assert rescue["steps"] == ["radius", "next_day"] and rescue["offered_date"] == "2026-10-29"
 
 
-def test_the_steps_are_taken_in_order_and_a_third_is_never_reached():
-    """La Rochelle 14h + spa: the slot, then slot and spa — never a 100 km ring
-    while a hotel without spa is 600 m away (probed)."""
+def test_the_steps_are_taken_in_the_order_that_saves_most():
+    """R1 (review of #173): amenity, then ring, then slot — Fabien's replay
+    on MCP prod: amenity 14/16, ring ×2 11/26, slot 1/10. La Rochelle 14h +
+    spa: the spa goes first, then the ring; the slot is never reached."""
     tool = _Search(_response(_payload(day="2026-11-04")), _response(_payload(*_ROCHELLE, day="2026-11-04")))
     ctx = _rescue(tool, _ROCHELLE_ARGS, _state("2026-11-04", same_day=False, applied=["spa"]),
                   _response(_payload(day="2026-11-04")))
     first, second = tool.calls
-    assert "timeSlot" not in first and first["hotelEquipmentIds"] == [35]
-    assert "timeSlot" not in second and "hotelEquipmentIds" not in second and second["radiusKm"] == 50
-    assert ctx.state[STATE_RESCUE_KEY]["steps"] == ["timeslot", "amenities"]
+    assert "hotelEquipmentIds" not in first and first["timeSlot"] == {"startHour": 14} and first["radiusKm"] == 50
+    assert "hotelEquipmentIds" not in second and second["timeSlot"] == {"startHour": 14}
+    assert second["radiusKm"] == 100
+    assert ctx.state[STATE_RESCUE_KEY]["steps"] == ["amenities", "radius"]
 
 
 def test_a_must_have_amenity_is_kept_and_the_ring_widens_instead():
@@ -476,3 +478,69 @@ def test_rescued_cards_link_to_the_users_site_like_every_other_card():
     capture_after_tool(SimpleNamespace(name="search_offers"), dict(_DUBLIN_ARGS), ctx, _response(_payload()))
     urls = [card.get("url") for card in _decode(emit_search_datapart(ctx))["results"]]
     assert urls and all(url.startswith("https://www.dayuse.fr/hotels/") for url in urls)
+
+
+# --- R1 (review of #173): the real after-tool chain, nothing stashed by hand --------------------
+
+
+class _FakeMcp:
+    """`search_offers` answering on the arguments it receives (date, slot,
+    amenity), like MCP: what the chain sends decides what comes back."""
+
+    name = "search_offers"
+    raw_mcp_tool = None
+
+    def __init__(self, answer):
+        self.answer = answer
+        self.calls: list[dict] = []
+
+    async def run_async(self, *, args, tool_context):
+        self.calls.append(dict(args))
+        return _response(self.answer(args))
+
+
+def _chain_ctx(state: dict) -> SimpleNamespace:
+    """A tool context with what the fleet's timing/metrics callbacks read."""
+    return SimpleNamespace(state=state, user_content=None, agent_name="b2c_hotel_search", invocation_id="t")
+
+
+async def _after_chain(tool, args: dict, ctx, first: dict):
+    """`root_agent.after_tool_callback` in order, ADK's rule: the first
+    non-None return ends the chain (`capture_after_tool` rewrites)."""
+    from hotel_search_agent.agent import root_agent
+
+    for callback in root_agent.after_tool_callback:
+        result = callback(tool=tool, args=args, tool_context=ctx, tool_response=first)
+        if asyncio.iscoroutine(result):
+            result = await result
+        if result is not None:
+            return result
+    return None
+
+
+def test_the_same_evening_with_a_strict_slot_ends_on_the_next_day_without_it():
+    """Fabien's reproduction: today 18h+ with a strict slot, today closing.
+    Before: probe (J+1, slot) empty, then the rescue relaxed the slot on
+    TODAY (closed) — nothing, while J+1 without the slot had 2 hotels."""
+    today, tomorrow = "2026-10-28", "2026-10-29"
+
+    def answer(args):
+        if args["date"] == today:
+            return _payload(total=0, before=6, day=today)
+        if "timeSlot" in args:
+            return _payload(day=tomorrow)
+        return _payload(*_WANCHAI, day=tomorrow)
+
+    tool = _FakeMcp(answer)
+    args = {"lat": 22.279356, "lon": 114.16255, "timeSlot": {"startHour": 21}, "timeSlotMode": "contain",
+            "radiusKm": 100, "sortBy": "distance", "date": today}
+    ctx = _chain_ctx(_state(today, same_day=True))
+    first = _response(answer(args))
+
+    asyncio.run(_after_chain(tool, dict(args), ctx, first))
+
+    assert [(c["date"], "timeSlot" in c) for c in tool.calls] == [(tomorrow, True), (tomorrow, False)]
+    data = _decode(emit_search_datapart(ctx))
+    assert [card["name"] for card in data["results"]] == [h["name"] for h in _WANCHAI]
+    assert data["relaxation"]["steps"] == ["timeslot", "next_day"]
+    assert data["search_date"]["date"] == tomorrow
