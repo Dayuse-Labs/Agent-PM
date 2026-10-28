@@ -6,6 +6,55 @@
 
 > 📋 **Pour savoir QUOI faire ensuite, ouvrir [`CHANTIERS.md`](CHANTIERS.md)** (état vérifié au 2026-09-14) : la liste des chantiers ouverts, chacun avec sa preuve, ses actions et un prompt prêt à coller — plus la liste de ce qu'il ne faut **pas** relancer parce que c'est déjà livré. `tasks/todo.md` est périmé et ne doit plus servir de référence.
 
+## 📅 2026-10-28 — Demander le jour ET le lieu ensemble (branche `feat/ask-day-and-place`)
+
+**Constat** (session prod `7e296e4b`, 2026-10-27) :
+- **T1** « i nedd room with hot tub in it » → question du jour (règle `date_checked`).
+- **T2** « The day after tomorrow » → feuille sans lieu → `missing_city` → la synthèse demande la
+  ville (3 appels LLM, 8,2 s).
+- Deux tours avant la moindre recherche.
+
+**Fait** :
+- **`place_check.py`**, `names_a_place(request)` : un appel LLM aux paramètres du rôle TRIAGE
+  (luna, effort `none`, timeout 5 s, `max_retries=0`, une seule tentative), un booléen fermé, une
+  métrique `llm_call phase=place_check` sans contenu. Toute panne ou réponse hors contrat → `None`.
+  Le prompt du triage n'est pas touché.
+- **`agent.py`**, quand la question du jour part :
+  - si le profil connaît déjà un lieu (`city`, `zone`, `metro`, `region_anchor`, `named_hotel`, le
+    GPS `search_anchor`), aucun appel ;
+  - sinon `budget.charge("place_check")` (2e créneau, avant la feuille ; `MAX_LLM_CALLS_PER_TURN`
+    inchangé, inutile de le relever), sur la demande que la réponse remettra à la feuille.
+  - `False` → « Où et pour quel jour souhaitez-vous réserver ? » (7 langues), **sans chips** : une
+    puce de jour répondrait à la moitié et ramènerait la question de ville.
+    `clarification_reason="location"`, route `template:date_place_question`.
+  - `True` ou `None` → la question du jour actuelle, avec ses chips.
+  - `pending_search.date_question` est inchangé : la réponse part vers la feuille avec la demande
+    seule, sans étiquettes.
+
+**Preuves** :
+- **Tests** : sans lieu → jour+lieu (`phases=triage,place_check`, feuille non appelée) ; « hot tub
+  room in Paris » → jour seul ; lieu connu par GPS → 0 appel ; timeout / JSON hors contrat / texte
+  libre → jour seul, sans relance ; réponse « tomorrow in Paris » → la feuille reçoit demande puis
+  réponse ; 7 langues ; aucun contenu de la demande dans la métrique ni les logs ; les 2 transports
+  HTTP (`suggestions: []`).
+- **Scripts de test** : les tests existants qui passent par la question rejouent désormais l'appel
+  explicitement. Avant, l'appel mangeait la réponse scriptée du tour suivant et ils passaient par
+  accident ; le test HTTP, lui, partait sur le réseau (1,46 s → 0,01 s une fois l'appel stubbé).
+- **Contrôles négatifs** : décision désactivée → 7 rouges ; lieu connu ignoré → rouge.
+- **Local réel** (Redis :6390) :
+  - « i nedd room with hot tub in it » → « Where and for which day would you like to book? » en
+    2,9 s (2 appels) ;
+  - puis « tomorrow in Paris » → 5 hôtels, `search_offers` sur Paris, `date` de demain,
+    `hotelEquipmentIds: [41]` (le hot tub du premier tour a tenu) ;
+  - « hot tub room in Paris » → question du jour avec ses 3 chips ;
+  - « une chambre avec jacuzzi » → « Où et pour quel jour souhaitez-vous réserver ? ».
+- **Gates** : pytest 3 341 passés / 1 skippé ; ruff, mypy, guardrails OK.
+
+**Reste** :
+- Merger, puis déployer `concierge` (`DEPLOY.md`).
+- Quelques jours après, en prod : la part des `template:date_place_question` parmi les questions du
+  jour, et combien de leurs tours suivants cherchent du premier coup.
+
 ## 🏝️ 2026-10-28 — Une zone n'est jamais un commerce qui porte son nom (branche `fix/area-never-a-business-poi`)
 
 **Constat** (session prod `7e296e4b`, T3, release `cb361c0`) : « new york city or long island »

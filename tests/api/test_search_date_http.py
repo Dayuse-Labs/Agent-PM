@@ -25,6 +25,16 @@ def dateless_search(monkeypatch):
 
     monkeypatch.setattr(agent_module, "classify", fake_classify)
     monkeypatch.setattr(agent_module, "_run_leaf", no_leaf)
+    _place_check(monkeypatch, names_a_place=True)  # « à Nice »
+
+
+def _place_check(monkeypatch, *, names_a_place: bool) -> None:
+    """The turn's second LLM call (`place_check`), stubbed: tests stay offline."""
+    async def fake_names_a_place(request, budget, invocation_id=""):
+        budget.charge("place_check")
+        return names_a_place
+
+    monkeypatch.setattr(agent_module, "names_a_place", fake_names_a_place)
 
 
 def test_the_json_turn_asks_the_day_with_its_chips(client, dateless_search):
@@ -49,3 +59,25 @@ def test_the_streamed_turn_ends_on_the_same_question_and_chips(client, dateless_
     assert len(done) == 1
     assert done[0]["message"] == templates.date_question("fr")
     assert done[0]["suggestions"] == templates.date_chips("fr")
+
+
+@pytest.mark.parametrize("path", ["/v3/chat", "/v3/chat/stream"])
+def test_a_request_naming_no_place_asks_the_day_and_the_place_without_chips(
+    client, dateless_search, monkeypatch, path
+):
+    _place_check(monkeypatch, names_a_place=False)
+
+    r = client.post(path, json={"message": "une chambre avec jacuzzi", "locale": "fr"})
+
+    assert r.status_code == 200
+    if path == "/v3/chat":
+        body = r.json()
+    else:
+        (body,) = [
+            json.loads(block.split("data:", 1)[1])
+            for block in r.text.strip().split("\n\n")
+            if block.startswith("event: done")
+        ]
+    assert body["message"] == templates.date_place_question("fr")
+    assert body["suggestions"] == []
+    assert body["turn_facts"]["clarification_reason"] == "location"
