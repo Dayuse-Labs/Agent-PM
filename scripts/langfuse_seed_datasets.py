@@ -41,6 +41,7 @@ DATASET_NAMES = {
     "b2c-geo-class-2026-10-06": "b2c/geo-class-2026-10-06",
     "b2c-qa-14707-2026-10-14": "b2c/qa-14707-2026-10-14",
     "b2c-prod-2026-10-27": "b2c/prod-2026-10-27",
+    "b2c-prod-2026-10-28": "b2c/prod-2026-10-28",
 }
 
 # OBS6 §2 — lock the item shape server-side so hand-added items can't drift.
