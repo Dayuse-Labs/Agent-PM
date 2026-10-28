@@ -1,5 +1,27 @@
 # Lessons — corrections de Fabien à réappliquer
 
+## 2026-10-28 — budgets des feuilles, question jour + lieu (auto-constatées)
+
+1. **Un réglage de relance peut en commander un autre.** Le brief prescrivait
+   `num_retries=1, max_retries=0`. litellm 1.90.2 recopie `num_retries` dans le `max_retries` du
+   SDK (`main.py` : `max_retries = num_retries`) : 3 requêtes sur un socket muet, pas 2. Le
+   « ~5× » mesuré en S-G4 venait de là, mal attribué depuis. Règle : un réglage de relance se
+   prouve en COMPTANT les requêtes reçues par un serveur local (muet, 400, connexion fermée),
+   jamais sur le nom du paramètre.
+2. **Un timeout ne se cale pas sur un percentile seul.** Le p99 (11,3 s) m'a fait choisir 10 s. La
+   forme au-dessus du p99 disait autre chose :
+   - des épisodes lents (12-18 s, médiane de l'heure doublée), où une relance n'aide pas ;
+   - des blocages (22 à 604 s), où elle sauve tout.
+
+   À 10 s, une recherche locale qui aurait abouti a échoué pendant un épisode. Règle : ventiler les
+   appels lents par heure (épisode ou blocage isolé ?), et placer T au-dessus de la masse des
+   épisodes, sous les blocages.
+3. **Un appel LLM ajouté décale les réponses scriptées, et les tests restent verts par accident.**
+   `ScriptedLlm` dépile dans l'ordre : le nouvel appel mangeait la réponse du tour suivant, et
+   1 test sur ~15 a rougi. Le test HTTP, qui stubbait `classify` mais pas litellm, partait sur le
+   réseau (1,46 s). Règle : après tout appel LLM ajouté sur un chemin, aligner explicitement chaque
+   script de test qui le traverse, et lire `--durations` pour repérer un test parti en ligne.
+
 ## 2026-10-20 — question de date (auto-constatées, en live puis par un test rouge)
 
 1. **Un cadrage écrit pour une question biaise la feuille quand on le réutilise
