@@ -35,7 +35,9 @@ from hotel_search_agent.response_bridge import (
     STATE_COMPLETION_KEY,
     STATE_NEARBY_KEY,
     STATE_PREFERRED_AMENITIES_KEY,
+    STATE_RESCUE_KEY,
     STATE_SEARCH_DATE_KEY,
+    pool_before_cutoff,
     read_structured_payload,
 )
 from hotel_search_agent.schema_guard import drop_args_outside_schema
@@ -52,10 +54,7 @@ def _same_day_dead_end(state: Any, structured: dict[str, Any], results: list) ->
     search_date = state.get(STATE_SEARCH_DATE_KEY)
     if results or not isinstance(search_date, dict) or not search_date.get("same_day"):
         return False
-    try:
-        return int(structured.get("total") or 0) > 0
-    except (TypeError, ValueError):
-        return False
+    return pool_before_cutoff(structured) > 0
 
 
 async def complete_thin_search_after_tool(
@@ -72,6 +71,14 @@ async def complete_thin_search_after_tool(
         return None
     if args.get("from"):
         return None  # a later page: the first one was already completed
+    if tool_context.state.get(STATE_RESCUE_KEY):
+        # The rescue (`relaxation.py`) found the cards of an empty first page.
+        # Only then: when it found nothing, the completion's wider ring with
+        # the user's filters is still the one chance left (replay 2026-10-28,
+        # « dans la métropole lilloise entre 14 et 18 » + jacuzzi: 4 hotels on
+        # main through it, 0 on the branch while it stood down after an empty
+        # rescue).
+        return None
     structured = read_structured_payload(tool_response)
     if not isinstance(structured, dict):
         return None

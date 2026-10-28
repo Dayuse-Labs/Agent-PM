@@ -60,6 +60,12 @@ from hotel_search_agent.budget_injection import inject_profile_budget
 from hotel_search_agent.occupancy import inject_profile_occupancy
 from hotel_search_agent.standing import enforce_standing
 from hotel_search_agent.completion import complete_thin_search_after_tool
+from hotel_search_agent.relaxation import (
+    apply_relax_request,
+    inject_relaxation_declaration,
+    read_relax_request,
+    rescue_empty_search_after_tool,
+)
 from hotel_search_agent import named_hotel
 from hotel_search_agent.mcp_guard import (
     mcp_circuit_after_tool,
@@ -245,6 +251,16 @@ How to act, frugally (at most ONE reasoning pass — no tool-call loops):
   applied, and this is the only way to take one back. Never put the same key
   in `amenities` and `amenities_removed`, and omit the argument entirely when
   nothing was dropped or negated.
+- `amenities_must_have`: true ONLY when the user makes the amenities a strict
+  condition ("only with a jacuzzi", "il me faut absolument un spa", or insisting
+  after being told none had it). Otherwise omit it: when no hotel has a plain
+  requested amenity, the system shows the closest ones without it and says so.
+- `relax`: ONLY when THIS message asks to loosen the current search without a
+  new value ("élargir la zone", "try a nearby area" -> "area"; "retirer un
+  filtre", "quitar un filtro" -> "filters"; "une autre heure", "any time" ->
+  "time"; "augmenter le budget", "increase the budget" -> "budget"). The system
+  applies it to the search itself: never answer that you cannot widen or remove
+  anything.
 - An indoor or covered pool ("piscine intérieure", "piscine couverte", "indoor
   pool") is `indoor_pool`, never `pool`; a pool with no such word is `pool`.
 - An amenity the user wants but marks as OPTIONAL ("idéalement un massage", "si
@@ -434,6 +450,7 @@ root_agent = Agent(
         llm_timing_before,
         inject_today_before_model,
         inject_amenities_declaration,
+        inject_relaxation_declaration,
         inject_datetime_declaration,
         named_hotel.inject_named_hotel_declaration,
     ],
@@ -455,6 +472,8 @@ root_agent = Agent(
         tool_timing_before,
         make_per_tool_budget_callback(PER_TOOL_CALL_LIMITS, MAX_TOOL_CALLS),
         mcp_circuit_before_tool,
+        # Point 3: pops `relax`/`amenities_must_have`; « area » feeds the ring.
+        read_relax_request,
         enforce_equipment_filters,
         enforce_standing,
         inject_profile_occupancy,
@@ -465,6 +484,9 @@ root_agent = Agent(
         resolve_search_date,
         resolve_search_timeslot,
         named_hotel.prepare_named_hotel_lookup,
+        # Point 3: « retirer un filtre / augmenter le budget », once every
+        # writer of the arguments has run.
+        apply_relax_request,
         # LAST: the virtual params are gone by now; anything else the tool's
         # published schema does not declare would make MCP refuse the call.
         drop_args_outside_schema,
@@ -485,6 +507,9 @@ root_agent = Agent(
         tool_timing_after,
         mcp_circuit_after_tool,
         probe_next_day_after_tool,
+        # Point 3: an EMPTY first page is relaxed step by step (≤ 2 MCP calls,
+        # the probe's included); the completion stands down after it.
+        rescue_empty_search_after_tool,
         complete_thin_search_after_tool,
         named_hotel.follow_named_hotel,
         capture_after_tool,

@@ -56,9 +56,11 @@ from b2c_common.timeslot import DAYPART_HOURS, daypart_in
 from hotel_search_agent.response_bridge import (
     STATE_DATE_FALLBACK_KEY,
     STATE_DAYPART_KEY,
+    STATE_NEXT_DAY_PROBED_KEY,
     STATE_EXACT_WINDOW_KEY,
     STATE_RESOLVED_DATE_KEY,
     STATE_SEARCH_DATE_KEY,
+    pool_before_cutoff,
     read_profile_in,
     read_structured_payload,
     record_guards_fired,
@@ -491,10 +493,10 @@ async def probe_next_day_after_tool(
     structured = read_structured_payload(tool_response)
     if not isinstance(structured, dict) or structured.get("results"):
         return None
-    try:
-        pool_total = int(structured.get("total") or 0)
-    except (TypeError, ValueError):
-        pool_total = 0
+    # 2026-10-28: MCP's `total` now counts AFTER the cutoff check, the count
+    # before it is `totalBeforeCutoff` (`pool_before_cutoff`); read on `total`
+    # alone, this probe never fired on the 13 same-day evening dead ends.
+    pool_total = pool_before_cutoff(structured)
     if pool_total <= 0:
         return None  # genuinely no inventory here — another day will not help
 
@@ -513,6 +515,8 @@ async def probe_next_day_after_tool(
 
     probe_args = {k: v for k, v in args.items() if k != "from"}
     probe_args["date"] = offered
+    # One MCP call spent on this dead end: the rescue (`relaxation.py`) counts it.
+    tool_context.state[STATE_NEXT_DAY_PROBED_KEY] = True
     started = time.monotonic()
     try:
         probe_response = await tool.run_async(args=probe_args, tool_context=tool_context)
