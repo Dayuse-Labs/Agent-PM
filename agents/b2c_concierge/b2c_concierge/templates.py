@@ -550,6 +550,24 @@ def named_hotel_not_found_notice(name: str, language: str, city: str | None) -> 
     return _pick(language, _NAMED_NOT_FOUND).format(name=name, where=_where(language, city))
 
 
+_LANDMARK_UNRESOLVED: dict[str, str] = {
+    "fr": "Je n'ai pas réussi à situer « {place} » : voici des hôtels{where}.",
+    "en": "I couldn't locate \"{place}\": here are hotels{where}.",
+    "es": "No he conseguido situar «{place}»: aquí tienes hoteles{where}.",
+    "it": "Non sono riuscito a localizzare «{place}»: ecco degli hotel{where}.",
+    "de": "Ich konnte „{place}“ nicht finden: Hier sind Hotels{where}.",
+    "pt": "Não consegui localizar «{place}»: aqui estão hotéis{where}.",
+    "nl": "Ik kon \"{place}\" niet vinden: hier zijn hotels{where}.",
+}
+
+
+def landmark_unresolved_notice(place: str, language: str, city: str | None) -> str:
+    """2026-10-28 (prod session b4703f31, Paris + « l'unesco »): the spot the
+    user named could not be placed, the city was searched instead — said
+    first, never left implicit."""
+    return _pick(language, _LANDMARK_UNRESOLVED).format(place=place, where=_where(language, city))
+
+
 _NAMED_AMBIGUOUS: dict[str, str] = {
     "fr": "Plusieurs hôtels correspondent à « {name} » : {options}. Lequel souhaitez-vous ?",
     "en": "Several hotels match \"{name}\": {options}. Which one do you mean?",

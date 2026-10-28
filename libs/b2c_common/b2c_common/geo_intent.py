@@ -84,6 +84,7 @@ PlaceKind = Literal[
     "address",
     "hotel",
     "region",
+    "city_centre",
 ]
 Relation = Literal["in", "near", "whole_city"]
 Carryover = Literal["new", "keep", "replace_place_keep_city", "refine"]
@@ -115,7 +116,14 @@ class Place(BaseModel):
         default="",
         description="The user's exact words for the place, copied as written, typos included.",
     )
-    kind: PlaceKind | None = Field(default=None, description="What the place is.")
+    kind: PlaceKind | None = Field(
+        default=None,
+        description=(
+            "What the place is. city_centre: the centre of the city (\"in centro\", "
+            "\"centre-ville\", \"downtown\"), with that city in `city`; never a business "
+            "whose name contains the word."
+        ),
+    )
     canonical: str = Field(
         default="",
         description=(

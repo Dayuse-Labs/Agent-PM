@@ -101,7 +101,8 @@
                 "airport",
                 "address",
                 "hotel",
-                "region"
+                "region",
+                "city_centre"
               ],
               "type": "string"
             },
@@ -140,7 +141,8 @@
                 "airport",
                 "address",
                 "hotel",
-                "region"
+                "region",
+                "city_centre"
               ],
               "type": "string"
             },
@@ -149,7 +151,7 @@
             }
           ],
           "default": null,
-          "description": "What the place is.",
+          "description": "What the place is. city_centre: the centre of the city (\"in centro\", \"centre-ville\", \"downtown\"), with that city in `city`; never a business whose name contains the word.",
           "title": "Kind"
         },
         "canonical": {

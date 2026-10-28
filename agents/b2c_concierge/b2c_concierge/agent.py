@@ -192,7 +192,7 @@ from .window_guard import enforce_window_disclosure, enforce_window_match, windo
 from .routing import LEAF_FAQ, LEAF_HOTEL_SEARCH, ROUTES, bearer_token, card_url
 from .turn_facts import ClarificationReason, EmptyReason, TurnStatus, spine_turn_facts
 from .triage import (
-    has_language_evidence,
+    decides_language,
     SERVICE,
     TEMPLATE_LANGUAGES,
     asks_policy,
@@ -582,6 +582,18 @@ _UNCHANGED_NOTE = (
     "change did not alter them. Your reply comes right after a sentence saying so. "
     "Never claim you widened, changed or found anything; offer ONE different next step."
 )
+
+def search_signature(search_context: Any) -> str | None:
+    """A fingerprint of the search the leaf ran (`search_context`: place,
+    ring, date, window, budget, filters, party), without the « see all » link
+    and the notice fields; None when the leaf sent none."""
+    if not isinstance(search_context, dict):
+        return None
+    kept = {
+        k: v for k, v in search_context.items() if k not in ("search_page", "landmark_unresolved")
+    }
+    return json.dumps(kept, sort_keys=True, ensure_ascii=False, default=str)
+
 
 def completed_note(completion: Any, shown: int) -> str:
     """Prod session 1eb2430a: the leaf completed a thin first page from a wider
@@ -1426,12 +1438,14 @@ class _B2cConcierge(BaseAgent):
         # (fr or en) answered « élargir la zone » in English in a French session.
         # The session's language (an earlier triage's) comes first, then the
         # client locale; the guess only when there is neither.
-        if triage.used_llm:
-            language = (
-                profile.language
-                if profile.language and not has_language_evidence(message)
-                else triage.language
-            )
+        # 2026-10-28 (prod, locale nl): « Jacuzzi » was answered in French, and
+        # « Overmorgen » in English because a regex guess on « Sud Lyon » had
+        # become the session's language. The triage's language counts only on
+        # a message that can tell it (`decides_language`), and only that one
+        # ever becomes the session's.
+        language_decided = triage.used_llm and decides_language(message)
+        if language_decided:
+            language = triage.language
         else:
             language = profile.language or locale_response_language(profile.locale) or triage.language
         reply_language = response_language(language)
@@ -1491,10 +1505,19 @@ class _B2cConcierge(BaseAgent):
         # (all 7) — `triage.classify` already validates `language` against
         # LANGUAGES, so this check is a defensive choke point, not a filter
         # that fires in practice.
+        # With neither a session language nor a client locale, the triage's
+        # reading is still the best there is (a bare « oui » in tests and API
+        # calls without a locale).
         if (
             clicked_id is None
             and triage.language in TEMPLATE_LANGUAGES
-            and (profile.language is None or has_language_evidence(message))
+            and (
+                language_decided
+                or (
+                    triage.used_llm and profile.language is None
+                    and locale_response_language(profile.locale) is None
+                )
+            )
         ):
             profile.language = triage.language
 
@@ -2143,15 +2166,25 @@ class _B2cConcierge(BaseAgent):
             )
             shown_before = shortlist_signature(profile.last_results)
             record_search_shortlist(profile, response["results"])  # S07: named-hotel lookup guard
+            searched_before = profile.last_search_signature
+            profile.last_search_signature = search_signature(response.get("search_context"))
             # guard_refinement_unchanged (mcp-dayuse#6): a follow-up that put
             # back the very offers on screen says so. Pagination never repeats
             # a card, and a currency repaint changes only how prices read.
+            # 2026-10-28 (prod: Melbourne « I already said I prefer shortest
+            # duration »): only when the search itself changed — a message
+            # that changed nothing the search sends (a preference, a question)
+            # did not ask for other offers, and « that change does not alter
+            # the results » answered a change nobody made.
             unchanged = (
                 results_count > 0
                 and not more_options
                 and not repeat_search
                 and bool(shown_before)
                 and shortlist_signature(profile.last_results) == shown_before
+                and searched_before is not None
+                and profile.last_search_signature is not None
+                and profile.last_search_signature != searched_before
             )
             if unchanged:
                 with observation(as_type="guardrail", name="refinement-unchanged"):
@@ -2378,6 +2411,15 @@ class _B2cConcierge(BaseAgent):
             # Point 3: what the search relaxed, in code, before the synthesis.
             rest = drop_restated(final_text, relaxed)
             final_text = f"{relaxed}\n\n{rest}" if rest else relaxed
+        landmark_context = response.get("search_context") if route.target == LEAF_HOTEL_SEARCH else None
+        landmark = landmark_context.get("landmark_unresolved") if isinstance(landmark_context, dict) else None
+        if isinstance(landmark, str) and landmark.strip():
+            # The leaf searched the city: the spot named in it could not be
+            # placed (`geocode_tool._without_the_landmark`).
+            final_text = (
+                templates.landmark_unresolved_notice(landmark.strip(), reply_language, profile.city)
+                + f"\n\n{final_text}"
+            )
         if unchanged:
             final_text = f"{templates.refinement_unchanged_notice(reply_language)}\n\n{final_text}"
         if (

@@ -237,10 +237,12 @@ class SessionProfile:
     # leaf's area branch: carried as an area, not looked up as a city
     # (prod session 1eb2430a). A city change clears it.
     city_is_area: bool = False
-    # Point 3 (2026-10-28): the GeoIntent kind of the place `zone` names
-    # (« neighborhood », « region »…), set by the leaf with the zone: a
+    # 2026-10-28: the GeoIntent kind of the place `zone` names, set by the
+    # leaf with the zone and cleared with it and by a city change. Point 3: a
     # follow-up re-searches « la métropole lilloise » on its area's ring, not
-    # on the 2 km ring of the building that carries its name.
+    # on the 2 km ring of the building that carries its name. Point 4:
+    # "city_centre" is searched around the city's point, not a place named
+    # « centro ».
     zone_kind: str | None = None
     date: str | None = None  # ISO 8601
     date_reference: dict[str, Any] | None = None  # {expression, resolved_from, client_tz}
@@ -347,6 +349,11 @@ class SessionProfile:
     # leaf sees no adults/children (they would be guesses).
     room_requirements: dict[str, Any] | None = None
     pending_party_total: int | None = None
+    # 2026-10-28: the search the last search turn actually ran (the leaf's
+    # `search_context`: place, ring, date, window, filters), as a fingerprint.
+    # `refinement_unchanged` says « that change does not alter the results »
+    # only when this changed and the offers did not. Concierge-only.
+    last_search_signature: str | None = None
 
     def to_dict(self) -> dict[str, Any]:
         return {
@@ -408,6 +415,7 @@ class SessionProfile:
             "price_comparison": self.price_comparison,
             "room_requirements": self.room_requirements,
             "pending_party_total": self.pending_party_total,
+            "last_search_signature": self.last_search_signature,
             "schema_version": PROFILE_SCHEMA_VERSION,
         }
 
@@ -445,6 +453,7 @@ _CONCIERGE_ONLY_KEYS = (
     "date_checked",
     "date_announced",
     "device_location_refused",
+    "last_search_signature",
 )
 
 
@@ -715,9 +724,9 @@ def apply_profile_delta(
             profile.country_anchor = None
             profile.region_anchor = None
             profile.zone = None
+            profile.zone_kind = None
             profile.metro = None
             profile.city_is_area = False
-            profile.zone_kind = None
             profile.search_anchor = None
             profile.shown_hotel_ids = []
             profile.search_cursor = 0

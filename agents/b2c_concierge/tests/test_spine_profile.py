@@ -1430,8 +1430,19 @@ class TestRefinementUnchangedThroughTheSpine:
 
     _CARDS = [{"hotel_id": 1, "name": "Hotel A", "price": "€80.00", "offer_id": 11}]
 
-    def _two_searches(self, monkeypatch, fake_leg, second_results, second_message="élargir la zone"):
-        fake_leg.response_payload = {"results": self._CARDS, "profile_delta": {"city": "Paris"}}
+    #: What the leaf reports it searched (`search_context`): « élargir la zone »
+    #: widens the ring, so the second search is not the first one.
+    _FIRST = {"city": "Paris", "zone": None, "date": "2026-11-05", "radius_km": None}
+    _WIDER = {**_FIRST, "radius_km": 30}
+
+    def _two_searches(
+        self, monkeypatch, fake_leg, second_results, second_message="élargir la zone",
+        second_context=None,
+    ):
+        fake_leg.response_payload = {
+            "results": self._CARDS, "profile_delta": {"city": "Paris"},
+            "search_context": self._FIRST,
+        }
         llm = _scripted_llm(
             monkeypatch,
             '{"family": "search", "language": "fr"}', "Voici des hôtels à Paris.",
@@ -1440,7 +1451,10 @@ class TestRefinementUnchangedThroughTheSpine:
         runner = InMemoryRunner(root_agent)
         session = _new_session(runner)
         _run_turn(runner, session.id, "un hotel à Paris demain")
-        fake_leg.response_payload = {"results": second_results, "profile_delta": {}}
+        fake_leg.response_payload = {
+            "results": second_results, "profile_delta": {},
+            "search_context": second_context or self._WIDER,
+        }
         answer = _run_turn(runner, session.id, second_message)
         return answer, llm
 
@@ -1451,6 +1465,18 @@ class TestRefinementUnchangedThroughTheSpine:
         )
         synthesis_prompt = llm.calls[-1]["messages"][1]["content"]
         assert "UNCHANGED:" in synthesis_prompt
+
+    def test_a_message_that_changed_no_search_parameter_is_not_announced(self, monkeypatch, fake_leg):
+        # Prod 2026-10-27 (Melbourne, « I already said I prefer shortest
+        # duration »): the leaf ran the very same search (same place, ring,
+        # date, filters) and the reply opened on « That change does not alter
+        # the results » — about a change nobody made.
+        answer, llm = self._two_searches(
+            monkeypatch, fake_leg, list(self._CARDS), "je préfère la durée la plus courte",
+            second_context=dict(self._FIRST),
+        )
+        assert not answer.startswith("Ce changement")
+        assert "UNCHANGED:" not in llm.calls[-1]["messages"][1]["content"]
 
     def test_new_offers_are_not_announced_as_unchanged(self, monkeypatch, fake_leg):
         other = [{"hotel_id": 2, "name": "Hotel B", "price": "€70.00", "offer_id": 22}]
