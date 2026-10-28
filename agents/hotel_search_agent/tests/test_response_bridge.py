@@ -2369,3 +2369,37 @@ def test_a_search_that_ran_never_carries_the_flag():
     ctx = _after_geocode(_NO_PLACE_RESPONSE)
     ctx.state[_RESULTS_KEY] = []
     assert "destination_missing" not in _decode(emit_search_datapart(ctx))
+
+
+class TestLinksOnTheUserSite:
+    """2026-10-28 (Fabien): a French user asking for Berlin landed on dayuse.de
+    in German. Every link of the turn now opens on the user's site, in the
+    language the conversation is in — through the real callback chain."""
+
+    _PAGE = {"slug": "deutschland/berlin", "label": "Berlin", "countryCode": "DE"}
+
+    def _emit(self, profile_in: dict) -> dict:
+        berlin = {**_hotel(1, 5000), "countryName": "Germany", "slug": "arcotel-john-f-berlin"}
+        ctx = _Ctx(user_content=_user_content_with_profile_in(profile_in))
+        capture_after_tool(_Tool("search_offers"), {"lat": 52.52, "lon": 13.40}, ctx, {
+            "structuredContent": {"total": 1, "results": [berlin], "searchPage": self._PAGE},
+            "isError": False,
+        })
+        return _decode(emit_search_datapart(ctx))
+
+    def test_a_french_conversation_links_to_dayuse_fr(self):
+        # entry_market_country US: the widget's default market on a direct visit.
+        payload = self._emit({"language": "fr", "locale": "en", "entry_market_country": "US"})
+        assert payload["results"][0]["url"] == "https://www.dayuse.fr/hotels/germany/arcotel-john-f-berlin"
+        assert payload["search_context"]["search_page"]["url"].startswith(
+            "https://www.dayuse.fr/s/deutschland/berlin?"
+        )
+
+    def test_the_locale_speaks_when_no_language_is_set_yet(self):
+        payload = self._emit({"locale": "nl", "entry_market_country": "BE"})
+        assert payload["results"][0]["url"].startswith("https://nl.dayuse.be/hotels/germany/")
+
+    def test_no_language_keeps_the_destination_site(self):
+        payload = self._emit({})
+        assert payload["results"][0]["url"] == "https://www.dayuse.de/hotels/germany/arcotel-john-f-berlin"
+        assert payload["search_context"]["search_page"]["url"].startswith("https://www.dayuse.de/s/")

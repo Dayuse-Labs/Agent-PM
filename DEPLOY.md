@@ -138,7 +138,11 @@ déploiement peut être lent (LLM à froid).
 
 ## Pièges
 
-- 🪤 **Poser une variable sans `--skip-deploys` redéploie l'ANCIEN code** immédiatement. Pour un
+- 🪤 **Poser une variable sans `--skip-deploys` redéploie l'ANCIEN code** immédiatement ; la
+  **supprimer** aussi, y compris depuis l'UI (2026-10-28 : `CONCIERGE_LEAF_TIMEOUT_SECONDS`
+  retirée avant le `up` → l'ancien concierge relancé sans elle, remplacé 2 min plus tard). Une
+  variable que le nouveau code rend inutile se retire juste APRÈS son `up` : le redéploiement
+  que la suppression déclenche repart alors du nouveau code. Pour un
   secret partagé (ex. `CHAT_API_KEY`) : déployer d'abord le code qui l'ENVOIE, puis poser la
   variable côté émetteur, et seulement ensuite côté validateur — l'ordre inverse a coûté ~9 min de
   401 le 2026-08-24.

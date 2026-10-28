@@ -457,3 +457,22 @@ def test_a_follow_up_keeps_the_zone_kind_through_the_profile():
     ctx.state["temp:hotel_search_results"] = []
     data = _decode(emit_search_datapart(ctx))
     assert data["profile_delta"]["zone_kind"] == {"op": "set", "value": "region"}
+
+
+def test_rescued_cards_link_to_the_users_site_like_every_other_card():
+    # #172 (links in the user's language) × point 3: the cards the rescue
+    # serves are built on the user's host too (a French user, Irish hotels).
+    irish = [{**hotel, "slug": f"hotel-{i}", "countryCode": "IE", "countryName": "Ireland"}
+             for i, hotel in enumerate(_DUBLIN)]
+    state = _state("2026-10-29", same_day=False, applied=["jacuzzi"])
+    state[STATE_RESCUE_KEY] = {"payload": _payload(*irish), "steps": ["amenities"],
+                               "searched_date": "2026-10-29", "amenities": ["jacuzzi"]}
+    datapart = a2a_types.Part(root=a2a_types.DataPart(data={
+        "query_params": {}, "profile_in": {"language": "fr", "entry_market_country": "FR"},
+    }))
+    ctx = SimpleNamespace(state=state, user_content=genai_types.Content(
+        role="user", parts=[genai_types.Part(text="jacuzzi"), convert_a2a_part_to_genai_part(datapart)],
+    ))
+    capture_after_tool(SimpleNamespace(name="search_offers"), dict(_DUBLIN_ARGS), ctx, _response(_payload()))
+    urls = [card.get("url") for card in _decode(emit_search_datapart(ctx))["results"]]
+    assert urls and all(url.startswith("https://www.dayuse.fr/hotels/") for url in urls)

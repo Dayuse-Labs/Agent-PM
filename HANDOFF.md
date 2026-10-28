@@ -50,9 +50,107 @@ par bras, Langfuse coupé, jamais ai.dayuse.com) : rapport hors dépôt
   `agent.py` : rebasée dessus, cette branche retire `place_check.py` (son appel ne sert plus) et
   garde son libellé ; `_knows_a_place` est fondu dans `profile.has_search_destination`.
 
-**Reste** : revue (Fabien) ; déploiement non fait (#168, #169, #170 sont mergées : déployer avec
-elles, et supprimer `CONCIERGE_LEAF_TIMEOUT_SECONDS` comme #168 le demande) ; ressemer `b2c/prod-2026-10-28` et `b2c/dialogue-state` ;
+**Reste** : revue (Fabien) ; déploiement non fait (la prod est sur `b6f9402` = #168-#170, plus #172
+au merge de `main` : à déployer par-dessus) ; ressemer `b2c/prod-2026-10-28` et `b2c/dialogue-state` ;
 mesurer en prod la part de conversations avec résultats et des puces « près de moi ».
+
+## 📅 2026-10-28 — Les liens s'ouvrent dans la langue de l'utilisateur (branche `feat/links-in-user-language`)
+
+**Constat** (Fabien) : un Français qui cherche un hôtel en Allemagne clique et arrive sur
+`www.dayuse.de`, en allemand. `hotel_urls.py` construisait tout lien sur l'hôte du **pays de
+l'hôtel**, et MCP `generate_booking_link` fait de même pour le tunnel.
+
+**Sondé sur le site** (GET seuls) : chaque hôte Dayuse sert **tout** hôtel, dans sa langue et sa
+devise. `/hotels/germany/arcotel-john-f-berlin` répond 200, 0 redirection, sur les 23 hôtes
+possibles (`fr-FR` sur `www.dayuse.fr`, `nl-BE` sur `nl.dayuse.be`, `de-CH` et CHF sur
+`de.dayuse.ch`…). Les pages `/s/…` ont le même chemin partout : le site lui-même lie
+`/s/deutschland/berlin` depuis dayuse.fr. Le tunnel `/tunnel/booking?offerId=…` porte l'offre et
+jamais de session ; la même requête répond 200 en `fr-FR` sur dayuse.fr.
+
+**Fait** :
+- **`b2c_common.site_host(language, visitor_country)`** : la langue de la conversation
+  (`profile.language`, sinon `locale`) choisit la langue ; le marché du visiteur
+  (`entry_market_country`) choisit l'hôte dans cette langue.
+  - Son marché la parle → son hôte (GB+en → `.co.uk`, sa devise est gardée).
+  - Sinon la variante linguistique du marché (BE+nl → `nl.dayuse.be`, CH+de → `de.dayuse.ch`,
+    HK+en → `en.dayuse.com.hk`).
+  - Sinon le site de la langue (`_HOME_MARKET` : en → `.com`, fr → `.fr`, … pt → `pt.dayuse.com`).
+  - Langue inconnue → `None` → hôte du pays de l'hôtel, la règle d'avant.
+  - Tables `_SITE_LANGUAGE`, `_LANGUAGE_HOST` et `_HOME_MARKET` lues dans le `production.js` de
+    dayuse-com (`c5d6f39e3c`).
+  - Une visite directe d'ai.dayuse.com tombe sur le marché par défaut US/en (!15273 non mergée) :
+    c'est pour ça que la langue passe avant le marché.
+- `build_hotel_page_url(..., host=)` et `build_search_page_url(..., host=)` : le chemin pays reste
+  celui de l'hôtel. Feuille : `response_bridge._site_host(profile_in)` passé à toutes les cartes et
+  à `search_page`. Concierge : `get_hotel_details` et `compare_hotels`.
+- **`on_user_site(url, host)`** : déplace le lien tunnel de MCP (3 sites dans `inline_tools` :
+  sélecteur de formules, devis confirmé, confirmation). Ne touche qu'un lien sur un de nos hôtes
+  marché.
+- Rien côté widget : `DAYUSE_HOSTS` admet déjà les 3 sous-domaines (test ajouté dans
+  `test_market_table_drift.py`). `market_referential()` est inchangé, donc pas de régénération de
+  `markets.generated.js`.
+
+**Preuves** :
+- **Tests** : 3 398 verts, ruff, mypy et guardrails OK.
+  - Nouveaux tests : matrice `site_host`, invariants des tables, `on_user_site`, chaîne réelle du
+    callback de la feuille, `get_hotel_details`, `compare_hotels`, 2 chemins du tunnel.
+  - Contre-épreuve : sans le code, les 2 tests feuille et les 4 tests concierge échouent.
+- **Local réel** (luna, MCP prod, Redis :6390), Berlin demain après-midi, tours d'une seule question :
+  - fr sur marché US → 5 cartes `www.dayuse.fr/hotels/germany/…` ;
+  - en/US → `www.dayuse.com` ;
+  - en-GB/GB → `www.dayuse.co.uk` ;
+  - nl/BE → `nl.dayuse.be` ;
+  - fr/FR → `www.dayuse.fr` ;
+  - à chaque fois, `search_page` suit le même hôte.
+  - Tour de choix : `booking_card.url` passe de `www.dayuse.de/tunnel/booking` (avant) à
+    `www.dayuse.fr/tunnel/booking`, requête et utm intactes.
+  - Chaque URL rendue → 200, 0 redirection, `lang` attendu.
+
+**Pièges** :
+- Sans Redis, le test local ment : `entry_market_country` (et `search_page`) ne sont pas persistés,
+  donc en-GB/GB sortait sur `.com`. Toujours `CONCIERGE_REDIS_URL=redis://localhost:6390/0`
+  (conteneur `agentb2c-redis-6390`).
+- Effet accepté : la carte garde la devise de l'hôtel, la page affiche celle de l'hôte (hôtel à
+  Londres vu d'un Français : £ sur la carte, € sur dayuse.fr). C'est ce que dayuse.com montre à ses
+  propres visiteurs.
+
+**Reste** :
+- Non déployé : la PR touche b2c_common, donc **hotel-search ET concierge** à redéployer (`DEPLOY.md`).
+- Le repli « Voir tout » du widget (`/s/<pays>` de `markets.generated.js`, seulement sans
+  `search_page`) reste sur l'hôte du pays de l'hôtel.
+
+## 🚀 2026-10-28 — `faq`, `hotel-search` et `concierge` déployés sur `b6f9402` (#168, #169, #170)
+
+**Déployé** (`DEPLOY.md`, par Claude à la demande de Fabien), depuis `../AgentB2C-deploy` détaché
+sur `b6f9402`, arbre propre. Pré-vol : pytest 3 367 passés / 1 skippé, sur l'arbre de `83b9a47`
+(identique à `b6f9402`). Estampilles posées avec `--skip-deploys` (`faq` `8d1579b`, `hotel-search`
+`a407144`, `concierge` `b446a65` → `b6f9402`), puis `up` dans l'ordre faq → hotel-search →
+concierge : les 3 en SUCCESS à 14:03Z. `widget` (`cb361c0`) inchangé.
+
+**`CONCIERGE_LEAF_TIMEOUT_SECONDS` supprimée par Fabien** (UI) juste avant. 🪤 La suppression a mis
+en file un redéploiement de l'**ancien** code (14:01Z), qui sans la variable coupe la recherche
+à 15 s et la FAQ à 25 s. Il a été remplacé par le `up` deux minutes plus tard (statut REMOVED).
+Supprimer une variable redéploie comme en poser une : la retirer juste APRÈS le `up` (le
+redéploiement repart alors du nouveau code). Piège ajouté à `DEPLOY.md`.
+
+**Preuve** (widget, synthétique, sessions `synthetic-47c28036-*`, traces en release `b6f9402`
+sur les 3 services) :
+- #170 : « i need a room with a hot tub » → « Where and for which day would you like to book? »,
+  sans chips, `clarification_reason=location` (5,8 s, 2 appels luna) ; puis « tomorrow in new
+  york city or long island » → 5 hôtels pour le 29/10 autour de New York (pas de bar).
+  « a hot tub room in Paris » → question du jour seule, avec ses 3 chips.
+- #168 (route FAQ en SSE) : `progress` à 0,1 s, second `progress` juste après la feuille, puis
+  `hotels`, `token`, `done`. Le 1er tour FAQ après le déploiement a pris 23,8 s : 13 s **avant**
+  le premier appel LLM de la feuille (démarrage à froid), puis 2 appels de 4,1 et 2,7 s, sans
+  relance. À chaud : 8,4 s et 10,3 s.
+- Un timeout ne se provoque pas à la demande : la relance et le budget de 45 s ne sont prouvés que
+  par les tests et le run local.
+
+**Reste** :
+- Dans quelques jours : la part de `template:date_place_question` parmi les questions du jour, et
+  la latence des feuilles au-delà de 15 s / 20 s (des `generate_content` en ERROR = timeouts).
+- Semer l'item `geo-poi-nyc-or-long-island` dans Langfuse (Fabien).
+
 ## 📅 2026-10-28 — Demander le jour ET le lieu ensemble (branche `feat/ask-day-and-place`)
 
 **Constat** (session prod `7e296e4b`, 2026-10-27) :
@@ -98,7 +196,7 @@ mesurer en prod la part de conversations avec résultats et des puces « près d
 - **Gates** : pytest 3 341 passés / 1 skippé ; ruff, mypy, guardrails OK.
 
 **Reste** :
-- Merger, puis déployer `concierge` (`DEPLOY.md`).
+- Mergé (#170) et déployé : voir le bloc 🚀 du 2026-10-28.
 - Quelques jours après, en prod : la part des `template:date_place_question` parmi les questions du
   jour, et combien de leurs tours suivants cherchent du premier coup.
 
@@ -164,7 +262,7 @@ pas de `radiusKm`).
   prod (en prod, « centro » a donné le commerce de Rome, que la règle rejette).
 
 **Reste** :
-- Merger, puis déployer `hotel-search` (`DEPLOY.md`).
+- Mergé (#169) et déployé : voir le bloc 🚀 du 2026-10-28.
 - Semer l'item d'éval dans Langfuse (`scripts/langfuse_seed_datasets.py --only b2c-geo-poi`) :
   c'est à Fabien, car l'upsert écrase les corrections faites dans Langfuse.
 
@@ -223,13 +321,8 @@ prod ont duré 604 s le 2026-10-27 (16:28 et 20:31 UTC).
 `concierge_metric=leaf_call status=ok` (c'est la tâche A2A qui échoue, pas le transport). Seul
 `turn … status=degraded` le dit (`CHANTIERS.md` O7).
 
-**Reste (déploiement, sur demande de Fabien)** :
-- Merger, puis déployer `hotel-search`, `faq` et `concierge` (`DEPLOY.md`).
-- **Au même déploiement, supprimer `CONCIERGE_LEAF_TIMEOUT_SECONDS` (=30) du service
-  `concierge`**, pour que les défauts 45/45 s s'appliquent. Sinon un appel bloqué puis relancé
-  (2 × 15 s + outils) dépasse encore les 30 s.
-- Preuve : la release des spans des 3 services dans Langfuse. Un timeout ne se provoque pas à la
-  demande en prod : le comportement n'est prouvé qu'en local et par les tests.
+**Reste** : mergé (#168) et déployé, `CONCIERGE_LEAF_TIMEOUT_SECONDS` supprimée : voir le bloc 🚀
+du 2026-10-28.
 
 ## 📌 2026-10-27 (undecies) — La pile Railway EST la prod client
 
