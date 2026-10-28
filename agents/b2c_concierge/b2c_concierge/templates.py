@@ -710,20 +710,17 @@ def no_question_response(language: str) -> str:
     return _pick(language, _NO_QUESTION)
 
 
-# QA 2026-10-20 (Fabien): a search that names no day asks for one instead of
-# running on today — once per session, before the first search. The chips
-# are words `requested_date.parse_requested_date` reads in every language
-# (today, +1, +2), so a click comes back as a dated reply with no new path.
-_DATE_QUESTION: dict[str, str] = {
-    "fr": "Pour quel jour souhaitez-vous réserver ?",
-    "en": "Which day would you like to book for?",
-    "es": "¿Para qué día quieres reservar?",
-    "it": "Per quale giorno vuoi prenotare?",
-    "de": "Für welchen Tag möchtest du buchen?",
-    "pt": "Para que dia pretende reservar?",
-    "nl": "Voor welke dag wil je boeken?",
-}
-
+# 2026-10-28 (Victor, prod data of 2026-10-27/28): the day is never asked in
+# a message of its own. The isolated question of 2026-10-20 (Fabien) ended 12
+# of 13 conversations that stopped on it after one turn, and doubled the
+# questions when the place was missing too (the day, then the city). Now:
+# - place missing → ONE question for the place AND, when it is still open,
+#   the day (`place_question`), with the day chips;
+# - place known, day missing → the search runs on today (tomorrow past the
+#   same-day cutoff, the leaf's D+1 probe) and the answer says which day,
+#   with the chips to change it (`date_retained_notice`).
+# The chips are words `requested_date.parse_requested_date` reads in every
+# language (today, +1, +2), so a click comes back as a dated reply.
 _DATE_CHIPS: dict[str, tuple[str, str, str]] = {
     "fr": ("Aujourd'hui", "Demain", "Après-demain"),
     "en": ("Today", "Tomorrow", "The day after tomorrow"),
@@ -734,10 +731,9 @@ _DATE_CHIPS: dict[str, tuple[str, str, str]] = {
     "nl": ("Vandaag", "Morgen", "Overmorgen"),
 }
 
-
-# Prod session 7e296e4b (2026-10-27): the same question when the request names
-# no place either (`place_check`) — one turn instead of a day question, then a
-# city question. No chips: a day chip would answer half of it.
+# #170's question (Fabien, prod session 7e296e4b), kept word for word: one
+# turn instead of a day question, then a city question. Here it is asked when
+# the leaf finds no place (`destination_missing`), with the day chips.
 _DATE_PLACE_QUESTION: dict[str, str] = {
     "fr": "Où et pour quel jour souhaitez-vous réserver ?",
     "en": "Where and for which day would you like to book?",
@@ -748,17 +744,91 @@ _DATE_PLACE_QUESTION: dict[str, str] = {
     "nl": "Waar en voor welke dag wil je boeken?",
 }
 
+_PLACE_QUESTION: dict[str, str] = {
+    "fr": "Dans quelle ville (ou quel quartier) cherchez-vous ?",
+    "en": "Which city (or neighbourhood) are you looking in?",
+    "es": "¿En qué ciudad (o barrio) buscas?",
+    "it": "In quale città (o quartiere) cerchi?",
+    "de": "In welcher Stadt (oder welchem Viertel) suchst du?",
+    "pt": "Em que cidade (ou bairro) procura?",
+    "nl": "In welke stad (of wijk) zoek je?",
+}
 
-def date_question(language: str) -> str:
-    return _pick(language, _DATE_QUESTION)
+# Appended to the leaf's own place question (a zone without its city, a place
+# not found) when the day is still open: still one message.
+_AND_WHICH_DAY: dict[str, str] = {
+    "fr": "Et pour quel jour ?",
+    "en": "And for which day?",
+    "es": "¿Y para qué día?",
+    "it": "E per quale giorno?",
+    "de": "Und für welchen Tag?",
+    "pt": "E para que dia?",
+    "nl": "En voor welke dag?",
+}
+
+_DATE_RETAINED: dict[str, str] = {
+    "fr": "Vous n'avez pas indiqué de jour : j'ai cherché pour {date}.",
+    "en": "You didn't mention a day, so I searched for {date}.",
+    "es": "No has indicado ningún día, así que he buscado para el {date}.",
+    "it": "Non hai indicato un giorno, quindi ho cercato per {date}.",
+    "de": "Du hast keinen Tag genannt, also habe ich für {date} gesucht.",
+    "pt": "Não indicou nenhum dia, por isso pesquisei para {date}.",
+    "nl": "Je hebt geen dag genoemd, dus ik heb gezocht voor {date}.",
+}
+
+_OTHER_DAY_CHIPS: dict[str, str] = {
+    "fr": "Pour un autre jour, choisissez ci-dessous ou dites-le-moi.",
+    "en": "For another day, pick one below or just tell me.",
+    "es": "Para otro día, elige abajo o dímelo.",
+    "it": "Per un altro giorno, scegli qui sotto o dimmelo.",
+    "de": "Für einen anderen Tag wähle unten oder sag es mir.",
+    "pt": "Para outro dia, escolha abaixo ou diga-me.",
+    "nl": "Voor een andere dag, kies hieronder of laat het me weten.",
+}
+
+_OTHER_DAY: dict[str, str] = {
+    "fr": "Pour un autre jour, dites-le-moi.",
+    "en": "For another day, just tell me.",
+    "es": "Para otro día, dímelo.",
+    "it": "Per un altro giorno, dimmelo.",
+    "de": "Für einen anderen Tag sag es mir.",
+    "pt": "Para outro dia, diga-me.",
+    "nl": "Voor een andere dag, laat het me weten.",
+}
+
+
+def date_chips(language: str) -> list[str]:
+    return list(_DATE_CHIPS.get(language, _DATE_CHIPS["en"]))
+
+
+def later_date_chips(language: str, served_offset: int) -> list[str]:
+    """The day chips for the days AFTER the one searched (`served_offset` days
+    from today): today's chip is no use once today was searched, nor once the
+    same-day window closed and the search moved to tomorrow."""
+    chips = _DATE_CHIPS.get(language, _DATE_CHIPS["en"])
+    return [chip for offset, chip in enumerate(chips) if offset > served_offset]
+
+
+def place_question(language: str, *, ask_day: bool) -> str:
+    """The one question of a search that has no place yet: the place, and the
+    day in the same sentence while it is still open."""
+    return _pick(language, _DATE_PLACE_QUESTION if ask_day else _PLACE_QUESTION)
 
 
 def date_place_question(language: str) -> str:
     return _pick(language, _DATE_PLACE_QUESTION)
 
 
-def date_chips(language: str) -> list[str]:
-    return list(_DATE_CHIPS.get(language, _DATE_CHIPS["en"]))
+def with_day_question(question: str, language: str) -> str:
+    """The leaf's place question, with the day asked in the same message."""
+    return f"{question.rstrip()} {_pick(language, _AND_WHICH_DAY)}"
+
+
+def date_retained_notice(human_date: str, language: str, *, with_chips: bool) -> str:
+    """Said when the search ran on a day the user never named: which day it
+    was, and how to change it (the chips below, when there are any)."""
+    tail = _pick(language, _OTHER_DAY_CHIPS if with_chips else _OTHER_DAY)
+    return f"{_pick(language, _DATE_RETAINED).format(date=human_date)} {tail}"
 
 
 def clarification_response(clarification: Clarification, language: str, asked: int = 1) -> str:

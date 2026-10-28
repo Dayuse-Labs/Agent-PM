@@ -102,7 +102,10 @@ def test_inject_replaces_date_with_a_label_object():
     decl = request.config.tools[0].function_declarations[1]
     date_prop = decl.parameters_json_schema["properties"]["date"]
     assert date_prop["type"] == "object"
-    assert date_prop["properties"]["type"]["enum"] == ["absolute", "relative"]
+    # 2026-10-28: + a count from now, a month without its day, an open day.
+    assert date_prop["properties"]["type"]["enum"] == [
+        "absolute", "relative", "offset", "month", "flexible",
+    ]
 
 
 def test_inject_adds_duration_and_timeslot_minutes():
@@ -883,3 +886,58 @@ def test_a_zero_length_window_is_one_time():
     args = {"timeSlot": {"startHour": 9, "endHour": 9}}
     resolve_search_timeslot(_Tool("search_offers"), args, ctx)
     assert args["timeSlot"] == {"startHour": 9}
+
+
+# --- 2026-10-28: a count from now, a month without its day, an open day ------------------------
+# Prod traces: « Pick a date in 2 weeks » (it worked, as a guess), « Cualquier
+# tarde a partir de las 16 mes de noviembre » and « Es soll ja auch nicht für
+# heute sein » stayed on today: the label had no way to say them.
+
+_D = date(2026, 10, 28)
+
+
+def test_an_offset_label_counts_from_today_in_code():
+    assert resolve_date_label({"type": "offset", "value": "P2W"}, _D)[:2] == (date(2026, 11, 11), "offset")
+    assert resolve_date_label({"type": "offset", "value": "P3D"}, _D)[:2] == (date(2026, 10, 31), "offset")
+
+
+def test_an_offset_out_of_bounds_is_no_label():
+    assert resolve_date_label({"type": "offset", "value": "P400D"}, _D)[1] == "default"
+    assert resolve_date_label({"type": "offset", "value": "two weeks"}, _D)[1] == "default"
+
+
+def test_a_month_without_its_day_searches_its_first_searchable_day():
+    assert resolve_date_label({"type": "month", "value": "11"}, _D)[:2] == (date(2026, 11, 1), "month")
+    # The current month: from today. A past month: next year.
+    assert resolve_date_label({"type": "month", "value": "10"}, _D)[:2] == (_D, "month")
+    assert resolve_date_label({"type": "month", "value": "03"}, _D)[:2] == (date(2027, 3, 1), "month")
+    assert resolve_date_label({"type": "month", "value": "2027-01"}, _D)[:2] == (date(2027, 1, 1), "month")
+    assert resolve_date_label({"type": "month", "value": "13"}, _D)[1] == "default"
+
+
+def test_any_day_keeps_the_day_in_play_and_not_today_moves_off_today():
+    carried = "2026-10-30"
+    assert resolve_date_label({"type": "flexible", "value": "any"}, _D, carried=carried)[:2] == (
+        date(2026, 10, 30), "flexible",
+    )
+    assert resolve_date_label({"type": "flexible", "value": "any"}, _D)[:2] == (_D, "flexible")
+    assert resolve_date_label({"type": "flexible", "value": "not_today"}, _D)[:2] == (
+        date(2026, 10, 29), "flexible",
+    )
+    assert resolve_date_label({"type": "flexible", "value": "not_today"}, _D, carried=carried)[:2] == (
+        date(2026, 10, 30), "flexible",
+    )
+
+
+def test_a_month_label_is_persisted_with_where_it_came_from():
+    today = reference_today({})
+    target_month = (today.replace(day=1) + timedelta(days=40)).month
+    ctx = _ctx_with_profile({})
+    args = {"date": {"type": "month", "value": f"{target_month:02d}", "expression": "mes de noviembre"}}
+
+    resolve_search_date(_Tool("search_offers"), args, ctx)
+
+    stored = ctx.state[STATE_RESOLVED_DATE_KEY]
+    assert stored["date"] == args["date"]
+    assert date.fromisoformat(args["date"]).day == 1
+    assert stored["date_reference"]["resolved_from"] == "month"

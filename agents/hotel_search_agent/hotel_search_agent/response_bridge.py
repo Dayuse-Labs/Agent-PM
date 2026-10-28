@@ -88,6 +88,12 @@ _STATE_COUNTRY_KEY = "temp:hotel_search_country_code"
 # cards carry coords + distance from the anchor, so shortlist relevance stops
 # being unmeasurable). Additive to the DataPart; the concierge ignores unknown keys.
 _STATE_ANCHOR_KEY = "temp:hotel_search_anchor"
+# 2026-10-28: geocode_location ran this turn, and whether it said that the
+# request names no place at all (`no_geocodable_location`, reason
+# `missing_city` / `generic_location_only`: « une chambre avec jacuzzi »,
+# « près de moi » with no device position). Read by `emit_search_datapart`.
+_STATE_GEOCODE_CALLED_KEY = "temp:hotel_search_geocode_called"
+_STATE_DESTINATION_MISSING_KEY = "temp:hotel_search_destination_missing"
 _STATE_DISTANCE_ORIGIN_KEY = "temp:hotel_search_distance_origin"
 # The geocode result says the user asked for a nearby area
 # (`geocode_tool.asks_nearby`): the search ring goes one step wider
@@ -1163,6 +1169,7 @@ def capture_after_tool(
     name = getattr(tool, "name", "") or ""
 
     if name == "geocode_location":
+        tool_context.state[_STATE_GEOCODE_CALLED_KEY] = True
         # Guards are recorded on EVERY outcome, not just the successful ones: a
         # guard that fired and then made the turn fail honestly is exactly what
         # OBS3 needs to see.
@@ -1170,6 +1177,12 @@ def capture_after_tool(
             fired = tool_response.get("guards_fired")
             if isinstance(fired, list):
                 record_guards_fired(tool_context, fired)
+        if isinstance(tool_response, dict):
+            tool_context.state[_STATE_DESTINATION_MISSING_KEY] = (
+                tool_response.get("error") == "no_geocodable_location"
+                and (tool_response.get("diagnostics") or {}).get("reason")
+                in ("missing_city", "generic_location_only")
+            )
         if isinstance(tool_response, dict) and tool_response.get("ok"):
             delta = tool_response.get("profile_delta")
             if isinstance(delta, dict) and delta:
@@ -1685,6 +1698,21 @@ _SEARCH_UNAVAILABLE: dict[str, str] = {
 }
 
 
+#: The leaf's line when the request names no place (2026-10-28). The concierge
+#: answers with its own place question; this is what a direct A2A consumer, or
+#: a concierge older than the `destination_missing` flag, reads instead of an
+#: empty turn.
+_DESTINATION_MISSING_TEXT: dict[str, str] = {
+    "fr": "Dans quelle ville (ou quel quartier) cherchez-vous ?",
+    "en": "Which city (or neighbourhood) are you looking in?",
+    "es": "¿En qué ciudad (o barrio) buscas?",
+    "it": "In quale città (o quartiere) cerchi?",
+    "de": "In welcher Stadt (oder welchem Viertel) suchst du?",
+    "pt": "Em que cidade (ou bairro) procura?",
+    "nl": "In welke stad (of wijk) zoek je?",
+}
+
+
 def _search_unavailable_text(language: str) -> str:
     """Deterministic honest line for a turn where the search TOOLS could not
     run (S-CX2, audit F2) — replaces the model's prose, which on this path
@@ -1772,6 +1800,18 @@ def _search_context(
         "children": sent.get("children"),
         "radius_km": state.get(_STATE_RADIUS_KEY),
     }
+
+
+def _destination_missing(state: Any, profile_in: dict[str, Any]) -> bool:
+    """No place to search, as facts: geocode_location said the request names
+    none, or it was never called while the profile carries no destination
+    (no city, zone, metro, nor a device position) — the model then had nothing
+    to geocode. A hotel looked up by name stashes results and never gets here."""
+    if state.get(_STATE_GEOCODE_CALLED_KEY):
+        return bool(state.get(_STATE_DESTINATION_MISSING_KEY))
+    anchor = profile_in.get("search_anchor")
+    has_fix = isinstance(anchor, dict) and anchor.get("lat") is not None and anchor.get("lon") is not None
+    return not (profile_in.get("city") or profile_in.get("zone") or profile_in.get("metro") or has_fix)
 
 
 def emit_search_datapart(callback_context: Any) -> genai_types.Content | None:
@@ -1978,6 +2018,12 @@ def emit_search_datapart(callback_context: Any) -> genai_types.Content | None:
         # No offer covers the window: the cards are the closest ones. The
         # concierge makes sure the answer says so (`guard_window_match`).
         payload["timeslot_fallback"] = _state_window_label(state) or True
+    if results is None and not clarify_turn and not search_unavailable and _destination_missing(
+        state, read_profile_in(callback_context)
+    ):
+        # 2026-10-28: nothing searched because the request names no place —
+        # the concierge asks for it (and for the day) in one code-owned line.
+        payload["destination_missing"] = True
     if search_unavailable:
         payload["status"] = "search_unavailable"
         if state.get(_STATE_MCP_ERROR_KEY) == "rejected":
@@ -2006,6 +2052,12 @@ def emit_search_datapart(callback_context: Any) -> genai_types.Content | None:
         # Same replace-the-model's-text mechanics as the clarify path: the
         # deterministic honest line wins over whatever the model improvised.
         parts.append(genai_types.Part(text=_search_unavailable_text(language)))
+    elif payload.get("destination_missing"):
+        parts.append(
+            genai_types.Part(
+                text=_DESTINATION_MISSING_TEXT.get(language, _DESTINATION_MISSING_TEXT["en"])
+            )
+        )
     parts.append(encode_datapart(payload))
     return genai_types.Content(role="model", parts=parts)
 

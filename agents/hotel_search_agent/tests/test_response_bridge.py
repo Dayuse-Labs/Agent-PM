@@ -1147,7 +1147,7 @@ def test_emit_delta_carries_country_anchor_from_geocode():
 def test_emit_country_anchor_flows_even_on_a_geocode_only_turn():
     # geocode ran but no search (e.g. the model asked a clarification): the anchor
     # still reaches the orchestrator so active_filters/market survive the turn.
-    ctx = _Ctx({"temp:hotel_search_country_code": "FR"})
+    ctx = _Ctx({"temp:hotel_search_country_code": "FR", "temp:hotel_search_geocode_called": True})
     data = _decode(emit_search_datapart(ctx))
     assert data == {"profile_delta": {"country_anchor": {"op": "set", "value": "FR"}}}
 
@@ -1185,7 +1185,10 @@ def test_emit_omits_zone_metro_when_absent():
 
 
 def test_emit_returns_none_when_nothing_captured():
-    assert emit_search_datapart(_Ctx()) is None
+    # 2026-10-28: with a destination in the profile — with none, the turn
+    # that searched nothing reports `destination_missing` (tests below).
+    ctx = _Ctx(user_content=_user_content_with_profile_in({"city": "Paris"}))
+    assert emit_search_datapart(ctx) is None
 
 
 def test_emit_includes_applied_amenities_in_profile_delta():
@@ -1416,7 +1419,7 @@ def test_emit_logs_total_even_when_nothing_was_captured():
     # A geocode-fail / clarification-only turn (emit_search_datapart returns
     # None) must still get a total-ms row — that path is exactly what a
     # bimodal-latency bug (Chester GB) needs instrumented.
-    ctx = _Ctx()
+    ctx = _Ctx({"temp:hotel_search_geocode_called": True})
     stamp_turn_start(ctx)
     assert emit_search_datapart(ctx) is None
     assert _total_metric_lines(ctx)  # the row still fired despite no payload
@@ -1702,7 +1705,8 @@ def test_clarify_turn_is_not_flagged_search_unavailable():
 def test_geocode_fail_turn_keeps_the_model_text():
     # No anchor, no breaker flag, no results: a geocode ok=False turn — the
     # model's honest diagnostic stands, emit stays silent (pre-S-CX2 behavior).
-    assert emit_search_datapart(_Ctx()) is None
+    ctx = _Ctx({"temp:hotel_search_geocode_called": True, "temp:hotel_search_destination_missing": False})
+    assert emit_search_datapart(ctx) is None
 
 
 def test_successful_search_carries_no_status():
@@ -2310,3 +2314,54 @@ def test_an_unresolved_dollar_budget_never_empties_the_page():
     returned = capture_after_tool(_Tool("search_offers"), {}, ctx, {"structuredContent": {"results": [
         _usd_hotel(1, 9900)]}})
     assert [h["hotel_id"] for h in returned["hotels"]] == [1]
+
+
+# --- 2026-10-28: `destination_missing` — the request names no place --------------------------
+# The geocoder's own verdict (`no_geocodable_location`, reason `missing_city`),
+# as returned for « Find a room with a jacuzzi » / « près de moi » without a
+# device position: the concierge then asks the place (and the day) in ONE line.
+
+_NO_PLACE_RESPONSE = {
+    "ok": False,
+    "error": "no_geocodable_location",
+    "diagnostics": {"reason": "missing_city", "zone_hint": None},
+}
+
+
+def _after_geocode(response, profile_in=None):
+    ctx = _Ctx(user_content=_user_content_with_profile_in(profile_in or {}))
+    capture_after_tool(_Tool("geocode_location"), {}, ctx, response)
+    return ctx
+
+
+def test_a_request_with_no_place_is_flagged_with_a_text_for_older_callers():
+    content = emit_search_datapart(_after_geocode(_NO_PLACE_RESPONSE))
+    assert _decode(content) == {"destination_missing": True}
+    assert content.parts[0].text == "Which city (or neighbourhood) are you looking in?"
+
+
+def test_a_generic_place_alone_is_no_place_either():
+    response = {**_NO_PLACE_RESPONSE, "diagnostics": {"reason": "generic_location_only", "zone_hint": "near me"}}
+    assert _decode(emit_search_datapart(_after_geocode(response))) == {"destination_missing": True}
+
+
+def test_a_landmark_that_did_not_resolve_is_not_a_missing_place():
+    response = {**_NO_PLACE_RESPONSE, "diagnostics": {"reason": "landmark_not_resolved", "zone_hint": "x"}}
+    assert emit_search_datapart(_after_geocode(response)) is None
+
+
+def test_a_geocode_that_resolved_is_not_a_missing_place():
+    ok = {"ok": True, "latitude": 48.85, "longitude": 2.35, "resolved_place": "Paris", "country_code": "FR"}
+    data = _decode(emit_search_datapart(_after_geocode(ok)))
+    assert "destination_missing" not in data
+
+
+def test_no_geocode_call_with_a_destination_in_the_profile_is_not_missing():
+    ctx = _Ctx(user_content=_user_content_with_profile_in({"search_anchor": {"type": "gps", "lat": 48.8, "lon": 2.3}}))
+    assert emit_search_datapart(ctx) is None
+
+
+def test_a_search_that_ran_never_carries_the_flag():
+    ctx = _after_geocode(_NO_PLACE_RESPONSE)
+    ctx.state[_RESULTS_KEY] = []
+    assert "destination_missing" not in _decode(emit_search_datapart(ctx))

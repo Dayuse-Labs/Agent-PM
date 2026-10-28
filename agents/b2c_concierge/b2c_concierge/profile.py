@@ -239,10 +239,14 @@ class SessionProfile:
     city_is_area: bool = False
     date: str | None = None  # ISO 8601
     date_reference: dict[str, Any] | None = None  # {expression, resolved_from, client_tz}
-    # QA 2026-10-20: the session's first hotel search has had its day settled
-    # — named by the user, or asked for once. Never asked twice: a reply
-    # that still names no day searches today.
+    # 2026-10-28 (replaces the isolated day question of 2026-10-20): the day
+    # has been ASKED once, inside the place question (« Dans quelle ville, et
+    # pour quel jour ? »). Never asked twice: a reply that still names no day
+    # searches today (or tomorrow past the same-day cutoff).
     date_checked: bool = False
+    # 2026-10-28: a search ran on a day the user never chose, and the answer
+    # said which one, with the day chips to change it. Once per session.
+    date_announced: bool = False
     currency: str | None = None
     locale: str | None = None
     domain: str | None = None
@@ -367,6 +371,7 @@ class SessionProfile:
             "date": self.date,
             "date_reference": self.date_reference,
             "date_checked": self.date_checked,
+            "date_announced": self.date_announced,
             "currency": self.currency,
             "locale": self.locale,
             "domain": self.domain,
@@ -425,6 +430,7 @@ _CONCIERGE_ONLY_KEYS = (
     "named_candidates",
     "pending_party_total",  # the leaf gets it as query_params.party_total
     "date_checked",
+    "date_announced",
 )
 
 
@@ -989,6 +995,20 @@ def _has_refinement_modifier(message: str, llm_bare_budget: float | None = None)
     )
 
 
+def has_search_destination(profile: SessionProfile) -> bool:
+    """Whether the session knows WHERE to search, from its own state: a city
+    or an area the leaf resolved, a zone or metro it kept, an option picked
+    from a question (`region_anchor`), a hotel found by name, or a device
+    position (« près de moi ») — #170's `_knows_a_place`, folded in. A fact
+    of the profile, never of the words; the market is not a place."""
+    anchor = profile.search_anchor if isinstance(profile.search_anchor, dict) else {}
+    has_fix = anchor.get("lat") is not None and anchor.get("lon") is not None
+    return bool(
+        profile.city or profile.zone or profile.metro or profile.region_anchor
+        or profile.named_hotel or has_fix
+    )
+
+
 def _has_prior_search_context(profile: SessionProfile) -> bool:
     return bool(profile.city) or bool(profile.last_results) or profile.consecutive_empty_searches > 0
 
@@ -1102,13 +1122,14 @@ def pending_search_context(pending: dict[str, Any] | None) -> str | None:
     """The text placed before the user's reply in the message sent to the
     search leaf, so request and reply read as one message.
 
-    The reply to the day question (QA 2026-10-20) gets the request alone, as
-    the user's own words: the concierge has already read the day, and the
-    labels made the leaf take an amenity for a place (« Rooftop pool »
-    stored as a zone in 3 replies of 7, never in 5 dated first messages)."""
+    The reply to the code-owned place question (and to the day question of
+    2026-10-20 a session may still have pending) gets the request alone, as
+    the user's own words: the concierge reads the day itself, and the labels
+    made the leaf take an amenity for a place (« Rooftop pool » stored as a
+    zone in 3 replies of 7, never in 5 dated first messages)."""
     if not pending:
         return None
-    if pending.get("date_question"):
+    if pending.get("date_question") or pending.get("place_question"):
         return pending.get("request") or None
     lines = []
     if pending.get("request"):
