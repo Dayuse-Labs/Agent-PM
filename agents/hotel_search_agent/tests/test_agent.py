@@ -176,25 +176,42 @@ class TestMetricsWiring:
         # (different phase).
         from hotel_search_agent.named_hotel import follow_named_hotel, prepare_named_hotel_lookup
 
+        from hotel_search_agent.relaxation import (
+            apply_relax_request,
+            read_relax_request,
+            rescue_empty_search_after_tool,
+        )
+
         assert before[0] is tool_timing_before
-        assert len(before) == 14
+        assert len(before) == 16
         # mcp-dayuse#7: the named-hotel lookup's virtual `date` label is
         # popped before the schema guard would drop it.
-        assert before[-2] is prepare_named_hotel_lookup
+        assert before[-3] is prepare_named_hotel_lookup
+        # Point 3: the request to loosen the search reads the virtual params
+        # before anything else, and applies once every other writer has run.
+        assert before[3] is read_relax_request
+        assert before[-2] is apply_relax_request
         # mcp-dayuse#8: the schema guard must see the args every other
         # callback has finished rewriting.
         assert before[-1] is drop_args_outside_schema
         assert resolve_search_date in before
         assert resolve_search_timeslot in before
         assert before[2] is mcp_circuit_before_tool
-        assert before[3] is enforce_equipment_filters
-        assert before[4] is enforce_standing
-        assert before[5] is inject_profile_occupancy
-        assert before[6] is inject_profile_budget
-        assert before[7] is inject_profile_geo_context
-        assert before[8] is inject_pagination_offset
-        assert before[9] is inject_landmark_radius
+        assert before[4] is enforce_equipment_filters
+        assert before[5] is enforce_standing
+        assert before[6] is inject_profile_occupancy
+        assert before[7] is inject_profile_budget
+        assert before[8] is inject_profile_geo_context
+        assert before[9] is inject_pagination_offset
+        assert before[10] is inject_landmark_radius
         after = self._as_list(root_agent.after_tool_callback)
+        # The rescue sees the next-day probe's outcome and runs before the
+        # completion (which stands down after it) and the capture.
+        from hotel_search_agent.completion import complete_thin_search_after_tool
+        from hotel_search_agent.datetime_resolver import probe_next_day_after_tool
+
+        assert after.index(probe_next_day_after_tool) < after.index(rescue_empty_search_after_tool)
+        assert after.index(rescue_empty_search_after_tool) < after.index(complete_thin_search_after_tool)
         # The dated search around a found hotel must stash its cards before
         # capture_after_tool would stash the bare identity card.
         assert after.index(follow_named_hotel) == after.index(capture_after_tool) - 1

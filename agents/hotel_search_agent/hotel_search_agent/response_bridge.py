@@ -188,6 +188,18 @@ STATE_DATE_FALLBACK_KEY = "temp:hotel_search_date_fallback"
 # ({added, radius_km, relaxed}) for the DataPart's `completion`.
 STATE_COMPLETION_KEY = "temp:hotel_search_completion"
 _STATE_COMPLETION_ADDED_KEY = "temp:hotel_search_completion_added"
+# Point 3 (2026-10-28), `relaxation.py`: the rescue of an empty first page
+# ({payload, steps, searched_date, radius_km?, amenities?, offered_date?}), the
+# once-per-turn flag, what was taken from it for the DataPart; the user's
+# request to loosen the search (actions asked, then what they changed); the
+# model's « must have » on the amenities; and the next-day probe having run.
+STATE_RESCUE_KEY = "temp:hotel_search_rescue"
+STATE_RESCUE_RAN_KEY = "temp:hotel_search_rescue_ran"
+_STATE_RELAXATION_ADDED_KEY = "temp:hotel_search_relaxation_added"
+STATE_RELAX_REQUEST_KEY = "temp:hotel_search_relax_request"
+STATE_RELAX_APPLIED_KEY = "temp:hotel_search_relax_applied"
+STATE_AMENITIES_MUST_HAVE_KEY = "temp:hotel_search_amenities_must_have"
+STATE_NEXT_DAY_PROBED_KEY = "temp:hotel_search_next_day_probed"
 # S-G4 per-phase instrumentation: dayuse_agent_common's tool_timing_before/after
 # already emit a `dayuse_metric=tool_call tool=geocode_location` / `tool=search_offers`
 # row (geocode ms / MCP ms) and llm_timing_before/after a `dayuse_metric=llm_call`
@@ -903,6 +915,46 @@ CITY_RADII_KM = (20.0, 30.0, 50.0)
 CITY_MIN_HOTELS = 7
 # One ring past the widest, reached only when the user asks for a nearby area.
 NEARBY_RADIUS_KM = 100.0
+# Point 3 (2026-10-28): the smallest ring an anchor's TYPE allows. « Dans la
+# métropole lilloise » resolved to the building of the Métropole européenne de
+# Lille and was searched on 2 km (0 offers, even « sans jacuzzi »); « wan chai
+# side » on 2 km too. An area the model labelled `region`/`admin_district`, or
+# that Mapbox typed as one, is searched like a city; a neighbourhood on 5 km.
+_AREA_KINDS = frozenset({"region", "admin_district"})
+_AREA_FEATURES = frozenset({"region", "district"})
+_NEIGHBORHOOD_KINDS = frozenset({"neighborhood"})
+_NEIGHBORHOOD_FEATURES = frozenset({"neighborhood", "locality", "place"})
+NEIGHBORHOOD_FLOOR_KM = 5.0
+#: « augmenter le budget » (point 3): agent-usa's own step, +25 %.
+BUDGET_RAISE_FACTOR = 1.25
+
+
+def radius_floor_km(origin: Any) -> float | None:
+    """From the geocode's facts stashed on the anchor (`place_kind`: the
+    GeoIntent kind of the place asked; `feature_type`: Mapbox's type of what it
+    returned). None for a landmark, a station, an address: the site's ring."""
+    if not isinstance(origin, dict):
+        return None
+    kind, feature = origin.get("place_kind"), origin.get("feature_type")
+    if kind in _AREA_KINDS or feature in _AREA_FEATURES:
+        return CITY_RADII_KM[0]
+    if kind in _NEIGHBORHOOD_KINDS or feature in _NEIGHBORHOOD_FEATURES:
+        return NEIGHBORHOOD_FLOOR_KM
+    return None
+
+
+def pool_before_cutoff(structured: dict[str, Any]) -> int:
+    """Hotels matching the search BEFORE the bookability check. MCP counts
+    `total` after it now and reports this one apart (`totalBeforeCutoff`,
+    probed live 2026-10-28: Hong Kong 2 km at 17h local, total 0 and 4 before
+    cutoff; the 36 empty searches of 2026-10-27 all read `total: 0`, so the
+    next-day probe, keyed on `total`, never fired). An older server only sent
+    `total`, counted before."""
+    key = "totalBeforeCutoff" if "totalBeforeCutoff" in structured else "total"
+    try:
+        return int(structured.get(key) or 0)
+    except (TypeError, ValueError):
+        return 0
 
 
 def site_radius_km(
@@ -965,10 +1017,12 @@ def inject_landmark_radius(tool: Any, args: dict[str, Any], tool_context: Any) -
     if (a_lat is None or a_lon is None) and isinstance(origin, dict):
         a_lat, a_lon = _coord(origin.get("latitude")), _coord(origin.get("longitude"))
     if anchor_type in ("poi", "gps"):
-        args["radiusKm"] = (
+        ring = (
             site_radius_km(a_lat, a_lon, nearby=nearby) if a_lat is not None and a_lon is not None
             else SITE_RADII_KM[-1]
         )
+        floor = radius_floor_km(origin)
+        args["radiusKm"] = max(ring, floor) if floor is not None else ring
         args["sortBy"] = "distance"
     elif anchor_type == "city_centroid" and a_lat is not None and a_lon is not None:
         own = site_radius_km(a_lat, a_lon, rings=CITY_RADII_KM, min_hotels=CITY_MIN_HOTELS)
@@ -1158,6 +1212,20 @@ def _valid_clarification(raw: Any) -> dict[str, Any] | None:
         return None
 
 
+def _names_places(args: Any) -> bool:
+    intent = args.get("intent") if isinstance(args, dict) else None
+    return isinstance(intent, dict) and bool(intent.get("places"))
+
+
+def _first_place_kind(args: Any) -> str | None:
+    """The GeoIntent `kind` of the first place the model reported this turn."""
+    intent = args.get("intent") if isinstance(args, dict) else None
+    places = intent.get("places") if isinstance(intent, dict) else None
+    first = places[0] if isinstance(places, list) and places else None
+    kind = first.get("kind") if isinstance(first, dict) else None
+    return kind if isinstance(kind, str) else None
+
+
 def capture_after_tool(
     tool: Any, args: dict[str, Any], tool_context: Any, tool_response: Any
 ) -> dict[str, Any] | None:
@@ -1200,6 +1268,12 @@ def capture_after_tool(
                     "longitude": a_lon,
                     "label": tool_response.get("resolved_place"),
                     "type": tool_response.get("distance_origin_type") or "city_centroid",
+                    # Point 3: what the anchor IS, for the ring's floor —
+                    # this turn's place, else the zone carried from earlier.
+                    "place_kind": _first_place_kind(args) or (
+                        None if _names_places(args) else read_profile_in(tool_context).get("zone_kind")
+                    ),
+                    "feature_type": tool_response.get("resolved_feature_type"),
                 }
             tool_context.state[STATE_NEARBY_KEY] = bool(tool_response.get("nearby"))
         elif isinstance(tool_response, dict) and tool_response.get("error") == "geocode_ambiguous":
@@ -1307,6 +1381,21 @@ def capture_after_tool(
     envelope = find_datapart(getattr(getattr(tool_context, "user_content", None), "parts", None) or []) or {}
     party_total = discovery_total(envelope.get("query_params")) if name == "search_offers" else None
     room_requirements = read_profile_in(tool_context).get("room_requirements") if name == "search_offers" else None
+    relax_applied = tool_context.state.get(STATE_RELAX_APPLIED_KEY) if name == "search_offers" else None
+    if isinstance(relax_applied, dict) and "budget" in (relax_applied.get("requested") or []):
+        # Point 3: « augmenter le budget » raises the typed cap for this search
+        # (`relaxation.apply_relax_request` raised MCP's EUR one); none → said.
+        amount = requested_budget.get("amount") if isinstance(requested_budget, dict) else None
+        if isinstance(requested_budget, dict) and isinstance(amount, (int, float)) and not isinstance(
+            amount, bool
+        ) and amount > 0:
+            raised = round(float(amount) * BUDGET_RAISE_FACTOR, 2)
+            requested_budget = {**requested_budget, "amount": raised}
+            relax_applied["budget"] = {
+                "from": float(amount), "to": raised, "currency": requested_budget.get("currency"),
+            }
+        elif "budget" not in relax_applied:
+            relax_applied["no_budget"] = True
     filters = (requested_budget, price_comparison, party_total, room_requirements)
     results = normalize_search_results(structured, exclude_ids, strict_window, *filters)
     timeslot_fallback = False
@@ -1335,6 +1424,38 @@ def capture_after_tool(
                 results = swapped
                 structured = payload
                 _apply_date_fallback(tool_context, stashed)
+    # Point 3: still empty, and the rescue (`relaxation.py`) found offers by
+    # relaxing the search step by step: serve them, and say what was relaxed.
+    relaxed_keys: list[str] = []
+    if name == "search_offers" and not results:
+        rescue = tool_context.state.get(STATE_RESCUE_KEY)
+        payload = rescue.get("payload") if isinstance(rescue, dict) else None
+        if isinstance(rescue, dict) and isinstance(payload, dict):
+            steps = [step for step in rescue.get("steps") or [] if isinstance(step, str)]
+            window = None if "timeslot" in steps else strict_window
+            rescued = normalize_search_results(payload, exclude_ids, window, *filters)
+            if not rescued and window is not None:
+                rescued = normalize_search_results(payload, exclude_ids, None, *filters)
+                if rescued:
+                    steps.append("timeslot")
+            if rescued:
+                results = rescued
+                timeslot_fallback = timeslot_fallback or "timeslot" in steps
+                if "next_day" in steps and isinstance(rescue.get("offered_date"), str):
+                    structured = payload
+                    _apply_date_fallback(tool_context, {
+                        "searched_date": rescue.get("searched_date"),
+                        "offered_date": rescue["offered_date"],
+                    })
+                relaxed_keys = [k for k in rescue.get("amenities") or [] if isinstance(k, str)]
+                added: dict[str, Any] = {"steps": steps, "searched_date": rescue.get("searched_date")}
+                if "radius" in steps:
+                    added["radius_km"] = rescue.get("radius_km")
+                if relaxed_keys:
+                    added["amenities"] = relaxed_keys
+                if "next_day" in steps:
+                    added["offered_date"] = rescue.get("offered_date")
+                tool_context.state[_STATE_RELAXATION_ADDED_KEY] = added
     # Prod session 1eb2430a: a thin first page is completed from the wider
     # search `completion.py` ran — its hotels AFTER the first page's.
     first_page = len(results)
@@ -1382,7 +1503,8 @@ def capture_after_tool(
         # "pet friendly": the claim guard's synonym table only knows the spaced
         # form. find_hotel_by_name is never stamped (a name lookup is not bound
         # to this search's filters).
-        applied = tool_context.state.get(STATE_APPLIED_AMENITIES_KEY) or []
+        # A rescue that relaxed an amenity guarantees nothing about it.
+        applied = [k for k in tool_context.state.get(STATE_APPLIED_AMENITIES_KEY) or [] if k not in relaxed_keys]
         if applied:
             labels = [key.replace("_", " ") for key in applied]
             for card in results:
@@ -1390,7 +1512,7 @@ def capture_after_tool(
                 card["amenities"] = existing + [lbl for lbl in labels if lbl not in existing]
         # The optional wishes filtered the first search only: never stamped on
         # a card the completion added without them.
-        preferred = tool_context.state.get(STATE_PREFERRED_AMENITIES_KEY) or []
+        preferred = [k for k in tool_context.state.get(STATE_PREFERRED_AMENITIES_KEY) or [] if k not in relaxed_keys]
         if preferred:
             labels = [key.replace("_", " ") for key in preferred]
             for card in results[:first_page]:
@@ -1424,6 +1546,9 @@ def capture_after_tool(
         # until this capture existed nothing read them, so they never reached
         # the profile and could not survive to the next turn.
         budget_timeslot.update(occupancy_from_args(args))
+        if isinstance(relax_applied, dict) and relax_applied.get("budget"):
+            # The raised cap is this search's, never the profile's.
+            budget_timeslot.pop("budget_max", None)
         if tool_context.state.get(STATE_ZERO_CHILDREN_KEY) is True:
             # Zero = no child-capacity filter, which MCP expresses by omitting
             # children. Keep the customer's update for the profile.
@@ -1860,6 +1985,11 @@ def emit_search_datapart(callback_context: Any) -> genai_types.Content | None:
     # deliberately keeps everything else, S-G1's invalidation rule).
     if raw_delta.get("zone"):
         profile_delta["zone"] = _op_set(raw_delta["zone"])
+        # Point 3: the zone's kind travels with it (the ring's floor next turn).
+        anchor = state.get(_STATE_ANCHOR_KEY)
+        if isinstance(anchor, dict):
+            kind = anchor.get("place_kind")
+            profile_delta["zone_kind"] = _op_set(kind) if isinstance(kind, str) else {"op": "clear"}
     if raw_delta.get("metro"):
         profile_delta["metro"] = _op_set(raw_delta["metro"])
     # The destination is an area (region, département): the concierge keeps the
@@ -1919,6 +2049,11 @@ def emit_search_datapart(callback_context: Any) -> genai_types.Content | None:
         # A stated clock window replaces a daypart carried from earlier.
         if read_profile_in(callback_context).get("daypart"):
             profile_delta["daypart"] = {"op": "clear"}
+    relax_applied = state.get(STATE_RELAX_APPLIED_KEY)
+    if isinstance(relax_applied, dict) and "timeslot" in (relax_applied.get("removed") or []):
+        # « retirer un filtre » took the slot away: the profile forgets it too.
+        for slot in ("timeslot_start", "timeslot_end", "daypart"):
+            profile_delta[slot] = {"op": "clear"}
     daypart = state.get(STATE_DAYPART_KEY)
     if daypart in DAYPART_HOURS:
         # ...and a daypart replaces a clock window: one time filter at a time.
@@ -1981,6 +2116,17 @@ def emit_search_datapart(callback_context: Any) -> genai_types.Content | None:
         completion = state.get(_STATE_COMPLETION_ADDED_KEY)
         if isinstance(completion, dict) and completion.get("added"):
             payload["completion"] = dict(completion)
+        # Point 3: what the rescue relaxed, and what the user's request to
+        # loosen the search changed (or that there was nothing to loosen).
+        relaxation: dict[str, Any] = {}
+        rescued = state.get(_STATE_RELAXATION_ADDED_KEY)
+        if isinstance(rescued, dict) and results:
+            relaxation.update(rescued)
+        relax_request = state.get(STATE_RELAX_APPLIED_KEY)
+        if isinstance(relax_request, dict) and relax_request:
+            relaxation["request"] = dict(relax_request)
+        if relaxation:
+            payload["relaxation"] = relaxation
         checkin = _user_checkin_date(state, read_profile_in(callback_context), search_date)
         if checkin:
             payload["results"] = [

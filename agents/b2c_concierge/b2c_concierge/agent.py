@@ -187,6 +187,7 @@ from .profile import (
 from .profile_store import get_profile_store
 from .requested_date import date_served_notice, expected_search_date, mentions_a_date, reference_today
 from .no_offers import drop_restated, no_offers_line
+from .relaxation_notice import clicked_relax_chip, relaxation_line, relaxation_note
 from .window_guard import enforce_window_disclosure, enforce_window_match, window_label
 from .routing import LEAF_FAQ, LEAF_HOTEL_SEARCH, ROUTES, bearer_token, card_url
 from .turn_facts import ClarificationReason, EmptyReason, TurnStatus, spine_turn_facts
@@ -966,7 +967,10 @@ class _B2cConcierge(BaseAgent):
             provenance_note=provenance_note, currency_note=currency_note,
             angle=angle, no_offers=no_offers, recent_messages=recent_messages,
             unchanged=unchanged, no_question=no_question,
-            completed=completed_note(response.get("completion"), len(shortlist_hotels(response))),
+            completed=" ".join(filter(None, (
+                completed_note(response.get("completion"), len(shortlist_hotels(response))),
+                relaxation_note(response.get("relaxation")),
+            ))),
         )
 
         def fallback() -> str | None:
@@ -1882,6 +1886,11 @@ class _B2cConcierge(BaseAgent):
         if route.target == LEAF_HOTEL_SEARCH and clicked_widen_chip(message):
             # The leaf widens the search ring one step (`inject_landmark_radius`).
             leaf_kwargs["query_params"] = {**(leaf_kwargs.get("query_params") or {}), "widen_area": True}
+        relax_chip = clicked_relax_chip(message) if route.target == LEAF_HOTEL_SEARCH else None
+        if relax_chip:
+            # Point 3: « augmenter le budget » / « retirer un filtre », the
+            # concierge's own chips: the leaf loosens the search (`relaxation.py`).
+            leaf_kwargs["query_params"] = {**(leaf_kwargs.get("query_params") or {}), "relax": relax_chip}
         context_text: str | None = None
         if route.target == LEAF_HOTEL_SEARCH and pending_clar is not None:
             # QA14707 (Q04): the answer to a place question travels with the
@@ -2352,6 +2361,14 @@ class _B2cConcierge(BaseAgent):
         if no_offers:
             rest = drop_restated(final_text, no_offers)
             final_text = f"{no_offers}\n\n{rest}" if rest else no_offers
+        relaxed = (
+            relaxation_line(response.get("relaxation"), response.get("search_context"), reply_language)
+            if route.target == LEAF_HOTEL_SEARCH else ""
+        )
+        if relaxed:
+            # Point 3: what the search relaxed, in code, before the synthesis.
+            rest = drop_restated(final_text, relaxed)
+            final_text = f"{relaxed}\n\n{rest}" if rest else relaxed
         if unchanged:
             final_text = f"{templates.refinement_unchanged_notice(reply_language)}\n\n{final_text}"
         if (

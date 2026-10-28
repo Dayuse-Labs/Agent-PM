@@ -237,6 +237,11 @@ class SessionProfile:
     # leaf's area branch: carried as an area, not looked up as a city
     # (prod session 1eb2430a). A city change clears it.
     city_is_area: bool = False
+    # Point 3 (2026-10-28): the GeoIntent kind of the place `zone` names
+    # (« neighborhood », « region »…), set by the leaf with the zone: a
+    # follow-up re-searches « la métropole lilloise » on its area's ring, not
+    # on the 2 km ring of the building that carries its name.
+    zone_kind: str | None = None
     date: str | None = None  # ISO 8601
     date_reference: dict[str, Any] | None = None  # {expression, resolved_from, client_tz}
     # 2026-10-28 (replaces the isolated day question of 2026-10-20): the day
@@ -374,6 +379,7 @@ class SessionProfile:
             "zone": self.zone,
             "metro": self.metro,
             "city_is_area": self.city_is_area,
+            "zone_kind": self.zone_kind,
             "date": self.date,
             "date_reference": self.date_reference,
             "date_checked": self.date_checked,
@@ -711,6 +717,7 @@ def apply_profile_delta(
             profile.zone = None
             profile.metro = None
             profile.city_is_area = False
+            profile.zone_kind = None
             profile.search_anchor = None
             profile.shown_hotel_ids = []
             profile.search_cursor = 0
@@ -846,6 +853,8 @@ def apply_profile_delta(
         profile.metro = values["metro"]
     if "city_is_area" in values:
         profile.city_is_area = bool(values["city_is_area"])
+    if "zone_kind" in values:
+        profile.zone_kind = values["zone_kind"] if isinstance(values["zone_kind"], str) else None
     if "named_hotel" in values:
         profile.named_hotel = values["named_hotel"]
     if "date" in values:
