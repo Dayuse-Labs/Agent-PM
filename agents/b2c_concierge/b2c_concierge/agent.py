@@ -74,6 +74,7 @@ import logging
 import os
 import re
 import time
+from datetime import date
 from typing import Any, AsyncGenerator
 
 import httpx
@@ -159,6 +160,7 @@ from .profile import (
     build_hotel_picks,
     chosen_clarification_option,
     free_question_streak,
+    has_search_destination,
     is_bare_affirmative,
     is_booking_confirmation_signal,
     is_more_options_signal,
@@ -1245,6 +1247,40 @@ class _B2cConcierge(BaseAgent):
             )
 
     @staticmethod
+    def _day_notice(
+        profile: SessionProfile, response: dict[str, Any], language: str, today: date,
+        *, day_open: bool, results_count: int,
+    ) -> str | None:
+        """2026-10-28: the search ran on a day the user did not choose — no day
+        named (once per session), a month without its day, or « any day » /
+        « not today » (the leaf's `month` / `flexible` labels, each time). The
+        answer says which day, in code, and the day chips after it change it
+        (a 0-result turn keeps its recovery chips). Never a question."""
+        reference = profile.date_reference if isinstance(profile.date_reference, dict) else {}
+        loose_label = reference.get("resolved_from") in ("month", "flexible") and "date" in (
+            response.get("profile_delta") or {}
+        )
+        if not loose_label and not (day_open and not profile.date_announced):
+            return None
+        search_date = response.get("search_date")
+        served = search_date.get("date") if isinstance(search_date, dict) else None
+        if not isinstance(served, str):
+            return None
+        try:
+            offset = (date.fromisoformat(served) - today).days
+        except ValueError:
+            return None
+        profile.date_announced = True
+        chips = templates.later_date_chips(language, offset) if results_count > 0 else []
+        if chips and reference.get("resolved_from") != "month":
+            profile.last_suggestions = chips
+        else:
+            chips = []
+        return templates.date_retained_notice(
+            format_date_human(served, language), language, with_chips=bool(chips)
+        )
+
+    @staticmethod
     def _ack_text(
         profile: SessionProfile, message: str, language: str, llm_affirmative: bool | None = None
     ) -> str:
@@ -1515,7 +1551,7 @@ class _B2cConcierge(BaseAgent):
             family, route = "search", ROUTES["search"]
         # Consumed by this turn, whatever it does: only the very next reply
         # answers a question.
-        if pending is not None and pending.get("date_question"):
+        if pending is not None and (pending.get("date_question") or pending.get("place_question")):
             profile.last_suggestions = None  # the day chips answer that turn only
         profile.pending_search = None
         profile.pending_clarification = None
@@ -1742,7 +1778,14 @@ class _B2cConcierge(BaseAgent):
             # PORT1 slice 4: "cheaper" is measured against the verified,
             # fee-inclusive totals of the offers on screen — never an amount
             # the model invents. Without one, ask before searching.
-            if triage.price_comparison == "lower":
+            if triage.price_comparison == "lower" and not profile.last_results:
+                # Nothing on screen, so nothing to be cheaper than (prod session
+                # a1bb0e7f, Bilbao: « Pasado mañana » after the old day question
+                # got « no verified total to compare » twice, and the place was
+                # lost). A fact of the state: the comparison is dropped, the
+                # search runs.
+                profile.price_comparison = None
+            elif triage.price_comparison == "lower":
                 reference = cheaper_reference(
                     profile.last_results, comparison_mode(profile, profile.last_results)
                 )
@@ -1788,6 +1831,8 @@ class _B2cConcierge(BaseAgent):
         # search_offers, and the date used to die with it (QA Côte d'Azur:
         # "le 3 octobre" asked, today served on the next turn).
         expected_date: str | None = None
+        from_message = False
+        day_open = False
         if route.target == LEAF_HOTEL_SEARCH:
             today = reference_today(profile.client_timezone)
             expected_date, from_message = expected_search_date(message, profile.date, today)
@@ -1796,40 +1841,21 @@ class _B2cConcierge(BaseAgent):
                 profile.date_reference = {"resolved_from": "concierge"}
                 if profile.client_timezone:
                     profile.date_reference["client_tz"] = profile.client_timezone
-            # QA 2026-10-20 (Fabien): the session's first hotel search names a
-            # day or asks for one, before the leaf — nothing is searched on a
-            # day the user never chose. Once only: a reply that still names
-            # none searches today. A named hotel is looked up as asked: its
-            # name reaches the lookup on this turn only (mcp-dayuse#7). With
-            # Redis down every turn starts empty: the reply could never find
-            # the request again, so the search runs on today instead.
-            if not repeat_search and not profile.date_checked:
-                profile.date_checked = True
-                if (
-                    expected_date is None
-                    and not (named_choice or triage.hotel_name)
-                    and not triage.day_stated
-                    and not mentions_a_date(message, today)
-                    and await store.exists(ctx.session.id) is not None
-                ):
-                    question = templates.date_question(reply_language)
-                    profile.last_clarifying_question = question
-                    profile.last_suggestions = templates.date_chips(reply_language)
-                    # The request is kept for the reply (EARLIER REQUEST), and
-                    # the question counts as one ask of the free-question streak.
-                    profile.pending_search = {
-                        **(next_pending_search(earlier, message, False, question, ended_on_question=True) or {}),
-                        "date_question": True,
-                    }
-                    await store.set(ctx.session.id, profile)
-                    # Amplitude (AM1): the contract agreed with the analytics team
-                    # has no "date" reason yet — "other" until it does.
-                    self._emit_turn_metric(
-                        family, "template:date_question", budget, t_start, "ok", inv,
-                        clarification="other",
-                    )
-                    yield self._final(ctx, question)
-                    return
+            # 2026-10-28 (Victor, reverses part of Fabien's 2026-10-20 isolated
+            # day question): the day is still OPEN when nobody named one — not
+            # in this message (code, then the triage's `day_stated` for
+            # "maintenant"), not earlier in the session. The search is no
+            # longer held back for it: with a place it runs on today (the
+            # leaf's D+1 probe moves it past the same-day cutoff) and the
+            # answer says which day; without one, the place question asks the
+            # day in the same sentence. A named hotel is looked up as asked.
+            day_open = (
+                not repeat_search
+                and expected_date is None
+                and not (named_choice or triage.hotel_name)
+                and not triage.day_stated
+                and not mentions_a_date(message, today)
+            )
 
         budget.charge("leaf_llm")
         leaf_kwargs: dict[str, Any] = (
@@ -1950,7 +1976,13 @@ class _B2cConcierge(BaseAgent):
             budget.searched_city = profile.city
         date_notice: str | None = None
         search_date_part = response.get("search_date")
-        if expected_date and isinstance(search_date_part, dict):
+        # The leaf's model read a NEW day in this message (a fresh `date` in
+        # its delta: « in 2 weeks », « mes de noviembre »), one the concierge's
+        # parser could not: the expected day was only the carried one, and the
+        # fresh label wins (prod session eaf1fad8: « Pick a date in 2 weeks »
+        # was searched, then the guard put the old day back).
+        leaf_fresh_date = "date" in delta
+        if expected_date and (from_message or not leaf_fresh_date) and isinstance(search_date_part, dict):
             served = search_date_part.get("date")
             # A same-day cutoff swap is already disclosed by the leaf.
             if (
@@ -2022,6 +2054,7 @@ class _B2cConcierge(BaseAgent):
         window_fallback: str | None = None
         no_offers = ""
         unchanged = False
+        day_notice: str | None = None
         if route.target == LEAF_HOTEL_SEARCH and "results" in response:
             # guard_window_match (mcp-dayuse#8): what reaches the screen as a
             # match covers the slot, by the site rule the leaf filters with.
@@ -2082,6 +2115,11 @@ class _B2cConcierge(BaseAgent):
                 results_count=results_count,
                 language=reply_language,
                 same_day_dead_end=same_day_dead_end,
+            )
+            day_notice = self._day_notice(
+                profile, response, reply_language, today,
+                day_open=day_open and not leaf_fresh_date and not more_options,
+                results_count=results_count,
             )
             shown_before = shortlist_signature(profile.last_results)
             record_search_shortlist(profile, response["results"])  # S07: named-hotel lookup guard
@@ -2153,6 +2191,15 @@ class _B2cConcierge(BaseAgent):
                     budget.fired.add("anti_clarification_loop")
             text = templates.clarification_response(leaf_question, reply_language, asked)
             gave_up = asked > templates.CLARIFICATION_MAX_ASKS
+            if (
+                day_open and not profile.date_checked and not gave_up
+                and leaf_question.kind in ("city_needed", "unresolved")
+            ):
+                # 2026-10-28: the place is missing and so is the day — one
+                # message asks both, with the day chips; never a second turn.
+                profile.date_checked = True
+                text = templates.with_day_question(text, reply_language)
+                profile.last_suggestions = templates.date_chips(reply_language)
             profile.last_clarifying_question = None if gave_up else text
             await store.set(ctx.session.id, profile)
             clarification_reason: ClarificationReason
@@ -2169,6 +2216,44 @@ class _B2cConcierge(BaseAgent):
             for chunk in _chunk_text(text):
                 yield self._chunk_event(ctx, chunk)
             yield self._final(ctx, text)
+            return
+
+        if (
+            route.target == LEAF_HOTEL_SEARCH
+            and response.get("destination_missing") is True
+            and "results" not in response
+            and named_not_found is None
+            and not has_search_destination(profile)
+            and free_question_streak(pending) < templates.CLARIFICATION_MAX_ASKS
+        ):
+            # 2026-10-28: no search ran because the request names no place
+            # (the leaf's `destination_missing`: geocode_location found none
+            # to look up) and the session has none either (no city, area, zone
+            # or device position). The place is what is missing, so ONE code-owned
+            # question asks for it — and for the day in the same sentence
+            # while the day is open and was never asked — with the day chips.
+            # Before: the day alone, then the city on the next turn (12 of the
+            # 13 conversations that stopped on the day question had one turn).
+            # No synthesis: nothing was searched, and its free question used to
+            # add hours, budgets… to a request that cannot run yet.
+            ask_day = day_open and not profile.date_checked
+            if ask_day:
+                profile.date_checked = True
+            question = templates.place_question(reply_language, ask_day=ask_day)
+            profile.last_clarifying_question = question
+            profile.last_suggestions = templates.date_chips(reply_language) if ask_day else None
+            profile.pending_search = {
+                **(next_pending_search(earlier, message, False, question, ended_on_question=True) or {}),
+                "place_question": True,
+            }
+            await store.set(ctx.session.id, profile)
+            self._emit_turn_metric(
+                family, "template:place_question", budget, t_start, "ok", inv,
+                clarification="location",
+            )
+            for chunk in _chunk_text(question):
+                yield self._chunk_event(ctx, chunk)
+            yield self._final(ctx, question)
             return
 
         if (route.target == LEAF_HOTEL_SEARCH and profile.price_comparison
@@ -2290,6 +2375,8 @@ class _B2cConcierge(BaseAgent):
                 metrics_logger.info("concierge_metric=parking_reserve appended=1")
         if date_notice:
             final_text = f"{final_text.rstrip()}\n\n{date_notice}"
+        if day_notice:
+            final_text = f"{final_text.rstrip()}\n\n{day_notice}"
         if budget_followup:
             final_text = f"{final_text.rstrip()}\n\n{budget_followup}"
         elif profile.requested_budget and cards_fit_budget(response.get("results"), profile.requested_budget):

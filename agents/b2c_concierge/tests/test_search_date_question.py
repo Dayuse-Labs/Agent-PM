@@ -1,8 +1,19 @@
-"""QA 2026-10-20 (Fabien): a hotel search that names no day asks for one,
-once per session, before the first search — over the REAL spine, with only
-the A2A leg and the LLM scripted (same seams as test_spine_profile.py).
+"""2026-10-28 (Victor) — the day is never asked in a message of its own.
 
-Trace d327c03d: « Rooftop pool in Los Angeles » searched today, unasked.
+Replaces the contract of 2026-10-20 (Fabien, PR #148: a dateless first search
+asked « Which day would you like to book for? » alone, then the city on the
+next turn). Prod 2026-10-27/28: 12 of the 13 conversations that ended on that
+question had one turn; the entry chips (« With a jacuzzi », « Je veux un
+après-midi spa ») fell from 82 % to 33 % of conversations with results.
+
+New contract, over the REAL spine (only the A2A leg and the LLM scripted, same
+seams as test_spine_profile.py):
+- place missing → ONE question: the place and, while it is open, the day,
+  with the day chips; a reply that gives only the place searches at once;
+- place known, day missing → the search runs (today, or tomorrow past the
+  same-day cutoff: the leaf's D+1 probe) and the SAME answer says which day,
+  with the chips for the days after it;
+- the day is asked once per session, and announced once.
 """
 from __future__ import annotations
 
@@ -13,11 +24,10 @@ import pytest
 from google.adk.runners import InMemoryRunner
 from google.genai import types as genai_types
 
-import b2c_concierge.agent as agent_module
 from b2c_concierge import templates
 from b2c_concierge.agent import root_agent
+from b2c_concierge.date_format import format_date_human
 from b2c_concierge.profile import SessionProfile
-from b2c_concierge.profile_store import ProfileStore
 from b2c_concierge.requested_date import parse_requested_date, reference_today
 from b2c_concierge.triage import LANGUAGES
 
@@ -26,43 +36,57 @@ from .test_spine_profile import _new_session, _run_turn, _scripted_llm, fake_leg
 
 pytestmark = pytest.mark.date_unsettled
 
-_REQUEST = "Rooftop pool in Los Angeles"
-_QUESTION = templates.date_question("en")
+_TODAY = reference_today(None)
+_TOMORROW = _TODAY + timedelta(days=1)
+_REQUEST = "Find a room with a jacuzzi"
 _SEARCH_EN = '{"family": "search", "language": "en"}'
-_RESULTS = {"results": ["hotel A"], "profile_delta": {"city": "Los Angeles"}}
+_SEARCH_FR = '{"family": "search", "language": "fr"}'
+# The leaf's flag when the request names no place (`destination_missing`,
+# response_bridge.emit_search_datapart).
+_NO_PLACE = {"destination_missing": True}
 
 
-def _context_text(parts) -> str:
-    return parts[0].text if parts and parts[0].text else ""
+def _results(day=_TODAY, city="Los Angeles", **search_date):
+    return {
+        "results": ["hotel A"],
+        "profile_delta": {"city": city},
+        "search_date": {"date": day.isoformat(), "same_day": day == _TODAY, **search_date},
+    }
 
 
 def _stored(store, session_id) -> SessionProfile:
     return asyncio.run(store.get(session_id))
 
 
-class TestTheQuestion:
-    def test_a_dateless_first_search_asks_the_day_and_searches_nothing(
+def _context_text(parts) -> str:
+    return parts[0].text if parts and parts[0].text else ""
+
+
+class TestPlaceMissing:
+    def test_one_question_asks_the_place_and_the_day_with_the_day_chips(
         self, monkeypatch, fake_leg, fake_profile_store  # noqa: F811
     ):
+        fake_leg.text = "Which city?"
+        fake_leg.response_payload = _NO_PLACE
         llm = _scripted_llm(monkeypatch, _SEARCH_EN)
         runner = InMemoryRunner(root_agent)
         session = _new_session(runner)
 
         answer = _run_turn(runner, session.id, _REQUEST)
 
-        assert answer == _QUESTION
-        assert fake_leg.call_count == 0
-        assert len(llm.calls) == 1  # the triage only: no leaf, no synthesis
+        question = templates.place_question("en", ask_day=True)
+        assert answer == question
+        assert fake_leg.call_count == 1  # the leaf ran: no question before it
+        assert len(llm.calls) == 1  # the triage only: the question is code-owned
         stored = _stored(fake_profile_store, session.id)
         assert stored.date_checked is True
-        assert stored.date is None
-        assert stored.last_clarifying_question == _QUESTION
         assert stored.last_suggestions == templates.date_chips("en")
-        assert stored.pending_search == {
-            "request": _REQUEST, "question": _QUESTION, "asked": 1, "date_question": True,
-        }
+        assert stored.last_clarifying_question == question
+        assert stored.pending_search["request"] == _REQUEST
+        assert stored.pending_search["place_question"] is True
 
-    def test_the_analytics_facts_count_it_as_a_question(self, monkeypatch, fake_leg):  # noqa: F811
+    def test_the_analytics_facts_count_it_as_a_location_question(self, monkeypatch, fake_leg):  # noqa: F811
+        fake_leg.response_payload = _NO_PLACE
         _scripted_llm(monkeypatch, _SEARCH_EN)
         runner = InMemoryRunner(root_agent)
         session = _new_session(runner)
@@ -72,156 +96,297 @@ class TestTheQuestion:
             return [e async for e in runner.run_async(user_id="u", session_id=session.id, new_message=content)]
 
         (facts,) = [p for p in _marker_payloads(asyncio.run(go())) if p["event"] == "turn_facts"]
-        assert facts["route"] == "template:date_question"
+        assert facts["route"] == "template:place_question"
         assert facts["response_type"] == "clarification"
-        assert facts["clarification_reason"] == "other"
-        assert facts["results_count"] == 0
+        assert facts["clarification_reason"] == "location"
 
-    def test_the_reply_searches_that_day_with_the_request_it_completes(
+    def test_a_reply_with_only_the_place_searches_at_once_and_says_the_day(
+        self, monkeypatch, fake_leg, fake_profile_store  # noqa: F811
+    ):
+        _scripted_llm(monkeypatch, _SEARCH_EN, _SEARCH_EN, "Here are hotels in Los Angeles.")
+        runner = InMemoryRunner(root_agent)
+        session = _new_session(runner)
+        fake_leg.response_payload = _NO_PLACE
+        _run_turn(runner, session.id, _REQUEST)
+
+        fake_leg.response_payload = _results()
+        answer = _run_turn(runner, session.id, "Los Angeles")
+
+        assert fake_leg.call_count == 2
+        # The request travels as the user's own words, with the reply.
+        parts = fake_leg.seen_outgoing_parts
+        assert _context_text(parts) == _REQUEST
+        assert parts[1].text == "Los Angeles"
+        notice = templates.date_retained_notice(
+            format_date_human(_TODAY.isoformat(), "en"), "en", with_chips=True
+        )
+        assert answer == f"Here are hotels in Los Angeles.\n\n{notice}"
+        assert _stored(fake_profile_store, session.id).last_suggestions == templates.later_date_chips("en", 0)
+
+    def test_a_reply_with_the_place_and_the_day_searches_that_day_without_a_notice(
         self, monkeypatch, fake_leg, fake_profile_store  # noqa: F811
     ):
         _scripted_llm(monkeypatch, _SEARCH_EN, _SEARCH_EN, "Here are hotels for tomorrow.")
         runner = InMemoryRunner(root_agent)
         session = _new_session(runner)
+        fake_leg.response_payload = _NO_PLACE
+        _run_turn(runner, session.id, _REQUEST)
+
+        fake_leg.response_payload = _results(_TOMORROW)
+        answer = _run_turn(runner, session.id, "Los Angeles, tomorrow")
+
+        assert answer == "Here are hotels for tomorrow."
+        stored = _stored(fake_profile_store, session.id)
+        assert stored.date == _TOMORROW.isoformat()
+        assert stored.last_suggestions is None
+
+    def test_a_reply_with_only_the_day_asks_the_place_alone_never_the_day_again(
+        self, monkeypatch, fake_leg, fake_profile_store  # noqa: F811
+    ):
+        fake_leg.response_payload = _NO_PLACE
+        _scripted_llm(monkeypatch, _SEARCH_EN, _SEARCH_EN)
+        runner = InMemoryRunner(root_agent)
+        session = _new_session(runner)
 
         _run_turn(runner, session.id, _REQUEST)
-        fake_leg.response_payload = _RESULTS
-        _run_turn(runner, session.id, "Tomorrow")
+        answer = _run_turn(runner, session.id, "Tomorrow")
+
+        assert answer == templates.place_question("en", ask_day=False)
+        stored = _stored(fake_profile_store, session.id)
+        assert stored.date == _TOMORROW.isoformat()
+        assert stored.last_suggestions is None
+
+    def test_any_day_is_an_answer_the_day_question_never_comes_back(
+        self, monkeypatch, fake_leg, fake_profile_store  # noqa: F811
+    ):
+        # Prod session a1bb0e7f (Bilbao): « Da igual » twice, a question each time.
+        fake_leg.response_payload = _NO_PLACE
+        _scripted_llm(monkeypatch, _SEARCH_FR, _SEARCH_FR, _SEARCH_FR, "Voici des hôtels.")
+        runner = InMemoryRunner(root_agent)
+        session = _new_session(runner)
+
+        assert _run_turn(runner, session.id, "un hôtel avec piscine") == templates.place_question(
+            "fr", ask_day=True
+        )
+        assert _run_turn(runner, session.id, "peu importe") == templates.place_question("fr", ask_day=False)
+        fake_leg.response_payload = _results(city="Nice")
+        answer = _run_turn(runner, session.id, "Nice")
+
+        assert "pour quel jour" not in answer
+        assert fake_leg.call_count == 3
+
+    def test_the_leafs_own_place_question_asks_the_day_in_the_same_message(
+        self, monkeypatch, fake_leg, fake_profile_store  # noqa: F811
+    ):
+        # A zone without its city (« gare de Lyon »): the leaf's template
+        # question, completed with the day.
+        fake_leg.response_payload = {
+            "requires_clarification": True,
+            "clarification": {"kind": "city_needed", "subject": "gare de Lyon", "options": []},
+        }
+        _scripted_llm(monkeypatch, _SEARCH_FR)
+        runner = InMemoryRunner(root_agent)
+        session = _new_session(runner)
+
+        answer = _run_turn(runner, session.id, "un hôtel près de la gare de Lyon")
+
+        assert answer == "Près de « gare de Lyon », dans quelle ville cherchez-vous ? Et pour quel jour ?"
+        stored = _stored(fake_profile_store, session.id)
+        assert stored.last_suggestions == templates.date_chips("fr")
+        assert stored.date_checked is True
+
+    def test_without_the_leafs_flag_the_turn_is_served_as_before(
+        self, monkeypatch, fake_leg  # noqa: F811
+    ):
+        # Contre-épreuve of the trigger: a leaf that searched nothing for
+        # another reason (its honest diagnostic) keeps the synthesis.
+        fake_leg.text = "The search could not run."
+        fake_leg.response_payload = {}
+        _scripted_llm(monkeypatch, _SEARCH_EN, "The search could not run this time.")
+        runner = InMemoryRunner(root_agent)
+
+        answer = _run_turn(runner, _new_session(runner).id, _REQUEST)
+
+        assert answer == "The search could not run this time."
+
+
+class TestPlaceKnown:
+    def test_the_search_runs_at_once_and_the_answer_says_the_day_with_the_chips(
+        self, monkeypatch, fake_leg, fake_profile_store  # noqa: F811
+    ):
+        fake_leg.response_payload = _results()
+        llm = _scripted_llm(monkeypatch, _SEARCH_EN, "Here are rooftop pools in Los Angeles.")
+        runner = InMemoryRunner(root_agent)
+        session = _new_session(runner)
+
+        answer = _run_turn(runner, session.id, "Rooftop pool in Los Angeles")
 
         assert fake_leg.call_count == 1
-        parts = fake_leg.seen_outgoing_parts
-        # The request alone, unlabelled: the day is already read (profile_in).
-        assert _context_text(parts) == _REQUEST
-        assert parts[1].text == "Tomorrow"
+        assert len(llm.calls) == 2  # triage + synthesis: nothing more
+        human = format_date_human(_TODAY.isoformat(), "en")
+        assert answer == (
+            "Here are rooftop pools in Los Angeles.\n\n"
+            + templates.date_retained_notice(human, "en", with_chips=True)
+        )
         stored = _stored(fake_profile_store, session.id)
-        assert stored.date == (reference_today(None) + timedelta(days=1)).isoformat()
-        assert stored.pending_search is None or "date_question" not in stored.pending_search
+        assert stored.last_suggestions == ["Tomorrow", "The day after tomorrow"]
+        assert stored.date_announced is True
+        assert stored.date_checked is False  # announced, never asked
 
-    def test_a_reply_naming_no_day_searches_and_the_question_never_comes_back(
+    def test_past_the_same_day_cutoff_the_day_said_is_tomorrow(
         self, monkeypatch, fake_leg, fake_profile_store  # noqa: F811
     ):
-        _scripted_llm(
-            monkeypatch,
-            '{"family": "search", "language": "fr"}',
-            '{"family": "search", "language": "fr"}', "Voici des hôtels.",
-            '{"family": "search", "language": "fr"}', "Voici des hôtels à Lyon.",
-        )
+        fake_leg.response_payload = _results(_TOMORROW, cutoff_fallback_from=_TODAY.isoformat())
+        _scripted_llm(monkeypatch, _SEARCH_FR, "Les réservations du jour sont closes : voici demain.")
         runner = InMemoryRunner(root_agent)
         session = _new_session(runner)
 
-        assert _run_turn(runner, session.id, "un hôtel avec piscine à Nice") == templates.date_question("fr")
-        fake_leg.response_payload = _RESULTS
-        _run_turn(runner, session.id, "peu importe")
-        _run_turn(runner, session.id, "et à Lyon ?")
+        answer = _run_turn(runner, session.id, "un hôtel à Nice")
 
-        assert fake_leg.call_count == 2
+        assert format_date_human(_TOMORROW.isoformat(), "fr") in answer
+        assert _stored(fake_profile_store, session.id).last_suggestions == ["Après-demain"]
 
-    def test_the_day_chips_do_not_outlive_the_turn_that_answers(
+    def test_the_day_is_announced_once_per_session(
         self, monkeypatch, fake_leg, fake_profile_store  # noqa: F811
     ):
-        fake_leg.text = "Free cancellation up to the start of the slot."
-        fake_leg.response_payload = {}
-        _scripted_llm(
-            monkeypatch, _SEARCH_EN,
-            '{"family": "faq", "language": "en"}', "You can cancel for free.",
-        )
+        fake_leg.response_payload = _results(city="Nice")
+        _scripted_llm(monkeypatch, _SEARCH_FR, "Voici Nice.", _SEARCH_FR, "Voici Cannes.")
         runner = InMemoryRunner(root_agent)
         session = _new_session(runner)
 
-        _run_turn(runner, session.id, _REQUEST)
-        _run_turn(runner, session.id, "Can I cancel for free?")
+        _run_turn(runner, session.id, "un hôtel à Nice")
+        fake_leg.response_payload = _results(city="Cannes")
+        answer = _run_turn(runner, session.id, "et à Cannes ?")
 
-        assert _stored(fake_profile_store, session.id).last_suggestions is None
+        assert answer == "Voici Cannes."
 
-
-class TestNoQuestion:
     @pytest.mark.parametrize(
         "message",
         ["a hotel in Nice tomorrow", "un hôtel à Nice ce soir", "un hôtel à Nice le 3", "a hotel in Nice on Friday"],
     )
-    def test_a_day_in_the_message_searches_at_once(self, monkeypatch, fake_leg, message):  # noqa: F811
-        fake_leg.response_payload = _RESULTS
+    def test_a_day_in_the_message_gets_no_notice(self, monkeypatch, fake_leg, message):  # noqa: F811
+        fake_leg.response_payload = {"results": ["hotel A"], "profile_delta": {"city": "Nice"}}
         _scripted_llm(monkeypatch, _SEARCH_EN, "Here are hotels.")
         runner = InMemoryRunner(root_agent)
 
-        _run_turn(runner, _new_session(runner).id, message)
+        assert _run_turn(runner, _new_session(runner).id, message) == "Here are hotels."
 
-        assert fake_leg.call_count == 1
-
-    @pytest.mark.parametrize("day_stated, searched", [("true", 1), ("false", 0)])
-    def test_the_triage_reads_a_day_the_regex_cannot(self, monkeypatch, fake_leg, day_stated, searched):  # noqa: F811
-        # "maintenant" names today in no form `mentions_a_date` reads: only the
-        # triage slot spares the question, and it never adds one.
-        fake_leg.response_payload = _RESULTS
+    @pytest.mark.parametrize("day_stated, notice", [("true", False), ("false", True)])
+    def test_the_triage_reads_a_day_the_regex_cannot(self, monkeypatch, fake_leg, day_stated, notice):  # noqa: F811
+        # "maintenant" names today in no form `mentions_a_date` reads.
+        fake_leg.response_payload = _results(city="Nice")
         _scripted_llm(
             monkeypatch, '{"family": "search", "language": "fr", "day_stated": %s}' % day_stated, "Voici.",
         )
         runner = InMemoryRunner(root_agent)
 
-        _run_turn(runner, _new_session(runner).id, "un hôtel à Nice maintenant")
+        answer = _run_turn(runner, _new_session(runner).id, "un hôtel à Nice maintenant")
 
-        assert fake_leg.call_count == searched
+        assert (answer != "Voici.") is notice
 
-    def test_a_day_already_in_the_session_is_not_asked_again(
+    def test_a_day_already_in_the_session_gets_no_notice(
         self, monkeypatch, fake_leg, fake_profile_store  # noqa: F811
     ):
-        fake_leg.response_payload = _RESULTS
+        carried = _TODAY + timedelta(days=2)
+        fake_leg.response_payload = _results(carried, city="Nice")
         _scripted_llm(monkeypatch, _SEARCH_EN, "Here are hotels.")
         runner = InMemoryRunner(root_agent)
         session = _new_session(runner)
-        carried = (reference_today(None) + timedelta(days=2)).isoformat()
-        asyncio.run(fake_profile_store.set(session.id, SessionProfile(date=carried)))
+        asyncio.run(fake_profile_store.set(session.id, SessionProfile(date=carried.isoformat())))
 
-        _run_turn(runner, session.id, "a hotel in Nice")
+        assert _run_turn(runner, session.id, "a hotel in Nice") == "Here are hotels."
 
-        assert fake_leg.call_count == 1
+    def test_a_month_without_its_day_says_the_day_taken_without_chips(
+        self, monkeypatch, fake_leg, fake_profile_store  # noqa: F811
+    ):
+        # Prod: « Cualquier tarde a partir de las 16 mes de noviembre » stayed
+        # on today. The leaf labels a month (`type: month`) and searches its
+        # first day; the answer says so — the day chips (today, +1, +2) would
+        # not be days of that month.
+        first = _TODAY + timedelta(days=5)
+        fake_leg.response_payload = {
+            **_results(first, city="Barcelona"),
+            "profile_delta": {
+                "city": "Barcelona",
+                "date": {"op": "set", "value": first.isoformat()},
+                "date_reference": {"op": "set", "value": {"resolved_from": "month"}},
+            },
+        }
+        _scripted_llm(monkeypatch, '{"family": "search", "language": "es"}', "Estas son las opciones.")
+        runner = InMemoryRunner(root_agent)
+        session = _new_session(runner)
 
-    def test_a_named_hotel_is_looked_up_without_asking(self, monkeypatch, fake_leg):  # noqa: F811
-        fake_leg.response_payload = _RESULTS
+        answer = _run_turn(runner, session.id, "cualquier tarde del mes que viene en Barcelona")
+
+        human = format_date_human(first.isoformat(), "es")
+        assert answer.endswith(templates.date_retained_notice(human, "es", with_chips=False))
+        assert _stored(fake_profile_store, session.id).last_suggestions is None
+
+
+class TestDayCorrections:
+    def test_a_new_day_the_leaf_read_wins_over_the_carried_one(
+        self, monkeypatch, fake_leg, fake_profile_store  # noqa: F811
+    ):
+        # Prod session eaf1fad8 (Dublin): « Pick a date in 2 weeks » was
+        # searched on Nov 10, then the date guard put Oct 29 back and said
+        # « these offers are for Nov 10, not Oct 29 ».
+        carried = _TODAY + timedelta(days=2)
+        later = _TODAY + timedelta(days=14)
+        fake_leg.response_payload = {
+            "results": ["hotel A"],
+            "profile_delta": {"date": {"op": "set", "value": later.isoformat()}},
+            "search_date": {"date": later.isoformat(), "same_day": False},
+        }
+        _scripted_llm(monkeypatch, _SEARCH_EN, "Here are hotels in two weeks.")
+        runner = InMemoryRunner(root_agent)
+        session = _new_session(runner)
+        asyncio.run(fake_profile_store.set(
+            session.id, SessionProfile(city="Dublin", date=carried.isoformat(), date_announced=True),
+        ))
+
+        answer = _run_turn(runner, session.id, "Pick a date in 2 weeks")
+
+        assert answer == "Here are hotels in two weeks."
+        assert _stored(fake_profile_store, session.id).date == later.isoformat()
+
+    def test_a_cheaper_request_with_nothing_on_screen_searches_instead_of_asking(
+        self, monkeypatch, fake_leg, fake_profile_store  # noqa: F811
+    ):
+        # Prod session a1bb0e7f (Bilbao): « Pasado mañana » triaged `lower`
+        # with nothing on screen asked « no verified total to compare » twice.
+        fake_leg.response_payload = _results(_TODAY + timedelta(days=2), city="Bilbao")
         _scripted_llm(
             monkeypatch,
-            '{"family": "search", "language": "fr", "hotel_name": "Pullman Paris Montparnasse"}',
-            "Voici le Pullman.",
+            '{"family": "search", "language": "es", "price_comparison": '
+            '{"value": "lower", "evidence": "Pasado mañana"}}',
+            "Estas son las opciones en Bilbao.",
         )
         runner = InMemoryRunner(root_agent)
+        session = _new_session(runner)
+        asyncio.run(fake_profile_store.set(session.id, SessionProfile(city="Bilbao")))
 
-        _run_turn(runner, _new_session(runner).id, "je veux le Pullman Paris Montparnasse")
-
-        assert fake_leg.call_count == 1
-
-    def test_with_redis_down_the_search_runs_instead_of_asking(self, monkeypatch, fake_leg):  # noqa: F811
-        # Every turn would start from an empty profile: the reply could never
-        # find the request again, and the question would come back each turn.
-        class _DeadClient:
-            async def get(self, *a, **k):
-                raise ConnectionError("redis unreachable")
-
-            async def set(self, *a, **k):
-                raise ConnectionError("redis unreachable")
-
-            async def exists(self, *a, **k):
-                raise ConnectionError("redis unreachable")
-
-        monkeypatch.setattr(agent_module, "get_profile_store", lambda: ProfileStore(_DeadClient()))
-        fake_leg.response_payload = _RESULTS
-        _scripted_llm(monkeypatch, _SEARCH_EN, "Here are hotels.")
-        runner = InMemoryRunner(root_agent)
-
-        answer = _run_turn(runner, _new_session(runner).id, _REQUEST)
+        answer = _run_turn(runner, session.id, "Pasado mañana")
 
         assert fake_leg.call_count == 1
-        assert answer == "Here are hotels."
+        assert answer == "Estas son las opciones en Bilbao."
 
 
 class TestTemplates:
     @pytest.mark.parametrize("language", LANGUAGES)
     def test_each_chip_is_a_day_the_reply_parser_reads(self, language):
-        today = reference_today(None)
-        days = [parse_requested_date(chip, today) for chip in templates.date_chips(language)]
-        assert days == [today + timedelta(days=n) for n in range(3)]
+        days = [parse_requested_date(chip, _TODAY) for chip in templates.date_chips(language)]
+        assert days == [_TODAY + timedelta(days=n) for n in range(3)]
 
-    def test_the_question_is_translated_and_falls_back_to_english(self):
-        questions = {templates.date_question(language) for language in LANGUAGES}
-        assert len(questions) == len(LANGUAGES)
-        assert templates.date_question("xx") == _QUESTION
+    def test_the_questions_are_translated_and_fall_back_to_english(self):
+        for ask_day in (True, False):
+            questions = {templates.place_question(lang, ask_day=ask_day) for lang in LANGUAGES}
+            assert len(questions) == len(LANGUAGES)
+            assert templates.place_question("xx", ask_day=ask_day) == templates.place_question(
+                "en", ask_day=ask_day
+            )
         assert templates.date_chips("xx") == templates.date_chips("en")
+
+    def test_the_chips_after_the_day_searched(self):
+        assert templates.later_date_chips("en", 0) == ["Tomorrow", "The day after tomorrow"]
+        assert templates.later_date_chips("en", 1) == ["The day after tomorrow"]
+        assert templates.later_date_chips("en", 5) == []

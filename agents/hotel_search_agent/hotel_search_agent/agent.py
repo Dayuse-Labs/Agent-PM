@@ -267,16 +267,22 @@ How to act, frugally (at most ONE reasoning pass — no tool-call loops):
   `timeSlot` and NEVER converted into a start/end window yourself ("for 1
   hour" is not "00:00-01:00"). The system computes any real window from it.
 - `date`: LABEL what the user said, you never resolve it. It has 3 fields:
-  `type` (either "relative" or "absolute"), `value`, and `expression` (their
-  exact wording). For "today"/"tomorrow"/"the day after tomorrow"/a bare
-  weekday, set type="relative" and value to one of: today, tomorrow,
-  day_after_tomorrow, or an English weekday name (a weekday name always means
-  its NEXT occurrence, never today). For an explicit calendar date ("the
-  28th", "July 28", "2026-08-05"), set type="absolute" and value to
-  YYYY-MM-DD if they gave a year, else MM-DD — NEVER add or guess a year
-  yourself. OMIT `date` entirely when no day/date is mentioned at all — the
-  system keeps searching the same date already established, or today if none
-  was ever given.
+  `type`, `value`, and `expression` (their exact wording). For
+  "today"/"tomorrow"/"the day after tomorrow"/a bare weekday, set
+  type="relative" and value to one of: today, tomorrow, day_after_tomorrow, or
+  an English weekday name (a weekday name always means its NEXT occurrence,
+  never today). For an explicit calendar date ("the 28th", "July 28",
+  "2026-08-05"), set type="absolute" and value to YYYY-MM-DD if they gave a
+  year, else MM-DD — NEVER add or guess a year yourself. A count from now
+  ("in 2 weeks", "dans 3 jours") is type="offset" with value "P2W" / "P3D". A
+  month named without its day ("en novembre", "mes de noviembre") is
+  type="month" with value MM. A day left open ("peu importe le jour", "any
+  date", "da igual") is type="flexible" with value "any"; ruling out today
+  only ("pas pour aujourd'hui", "nicht für heute") is type="flexible" with
+  value "not_today". A CORRECTION of the day counts: label the new one. OMIT
+  `date` entirely when no day/date is mentioned at all — the system keeps
+  searching the same date already established, or today if none was ever
+  given.
 - A FOLLOW-UP that only changes the date/budget/filters, or just asks for OTHER
   options, with NO new destination (e.g. "for the 28th instead", "cheaper",
   "earlier", "any other options") → still call geocode_location first (with an
