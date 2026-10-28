@@ -612,3 +612,123 @@ class TestSession1eb2430a:
             tool_context=_ctx("à Paris", profile_in={"city": "Paris", "zone": "Gare du Nord", "country_anchor": "FR"}),
         )
         assert any(q == "Gare du Nord, Paris" for q, _, _ in v6.calls)
+
+
+# Prod session 7e296e4b (2026-10-27, release cb361c0): « new york city or long
+# island » -> Search Box's « The Long Island Bar » in Brooklyn, a 2 km ring with a
+# hot tub filter, 0 hotel. The exact intent below is already searched city-wide
+# since d20af35 (a region named with its city); the same bar still came back
+# when the model labelled the place another area kind, or named no city.
+NYC = _c("New York", "New York, New York, United States", "US", "New York", lat=40.713, lon=-74.006)
+LONG_ISLAND_BAR = _c(
+    "The Long Island Bar", "The Long Island Bar, 110 Atlantic Ave, Brooklyn, New York 11201, United States",
+    "US", "New York", ftype="poi", lat=40.690, lon=-73.996,
+)
+DETROIT_HOSPITAL = _c(
+    "Metropolitan Detroit Area Hospital Services",
+    "Metropolitan Detroit Area Hospital Services, 1150 Elijah McCoy Dr, Detroit, Michigan 48202, United States",
+    "US", "Michigan", ftype="poi", lat=42.358, lon=-83.072,
+)
+CHATELET_POI = _c("Châtelet", "Châtelet, 75001 Paris, France", "FR", "Île-de-France", ftype="poi",
+                  lat=48.858, lon=2.347)
+INVENTORY.update({40.713: 150, 40.69: 40, 42.358: 12, 48.858: 90})
+
+_NEW_YORK_CITY = CityRef(mention="new york city", canonical="New York City", country="US")
+
+
+def _nyc_and_long_island(kind: str) -> GeoIntent:
+    return GeoIntent(
+        places=[
+            Place(mention="new york city", kind="city", canonical="New York City", country="US"),
+            _area("long island", "Long Island", kind, "US"),
+        ],
+        city=_NEW_YORK_CITY, relation="whole_city", carryover="new",
+    )
+
+
+class TestAnAreaIsNeverABusinessNamedAfterIt:
+    @pytest.fixture
+    def nyc(self, geo):
+        return geo(
+            {("New York City, New York", "US"): [NYC], ("New York City", "US"): [NYC]},
+            {("Long Island", "US"): [LONG_ISLAND_BAR]},
+        )
+
+    def test_the_prod_intent_searches_the_whole_city(self, nyc):
+        result = geocode_location(
+            intent=_nyc_and_long_island("region"), locale="en",
+            tool_context=_ctx("new york city or long island"),
+        )
+
+        assert result["ok"] is True, result
+        assert result["distance_origin_type"] == "city_centroid"
+        assert result["resolved_place"] == "New York, New York, United States"
+        assert "zone" not in result["profile_delta"]
+
+    @pytest.mark.parametrize("kind", ["admin_district", "neighborhood"])
+    def test_another_area_kind_falls_back_to_the_whole_city(self, nyc, kind):
+        result = geocode_location(
+            intent=_nyc_and_long_island(kind), locale="en",
+            tool_context=_ctx("new york city or long island"),
+        )
+
+        assert result["ok"] is True, result
+        assert result["distance_origin_type"] == "city_centroid"
+        assert result["resolved_place"] == "New York, New York, United States"
+        assert "zone" not in result["profile_delta"]
+        assert "geocode_echo_back" in result["guards_fired"]
+
+    def test_an_area_with_no_city_is_never_the_business(self, geo):
+        # Prod a407144 (2026-10-28): « metro Detroit » -> a hospital services
+        # company. Not an area Mapbox's admin layer knows, no city to fall back on.
+        geo({}, {("Metro Detroit", "US"): [DETROIT_HOSPITAL]})
+        intent = GeoIntent(places=[_area("metro detroit", "Metro Detroit", "region", "US")],
+                           relation="whole_city", carryover="new")
+
+        result = geocode_location(intent=intent, locale="en",
+                                  tool_context=_ctx("day room in metro detroit"))
+
+        assert result["ok"] is False
+        assert "latitude" not in result
+        assert "geocode_echo_back" in result["guards_fired"]
+
+    def test_the_area_under_its_own_name_is_kept(self, geo):
+        geo({("Paris", "FR"): [PARIS]}, {("Châtelet", "FR"): [CHATELET_POI]})
+        intent = GeoIntent(
+            places=[Place(mention="paris", kind="city", canonical="Paris", country="FR"),
+                    _area("chatelet", "Châtelet", "neighborhood", "FR")],
+            city=CityRef(mention="paris", canonical="Paris", country="FR"),
+            relation="in", carryover="new",
+        )
+
+        result = geocode_location(intent=intent, locale="fr",
+                                  tool_context=_ctx("un hôtel à châtelet à paris"))
+
+        assert result["ok"] is True, result
+        assert result["resolved_place"] == "Châtelet, 75001 Paris, France"
+        assert result["profile_delta"]["zone"] == "Châtelet"
+
+
+@pytest.mark.parametrize(
+    ("poi_name", "kind", "names", "business"),
+    [
+        # Prod 2026-10-15/28, every area place that came back as a Search-Box poi.
+        ("The Long Island Bar", "region", ("Long Island", "New York City"), True),
+        ("Metropolitan Detroit Area Hospital Services", "region", ("metro Detroit",), True),
+        ("Centro Lampo Roma", "neighborhood", ("Centro", "Roma"), True),
+        ("Bergen County Islamic Center", "admin_district", ("Bergen County",), True),
+        ("China Sea Milton", "region", ("the sea",), True),
+        ("Châtelet", "neighborhood", ("Châtelet", "Paris"), False),
+        ("Basovizza", "neighborhood", ("Basovizza", "Trieste"), False),
+        ("Manhattan", "neighborhood", ("Manhattan", "New York"), False),
+        ("Lago como", "region", ("lago di como", "Lago di Como"), False),
+        ("Métropole Européenne de Lille | Lille", "region",
+         ("métropole lilloise", "Métropole européenne de Lille", "Lille"), False),
+        # A landmark is a poi by nature: never judged on its name here.
+        ("The Long Island Bar", "landmark", ("Long Island", "New York City"), False),
+    ],
+)
+def test_a_business_only_borrows_the_area_name(poi_name, kind, names, business):
+    poi = _c(poi_name, poi_name, "US", "", ftype="poi")
+
+    assert geocode_tool._business_named_after_the_area(poi, zone_kind=kind, names=names) is business

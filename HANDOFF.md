@@ -6,6 +6,72 @@
 
 > 📋 **Pour savoir QUOI faire ensuite, ouvrir [`CHANTIERS.md`](CHANTIERS.md)** (état vérifié au 2026-09-14) : la liste des chantiers ouverts, chacun avec sa preuve, ses actions et un prompt prêt à coller — plus la liste de ce qu'il ne faut **pas** relancer parce que c'est déjà livré. `tasks/todo.md` est périmé et ne doit plus servir de référence.
 
+## 🏝️ 2026-10-28 — Une zone n'est jamais un commerce qui porte son nom (branche `fix/area-never-a-business-poi`)
+
+**Constat** (session prod `7e296e4b`, T3, release `cb361c0`) : « new york city or long island »
+→ la feuille a reçu Long Island en `kind=region` avec la ville NYC. Search Box a rendu « The Long
+Island Bar » (Brooklyn, `poi`) → `search_offers` à 2 km avec le filtre hot tub → 0 hôtel.
+`geocode_echo_back` et `state_anchoring` ont tiré sans rien rattraper.
+
+**Déjà corrigé sur `main` pour ce cas exact** : `d20af35` (#162, déployé à 16:38Z le 10-27, deux
+heures après la session) cherche la ville quand une région est nommée avec elle. Vérifié hors
+ligne, puis en direct (3/3 tours locaux : Long Island lu `region`, recherche sur New York entière,
+pas de `radiusKm`).
+
+**Le même défaut restait ouvert** :
+- **Hors ligne sur `main`** : le même lieu étiqueté `admin_district` ou `neighborhood`, ou nommé
+  sans ville, rendait toujours le bar.
+- **En prod, 2026-10-15/28** (654 `geocode_location`), 11 lieux de type zone résolus en `poi`.
+  - Les faux sont des commerces qui portent le nom du lieu : « metro Detroit » → *Metropolitan
+    Detroit Area Hospital Services* (`a407144`, le code actuel), « centro » → *Centro Lampo Roma*
+    (`a407144`), « Bergen County » → *… Islamic Center*, « the sea » → *China Sea Milton*
+    (Brisbane).
+  - Les justes gardent le nom du lieu : *Châtelet*, *Basovizza*, *Manhattan*.
+
+**Fait** (`geocode_tool.py`) : `_business_named_after_the_area`.
+- **La règle** : pour une zone `region` / `admin_district` / `neighborhood`, un `poi` de Search Box
+  dont le nom porte un mot absent du nom demandé et de la ville est un commerce.
+  - « Lago como » pour Lago di Como reste accepté.
+  - Les landmarks / gares / aéroports / adresses ne sont jamais jugés ainsi.
+- **Où elle s'applique** : aux 3 endroits où un poi de Search Box est accepté (tier 2 avec ville,
+  repli `natural` sans ville, zone avec GPS sans ville).
+- **Ce qu'elle fait sur un rejet** : `geocode_echo_back` (score existant) et le statut
+  `area_resolved_to_a_business` dans la trace.
+  - Avec une ville : la ville entière (un appel récursif de `geocode_core` sans zone, l'issue même
+    de la région nommée avec sa ville).
+  - Sans ville : l'issue honnête existante.
+- Item d'éval `geo-poi-nyc-or-long-island` (`b2c-geo-poi.jsonl`, `regression_guard` : 1 hôtel au
+  moins, pas de `radiusKm`).
+
+**Preuves** :
+- **Tests** : l'intention exacte de la prod ; Long Island en `admin_district` / `neighborhood` ;
+  « metro Detroit » sans ville ; Châtelet gardé ; la table des 11 cas de prod.
+- **Contrôles négatifs** :
+  - règle désactivée → 8 rouges ;
+  - le cas exact reste vert sans la règle (la région nommée avec sa ville le couvre) et sans
+    `d20af35` (la règle le couvre) ; il ne tombe qu'avec les deux désactivés : 2 protections.
+- **Sonde réelle, en process** (vrais clients Mapbox, sans LLM, IP locale) :
+  - Long Island `admin_district` / `neighborhood` + NYC : Search Box rend bien le bar, rejeté →
+    New York entière ;
+  - « metro Detroit » → non résolu (au lieu de l'hôpital) ;
+  - Châtelet gardé.
+- **Gates** : pytest 3 345 passés / 1 skippé ; ruff, mypy, guardrails OK.
+
+**Résidus notés** :
+- Long Island étiqueté `landmark` rend toujours le bar : un landmark EST un poi, la règle n'y
+  touche pas exprès. Seul le modèle peut le voir.
+- « X ou Y » n'existe pas dans `GeoIntent` (`CHANTIERS.md` G15).
+- **Trouvé à la sonde, hors périmètre** : « centro » + Roma → « Centro, Turin ». C'est le tier 1 de
+  v6, à 520 km : l'écho passe sur le seul mot de la zone, et le guard #14 ne contrôle que le tier 2
+  (`CHANTIERS.md` G16).
+- **IP de sortie** : Search Box dépend de l'IP, donc la sonde locale ne reproduit pas forcément la
+  prod (en prod, « centro » a donné le commerce de Rome, que la règle rejette).
+
+**Reste** :
+- Merger, puis déployer `hotel-search` (`DEPLOY.md`).
+- Semer l'item d'éval dans Langfuse (`scripts/langfuse_seed_datasets.py --only b2c-geo-poi`) :
+  c'est à Fabien, car l'upsert écrase les corrections faites dans Langfuse.
+
 ## 📌 2026-10-27 (undecies) — La pile Railway EST la prod client
 
 Rectification (Fabien) : depuis la bascule d'ai.dayuse.com (2026-10-26), la pile Railway sert les

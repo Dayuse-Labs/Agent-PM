@@ -8,7 +8,7 @@ session OBS6 (qui possède les experiments, les évaluateurs et le gate CI), pas
 
 | Fichier | Dataset Langfuse | Items |
 |---|---|---|
-| `b2c-geo-poi.jsonl` | `b2c/geo-poi` | 21 |
+| `b2c-geo-poi.jsonl` | `b2c/geo-poi` | 22 |
 | `b2c-occupancy.jsonl` | `b2c/occupancy` | 14 |
 | `b2c-language-robustness.jsonl` | `b2c/language-robustness` | 13 |
 | `b2c-prod-regressions.jsonl` | `b2c/prod-regressions` | 6 — **importé** (`source_trace_id`), pas semé — voir OBS6 §5 |
