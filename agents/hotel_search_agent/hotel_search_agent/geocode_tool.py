@@ -308,6 +308,38 @@ def _poi_anchor_incoherent(
     return haversine_km(anchor[0], anchor[1], poi.latitude, poi.longitude) > _POI_ANCHOR_MAX_KM
 
 
+#: `GeoIntent` kinds of a place that is an AREA, administrative or not: Search
+#: Box may answer one with a `poi`, which must then be the area itself.
+_AREA_LIKE_KINDS = frozenset({*_AREA_KINDS, "neighborhood"})
+
+
+def _business_named_after_the_area(
+    poi: GeocodeCandidate, *, zone_kind: str | None, names: tuple[str, ...]
+) -> bool:
+    """Is this Search-Box poi a business that only borrows the area's name?
+
+    Prod 2026-10-15/28, area places that came back as a poi: « long island » ->
+    The Long Island Bar (Brooklyn, a 2 km ring), « metro Detroit » ->
+    Metropolitan Detroit Area Hospital Services, « centro » -> Centro Lampo Roma,
+    « Bergen County » -> Bergen County Islamic Center. The echo guard passes them
+    all: their name CONTAINS the area's. The area itself keeps to its own words
+    (« Châtelet », « Lago como » for Lago di Como): a word of the poi's name that
+    is in none of `names` (the area, the city) makes it a business.
+
+    Landmarks, stations, airports and addresses are pois by nature: never here."""
+    if zone_kind not in _AREA_LIKE_KINDS or poi.feature_type != "poi":
+        return False
+    requested = {word for name in names for word in _comparable(name).split()}
+    return bool(set(_comparable(poi.name or "").split()) - requested)
+
+
+def _mark_business_named_after_the_area(guards_fired: list[str]) -> None:
+    """The echo guard's veto: the answer does not name the requested area."""
+    mark_level("WARNING", status_message="area_resolved_to_a_business")
+    if "geocode_echo_back" not in guards_fired:
+        guards_fired.append("geocode_echo_back")
+
+
 def _city_coordinate(
     city: str,
     *,
@@ -1010,7 +1042,12 @@ def geocode_core(
             inventory=get_inventory(),
             proximity=proximity_tuple,
         )
-        if natural is not None and any(
+        if natural is not None and _business_named_after_the_area(
+            natural, zone_kind=zone_kind, names=area_names
+        ):
+            # No city to fall back on: the honest outcome below.
+            _mark_business_named_after_the_area(guards_fired)
+        elif natural is not None and any(
             _echoes(natural.place_name, city=None, zone=n, state_hint=None) for n in area_names
         ):
             return _ok(
@@ -1128,6 +1165,10 @@ def geocode_core(
                 if _poi_anchor_incoherent(landmark, anchor=proximity_tuple):
                     guards_fired.append("poi_anchor_coherence")
                     mark_level("WARNING", status_message="poi_anchor_incoherent")
+                elif _business_named_after_the_area(
+                    landmark, zone_kind=zone_kind, names=_names(effective_zone, *aliases)
+                ):
+                    _mark_business_named_after_the_area(guards_fired)
                 else:
                     return _ok(
                         landmark.as_result(),
@@ -1451,6 +1492,31 @@ def geocode_core(
             if _poi_anchor_incoherent(poi, anchor=poi_anchor):
                 guards_fired.append("poi_anchor_coherence")
                 mark_level("WARNING", status_message="poi_anchor_incoherent")
+            elif _business_named_after_the_area(
+                poi,
+                zone_kind=zone_kind,
+                names=_names(effective_zone, *aliases, effective_city, effective_metro),
+            ):
+                _mark_business_named_after_the_area(guards_fired)
+                if effective_city or effective_metro:
+                    # Prod 7e296e4b (« new york city or long island »): the city
+                    # is the search, as for a region named with its city (above).
+                    whole_city = geocode_core(
+                        city=city, metro=metro, country_code=country_code,
+                        raw_user_message=raw_user_message,
+                        profile_state_context=profile_state_context,
+                        profile_location_hint=profile_location_hint,
+                        locale=locale, language_hint=language_hint,
+                        proximity_lat=proximity_lat, proximity_lon=proximity_lon,
+                        country_guess=country_guess,
+                        region_named=region_named or effective_zone,
+                        postal_code=postal_code, region_chosen=region_chosen,
+                        market_country=market_country, aliases=aliases,
+                    )
+                    whole_city["guards_fired"] = sorted(
+                        {*guards_fired, *whole_city.get("guards_fired", ())}
+                    )
+                    return whole_city
             else:
                 profile_delta = _anchor_state(
                     city=effective_city,
