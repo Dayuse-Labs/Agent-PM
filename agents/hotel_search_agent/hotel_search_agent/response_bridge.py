@@ -1494,6 +1494,9 @@ def capture_after_tool(
                     steps.append("timeslot")
             if rescued:
                 results = rescued
+                # Visible beyond the metric line: `fallback_search_rescue`
+                # score and `turn_facts.fallbacks` (review of #173).
+                _record_fallback(tool_context, "search_rescue")
                 timeslot_fallback = timeslot_fallback or "timeslot" in steps
                 if "next_day" in steps and isinstance(rescue.get("offered_date"), str):
                     structured = payload

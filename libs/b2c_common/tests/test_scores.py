@@ -233,7 +233,7 @@ class TestScoreTtftEnabled:
 class TestScoreFallbacks:
     def test_names_contract(self):
         # Same contract as GUARD_SCORE_NAMES: append, never rename or remove.
-        assert scores.FALLBACK_SCORE_NAMES == ("synthesis", "mcp_error", "named_hotel_not_found")
+        assert scores.FALLBACK_SCORE_NAMES == ("synthesis", "mcp_error", "named_hotel_not_found", "search_rescue")
 
     def test_disabled_is_a_noop(self):
         scores.score_fallbacks({"synthesis"})  # must not raise
@@ -247,5 +247,6 @@ class TestScoreFallbacks:
             "fallback_synthesis": 1.0,
             "fallback_mcp_error": 0.0,
             "fallback_named_hotel_not_found": 0.0,
+            "fallback_search_rescue": 0.0,
         }
         assert all(c["data_type"] == "BOOLEAN" for c in client.calls)

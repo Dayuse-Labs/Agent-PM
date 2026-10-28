@@ -99,3 +99,16 @@ def test_the_chip_reaches_the_leaf_and_the_line_leads_the_answer(scripted, fake_
     events = _drive_in(runner, session.id, "quitar un filtro")
     assert leaf_calls.kwargs[0]["query_params"]["relax"] == "filters"
     assert _answer(events).startswith("No había ningún filtro aplicado a esta búsqueda.")
+
+
+def test_a_rescued_turn_is_visible_in_turn_facts():
+    """Review of #173: a rescued turn was only a `dayuse_metric=search_rescue`
+    log line. The leaf now raises `search_rescue` (`fallbacks_fired`): it
+    becomes the `fallback_search_rescue` score and a `turn_facts.fallbacks`
+    entry (append-only contract)."""
+    from b2c_concierge.turn_facts import spine_turn_facts
+
+    facts = spine_turn_facts(
+        family="search", route="leaf:hotel_search", status="ok", hotels_returned=3, fallbacks={"search_rescue"},
+    )
+    assert facts["fallbacks"] == ["search_rescue"]

@@ -544,3 +544,5 @@ def test_the_same_evening_with_a_strict_slot_ends_on_the_next_day_without_it():
     assert [card["name"] for card in data["results"]] == [h["name"] for h in _WANCHAI]
     assert data["relaxation"]["steps"] == ["timeslot", "next_day"]
     assert data["search_date"]["date"] == tomorrow
+    # Visible in Langfuse (`fallback_search_rescue`) and in `turn_facts.fallbacks`.
+    assert data["fallbacks_fired"] == ["search_rescue"]
