@@ -31,7 +31,7 @@ from pathlib import Path
 
 import pytest
 
-from b2c_common.hotel_urls import _MARKET
+from b2c_common.hotel_urls import _LANGUAGE_HOST, _MARKET
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
 
@@ -98,6 +98,15 @@ class TestHostAllowlistStillAdmitsEveryMarket:
             f"web/vendor/static/js/chat/security.js: {rejected}. Every hotel card in "
             "those markets renders with no hotel-page link. Add the host root there."
         )
+
+    def test_every_language_host_passes_the_widget_allowlist(
+        self, dayuse_hosts: list[str]
+    ) -> None:
+        """Links open on the user's site since 2026-10-28 (`site_host`), so the
+        other-language hosts (nl.dayuse.be, de.dayuse.ch, en.dayuse.com.hk)
+        carry cards too."""
+        rejected = [h for h in _LANGUAGE_HOST.values() if not drift._host_allowed(h, dayuse_hosts)]
+        assert rejected == [], f"rejected by DAYUSE_HOSTS in security.js: {rejected}"
 
     def test_the_allowlist_check_can_actually_fail(self, dayuse_hosts: list[str]) -> None:
         """Without this, the test above could be vacuously green."""

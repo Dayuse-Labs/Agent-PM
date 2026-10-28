@@ -56,14 +56,18 @@ def build_search_page_url(
     checkin_date: str | None = None,
     timeslot_start: str | None = None,
     timeslot_end: str | None = None,
+    host: str | None = None,
 ) -> str | None:
-    """`https://<market-host><path>?selectedAddress=…&checkinDate=…&checkinTime=…&checkoutTime=…`
-    or None when the path or the market is unknown. Hours follow the site rule
-    (nearest whole hour, `b2c_common.timeslot`)."""
+    """`https://<host><path>?selectedAddress=…&checkinDate=…&checkinTime=…&checkoutTime=…`
+    or None when the path or the host is unknown. `host` is the user's site
+    (`hotel_urls.site_host`, the path is the same on every host), else the
+    page's market host. Hours follow the site rule (nearest whole hour,
+    `b2c_common.timeslot`)."""
     if not isinstance(path, str) or not _PATH_RE.fullmatch(path):
         return None
     market = _resolve_market(country_code, None)
-    if market is None:
+    host = host or (market[0] if market else None)
+    if host is None:
         return None
     params: list[tuple[str, str]] = []
     if name:
@@ -76,7 +80,7 @@ def build_search_page_url(
     if departure is not None:
         params.append(("checkoutTime", _site_hour(departure)))
     query = f"?{urlencode(params)}" if params else ""
-    return f"https://{market[0]}{path}{query}"
+    return f"https://{host}{path}{query}"
 
 
 def without_hours(url: str) -> str:

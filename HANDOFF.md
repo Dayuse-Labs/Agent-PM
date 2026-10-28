@@ -6,6 +6,71 @@
 
 > 📋 **Pour savoir QUOI faire ensuite, ouvrir [`CHANTIERS.md`](CHANTIERS.md)** (état vérifié au 2026-09-14) : la liste des chantiers ouverts, chacun avec sa preuve, ses actions et un prompt prêt à coller — plus la liste de ce qu'il ne faut **pas** relancer parce que c'est déjà livré. `tasks/todo.md` est périmé et ne doit plus servir de référence.
 
+## 📅 2026-10-28 — Les liens s'ouvrent dans la langue de l'utilisateur (branche `feat/links-in-user-language`)
+
+**Constat** (Fabien) : un Français qui cherche un hôtel en Allemagne clique et arrive sur
+`www.dayuse.de`, en allemand. `hotel_urls.py` construisait tout lien sur l'hôte du **pays de
+l'hôtel**, et MCP `generate_booking_link` fait de même pour le tunnel.
+
+**Sondé sur le site** (GET seuls) : chaque hôte Dayuse sert **tout** hôtel, dans sa langue et sa
+devise. `/hotels/germany/arcotel-john-f-berlin` répond 200, 0 redirection, sur les 23 hôtes
+possibles (`fr-FR` sur `www.dayuse.fr`, `nl-BE` sur `nl.dayuse.be`, `de-CH` et CHF sur
+`de.dayuse.ch`…). Les pages `/s/…` ont le même chemin partout : le site lui-même lie
+`/s/deutschland/berlin` depuis dayuse.fr. Le tunnel `/tunnel/booking?offerId=…` porte l'offre et
+jamais de session ; la même requête répond 200 en `fr-FR` sur dayuse.fr.
+
+**Fait** :
+- **`b2c_common.site_host(language, visitor_country)`** : la langue de la conversation
+  (`profile.language`, sinon `locale`) choisit la langue ; le marché du visiteur
+  (`entry_market_country`) choisit l'hôte dans cette langue.
+  - Son marché la parle → son hôte (GB+en → `.co.uk`, sa devise est gardée).
+  - Sinon la variante linguistique du marché (BE+nl → `nl.dayuse.be`, CH+de → `de.dayuse.ch`,
+    HK+en → `en.dayuse.com.hk`).
+  - Sinon le site de la langue (`_HOME_MARKET` : en → `.com`, fr → `.fr`, … pt → `pt.dayuse.com`).
+  - Langue inconnue → `None` → hôte du pays de l'hôtel, la règle d'avant.
+  - Tables `_SITE_LANGUAGE`, `_LANGUAGE_HOST` et `_HOME_MARKET` lues dans le `production.js` de
+    dayuse-com (`c5d6f39e3c`).
+  - Une visite directe d'ai.dayuse.com tombe sur le marché par défaut US/en (!15273 non mergée) :
+    c'est pour ça que la langue passe avant le marché.
+- `build_hotel_page_url(..., host=)` et `build_search_page_url(..., host=)` : le chemin pays reste
+  celui de l'hôtel. Feuille : `response_bridge._site_host(profile_in)` passé à toutes les cartes et
+  à `search_page`. Concierge : `get_hotel_details` et `compare_hotels`.
+- **`on_user_site(url, host)`** : déplace le lien tunnel de MCP (3 sites dans `inline_tools` :
+  sélecteur de formules, devis confirmé, confirmation). Ne touche qu'un lien sur un de nos hôtes
+  marché.
+- Rien côté widget : `DAYUSE_HOSTS` admet déjà les 3 sous-domaines (test ajouté dans
+  `test_market_table_drift.py`). `market_referential()` est inchangé, donc pas de régénération de
+  `markets.generated.js`.
+
+**Preuves** :
+- **Tests** : 3 398 verts, ruff, mypy et guardrails OK.
+  - Nouveaux tests : matrice `site_host`, invariants des tables, `on_user_site`, chaîne réelle du
+    callback de la feuille, `get_hotel_details`, `compare_hotels`, 2 chemins du tunnel.
+  - Contre-épreuve : sans le code, les 2 tests feuille et les 4 tests concierge échouent.
+- **Local réel** (luna, MCP prod, Redis :6390), Berlin demain après-midi, tours d'une seule question :
+  - fr sur marché US → 5 cartes `www.dayuse.fr/hotels/germany/…` ;
+  - en/US → `www.dayuse.com` ;
+  - en-GB/GB → `www.dayuse.co.uk` ;
+  - nl/BE → `nl.dayuse.be` ;
+  - fr/FR → `www.dayuse.fr` ;
+  - à chaque fois, `search_page` suit le même hôte.
+  - Tour de choix : `booking_card.url` passe de `www.dayuse.de/tunnel/booking` (avant) à
+    `www.dayuse.fr/tunnel/booking`, requête et utm intactes.
+  - Chaque URL rendue → 200, 0 redirection, `lang` attendu.
+
+**Pièges** :
+- Sans Redis, le test local ment : `entry_market_country` (et `search_page`) ne sont pas persistés,
+  donc en-GB/GB sortait sur `.com`. Toujours `CONCIERGE_REDIS_URL=redis://localhost:6390/0`
+  (conteneur `agentb2c-redis-6390`).
+- Effet accepté : la carte garde la devise de l'hôtel, la page affiche celle de l'hôte (hôtel à
+  Londres vu d'un Français : £ sur la carte, € sur dayuse.fr). C'est ce que dayuse.com montre à ses
+  propres visiteurs.
+
+**Reste** :
+- Non déployé : la PR touche b2c_common, donc **hotel-search ET concierge** à redéployer (`DEPLOY.md`).
+- Le repli « Voir tout » du widget (`/s/<pays>` de `markets.generated.js`, seulement sans
+  `search_page`) reste sur l'hôte du pays de l'hôtel.
+
 ## 🚀 2026-10-28 — `faq`, `hotel-search` et `concierge` déployés sur `b6f9402` (#168, #169, #170)
 
 **Déployé** (`DEPLOY.md`, par Claude à la demande de Fabien), depuis `../AgentB2C-deploy` détaché

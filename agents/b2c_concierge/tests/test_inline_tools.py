@@ -215,6 +215,23 @@ class TestGetHotelDetails:
             "https://www.dayuse.fr/hotels/france/villa-paris-orly-rungis?checkinDate=2026-09-27"
         )
 
+    def test_page_url_opens_on_the_users_site(self, monkeypatch):
+        # 2026-10-28: the link speaks the conversation's language, on the
+        # visitor's own market when it speaks it — a UK visitor writing English
+        # reads this Paris hotel on dayuse.co.uk, not on dayuse.fr in French.
+        response = {
+            **HOTEL_DETAILS_RESPONSE,
+            "hotel": {**HOTEL_DETAILS_RESPONSE["hotel"], "slug": "villa-paris-orly-rungis"},
+        }
+        _install(monkeypatch, {"get_hotel_details": FakeResult(response)})
+        profile = SessionProfile(
+            last_results=SHORTLIST, date="2026-09-27", language="en", entry_market_country="GB"
+        )
+        result = _run(inline_tools.get_hotel_details("Villa Paris Orly", profile))
+        assert result["hotel"]["url"] == (
+            "https://www.dayuse.co.uk/hotels/france/villa-paris-orly-rungis?checkinDate=2026-09-27"
+        )
+
     def test_stamps_currency_code_when_mcp_sends_it(self, monkeypatch):
         # S-G7: live-probed 2026-07-23 — get_hotel_details returns a per-hotel
         # currencyCode; display-only, priceEuro is unaffected (no conversion).
@@ -394,6 +411,22 @@ class TestCompareHotels:
         assert villa["image_urls"] == ["https://static.dayuse.com/hotels/22293/photo.png"]
         assert "image_urls" not in red_roof
 
+    def test_compared_hotels_link_to_the_users_site(self, monkeypatch):
+        # 2026-10-28: same rule as the details card — a French conversation on
+        # the en/US default market reads the US hotel on dayuse.fr.
+        response = {
+            **COMPARE_RESPONSE,
+            "hotels": [
+                {**COMPARE_RESPONSE["hotels"][1], "slug": "red-roof-inn-secaucus", "countryName": "United States"},
+            ],
+        }
+        _install(monkeypatch, {"compare_hotels": FakeResult(response)})
+        profile = SessionProfile(
+            last_results=self.SHORTLIST_TWO, language="fr", entry_market_country="US"
+        )
+        result = _run(inline_tools.compare_hotels("compare Villa Paris Orly and Red Roof", profile))
+        assert result["hotels"][0]["url"] == "https://www.dayuse.fr/hotels/usa/red-roof-inn-secaucus"
+
     def test_defaults_to_the_on_screen_shortlist_when_no_names_resolve(self, monkeypatch):
         session = _install(monkeypatch, {"compare_hotels": FakeResult(COMPARE_RESPONSE)})
         profile = SessionProfile(last_results=self.SHORTLIST_TWO)
@@ -545,6 +578,18 @@ class TestGenerateBookingLinkR9:
         # get_hotel_details must NOT be re-queried: the pending offer identity
         # (stored at the quote step) is reused verbatim, no drift.
         assert "get_hotel_details" not in {c[0] for c in session.calls}
+
+    def test_the_confirmed_link_books_on_the_users_site(self, monkeypatch):
+        _install(monkeypatch, {"generate_booking_link": lambda args: FakeResult(
+            {"link": {"url": "https://www.dayuse.de/tunnel/booking?offerId=abc"}}
+        )})
+        profile = SessionProfile(
+            last_results=SHORTLIST, language="nl", entry_market_country="BE",
+            pending_booking={"hotel_id": 22293, "hotel_name": "Villa Paris Orly", "date": "2026-07-20",
+                             "rate_plan_uuid": "019d2b0c-4f34-7110-882d-d5709ca05b6f", "rate_plan_id": None},
+        )
+        result = _run(inline_tools.generate_booking_link("Villa Paris Orly", profile, user_confirmed=True))
+        assert result["url"] == "https://nl.dayuse.be/tunnel/booking?offerId=abc"
 
     def test_bypass_attempt_without_any_prior_pending_offer_never_confirms(self, monkeypatch):
         session = _install(
@@ -1088,6 +1133,21 @@ class TestRatePlanSelector:
         result = self._pick(profile)
         assert result["ok"]
         assert {p["offer_id"] for p in result["rate_plans"]} == {"rp-day", "rp-spa"}
+
+    def test_every_formula_books_on_the_users_site(self, monkeypatch):
+        # 2026-10-28: MCP builds the tunnel link on the hotel's market — a
+        # French user booking Berlin got www.dayuse.de/tunnel/booking, German.
+        self._mcp(monkeypatch, link=lambda args: FakeResult(
+            {"link": {"url": f"https://www.dayuse.de/tunnel/booking?offerId={args['ratePlanUuid']}"}}
+        ))
+        profile = SessionProfile(
+            last_results=self.SHOWN, date="2026-07-28", language="fr", entry_market_country="US"
+        )
+        result = self._pick(profile)
+        assert result["url"].startswith("https://www.dayuse.fr/tunnel/booking?offerId=")
+        assert {p["url"].split("?")[0] for p in result["rate_plans"]} == {
+            "https://www.dayuse.fr/tunnel/booking"
+        }
 
     def test_the_day_s_formulas_come_back_cheapest_first_each_with_its_link(self, monkeypatch):
         self._mcp(monkeypatch)

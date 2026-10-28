@@ -59,6 +59,18 @@ def test_an_unknown_market_or_path_gives_no_url():
     assert build_search_page_url("/hotels/france/x", "FR") is None
 
 
+def test_the_user_site_wins_and_keeps_the_path():
+    """The site serves the same /s/ path on every host (probed 2026-10-28:
+    www.dayuse.fr/s/deutschland/berlin is 200) — a French user's "Voir tout"
+    on a Berlin search stays on dayuse.fr."""
+    berlin = "/s/deutschland/berlin"
+    assert build_search_page_url(berlin, "DE", checkin_date="2026-11-02", host="www.dayuse.fr") == (
+        "https://www.dayuse.fr/s/deutschland/berlin?checkinDate=2026-11-02"
+    )
+    assert build_search_page_url(berlin, "DE") == "https://www.dayuse.de/s/deutschland/berlin"
+    assert build_search_page_url("/hotels/germany/x", "DE", host="www.dayuse.fr") is None
+
+
 def test_without_hours_keeps_the_place_and_the_day():
     url = build_search_page_url(
         _LYON["path"], "FR", name="Lyon", checkin_date="2026-10-07",
