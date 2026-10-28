@@ -6,6 +6,38 @@
 
 > 📋 **Pour savoir QUOI faire ensuite, ouvrir [`CHANTIERS.md`](CHANTIERS.md)** (état vérifié au 2026-09-14) : la liste des chantiers ouverts, chacun avec sa preuve, ses actions et un prompt prêt à coller — plus la liste de ce qu'il ne faut **pas** relancer parce que c'est déjà livré. `tasks/todo.md` est périmé et ne doit plus servir de référence.
 
+## 🚀 2026-10-28 — `faq`, `hotel-search` et `concierge` déployés sur `b6f9402` (#168, #169, #170)
+
+**Déployé** (`DEPLOY.md`, par Claude à la demande de Fabien), depuis `../AgentB2C-deploy` détaché
+sur `b6f9402`, arbre propre. Pré-vol : pytest 3 367 passés / 1 skippé, sur l'arbre de `83b9a47`
+(identique à `b6f9402`). Estampilles posées avec `--skip-deploys` (`faq` `8d1579b`, `hotel-search`
+`a407144`, `concierge` `b446a65` → `b6f9402`), puis `up` dans l'ordre faq → hotel-search →
+concierge : les 3 en SUCCESS à 14:03Z. `widget` (`cb361c0`) inchangé.
+
+**`CONCIERGE_LEAF_TIMEOUT_SECONDS` supprimée par Fabien** (UI) juste avant. 🪤 La suppression a mis
+en file un redéploiement de l'**ancien** code (14:01Z), qui sans la variable coupe la recherche
+à 15 s et la FAQ à 25 s. Il a été remplacé par le `up` deux minutes plus tard (statut REMOVED).
+Supprimer une variable redéploie comme en poser une : la retirer juste APRÈS le `up` (le
+redéploiement repart alors du nouveau code). Piège ajouté à `DEPLOY.md`.
+
+**Preuve** (widget, synthétique, sessions `synthetic-47c28036-*`, traces en release `b6f9402`
+sur les 3 services) :
+- #170 : « i need a room with a hot tub » → « Where and for which day would you like to book? »,
+  sans chips, `clarification_reason=location` (5,8 s, 2 appels luna) ; puis « tomorrow in new
+  york city or long island » → 5 hôtels pour le 29/10 autour de New York (pas de bar).
+  « a hot tub room in Paris » → question du jour seule, avec ses 3 chips.
+- #168 (route FAQ en SSE) : `progress` à 0,1 s, second `progress` juste après la feuille, puis
+  `hotels`, `token`, `done`. Le 1er tour FAQ après le déploiement a pris 23,8 s : 13 s **avant**
+  le premier appel LLM de la feuille (démarrage à froid), puis 2 appels de 4,1 et 2,7 s, sans
+  relance. À chaud : 8,4 s et 10,3 s.
+- Un timeout ne se provoque pas à la demande : la relance et le budget de 45 s ne sont prouvés que
+  par les tests et le run local.
+
+**Reste** :
+- Dans quelques jours : la part de `template:date_place_question` parmi les questions du jour, et
+  la latence des feuilles au-delà de 15 s / 20 s (des `generate_content` en ERROR = timeouts).
+- Semer l'item `geo-poi-nyc-or-long-island` dans Langfuse (Fabien).
+
 ## 📅 2026-10-28 — Demander le jour ET le lieu ensemble (branche `feat/ask-day-and-place`)
 
 **Constat** (session prod `7e296e4b`, 2026-10-27) :
@@ -51,7 +83,7 @@
 - **Gates** : pytest 3 341 passés / 1 skippé ; ruff, mypy, guardrails OK.
 
 **Reste** :
-- Merger, puis déployer `concierge` (`DEPLOY.md`).
+- Mergé (#170) et déployé : voir le bloc 🚀 du 2026-10-28.
 - Quelques jours après, en prod : la part des `template:date_place_question` parmi les questions du
   jour, et combien de leurs tours suivants cherchent du premier coup.
 
@@ -117,7 +149,7 @@ pas de `radiusKm`).
   prod (en prod, « centro » a donné le commerce de Rome, que la règle rejette).
 
 **Reste** :
-- Merger, puis déployer `hotel-search` (`DEPLOY.md`).
+- Mergé (#169) et déployé : voir le bloc 🚀 du 2026-10-28.
 - Semer l'item d'éval dans Langfuse (`scripts/langfuse_seed_datasets.py --only b2c-geo-poi`) :
   c'est à Fabien, car l'upsert écrase les corrections faites dans Langfuse.
 
@@ -176,13 +208,8 @@ prod ont duré 604 s le 2026-10-27 (16:28 et 20:31 UTC).
 `concierge_metric=leaf_call status=ok` (c'est la tâche A2A qui échoue, pas le transport). Seul
 `turn … status=degraded` le dit (`CHANTIERS.md` O7).
 
-**Reste (déploiement, sur demande de Fabien)** :
-- Merger, puis déployer `hotel-search`, `faq` et `concierge` (`DEPLOY.md`).
-- **Au même déploiement, supprimer `CONCIERGE_LEAF_TIMEOUT_SECONDS` (=30) du service
-  `concierge`**, pour que les défauts 45/45 s s'appliquent. Sinon un appel bloqué puis relancé
-  (2 × 15 s + outils) dépasse encore les 30 s.
-- Preuve : la release des spans des 3 services dans Langfuse. Un timeout ne se provoque pas à la
-  demande en prod : le comportement n'est prouvé qu'en local et par les tests.
+**Reste** : mergé (#168) et déployé, `CONCIERGE_LEAF_TIMEOUT_SECONDS` supprimée : voir le bloc 🚀
+du 2026-10-28.
 
 ## 📌 2026-10-27 (undecies) — La pile Railway EST la prod client
 
