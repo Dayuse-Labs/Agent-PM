@@ -682,6 +682,10 @@ def _parse_client_timezone(raw: Any) -> str | None:
 # as this facade) — imported under its historical local name above.
 
 
+#: Precision kept of a device position (~110 m at 3 decimals).
+GPS_DECIMALS = 3
+
+
 def _parse_gps_anchor(body: dict[str, Any], turn_index: int) -> dict[str, Any] | None:
     """`search_anchor` sourced from `client_geo_context.device` — ONLY when
     the browser granted a fresh fix THIS turn (`permission == "granted"` and
@@ -704,10 +708,14 @@ def _parse_gps_anchor(body: dict[str, Any], turn_index: int) -> dict[str, Any] |
         return None
     if not (-90.0 <= lat <= 90.0 and -180.0 <= lon <= 180.0):
         return None
+    # R3 (review of #173, GDPR): rounded ONCE, here, at the entry — 3
+    # decimals is ~110 m, nothing next to a search ring of 2 km or more. Redis,
+    # the leaf's profile_in (its LLM prompt, Langfuse), Mapbox's `proximity`
+    # and MCP only ever see the rounded value.
     return {
         "type": "gps",
-        "lat": float(lat),
-        "lon": float(lon),
+        "lat": round(float(lat), GPS_DECIMALS),
+        "lon": round(float(lon), GPS_DECIMALS),
         "label": None,
         "set_at_turn": turn_index,
     }

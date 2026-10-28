@@ -731,6 +731,14 @@ def apply_profile_delta(
             profile.shown_hotel_ids = []
             profile.search_cursor = 0
         profile.city = new_city
+    # R3 (review of #173, GDPR): a place the leaf resolved from the user's words
+    # is now the destination — the device position goes, whatever the city
+    # was before. « Près de moi » clears the city (`near_user`), so « à Lyon »
+    # next turn sets one where there was none, and the position used to stay
+    # for the whole session (profile, profile_in, Mapbox `proximity`). Unless
+    # the same delta sets a fresh position (the facade's own intake).
+    if (values.get("city") or values.get("zone") or values.get("metro")) and "search_anchor" not in values:
+        profile.search_anchor = None
     if "state_anchor" in values:
         profile.state_anchor = values["state_anchor"]
     if "country_anchor" in values:
