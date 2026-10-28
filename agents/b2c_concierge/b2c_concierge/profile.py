@@ -280,6 +280,12 @@ class SessionProfile:
     # resolving a click BY ID is the point: the label the button also sends is
     # for the transcript, never for matching.
     picked_hotel_id: int | None = None
+    # 2026-10-28: the visitor asked for a search around them (the « près de
+    # moi » chip) and the browser or the app gave no position (permission
+    # refused, no fix). One-shot like `picked_hotel_id`: set by the facade from
+    # `client_geo_context.device.permission`, read and cleared by the spine,
+    # whose place question then says it has no access to the position.
+    device_location_refused: bool = False
     # P0-1 (audit 2026-07-30 §2): party size, carried across turns. The leaf
     # already emits adults/children to search_offers ~78% of the time on the
     # turn they are stated (measured, OBS6 baseline) — what was missing is a
@@ -382,6 +388,7 @@ class SessionProfile:
             "search_cursor": self.search_cursor,
             "client_timezone": self.client_timezone,
             "picked_hotel_id": self.picked_hotel_id,
+            "device_location_refused": self.device_location_refused,
             "adults": self.adults,
             "children": self.children,
             "display_currency": self.display_currency,
@@ -431,6 +438,7 @@ _CONCIERGE_ONLY_KEYS = (
     "pending_party_total",  # the leaf gets it as query_params.party_total
     "date_checked",
     "date_announced",
+    "device_location_refused",
 )
 
 

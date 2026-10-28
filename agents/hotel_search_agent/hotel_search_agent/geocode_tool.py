@@ -2088,6 +2088,8 @@ def geocode_location(
         (geo.ambiguity.reason if geo.ambiguity is not None else None) or "none",
         geo.carryover,
     )
+    if geo.near_user and not (own.get("city") or own.get("zone") or own.get("postal_code")):
+        return _near_user(proximity_lat, proximity_lon)
     context: dict[str, Any] = {
         "profile_state_context": profile_state_context,
         "profile_location_hint": profile_location_hint,
@@ -2132,6 +2134,30 @@ def geocode_location(
 #: The failures that mean "the geocoder answered, nothing it gave is the place
 #: asked for" — as opposed to a question, a missing destination, or an outage.
 _REFUSALS = frozenset({"geocode_echo_mismatch", "geocode_no_match"})
+
+
+def _near_user(lat: float | None, lon: float | None) -> dict:
+    """« Près de moi » with no other place in THIS message (2026-10-28).
+
+    With the device position the profile carries (`search_anchor`, set by the
+    facade from the browser's or the app's fix this turn): the search runs
+    around it, and the earlier destination is dropped (`near_user` in the
+    delta), so a follow-up (« avec piscine ») stays around the user instead of
+    falling back on the city searched before — agent-usa's « keep the near-me
+    GPS origin across refinement turns ». Without a position: no place to
+    search, said as such (`missing_city`), and the concierge asks for one —
+    never the earlier city passed off as « near you »."""
+    if lat is None or lon is None:
+        return _fail("no_geocodable_location", {"reason": "missing_city", "zone_hint": None})
+    return _ok(
+        GeocodeResult(
+            latitude=float(lat), longitude=float(lon), place_name="your current location",
+            country_code="", region="",
+        ),
+        feature_type="gps",
+        profile_delta={"near_user": True},
+        distance_origin_type="gps",
+    )
 
 
 def _refused(result: dict) -> bool:

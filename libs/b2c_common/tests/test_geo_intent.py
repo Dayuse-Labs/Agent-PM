@@ -208,7 +208,7 @@ class TestFields:
     def test_intent_fields(self):
         assert list(GeoIntent.model_fields) == [
             "schema_version", "places", "city", "country_named", "region_named",
-            "relation", "carryover", "exclusions", "ambiguity",
+            "relation", "near_user", "carryover", "exclusions", "ambiguity",
         ]
 
     @pytest.mark.parametrize("model", _MODELS, ids=lambda m: m.__name__)

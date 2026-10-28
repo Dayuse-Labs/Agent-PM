@@ -195,6 +195,22 @@ class TestPlaceMissing:
         assert stored.last_suggestions == templates.date_chips("fr")
         assert stored.date_checked is True
 
+    def test_a_refused_device_location_is_said_before_the_question(
+        self, monkeypatch, fake_leg, fake_profile_store  # noqa: F811
+    ):
+        fake_leg.response_payload = _NO_PLACE
+        _scripted_llm(monkeypatch, _SEARCH_FR)
+        runner = InMemoryRunner(root_agent)
+        session = _new_session(runner)
+        asyncio.run(fake_profile_store.set(session.id, SessionProfile(device_location_refused=True)))
+
+        answer = _run_turn(runner, session.id, "Chambre en journée près de moi")
+
+        assert answer == (
+            "Je n'ai pas accès à votre position. Où et pour quel jour souhaitez-vous réserver ?"
+        )
+        assert _stored(fake_profile_store, session.id).device_location_refused is False  # one-shot
+
     def test_without_the_leafs_flag_the_turn_is_served_as_before(
         self, monkeypatch, fake_leg  # noqa: F811
     ):

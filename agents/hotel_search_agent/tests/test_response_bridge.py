@@ -184,10 +184,14 @@ class TestLandmarkRadius:
         inject_landmark_radius(_Tool("search_offers"), args, ctx)
         assert args["radiusKm"] == radius
 
-    def test_a_gps_anchor_is_deliberately_not_tightened(self):
+    def test_a_gps_anchor_takes_the_poi_ring_nearest_first(self, monkeypatch):
+        # 2026-10-28 (« près de moi »): was left on MCP's 20 km disc in
+        # relevance order; agent-usa answered with hotels within 1-2 km.
+        self._inventory(monkeypatch, per_km=10)
         args = {"lat": 48.85, "lon": 2.35}
         inject_landmark_radius(_Tool("search_offers"), args, self._ctx({"type": "gps"}))
-        assert "radiusKm" not in args
+        assert args["sortBy"] == "distance"
+        assert "radiusKm" in args
 
     def test_no_anchor_stashed_is_a_no_op(self):
         args = {"lat": 48.85, "lon": 2.35}

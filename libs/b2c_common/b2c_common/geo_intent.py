@@ -250,6 +250,19 @@ class GeoIntent(BaseModel):
             "whole_city: anywhere in the city."
         ),
     )
+    # 2026-10-28: « près de moi » (the entry chip agent-usa served 489 times
+    # since September). The user's own position is not a place: the tool
+    # searches around the device's position when the browser or the app gave
+    # one, and says it has none otherwise — never a lookup of « moi ».
+    near_user: bool = Field(
+        default=False,
+        description=(
+            "true when the user wants to search around THEIR OWN current position "
+            "(\"near me\", \"près de moi\", \"autour de moi\", \"cerca de mí\", "
+            "\"vicino a me\", \"in meiner Nähe\", \"perto de mim\", \"bij mij in de "
+            "buurt\"). Their position is not a place: never put it in `places`."
+        ),
+    )
     # Default `keep` = fill the empty slots from the earlier search, which is
     # what `geocode_location` does today: an omitted carryover changes nothing.
     carryover: Carryover = Field(

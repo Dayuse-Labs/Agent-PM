@@ -297,6 +297,12 @@
       "title": "Relation",
       "type": "string"
     },
+    "near_user": {
+      "default": false,
+      "description": "true when the user wants to search around THEIR OWN current position (\"near me\", \"près de moi\", \"autour de moi\", \"cerca de mí\", \"vicino a me\", \"in meiner Nähe\", \"perto de mim\", \"bij mij in de buurt\"). Their position is not a place: never put it in `places`.",
+      "title": "Near User",
+      "type": "boolean"
+    },
     "carryover": {
       "default": "keep",
       "description": "How this message relates to the earlier destination. new: a new destination. keep: no new place, same destination. replace_place_keep_city: a new place in the same city. refine: narrows the earlier destination.",

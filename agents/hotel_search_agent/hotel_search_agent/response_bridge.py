@@ -947,8 +947,10 @@ def inject_landmark_radius(tool: Any, args: dict[str, Any], tool_context: Any) -
     already run, far too late for a before-tool callback. Reading that one is
     silent no-op territory: everything type-checks and the radius is simply
     never applied.
-    `gps` anchors are deliberately NOT tightened here: "near me" has its own
-    expectations and changing it is not part of the POI bug."""
+    2026-10-28: a `gps` anchor (« près de moi ») is a point like a POI and
+    takes the same ring, nearest first. Before, it took MCP's 20 km disc in
+    relevance order, so « near me » could open on hotels 15 km away;
+    agent-usa answered the chip with hotels « all within about 1-2 km »."""
     if getattr(tool, "name", "") != "search_offers":
         return None
     for key in ("radiusKm", "sort", "sortBy"):
@@ -962,7 +964,7 @@ def inject_landmark_radius(tool: Any, args: dict[str, Any], tool_context: Any) -
     a_lat, a_lon = _coord(args.get("lat")), _coord(args.get("lon"))
     if (a_lat is None or a_lon is None) and isinstance(origin, dict):
         a_lat, a_lon = _coord(origin.get("latitude")), _coord(origin.get("longitude"))
-    if anchor_type == "poi":
+    if anchor_type in ("poi", "gps"):
         args["radiusKm"] = (
             site_radius_km(a_lat, a_lon, nearby=nearby) if a_lat is not None and a_lon is not None
             else SITE_RADII_KM[-1]
@@ -1837,6 +1839,12 @@ def emit_search_datapart(callback_context: Any) -> genai_types.Content | None:
     raw_delta = state.get(_STATE_DELTA_KEY) or {}
 
     profile_delta: dict[str, Any] = {}
+    if raw_delta.get("near_user"):
+        # 2026-10-28: searched around the device's position (« près de moi »):
+        # the destination of the earlier turns is dropped, so the next
+        # follow-up carries the position, not the city searched before.
+        for slot in ("city", "zone", "metro", "state_anchor", "city_is_area"):
+            profile_delta[slot] = {"op": "clear"}
     if raw_delta.get("last_city"):
         profile_delta["city"] = _op_set(raw_delta["last_city"])
     if "last_state_context" in raw_delta:  # may be None → clears the anchor

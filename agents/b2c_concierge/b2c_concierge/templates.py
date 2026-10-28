@@ -754,6 +754,18 @@ _PLACE_QUESTION: dict[str, str] = {
     "nl": "In welke stad (of wijk) zoek je?",
 }
 
+# The « près de moi » chip was clicked and no position came back (permission
+# refused, no fix): said first, as the fact it is.
+_NO_DEVICE_LOCATION: dict[str, str] = {
+    "fr": "Je n'ai pas accès à votre position.",
+    "en": "I can't access your location.",
+    "es": "No tengo acceso a tu ubicación.",
+    "it": "Non ho accesso alla tua posizione.",
+    "de": "Ich habe keinen Zugriff auf deinen Standort.",
+    "pt": "Não tenho acesso à sua localização.",
+    "nl": "Ik heb geen toegang tot je locatie.",
+}
+
 # Appended to the leaf's own place question (a zone without its city, a place
 # not found) when the day is still open: still one message.
 _AND_WHICH_DAY: dict[str, str] = {
@@ -809,10 +821,14 @@ def later_date_chips(language: str, served_offset: int) -> list[str]:
     return [chip for offset, chip in enumerate(chips) if offset > served_offset]
 
 
-def place_question(language: str, *, ask_day: bool) -> str:
+def place_question(language: str, *, ask_day: bool, location_refused: bool = False) -> str:
     """The one question of a search that has no place yet: the place, and the
-    day in the same sentence while it is still open."""
-    return _pick(language, _DATE_PLACE_QUESTION if ask_day else _PLACE_QUESTION)
+    day in the same sentence while it is still open. `location_refused`: the
+    visitor asked for a search around them and no position came back."""
+    question = _pick(language, _DATE_PLACE_QUESTION if ask_day else _PLACE_QUESTION)
+    if location_refused:
+        return f"{_pick(language, _NO_DEVICE_LOCATION)} {question}"
+    return question
 
 
 def date_place_question(language: str) -> str:

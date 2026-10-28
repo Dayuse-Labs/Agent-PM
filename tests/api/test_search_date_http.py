@@ -1,5 +1,5 @@
 """2026-10-28: the place-and-day question, the day said after a search, their
-day chips reach the payload the widget reads,
+day chips, and a refused device position reach the payload the widget reads,
 on both transports — over the real composed ASGI app (offline, triage and leaf
 stubbed at the spine's boundaries). Replaces the isolated day question of
 2026-10-20, whose turn ran before the leaf."""
@@ -70,6 +70,15 @@ def test_the_streamed_turn_ends_on_the_same_question_and_chips(client, no_place)
     done = _done(r.text)
     assert done["message"] == templates.place_question("fr", ask_day=True)
     assert done["suggestions"] == templates.date_chips("fr")
+
+
+def test_a_refused_position_is_said_in_the_question(client, no_place):
+    r = client.post("/v3/chat", json={
+        "message": "Chambre en journée près de moi", "locale": "fr",
+        "client_geo_context": {"device": {"permission": "denied"}},
+    })
+
+    assert r.json()["message"] == templates.place_question("fr", ask_day=True, location_refused=True)
 
 
 def test_a_search_with_no_day_says_the_day_and_offers_the_next_ones(client, monkeypatch):
