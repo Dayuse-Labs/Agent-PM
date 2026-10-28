@@ -502,6 +502,14 @@ chiffrée — sans l'implémenter. Consigne le résultat en tête de HANDOFF.md 
 docs/mob1-<date> et ouvre la PR. Réponds en français.
 ```
 
+**Mise à jour 2026-10-28 (branche `fix/access-results-20261028`)** : `/v3/chat/welcome`
+renvoie désormais la puce « près de moi » à toute ouverture dans l'app (et `near_me`, son libellé) ;
+le widget, au clic, envoie `__DAYUSE_NATIVE__.geolocation` comme `client_geo_context.device`, sinon
+la position de la WebView (`navigator.geolocation`), sinon `permission: unavailable`. À ajouter au
+cas 4 de la phase A : la position n'apparaît ni dans les logs, ni dans `turn_facts`, ni dans la trace ;
+et à la phase C : la WebView de l'app accorde-t-elle `navigator.geolocation` quand l'app ne partage
+pas sa position ?
+
 **Terminé quand** les cas 1 à 5 sont prouvés dans la simulation, les écarts sont listés avec leur
 correctif proposé, et Fabien a validé la phase C dans l'app de prod.
 

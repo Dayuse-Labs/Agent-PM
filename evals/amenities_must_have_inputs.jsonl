@@ -1,0 +1,14 @@
+{"id": "goal-spa-afternoon-fr", "message": "Je veux un après-midi spa à Paris demain", "expect": "goal"}
+{"id": "goal-jacuzzi-en", "message": "Find a room with a jacuzzi in London tomorrow", "expect": "goal"}
+{"id": "goal-jacuzzi-fr", "message": "Trouvez une chambre avec jacuzzi à Lyon demain", "expect": "goal"}
+{"id": "goal-pool-day-en", "message": "A pool day in Miami tomorrow", "expect": "goal"}
+{"id": "goal-spa-it", "message": "Voglio un pomeriggio alla spa a Roma domani", "expect": "goal"}
+{"id": "goal-whirlpool-de", "message": "Zimmer mit Whirlpool in Berlin morgen finden", "expect": "goal"}
+{"id": "goal-jacuzzi-es", "message": "Busca una habitación con jacuzzi en Madrid mañana", "expect": "goal"}
+{"id": "goal-only-jacuzzi-en", "message": "Only with a jacuzzi, in Dublin tomorrow", "expect": "goal"}
+{"id": "plus-pool-ideally-en", "message": "A quiet room near CDG airport tomorrow to rest, ideally with a pool", "expect": "plus"}
+{"id": "plus-pool-if-possible-fr", "message": "Un hôtel à Lyon demain pour travailler au calme, avec piscine si possible", "expect": "plus"}
+{"id": "plus-gym-nice-en", "message": "Somewhere to sleep between flights near JFK tomorrow, a gym would be nice", "expect": "plus"}
+{"id": "plus-spa-magari-it", "message": "Un hotel a Milano domani per riposare, magari con spa", "expect": "plus"}
+{"id": "plus-parking-fr", "message": "Une chambre à Nice demain pour une réunion de travail, avec un parking", "expect": "plus"}
+{"id": "plus-sauna-de", "message": "Ein ruhiges Zimmer in München morgen zum Arbeiten, gern mit Sauna", "expect": "plus"}

@@ -35,11 +35,12 @@ for _key in (
 
 @pytest.fixture(autouse=True)
 def _search_date_already_settled(request, monkeypatch):
-    """QA 2026-10-20: a session's first hotel search that names no day asks
-    for one (b2c_concierge agent.py, `SessionProfile.date_checked`). Tests
-    written before it drive such a search to test something else, so every
-    session starts with its day settled. The date question's tests, and the
-    store's own, opt out with `@pytest.mark.date_unsettled`."""
+    """2026-10-28: a search with no day says which day it ran on, with the
+    day chips, and a place question asks the day too (b2c_concierge agent.py,
+    `SessionProfile.date_checked` / `date_announced`). Tests written before
+    it drive such a search to test something else, so every session starts
+    with its day settled. The day's own tests, and the store's, opt out with
+    `@pytest.mark.date_unsettled`."""
     if request.node.get_closest_marker("date_unsettled"):
         return
     from b2c_concierge.profile_store import ProfileStore
@@ -49,6 +50,23 @@ def _search_date_already_settled(request, monkeypatch):
     async def get(self, session_id):
         profile = await real_get(self, session_id)
         profile.date_checked = True
+        profile.date_announced = True
         return profile
 
     monkeypatch.setattr(ProfileStore, "get", get)
+
+
+@pytest.fixture(autouse=True)
+def _closed_mcp_breaker():
+    """The search leaf's MCP circuit breaker is a process-wide singleton
+    (`mcp_guard.breaker`). Since R2 (review of #173) the extra calls made from
+    callbacks feed it too: a test driving a failing fake MCP must not leave it
+    open for the next one."""
+    try:
+        from hotel_search_agent import mcp_guard
+    except ImportError:  # a suite run without the leaf on the path
+        yield
+        return
+    mcp_guard.breaker.reset()
+    yield
+    mcp_guard.breaker.reset()

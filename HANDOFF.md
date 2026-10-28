@@ -6,6 +6,66 @@
 
 > 📋 **Pour savoir QUOI faire ensuite, ouvrir [`CHANTIERS.md`](CHANTIERS.md)** (état vérifié au 2026-09-14) : la liste des chantiers ouverts, chacun avec sa preuve, ses actions et un prompt prêt à coller — plus la liste de ce qu'il ne faut **pas** relancer parce que c'est déjà livré. `tasks/todo.md` est périmé et ne doit plus servir de référence.
 
+## 🧭 2026-10-28 — Accès aux résultats : « près de moi », plus de question de date isolée, replis « aucune offre », ancrages, proximité (branche `fix/access-results-20261028`, sur `main` après #168, #169, #170)
+
+**Constat** (prod du 26 au 28/10, comparé à agent-usa) : conversations avec résultats 74-81 % chez
+agent-usa, 68 % puis 58 % sur AgentB2C ; zéro résultat (conv. engagées) 7-10 % → 29 % ; boucles
+≥ 3 tours sans hôtel 3-4 % → 16 %. La qualité perçue des hôtels n'est pas en cause (clic hôtel
+41 %), c'est l'accès aux résultats.
+
+**Fait** (un commit par point, plus évals et doc) :
+1. **« Près de moi »** : puce sur l'accueil web (7 langues) et dans `/v3/chat/welcome` pour l'app
+   (`near_me`) ; le clic demande la position (app d'abord, sinon navigateur) ; `GeoIntent.near_user`
+   (le LLM lit « près de moi ») ; recherche autour de la position, anneau du site au plus proche ;
+   l'origine GPS reste celle des tours suivants ; refus → la question de lieu le dit.
+2. **Date** : la question isolée du 2026-10-20 disparaît (décision de Fabien renversée en partie, à
+   valider). Lieu connu → recherche immédiate et le jour retenu dit avec les puces ; lieu manquant
+   (fait de la feuille : `destination_missing`) → UNE question lieu + jour (libellé de #170) avec les
+   puces. Remplace le mécanisme de #170 (bloc suivant) : la question avant la feuille et son appel
+   `place_check` disparaissent, la feuille constate l'absence de lieu sans appel de plus ; étiquettes `offset` / `month` / `flexible` ; une nouvelle date lue par la feuille gagne sur
+   la date reportée ; « moins cher » sans offre à l'écran ne bloque plus.
+3. **Aucune offre** : repli borné (créneau → équipement non exigé → anneau → lendemain, 2 appels
+   MCP au plus, dit) ; `relax` (élargir, retirer un filtre, budget) appliqué en code ; rayon plancher
+   par type de zone ; sonde J+1 réparée (`totalBeforeCutoff`) ; la complétion reste le dernier recours
+   quand le sauvetage ne trouve rien.
+4. **Ancrages et langue** : `city_centre` ; table des départements (donnée) ; Paris + monument ;
+   message court sans preuve de langue → langue de session / marché ; préfixe « rien n'a changé »
+   seulement si la recherche a changé et rendu les mêmes offres ; « metro » seul borné au pays du
+   marché. Le rejet « commerce nommé comme la zone » est celui de #169.
+5. **Proximité du classement** : page locale en parallèle et reclassement pertinence × distance
+   (paliers local / proche / loin), autour d'un centre-ville.
+
+**Revue de Fabien (2026-10-28, 15:50Z), traitée dans la même branche** :
+- R1 : le sauvetage du soir vise J+1 (sonde = J+1 strict, sauvetage = J+1 moins l'étape suivante) ;
+  ordre équipement → anneau → créneau ; `amenities_must_have` = l'équipement est le but (mesuré
+  sur luna : `scripts/measure_amenities_must_have.py`, 24/24 et 18/18).
+- R2 : `extra_calls.py` — les recherches en plus s'arrêtent à la première erreur (disjoncteur,
+  `status=error`) et ne démarrent plus après 20 s depuis le début du tour de la feuille.
+- R3 (RGPD) : position arrondie à 3 décimales à l'entrée, oubliée dès qu'un lieu nommé devient
+  la destination ; note de rétention dans `agents/b2c_concierge/README.md`.
+- Suivis : score `fallback_search_rescue` / `turn_facts.fallbacks` ; puce « près de moi » suivie
+  `near_me`, position 1.
+- Rejeu court du soir (lot R, 16 conv.) : avec résultats 8 → 13, tours « aucune offre » 15 → 9.
+
+**Preuves** : pytest 3 472 passés / 2 skippés, ruff, mypy, guardrails, 102 tests JS ; contre-épreuves
+rouges sur origin/main pour chaque point. Rejeu local main vs branche (lots A/B/C/D, 336 + 12 tours
+par bras, Langfuse coupé, jamais ai.dayuse.com) : rapport hors dépôt
+`dashboard_bascule/data/investigation/replay_entry_date.md` (+ `.json`) ; chiffres dans la PR.
+
+**Pièges** :
+- Une commande d'attente `pgrep -f "run_ed.py"` se trouve elle-même (sa propre ligne de commande
+  contient le motif) : elle ne finit jamais.
+- Le modèle de la feuille met parfois le lieu dans `metro` seul ou dans l'objet `intent` (clé
+  invalide, réparée en « aucun lieu ») : même entrée, résultats différents d'un tirage à l'autre, sur
+  main aussi.
+- #170 (Fabien, mergée le 2026-10-28 à 13:59Z) et cette branche touchaient le même bloc de
+  `agent.py` : rebasée dessus, cette branche retire `place_check.py` (son appel ne sert plus) et
+  garde son libellé ; `_knows_a_place` est fondu dans `profile.has_search_destination`.
+
+**Reste** : revue (Fabien) ; déploiement non fait (la prod est sur `b6f9402` = #168-#170, plus #172
+au merge de `main` : à déployer par-dessus) ; ressemer `b2c/prod-2026-10-28` et `b2c/dialogue-state` ;
+mesurer en prod la part de conversations avec résultats et des puces « près de moi ».
+
 ## 📅 2026-10-28 — Les liens s'ouvrent dans la langue de l'utilisateur (branche `feat/links-in-user-language`)
 
 **Constat** (Fabien) : un Français qui cherche un hôtel en Allemagne clique et arrive sur

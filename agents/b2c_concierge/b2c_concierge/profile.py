@@ -237,12 +237,23 @@ class SessionProfile:
     # leaf's area branch: carried as an area, not looked up as a city
     # (prod session 1eb2430a). A city change clears it.
     city_is_area: bool = False
+    # 2026-10-28: the GeoIntent kind of the place `zone` names, set by the
+    # leaf with the zone and cleared with it and by a city change. Point 3: a
+    # follow-up re-searches « la métropole lilloise » on its area's ring, not
+    # on the 2 km ring of the building that carries its name. Point 4:
+    # "city_centre" is searched around the city's point, not a place named
+    # « centro ».
+    zone_kind: str | None = None
     date: str | None = None  # ISO 8601
     date_reference: dict[str, Any] | None = None  # {expression, resolved_from, client_tz}
-    # QA 2026-10-20: the session's first hotel search has had its day settled
-    # — named by the user, or asked for once. Never asked twice: a reply
-    # that still names no day searches today.
+    # 2026-10-28 (replaces the isolated day question of 2026-10-20): the day
+    # has been ASKED once, inside the place question (« Dans quelle ville, et
+    # pour quel jour ? »). Never asked twice: a reply that still names no day
+    # searches today (or tomorrow past the same-day cutoff).
     date_checked: bool = False
+    # 2026-10-28: a search ran on a day the user never chose, and the answer
+    # said which one, with the day chips to change it. Once per session.
+    date_announced: bool = False
     currency: str | None = None
     locale: str | None = None
     domain: str | None = None
@@ -276,6 +287,12 @@ class SessionProfile:
     # resolving a click BY ID is the point: the label the button also sends is
     # for the transcript, never for matching.
     picked_hotel_id: int | None = None
+    # 2026-10-28: the visitor asked for a search around them (the « près de
+    # moi » chip) and the browser or the app gave no position (permission
+    # refused, no fix). One-shot like `picked_hotel_id`: set by the facade from
+    # `client_geo_context.device.permission`, read and cleared by the spine,
+    # whose place question then says it has no access to the position.
+    device_location_refused: bool = False
     # P0-1 (audit 2026-07-30 §2): party size, carried across turns. The leaf
     # already emits adults/children to search_offers ~78% of the time on the
     # turn they are stated (measured, OBS6 baseline) — what was missing is a
@@ -332,6 +349,11 @@ class SessionProfile:
     # leaf sees no adults/children (they would be guesses).
     room_requirements: dict[str, Any] | None = None
     pending_party_total: int | None = None
+    # 2026-10-28: the search the last search turn actually ran (the leaf's
+    # `search_context`: place, ring, date, window, filters), as a fingerprint.
+    # `refinement_unchanged` says « that change does not alter the results »
+    # only when this changed and the offers did not. Concierge-only.
+    last_search_signature: str | None = None
 
     def to_dict(self) -> dict[str, Any]:
         return {
@@ -364,9 +386,11 @@ class SessionProfile:
             "zone": self.zone,
             "metro": self.metro,
             "city_is_area": self.city_is_area,
+            "zone_kind": self.zone_kind,
             "date": self.date,
             "date_reference": self.date_reference,
             "date_checked": self.date_checked,
+            "date_announced": self.date_announced,
             "currency": self.currency,
             "locale": self.locale,
             "domain": self.domain,
@@ -377,6 +401,7 @@ class SessionProfile:
             "search_cursor": self.search_cursor,
             "client_timezone": self.client_timezone,
             "picked_hotel_id": self.picked_hotel_id,
+            "device_location_refused": self.device_location_refused,
             "adults": self.adults,
             "children": self.children,
             "display_currency": self.display_currency,
@@ -390,6 +415,7 @@ class SessionProfile:
             "price_comparison": self.price_comparison,
             "room_requirements": self.room_requirements,
             "pending_party_total": self.pending_party_total,
+            "last_search_signature": self.last_search_signature,
             "schema_version": PROFILE_SCHEMA_VERSION,
         }
 
@@ -425,6 +451,9 @@ _CONCIERGE_ONLY_KEYS = (
     "named_candidates",
     "pending_party_total",  # the leaf gets it as query_params.party_total
     "date_checked",
+    "date_announced",
+    "device_location_refused",
+    "last_search_signature",
 )
 
 
@@ -695,12 +724,21 @@ def apply_profile_delta(
             profile.country_anchor = None
             profile.region_anchor = None
             profile.zone = None
+            profile.zone_kind = None
             profile.metro = None
             profile.city_is_area = False
             profile.search_anchor = None
             profile.shown_hotel_ids = []
             profile.search_cursor = 0
         profile.city = new_city
+    # R3 (review of #173, GDPR): a place the leaf resolved from the user's words
+    # is now the destination — the device position goes, whatever the city
+    # was before. « Près de moi » clears the city (`near_user`), so « à Lyon »
+    # next turn sets one where there was none, and the position used to stay
+    # for the whole session (profile, profile_in, Mapbox `proximity`). Unless
+    # the same delta sets a fresh position (the facade's own intake).
+    if (values.get("city") or values.get("zone") or values.get("metro")) and "search_anchor" not in values:
+        profile.search_anchor = None
     if "state_anchor" in values:
         profile.state_anchor = values["state_anchor"]
     if "country_anchor" in values:
@@ -832,6 +870,8 @@ def apply_profile_delta(
         profile.metro = values["metro"]
     if "city_is_area" in values:
         profile.city_is_area = bool(values["city_is_area"])
+    if "zone_kind" in values:
+        profile.zone_kind = values["zone_kind"] if isinstance(values["zone_kind"], str) else None
     if "named_hotel" in values:
         profile.named_hotel = values["named_hotel"]
     if "date" in values:
@@ -989,6 +1029,20 @@ def _has_refinement_modifier(message: str, llm_bare_budget: float | None = None)
     )
 
 
+def has_search_destination(profile: SessionProfile) -> bool:
+    """Whether the session knows WHERE to search, from its own state: a city
+    or an area the leaf resolved, a zone or metro it kept, an option picked
+    from a question (`region_anchor`), a hotel found by name, or a device
+    position (« près de moi ») — #170's `_knows_a_place`, folded in. A fact
+    of the profile, never of the words; the market is not a place."""
+    anchor = profile.search_anchor if isinstance(profile.search_anchor, dict) else {}
+    has_fix = anchor.get("lat") is not None and anchor.get("lon") is not None
+    return bool(
+        profile.city or profile.zone or profile.metro or profile.region_anchor
+        or profile.named_hotel or has_fix
+    )
+
+
 def _has_prior_search_context(profile: SessionProfile) -> bool:
     return bool(profile.city) or bool(profile.last_results) or profile.consecutive_empty_searches > 0
 
@@ -1102,13 +1156,14 @@ def pending_search_context(pending: dict[str, Any] | None) -> str | None:
     """The text placed before the user's reply in the message sent to the
     search leaf, so request and reply read as one message.
 
-    The reply to the day question (QA 2026-10-20) gets the request alone, as
-    the user's own words: the concierge has already read the day, and the
-    labels made the leaf take an amenity for a place (« Rooftop pool »
-    stored as a zone in 3 replies of 7, never in 5 dated first messages)."""
+    The reply to the code-owned place question (and to the day question of
+    2026-10-20 a session may still have pending) gets the request alone, as
+    the user's own words: the concierge reads the day itself, and the labels
+    made the leaf take an amenity for a place (« Rooftop pool » stored as a
+    zone in 3 replies of 7, never in 5 dated first messages)."""
     if not pending:
         return None
-    if pending.get("date_question"):
+    if pending.get("date_question") or pending.get("place_question"):
         return pending.get("request") or None
     lines = []
     if pending.get("request"):

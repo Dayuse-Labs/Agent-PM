@@ -102,7 +102,7 @@
       "description": "User clicks a suggestion chip in the chat; the message it sends is tracked separately.",
       "properties": {
         "turn_id": {"type": "string", "optional": true, "description": "Turn whose answer showed the chip; absent for chips shown before any turn."},
-        "suggestion_type": {"type": "string", "description": "Kind of chip, e.g. search_example or recovery."},
+        "suggestion_type": {"type": "string", "description": "Kind of chip, e.g. search_example, welcome, recovery, or near_me (the « near me » chip, web hero and app welcome, since 2026-10-28)."},
         "position": {"type": "integer", "description": "1-based position of the chip in its row."}
       }
     },

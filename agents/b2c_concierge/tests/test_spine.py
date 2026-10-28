@@ -1925,3 +1925,82 @@ class TestP1ForeignAffirmativeThroughTheSpine:
         _drive_in(runner, session.id, "Bonjour !")
         assert llm.calls == []
         assert _turn_metric(caplog)["llm_calls"] == "0"
+
+
+class TestTheLanguageOfAShortMessage:
+    """Prod 2026-10-27/28 (locale nl): « Jacuzzi » was read French and the
+    question went out in French; « Overmorgen » got an English answer because
+    the regex guess of a failed triage on « Sud Lyon » had become the session's
+    language. A message too short to tell its language keeps the session's,
+    then the market's (`triage.decides_language`)."""
+
+    @staticmethod
+    def _stuck():
+        return agent_module.litellm.Timeout(message="stuck", model="openai/gpt-6-luna", llm_provider="openai")
+
+    def _lang(self, llm) -> str:
+        user = llm.calls[-1]["messages"][-1]["content"]
+        return next(line for line in user.splitlines() if line.startswith("LANG:"))
+
+    def test_a_single_word_keeps_the_market_language(self, scripted, fake_profile_store):
+        runner, session = _new_session()
+        asyncio.run(fake_profile_store.set(session.id, SessionProfile(locale="nl", city="Den Bosch")))
+        llm, _ = scripted('{"family": "search", "language": "fr"}', "Hier zijn hotels.",
+                          leaf_text="results: hotel A")
+        _drive_in(runner, session.id, "Jacuzzi")
+        assert self._lang(llm) == "LANG: nl"
+
+    def test_a_failed_triage_never_becomes_the_session_language(self, scripted, fake_profile_store):
+        runner, session = _new_session()
+        asyncio.run(fake_profile_store.set(session.id, SessionProfile(locale="nl")))
+        scripted(self._stuck(), self._stuck(), "Hier zijn hotels.", leaf_text="results: hotel A")
+        _drive_in(runner, session.id, "Sud Lyon")
+        assert asyncio.run(fake_profile_store.get(session.id)).language is None
+        llm, _ = scripted('{"family": "search", "language": "en"}', "Hier zijn hotels.",
+                          leaf_text="results: hotel A")
+        _drive_in(runner, session.id, "Overmorgen")
+        assert self._lang(llm) == "LANG: nl"
+
+    def test_a_sentence_in_another_language_is_answered_in_it(self, scripted, fake_profile_store):
+        # Negative control: a message that does show its language wins over
+        # the market, and becomes the session's.
+        runner, session = _new_session()
+        asyncio.run(fake_profile_store.set(session.id, SessionProfile(locale="nl", city="Lyon")))
+        llm, _ = scripted('{"family": "search", "language": "fr"}', "Voici des hôtels.",
+                          leaf_text="results: hotel A")
+        _drive_in(runner, session.id, "je cherche un hôtel à Lyon")
+        assert self._lang(llm) == "LANG: fr"
+        assert asyncio.run(fake_profile_store.get(session.id)).language == "fr"
+
+
+class TestALandmarkThatCouldNotBePlaced:
+    """Prod session b4703f31 (2026-10-27): the leaf now searches the city when
+    the spot named in it cannot be placed (`geocode_tool._without_the_landmark`);
+    the reply says so first."""
+
+    def test_the_reply_says_which_spot_was_not_found(self, scripted, fake_profile_store):
+        runner, session = _new_session()
+        asyncio.run(fake_profile_store.set(session.id, SessionProfile(language="fr")))
+        scripted(
+            '{"family": "search", "language": "fr"}', "Voici des hôtels à Paris.",
+            leaf_text="results",
+            response={
+                "results": [{"name": "H", "hotel_id": 1}],
+                "profile_delta": {"city": "Paris"},
+                "search_context": {"city": "Paris", "landmark_unresolved": "UNESCO Headquarters"},
+            },
+        )
+        answer = _answer(_drive_in(runner, session.id, "Paris la capitale de la France"))
+        assert answer.startswith(
+            "Je n'ai pas réussi à situer « UNESCO Headquarters » : voici des hôtels à Paris.\n\n"
+        )
+
+    def test_no_notice_when_the_spot_was_found(self, scripted, fake_profile_store):
+        runner, session = _new_session()
+        scripted(
+            '{"family": "search", "language": "fr"}', "Voici des hôtels à Paris.",
+            leaf_text="results",
+            response={"results": [{"name": "H", "hotel_id": 1}], "search_context": {"city": "Paris"}},
+        )
+        answer = _answer(_drive_in(runner, session.id, "près de l'unesco à Paris"))
+        assert answer == "Voici des hôtels à Paris."

@@ -45,6 +45,7 @@ from google.adk.tools.tool_context import ToolContext
 from pydantic import ValidationError
 
 from hotel_search_agent import geo_resolver
+from hotel_search_agent.fr_departments import department
 from hotel_search_agent.geo_guards import (
     anchor_state_context,
     demote_generic_city,
@@ -476,6 +477,7 @@ def _area_match(
     hard: bool,
     language: str | None,
     proximity: str | None,
+    exact: str | None = None,
 ) -> GeocodeCandidate | None:
     """The administrative area the request names, as Mapbox knows it, or None.
 
@@ -483,10 +485,23 @@ def _area_match(
     own order, and the first area feature whose name echoes one of `names`.
     The country is a scope, never a filter, unless the user named it (`hard`):
     when the scoped lookup holds no such area, the lookup runs once more
-    without it."""
+    without it.
+
+    `exact` (2026-10-28): the area's name from reference data (a French
+    département, `fr_departments`). Only an area of exactly that name is
+    taken: « Val-de-Marne » echoes « Marne » by its longest word, and the
+    département table says which one the user's number is."""
     mapbox = get_mapbox_client()
 
     def first(candidates: list[GeocodeCandidate]) -> GeocodeCandidate | None:
+        if exact:
+            return next(
+                (
+                    c for c in candidates
+                    if c.feature_type in _AREA_FEATURE_TYPES and _comparable(c.name) == _comparable(exact)
+                ),
+                None,
+            )
         for c in candidates:
             if c.feature_type in _AREA_FEATURE_TYPES and any(
                 _echoes(c.place_name, city=None, zone=n, state_hint=None) for n in names
@@ -603,6 +618,7 @@ def _ok(
     zone: str | None = None,
     metro: str | None = None,
     guards_fired: list[str] | None = None,
+    zone_kind: str | None = None,
 ) -> dict:
     # S-G5: zone/metro were accepted by this tool and validated by the echo
     # guard, but never reached the profile before now (audit gap — "a zone is
@@ -611,6 +627,10 @@ def _ok(
     delta = dict(profile_delta)
     if zone:
         delta["zone"] = zone
+        if zone_kind:
+            # 2026-10-28: what the zone is travels with it, so a follow-up turn
+            # looks the centre of a city up as one (`_fill_place_from_profile`).
+            delta["zone_kind"] = zone_kind
     if metro:
         delta["metro"] = metro
     payload = {
@@ -651,6 +671,9 @@ def geocode_core(
     region_chosen: str | None = None,
     market_country: str | None = None,
     aliases: tuple[str, ...] = (),
+    area_exact: str | None = None,
+    area_seat: str | None = None,
+    zone_aliases: tuple[str, ...] = (),
 ) -> dict:
     """Resolve a destination to coordinates for `search_offers`, guarded — the
     deterministic pipeline behind the `geocode_location` tool.
@@ -777,7 +800,8 @@ def geocode_core(
             only a candidate of this region (Q21).
         market_country: The market the request came from (QA14707 Q16,
             `profile_in.entry_market_country`, read by `geocode_location`).
-            Only the market tie-break of a postcode (`_market_country`): it
+            The market tie-break of a postcode (`_market_country`), and the
+            soft scope of a metro written alone (2026-10-28): it
             comes after the named city and the guess, and is never a filter.
         aliases: Other names of the destination the request carried — the
             user's own word when the city is looked up by its canonical name,
@@ -787,6 +811,14 @@ def geocode_core(
             conversation's language, « Malines, province d'Anvers », which is
             the user's word, not the query's (prod 2026-10-27). Names the
             request itself carried, never a translation table.
+        area_exact: The name of the administrative area `zone` is, from
+            reference data (a French département read from its number,
+            `fr_departments`): only an area of exactly this name is taken.
+        area_seat: That area's prefecture, searched around when Mapbox's
+            administrative layer does not know the area.
+        zone_aliases: The other names the request gave the zone (the user's
+            own word next to the canonical name: « UNESCO » for « UNESCO
+            Headquarters »). A landmark found by Search Box may echo either.
 
     Returns a dict — NEVER raises. On success:
         {"ok": True, "latitude", "longitude", "resolved_place",
@@ -818,6 +850,15 @@ def geocode_core(
     if zone_kind == "region" and effective_zone and (effective_city or effective_metro):
         region_named = region_named or effective_zone
         effective_zone = zone_kind = None
+    # 2026-10-28 (prod session c2f47e81, « Di pomeriggio e in centro », Rome):
+    # the centre of a city is measured from the city itself. Looked up as a
+    # place, « centro di Roma » came back as « Centro Lampo Roma », a business
+    # 6 km out, and the search ran around it. The model says what the place is
+    # (`city_centre`); the code searches around the city's own point, on the
+    # tight distance-sorted ring of a named spot (origin "poi").
+    centre_zone: str | None = None
+    if zone_kind == "city_centre" and (effective_city or effective_metro):
+        centre_zone, effective_zone, zone_kind = effective_zone, None, None
 
     # S4 (2026-08-26): the search RADIUS derives from what the user asked for,
     # not from the geocoder's taxonomy. `inject_landmark_radius` tightens the
@@ -1009,7 +1050,22 @@ def geocode_core(
             hard=bool(country_code),
             language=lang,
             proximity=proximity_str,
+            exact=area_exact,
         )
+        seat = (
+            _city_coordinate(
+                area_seat, country=country_code, locale_country=guess_iso, language=lang,
+                scope=guess_iso,
+            )
+            if area is None and area_seat else None
+        )
+        if seat is not None:
+            area = GeocodeCandidate(
+                latitude=seat[0], longitude=seat[1], name=effective_zone,
+                place_name=f"{effective_zone}, {area_seat}", place_formatted=area_seat or "",
+                feature_type="region", country_code=guess_iso or "", region=effective_zone,
+                bbox=None, rank=0,
+            )
         if area is not None:
             return _ok(
                 area.as_result(),
@@ -1237,10 +1293,34 @@ def geocode_core(
     # wrong guess costs one call and never the right answer. A country the
     # user NAMED stays the one hard filter.
     mapbox = get_mapbox_client()
-    candidates = mapbox.geocode_candidates(
-        query, country=country_code or guess_iso, language=lang, proximity=proximity_str
+    # Replay 2026-10-28 (« dans la métropole lilloise »): a metro written
+    # alone, with no country from the user or the model, went out unscoped
+    # and the echo's longest word (« métropole ») accepted « Jardim
+    # Metrópole », Brazil. The market's country scopes it, and stays the
+    # scope: a request with no country from anyone is not looked up
+    # worldwide (nothing that echoes there → the honest « where is that? »);
+    # a city keeps its own rule.
+    scope_iso = guess_iso or (
+        _market_country(locale, market_country) if effective_metro and not effective_city else None
     )
-    if not country_code and guess_iso and not any(echoes_request(c.place_name) for c in candidates):
+    candidates = mapbox.geocode_candidates(
+        query, country=country_code or scope_iso, language=lang, proximity=proximity_str
+    )
+    def echoes_the_city(place_name: str) -> bool:
+        return any(
+            _echoes(place_name, city=name, zone=None, state_hint=state_hint) for name in city_names
+        )
+
+    # 2026-10-28 (prod session b4703f31, « Paris possiblement à côté de
+    # l'unesco »): with a zone named, the scoped list holds the city (« Paris,
+    # France ») but no candidate echoes the zone too, and the worldwide lookup
+    # replaced it with Paris in Maine, in Roanne, and Headquarters, Kentucky:
+    # the homonym question then left out the capital. The city the scoped
+    # lookup found is enough to keep its scope.
+    if not country_code and guess_iso and not any(
+        echoes_request(c.place_name) or (effective_zone and city_names and echoes_the_city(c.place_name))
+        for c in candidates
+    ):
         candidates = mapbox.geocode_candidates(
             query, country=None, language=lang, proximity=proximity_str
         )
@@ -1403,10 +1483,11 @@ def geocode_core(
                 # mcp-dayuse#7: same for a district typed as the destination
                 # (« Manhattan »): no search page of its own, the site's rule.
                 distance_origin_type=(
-                    "poi" if chosen.feature_type in _DISTRICT_FEATURE_TYPES
+                    "poi" if centre_zone or chosen.feature_type in _DISTRICT_FEATURE_TYPES
                     else zone_origin_type
                 ),
-                zone=effective_zone,
+                zone=effective_zone or centre_zone,
+                zone_kind="city_centre" if centre_zone else None,
                 metro=effective_metro,
                 guards_fired=guards_fired,
             )
@@ -1483,8 +1564,9 @@ def geocode_core(
             proximity=proximity_tuple,
             city_anchor=city_anchor,
         )
-        if poi is not None and _echoes(
-            poi.place_name, city=echo_city, zone=effective_zone, state_hint=state_hint
+        if poi is not None and any(
+            _echoes(poi.place_name, city=echo_city, zone=name, state_hint=state_hint)
+            for name in (_names(effective_zone, *zone_aliases) or (effective_zone,))
         ):
             # Guard #14 (`poi_anchor_coherence`): the echo above proved the NAME,
             # this proves the PLACE. Rejecting falls through to the honest
@@ -1620,6 +1702,9 @@ def _fill_place_from_profile(args: dict, profile_in: dict) -> None:
         args["city"] = profile_in["city"]
     if _is_blank(args.get("zone")) and profile_in.get("zone") and not new_city:
         args["zone"] = profile_in["zone"]
+        # 2026-10-28: the centre of the city stays the centre on a follow-up.
+        if profile_in.get("zone_kind") == "city_centre" and _is_blank(args.get("zone_kind")):
+            args["zone_kind"] = "city_centre"
     if _is_blank(args.get("metro")) and profile_in.get("metro") and not new_city:
         args["metro"] = profile_in["metro"]
     # QA14707 (Q19): the carried country is the country of the CARRIED city. It
@@ -1935,12 +2020,39 @@ def _place_args(
     # trace A again) nor the station (a city-wide search).
     zone_place = next((p for p in places if p.kind not in ("city", "hotel")), None)
     city_places = [p for p in places if p.kind == "city"]
+    # 2026-10-28 (prod session 72c83c93, « Dans le 94 »): an administrative
+    # area holds many cities. The city the model attached to it from its own
+    # knowledge (`city_inferred`: Paris for the 94), and a city that names the
+    # area itself (`city`: « 94 » / « Val-de-Marne »), are not a city to search
+    # in: with either, the area was looked up as « Val-de-Marne, Paris » and
+    # came back as « Marne, Neuilly-Plaisance », in the 93. A French
+    # département the model reported by its number is checked against the
+    # INSEE table (`fr_departments`): its name there is the area searched.
+    area_place = zone_place if zone_place is not None and zone_place.kind in _AREA_KINDS else None
+    dept = None
+    if area_place is not None and _iso2(area_place.country) in (None, "FR"):
+        dept = department(area_place.mention, area_place.canonical, area_place.postal_code)
+    if area_place is not None and dept is None and (area_place.postal_code or "").strip():
+        area_place = None  # « dans le 75009 »: a postcode, its own path (Q08)
+    area_words = (
+        {_comparable(area_place.mention), _comparable(area_place.canonical)}
+        | ({_comparable(dept[0])} if dept else set())
+        if area_place is not None else set()
+    ) - {""}
+
+    def names_the_area(ref: Place | CityRef) -> bool:
+        return bool({_comparable(ref.mention), _comparable(ref.canonical)} & area_words)
+
+    city_places = [p for p in city_places if not names_the_area(p)]
     # Q08: the postcode the user wrote, read from the zone place first, then
     # from a city place (« 13001 marseille »), and checked against the message
     # like a mention. A place that is nothing but that code (« dans le 75009 »)
     # is neither a zone nor a city: the postcode lookup resolves it.
     postal_place = next(
-        (p for p in [zone_place, *city_places] if p is not None and (p.postal_code or "").strip()),
+        (
+            p for p in [zone_place, *city_places]
+            if p is not None and (p.postal_code or "").strip() and not (dept and p is area_place)
+        ),
         None,
     )
     postal_code = claims.written(postal_place.postal_code) if postal_place is not None else None
@@ -1950,10 +2062,14 @@ def _place_args(
         return bool(code) and code in (_comparable(ref.mention), _comparable(ref.canonical))
 
     cities: list[Place | CityRef] = [p for p in city_places if not only_the_code(p)]
-    if geo.city is not None and claims.anchored(geo.city):
+    if geo.city is not None and claims.anchored(geo.city) and not names_the_area(geo.city):
         cities.append(geo.city)
     city_needed = geo.ambiguity is not None and geo.ambiguity.reason == "city_needed"
-    inferred = (zone_place.city or "").strip() if zone_place is not None else ""
+    inferred = (
+        (zone_place.city or "").strip()
+        if zone_place is not None and not (area_place is not None and area_place.city_inferred)
+        else ""
+    )
     # Q14 (the user's ruling on Q07's open point): « Gare du Nord à Bruxelles »
     # with Paris inferred for the station. A city the user wrote THIS turn
     # beats the place's inferred city — the place's whole inference (its
@@ -1989,7 +2105,9 @@ def _place_args(
     zone: str | None = None
     city: str | None = None
     city_ref: Place | CityRef | None = None
-    if zone_place is not None and not only_the_code(zone_place):
+    if dept is not None:
+        zone, guess = dept[0], "FR"
+    elif zone_place is not None and not only_the_code(zone_place):
         zone = (zone_place.canonical or zone_place.mention).strip() or None
     if overruled and typed is not None:
         city_ref = typed
@@ -2005,6 +2123,8 @@ def _place_args(
     aliases: tuple[str, ...] = ()
     if named_ref is not None:
         aliases = _names(named_ref.mention, named_ref.canonical)
+    if dept is not None:
+        aliases = _names(dept[0], *aliases)
     return {
         "city": city or "",
         "zone": zone,
@@ -2014,6 +2134,19 @@ def _place_args(
         "postal_code": postal_code,
         "zone_kind": zone_place.kind if zone and zone_place is not None else None,
         "aliases": aliases,
+        "area_exact": dept[0] if dept else None,
+        "area_seat": dept[1] if dept else None,
+        # The user's own word for a landmark, next to its canonical name:
+        # « UNESCO » is what the place found is called (« 7 Pl. de
+        # Fontenoy-Unesco »), « UNESCO Headquarters » is not. A generic word
+        # (« centro », « gare ») never names one place, and is left out.
+        "zone_aliases": (
+            tuple(
+                n for n in _names(zone_place.mention, zone_place.canonical)
+                if len(_comparable(n)) >= 4 and not is_generic_location_token(n)
+            )
+            if zone and zone_place is not None and dept is None else ()
+        ),
     }
 
 
@@ -2054,7 +2187,14 @@ def geocode_location(
     user_words = read_user_words(tool_context)
     claims = _Claims(read_input_text(tool_context), user_words)
     args = _place_args(geo, claims, locale=locale, language_hint=language_hint)
-    args["metro"] = metro
+    # The model often repeats a place of this turn as `metro` too (replay
+    # 2026-10-28: « métropole lilloise » as a region AND as metro). A second
+    # copy of a name already in the request adds no place, only a second,
+    # looser lookup: dropped. A metro of its own is kept.
+    named = {_comparable(n) for n in (args.get("city"), args.get("zone"), *(args.get("aliases") or ())) if n}
+    for place in geo.places:
+        named |= {_comparable(n) for n in (place.mention, place.canonical) if n}
+    args["metro"] = None if metro and _comparable(metro) in named else metro
     args["raw_user_message"] = user_words
     # What THIS message said, before the carry-over below fills the blanks.
     own = dict(args)
@@ -2088,6 +2228,8 @@ def geocode_location(
         (geo.ambiguity.reason if geo.ambiguity is not None else None) or "none",
         geo.carryover,
     )
+    if geo.near_user and not (own.get("city") or own.get("zone") or own.get("postal_code")):
+        return _near_user(proximity_lat, proximity_lon)
     context: dict[str, Any] = {
         "profile_state_context": profile_state_context,
         "profile_location_hint": profile_location_hint,
@@ -2098,6 +2240,10 @@ def geocode_location(
     }
     nearby = asks_nearby(geo)
     result = geocode_core(**args, **context)
+    if _zone_homonym(result, args):
+        # The homonyms of a city asked about because of the landmark next to it:
+        # the city's own lookup decides (2026-10-28, see `_without_the_landmark`).
+        return _marked_nearby(_without_the_landmark(args, context) or result, nearby)
     if not _refused(result):
         return _marked_nearby(result, nearby)
     # 2026-10-27: the echo guard refused what came back, or nothing came back.
@@ -2117,9 +2263,18 @@ def geocode_location(
         )
         if second.get("ok") and first_guards:
             second["guards_fired"] = sorted(set(first_guards) | set(second.get("guards_fired") or []))
+        dropped_zone = (args.get("zone") or "").strip()
+        if second.get("ok") and dropped_zone and not (retry_args.get("zone") or "").strip():
+            # 2026-10-28: the spot carried from an earlier turn could not be
+            # placed; the search runs without it, and says so — and the
+            # profile forgets it, or every later turn would look it up again.
+            _mark_landmark_unresolved(second, dropped_zone)
         if not _refused(second):
             return _marked_nearby(second, nearby)
         result = second
+    fallback = _without_the_landmark(args, context)
+    if fallback is not None:
+        return _marked_nearby(fallback, nearby)
     # Still nothing the user named: say so and ask, never "search unavailable".
     subject = _subject(own, args)
     if not subject:
@@ -2129,9 +2284,95 @@ def geocode_location(
     return _unresolved(subject, _mapbox_language(locale, language_hint), diagnostics, guards)
 
 
+def _mark_landmark_unresolved(result: dict, zone: str) -> dict:
+    """A city searched without the spot named in it: said in the reply, and
+    the spot cleared from the profile (`response_bridge.emit_search_datapart`)."""
+    result["landmark_unresolved"] = zone
+    result["profile_delta"] = {**(result.get("profile_delta") or {}), "landmark_unresolved": zone}
+    return result
+
+
+def _zone_homonym(result: dict, args: dict[str, Any]) -> bool:
+    """A homonym question about the city, asked on a turn that also named a
+    spot in it: its options came from the lookup of « <spot>, <city> »."""
+    clarification = result.get("clarification") or {}
+    return (
+        result.get("error") == "geocode_ambiguous"
+        and clarification.get("kind") == "homonym"
+        and _landmark_and_city(args) is not None
+    )
+
+
+def _landmark_and_city(args: dict[str, Any]) -> tuple[str, str] | None:
+    """(zone, city) when the request named a spot inside a city — not an
+    area, not a postcode, not an address or a street (their own lookups)."""
+    zone = (args.get("zone") or "").strip()
+    city = (args.get("city") or args.get("metro") or "").strip()
+    if not zone or not city or not _is_blank(args.get("postal_code")):
+        return None
+    if args.get("zone_kind") in _AREA_KINDS or args.get("zone_kind") in ("address", "street"):
+        return None
+    return zone, city
+
+
+def _without_the_landmark(args: dict[str, Any], context: dict[str, Any]) -> dict | None:
+    """The city alone, when the spot named in it could not be placed.
+
+    Prod session b4703f31 (2026-10-27): « Paris possiblement à côté de
+    l'unesco » got a homonym question between Paris (Roanne) and Paris (Maine),
+    then « Paris la capitale de la France » got « Je n'ai pas réussi à situer
+    « UNESCO Headquarters » » — with `resolved_place` « Paris, France » in the
+    very same result. The city was found; only the spot was not. So: ONE
+    lookup of the city alone. Found → the search runs on the city, and
+    `landmark_unresolved` names the spot, for the reply to say so and for the
+    profile to forget it (`response_bridge`). A homonym question → that one,
+    with the city's own options, the spot kept for the answer turn. Anything
+    else → None, and the caller's honest question stands."""
+    pair = _landmark_and_city(args)
+    if pair is None:
+        return None
+    zone, _city = pair
+    bare = {**args, "zone": None, "zone_kind": None, "zone_aliases": ()}
+    result = geocode_core(**bare, **context)
+    _metrics_logger.info(
+        "dayuse_metric=geocode_landmark_dropped agent=b2c_hotel_search status=%s",
+        "ok" if result.get("ok") else str(result.get("error") or "other"),
+    )
+    if result.get("ok"):
+        return _mark_landmark_unresolved(result, zone)
+    if result.get("error") == "geocode_ambiguous" and (result.get("clarification") or {}).get("kind") == "homonym":
+        result["profile_delta"] = {**(result.get("profile_delta") or {}), "zone": zone}
+        return result
+    return None
+
+
 #: The failures that mean "the geocoder answered, nothing it gave is the place
 #: asked for" — as opposed to a question, a missing destination, or an outage.
 _REFUSALS = frozenset({"geocode_echo_mismatch", "geocode_no_match"})
+
+
+def _near_user(lat: float | None, lon: float | None) -> dict:
+    """« Près de moi » with no other place in THIS message (2026-10-28).
+
+    With the device position the profile carries (`search_anchor`, set by the
+    facade from the browser's or the app's fix this turn): the search runs
+    around it, and the earlier destination is dropped (`near_user` in the
+    delta), so a follow-up (« avec piscine ») stays around the user instead of
+    falling back on the city searched before — agent-usa's « keep the near-me
+    GPS origin across refinement turns ». Without a position: no place to
+    search, said as such (`missing_city`), and the concierge asks for one —
+    never the earlier city passed off as « near you »."""
+    if lat is None or lon is None:
+        return _fail("no_geocodable_location", {"reason": "missing_city", "zone_hint": None})
+    return _ok(
+        GeocodeResult(
+            latitude=float(lat), longitude=float(lon), place_name="your current location",
+            country_code="", region="",
+        ),
+        feature_type="gps",
+        profile_delta={"near_user": True},
+        distance_origin_type="gps",
+    )
 
 
 def _refused(result: dict) -> bool:

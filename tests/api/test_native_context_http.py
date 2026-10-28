@@ -48,7 +48,8 @@ def test_gps_anchor_persists_to_redis_profile(client, store):
     session_id = r.json()["session_id"]
     profile = asyncio.run(store.get(session_id))
     assert profile.search_anchor == {
-        "type": "gps", "lat": 48.8566, "lon": 2.3522, "label": None, "set_at_turn": 0,
+        # R3 (review of #173): rounded once at the intake, 3 decimals (~110 m).
+        "type": "gps", "lat": 48.857, "lon": 2.352, "label": None, "set_at_turn": 0,
     }
 
 
@@ -56,8 +57,8 @@ def test_gps_anchor_surfaces_in_active_filters(client):
     r = client.post("/v3/chat", json={"message": "Bonjour !", **_GPS_GRANTED})
     af = r.json()["active_filters"]
     assert af["search_anchor"]["type"] == "gps"
-    assert af["search_anchor"]["lat"] == 48.8566
-    assert af["search_anchor"]["lon"] == 2.3522
+    assert af["search_anchor"]["lat"] == 48.857
+    assert af["search_anchor"]["lon"] == 2.352
 
 
 def test_anchor_carries_over_on_a_turn_with_no_location_signal(client):
@@ -79,11 +80,11 @@ def test_anchor_replaced_by_an_explicit_new_city(client, monkeypatch):
         "/v3/chat", json={"message": "un hôtel à Paris"}, headers={"X-Client-Session-Id": sid}
     )
     af = second.json()["active_filters"]
-    # First city-bearing delta (None -> "Berlin") never triggers the anchor
-    # clear (S-G1's rule only fires on an ACTUAL change from a prior city) —
-    # the anchor still coexists with the freshly-resolved city here.
+    # R3 (review of #173, GDPR): a place resolved from the user's words is the
+    # destination, the device position goes — also on the FIRST city (before:
+    # only a city CHANGE cleared it, and « près de moi » clears the city).
     assert af["city"] == "Berlin"
-    assert af["search_anchor"] is not None
+    assert af["search_anchor"] is None
 
     _install_search_turn(monkeypatch, "Chicago")
     third = client.post(
@@ -221,17 +222,25 @@ def test_gps_coordinates_never_appear_in_logs_or_metrics(client, monkeypatch, ca
 
     monkeypatch.setattr(agent_module, "enqueue_metric_event", capture)
     _install_search_turn(monkeypatch, "Paris")
+    seen: list[dict] = []
+
+    async def near_me_leaf(leaf, ctx, profile_in, **kwargs):
+        seen.append(profile_in)
+        return ("Voici des hôtels près de vous.", {"results": [], "profile_delta": {}})
+
+    monkeypatch.setattr(agent_module, "_run_leaf", near_me_leaf)
 
     with caplog.at_level(logging.DEBUG):
-        r = client.post("/v3/chat", json={"message": "un hôtel à Paris", **_GPS_GRANTED})
+        r = client.post("/v3/chat", json={"message": "un hôtel près de moi", **_GPS_GRANTED})
 
     assert r.status_code == 200
-    assert r.json()["active_filters"]["search_anchor"]["lat"] == 48.8566  # sanity: anchor DID get set
+    assert r.json()["active_filters"]["search_anchor"]["lat"] == 48.857  # sanity: anchor DID get set
+    assert seen[0]["search_anchor"]["lat"] == 48.857  # and only the rounded value reaches the leaf
 
     log_blob = "\n".join(record.getMessage() for record in caplog.records)
-    assert "48.8566" not in log_blob
-    assert "2.3522" not in log_blob
+    for value in ("48.8566", "2.3522", "48.857", "2.352"):
+        assert value not in log_blob
 
     metrics_blob = json.dumps(events, ensure_ascii=False)
-    assert "48.8566" not in metrics_blob
-    assert "2.3522" not in metrics_blob
+    for value in ("48.8566", "2.3522", "48.857", "2.352"):
+        assert value not in metrics_blob

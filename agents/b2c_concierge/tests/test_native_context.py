@@ -96,10 +96,11 @@ class TestParseGpsAnchor:
             }
         }
         anchor = _parse_gps_anchor(body, turn_index=3)
+        # R3 (review of #173): 3 decimals (~110 m), once, at the intake.
         assert anchor == {
             "type": "gps",
-            "lat": 48.8566,
-            "lon": 2.3522,
+            "lat": 48.857,
+            "lon": 2.352,
             "label": None,
             "set_at_turn": 3,
         }

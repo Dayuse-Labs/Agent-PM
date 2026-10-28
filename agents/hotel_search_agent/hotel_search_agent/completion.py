@@ -27,6 +27,7 @@ import time
 from typing import Any
 
 from hotel_search_agent.equipment_ids import equipment_ids_for
+from hotel_search_agent.extra_calls import extra_call
 from hotel_search_agent.response_bridge import (
     MAX_RESULTS,
     NEARBY_RADIUS_KM,
@@ -35,7 +36,9 @@ from hotel_search_agent.response_bridge import (
     STATE_COMPLETION_KEY,
     STATE_NEARBY_KEY,
     STATE_PREFERRED_AMENITIES_KEY,
+    STATE_RESCUE_KEY,
     STATE_SEARCH_DATE_KEY,
+    pool_before_cutoff,
     read_structured_payload,
 )
 from hotel_search_agent.schema_guard import drop_args_outside_schema
@@ -52,10 +55,7 @@ def _same_day_dead_end(state: Any, structured: dict[str, Any], results: list) ->
     search_date = state.get(STATE_SEARCH_DATE_KEY)
     if results or not isinstance(search_date, dict) or not search_date.get("same_day"):
         return False
-    try:
-        return int(structured.get("total") or 0) > 0
-    except (TypeError, ValueError):
-        return False
+    return pool_before_cutoff(structured) > 0
 
 
 async def complete_thin_search_after_tool(
@@ -72,6 +72,14 @@ async def complete_thin_search_after_tool(
         return None
     if args.get("from"):
         return None  # a later page: the first one was already completed
+    if tool_context.state.get(STATE_RESCUE_KEY):
+        # The rescue (`relaxation.py`) found the cards of an empty first page.
+        # Only then: when it found nothing, the completion's wider ring with
+        # the user's filters is still the one chance left (replay 2026-10-28,
+        # « dans la métropole lilloise entre 14 et 18 » + jacuzzi: 4 hotels on
+        # main through it, 0 on the branch while it stood down after an empty
+        # rescue).
+        return None
     structured = read_structured_payload(tool_response)
     if not isinstance(structured, dict):
         return None
@@ -94,12 +102,12 @@ async def complete_thin_search_after_tool(
         completion_args.pop("hotelEquipmentIds", None)
     drop_args_outside_schema(tool, completion_args, tool_context)
     started = time.monotonic()
-    try:
-        response = await tool.run_async(args=completion_args, tool_context=tool_context)
-    except Exception:  # noqa: BLE001 — a completion never breaks the turn
-        _log("error", started, len(results), 0)
+    # R2 (review of #173): never after an extra call failed, nor past the
+    # deadline (`extra_calls`); its own error stops the turn's extra calls.
+    status, payload = await extra_call(tool, completion_args, tool_context, kind="completion")
+    if status != "ok":
+        _log("error" if status == "error" else "skipped", started, len(results), 0)
         return None
-    payload = read_structured_payload(response)
     found = payload.get("results") if isinstance(payload, dict) else None
     if not found:
         _log("empty", started, len(results), 0)

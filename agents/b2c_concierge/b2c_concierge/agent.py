@@ -74,6 +74,7 @@ import logging
 import os
 import re
 import time
+from datetime import date
 from typing import Any, AsyncGenerator
 
 import httpx
@@ -159,6 +160,7 @@ from .profile import (
     build_hotel_picks,
     chosen_clarification_option,
     free_question_streak,
+    has_search_destination,
     is_bare_affirmative,
     is_booking_confirmation_signal,
     is_more_options_signal,
@@ -182,15 +184,15 @@ from .profile import (
     select_hotel_by_position,
     without_final_question,
 )
-from .place_check import names_a_place
 from .profile_store import get_profile_store
 from .requested_date import date_served_notice, expected_search_date, mentions_a_date, reference_today
 from .no_offers import drop_restated, no_offers_line
+from .relaxation_notice import clicked_relax_chip, relaxation_line, relaxation_note
 from .window_guard import enforce_window_disclosure, enforce_window_match, window_label
 from .routing import LEAF_FAQ, LEAF_HOTEL_SEARCH, ROUTES, bearer_token, card_url
 from .turn_facts import ClarificationReason, EmptyReason, TurnStatus, spine_turn_facts
 from .triage import (
-    has_language_evidence,
+    decides_language,
     SERVICE,
     TEMPLATE_LANGUAGES,
     asks_policy,
@@ -224,7 +226,12 @@ if not metrics_logger.handlers:
 # stuck call and its relaunch, both at T, plus the leaf's tools:
 # - search: T = 15 s, Mapbox 1.5 s + 1 retry, MCP 5 s: 30 + 3 + 5 = 38 s; the
 #   other LLM call (geocode_location, then search_offers) takes the rest at its
-#   healthy p95 (5 s) -> 45 s.
+#   healthy p95 (5 s) -> 45 s. The leaf's EXTRA searches (next-day probe,
+#   zero-result rescue, completion, local page of the proximity ranking —
+#   `hotel_search_agent.extra_calls`) start only within 20 s of the leaf
+#   turn's start and stop on the first error: the last ends by ~25 s (MCP
+#   5 s), the local page's 2 s wait is cut to what remains, and a turn whose
+#   model calls hung (the 38 s case) gets none — they never push it past 45 s.
 # - FAQ: T = 20 s (the answer reads a large document; healthy p99 16.3 s), MCP
 #   5 s: 40 + 5 = 45 s.
 # A hang DURING a slow episode (3 slow calls in a row) is still cut by this
@@ -398,15 +405,6 @@ def _attach_outgoing_datapart(
     # the earlier request and the reply as one message.
     prefix = [genai_types.Part(text=context_text)] if context_text else []
     last_event.content.parts = [*prefix, *(last_event.content.parts or []), encode_datapart(payload)]
-
-
-def _knows_a_place(profile: SessionProfile) -> bool:
-    """A place the session already holds — named by the user, picked from a
-    question, or the device's position. The market is not one."""
-    return bool(
-        profile.city or profile.zone or profile.metro or profile.region_anchor
-        or profile.named_hotel or profile.search_anchor
-    )
 
 
 def _leaf_clarification(raw: Any) -> Clarification | None:
@@ -589,6 +587,18 @@ _UNCHANGED_NOTE = (
     "change did not alter them. Your reply comes right after a sentence saying so. "
     "Never claim you widened, changed or found anything; offer ONE different next step."
 )
+
+def search_signature(search_context: Any) -> str | None:
+    """A fingerprint of the search the leaf ran (`search_context`: place,
+    ring, date, window, budget, filters, party), without the « see all » link
+    and the notice fields; None when the leaf sent none."""
+    if not isinstance(search_context, dict):
+        return None
+    kept = {
+        k: v for k, v in search_context.items() if k not in ("search_page", "landmark_unresolved")
+    }
+    return json.dumps(kept, sort_keys=True, ensure_ascii=False, default=str)
+
 
 def completed_note(completion: Any, shown: int) -> str:
     """Prod session 1eb2430a: the leaf completed a thin first page from a wider
@@ -978,7 +988,10 @@ class _B2cConcierge(BaseAgent):
             provenance_note=provenance_note, currency_note=currency_note,
             angle=angle, no_offers=no_offers, recent_messages=recent_messages,
             unchanged=unchanged, no_question=no_question,
-            completed=completed_note(response.get("completion"), len(shortlist_hotels(response))),
+            completed=" ".join(filter(None, (
+                completed_note(response.get("completion"), len(shortlist_hotels(response))),
+                relaxation_note(response.get("relaxation")),
+            ))),
         )
 
         def fallback() -> str | None:
@@ -1259,6 +1272,40 @@ class _B2cConcierge(BaseAgent):
             )
 
     @staticmethod
+    def _day_notice(
+        profile: SessionProfile, response: dict[str, Any], language: str, today: date,
+        *, day_open: bool, results_count: int,
+    ) -> str | None:
+        """2026-10-28: the search ran on a day the user did not choose — no day
+        named (once per session), a month without its day, or « any day » /
+        « not today » (the leaf's `month` / `flexible` labels, each time). The
+        answer says which day, in code, and the day chips after it change it
+        (a 0-result turn keeps its recovery chips). Never a question."""
+        reference = profile.date_reference if isinstance(profile.date_reference, dict) else {}
+        loose_label = reference.get("resolved_from") in ("month", "flexible") and "date" in (
+            response.get("profile_delta") or {}
+        )
+        if not loose_label and not (day_open and not profile.date_announced):
+            return None
+        search_date = response.get("search_date")
+        served = search_date.get("date") if isinstance(search_date, dict) else None
+        if not isinstance(served, str):
+            return None
+        try:
+            offset = (date.fromisoformat(served) - today).days
+        except ValueError:
+            return None
+        profile.date_announced = True
+        chips = templates.later_date_chips(language, offset) if results_count > 0 else []
+        if chips and reference.get("resolved_from") != "month":
+            profile.last_suggestions = chips
+        else:
+            chips = []
+        return templates.date_retained_notice(
+            format_date_human(served, language), language, with_chips=bool(chips)
+        )
+
+    @staticmethod
     def _ack_text(
         profile: SessionProfile, message: str, language: str, llm_affirmative: bool | None = None
     ) -> str:
@@ -1396,12 +1443,14 @@ class _B2cConcierge(BaseAgent):
         # (fr or en) answered « élargir la zone » in English in a French session.
         # The session's language (an earlier triage's) comes first, then the
         # client locale; the guess only when there is neither.
-        if triage.used_llm:
-            language = (
-                profile.language
-                if profile.language and not has_language_evidence(message)
-                else triage.language
-            )
+        # 2026-10-28 (prod, locale nl): « Jacuzzi » was answered in French, and
+        # « Overmorgen » in English because a regex guess on « Sud Lyon » had
+        # become the session's language. The triage's language counts only on
+        # a message that can tell it (`decides_language`), and only that one
+        # ever becomes the session's.
+        language_decided = triage.used_llm and decides_language(message)
+        if language_decided:
+            language = triage.language
         else:
             language = profile.language or locale_response_language(profile.locale) or triage.language
         reply_language = response_language(language)
@@ -1434,6 +1483,8 @@ class _B2cConcierge(BaseAgent):
         # card, there is nothing left to interpret. One-shot — cleared here so
         # it can never leak into a later turn.
         clicked_id, profile.picked_hotel_id = profile.picked_hotel_id, None
+        # 2026-10-28: « près de moi » clicked and no position came back — one-shot too.
+        location_refused, profile.device_location_refused = profile.device_location_refused, False
         if clicked_id is not None:
             picked = next(
                 (
@@ -1459,10 +1510,19 @@ class _B2cConcierge(BaseAgent):
         # (all 7) — `triage.classify` already validates `language` against
         # LANGUAGES, so this check is a defensive choke point, not a filter
         # that fires in practice.
+        # With neither a session language nor a client locale, the triage's
+        # reading is still the best there is (a bare « oui » in tests and API
+        # calls without a locale).
         if (
             clicked_id is None
             and triage.language in TEMPLATE_LANGUAGES
-            and (profile.language is None or has_language_evidence(message))
+            and (
+                language_decided
+                or (
+                    triage.used_llm and profile.language is None
+                    and locale_response_language(profile.locale) is None
+                )
+            )
         ):
             profile.language = triage.language
 
@@ -1529,7 +1589,7 @@ class _B2cConcierge(BaseAgent):
             family, route = "search", ROUTES["search"]
         # Consumed by this turn, whatever it does: only the very next reply
         # answers a question.
-        if pending is not None and pending.get("date_question"):
+        if pending is not None and (pending.get("date_question") or pending.get("place_question")):
             profile.last_suggestions = None  # the day chips answer that turn only
         profile.pending_search = None
         profile.pending_clarification = None
@@ -1756,7 +1816,14 @@ class _B2cConcierge(BaseAgent):
             # PORT1 slice 4: "cheaper" is measured against the verified,
             # fee-inclusive totals of the offers on screen — never an amount
             # the model invents. Without one, ask before searching.
-            if triage.price_comparison == "lower":
+            if triage.price_comparison == "lower" and not profile.last_results:
+                # Nothing on screen, so nothing to be cheaper than (prod session
+                # a1bb0e7f, Bilbao: « Pasado mañana » after the old day question
+                # got « no verified total to compare » twice, and the place was
+                # lost). A fact of the state: the comparison is dropped, the
+                # search runs.
+                profile.price_comparison = None
+            elif triage.price_comparison == "lower":
                 reference = cheaper_reference(
                     profile.last_results, comparison_mode(profile, profile.last_results)
                 )
@@ -1802,6 +1869,8 @@ class _B2cConcierge(BaseAgent):
         # search_offers, and the date used to die with it (QA Côte d'Azur:
         # "le 3 octobre" asked, today served on the next turn).
         expected_date: str | None = None
+        from_message = False
+        day_open = False
         if route.target == LEAF_HOTEL_SEARCH:
             today = reference_today(profile.client_timezone)
             expected_date, from_message = expected_search_date(message, profile.date, today)
@@ -1810,54 +1879,21 @@ class _B2cConcierge(BaseAgent):
                 profile.date_reference = {"resolved_from": "concierge"}
                 if profile.client_timezone:
                     profile.date_reference["client_tz"] = profile.client_timezone
-            # QA 2026-10-20 (Fabien): the session's first hotel search names a
-            # day or asks for one, before the leaf — nothing is searched on a
-            # day the user never chose. Once only: a reply that still names
-            # none searches today. A named hotel is looked up as asked: its
-            # name reaches the lookup on this turn only (mcp-dayuse#7). With
-            # Redis down every turn starts empty: the reply could never find
-            # the request again, so the search runs on today instead.
-            if not repeat_search and not profile.date_checked:
-                profile.date_checked = True
-                if (
-                    expected_date is None
-                    and not (named_choice or triage.hotel_name)
-                    and not triage.day_stated
-                    and not mentions_a_date(message, today)
-                    and await store.exists(ctx.session.id) is not None
-                ):
-                    # Prod 7e296e4b (2026-10-27): a request that names no place
-                    # either is asked both at once. The check reads the request
-                    # the reply will hand the leaf; a known place skips it.
-                    request = (next_pending_search(earlier, message, False, None) or {}).get("request")
-                    asks_place = not _knows_a_place(profile) and (
-                        await names_a_place(request or message, budget, inv) is False
-                    )
-                    if asks_place:
-                        question = templates.date_place_question(reply_language)
-                        profile.last_suggestions = None
-                    else:
-                        question = templates.date_question(reply_language)
-                        profile.last_suggestions = templates.date_chips(reply_language)
-                    profile.last_clarifying_question = question
-                    # The request is kept for the reply (EARLIER REQUEST), and
-                    # the question counts as one ask of the free-question streak.
-                    profile.pending_search = {
-                        **(next_pending_search(earlier, message, False, question, ended_on_question=True) or {}),
-                        "date_question": True,
-                    }
-                    await store.set(ctx.session.id, profile)
-                    # Amplitude (AM1): the contract agreed with the analytics team
-                    # has no "date" reason yet — "other" until it does; the
-                    # question that also asks the place is a "location" one.
-                    self._emit_turn_metric(
-                        family,
-                        "template:date_place_question" if asks_place else "template:date_question",
-                        budget, t_start, "ok", inv,
-                        clarification="location" if asks_place else "other",
-                    )
-                    yield self._final(ctx, question)
-                    return
+            # 2026-10-28 (Victor, reverses part of Fabien's 2026-10-20 isolated
+            # day question): the day is still OPEN when nobody named one — not
+            # in this message (code, then the triage's `day_stated` for
+            # "maintenant"), not earlier in the session. The search is no
+            # longer held back for it: with a place it runs on today (the
+            # leaf's D+1 probe moves it past the same-day cutoff) and the
+            # answer says which day; without one, the place question asks the
+            # day in the same sentence. A named hotel is looked up as asked.
+            day_open = (
+                not repeat_search
+                and expected_date is None
+                and not (named_choice or triage.hotel_name)
+                and not triage.day_stated
+                and not mentions_a_date(message, today)
+            )
 
         budget.charge("leaf_llm")
         leaf_kwargs: dict[str, Any] = (
@@ -1882,6 +1918,11 @@ class _B2cConcierge(BaseAgent):
         if route.target == LEAF_HOTEL_SEARCH and clicked_widen_chip(message):
             # The leaf widens the search ring one step (`inject_landmark_radius`).
             leaf_kwargs["query_params"] = {**(leaf_kwargs.get("query_params") or {}), "widen_area": True}
+        relax_chip = clicked_relax_chip(message) if route.target == LEAF_HOTEL_SEARCH else None
+        if relax_chip:
+            # Point 3: « augmenter le budget » / « retirer un filtre », the
+            # concierge's own chips: the leaf loosens the search (`relaxation.py`).
+            leaf_kwargs["query_params"] = {**(leaf_kwargs.get("query_params") or {}), "relax": relax_chip}
         context_text: str | None = None
         if route.target == LEAF_HOTEL_SEARCH and pending_clar is not None:
             # QA14707 (Q04): the answer to a place question travels with the
@@ -1983,7 +2024,13 @@ class _B2cConcierge(BaseAgent):
             budget.searched_city = profile.city
         date_notice: str | None = None
         search_date_part = response.get("search_date")
-        if expected_date and isinstance(search_date_part, dict):
+        # The leaf's model read a NEW day in this message (a fresh `date` in
+        # its delta: « in 2 weeks », « mes de noviembre »), one the concierge's
+        # parser could not: the expected day was only the carried one, and the
+        # fresh label wins (prod session eaf1fad8: « Pick a date in 2 weeks »
+        # was searched, then the guard put the old day back).
+        leaf_fresh_date = "date" in delta
+        if expected_date and (from_message or not leaf_fresh_date) and isinstance(search_date_part, dict):
             served = search_date_part.get("date")
             # A same-day cutoff swap is already disclosed by the leaf.
             if (
@@ -2055,6 +2102,7 @@ class _B2cConcierge(BaseAgent):
         window_fallback: str | None = None
         no_offers = ""
         unchanged = False
+        day_notice: str | None = None
         if route.target == LEAF_HOTEL_SEARCH and "results" in response:
             # guard_window_match (mcp-dayuse#8): what reaches the screen as a
             # match covers the slot, by the site rule the leaf filters with.
@@ -2116,17 +2164,32 @@ class _B2cConcierge(BaseAgent):
                 language=reply_language,
                 same_day_dead_end=same_day_dead_end,
             )
+            day_notice = self._day_notice(
+                profile, response, reply_language, today,
+                day_open=day_open and not leaf_fresh_date and not more_options,
+                results_count=results_count,
+            )
             shown_before = shortlist_signature(profile.last_results)
             record_search_shortlist(profile, response["results"])  # S07: named-hotel lookup guard
+            searched_before = profile.last_search_signature
+            profile.last_search_signature = search_signature(response.get("search_context"))
             # guard_refinement_unchanged (mcp-dayuse#6): a follow-up that put
             # back the very offers on screen says so. Pagination never repeats
             # a card, and a currency repaint changes only how prices read.
+            # 2026-10-28 (prod: Melbourne « I already said I prefer shortest
+            # duration »): only when the search itself changed — a message
+            # that changed nothing the search sends (a preference, a question)
+            # did not ask for other offers, and « that change does not alter
+            # the results » answered a change nobody made.
             unchanged = (
                 results_count > 0
                 and not more_options
                 and not repeat_search
                 and bool(shown_before)
                 and shortlist_signature(profile.last_results) == shown_before
+                and searched_before is not None
+                and profile.last_search_signature is not None
+                and profile.last_search_signature != searched_before
             )
             if unchanged:
                 with observation(as_type="guardrail", name="refinement-unchanged"):
@@ -2186,6 +2249,15 @@ class _B2cConcierge(BaseAgent):
                     budget.fired.add("anti_clarification_loop")
             text = templates.clarification_response(leaf_question, reply_language, asked)
             gave_up = asked > templates.CLARIFICATION_MAX_ASKS
+            if (
+                day_open and not profile.date_checked and not gave_up
+                and leaf_question.kind in ("city_needed", "unresolved")
+            ):
+                # 2026-10-28: the place is missing and so is the day — one
+                # message asks both, with the day chips; never a second turn.
+                profile.date_checked = True
+                text = templates.with_day_question(text, reply_language)
+                profile.last_suggestions = templates.date_chips(reply_language)
             profile.last_clarifying_question = None if gave_up else text
             await store.set(ctx.session.id, profile)
             clarification_reason: ClarificationReason
@@ -2202,6 +2274,46 @@ class _B2cConcierge(BaseAgent):
             for chunk in _chunk_text(text):
                 yield self._chunk_event(ctx, chunk)
             yield self._final(ctx, text)
+            return
+
+        if (
+            route.target == LEAF_HOTEL_SEARCH
+            and response.get("destination_missing") is True
+            and "results" not in response
+            and named_not_found is None
+            and not has_search_destination(profile)
+            and free_question_streak(pending) < templates.CLARIFICATION_MAX_ASKS
+        ):
+            # 2026-10-28: no search ran because the request names no place
+            # (the leaf's `destination_missing`: geocode_location found none
+            # to look up) and the session has none either (no city, area, zone
+            # or device position). The place is what is missing, so ONE code-owned
+            # question asks for it — and for the day in the same sentence
+            # while the day is open and was never asked — with the day chips.
+            # Before: the day alone, then the city on the next turn (12 of the
+            # 13 conversations that stopped on the day question had one turn).
+            # No synthesis: nothing was searched, and its free question used to
+            # add hours, budgets… to a request that cannot run yet.
+            ask_day = day_open and not profile.date_checked
+            if ask_day:
+                profile.date_checked = True
+            question = templates.place_question(
+                reply_language, ask_day=ask_day, location_refused=location_refused
+            )
+            profile.last_clarifying_question = question
+            profile.last_suggestions = templates.date_chips(reply_language) if ask_day else None
+            profile.pending_search = {
+                **(next_pending_search(earlier, message, False, question, ended_on_question=True) or {}),
+                "place_question": True,
+            }
+            await store.set(ctx.session.id, profile)
+            self._emit_turn_metric(
+                family, "template:place_question", budget, t_start, "ok", inv,
+                clarification="location",
+            )
+            for chunk in _chunk_text(question):
+                yield self._chunk_event(ctx, chunk)
+            yield self._final(ctx, question)
             return
 
         if (route.target == LEAF_HOTEL_SEARCH and profile.price_comparison
@@ -2296,6 +2408,23 @@ class _B2cConcierge(BaseAgent):
         if no_offers:
             rest = drop_restated(final_text, no_offers)
             final_text = f"{no_offers}\n\n{rest}" if rest else no_offers
+        relaxed = (
+            relaxation_line(response.get("relaxation"), response.get("search_context"), reply_language)
+            if route.target == LEAF_HOTEL_SEARCH else ""
+        )
+        if relaxed:
+            # Point 3: what the search relaxed, in code, before the synthesis.
+            rest = drop_restated(final_text, relaxed)
+            final_text = f"{relaxed}\n\n{rest}" if rest else relaxed
+        landmark_context = response.get("search_context") if route.target == LEAF_HOTEL_SEARCH else None
+        landmark = landmark_context.get("landmark_unresolved") if isinstance(landmark_context, dict) else None
+        if isinstance(landmark, str) and landmark.strip():
+            # The leaf searched the city: the spot named in it could not be
+            # placed (`geocode_tool._without_the_landmark`).
+            final_text = (
+                templates.landmark_unresolved_notice(landmark.strip(), reply_language, profile.city)
+                + f"\n\n{final_text}"
+            )
         if unchanged:
             final_text = f"{templates.refinement_unchanged_notice(reply_language)}\n\n{final_text}"
         if (
@@ -2323,6 +2452,8 @@ class _B2cConcierge(BaseAgent):
                 metrics_logger.info("concierge_metric=parking_reserve appended=1")
         if date_notice:
             final_text = f"{final_text.rstrip()}\n\n{date_notice}"
+        if day_notice:
+            final_text = f"{final_text.rstrip()}\n\n{day_notice}"
         if budget_followup:
             final_text = f"{final_text.rstrip()}\n\n{budget_followup}"
         elif profile.requested_budget and cards_fit_budget(response.get("results"), profile.requested_budget):

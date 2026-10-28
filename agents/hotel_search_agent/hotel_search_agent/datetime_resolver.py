@@ -56,9 +56,11 @@ from b2c_common.timeslot import DAYPART_HOURS, daypart_in
 from hotel_search_agent.response_bridge import (
     STATE_DATE_FALLBACK_KEY,
     STATE_DAYPART_KEY,
+    STATE_NEXT_DAY_PROBED_KEY,
     STATE_EXACT_WINDOW_KEY,
     STATE_RESOLVED_DATE_KEY,
     STATE_SEARCH_DATE_KEY,
+    pool_before_cutoff,
     read_profile_in,
     read_structured_payload,
     record_guards_fired,
@@ -69,10 +71,12 @@ _metrics_logger = logging.getLogger("dayuse.metrics")
 
 # --- model-facing schema widening -------------------------------------------------------------
 
+DATE_LABEL_TYPES = ("absolute", "relative", "offset", "month", "flexible")
+
 _DATE_LABEL_PROPERTY: dict[str, Any] = {
     "type": "object",
     "properties": {
-        "type": {"type": "string", "enum": ["absolute", "relative"]},
+        "type": {"type": "string", "enum": list(DATE_LABEL_TYPES)},
         "value": {
             "type": "string",
             "description": (
@@ -82,7 +86,15 @@ _DATE_LABEL_PROPERTY: dict[str, Any] = {
                 "even if today IS that weekday). For type=absolute: the date the "
                 "user stated, as YYYY-MM-DD if they gave a year, otherwise MM-DD "
                 "— NEVER add or guess a year yourself, the system picks the "
-                "soonest matching calendar date."
+                "soonest matching calendar date. For type=offset (the user "
+                "counts days or weeks FROM NOW: 'in 2 weeks', 'dans 3 jours', "
+                "'in einer Woche'): that count as an ISO-8601 period, P<n>D or "
+                "P<n>W ('P2W', 'P3D'). For type=month (a month named WITHOUT a "
+                "day: 'en novembre', 'mes de noviembre', 'in December'): MM, or "
+                "YYYY-MM only if they gave a year. For type=flexible: 'any' when "
+                "the user leaves the day open ('peu importe le jour', 'any date', "
+                "'da igual', 'whenever'), 'not_today' when they only rule out "
+                "today ('pas pour aujourd'hui', 'nicht für heute')."
             ),
         },
         "expression": {
@@ -269,8 +281,54 @@ def _usable_carried_date(value: Any, today: date, guards_fired: list[str]) -> st
     return value
 
 
+_PERIOD_RE = re.compile(r"^P(\d{1,3})([DW])$")
+_MONTH_RE = re.compile(r"^(?:(\d{4})-)?(\d{1,2})$")
+_MAX_OFFSET_DAYS = 365
+
+
+def _resolve_offset(value: Any, today: date) -> date | None:
+    """`P2W` / `P3D`, the model's label of a count from now: computed here."""
+    match = _PERIOD_RE.match(str(value or "").strip().upper())
+    if not match:
+        return None
+    days = int(match.group(1)) * (7 if match.group(2) == "W" else 1)
+    return today + timedelta(days=days) if 0 < days <= _MAX_OFFSET_DAYS else None
+
+
+def _resolve_month(value: Any, today: date) -> date | None:
+    """A month with no day (2026-10-28, prod « mes de noviembre » stayed on
+    today): its first searchable day — today in the current month, else the
+    1st of its next occurrence. No extra MCP call to look for « the first day
+    with offers »; the answer says which day was taken (concierge)."""
+    match = _MONTH_RE.match(str(value or "").strip())
+    if not match:
+        return None
+    month = int(match.group(2))
+    if not 1 <= month <= 12:
+        return None
+    year = int(match.group(1)) if match.group(1) else today.year
+    if not match.group(1) and month < today.month:
+        year += 1
+    if (year, month) == (today.year, today.month):
+        return today
+    first = date(year, month, 1)
+    return first if first > today else None
+
+
+def _resolve_flexible(value: Any, today: date, carried: date | None) -> date | None:
+    """« Any day » keeps the day already in play (else today) — it answers the
+    day, it never asks it again; « not today » moves today to tomorrow."""
+    v = str(value or "").strip().lower()
+    base = carried if carried is not None and carried >= today else today
+    if v == "any":
+        return base
+    if v == "not_today":
+        return base if base > today else today + timedelta(days=1)
+    return None
+
+
 def resolve_date_label(
-    label: Any, today: date, guards_fired: list[str] | None = None
+    label: Any, today: date, guards_fired: list[str] | None = None, carried: Any = None
 ) -> tuple[date, str, str | None]:
     """(resolved_date, resolved_from, expression) from the model's `date` label.
     `resolved_from` in {"relative", "absolute", "default"} — "default" covers a
@@ -294,6 +352,22 @@ def resolve_date_label(
             resolved = _resolve_absolute(value, today, fired)
             if resolved is not None:
                 return resolved, "absolute", expression
+        elif label_type == "offset":
+            resolved = _resolve_offset(value, today)
+            if resolved is not None:
+                return resolved, "offset", expression
+        elif label_type == "month":
+            resolved = _resolve_month(value, today)
+            if resolved is not None:
+                return resolved, "month", expression
+        elif label_type == "flexible":
+            try:
+                carried_date = date.fromisoformat(carried) if isinstance(carried, str) else None
+            except ValueError:
+                carried_date = None
+            resolved = _resolve_flexible(value, today, carried_date)
+            if resolved is not None:
+                return resolved, "flexible", expression
         return today, "default", expression
     return today, "default", None
 
@@ -325,8 +399,10 @@ def resolve_search_date(tool: Any, args: dict[str, Any], tool_context: Any) -> N
     today = reference_today(profile_in)
     guards_fired: list[str] = []
     label = args.pop("date", None)
-    if isinstance(label, dict) and label.get("type") in ("relative", "absolute"):
-        resolved_date, resolved_from, expression = resolve_date_label(label, today, guards_fired)
+    if isinstance(label, dict) and label.get("type") in DATE_LABEL_TYPES:
+        resolved_date, resolved_from, expression = resolve_date_label(
+            label, today, guards_fired, carried=profile_in.get("date")
+        )
         if resolved_from != "default":
             args["date"] = resolved_date.isoformat()
             date_reference: dict[str, Any] = {"resolved_from": resolved_from}
@@ -417,10 +493,10 @@ async def probe_next_day_after_tool(
     structured = read_structured_payload(tool_response)
     if not isinstance(structured, dict) or structured.get("results"):
         return None
-    try:
-        pool_total = int(structured.get("total") or 0)
-    except (TypeError, ValueError):
-        pool_total = 0
+    # 2026-10-28: MCP's `total` now counts AFTER the cutoff check, the count
+    # before it is `totalBeforeCutoff` (`pool_before_cutoff`); read on `total`
+    # alone, this probe never fired on the 13 same-day evening dead ends.
+    pool_total = pool_before_cutoff(structured)
     if pool_total <= 0:
         return None  # genuinely no inventory here — another day will not help
 
@@ -440,12 +516,18 @@ async def probe_next_day_after_tool(
     probe_args = {k: v for k, v in args.items() if k != "from"}
     probe_args["date"] = offered
     started = time.monotonic()
-    try:
-        probe_response = await tool.run_async(args=probe_args, tool_context=tool_context)
-    except Exception:  # noqa: BLE001 — a rescue probe never breaks the turn
+    # R2 (review of #173): through `extra_calls` — an error stops every extra
+    # call of the turn and reaches the breaker; none starts past the deadline.
+    from hotel_search_agent.extra_calls import extra_call
+
+    status, payload = await extra_call(tool, probe_args, tool_context, kind="next_day_probe")
+    if status == "skipped":
+        return None
+    # One MCP call spent on this dead end: the rescue (`relaxation.py`) counts it.
+    tool_context.state[STATE_NEXT_DAY_PROBED_KEY] = True
+    if status == "error":
         _log_probe("error", started, found=0)
         return None
-    payload = read_structured_payload(probe_response)
     found = payload.get("results") if isinstance(payload, dict) else None
     if not found:
         _log_probe("empty", started, found=0)

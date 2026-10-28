@@ -110,6 +110,10 @@ FALLBACK_SCORE_NAMES: tuple[str, ...] = (
     # A hotel the user named could not be found. When the turn still shows
     # other hotels (city-wide search), the answer now says so first.
     "named_hotel_not_found",
+    # 2026-10-28 (review of #173): an empty search was rescued — the cards are
+    # those of a relaxed search (`relaxation.py`), and the answer says what was
+    # relaxed. Raised by the search leaf (`fallbacks_fired`).
+    "search_rescue",
 )
 
 #: Closed set for the `degraded` CATEGORICAL score (RGPD: a rule id, never

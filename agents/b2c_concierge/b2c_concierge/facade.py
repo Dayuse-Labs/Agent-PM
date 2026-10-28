@@ -682,6 +682,10 @@ def _parse_client_timezone(raw: Any) -> str | None:
 # as this facade) — imported under its historical local name above.
 
 
+#: Precision kept of a device position (~110 m at 3 decimals).
+GPS_DECIMALS = 3
+
+
 def _parse_gps_anchor(body: dict[str, Any], turn_index: int) -> dict[str, Any] | None:
     """`search_anchor` sourced from `client_geo_context.device` — ONLY when
     the browser granted a fresh fix THIS turn (`permission == "granted"` and
@@ -704,13 +708,28 @@ def _parse_gps_anchor(body: dict[str, Any], turn_index: int) -> dict[str, Any] |
         return None
     if not (-90.0 <= lat <= 90.0 and -180.0 <= lon <= 180.0):
         return None
+    # R3 (review of #173, GDPR): rounded ONCE, here, at the entry — 3
+    # decimals is ~110 m, nothing next to a search ring of 2 km or more. Redis,
+    # the leaf's profile_in (its LLM prompt, Langfuse), Mapbox's `proximity`
+    # and MCP only ever see the rounded value.
     return {
         "type": "gps",
-        "lat": float(lat),
-        "lon": float(lon),
+        "lat": round(float(lat), GPS_DECIMALS),
+        "lon": round(float(lon), GPS_DECIMALS),
         "label": None,
         "set_at_turn": turn_index,
     }
+
+
+def _device_location_refused(body: dict[str, Any]) -> bool:
+    """2026-10-28: the widget asked the browser / the app for the position
+    (the « près de moi » chip, or a typed request it recognizes) and got none:
+    `client_geo_context.device.permission` is "denied" or "unavailable". A
+    fact the place question then states, instead of asking « which city? » as
+    if nothing had been tried."""
+    ctx = body.get("client_geo_context")
+    device = ctx.get("device") if isinstance(ctx, dict) else None
+    return isinstance(device, dict) and device.get("permission") in ("denied", "unavailable")
 
 
 def _native_context_delta(body: dict[str, Any], turn_index: int) -> dict[str, Any]:
@@ -748,7 +767,8 @@ async def _apply_native_context(session_id: str, body: dict[str, Any], turn_inde
     trip when the request carries none of these optional fields."""
     delta = _native_context_delta(body, turn_index)
     picked = _parse_picked_hotel_id(body)
-    if not delta and picked is None:
+    refused = _device_location_refused(body)
+    if not delta and picked is None and not refused:
         return
     store = get_profile_store()
     profile = await store.get(session_id)
@@ -762,6 +782,7 @@ async def _apply_native_context(session_id: str, body: dict[str, Any], turn_inde
     # S-CX5: NOT part of the delta reducer — this is one-shot turn state the
     # spine consumes and clears, not a carryover slot.
     profile.picked_hotel_id = picked
+    profile.device_location_refused = refused
     await store.set(session_id, profile)
 
 

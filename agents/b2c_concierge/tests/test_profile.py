@@ -1769,3 +1769,35 @@ class TestCompletedNote:
         from b2c_concierge.agent import completed_note
 
         assert completed_note(completion, 5) == ""
+
+
+class TestZoneKind:
+    """2026-10-28 (prod session c2f47e81, « in centro »): what the zone is
+    (`zone_kind`, set by the leaf) goes with the zone."""
+
+    def test_set_and_cleared_by_typed_ops(self):
+        from b2c_concierge.profile import SessionProfile, apply_profile_delta
+
+        profile = apply_profile_delta(
+            SessionProfile(city="Rome"),
+            {"zone": {"op": "set", "value": "centro di Roma"},
+             "zone_kind": {"op": "set", "value": "city_centre"}},
+            "in centro",
+        )
+        assert (profile.zone, profile.zone_kind) == ("centro di Roma", "city_centre")
+        profile = apply_profile_delta(profile, {"zone": {"op": "clear"}, "zone_kind": {"op": "clear"}}, "x")
+        assert (profile.zone, profile.zone_kind) == (None, None)
+
+    def test_a_new_city_clears_it(self):
+        from b2c_concierge.profile import SessionProfile, apply_profile_delta
+
+        profile = SessionProfile(city="Rome", zone="centro di Roma", zone_kind="city_centre")
+        profile = apply_profile_delta(profile, {"city": {"op": "set", "value": "Milano"}}, "a Milano")
+        assert profile.zone_kind is None
+
+    def test_the_search_signature_stays_with_the_concierge(self):
+        from b2c_concierge.profile import SessionProfile, leaf_profile_view
+
+        view = leaf_profile_view(SessionProfile(last_search_signature="x", zone_kind="city_centre"))
+        assert "last_search_signature" not in view
+        assert view["zone_kind"] == "city_centre"

@@ -60,6 +60,13 @@ from hotel_search_agent.budget_injection import inject_profile_budget
 from hotel_search_agent.occupancy import inject_profile_occupancy
 from hotel_search_agent.standing import enforce_standing
 from hotel_search_agent.completion import complete_thin_search_after_tool
+from hotel_search_agent.geo_rank import await_local_pool, start_local_pool
+from hotel_search_agent.relaxation import (
+    apply_relax_request,
+    inject_relaxation_declaration,
+    read_relax_request,
+    rescue_empty_search_after_tool,
+)
 from hotel_search_agent import named_hotel
 from hotel_search_agent.mcp_guard import (
     mcp_circuit_after_tool,
@@ -245,6 +252,20 @@ How to act, frugally (at most ONE reasoning pass — no tool-call loops):
   applied, and this is the only way to take one back. Never put the same key
   in `amenities` and `amenities_removed`, and omit the argument entirely when
   nothing was dropped or negated.
+- `amenities_must_have`: true when the amenity IS what the user is looking
+  for — the request is about it ("je veux un après-midi spa", "find a room with
+  a jacuzzi", "a pool day", "une chambre avec jacuzzi", "only with a jacuzzi",
+  or insisting after being told none had it). false when the amenity comes on
+  top of another purpose, as a plus ("a quiet room near the airport, ideally
+  with a pool", "un hôtel à Lyon demain, avec piscine si possible"). When it
+  is false and no hotel has the amenity, the system shows the closest hotels
+  without it and says so; when it is true, it widens the area instead.
+- `relax`: ONLY when THIS message asks to loosen the current search without a
+  new value ("élargir la zone", "try a nearby area" -> "area"; "retirer un
+  filtre", "quitar un filtro" -> "filters"; "une autre heure", "any time" ->
+  "time"; "augmenter le budget", "increase the budget" -> "budget"). The system
+  applies it to the search itself: never answer that you cannot widen or remove
+  anything.
 - An indoor or covered pool ("piscine intérieure", "piscine couverte", "indoor
   pool") is `indoor_pool`, never `pool`; a pool with no such word is `pool`.
 - An amenity the user wants but marks as OPTIONAL ("idéalement un massage", "si
@@ -286,16 +307,22 @@ How to act, frugally (at most ONE reasoning pass — no tool-call loops):
   `timeSlot` and NEVER converted into a start/end window yourself ("for 1
   hour" is not "00:00-01:00"). The system computes any real window from it.
 - `date`: LABEL what the user said, you never resolve it. It has 3 fields:
-  `type` (either "relative" or "absolute"), `value`, and `expression` (their
-  exact wording). For "today"/"tomorrow"/"the day after tomorrow"/a bare
-  weekday, set type="relative" and value to one of: today, tomorrow,
-  day_after_tomorrow, or an English weekday name (a weekday name always means
-  its NEXT occurrence, never today). For an explicit calendar date ("the
-  28th", "July 28", "2026-08-05"), set type="absolute" and value to
-  YYYY-MM-DD if they gave a year, else MM-DD — NEVER add or guess a year
-  yourself. OMIT `date` entirely when no day/date is mentioned at all — the
-  system keeps searching the same date already established, or today if none
-  was ever given.
+  `type`, `value`, and `expression` (their exact wording). For
+  "today"/"tomorrow"/"the day after tomorrow"/a bare weekday, set
+  type="relative" and value to one of: today, tomorrow, day_after_tomorrow, or
+  an English weekday name (a weekday name always means its NEXT occurrence,
+  never today). For an explicit calendar date ("the 28th", "July 28",
+  "2026-08-05"), set type="absolute" and value to YYYY-MM-DD if they gave a
+  year, else MM-DD — NEVER add or guess a year yourself. A count from now
+  ("in 2 weeks", "dans 3 jours") is type="offset" with value "P2W" / "P3D". A
+  month named without its day ("en novembre", "mes de noviembre") is
+  type="month" with value MM. A day left open ("peu importe le jour", "any
+  date", "da igual") is type="flexible" with value "any"; ruling out today
+  only ("pas pour aujourd'hui", "nicht für heute") is type="flexible" with
+  value "not_today". A CORRECTION of the day counts: label the new one. OMIT
+  `date` entirely when no day/date is mentioned at all — the system keeps
+  searching the same date already established, or today if none was ever
+  given.
 - A FOLLOW-UP that only changes the date/budget/filters, or just asks for OTHER
   options, with NO new destination (e.g. "for the 28th instead", "cheaper",
   "earlier", "any other options") → still call geocode_location first (with an
@@ -428,6 +455,7 @@ root_agent = Agent(
         llm_timing_before,
         inject_today_before_model,
         inject_amenities_declaration,
+        inject_relaxation_declaration,
         inject_datetime_declaration,
         named_hotel.inject_named_hotel_declaration,
     ],
@@ -449,6 +477,8 @@ root_agent = Agent(
         tool_timing_before,
         make_per_tool_budget_callback(PER_TOOL_CALL_LIMITS, MAX_TOOL_CALLS),
         mcp_circuit_before_tool,
+        # Point 3: pops `relax`/`amenities_must_have`; « area » feeds the ring.
+        read_relax_request,
         enforce_equipment_filters,
         enforce_standing,
         inject_profile_occupancy,
@@ -459,9 +489,15 @@ root_agent = Agent(
         resolve_search_date,
         resolve_search_timeslot,
         named_hotel.prepare_named_hotel_lookup,
+        # Point 3: « retirer un filtre / augmenter le budget », once every
+        # writer of the arguments has run.
+        apply_relax_request,
         # LAST: the virtual params are gone by now; anything else the tool's
         # published schema does not declare would make MCP refuse the call.
         drop_args_outside_schema,
+        # After it: launches the very same (final) search on the local disc,
+        # in parallel with it, for `geo_rank` (prod 2026-10-28).
+        start_local_pool,
     ],
     # capture_after_tool is LAST: it may return a truncated payload (which breaks
     # the after-tool chain), so it must never run before mcp_circuit_after_tool
@@ -479,7 +515,11 @@ root_agent = Agent(
         tool_timing_after,
         mcp_circuit_after_tool,
         probe_next_day_after_tool,
+        # Point 3: an EMPTY first page is relaxed step by step (≤ 2 MCP calls,
+        # the probe's included); the completion stands down after it.
+        rescue_empty_search_after_tool,
         complete_thin_search_after_tool,
+        await_local_pool,
         named_hotel.follow_named_hotel,
         capture_after_tool,
     ],
