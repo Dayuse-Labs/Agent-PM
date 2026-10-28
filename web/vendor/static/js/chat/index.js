@@ -214,7 +214,9 @@ function initChat() {
     const nearMe = document.getElementById('search-example-near-me');
     if (nearMe) {
         nearMe.addEventListener('click', () => {
-            trackSuggestionClick({ suggestionType: 'near_me', position: 0 });
+            // Its own chip kind (contract: suggestion_type is open, added
+            // here), at its 1-based place in the hero row: the first.
+            trackSuggestionClick({ suggestionType: 'near_me', position: 1 });
             state.requestDeviceLocation = true;
             fillSearch(String(nearMe.textContent || '').trim());
         });

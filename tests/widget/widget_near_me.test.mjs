@@ -56,6 +56,9 @@ test('the welcome chip named near_me is the one marked, and only it', () => {
         'welcome', 'Chambre en journée près de moi');
     assert.equal((html.match(/data-near-me="1"/g) || []).length, 1);
     assert.match(html, /data-near-me="1" data-suggestion="Chambre en journée près de moi"/);
+    // Tracked as its own kind, the city chip stays `welcome` (review of #173).
+    assert.match(html, /data-suggestion-type="near_me"[^>]*data-near-me="1"/);
+    assert.match(html, /data-suggestion-type="welcome"[^>]*data-suggestion="Chambre en journée à Lyon"/);
     assert.doesNotMatch(suggestionsInlineHtml(['Demain'], 'recovery'), /data-near-me/);
 });
 
@@ -97,4 +100,10 @@ test('without the chip, an ordinary message asks nothing', async () => {
 test('the hero carries the chip and the seven languages label it', () => {
     assert.match(hero, /data-action="near-me" id="search-example-near-me"/);
     assert.equal((i18n.match(/near_me_chip: '/g) || []).length, 7);
+});
+
+test('the hero chip is tracked as near_me at its 1-based place', () => {
+    const index = readFileSync(new URL('index.js', CHAT), 'utf8');
+    assert.match(index, /suggestionType: 'near_me', position: 1 /);
+    assert.doesNotMatch(index, /position: 0/);
 });

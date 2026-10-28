@@ -102,8 +102,12 @@ export function suggestionsInlineHtml(sugg, suggestionType, nearMeLabel = null) 
     const items = sugg.map(text => {
         const raw = String(text || '').trim();
         if (!raw) return '';
-        const nearMeAttr = nearMe && raw === nearMe ? ' data-near-me="1"' : '';
-        return `<button class="chip chip--suggestion" data-action="apply-suggestion" data-suggestion-type="${escapeAttr(suggestionType)}"${turnAttr}${nearMeAttr} data-suggestion="${escapeAttr(raw)}">${escapeHtml(raw)}</button>`;
+        const isNearMe = Boolean(nearMe) && raw === nearMe;
+        const nearMeAttr = isNearMe ? ' data-near-me="1"' : '';
+        // The « near me » chip is tracked as its own kind, not as `welcome`
+        // like the city chips next to it (review of #173).
+        const type = isNearMe ? 'near_me' : suggestionType;
+        return `<button class="chip chip--suggestion" data-action="apply-suggestion" data-suggestion-type="${escapeAttr(type)}"${turnAttr}${nearMeAttr} data-suggestion="${escapeAttr(raw)}">${escapeHtml(raw)}</button>`;
     }).filter(Boolean).join('');
     if (!items) return '';
     return `<div class="suggestions">${items}</div>`;
