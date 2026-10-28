@@ -35,6 +35,18 @@ agent-usa, 68 % puis 58 % sur AgentB2C ; zéro résultat (conv. engagées) 7-10 
 5. **Proximité du classement** : page locale en parallèle et reclassement pertinence × distance
    (paliers local / proche / loin), autour d'un centre-ville.
 
+**Revue de Fabien (2026-10-28, 15:50Z), traitée dans la même branche** :
+- R1 : le sauvetage du soir vise J+1 (sonde = J+1 strict, sauvetage = J+1 moins l'étape suivante) ;
+  ordre équipement → anneau → créneau ; `amenities_must_have` = l'équipement est le but (mesuré
+  sur luna : `scripts/measure_amenities_must_have.py`, 24/24 et 18/18).
+- R2 : `extra_calls.py` — les recherches en plus s'arrêtent à la première erreur (disjoncteur,
+  `status=error`) et ne démarrent plus après 20 s depuis le début du tour de la feuille.
+- R3 (RGPD) : position arrondie à 3 décimales à l'entrée, oubliée dès qu'un lieu nommé devient
+  la destination ; note de rétention dans `agents/b2c_concierge/README.md`.
+- Suivis : score `fallback_search_rescue` / `turn_facts.fallbacks` ; puce « près de moi » suivie
+  `near_me`, position 1.
+- Rejeu court du soir (lot R, 16 conv.) : avec résultats 8 → 13, tours « aucune offre » 15 → 9.
+
 **Preuves** : pytest 3 472 passés / 2 skippés, ruff, mypy, guardrails, 102 tests JS ; contre-épreuves
 rouges sur origin/main pour chaque point. Rejeu local main vs branche (lots A/B/C/D, 336 + 12 tours
 par bras, Langfuse coupé, jamais ai.dayuse.com) : rapport hors dépôt
