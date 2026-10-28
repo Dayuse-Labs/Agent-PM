@@ -1926,6 +1926,12 @@ def _search_context(
         "adults": sent.get("adults"),
         "children": sent.get("children"),
         "radius_km": state.get(_STATE_RADIUS_KEY),
+        # The spot the user named and the geocoder could not place: the city
+        # was searched instead, and the reply says so (2026-10-28).
+        **(
+            {"landmark_unresolved": raw_delta["landmark_unresolved"]}
+            if raw_delta and raw_delta.get("landmark_unresolved") else {}
+        ),
     }
 
 
@@ -1985,11 +1991,22 @@ def emit_search_datapart(callback_context: Any) -> genai_types.Content | None:
     # deliberately keeps everything else, S-G1's invalidation rule).
     if raw_delta.get("zone"):
         profile_delta["zone"] = _op_set(raw_delta["zone"])
-        # Point 3: the zone's kind travels with it (the ring's floor next turn).
+        # 2026-10-28: the zone's kind travels with it — the geocode's own
+        # verdict first (point 4: "city_centre"), else the kind of the place
+        # this turn named (point 3: the ring's floor next turn) — and a new
+        # zone never inherits the kind of the previous one.
         anchor = state.get(_STATE_ANCHOR_KEY)
-        if isinstance(anchor, dict):
-            kind = anchor.get("place_kind")
-            profile_delta["zone_kind"] = _op_set(kind) if isinstance(kind, str) else {"op": "clear"}
+        kind = raw_delta.get("zone_kind") or (anchor.get("place_kind") if isinstance(anchor, dict) else None)
+        if isinstance(kind, str) and kind:
+            profile_delta["zone_kind"] = _op_set(kind)
+        elif read_profile_in(callback_context).get("zone_kind") or isinstance(anchor, dict):
+            profile_delta["zone_kind"] = {"op": "clear"}
+    elif raw_delta.get("landmark_unresolved"):
+        # The spot could not be placed and the city was searched instead
+        # (`geocode_tool._without_the_landmark`): the profile forgets it, or
+        # every later turn would look it up again.
+        profile_delta["zone"] = {"op": "clear"}
+        profile_delta["zone_kind"] = {"op": "clear"}
     if raw_delta.get("metro"):
         profile_delta["metro"] = _op_set(raw_delta["metro"])
     # The destination is an area (region, département): the concierge keeps the

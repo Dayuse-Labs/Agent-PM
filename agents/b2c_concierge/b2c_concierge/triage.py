@@ -229,6 +229,15 @@ def has_language_evidence(message: str) -> bool:
     return any(word.islower() for word in _WORD_RE.findall(message or ""))
 
 
+def decides_language(message: str) -> bool:
+    """Whether a message is long enough to tell its language: at least two
+    words and one of them not a proper noun (`has_language_evidence`). A
+    single word does not (2026-10-28, prod): « Jacuzzi » in a Dutch session
+    was read French, and the triage's reading of « Sud Lyon » became the
+    session's language. Counts words and letter case only — no word list."""
+    return len(_WORD_RE.findall(message or "")) >= 2 and has_language_evidence(message)
+
+
 def guess_language(message: str) -> str:
     return "fr" if _FR_HINTS.search(message or "") else "en"
 

@@ -167,7 +167,7 @@ class TestClosedSchema:
     def test_place_kinds_are_closed(self):
         assert set(get_args(get_args(Place.model_fields["kind"].annotation)[0])) == {
             "city", "admin_district", "neighborhood", "landmark", "street",
-            "station", "airport", "address", "hotel", "region",
+            "station", "airport", "address", "hotel", "region", "city_centre",
         }
         with pytest.raises(ValidationError):
             Place.model_validate({"kind": "planet"})

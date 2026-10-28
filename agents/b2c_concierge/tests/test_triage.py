@@ -577,3 +577,20 @@ class TestOneFreshAttempt:
         calls = self._install(monkeypatch, ValueError("bad request"))
         assert _classify("élargir la zone").used_llm is False
         assert len(calls) == 1
+
+
+class TestDecidesLanguage:
+    """2026-10-28 (prod, locale nl): « Jacuzzi », « Overmorgen » — one word
+    does not tell a language; a sentence does."""
+
+    def test_a_single_word_does_not(self):
+        from b2c_concierge.triage import decides_language
+
+        for message in ("Jacuzzi", "Overmorgen", "jacuzzi", "Sud Lyon", "New York", ""):
+            assert decides_language(message) is False
+
+    def test_a_sentence_does(self):
+        from b2c_concierge.triage import decides_language
+
+        for message in ("je cherche un hôtel", "Jacuzzi please", "plutôt Lyon", "Ik spreek geen frans"):
+            assert decides_language(message) is True
