@@ -95,6 +95,10 @@ _STATE_ANCHOR_KEY = "temp:hotel_search_anchor"
 _STATE_GEOCODE_CALLED_KEY = "temp:hotel_search_geocode_called"
 _STATE_DESTINATION_MISSING_KEY = "temp:hotel_search_destination_missing"
 _STATE_DISTANCE_ORIGIN_KEY = "temp:hotel_search_distance_origin"
+# What kind of place the anchor is (the geocoder's feature type, or "area" for a
+# region/département carried as an area): `geo_rank` only reorders around a
+# city's centre.
+_STATE_ANCHOR_FEATURE_KEY = "temp:hotel_search_anchor_feature"
 # The geocode result says the user asked for a nearby area
 # (`geocode_tool.asks_nearby`): the search ring goes one step wider
 # (`inject_landmark_radius`).
@@ -975,6 +979,23 @@ def site_radius_km(
     return (*rings, NEARBY_RADIUS_KM)[ring + int(nearby)]
 
 
+def anchor_origin(tool_context: Any) -> tuple[str, float, float] | None:
+    """(type, lat, lon) of this turn's geocoded anchor, or None."""
+    origin = tool_context.state.get(_STATE_ANCHOR_KEY)
+    if not isinstance(origin, dict):
+        return None
+    a_lat, a_lon = _coord(origin.get("latitude")), _coord(origin.get("longitude"))
+    if a_lat is None or a_lon is None:
+        return None
+    return str(origin.get("type") or ""), a_lat, a_lon
+
+
+def anchor_feature(tool_context: Any) -> str | None:
+    """The anchor's feature type (`_STATE_ANCHOR_FEATURE_KEY`), or None."""
+    value = tool_context.state.get(_STATE_ANCHOR_FEATURE_KEY)
+    return value if isinstance(value, str) else None
+
+
 def inject_landmark_radius(tool: Any, args: dict[str, Any], tool_context: Any) -> None:
     """`before_tool_callback`: the ONLY writer of search_offers' `radiusKm` and
     `sortBy`.
@@ -1275,6 +1296,11 @@ def capture_after_tool(
                     ),
                     "feature_type": tool_response.get("resolved_feature_type"),
                 }
+                delta = tool_response.get("profile_delta")
+                is_area = isinstance(delta, dict) and bool(delta.get("city_is_area"))
+                tool_context.state[_STATE_ANCHOR_FEATURE_KEY] = (
+                    "area" if is_area else tool_response.get("resolved_feature_type")
+                )
             tool_context.state[STATE_NEARBY_KEY] = bool(tool_response.get("nearby"))
         elif isinstance(tool_response, dict) and tool_response.get("error") == "geocode_ambiguous":
             # 2026-08-26: a clarify carries a profile delta too, and it has to be
@@ -1324,6 +1350,12 @@ def capture_after_tool(
     structured = read_structured_payload(tool_response)
     if not isinstance(structured, dict):
         return None
+    if name == "search_offers":
+        # Prod 2026-10-28: proximity first, at comparable quality, around a
+        # city's centre or a device fix (`geo_rank`, which imports this module).
+        from hotel_search_agent.geo_rank import ranked_payload
+
+        structured = ranked_payload(tool_context, args, structured)
 
     exclude_ids: set[Any] | None = None
     strict_window: Window | None = None

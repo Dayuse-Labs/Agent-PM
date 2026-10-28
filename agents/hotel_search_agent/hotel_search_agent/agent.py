@@ -60,6 +60,7 @@ from hotel_search_agent.budget_injection import inject_profile_budget
 from hotel_search_agent.occupancy import inject_profile_occupancy
 from hotel_search_agent.standing import enforce_standing
 from hotel_search_agent.completion import complete_thin_search_after_tool
+from hotel_search_agent.geo_rank import await_local_pool, start_local_pool
 from hotel_search_agent.relaxation import (
     apply_relax_request,
     inject_relaxation_declaration,
@@ -471,6 +472,9 @@ root_agent = Agent(
         # LAST: the virtual params are gone by now; anything else the tool's
         # published schema does not declare would make MCP refuse the call.
         drop_args_outside_schema,
+        # After it: launches the very same (final) search on the local disc,
+        # in parallel with it, for `geo_rank` (prod 2026-10-28).
+        start_local_pool,
     ],
     # capture_after_tool is LAST: it may return a truncated payload (which breaks
     # the after-tool chain), so it must never run before mcp_circuit_after_tool
@@ -492,6 +496,7 @@ root_agent = Agent(
         # the probe's included); the completion stands down after it.
         rescue_empty_search_after_tool,
         complete_thin_search_after_tool,
+        await_local_pool,
         named_hotel.follow_named_hotel,
         capture_after_tool,
     ],
