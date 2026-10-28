@@ -1456,6 +1456,8 @@ class _B2cConcierge(BaseAgent):
         # card, there is nothing left to interpret. One-shot — cleared here so
         # it can never leak into a later turn.
         clicked_id, profile.picked_hotel_id = profile.picked_hotel_id, None
+        # 2026-10-28: « près de moi » clicked and no position came back — one-shot too.
+        location_refused, profile.device_location_refused = profile.device_location_refused, False
         if clicked_id is not None:
             picked = next(
                 (
@@ -2239,7 +2241,9 @@ class _B2cConcierge(BaseAgent):
             ask_day = day_open and not profile.date_checked
             if ask_day:
                 profile.date_checked = True
-            question = templates.place_question(reply_language, ask_day=ask_day)
+            question = templates.place_question(
+                reply_language, ask_day=ask_day, location_refused=location_refused
+            )
             profile.last_clarifying_question = question
             profile.last_suggestions = templates.date_chips(reply_language) if ask_day else None
             profile.pending_search = {

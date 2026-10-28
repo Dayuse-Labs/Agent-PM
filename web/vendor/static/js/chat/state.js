@@ -50,6 +50,9 @@ export const DEFAULT_MARKET_CONTEXT = Object.freeze({
 
 export const state = {
     clientSessionId: createRandomId(),
+    // 2026-10-28: one-shot, set by a « near me » chip; the next message asks
+    // the device for its position (handlers/send.js getBrowserGeoContext).
+    requestDeviceLocation: false,
     currentConversationId: null,
     currentTurnId: null,
     turnSequence: 0,

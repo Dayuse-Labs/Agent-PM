@@ -74,7 +74,7 @@ async function startFromAppContext() {
                 if (greeting) greeting.textContent = data.message;
             }
             const sugg = Array.isArray(data.suggestions) ? data.suggestions : [];
-            const html = suggestionsInlineHtml(sugg, 'welcome');
+            const html = suggestionsInlineHtml(sugg, 'welcome', data.near_me);
             if (html) {
                 const msg = addMessage(html, false, false, true, true);
                 if (msg && msg.classList) msg.classList.add('message--actions');
@@ -208,6 +208,17 @@ function initChat() {
             fillSearch(String(example.textContent || '').trim());
         });
     });
+    // 2026-10-28: « près de moi », agent-usa's first entry (489 conversations
+    // from September to the switch, 9 in 10 with results). Tapping it is what
+    // asks for the device's position — never the words of a typed message.
+    const nearMe = document.getElementById('search-example-near-me');
+    if (nearMe) {
+        nearMe.addEventListener('click', () => {
+            trackSuggestionClick({ suggestionType: 'near_me', position: 0 });
+            state.requestDeviceLocation = true;
+            fillSearch(String(nearMe.textContent || '').trim());
+        });
+    }
 
     // Character counters
     setupCharacterCounters();
@@ -235,6 +246,9 @@ function applyStaticTranslations() {
 
     const heroSubtitle = document.getElementById('hero-subtitle');
     if (heroSubtitle) heroSubtitle.textContent = t('hero_subtitle');
+
+    const nearMeExample = document.getElementById('search-example-near-me');
+    if (nearMeExample) nearMeExample.textContent = t('near_me_chip');
 
     const example1 = document.getElementById('search-example-1');
     if (example1) example1.textContent = t('search_example_1');

@@ -713,6 +713,17 @@ def _parse_gps_anchor(body: dict[str, Any], turn_index: int) -> dict[str, Any] |
     }
 
 
+def _device_location_refused(body: dict[str, Any]) -> bool:
+    """2026-10-28: the widget asked the browser / the app for the position
+    (the « près de moi » chip, or a typed request it recognizes) and got none:
+    `client_geo_context.device.permission` is "denied" or "unavailable". A
+    fact the place question then states, instead of asking « which city? » as
+    if nothing had been tried."""
+    ctx = body.get("client_geo_context")
+    device = ctx.get("device") if isinstance(ctx, dict) else None
+    return isinstance(device, dict) and device.get("permission") in ("denied", "unavailable")
+
+
 def _native_context_delta(body: dict[str, Any], turn_index: int) -> dict[str, Any]:
     """The profile delta for every optional native-context field this facade
     recognizes in `body` — a field simply absent/invalid here is carryover
@@ -748,7 +759,8 @@ async def _apply_native_context(session_id: str, body: dict[str, Any], turn_inde
     trip when the request carries none of these optional fields."""
     delta = _native_context_delta(body, turn_index)
     picked = _parse_picked_hotel_id(body)
-    if not delta and picked is None:
+    refused = _device_location_refused(body)
+    if not delta and picked is None and not refused:
         return
     store = get_profile_store()
     profile = await store.get(session_id)
@@ -762,6 +774,7 @@ async def _apply_native_context(session_id: str, body: dict[str, Any], turn_inde
     # S-CX5: NOT part of the delta reducer — this is one-shot turn state the
     # spine consumes and clears, not a carryover slot.
     profile.picked_hotel_id = picked
+    profile.device_location_refused = refused
     await store.set(session_id, profile)
 
 

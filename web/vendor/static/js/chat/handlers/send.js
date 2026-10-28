@@ -305,8 +305,32 @@ function explicitlyRequestsDeviceLocation(message) {
     );
 }
 
-async function getBrowserGeoContext(message) {
-    if (!explicitlyRequestsDeviceLocation(message) || !navigator.geolocation) return null;
+/**
+ * The app's own fix, when it shares one (`__DAYUSE_NATIVE__.geolocation`
+ * {lat, lon}, agent-usa's contract), as the device context the backend reads.
+ */
+function nativeDeviceFix() {
+    const geo = getNativeContext()?.geolocation;
+    const lat = Number(geo?.lat);
+    const lon = Number(geo?.lon);
+    if (!geo || !Number.isFinite(lat) || !Number.isFinite(lon) || (lat === 0 && lon === 0)) return null;
+    if (Math.abs(lat) > 90 || Math.abs(lon) > 180) return null;
+    return { device: { latitude: lat, longitude: lon, permission: 'granted' } };
+}
+
+export async function getBrowserGeoContext(message) {
+    // 2026-10-28: the « near me » chip asks for the position explicitly (a
+    // one-shot flag set by its click); a typed request still goes through the
+    // phrase check inherited from agent-usa. Without any position, the backend
+    // is told so (`unavailable`), and says it in its place question.
+    const chip = state.requestDeviceLocation === true;
+    state.requestDeviceLocation = false;
+    if (!chip && !explicitlyRequestsDeviceLocation(message)) return null;
+    const fromApp = nativeDeviceFix();
+    if (fromApp) return fromApp;
+    if (typeof navigator === 'undefined' || !navigator.geolocation) {
+        return chip ? { device: { permission: 'unavailable' } } : null;
+    }
     return new Promise((resolve) => {
         navigator.geolocation.getCurrentPosition(
             (position) => resolve({

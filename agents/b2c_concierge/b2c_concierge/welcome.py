@@ -7,12 +7,16 @@ served it (`src/api/routes/chat.py::_handle_welcome`, contract
 `docs/SPEC_WIDGET_NATIVE_CONTEXT.md`); since the switch of ai.dayuse.com to
 AgentB2C (2026-10-26) the widget got a 404 and kept its default greeting.
 
-Same contract, the minimum of it: `{is_personalized, message, suggestions,
-market}`. Deterministic, no LLM, no session, no trace. Personalized only when
-the app sent the user's past bookings with their cities — the chips name
-those cities ("Day room in Lyon"), and a chip is sent as the user's message
-when tapped, so each one is a plain search request. Anything else answers
-`is_personalized: false`, and the widget keeps its own greeting and chips.
+Same contract: `{is_personalized, message, suggestions, market}`, plus
+`near_me` (2026-10-28). Deterministic, no LLM, no session, no trace. Opened
+by the app (a `native_context` object), the view always offers the « near
+me » chip — agent-usa's first entry, 489 conversations from September to the
+switch, 9 in 10 with results; `near_me` names it so the widget asks the
+device's position when it is tapped (the app's own fix first, else the
+WebView's). The user's past bookings add their cities first ("Day room in
+Lyon") and the greeting names the first one. A chip is sent as the user's
+message when tapped. Outside the app (no `native_context`) the answer is
+`is_personalized: false`: the web page has its own hero chips.
 
 GDPR: `lastBookings` (hotel names, prices, cities) is read in memory only —
 never logged, never stored, never sent to an LLM or to Langfuse; the metric
@@ -29,19 +33,19 @@ _MAX_CHIPS = 2
 _MAX_CITY_LEN = 80
 
 _STRINGS: dict[str, dict[str, str]] = {
-    "en": {"chip": "Day room in {city}",
+    "en": {"chip": "Day room in {city}", "near_me": "Day room near me",
            "welcome": "Welcome back 👋 A day room in {city} again — or somewhere new?"},
-    "fr": {"chip": "Chambre en journée à {city}",
+    "fr": {"chip": "Chambre en journée à {city}", "near_me": "Chambre en journée près de moi",
            "welcome": "Re-bonjour 👋 Une chambre en journée à {city}, ou ailleurs ?"},
-    "es": {"chip": "Habitación de día en {city}",
+    "es": {"chip": "Habitación de día en {city}", "near_me": "Habitación de día cerca de mí",
            "welcome": "¡Hola de nuevo! 👋 ¿Una habitación de día en {city} u otro lugar?"},
-    "it": {"chip": "Camera a uso diurno a {city}",
+    "it": {"chip": "Camera a uso diurno a {city}", "near_me": "Camera a uso diurno vicino a me",
            "welcome": "Bentornato! 👋 Una camera a uso diurno a {city} o altrove?"},
-    "de": {"chip": "Tageszimmer in {city}",
+    "de": {"chip": "Tageszimmer in {city}", "near_me": "Tageszimmer in meiner Nähe",
            "welcome": "Willkommen zurück! 👋 Ein Tageszimmer in {city} oder woanders?"},
-    "pt": {"chip": "Quarto de dia em {city}",
+    "pt": {"chip": "Quarto de dia em {city}", "near_me": "Quarto de dia perto de mim",
            "welcome": "Bem-vindo de volta! 👋 Um quarto de dia em {city} ou noutro sítio?"},
-    "nl": {"chip": "Dagkamer in {city}",
+    "nl": {"chip": "Dagkamer in {city}", "near_me": "Dagkamer bij mij in de buurt",
            "welcome": "Welkom terug! 👋 Een dagkamer in {city} of ergens anders?"},
 }
 
@@ -76,12 +80,15 @@ def welcome_payload(native_context: Any, language: str, currency: str | None) ->
     the 7 the concierge answers in; anything else reads English)."""
     strings = _STRINGS.get(language, _STRINGS["en"])
     market = {"language": language if language in _STRINGS else "en", "currency": currency}
-    cities = booking_cities(native_context)
-    if not cities:
+    if not isinstance(native_context, dict) or not native_context:
         return {"is_personalized": False, "message": "", "suggestions": [], "market": market}
+    cities = booking_cities(native_context)
+    near_me = strings["near_me"]
     return {
         "is_personalized": True,
-        "message": strings["welcome"].format(city=cities[0]),
-        "suggestions": [strings["chip"].format(city=city) for city in cities[:_MAX_CHIPS]],
+        # No booking: the widget keeps its own greeting (an empty message).
+        "message": strings["welcome"].format(city=cities[0]) if cities else "",
+        "suggestions": [strings["chip"].format(city=city) for city in cities[:_MAX_CHIPS]] + [near_me],
+        "near_me": near_me,
         "market": market,
     }

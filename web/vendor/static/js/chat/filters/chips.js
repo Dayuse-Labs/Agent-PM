@@ -93,13 +93,17 @@ export function chipsInlineHtml(chips) {
  * into their own container; `renderSuggestionsRow` wraps it in `.suggestions`
  * when needed.
  */
-export function suggestionsInlineHtml(sugg, suggestionType) {
+export function suggestionsInlineHtml(sugg, suggestionType, nearMeLabel = null) {
     if (!Array.isArray(sugg) || sugg.length === 0) return '';
     const turnAttr = state.currentTurnId ? ` data-turn-id="${escapeAttr(state.currentTurnId)}"` : '';
+    // 2026-10-28: the welcome view names its « near me » chip (`near_me`): that
+    // button, once tapped, asks for the device's position with its message.
+    const nearMe = typeof nearMeLabel === 'string' ? nearMeLabel.trim() : '';
     const items = sugg.map(text => {
         const raw = String(text || '').trim();
         if (!raw) return '';
-        return `<button class="chip chip--suggestion" data-action="apply-suggestion" data-suggestion-type="${escapeAttr(suggestionType)}"${turnAttr} data-suggestion="${escapeAttr(raw)}">${escapeHtml(raw)}</button>`;
+        const nearMeAttr = nearMe && raw === nearMe ? ' data-near-me="1"' : '';
+        return `<button class="chip chip--suggestion" data-action="apply-suggestion" data-suggestion-type="${escapeAttr(suggestionType)}"${turnAttr}${nearMeAttr} data-suggestion="${escapeAttr(raw)}">${escapeHtml(raw)}</button>`;
     }).filter(Boolean).join('');
     if (!items) return '';
     return `<div class="suggestions">${items}</div>`;
@@ -120,6 +124,7 @@ export function applySuggestion(button) {
         position: siblings.indexOf(button) + 1,
     });
 
+    if (button.dataset.nearMe === '1') state.requestDeviceLocation = true;
     input.value = suggestion;
     window.chatApp.sendMessage('suggestion');
 }

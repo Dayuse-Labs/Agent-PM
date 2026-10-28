@@ -359,6 +359,16 @@ def shortlist_hotels(response: dict[str, Any] | None) -> list[dict[str, Any]]:
     return [h for h in (results or []) if isinstance(h, dict)][:MAX_HOTELS]
 
 
+# 2026-10-28 (« près de moi »): the cards were searched around the device's
+# own position. Replayed locally, the synthesis still asked « tell me your
+# arrondissement / position » under hotels 0.6 km away.
+_NEAR_USER_NOTE = (
+    "ORIGIN: the search ran around the user's own current position (they asked "
+    "for hotels near them; distances are from where they are). Say \"near you\"; "
+    "never ask for their position, address or neighbourhood.\n"
+)
+
+
 def shortlist_ground_truth_block(
     response: dict[str, Any] | None, profile: SessionProfile, language: str = "en"
 ) -> str:
@@ -375,6 +385,8 @@ def shortlist_ground_truth_block(
             return "\n\n## CURRENT RESULTS (GROUND TRUTH)\n" + _EMPTY_SCREEN_NOTE + date_block
         return ""
     lines = [_hotel_line(hotel) for hotel in hotels]
+    origin = profile.distance_origin if isinstance(profile.distance_origin, dict) else {}
+    near_user = _NEAR_USER_NOTE if origin.get("type") == "gps" else ""
     room = ("ROOM REQUIREMENTS (customer intent, not verified facts): " + str(profile.room_requirements) + "\n"
             if profile.room_requirements else "")
-    return "\n\n## CURRENT SHORTLIST (GROUND TRUTH)\n" + date_block + _HEADER + room + "\n".join(lines)
+    return "\n\n## CURRENT SHORTLIST (GROUND TRUTH)\n" + date_block + _HEADER + near_user + room + "\n".join(lines)
