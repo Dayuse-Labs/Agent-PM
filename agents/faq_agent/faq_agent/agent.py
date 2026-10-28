@@ -53,7 +53,20 @@ ALLOWED_MCP_TOOLS = [
 # OpenRouter shape, while gpt-6-luna needs `reasoning_effort="none"` on the
 # OpenAI-direct path or every tool call is a 400 (llm_params, probed 2026-10-15).
 _MODEL_SLUG = os.environ.get("DAYUSE_MODEL", DEFAULT_MODEL)
-MODEL = LiteLlm(model=_MODEL_SLUG, **reasoning_kwargs_for(_MODEL_SLUG))
+
+# This leaf's OWNED budget for its LLM dependency (single-owner rule). Unset, the
+# OpenAI SDK waits 600 s. The FAQ answer reads a large document: prod luna calls
+# since 2026-10-15 (84) have p95 14.5 s, p99 16.3 s, and one 50 s runaway (4 970
+# output tokens) — the only one 20 s cuts.
+_LLM_TIMEOUT = float(os.environ.get("FAQ_LLM_TIMEOUT_SECONDS", "20.0"))
+# ONE relaunch, by LiteLLM, on a timeout or a 429 only; the SDK never retries.
+# Not `num_retries`, which litellm also hands to the SDK — hotel_search_agent.agent.
+LLM_CALL_KWARGS = {
+    "timeout": _LLM_TIMEOUT,
+    "max_retries": 0,
+    "retry_policy": {"TimeoutErrorRetries": 1, "RateLimitErrorRetries": 1},
+}
+MODEL = LiteLlm(model=_MODEL_SLUG, **LLM_CALL_KWARGS, **reasoning_kwargs_for(_MODEL_SLUG))
 
 # Hard cap on real tool calls per turn (one FAQ lookup; 2 leaves margin for a
 # refined retry the model may attempt). Beyond it: deterministic short-circuit.

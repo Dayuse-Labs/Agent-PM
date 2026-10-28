@@ -215,32 +215,32 @@ if not metrics_logger.handlers:
 # stacks ~6 nested retries × 60 s worst case; retries live at the LiteLLM
 # level ONLY, and inside the leaf for ITS own dependencies).
 #
-# S-G4: one 10 s wall for every leaf ignored that FAQ synthesis and search
-# have different healthy tails — method is the false-timeout-rate percentile
-# (Amazon Builders' Library; reports/research/timeouts-latency-memo.md §a.2):
-# set the timeout at the healthy tail of the family's OWN latency, not one
-# number for both. No live p95-per-family metric exists yet (S-G4's own
-# instrumentation is what makes measuring that possible going forward); these
-# are starting budgets anchored on the two concrete points already measured
-# live (HANDOFF Railway addendum, 2026-07-22, real Mapbox + MCP staging):
-# FAQ synthesis ~9 s warm (large doc, ~6k tokens) -> 25 s (~2.5x margin);
-# first/cold search call routinely >10 s (LLM cold start; the tool work
-# itself is fast: geocode 32 ms, search_offers 951 ms) -> 15 s (~1.5x margin
-# over a warm call, generous over the measured cold one since a search leaf
-# does strictly less synthesis work than FAQ).
+# The budget waits for a stuck LLM call and its relaunch (2026-10-28).
+# Before, the leaves' LLM calls had no timeout at all (OpenAI SDK: 600 s), and a
+# 34.7 s call outlived the 30 s deadline: the leaf finished, the user had been
+# told the search was unreachable. Each leaf now bounds a call at T with one
+# relaunch (`LLM_CALL_KWARGS` in each leaf's agent.py), and the budget holds a
+# stuck call and its relaunch, both at T, plus the leaf's tools:
+# - search: T = 15 s, Mapbox 1.5 s + 1 retry, MCP 5 s: 30 + 3 + 5 = 38 s; the
+#   other LLM call (geocode_location, then search_offers) takes the rest at its
+#   healthy p95 (5 s) -> 45 s.
+# - FAQ: T = 20 s (the answer reads a large document; healthy p99 16.3 s), MCP
+#   5 s: 40 + 5 = 45 s.
+# A hang DURING a slow episode (3 slow calls in a row) is still cut by this
+# deadline: 3 x T cannot fit under the widget proxy.
+# The proxy (scripts/run_widget_proxy.py) cuts a stream after 60 s with no byte.
+# A `progress` frame follows every leaf call, so the silent windows are
+# triage (2 x 4 s) + leaf <= 53 s, then the synthesis (2 x 15 s).
 # CONCIERGE_LEAF_TIMEOUT_SECONDS (legacy, singular) still wins for EITHER
-# family when set, so the Railway demo's 30 s override keeps working
-# unchanged without a variable rename on that deployment. Read at CALL time
-# (not frozen at import, unlike the other budgets below) — same pattern as
-# hotel_search_agent.agent.build_connection_params — so tests can exercise
-# every precedence case with plain monkeypatch.setenv, no module reload.
+# family when set. Read at CALL time (not frozen at import, unlike the other
+# budgets below) — same pattern as hotel_search_agent.agent.build_connection_params
+# — so tests can exercise every precedence case with plain monkeypatch.setenv.
 def _leaf_timeout(leaf: str) -> float:
-    """Per-family leaf budget — FAQ synthesis legitimately needs more room
-    than a search turn (see the comment block above)."""
+    """Per-family leaf budget (see the comment block above)."""
     legacy = os.environ.get("CONCIERGE_LEAF_TIMEOUT_SECONDS")
     if leaf == LEAF_FAQ:
-        return float(os.environ.get("CONCIERGE_LEAF_TIMEOUT_FAQ_SECONDS", legacy or "25.0"))
-    return float(os.environ.get("CONCIERGE_LEAF_TIMEOUT_SEARCH_SECONDS", legacy or "15.0"))
+        return float(os.environ.get("CONCIERGE_LEAF_TIMEOUT_FAQ_SECONDS", legacy or "45.0"))
+    return float(os.environ.get("CONCIERGE_LEAF_TIMEOUT_SEARCH_SECONDS", legacy or "45.0"))
 
 
 _SYNTHESIS_TIMEOUT = float(os.environ.get("CONCIERGE_SYNTHESIS_TIMEOUT_SECONDS", "15.0"))
@@ -251,6 +251,8 @@ _SYNTHESIS_TIMEOUT = float(os.environ.get("CONCIERGE_SYNTHESIS_TIMEOUT_SECONDS",
 # length of the call"; that phrasing was verified only for Router, not the
 # plain completion()/acompletion() path used here). Measured: num_retries=2
 # against a hung endpoint took ~5x a single attempt's wall time, not ~1x.
+# (2026-10-28: 5 requests, not 3 — plain `num_retries` is ALSO handed to the
+# OpenAI SDK as `max_retries`, so the SDK retried under LiteLLM.)
 # Worst case for a call THIS retried is therefore ~(1 + num_retries) x timeout
 # (+ backoff) — sized deliberately into _SYNTHESIS_NUM_RETRIES=1 (worst case
 # ~2x15s=30s, still under the leaf's own budget headroom) rather than assumed
@@ -263,6 +265,8 @@ _SYNTHESIS_TIMEOUT = float(os.environ.get("CONCIERGE_SYNTHESIS_TIMEOUT_SECONDS",
 # a second try. `litellm.Router` + `RetryPolicy` is the ONLY litellm construct
 # that retries PER EXCEPTION TYPE (verified live against a stub: 400/401 -> 1
 # request, 429 -> 1 + num_retries requests) — used here for exactly that.
+# (2026-10-28: a plain `acompletion` honours a `retry_policy` kwarg too — the
+# leaves' `LLM_CALL_KWARGS`, probed against a hung socket and a 400.)
 # Confirmed a Router does not break the test suite's `litellm.acompletion`
 # mocks: Router.acompletion still calls `litellm.acompletion` by attribute
 # lookup internally, so `monkeypatch.setattr(litellm, "acompletion", fake)`
@@ -1872,6 +1876,11 @@ class _B2cConcierge(BaseAgent):
         leaf_text, response = await _run_leaf(
             route.target, ctx, leaf_profile_view(profile), **leaf_kwargs
         )
+        # A byte for the widget proxy, which cuts a stream silent for 60 s: the
+        # leaf (45 s at worst) and the buffered synthesis (30 s) no longer share
+        # one silence on the routes with no `hotels` frame (FAQ). The facade
+        # forwards it as a `progress` frame; the widget reads only the first.
+        yield self._progress_event(ctx)
         # OBS3 (2026-08-26): the guards that fired INSIDE the leaf, folded into
         # the same set the spine's own guards use — same one-liner as the inline
         # tools below. Until now the 5 leaf-side names in GUARD_SCORE_NAMES (the

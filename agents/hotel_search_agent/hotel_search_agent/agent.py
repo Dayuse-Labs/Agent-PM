@@ -89,7 +89,26 @@ ALLOWED_MCP_TOOLS = [
 # OpenRouter shape, while gpt-6-luna needs `reasoning_effort="none"` on the
 # OpenAI-direct path or every tool call is a 400 (llm_params, probed 2026-10-15).
 _MODEL_SLUG = os.environ.get("DAYUSE_MODEL", DEFAULT_MODEL)
-MODEL = LiteLlm(model=_MODEL_SLUG, **reasoning_kwargs_for(_MODEL_SLUG))
+
+# This leaf's OWNED budget for its LLM dependency (single-owner rule). Unset, the
+# OpenAI SDK waits 600 s: prod 2026-10-27, two calls hung 604 s and one 34.7 s
+# outlived the concierge's 30 s leaf deadline. Prod luna calls 2026-10-15/28
+# (~1 350): p95 5.1 s, p99 11.3 s. The calls between 10 and 18 s come in slow
+# EPISODES (12.4-14.7 s at 02-03h UTC on 10-28, median 4-5 s that hour), where
+# a relaunch saves nothing and risks a second timeout — measured locally at 10 s,
+# a search that would have answered failed. 15 s cuts the hangs (22, 35, 604 s).
+_LLM_TIMEOUT = float(os.environ.get("HOTEL_SEARCH_LLM_TIMEOUT_SECONDS", "15.0"))
+# ONE relaunch, by LiteLLM, on a timeout or a 429 only — at its own full timeout,
+# so 2 x _LLM_TIMEOUT at worst. `max_retries=0`: the SDK never retries. NOT
+# `num_retries`: litellm 1.90.2 also hands it to the SDK as `max_retries`
+# (main.py, `max_retries = num_retries`), and num_retries=1 sent 3 requests to a
+# hung socket. `retry_policy` sent 2, and 1 on a 400 (probed 2026-10-28).
+LLM_CALL_KWARGS = {
+    "timeout": _LLM_TIMEOUT,
+    "max_retries": 0,
+    "retry_policy": {"TimeoutErrorRetries": 1, "RateLimitErrorRetries": 1},
+}
+MODEL = LiteLlm(model=_MODEL_SLUG, **LLM_CALL_KWARGS, **reasoning_kwargs_for(_MODEL_SLUG))
 
 # Hard cap on real tool calls per turn (the instruction says one reasoning pass;
 # geocode_location + search_offers covers a destination search, find_hotel_by_name

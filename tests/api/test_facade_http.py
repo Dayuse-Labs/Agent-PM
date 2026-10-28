@@ -598,8 +598,12 @@ def test_stream_turn_facts_ride_done_and_no_frame_of_their_own(monkeypatch, clie
     monkeypatch.setattr(agent_module._B2cConcierge, "_generate_once", fake_generate_once)
 
     events = _parse_sse(client.post("/v3/chat/stream", json={"message": "un hôtel"}).text)
-    assert {e for e, _ in events} == {"progress", "hotels", "token", "done"}
-    assert [e for e, _ in events].count("progress") == 1
+    names = [e for e, _ in events]
+    assert set(names) == {"progress", "hotels", "token", "done"}
+    # One `progress` opens the stream (TTFT), one follows the leaf (the widget
+    # proxy's 60 s silence window); turn_facts add no frame of their own.
+    assert names[:3] == ["progress", "progress", "hotels"]
+    assert names.count("progress") == 2
     facts = events[-1][1]["turn_facts"]
     assert facts["route"] == "leaf:hotel_search"
     assert facts["response_type"] == "results"

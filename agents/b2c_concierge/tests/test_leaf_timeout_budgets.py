@@ -1,5 +1,6 @@
-"""Per-family leaf timeout budgets (S-G4): search vs faq, with the legacy
-singular env var still winning for either when set (Railway demo override).
+"""Per-family leaf timeout budgets (S-G4, sized again 2026-10-28 on the leaves'
+own LLM relaunch): search vs faq, with the legacy singular env var still
+winning for either when set (Railway override).
 
 `_leaf_timeout` reads env at CALL time (same pattern as
 hotel_search_agent.agent.build_connection_params), so plain monkeypatch.setenv
@@ -20,15 +21,15 @@ from opentelemetry.trace import format_span_id, format_trace_id
 
 
 class TestDefaults:
-    def test_search_defaults_to_15_seconds(self, monkeypatch):
+    def test_search_defaults_to_45_seconds(self, monkeypatch):
         monkeypatch.delenv("CONCIERGE_LEAF_TIMEOUT_SECONDS", raising=False)
         monkeypatch.delenv("CONCIERGE_LEAF_TIMEOUT_SEARCH_SECONDS", raising=False)
-        assert _leaf_timeout(LEAF_HOTEL_SEARCH) == 15.0
+        assert _leaf_timeout(LEAF_HOTEL_SEARCH) == 45.0
 
-    def test_faq_defaults_to_25_seconds(self, monkeypatch):
+    def test_faq_defaults_to_45_seconds(self, monkeypatch):
         monkeypatch.delenv("CONCIERGE_LEAF_TIMEOUT_SECONDS", raising=False)
         monkeypatch.delenv("CONCIERGE_LEAF_TIMEOUT_FAQ_SECONDS", raising=False)
-        assert _leaf_timeout(LEAF_FAQ) == 25.0
+        assert _leaf_timeout(LEAF_FAQ) == 45.0
 
 
 class TestPerFamilyOverride:
@@ -37,14 +38,14 @@ class TestPerFamilyOverride:
         monkeypatch.setenv("CONCIERGE_LEAF_TIMEOUT_SEARCH_SECONDS", "12.0")
         monkeypatch.delenv("CONCIERGE_LEAF_TIMEOUT_FAQ_SECONDS", raising=False)
         assert _leaf_timeout(LEAF_HOTEL_SEARCH) == 12.0
-        assert _leaf_timeout(LEAF_FAQ) == 25.0  # untouched
+        assert _leaf_timeout(LEAF_FAQ) == 45.0  # untouched
 
     def test_faq_specific_var_wins_over_default(self, monkeypatch):
         monkeypatch.delenv("CONCIERGE_LEAF_TIMEOUT_SECONDS", raising=False)
         monkeypatch.setenv("CONCIERGE_LEAF_TIMEOUT_FAQ_SECONDS", "20.0")
         monkeypatch.delenv("CONCIERGE_LEAF_TIMEOUT_SEARCH_SECONDS", raising=False)
         assert _leaf_timeout(LEAF_FAQ) == 20.0
-        assert _leaf_timeout(LEAF_HOTEL_SEARCH) == 15.0  # untouched
+        assert _leaf_timeout(LEAF_HOTEL_SEARCH) == 45.0  # untouched
 
 
 class TestLegacyFallback:

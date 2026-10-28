@@ -82,6 +82,16 @@ class TestMcpConnection:
             assert "Authorization" not in (build_connection_params().headers or {})
 
 
+# The leaf's own LLM budget (2026-10-28): a timeout, then ONE relaunch by LiteLLM
+# on a timeout or a 429 — never by the SDK, never `num_retries` (litellm hands it
+# to the SDK too). The real path is proven in tests/test_leaf_llm_call_budget.py.
+_BOUNDED_CALL = {
+    "timeout": 20.0,
+    "max_retries": 0,
+    "retry_policy": {"TimeoutErrorRetries": 1, "RateLimitErrorRetries": 1},
+}
+
+
 class TestModel:
     def test_agent_name_is_the_metrics_service_label(self):
         # The ADK agent name feeds `service` in llm_metric_events — b2c_ prefixed
@@ -96,11 +106,13 @@ class TestModel:
     def test_model_defaults_to_gpt_6_luna_with_tool_calling_params(self, monkeypatch, reload_agent):
         monkeypatch.delenv("DAYUSE_MODEL", raising=False)
         monkeypatch.delenv("DAYUSE_REASONING_EFFORT", raising=False)
+        monkeypatch.delenv("FAQ_LLM_TIMEOUT_SECONDS", raising=False)
         model = reload_agent().root_agent.model
         assert model.model == "openai/gpt-6-luna"
         # Without effort "none", OpenAI rejects every tool call of gpt-6-luna on
         # chat completions (probed 2026-10-15); litellm needs the whitelist.
         assert model._additional_args == {
+            **_BOUNDED_CALL,
             "reasoning_effort": "none",
             "allowed_openai_params": ["reasoning_effort"],
         }
@@ -108,7 +120,12 @@ class TestModel:
     def test_gpt_4o_mini_gets_no_reasoning_params(self, monkeypatch, reload_agent):
         monkeypatch.setenv("DAYUSE_MODEL", "gpt-4o-mini")
         monkeypatch.setenv("DAYUSE_REASONING_EFFORT", "low")
-        assert reload_agent().root_agent.model._additional_args == {}
+        monkeypatch.delenv("FAQ_LLM_TIMEOUT_SECONDS", raising=False)
+        assert reload_agent().root_agent.model._additional_args == _BOUNDED_CALL
+
+    def test_the_llm_timeout_is_owned_by_the_leaf_and_overridable(self, monkeypatch, reload_agent):
+        monkeypatch.setenv("FAQ_LLM_TIMEOUT_SECONDS", "7.5")
+        assert reload_agent().root_agent.model._additional_args["timeout"] == 7.5
 
     def test_model_is_driven_by_dayuse_model(self, monkeypatch, reload_agent):
         monkeypatch.setenv("DAYUSE_MODEL", "openrouter/some/model")

@@ -6,6 +6,69 @@
 
 > 📋 **Pour savoir QUOI faire ensuite, ouvrir [`CHANTIERS.md`](CHANTIERS.md)** (état vérifié au 2026-09-14) : la liste des chantiers ouverts, chacun avec sa preuve, ses actions et un prompt prêt à coller — plus la liste de ce qu'il ne faut **pas** relancer parce que c'est déjà livré. `tasks/todo.md` est périmé et ne doit plus servir de référence.
 
+## ⏱️ 2026-10-28 — Budgets de temps des feuilles (branche `fix/leaf-llm-timeouts`)
+
+**Constat** (session prod `7e296e4b`, 2026-10-27, release `cb361c0`, lue par l'API REST
+Langfuse) : T3 « new york city or long island » a répondu « I can't reach the hotel search right
+now » après 32 s. Le 1er appel LLM de la feuille recherche a duré 34,7 s, et le concierge coupe à
+30 s. Les LLM des deux feuilles n'avaient **aucun timeout** (SDK OpenAI : 600 s) : deux appels de
+prod ont duré 604 s le 2026-10-27 (16:28 et 20:31 UTC).
+
+**Mesuré avant de choisir** :
+- **Feuille recherche, prod luna depuis le 2026-10-15** (`generate_content`, ~1 350 appels) :
+  p50 2,1 s, p95 5,1 s, p99 11,3 s. Au-delà de 10 s, deux familles :
+  - des **épisodes lents**, de 12,4 à 17,6 s (02-03h et 08h UTC le 10-28, médiane de l'heure 4-5 s) ;
+  - des **blocages** : 22,1 / 34,7 / 604 / 604 s.
+- **Feuille FAQ** : 84 appels, p95 14,5 s, p99 16,3 s, un emballement de 50 s (4 970 tokens de
+  sortie).
+- **litellm 1.90.2 contre un socket local muet** : `num_retries=1, max_retries=0` (le brief) envoie
+  **3** requêtes. litellm passe aussi `num_retries` au SDK comme `max_retries`
+  (`main.py` : `max_retries = num_retries`). `retry_policy` + `max_retries=0` en envoie 2 sur un
+  blocage, et 1 sur un 400.
+- **T = 10 s essayé d'abord** : en local, pendant l'épisode de 08h, une recherche qui aurait abouti
+  a échoué (ses 2 appels dépassaient 10 s). Une relance n'aide pas dans un épisode lent, elle donne
+  une seconde chance d'expirer. D'où **T = 15 s** : il coupe les blocages, pas la masse des épisodes.
+
+**Fait** :
+- **Feuilles** : `LLM_CALL_KWARGS` passé à `LiteLlm` :
+  - timeout recherche 15 s (`HOTEL_SEARCH_LLM_TIMEOUT_SECONDS`), FAQ 20 s (`FAQ_LLM_TIMEOUT_SECONDS`) ;
+  - `max_retries=0` ;
+  - `retry_policy` : 1 relance LiteLLM, sur timeout et 429 seulement.
+- **Concierge** :
+  - appel feuille à 45 s / 45 s par défaut (un appel bloqué + sa relance, tous deux à T, + les
+    outils) ;
+  - un frame `progress` suit chaque appel feuille. Le proxy du widget coupe un flux muet 60 s. Sur la
+    route FAQ, sans frame `hotels` et avec une synthèse bufferisée, le silence pouvait déjà
+    atteindre 8 + 30 + 30 = 68 s ;
+  - la façade ne mesure plus le TTFT que sur le premier `progress`.
+- **Commentaire S-G4 de la synthèse corrigé** : le « ~5× » mesuré venait des relances du SDK.
+- `CLAUDE.md` (budgets).
+
+**Preuves** :
+- **`tests/test_leaf_llm_call_budget.py`**, sur le vrai chemin ADK → litellm → SDK, socket local :
+  - 2 POST à T d'écart puis `Timeout` ; un 400 → 1 POST ;
+  - l'arithmétique budget feuille / triage / proxy.
+- **Contrôles négatifs** :
+  - sans `retry_policy` → 1 POST ; avec `num_retries=1` → 3 ; sans `max_retries=0` → 3+ ;
+  - le TTFT mesuré une seule fois : rouge sans la garde ;
+  - le frame `progress` après la feuille : rouge sans le `yield`.
+- **Local réel** (feuille recherche seule pointée sur un socket muet) :
+  - 2 requêtes à 15,05 s d'écart, `timeout value=15.0 … LiteLLM Retried: 1 times` ;
+  - réponse dégradée honnête à +33,4 s (avant : coupure à 30 s ; prod : 32 s).
+- **Gates** : pytest 3 339 passés / 1 skippé ; ruff, mypy, guardrails OK ; `smoke_e2e` PASS.
+
+**Trouvé, non corrigé** : une feuille dont le LLM échoue est comptée
+`concierge_metric=leaf_call status=ok` (c'est la tâche A2A qui échoue, pas le transport). Seul
+`turn … status=degraded` le dit (`CHANTIERS.md` O7).
+
+**Reste (déploiement, sur demande de Fabien)** :
+- Merger, puis déployer `hotel-search`, `faq` et `concierge` (`DEPLOY.md`).
+- **Au même déploiement, supprimer `CONCIERGE_LEAF_TIMEOUT_SECONDS` (=30) du service
+  `concierge`**, pour que les défauts 45/45 s s'appliquent. Sinon un appel bloqué puis relancé
+  (2 × 15 s + outils) dépasse encore les 30 s.
+- Preuve : la release des spans des 3 services dans Langfuse. Un timeout ne se provoque pas à la
+  demande en prod : le comportement n'est prouvé qu'en local et par les tests.
+
 ## 📌 2026-10-27 (undecies) — La pile Railway EST la prod client
 
 Rectification (Fabien) : depuis la bascule d'ai.dayuse.com (2026-10-26), la pile Railway sert les
