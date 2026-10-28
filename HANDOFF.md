@@ -6,7 +6,7 @@
 
 > 📋 **Pour savoir QUOI faire ensuite, ouvrir [`CHANTIERS.md`](CHANTIERS.md)** (état vérifié au 2026-09-14) : la liste des chantiers ouverts, chacun avec sa preuve, ses actions et un prompt prêt à coller — plus la liste de ce qu'il ne faut **pas** relancer parce que c'est déjà livré. `tasks/todo.md` est périmé et ne doit plus servir de référence.
 
-## 🧭 2026-10-28 — Accès aux résultats : « près de moi », plus de question de date isolée, replis « aucune offre », ancrages, proximité (branche `fix/entry-date-zero-results-20261028`, sur `main` après #168, #169, #170)
+## 🧭 2026-10-28 — Accès aux résultats : « près de moi », plus de question de date isolée, replis « aucune offre », ancrages, proximité (branche `fix/access-results-20261028`, sur `main` après #168, #169, #170)
 
 **Constat** (prod du 26 au 28/10, comparé à agent-usa) : conversations avec résultats 74-81 % chez
 agent-usa, 68 % puis 58 % sur AgentB2C ; zéro résultat (conv. engagées) 7-10 % → 29 % ; boucles
