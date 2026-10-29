@@ -78,12 +78,14 @@ def _get(path: str) -> tuple[dict, bytes]:
 
 
 class TestSessionReplayConfig:
-    def test_serves_the_contract_sample_rate_as_uncached_json(self):
+    def test_serves_the_contract_sample_rate_as_briefly_cached_json(self):
+        """Briefly cached since 2026-10-29: the plugin asks 3 times per page
+        load for the same constant; a sample-rate change still lands in 5 min."""
         contract = json.loads((_REPO / "contracts" / "amplitude_events.json").read_text())
         sent, body = _get("/sr-config")
         assert sent["status"] == 200
         assert sent["headers"]["Content-Type"] == "application/json"
-        assert sent["headers"]["Cache-Control"] == "no-store"
+        assert sent["headers"]["Cache-Control"] == "private, max-age=300"
         sampling = json.loads(body)["configs"]["sessionReplay"]["sr_sampling_config"]
         assert sampling == {
             "capture_enabled": True,

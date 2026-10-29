@@ -35,6 +35,12 @@ every forwarded /v3 request so a gated facade accepts us. Set that pair on THIS
 service before setting `CHAT_API_KEY` on the concierge — the concierge starts
 rejecting the instant it has the key, and the browser can never carry it.
 
+Caching (2026-10-29): the page names every static file by the digest of its
+bytes (`/static/x?v=<digest>`, see `version_static_refs`); those URLs are
+`immutable` for a year, the page and unversioned URLs stay `no-cache` + ETag.
+The page loads the bundles built by scripts/build_widget_assets.py. HEAD is
+answered like GET, without the body.
+
 Usage:
     python3 scripts/run_widget_proxy.py                    # :8090 -> :8100, vendored widget
     WIDGET_CHAT_TRANSPORT=sse python3 scripts/run_widget_proxy.py   # streamed turns
@@ -198,6 +204,81 @@ def _chat_api_key_header() -> str:
     return os.environ.get("CHAT_API_KEY_HEADER", _CHAT_API_KEY_HEADER_DEFAULT)
 
 
+# --- versioned static URLs ---------------------------------------------------------------
+# Every `/static/<file>` the page, a stylesheet or a script names is served as
+# `/static/<file>?v=<digest of the bytes served>`, and a request carrying the
+# CURRENT digest is cached for a year (`immutable`): a later visit fetches
+# nothing but the page. A new deploy changes the digest of what changed, so the
+# page names new URLs; the HTML itself stays `no-cache`. The digest of a text
+# file is taken AFTER its own references are versioned, so a new hero photo
+# also renames the stylesheet that points at it. Without `?v` (or with a stale
+# one), the file is served as before: `no-cache` + ETag.
+_STATIC_REF_RE = re.compile(r"""(?<=["'(\s,])/static/([\w./-]+\.[A-Za-z0-9]+)(?=["')\s,])""")
+_VERSIONED_SUFFIXES = frozenset({".html", ".css", ".js"})
+# Not left to the image's mime tables (python:3.12-slim has no /etc/mime.types):
+# with `nosniff`, a hero served as application/octet-stream would not render.
+for _type, _ext in (("image/avif", ".avif"), ("image/webp", ".webp"), ("font/woff2", ".woff2"),
+                    ("application/json", ".map")):
+    mimetypes.add_type(_type, _ext)
+_IMMUTABLE = "public, max-age=31536000, immutable"
+_VERSION_CACHE: dict[Path, tuple[tuple[int, int], bytes, str, tuple[tuple[Path, str], ...]]] = {}
+_VERSION_LOCK = threading.Lock()
+
+
+def _static_file(static_root: Path, rel: str) -> Path | None:
+    """`rel` resolved under `static_root`, or None when it escapes it or is not a file."""
+    target = (static_root / rel).resolve()
+    if static_root not in target.parents or not target.is_file():
+        return None
+    return target
+
+
+def version_static_refs(
+    text: str,
+    static_root: Path,
+    _seen: frozenset[Path] = frozenset(),
+    _deps: list[tuple[Path, str]] | None = None,
+) -> str:
+    """Append `?v=<digest>` to every `/static/...` reference that names an
+    existing file. Unknown files are left untouched (the request 404s as before)."""
+
+    def repl(match: "re.Match[str]") -> str:
+        target = _static_file(static_root, match.group(1))
+        if target is None or target in _seen:
+            return match.group(0)
+        _, digest = served_static(target, static_root, _seen)
+        if _deps is not None:
+            _deps.append((target, digest))
+        return f"{match.group(0)}?v={digest}"
+
+    return _STATIC_REF_RE.sub(repl, text)
+
+
+def served_static(target: Path, static_root: Path, _seen: frozenset[Path] = frozenset()) -> tuple[bytes, str]:
+    """(bytes to serve, their 12-hex digest). Memoized on the file's mtime +
+    size and on the digests of the files it references, so an edit in a dev
+    checkout (a photo, or the stylesheet naming it) shows without a restart."""
+    stat = target.stat()
+    key = (stat.st_mtime_ns, stat.st_size)
+    seen = _seen | {target}
+    with _VERSION_LOCK:
+        hit = _VERSION_CACHE.get(target)
+    if (
+        hit is not None
+        and hit[0] == key
+        and all(served_static(dep, static_root, seen)[1] == digest for dep, digest in hit[3])
+    ):
+        return hit[1], hit[2]
+    body = target.read_bytes()
+    deps: list[tuple[Path, str]] = []
+    if target.suffix in _VERSIONED_SUFFIXES:
+        body = version_static_refs(body.decode("utf-8"), static_root, seen, deps).encode("utf-8")
+    digest = hashlib.sha256(body).hexdigest()[:12]
+    with _VERSION_LOCK:
+        _VERSION_CACHE[target] = (key, body, digest, tuple(deps))
+    return body, digest
+
+
 def render_index(agent_usa_dir: Path, query: str = "", referer: str | None = None) -> bytes:
     """`query` / `referer` are the page request's: they carry the visitor's
     market (see `resolve_page_market`)."""
@@ -208,13 +289,19 @@ def render_index(agent_usa_dir: Path, query: str = "", referer: str | None = Non
         name, default = match.group(1), match.group(2) or ""
         return overrides.get(name, default)
 
-    return _JINJA_VAR_RE.sub(repl, html).encode("utf-8")
+    rendered = _JINJA_VAR_RE.sub(repl, html)
+    return version_static_refs(rendered, (agent_usa_dir / "static").resolve()).encode("utf-8")
 
 
 SESSION_REPLAY_CONFIG = (
     b'{"configs":{"sessionReplay":{"sr_sampling_config":'
     b'{"capture_enabled":true,"sample_rate":0.05}}}}'
 )
+# The Session Replay plugin asks for its config 3 times per page load (same URL,
+# measured 2026-10-29). The answer is a constant of this file, so the browser
+# may reuse it for a few minutes: one request per load instead of 3. Short on
+# purpose: a sample-rate change still reaches every visitor within 5 minutes.
+SESSION_REPLAY_CONFIG_CACHE = "private, max-age=300"
 
 
 # --- public-edge protection -------------------------------------------------------------
@@ -419,11 +506,18 @@ class WidgetProxyHandler(BaseHTTPRequestHandler):
     server_version = "widget"
     sys_version = ""
     timeout = 30
+    command = ""  # set per request by parse_request; a default for handlers built by hand
 
     def end_headers(self) -> None:
         for name, value in security_headers():
             self.send_header(name, value)
         super().end_headers()
+
+    def _write_body(self, body: bytes) -> None:
+        """A HEAD gets the GET's status and headers (Content-Length included),
+        never its body (RFC 9110 §9.3.2)."""
+        if self.command != "HEAD":
+            self.wfile.write(body)
 
     # --- routing -------------------------------------------------------------------------
     def do_GET(self) -> None:  # noqa: N802 (stdlib method name)
@@ -437,9 +531,15 @@ class WidgetProxyHandler(BaseHTTPRequestHandler):
         elif path in _HEALTH_ROUTES:
             self._health(path)
         elif path.startswith("/static/"):
-            self._serve_static(path)
+            self._serve_static(path, query)
         else:
             self.send_error(404)
+
+    def do_HEAD(self) -> None:  # noqa: N802
+        """Same routing as GET, no body: uptime probes and link checkers use
+        HEAD, which answered 501 until 2026-10-29. Never reaches /v3 (GET has no
+        /v3 route) and so never the concierge, except /health's own probe."""
+        self.do_GET()
 
     def do_POST(self) -> None:  # noqa: N802
         path = self.path.split("?", 1)[0]
@@ -484,7 +584,7 @@ class WidgetProxyHandler(BaseHTTPRequestHandler):
         for name, value in extra:
             self.send_header(name, value)
         self.end_headers()
-        self.wfile.write(payload)
+        self._write_body(payload)
 
     def _health(self, path: str) -> None:
         """agent-usa's probes, same keys (see `_HEALTH_ROUTES`)."""
@@ -540,7 +640,7 @@ class WidgetProxyHandler(BaseHTTPRequestHandler):
             if candidate.strip()
         )
 
-    def _send_cacheable(self, body: bytes, content_type: str) -> None:
+    def _send_cacheable(self, body: bytes, content_type: str, immutable: bool = False) -> None:
         """Serve `body` with a content ETag and `Cache-Control: no-cache`.
 
         The widget assets are UNVERSIONED (no content hash in the filename, and
@@ -551,35 +651,41 @@ class WidgetProxyHandler(BaseHTTPRequestHandler):
         a newer facade is exactly the class of bug the 2026-08-27 session-reload
         fix was about. `no-cache` means "you may store it, but revalidate before
         every use", so the client still gets a cheap 304 instead of the bytes.
+
+        `immutable` (since 2026-10-29): the request named the file by its
+        current content digest (`?v=`, see `version_static_refs`), so that URL
+        can never serve other bytes and the browser keeps it a year without
+        asking. The page and unversioned URLs keep `no-cache`.
         """
         etag = f'"{hashlib.sha256(body).hexdigest()[:32]}"'
+        cache_control = _IMMUTABLE if immutable else "no-cache"
         if self._if_none_match_hits(etag):
             self.send_response(304)
             self.send_header("ETag", etag)
-            self.send_header("Cache-Control", "no-cache")
+            self.send_header("Cache-Control", cache_control)
             self.end_headers()
             return
         self.send_response(200)
         self.send_header("Content-Type", content_type)
         self.send_header("Content-Length", str(len(body)))
         self.send_header("ETag", etag)
-        self.send_header("Cache-Control", "no-cache")
+        self.send_header("Cache-Control", cache_control)
         self.end_headers()
-        self.wfile.write(body)
+        self._write_body(body)
 
     def _respond_session_replay_config(self) -> None:
         body = SESSION_REPLAY_CONFIG
         self.send_response(200)
         self.send_header("Content-Type", "application/json")
         self.send_header("Content-Length", str(len(body)))
-        self.send_header("Cache-Control", "no-store")
+        self.send_header("Cache-Control", SESSION_REPLAY_CONFIG_CACHE)
         self.end_headers()
-        self.wfile.write(body)
+        self._write_body(body)
 
     def _respond_html(self, body: bytes) -> None:
         self._send_cacheable(body, "text/html; charset=utf-8")
 
-    def _serve_static(self, path: str) -> None:
+    def _serve_static(self, path: str, query: str = "") -> None:
         root = (self.agent_usa_dir / "static").resolve()
         target = (self.agent_usa_dir / path.lstrip("/")).resolve()
         if root not in target.parents and target != root:
@@ -589,7 +695,9 @@ class WidgetProxyHandler(BaseHTTPRequestHandler):
             self.send_error(404)
             return
         content_type = mimetypes.guess_type(str(target))[0] or "application/octet-stream"
-        self._send_cacheable(target.read_bytes(), content_type)
+        body, digest = served_static(target, root)
+        requested = (parse_qs(query).get("v") or [""])[0]
+        self._send_cacheable(body, content_type, immutable=requested == digest)
 
     # --- reverse proxy (streams incrementally — SSE-safe) -----------------------------------
     def _proxy(self, method: str, body: bytes | None = None) -> None:
