@@ -40,6 +40,13 @@ reprises d'agent-usa :
 | `WIDGET_CSP_MODE` | `report-only` | `enforce` une fois les lignes `csp-report` des logs lues (bloque, et signale toujours à `/csp-report`) ; `off` pour couper |
 | `HEALTH_TOKEN` | vide | `/health` (sonde d'Innovation Monitor, reprise d'agent-usa) exige `Authorization: Bearer <token>` ; vide = ouvert. `/healthz` et `/readyz` restent ouverts |
 
+Cache des statiques (depuis le 2026-10-29) : la page nomme chaque fichier de `/static/` par
+l'empreinte de son contenu (`?v=<sha256 tronqué>`), servi `public, max-age=31536000, immutable` ;
+la page reste `no-cache`. Un déploiement change l'URL de ce qui a changé, rien à purger. Le JS et
+la CSS servis sont les bundles commités de `web/vendor/static/dist/` (`scripts/build_widget_assets.py`) :
+`tests/test_widget_assets.py` refuse un bundle périmé, donc pytest vert avant `up` suffit. Le proxy
+répond à `HEAD` comme à `GET`, sans corps.
+
 Les 3 sondes d'agent-usa répondent sur le widget avec les mêmes clés : `/health` (toujours 200,
 criticité dans `status` : `ok` / `critical`), `/healthz` (vivant), `/readyz` (503 si le concierge
 ne répond pas). La seule dépendance vérifiée est le concierge, par son Agent Card ouverte.
