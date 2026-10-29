@@ -18,6 +18,7 @@ MCP `count_hotels_near` would be A1-c — same interface, no resolver change).
 """
 from __future__ import annotations
 
+import functools
 import json
 import math
 import os
@@ -83,6 +84,59 @@ class SnapshotInventory:
                 count += 1
         return count
 
+
+    @functools.lru_cache(maxsize=256)
+    def dense_centre(self, lat: float, lon: float) -> tuple[float, float] | None:
+        """Where a city's hotels actually are, when that is clearly not the
+        point the geocoder gave for it — else None (2026-10-29).
+
+        Prod and the side-by-side of 2026-10-29: « New York » is Mapbox's
+        point at City Hall, in Lower Manhattan, and the cards came from Jersey
+        City and Brooklyn (5.5-6.5 km from Midtown) where agent-usa showed
+        Midtown. Singapore's and Bangkok's points have no hotel within
+        2.5 km. Facts only: the snapshot's own hotels within
+        `DENSE_SEARCH_KM` of the point; the disc of `DENSE_DISC_KM` around one
+        of them that holds the most; its hotels' mean point. The point moves
+        only when that disc holds at least `DENSE_RATIO` times, and
+        `DENSE_MIN_GAIN` hotels more than, the disc around the geocoder's
+        point. Measured on the geocoder's points of 38 cities (scratch
+        probe of 2026-10-29): New York, Singapore and Bangkok move; Paris,
+        London, Rome, Milan, Madrid, Los Angeles and the 29 others do not."""
+        cos_lat = max(math.cos(math.radians(lat)), 0.01)
+
+        def xy(plat: float, plon: float) -> tuple[float, float]:
+            return (plon - lon) * 111.0 * cos_lat, (plat - lat) * 111.0
+
+        near = [
+            (plat, plon, *xy(plat, plon))
+            for plat, plon in zip(self._lats, self._lons)
+            if abs(plat - lat) * 111.0 <= DENSE_SEARCH_KM
+            and abs(plon - lon) * 111.0 * cos_lat <= DENSE_SEARCH_KM
+        ]
+        near = [p for p in near if p[2] ** 2 + p[3] ** 2 <= DENSE_SEARCH_KM ** 2]
+        if not near:
+            return None
+        disc2 = DENSE_DISC_KM ** 2
+        own = sum(1 for p in near if p[2] ** 2 + p[3] ** 2 <= disc2)
+        best: list[tuple[float, float, float, float]] = []
+        for _plat, _plon, px, py in near:
+            disc = [q for q in near if (q[2] - px) ** 2 + (q[3] - py) ** 2 <= disc2]
+            if len(disc) > len(best):
+                best = disc
+        if len(best) < DENSE_RATIO * own or len(best) - own < DENSE_MIN_GAIN:
+            return None
+        return (
+            round(sum(q[0] for q in best) / len(best), 6),
+            round(sum(q[1] for q in best) / len(best), 6),
+        )
+
+
+#: `SnapshotInventory.dense_centre`'s bounds (2026-10-29), measured on 38
+#: cities' geocoder points.
+DENSE_SEARCH_KM = 6.0
+DENSE_DISC_KM = 2.5
+DENSE_RATIO = 2.5
+DENSE_MIN_GAIN = 8
 
 _default: SnapshotInventory | None = None
 

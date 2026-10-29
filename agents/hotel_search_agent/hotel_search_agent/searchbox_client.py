@@ -113,6 +113,8 @@ class SearchBoxClient:
         if proximity:
             params["proximity"] = proximity
         candidates = self._forward_with_retry(params, fallback=query)
+        if candidates is None:
+            return []  # a failure, not « no match »: never cached (2026-10-29)
         self._remember(key, candidates)
         return candidates
 
@@ -124,7 +126,8 @@ class SearchBoxClient:
 
     def _forward_with_retry(
         self, params: dict[str, str | int], *, fallback: str
-    ) -> list[GeocodeCandidate]:
+    ) -> list[GeocodeCandidate] | None:
+        """The candidates, or None on a failure that survived the retry."""
         attempts = 2
         for attempt in range(attempts):
             try:
@@ -132,10 +135,10 @@ class SearchBoxClient:
                 response.raise_for_status()
             except httpx.HTTPError:
                 if attempt == attempts - 1:
-                    return []
+                    return None
                 continue
             return self._parse(response.json(), fallback=fallback)
-        return []
+        return None
 
     @staticmethod
     def _parse(data: dict, *, fallback: str) -> list[GeocodeCandidate]:
@@ -160,8 +163,16 @@ class SearchBoxClient:
             # appear in place_name).
             name = str(props.get("name") or "")
             full_address = str(props.get("full_address") or "")
+            formatted = str(props.get("place_formatted") or "")
             if name and full_address and name.lower() not in full_address.lower():
                 place_name = f"{name}, {full_address}"
+            elif not full_address and name and formatted:
+                # 2026-10-29 (« a hotel near Times Square »): a neighbourhood has
+                # no `full_address`, only its context in `place_formatted`
+                # (« Manhattan, New York, United States »). Named alone, it
+                # failed the echo of the state in play (New York) and the
+                # landmark was reported as not found.
+                place_name = f"{name}, {formatted}"
             else:
                 place_name = full_address or name or fallback
             candidates.append(

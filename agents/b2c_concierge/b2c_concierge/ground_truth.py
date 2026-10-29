@@ -20,6 +20,7 @@ from typing import Any
 
 from b2c_common import minor_units
 from b2c_common.offer_facts import matching_offer_facts
+from b2c_common.timeslot import parse_hhmm, slot_covers_window
 
 from .date_format import format_date_human
 from .profile import SessionProfile
@@ -238,7 +239,162 @@ def _first_slot(hotel: dict[str, Any]) -> dict[str, Any]:
     return slot if isinstance(slot, dict) else {}
 
 
-def synthesis_angle(response: dict[str, Any] | None, exclude: str = "") -> tuple[str, str]:
+#: GeoIntent kinds / geocoder feature types of an AREA searched as a whole
+#: (a region, a département, a borough): its point is not a centre the user
+#: asked to be in.
+_AREA_KINDS = frozenset({"region", "admin_district"})
+_AREA_FEATURES = frozenset({"area", "region", "district", "country"})
+#: A point the user asked to be NEAR (« près de moi », a landmark, an airport,
+#: a station, an address): the cards are judged by their distance to it.
+_POINT_ORIGINS = frozenset({"gps", "poi"})
+#: Beyond this, the NEAREST card of a search around a named point or the
+#: user's position is far enough to say so (the site's own rings are 2-5 km).
+_FAR_FROM_POINT_KM = 5.0
+#: Beyond this, every card of a city search is out of its centre.
+_FAR_FROM_CENTRE_KM = 6.0
+
+
+def _origin(response: dict[str, Any] | None, profile: SessionProfile | None) -> tuple[str, str]:
+    """(kind, label) of the point this turn's distances are measured from:
+    "city", "area", "gps", "poi" or "unresolved" (a spot the geocoder could
+    not place: the city was searched instead). Facts only:
+    the anchor type and place kind the leaf reported, never the message."""
+    context = (response or {}).get("search_context")
+    context = context if isinstance(context, dict) else {}
+    if context.get("landmark_unresolved"):
+        return "unresolved", ""
+    origin = profile.distance_origin if profile is not None and isinstance(profile.distance_origin, dict) else {}
+    kind = origin.get("type")
+    label = str(origin.get("label") or "").strip()
+    if kind in _POINT_ORIGINS:
+        return str(kind), label
+    # A city centroid, or an anchor the leaf did not type (an older leaf, a
+    # bare coordinate): read as a city, as before, unless it is an area.
+    area = (
+        (profile is not None and profile.city_is_area)
+        or origin.get("place_kind") in _AREA_KINDS
+        or origin.get("feature_type") in _AREA_FEATURES
+    )
+    city = context.get("city") or (profile.city if profile is not None else None)
+    return ("area" if area else "city"), str(city or "")
+
+
+def _distance_angle(hotels: list[dict[str, Any]], origin: str, label: str) -> tuple[str, str] | None:
+    """The cards are far from what the user asked — said from the RIGHT
+    point. 2026-10-29 (prod after #173, 19 replies): « EVERY option is outside
+    the centre … the user asked for the city » was imposed around a device
+    position, an airport, a region or a spot the geocoder missed, and the
+    replies claimed « all outside the centre of Ferrara » or « 15-25 km
+    outside the city center » for O'Hare."""
+    distances = [h["distance_km"] for h in hotels
+                 if isinstance(h.get("distance_km"), (int, float)) and not isinstance(h.get("distance_km"), bool)]
+    if len(distances) < 2 and origin not in _POINT_ORIGINS:
+        return None
+    if not distances:
+        return None
+    low, high = min(distances), max(distances)
+    if origin == "city" and len(distances) >= 2 and low >= _FAR_FROM_CENTRE_KM:
+        where = f" of {label}" if label else ""
+        return (
+            "distance",
+            f"EVERY option is outside the centre{where} ({low:.0f}-{high:.0f} km from it). "
+            "The user named the city: say so honestly and offer to search closer in.",
+        )
+    if origin in _POINT_ORIGINS and low >= _FAR_FROM_POINT_KM:
+        point = "the user's own position" if origin == "gps" else (label or "the place searched")
+        span = f"{low:.0f} km" if len(distances) < 2 else f"{low:.0f}-{high:.0f} km"
+        return (
+            "distance",
+            f"The nearest offers are {span} from {point}. Say that plainly, measured from "
+            "that point — never call it « the centre » — and offer one concrete next step "
+            "(another area or another day).",
+        )
+    # An area searched as a whole, or a spot that could not be placed: no
+    # « centre » the user asked for, so no distance to complain about.
+    return None
+
+
+def _need_angles(response: dict[str, Any] | None, hotels: list[dict[str, Any]], origin: str,
+                 label: str) -> list[tuple[str, str]]:
+    """What the user ASKED for, as the search that ran recorded it
+    (`search_context`: its hard amenity filter, its clock window, its
+    standing) and where it ran (a point to be near): the lead goes to the card
+    that answers it. 2026-10-29: 56 of 95 replies opened on « X is N % below its
+    night rate », a romantic, 5-star, private-pool or night-layover request
+    included. The saving comes second."""
+    context = (response or {}).get("search_context")
+    context = context if isinstance(context, dict) else {}
+    relaxed = (response or {}).get("relaxation")
+    relaxed_steps = set((relaxed or {}).get("steps") or []) if isinstance(relaxed, dict) else set()
+    angles: list[tuple[str, str]] = []
+    first = str(hotels[0].get("name") or "").strip()
+    second = "Mention a saving only after that, if at all."
+
+    start, end = parse_hhmm(context.get("timeslot_start")), parse_hhmm(context.get("timeslot_end"))
+    if (start is not None or end is not None) and "timeslot" not in relaxed_steps:
+        covering = [
+            str(h.get("name") or "").strip() for h in hotels
+            if any(
+                isinstance(slot, dict)
+                and slot_covers_window(*(_hour(slot.get("start")), _hour(slot.get("end"), end=True)), start, end)
+                for slot in h.get("timeslots") or []
+            )
+        ]
+        window = "-".join(v for v in (context.get("timeslot_start"), context.get("timeslot_end")) if v)
+        if covering and len(covering) == len(hotels):
+            angles.append(("window", (
+                f"The user asked for {window}: every card's slot covers it. Lead with {covering[0]} "
+                f"and its slot. {second}"
+            )))
+        elif covering:
+            angles.append(("window", (
+                f"The user asked for {window}: only {', '.join(covering[:3])} cover that whole "
+                f"window. Lead with that. {second}"
+            )))
+
+    amenities = [a for a in context.get("amenities") or [] if isinstance(a, str)]
+    if amenities and first and "amenities" not in relaxed_steps:
+        names = ", ".join(a.replace("_", " ") for a in amenities)
+        angles.append(("amenity", (
+            f"The user asked for {names}: every card was searched with that filter. Lead with "
+            f"{first} as the fit for it (its price or time slot from its line). {second}"
+        )))
+
+    if context.get("standing") == "upscale":
+        rated = [h for h in hotels if isinstance(h.get("rating"), (int, float)) and h["rating"] > 0
+                 and isinstance(h.get("rating_count"), int) and h["rating_count"] >= 3]
+        if rated:
+            best = max(rated, key=lambda h: (h["rating"], h["rating_count"]))
+            angles.append(("standing", (
+                f"The user asked for an upscale hotel: lead with {best.get('name')}, the best rated "
+                f"here ({float(best['rating']):.1f}/5 over {best['rating_count']} reviews). {second}"
+            )))
+
+    if origin in _POINT_ORIGINS:
+        placed = [h for h in hotels if isinstance(h.get("distance_km"), (int, float))]
+        if placed:
+            nearest = min(placed, key=lambda h: h["distance_km"])
+            if nearest["distance_km"] < _FAR_FROM_POINT_KM:
+                point = "the user" if origin == "gps" else (label or "the place asked for")
+                angles.append(("nearest", (
+                    f"The user asked to be near {point}: lead with the nearest card, "
+                    f"{nearest.get('name')}, about {float(nearest['distance_km']):.1f} km away. {second}"
+                )))
+    return angles
+
+
+def _hour(value: Any, *, end: bool = False) -> int | None:
+    """Whole hour of an "HH:MM" slot bound (an end past :00 still counts
+    from the hour it reaches, like the site's rule rounds)."""
+    minutes = parse_hhmm(value)
+    if minutes is None:
+        return None
+    return minutes // 60 if not end else minutes // 60 + (1 if minutes % 60 else 0)
+
+
+def synthesis_angle(
+    response: dict[str, Any] | None, exclude: str = "", *, profile: SessionProfile | None = None
+) -> tuple[str, str]:
     """`(key, directive)` — the ONE fact worth leading this turn's reply on,
     picked in CODE from the shortlist. `("", "")` when the data says nothing
     notable, and the model then just writes short.
@@ -253,15 +409,16 @@ def synthesis_angle(response: dict[str, Any] | None, exclude: str = "") -> tuple
     Why code and not the model: asked for a "warm, concise" reply over the same
     fields every turn, an LLM produces the same reply every turn (prod
     2026-07-29: a 930-char list of the exact cards already on screen, opener
-    included). Variety has to come from the DATA, not from temperature — a
-    turn where the cheapest option is half the price of the others genuinely
-    warrants a different sentence than one where every hotel is 12 km out.
-    Deterministic by construction: same shortlist in, same angle out, so it is
-    testable and can never become a random-tone generator.
+    included). Variety has to come from the DATA, not from temperature.
+    Deterministic by construction: same shortlist in, same angle out.
 
-    Ordered by how much the fact changes the user's decision, first match wins.
-    Every angle names only what the cards ALREADY show, so it can add no claim
-    the guards would have to catch — it re-frames, it never introduces."""
+    Ordered by how much the fact changes the user's decision, first match wins
+    (2026-10-29): the hotel the user named; a single result; cards far from the
+    point the search was measured from (`profile.distance_origin`: a city's
+    centre, the user's position, a named place — an area has no centre); then
+    the need the user expressed (`_need_angles`); only then the saving, the
+    price spread and a thin review base. Every angle names only what the cards
+    ALREADY show, so it can add no claim the guards would have to catch."""
     hotels = shortlist_hotels(response)
     if not hotels:
         return ("", "")
@@ -286,18 +443,12 @@ def synthesis_angle(response: dict[str, Any] | None, exclude: str = "") -> tuple
             "shortlist) and offer one concrete way to widen the search.",
         ))
 
-    # Out-of-centre: the single most useful thing the cards bury — each card
-    # shows its own district in small type, so "all five are in the suburbs"
-    # is invisible until you read all five.
-    distances = [h["distance_km"] for h in hotels
-                 if isinstance(h.get("distance_km"), (int, float))]
-    if len(distances) >= 2 and min(distances) >= 6:
-        candidates.append((
-            "distance",
-            f"EVERY option is outside the centre ({min(distances):.0f}-"
-            f"{max(distances):.0f} km out). Lead with that honestly — the user "
-            "asked for the city, not its outskirts — and offer to search closer in.",
-        ))
+    origin, label = _origin(response, profile)
+    far = _distance_angle(hotels, origin, label)
+    if far is not None:
+        candidates.append(far)
+
+    candidates.extend(_need_angles(response, hotels, origin, label))
 
     # Deep discount: commercially the strongest line, and the badge on the card
     # states the percentage without saying which hotel carries the best one.

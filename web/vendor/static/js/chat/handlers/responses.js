@@ -39,7 +39,11 @@ export function updateMarketFromResults(results, explicitMarket = null) {
 export function renderSuggestionsRow(data) {
     const raw = data && Array.isArray(data.suggestions) ? data.suggestions : null;
     if (!raw || raw.length === 0) return;
-    const html = suggestionsInlineHtml(raw, 'recovery');
+    // 2026-10-29: the place question offers « près de moi » next to the
+    // market's cities; the backend names that chip (`near_me`) so its click
+    // asks for the device's position, as the welcome's does.
+    const nearMe = typeof data.near_me === 'string' ? data.near_me : null;
+    const html = suggestionsInlineHtml(raw, 'recovery', nearMe);
     if (!html) return;
     const msg = addMessage(html, false, false, true, true);
     if (msg && msg.classList) msg.classList.add('message--actions');

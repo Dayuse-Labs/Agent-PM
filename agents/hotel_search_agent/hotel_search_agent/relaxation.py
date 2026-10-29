@@ -92,6 +92,11 @@ MCP_DEFAULT_RADIUS_KM = 20.0
 
 RELAX_ACTIONS = ("area", "filters", "time", "budget")
 
+#: The concierge's recovery chip of this call (`query_params.relax`), apart
+#: from the model's own reading: only a chip the user clicked is answered
+#: « nothing to remove » (`relaxation_notice`, 2026-10-29).
+STATE_RELAX_CHIP_KEY = "temp:hotel_search_relax_chip"
+
 _RELAX_PROPERTY: dict[str, Any] = {
     "type": "string",
     "enum": list(RELAX_ACTIONS),
@@ -155,6 +160,7 @@ def read_relax_request(tool: Any, args: dict[str, Any], tool_context: Any) -> No
         actions.append(chip)
     state = tool_context.state
     state[STATE_RELAX_REQUEST_KEY] = actions
+    state[STATE_RELAX_CHIP_KEY] = chip if chip in RELAX_ACTIONS else None
     state[STATE_AMENITIES_MUST_HAVE_KEY] = must_have is True
     if "area" in actions:
         state[STATE_NEARBY_KEY] = True
@@ -182,6 +188,9 @@ def apply_relax_request(tool: Any, args: dict[str, Any], tool_context: Any) -> N
     if not actions:
         return None
     applied: dict[str, Any] = {"requested": list(actions)}
+    chip = state.get(STATE_RELAX_CHIP_KEY)
+    if chip in actions:
+        applied["chip"] = chip
     removed: list[str] = []
     if "filters" in actions:
         amenities = list(state.get(STATE_APPLIED_AMENITIES_KEY) or []) + [

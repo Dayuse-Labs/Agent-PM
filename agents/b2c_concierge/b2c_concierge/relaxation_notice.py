@@ -13,11 +13,15 @@ on « augmenter le budget » / « retirer un filtre » reaches the leaf as data
 """
 from __future__ import annotations
 
+import math
 from typing import Any
 
 from .date_format import format_date_human
 from .no_offers import _AMENITY, _join, _lang, no_offers_line
 from .profile import _RECOVERY_SUGGESTIONS
+
+#: MCP's radius when the search sent none (a city search).
+MCP_DEFAULT_RADIUS_KM = 20.0
 
 #: `_RECOVERY_SUGGESTIONS` order: budget, zone (`clicked_widen_chip`), filter.
 _CHIP_ACTIONS = {0: "budget", 2: "filters"}
@@ -50,10 +54,13 @@ _TIMESLOT: dict[str, str] = {
     "it": "la fascia oraria", "de": "das Zeitfenster", "pt": "o horário", "nl": "het tijdslot",
 }
 _AMENITIES: dict[str, str] = {
-    "fr": "le critère {names}", "en": "the {names} requirement", "es": "el criterio {names}",
+    "fr": "le critère {names}", "en": "the requirement for {names}", "es": "el criterio {names}",
     "it": "il criterio {names}", "de": "das Kriterium {names}", "pt": "o critério {names}",
     "nl": "het criterium {names}",
 }
+# The area as the cards show it: the farthest card's real distance, never the
+# radius the relaxed call was sent with (prod: « up to 50 km » above five
+# hotels all under 5 km, 2026-10-28).
 _RADIUS: dict[str, str] = {
     "fr": "la zone (jusqu'à {km} km)", "en": "the area (up to {km} km)", "es": "la zona (hasta {km} km)",
     "it": "la zona (fino a {km} km)", "de": "den Umkreis (bis {km} km)", "pt": "a zona (até {km} km)",
@@ -64,7 +71,7 @@ _NEXT_DAY: dict[str, str] = {
     "de": "das Datum ({day})", "pt": "a data ({day})", "nl": "de datum ({day})",
 }
 _REMOVED_AMENITIES: dict[str, str] = {
-    "fr": "J'ai retiré le filtre {names}.", "en": "I removed the {names} filter.",
+    "fr": "J'ai retiré le filtre {names}.", "en": "I removed the filter for {names}.",
     "es": "He quitado el filtro {names}.", "it": "Ho rimosso il filtro {names}.",
     "de": "Ich habe den Filter {names} entfernt.", "pt": "Retirei o filtro {names}.",
     "nl": "Ik heb het filter {names} verwijderd.",
@@ -122,8 +129,15 @@ def _km(value: Any) -> str | None:
 
 
 def _request_lines(request: Any, lang: str) -> list[str]:
+    """What the user's request to loosen the search changed. « Nothing to
+    remove » / « no price cap » answer only the concierge's own chip (the
+    leaf records it as `chip`): a `relax` the leaf's model read into a first
+    message (« prix abordable », « Uhrzeit egal ») asked the user nothing, and
+    « Aucun plafond de prix n'était appliqué » opened replies nobody asked it
+    of (prod after #173, 2026-10-28/29)."""
     if not isinstance(request, dict):
         return []
+    chip = request.get("chip")
     lines: list[str] = []
     removed = request.get("removed") or []
     if "amenities" in removed:
@@ -134,19 +148,47 @@ def _request_lines(request: Any, lang: str) -> list[str]:
         lines.append(_REMOVED_TIMESLOT[lang])
     if "standing" in removed:
         lines.append(_REMOVED_STANDING[lang])
-    if request.get("nothing_to_remove"):
+    if request.get("nothing_to_remove") and chip in ("filters", "time"):
         lines.append(_NOTHING_TO_REMOVE[lang])
     budget = request.get("budget")
     if isinstance(budget, dict) and _km(budget.get("from")) and _km(budget.get("to")):
         lines.append(_BUDGET_RAISED[lang].format(
             old=_km(budget["from"]), new=_km(budget["to"]), currency=budget.get("currency") or "EUR",
         ))
-    elif request.get("no_budget"):
+    elif request.get("no_budget") and chip == "budget":
         lines.append(_NO_BUDGET[lang])
     return lines
 
 
-def relaxation_line(relaxation: Any, search_context: Any, language: str) -> str:
+def _card_distances(results: Any) -> list[float]:
+    return [
+        float(card["distance_km"]) for card in results or []
+        if isinstance(card, dict) and isinstance(card.get("distance_km"), (int, float))
+        and not isinstance(card.get("distance_km"), bool)
+    ]
+
+
+def _radius_item(relaxation: dict[str, Any], search_context: Any, results: Any, lang: str) -> str | None:
+    """The widened area as the cards show it, or None when it changed nothing
+    the user can see: every card lies within the radius the first search was
+    sent with (another step — the slot, the amenity — found them). Facts only:
+    the cards' own distances and the radius of the search that ran."""
+    distances = _card_distances(results)
+    if not distances:
+        sent = _km(relaxation.get("radius_km"))
+        return _RADIUS[lang].format(km=sent) if sent else None
+    context = search_context if isinstance(search_context, dict) else {}
+    first = context.get("radius_km")
+    first_km = float(first) if isinstance(first, (int, float)) and not isinstance(first, bool) and first > 0 else None
+    farthest = max(distances)
+    if farthest <= (first_km if first_km is not None else MCP_DEFAULT_RADIUS_KM):
+        return None
+    return _RADIUS[lang].format(km=f"{math.ceil(farthest):g}")
+
+
+def relaxation_line(
+    relaxation: Any, search_context: Any, language: str, results: Any = None
+) -> str:
     """« Aucune offre à Dublin le jeudi 29 octobre 2026, avec jacuzzi. Voici
     les offres les plus proches, en assouplissant le critère jacuzzi. » — the
     search that came back empty, cited as it ran, then what was relaxed; and
@@ -164,8 +206,10 @@ def relaxation_line(relaxation: Any, search_context: Any, language: str) -> str:
             names = _names(relaxation.get("amenities"), lang)
             if names:
                 items.append(_AMENITIES[lang].format(names=names))
-        elif step == "radius" and _km(relaxation.get("radius_km")):
-            items.append(_RADIUS[lang].format(km=_km(relaxation["radius_km"])))
+        elif step == "radius":
+            radius = _radius_item(relaxation, search_context, results, lang)
+            if radius:
+                items.append(radius)
         elif step == "next_day" and isinstance(relaxation.get("offered_date"), str):
             items.append(_NEXT_DAY[lang].format(day=format_date_human(relaxation["offered_date"], lang)))
     if items:
@@ -195,7 +239,9 @@ def relaxation_note(relaxation: Any) -> str:
             "matching the relaxed criteria."
         )
     request = relaxation.get("request")
-    if isinstance(request, dict) and request:
+    if isinstance(request, dict) and (
+        request.get("removed") or isinstance(request.get("budget"), dict) or request.get("chip")
+    ):
         bits.append(
             "The user asked to loosen the search; the sentence before your reply says what "
             "changed (or that there was nothing to loosen). Do not say you cannot change it."

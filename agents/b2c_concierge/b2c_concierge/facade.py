@@ -82,6 +82,10 @@ CONTRACT_KEYS: frozenset[str] = frozenset(
         "hotel_picks",
         "booking_card",
         "suggestions",
+        # 2026-10-29: the label of the « près de moi » chip among `suggestions`
+        # (the place question's), else None — the widget asks for the device's
+        # position when that chip is clicked, as for /v3/chat/welcome's.
+        "near_me",
         "session_id",
         "conversation_id",
         "response_language",
@@ -497,6 +501,7 @@ def build_chat_payload(
         "hotel_picks": build_hotel_picks(profile),
         "booking_card": booking_card,
         "suggestions": list(profile.last_suggestions or []),
+        "near_me": _near_me_label(profile.last_suggestions, language),
         "session_id": session_id,
         "conversation_id": session_id,
         "response_language": language,
@@ -519,6 +524,13 @@ def build_chat_payload(
         "turn_facts": turn_facts or facade_turn_facts("unknown", status="unknown"),
     }
     return _json_safe(payload)
+
+
+def _near_me_label(suggestions: list[str] | None, language: str) -> str | None:
+    """The « près de moi » chip of this reply's suggestions, by its exact
+    label in the reply's language (`templates.near_me_chip`), else None."""
+    label = templates.near_me_chip(language)
+    return label if label in (suggestions or []) else None
 
 
 # --- turn orchestration (shared by JSON + SSE) ----------------------------------------------
@@ -655,6 +667,19 @@ def _parse_market_country(raw: Any) -> str | None:
     return None
 
 
+#: The request's `source` (the widget's deep-link `?source=`): a short slug.
+_SOURCE_RE = re.compile(r"[a-z0-9][a-z0-9_.-]{0,63}")
+
+
+def _parse_source(raw: Any) -> str | None:
+    """2026-10-29: the request's `source` (« dayuse_box » from the dayuse.com
+    AI box, « mobile_app »…), lowercased, else None. A slug shape check, not a
+    reading of words."""
+    if isinstance(raw, str) and _SOURCE_RE.fullmatch(raw.strip().lower()):
+        return raw.strip().lower()
+    return None
+
+
 def _parse_domain(raw: Any) -> str | None:
     if isinstance(raw, str) and _DOMAIN_RE.fullmatch(raw.strip()):
         return raw.strip().lower()
@@ -768,7 +793,8 @@ async def _apply_native_context(session_id: str, body: dict[str, Any], turn_inde
     delta = _native_context_delta(body, turn_index)
     picked = _parse_picked_hotel_id(body)
     refused = _device_location_refused(body)
-    if not delta and picked is None and not refused:
+    source = _parse_source(body.get("source")) if turn_index == 0 else None
+    if not delta and picked is None and not refused and source is None:
         return
     store = get_profile_store()
     profile = await store.get(session_id)
@@ -783,6 +809,8 @@ async def _apply_native_context(session_id: str, body: dict[str, Any], turn_inde
     # spine consumes and clears, not a carryover slot.
     profile.picked_hotel_id = picked
     profile.device_location_refused = refused
+    if source is not None:
+        profile.entry_source = source  # the first turn's, never overwritten
     await store.set(session_id, profile)
 
 

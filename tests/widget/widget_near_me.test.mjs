@@ -107,3 +107,23 @@ test('the hero chip is tracked as near_me at its 1-based place', () => {
     assert.match(index, /suggestionType: 'near_me', position: 1 /);
     assert.doesNotMatch(index, /position: 0/);
 });
+
+test('2026-10-29: the place question names its « près de moi » chip through the payload', async () => {
+    const { normalizeV3Response } = await import(new URL('handlers/send.js', CHAT));
+    // A results payload is whitelisted field by field: `near_me` must survive it.
+    const withHotels = normalizeV3Response({
+        hotels: [{ hotel_id: 1, name: 'Hôtel A' }], suggestions: ['Demain'], near_me: null,
+    });
+    assert.equal(withHotels.near_me, null);
+    const question = normalizeV3Response({
+        message: 'Dans quelle ville cherchez-vous ?', hotels: null,
+        suggestions: ['Près de moi', 'Paris'], near_me: 'Près de moi',
+    });
+    assert.equal(question.near_me, 'Près de moi');
+    const html = suggestionsInlineHtml(question.suggestions, 'recovery', question.near_me);
+    assert.match(html, /data-suggestion-type="near_me"[^>]*data-near-me="1" data-suggestion="Près de moi"/);
+    assert.match(html, /data-suggestion-type="recovery"[^>]*data-suggestion="Paris"/);
+    // The row renderer hands the label over.
+    const responses = readFileSync(new URL('handlers/responses.js', CHAT), 'utf8');
+    assert.match(responses, /suggestionsInlineHtml\(raw, 'recovery', nearMe\)/);
+});

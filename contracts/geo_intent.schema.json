@@ -242,7 +242,7 @@
       "type": "string"
     },
     "places": {
-      "description": "The places named in THIS message, most important first, at most 2. Empty when the message names no place.",
+      "description": "The places named in THIS message, most important first, at most 2. Empty when the message names no place. A direction or a distance with no place name (\"going north\", \"further out\") is not a place.",
       "items": {
         "$ref": "#/$defs/Place"
       },

@@ -38,7 +38,7 @@ from datetime import date, datetime, timedelta
 from typing import Any
 from zoneinfo import ZoneInfo
 
-from b2c_common.timeslot import parse_hhmm, slot_covers_window
+from b2c_common.timeslot import parse_hhmm, slot_covers_daypart, slot_covers_window
 from langfuse import Evaluation
 
 # --- shared response accessors (deliberately re-implemented rather than
@@ -347,6 +347,38 @@ def _eval_cards_cover_window(
     )
 
 
+def _eval_cards_cover_daypart(
+    expected: dict[str, Any], response: dict[str, Any] | None
+) -> Evaluation | None:
+    """`"afternoon"` (or morning / evening): every card covers half of that
+    part of the day (`b2c_common.timeslot.slot_covers_daypart`, 2026-10-29) —
+    or none does and the answer labels them as the closest offers."""
+    daypart = expected.get("cards_cover_daypart")
+    if not isinstance(daypart, str):
+        return None
+    hotels = _hotels(response)
+    if not hotels:
+        return _skip("cards_cover_daypart", "no card to check")
+    failing = []
+    for hotel in hotels:
+        slots = [s for s in hotel.get("timeslots") or [] if isinstance(s, dict)]
+        covered = any(
+            (s_start := _minutes(s.get("start"))) is not None
+            and (s_end := _minutes(s.get("end"))) is not None
+            and slot_covers_daypart(s_start // 60, s_end // 60, daypart)
+            for s in slots
+        )
+        if not covered:
+            failing.append(str(hotel.get("name")))
+    if not failing:
+        return _bool_eval("cards_cover_daypart", True, f"every card covers the {daypart}")
+    labelled = len(failing) == len(hotels) and bool(_CLOSEST_RE.search(_message(response)))
+    return _bool_eval(
+        "cards_cover_daypart", labelled,
+        "none covers, labelled as closest" if labelled else f"not covering: {failing}",
+    )
+
+
 def _eval_offers_on_date(
     expected: dict[str, Any], response: dict[str, Any] | None
 ) -> Evaluation | None:
@@ -436,6 +468,7 @@ _RESPONSE_CHECKS = (
     _eval_offers_children_capacity_gte,
     _eval_party_total,
     _eval_cards_cover_window,
+    _eval_cards_cover_daypart,
     _eval_offers_on_date,
     _eval_no_iso_date_in_message,
     _eval_first_hotel_name_contains,

@@ -100,6 +100,8 @@ class TestContractKeysUntouched:
                 "session_expired",
                 # What the widget's analytics event copies (contracts/amplitude_events.json).
                 "turn_facts",
+                # 2026-10-29: the « près de moi » chip among `suggestions`.
+                "near_me",
             }
         )
 
