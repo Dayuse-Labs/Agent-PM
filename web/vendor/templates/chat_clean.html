@@ -18,8 +18,9 @@
     <link rel="icon" type="image/x-icon" sizes="64x64" href="/static/favicon_64.ico">
     <link href="https://fonts.googleapis.com/css2?family=Manrope:wght@400;500;600;700;800&display=swap" rel="stylesheet">
 
-    <!-- Modular CSS -->
-    <link rel="stylesheet" href="/static/css/chat/index.css">
+    <!-- One stylesheet and one script, built from css/chat and js/chat by
+         scripts/build_widget_assets.py (the sources stay the truth). -->
+    <link rel="stylesheet" href="/static/dist/chat.css">
     <!-- Open straight into the chat (hide the hero, reveal the chat container)
          on first paint whenever this load is going to auto-open the chat anyway:
          the app webview (window.__DAYUSE_NATIVE__) or a deep link (?q=/?query=).
@@ -168,7 +169,7 @@
         </div>
     </div>
 
-    <!-- Modular ES6 Chat Application -->
-    <script type="module" src="/static/js/chat/index.js"></script>
+    <!-- The chat application: js/chat/index.js and its imports, bundled -->
+    <script type="module" src="/static/dist/chat.js"></script>
 </body>
 </html>
