@@ -347,7 +347,7 @@ def test_remove_a_filter_drops_the_amenities_for_good():
     args, ctx = _request({**_DUBLIN_ARGS}, chip="filters", state=state)
     assert "hotelEquipmentIds" not in args
     assert ctx.state[STATE_APPLIED_AMENITIES_KEY] == []
-    assert ctx.state[STATE_RELAX_APPLIED_KEY] == {"requested": ["filters"], "removed": ["amenities"],
+    assert ctx.state[STATE_RELAX_APPLIED_KEY] == {"requested": ["filters"], "removed": ["amenities"], "chip": "filters",
                                                   "amenities": ["jacuzzi"]}
 
 
@@ -366,6 +366,17 @@ def test_nothing_to_remove_is_said_not_pretended():
     args, ctx = _request({"lat": 41.38, "lon": 2.16, "date": "2026-10-27"}, chip="filters",
                          state={STATE_APPLIED_AMENITIES_KEY: [], STATE_PREFERRED_AMENITIES_KEY: []})
     assert ctx.state[STATE_RELAX_APPLIED_KEY]["nothing_to_remove"] is True
+
+
+def test_only_the_concierge_chip_is_recorded_as_asked_by_the_user():
+    """2026-10-29 (point 6): « Aucun plafond de prix n'était appliqué » opened a
+    first reply because the model read `relax` into « prix abordable ». The
+    applied request says which action came from the concierge's chip; the
+    concierge answers « nothing to loosen » to that one only."""
+    _, by_model = _request({"lat": 48.85, "lon": 2.35, "date": "2026-10-29"}, relax="budget")
+    assert "chip" not in by_model.state[STATE_RELAX_APPLIED_KEY]
+    _, by_chip = _request({"lat": 48.85, "lon": 2.35, "date": "2026-10-29"}, chip="budget")
+    assert by_chip.state[STATE_RELAX_APPLIED_KEY]["chip"] == "budget"
 
 
 def test_raise_the_budget_raises_the_cap_of_this_search_only():

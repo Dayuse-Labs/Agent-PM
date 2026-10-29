@@ -603,20 +603,34 @@ def search_signature(search_context: Any) -> str | None:
     return json.dumps(kept, sort_keys=True, ensure_ascii=False, default=str)
 
 
-def completed_note(completion: Any, shown: int) -> str:
+def completed_note(completion: Any, shown: int, cards: list[dict[str, Any]] | None = None) -> str:
     """Prod session 1eb2430a: the leaf completed a thin first page from a wider
-    search (its `completion.py`). The last `added` cards came from it, within
-    `radius_km`, and without the `relaxed` optional wishes. Empty when it did
-    not, or when nothing it added is shown."""
+    search (its `completion.py`). The last `added` cards came from it, nearest
+    first, and without the `relaxed` optional wishes. Empty when it did not,
+    or when nothing it added is shown.
+
+    2026-10-29 (side by side, tour Eiffel): « recherche élargie (jusqu'à 50 km) »
+    above added cards 2.0-2.4 km away. The note gives the farthest ADDED card's
+    real distance (`cards`, the shortlist shown); the radius the wider search
+    was sent with only when no card carries one."""
     if not isinstance(completion, dict):
         return ""
     added = completion.get("added")
     if not isinstance(added, int) or added <= 0 or shown <= 0:
         return ""
     added = min(added, shown)
+    distances = [
+        float(card["distance_km"]) for card in (cards or [])[shown - added:shown]
+        if isinstance(card, dict) and isinstance(card.get("distance_km"), (int, float))
+        and not isinstance(card.get("distance_km"), bool)
+    ]
+    reach = (
+        f"nearest first; the farthest of them is {max(distances):.1f} km away"
+        if distances else f"within {completion.get('radius_km')} km, nearest first"
+    )
     note = (
         f"the first {shown - added} card(s) match everything asked; the last {added} were added "
-        f"from a wider search (within {completion.get('radius_km')} km, nearest first)"
+        f"from a wider search ({reach}). Never quote the wider search's radius as a distance"
     )
     relaxed = [key for key in completion.get("relaxed") or [] if isinstance(key, str)]
     if relaxed:
@@ -917,7 +931,7 @@ class _B2cConcierge(BaseAgent):
         # says nothing notable — then the model just writes short. Last turn's
         # angle is excluded, so two searches that keep the same top hotel don't
         # produce the same sentence twice (seen in the browser 2026-07-29).
-        angle_key, angle = synthesis_angle(response, profile.last_synthesis_angle or "")
+        angle_key, angle = synthesis_angle(response, profile.last_synthesis_angle or "", profile=profile)
         profile.last_synthesis_angle = angle_key or None
         widen_note = None
         widen = profile.auto_widen_disclosure
@@ -1003,7 +1017,9 @@ class _B2cConcierge(BaseAgent):
             angle=angle, no_offers=no_offers, recent_messages=recent_messages,
             unchanged=unchanged, no_question=no_question,
             completed=" ".join(filter(None, (
-                completed_note(response.get("completion"), len(shortlist_hotels(response))),
+                completed_note(
+                    response.get("completion"), len(shortlist_hotels(response)), shortlist_hotels(response)
+                ),
                 relaxation_note(response.get("relaxation")),
             ))),
         )
@@ -2474,7 +2490,10 @@ class _B2cConcierge(BaseAgent):
             rest = drop_restated(final_text, no_offers)
             final_text = f"{no_offers}\n\n{rest}" if rest else no_offers
         relaxed = (
-            relaxation_line(response.get("relaxation"), response.get("search_context"), reply_language)
+            relaxation_line(
+                response.get("relaxation"), response.get("search_context"), reply_language,
+                results=response.get("results"),
+            )
             if route.target == LEAF_HOTEL_SEARCH else ""
         )
         if relaxed:
