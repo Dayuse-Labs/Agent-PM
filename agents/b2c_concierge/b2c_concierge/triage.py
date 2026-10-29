@@ -387,11 +387,15 @@ incoming end-user message. Return ONLY a compact JSON object on one line (no
 indentation, no prose, no code fence) with exactly these keys:
 - "family": one of {list(FAMILIES)} —
     search  = looking for a day-use hotel (destination, area, dates, filters, or a hotel named by the user),
+              INCLUDING a wish for a stay that names no place yet ("Enjoy a romantic moment
+              together", "A quiet room for video calls", "Find a room with a jacuzzi"),
     faq     = a question about Dayuse conditions / policies / how it works (cancellation, refund, check-in/out, payment),
     details = asking for more information about one specific hotel already in play (amenities, description, photos),
     compare = asking to compare several hotels,
     booking = asking for the booking link / to proceed with a booking,
     ack     = a purely social message (greeting, thanks, goodbye) with no request in it.
+              A wish for a stay, a short answer ("Sera", "evening", "Lyon"), a date or a
+              complaint ("can you even read?!") is NEVER `ack`.
   DISAMBIGUATION (decide by INTENT): "annuler ma réservation" / "quelles conditions
   d'annulation" is `faq` (a policy question), not `booking`. A message that both
   greets AND asks something is NOT `ack`. A follow-up that ADJUSTS a previous

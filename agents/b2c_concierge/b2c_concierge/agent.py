@@ -184,6 +184,7 @@ from .profile import (
     select_cheapest_hotel,
     select_hotel_by_position,
     without_final_question,
+    without_final_question_sentence,
 )
 from .profile_store import get_profile_store
 from .requested_date import date_served_notice, expected_search_date, mentions_a_date, reference_today
@@ -634,6 +635,16 @@ _NO_QUESTION_NOTE = (
 )
 
 
+# 2026-10-29: a FAQ answer the place question follows (a dayuse.com chip, or a
+# question that carries a wish for a stay): the system asks it, after the
+# answer — the answer neither asks nor invites a city or a date itself.
+_PLACE_FOLLOWUP_NOTE = (
+    "the system appends its own question about the city right after your answer. "
+    "Answer the question only: no question, no question mark, and do not invite "
+    "the user to give a city, a date or anything else."
+)
+
+
 class _B2cConcierge(BaseAgent):
     """Code-owned spine: progress marker → ack fast-path → triage → code-routed
     single leg → guarded, streamed synthesis. No LLM ever drives control flow."""
@@ -756,7 +767,7 @@ class _B2cConcierge(BaseAgent):
         widen_note: str | None, invocation_id: str,
         search_context: str = "", provenance_note: str = "", currency_note: str = "",
         angle: str = "", no_offers: str = "", recent_messages: list[str] | None = None,
-        unchanged: bool = False, no_question: bool = False, completed: str = "",
+        unchanged: bool = False, no_question: bool | str = False, completed: str = "",
     ) -> str | None:
         """ONE litellm call producing a candidate synthesis text, or None on
         failure. The system prompt's STATIC prefix never changes (cache); only
@@ -814,7 +825,8 @@ class _B2cConcierge(BaseAgent):
         if completed:
             user += f"\n\nCOMPLETED (the system widened the search itself): {completed}"
         if no_question:
-            user += f"\n\nNO QUESTION: {_NO_QUESTION_NOTE}"
+            note = no_question if isinstance(no_question, str) else _NO_QUESTION_NOTE
+            user += f"\n\nNO QUESTION: {note}"
         t0 = time.monotonic()
         try:
             resp = await _get_synthesis_router(model_slug).acompletion(
@@ -871,7 +883,7 @@ class _B2cConcierge(BaseAgent):
         profile: SessionProfile, budget: TurnBudget, invocation_id: str,
         leaf_text_is_user_facing: bool = True, no_offers: str = "",
         recent_messages: list[str] | None = None, unchanged: bool = False,
-        no_question: bool = False,
+        no_question: bool | str = False,
     ) -> str | None:
         """ONE charged "synthesis" budget slot (internal retries below are an
         implementation detail of this ONE phase — same precedent as the
@@ -1309,13 +1321,18 @@ class _B2cConcierge(BaseAgent):
 
     @staticmethod
     def _ack_text(
-        profile: SessionProfile, message: str, language: str, llm_affirmative: bool | None = None
+        profile: SessionProfile, message: str, language: str, llm_affirmative: bool | None = None,
+        *, first_turn: bool = True,
     ) -> str:
         """The greeting, unless the message is a bare "oui"/"ok": that answers
         no question here (mcp-dayuse#6, a pending one is routed to the search
-        before this), so it gets a short relaunch instead."""
+        before this), so it gets a short relaunch instead. 2026-10-29: the
+        greeting opens a conversation only — past the first turn (prod: « Sera »
+        at turn 6, « Sai leggere !!!! » at turn 5), a short follow-up instead."""
         if is_bare_affirmative(message, llm_affirmative):
             return templates.affirmative_relaunch_response(language, bool(profile.city))
+        if not first_turn:
+            return templates.ack_followup_response(language)
         return templates.ack_response(language)
 
     # --- Spine --------------------------------------------------------------------------------
@@ -1374,6 +1391,9 @@ class _B2cConcierge(BaseAgent):
         # regression — closing it means touching a proven regex, not this gate.
         refinement_signal = is_search_refinement_signal(message, profile)
         booking_signal = is_booking_confirmation_signal(message, profile)
+        # The user's earlier messages: none on the conversation's first turn.
+        recent_messages = recent_user_messages(ctx.session.events, message)
+        first_turn = not recent_messages
         # mcp-dayuse#6: a bare "ok" answering the question the last search
         # turn asked is a reply to it, not a greeting.
         pending = profile.pending_search if isinstance(profile.pending_search, dict) else None
@@ -1397,12 +1417,14 @@ class _B2cConcierge(BaseAgent):
             # conversation's established language / client locale beat the guess.
             yield self._final(
                 ctx,
-                self._ack_text(profile, message, template_language(profile.language, profile.locale, message)),
+                self._ack_text(
+                    profile, message, template_language(profile.language, profile.locale, message),
+                    first_turn=first_turn,
+                ),
             )
             return
 
         # 2. Triage (ONE economy LLM + regex fallback). Off the session/stream.
-        recent_messages = recent_user_messages(ctx.session.events, message)
         triage = await classify(
             message, budget, inv, recent_messages=recent_messages,
             previous_question=profile.last_clarifying_question,
@@ -1579,6 +1601,12 @@ class _B2cConcierge(BaseAgent):
             family, route = "booking", ROUTES["booking"]
         elif family != "faq" and refinement_signal:
             family, route = "search", ROUTES["search"]
+        elif family == "ack" and first_turn and triage.wish:
+            # 2026-10-29 (prod: the chip « Enjoy a romantic moment together »
+            # triaged ack, answered by the greeting, 2 conversations stopped
+            # there): the triage read a wish for a stay in it — a search, whose
+            # missing place is then asked with that wish restated.
+            family, route = "search", ROUTES["search"]
         elif (
             family == "ack"
             and pending is not None
@@ -1685,7 +1713,7 @@ class _B2cConcierge(BaseAgent):
                 ctx,
                 self._ack_text(
                     profile, message, template_language(profile.language, profile.locale, message),
-                    triage.affirmative,
+                    triage.affirmative, first_turn=first_turn,
                 ),
             )
             return
@@ -1963,6 +1991,11 @@ class _B2cConcierge(BaseAgent):
         wish = triage.wish if triage.used_llm and triage.language == reply_language else None
         place_chip_list = templates.place_chips(
             reply_language, market_cities(profile.entry_market_country), near_me=not location_refused,
+        )
+        faq_place_followup = (
+            family == "faq" and first_turn
+            and not has_search_destination(profile) and not profile.last_results
+            and (profile.entry_source == "dayuse_box" or bool(wish))
         )
         leaf_text, response = await _run_leaf(
             route.target, ctx, leaf_profile_view(profile), **leaf_kwargs
@@ -2384,7 +2417,10 @@ class _B2cConcierge(BaseAgent):
                 message=message, language=reply_language, leaf_text=leaf_text, response=response,
                 profile=profile, budget=budget, invocation_id=inv, no_offers=no_offers,
                 recent_messages=recent_messages if family == "faq" else None,
-                unchanged=unchanged, no_question=ask_nothing,
+                # 2026-10-29: the FAQ answer is followed by the place question,
+                # the one question of the turn.
+                unchanged=unchanged,
+                no_question=_PLACE_FOLLOWUP_NOTE if faq_place_followup else ask_nothing,
             )
             # QA14707 (Q27): a follow-up question only the synthesis asks is
             # still what a bare "oui" answers; the leaf's own line wins.
@@ -2394,6 +2430,8 @@ class _B2cConcierge(BaseAgent):
                     mark_level("WARNING", status_message="anti_clarification_loop")
                     budget.fired.add("anti_clarification_loop")
                 synth = without_final_question(synth) or templates.no_question_response(reply_language)
+            elif faq_place_followup and free_question:
+                synth = without_final_question_sentence(synth)
             profile.last_clarifying_question = None if ask_nothing else free_question
         if budget_followup:
             profile.last_clarifying_question = budget_followup  # what a bare "80" answers
@@ -2496,6 +2534,21 @@ class _B2cConcierge(BaseAgent):
             )
         if currency_notice:
             final_text = f"{final_text.rstrip()}\n\n{currency_notice}"
+        if faq_place_followup:
+            # 2026-10-29 (prod: « How discreet is the booking? », a dayuse.com
+            # chip, answered and left there, 3 rebounds; agent-usa: « Sure — a
+            # discreet hotel. Which city are you looking in? », 46 of 53): the
+            # answer is followed by the place question and its chips, and the
+            # reply to it searches with this request.
+            question = templates.place_question(reply_language, wish=wish)
+            final_text = f"{final_text.rstrip()}\n\n{question}"
+            profile.last_clarifying_question = question
+            profile.last_suggestions = place_chip_list or None
+            profile.pending_search = {
+                **(next_pending_search(None, message, False, question, ended_on_question=True) or {}),
+                "place_question": True,
+            }
+            await store.set(ctx.session.id, profile)
         for chunk in _chunk_text(final_text):
             yield self._chunk_event(ctx, chunk)
         yield self._final(ctx, final_text)

@@ -614,5 +614,7 @@ class TestWishSlot:
         _script(monkeypatch, '{"family": "search", "language": "en", "wish": %s}' % raw)
         assert _classify("Enjoy a romantic moment together").wish is None
 
-    def test_the_prompt_asks_for_it(self):
+    def test_the_prompt_asks_for_it_and_a_wish_is_never_ack(self):
         assert '"wish"' in triage_module._TRIAGE_INSTRUCTION
+        assert "Enjoy a romantic moment" in triage_module._TRIAGE_INSTRUCTION.split("ack     =")[0]
+        assert "is NEVER `ack`" in triage_module._TRIAGE_INSTRUCTION

@@ -19,6 +19,7 @@ from b2c_concierge.facade import (
     _parse_domain,
     _parse_gps_anchor,
     _parse_locale,
+    _parse_source,
 )
 
 
@@ -207,3 +208,15 @@ class TestPickedHotelIntake:
                     {"hotel_id": [1]}):
             assert _parse_picked_hotel_id(bad) is None
 
+
+class TestSourceIntake:
+    """2026-10-29: the request's `source` (the widget's deep-link `?source=`,
+    « dayuse_box » from the dayuse.com AI box): a slug, lowercased."""
+
+    def test_a_slug_is_kept_lowercased(self):
+        assert _parse_source("dayuse_box") == "dayuse_box"
+        assert _parse_source(" Mobile_App ") == "mobile_app"
+
+    def test_anything_else_is_ignored(self):
+        for bad in (None, 3, "", "a b", "x" * 80, "<script>", ["dayuse_box"]):
+            assert _parse_source(bad) is None

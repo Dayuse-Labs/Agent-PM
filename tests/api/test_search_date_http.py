@@ -104,3 +104,16 @@ def test_a_search_with_no_day_says_the_day_and_offers_the_next_ones(client, monk
     assert done["message"] == f"Voici des hôtels.\n\n{notice}"
     assert done["suggestions"] == ["Demain", "Après-demain"]
 
+
+def test_the_first_turns_source_is_kept_for_the_session(client, store, no_place):
+    # 2026-10-29: the widget sends its deep link's `?source=` (« dayuse_box »
+    # from the dayuse.com AI box) with every turn; the first turn's is kept.
+    import asyncio
+
+    headers = {"X-Client-Session-Id": "source-1"}
+    client.post("/v3/chat", json={"message": "un hôtel avec piscine", "locale": "fr", "source": "dayuse_box"},
+                headers=headers)
+    client.post("/v3/chat", json={"message": "demain", "locale": "fr", "source": "other"}, headers=headers)
+
+    profile = asyncio.run(store.get("source-1"))
+    assert profile.entry_source == "dayuse_box"

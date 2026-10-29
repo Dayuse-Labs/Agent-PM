@@ -65,6 +65,26 @@ def ack_response(language: str) -> str:
     return _pick(language, _ACK_RESPONSE)
 
 
+# 2026-10-29 (prod: « Sera » at turn 6, « Sai leggere !!!! » at turn 5, both
+# answered « Ciao! Sono il concierge Dayuse… »): the greeting opens a
+# conversation, never answers inside one. Past the first turn a social
+# message gets this instead.
+_ACK_FOLLOWUP: dict[str, str] = {
+    "fr": "Avec plaisir. Dites-moi ce que je peux changer (ville, jour, horaires, budget) et je relance la recherche.",
+    "en": "You're welcome. Tell me what to change (city, day, hours, budget) and I'll search again.",
+    "es": "Con gusto. Dime qué cambio (ciudad, día, horario, presupuesto) y vuelvo a buscar.",
+    "it": "Con piacere. Dimmi cosa cambiare (città, giorno, orari, budget) e rilancio la ricerca.",
+    "de": "Gern. Sag mir, was ich ändern soll (Stadt, Tag, Uhrzeit, Budget), und ich suche neu.",
+    "pt": "Com todo o gosto. Diga-me o que mudar (cidade, dia, horário, orçamento) e volto a pesquisar.",
+    "nl": "Graag gedaan. Zeg me wat ik moet aanpassen (stad, dag, tijden, budget) en ik zoek opnieuw.",
+}
+
+
+def ack_followup_response(language: str) -> str:
+    """A social message after the first turn: never the opening greeting."""
+    return _pick(language, _ACK_FOLLOWUP)
+
+
 # mcp-dayuse#6 (Mathias 2026-10-06): a bare "oui"/"ok" that answers no
 # question is never a greeting — the conversation is under way.
 _AFFIRMATIVE_RELAUNCH: dict[str, str] = {
