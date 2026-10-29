@@ -618,3 +618,9 @@ class TestWishSlot:
         assert '"wish"' in triage_module._TRIAGE_INSTRUCTION
         assert "Enjoy a romantic moment" in triage_module._TRIAGE_INSTRUCTION.split("ack     =")[0]
         assert "is NEVER `ack`" in triage_module._TRIAGE_INSTRUCTION
+
+
+def test_the_prompt_says_a_day_of_the_month_is_never_a_party():
+    # Replay 2026-10-29 (prod S091, « 11 janvier » answering the place question):
+    # read as a party of 11, the search asked « Pour ces 11 personnes… ».
+    assert "is never a party size" in triage_module._TRIAGE_INSTRUCTION

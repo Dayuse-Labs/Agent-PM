@@ -532,7 +532,9 @@ indentation, no prose, no code fence) with exactly these keys:
   ONLY for explicitly stated adult/child counts; given together with a total,
   they must agree. Removing the children is children=0 ("finalement sans les
   enfants"); never infer children=0 from "two adults". Ages are not counts. A
-  room's capacity, an adults-only policy, a price or a duration is not a party.
+  room's capacity, an adults-only policy, a price or a duration is not a party,
+  and neither is a date: the number of a day ("11 janvier", "le 3", "May 21")
+  is never a party size.
 - "requested_room": {{"bedding": "double" | "king" | "queen" | "twin" | "any",
   "evidence": "verbatim bed request"}} when the user CURRENTLY asks for a bed
   type: double/matrimonial = double, an explicit king or queen = that key,
