@@ -36,6 +36,7 @@ import os
 import re
 import time
 from dataclasses import dataclass
+from datetime import date
 from typing import Any
 
 import litellm
@@ -50,6 +51,7 @@ from dayuse_agent_common import (
 )
 
 from .budget import TurnBudget
+from .requested_date import parse_requested_date
 
 logger = logging.getLogger(__name__)
 
@@ -533,8 +535,9 @@ indentation, no prose, no code fence) with exactly these keys:
   they must agree. Removing the children is children=0 ("finalement sans les
   enfants"); never infer children=0 from "two adults". Ages are not counts. A
   room's capacity, an adults-only policy, a price or a duration is not a party,
-  and neither is a date: the number of a day ("11 janvier", "le 3", "May 21")
-  is never a party size.
+  and neither is a date: the number of a day is never a party size — "11
+  janvier", "Samedi 7 novembre", "5th november", "le 3", "May 21" carry NO
+  party (omit the key).
 - "requested_room": {{"bedding": "double" | "king" | "queen" | "twin" | "any",
   "evidence": "verbatim bed request"}} when the user CURRENTLY asks for a bed
   type: double/matrimonial = double, an explicit king or queen = that key,
@@ -735,6 +738,12 @@ def _grounded_occupancy(raw: Any, message: str) -> dict[str, int] | None:
     evidence = raw.get("evidence")
     if (not isinstance(evidence, str) or not evidence.strip() or len(evidence) > 240
             or evidence.casefold() not in message.casefold()):
+        return None
+    # Replay 2026-10-29 (« Samedi 7 novembre » → evidence « 7 novembre »,
+    # total 7): a quote that is itself a date is a day, not a party. Checked
+    # with the concierge's own date parser on the model's quote — a fact about
+    # the quote, the model keeps reading the message.
+    if parse_requested_date(evidence, date.today()) is not None:
         return None
     update = {}
     for key in ("adults", "children", "total"):

@@ -624,3 +624,21 @@ def test_the_prompt_says_a_day_of_the_month_is_never_a_party():
     # Replay 2026-10-29 (prod S091, « 11 janvier » answering the place question):
     # read as a party of 11, the search asked « Pour ces 11 personnes… ».
     assert "is never a party size" in triage_module._TRIAGE_INSTRUCTION
+
+
+@pytest.mark.parametrize("evidence", ["7 novembre", "11 janvier", "5th november"])
+def test_a_party_quoted_from_a_date_is_no_party(monkeypatch, evidence):
+    # Replay 2026-10-29: « Samedi 7 novembre » answering the place question was
+    # read total=7 (evidence « 7 novembre ») and the search asked « Pour ces 7
+    # personnes… » until the end of the conversation.
+    message = f"Samedi {evidence}"
+    _script(monkeypatch, '{"family": "search", "language": "fr", "requested_occupancy": '
+            '{"total": 7, "evidence": "%s"}}' % evidence)
+    assert _classify(message).requested_occupancy is None
+
+
+def test_a_real_party_with_a_date_in_the_message_is_kept(monkeypatch):
+    _script(monkeypatch, '{"family": "search", "language": "fr", "requested_occupancy": '
+            '{"adults": 2, "children": 1, "total": 3, "evidence": "2 adultes et 1 enfant"}}')
+    assert _classify("2 adultes et 1 enfant le 12 mai").requested_occupancy == {
+        "adults": 2, "children": 1, "total": 3}
