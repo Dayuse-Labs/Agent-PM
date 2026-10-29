@@ -22,7 +22,7 @@ _GPS_GRANTED = {
 
 
 def _fake_search_leaf(city: str):
-    async def fake_run_leaf(leaf, ctx, profile_in):
+    async def fake_run_leaf(leaf, ctx, profile_in, **kwargs):
         return (f"Voici des hôtels à {city}.", {"results": [], "profile_delta": {"city": city}})
 
     return fake_run_leaf
@@ -159,7 +159,7 @@ _NY_CARD = {
 def _install_ny_search(monkeypatch):
     _install_search_turn(monkeypatch, "New York")
 
-    async def fake_run_leaf(leaf, ctx, profile_in):
+    async def fake_run_leaf(leaf, ctx, profile_in, **kwargs):
         return ("Voici un hôtel.", {"results": [dict(_NY_CARD)], "profile_delta": {"city": "New York"}})
 
     monkeypatch.setattr(agent_module, "_run_leaf", fake_run_leaf)

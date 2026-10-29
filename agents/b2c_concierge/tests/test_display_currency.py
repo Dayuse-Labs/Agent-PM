@@ -133,7 +133,9 @@ class TestThroughTheSpine:
 
         assert fake_leg.call_count == 2  # the same search, repainted
         outgoing = find_datapart(fake_leg.seen_outgoing_parts)
-        assert outgoing["query_params"] == {"repeat_previous_search": True}
+        assert {k: v for k, v in outgoing["query_params"].items() if k != "dialogue"} == {
+            "repeat_previous_search": True
+        }
         stored = asyncio.run(fake_profile_store.get(session.id))
         assert stored.display_currency == HOTEL
         assert stored.last_results[0]["price"] == "HKD 780.00"
@@ -190,7 +192,9 @@ class TestThroughTheSpine:
 
         assert fake_leg.call_count == 2  # the search leaf, not the faq one
         outgoing = find_datapart(fake_leg.seen_outgoing_parts)
-        assert outgoing["query_params"] == {"repeat_previous_search": True}
+        assert {k: v for k, v in outgoing["query_params"].items() if k != "dialogue"} == {
+            "repeat_previous_search": True
+        }
         stored = asyncio.run(fake_profile_store.get(session.id))
         assert stored.last_results[0]["price"] == "HKD 780.00"
 

@@ -192,7 +192,7 @@ def test_sse_search_streams_progress_hotels_tokens_done(monkeypatch, client):
         budget.charge("triage")
         return Triage("search", "fr", used_llm=False)
 
-    async def fake_run_leaf(leaf, ctx, profile_in):
+    async def fake_run_leaf(leaf, ctx, profile_in, **kwargs):
         return (
             "Voici des hôtels à Paris.",
             {
@@ -259,7 +259,7 @@ def test_sse_hotels_frame_carries_the_clarify_flag(monkeypatch, client):
         budget.charge("triage")
         return Triage("search", "fr", used_llm=False)
 
-    async def fake_run_leaf(leaf, ctx, profile_in):
+    async def fake_run_leaf(leaf, ctx, profile_in, **kwargs):
         return (
             "De quelle ville parlez-vous ?",
             {
@@ -293,7 +293,7 @@ def test_sse_clarification_turn_streams_progress_then_the_template(monkeypatch, 
         budget.charge("triage")
         return Triage("search", "fr", used_llm=False)
 
-    async def fake_run_leaf(leaf, ctx, profile_in):
+    async def fake_run_leaf(leaf, ctx, profile_in, **kwargs):
         return (
             "Near Gare du Nord — which city?",
             {"requires_clarification": True, "clarification": clarification.model_dump(mode="json")},
@@ -339,7 +339,7 @@ def test_sse_hotels_frame_picks_are_this_turns_not_the_previous_turns(monkeypatc
         budget.charge("triage")
         return Triage("search", "fr", used_llm=False)
 
-    async def fake_run_leaf(leaf, ctx, profile_in):
+    async def fake_run_leaf(leaf, ctx, profile_in, **kwargs):
         city, hotel = next(turns)
         return (f"Des hôtels à {city}.", {"results": [hotel], "profile_delta": {"city": city}})
 
@@ -486,7 +486,7 @@ def test_json_and_stream_agree_on_the_same_turn(monkeypatch, client):
         budget.charge("triage")
         return Triage("search", "fr", used_llm=False)
 
-    async def fake_run_leaf(leaf, ctx, profile_in):
+    async def fake_run_leaf(leaf, ctx, profile_in, **kwargs):
         return ("ok", {"results": [{"id": 1, "name": "Hotel A", "country_code": "FR"}]})
 
     async def fake_generate_once(self, **kwargs):
@@ -587,7 +587,7 @@ def test_stream_turn_facts_ride_done_and_no_frame_of_their_own(monkeypatch, clie
         budget.charge("triage")
         return Triage("search", "fr", used_llm=False)
 
-    async def fake_run_leaf(leaf, ctx, profile_in):
+    async def fake_run_leaf(leaf, ctx, profile_in, **kwargs):
         return ("ok", {"results": [{"id": 1, "name": "Hotel A"}], "profile_delta": {"city": "Nantes"}})
 
     async def fake_generate_once(self, **kwargs):

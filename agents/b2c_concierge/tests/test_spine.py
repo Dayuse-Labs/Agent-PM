@@ -393,7 +393,7 @@ class TestHonestDegradation:
     def test_leaf_failure_degrades_honestly_without_synthesis(self, scripted, caplog, monkeypatch):
         llm, _ = scripted('{"family": "search", "language": "fr"}')
 
-        async def dead_leaf(leaf, ctx, profile_in):
+        async def dead_leaf(leaf, ctx, profile_in, **kwargs):
             return None, {}
 
         monkeypatch.setattr(agent_module, "_run_leaf", dead_leaf)
@@ -595,7 +595,7 @@ class TestHonestDegradation:
         first = _answer(_drive_in(runner, session.id, "je veux le Leonardo Royal à Londres demain"))
         assert first == templates.named_hotel_ambiguous_response("Leonardo Royal", candidates, "fr")
         _drive_in(runner, session.id, "celui de St Pauls")
-        assert sent[1] == {"query_params": {"hotel_name": "Leonardo Royal Hotel London St Pauls"}}
+        assert sent[1]["query_params"]["hotel_name"] == "Leonardo Royal Hotel London St Pauls"
         assert asyncio.run(fake_profile_store.get(session.id)).named_candidates is None
 
     def test_a_homonym_question_is_answered_in_the_conversation_language(
@@ -732,7 +732,7 @@ class TestHonestDegradation:
             "Voici 1 hôtel trouvé à Paris.",
         )
 
-        async def textless_leaf(leaf, ctx, profile_in):
+        async def textless_leaf(leaf, ctx, profile_in, **kwargs):
             return None, {
                 "results": [{"id": 1, "name": "Villa", "price": "€50.00"}],
                 "profile_delta": {"city": {"op": "set", "value": "Paris"}},
@@ -783,7 +783,7 @@ class TestHonestDegradation:
             TimeoutError("synthesis down"),
         )
 
-        async def textless_leaf(leaf, ctx, profile_in):
+        async def textless_leaf(leaf, ctx, profile_in, **kwargs):
             return None, {"results": [{"id": 1, "name": "Villa", "price": "€50.00"}]}
 
         monkeypatch.setattr(agent_module, "_run_leaf", textless_leaf)
@@ -1776,7 +1776,7 @@ class TestObs3GuardScores:
         # does. Observability must not change control flow.
         runner, session = _new_session()
 
-        async def telemetry_only_leaf(leaf, ctx, profile_in):
+        async def telemetry_only_leaf(leaf, ctx, profile_in, **kwargs):
             return None, {"guards_fired": ["generic_location_demotion"]}
 
         scripted('{"family": "search", "language": "fr"}')
