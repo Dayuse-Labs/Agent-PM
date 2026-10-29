@@ -46,7 +46,7 @@ l'équipe, dès que tu donnes la copy) → `E2` puis `E1` puis `E4` (la boucle Q
 | **O4** | OBS9 — migration Langfuse v4 | L | O1, O2 · ⏰ **fin janv. 2027** |
 | **O5** | 2 variables d'env sur le service MCP | S | **MCP_B2C** |
 | **O6** | Vignette `degraded` manquante | S | — |
-| **O7** | `leaf_call status=ok` sur une feuille dont le LLM a échoué (ajouté le 2026-10-28) | S | — |
+| **O7** | ✅ `leaf_call status=ok` sur une feuille dont le LLM a échoué — corrigé par la branche `fix/shared-context-turn-deadline-20261029` (à la revue) | S | — |
 | **P1→P6** | 6 décisions produit en attente | — | **Fabien** |
 | **A1** | Identité D7 → oidc-mtls ; rotation des bearers semaine du 2026-11-02 | L | repo fleet · ⏰ **2027-01-31** |
 | **A2** | S10 shadow-run / S11 canary | L | accès ES prod |
@@ -806,6 +806,14 @@ fois, la feuille lève `litellm.Timeout`, la tâche A2A échoue… et le concier
 `concierge_metric=leaf_call leaf=hotel_search ms=32004 status=ok`, puisque le transport A2A a
 réussi. Seul `concierge_metric=turn … status=degraded` (et le score `degraded`) dit la panne.
 Piste : dans `_run_leaf`, compter `status=error` quand la feuille n'a rendu ni texte ni DataPart.
+
+**Corrigé (2026-10-29, branche `fix/shared-context-turn-deadline-20261029`, à la revue).** Le leg
+ADK ne lève jamais : une panne de transport devient un événement `error_message`, et l'exception de
+la feuille revient comme message de sa tâche A2A `failed` — sur main, ce texte
+(« litellm.Timeout: … ») devenait même la ligne de résultat de la feuille, lue par la synthèse.
+`_run_leaf` compte désormais `status=error` (`error_type` = `EmptyLeafResponse`, `A2AError` ou
+`LeafTaskFailed`) et rend `None` : le tour dégrade honnêtement
+(`agents/b2c_concierge/tests/test_turn_deadline_2026_10_29.py`, rouge sur main).
 
 ---
 

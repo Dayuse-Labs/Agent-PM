@@ -188,6 +188,14 @@ def test_cards_cover_window_accepts_cards_labelled_as_closest():
     assert _score(expected, {"hotels": cards, "message": "Voici A."})["cards_cover_window"].value == 0
 
 
+def test_cards_cover_daypart_half_of_the_afternoon():
+    # 2026-10-29, Rome « pomeriggio »: an 09-13 card is not an afternoon card.
+    expected = {"cards_cover_daypart": "afternoon"}
+    assert _score(expected, {"hotels": [_card("A", "10:00", "17:00")]})["cards_cover_daypart"].value == 1
+    bad = _score(expected, {"hotels": [_card("A", "10:00", "17:00"), _card("B", "09:00", "13:00")]})
+    assert bad["cards_cover_daypart"].value == 0 and "B" in bad["cards_cover_daypart"].comment
+
+
 def test_offers_on_date_days_ahead():
     from datetime import datetime, timedelta
     from zoneinfo import ZoneInfo

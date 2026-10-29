@@ -47,12 +47,13 @@ import copy
 import logging
 import re
 import time
+import unicodedata
 from datetime import date, datetime, timedelta
 from typing import Any
 from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
 from b2c_common.observability import mark_level
-from b2c_common.timeslot import DAYPART_HOURS, daypart_in
+from b2c_common.timeslot import DAYPART_HOURS, daypart_in, requested_hours
 from hotel_search_agent.response_bridge import (
     STATE_DATE_FALLBACK_KEY,
     STATE_DAYPART_KEY,
@@ -123,6 +124,43 @@ _DURATION_PROPERTY: dict[str, Any] = {
     ),
 }
 
+# 2026-10-29: what the model UNDERSTOOD about the time, as structure the code
+# checks — never a word list. A daypart is its own field (« domani pomeriggio »
+# was read by a regex, « sera notte » was not); the hours of a timeSlot come
+# with the user's own words for them (« 3-4 pm », « 09.00-17.00 », « 9-18 »
+# were refused as invented: the regex did not know those notations); and an
+# arrival is told apart from a departure (« check in is 3-4 pm » was searched
+# as « until 16:00 »).
+_DAYPART_PROPERTY: dict[str, Any] = {
+    "type": "string",
+    "enum": list(DAYPART_HOURS),
+    "description": (
+        "A part of the day the user names WITHOUT any clock hour ('cet "
+        "après-midi', 'domani pomeriggio', 'tomorrow morning', 'in serata', 'por "
+        "la tarde', 'am Abend'): morning, afternoon or evening. Omit it when the "
+        "user gives clock hours (use timeSlot) or names no part of the day. "
+        "'mañana' / 'manhã' meaning TOMORROW is a date, not a morning."
+    ),
+}
+_TIMESLOT_EXPRESSION_PROPERTY: dict[str, Any] = {
+    "type": "string",
+    "description": (
+        "The user's own words giving these hours, copied verbatim from the "
+        "message ('3-4 pm', 'de 14h à 18h', '09.00-17.00', 'à partir de 10h'). "
+        "Always set it with startHour/endHour: the system checks the hours "
+        "against these words."
+    ),
+}
+_ARRIVAL_ONLY_PROPERTY: dict[str, Any] = {
+    "type": "boolean",
+    "description": (
+        "true when the hours say only WHEN THE USER ARRIVES — a check-in time or "
+        "an arrival range ('check in is 3-4 pm', 'arriver vers 15h', 'llegada a "
+        "las 14') — with no time to leave. Then startHour is the earliest arrival "
+        "hour and endHour is OMITTED: an arrival range is never a departure time."
+    ),
+}
+
 _MINUTE_ENUM = [0, 15, 30, 45]
 _START_MINUTE_PROPERTY: dict[str, Any] = {
     "type": "integer",
@@ -156,11 +194,16 @@ def inject_datetime_declaration(callback_context: Any, llm_request: Any) -> None
             properties = widened.setdefault("properties", {})
             properties["date"] = copy.deepcopy(_DATE_LABEL_PROPERTY)
             properties["duration"] = copy.deepcopy(_DURATION_PROPERTY)
+            properties["daypart"] = copy.deepcopy(_DAYPART_PROPERTY)
+            # Code-owned (2026-10-29): `resolve_search_timeslot` writes it.
+            properties.pop("timeSlotMode", None)
             time_slot_schema = properties.get("timeSlot")
             if isinstance(time_slot_schema, dict):
                 time_slot_props = time_slot_schema.setdefault("properties", {})
                 time_slot_props["startMinute"] = copy.deepcopy(_START_MINUTE_PROPERTY)
                 time_slot_props["endMinute"] = copy.deepcopy(_END_MINUTE_PROPERTY)
+                time_slot_props["expression"] = copy.deepcopy(_TIMESLOT_EXPRESSION_PROPERTY)
+                time_slot_props["arrivalOnly"] = copy.deepcopy(_ARRIVAL_ONLY_PROPERTY)
             required = widened.get("required")
             if isinstance(required, list):
                 widened["required"] = [r for r in required if r != "date"]
@@ -701,10 +744,60 @@ def _invented_time_slot(time_slot: dict[str, Any], tool_context: Any, profile_in
     return not _is_carried_slot(time_slot, profile_in)
 
 
+def _folded_text(text: str) -> str:
+    """Case and spacing folded (NFKC): the model's quote is compared to the
+    message as written, never translated or interpreted."""
+    return " ".join(unicodedata.normalize("NFKC", text or "").casefold().split())
+
+
+def _numbers_in(expression: str) -> set[int]:
+    """The numbers written in the quoted words — digits only, no word read."""
+    return {int(n) for n in re.findall(r"\d{1,2}", expression)}
+
+
+def _written(hour: int, numbers: set[int]) -> bool:
+    """`hour` (0-23) is one of the numbers written: as such, on a 12-hour
+    clock (15 ↔ 3), or midnight as 12/24."""
+    return hour in numbers or (hour >= 12 and hour - 12 in numbers) or (
+        hour == 0 and bool(numbers & {12, 24})
+    )
+
+
+def _evidenced_slot(time_slot: dict[str, Any], expression: Any, text: str) -> dict[str, Any] | None:
+    """2026-10-29: the clock bounds the model structured AND quoted — its
+    `expression` is in the user's text, and each bound kept is a number
+    written in it. None when the quote is absent, not in the message, or holds
+    no number (« midi »): the older check then decides
+    (`_invented_time_slot` / `_drop_unstated_bounds`). A bound the quote does
+    not hold is dropped: a stated time replaces the whole window, as before."""
+    if not isinstance(expression, str) or not expression.strip():
+        return None
+    if _folded_text(expression) not in _folded_text(text):
+        return None
+    numbers = _numbers_in(expression)
+    if not numbers:
+        return None
+    kept: dict[str, Any] = {}
+    for hour_key, minute_key in (("startHour", "startMinute"), ("endHour", "endMinute")):
+        hour = time_slot.get(hour_key)
+        if isinstance(hour, int) and not isinstance(hour, bool) and 0 <= hour <= 23 and _written(hour, numbers):
+            kept[hour_key] = hour
+            if minute_key in time_slot:
+                kept[minute_key] = time_slot[minute_key]
+    return kept or None
+
+
+def _carried_window(profile_in: dict[str, Any]) -> tuple[int | None, int | None]:
+    return (
+        _parse_hhmm_to_minutes(profile_in.get("timeslot_start")),
+        _parse_hhmm_to_minutes(profile_in.get("timeslot_end")),
+    )
+
+
 def resolve_search_timeslot(tool: Any, args: dict[str, Any], tool_context: Any) -> None:
     """`before_tool_callback` (A4-c interim): combine the model's `timeSlot`
     (now possibly minute-precise) with an explicit `duration` label into the
-    EXACT requested window (minutes-of-day), then floor/ceil it to the whole
+    EXACT requested window (minutes-of-day), then turn it into the whole
     hours the real `search_offers` schema accepts (live-probed: no minute
     fields exist server-side — a cross-repo ask, reports/MCP-B2C-REQUESTS.md).
     The exact window is stashed (`STATE_EXACT_WINDOW_KEY`) for
@@ -717,26 +810,60 @@ def resolve_search_timeslot(tool: Any, args: dict[str, Any], tool_context: Any) 
     popped/omitted entirely — the historic core-e2e-201 bug ("for 1 hour"
     becoming an absolute "00:00-01:00" window) is closed by construction, not
     by a special case, because there is simply nothing to compute a window
-    from."""
+    from.
+
+    2026-10-29 (prod after #173, side by side with agent-usa):
+    - the model's `daypart` (a closed enum) names a part of the day; the
+      regex reading of the message stays the fallback when it sends none;
+    - hours the model quotes (`timeSlot.expression`, in the message, each
+      hour written in it) are kept as stated, whatever the notation;
+    - `timeSlot.arrivalOnly`: an arrival time or range is an arrival, never a
+      departure — the end bound is dropped;
+    - a turn that states no time keeps the window already in play
+      (`profile_in.timeslot_start/end`): the slot no longer drops between
+      turns (« le 1er novembre » after 12h-18h). « Peu importe l'heure » goes
+      through `relax=time` (`relaxation.apply_relax_request`, after this);
+    - `timeSlotMode` is code-owned: `contain` (the site rule, on the rule's own
+      rounded hours) for a two-sided window, `overlap` for one bound or a
+      daypart — the model used to pick it, and switched it on a date change."""
     if getattr(tool, "name", "") != "search_offers":
         return None
     profile_in = read_profile_in(tool_context)
-    time_slot = args.get("timeSlot")
-    time_slot = time_slot if isinstance(time_slot, dict) else {}
-    daypart = _daypart_for_turn(time_slot, tool_context, profile_in)
+    raw_slot = args.get("timeSlot")
+    time_slot = dict(raw_slot) if isinstance(raw_slot, dict) else {}
+    expression = time_slot.pop("expression", None)
+    arrival_only = time_slot.pop("arrivalOnly", None) is True
+    model_daypart = args.pop("daypart", None)
+    args.pop("timeSlotMode", None)
+    text = _user_text(tool_context)
+    clock = _evidenced_slot(time_slot, expression, text) if time_slot else None
+    daypart: str | None = None
+    if clock is None:
+        daypart = (
+            str(model_daypart) if model_daypart in DAYPART_HOURS
+            else _daypart_for_turn(time_slot, tool_context, profile_in)
+        )
     if daypart is not None:
-        # MCP's own timeSlot is an OVERLAP filter: exactly the soft rule.
-        # No exact window is stashed — the covering rule must not apply.
+        # MCP's own timeSlot overlap gives the pool; the leaf keeps, per
+        # hotel, an offer covering half of the daypart (b2c_common.timeslot).
+        # No exact window is stashed — the clock covering rule does not apply.
         args.pop("duration", None)
         start_hour, end_hour = DAYPART_HOURS[daypart]
         args["timeSlot"] = {"startHour": start_hour, "endHour": end_hour}
+        args["timeSlotMode"] = "overlap"
         tool_context.state[STATE_DAYPART_KEY] = daypart
         return None
-    if _invented_time_slot(time_slot, tool_context, profile_in):
-        mark_level("WARNING", status_message="timeslot_sanitization")
-        record_guards_fired(tool_context, ["timeslot_sanitization"])
-        time_slot = {}
-    time_slot = _drop_unstated_bounds(time_slot, tool_context, profile_in)
+    if clock is not None:
+        time_slot = clock
+    else:
+        if _invented_time_slot(time_slot, tool_context, profile_in):
+            mark_level("WARNING", status_message="timeslot_sanitization")
+            record_guards_fired(tool_context, ["timeslot_sanitization"])
+            time_slot = {}
+        time_slot = _drop_unstated_bounds(time_slot, tool_context, profile_in)
+    if arrival_only:
+        time_slot.pop("endHour", None)
+        time_slot.pop("endMinute", None)
     start_total = _minutes_of_day(time_slot.get("startHour"), time_slot.get("startMinute"))
     end_total = _minutes_of_day(time_slot.get("endHour"), time_slot.get("endMinute"))
     duration_minutes = parse_duration_minutes(args.pop("duration", None))
@@ -745,13 +872,28 @@ def resolve_search_timeslot(tool: Any, args: dict[str, Any], tool_context: Any) 
         start_total = _parse_hhmm_to_minutes(profile_in.get("timeslot_start"))
     if end_total is None and start_total is not None and duration_minutes is not None:
         end_total = min(start_total + duration_minutes, _MAX_MINUTE_OF_DAY)
+    if start_total is None and end_total is None and duration_minutes is None:
+        # Nothing stated about the time this turn: the window in play stays.
+        start_total, end_total = _carried_window(profile_in)
 
     new_time_slot: dict[str, int] = {}
-    if start_total is not None:
-        new_time_slot["startHour"] = start_total // 60
-    if end_total is not None:
-        hour, minute = divmod(end_total, 60)
-        new_time_slot["endHour"] = min(hour + 1, 23) if minute else hour
+    if start_total is not None and end_total is not None:
+        # The site rule, server-side, on the rule's own rounding
+        # (`requested_hours`): MCP returns only offers covering the window.
+        arrival, departure = requested_hours(start_total, end_total)
+        if arrival is not None and departure is not None:
+            new_time_slot = {"startHour": arrival, "endHour": min(departure, 23)}
+            args["timeSlotMode"] = "contain"
+    else:
+        # One bound: MCP's overlap gives the pool (its own one-sided `contain`
+        # wants 3 hours after an arrival), the leaf keeps what covers it.
+        if start_total is not None:
+            new_time_slot["startHour"] = start_total // 60
+        if end_total is not None:
+            hour, minute = divmod(end_total, 60)
+            new_time_slot["endHour"] = min(hour + 1, 23) if minute else hour
+        if new_time_slot:
+            args["timeSlotMode"] = "overlap"
     if new_time_slot:
         args["timeSlot"] = new_time_slot
     else:

@@ -1761,7 +1761,8 @@ class TestCompletedNote:
         note = completed_note({"added": 4, "radius_km": 50.0, "relaxed": ["spa"]}, 5)
         assert note == (
             "the first 1 card(s) match everything asked; the last 4 were added from a wider "
-            "search (within 50.0 km, nearest first) without the optional wish(es): spa."
+            "search (within 50.0 km, nearest first). Never quote the wider search's radius as a "
+            "distance without the optional wish(es): spa."
         )
 
     @pytest.mark.parametrize("completion", [None, {}, {"added": 0}, {"added": "2"}])

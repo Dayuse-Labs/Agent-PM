@@ -6,6 +6,96 @@
 
 > 📋 **Pour savoir QUOI faire ensuite, ouvrir [`CHANTIERS.md`](CHANTIERS.md)** (état vérifié au 2026-09-14) : la liste des chantiers ouverts, chacun avec sa preuve, ses actions et un prompt prêt à coller — plus la liste de ce qu'il ne faut **pas** relancer parce que c'est déjà livré. `tasks/todo.md` est périmé et ne doit plus servir de référence.
 
+## 🧵 2026-10-29 — Contexte de dialogue partagé + échéance unique par tour (branche `fix/shared-context-turn-deadline-20261029`, sur `main` 6078ff2)
+
+**Constat** (revue des 97 conversations réelles après #173, B8-B10, B15, B17, A9 ; rapport d'architecture, changements n°1 et n°5) :
+la synthèse n'avait l'historique que sur la route FAQ, la feuille recherche ne voit que le message courant ;
+les étages n'avaient pas d'échéance commune ; une feuille en échec était comptée `leaf_call status=ok` (O7).
+
+**Fait** (2 commits) :
+1. **Contexte de dialogue** (`dialogue_context.py`) : la synthèse (toutes les routes) et la feuille
+   (`query_params.dialogue`) reçoivent les 3 derniers échanges (mots de l'utilisateur 200 car., e-mail
+   masqué ; coupe de la réponse 160 car. ; une réponse FAQ n'est jamais mémoire), la question en attente,
+   et pour la synthèse l'état du tour précédent (lieu, jour, créneau, filtres, groupe, hôtels à l'écran ;
+   jamais la position). Profil : `recent_turns` (Redis, même TTL), écrit après chaque tour. Aucune règle
+   sur les mots : le LLM lit le contexte.
+2. **Échéance unique** (`turn_deadline.py`) : 60 s posées au début du tour ; la feuille reçoit son budget
+   (`dayuse_turn_budget_ms`, métadonnées A2A, hors prompt), ses recherches en plus ne partent que si elles
+   peuvent finir avant et sont coupées à l'échéance (`extra_calls.py`, `geo_rank` aligné sans être
+   modifié) ; la synthèse est bornée par le temps restant (aucune sous 2 s). O7 : feuille vide, erreur de
+   transport ou tâche `failed` = `status=error` (sur main, le texte de l'exception devenait le résultat).
+
+**Preuves** : pytest 3 546 passés / 2 skippés, ruff, mypy, guardrails, 103 tests JS ; 20 tests rouges sur
+origin/main (3 tours homonyme → « 2 » → affinage ; faux MCP qui pend → les hôtels trouvés repartent ;
+synthèse bloquée → réponse à l'échéance ; O7). Rejeu local (59 conversations ≥ 2 tours, 3 passes par bras,
+Langfuse et `DATABASE_URL` coupés, jamais ai.dayuse.com) : rapport hors dépôt
+`dashboard_bascule/data/investigation/replay_context.md` (+ `.json`). Dates oubliées 25 → 17 et envies
+oubliées 101 → 89 sur 3 passes (juge LLM aveugle), accès aux résultats inchangé (±1 conversation), **+0,6 à
++1,0 s de latence médiane sur les tours de recherche** (synthèse plus longue, +650 tokens par tour feuille).
+
+**Pièges** :
+- Avec le dialogue, la feuille ignorait un code postal seul en réponse à la question de lieu (3/3 en sonde) :
+  consigne corrigée (un lieu de CE message va dans `intent`), vérifiée 3/3. Toute consigne « n'utilise que
+  CE message » doit dire que répéter ou répondre à la conversation n'y change rien.
+- `stack.sh start … | tail -5` ne rend jamais la main (les sous-shells détachés gardent le tube) :
+  rediriger vers un fichier.
+- Deux fichiers de test de même nom dans deux `tests/` d'agents se masquent sous `--import-mode=importlib`
+  (`test_turn_deadline_2026_10_29.py`) : le test feuille s'appelle `test_leaf_turn_deadline_2026_10_29.py`.
+
+**Reste** : revue (Fabien) ; à merger APRÈS la PR « pertinence et entrée »
+(`fix/relevance-entry-20261029`, aucun conflit au `git merge-tree` du 2026-10-29 hors ce bloc de
+HANDOFF) ; décider de la latence ajoutée ; déploiement concierge + hotel-search (non fait).
+
+## 🎯 2026-10-29 — Pertinence et entrée : une question de lieu qui reprend l'envie, centre dans le pool, point de départ, créneau, textes (branche `fix/relevance-entry-20261029`, sur `main` 6078ff2)
+
+**Constat** : revue des 97 conversations réelles depuis #173 (≈ 90 défauts) et comparatif côte à
+côte agent-usa / AgentB2C sur 22 requêtes (agent-usa meilleur 9 fois, AgentB2C 3) — rapports hors
+dépôt `dashboard_bascule/data/investigation/review_post173.md` et `side_by_side.md`.
+
+**Fait** (un commit par point, plus 3 correctifs trouvés au rejeu) :
+1. **Entrée** : la question de lieu porte sur le lieu seul et reprend l'envie (`Triage.wish`, groupe
+   nominal écrit par le LLM, forme seule vérifiée) ; puces « près de moi » (`near_me` dans le payload,
+   le widget demande la position au clic) + villes du marché (`market_cities.py`, données catalogue).
+   Le jour n'est plus demandé (aujourd'hui, ou demain après l'heure limite, dit avec les puces de jour
+   dans la réponse aux hôtels). Une réponse sans lieu cherche la ville principale du marché
+   (`query_params.default_place`, la feuille ne l'utilise que si rien d'autre ne situe la demande) ;
+   sans marché, une seule relance.
+2. **Sans issue** : l'accueil générique seulement au 1er tour ; une envie sans lieu triée `ack` part en
+   recherche ; `source` du 1er tour retenu (`entry_source`), une FAQ venue de la boîte IA (ou portant
+   une envie) est suivie de la question de lieu.
+3. **Classement** (fork, `geo_rank.py`) : 3e page sur l'anneau central (le plus petit qui contient 10
+   hôtels), pénalité `score / (1 + d / anneau central)`, invariant « jamais devant une carte plus
+   proche au score au moins égal », pas de carte au-delà de 2 × le rayon local dès 3 cartes locales,
+   attente des pages dans le budget des 20 s (≤ 5 s).
+4. **Géocodage** (fork) : homonymes à l'échelle du lieu (bbox Mapbox ×8 ; Milano, Brooklyn, Palm
+   Springs, Mantova), centre dense de l'inventaire (New York → Midtown ; Singapour, Bangkok), Times
+   Square, Ostia, État US reporté, échecs Mapbox plus mis en cache, zone sans pays bornée au marché.
+5. **Créneau** (fork) : une partie de journée exige une couverture ≥ 50 % (`slot_covers_daypart`),
+   `daypart` et `timeSlot.expression`/`arrivalOnly` structurés par le LLM, créneau reporté entre tours,
+   `timeSlotMode` décidé par le code.
+6. **Textes** (fork) : ANGLE selon le type d'origine, besoin avant remise, « (not confirmed) » une fois
+   par phrase et jamais dans une question, notes de relâchement seulement à la demande (puce), distance
+   réelle au lieu de « up to 50 km ».
+7. **Correctifs du rejeu** : un jour (« 11 janvier ») lu comme un groupe de 11 (consigne + preuve qui
+   est une date rejetée) ; la ville par défaut n'ancre aucun État.
+
+**Preuves** : pytest 3 644 passés / 2 skippés, evals/tests 213, ruff, mypy, guardrails, 104 tests JS ;
+contre-épreuves rouges sur origin/main par point. Rejeu local (bras en parallèle, Langfuse coupé, jamais
+ai.dayuse.com) : rapport hors dépôt `dashboard_bascule/data/investigation/replay_relevance.md` (+ .json),
+chiffres dans la PR. Jeu d'évals `b2c-prod-2026-10-29` (25 items, non semé).
+
+**Pièges** :
+- `lots_rel.json` contient des messages numériques bruts (« 2 », « 53088 ») : le harnais les envoie en
+  `str()` (sinon 422).
+- Le contrat `contracts/mcp_b2c_tools.json` (2026-10-06) ne connaît ni `sortBy` ni `timeSlotMode` que
+  le MCP de prod accepte : à rafraîchir (humain).
+- La lecture de la taille du groupe par le triage reste stochastique (≈ 1 tirage sur 6 sur « 5th
+  november » avant correctif) : la preuve citée est désormais vérifiée.
+
+**Reste** : revue (Fabien) ; déploiement non fait (concierge + hotel-search + widget, `b2c_common`
+touché) ; semer `b2c/prod-2026-10-29` ; mesurer en prod la latence ajoutée (+1,4 s médiane au rejeu) et
+la part des conversations avec hôtels.
+
 ## 🧭 2026-10-28 — Accès aux résultats : « près de moi », plus de question de date isolée, replis « aucune offre », ancrages, proximité (branche `fix/access-results-20261028`, sur `main` après #168, #169, #170)
 
 **Constat** (prod du 26 au 28/10, comparé à agent-usa) : conversations avec résultats 74-81 % chez

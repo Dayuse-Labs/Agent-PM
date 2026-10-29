@@ -69,8 +69,8 @@ from b2c_common.search_page import build_search_page_url, search_page_from
 from b2c_common.timeslot import (
     DAYPART_HOURS,
     requested_hours,
+    slot_covers_daypart,
     slot_covers_window,
-    slot_overlaps_daypart,
     window_fallback_line,
 )
 from hotel_search_agent.inventory import get_inventory, haversine_km
@@ -482,13 +482,13 @@ def _hhmm_from_total(total_minutes: Any) -> str | None:
 
 
 # An exact clock window (start/end minutes-of-day, site covering rule) or a
-# daypart name (soft overlap rule) — see b2c_common.timeslot.
+# daypart name (half of the daypart covered, 2026-10-29) — see b2c_common.timeslot.
 Window = tuple[int | None, int | None] | str
 
 
 def _offer_matches(offer: dict[str, Any], window: Window) -> bool:
     if isinstance(window, str):
-        return slot_overlaps_daypart(offer.get("startHour"), offer.get("endHour"), window)
+        return slot_covers_daypart(offer.get("startHour"), offer.get("endHour"), window)
     return _offer_covers_window(offer, window[0], window[1])
 
 
@@ -1452,6 +1452,11 @@ def capture_after_tool(
     filters = (requested_budget, price_comparison, party_total, room_requirements)
     host = _site_host(read_profile_in(tool_context))
     results = normalize_search_results(structured, exclude_ids, strict_window, *filters, host=host)
+    if name == "search_offers":
+        # 2026-10-29: a central page is not filled up with far cards (`geo_rank`).
+        from hotel_search_agent.geo_rank import trim_far_cards
+
+        results = trim_far_cards(tool_context, results)
     timeslot_fallback = False
     if strict_window is not None and not results:
         # The exact-minute filter emptied the set: fall back to the coarser
@@ -1989,6 +1994,12 @@ def _search_context(
         **(
             {"landmark_unresolved": raw_delta["landmark_unresolved"]}
             if raw_delta and raw_delta.get("landmark_unresolved") else {}
+        ),
+        # 2026-10-29: no place in the answer to the place question, so the
+        # visitor market's main city was searched (`geocode_tool._default_place`).
+        **(
+            {"default_place": raw_delta["default_place"]}
+            if raw_delta and raw_delta.get("default_place") else {}
         ),
     }
 

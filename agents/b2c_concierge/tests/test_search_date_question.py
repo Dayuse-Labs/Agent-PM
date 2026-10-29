@@ -14,6 +14,14 @@ seams as test_spine_profile.py):
   same-day cutoff: the leaf's D+1 probe) and the SAME answer says which day,
   with the chips for the days after it;
 - the day is asked once per session, and announced once.
+
+2026-10-29 (prod after #173: 45 of 97 conversations opened on « Où et pour quel
+jour ? », a day chip brought a bare « Dans quelle ville ? », 16 never saw a
+hotel): the place question asks the PLACE only, restates the wish the triage
+read, and offers « près de moi » and the market's cities as chips; the day is
+never asked (it falls back on today, said with the hotels); an answer that
+gives no place searches the market's main city (`default_place`), and asks
+again once only where no market is known.
 """
 from __future__ import annotations
 
@@ -25,6 +33,7 @@ from google.adk.runners import InMemoryRunner
 from google.genai import types as genai_types
 
 from b2c_concierge import templates
+from b2c_concierge.a2a_datapart import find_datapart
 from b2c_concierge.agent import root_agent
 from b2c_concierge.date_format import format_date_human
 from b2c_concierge.profile import SessionProfile
@@ -41,6 +50,7 @@ _TOMORROW = _TODAY + timedelta(days=1)
 _REQUEST = "Find a room with a jacuzzi"
 _SEARCH_EN = '{"family": "search", "language": "en"}'
 _SEARCH_FR = '{"family": "search", "language": "fr"}'
+_SEARCH_EN_WISH = '{"family": "search", "language": "en", "wish": "a room with a jacuzzi"}'
 # The leaf's flag when the request names no place (`destination_missing`,
 # response_bridge.emit_search_datapart).
 _NO_PLACE = {"destination_missing": True}
@@ -63,27 +73,56 @@ def _context_text(parts) -> str:
 
 
 class TestPlaceMissing:
-    def test_one_question_asks_the_place_and_the_day_with_the_day_chips(
+    def test_one_question_asks_the_place_only_restating_the_wish_with_place_chips(
         self, monkeypatch, fake_leg, fake_profile_store  # noqa: F811
     ):
         fake_leg.text = "Which city?"
         fake_leg.response_payload = _NO_PLACE
-        llm = _scripted_llm(monkeypatch, _SEARCH_EN)
+        llm = _scripted_llm(monkeypatch, _SEARCH_EN_WISH)
+        runner = InMemoryRunner(root_agent)
+        session = _new_session(runner)
+        asyncio.run(fake_profile_store.set(session.id, SessionProfile(entry_market_country="US")))
+
+        answer = _run_turn(runner, session.id, _REQUEST)
+
+        question = "Sure — a room with a jacuzzi. Which city are you looking in?"
+        assert answer == question
+        assert "day" not in answer
+        assert fake_leg.call_count == 1  # the leaf ran: no question before it
+        assert len(llm.calls) == 1  # the triage only: the question is code-owned
+        stored = _stored(fake_profile_store, session.id)
+        assert stored.date_checked is False  # the day is not asked
+        assert stored.last_suggestions == ["Near me", "New York", "Los Angeles", "Houston"]
+        assert stored.last_clarifying_question == question
+        assert stored.pending_search["request"] == _REQUEST
+        assert stored.pending_search["place_question"] is True
+
+    def test_without_a_wish_nor_a_market_the_question_is_the_bare_place_with_near_me(
+        self, monkeypatch, fake_leg, fake_profile_store  # noqa: F811
+    ):
+        fake_leg.response_payload = _NO_PLACE
+        _scripted_llm(monkeypatch, _SEARCH_EN)
         runner = InMemoryRunner(root_agent)
         session = _new_session(runner)
 
         answer = _run_turn(runner, session.id, _REQUEST)
 
-        question = templates.place_question("en", ask_day=True)
-        assert answer == question
-        assert fake_leg.call_count == 1  # the leaf ran: no question before it
-        assert len(llm.calls) == 1  # the triage only: the question is code-owned
-        stored = _stored(fake_profile_store, session.id)
-        assert stored.date_checked is True
-        assert stored.last_suggestions == templates.date_chips("en")
-        assert stored.last_clarifying_question == question
-        assert stored.pending_search["request"] == _REQUEST
-        assert stored.pending_search["place_question"] is True
+        assert answer == "Which city (or neighbourhood) are you looking in?"
+        assert _stored(fake_profile_store, session.id).last_suggestions == ["Near me"]
+
+    def test_a_wish_in_another_language_than_the_reply_is_not_quoted(
+        self, monkeypatch, fake_leg, fake_profile_store  # noqa: F811
+    ):
+        # A French session: an English wish would mix two languages.
+        fake_leg.response_payload = _NO_PLACE
+        _scripted_llm(monkeypatch, _SEARCH_EN_WISH)
+        runner = InMemoryRunner(root_agent)
+        session = _new_session(runner)
+        asyncio.run(fake_profile_store.set(session.id, SessionProfile(language="fr", locale="fr")))
+
+        answer = _run_turn(runner, session.id, "Jacuzzi")
+
+        assert answer == "Dans quelle ville (ou quel quartier) cherchez-vous ?"
 
     def test_the_analytics_facts_count_it_as_a_location_question(self, monkeypatch, fake_leg):  # noqa: F811
         fake_leg.response_payload = _NO_PLACE
@@ -140,7 +179,31 @@ class TestPlaceMissing:
         assert stored.date == _TOMORROW.isoformat()
         assert stored.last_suggestions is None
 
-    def test_a_reply_with_only_the_day_asks_the_place_alone_never_the_day_again(
+    def test_a_reply_with_only_the_day_searches_the_market_city_never_a_second_question(
+        self, monkeypatch, fake_leg, fake_profile_store  # noqa: F811
+    ):
+        fake_leg.response_payload = _NO_PLACE
+        _scripted_llm(monkeypatch, _SEARCH_EN, _SEARCH_EN, "Here are hotels in New York.")
+        runner = InMemoryRunner(root_agent)
+        session = _new_session(runner)
+        asyncio.run(fake_profile_store.set(session.id, SessionProfile(entry_market_country="US")))
+
+        _run_turn(runner, session.id, _REQUEST)
+        fake_leg.response_payload = {
+            **_results(_TOMORROW, city="New York"),
+            "search_context": {"city": "New York", "default_place": "New York"},
+        }
+        answer = _run_turn(runner, session.id, "Tomorrow")
+
+        # The leaf was offered the market's main city, to search when — and
+        # only when — the answer names no place.
+        envelope = find_datapart(fake_leg.seen_outgoing_parts)
+        assert envelope["query_params"]["default_place"] == {"city": "New York", "country_code": "US"}
+        assert answer.startswith(templates.default_place_notice("New York", "en"))
+        stored = _stored(fake_profile_store, session.id)
+        assert stored.date == _TOMORROW.isoformat()
+
+    def test_without_a_market_a_reply_with_only_the_day_asks_the_place_once_more(
         self, monkeypatch, fake_leg, fake_profile_store  # noqa: F811
     ):
         fake_leg.response_payload = _NO_PLACE
@@ -151,10 +214,12 @@ class TestPlaceMissing:
         _run_turn(runner, session.id, _REQUEST)
         answer = _run_turn(runner, session.id, "Tomorrow")
 
-        assert answer == templates.place_question("en", ask_day=False)
+        assert answer == templates.place_question("en")
+        envelope = find_datapart(fake_leg.seen_outgoing_parts)
+        assert "default_place" not in (envelope.get("query_params") or {})
         stored = _stored(fake_profile_store, session.id)
         assert stored.date == _TOMORROW.isoformat()
-        assert stored.last_suggestions is None
+        assert stored.last_suggestions == ["Near me"]
 
     def test_any_day_is_an_answer_the_day_question_never_comes_back(
         self, monkeypatch, fake_leg, fake_profile_store  # noqa: F811
@@ -165,21 +230,19 @@ class TestPlaceMissing:
         runner = InMemoryRunner(root_agent)
         session = _new_session(runner)
 
-        assert _run_turn(runner, session.id, "un hôtel avec piscine") == templates.place_question(
-            "fr", ask_day=True
-        )
-        assert _run_turn(runner, session.id, "peu importe") == templates.place_question("fr", ask_day=False)
+        assert _run_turn(runner, session.id, "un hôtel avec piscine") == templates.place_question("fr")
+        assert _run_turn(runner, session.id, "peu importe") == templates.place_question("fr")
         fake_leg.response_payload = _results(city="Nice")
         answer = _run_turn(runner, session.id, "Nice")
 
         assert "pour quel jour" not in answer
         assert fake_leg.call_count == 3
 
-    def test_the_leafs_own_place_question_asks_the_day_in_the_same_message(
+    def test_the_leafs_own_place_question_asks_the_place_only_with_the_city_chips(
         self, monkeypatch, fake_leg, fake_profile_store  # noqa: F811
     ):
         # A zone without its city (« gare de Lyon »): the leaf's template
-        # question, completed with the day.
+        # question, about the place only (2026-10-29), its chips the market's.
         fake_leg.response_payload = {
             "requires_clarification": True,
             "clarification": {"kind": "city_needed", "subject": "gare de Lyon", "options": []},
@@ -187,13 +250,14 @@ class TestPlaceMissing:
         _scripted_llm(monkeypatch, _SEARCH_FR)
         runner = InMemoryRunner(root_agent)
         session = _new_session(runner)
+        asyncio.run(fake_profile_store.set(session.id, SessionProfile(entry_market_country="FR")))
 
         answer = _run_turn(runner, session.id, "un hôtel près de la gare de Lyon")
 
-        assert answer == "Près de « gare de Lyon », dans quelle ville cherchez-vous ? Et pour quel jour ?"
+        assert answer == "Près de « gare de Lyon », dans quelle ville cherchez-vous ?"
         stored = _stored(fake_profile_store, session.id)
-        assert stored.last_suggestions == templates.date_chips("fr")
-        assert stored.date_checked is True
+        assert stored.last_suggestions == ["Près de moi", "Paris", "Lyon", "Bordeaux"]
+        assert stored.date_checked is False
 
     def test_a_refused_device_location_is_said_before_the_question(
         self, monkeypatch, fake_leg, fake_profile_store  # noqa: F811
@@ -207,9 +271,11 @@ class TestPlaceMissing:
         answer = _run_turn(runner, session.id, "Chambre en journée près de moi")
 
         assert answer == (
-            "Je n'ai pas accès à votre position. Où et pour quel jour souhaitez-vous réserver ?"
+            "Je n'ai pas accès à votre position. Dans quelle ville (ou quel quartier) cherchez-vous ?"
         )
-        assert _stored(fake_profile_store, session.id).device_location_refused is False  # one-shot
+        stored = _stored(fake_profile_store, session.id)
+        assert stored.device_location_refused is False  # one-shot
+        assert stored.last_suggestions is None  # no « près de moi » chip right after a refusal
 
     def test_without_the_leafs_flag_the_turn_is_served_as_before(
         self, monkeypatch, fake_leg  # noqa: F811

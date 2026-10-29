@@ -193,10 +193,12 @@ def test_the_local_page_is_the_same_search_on_the_local_disc():
     tool = _Search(city["local_page"])
     sent = {**city["args"], "hotelEquipmentIds": [35], "timeSlot": {"startHour": 14, "endHour": 18}}
     ctx = _run_call(tool, sent, _state(city), {"structuredContent": city["page"]})
-    [local] = tool.calls
+    # 2026-10-29: the core ring's page goes with it (dense centre: 2 km).
+    local, core = tool.calls
     assert local == {**sent, "radiusKm": local_radius_km(sent["lat"], sent["lon"])}
     assert local["radiusKm"] == 5.0
-    assert ctx.state[STATE_GEO_POOL_KEY] == city["local_page"]["results"]
+    assert core == {**sent, "radiusKm": 2.0}
+    assert ctx.state[STATE_GEO_POOL_KEY] == city["local_page"]["results"] * 2
 
 
 def test_the_next_page_asks_the_next_local_page():
@@ -254,7 +256,7 @@ def test_a_failed_search_cancels_the_local_page():
         ({"anchor_type": "poi", "feature": "poi"}, {}),
         ({"feature": "area"}, {}),
         ({}, {"sortBy": "distance"}),
-        ({}, {"radiusKm": 5.0}),  # the whole disc is local already (a sparse place widened to it)
+        ({}, {"radiusKm": 2.0}),  # the whole disc is the core ring already
     ],
 )
 def test_no_second_call_when_it_cannot_change_the_cards(state_kwargs, args_extra):
