@@ -535,7 +535,9 @@ def test_an_expired_profile_mid_conversation_is_announced(client, store):
 
     assert second["session_expired"] is True
     notice = templates.session_expired_notice("fr", 30)
-    assert second["message"] == f"{notice}\n\n{templates.ack_response('fr')}"
+    # 2026-10-29: past the first turn a « merci » is never answered by the
+    # opening greeting.
+    assert second["message"] == f"{notice}\n\n{templates.ack_followup_response('fr')}"
     third = client.post("/v3/chat", json={"message": "Merci !"}, headers=headers).json()
     assert third["session_expired"] is False
 

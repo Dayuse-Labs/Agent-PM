@@ -59,10 +59,9 @@ def test_a_wider_ring_says_how_far():
 def test_the_request_lines_say_what_changed_or_that_nothing_could():
     assert relaxation_line({"request": {"requested": ["filters"], "removed": ["amenities"],
                                         "amenities": ["jacuzzi"]}}, None, "es") == "He quitado el filtro jacuzzi."
-    assert relaxation_line({"request": {"requested": ["filters"], "nothing_to_remove": True}}, None, "es") == (
-        "No había ningún filtro aplicado a esta búsqueda."
-    )
-    assert relaxation_line({"request": {"requested": ["budget"], "no_budget": True}}, None, "en") == (
+    assert relaxation_line({"request": {"requested": ["filters"], "nothing_to_remove": True, "chip": "filters"}},
+                           None, "es") == "No había ningún filtro aplicado a esta búsqueda."
+    assert relaxation_line({"request": {"requested": ["budget"], "no_budget": True, "chip": "budget"}}, None, "en") == (
         "No price cap was applied to this search."
     )
     assert relaxation_line({"request": {"requested": ["budget"], "budget": {"from": 80.0, "to": 100.0,
@@ -89,7 +88,7 @@ def test_the_chip_reaches_the_leaf_and_the_line_leads_the_answer(scripted, fake_
     )))
     response = {
         "results": [{"hotel_id": 1, "name": "Hotel Uno", "city": "Barcelona"}],
-        "relaxation": {"request": {"requested": ["filters"], "nothing_to_remove": True}},
+        "relaxation": {"request": {"requested": ["filters"], "nothing_to_remove": True, "chip": "filters"}},
         "search_context": {"city": "Barcelona", "date": "2026-10-28"},
     }
     _, leaf_calls = scripted(

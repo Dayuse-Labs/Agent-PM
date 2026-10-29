@@ -36,6 +36,7 @@ import os
 import re
 import time
 from dataclasses import dataclass
+from datetime import date
 from typing import Any
 
 import litellm
@@ -50,6 +51,7 @@ from dayuse_agent_common import (
 )
 
 from .budget import TurnBudget
+from .requested_date import parse_requested_date
 
 logger = logging.getLogger(__name__)
 
@@ -211,6 +213,12 @@ class Triage:
     # date question (`requested_date.mentions_a_date` asks first); None = no
     # LLM signal.
     day_stated: bool | None = None
+    # 2026-10-29: the stay the message wishes for, restated by the LLM as a
+    # short noun phrase in the message's language (« une chambre avec
+    # jacuzzi »), None when it expresses none. Rendered by the place question
+    # of a request with no place (`templates.place_question`) — a phrase the
+    # model wrote, never parsed by the code (`_wish_slot` only bounds it).
+    wish: str | None = None
 
 
 def is_social_ack(message: str) -> bool:
@@ -381,11 +389,15 @@ incoming end-user message. Return ONLY a compact JSON object on one line (no
 indentation, no prose, no code fence) with exactly these keys:
 - "family": one of {list(FAMILIES)} —
     search  = looking for a day-use hotel (destination, area, dates, filters, or a hotel named by the user),
+              INCLUDING a wish for a stay that names no place yet ("Enjoy a romantic moment
+              together", "A quiet room for video calls", "Find a room with a jacuzzi"),
     faq     = a question about Dayuse conditions / policies / how it works (cancellation, refund, check-in/out, payment),
     details = asking for more information about one specific hotel already in play (amenities, description, photos),
     compare = asking to compare several hotels,
     booking = asking for the booking link / to proceed with a booking,
     ack     = a purely social message (greeting, thanks, goodbye) with no request in it.
+              A wish for a stay, a short answer ("Sera", "evening", "Lyon"), a date or a
+              complaint ("can you even read?!") is NEVER `ack`.
   DISAMBIGUATION (decide by INTENT): "annuler ma réservation" / "quelles conditions
   d'annulation" is `faq` (a policy question), not `booking`. A message that both
   greets AND asks something is NOT `ack`. A follow-up that ADJUSTS a previous
@@ -522,11 +534,22 @@ indentation, no prose, no code fence) with exactly these keys:
   ONLY for explicitly stated adult/child counts; given together with a total,
   they must agree. Removing the children is children=0 ("finalement sans les
   enfants"); never infer children=0 from "two adults". Ages are not counts. A
-  room's capacity, an adults-only policy, a price or a duration is not a party.
+  room's capacity, an adults-only policy, a price or a duration is not a party,
+  and neither is a date: the number of a day is never a party size — "11
+  janvier", "Samedi 7 novembre", "5th november", "le 3", "May 21" carry NO
+  party (omit the key).
 - "requested_room": {{"bedding": "double" | "king" | "queen" | "twin" | "any",
   "evidence": "verbatim bed request"}} when the user CURRENTLY asks for a bed
   type: double/matrimonial = double, an explicit king or queen = that key,
   separate beds = twin, "any" removes the requirement. Omit if unchanged.
+- "wish": what kind of day-use stay the message asks for, restated as a SHORT noun
+  phrase (at most 8 words) in the message's own language, starting lowercase,
+  WITHOUT any place, date, hour or price ("Trouvez une chambre avec jacuzzi" →
+  "une chambre avec jacuzzi", "Enjoy a romantic moment together" → "a romantic
+  moment for two", "How discreet is the booking?" → "a discreet hotel", "Ich
+  will einen Spa-Nachmittag" → "ein Spa-Nachmittag"). Null when the message
+  expresses no such wish: a bare place, a date or time, a greeting, an answer, or
+  a question about an EXISTING reservation.
 - "hotel_name": the hotel name the user names, stripped of the request phrasing
   around it ("book the Villa Paris Orly for me" → "Villa Paris Orly", "détails
   sur l'Ibis Lyon Gare" → "Ibis Lyon Gare"). Null when no hotel is named by
@@ -704,6 +727,7 @@ async def classify(message: str, budget: TurnBudget, invocation_id: str = "",
         answer_option=(_positive_position(data.get("answer_option"))
                        if answers_pending == "yes" else None),
         day_stated=_bool_slot(data.get("day_stated")),
+        wish=_wish_slot(data.get("wish")),
     )
 
 
@@ -714,6 +738,12 @@ def _grounded_occupancy(raw: Any, message: str) -> dict[str, int] | None:
     evidence = raw.get("evidence")
     if (not isinstance(evidence, str) or not evidence.strip() or len(evidence) > 240
             or evidence.casefold() not in message.casefold()):
+        return None
+    # Replay 2026-10-29 (« Samedi 7 novembre » → evidence « 7 novembre »,
+    # total 7): a quote that is itself a date is a day, not a party. Checked
+    # with the concierge's own date parser on the model's quote — a fact about
+    # the quote, the model keeps reading the message.
+    if parse_requested_date(evidence, date.today()) is not None:
         return None
     update = {}
     for key in ("adults", "children", "total"):
@@ -730,6 +760,28 @@ def _grounded_occupancy(raw: Any, message: str) -> dict[str, int] | None:
         if update.get("adults", 0) > update["total"] or update.get("children", 0) >= update["total"]:
             return None
     return update or None
+
+
+#: A wish is a short noun phrase (« une chambre avec jacuzzi »): a model that
+#: pastes a sentence, a link or markup into the slot is not using it.
+_MAX_WISH_CHARS = 80
+_MAX_WISH_WORDS = 10
+_WISH_FORBIDDEN = ("://", "@", "<", ">", "{", "}", "\n", "?")
+
+
+def _wish_slot(value: Any) -> str | None:
+    """The `wish` the model wrote, as it will be shown inside the place
+    question, or None. Shape checks only — length, word count, one line, no
+    link, markup or question — never a reading of its words: what it means
+    is the model's call, and the template only quotes it."""
+    if not isinstance(value, str):
+        return None
+    wish = " ".join(value.split()).strip(" .,;:!—-")
+    if not wish or len(wish) > _MAX_WISH_CHARS or len(wish.split()) > _MAX_WISH_WORDS:
+        return None
+    if any(mark in value for mark in _WISH_FORBIDDEN):
+        return None
+    return wish
 
 
 def _display_currency_slot(value: Any) -> str | None:

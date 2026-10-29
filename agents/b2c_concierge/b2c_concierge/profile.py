@@ -265,6 +265,12 @@ class SessionProfile:
     # owned: a leaf delta never sets or clears it, and an invalid value in a
     # request is carried over, never a clear.
     entry_market_country: str | None = None
+    # 2026-10-29: where the conversation came from — the request's `source`
+    # (the widget sends its deep link's `?source=`, « dayuse_box » for the
+    # dayuse.com AI box and its chips), set once by the facade on the first
+    # turn. A fact of the request: a chip's FAQ answer is followed by the place
+    # question. Concierge-owned, never sent to a leaf.
+    entry_source: str | None = None
     search_anchor: dict[str, Any] | None = None  # {type, lat, lon, label, set_at_turn}
     distance_origin: dict[str, Any] | None = None  # {latitude, longitude, label, type}
     shown_hotel_ids: list[Any] = field(default_factory=list)
@@ -401,6 +407,7 @@ class SessionProfile:
             "locale": self.locale,
             "domain": self.domain,
             "entry_market_country": self.entry_market_country,
+            "entry_source": self.entry_source,
             "search_anchor": self.search_anchor,
             "distance_origin": self.distance_origin,
             "shown_hotel_ids": list(self.shown_hotel_ids),
@@ -462,6 +469,7 @@ _CONCIERGE_ONLY_KEYS = (
     "date_announced",
     "device_location_refused",
     "last_search_signature",
+    "entry_source",
 )
 
 
@@ -1324,6 +1332,22 @@ def without_final_question(text: str | None) -> str:
     while lines and leaf_question(lines[-1]):
         lines = "\n".join(lines[:-1]).rstrip().splitlines()
     return "\n".join(lines).strip()
+
+
+def without_final_question_sentence(text: str | None) -> str:
+    """`text` without the question sentence it ends on (2026-10-29: a FAQ
+    answer the place question follows ends « …the hotel. Anything else you'd
+    like to know? » on ONE line). By punctuation only: when the last line ends
+    with '?', it is cut after the last '.', '!' or '…' followed by a space,
+    else dropped whole. `text` unchanged when nothing would remain."""
+    lines = (text or "").rstrip().splitlines()
+    if not lines or not lines[-1].rstrip().endswith("?"):
+        return (text or "").strip()
+    last = lines[-1].rstrip()
+    cut = max(last.rfind(mark) for mark in (". ", "! ", "… "))
+    lines[-1] = last[: cut + 1] if cut > 0 else ""
+    kept = "\n".join(lines).strip()
+    return kept or (text or "").strip()
 
 
 # --- Named-hotel lookup (S07) — the `_last_results` equivalent -------------

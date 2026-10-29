@@ -95,15 +95,30 @@ def window_fallback_line(window: str, language: str) -> str:
     return template.format(window=window).replace("  ", " ")
 
 
-# --- Dayparts (decision Mathias 2026-10-06, option B) --------------------------
+# --- Dayparts (decision Mathias 2026-10-06, option B; tightened 2026-10-29) ---
 # "l'après-midi", "por la tarde": no clock time, so the site's covering rule
-# cannot apply (it would demand an offer spanning the whole afternoon). A
-# daypart is a SOFT filter instead: an offer matches when part of it falls in
-# the period — the same overlap semantics MCP's own `timeSlot` uses.
+# cannot apply as is (it would demand an offer spanning the whole afternoon).
+# Option B made a daypart a pure OVERLAP filter (MCP's own `timeSlot` rule):
+# an 08:30-14:00 offer then passed for « domani pomeriggio » (side by side of
+# 2026-10-29: 4 of 5 Rome cards were morning offers; time slot covered on 12
+# of 25 checked cards, against 20 for agent-usa). Now an offer matches a
+# daypart when it COVERS at least half of it (`DAYPART_MIN_HOURS`, whole hours
+# rounded up): 10-16 or 14-20 is an afternoon, 08:30-14:00 is not. Still a
+# fact of the offer's own hours, read the same way by the leaf (filter) and
+# anything that checks a card. The search itself still asks MCP for the
+# overlap (wider pool); the leaf keeps, per hotel, an offer that covers.
+# Morning starts at 08:00 (was 06:00): day-use offers before 8 are rare, and a
+# 6-hour morning would refuse the common 10:00 arrival (2 h of it).
 DAYPART_HOURS: dict[str, tuple[int, int]] = {
-    "morning": (6, 12),
+    "morning": (8, 12),
     "afternoon": (12, 18),
     "evening": (18, 23),
+}
+
+#: Hours of the daypart an offer must cover: half of it, rounded up
+#: (morning 2 h, afternoon 3 h, evening 3 h).
+DAYPART_MIN_HOURS: dict[str, int] = {
+    name: -(-(last - first) // 2) for name, (first, last) in DAYPART_HOURS.items()
 }
 
 # Accent-folded, lower-cased text. Spanish/Portuguese "mañana"/"tarde" alone
@@ -151,3 +166,21 @@ def slot_overlaps_daypart(slot_start_hour: Any, slot_end_hour: Any, daypart: str
     if slot_end == 0 and slot_start > 0:
         slot_end = 24
     return slot_start < hours[1] and slot_end > hours[0]
+
+
+def slot_covers_daypart(slot_start_hour: Any, slot_end_hour: Any, daypart: str) -> bool:
+    """The slot covers at least `DAYPART_MIN_HOURS[daypart]` hours of the
+    daypart (2026-10-29). An offer ending at or before its start runs past
+    midnight: it covers until the end of the day. A slot whose hours cannot be
+    read never matches."""
+    hours = DAYPART_HOURS.get(daypart)
+    if hours is None:
+        return False
+    try:
+        slot_start, slot_end = int(slot_start_hour), int(slot_end_hour)
+    except (TypeError, ValueError):
+        return False
+    if slot_end <= slot_start:
+        slot_end = 24
+    covered = min(slot_end, hours[1]) - max(slot_start, hours[0])
+    return covered >= DAYPART_MIN_HOURS[daypart]

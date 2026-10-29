@@ -72,92 +72,106 @@ def _blank_hotel_names(lines: list[str], names_lower: set[str]) -> list[str]:
     return blanked
 
 
-def amenity_claim_violations(message: str, hotels: list[dict] | None) -> dict[str, set[str]]:
-    """Amenity claims about named hotels that the data doesn't back.
+# 2026-10-29 (prod after #173, 14 replies): a claim is read in its SENTENCE,
+# never in its whole line. The synthesis writes a paragraph on one line, so a
+# line-wide scope tied « a pool » to every hotel the paragraph named, and the
+# hedge landed once per hotel on the same word: « a pool (not confirmed) (not
+# confirmed) (The Delphi Hotel) ». A sentence ends at . ! ? ; or a line break
+# followed by space or the end of the text — punctuation only, no word of any
+# language. « 4.5/5 » or « St.Regis » never split (no space after the dot).
+_SENTENCE_END = re.compile(r"[.!?;…]+(?=\s|$)|\n")
 
-    Scans each response line mentioning a known hotel name for amenity
-    keywords; a claim with no negation on the line (or its continuation line)
-    and no backing in the hotel's amenity list is a violation."""
-    text = str(message or "")
-    if not text or not hotels:
-        return {}
-    violations: dict[str, set[str]] = {}
-    lines = text.splitlines()
-    all_names_l = _shortlist_names_lower(hotels)
-    blanked_lines = _blank_hotel_names(lines, all_names_l)
-    for hotel in hotels:
-        if not isinstance(hotel, dict):
+
+def _sentences(text: str) -> list[tuple[int, int]]:
+    """(start, end) offsets of each sentence of `text`."""
+    spans: list[tuple[int, int]] = []
+    start = 0
+    for match in _SENTENCE_END.finditer(text):
+        if match.end() > start:
+            spans.append((start, match.end()))
+        start = match.end()
+    if start < len(text):
+        spans.append((start, len(text)))
+    return spans
+
+
+def _is_question(sentence: str) -> bool:
+    """A question or an offer to the user (« want a pool or parking? ») asks;
+    it claims nothing about a hotel. Read from its punctuation only."""
+    stripped = sentence.strip()
+    return stripped.endswith("?") or stripped.startswith("¿")
+
+
+def _claims(text: str, hotels: list[dict] | None) -> list[tuple[str, str, int]]:
+    """(hotel name, amenity key, end offset of the claimed word) for each
+    amenity word the data does not back, one entry per word.
+
+    A word is attributed to the hotel whose name is NEAREST to it in its own
+    sentence; a sentence naming no hotel, asking a question, or already
+    carrying a negation / hedge claims nothing."""
+    valid = [h for h in hotels or [] if isinstance(h, dict) and len(str(h.get("name") or "").strip()) >= 4]
+    if not text or not valid:
+        return []
+    names_l = _shortlist_names_lower(valid)
+    by_name = {str(h.get("name")).strip().lower(): h for h in valid}
+    claims: list[tuple[str, str, int]] = []
+    for start, end in _sentences(text):
+        sentence = text[start:end]
+        low = sentence.lower()
+        if _is_question(sentence) or any(marker in low for marker in _CLAIM_NEGATION_MARKERS):
             continue
-        name = str(hotel.get("name") or "").strip()
-        if len(name) < 4:
+        spots = [
+            (m.start(), m.end(), name_l)
+            for name_l in names_l
+            for m in re.finditer(re.escape(name_l), low)
+        ]
+        if not spots:
             continue
-        name_l = name.lower()
-        for idx, line in enumerate(lines):
-            line_l = line.lower()
-            if name_l not in line_l:
-                continue
-            # Hedges often land on the continuation line — scan the claim
-            # line plus the next, UNLESS that next line starts another
-            # hotel's own entry (its hedge belongs to that hotel, not this one).
-            next_l = lines[idx + 1].lower() if idx + 1 < len(lines) else ""
-            if any(other in next_l for other in all_names_l):
-                next_l = ""
-            hedge_scope = f"{line_l}\n{next_l}" if next_l else line_l
-            if any(marker in hedge_scope for marker in _CLAIM_NEGATION_MARKERS):
-                continue
-            for key, pattern in _AMENITY_CLAIM_PATTERNS.items():
-                if not re.search(pattern, blanked_lines[idx], re.IGNORECASE):
-                    continue
+        blanked = _blank_hotel_names([sentence], names_l)[0]
+        for key, pattern in _AMENITY_CLAIM_PATTERNS.items():
+            for match in re.finditer(pattern, blanked, re.IGNORECASE):
+                _s, _e, name_l = min(
+                    spots,
+                    key=lambda spot: spot[0] - match.end() if spot[0] >= match.end() else match.start() - spot[1],
+                )
+                hotel = by_name[name_l]
                 # The hotel's own name backs the claim ("... & Spa" IS a spa
                 # product) — never "correct" it.
                 if re.search(pattern, name_l, re.IGNORECASE):
                     continue
                 if amenity_present(key, hotel.get("amenities")):
                     continue
-                violations.setdefault(name, set()).add(key)
+                claims.append((str(hotel.get("name")).strip(), key, start + match.end()))
+    return claims
+
+
+def amenity_claim_violations(message: str, hotels: list[dict] | None) -> dict[str, set[str]]:
+    """Amenity claims about named hotels that the data doesn't back: an
+    amenity word in a sentence naming a hotel (the nearest name owns it), with
+    no negation in that sentence, no question, and no backing in that hotel's
+    amenity list."""
+    violations: dict[str, set[str]] = {}
+    for name, key, _end in _claims(str(message or ""), hotels):
+        violations.setdefault(name, set()).add(key)
     return violations
 
 
 def _hedge_amenity_claims(
     text: str, violations: dict[str, set[str]], hotels: list[dict] | None, hedge: str
 ) -> tuple[str, dict[str, set[str]]]:
-    """Hedges each violating amenity token in place; returns the leftovers
-    (claims whose token could not be located, appended as a note by the
-    caller instead). For every violating (hotel, amenity) the matched token
-    on the hotel's claim line becomes "token (hedge)" — a re-scan of the
-    rewritten message then yields zero violations (idempotent)."""
-    lines = text.splitlines()
-    blanked = _blank_hotel_names(lines, _shortlist_names_lower(hotels))
-    original_l = [line.lower() for line in lines]
+    """Hedges each violating amenity word in place, ONCE per word whatever the
+    number of hotels around it; returns the claims whose word could not be
+    located (appended as a note by the caller). A re-scan of the rewritten
+    text yields zero violations (idempotent: the hedge is a negation marker)."""
+    wanted = {(name, key) for name, keys in violations.items() for key in keys}
+    claims = [c for c in _claims(text, hotels) if (c[0], c[1]) in wanted]
+    located = {(name, key) for name, key, _ in claims}
     remaining: dict[str, set[str]] = {}
-    edited = False
-    for hotel_name, amenity_keys in sorted(violations.items()):
-        name_l = hotel_name.lower()
-        for key in sorted(amenity_keys):
-            pattern = _AMENITY_CLAIM_PATTERNS.get(key)
-            hedged = False
-            if pattern:
-                # Hedge EVERY line repeating the claim, not just the first.
-                for idx, line_l in enumerate(original_l):
-                    if name_l not in line_l:
-                        continue
-                    if any(marker in line_l for marker in _CLAIM_NEGATION_MARKERS):
-                        continue
-                    match = re.search(pattern, blanked[idx], re.IGNORECASE)
-                    if not match:
-                        continue
-                    insert = f" ({hedge})"
-                    lines[idx] = lines[idx][: match.end()] + insert + lines[idx][match.end() :]
-                    blanked[idx] = blanked[idx][: match.end()] + insert.lower() + blanked[idx][match.end() :]
-                    hedged = True
-                    edited = True
-            if not hedged:
-                remaining.setdefault(hotel_name, set()).add(key)
-    if not edited:
-        return text, remaining
-    rewritten = "\n".join(lines)
-    if text.endswith("\n"):
-        rewritten += "\n"
+    for name, key in sorted(wanted - located):
+        remaining.setdefault(name, set()).add(key)
+    rewritten = text
+    for offset in sorted({end for _, _, end in claims}, reverse=True):
+        rewritten = rewritten[:offset] + f" ({hedge})" + rewritten[offset:]
     return rewritten, remaining
 
 

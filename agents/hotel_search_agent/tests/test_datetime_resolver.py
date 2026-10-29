@@ -504,11 +504,15 @@ def test_timeslot_ignores_other_tools():
     assert args["timeSlot"] == {"startHour": 7, "startMinute": 30}
 
 
-def test_timeslot_sub_hour_window_floors_and_ceils_for_mcp():
+def test_timeslot_sub_hour_window_rounds_like_the_site_rule_for_mcp():
+    # 2026-10-29: a two-sided window goes to MCP in `contain` mode, on the
+    # site rule's own rounding (7h30 → 8h, 13h30 → 14h): floor/ceil would make
+    # MCP stricter than the rule the leaf and the concierge check.
     ctx = _ctx_with_profile({}, 'un hôtel de 7h30 à 13h30')
     args = {"timeSlot": {"startHour": 7, "startMinute": 30, "endHour": 13, "endMinute": 30}}
     resolve_search_timeslot(_Tool("search_offers"), args, ctx)
-    assert args["timeSlot"] == {"startHour": 7, "endHour": 14}
+    assert args["timeSlot"] == {"startHour": 8, "endHour": 14}
+    assert args["timeSlotMode"] == "contain"
     exact = ctx.state[STATE_EXACT_WINDOW_KEY]
     assert exact == {"start_total": 7 * 60 + 30, "end_total": 13 * 60 + 30}
 
@@ -791,7 +795,7 @@ def test_a_carried_daypart_applies_when_the_turn_says_nothing_about_time():
     ctx = _ctx_with_profile({"daypart": "morning"}, "et à Villeurbanne ?")
     args: dict = {}
     resolve_search_timeslot(_Tool("search_offers"), args, ctx)
-    assert args["timeSlot"] == {"startHour": 6, "endHour": 12}
+    assert args["timeSlot"] == {"startHour": 8, "endHour": 12}
 
 
 def test_a_stated_clock_time_wins_over_a_carried_daypart():

@@ -1,0 +1,3095 @@
+{
+ "_source": "MCP_B2C prod search_offers, probed 2026-10-29 (read-only), date 2026-10-30, slimmed: hotel facts and one offer each, no personal data. Per city: the search as the leaf sends it (`page`), the same on the 5 km local disc (`local_page`) and on the 2 km core ring (`core_page`), relevance order.",
+ "cities": {
+  "paris": {
+   "args": {
+    "lat": 48.853495,
+    "lon": 2.348392,
+    "date": "2026-10-30",
+    "from": 0
+   },
+   "page": {
+    "resolvedDate": "2026-10-30",
+    "total": 504,
+    "results": [
+     {
+      "cityName": "paris-7",
+      "countryCode": "FR",
+      "countryName": "France",
+      "currencyCode": "EUR",
+      "distanceKm": 3.1,
+      "globalAverageRating": 4.7,
+      "hotelId": 7672,
+      "lat": 48.8574585,
+      "lon": 2.3062964,
+      "name": "Grand Hôtel Leveque",
+      "score": 7.999999999925,
+      "starRating": 3,
+      "totalReview": 14,
+      "offers": [
+       {
+        "availabilityDate": "2026-10-30",
+        "bedding": "double",
+        "capacity": 2,
+        "childrenCapacity": 0,
+        "endHour": 14,
+        "endMinute": 0,
+        "hotelCurrency": "EUR",
+        "hotelPrice": 8400,
+        "hotelPriceWithBookingFees": 8900,
+        "originalPriceEuro": 15000,
+        "priceEuro": 8400,
+        "priceEuroWithBookingFees": 8900,
+        "ratePlanId": 27768,
+        "startHour": 9,
+        "startMinute": 0
+       }
+      ]
+     },
+     {
+      "cityName": "neuilly-sur-seine",
+      "countryCode": "FR",
+      "countryName": "France",
+      "currencyCode": "EUR",
+      "distanceKm": 7.5,
+      "globalAverageRating": 4.5076923076923086,
+      "hotelId": 6934,
+      "lat": 48.8940873,
+      "lon": 2.2662125,
+      "name": "Hôtel de la Jatte",
+      "score": 1.1857962022750002,
+      "starRating": 3,
+      "totalReview": 13,
+      "offers": [
+       {
+        "availabilityDate": "2026-10-30",
+        "bedding": "double",
+        "capacity": 2,
+        "childrenCapacity": 0,
+        "endHour": 17,
+        "endMinute": 0,
+        "hotelCurrency": "EUR",
+        "hotelPrice": 8400,
+        "hotelPriceWithBookingFees": 8900,
+        "originalPriceEuro": 18500,
+        "priceEuro": 8400,
+        "priceEuroWithBookingFees": 8900,
+        "ratePlanId": 24336,
+        "startHour": 12,
+        "startMinute": 0
+       }
+      ]
+     },
+     {
+      "cityName": "gennevilliers",
+      "countryCode": "FR",
+      "countryName": "France",
+      "currencyCode": "EUR",
+      "distanceKm": 10.7,
+      "globalAverageRating": 4.628571428571428,
+      "hotelId": 22586,
+      "lat": 48.9372665,
+      "lon": 2.2775542,
+      "name": "Campanile NATURE - Paris Ouest Gennevilliers Port",
+      "score": 1.1042719921750002,
+      "starRating": 3,
+      "totalReview": 7,
+      "offers": [
+       {
+        "availabilityDate": "2026-10-30",
+        "bedding": "double",
+        "capacity": 2,
+        "childrenCapacity": 0,
+        "endHour": 15,
+        "endMinute": 0,
+        "hotelCurrency": "EUR",
+        "hotelPrice": 5500,
+        "hotelPriceWithBookingFees": 6000,
+        "originalPriceEuro": 8900,
+        "priceEuro": 5500,
+        "priceEuroWithBookingFees": 6000,
+        "ratePlanId": 89938,
+        "startHour": 10,
+        "startMinute": 0
+       }
+      ]
+     },
+     {
+      "cityName": "antony",
+      "countryCode": "FR",
+      "countryName": "France",
+      "currencyCode": "EUR",
+      "distanceKm": 11.3,
+      "globalAverageRating": 4.720000000000001,
+      "hotelId": 19852,
+      "lat": 48.755975,
+      "lon": 2.305463,
+      "name": "Hôtel Montbriand Antony",
+      "score": 1.10199653235,
+      "starRating": 4,
+      "totalReview": 5,
+      "offers": [
+       {
+        "availabilityDate": "2026-10-30",
+        "bedding": "double",
+        "capacity": 2,
+        "childrenCapacity": 0,
+        "endHour": 16,
+        "endMinute": 0,
+        "hotelCurrency": "EUR",
+        "hotelPrice": 8400,
+        "hotelPriceWithBookingFees": 8900,
+        "originalPriceEuro": 18000,
+        "priceEuro": 8400,
+        "priceEuroWithBookingFees": 8900,
+        "ratePlanId": 74668,
+        "startHour": 10,
+        "startMinute": 0
+       }
+      ]
+     },
+     {
+      "cityName": "vincennes",
+      "countryCode": "FR",
+      "countryName": "France",
+      "currencyCode": "EUR",
+      "distanceKm": 6.2,
+      "globalAverageRating": 4.48695652173913,
+      "hotelId": 6247,
+      "lat": 48.8453067,
+      "lon": 2.4326384,
+      "name": "Hôtel Daumesnil-Vincennes",
+      "score": 1.099167403755,
+      "starRating": 3,
+      "totalReview": 23,
+      "offers": [
+       {
+        "availabilityDate": "2026-10-30",
+        "bedding": "double",
+        "capacity": 2,
+        "childrenCapacity": 0,
+        "endHour": 23,
+        "endMinute": 0,
+        "hotelCurrency": "EUR",
+        "hotelPrice": 9000,
+        "hotelPriceWithBookingFees": 9600,
+        "originalPriceEuro": 12500,
+        "priceEuro": 9000,
+        "priceEuroWithBookingFees": 9600,
+        "ratePlanId": 20934,
+        "startHour": 14,
+        "startMinute": 0
+       }
+      ]
+     }
+    ]
+   },
+   "local_page": {
+    "resolvedDate": "2026-10-30",
+    "total": 308,
+    "results": [
+     {
+      "cityName": "paris-7",
+      "countryCode": "FR",
+      "countryName": "France",
+      "currencyCode": "EUR",
+      "distanceKm": 3.1,
+      "globalAverageRating": 4.7,
+      "hotelId": 7672,
+      "lat": 48.8574585,
+      "lon": 2.3062964,
+      "name": "Grand Hôtel Leveque",
+      "score": 7.999999999925,
+      "starRating": 3,
+      "totalReview": 14,
+      "offers": [
+       {
+        "availabilityDate": "2026-10-30",
+        "bedding": "double",
+        "capacity": 2,
+        "childrenCapacity": 0,
+        "endHour": 14,
+        "endMinute": 0,
+        "hotelCurrency": "EUR",
+        "hotelPrice": 8400,
+        "hotelPriceWithBookingFees": 8900,
+        "originalPriceEuro": 15000,
+        "priceEuro": 8400,
+        "priceEuroWithBookingFees": 8900,
+        "ratePlanId": 27768,
+        "startHour": 9,
+        "startMinute": 0
+       }
+      ]
+     },
+     {
+      "cityName": "le-kremlin-bicetre",
+      "countryCode": "FR",
+      "countryName": "France",
+      "currencyCode": "EUR",
+      "distanceKm": 4.3,
+      "globalAverageRating": 4.6571428571428575,
+      "hotelId": 21325,
+      "lat": 48.8155502,
+      "lon": 2.3590387,
+      "name": "Campanile Prime Paris Porte d'Italie",
+      "score": 1.0975000000000001,
+      "starRating": 3,
+      "totalReview": 14,
+      "offers": [
+       {
+        "availabilityDate": "2026-10-30",
+        "bedding": "double",
+        "capacity": 2,
+        "childrenCapacity": 0,
+        "endHour": 14,
+        "endMinute": 0,
+        "hotelCurrency": "EUR",
+        "hotelPrice": 6000,
+        "hotelPriceWithBookingFees": 6500,
+        "originalPriceEuro": 12500,
+        "priceEuro": 6000,
+        "priceEuroWithBookingFees": 6500,
+        "ratePlanId": 82239,
+        "startHour": 10,
+        "startMinute": 0
+       }
+      ]
+     },
+     {
+      "cityName": "malakoff",
+      "countryCode": "FR",
+      "countryName": "France",
+      "currencyCode": "EUR",
+      "distanceKm": 4.7,
+      "globalAverageRating": 4.717647058823529,
+      "hotelId": 11005,
+      "lat": 48.8196779,
+      "lon": 2.3102229,
+      "name": "Aparthotel Adagio Paris Malakoff Châtillon",
+      "score": 1.0575,
+      "starRating": 4,
+      "totalReview": 17,
+      "offers": [
+       {
+        "availabilityDate": "2026-10-30",
+        "bedding": "double",
+        "capacity": 2,
+        "childrenCapacity": 0,
+        "endHour": 14,
+        "endMinute": 0,
+        "hotelCurrency": "EUR",
+        "hotelPrice": 7200,
+        "hotelPriceWithBookingFees": 7200,
+        "originalPriceEuro": 10800,
+        "priceEuro": 7200,
+        "priceEuroWithBookingFees": 7200,
+        "ratePlanId": 41945,
+        "startHour": 10,
+        "startMinute": 0
+       }
+      ]
+     },
+     {
+      "cityName": "ivry-sur-seine",
+      "countryCode": "FR",
+      "countryName": "France",
+      "currencyCode": "EUR",
+      "distanceKm": 4.6,
+      "globalAverageRating": 4.753846153846152,
+      "hotelId": 18995,
+      "lat": 48.8187631,
+      "lon": 2.3813837,
+      "name": "Hôtel Oden Paris Ivry",
+      "score": 1.0160933965,
+      "starRating": 4,
+      "totalReview": 26,
+      "offers": [
+       {
+        "availabilityDate": "2026-10-30",
+        "bedding": "double",
+        "capacity": 2,
+        "childrenCapacity": 0,
+        "endHour": 22,
+        "endMinute": 0,
+        "hotelCurrency": "EUR",
+        "hotelPrice": 9000,
+        "hotelPriceWithBookingFees": 9600,
+        "originalPriceEuro": 17500,
+        "priceEuro": 9000,
+        "priceEuroWithBookingFees": 9600,
+        "ratePlanId": 75227,
+        "startHour": 11,
+        "startMinute": 0
+       }
+      ]
+     },
+     {
+      "cityName": "paris-14",
+      "countryCode": "FR",
+      "countryName": "France",
+      "currencyCode": "EUR",
+      "distanceKm": 2.7,
+      "globalAverageRating": 4.650248756218902,
+      "hotelId": 16896,
+      "lat": 48.8372851,
+      "lon": 2.3200629,
+      "name": "Drawing House",
+      "score": 0.95606731914,
+      "starRating": 4,
+      "totalReview": 201,
+      "offers": [
+       {
+        "availabilityDate": "2026-10-30",
+        "bedding": "double",
+        "capacity": 2,
+        "childrenCapacity": 0,
+        "endHour": 13,
+        "endMinute": 0,
+        "hotelCurrency": "EUR",
+        "hotelPrice": 8100,
+        "hotelPriceWithBookingFees": 8600,
+        "originalPriceEuro": 20000,
+        "priceEuro": 8100,
+        "priceEuroWithBookingFees": 8600,
+        "ratePlanId": 71117,
+        "startHour": 7,
+        "startMinute": 0
+       }
+      ]
+     }
+    ]
+   },
+   "core_page": {
+    "resolvedDate": "2026-10-30",
+    "total": 70,
+    "results": [
+     {
+      "cityName": "paris-4",
+      "countryCode": "FR",
+      "countryName": "France",
+      "currencyCode": "EUR",
+      "distanceKm": 0.6,
+      "globalAverageRating": 4.552631578947369,
+      "hotelId": 14690,
+      "lat": 48.8581186,
+      "lon": 2.3529369,
+      "name": "Hôtel Duo",
+      "score": 0.84028267647,
+      "starRating": 4,
+      "totalReview": 19,
+      "offers": [
+       {
+        "availabilityDate": "2026-10-30",
+        "bedding": "double",
+        "capacity": 2,
+        "childrenCapacity": 0,
+        "endHour": 15,
+        "endMinute": 0,
+        "hotelCurrency": "EUR",
+        "hotelPrice": 10000,
+        "hotelPriceWithBookingFees": 10700,
+        "originalPriceEuro": 20000,
+        "priceEuro": 10000,
+        "priceEuroWithBookingFees": 10700,
+        "ratePlanId": 53278,
+        "startHour": 11,
+        "startMinute": 0
+       }
+      ]
+     },
+     {
+      "cityName": "paris-6",
+      "countryCode": "FR",
+      "countryName": "France",
+      "currencyCode": "EUR",
+      "distanceKm": 2,
+      "globalAverageRating": 4.869230769230769,
+      "hotelId": 15536,
+      "lat": 48.8457519,
+      "lon": 2.3242809,
+      "name": "Victoria Palace",
+      "score": 0.8292530497899999,
+      "starRating": 4,
+      "totalReview": 13,
+      "offers": [
+       {
+        "availabilityDate": "2026-10-30",
+        "bedding": "double",
+        "capacity": 2,
+        "childrenCapacity": 0,
+        "endHour": 16,
+        "endMinute": 30,
+        "hotelCurrency": "EUR",
+        "hotelPrice": 9400,
+        "hotelPriceWithBookingFees": 10000,
+        "originalPriceEuro": 15000,
+        "priceEuro": 9400,
+        "priceEuroWithBookingFees": 10000,
+        "ratePlanId": 67219,
+        "startHour": 11,
+        "startMinute": 0
+       }
+      ]
+     },
+     {
+      "cityName": "paris-12",
+      "countryCode": "FR",
+      "countryName": "France",
+      "currencyCode": "EUR",
+      "distanceKm": 1.9,
+      "globalAverageRating": 4.5708333333333355,
+      "hotelId": 7489,
+      "lat": 48.8467646,
+      "lon": 2.3716567,
+      "name": "Holiday Inn Paris - Gare de Lyon Bastille, an IHG Hotel",
+      "score": 0.827395597825,
+      "starRating": 4,
+      "totalReview": 72,
+      "offers": [
+       {
+        "availabilityDate": "2026-10-30",
+        "bedding": "double",
+        "capacity": 2,
+        "childrenCapacity": 0,
+        "endHour": 17,
+        "endMinute": 0,
+        "hotelCurrency": "EUR",
+        "hotelPrice": 10400,
+        "hotelPriceWithBookingFees": 11100,
+        "originalPriceEuro": 24900,
+        "priceEuro": 10400,
+        "priceEuroWithBookingFees": 11100,
+        "ratePlanId": 26876,
+        "startHour": 10,
+        "startMinute": 30
+       }
+      ]
+     },
+     {
+      "cityName": "paris-6",
+      "countryCode": "FR",
+      "countryName": "France",
+      "currencyCode": "EUR",
+      "distanceKm": 0.4,
+      "globalAverageRating": 4.619999999999999,
+      "hotelId": 8320,
+      "lat": 48.8536635,
+      "lon": 2.3430792,
+      "name": "Le Clos de Notre Dame",
+      "score": 0.8198461932950001,
+      "starRating": 3,
+      "totalReview": 10,
+      "offers": [
+       {
+        "availabilityDate": "2026-10-30",
+        "bedding": "double",
+        "capacity": 2,
+        "childrenCapacity": 0,
+        "endHour": 15,
+        "endMinute": 30,
+        "hotelCurrency": "EUR",
+        "hotelPrice": 9500,
+        "hotelPriceWithBookingFees": 10100,
+        "originalPriceEuro": 25000,
+        "priceEuro": 9500,
+        "priceEuroWithBookingFees": 10100,
+        "ratePlanId": 31154,
+        "startHour": 10,
+        "startMinute": 30
+       }
+      ]
+     },
+     {
+      "cityName": "paris-6",
+      "countryCode": "FR",
+      "countryName": "France",
+      "currencyCode": "EUR",
+      "distanceKm": 1.1,
+      "globalAverageRating": 4.6,
+      "hotelId": 18026,
+      "lat": 48.8519829,
+      "lon": 2.3337889,
+      "name": "Trendy Canettes Hôtel",
+      "score": 0.81557510384,
+      "starRating": 3,
+      "totalReview": 4,
+      "offers": [
+       {
+        "availabilityDate": "2026-10-30",
+        "bedding": "double",
+        "capacity": 2,
+        "childrenCapacity": 0,
+        "endHour": 16,
+        "endMinute": 0,
+        "hotelCurrency": "EUR",
+        "hotelPrice": 7900,
+        "hotelPriceWithBookingFees": 8400,
+        "originalPriceEuro": 21000,
+        "priceEuro": 7900,
+        "priceEuroWithBookingFees": 8400,
+        "ratePlanId": 64858,
+        "startHour": 10,
+        "startMinute": 0
+       }
+      ]
+     }
+    ]
+   }
+  },
+  "london": {
+   "args": {
+    "lat": 51.507446,
+    "lon": -0.127765,
+    "date": "2026-10-30",
+    "from": 0
+   },
+   "page": {
+    "resolvedDate": "2026-10-30",
+    "total": 241,
+    "results": [
+     {
+      "cityName": "brentford",
+      "countryCode": "GB",
+      "countryName": "United Kingdom",
+      "currencyCode": "GBP",
+      "distanceKm": 13.1,
+      "globalAverageRating": 5,
+      "hotelId": 21626,
+      "lat": 51.4827698,
+      "lon": -0.3131199,
+      "name": "Holiday Inn London Brentford Lock",
+      "score": 1.1449344885,
+      "starRating": 4,
+      "totalReview": 5,
+      "offers": [
+       {
+        "availabilityDate": "2026-10-30",
+        "bedding": "double",
+        "capacity": 2,
+        "childrenCapacity": 0,
+        "endHour": 17,
+        "endMinute": 0,
+        "hotelCurrency": "GBP",
+        "hotelPrice": 7000,
+        "hotelPriceWithBookingFees": 7500,
+        "originalPriceEuro": 11125,
+        "priceEuro": 8197,
+        "priceEuroWithBookingFees": 8783,
+        "ratePlanId": 83883,
+        "startHour": 10,
+        "startMinute": 0
+       }
+      ]
+     },
+     {
+      "cityName": "harrow",
+      "countryCode": "GB",
+      "countryName": "United Kingdom",
+      "currencyCode": "GBP",
+      "distanceKm": 12.1,
+      "globalAverageRating": 4.566666666666667,
+      "hotelId": 7477,
+      "lat": 51.5612206,
+      "lon": -0.279168,
+      "name": "Novotel London Wembley",
+      "score": 1.07843883705,
+      "starRating": 4,
+      "totalReview": 81,
+      "offers": [
+       {
+        "availabilityDate": "2026-10-30",
+        "bedding": "double_queen",
+        "capacity": 2,
+        "childrenCapacity": 0,
+        "endHour": 18,
+        "endMinute": 0,
+        "hotelCurrency": "GBP",
+        "hotelPrice": 9000,
+        "hotelPriceWithBookingFees": 9000,
+        "originalPriceEuro": 15809,
+        "priceEuro": 10539,
+        "priceEuroWithBookingFees": 10539,
+        "ratePlanId": 26830,
+        "startHour": 10,
+        "startMinute": 0
+       }
+      ]
+     },
+     {
+      "cityName": "wembley",
+      "countryCode": "GB",
+      "countryName": "United Kingdom",
+      "currencyCode": "GBP",
+      "distanceKm": 11.6,
+      "globalAverageRating": 4.9,
+      "hotelId": 19459,
+      "lat": 51.5660572,
+      "lon": -0.2663167,
+      "name": "MSM Arena Hotel",
+      "score": 1.051979166155,
+      "starRating": 3,
+      "totalReview": 4,
+      "offers": [
+       {
+        "availabilityDate": "2026-10-30",
+        "bedding": "double",
+        "capacity": 2,
+        "childrenCapacity": 0,
+        "endHour": 14,
+        "endMinute": 0,
+        "hotelCurrency": "GBP",
+        "hotelPrice": 5300,
+        "hotelPriceWithBookingFees": 5800,
+        "originalPriceEuro": 14052,
+        "priceEuro": 6206,
+        "priceEuroWithBookingFees": 6792,
+        "ratePlanId": 81270,
+        "startHour": 11,
+        "startMinute": 0
+       }
+      ]
+     },
+     {
+      "cityName": "sutton",
+      "countryCode": "GB",
+      "countryName": "United Kingdom",
+      "currencyCode": "GBP",
+      "distanceKm": 16.8,
+      "globalAverageRating": 4.294117647058823,
+      "hotelId": 10766,
+      "lat": 51.3621931,
+      "lon": -0.1960734,
+      "name": "Holiday Inn LONDON - SUTTON, an IHG Hotel",
+      "score": 1.0412500000000002,
+      "starRating": 4,
+      "totalReview": 34,
+      "offers": [
+       {
+        "availabilityDate": "2026-10-30",
+        "bedding": "double",
+        "capacity": 2,
+        "childrenCapacity": 0,
+        "endHour": 16,
+        "endMinute": 0,
+        "hotelCurrency": "GBP",
+        "hotelPrice": 8000,
+        "hotelPriceWithBookingFees": 8500,
+        "originalPriceEuro": 14052,
+        "priceEuro": 9368,
+        "priceEuroWithBookingFees": 9954,
+        "ratePlanId": 77445,
+        "startHour": 10,
+        "startMinute": 0
+       }
+      ]
+     },
+     {
+      "cityName": "royal-kingston-upon-thames",
+      "countryCode": "GB",
+      "countryName": "United Kingdom",
+      "currencyCode": "GBP",
+      "distanceKm": 13.7,
+      "globalAverageRating": 4.435294117647058,
+      "hotelId": 14949,
+      "lat": 51.4233602,
+      "lon": -0.2726157,
+      "name": "Warren House Hotel",
+      "score": 1.0274414840500001,
+      "starRating": 4,
+      "totalReview": 17,
+      "offers": [
+       {
+        "availabilityDate": "2026-10-30",
+        "bedding": "double",
+        "capacity": 2,
+        "childrenCapacity": 0,
+        "endHour": 17,
+        "endMinute": 0,
+        "hotelCurrency": "GBP",
+        "hotelPrice": 8900,
+        "hotelPriceWithBookingFees": 9500,
+        "originalPriceEuro": 13935,
+        "priceEuro": 10422,
+        "priceEuroWithBookingFees": 11125,
+        "ratePlanId": 71631,
+        "startHour": 10,
+        "startMinute": 0
+       }
+      ]
+     }
+    ]
+   },
+   "local_page": {
+    "resolvedDate": "2026-10-30",
+    "total": 166,
+    "results": [
+     {
+      "cityName": "royal-kensington-and-chelsea",
+      "countryCode": "GB",
+      "countryName": "United Kingdom",
+      "currencyCode": "GBP",
+      "distanceKm": 3.5,
+      "globalAverageRating": 4.499999999999999,
+      "hotelId": 6778,
+      "lat": 51.5161793,
+      "lon": -0.176407,
+      "name": "Hilton London Paddington",
+      "score": 0.9725,
+      "starRating": 4,
+      "totalReview": 24,
+      "offers": [
+       {
+        "availabilityDate": "2026-10-30",
+        "bedding": "double",
+        "capacity": 2,
+        "childrenCapacity": 0,
+        "endHour": 18,
+        "endMinute": 0,
+        "hotelCurrency": "GBP",
+        "hotelPrice": 11000,
+        "hotelPriceWithBookingFees": 11700,
+        "originalPriceEuro": 28690,
+        "priceEuro": 12881,
+        "priceEuroWithBookingFees": 13701,
+        "ratePlanId": 23525,
+        "startHour": 9,
+        "startMinute": 0
+       }
+      ]
+     },
+     {
+      "cityName": "london",
+      "countryCode": "GB",
+      "countryName": "United Kingdom",
+      "currencyCode": "GBP",
+      "distanceKm": 2,
+      "globalAverageRating": 4.6280334728033425,
+      "hotelId": 11542,
+      "lat": 51.5127573,
+      "lon": -0.0997084,
+      "name": "Leonardo Royal Hotel London St Pauls",
+      "score": 0.864886810115,
+      "starRating": 4,
+      "totalReview": 239,
+      "offers": [
+       {
+        "availabilityDate": "2026-10-30",
+        "bedding": "double_king",
+        "capacity": 2,
+        "childrenCapacity": 0,
+        "endHour": 17,
+        "endMinute": 0,
+        "hotelCurrency": "GBP",
+        "hotelPrice": 16600,
+        "hotelPriceWithBookingFees": 17500,
+        "originalPriceEuro": 24591,
+        "priceEuro": 19439,
+        "priceEuroWithBookingFees": 20493,
+        "ratePlanId": 94950,
+        "startHour": 10,
+        "startMinute": 0
+       }
+      ]
+     },
+     {
+      "cityName": "london",
+      "countryCode": "GB",
+      "countryName": "United Kingdom",
+      "currencyCode": "GBP",
+      "distanceKm": 2.1,
+      "globalAverageRating": 4.445833333333332,
+      "hotelId": 19681,
+      "lat": 51.5263416,
+      "lon": -0.1296761,
+      "name": "Four Points Flex by Sheraton London Euston",
+      "score": 0.851465400325,
+      "starRating": 3,
+      "totalReview": 24,
+      "offers": [
+       {
+        "availabilityDate": "2026-10-30",
+        "bedding": "double",
+        "capacity": 2,
+        "childrenCapacity": 0,
+        "endHour": 18,
+        "endMinute": 0,
+        "hotelCurrency": "GBP",
+        "hotelPrice": 8000,
+        "hotelPriceWithBookingFees": 8500,
+        "originalPriceEuro": 14638,
+        "priceEuro": 9368,
+        "priceEuroWithBookingFees": 9954,
+        "ratePlanId": 73981,
+        "startHour": 10,
+        "startMinute": 0
+       }
+      ]
+     },
+     {
+      "cityName": "london",
+      "countryCode": "GB",
+      "countryName": "United Kingdom",
+      "currencyCode": "GBP",
+      "distanceKm": 2,
+      "globalAverageRating": 4.628571428571429,
+      "hotelId": 22272,
+      "lat": 51.4918999,
+      "lon": -0.1418227,
+      "name": "The Dover Hotel",
+      "score": 0.844579518645,
+      "starRating": 2,
+      "totalReview": 7,
+      "offers": [
+       {
+        "availabilityDate": "2026-10-30",
+        "bedding": "double",
+        "capacity": 2,
+        "childrenCapacity": 0,
+        "endHour": 16,
+        "endMinute": 0,
+        "hotelCurrency": "GBP",
+        "hotelPrice": 4500,
+        "hotelPriceWithBookingFees": 5000,
+        "originalPriceEuro": 11710,
+        "priceEuro": 5270,
+        "priceEuroWithBookingFees": 5856,
+        "ratePlanId": 87899,
+        "startHour": 10,
+        "startMinute": 0
+       }
+      ]
+     },
+     {
+      "cityName": "london",
+      "countryCode": "GB",
+      "countryName": "United Kingdom",
+      "currencyCode": "GBP",
+      "distanceKm": 3.7,
+      "globalAverageRating": 5,
+      "hotelId": 22496,
+      "lat": 51.5141643,
+      "lon": -0.0755189,
+      "name": "Leonardo Hotel London Aldgate",
+      "score": 0.84141035308,
+      "starRating": 4,
+      "totalReview": 2,
+      "offers": [
+       {
+        "availabilityDate": "2026-10-30",
+        "bedding": "double",
+        "capacity": 2,
+        "childrenCapacity": 0,
+        "endHour": 17,
+        "endMinute": 0,
+        "hotelCurrency": "GBP",
+        "hotelPrice": 10500,
+        "hotelPriceWithBookingFees": 11200,
+        "originalPriceEuro": 25762,
+        "priceEuro": 12296,
+        "priceEuroWithBookingFees": 13116,
+        "ratePlanId": 89312,
+        "startHour": 10,
+        "startMinute": 0
+       }
+      ]
+     }
+    ]
+   },
+   "core_page": {
+    "resolvedDate": "2026-10-30",
+    "total": 60,
+    "results": [
+     {
+      "cityName": "london",
+      "countryCode": "GB",
+      "countryName": "United Kingdom",
+      "currencyCode": "GBP",
+      "distanceKm": 2,
+      "globalAverageRating": 4.628571428571429,
+      "hotelId": 22272,
+      "lat": 51.4918999,
+      "lon": -0.1418227,
+      "name": "The Dover Hotel",
+      "score": 0.844579518645,
+      "starRating": 2,
+      "totalReview": 7,
+      "offers": [
+       {
+        "availabilityDate": "2026-10-30",
+        "bedding": "double",
+        "capacity": 2,
+        "childrenCapacity": 0,
+        "endHour": 16,
+        "endMinute": 0,
+        "hotelCurrency": "GBP",
+        "hotelPrice": 4500,
+        "hotelPriceWithBookingFees": 5000,
+        "originalPriceEuro": 11710,
+        "priceEuro": 5270,
+        "priceEuroWithBookingFees": 5856,
+        "ratePlanId": 87899,
+        "startHour": 10,
+        "startMinute": 0
+       }
+      ]
+     },
+     {
+      "cityName": "london",
+      "countryCode": "GB",
+      "countryName": "United Kingdom",
+      "currencyCode": "GBP",
+      "distanceKm": 2,
+      "globalAverageRating": 4.605882352941176,
+      "hotelId": 19654,
+      "lat": 51.4920396,
+      "lon": -0.1422815,
+      "name": "easyHotel Victoria",
+      "score": 0.83697525671,
+      "starRating": 2,
+      "totalReview": 17,
+      "offers": [
+       {
+        "availabilityDate": "2026-10-30",
+        "bedding": "double",
+        "capacity": 2,
+        "childrenCapacity": 0,
+        "endHour": 16,
+        "endMinute": 0,
+        "hotelCurrency": "GBP",
+        "hotelPrice": 5300,
+        "hotelPriceWithBookingFees": 5800,
+        "originalPriceEuro": 9719,
+        "priceEuro": 6206,
+        "priceEuroWithBookingFees": 6792,
+        "ratePlanId": 73887,
+        "startHour": 10,
+        "startMinute": 0
+       }
+      ]
+     },
+     {
+      "cityName": "london",
+      "countryCode": "GB",
+      "countryName": "United Kingdom",
+      "currencyCode": "GBP",
+      "distanceKm": 1.4,
+      "globalAverageRating": 4.73103448275862,
+      "hotelId": 21631,
+      "lat": 51.4991489,
+      "lon": -0.1132718,
+      "name": "Marlin Waterloo",
+      "score": 0.827225070435,
+      "starRating": 4,
+      "totalReview": 29,
+      "offers": [
+       {
+        "availabilityDate": "2026-10-30",
+        "bedding": "double",
+        "capacity": 2,
+        "childrenCapacity": 0,
+        "endHour": 15,
+        "endMinute": 0,
+        "hotelCurrency": "GBP",
+        "hotelPrice": 11500,
+        "hotelPriceWithBookingFees": 12200,
+        "originalPriceEuro": 19790,
+        "priceEuro": 13467,
+        "priceEuroWithBookingFees": 14287,
+        "ratePlanId": 84574,
+        "startHour": 7,
+        "startMinute": 0
+       }
+      ]
+     },
+     {
+      "cityName": "london",
+      "countryCode": "GB",
+      "countryName": "United Kingdom",
+      "currencyCode": "GBP",
+      "distanceKm": 1.6,
+      "globalAverageRating": 4.7,
+      "hotelId": 21945,
+      "lat": 51.5177046,
+      "lon": -0.1430006,
+      "name": "Treehouse Hotel London",
+      "score": 0.820904091775,
+      "starRating": 4,
+      "totalReview": 4,
+      "offers": [
+       {
+        "availabilityDate": "2026-10-30",
+        "bedding": "double",
+        "capacity": 2,
+        "childrenCapacity": 0,
+        "endHour": 17,
+        "endMinute": 0,
+        "hotelCurrency": "GBP",
+        "hotelPrice": 16000,
+        "hotelPriceWithBookingFees": 16900,
+        "originalPriceEuro": 35130,
+        "priceEuro": 18736,
+        "priceEuroWithBookingFees": 19790,
+        "ratePlanId": 85591,
+        "startHour": 10,
+        "startMinute": 0
+       }
+      ]
+     },
+     {
+      "cityName": "london",
+      "countryCode": "GB",
+      "countryName": "United Kingdom",
+      "currencyCode": "GBP",
+      "distanceKm": 1.2,
+      "globalAverageRating": 4.5307692307692315,
+      "hotelId": 10986,
+      "lat": 51.5177852,
+      "lon": -0.1243333,
+      "name": "Thistle Holborn the Kingsley",
+      "score": 0.80743880264,
+      "starRating": 4,
+      "totalReview": 13,
+      "offers": [
+       {
+        "availabilityDate": "2026-10-30",
+        "bedding": "double",
+        "capacity": 2,
+        "childrenCapacity": 0,
+        "endHour": 17,
+        "endMinute": 0,
+        "hotelCurrency": "GBP",
+        "hotelPrice": 11500,
+        "hotelPriceWithBookingFees": 12200,
+        "originalPriceEuro": 24591,
+        "priceEuro": 13467,
+        "priceEuroWithBookingFees": 14287,
+        "ratePlanId": 41881,
+        "startHour": 10,
+        "startMinute": 0
+       }
+      ]
+     }
+    ]
+   }
+  },
+  "ny_midtown": {
+   "args": {
+    "lat": 40.7549,
+    "lon": -73.984,
+    "date": "2026-10-30",
+    "from": 0
+   },
+   "page": {
+    "resolvedDate": "2026-10-30",
+    "total": 154,
+    "results": [
+     {
+      "cityName": "brooklyn",
+      "countryCode": "US",
+      "countryName": "USA",
+      "currencyCode": "USD",
+      "distanceKm": 6.5,
+      "globalAverageRating": 4.5793103448275865,
+      "hotelId": 13247,
+      "lat": 40.6965322,
+      "lon": -73.984383,
+      "name": "The Tillary Hotel Brooklyn",
+      "score": 1.37431056145,
+      "starRating": 4,
+      "totalReview": 29,
+      "offers": [
+       {
+        "availabilityDate": "2026-10-30",
+        "bedding": "twin_doubles",
+        "capacity": 4,
+        "childrenCapacity": 0,
+        "endHour": 15,
+        "endMinute": 30,
+        "hotelCurrency": "USD",
+        "hotelPrice": 7900,
+        "hotelPriceWithBookingFees": 8500,
+        "originalPriceEuro": 26398,
+        "priceEuro": 6975,
+        "priceEuroWithBookingFees": 7505,
+        "ratePlanId": 75773,
+        "startHour": 11,
+        "startMinute": 0
+       }
+      ]
+     },
+     {
+      "cityName": "east-elmhurst",
+      "countryCode": "US",
+      "countryName": "USA",
+      "currencyCode": "USD",
+      "distanceKm": 9.9,
+      "globalAverageRating": 4.613934426229508,
+      "hotelId": 8533,
+      "lat": 40.7670082,
+      "lon": -73.8670454,
+      "name": "DoubleTree by Hilton New York LaGuardia",
+      "score": 1.2125,
+      "starRating": 3,
+      "totalReview": 122,
+      "offers": [
+       {
+        "availabilityDate": "2026-10-30",
+        "bedding": "double",
+        "capacity": 2,
+        "childrenCapacity": 0,
+        "endHour": 18,
+        "endMinute": 0,
+        "hotelCurrency": "USD",
+        "hotelPrice": 11900,
+        "hotelPriceWithBookingFees": 12700,
+        "originalPriceEuro": 22072,
+        "priceEuro": 10506,
+        "priceEuroWithBookingFees": 11212,
+        "ratePlanId": 82504,
+        "startHour": 9,
+        "startMinute": 0
+       }
+      ]
+     },
+     {
+      "cityName": "downtown-manhattan",
+      "countryCode": "US",
+      "countryName": "USA",
+      "currencyCode": "USD",
+      "distanceKm": 5.8,
+      "globalAverageRating": 4.5434782608695645,
+      "hotelId": 10091,
+      "lat": 40.7055913,
+      "lon": -74.007255,
+      "name": "Holiday Inn Express Wall Street",
+      "score": 1.1411108996900001,
+      "starRating": 3,
+      "totalReview": 23,
+      "offers": [
+       {
+        "availabilityDate": "2026-10-30",
+        "bedding": "double_king",
+        "capacity": 2,
+        "childrenCapacity": 0,
+        "endHour": 16,
+        "endMinute": 0,
+        "hotelCurrency": "USD",
+        "hotelPrice": 10900,
+        "hotelPriceWithBookingFees": 11600,
+        "originalPriceEuro": 24986,
+        "priceEuro": 9623,
+        "priceEuroWithBookingFees": 10241,
+        "ratePlanId": 38336,
+        "startHour": 12,
+        "startMinute": 0
+       }
+      ]
+     },
+     {
+      "cityName": "village-of-ridgefield-park",
+      "countryCode": "US",
+      "countryName": "USA",
+      "currencyCode": "USD",
+      "distanceKm": 10.2,
+      "globalAverageRating": 4.333333333333333,
+      "hotelId": 20019,
+      "lat": 40.8448222,
+      "lon": -74.0076898,
+      "name": "Days Inn by Wyndham Ridgefield NJ",
+      "score": 1.0975000000000001,
+      "starRating": 2,
+      "totalReview": 3,
+      "offers": [
+       {
+        "availabilityDate": "2026-10-30",
+        "bedding": "double",
+        "capacity": 2,
+        "childrenCapacity": 0,
+        "endHour": 14,
+        "endMinute": 0,
+        "hotelCurrency": "USD",
+        "hotelPrice": 7500,
+        "hotelPriceWithBookingFees": 8200,
+        "originalPriceEuro": 17658,
+        "priceEuro": 6622,
+        "priceEuroWithBookingFees": 7240,
+        "ratePlanId": 75756,
+        "startHour": 9,
+        "startMinute": 0
+       }
+      ]
+     },
+     {
+      "cityName": "north-bergen",
+      "countryCode": "US",
+      "countryName": "USA",
+      "currencyCode": "USD",
+      "distanceKm": 5.2,
+      "globalAverageRating": 4.638888888888889,
+      "hotelId": 19081,
+      "lat": 40.7739959,
+      "lon": -74.0408842,
+      "name": "Garner Hotel North Bergen",
+      "score": 1.08228291592,
+      "starRating": 3,
+      "totalReview": 18,
+      "offers": [
+       {
+        "availabilityDate": "2026-10-30",
+        "bedding": "double_king",
+        "capacity": 2,
+        "childrenCapacity": 0,
+        "endHour": 16,
+        "endMinute": 0,
+        "hotelCurrency": "USD",
+        "hotelPrice": 7900,
+        "hotelPriceWithBookingFees": 8500,
+        "originalPriceEuro": 10771,
+        "priceEuro": 6975,
+        "priceEuroWithBookingFees": 7505,
+        "ratePlanId": 70697,
+        "startHour": 9,
+        "startMinute": 0
+       }
+      ]
+     }
+    ]
+   },
+   "local_page": {
+    "resolvedDate": "2026-10-30",
+    "total": 71,
+    "results": [
+     {
+      "cityName": "long-island-city",
+      "countryCode": "US",
+      "countryName": "USA",
+      "currencyCode": "USD",
+      "distanceKm": 3.6,
+      "globalAverageRating": 4.666666666666666,
+      "hotelId": 19790,
+      "lat": 40.7583316,
+      "lon": -73.9419852,
+      "name": "Hampton Inn by Hilton Long Island City New York",
+      "score": 1.068393280885,
+      "starRating": 2,
+      "totalReview": 18,
+      "offers": [
+       {
+        "availabilityDate": "2026-10-30",
+        "bedding": "double_king",
+        "capacity": 2,
+        "childrenCapacity": 0,
+        "endHour": 15,
+        "endMinute": 0,
+        "hotelCurrency": "USD",
+        "hotelPrice": 8400,
+        "hotelPriceWithBookingFees": 8900,
+        "originalPriceEuro": 15892,
+        "priceEuro": 7416,
+        "priceEuroWithBookingFees": 7857,
+        "ratePlanId": 74452,
+        "startHour": 10,
+        "startMinute": 0
+       }
+      ]
+     },
+     {
+      "cityName": "new-york-city",
+      "countryCode": "US",
+      "countryName": "USA",
+      "currencyCode": "USD",
+      "distanceKm": 0.7,
+      "globalAverageRating": 4.428571428571429,
+      "hotelId": 22838,
+      "lat": 40.7553269,
+      "lon": -73.9925759,
+      "name": "Hotel 38, Tapestry Collection by Hilton",
+      "score": 0.8932097399000001,
+      "starRating": 4,
+      "totalReview": 7,
+      "offers": [
+       {
+        "availabilityDate": "2026-10-30",
+        "bedding": "double",
+        "capacity": 2,
+        "childrenCapacity": 0,
+        "endHour": 15,
+        "endMinute": 0,
+        "hotelCurrency": "USD",
+        "hotelPrice": 9000,
+        "hotelPriceWithBookingFees": 9600,
+        "originalPriceEuro": 26486,
+        "priceEuro": 7946,
+        "priceEuroWithBookingFees": 8476,
+        "ratePlanId": 91833,
+        "startHour": 10,
+        "startMinute": 0
+       }
+      ]
+     },
+     {
+      "cityName": "midtown-manhattan",
+      "countryCode": "US",
+      "countryName": "USA",
+      "currencyCode": "USD",
+      "distanceKm": 0.5,
+      "globalAverageRating": 4.663066202090587,
+      "hotelId": 15974,
+      "lat": 40.7503734,
+      "lon": -73.9836689,
+      "name": "The Draper Tapestry Collection by Hilton",
+      "score": 0.8748060212,
+      "starRating": 3,
+      "totalReview": 287,
+      "offers": [
+       {
+        "availabilityDate": "2026-10-30",
+        "bedding": "double_king",
+        "capacity": 2,
+        "childrenCapacity": 0,
+        "endHour": 15,
+        "endMinute": 0,
+        "hotelCurrency": "USD",
+        "hotelPrice": 8900,
+        "hotelPriceWithBookingFees": 9500,
+        "originalPriceEuro": 29576,
+        "priceEuro": 7858,
+        "priceEuroWithBookingFees": 8388,
+        "ratePlanId": 58406,
+        "startHour": 10,
+        "startMinute": 0
+       }
+      ]
+     },
+     {
+      "cityName": "downtown-manhattan",
+      "countryCode": "US",
+      "countryName": "USA",
+      "currencyCode": "USD",
+      "distanceKm": 2.6,
+      "globalAverageRating": 4.660869565217391,
+      "hotelId": 13865,
+      "lat": 40.7315059,
+      "lon": -73.9895444,
+      "name": "Moxy NYC East Village",
+      "score": 0.8550575797,
+      "starRating": 4,
+      "totalReview": 23,
+      "offers": [
+       {
+        "availabilityDate": "2026-10-30",
+        "bedding": "double",
+        "capacity": 2,
+        "childrenCapacity": 0,
+        "endHour": 18,
+        "endMinute": 0,
+        "hotelCurrency": "USD",
+        "hotelPrice": 19900,
+        "hotelPriceWithBookingFees": 20900,
+        "originalPriceEuro": 19335,
+        "priceEuro": 17569,
+        "priceEuroWithBookingFees": 18452,
+        "ratePlanId": 50106,
+        "startHour": 10,
+        "startMinute": 0
+       }
+      ]
+     },
+     {
+      "cityName": "midtown-manhattan",
+      "countryCode": "US",
+      "countryName": "USA",
+      "currencyCode": "USD",
+      "distanceKm": 0.7,
+      "globalAverageRating": 4.538989169675086,
+      "hotelId": 11352,
+      "lat": 40.7520617,
+      "lon": -73.9762995,
+      "name": "Hyatt Grand Central New York",
+      "score": 0.8465530284,
+      "starRating": 4,
+      "totalReview": 277,
+      "offers": [
+       {
+        "availabilityDate": "2026-10-30",
+        "bedding": "double",
+        "capacity": 2,
+        "childrenCapacity": 0,
+        "endHour": 16,
+        "endMinute": 0,
+        "hotelCurrency": "USD",
+        "hotelPrice": 14900,
+        "hotelPriceWithBookingFees": 15900,
+        "originalPriceEuro": 17658,
+        "priceEuro": 13155,
+        "priceEuroWithBookingFees": 14038,
+        "ratePlanId": 43400,
+        "startHour": 10,
+        "startMinute": 0
+       }
+      ]
+     }
+    ]
+   },
+   "core_page": {
+    "resolvedDate": "2026-10-30",
+    "total": 55,
+    "results": [
+     {
+      "cityName": "new-york-city",
+      "countryCode": "US",
+      "countryName": "USA",
+      "currencyCode": "USD",
+      "distanceKm": 0.7,
+      "globalAverageRating": 4.428571428571429,
+      "hotelId": 22838,
+      "lat": 40.7553269,
+      "lon": -73.9925759,
+      "name": "Hotel 38, Tapestry Collection by Hilton",
+      "score": 0.8932097399000001,
+      "starRating": 4,
+      "totalReview": 7,
+      "offers": [
+       {
+        "availabilityDate": "2026-10-30",
+        "bedding": "double",
+        "capacity": 2,
+        "childrenCapacity": 0,
+        "endHour": 15,
+        "endMinute": 0,
+        "hotelCurrency": "USD",
+        "hotelPrice": 9000,
+        "hotelPriceWithBookingFees": 9600,
+        "originalPriceEuro": 26486,
+        "priceEuro": 7946,
+        "priceEuroWithBookingFees": 8476,
+        "ratePlanId": 91833,
+        "startHour": 10,
+        "startMinute": 0
+       }
+      ]
+     },
+     {
+      "cityName": "midtown-manhattan",
+      "countryCode": "US",
+      "countryName": "USA",
+      "currencyCode": "USD",
+      "distanceKm": 0.5,
+      "globalAverageRating": 4.663066202090587,
+      "hotelId": 15974,
+      "lat": 40.7503734,
+      "lon": -73.9836689,
+      "name": "The Draper Tapestry Collection by Hilton",
+      "score": 0.8748060212,
+      "starRating": 3,
+      "totalReview": 287,
+      "offers": [
+       {
+        "availabilityDate": "2026-10-30",
+        "bedding": "double_king",
+        "capacity": 2,
+        "childrenCapacity": 0,
+        "endHour": 15,
+        "endMinute": 0,
+        "hotelCurrency": "USD",
+        "hotelPrice": 8900,
+        "hotelPriceWithBookingFees": 9500,
+        "originalPriceEuro": 29576,
+        "priceEuro": 7858,
+        "priceEuroWithBookingFees": 8388,
+        "ratePlanId": 58406,
+        "startHour": 10,
+        "startMinute": 0
+       }
+      ]
+     },
+     {
+      "cityName": "midtown-manhattan",
+      "countryCode": "US",
+      "countryName": "USA",
+      "currencyCode": "USD",
+      "distanceKm": 0.7,
+      "globalAverageRating": 4.538989169675086,
+      "hotelId": 11352,
+      "lat": 40.7520617,
+      "lon": -73.9762995,
+      "name": "Hyatt Grand Central New York",
+      "score": 0.8465530284,
+      "starRating": 4,
+      "totalReview": 277,
+      "offers": [
+       {
+        "availabilityDate": "2026-10-30",
+        "bedding": "double",
+        "capacity": 2,
+        "childrenCapacity": 0,
+        "endHour": 16,
+        "endMinute": 0,
+        "hotelCurrency": "USD",
+        "hotelPrice": 14900,
+        "hotelPriceWithBookingFees": 15900,
+        "originalPriceEuro": 17658,
+        "priceEuro": 13155,
+        "priceEuroWithBookingFees": 14038,
+        "ratePlanId": 43400,
+        "startHour": 10,
+        "startMinute": 0
+       }
+      ]
+     },
+     {
+      "cityName": "midtown-manhattan",
+      "countryCode": "US",
+      "countryName": "USA",
+      "currencyCode": "USD",
+      "distanceKm": 1.1,
+      "globalAverageRating": 4.503125000000001,
+      "hotelId": 13864,
+      "lat": 40.7464653,
+      "lon": -73.9909617,
+      "name": "Moxy NYC Chelsea",
+      "score": 0.826282311995,
+      "starRating": 4,
+      "totalReview": 32,
+      "offers": [
+       {
+        "availabilityDate": "2026-10-30",
+        "bedding": "double_king",
+        "capacity": 2,
+        "childrenCapacity": 0,
+        "endHour": 16,
+        "endMinute": 30,
+        "hotelCurrency": "USD",
+        "hotelPrice": 11900,
+        "hotelPriceWithBookingFees": 12700,
+        "originalPriceEuro": 22072,
+        "priceEuro": 10506,
+        "priceEuroWithBookingFees": 11212,
+        "ratePlanId": 75770,
+        "startHour": 10,
+        "startMinute": 0
+       }
+      ]
+     },
+     {
+      "cityName": "midtown-manhattan",
+      "countryCode": "US",
+      "countryName": "USA",
+      "currencyCode": "USD",
+      "distanceKm": 1.4,
+      "globalAverageRating": 4.53125,
+      "hotelId": 15404,
+      "lat": 40.7609778,
+      "lon": -73.9696088,
+      "name": "Hotel 57",
+      "score": 0.796271547615,
+      "starRating": 4,
+      "totalReview": 32,
+      "offers": [
+       {
+        "availabilityDate": "2026-10-30",
+        "bedding": "double_king",
+        "capacity": 2,
+        "childrenCapacity": 0,
+        "endHour": 17,
+        "endMinute": 0,
+        "hotelCurrency": "USD",
+        "hotelPrice": 12500,
+        "hotelPriceWithBookingFees": 13400,
+        "originalPriceEuro": 44144,
+        "priceEuro": 11036,
+        "priceEuroWithBookingFees": 11831,
+        "ratePlanId": 80224,
+        "startHour": 10,
+        "startMinute": 0
+       }
+      ]
+     }
+    ]
+   }
+  },
+  "milano_spa": {
+   "args": {
+    "lat": 45.4643,
+    "lon": 9.1895,
+    "date": "2026-10-30",
+    "from": 0,
+    "hotelEquipmentIds": [
+     35
+    ]
+   },
+   "page": {
+    "resolvedDate": "2026-10-30",
+    "total": 16,
+    "results": [
+     {
+      "cityName": "trezzano-sul-naviglio",
+      "countryCode": "IT",
+      "countryName": "Italy",
+      "currencyCode": "EUR",
+      "distanceKm": 10.1,
+      "globalAverageRating": 4.545833333333333,
+      "hotelId": 6335,
+      "lat": 45.4266966,
+      "lon": 9.0713972,
+      "name": "Best Western Hotel Goldenmile Milan",
+      "score": 1.102500000075,
+      "starRating": 4,
+      "totalReview": 24,
+      "offers": [
+       {
+        "availabilityDate": "2026-10-30",
+        "bedding": "double",
+        "capacity": 2,
+        "childrenCapacity": 0,
+        "endHour": 15,
+        "endMinute": 0,
+        "hotelCurrency": "EUR",
+        "hotelPrice": 8500,
+        "hotelPriceWithBookingFees": 8900,
+        "originalPriceEuro": 15000,
+        "priceEuro": 8500,
+        "priceEuroWithBookingFees": 8900,
+        "ratePlanId": 21329,
+        "startHour": 10,
+        "startMinute": 0
+       }
+      ]
+     },
+     {
+      "cityName": "san-donato-milanese",
+      "countryCode": "IT",
+      "countryName": "Italy",
+      "currencyCode": "EUR",
+      "distanceKm": 7.8,
+      "globalAverageRating": 4.7,
+      "hotelId": 18676,
+      "lat": 45.395755,
+      "lon": 9.2113321,
+      "name": "Acca Sporting Milano - AA Hotels",
+      "score": 1.08710371495,
+      "starRating": 4,
+      "totalReview": 6,
+      "offers": [
+       {
+        "availabilityDate": "2026-10-30",
+        "bedding": "double",
+        "capacity": 2,
+        "childrenCapacity": 0,
+        "endHour": 16,
+        "endMinute": 30,
+        "hotelCurrency": "EUR",
+        "hotelPrice": 8200,
+        "hotelPriceWithBookingFees": 8600,
+        "originalPriceEuro": 11000,
+        "priceEuro": 8200,
+        "priceEuroWithBookingFees": 8600,
+        "ratePlanId": 68484,
+        "startHour": 10,
+        "startMinute": 0
+       }
+      ]
+     },
+     {
+      "cityName": "milano",
+      "countryCode": "IT",
+      "countryName": "Italy",
+      "currencyCode": "EUR",
+      "distanceKm": 3.5,
+      "globalAverageRating": 4.520689655172413,
+      "hotelId": 5927,
+      "lat": 45.4868397,
+      "lon": 9.1572775,
+      "name": "Enterprise Hotel",
+      "score": 0.84041193259,
+      "starRating": 4,
+      "totalReview": 29,
+      "offers": [
+       {
+        "availabilityDate": "2026-10-30",
+        "bedding": "double",
+        "capacity": 2,
+        "childrenCapacity": 0,
+        "endHour": 18,
+        "endMinute": 0,
+        "hotelCurrency": "EUR",
+        "hotelPrice": 18600,
+        "hotelPriceWithBookingFees": 19500,
+        "originalPriceEuro": 23000,
+        "priceEuro": 18600,
+        "priceEuroWithBookingFees": 19500,
+        "ratePlanId": 19326,
+        "startHour": 10,
+        "startMinute": 0
+       }
+      ]
+     },
+     {
+      "cityName": "lainate",
+      "countryCode": "IT",
+      "countryName": "Italy",
+      "currencyCode": "EUR",
+      "distanceKm": 16.7,
+      "globalAverageRating": 4.632142857142857,
+      "hotelId": 10347,
+      "lat": 45.5620439,
+      "lon": 9.0271964,
+      "name": "Hotel Litta Palace",
+      "score": 0.8375,
+      "starRating": 4,
+      "totalReview": 28,
+      "offers": [
+       {
+        "availabilityDate": "2026-10-30",
+        "bedding": "double",
+        "capacity": 2,
+        "childrenCapacity": 0,
+        "endHour": 17,
+        "endMinute": 0,
+        "hotelCurrency": "EUR",
+        "hotelPrice": 11400,
+        "hotelPriceWithBookingFees": 12000,
+        "originalPriceEuro": 18000,
+        "priceEuro": 11400,
+        "priceEuroWithBookingFees": 12000,
+        "ratePlanId": 39563,
+        "startHour": 10,
+        "startMinute": 0
+       }
+      ]
+     },
+     {
+      "cityName": "milano",
+      "countryCode": "IT",
+      "countryName": "Italy",
+      "currencyCode": "EUR",
+      "distanceKm": 2.7,
+      "globalAverageRating": 4.754545454545455,
+      "hotelId": 7958,
+      "lat": 45.4438072,
+      "lon": 9.2070108,
+      "name": "Zambala Luxury Apartments",
+      "score": 0.792675734195,
+      "starRating": 4,
+      "totalReview": 11,
+      "offers": [
+       {
+        "availabilityDate": "2026-10-30",
+        "bedding": "double",
+        "capacity": 2,
+        "childrenCapacity": 0,
+        "endHour": 16,
+        "endMinute": 0,
+        "hotelCurrency": "EUR",
+        "hotelPrice": 9900,
+        "hotelPriceWithBookingFees": 10500,
+        "originalPriceEuro": 17000,
+        "priceEuro": 9900,
+        "priceEuroWithBookingFees": 10500,
+        "ratePlanId": 29500,
+        "startHour": 10,
+        "startMinute": 0
+       }
+      ]
+     }
+    ]
+   },
+   "local_page": {
+    "resolvedDate": "2026-10-30",
+    "total": 9,
+    "results": [
+     {
+      "cityName": "milano",
+      "countryCode": "IT",
+      "countryName": "Italy",
+      "currencyCode": "EUR",
+      "distanceKm": 3.5,
+      "globalAverageRating": 4.520689655172413,
+      "hotelId": 5927,
+      "lat": 45.4868397,
+      "lon": 9.1572775,
+      "name": "Enterprise Hotel",
+      "score": 0.84041193259,
+      "starRating": 4,
+      "totalReview": 29,
+      "offers": [
+       {
+        "availabilityDate": "2026-10-30",
+        "bedding": "double",
+        "capacity": 2,
+        "childrenCapacity": 0,
+        "endHour": 18,
+        "endMinute": 0,
+        "hotelCurrency": "EUR",
+        "hotelPrice": 18600,
+        "hotelPriceWithBookingFees": 19500,
+        "originalPriceEuro": 23000,
+        "priceEuro": 18600,
+        "priceEuroWithBookingFees": 19500,
+        "ratePlanId": 19326,
+        "startHour": 10,
+        "startMinute": 0
+       }
+      ]
+     },
+     {
+      "cityName": "milano",
+      "countryCode": "IT",
+      "countryName": "Italy",
+      "currencyCode": "EUR",
+      "distanceKm": 2.7,
+      "globalAverageRating": 4.754545454545455,
+      "hotelId": 7958,
+      "lat": 45.4438072,
+      "lon": 9.2070108,
+      "name": "Zambala Luxury Apartments",
+      "score": 0.792675734195,
+      "starRating": 4,
+      "totalReview": 11,
+      "offers": [
+       {
+        "availabilityDate": "2026-10-30",
+        "bedding": "double",
+        "capacity": 2,
+        "childrenCapacity": 0,
+        "endHour": 16,
+        "endMinute": 0,
+        "hotelCurrency": "EUR",
+        "hotelPrice": 9900,
+        "hotelPriceWithBookingFees": 10500,
+        "originalPriceEuro": 17000,
+        "priceEuro": 9900,
+        "priceEuroWithBookingFees": 10500,
+        "ratePlanId": 29500,
+        "startHour": 10,
+        "startMinute": 0
+       }
+      ]
+     },
+     {
+      "cityName": "milano",
+      "countryCode": "IT",
+      "countryName": "Italy",
+      "currencyCode": "EUR",
+      "distanceKm": 2.5,
+      "globalAverageRating": 4.5574468085106385,
+      "hotelId": 6455,
+      "lat": 45.4806725,
+      "lon": 9.2115387,
+      "name": "UNA HOTELS Galles Milano",
+      "score": 0.765268658135,
+      "starRating": 4,
+      "totalReview": 47,
+      "offers": [
+       {
+        "availabilityDate": "2026-10-30",
+        "bedding": "double",
+        "capacity": 2,
+        "childrenCapacity": 0,
+        "endHour": 16,
+        "endMinute": 0,
+        "hotelCurrency": "EUR",
+        "hotelPrice": 8000,
+        "hotelPriceWithBookingFees": 8400,
+        "originalPriceEuro": 16000,
+        "priceEuro": 8000,
+        "priceEuroWithBookingFees": 8400,
+        "ratePlanId": 21955,
+        "startHour": 10,
+        "startMinute": 0
+       }
+      ]
+     },
+     {
+      "cityName": "milano",
+      "countryCode": "IT",
+      "countryName": "Italy",
+      "currencyCode": "EUR",
+      "distanceKm": 1.5,
+      "globalAverageRating": 4.786666666666665,
+      "hotelId": 5928,
+      "lat": 45.468385,
+      "lon": 9.2072289,
+      "name": "Château Monfort - Relais & Châteaux",
+      "score": 0.72362666839,
+      "starRating": 5,
+      "totalReview": 15,
+      "offers": [
+       {
+        "availabilityDate": "2026-10-30",
+        "bedding": "double",
+        "capacity": 2,
+        "childrenCapacity": 0,
+        "endHour": 18,
+        "endMinute": 0,
+        "hotelCurrency": "EUR",
+        "hotelPrice": 24200,
+        "hotelPriceWithBookingFees": 25100,
+        "originalPriceEuro": 40000,
+        "priceEuro": 24200,
+        "priceEuroWithBookingFees": 25100,
+        "ratePlanId": 72200,
+        "startHour": 11,
+        "startMinute": 0
+       }
+      ]
+     },
+     {
+      "cityName": "milano",
+      "countryCode": "IT",
+      "countryName": "Italy",
+      "currencyCode": "EUR",
+      "distanceKm": 1.9,
+      "globalAverageRating": 4.338709677419354,
+      "hotelId": 15865,
+      "lat": 45.4815499,
+      "lon": 9.1887872,
+      "name": "Milano Verticale | UNA Esperienze",
+      "score": 0.723084723475,
+      "starRating": 4,
+      "totalReview": 31,
+      "offers": [
+       {
+        "availabilityDate": "2026-10-30",
+        "bedding": "double",
+        "capacity": 2,
+        "childrenCapacity": 0,
+        "endHour": 17,
+        "endMinute": 0,
+        "hotelCurrency": "EUR",
+        "hotelPrice": 8500,
+        "hotelPriceWithBookingFees": 8900,
+        "originalPriceEuro": 30000,
+        "priceEuro": 8500,
+        "priceEuroWithBookingFees": 8900,
+        "ratePlanId": 84100,
+        "startHour": 12,
+        "startMinute": 0
+       }
+      ]
+     }
+    ]
+   },
+   "core_page": {
+    "resolvedDate": "2026-10-30",
+    "total": 6,
+    "results": [
+     {
+      "cityName": "milano",
+      "countryCode": "IT",
+      "countryName": "Italy",
+      "currencyCode": "EUR",
+      "distanceKm": 1.5,
+      "globalAverageRating": 4.786666666666665,
+      "hotelId": 5928,
+      "lat": 45.468385,
+      "lon": 9.2072289,
+      "name": "Château Monfort - Relais & Châteaux",
+      "score": 0.72362666839,
+      "starRating": 5,
+      "totalReview": 15,
+      "offers": [
+       {
+        "availabilityDate": "2026-10-30",
+        "bedding": "double",
+        "capacity": 2,
+        "childrenCapacity": 0,
+        "endHour": 18,
+        "endMinute": 0,
+        "hotelCurrency": "EUR",
+        "hotelPrice": 24200,
+        "hotelPriceWithBookingFees": 25100,
+        "originalPriceEuro": 40000,
+        "priceEuro": 24200,
+        "priceEuroWithBookingFees": 25100,
+        "ratePlanId": 72200,
+        "startHour": 11,
+        "startMinute": 0
+       }
+      ]
+     },
+     {
+      "cityName": "milano",
+      "countryCode": "IT",
+      "countryName": "Italy",
+      "currencyCode": "EUR",
+      "distanceKm": 1.9,
+      "globalAverageRating": 4.338709677419354,
+      "hotelId": 15865,
+      "lat": 45.4815499,
+      "lon": 9.1887872,
+      "name": "Milano Verticale | UNA Esperienze",
+      "score": 0.723084723475,
+      "starRating": 4,
+      "totalReview": 31,
+      "offers": [
+       {
+        "availabilityDate": "2026-10-30",
+        "bedding": "double",
+        "capacity": 2,
+        "childrenCapacity": 0,
+        "endHour": 17,
+        "endMinute": 0,
+        "hotelCurrency": "EUR",
+        "hotelPrice": 8500,
+        "hotelPriceWithBookingFees": 8900,
+        "originalPriceEuro": 30000,
+        "priceEuro": 8500,
+        "priceEuroWithBookingFees": 8900,
+        "ratePlanId": 84100,
+        "startHour": 12,
+        "startMinute": 0
+       }
+      ]
+     },
+     {
+      "cityName": "milano",
+      "countryCode": "IT",
+      "countryName": "Italy",
+      "currencyCode": "EUR",
+      "distanceKm": 0.2,
+      "globalAverageRating": 4.694117647058824,
+      "hotelId": 9898,
+      "lat": 45.4652274,
+      "lon": 9.1911991,
+      "name": "STRAF, Hotel a Member of Design Hotels",
+      "score": 0.7075047356499999,
+      "starRating": 4,
+      "totalReview": 17,
+      "offers": [
+       {
+        "availabilityDate": "2026-10-30",
+        "bedding": "double",
+        "capacity": 2,
+        "childrenCapacity": 0,
+        "endHour": 17,
+        "endMinute": 0,
+        "hotelCurrency": "EUR",
+        "hotelPrice": 19400,
+        "hotelPriceWithBookingFees": 20300,
+        "originalPriceEuro": 25000,
+        "priceEuro": 19400,
+        "priceEuroWithBookingFees": 20300,
+        "ratePlanId": 37535,
+        "startHour": 10,
+        "startMinute": 0
+       }
+      ]
+     },
+     {
+      "cityName": "milano",
+      "countryCode": "IT",
+      "countryName": "Italy",
+      "currencyCode": "EUR",
+      "distanceKm": 0.4,
+      "globalAverageRating": 4.425,
+      "hotelId": 5974,
+      "lat": 45.4638889,
+      "lon": 9.1940482,
+      "name": "Rosa Grand Milano – Starhotels Collezione",
+      "score": 0.645135873615,
+      "starRating": 4,
+      "totalReview": 20,
+      "offers": [
+       {
+        "availabilityDate": "2026-10-30",
+        "bedding": "double",
+        "capacity": 2,
+        "childrenCapacity": 0,
+        "endHour": 13,
+        "endMinute": 0,
+        "hotelCurrency": "EUR",
+        "hotelPrice": 19900,
+        "hotelPriceWithBookingFees": 20800,
+        "originalPriceEuro": 50000,
+        "priceEuro": 19900,
+        "priceEuroWithBookingFees": 20800,
+        "ratePlanId": 19593,
+        "startHour": 10,
+        "startMinute": 0
+       }
+      ]
+     },
+     {
+      "cityName": "milano",
+      "countryCode": "IT",
+      "countryName": "Italy",
+      "currencyCode": "EUR",
+      "distanceKm": 0.4,
+      "globalAverageRating": 4.428571428571429,
+      "hotelId": 6348,
+      "lat": 45.4608933,
+      "lon": 9.1886334,
+      "name": "Hotel Dei Cavalieri Milano Duomo",
+      "score": 0.593355619075,
+      "starRating": 4,
+      "totalReview": 7,
+      "offers": [
+       {
+        "availabilityDate": "2026-10-30",
+        "bedding": "double",
+        "capacity": 2,
+        "childrenCapacity": 0,
+        "endHour": 16,
+        "endMinute": 0,
+        "hotelCurrency": "EUR",
+        "hotelPrice": 18400,
+        "hotelPriceWithBookingFees": 19300,
+        "originalPriceEuro": 28900,
+        "priceEuro": 18400,
+        "priceEuroWithBookingFees": 19300,
+        "ratePlanId": 21429,
+        "startHour": 11,
+        "startMinute": 0
+       }
+      ]
+     }
+    ]
+   }
+  },
+  "madrid_pool": {
+   "args": {
+    "lat": 40.4168,
+    "lon": -3.7038,
+    "date": "2026-10-30",
+    "from": 0,
+    "hotelEquipmentIds": [
+     33,
+     34,
+     2982,
+     3000,
+     3001
+    ]
+   },
+   "page": {
+    "resolvedDate": "2026-10-30",
+    "total": 9,
+    "results": [
+     {
+      "cityName": "getafe",
+      "countryCode": "ES",
+      "countryName": "Spain",
+      "currencyCode": "EUR",
+      "distanceKm": 12,
+      "globalAverageRating": 4.324107142857143,
+      "hotelId": 6985,
+      "lat": 40.3097644,
+      "lon": -3.7185817,
+      "name": "Hotel Los Olivos",
+      "score": 1.0750000000000002,
+      "starRating": 3,
+      "totalReview": 112,
+      "offers": [
+       {
+        "availabilityDate": "2026-10-30",
+        "bedding": "double",
+        "capacity": 2,
+        "childrenCapacity": 0,
+        "endHour": 16,
+        "endMinute": 0,
+        "hotelCurrency": "EUR",
+        "hotelPrice": 6200,
+        "hotelPriceWithBookingFees": 6600,
+        "originalPriceEuro": 10000,
+        "priceEuro": 6200,
+        "priceEuroWithBookingFees": 6600,
+        "ratePlanId": 24552,
+        "startHour": 9,
+        "startMinute": 30
+       }
+      ]
+     },
+     {
+      "cityName": "torrejon-de-ardoz",
+      "countryCode": "ES",
+      "countryName": "Spain",
+      "currencyCode": "EUR",
+      "distanceKm": 18.5,
+      "globalAverageRating": 4.494666666666668,
+      "hotelId": 9448,
+      "lat": 40.4453299,
+      "lon": -3.4881062,
+      "name": "Hotel Porcel Avant",
+      "score": 0.8975,
+      "starRating": 4,
+      "totalReview": 75,
+      "offers": [
+       {
+        "availabilityDate": "2026-10-30",
+        "bedding": "double",
+        "capacity": 2,
+        "childrenCapacity": 0,
+        "endHour": 17,
+        "endMinute": 0,
+        "hotelCurrency": "EUR",
+        "hotelPrice": 5800,
+        "hotelPriceWithBookingFees": 5800,
+        "originalPriceEuro": 6900,
+        "priceEuro": 5800,
+        "priceEuroWithBookingFees": 5800,
+        "ratePlanId": 35839,
+        "startHour": 10,
+        "startMinute": 0
+       }
+      ]
+     },
+     {
+      "cityName": "madrid",
+      "countryCode": "ES",
+      "countryName": "Spain",
+      "currencyCode": "EUR",
+      "distanceKm": 1.9,
+      "globalAverageRating": 4.59294117647059,
+      "hotelId": 15717,
+      "lat": 40.4062876,
+      "lon": -3.7215596,
+      "name": "NH Madrid Ribera del Manzanares",
+      "score": 0.89030259957,
+      "starRating": 4,
+      "totalReview": 85,
+      "offers": [
+       {
+        "availabilityDate": "2026-10-30",
+        "bedding": "double",
+        "capacity": 2,
+        "childrenCapacity": 0,
+        "endHour": 15,
+        "endMinute": 0,
+        "hotelCurrency": "EUR",
+        "hotelPrice": 9500,
+        "hotelPriceWithBookingFees": 10300,
+        "originalPriceEuro": 11500,
+        "priceEuro": 9500,
+        "priceEuroWithBookingFees": 10300,
+        "ratePlanId": 57167,
+        "startHour": 9,
+        "startMinute": 0
+       }
+      ]
+     },
+     {
+      "cityName": "madrid",
+      "countryCode": "ES",
+      "countryName": "Spain",
+      "currencyCode": "EUR",
+      "distanceKm": 4.8,
+      "globalAverageRating": 4.617647058823529,
+      "hotelId": 15705,
+      "lat": 40.4414139,
+      "lon": -3.6579228,
+      "name": "Novotel Madrid City Las Ventas",
+      "score": 0.833146526815,
+      "starRating": 4,
+      "totalReview": 17,
+      "offers": [
+       {
+        "availabilityDate": "2026-10-30",
+        "bedding": "double",
+        "capacity": 2,
+        "childrenCapacity": 0,
+        "endHour": 18,
+        "endMinute": 0,
+        "hotelCurrency": "EUR",
+        "hotelPrice": 9900,
+        "hotelPriceWithBookingFees": 9900,
+        "originalPriceEuro": null,
+        "priceEuro": 9900,
+        "priceEuroWithBookingFees": 9900,
+        "ratePlanId": 57113,
+        "startHour": 11,
+        "startMinute": 0
+       }
+      ]
+     },
+     {
+      "cityName": "madrid",
+      "countryCode": "ES",
+      "countryName": "Spain",
+      "currencyCode": "EUR",
+      "distanceKm": 10.8,
+      "globalAverageRating": 4.653714285714286,
+      "hotelId": 6923,
+      "lat": 40.4480116,
+      "lon": -3.5832076,
+      "name": "Hotel Axor Barajas",
+      "score": 0.82476605549,
+      "starRating": 4,
+      "totalReview": 175,
+      "offers": [
+       {
+        "availabilityDate": "2026-10-30",
+        "bedding": "double",
+        "capacity": 2,
+        "childrenCapacity": 0,
+        "endHour": 16,
+        "endMinute": 0,
+        "hotelCurrency": "EUR",
+        "hotelPrice": 9500,
+        "hotelPriceWithBookingFees": 10100,
+        "originalPriceEuro": 12000,
+        "priceEuro": 9500,
+        "priceEuroWithBookingFees": 10100,
+        "ratePlanId": 72489,
+        "startHour": 10,
+        "startMinute": 0
+       }
+      ]
+     }
+    ]
+   },
+   "local_page": {
+    "resolvedDate": "2026-10-30",
+    "total": 4,
+    "results": [
+     {
+      "cityName": "madrid",
+      "countryCode": "ES",
+      "countryName": "Spain",
+      "currencyCode": "EUR",
+      "distanceKm": 1.9,
+      "globalAverageRating": 4.59294117647059,
+      "hotelId": 15717,
+      "lat": 40.4062876,
+      "lon": -3.7215596,
+      "name": "NH Madrid Ribera del Manzanares",
+      "score": 0.89030259957,
+      "starRating": 4,
+      "totalReview": 85,
+      "offers": [
+       {
+        "availabilityDate": "2026-10-30",
+        "bedding": "double",
+        "capacity": 2,
+        "childrenCapacity": 0,
+        "endHour": 15,
+        "endMinute": 0,
+        "hotelCurrency": "EUR",
+        "hotelPrice": 9500,
+        "hotelPriceWithBookingFees": 10300,
+        "originalPriceEuro": 11500,
+        "priceEuro": 9500,
+        "priceEuroWithBookingFees": 10300,
+        "ratePlanId": 57167,
+        "startHour": 9,
+        "startMinute": 0
+       }
+      ]
+     },
+     {
+      "cityName": "madrid",
+      "countryCode": "ES",
+      "countryName": "Spain",
+      "currencyCode": "EUR",
+      "distanceKm": 4.8,
+      "globalAverageRating": 4.617647058823529,
+      "hotelId": 15705,
+      "lat": 40.4414139,
+      "lon": -3.6579228,
+      "name": "Novotel Madrid City Las Ventas",
+      "score": 0.833146526815,
+      "starRating": 4,
+      "totalReview": 17,
+      "offers": [
+       {
+        "availabilityDate": "2026-10-30",
+        "bedding": "double",
+        "capacity": 2,
+        "childrenCapacity": 0,
+        "endHour": 18,
+        "endMinute": 0,
+        "hotelCurrency": "EUR",
+        "hotelPrice": 9900,
+        "hotelPriceWithBookingFees": 9900,
+        "originalPriceEuro": null,
+        "priceEuro": 9900,
+        "priceEuroWithBookingFees": 9900,
+        "ratePlanId": 57113,
+        "startHour": 11,
+        "startMinute": 0
+       }
+      ]
+     },
+     {
+      "cityName": "madrid",
+      "countryCode": "ES",
+      "countryName": "Spain",
+      "currencyCode": "EUR",
+      "distanceKm": 1.1,
+      "globalAverageRating": 4.733928571428571,
+      "hotelId": 13508,
+      "lat": 40.4080933,
+      "lon": -3.7106073,
+      "name": "Hôtel Porcel Ganivet",
+      "score": 0.816155033725,
+      "starRating": 3,
+      "totalReview": 56,
+      "offers": [
+       {
+        "availabilityDate": "2026-10-30",
+        "bedding": "double",
+        "capacity": 2,
+        "childrenCapacity": 0,
+        "endHour": 17,
+        "endMinute": 0,
+        "hotelCurrency": "EUR",
+        "hotelPrice": 6800,
+        "hotelPriceWithBookingFees": 6800,
+        "originalPriceEuro": 8500,
+        "priceEuro": 6800,
+        "priceEuroWithBookingFees": 6800,
+        "ratePlanId": 48419,
+        "startHour": 10,
+        "startMinute": 0
+       }
+      ]
+     },
+     {
+      "cityName": "madrid",
+      "countryCode": "ES",
+      "countryName": "Spain",
+      "currencyCode": "EUR",
+      "distanceKm": 2.7,
+      "globalAverageRating": 4.6571428571428575,
+      "hotelId": 12921,
+      "lat": 40.421694,
+      "lon": -3.6722668,
+      "name": "Novotel Madrid Center",
+      "score": 0.7218412082200001,
+      "starRating": 4,
+      "totalReview": 7,
+      "offers": [
+       {
+        "availabilityDate": "2026-10-30",
+        "bedding": "twin_double",
+        "capacity": 2,
+        "childrenCapacity": 0,
+        "endHour": 22,
+        "endMinute": 0,
+        "hotelCurrency": "EUR",
+        "hotelPrice": 21300,
+        "hotelPriceWithBookingFees": 21300,
+        "originalPriceEuro": null,
+        "priceEuro": 21300,
+        "priceEuroWithBookingFees": 21300,
+        "ratePlanId": 46296,
+        "startHour": 8,
+        "startMinute": 0
+       }
+      ]
+     }
+    ]
+   },
+   "core_page": {
+    "resolvedDate": "2026-10-30",
+    "total": 2,
+    "results": [
+     {
+      "cityName": "madrid",
+      "countryCode": "ES",
+      "countryName": "Spain",
+      "currencyCode": "EUR",
+      "distanceKm": 1.9,
+      "globalAverageRating": 4.59294117647059,
+      "hotelId": 15717,
+      "lat": 40.4062876,
+      "lon": -3.7215596,
+      "name": "NH Madrid Ribera del Manzanares",
+      "score": 0.89030259957,
+      "starRating": 4,
+      "totalReview": 85,
+      "offers": [
+       {
+        "availabilityDate": "2026-10-30",
+        "bedding": "double",
+        "capacity": 2,
+        "childrenCapacity": 0,
+        "endHour": 15,
+        "endMinute": 0,
+        "hotelCurrency": "EUR",
+        "hotelPrice": 9500,
+        "hotelPriceWithBookingFees": 10300,
+        "originalPriceEuro": 11500,
+        "priceEuro": 9500,
+        "priceEuroWithBookingFees": 10300,
+        "ratePlanId": 57167,
+        "startHour": 9,
+        "startMinute": 0
+       }
+      ]
+     },
+     {
+      "cityName": "madrid",
+      "countryCode": "ES",
+      "countryName": "Spain",
+      "currencyCode": "EUR",
+      "distanceKm": 1.1,
+      "globalAverageRating": 4.733928571428571,
+      "hotelId": 13508,
+      "lat": 40.4080933,
+      "lon": -3.7106073,
+      "name": "Hôtel Porcel Ganivet",
+      "score": 0.816155033725,
+      "starRating": 3,
+      "totalReview": 56,
+      "offers": [
+       {
+        "availabilityDate": "2026-10-30",
+        "bedding": "double",
+        "capacity": 2,
+        "childrenCapacity": 0,
+        "endHour": 17,
+        "endMinute": 0,
+        "hotelCurrency": "EUR",
+        "hotelPrice": 6800,
+        "hotelPriceWithBookingFees": 6800,
+        "originalPriceEuro": 8500,
+        "priceEuro": 6800,
+        "priceEuroWithBookingFees": 6800,
+        "ratePlanId": 48419,
+        "startHour": 10,
+        "startMinute": 0
+       }
+      ]
+     }
+    ]
+   }
+  },
+  "rome": {
+   "args": {
+    "lat": 41.8933,
+    "lon": 12.4829,
+    "date": "2026-10-30",
+    "from": 0
+   },
+   "page": {
+    "resolvedDate": "2026-10-30",
+    "total": 80,
+    "results": [
+     {
+      "cityName": "roma",
+      "countryCode": "IT",
+      "countryName": "Italy",
+      "currencyCode": "EUR",
+      "distanceKm": 10.6,
+      "globalAverageRating": 4.279999999999999,
+      "hotelId": 17426,
+      "lat": 41.9307095,
+      "lon": 12.6006902,
+      "name": "Luxardotel",
+      "score": 1.0510000000000002,
+      "starRating": 3,
+      "totalReview": 5,
+      "offers": [
+       {
+        "availabilityDate": "2026-10-30",
+        "bedding": "double",
+        "capacity": 2,
+        "childrenCapacity": 0,
+        "endHour": 17,
+        "endMinute": 0,
+        "hotelCurrency": "EUR",
+        "hotelPrice": 6800,
+        "hotelPriceWithBookingFees": 7200,
+        "originalPriceEuro": 10000,
+        "priceEuro": 6800,
+        "priceEuroWithBookingFees": 7200,
+        "ratePlanId": 63435,
+        "startHour": 11,
+        "startMinute": 0
+       }
+      ]
+     },
+     {
+      "cityName": "roma",
+      "countryCode": "IT",
+      "countryName": "Italy",
+      "currencyCode": "EUR",
+      "distanceKm": 9,
+      "globalAverageRating": 4.532584269662922,
+      "hotelId": 9443,
+      "lat": 41.8125818,
+      "lon": 12.4753328,
+      "name": "Warmthotel",
+      "score": 0.909953373415,
+      "starRating": 4,
+      "totalReview": 89,
+      "offers": [
+       {
+        "availabilityDate": "2026-10-30",
+        "bedding": "double",
+        "capacity": 2,
+        "childrenCapacity": 0,
+        "endHour": 12,
+        "endMinute": 0,
+        "hotelCurrency": "EUR",
+        "hotelPrice": 5900,
+        "hotelPriceWithBookingFees": 6300,
+        "originalPriceEuro": 10900,
+        "priceEuro": 5900,
+        "priceEuroWithBookingFees": 6300,
+        "ratePlanId": 66413,
+        "startHour": 9,
+        "startMinute": 0
+       }
+      ]
+     },
+     {
+      "cityName": "roma",
+      "countryCode": "IT",
+      "countryName": "Italy",
+      "currencyCode": "EUR",
+      "distanceKm": 1.6,
+      "globalAverageRating": 4.647826086956521,
+      "hotelId": 7793,
+      "lat": 41.8999178,
+      "lon": 12.499742,
+      "name": "UNA Hotels Decò Roma",
+      "score": 0.889817294265,
+      "starRating": 4,
+      "totalReview": 46,
+      "offers": [
+       {
+        "availabilityDate": "2026-10-30",
+        "bedding": "double",
+        "capacity": 2,
+        "childrenCapacity": 0,
+        "endHour": 13,
+        "endMinute": 0,
+        "hotelCurrency": "EUR",
+        "hotelPrice": 8000,
+        "hotelPriceWithBookingFees": 8400,
+        "originalPriceEuro": 18000,
+        "priceEuro": 8000,
+        "priceEuroWithBookingFees": 8400,
+        "ratePlanId": 28559,
+        "startHour": 9,
+        "startMinute": 0
+       }
+      ]
+     },
+     {
+      "cityName": "roma",
+      "countryCode": "IT",
+      "countryName": "Italy",
+      "currencyCode": "EUR",
+      "distanceKm": 2,
+      "globalAverageRating": 4.626666666666667,
+      "hotelId": 14435,
+      "lat": 41.9033408,
+      "lon": 12.5034552,
+      "name": "Hotel Villa Delle Rose",
+      "score": 0.870971515415,
+      "starRating": 3,
+      "totalReview": 30,
+      "offers": [
+       {
+        "availabilityDate": "2026-10-30",
+        "bedding": "double",
+        "capacity": 2,
+        "childrenCapacity": 0,
+        "endHour": 13,
+        "endMinute": 0,
+        "hotelCurrency": "EUR",
+        "hotelPrice": 6000,
+        "hotelPriceWithBookingFees": 6400,
+        "originalPriceEuro": 6500,
+        "priceEuro": 6000,
+        "priceEuroWithBookingFees": 6400,
+        "ratePlanId": 89739,
+        "startHour": 9,
+        "startMinute": 0
+       }
+      ]
+     },
+     {
+      "cityName": "roma",
+      "countryCode": "IT",
+      "countryName": "Italy",
+      "currencyCode": "EUR",
+      "distanceKm": 9.8,
+      "globalAverageRating": 4.305970149253734,
+      "hotelId": 14012,
+      "lat": 41.8229132,
+      "lon": 12.4118205,
+      "name": "Holiday Inn Rome - Eur Parco Dei Medici, an IHG Hotel",
+      "score": 0.8684633310450001,
+      "starRating": 4,
+      "totalReview": 67,
+      "offers": [
+       {
+        "availabilityDate": "2026-10-30",
+        "bedding": "single",
+        "capacity": 1,
+        "childrenCapacity": 0,
+        "endHour": 18,
+        "endMinute": 0,
+        "hotelCurrency": "EUR",
+        "hotelPrice": 8500,
+        "hotelPriceWithBookingFees": 8900,
+        "originalPriceEuro": 20000,
+        "priceEuro": 8500,
+        "priceEuroWithBookingFees": 8900,
+        "ratePlanId": 50667,
+        "startHour": 10,
+        "startMinute": 0
+       }
+      ]
+     }
+    ]
+   },
+   "local_page": {
+    "resolvedDate": "2026-10-30",
+    "total": 55,
+    "results": [
+     {
+      "cityName": "roma",
+      "countryCode": "IT",
+      "countryName": "Italy",
+      "currencyCode": "EUR",
+      "distanceKm": 1.6,
+      "globalAverageRating": 4.647826086956521,
+      "hotelId": 7793,
+      "lat": 41.8999178,
+      "lon": 12.499742,
+      "name": "UNA Hotels Decò Roma",
+      "score": 0.889817294265,
+      "starRating": 4,
+      "totalReview": 46,
+      "offers": [
+       {
+        "availabilityDate": "2026-10-30",
+        "bedding": "double",
+        "capacity": 2,
+        "childrenCapacity": 0,
+        "endHour": 13,
+        "endMinute": 0,
+        "hotelCurrency": "EUR",
+        "hotelPrice": 8000,
+        "hotelPriceWithBookingFees": 8400,
+        "originalPriceEuro": 18000,
+        "priceEuro": 8000,
+        "priceEuroWithBookingFees": 8400,
+        "ratePlanId": 28559,
+        "startHour": 9,
+        "startMinute": 0
+       }
+      ]
+     },
+     {
+      "cityName": "roma",
+      "countryCode": "IT",
+      "countryName": "Italy",
+      "currencyCode": "EUR",
+      "distanceKm": 2,
+      "globalAverageRating": 4.626666666666667,
+      "hotelId": 14435,
+      "lat": 41.9033408,
+      "lon": 12.5034552,
+      "name": "Hotel Villa Delle Rose",
+      "score": 0.870971515415,
+      "starRating": 3,
+      "totalReview": 30,
+      "offers": [
+       {
+        "availabilityDate": "2026-10-30",
+        "bedding": "double",
+        "capacity": 2,
+        "childrenCapacity": 0,
+        "endHour": 13,
+        "endMinute": 0,
+        "hotelCurrency": "EUR",
+        "hotelPrice": 6000,
+        "hotelPriceWithBookingFees": 6400,
+        "originalPriceEuro": 6500,
+        "priceEuro": 6000,
+        "priceEuroWithBookingFees": 6400,
+        "ratePlanId": 89739,
+        "startHour": 9,
+        "startMinute": 0
+       }
+      ]
+     },
+     {
+      "cityName": "roma",
+      "countryCode": "IT",
+      "countryName": "Italy",
+      "currencyCode": "EUR",
+      "distanceKm": 2,
+      "globalAverageRating": 4.2138888888888895,
+      "hotelId": 6594,
+      "lat": 41.902297,
+      "lon": 12.5038605,
+      "name": "Hotel Marco Polo",
+      "score": 0.85833805708,
+      "starRating": 3,
+      "totalReview": 144,
+      "offers": [
+       {
+        "availabilityDate": "2026-10-30",
+        "bedding": "double",
+        "capacity": 2,
+        "childrenCapacity": 0,
+        "endHour": 14,
+        "endMinute": 0,
+        "hotelCurrency": "EUR",
+        "hotelPrice": 6200,
+        "hotelPriceWithBookingFees": 6600,
+        "originalPriceEuro": 16000,
+        "priceEuro": 6200,
+        "priceEuroWithBookingFees": 6600,
+        "ratePlanId": 22621,
+        "startHour": 8,
+        "startMinute": 0
+       }
+      ]
+     },
+     {
+      "cityName": "roma",
+      "countryCode": "IT",
+      "countryName": "Italy",
+      "currencyCode": "EUR",
+      "distanceKm": 0.5,
+      "globalAverageRating": 4.566666666666666,
+      "hotelId": 7634,
+      "lat": 41.897,
+      "lon": 12.487,
+      "name": "Comfort Hotel Bolivar",
+      "score": 0.844409113865,
+      "starRating": 4,
+      "totalReview": 12,
+      "offers": [
+       {
+        "availabilityDate": "2026-10-30",
+        "bedding": "double",
+        "capacity": 2,
+        "childrenCapacity": 0,
+        "endHour": 14,
+        "endMinute": 0,
+        "hotelCurrency": "EUR",
+        "hotelPrice": 11900,
+        "hotelPriceWithBookingFees": 12500,
+        "originalPriceEuro": 30000,
+        "priceEuro": 11900,
+        "priceEuroWithBookingFees": 12500,
+        "ratePlanId": 27594,
+        "startHour": 8,
+        "startMinute": 30
+       }
+      ]
+     },
+     {
+      "cityName": "roma",
+      "countryCode": "IT",
+      "countryName": "Italy",
+      "currencyCode": "EUR",
+      "distanceKm": 2,
+      "globalAverageRating": 4.8,
+      "hotelId": 15862,
+      "lat": 41.9033482,
+      "lon": 12.5025898,
+      "name": "YES HOTEL ROME",
+      "score": 0.8290959170600001,
+      "starRating": 3,
+      "totalReview": 3,
+      "offers": [
+       {
+        "availabilityDate": "2026-10-30",
+        "bedding": "double",
+        "capacity": 2,
+        "childrenCapacity": 0,
+        "endHour": 14,
+        "endMinute": 0,
+        "hotelCurrency": "EUR",
+        "hotelPrice": 7600,
+        "hotelPriceWithBookingFees": 8000,
+        "originalPriceEuro": 14000,
+        "priceEuro": 7600,
+        "priceEuroWithBookingFees": 8000,
+        "ratePlanId": 57782,
+        "startHour": 10,
+        "startMinute": 0
+       }
+      ]
+     }
+    ]
+   },
+   "core_page": {
+    "resolvedDate": "2026-10-30",
+    "total": 23,
+    "results": [
+     {
+      "cityName": "roma",
+      "countryCode": "IT",
+      "countryName": "Italy",
+      "currencyCode": "EUR",
+      "distanceKm": 1.6,
+      "globalAverageRating": 4.647826086956521,
+      "hotelId": 7793,
+      "lat": 41.8999178,
+      "lon": 12.499742,
+      "name": "UNA Hotels Decò Roma",
+      "score": 0.889817294265,
+      "starRating": 4,
+      "totalReview": 46,
+      "offers": [
+       {
+        "availabilityDate": "2026-10-30",
+        "bedding": "double",
+        "capacity": 2,
+        "childrenCapacity": 0,
+        "endHour": 13,
+        "endMinute": 0,
+        "hotelCurrency": "EUR",
+        "hotelPrice": 8000,
+        "hotelPriceWithBookingFees": 8400,
+        "originalPriceEuro": 18000,
+        "priceEuro": 8000,
+        "priceEuroWithBookingFees": 8400,
+        "ratePlanId": 28559,
+        "startHour": 9,
+        "startMinute": 0
+       }
+      ]
+     },
+     {
+      "cityName": "roma",
+      "countryCode": "IT",
+      "countryName": "Italy",
+      "currencyCode": "EUR",
+      "distanceKm": 0.5,
+      "globalAverageRating": 4.566666666666666,
+      "hotelId": 7634,
+      "lat": 41.897,
+      "lon": 12.487,
+      "name": "Comfort Hotel Bolivar",
+      "score": 0.844409113865,
+      "starRating": 4,
+      "totalReview": 12,
+      "offers": [
+       {
+        "availabilityDate": "2026-10-30",
+        "bedding": "double",
+        "capacity": 2,
+        "childrenCapacity": 0,
+        "endHour": 14,
+        "endMinute": 0,
+        "hotelCurrency": "EUR",
+        "hotelPrice": 11900,
+        "hotelPriceWithBookingFees": 12500,
+        "originalPriceEuro": 30000,
+        "priceEuro": 11900,
+        "priceEuroWithBookingFees": 12500,
+        "ratePlanId": 27594,
+        "startHour": 8,
+        "startMinute": 30
+       }
+      ]
+     },
+     {
+      "cityName": "roma",
+      "countryCode": "IT",
+      "countryName": "Italy",
+      "currencyCode": "EUR",
+      "distanceKm": 2,
+      "globalAverageRating": 4.8,
+      "hotelId": 15862,
+      "lat": 41.9033482,
+      "lon": 12.5025898,
+      "name": "YES HOTEL ROME",
+      "score": 0.8290959170600001,
+      "starRating": 3,
+      "totalReview": 3,
+      "offers": [
+       {
+        "availabilityDate": "2026-10-30",
+        "bedding": "double",
+        "capacity": 2,
+        "childrenCapacity": 0,
+        "endHour": 14,
+        "endMinute": 0,
+        "hotelCurrency": "EUR",
+        "hotelPrice": 7600,
+        "hotelPriceWithBookingFees": 8000,
+        "originalPriceEuro": 14000,
+        "priceEuro": 7600,
+        "priceEuroWithBookingFees": 8000,
+        "ratePlanId": 57782,
+        "startHour": 10,
+        "startMinute": 0
+       }
+      ]
+     },
+     {
+      "cityName": "roma",
+      "countryCode": "IT",
+      "countryName": "Italy",
+      "currencyCode": "EUR",
+      "distanceKm": 1.4,
+      "globalAverageRating": 4.725,
+      "hotelId": 21579,
+      "lat": 41.8861212,
+      "lon": 12.4692691,
+      "name": "Trastevere Roma | UNA Esperienze",
+      "score": 0.815079060005,
+      "starRating": 4,
+      "totalReview": 8,
+      "offers": [
+       {
+        "availabilityDate": "2026-10-30",
+        "bedding": "double",
+        "capacity": 2,
+        "childrenCapacity": 0,
+        "endHour": 17,
+        "endMinute": 0,
+        "hotelCurrency": "EUR",
+        "hotelPrice": 13000,
+        "hotelPriceWithBookingFees": 13800,
+        "originalPriceEuro": 18000,
+        "priceEuro": 13000,
+        "priceEuroWithBookingFees": 13800,
+        "ratePlanId": 83685,
+        "startHour": 10,
+        "startMinute": 0
+       }
+      ]
+     },
+     {
+      "cityName": "roma",
+      "countryCode": "IT",
+      "countryName": "Italy",
+      "currencyCode": "EUR",
+      "distanceKm": 1.6,
+      "globalAverageRating": 4.6000000000000005,
+      "hotelId": 16646,
+      "lat": 41.9077201,
+      "lon": 12.4805932,
+      "name": "Maison Roma Piazza di Spagna | UNA Esperienze",
+      "score": 0.8101252731249999,
+      "starRating": 4,
+      "totalReview": 3,
+      "offers": [
+       {
+        "availabilityDate": "2026-10-30",
+        "bedding": "double",
+        "capacity": 2,
+        "childrenCapacity": 0,
+        "endHour": 14,
+        "endMinute": 0,
+        "hotelCurrency": "EUR",
+        "hotelPrice": 12000,
+        "hotelPriceWithBookingFees": 12600,
+        "originalPriceEuro": 35000,
+        "priceEuro": 12000,
+        "priceEuroWithBookingFees": 12600,
+        "ratePlanId": 81428,
+        "startHour": 9,
+        "startMinute": 0
+       }
+      ]
+     }
+    ]
+   }
+  }
+ }
+}

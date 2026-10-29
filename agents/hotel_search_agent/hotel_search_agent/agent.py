@@ -285,11 +285,18 @@ How to act, frugally (at most ONE reasoning pass — no tool-call loops):
   than 90€"); also pass `priceRangeMin` if they give a lower bound too. Pass
   search_offers a `timeSlot` with `startHour`/`endHour` (0-23) ONLY when the
   user states explicit clock hours ("between 2pm and 8pm", "from 14h to 20h",
-  "checkout by 6pm"), plus `startMinute`/`endMinute` (0/15/30/45) ONLY when
-  they state minutes too ("7:30am", "13h30"). NEVER invent a budget or a time
+  "checkout by 6pm", "9-18", "09.00-17.00"), plus `startMinute`/`endMinute`
+  (0/15/30/45) ONLY when they state minutes too ("7:30am", "13h30"), and
+  ALWAYS its `expression` (their words for those hours, verbatim). startHour
+  is when they ARRIVE, endHour when they LEAVE: hours given only for the
+  arrival ("check in is 3-4 pm", "arriver vers 15h") set `arrivalOnly`: true
+  and NO endHour. A part of the day with no clock hour ("cet après-midi",
+  "domani pomeriggio", "in the evening") is `daypart`, never a `timeSlot`.
+  Never set `timeSlotMode`: the system does. NEVER invent a budget or a time
   slot the user did not state, and do NOT turn a vague "cheaper"/"earlier"
   into a number — when none is mentioned, OMIT these arguments (an omitted
-  argument means no budget or time-slot constraint).
+  argument means no NEW budget or time-slot constraint: the system keeps the
+  time slot already given earlier in the conversation).
 - Pass search_offers `adults` and/or `children` (whole numbers) ONLY when the
   user states who is travelling ("2 adults and 1 child", "pour deux", "on est
   4", "with my wife and our baby"). A CHILD'S AGE IS NOT A COUNT: "ma fille de
