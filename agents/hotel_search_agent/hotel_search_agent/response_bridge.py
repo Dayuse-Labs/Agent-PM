@@ -69,8 +69,8 @@ from b2c_common.search_page import build_search_page_url, search_page_from
 from b2c_common.timeslot import (
     DAYPART_HOURS,
     requested_hours,
+    slot_covers_daypart,
     slot_covers_window,
-    slot_overlaps_daypart,
     window_fallback_line,
 )
 from hotel_search_agent.inventory import get_inventory, haversine_km
@@ -482,13 +482,13 @@ def _hhmm_from_total(total_minutes: Any) -> str | None:
 
 
 # An exact clock window (start/end minutes-of-day, site covering rule) or a
-# daypart name (soft overlap rule) — see b2c_common.timeslot.
+# daypart name (half of the daypart covered, 2026-10-29) — see b2c_common.timeslot.
 Window = tuple[int | None, int | None] | str
 
 
 def _offer_matches(offer: dict[str, Any], window: Window) -> bool:
     if isinstance(window, str):
-        return slot_overlaps_daypart(offer.get("startHour"), offer.get("endHour"), window)
+        return slot_covers_daypart(offer.get("startHour"), offer.get("endHour"), window)
     return _offer_covers_window(offer, window[0], window[1])
 
 
