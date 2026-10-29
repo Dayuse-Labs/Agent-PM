@@ -6,7 +6,7 @@
 
 > 📋 **Pour savoir QUOI faire ensuite, ouvrir [`CHANTIERS.md`](CHANTIERS.md)** (état vérifié au 2026-09-14) : la liste des chantiers ouverts, chacun avec sa preuve, ses actions et un prompt prêt à coller — plus la liste de ce qu'il ne faut **pas** relancer parce que c'est déjà livré. `tasks/todo.md` est périmé et ne doit plus servir de référence.
 
-## ⚡ 2026-10-29 (bis) — Chargement du widget : bundles, cache d'un an par empreinte, photo AVIF, WOFF2, HEAD (branche `perf/widget-page-load-20261029`, sur `main` 20365eb)
+## ⚡ 2026-10-29 (ter) — Chargement du widget : bundles, cache d'un an par empreinte, photo AVIF, WOFF2, HEAD (branche `perf/widget-page-load-20261029`, sur `main` 0562106)
 
 **Constat** (prod, 2026-10-29) : ~95 requêtes et ~1 Mo par ouverture ; 29 modules JS + 12 CSS non
 regroupés ; tous les statiques en `no-cache` (revalidés à chaque visite) ; photo d'accueil JPEG
@@ -37,6 +37,16 @@ inchangé. Captures 390/1440 : chat identique au pixel, accueil SSIM ≥ 0,996.
   mesurer derrière un edge h2 pour comparer à la prod.
 - Le LCP de Chrome ignore le fond CSS plein écran de main (LCP = le titre) ; la photo `<img>` de
   la branche peut devenir l'élément LCP : comparer l'heure d'affichage de la photo, pas le LCP seul.
+## 🚀 2026-10-29 (bis) — `hotel-search`, `concierge` et `widget` déployés sur `20365eb` (#175, #174)
+
+**Déployé** (`DEPLOY.md`, depuis `../AgentB2C-deploy` détaché sur `origin/main` 20365eb, arbre propre, pytest 3 666 passés / 2 skippés) : estampille `LANGFUSE_RELEASE=20365eb` posée avec `--skip-deploys` sur les 3 services, puis `railway up --detach` dans l'ordre `hotel-search` (SUCCESS 16:22Z) → `concierge` (SUCCESS 16:24Z) → `widget` (SUCCESS 16:27Z). `faq` reste sur `b6f9402` : le seul changement de `libs/` depuis (`b2c_common/timeslot.py`, parties de journée) ne la concerne pas. Aucune variable modifiée en dehors des estampilles.
+
+**Preuve** (tours synthétiques sur ai.dayuse.com, `X-Dayuse-Synthetic: 1`) :
+- page `agent-version=20365eb`, `/readyz` → `ready` (concierge joint) ;
+- puce « Find a room with a jacuzzi » (marché US) → « Sure — a room with a jacuzzi. Which city are you looking in? » + puces `Near me`, `New York`, `Los Angeles`, `Houston` (5,5 s) : une seule question de lieu qui reprend l'envie, plus de question de jour (#175 point 1) ;
+- « un hôtel à Paris demain » (fr/EUR) → 5 hôtels, distance médiane au centre 1,4 km (Hôtel Duo 0,2 km, Le Clos de Notre Dame 0,7 km), contre 7,5 km avant #175 (point 3) ; 9,8 s.
+
+**À suivre en prod** : la latence (le rejeu annonçait +1,4 s de médiane pour #175 et +0,6 à 1,0 s pour #174 sur les tours de recherche ; si la médiane dépasse 10 s, ramener `HOTEL_SEARCH_GEO_POOL_WAIT_SECONDS` à 2 s et retirer `state` du bloc de contexte de la synthèse) ; la part des conversations avec hôtels et le message du 1er hôtel ; les métriques `dialogue_context`, `turn_deadline`, `leaf_call status=error`. Retour arrière : `LANGFUSE_RELEASE=6078ff2` (`--skip-deploys`) puis `railway up` depuis un checkout détaché sur `6078ff2`.
 
 ## 🧵 2026-10-29 — Contexte de dialogue partagé + échéance unique par tour (branche `fix/shared-context-turn-deadline-20261029`, sur `main` 6078ff2)
 
