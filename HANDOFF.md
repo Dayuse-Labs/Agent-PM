@@ -6,6 +6,37 @@
 
 > 📋 **Pour savoir QUOI faire ensuite, ouvrir [`CHANTIERS.md`](CHANTIERS.md)** (état vérifié au 2026-09-14) : la liste des chantiers ouverts, chacun avec sa preuve, ses actions et un prompt prêt à coller — plus la liste de ce qu'il ne faut **pas** relancer parce que c'est déjà livré. `tasks/todo.md` est périmé et ne doit plus servir de référence.
 
+## ⚡ 2026-10-29 (ter) — Chargement du widget : bundles, cache d'un an par empreinte, photo AVIF, WOFF2, HEAD (branche `perf/widget-page-load-20261029`, sur `main` 0562106)
+
+**Constat** (prod, 2026-10-29) : ~95 requêtes et ~1 Mo par ouverture ; 29 modules JS + 12 CSS non
+regroupés ; tous les statiques en `no-cache` (revalidés à chaque visite) ; photo d'accueil JPEG
+330/385 Ko en fond CSS ; police OTF 130 Ko ; `/sr-config` appelé 3 fois ; HEAD → 501.
+
+**Fait** (widget + proxy seulement) :
+- `scripts/build_widget_assets.py` (esbuild 0.27.4 épinglé) → `web/vendor/static/dist/chat.{js,css}`,
+  **commités** ; les sources `static/{js,css}/chat` restent la vérité (tests JS). Garde :
+  `tests/test_widget_assets.py` (empreinte des sources dans chaque bundle ; rebuild à l'octet près
+  si esbuild 0.27.4 est sur le PATH). **Toute modif d'une source JS/CSS du widget = relancer le
+  build**, sinon pytest rouge.
+- Proxy : chaque `/static/...` cité par la page, une CSS ou un JS devient `?v=<empreinte>` →
+  `public, max-age=31536000, immutable` ; page `no-cache` ; empreinte périmée ou absente →
+  `no-cache` + ETag comme avant. `/sr-config` : `private, max-age=300`. `do_HEAD`.
+- Photo : `<picture>` AVIF/WebP/JPEG, 2 largeurs par recadrage, préchargée par le script de tête
+  (déplacé avant les CSS) ; jamais chargée dans l'app ni sur un lien profond (`<template>` inerte).
+  Police WOFF2 préchargée, OTF en repli.
+
+**Preuves** : pytest 3 697 passés / 2 skippés, ruff, mypy, guardrails, 104 tests JS ; 20 nouveaux tests proxy
+rouges sur le proxy de main. Mesure locale main 20365eb contre branche (proxy local derrière un
+« edge » h2 + gzip local qui imite Railway, backend factice, Playwright 390 px, médiane de 5) :
+1re visite 53 → 20 requêtes, 725 → 295 Ko ; visite suivante 48 → 4 requêtes réseau ; 4G lente
+simulée : load 4,48 → 2,24 s (1re), 1,23 → 0,23 s (suivante), photo affichée 4,5 → 1,0 s, FCP
+inchangé. Captures 390/1440 : chat identique au pixel, accueil SSIM ≥ 0,996.
+
+**Pièges** :
+- En local sans edge, le proxy parle HTTP/1.0 : Chrome ignore alors l'ETag (aucune revalidation) ;
+  mesurer derrière un edge h2 pour comparer à la prod.
+- Le LCP de Chrome ignore le fond CSS plein écran de main (LCP = le titre) ; la photo `<img>` de
+  la branche peut devenir l'élément LCP : comparer l'heure d'affichage de la photo, pas le LCP seul.
 ## 🚀 2026-10-29 (bis) — `hotel-search`, `concierge` et `widget` déployés sur `20365eb` (#175, #174)
 
 **Déployé** (`DEPLOY.md`, depuis `../AgentB2C-deploy` détaché sur `origin/main` 20365eb, arbre propre, pytest 3 666 passés / 2 skippés) : estampille `LANGFUSE_RELEASE=20365eb` posée avec `--skip-deploys` sur les 3 services, puis `railway up --detach` dans l'ordre `hotel-search` (SUCCESS 16:22Z) → `concierge` (SUCCESS 16:24Z) → `widget` (SUCCESS 16:27Z). `faq` reste sur `b6f9402` : le seul changement de `libs/` depuis (`b2c_common/timeslot.py`, parties de journée) ne la concerne pas. Aucune variable modifiée en dehors des estampilles.

@@ -86,6 +86,11 @@ python libs/b2c_common/b2c_common/geo_intent.py > contracts/geo_intent.schema.js
 # contracts/amplitude_events.json est écrit à la main (tests/test_amplitude_contract.py +
 # tests/widget/widget_amplitude_contract.test.mjs). Tests JS seuls (Node 26 refuse un dossier) :
 node --test tests/widget/*.test.mjs
+# La page charge web/vendor/static/dist/chat.{js,css}, construits (et COMMITÉS) depuis
+# static/{js,css}/chat : après toute modification de ces sources, reconstruire, sinon
+# tests/test_widget_assets.py échoue (empreinte des sources). esbuild 0.27.4 épinglé (npx sinon).
+# --images / --font seulement si la photo d'accueil ou la police changent (ImageMagick, fonttools).
+python3 scripts/build_widget_assets.py
 
 # Évals live (services up ; coûtent OpenAI/Mapbox/MCP — l'humain décide). Chemin réel : les
 # experiments Langfuse sur evals/datasets/*.jsonl, un jeu par appel de seed, puis le run.
