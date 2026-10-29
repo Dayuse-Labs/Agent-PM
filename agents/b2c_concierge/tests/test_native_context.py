@@ -206,3 +206,4 @@ class TestPickedHotelIntake:
         for bad in ({}, {"hotel_id": None}, {"hotel_id": "abc"}, {"hotel_id": True},
                     {"hotel_id": [1]}):
             assert _parse_picked_hotel_id(bad) is None
+

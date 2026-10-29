@@ -211,6 +211,12 @@ class Triage:
     # date question (`requested_date.mentions_a_date` asks first); None = no
     # LLM signal.
     day_stated: bool | None = None
+    # 2026-10-29: the stay the message wishes for, restated by the LLM as a
+    # short noun phrase in the message's language (« une chambre avec
+    # jacuzzi »), None when it expresses none. Rendered by the place question
+    # of a request with no place (`templates.place_question`) — a phrase the
+    # model wrote, never parsed by the code (`_wish_slot` only bounds it).
+    wish: str | None = None
 
 
 def is_social_ack(message: str) -> bool:
@@ -527,6 +533,14 @@ indentation, no prose, no code fence) with exactly these keys:
   "evidence": "verbatim bed request"}} when the user CURRENTLY asks for a bed
   type: double/matrimonial = double, an explicit king or queen = that key,
   separate beds = twin, "any" removes the requirement. Omit if unchanged.
+- "wish": what kind of day-use stay the message asks for, restated as a SHORT noun
+  phrase (at most 8 words) in the message's own language, starting lowercase,
+  WITHOUT any place, date, hour or price ("Trouvez une chambre avec jacuzzi" →
+  "une chambre avec jacuzzi", "Enjoy a romantic moment together" → "a romantic
+  moment for two", "How discreet is the booking?" → "a discreet hotel", "Ich
+  will einen Spa-Nachmittag" → "ein Spa-Nachmittag"). Null when the message
+  expresses no such wish: a bare place, a date or time, a greeting, an answer, or
+  a question about an EXISTING reservation.
 - "hotel_name": the hotel name the user names, stripped of the request phrasing
   around it ("book the Villa Paris Orly for me" → "Villa Paris Orly", "détails
   sur l'Ibis Lyon Gare" → "Ibis Lyon Gare"). Null when no hotel is named by
@@ -704,6 +718,7 @@ async def classify(message: str, budget: TurnBudget, invocation_id: str = "",
         answer_option=(_positive_position(data.get("answer_option"))
                        if answers_pending == "yes" else None),
         day_stated=_bool_slot(data.get("day_stated")),
+        wish=_wish_slot(data.get("wish")),
     )
 
 
@@ -730,6 +745,28 @@ def _grounded_occupancy(raw: Any, message: str) -> dict[str, int] | None:
         if update.get("adults", 0) > update["total"] or update.get("children", 0) >= update["total"]:
             return None
     return update or None
+
+
+#: A wish is a short noun phrase (« une chambre avec jacuzzi »): a model that
+#: pastes a sentence, a link or markup into the slot is not using it.
+_MAX_WISH_CHARS = 80
+_MAX_WISH_WORDS = 10
+_WISH_FORBIDDEN = ("://", "@", "<", ">", "{", "}", "\n", "?")
+
+
+def _wish_slot(value: Any) -> str | None:
+    """The `wish` the model wrote, as it will be shown inside the place
+    question, or None. Shape checks only — length, word count, one line, no
+    link, markup or question — never a reading of its words: what it means
+    is the model's call, and the template only quotes it."""
+    if not isinstance(value, str):
+        return None
+    wish = " ".join(value.split()).strip(" .,;:!—-")
+    if not wish or len(wish) > _MAX_WISH_CHARS or len(wish.split()) > _MAX_WISH_WORDS:
+        return None
+    if any(mark in value for mark in _WISH_FORBIDDEN):
+        return None
+    return wish
 
 
 def _display_currency_slot(value: Any) -> str | None:

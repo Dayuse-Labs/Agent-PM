@@ -1990,6 +1990,12 @@ def _search_context(
             {"landmark_unresolved": raw_delta["landmark_unresolved"]}
             if raw_delta and raw_delta.get("landmark_unresolved") else {}
         ),
+        # 2026-10-29: no place in the answer to the place question, so the
+        # visitor market's main city was searched (`geocode_tool._default_place`).
+        **(
+            {"default_place": raw_delta["default_place"]}
+            if raw_delta and raw_delta.get("default_place") else {}
+        ),
     }
 
 

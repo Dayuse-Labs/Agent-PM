@@ -82,6 +82,10 @@ CONTRACT_KEYS: frozenset[str] = frozenset(
         "hotel_picks",
         "booking_card",
         "suggestions",
+        # 2026-10-29: the label of the « près de moi » chip among `suggestions`
+        # (the place question's), else None — the widget asks for the device's
+        # position when that chip is clicked, as for /v3/chat/welcome's.
+        "near_me",
         "session_id",
         "conversation_id",
         "response_language",
@@ -497,6 +501,7 @@ def build_chat_payload(
         "hotel_picks": build_hotel_picks(profile),
         "booking_card": booking_card,
         "suggestions": list(profile.last_suggestions or []),
+        "near_me": _near_me_label(profile.last_suggestions, language),
         "session_id": session_id,
         "conversation_id": session_id,
         "response_language": language,
@@ -519,6 +524,13 @@ def build_chat_payload(
         "turn_facts": turn_facts or facade_turn_facts("unknown", status="unknown"),
     }
     return _json_safe(payload)
+
+
+def _near_me_label(suggestions: list[str] | None, language: str) -> str | None:
+    """The « près de moi » chip of this reply's suggestions, by its exact
+    label in the reply's language (`templates.near_me_chip`), else None."""
+    label = templates.near_me_chip(language)
+    return label if label in (suggestions or []) else None
 
 
 # --- turn orchestration (shared by JSON + SSE) ----------------------------------------------

@@ -839,14 +839,85 @@ def later_date_chips(language: str, served_offset: int) -> list[str]:
     return [chip for offset, chip in enumerate(chips) if offset > served_offset]
 
 
-def place_question(language: str, *, ask_day: bool, location_refused: bool = False) -> str:
-    """The one question of a search that has no place yet: the place, and the
-    day in the same sentence while it is still open. `location_refused`: the
-    visitor asked for a search around them and no position came back."""
-    question = _pick(language, _DATE_PLACE_QUESTION if ask_day else _PLACE_QUESTION)
+# 2026-10-29 (prod after #173, 97 conversations): 45 opened on « Où et pour
+# quel jour ? » with day chips only, the visitor clicked a day and got a bare
+# « Dans quelle ville ? », 16 never saw a hotel. The question is now about the
+# place only, restates the wish the triage read (agent-usa: « Sure — a
+# discreet hotel. Which city are you looking in? »), and its chips answer it:
+# « près de moi » and the market's cities (`place_chips`). The day falls back
+# on today (tomorrow past the cutoff) and the answer with the hotels says
+# which, with the day chips (`date_retained_notice`).
+_WISH_PLACE_QUESTION: dict[str, str] = {
+    "fr": "D'accord — {wish}. Dans quelle ville cherchez-vous ?",
+    "en": "Sure — {wish}. Which city are you looking in?",
+    "es": "Claro — {wish}. ¿En qué ciudad buscas?",
+    "it": "Certo — {wish}. In quale città stai cercando?",
+    "de": "Gerne — {wish}. In welcher Stadt suchst du?",
+    "pt": "Claro — {wish}. Em que cidade procura?",
+    "nl": "Zeker — {wish}. In welke stad zoek je?",
+}
+
+#: The « près de moi » chip of the place question. The payload names it
+#: (`near_me`), so the widget asks for the device's position when it is
+#: clicked, as for the hero chip (#173).
+_NEAR_ME_CHIP: dict[str, str] = {
+    "fr": "Près de moi",
+    "en": "Near me",
+    "es": "Cerca de mí",
+    "it": "Vicino a me",
+    "de": "In meiner Nähe",
+    "pt": "Perto de mim",
+    "nl": "Bij mij in de buurt",
+}
+
+# The visitor answered the place question without a place (a day, « peu
+# importe »): the search ran on the market's main city, said first.
+_DEFAULT_PLACE: dict[str, str] = {
+    "fr": "Sans ville indiquée, voici des hôtels à {city}. Pour une autre ville, dites-la-moi.",
+    "en": "With no city named, here are hotels in {city}. For another city, just tell me.",
+    "es": "Sin ciudad indicada, aquí tienes hoteles en {city}. Para otra ciudad, dímela.",
+    "it": "Senza una città indicata, ecco degli hotel a {city}. Per un'altra città, dimmela.",
+    "de": "Ohne genannte Stadt hier Hotels in {city}. Für eine andere Stadt sag sie mir einfach.",
+    "pt": "Sem cidade indicada, aqui estão hotéis em {city}. Para outra cidade, diga-ma.",
+    "nl": "Zonder stad hier hotels in {city}. Voor een andere stad, laat het me weten.",
+}
+
+
+def near_me_chip(language: str) -> str:
+    return _pick(language, _NEAR_ME_CHIP)
+
+
+def place_chips(language: str, cities: list[str], *, near_me: bool = True) -> list[str]:
+    """The chips of a place question: « près de moi » (unless the position was
+    just refused), then the visitor market's cities (`market_cities`)."""
+    chips = [near_me_chip(language)] if near_me else []
+    return chips + [city for city in cities if city]
+
+
+def place_question(
+    language: str, *, wish: str | None = None, location_refused: bool = False,
+    ask_day: bool = False,
+) -> str:
+    """The one question of a search that has no place yet: the place only,
+    restating the `wish` the triage read when there is one. `location_refused`:
+    the visitor asked for a search around them and no position came back.
+    `ask_day` keeps the question of #170 (« Où et pour quel jour ? ») for a
+    caller that still wants it; the spine no longer asks the day (2026-10-29)."""
+    if ask_day:
+        question = _pick(language, _DATE_PLACE_QUESTION)
+    elif wish:
+        question = _pick(language, _WISH_PLACE_QUESTION).format(wish=wish)
+    else:
+        question = _pick(language, _PLACE_QUESTION)
     if location_refused:
         return f"{_pick(language, _NO_DEVICE_LOCATION)} {question}"
     return question
+
+
+def default_place_notice(city: str, language: str) -> str:
+    """Said first when the search ran on the market's main city because the
+    answer to the place question named none."""
+    return _pick(language, _DEFAULT_PLACE).format(city=city)
 
 
 def date_place_question(language: str) -> str:

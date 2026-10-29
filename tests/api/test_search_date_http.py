@@ -52,24 +52,30 @@ def no_place(monkeypatch):
     return _stub(monkeypatch, {"destination_missing": True})
 
 
-def test_the_json_turn_asks_the_place_and_the_day_with_the_chips(client, no_place):
-    r = client.post("/v3/chat", json={"message": "un hôtel avec piscine", "locale": "fr"})
+def test_the_json_turn_asks_the_place_with_near_me_and_the_market_cities(client, no_place):
+    r = client.post("/v3/chat", json={
+        "message": "un hôtel avec piscine", "locale": "fr", "entry_market_country": "FR",
+    })
 
     assert r.status_code == 200
     body = r.json()
-    assert body["message"] == templates.place_question("fr", ask_day=True)
-    assert body["suggestions"] == templates.date_chips("fr")
+    assert body["message"] == templates.place_question("fr")
+    assert body["suggestions"] == ["Près de moi", "Paris", "Lyon", "Bordeaux"]
+    # The widget asks for the position when that chip is clicked.
+    assert body["near_me"] == "Près de moi"
     assert body["hotels"] is None
     assert len(no_place) == 1  # the leaf ran: the question is not asked before it
 
 
 def test_the_streamed_turn_ends_on_the_same_question_and_chips(client, no_place):
+    # No market in the request: « près de moi » alone.
     r = client.post("/v3/chat/stream", json={"message": "un hôtel avec piscine", "locale": "fr"})
 
     assert r.status_code == 200
     done = _done(r.text)
-    assert done["message"] == templates.place_question("fr", ask_day=True)
-    assert done["suggestions"] == templates.date_chips("fr")
+    assert done["message"] == templates.place_question("fr")
+    assert done["suggestions"] == ["Près de moi"]
+    assert done["near_me"] == "Près de moi"
 
 
 def test_a_refused_position_is_said_in_the_question(client, no_place):
@@ -78,7 +84,9 @@ def test_a_refused_position_is_said_in_the_question(client, no_place):
         "client_geo_context": {"device": {"permission": "denied"}},
     })
 
-    assert r.json()["message"] == templates.place_question("fr", ask_day=True, location_refused=True)
+    body = r.json()
+    assert body["message"] == templates.place_question("fr", location_refused=True)
+    assert body["suggestions"] == [] and body["near_me"] is None
 
 
 def test_a_search_with_no_day_says_the_day_and_offers_the_next_ones(client, monkeypatch):
@@ -95,3 +103,4 @@ def test_a_search_with_no_day_says_the_day_and_offers_the_next_ones(client, monk
     notice = templates.date_retained_notice(format_date_human(today, "fr"), "fr", with_chips=True)
     assert done["message"] == f"Voici des hôtels.\n\n{notice}"
     assert done["suggestions"] == ["Demain", "Après-demain"]
+

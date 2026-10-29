@@ -150,6 +150,7 @@ from .display_currency import (
 from .ground_truth import shortlist_ground_truth_block, shortlist_hotels, synthesis_angle
 from .leg import StatelessLeafLeg
 from .link_guard import enforce_hotel_link_truthfulness
+from .market_cities import default_place, market_cities
 from .profile import (
     choose_named_candidate,
     named_hotel_in_results,
@@ -595,7 +596,8 @@ def search_signature(search_context: Any) -> str | None:
     if not isinstance(search_context, dict):
         return None
     kept = {
-        k: v for k, v in search_context.items() if k not in ("search_page", "landmark_unresolved")
+        k: v for k, v in search_context.items()
+        if k not in ("search_page", "landmark_unresolved", "default_place")
     }
     return json.dumps(kept, sort_keys=True, ensure_ascii=False, default=str)
 
@@ -1923,6 +1925,24 @@ class _B2cConcierge(BaseAgent):
             # Point 3: « augmenter le budget » / « retirer un filtre », the
             # concierge's own chips: the leaf loosens the search (`relaxation.py`).
             leaf_kwargs["query_params"] = {**(leaf_kwargs.get("query_params") or {}), "relax": relax_chip}
+        fallback_place = (
+            default_place(profile.entry_market_country)
+            if (
+                route.target == LEAF_HOTEL_SEARCH
+                and isinstance(pending, dict) and pending.get("place_question")
+                and not has_search_destination(profile)
+                and not hotel_name and not location_refused
+            ) else None
+        )
+        if fallback_place is not None:
+            # 2026-10-29: the place question was asked last turn and this
+            # answer may give no place either (« Demain »). The leaf searches
+            # the market's main city when — and only when — its geocode finds
+            # no place in the request (`geocode_tool`, `default_place`): never
+            # a second bare question while the market can show something.
+            leaf_kwargs["query_params"] = {
+                **(leaf_kwargs.get("query_params") or {}), "default_place": fallback_place,
+            }
         context_text: str | None = None
         if route.target == LEAF_HOTEL_SEARCH and pending_clar is not None:
             # QA14707 (Q04): the answer to a place question travels with the
@@ -1938,6 +1958,12 @@ class _B2cConcierge(BaseAgent):
             context_text = pending_search_context(pending)
         if context_text:
             leaf_kwargs["context_text"] = context_text
+        # 2026-10-29: what the place question restates — the triage's reading
+        # of the wish, only when it is written in the reply's language.
+        wish = triage.wish if triage.used_llm and triage.language == reply_language else None
+        place_chip_list = templates.place_chips(
+            reply_language, market_cities(profile.entry_market_country), near_me=not location_refused,
+        )
         leaf_text, response = await _run_leaf(
             route.target, ctx, leaf_profile_view(profile), **leaf_kwargs
         )
@@ -2249,15 +2275,11 @@ class _B2cConcierge(BaseAgent):
                     budget.fired.add("anti_clarification_loop")
             text = templates.clarification_response(leaf_question, reply_language, asked)
             gave_up = asked > templates.CLARIFICATION_MAX_ASKS
-            if (
-                day_open and not profile.date_checked and not gave_up
-                and leaf_question.kind in ("city_needed", "unresolved")
-            ):
-                # 2026-10-28: the place is missing and so is the day — one
-                # message asks both, with the day chips; never a second turn.
-                profile.date_checked = True
-                text = templates.with_day_question(text, reply_language)
-                profile.last_suggestions = templates.date_chips(reply_language)
+            if not gave_up and leaf_question.kind in ("city_needed", "unresolved"):
+                # 2026-10-29: the question is about the place only (the day
+                # falls back on today and the answer with the hotels says it),
+                # and its chips answer it: the market's cities, « près de moi ».
+                profile.last_suggestions = place_chip_list or None
             profile.last_clarifying_question = None if gave_up else text
             await store.set(ctx.session.id, profile)
             clarification_reason: ClarificationReason
@@ -2294,14 +2316,19 @@ class _B2cConcierge(BaseAgent):
             # 13 conversations that stopped on the day question had one turn).
             # No synthesis: nothing was searched, and its free question used to
             # add hours, budgets… to a request that cannot run yet.
-            ask_day = day_open and not profile.date_checked
-            if ask_day:
-                profile.date_checked = True
+            # 2026-10-29 (prod after #173: 45 of 97 conversations opened on
+            # « Où et pour quel jour ? » with day chips only; a day clicked
+            # brought « Dans quelle ville ? », 16 never saw a hotel): the
+            # question is about the place only, restates the wish the triage
+            # read, and its chips answer it (« près de moi », the market's
+            # cities). The day is not asked: the search runs on today (tomorrow
+            # past the cutoff) and the answer with the hotels says which day,
+            # with the day chips (`_day_notice`).
             question = templates.place_question(
-                reply_language, ask_day=ask_day, location_refused=location_refused
+                reply_language, wish=wish, location_refused=location_refused
             )
             profile.last_clarifying_question = question
-            profile.last_suggestions = templates.date_chips(reply_language) if ask_day else None
+            profile.last_suggestions = place_chip_list or None
             profile.pending_search = {
                 **(next_pending_search(earlier, message, False, question, ended_on_question=True) or {}),
                 "place_question": True,
@@ -2425,6 +2452,11 @@ class _B2cConcierge(BaseAgent):
                 templates.landmark_unresolved_notice(landmark.strip(), reply_language, profile.city)
                 + f"\n\n{final_text}"
             )
+        fell_back = landmark_context.get("default_place") if isinstance(landmark_context, dict) else None
+        if isinstance(fell_back, str) and fell_back.strip() and response.get("results"):
+            # 2026-10-29: the answer to the place question named none, and the
+            # leaf searched the market's main city (`default_place`).
+            final_text = f"{templates.default_place_notice(fell_back.strip(), reply_language)}\n\n{final_text}"
         if unchanged:
             final_text = f"{templates.refinement_unchanged_notice(reply_language)}\n\n{final_text}"
         if (

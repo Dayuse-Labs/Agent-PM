@@ -62,7 +62,12 @@ from hotel_search_agent.mapbox_client import (
     GeocodeResult,
     MapboxClient,
 )
-from hotel_search_agent.response_bridge import read_input_text, read_profile_in, read_user_words
+from hotel_search_agent.response_bridge import (
+    read_input_text,
+    read_profile_in,
+    read_query_params,
+    read_user_words,
+)
 from hotel_search_agent.searchbox_client import SearchBoxClient
 
 # Same stdout metrics logger as the other leaf modules. GDPR: counts and closed
@@ -2230,6 +2235,17 @@ def geocode_location(
     )
     if geo.near_user and not (own.get("city") or own.get("zone") or own.get("postal_code")):
         return _near_user(proximity_lat, proximity_lon)
+    offered = _default_place(args, read_query_params(tool_context), proximity_lat, proximity_lon)
+    if offered is not None:
+        result = geocode_core(
+            city=offered[0], country_code=offered[1], locale=locale, language_hint=language_hint,
+            market_country=args.get("market_country"),
+        )
+        if result.get("ok"):
+            result["default_place"] = offered[0]
+            result["profile_delta"] = {**(result.get("profile_delta") or {}), "default_place": offered[0]}
+            _metrics_logger.info("dayuse_metric=geocode_default_place agent=b2c_hotel_search status=ok")
+            return result
     context: dict[str, Any] = {
         "profile_state_context": profile_state_context,
         "profile_location_hint": profile_location_hint,
@@ -2282,6 +2298,24 @@ def geocode_location(
     guards = sorted(set(first_guards) | set(result.get("guards_fired") or []))
     diagnostics = {k: v for k, v in (result.get("diagnostics") or {}).items() if k in ("query", "resolved_place")}
     return _unresolved(subject, _mapbox_language(locale, language_hint), diagnostics, guards)
+
+
+def _default_place(
+    args: dict[str, Any], query_params: dict[str, Any], lat: float | None, lon: float | None
+) -> tuple[str, str | None] | None:
+    """(city, country) the concierge offers when the place question it asked
+    got an answer naming no place (2026-10-29, `query_params.default_place`:
+    the visitor market's main city). Used only when nothing else locates the
+    search: no place in the request, none carried, no device position."""
+    offered = query_params.get("default_place")
+    if not isinstance(offered, dict) or lat is not None or lon is not None:
+        return None
+    if any(not _is_blank(args.get(key)) for key in ("city", "zone", "metro", "postal_code")):
+        return None
+    city = offered.get("city")
+    if not isinstance(city, str) or not city.strip():
+        return None
+    return city.strip(), _iso2(offered.get("country_code"))
 
 
 def _mark_landmark_unresolved(result: dict, zone: str) -> dict:
