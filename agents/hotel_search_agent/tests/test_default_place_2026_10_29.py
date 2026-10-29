@@ -93,3 +93,16 @@ def test_without_the_offer_nothing_changes(monkeypatch):
 
     assert all(c.get("city") in ("", None) for c in calls)
     assert result["error"] == "no_geocodable_location"
+
+
+def test_the_offered_city_anchors_no_state_for_the_next_turn(monkeypatch):
+    # Replay 2026-10-29 (S092): New York by default, then « Atlanta ga » was
+    # looked up in New York state (Atlanta, NY) — the anchor came from a city
+    # the user never named.
+    _spy(monkeypatch, {**_PARIS_OK, "profile_delta": {"last_city": "New York", "last_state_context": "NY"}})
+    ctx = _ctx("I have a long layover between flights\nThe day after tomorrow",
+               query_params={"default_place": {"city": "New York", "country_code": "US"}})
+
+    result = geocode_location(intent=GeoIntent(), tool_context=ctx)
+
+    assert result["profile_delta"] == {"last_city": "New York", "default_place": "New York"}

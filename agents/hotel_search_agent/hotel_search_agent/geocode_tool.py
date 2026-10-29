@@ -2420,7 +2420,11 @@ def geocode_location(
         )
         if result.get("ok"):
             result["default_place"] = offered[0]
-            result["profile_delta"] = {**(result.get("profile_delta") or {}), "default_place": offered[0]}
+            # A city nobody named anchors no US state: the next place the user
+            # names is looked up on its own (replay 2026-10-29: New York by
+            # default, then « Atlanta ga » resolved to Atlanta, New York).
+            delta = {k: v for k, v in (result.get("profile_delta") or {}).items() if k != "last_state_context"}
+            result["profile_delta"] = {**delta, "default_place": offered[0]}
             _metrics_logger.info("dayuse_metric=geocode_default_place agent=b2c_hotel_search status=ok")
             return result
     context: dict[str, Any] = {
