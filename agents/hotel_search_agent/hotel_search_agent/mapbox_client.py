@@ -114,7 +114,13 @@ class GeocodeCandidate:
 class MapboxClient:
     """Synchronous forward geocoder: 1 request + 1 retry, each bounded by
     `timeout_seconds`; results (including "not found") are cached in memory,
-    bounded to `cache_maxsize` entries (oldest evicted first)."""
+    bounded to `cache_maxsize` entries (oldest evicted first).
+
+    2026-10-29 (prod: « Mantova », review of 97 conversations after #173): a
+    request that FAILED (timeout, network, 5xx past the retry) is never
+    cached. It used to be stored as « no match » — an empty list — and replayed
+    to every later turn asking the same place for as long as the entry lived,
+    sending a bare city to the Search-Box tier on a geocoder blip."""
 
     def __init__(
         self,
@@ -162,7 +168,9 @@ class MapboxClient:
         if country:
             params["country"] = country.lower()
         data = self._request(params)
-        result = self._parse_one(data, fallback=query) if data is not None else None
+        if data is None:
+            return None  # a failure, not an answer: never cached
+        result = self._parse_one(data, fallback=query)
         self._remember(key, result)
         return result
 
@@ -206,7 +214,9 @@ class MapboxClient:
         if proximity:
             params["proximity"] = proximity
         data = self._request(params)
-        candidates = self._parse_candidates(data) if data is not None else []
+        if data is None:
+            return []  # a failure, not « no match »: never cached
+        candidates = self._parse_candidates(data)
         self._remember(key, candidates)
         return list(candidates)
 

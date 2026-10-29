@@ -35,6 +35,7 @@ from the candidates' `place_formatted` — never a candidate dump, never a loop
 """
 from __future__ import annotations
 
+import math
 import re
 import unicodedata
 from dataclasses import dataclass, field
@@ -73,6 +74,20 @@ _MARGIN_SELECT = 1.5
 _MIN_CLARIFY_SEPARATION_KM = 100.0
 
 _MAX_CLARIFY_OPTIONS = 3
+
+# 2026-10-29 (prod, 97 conversations after #173): « Milano » asked against a
+# hamlet called Milan near Treviso, « Brooklyn » against Brooklyn (Maryland),
+# « Palm Springs » against a neighbourhood of Hialeah, and « Mantova » resolved
+# to « Cascina Mantova », a farmstead near Monza with Milan's inventory around
+# it. Mapbox gives no population, but every place it returns carries its own
+# extent (`bbox`): a fact about the place, not about the words. A candidate
+# this many times smaller than an exact-name city of the request is not the
+# place a traveller names (`_important_survivors`).
+_EXTENT_DOMINANCE = 8.0
+#: The Mapbox types whose extent says how big a destination is. A region, a
+#: district or a country has an administrative extent of another order: it
+#: never outweighs a city this way.
+_EXTENT_TYPES = frozenset({"place", "locality", "neighborhood"})
 
 
 @dataclass(frozen=True)
@@ -114,6 +129,64 @@ def _proximity_credit(candidate: GeocodeCandidate, proximity: tuple[float, float
     # Linear decay between the two radii — a bounded [0,1] closeness, never enough
     # (× _W_PROXIMITY) to flip a feature-type band or the inventory tier.
     return (_PROXIMITY_ZERO_KM - dist) / (_PROXIMITY_ZERO_KM - _PROXIMITY_FULL_KM)
+
+
+def extent_km2(candidate: GeocodeCandidate) -> float | None:
+    """The area of the candidate's bounding box in km², or None without one."""
+    if candidate.bbox is None:
+        return None
+    min_lon, min_lat, max_lon, max_lat = candidate.bbox
+    mid = math.radians((min_lat + max_lat) / 2)
+    height = abs(max_lat - min_lat) * 111.0
+    width = abs(max_lon - min_lon) * 111.0 * max(math.cos(mid), 0.01)
+    return height * width
+
+
+def _is_named(candidate: GeocodeCandidate, names: frozenset[str]) -> bool:
+    return bool(names) and _name_fold(candidate.name) in names
+
+
+def _important_survivors(
+    survivors: list[GeocodeCandidate],
+    names: frozenset[str],
+    inventory_of: dict[int, int],
+) -> list[GeocodeCandidate]:
+    """`survivors` without the candidates a far bigger city of the request
+    outweighs (2026-10-29). A candidate X goes when some candidate Y is named
+    exactly as asked (`names`, the request's own spellings), is a city-scale
+    feature (`_EXTENT_TYPES`) and covers at least `_EXTENT_DOMINANCE` times
+    X's extent, and:
+    - X does not carry the name as asked (« Cascina Mantova » for
+      « Mantova »): a bigger place of that very name exists, whatever the
+      inventory around X;
+    - or X does, and Y has a real inventory footprint too (`_MIN_TIER_INVENTORY`):
+      between two credible homonyms, the city outweighs the hamlet (Milano /
+      Milan near Treviso, Brooklyn NY / MD, Palm Springs CA / Hialeah). A
+      homonym without hotels never outweighs one with them: Saint-Denis of
+      La Réunion is larger than the 93's and stays behind it.
+    Both extents must be known: a candidate without a `bbox` (Search Box, an
+    older fixture) is never removed nor removes anything."""
+    if not names:
+        return survivors
+    bigger = [
+        (y, extent_km2(y)) for y in survivors
+        if y.feature_type in _EXTENT_TYPES and _is_named(y, names) and extent_km2(y)
+    ]
+    if not bigger:
+        return survivors
+    kept: list[GeocodeCandidate] = []
+    for x in survivors:
+        x_extent = extent_km2(x)
+        outweighed = x_extent is not None and any(
+            y is not x
+            and y_extent is not None
+            and y_extent >= _EXTENT_DOMINANCE * x_extent
+            and (not _is_named(x, names) or inventory_of[id(y)] >= _MIN_TIER_INVENTORY)
+            for y, y_extent in bigger
+        )
+        if not outweighed:
+            kept.append(x)
+    return kept or survivors
 
 
 def _region_matches(candidate: GeocodeCandidate, region_hint: str) -> bool:
@@ -399,8 +472,14 @@ def rank_landmark(
     proximity: tuple[float, float] | None = None,
     city_anchor: tuple[float, float] | None = None,
     radius_km: float = DEFAULT_RADIUS_KM,
+    city_query: bool = False,
 ) -> GeocodeCandidate | None:
     """Pick the best Search-Box candidate for a named landmark, or None.
+
+    `city_query` (2026-10-29): the request named a CITY and nothing finer —
+    the Search-Box tier only runs for one when the geocoder returned nothing
+    (a timeout). The priors are then the city ones (`_TYPE_PRIOR`: a `place`
+    first), not the landmark ones, which rank a business above the town.
 
     SELECT-ONLY on purpose — no clarify branch. `resolve` above asks the user
     when two CITIES are a genuine near-tie, which is a real question; a POI
@@ -420,7 +499,8 @@ def rank_landmark(
 
     def score(candidate: GeocodeCandidate) -> float:
         count = inventory.count_near(candidate.latitude, candidate.longitude, radius_km=radius_km)
-        value = _LANDMARK_TYPE_PRIOR.get(candidate.feature_type, _TYPE_PRIOR_DEFAULT)
+        priors = _TYPE_PRIOR if city_query else _LANDMARK_TYPE_PRIOR
+        value = priors.get(candidate.feature_type, _TYPE_PRIOR_DEFAULT)
         value -= _W_LANDMARK_RANK * candidate.rank
         if count > 0:
             value += _W_INVENTORY * (
@@ -454,6 +534,7 @@ def resolve(
     radius_km: float = DEFAULT_RADIUS_KM,
     requested_name: str | None = None,
     language: str | None = None,
+    requested_names: tuple[str, ...] = (),
 ) -> Resolution:
     """Re-rank `candidates` and decide select / clarify / none. Pure and
     deterministic given the injected `inventory` provider.
@@ -466,7 +547,12 @@ def resolve(
     Minnesota?" (S-G10). Asymmetric on purpose: it only ever TRIMS options
     when the top is exact; a non-exact top (fuzzy resolution) never
     suppresses anything, and two exact-name homonyms (Budapest HU/GA,
-    Victoria) still clarify."""
+    Victoria) still clarify.
+
+    `requested_names` (2026-10-29): every spelling the request gave the place
+    (`requested_name` included) — the user's word and the canonical name. A
+    candidate a far bigger city of one of these names outweighs is dropped
+    before ranking (`_important_survivors`)."""
     survivors = list(candidates)
 
     # 1 — hard filters (a stated country/region removes, never boosts).
@@ -483,10 +569,16 @@ def resolve(
     if not survivors:
         return Resolution(decision="none")
 
+    counts = {id(c): inventory.count_near(c.latitude, c.longitude, radius_km=radius_km) for c in survivors}
+    names = frozenset(
+        _name_fold(n) for n in (requested_name, *requested_names) if n and _name_fold(n)
+    )
+    survivors = _important_survivors(survivors, names, counts)
+
     # 2-5 — score every survivor.
     scored: list[ScoredCandidate] = []
     for c in survivors:
-        cnt = inventory.count_near(c.latitude, c.longitude, radius_km=radius_km)
+        cnt = counts[id(c)]
         scored.append(
             ScoredCandidate(
                 candidate=c,
@@ -518,15 +610,14 @@ def resolve(
     # competitive: a different country/region, far enough to be a distinct
     # destination (not an adjacent suburb sharing the same search area), in the same
     # inventory tier, and within the selection margin of the top.
-    requested_fold = _name_fold(requested_name)
-    top_name_exact = bool(requested_fold) and _name_fold(top.candidate.name) == requested_fold
+    top_name_exact = _is_named(top.candidate, names)
 
     def _genuine_alternative(other: ScoredCandidate) -> bool:
         if other.in_inventory_tier != top.in_inventory_tier:
             return False
         if top.score - other.score >= _MARGIN_SELECT:
             return False
-        if top_name_exact and _name_fold(other.candidate.name) != requested_fold:
+        if top_name_exact and not _is_named(other.candidate, names):
             return False
         if not _differs_by_place(top.candidate, other.candidate):
             return False

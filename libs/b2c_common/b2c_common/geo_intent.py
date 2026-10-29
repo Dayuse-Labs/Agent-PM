@@ -230,7 +230,8 @@ class GeoIntent(BaseModel):
         max_length=MAX_PLACES,
         description=(
             "The places named in THIS message, most important first, at most 2. "
-            "Empty when the message names no place."
+            "Empty when the message names no place. A direction or a distance with no "
+            "place name (\"going north\", \"further out\") is not a place."
         ),
     )
     city: CityRef | None = Field(

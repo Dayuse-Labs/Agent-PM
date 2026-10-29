@@ -47,6 +47,9 @@ from pydantic import ValidationError
 from hotel_search_agent import geo_resolver
 from hotel_search_agent.fr_departments import department
 from hotel_search_agent.geo_guards import (
+    US_STATE_ABBREV_TO_NAME,
+    US_STATE_NAME_TO_CANONICAL,
+    extract_state_hint_from_text,
     anchor_state_context,
     demote_generic_city,
     geocode_echo_matches,
@@ -346,6 +349,80 @@ def _mark_business_named_after_the_area(guards_fired: list[str]) -> None:
         guards_fired.append("geocode_echo_back")
 
 
+#: `_district_of_namesakes` (2026-10-29): at least this many places named
+#: after the district, all within this distance of their median point.
+_DISTRICT_MIN_NAMESAKES = 3
+_DISTRICT_SPREAD_KM = 2.0
+
+
+def _district_of_namesakes(
+    candidates: list[GeocodeCandidate],
+    *,
+    zone_kind: str | None,
+    names: tuple[str, ...],
+    anchor: tuple[float, float] | None,
+    city: str | None,
+) -> GeocodeCandidate | None:
+    """A neighbourhood Mapbox does not know as such, located by the places
+    named after it — or None.
+
+    Prod session 4919ffbc (2026-10-28): « Ostia lido », a seaside district of
+    Rome 25 km from its centre. Neither v6 nor Search Box has a feature for
+    it; Search Box returns ten businesses called « … Ostia Lido », each one
+    rightly refused as a business (`_business_named_after_the_area`), and the
+    search ran on the centre of Rome four times. Those businesses stand
+    together, within a few hundred metres: where they are IS the district.
+
+    Facts only: the candidates whose name holds every word of one of the
+    district's names (`_comparable`), within `_POI_ANCHOR_MAX_KM` of the
+    city's anchor when there is one; their median point; at least
+    `_DISTRICT_MIN_NAMESAKES` of them within `_DISTRICT_SPREAD_KM` of it, and
+    most of the namesakes. Scattered namesakes (a region, a chain) are no
+    district. A neighbourhood only (`zone_kind`), the kind the model gives
+    such a place; a landmark or an area keeps its own path."""
+    if zone_kind != "neighborhood":
+        return None
+    wanted = [set(_comparable(n).split()) for n in names if _comparable(n)]
+    if not wanted:
+        return None
+    namesakes = [
+        c for c in candidates
+        if any(words <= set(_comparable(c.name).split()) for words in wanted)
+        and (
+            anchor is None
+            or haversine_km(anchor[0], anchor[1], c.latitude, c.longitude) <= _POI_ANCHOR_MAX_KM
+        )
+    ]
+    if len(namesakes) < _DISTRICT_MIN_NAMESAKES:
+        return None
+    lats = sorted(c.latitude for c in namesakes)
+    lons = sorted(c.longitude for c in namesakes)
+    mid_lat, mid_lon = lats[len(lats) // 2], lons[len(lons) // 2]
+    close = [
+        c for c in namesakes
+        if haversine_km(mid_lat, mid_lon, c.latitude, c.longitude) <= _DISTRICT_SPREAD_KM
+    ]
+    if len(close) < _DISTRICT_MIN_NAMESAKES or 2 * len(close) <= len(namesakes):
+        return None
+    label = names[0]
+    _metrics_logger.info(
+        "dayuse_metric=district_of_namesakes agent=b2c_hotel_search namesakes=%d close=%d",
+        len(namesakes), len(close),
+    )
+    return GeocodeCandidate(
+        latitude=round(sum(c.latitude for c in close) / len(close), 6),
+        longitude=round(sum(c.longitude for c in close) / len(close), 6),
+        name=label,
+        place_name=f"{label}, {city}" if city else label,
+        place_formatted=city or "",
+        feature_type="neighborhood",
+        country_code=close[0].country_code,
+        region=close[0].region,
+        bbox=None,
+        rank=0,
+    )
+
+
 def _city_coordinate(
     city: str,
     *,
@@ -426,6 +503,7 @@ def _anchor_state(
     profile_state_context: str | None,
     profile_location_hint: str | None,
     guards_fired: list[str],
+    resolved: GeocodeCandidate | None = None,
 ) -> dict:
     """`anchor_state_context` plus the OBS3 wiring its guard never had.
 
@@ -442,9 +520,51 @@ def _anchor_state(
             "last_city": profile_location_hint,
         },
     )
+    # 2026-10-29 (prod session 12665ef3, « 53088 » then « try a nearby
+    # area »): the US state of the place the geocoder resolved is anchored
+    # with it, so the next turn, which carries only the city's NAME, looks it
+    # up in that state. Stockbridge, Wisconsin came back as Stockbridge,
+    # Georgia — the homonym with hotels around it. A state named this turn
+    # stays first (`anchor_state_context` above).
+    state = _us_state_code(resolved)
+    if state and extract_state_hint_from_text(city, raw_user_message) is None:
+        if state != (str(anchored).upper() if anchored else None):
+            delta["last_state_context"] = state
+        anchored = state
     if anchored or "last_state_context" in delta:
         guards_fired.append("state_anchoring")
     return delta
+
+
+def _us_state_code(candidate: GeocodeCandidate | None) -> str | None:
+    """The 2-letter code of a US candidate's state, from Mapbox's own
+    `context.region` name (« Wisconsin » -> « WI »), else None."""
+    if candidate is None or candidate.country_code != "US":
+        return None
+    name = US_STATE_NAME_TO_CANONICAL.get((candidate.region or "").strip().lower())
+    if not name:
+        return None
+    return next((abbr.upper() for abbr, full in US_STATE_ABBREV_TO_NAME.items() if full == name), None)
+
+
+def _city_point(chosen: GeocodeCandidate) -> GeocodeResult:
+    """The point a search over a whole city starts from: the geocoder's,
+    unless the city's hotels clearly sit elsewhere (2026-10-29,
+    `SnapshotInventory.dense_centre`: New York's point is City Hall, its
+    hotels are in Midtown). A city (`place`) only, never a district, an area
+    or a spot the user named — those are searched around themselves."""
+    result = chosen.as_result()
+    if chosen.feature_type != "place":
+        return result
+    centre = getattr(get_inventory(), "dense_centre", None)
+    point = centre(chosen.latitude, chosen.longitude) if callable(centre) else None
+    if not point:
+        return result
+    _metrics_logger.info("dayuse_metric=city_centre agent=b2c_hotel_search moved=1")
+    return GeocodeResult(
+        latitude=point[0], longitude=point[1], place_name=result.place_name,
+        country_code=result.country_code, region=result.region,
+    )
 
 
 def _searchbox_query(zone: str | None, city: str | None, metro: str | None) -> str:
@@ -931,6 +1051,7 @@ def geocode_core(
                         profile_state_context=profile_state_context,
                         profile_location_hint=profile_location_hint,
                         guards_fired=guards_fired,
+                        resolved=address,
                     ),
                     distance_origin_type="poi",
                     # Mapbox's own name of the address, without its postcode:
@@ -967,6 +1088,7 @@ def geocode_core(
                     profile_state_context=profile_state_context,
                     profile_location_hint=profile_location_hint,
                     guards_fired=guards_fired,
+                    resolved=area,
                 ),
                 distance_origin_type="poi",
                 metro=effective_metro,
@@ -1028,6 +1150,7 @@ def geocode_core(
                     profile_state_context=profile_state_context,
                     profile_location_hint=profile_location_hint,
                     guards_fired=guards_fired,
+                    resolved=street,
                 ),
                 distance_origin_type="poi",
                 # Mapbox's name of the street or address, as the postcode
@@ -1048,11 +1171,18 @@ def geocode_core(
         and not effective_city and not effective_metro
     ):
         area_names = _names(effective_zone, *aliases)
+        # 2026-10-29 (prod session ef12e6e0, « going north » around a device
+        # fix in California): an area for which neither the user nor the
+        # model gave a country was looked up worldwide, and « North,
+        # Lebanon » became the destination of the next turns too. Like a
+        # metro written alone (2026-10-28), it is looked up in the market's
+        # country only; nothing there is the honest « where is that? ».
+        market_scope = None if (country_code or guess_iso) else _market_country(locale, market_country)
         area = _area_match(
             effective_zone,
             area_names,
-            scope=country_code or guess_iso,
-            hard=bool(country_code),
+            scope=country_code or guess_iso or market_scope,
+            hard=bool(country_code) or market_scope is not None,
             language=lang,
             proximity=proximity_str,
             exact=area_exact,
@@ -1082,6 +1212,7 @@ def geocode_core(
                         profile_state_context=profile_state_context,
                         profile_location_hint=profile_location_hint,
                         guards_fired=guards_fired,
+                        resolved=area,
                     ),
                     # Carried as an area, not a city (`_fill_place_from_profile`).
                     "city_is_area": True,
@@ -1095,7 +1226,7 @@ def geocode_core(
         natural = geo_resolver.rank_landmark(
             get_searchbox_client().forward_candidates(
                 effective_zone,
-                country=_soft_country(country_code, guess_iso, locale),
+                country=market_scope or _soft_country(country_code, guess_iso, locale),
                 language=lang,
                 proximity=proximity_str,
             ),
@@ -1392,6 +1523,9 @@ def geocode_core(
         # S-CX2: the clarify question can reach the customer verbatim — ask it
         # in the conversation language (same 2-letter hint Mapbox already got).
         language=lang,
+        # 2026-10-29: every spelling the request gave the city (« Milano » and
+        # « Milan »): a far bigger city of one of them outweighs a hamlet.
+        requested_names=city_names,
     )
 
     # The turn's geographic anchor for guard #14. An anchor that vetoes another
@@ -1477,9 +1611,20 @@ def geocode_core(
                 profile_state_context=profile_state_context,
                 profile_location_hint=profile_location_hint,
                 guards_fired=guards_fired,
+                resolved=chosen,
             )
+            if not (effective_zone or centre_zone) and chosen.feature_type in ("place", "locality"):
+                # 2026-10-29 (replay of prod session d057ac6e): « Milano » asked
+                # as « Milan » (the model's canonical) resolved to Milano, but
+                # the name carried to the next turn was « Milan », and « Vorrei
+                # jacuzzi » re-asked « Milano o Milan (Zero Branco) ? ». The
+                # destination carried is the name of the place found.
+                if chosen.name and chosen.name != profile_location_hint:
+                    profile_delta["last_city"] = chosen.name
+                else:
+                    profile_delta.pop("last_city", None)
             return _ok(
-                chosen.as_result(),
+                _city_point(chosen) if not (effective_zone or centre_zone) else chosen.as_result(),
                 feature_type=chosen.feature_type,
                 profile_delta=profile_delta,
                 # S4: a named specific zone means "around X" even when it was v6
@@ -1568,6 +1713,7 @@ def geocode_core(
             inventory=get_inventory(),
             proximity=proximity_tuple,
             city_anchor=city_anchor,
+            city_query=not effective_zone,
         )
         if poi is not None and any(
             _echoes(poi.place_name, city=echo_city, zone=name, state_hint=state_hint)
@@ -1585,6 +1731,29 @@ def geocode_core(
                 names=_names(effective_zone, *aliases, effective_city, effective_metro),
             ):
                 _mark_business_named_after_the_area(guards_fired)
+                district = _district_of_namesakes(
+                    poi_candidates,
+                    zone_kind=zone_kind,
+                    names=_names(effective_zone, *zone_aliases),
+                    anchor=poi_anchor,
+                    city=echo_city,
+                )
+                if district is not None:
+                    return _ok(
+                        district.as_result(),
+                        feature_type=district.feature_type,
+                        profile_delta=_anchor_state(
+                            city=effective_city,
+                            raw_user_message=raw_user_message,
+                            profile_state_context=profile_state_context,
+                            profile_location_hint=profile_location_hint,
+                            guards_fired=guards_fired,
+                        ),
+                        distance_origin_type="poi",
+                        zone=effective_zone,
+                        metro=effective_metro,
+                        guards_fired=guards_fired,
+                    )
                 if effective_city or effective_metro:
                     # Prod 7e296e4b (« new york city or long island »): the city
                     # is the search, as for a region named with its city (above).
@@ -1603,6 +1772,13 @@ def geocode_core(
                     whole_city["guards_fired"] = sorted(
                         {*guards_fired, *whole_city.get("guards_fired", ())}
                     )
+                    if whole_city.get("ok") and effective_zone:
+                        # 2026-10-29 (prod session 4919ffbc, « Ostia lido » four
+                        # times, four searches on the centre of Rome, 25 km
+                        # away): the city alone is searched, and the reply says
+                        # the spot could not be placed, as for any landmark
+                        # dropped (`_without_the_landmark`).
+                        _mark_landmark_unresolved(whole_city, effective_zone)
                     return whole_city
             else:
                 profile_delta = _anchor_state(
@@ -1611,6 +1787,7 @@ def geocode_core(
                     profile_state_context=profile_state_context,
                     profile_location_hint=profile_location_hint,
                     guards_fired=guards_fired,
+                    resolved=poi,
                 )
                 return _ok(
                     poi.as_result(),
