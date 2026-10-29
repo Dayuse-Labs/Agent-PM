@@ -218,7 +218,7 @@ _VERSIONED_SUFFIXES = frozenset({".html", ".css", ".js"})
 # Not left to the image's mime tables (python:3.12-slim has no /etc/mime.types):
 # with `nosniff`, a hero served as application/octet-stream would not render.
 for _type, _ext in (("image/avif", ".avif"), ("image/webp", ".webp"), ("font/woff2", ".woff2"),
-                    ("application/json", ".map")):
+                    ("font/otf", ".otf"), ("application/json", ".map")):
     mimetypes.add_type(_type, _ext)
 _IMMUTABLE = "public, max-age=31536000, immutable"
 _VERSION_CACHE: dict[Path, tuple[tuple[int, int], bytes, str, tuple[tuple[Path, str], ...]]] = {}
