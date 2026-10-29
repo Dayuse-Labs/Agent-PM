@@ -360,6 +360,12 @@ class SessionProfile:
     # `refinement_unchanged` says « that change does not alter the results »
     # only when this changed and the offers did not. Concierge-only.
     last_search_signature: str | None = None
+    # 2026-10-29: the last exchanges of the conversation, for the synthesis
+    # and the search leaf to read (`dialogue_context`): the user's words (an
+    # e-mail masked, 200 characters) and a cut of the reply (160), at most 3.
+    # Concierge-owned, same TTL as the rest of the profile; it reaches the
+    # leaf only as `query_params.dialogue`.
+    recent_turns: list[dict[str, Any]] | None = None
 
     def to_dict(self) -> dict[str, Any]:
         return {
@@ -423,6 +429,7 @@ class SessionProfile:
             "room_requirements": self.room_requirements,
             "pending_party_total": self.pending_party_total,
             "last_search_signature": self.last_search_signature,
+            "recent_turns": self.recent_turns,
             "schema_version": PROFILE_SCHEMA_VERSION,
         }
 
@@ -455,6 +462,7 @@ _CONCIERGE_ONLY_KEYS = (
     "search_page",
     "pending_search",
     "pending_clarification",  # the leaf gets it on the answer turn, in query_params
+    "recent_turns",  # the leaf gets them as query_params.dialogue
     "named_candidates",
     "pending_party_total",  # the leaf gets it as query_params.party_total
     "date_checked",
