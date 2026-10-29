@@ -6,6 +6,46 @@
 
 > 📋 **Pour savoir QUOI faire ensuite, ouvrir [`CHANTIERS.md`](CHANTIERS.md)** (état vérifié au 2026-09-14) : la liste des chantiers ouverts, chacun avec sa preuve, ses actions et un prompt prêt à coller — plus la liste de ce qu'il ne faut **pas** relancer parce que c'est déjà livré. `tasks/todo.md` est périmé et ne doit plus servir de référence.
 
+## 🧵 2026-10-29 — Contexte de dialogue partagé + échéance unique par tour (branche `fix/shared-context-turn-deadline-20261029`, sur `main` 6078ff2)
+
+**Constat** (revue des 97 conversations réelles après #173, B8-B10, B15, B17, A9 ; rapport d'architecture, changements n°1 et n°5) :
+la synthèse n'avait l'historique que sur la route FAQ, la feuille recherche ne voit que le message courant ;
+les étages n'avaient pas d'échéance commune ; une feuille en échec était comptée `leaf_call status=ok` (O7).
+
+**Fait** (2 commits) :
+1. **Contexte de dialogue** (`dialogue_context.py`) : la synthèse (toutes les routes) et la feuille
+   (`query_params.dialogue`) reçoivent les 3 derniers échanges (mots de l'utilisateur 200 car., e-mail
+   masqué ; coupe de la réponse 160 car. ; une réponse FAQ n'est jamais mémoire), la question en attente,
+   et pour la synthèse l'état du tour précédent (lieu, jour, créneau, filtres, groupe, hôtels à l'écran ;
+   jamais la position). Profil : `recent_turns` (Redis, même TTL), écrit après chaque tour. Aucune règle
+   sur les mots : le LLM lit le contexte.
+2. **Échéance unique** (`turn_deadline.py`) : 60 s posées au début du tour ; la feuille reçoit son budget
+   (`dayuse_turn_budget_ms`, métadonnées A2A, hors prompt), ses recherches en plus ne partent que si elles
+   peuvent finir avant et sont coupées à l'échéance (`extra_calls.py`, `geo_rank` aligné sans être
+   modifié) ; la synthèse est bornée par le temps restant (aucune sous 2 s). O7 : feuille vide, erreur de
+   transport ou tâche `failed` = `status=error` (sur main, le texte de l'exception devenait le résultat).
+
+**Preuves** : pytest 3 546 passés / 2 skippés, ruff, mypy, guardrails, 103 tests JS ; 20 tests rouges sur
+origin/main (3 tours homonyme → « 2 » → affinage ; faux MCP qui pend → les hôtels trouvés repartent ;
+synthèse bloquée → réponse à l'échéance ; O7). Rejeu local (59 conversations ≥ 2 tours, 3 passes par bras,
+Langfuse et `DATABASE_URL` coupés, jamais ai.dayuse.com) : rapport hors dépôt
+`dashboard_bascule/data/investigation/replay_context.md` (+ `.json`). Dates oubliées 25 → 17 et envies
+oubliées 101 → 89 sur 3 passes (juge LLM aveugle), accès aux résultats inchangé (±1 conversation), **+0,6 à
++1,0 s de latence médiane sur les tours de recherche** (synthèse plus longue, +650 tokens par tour feuille).
+
+**Pièges** :
+- Avec le dialogue, la feuille ignorait un code postal seul en réponse à la question de lieu (3/3 en sonde) :
+  consigne corrigée (un lieu de CE message va dans `intent`), vérifiée 3/3. Toute consigne « n'utilise que
+  CE message » doit dire que répéter ou répondre à la conversation n'y change rien.
+- `stack.sh start … | tail -5` ne rend jamais la main (les sous-shells détachés gardent le tube) :
+  rediriger vers un fichier.
+- Deux fichiers de test de même nom dans deux `tests/` d'agents se masquent sous `--import-mode=importlib`
+  (`test_turn_deadline_2026_10_29.py`) : le test feuille s'appelle `test_leaf_turn_deadline_2026_10_29.py`.
+
+**Reste** : revue (Fabien) ; à merger APRÈS la PR « pertinence et entrée »
+(`fix/relevance-entry-20261029`, aucun conflit au `git merge-tree` du 2026-10-29 hors ce bloc de
+HANDOFF) ; décider de la latence ajoutée ; déploiement concierge + hotel-search (non fait).
+
 ## 🧭 2026-10-28 — Accès aux résultats : « près de moi », plus de question de date isolée, replis « aucune offre », ancrages, proximité (branche `fix/access-results-20261028`, sur `main` après #168, #169, #170)
 
 **Constat** (prod du 26 au 28/10, comparé à agent-usa) : conversations avec résultats 74-81 % chez
