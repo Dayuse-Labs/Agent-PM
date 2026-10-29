@@ -41,8 +41,11 @@ class TurnBudget:
     (turn_facts.py) — the city a search ran on this turn, and the facts
     `_emit_turn_metric` freezes at the turn's exit.
 
-    `dialogue` (2026-10-29): the turn's dialogue context
-    (`dialogue_context.py`), read before the turn changes the profile."""
+    `deadline` (2026-10-29): the turn's single absolute deadline
+    (`time.monotonic()` clock, `turn_deadline.py`), set when the turn starts;
+    every stage derives its own budget from it. `dialogue`: the turn's
+    dialogue context (`dialogue_context.py`), read before the turn changes the
+    profile."""
 
     llm_calls: int = 0
     phases: list[str] = field(default_factory=list)
@@ -50,6 +53,7 @@ class TurnBudget:
     fallbacks: set[str] = field(default_factory=set)
     searched_city: str | None = None
     facts: TurnFacts | None = None
+    deadline: float | None = None
     dialogue: dict[str, Any] | None = None
 
     def charge(self, phase: str) -> None:

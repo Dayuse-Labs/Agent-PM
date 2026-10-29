@@ -537,7 +537,7 @@ class TestHonestDegradation:
             response={"results": [{"hotel_id": 7, "name": "St Paul's Hotel"}]},
         )
         _drive("un hôtel au St Paul's Hotel à Londres demain")
-        assert leaf_calls.kwargs == [{"query_params": {"hotel_name": "St Paul's Hotel"}}]
+        assert [k["query_params"] for k in leaf_calls.kwargs] == [{"hotel_name": "St Paul's Hotel"}]
 
     def test_a_named_hotel_without_offers_that_day_is_said_first(self, scripted):
         from datetime import timedelta
