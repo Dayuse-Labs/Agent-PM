@@ -16,25 +16,16 @@
     <meta name="agent-version" content="{{ agent_version | default('unknown') }}">
     <link rel="icon" type="image/x-icon" sizes="32x32" href="/static/favicon_32.ico">
     <link rel="icon" type="image/x-icon" sizes="64x64" href="/static/favicon_64.ico">
-    <link href="https://fonts.googleapis.com/css2?family=Manrope:wght@400;500;600;700;800&display=swap" rel="stylesheet">
-
-    <!-- One stylesheet and one script, built from css/chat and js/chat by
-         scripts/build_widget_assets.py (the sources stay the truth). -->
-    <link rel="stylesheet" href="/static/dist/chat.css">
     <!-- Open straight into the chat (hide the hero, reveal the chat container)
          on first paint whenever this load is going to auto-open the chat anyway:
          the app webview (window.__DAYUSE_NATIVE__) or a deep link (?q=/?query=).
          Without this the hero paints first and flashes before the auto-open
          cross-fade — on the app AND on desktop deep links. No-op on a plain web
-         landing, where the hero stays the entry point. -->
-    <style>
-        html.chat-immediate .initial-state { display: none !important; }
-        html.chat-immediate .chat-container {
-            opacity: 1 !important;
-            visibility: visible !important;
-            transform: none !important;
-        }
-    </style>
+         landing, where the hero stays the entry point.
+         Placed BEFORE the stylesheets: an inline script after them waits for
+         them. When the hero will show, it also starts the hero photo now
+         (same srcset/sizes as the <picture> below, so that fetch is reused);
+         in the app or on a deep link the photo is never fetched, as before. -->
     <script>
         (function () {
             try {
@@ -43,14 +34,78 @@
                 var hasDeepLink = !!(params.get('q') || params.get('query'));
                 if (hasNative || hasDeepLink) {
                     document.documentElement.classList.add('chat-immediate');
+                    return;
                 }
+                [
+                    ['(max-width: 768px)',
+                     '/static/hero/hero_usa_mobile-720.avif 720w, /static/hero/hero_usa_mobile-1080.avif 1080w',
+                     '(max-aspect-ratio: 9/16) 56.25vh, 100vw'],
+                    ['not all and (max-width: 768px)',
+                     '/static/hero/hero_usa_desktop-1280.avif 1280w, /static/hero/hero_usa_desktop-1920.avif 1920w',
+                     '(max-aspect-ratio: 16/9) 177.78vh, 100vw']
+                ].forEach(function (hero) {
+                    var link = document.createElement('link');
+                    link.rel = 'preload';
+                    link.as = 'image';
+                    link.type = 'image/avif';
+                    link.media = hero[0];
+                    link.setAttribute('imagesrcset', hero[1]);
+                    link.setAttribute('imagesizes', hero[2]);
+                    link.setAttribute('fetchpriority', 'high');
+                    document.head.appendChild(link);
+                });
             } catch (e) { /* no-op */ }
         })();
     </script>
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Manrope:wght@400;500;600;700;800&display=swap" rel="stylesheet">
+    <link rel="preload" href="/static/fonts/MaisonNeueExtended-Bold.woff2" as="font" type="font/woff2" crossorigin>
+
+    <!-- One stylesheet and one script, built from css/chat and js/chat by
+         scripts/build_widget_assets.py (the sources stay the truth). -->
+    <link rel="stylesheet" href="/static/dist/chat.css">
+    <style>
+        html.chat-immediate .initial-state { display: none !important; }
+        html.chat-immediate .chat-container {
+            opacity: 1 !important;
+            visibility: visible !important;
+            transform: none !important;
+        }
+    </style>
 </head>
 <body>
     <!-- Hero / Initial State -->
     <div class="initial-state" id="initial-state">
+        <!-- Hero photo: AVIF, then WebP, then the original JPEG; mobile crop at
+             768px and below. `sizes` follows the cover crop (the photo fills
+             the viewport HEIGHT when the viewport is narrower than the photo).
+             Inert in a <template>: only inserted when the hero shows. -->
+        <template id="hero-bg-template">
+            <picture class="hero-bg">
+                <source type="image/avif" media="(max-width: 768px)"
+                        srcset="/static/hero/hero_usa_mobile-720.avif 720w, /static/hero/hero_usa_mobile-1080.avif 1080w"
+                        sizes="(max-aspect-ratio: 9/16) 56.25vh, 100vw">
+                <source type="image/webp" media="(max-width: 768px)"
+                        srcset="/static/hero/hero_usa_mobile-720.webp 720w, /static/hero/hero_usa_mobile-1080.webp 1080w"
+                        sizes="(max-aspect-ratio: 9/16) 56.25vh, 100vw">
+                <source media="(max-width: 768px)" srcset="/static/hero_usa_mobile.jpg">
+                <source type="image/avif"
+                        srcset="/static/hero/hero_usa_desktop-1280.avif 1280w, /static/hero/hero_usa_desktop-1920.avif 1920w"
+                        sizes="(max-aspect-ratio: 16/9) 177.78vh, 100vw">
+                <source type="image/webp"
+                        srcset="/static/hero/hero_usa_desktop-1280.webp 1280w, /static/hero/hero_usa_desktop-1920.webp 1920w"
+                        sizes="(max-aspect-ratio: 16/9) 177.78vh, 100vw">
+                <img src="/static/hero_usa_desktop.jpg" alt="" fetchpriority="high" decoding="async">
+            </picture>
+        </template>
+        <script>
+            (function () {
+                if (document.documentElement.classList.contains('chat-immediate')) return;
+                var template = document.getElementById('hero-bg-template');
+                if (template) template.parentNode.insertBefore(document.importNode(template.content, true), template);
+            })();
+        </script>
         <div class="hero-header">
             <div class="hero-logo">
                 <img src="/static/dayuse.svg" alt="Dayuse">

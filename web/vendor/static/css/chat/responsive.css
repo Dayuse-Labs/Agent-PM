@@ -10,10 +10,7 @@
         max-width: 100vw;
     }
 
-    /* Hero mobile */
-    .initial-state {
-        background: url('/static/hero_usa_mobile.jpg') center center / cover no-repeat;
-    }
+    /* Hero mobile : la photo recadrée est choisie par le <source media> de .hero-bg. */
 
     .hero-header {
         padding: 16px 20px;

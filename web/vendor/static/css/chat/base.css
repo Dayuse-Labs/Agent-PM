@@ -6,7 +6,9 @@
 /* ===== FONTS ===== */
 @font-face {
     font-family: 'MaisonNeueExtended-Bold';
-    src: url('/static/fonts/MaisonNeueExtended-Bold.otf') format('opentype');
+    /* WOFF2 first (~40 % lighter, preloaded by chat_clean.html), OTF as the fallback. */
+    src: url('/static/fonts/MaisonNeueExtended-Bold.woff2') format('woff2'),
+         url('/static/fonts/MaisonNeueExtended-Bold.otf') format('opentype');
     font-weight: 700;
     font-style: normal;
     font-display: swap;

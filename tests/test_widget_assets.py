@@ -67,3 +67,52 @@ def test_every_static_file_the_page_names_exists():
     assert refs
     missing = sorted(ref for ref in refs if not (_STATIC / ref).is_file())
     assert missing == []
+
+
+def test_hero_variants_exist_for_every_width_and_format():
+    for source, widths in build.HERO_IMAGES.items():
+        assert (_STATIC / source).is_file()  # the JPEG fallback
+        for width in widths:
+            for ext in ("avif", "webp"):
+                assert (_STATIC / build.hero_variant(source, width, ext)).is_file()
+
+
+def test_the_hero_preload_matches_the_picture_source():
+    """Same srcset + sizes, or the preloaded photo is not reused and the
+    visitor downloads a second one."""
+    for crop, media in (("mobile", "(max-width: 768px)"), ("desktop", "not all and (max-width: 768px)")):
+        srcset = re.search(rf"'(/static/hero/hero_usa_{crop}-[^']+\.avif [^']+)'", _TEMPLATE).group(1)
+        sizes = re.search(rf"'{re.escape(srcset)}',\s*'([^']+)'", _TEMPLATE).group(1)
+        assert f"'{media}'" in _TEMPLATE
+        source = re.search(rf'<source type="image/avif"[^>]*srcset="{re.escape(srcset)}"[^>]*>', _TEMPLATE)
+        assert source, crop
+        assert f'sizes="{sizes}"' in source.group(0)
+
+
+def test_the_hero_photo_is_only_added_when_the_hero_shows():
+    """The app webview and deep links never show the hero (chat-immediate):
+    the photo stays in an inert <template> and the preload is skipped."""
+    assert re.search(r"<template id=\"hero-bg-template\">\s*<picture class=\"hero-bg\">", _TEMPLATE)
+    head_script = _TEMPLATE.split("<script>", 1)[1].split("</script>", 1)[0]
+    assert head_script.index("return;") < head_script.index("preload")
+    assert "classList.contains('chat-immediate')) return;" in _TEMPLATE
+    assert 'fetchpriority="high"' in _TEMPLATE
+
+
+def test_the_display_font_is_woff2_first_swapped_and_preloaded():
+    base = (_STATIC / "css" / "chat" / "base.css").read_text(encoding="utf-8")
+    face = re.search(r"@font-face\s*\{[^}]*\}", base).group(0)
+    assert face.index("MaisonNeueExtended-Bold.woff2") < face.index("MaisonNeueExtended-Bold.otf")
+    assert "font-display: swap" in face
+    assert (_STATIC / "fonts" / "MaisonNeueExtended-Bold.woff2").is_file()
+    assert re.search(
+        r'<link rel="preload" href="/static/fonts/MaisonNeueExtended-Bold\.woff2" as="font" '
+        r'type="font/woff2" crossorigin>',
+        _TEMPLATE,
+    )
+
+
+def test_the_head_script_runs_before_any_stylesheet():
+    """An inline script placed after a stylesheet waits for it: the hero
+    preload would start only once the CSS (and Google Fonts) arrived."""
+    assert _TEMPLATE.index("<script>") < _TEMPLATE.index('rel="stylesheet"')

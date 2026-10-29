@@ -16,7 +16,10 @@
     justify-content: center;
     flex-direction: column;
     transition: opacity 0.5s ease-in-out, transform 0.5s ease-in-out;
-    background: url('/static/hero_usa_desktop.jpg') center center / cover no-repeat;
+    /* The photo is the <picture class="hero-bg"> below (AVIF/WebP, sized per
+       viewport, mobile crop under 768px), inserted by chat_clean.html only when
+       the hero is shown: a background-image was found late (after the CSS)
+       and came as a single 330-385 KB JPEG. */
     z-index: 100;
     visibility: visible;
 }
@@ -36,6 +39,24 @@
 .initial-state > * {
     position: relative;
     z-index: 2;
+}
+
+/* Same box and crop as the former `background: center / cover`, under the veil. */
+.initial-state > .hero-bg {
+    position: absolute;
+    top: 0;
+    left: 0;
+    right: 0;
+    bottom: 0;
+    z-index: 0;
+}
+
+.hero-bg img {
+    display: block;
+    width: 100%;
+    height: 100%;
+    object-fit: cover;
+    object-position: center center;
 }
 
 .initial-state.hidden {
