@@ -33,15 +33,38 @@ Here, from facts only (no word of the message is read):
   München, Los Angeles; 50 km around Galveston, where nothing changes.
 - the order (`rank_pool`): local (≤ local radius) before nearby (≤ 35 km, or
   twice the local radius) before alternative; inside a tier, MCP's `score`
-  divided by `1 + distance / local radius`.
+  divided by `1 + distance / decay radius`.
 
-Only for an anchor whose centre means something: a city centroid of a city
-(`place`/`locality`, not a region or a département carried as an area) or a
-device fix. A landmark/district/address is already searched nearest first in
-its own ring (`inject_landmark_radius`), a « nearby area » asks for further, a
-nearest-first rescue already is nearest first: none of them is touched. A
-sparse place whose local radius covers the whole search disc needs no second
-call: the relevance page is reordered on its own.
+2026-10-29 (side-by-side with agent-usa on 22 identical requests, prod
+2026-10-29: « un hôtel à Paris demain » gave 3.2-5.1 km — Ivry, Malakoff, Porte
+d'Italie — where agent-usa showed five hotels at 1.3-1.8 km):
+- MCP's pages hold 5 hotels (`size` defaults to 5, probed), so the local page
+  was the 5 most relevant hotels of the whole 5 km disc: MCP's `score` favours
+  the inner suburbs (Paris: 1.0-1.2 at 3-5 km, 0.8-0.85 inside 2 km, ratings
+  alike, 4.5-4.8 — probed 2026-10-29), and the centre never reached the pool.
+  A THIRD page now runs with the two others: the same search on the CORE ring
+  (`core_radius_km`: the site's smallest ring holding 10 inventory hotels,
+  2 km in every dense centre measured), in relevance order — the best of the
+  centre, not merely the nearest (the 5 nearest of Paris cost 0.1-0.3 of
+  average rating). Skipped when that ring is the local disc already (Los
+  Angeles, Beverly Hills, Miami: 5 km).
+- the distance penalty starts at 0 km and its scale is the core ring
+  (`decay radius`): 2 km in a dense centre, so a card 2 km further must score
+  twice as high to come first. agent-usa's − 1.25 point/km sits on its own
+  0-100 compatibility score; on MCP's score, whose suburb/centre gap is 25-40 %
+  for the same ratings, an additive 1.25 %/km lets every suburb of the probe
+  win again (computed on the Paris, London, Rome, Milano pages).
+- the invariant, stated: a card never comes before a NEARER card of the same
+  or a nearer tier whose score is at least as high (`rank_pool`).
+- a far card is not the filler of a central page: once the cards hold
+  `MIN_LOCAL_CARDS` local hotels, none beyond twice the local radius is shown
+  (`trim_far_cards`; Madrid with a pool: four hotels within 5 km, then Getafe
+  at 12 km as the fifth card).
+- the wait for those pages is the extra calls' own budget (`extra_calls`, R2
+  of #173), capped at `POOL_WAIT_SECONDS` (MCP's own 5 s call timeout), no
+  longer 2 s: a 2 s cut dropped the local page on a slow MCP answer, and the
+  relevance page alone went on screen (Beverly Hills, prod 2026-10-28: one
+  card at 3 km, then Downtown, LAX, Burbank at 13-17 km).
 """
 from __future__ import annotations
 
@@ -73,8 +96,12 @@ LOCAL_FLOOR_KM = 5.0
 NEARBY_FLOOR_KM = 35.0
 #: MCP's own radius when `radiusKm` is absent (a city search).
 MCP_DEFAULT_RADIUS_KM = 20.0
-#: How long the local page may still take once the search's own page is back.
-POOL_WAIT_SECONDS = float(os.environ.get("HOTEL_SEARCH_GEO_POOL_WAIT_SECONDS", "2.0"))
+#: The most the local pages may still take once the search's own page is back:
+#: MCP's own call timeout (`HOTEL_SEARCH_MCP_TIMEOUT_SECONDS`, 5 s), never past
+#: the extra calls' deadline (`extra_calls.remaining_seconds`).
+POOL_WAIT_SECONDS = float(os.environ.get("HOTEL_SEARCH_GEO_POOL_WAIT_SECONDS", "5.0"))
+#: Local cards from which no far card (beyond twice the local radius) is shown.
+MIN_LOCAL_CARDS = 3
 
 #: Geocoder feature types whose centroid is a city centre. A region, a
 #: département or a country carried as an area has an arbitrary centroid
@@ -84,18 +111,28 @@ _CITY_FEATURE_TYPES = frozenset({"place", "locality"})
 #: Local pages in flight, by tool context (the same object reaches the
 #: before- and the after-tool callbacks of one call). Bounded: a call that
 #: raised past every callback leaves its entry, the oldest go first.
-_PENDING: dict[int, asyncio.Task] = {}
+_PENDING: dict[int, list[asyncio.Task]] = {}
 _MAX_PENDING = 64
 
 #: The local page's raw results, from `await_local_pool` to
 #: `ranked_payload`, for ONE call: cleared when a call starts and once read.
 STATE_GEO_POOL_KEY = "temp:hotel_search_geo_pool"
+#: The anchor and local radius the cards of THIS call were ranked around
+#: ({lat, lon, local_km}), for `trim_far_cards`; None when not ranked here.
+STATE_GEO_RANK_KEY = "temp:hotel_search_geo_rank"
+
+
+def core_radius_km(lat: float, lon: float) -> float:
+    """The centre of the place, from the inventory around the anchor: the
+    site's smallest ring holding 10 hotels (2 km in a dense centre). The
+    distance penalty's scale, and the ring of the core page."""
+    return site_radius_km(lat, lon)
 
 
 def local_radius_km(lat: float, lon: float) -> float:
     """The radius a card counts as local within, from the inventory around
     the anchor (dense centre → `LOCAL_FLOOR_KM`, sparse place → wider)."""
-    return max(LOCAL_FLOOR_KM, site_radius_km(lat, lon))
+    return max(LOCAL_FLOOR_KM, core_radius_km(lat, lon))
 
 
 def _number(value: Any) -> float | None:
@@ -126,12 +163,18 @@ def tier(distance: float | None, local_km: float) -> int:
 
 
 def rank_pool(
-    items: list[dict[str, Any]], lat: float, lon: float, local_km: float
+    items: list[dict[str, Any]], lat: float, lon: float, local_km: float,
+    decay_km: float | None = None,
 ) -> list[dict[str, Any]]:
     """The pool, each hotel once (first occurrence kept), in the order the
     cards are cut from: tier first, then MCP's score with a gradual distance
-    penalty; ties keep MCP's own order (a stable sort). A hotel with no score
-    ranks last of its tier."""
+    penalty, `score / (1 + distance / decay_km)` (`decay_km`: the core ring,
+    else the local radius); ties keep MCP's own order (a stable sort). A hotel
+    with no score ranks last of its tier.
+
+    The invariant this order holds: a card never comes before a nearer card of
+    the same or a nearer tier whose score is at least as high."""
+    decay = decay_km if decay_km and decay_km > 0 else local_km
     seen: set[Any] = set()
     unique: list[dict[str, Any]] = []
     for item in items:
@@ -146,14 +189,14 @@ def rank_pool(
     def order(item: dict[str, Any]) -> tuple[int, float]:
         distance = _distance(item, lat, lon)
         score = _number(item.get("score")) or 0.0
-        weighted = score / (1.0 + (distance if distance is not None else local_km) / local_km)
+        weighted = score / (1.0 + (distance if distance is not None else local_km) / decay)
         return tier(distance, local_km), -weighted
 
     return sorted(unique, key=order)
 
 
-def _qualifies(args: dict[str, Any], tool_context: Any) -> tuple[float, float, float] | None:
-    """(lat, lon, local radius) when this search's cards are ranked here."""
+def _qualifies(args: dict[str, Any], tool_context: Any) -> tuple[float, float, float, float] | None:
+    """(lat, lon, local radius, core ring) when this search's cards are ranked here."""
     if args.get("sortBy") or tool_context.state.get(STATE_NEARBY_KEY):
         return None  # already nearest first, or the user asked for further
     origin = anchor_origin(tool_context)
@@ -165,7 +208,20 @@ def _qualifies(args: dict[str, Any], tool_context: Any) -> tuple[float, float, f
             return None
     elif anchor_type != "gps":
         return None
-    return lat, lon, local_radius_km(lat, lon)
+    core_km = core_radius_km(lat, lon)
+    return lat, lon, max(LOCAL_FLOOR_KM, core_km), core_km
+
+
+def _pages(args: dict[str, Any], local_km: float, core_km: float) -> list[tuple[str, float]]:
+    """The extra pages worth asking: the local disc unless it is the whole
+    search disc, the core ring unless it is the local disc already."""
+    radius = _number(args.get("radiusKm")) or MCP_DEFAULT_RADIUS_KM
+    pages: list[tuple[str, float]] = []
+    if local_km < radius:
+        pages.append(("local", local_km))
+    if core_km < min(local_km, radius):
+        pages.append(("core", core_km))
+    return pages
 
 
 def start_local_pool(tool: Any, args: dict[str, Any], tool_context: Any) -> None:
@@ -177,22 +233,28 @@ def start_local_pool(tool: Any, args: dict[str, Any], tool_context: Any) -> None
     qualified = _qualifies(args, tool_context)
     if qualified is None:
         return None
-    _lat, _lon, local_km = qualified
-    radius = _number(args.get("radiusKm")) or MCP_DEFAULT_RADIUS_KM
-    if local_km >= radius:
+    _lat, _lon, local_km, core_km = qualified
+    pages = _pages(args, local_km, core_km)
+    if not pages:
         _log("skip_sparse", None, local_km)
         return None  # the whole disc is local: its own page says it all
-    if not may_call(tool_context):
-        return None  # R2: after an extra call failed, or past the deadline
     try:
         loop = asyncio.get_running_loop()
     except RuntimeError:
         return None
+    tasks: list[asyncio.Task] = []
+    for _kind, ring in pages:
+        if not may_call(tool_context):
+            break  # R2: after an extra call failed, or past the deadline
+        tasks.append(loop.create_task(
+            tool.run_async(args={**args, "radiusKm": ring}, tool_context=tool_context)
+        ))
+    if not tasks:
+        return None
     while len(_PENDING) >= _MAX_PENDING:
-        _PENDING.pop(next(iter(_PENDING))).cancel()
-    _PENDING[id(tool_context)] = loop.create_task(
-        tool.run_async(args={**args, "radiusKm": local_km}, tool_context=tool_context)
-    )
+        for stale in _PENDING.pop(next(iter(_PENDING))):
+            stale.cancel()
+    _PENDING[id(tool_context)] = tasks
     return None
 
 
@@ -204,33 +266,42 @@ async def await_local_pool(
     failure keeps the search's own page alone. Always returns None."""
     if getattr(tool, "name", "") != "search_offers":
         return None
-    task = _PENDING.pop(id(tool_context), None)
-    if task is None:
+    tasks = _PENDING.pop(id(tool_context), None)
+    if not tasks:
         return None
     started = time.monotonic()
     failed = not isinstance(tool_response, dict) or bool(
         tool_response.get("isError") or tool_response.get("error") or tool_response.get("ok") is False
     )
     if failed:
-        task.cancel()
+        for task in tasks:
+            task.cancel()
         return None
     # R2 (review of #173): the wait never runs past the extra calls' deadline.
     wait = min(POOL_WAIT_SECONDS, max(0.0, remaining_seconds(tool_context)))
-    try:
-        local = await asyncio.wait_for(task, timeout=wait)
-    except asyncio.TimeoutError:
+    done, late = await asyncio.wait(tasks, timeout=wait) if wait > 0 else (set(), set(tasks))
+    for task in late:
+        task.cancel()
+    if late:
         _log("timeout", started, None)
-        return None
-    except Exception as exc:  # noqa: BLE001 — a second page never breaks the turn
-        record_outcome(tool_context, None, exc)
-        _log("error", started, None)
-        return None
-    if record_outcome(tool_context, local):
-        _log("error", started, None)
-        return None
-    payload = read_structured_payload(local)
-    found = payload.get("results") if isinstance(payload, dict) else None
-    if not isinstance(found, list) or not found:
+    found: list[Any] = []
+    for task in tasks:  # launch order: the local page, then the core ring's
+        if task not in done:
+            continue
+        error = task.exception()
+        if error is not None:
+            record_outcome(tool_context, None, error if isinstance(error, Exception) else None)
+            _log("error", started, None)
+            continue
+        local = task.result()
+        if record_outcome(tool_context, local):
+            _log("error", started, None)
+            continue
+        payload = read_structured_payload(local)
+        results = payload.get("results") if isinstance(payload, dict) else None
+        if isinstance(results, list):
+            found.extend(results)
+    if not found:
         _log("empty", started, None)
         return None
     tool_context.state[STATE_GEO_POOL_KEY] = found
@@ -240,25 +311,58 @@ async def await_local_pool(
 
 def ranked_payload(tool_context: Any, args: dict[str, Any], structured: dict[str, Any]) -> dict[str, Any]:
     """`structured` with its `results` replaced by the ranked pool (its own
-    page plus the local page, when one came back), for a qualifying search;
-    `structured` itself otherwise."""
+    page plus the local and core pages that came back), for a qualifying
+    search; `structured` itself otherwise."""
+    tool_context.state[STATE_GEO_RANK_KEY] = None
     qualified = _qualifies(args, tool_context)
     if qualified is None:
         return structured
-    lat, lon, local_km = qualified
+    lat, lon, local_km, core_km = qualified
     page = structured.get("results")
     if not isinstance(page, list):
         return structured
     extra = tool_context.state.get(STATE_GEO_POOL_KEY)
     tool_context.state[STATE_GEO_POOL_KEY] = None
     pool = list(page) + (list(extra) if isinstance(extra, list) else [])
-    ranked = rank_pool(pool, lat, lon, local_km)
+    ranked = rank_pool(pool, lat, lon, local_km, core_km)
+    tool_context.state[STATE_GEO_RANK_KEY] = {"lat": lat, "lon": lon, "local_km": local_km}
     _metrics_logger.info(
-        "dayuse_metric=geo_rank agent=b2c_hotel_search local_km=%s pool=%d page=%d local=%d",
-        local_km, len(ranked), len(page),
+        "dayuse_metric=geo_rank agent=b2c_hotel_search local_km=%s core_km=%s pool=%d page=%d local=%d",
+        local_km, core_km, len(ranked), len(page),
         sum(1 for item in ranked[: len(page)] if tier(_distance(item, lat, lon), local_km) == 0),
     )
     return {**structured, "results": ranked}
+
+
+def trim_far_cards(tool_context: Any, cards: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    """The cards cut from the ranked pool, without the far ones once enough
+    are local: with `MIN_LOCAL_CARDS` cards within the local radius, a card
+    beyond twice that radius is dropped (Madrid with a pool: Getafe at 12 km
+    after four hotels within 5 km). Measured on each card's coordinates; a
+    card without them stays. A search not ranked here is returned as is."""
+    ranked = tool_context.state.get(STATE_GEO_RANK_KEY)
+    if not isinstance(ranked, dict):
+        return cards
+    lat, lon, local_km = (_number(ranked.get(key)) for key in ("lat", "lon", "local_km"))
+    if lat is None or lon is None or local_km is None:
+        return cards
+
+    def distance(card: dict[str, Any]) -> float | None:
+        c_lat, c_lon = _number(card.get("latitude")), _number(card.get("longitude"))
+        if c_lat is None or c_lon is None:
+            return None
+        return haversine_km(lat, lon, c_lat, c_lon)
+
+    distances = [distance(card) for card in cards]
+    local = sum(1 for d in distances if d is not None and d <= local_km)
+    if local < MIN_LOCAL_CARDS:
+        return cards
+    kept = [card for card, d in zip(cards, distances) if d is None or d <= 2 * local_km]
+    if len(kept) < len(cards):
+        _metrics_logger.info(
+            "dayuse_metric=geo_trim agent=b2c_hotel_search local=%d dropped=%d", local, len(cards) - len(kept)
+        )
+    return kept
 
 
 def _log(status: str, started: float | None, local_km: float | None) -> None:

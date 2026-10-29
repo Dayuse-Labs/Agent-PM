@@ -1452,6 +1452,11 @@ def capture_after_tool(
     filters = (requested_budget, price_comparison, party_total, room_requirements)
     host = _site_host(read_profile_in(tool_context))
     results = normalize_search_results(structured, exclude_ids, strict_window, *filters, host=host)
+    if name == "search_offers":
+        # 2026-10-29: a central page is not filled up with far cards (`geo_rank`).
+        from hotel_search_agent.geo_rank import trim_far_cards
+
+        results = trim_far_cards(tool_context, results)
     timeslot_fallback = False
     if strict_window is not None and not results:
         # The exact-minute filter emptied the set: fall back to the coarser
