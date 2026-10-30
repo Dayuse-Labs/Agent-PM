@@ -74,7 +74,7 @@ import logging
 import os
 import re
 import time
-from datetime import date
+from datetime import date, timedelta
 from typing import Any, AsyncGenerator
 
 import httpx
@@ -1646,6 +1646,9 @@ class _B2cConcierge(BaseAgent):
         # search, on a day the code sets; no triage call (its words are not a
         # request to read: « 3,9 km » is neither a budget nor a party).
         date_chip = _DATE_CHIP_ACTIONS.get(clicked_suggestion_kind(message, profile) or "")
+        chip_offset = templates.date_chip_offset(message.strip()) if date_chip == "day" else None
+        if date_chip == "day" and chip_offset is None:
+            date_chip = None  # a day chip whose day the code cannot tell: read as typed
         # 2. Triage (ONE economy LLM + regex fallback). Off the session/stream.
         if date_chip is not None:
             triage = Triage(
@@ -2142,10 +2145,14 @@ class _B2cConcierge(BaseAgent):
             elif date_chip == "first_open_day":
                 # « Pas de date précise »: the leaf finds the day (7 at most).
                 expected_date, from_message = None, False
+            elif date_chip == "day" and chip_offset is not None:
+                # « Après-demain »: that day, the rest of the search as it was
+                # (the leaf repeats it; « Dopodomani » re-geocoded « Milan »).
+                expected_date, from_message = (today + timedelta(days=chip_offset)).isoformat(), True
             if expected_date and from_message:
                 profile.date = expected_date
                 profile.date_reference = {
-                    "resolved_from": "tonight_chip" if date_chip == "same_day" else "concierge"
+                    "resolved_from": {"same_day": "tonight_chip", "day": "day_chip"}.get(date_chip or "", "concierge")
                 }
                 if profile.client_timezone:
                     profile.date_reference["client_tz"] = profile.client_timezone
@@ -2510,6 +2517,8 @@ class _B2cConcierge(BaseAgent):
                 and searched_before is not None
                 and profile.last_search_signature is not None
                 and profile.last_search_signature != searched_before
+                # A day chip asked for a day, not other offers: the day is said.
+                and date_chip is None
             )
             if unchanged:
                 with observation(as_type="guardrail", name="refinement-unchanged"):
@@ -2896,6 +2905,7 @@ def next_day_notice(search_date: Any, response: dict[str, Any], language: str) -
 _DATE_CHIP_ACTIONS: dict[str, str] = {
     templates.SUGGESTION_DATE_TONIGHT: "same_day",
     templates.SUGGESTION_DATE_FLEXIBLE: "first_open_day",
+    templates.SUGGESTION_DATE_DAY: "day",
 }
 
 

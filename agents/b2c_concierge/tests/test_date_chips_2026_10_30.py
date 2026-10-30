@@ -306,3 +306,50 @@ def test_the_first_open_day_sentences_exist_in_every_language(language):
     best = templates.first_open_day_notice({"first_open_days": 7}, "DAY", language, has_cards=True)
     assert "DAY" in best and "7" in best
     assert "7" in templates.first_open_day_notice({"first_open_days": 7}, "", language, has_cards=False)
+
+
+# --- « Après-demain » and the same cards again (replay of 2026-10-30) ----------------------------
+
+
+def test_the_day_after_tomorrow_clicked_repeats_the_search_on_that_day(
+    monkeypatch, fake_leg, fake_profile_store  # noqa: F811
+):
+    """Replay: « Dopodomani » typed back as text was geocoded again (« Ci sono
+    diversi luoghi chiamati Milan »). The chip now says only the day."""
+    llm, runner, session, _answer = _closer_turn(monkeypatch, fake_leg, "Voici dimanche.")
+    day = _TODAY + timedelta(days=2)
+    fake_leg.response_payload = {"results": ["hotel C"],
+                                 "search_date": {"date": day.isoformat(), "same_day": False}}
+
+    _run_turn(runner, session.id, "Après-demain")
+
+    assert len(llm.calls) == 3  # no triage on a chip
+    assert _query_params(fake_leg)["date_chip"] == "day"
+    stored = _stored(fake_profile_store, session.id)
+    assert stored.date == day.isoformat()
+    assert stored.date_reference == {"resolved_from": "day_chip"}
+
+
+def test_no_specific_date_landing_on_the_day_on_screen_is_not_called_unchanged(
+    monkeypatch, fake_leg, fake_profile_store  # noqa: F811
+):
+    """Replay (München, Milano): the first day with hotels close by WAS the day
+    on screen; « this change does not alter the results » answered a click
+    that asked for a day, not for other offers."""
+    westin = {"hotel_id": 5, "name": "The Westin Grand Munich", "offer_date": _TOMORROW.isoformat()}
+    fake_leg.response_payload = {**_closer_tomorrow(), "results": [westin],
+                                 "search_context": {"city": "München", "date": "x"}}
+    _scripted_llm(monkeypatch, _triage("fr"), "Voici le Westin.", "Voici le Westin.")
+    runner = InMemoryRunner(root_agent)
+    session = _new_session(runner)
+    _run_turn(runner, session.id, "chambre près d'Arabellapark")
+    fake_leg.response_payload = {
+        "results": [westin], "search_context": {"city": "München", "date": "y"},
+        "search_date": {"date": _TOMORROW.isoformat(), "same_day": False, "first_open_from": _TODAY.isoformat(),
+                        "first_open_days": 2, "first_open_found": True},
+    }
+
+    answer = _run_turn(runner, session.id, "Pas de date précise")
+
+    assert answer.startswith("Premier jour avec des offres proches")
+    assert templates.refinement_unchanged_notice("fr") not in answer

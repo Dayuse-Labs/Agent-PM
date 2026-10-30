@@ -266,3 +266,10 @@ def test_an_unknown_chip_leaves_the_day_to_the_model():
     args = {**_args(), "date": {"type": "relative", "value": "tomorrow"}}
     resolve_search_date(_Search(), args, ctx)
     assert args["date"] == (date.fromisoformat(TODAY.isoformat()) + timedelta(days=1)).isoformat()
+
+
+def test_a_day_chip_searches_the_day_the_concierge_set():
+    ctx = _ctx("day", profile_in={"date": _day(2)})
+    args = {**_args(), "date": {"type": "relative", "value": "today"}}
+    resolve_search_date(_Search(), args, ctx)
+    assert args["date"] == _day(2)

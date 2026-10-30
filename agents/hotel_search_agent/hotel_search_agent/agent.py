@@ -238,7 +238,7 @@ How to act, frugally (at most ONE reasoning pass — no tool-call loops):
   search_offers with no new filter — the destination, date and filters come back
   from profile_in automatically. Never ask a question on such a turn.
 - `query_params.date_chip` set → the user clicked a DAY chip the system
-  offered ("tonight anyway", "no specific date"): the message changes only the
+  offered ("tonight anyway", "the day after tomorrow", "no specific date"): the message changes only the
   day, and the system sets it. Repeat the previous search as-is: call
   geocode_location with an empty `intent`, then search_offers with no new
   filter and no `date` — the destination and filters come back from profile_in

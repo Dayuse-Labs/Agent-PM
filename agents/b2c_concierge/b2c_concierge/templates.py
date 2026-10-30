@@ -863,6 +863,15 @@ def date_chips(language: str) -> list[str]:
     return list(_DATE_CHIPS.get(language, _DATE_CHIPS["en"]))
 
 
+def date_chip_offset(label: str) -> int | None:
+    """The day (from today) of one of the day chips (`_DATE_CHIPS`), by its
+    exact label in any language; None for another label."""
+    for chips in _DATE_CHIPS.values():
+        if label in chips:
+            return chips.index(label)
+    return None
+
+
 def later_date_chips(language: str, served_offset: int) -> list[str]:
     """The day chips for the days AFTER the one searched (`served_offset` days
     from today): today's chip is no use once today was searched, nor once the

@@ -447,11 +447,14 @@ def resolve_search_date(tool: Any, args: dict[str, Any], tool_context: Any) -> N
     chip = date_chip(tool_context)
     if chip is not None:
         # 2026-10-30: a day chip the concierge offered was clicked — the day is
-        # the code's, never the model's reading of the chip's words. Both chips
-        # start from today: « ce soir quand même » stays on it (persisted),
-        # « pas de date précise » looks from it (`scan_first_open_day` persists
-        # the day it finds).
+        # the code's, never the model's reading of the chip's words. « Après-
+        # demain » is the day the concierge set (`profile_in.date`); the two
+        # others start from today: « ce soir quand même » stays on it
+        # (persisted), « pas de date précise » looks from it
+        # (`scan_first_open_day` persists the day it finds).
         args["date"] = today.isoformat()
+        if chip == DAY_CHIP:
+            args["date"] = _usable_carried_date(profile_in.get("date"), today, guards_fired) or args["date"]
         if chip == SAME_DAY_CHIP:
             chip_reference: dict[str, Any] = {"resolved_from": "tonight_chip"}
             chip_tz = profile_in.get("client_timezone")
@@ -566,7 +569,7 @@ async def probe_next_day_after_tool(
         # close by — the scan replaces the next-day probes.
         await scan_first_open_day(tool, args, tool_context, search_date)
         return None
-    if chip is not None:
+    if chip == SAME_DAY_CHIP:
         # « Ce soir quand même »: tonight's offers still open, never another
         # day. A closed day stays said as closed (`cutoff_closed`).
         if not structured.get("results") and pool_before_cutoff(structured) > 0:
@@ -719,7 +722,9 @@ DATE_CHIP_PARAM = "date_chip"
 SAME_DAY_CHIP = "same_day"
 #: « Pas de date précise »: the first day from today with hotels close by.
 FIRST_OPEN_DAY_CHIP = "first_open_day"
-DATE_CHIPS = (SAME_DAY_CHIP, FIRST_OPEN_DAY_CHIP)
+#: « Demain », « Après-demain »: the day the concierge set from the chip.
+DAY_CHIP = "day"
+DATE_CHIPS = (SAME_DAY_CHIP, FIRST_OPEN_DAY_CHIP, DAY_CHIP)
 #: How many days « pas de date précise » looks at, today included.
 FIRST_OPEN_SCAN_DAYS = 7
 #: Days asked at once (MCP answers ~0.6 s a page; 3 in parallel stays far
