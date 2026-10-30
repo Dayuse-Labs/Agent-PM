@@ -6,6 +6,55 @@
 
 > 📋 **Pour savoir QUOI faire ensuite, ouvrir [`CHANTIERS.md`](CHANTIERS.md)** (état vérifié au 2026-09-14) : la liste des chantiers ouverts, chacun avec sa preuve, ses actions et un prompt prêt à coller — plus la liste de ce qu'il ne faut **pas** relancer parce que c'est déjà livré. `tasks/todo.md` est périmé et ne doit plus servir de référence.
 
+## 🖱️ 2026-10-30 — Leviers de clic : lendemain classé, lieux précis, budgets hors EUR, nombres mal lus, « demain, plus près », priorité (branche `fix/click-levers-20261030`, sur `main` d7cf58e)
+
+**Constat** : relecture des 100 conversations réelles depuis #175 croisée avec les clics Amplitude
+(hors dépôt : `dashboard_bascule/data/investigation/review_post175.md`) — aucune liste hors sujet
+cliquée ; 13 % de clics si les cartes sont à plus de 10 km, 33 % en dessous ; 25 clics sur 38 en
+positions 1-2.
+
+**Fait** (un commit par point + correctifs du rejeu) :
+1. **Repli J+1 classé** : la sonde J+1 lance aussi les pages local/centre du lendemain
+   (`geo_rank.fetch_ring_pages`, par `extra_calls`) ; la charge de repli passe par `ranked_payload`
+   puis `trim_far_cards`.
+2. **Lieux précis** : un candidat qui ne fait écho qu'à la ville n'est plus rendu comme le lieu ;
+   `_canonical_landmark` recherche le lieu seul sous ses noms, dans le pays annoncé par le modèle
+   (pays, État US, ville du lieu vérifiés) ; repli « ville seule » seulement pour la ville de
+   l'utilisateur, sinon question honnête (`Clarification.city`, champ optionnel, absent du fil
+   quand vide) ; un quartier homonyme n'est plus candidat face à une `place` ; un lieu introuvable
+   dont le nom fait écho au lieu reporté reprend celui-ci.
+3. **Budget hors EUR + filtres après la page** : taux EUR/devise lu sur les offres de MCP
+   (`search_budget.eur_per_unit`, sans FX externe), plafond converti envoyé à MCP ; `filter_pages.py`
+   relance avec le plafond ou va chercher 2 pages de plus quand les filtres du code laissent < 5
+   cartes (jamais un hôtel à plus de 10 km).
+4. **Nombres mal lus** : marche « party » du sauvetage + question fermée (capacité max trouvée) ;
+   compte > 30 refusé → même question ; une liste n'est jamais remplacée par 0 carte (même lieu et
+   jour : les cartes précédentes remontrées, dites comme telles) ; `_default_place` ne s'applique
+   pas à une réponse qui EST une puce de ville (`query_params.place_chips`) ; consigne du triage
+   (« am besten », « 18+ »).
+5. **« Demain, plus près »** : le soir, autour d'un `poi`/GPS, sans jour donné, offres fermées par
+   l'heure limite et < 3 hôtels à 2 km → sonde J+1 ; cartes du lendemain si plus proches, phrase en
+   code (`closer_tomorrow_notice`), `search_date.closer_from`.
+6. **Priorité** : `priority: price` (feuille) ordonne chaque cercle de distance (`rank_pool`,
+   `prioritize_cards`) ; `standing` n'est appliqué qu'avec `standing_evidence` citée.
+
+**Preuves** : pytest 3 752 passés / 2 skippés, ruff, mypy, guardrails, 104 tests JS ; tests rouges sur
+origin/main par point. Rejeu local (100 conversations réelles + 24 cas ciblés, 2 passes, bras en
+parallèle, Langfuse et `DATABASE_URL` coupés, jamais ai.dayuse.com) : rapport hors dépôt
+`dashboard_bascule/data/investigation/replay_click_levers.md` (+ .json). Tours de recherche vides
+32 → 17 (passe 1 : 28 → 15), cartes > 10 km 28 % → 23,5 %, latence inchangée (p50 7,8 → 7,6 s).
+
+**Pièges** :
+- Le rejeu du matin (CET) ne reproduit ni le repli J+1 ni « demain, plus près » européens (les
+  journées sont ouvertes) : les prouver par les tests ou par des villes d'Asie-Pacifique le soir.
+- Search Box ne trouve pas Tsim Sha Tsui / Mong Kok / Causeway Bay (country=HK) : la branche pose une
+  question au lieu d'afficher le centre de l'île ; une table de quartiers serait une liste de mots.
+- Le taux d'une devise n'est connu qu'après une recherche qui l'a cotée (cache du processus, 12 h) ;
+  à froid, Paris en £ ne passe qu'au 2e tour.
+
+**Reste** : revue (Fabien) ; déploiement `hotel-search` + `concierge` (`b2c_common` touché :
+`clarification.py`, `search_budget.py` — `faq` non concerné) ; À trancher dans la PR.
+
 ## 🚀 2026-10-30 — `widget` déployé sur `554aa30` (#177, chargement de la page)
 
 **Déployé** (`DEPLOY.md`, depuis `../AgentB2C-deploy` détaché sur `origin/main` 554aa30, arbre propre, pytest 3 697 passés / 2 skippés) : `widget` seul (aucun changement dans `agents/` ni `libs/` depuis 20365eb), estampille `LANGFUSE_RELEASE=554aa30` posée avec `--skip-deploys` puis `railway up --detach` (SUCCESS 08:56Z). `hotel-search` et `concierge` restent sur `20365eb`, `faq` sur `b6f9402`.

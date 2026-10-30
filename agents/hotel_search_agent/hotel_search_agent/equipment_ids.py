@@ -56,7 +56,7 @@ from hotel_search_agent.response_bridge import (
     find_datapart,
     record_guards_fired,
 )
-from hotel_search_agent.standing import STANDING_PROPERTY
+from hotel_search_agent.standing import STANDING_EVIDENCE_PROPERTY, STANDING_PROPERTY
 
 EQUIPMENT_IDS: dict[str, tuple[int, ...]] = {
     "pool": (33, 34, 2982, 3000, 3001),  # outdoor, indoor, rooftop pool, pool bar, pool
@@ -83,7 +83,9 @@ _AMENITIES_PROPERTY: dict[str, Any] = {
         "HAVE in this request. Include ONLY requested amenities — never the "
         "rest of the list, and never an amenity the user negated or excluded "
         "('sans piscine' / 'no pool' means: do not include pool AND do not "
-        "include other keys). Omit entirely when none was requested."
+        "include other keys). A mood, an occasion or a kind of stay "
+        "('romantic', 'anniversary', 'to relax', 'for a nap') is not an "
+        "amenity request: no key for it. Omit entirely when none was requested."
     ),
 }
 
@@ -195,6 +197,7 @@ def inject_amenities_declaration(callback_context: Any, llm_request: Any) -> Non
             # Not an amenity, same mechanism: a closed enum the code maps
             # (`standing.enforce_standing`).
             properties["standing"] = copy.deepcopy(STANDING_PROPERTY)
+            properties["standing_evidence"] = copy.deepcopy(STANDING_EVIDENCE_PROPERTY)
             decl.parameters_json_schema = widened
             return None
     return None

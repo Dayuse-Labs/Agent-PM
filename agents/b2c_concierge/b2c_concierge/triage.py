@@ -219,6 +219,10 @@ class Triage:
     # of a request with no place (`templates.place_question`) — a phrase the
     # model wrote, never parsed by the code (`_wish_slot` only bounds it).
     wish: str | None = None
+    # 2026-10-30 (prod after #175, « Ok show me 250 rooms »): a party count
+    # the code refuses (beyond what any room sleeps): not applied, and the
+    # answer asks, closed, whether that is really the party.
+    occupancy_out_of_range: int | None = None
 
 
 def is_social_ack(message: str) -> bool:
@@ -524,7 +528,9 @@ indentation, no prose, no code fence) with exactly these keys:
   hesitation — even right after a "cheaper" turn ("plutôt à Lyon", "et dimanche
   ?", "un autre quartier", "wait, actually no"): none of them talks about price.
   Omit for a price wish that compares with nothing ("un hôtel abordable",
-  "nothing too pricey") and for a neutral "other options". "Le moins cher de
+  "nothing too pricey") and for a neutral "other options". A word of
+  preference is not about price: "am besten" (= ideally), "de préférence",
+  "ideally", "preferably" → omit. "Le moins cher de
   ceux-là" picks a displayed offer: that is "pick", not "lower". Never put an
   amount here: code computes the reference.
 - "requested_occupancy": ONLY a CURRENT change to the user's party:
@@ -533,7 +539,8 @@ indentation, no prose, no code fence) with exactly these keys:
   "nous sommes 3" / "we are three" is total=3, NOT adults=3. Use adults/children
   ONLY for explicitly stated adult/child counts; given together with a total,
   they must agree. Removing the children is children=0 ("finalement sans les
-  enfants"); never infer children=0 from "two adults". Ages are not counts. A
+  enfants"); never infer children=0 from "two adults". Ages are not counts: an
+  age limit ("18+", "21+", "over 18", "under 21") is never a party size. A
   room's capacity, an adults-only policy, a price or a duration is not a party,
   and neither is a date: the number of a day is never a party size — "11
   janvier", "Samedi 7 novembre", "5th november", "le 3", "May 21" carry NO
@@ -721,6 +728,8 @@ async def classify(message: str, budget: TurnBudget, invocation_id: str = "",
         price_comparison=grounded_price_comparison(data.get("price_comparison"), message),
         requested_occupancy=(_grounded_occupancy(data.get("requested_occupancy"), message)
                              if family in {"search", "booking"} else None),
+        occupancy_out_of_range=(_occupancy_out_of_range(data.get("requested_occupancy"), message)
+                                if family == "search" else None),
         requested_room=(grounded_room_update(data.get("requested_room"), message)
                         if family in {"search", "booking"} else None),
         answers_pending=answers_pending,
@@ -760,6 +769,27 @@ def _grounded_occupancy(raw: Any, message: str) -> dict[str, int] | None:
         if update.get("adults", 0) > update["total"] or update.get("children", 0) >= update["total"]:
             return None
     return update or None
+
+
+#: The most people the code accepts in a party (`_grounded_occupancy`).
+_MAX_PARTY = 30
+
+
+def _occupancy_out_of_range(raw: Any, message: str) -> int | None:
+    """The count of a grounded party statement the code refused for its size
+    alone (above `_MAX_PARTY`), or None. Same evidence check as
+    `_grounded_occupancy`: a fact about the quote, never a reading of it."""
+    if not isinstance(raw, dict):
+        return None
+    evidence = raw.get("evidence")
+    if (not isinstance(evidence, str) or not evidence.strip() or len(evidence) > 240
+            or evidence.casefold() not in message.casefold()):
+        return None
+    if parse_requested_date(evidence, date.today()) is not None:
+        return None
+    counts = [raw.get(key) for key in ("total", "adults", "children")]
+    big = [v for v in counts if type(v) is int and v > _MAX_PARTY]
+    return max(big) if big else None
 
 
 #: A wish is a short noun phrase (« une chambre avec jacuzzi »): a model that

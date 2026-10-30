@@ -348,6 +348,26 @@ _UNRESOLVED: dict[str, str] = {
 }
 
 
+#: 2026-10-30: a spot inside a city the geocoder could not place (« Tsim Sha
+#: Tsui », Hong Kong): the city is known, the question asks for the spot.
+_SPOT_UNRESOLVED: dict[str, str] = {
+    "fr": "Je n'ai pas réussi à situer « {label} » à {city}. Vous pouvez me donner une adresse, une station ou un lieu proche ?",
+    "en": 'I couldn\'t place "{label}" in {city}. Could you give me an address, a station or a place nearby?',
+    "es": 'No he conseguido ubicar "{label}" en {city}. ¿Puedes darme una dirección, una estación o un lugar cercano?',
+    "it": 'Non sono riuscito a localizzare "{label}" a {city}. Puoi indicarmi un indirizzo, una stazione o un luogo vicino?',
+    "de": "Ich konnte „{label}“ in {city} nicht finden. Kannst du mir eine Adresse, eine Station oder einen Ort in der Nähe nennen?",
+    "pt": 'Não consegui localizar "{label}" em {city}. Pode indicar um endereço, uma estação ou um lugar próximo?',
+    "nl": 'Ik kon "{label}" in {city} niet plaatsen. Kun je een adres, een station of een plek in de buurt noemen?',
+}
+
+
+def spot_unresolved_question(place: str, city: str, language: str | None = None) -> str:
+    """Say the spot could not be placed in its city, and ask for a nearby
+    address, station or place (same 7 languages, template only)."""
+    template = _SPOT_UNRESOLVED.get(language or "", _SPOT_UNRESOLVED["en"])
+    return template.format(label=(place or "").strip(), city=(city or "").strip())
+
+
 def unresolved_question(place: str, language: str | None = None) -> str:
     """Say the place could not be placed, and ask for its city or country.
 

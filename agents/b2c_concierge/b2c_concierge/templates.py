@@ -687,6 +687,18 @@ _CLARIFY_UNRESOLVED: dict[str, str] = {
     "pt": "Não consegui localizar «{subject}». Pode indicar a cidade ou o país?",
     "nl": "Ik kon \"{subject}\" niet plaatsen. Kun je de stad of het land noemen?",
 }
+#: 2026-10-30 (prod after #175: « Tsim Sha Tsui », « Mong Kok » searched on the
+#: centre of Hong Kong island): a spot the geocoder could not place in the
+#: city the user gave. The city is known: the question asks for the spot.
+_CLARIFY_SPOT_UNRESOLVED: dict[str, str] = {
+    "fr": "Je n'ai pas réussi à situer « {subject} » à {city}. Vous pouvez me donner une adresse, une station ou un lieu proche ?",
+    "en": "I couldn't place \"{subject}\" in {city}. Could you give me an address, a station or a place nearby?",
+    "es": "No he conseguido ubicar «{subject}» en {city}. ¿Puedes darme una dirección, una estación o un lugar cercano?",
+    "it": "Non sono riuscito a localizzare «{subject}» a {city}. Puoi indicarmi un indirizzo, una stazione o un luogo vicino?",
+    "de": "Ich konnte „{subject}“ in {city} nicht finden. Kannst du mir eine Adresse, eine Station oder einen Ort in der Nähe nennen?",
+    "pt": "Não consegui localizar «{subject}» em {city}. Pode indicar um endereço, uma estação ou um lugar próximo?",
+    "nl": "Ik kon \"{subject}\" in {city} niet plaatsen. Kun je een adres, een station of een plek in de buurt noemen?",
+}
 _CLARIFY_UNRESOLVED_AGAIN: dict[str, str] = {
     "fr": "« {subject} » reste introuvable de mon côté. Donnez-moi la ville la plus proche, "
     "avec son pays si possible.",
@@ -970,6 +982,9 @@ def clarification_response(clarification: Clarification, language: str, asked: i
         table = _CLARIFY_CITY_NEEDED if asked == 1 else _CLARIFY_CITY_NEEDED_AGAIN
         return _pick(language, table).format(subject=subject)
     if clarification.kind == "unresolved":
+        if asked == 1 and clarification.city:
+            # 2026-10-30: a spot in a known city — ask for the spot.
+            return _pick(language, _CLARIFY_SPOT_UNRESOLVED).format(subject=subject, city=clarification.city)
         table = _CLARIFY_UNRESOLVED if asked == 1 else _CLARIFY_UNRESOLVED_AGAIN
         return _pick(language, table).format(subject=subject)
     table = _CLARIFY_HOMONYM if asked == 1 else _CLARIFY_HOMONYM_AGAIN
@@ -1123,3 +1138,49 @@ def service_degraded_response(language: str) -> str:
     inner degradation net, so the step that failed is unknown — generic
     honest wording, invents nothing, never a raw 500/dead stream."""
     return _pick(language, _SERVICE_DEGRADED)
+
+
+_PREVIOUS_CARDS: dict[str, str] = {
+    "fr": "Voici à nouveau les offres affichées juste avant.",
+    "en": "Here again are the offers shown just before.",
+    "es": "Aquí tienes de nuevo las ofertas mostradas justo antes.",
+    "it": "Ecco di nuovo le offerte mostrate poco fa.",
+    "de": "Hier noch einmal die zuvor angezeigten Angebote.",
+    "pt": "Aqui estão de novo as ofertas mostradas antes.",
+    "nl": "Hier zijn opnieuw de aanbiedingen van zonet.",
+}
+
+
+def previous_cards_notice(language: str) -> str:
+    """2026-10-30: a criterion emptied the list on the same place and day;
+    the previous cards are shown again, and the answer says so."""
+    return _pick(language, _PREVIOUS_CARDS)
+
+
+_CLOSER_TOMORROW: dict[str, str] = {
+    "fr": "Ce soir, l'offre encore ouverte la plus proche est à {km} km : voici celles du {day}, plus près.",
+    "en": "Tonight, the closest offer still open is {km} km away: here are the ones for {day}, closer.",
+    "es": "Esta noche, la oferta abierta más cercana está a {km} km: aquí tienes las del {day}, más cerca.",
+    "it": "Stasera l'offerta ancora aperta più vicina è a {km} km: ecco quelle di {day}, più vicine.",
+    "de": "Heute Abend ist das nächste noch offene Angebot {km} km entfernt: Hier die für {day}, näher dran.",
+    "pt": "Esta noite, a oferta ainda aberta mais próxima fica a {km} km: aqui estão as de {day}, mais perto.",
+    "nl": "Vanavond ligt het dichtstbijzijnde open aanbod op {km} km: hier zijn die voor {day}, dichterbij.",
+}
+_CLOSER_TOMORROW_NO_KM: dict[str, str] = {
+    "fr": "Ce soir, les offres encore ouvertes sont loin : voici celles du {day}, plus près.",
+    "en": "Tonight, the offers still open are far away: here are the ones for {day}, closer.",
+    "es": "Esta noche, las ofertas abiertas están lejos: aquí tienes las del {day}, más cerca.",
+    "it": "Stasera le offerte ancora aperte sono lontane: ecco quelle di {day}, più vicine.",
+    "de": "Heute Abend sind die noch offenen Angebote weit weg: Hier die für {day}, näher dran.",
+    "pt": "Esta noite, as ofertas ainda abertas ficam longe: aqui estão as de {day}, mais perto.",
+    "nl": "Vanavond liggen de open aanbiedingen ver weg: hier zijn die voor {day}, dichterbij.",
+}
+
+
+def closer_tomorrow_notice(km: object, human_day: str, language: str) -> str:
+    """2026-10-30: the search ran tonight around a spot, the offers still open
+    were far, and the next day's are closer: the cards are the next day's."""
+    if isinstance(km, (int, float)) and not isinstance(km, bool) and km > 0:
+        shown = f"{float(km):.1f}".replace(".", ",") if language in ("fr", "es", "it", "de", "pt", "nl") else f"{float(km):.1f}"
+        return _pick(language, _CLOSER_TOMORROW).format(km=shown, day=human_day)
+    return _pick(language, _CLOSER_TOMORROW_NO_KM).format(day=human_day)

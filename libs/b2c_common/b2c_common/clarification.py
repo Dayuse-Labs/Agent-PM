@@ -35,9 +35,9 @@ the package `__init__` re-exports only part of the package.
 """
 from __future__ import annotations
 
-from typing import Literal
+from typing import Any, Literal
 
-from pydantic import BaseModel, ConfigDict, Field, model_validator
+from pydantic import BaseModel, ConfigDict, Field, model_serializer, model_validator
 
 #: Version of this wire shape. A consumer that reads another value must not
 #: guess at it.
@@ -81,6 +81,22 @@ class Clarification(BaseModel):
         description="The place mention the question is about, as the request named it.",
     )
     options: list[ClarificationOption] = Field(default_factory=list, max_length=MAX_OPTIONS)
+    city: str | None = Field(
+        default=None,
+        description=(
+            "For an `unresolved` spot: the city the user put it in (2026-10-30, « Tsim Sha "
+            "Tsui », Hong Kong). The question then asks for a nearby place, not for the city."
+        ),
+    )
+
+    @model_serializer(mode="wrap")
+    def _no_empty_city(self, handler: Any) -> Any:
+        # The wire shape is unchanged when there is no city: a concierge built
+        # before the field (`extra="forbid"`) still reads every question.
+        data = handler(self)
+        if isinstance(data, dict) and data.get("city") is None:
+            data.pop("city", None)
+        return data
 
     @model_validator(mode="after")
     def _options_match_kind(self) -> Clarification:

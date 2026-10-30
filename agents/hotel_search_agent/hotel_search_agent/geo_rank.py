@@ -75,10 +75,13 @@ import os
 import time
 from typing import Any
 
-from hotel_search_agent.extra_calls import may_call, record_outcome, remaining_seconds
+from hotel_search_agent.extra_calls import extra_call, may_call, record_outcome, remaining_seconds
 from hotel_search_agent.inventory import haversine_km
+from b2c_common.pricing import display_price_euro
+
 from hotel_search_agent.response_bridge import (
     STATE_NEARBY_KEY,
+    STATE_PRIORITY_KEY,
     anchor_feature,
     anchor_origin,
     read_structured_payload,
@@ -162,9 +165,19 @@ def tier(distance: float | None, local_km: float) -> int:
     return 2
 
 
+def cheapest_price(item: dict[str, Any]) -> float:
+    """The lowest price the customer is shown among a hotel's offers (EUR
+    cents, `display_price_euro`), +inf when none."""
+    prices = [
+        display_price_euro(offer, item) for offer in item.get("offers") or [] if isinstance(offer, dict)
+    ]
+    numbers = [float(p) for p in prices if isinstance(p, (int, float)) and not isinstance(p, bool) and p > 0]
+    return min(numbers) if numbers else math.inf
+
+
 def rank_pool(
     items: list[dict[str, Any]], lat: float, lon: float, local_km: float,
-    decay_km: float | None = None,
+    decay_km: float | None = None, priority: str | None = None,
 ) -> list[dict[str, Any]]:
     """The pool, each hotel once (first occurrence kept), in the order the
     cards are cut from: tier first, then MCP's score with a gradual distance
@@ -186,13 +199,35 @@ def rank_pool(
         seen.add(key)
         unique.append(item)
 
-    def order(item: dict[str, Any]) -> tuple[int, float]:
+    def order(item: dict[str, Any]) -> tuple[int, float, float]:
         distance = _distance(item, lat, lon)
         score = _number(item.get("score")) or 0.0
         weighted = score / (1.0 + (distance if distance is not None else local_km) / decay)
-        return tier(distance, local_km), -weighted
+        # 2026-10-30: what the user put first (« le moins cher ») orders each
+        # ring of distance; the ring itself stays first.
+        first = cheapest_price(item) if priority == "price" else 0.0
+        return tier(distance, local_km), first, -weighted
 
     return sorted(unique, key=order)
+
+
+def prioritize_cards(tool_context: Any, cards: list[dict[str, Any]], ring_km: float | None) -> list[dict[str, Any]]:
+    """The cards of a search not ranked here (a spot, a district, an area),
+    reordered by what the user put first inside each ring of distance
+    (`tier`, the search's own ring as the local one): « le moins cher » near a
+    station puts the cheapest of the nearest first. Cards as they are
+    otherwise. Stable: equal prices keep their order."""
+    if tool_context.state.get(STATE_PRIORITY_KEY) != "price" or len(cards) < 2:
+        return cards
+    # The search's own ring is the local one when it is a spot's (2-10 km);
+    # a wide ring the user gave (« 50 km max ») keeps the local disc of a city.
+    local = ring_km if ring_km and 0 < ring_km <= 2 * LOCAL_FLOOR_KM else LOCAL_FLOOR_KM
+
+    def price(card: dict[str, Any]) -> float:
+        cents = card.get("price_eur_cents")
+        return float(cents) if isinstance(cents, int) and not isinstance(cents, bool) and cents > 0 else math.inf
+
+    return sorted(cards, key=lambda card: (tier(_number(card.get("distance_km")), local), price(card)))
 
 
 def _qualifies(args: dict[str, Any], tool_context: Any) -> tuple[float, float, float, float] | None:
@@ -309,10 +344,38 @@ async def await_local_pool(
     return None
 
 
-def ranked_payload(tool_context: Any, args: dict[str, Any], structured: dict[str, Any]) -> dict[str, Any]:
+async def fetch_ring_pages(tool: Any, args: dict[str, Any], tool_context: Any, *, kind: str) -> list[Any]:
+    """The local and core pages of `args` (the same search on the local disc
+    and on the core ring), through `extra_calls`, in parallel: their raw
+    results, launch order, [] when the search is not ranked here or none came
+    back. For a search the leaf runs itself from a callback (the next-day
+    probe, 2026-10-30), next to its own call."""
+    qualified = _qualifies(args, tool_context)
+    if qualified is None:
+        return []
+    _lat, _lon, local_km, core_km = qualified
+    pages = _pages(args, local_km, core_km)
+    if not pages:
+        return []
+    answers = await asyncio.gather(*(
+        extra_call(tool, {**args, "radiusKm": ring}, tool_context, kind=kind) for _kind, ring in pages
+    ))
+    found: list[Any] = []
+    for status, payload in answers:
+        results = payload.get("results") if status == "ok" and isinstance(payload, dict) else None
+        if isinstance(results, list):
+            found.extend(results)
+    return found
+
+
+def ranked_payload(
+    tool_context: Any, args: dict[str, Any], structured: dict[str, Any], extra: list[Any] | None = None
+) -> dict[str, Any]:
     """`structured` with its `results` replaced by the ranked pool (its own
     page plus the local and core pages that came back), for a qualifying
-    search; `structured` itself otherwise."""
+    search; `structured` itself otherwise. `extra`: the pages of another call
+    than the model's own (the next-day probe's, `fetch_ring_pages`); without
+    it, the pages `await_local_pool` collected."""
     tool_context.state[STATE_GEO_RANK_KEY] = None
     qualified = _qualifies(args, tool_context)
     if qualified is None:
@@ -321,10 +384,11 @@ def ranked_payload(tool_context: Any, args: dict[str, Any], structured: dict[str
     page = structured.get("results")
     if not isinstance(page, list):
         return structured
-    extra = tool_context.state.get(STATE_GEO_POOL_KEY)
-    tool_context.state[STATE_GEO_POOL_KEY] = None
+    if extra is None:
+        extra = tool_context.state.get(STATE_GEO_POOL_KEY)
+        tool_context.state[STATE_GEO_POOL_KEY] = None
     pool = list(page) + (list(extra) if isinstance(extra, list) else [])
-    ranked = rank_pool(pool, lat, lon, local_km, core_km)
+    ranked = rank_pool(pool, lat, lon, local_km, core_km, tool_context.state.get(STATE_PRIORITY_KEY))
     tool_context.state[STATE_GEO_RANK_KEY] = {"lat": lat, "lon": lon, "local_km": local_km}
     _metrics_logger.info(
         "dayuse_metric=geo_rank agent=b2c_hotel_search local_km=%s core_km=%s pool=%d page=%d local=%d",

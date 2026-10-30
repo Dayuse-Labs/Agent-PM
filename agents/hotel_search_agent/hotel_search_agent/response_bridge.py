@@ -209,6 +209,9 @@ _STATE_RELAXATION_ADDED_KEY = "temp:hotel_search_relaxation_added"
 STATE_RELAX_REQUEST_KEY = "temp:hotel_search_relax_request"
 STATE_RELAX_APPLIED_KEY = "temp:hotel_search_relax_applied"
 STATE_AMENITIES_MUST_HAVE_KEY = "temp:hotel_search_amenities_must_have"
+#: 2026-10-30: what the user put first, read by the model (`priority` on
+#: search_offers, `relaxation.read_relax_request`): "price" or None.
+STATE_PRIORITY_KEY = "temp:hotel_search_priority"
 STATE_NEXT_DAY_PROBED_KEY = "temp:hotel_search_next_day_probed"
 # S-G4 per-phase instrumentation: dayuse_agent_common's tool_timing_before/after
 # already emit a `dayuse_metric=tool_call tool=geocode_location` / `tool=search_offers`
@@ -1198,6 +1201,44 @@ def _apply_date_fallback(tool_context: Any, stashed: dict[str, Any]) -> None:
     }
 
 
+def _closer_next_day(
+    tool_context: Any, results: list[dict[str, Any]], structured: dict[str, Any], card_filters: tuple
+) -> tuple[list[dict[str, Any]], dict[str, Any]]:
+    """Today's cards, or the next day's when they hold more close hotels
+    (same filters), with the search date marked `closer_from`."""
+    from hotel_search_agent.datetime_resolver import STATE_CLOSER_NEXT_DAY_KEY, close_count
+
+    stashed = tool_context.state.get(STATE_CLOSER_NEXT_DAY_KEY)
+    payload = stashed.get("payload") if isinstance(stashed, dict) else None
+    origin = anchor_origin(tool_context)
+    if not isinstance(payload, dict) or origin is None or not isinstance(stashed.get("offered_date"), str):
+        return results, structured
+    exclude_ids, strict_window, filters, host = card_filters
+    tomorrow = normalize_search_results(payload, exclude_ids, strict_window, *filters, host=host)
+    _kind, lat, lon = origin
+    if close_count(tomorrow, lat, lon, card=True) <= close_count(results, lat, lon, card=True):
+        return results, structured
+    distances = [
+        haversine_km(lat, lon, card["latitude"], card["longitude"]) for card in results
+        if isinstance(card.get("latitude"), (int, float)) and isinstance(card.get("longitude"), (int, float))
+    ]
+    search_date: dict[str, Any] = {"date": stashed["offered_date"], "same_day": False}
+    if isinstance(stashed.get("searched_date"), str):
+        search_date["closer_from"] = stashed["searched_date"]
+    if distances:
+        search_date["tonight_nearest_km"] = round(min(distances), 1)
+    tool_context.state[STATE_SEARCH_DATE_KEY] = search_date
+    previous = tool_context.state.get(STATE_RESOLVED_DATE_KEY)
+    date_reference: dict[str, Any] = {"resolved_from": "closer_next_day"}
+    if isinstance(previous, dict):
+        client_tz = (previous.get("date_reference") or {}).get("client_tz")
+        if isinstance(client_tz, str) and client_tz:
+            date_reference["client_tz"] = client_tz
+    tool_context.state[STATE_RESOLVED_DATE_KEY] = {"date": stashed["offered_date"], "date_reference": date_reference}
+    _metrics_logger.info("dayuse_metric=closer_next_day agent=b2c_hotel_search swapped=1")
+    return tomorrow, payload
+
+
 def record_guards_fired(tool_context: Any, names: Iterable[str]) -> None:
     """Merge deterministic guard names into the turn's OBS3 set — the SINGLE
     writer of `_STATE_GUARDS_KEY`, so both producers share one semantics
@@ -1266,6 +1307,97 @@ def _first_place_kind(args: Any) -> str | None:
     first = places[0] if isinstance(places, list) and places else None
     kind = first.get("kind") if isinstance(first, dict) else None
     return kind if isinstance(kind, str) else None
+
+
+#: The pages `filter_pages` fetched for ONE call: {"results": [...], "replace": bool}.
+STATE_FILTER_PAGES_KEY = "temp:hotel_search_filter_pages"
+
+
+def _with_filter_pages(tool_context: Any, structured: dict[str, Any]) -> dict[str, Any]:
+    """`structured` with the filling pages' hotels: after its own, or in
+    place of them when the call ran again with a cap MCP could apply."""
+    stashed = tool_context.state.get(STATE_FILTER_PAGES_KEY)
+    tool_context.state[STATE_FILTER_PAGES_KEY] = None
+    if not isinstance(stashed, dict) or not isinstance(stashed.get("results"), list):
+        return structured
+    raw = structured.get("results")
+    own: list[Any] = raw if isinstance(raw, list) else []
+    if stashed.get("replace"):
+        return {**structured, "results": list(stashed["results"]), "total": stashed.get("total", structured.get("total"))}
+    seen = {item.get("hotelId") for item in own if isinstance(item, dict)}
+    extra = [item for item in stashed["results"] if isinstance(item, dict) and item.get("hotelId") not in seen]
+    return {**structured, "results": [*own, *extra]}
+
+
+def search_card_filters(
+    tool_context: Any, structured: Any = None
+) -> tuple[set[Any] | None, Window | None, Any, Any, int | None, Any]:
+    """What filters a `search_offers` call's cards, in code, after MCP:
+    (shown hotels excluded on a pagination turn, the strict window, the typed
+    budget, « cheaper », an unresolved party total, the bed asked for).
+    Read-only. `structured`: the call's payload, whose quotes give MCP's own
+    rate for a budget in another currency than EUR (`budget_injection`)."""
+    exclude_ids: set[Any] | None = None
+    strict_window: Window | None = None
+    # S-G5 pagination safety net: hotels already shown across earlier turns
+    # (accumulated at the profile, S-G1) are filtered out before the top-5
+    # cut. A named lookup (find_hotel_by_name) never excludes.
+    #
+    # S-CX5: ONLY on a pagination turn (`search_cursor > 0`). This filter
+    # exists to stop page 2 repeating page 1 — applying it to every search
+    # made a refined search hide the hotels the user had just been shown,
+    # which is how "book the cheapest" answered with pricier hotels: the
+    # five cheapest were on screen, so the search meant to rank them
+    # excluded them and returned ranks 6-10 (prod session 2026-07-27).
+    # The concierge resets the cursor on any non-pagination search
+    # (`profile.reset_search_cursor`), so page 1 always sees the full pool.
+    profile_in = read_profile_in(tool_context)
+    shown = profile_in.get("shown_hotel_ids")
+    try:
+        paginating = int(profile_in.get("search_cursor") or 0) > 0
+    except (TypeError, ValueError):
+        paginating = False
+    if paginating and isinstance(shown, list) and shown:
+        exclude_ids = set(shown)
+    # S-G6 (A4-c): a genuine two-sided exact window (stashed by
+    # datetime_resolver.resolve_search_timeslot before MCP only got the
+    # floored/ceiled hours) — a one-sided bound is never strict-filtered
+    # here (existing "kept as-is" mode, unchanged).
+    exact_window_state = tool_context.state.get(STATE_EXACT_WINDOW_KEY)
+    if isinstance(exact_window_state, dict):
+        start_total, end_total = exact_window_state.get("start_total"), exact_window_state.get("end_total")
+        if isinstance(start_total, int) or isinstance(end_total, int):
+            strict_window = (
+                start_total if isinstance(start_total, int) else None,
+                end_total if isinstance(end_total, int) else None,
+            )
+    daypart = tool_context.state.get(STATE_DAYPART_KEY)
+    if daypart in DAYPART_HOURS:
+        strict_window = daypart
+    # PORT1 slice 3: the concierge's typed budget filters the cards. A dollar
+    # amount takes its code from THIS search's verified country only.
+    requested_budget = resolve_budget_currency(
+        profile_in.get("requested_budget"), tool_context.state.get(_STATE_COUNTRY_KEY),
+    )
+    if isinstance(requested_budget, dict) and requested_budget and not requested_budget.get("currency"):
+        # A "$" this market does not settle cannot be checked: keep the cards,
+        # the concierge appends its currency question (B3: never an empty page).
+        requested_budget = None
+    if isinstance(requested_budget, dict) and requested_budget.get("currency") not in (None, "EUR"):
+        # 2026-10-30: a budget in another currency than EUR also checks the
+        # hotels quoted in euros only, at MCP's own rate (`budget_injection`).
+        from hotel_search_agent.budget_injection import rate_for
+
+        rate = rate_for(tool_context, requested_budget["currency"], structured)
+        if rate is not None:
+            requested_budget = {**requested_budget, "eur_per_unit": rate}
+    # PORT1 slice 4: "cheaper" = strictly below the concierge's reference.
+    price_comparison = profile_in.get("price_comparison")
+    # PORT1 slice 5: bedding and an unresolved party total (concierge-owned).
+    envelope = find_datapart(getattr(getattr(tool_context, "user_content", None), "parts", None) or []) or {}
+    party_total = discovery_total(envelope.get("query_params"))
+    room_requirements = profile_in.get("room_requirements")
+    return exclude_ids, strict_window, requested_budget, price_comparison, party_total, room_requirements
 
 
 def capture_after_tool(
@@ -1372,6 +1504,13 @@ def capture_after_tool(
     if not isinstance(structured, dict):
         return None
     if name == "search_offers":
+        # 2026-10-30: MCP's own rates, for a budget in another currency.
+        from hotel_search_agent.budget_injection import learn_rates
+
+        learn_rates(structured)
+        # 2026-10-30: the hotels of the pages that filled a page the code's
+        # filters thinned (`filter_pages`), with this call's own.
+        structured = _with_filter_pages(tool_context, structured)
         # Prod 2026-10-28: proximity first, at comparable quality, around a
         # city's centre or a device fix (`geo_rank`, which imports this module).
         from hotel_search_agent.geo_rank import ranked_payload
@@ -1380,60 +1519,16 @@ def capture_after_tool(
 
     exclude_ids: set[Any] | None = None
     strict_window: Window | None = None
+    requested_budget: Any = None
+    price_comparison: Any = None
+    party_total: int | None = None
+    room_requirements: Any = None
     if name == "search_offers":
-        # S-G5 pagination safety net: hotels already shown across earlier turns
-        # (accumulated at the profile, S-G1) are filtered out before the top-5
-        # cut. A named lookup (find_hotel_by_name) never excludes — see below.
-        #
-        # S-CX5: ONLY on a pagination turn (`search_cursor > 0`). This filter
-        # exists to stop page 2 repeating page 1 — applying it to every search
-        # made a refined search hide the hotels the user had just been shown,
-        # which is how "book the cheapest" answered with pricier hotels: the
-        # five cheapest were on screen, so the search meant to rank them
-        # excluded them and returned ranks 6-10 (prod session 2026-07-27).
-        # The concierge resets the cursor on any non-pagination search
-        # (`profile.reset_search_cursor`), so page 1 always sees the full pool.
-        profile_in = read_profile_in(tool_context)
-        shown = profile_in.get("shown_hotel_ids")
-        try:
-            paginating = int(profile_in.get("search_cursor") or 0) > 0
-        except (TypeError, ValueError):
-            paginating = False
-        if paginating and isinstance(shown, list) and shown:
-            exclude_ids = set(shown)
-        # S-G6 (A4-c): a genuine two-sided exact window (stashed by
-        # datetime_resolver.resolve_search_timeslot before MCP only got the
-        # floored/ceiled hours) — a one-sided bound is never strict-filtered
-        # here (existing "kept as-is" mode, unchanged).
-        exact_window_state = tool_context.state.get(STATE_EXACT_WINDOW_KEY)
-        if isinstance(exact_window_state, dict):
-            start_total, end_total = exact_window_state.get("start_total"), exact_window_state.get(
-                "end_total"
-            )
-            if isinstance(start_total, int) or isinstance(end_total, int):
-                strict_window = (
-                    start_total if isinstance(start_total, int) else None,
-                    end_total if isinstance(end_total, int) else None,
-                )
-        daypart = tool_context.state.get(STATE_DAYPART_KEY)
-        if daypart in DAYPART_HOURS:
-            strict_window = daypart
-    # PORT1 slice 3: the concierge's typed budget filters the cards. A dollar
-    # amount takes its code from THIS search's verified country only.
-    requested_budget = resolve_budget_currency(
-        read_profile_in(tool_context).get("requested_budget") if name == "search_offers" else None,
-        tool_context.state.get(_STATE_COUNTRY_KEY),
-    )
-    if isinstance(requested_budget, dict) and requested_budget and not requested_budget.get("currency"):
-        # A "$" this market does not settle cannot be checked: keep the cards,
-        # the concierge appends its currency question (B3: never an empty page).
-        requested_budget = None
-    # PORT1 slice 4: "cheaper" = strictly below the concierge's reference.
-    price_comparison = read_profile_in(tool_context).get("price_comparison") if name == "search_offers" else None
-    # PORT1 slice 5: bedding and an unresolved party total (concierge-owned).
-    envelope = find_datapart(getattr(getattr(tool_context, "user_content", None), "parts", None) or []) or {}
-    party_total = discovery_total(envelope.get("query_params")) if name == "search_offers" else None
-    room_requirements = read_profile_in(tool_context).get("room_requirements") if name == "search_offers" else None
+        # 2026-10-30: one definition of what filters a search's cards, shared
+        # with the page that fills a thinned page (`filter_pages`).
+        exclude_ids, strict_window, requested_budget, price_comparison, party_total, room_requirements = (
+            search_card_filters(tool_context, structured)
+        )
     relax_applied = tool_context.state.get(STATE_RELAX_APPLIED_KEY) if name == "search_offers" else None
     if isinstance(relax_applied, dict) and "budget" in (relax_applied.get("requested") or []):
         # Point 3: « augmenter le budget » raises the typed cap for this search
@@ -1475,10 +1570,17 @@ def capture_after_tool(
         stashed = tool_context.state.get(STATE_DATE_FALLBACK_KEY)
         payload = stashed.get("payload") if isinstance(stashed, dict) else None
         if isinstance(payload, dict):
+            # 2026-10-30: the day after is ranked and trimmed like the day
+            # asked (`geo_rank`), with the local and core pages of the probe.
+            from hotel_search_agent.geo_rank import ranked_payload, trim_far_cards
+
+            pool = stashed.get("pool") if isinstance(stashed.get("pool"), list) else []
+            payload = ranked_payload(tool_context, args, payload, extra=pool)
             swapped = normalize_search_results(payload, exclude_ids, strict_window, *filters, host=host)
             if not swapped and strict_window is not None:
                 swapped = normalize_search_results(payload, exclude_ids, None, *filters, host=host)
                 timeslot_fallback = bool(swapped)
+            swapped = trim_far_cards(tool_context, swapped)
             if swapped:
                 results = swapped
                 structured = payload
@@ -1517,7 +1619,16 @@ def capture_after_tool(
                     added["amenities"] = relaxed_keys
                 if "next_day" in steps:
                     added["offered_date"] = rescue.get("offered_date")
+                if "party" in steps and isinstance(rescue.get("party"), dict):
+                    added["party"] = rescue["party"]
                 tool_context.state[_STATE_RELAXATION_ADDED_KEY] = added
+    # 2026-10-30: « demain, plus près » — tonight's open offers are far from
+    # the spot asked, and the next day has closer ones (`datetime_resolver.
+    # _probe_closer_next_day`): the next day's cards, said as such.
+    if name == "search_offers" and results:
+        results, structured = _closer_next_day(
+            tool_context, results, structured, (exclude_ids, strict_window, filters, host)
+        )
     # Prod session 1eb2430a: a thin first page is completed from the wider
     # search `completion.py` ran — its hotels AFTER the first page's.
     first_page = len(results)
@@ -1549,6 +1660,16 @@ def capture_after_tool(
                 # come nearest first from MCP already).
                 results[:first_page] = sorted(
                     results[:first_page], key=lambda card: card.get("distance_km", math.inf)
+                )
+            from hotel_search_agent.geo_rank import STATE_GEO_RANK_KEY, prioritize_cards
+
+            if not isinstance(tool_context.state.get(STATE_GEO_RANK_KEY), dict):
+                # 2026-10-30: what the user put first, inside each ring, for a
+                # search `geo_rank` did not rank (it orders its own pool).
+                ring = args.get("radiusKm")
+                results[:first_page] = prioritize_cards(
+                    tool_context, results[:first_page],
+                    float(ring) if isinstance(ring, (int, float)) and not isinstance(ring, bool) else None,
                 )
         # The search ran at the geocoded coordinates, so the geocoded country is
         # a legitimate attribute of ITS results (a server-sent countryCode always
@@ -1607,7 +1728,12 @@ def capture_after_tool(
         # model already emits adults/children ~78% of the turns they are stated;
         # until this capture existed nothing read them, so they never reached
         # the profile and could not survive to the next turn.
-        budget_timeslot.update(occupancy_from_args(args))
+        relaxed_party = isinstance(tool_context.state.get(_STATE_RELAXATION_ADDED_KEY), dict) and bool(
+            tool_context.state[_STATE_RELAXATION_ADDED_KEY].get("party")
+        )
+        if not relaxed_party:
+            # 2026-10-30: a party no offer here sleeps is not carried on.
+            budget_timeslot.update(occupancy_from_args(args))
         if isinstance(relax_applied, dict) and relax_applied.get("budget"):
             # The raised cap is this search's, never the profile's.
             budget_timeslot.pop("budget_max", None)
