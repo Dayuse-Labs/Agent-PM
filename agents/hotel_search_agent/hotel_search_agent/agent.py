@@ -61,6 +61,7 @@ from hotel_search_agent.occupancy import inject_profile_occupancy
 from hotel_search_agent.standing import enforce_standing
 from hotel_search_agent.completion import complete_thin_search_after_tool
 from hotel_search_agent.extra_calls import stamp_turn_deadline
+from hotel_search_agent.filter_pages import fill_filtered_page_after_tool
 from hotel_search_agent.geo_rank import await_local_pool, start_local_pool
 from hotel_search_agent.relaxation import (
     apply_relax_request,
@@ -544,6 +545,9 @@ root_agent = Agent(
         # the probe's included); the completion stands down after it.
         rescue_empty_search_after_tool,
         complete_thin_search_after_tool,
+        # 2026-10-30: a page the code's filters thinned is filled from MCP
+        # (a budget in another currency, a part of the day, « cheaper »).
+        fill_filtered_page_after_tool,
         await_local_pool,
         named_hotel.follow_named_hotel,
         capture_after_tool,

@@ -138,6 +138,48 @@ def native_eur_cap(request: Any) -> float | None:
     return float(amount) if amount is not None else None
 
 
+def eur_per_unit(hotels: Any, currency: str) -> Decimal | None:
+    """Euros per unit of `currency`, read from MCP's own quotes, or None
+    (2026-10-30). Every offer MCP sends in a hotel currency carries the same
+    total twice: `priceEuroWithBookingFees` (EUR cents) and
+    `hotelPriceWithBookingFees` (minor units of `hotelCurrency`), indexed by
+    the site. Their ratio is the rate MCP itself applies; the median over the
+    offers given, never an outside FX feed."""
+    if not isinstance(currency, str) or currency == "EUR" or not isinstance(hotels, list):
+        return None
+    scale = Decimal(10 ** minor_units(currency))
+    ratios: list[Decimal] = []
+    for hotel in hotels:
+        for offer in (hotel.get("offers") or []) if isinstance(hotel, dict) else []:
+            if not isinstance(offer, dict) or offer.get("hotelCurrency") != currency:
+                continue
+            eur, own = offer.get("priceEuroWithBookingFees"), offer.get("hotelPriceWithBookingFees")
+            if (isinstance(eur, bool) or isinstance(own, bool) or not isinstance(eur, int)
+                    or not isinstance(own, int) or eur <= 0 or own <= 0):
+                continue
+            ratios.append((Decimal(eur) / 100) / (Decimal(own) / scale))
+    if not ratios:
+        return None
+    ratios.sort()
+    middle = len(ratios) // 2
+    return ratios[middle] if len(ratios) % 2 else (ratios[middle - 1] + ratios[middle]) / 2
+
+
+def converted_eur_cap(request: Any, rate: Decimal | None) -> float | None:
+    """MCP's EUR cap for a total budget in another currency, at `rate`
+    (`eur_per_unit`), or None. Rounded down to the cent: never above what
+    the user stated."""
+    if not isinstance(request, dict) or request.get("unit") != "total" or rate is None or rate <= 0:
+        return None
+    if request.get("currency") in (None, "EUR"):
+        return None
+    amount = _positive(request.get("amount"))
+    if amount is None:
+        return None
+    cents = int(amount * rate * 100)
+    return cents / 100 if cents > 0 else None
+
+
 def offer_within_budget(offer: dict, hotel: dict, request: dict) -> bool:
     """Verify the SAME offer's total including mandatory booking fees.
 
@@ -149,10 +191,19 @@ def offer_within_budget(offer: dict, hotel: dict, request: dict) -> bool:
     currency = request.get("currency")
     if amount is None or not currency or request.get("unit") != "total":
         return False
+    rate = request.get("eur_per_unit")
     if currency == "EUR":
         price = offer.get("priceEuroWithBookingFees")
     elif offer.get("hotelCurrency") == currency:
         price = offer.get("hotelPriceWithBookingFees")
+    elif isinstance(rate, Decimal) and rate > 0:
+        # 2026-10-30: a budget in pounds for a hotel quoted in euros only
+        # (« Paris, under £100 »): its EUR total against the cap converted
+        # at MCP's own rate (`eur_per_unit`), down to the cent.
+        price = offer.get("priceEuroWithBookingFees")
+        if isinstance(price, bool) or not isinstance(price, int) or price < 0:
+            return False
+        return Decimal(price) <= int(amount * rate * 100)
     else:
         return False
     # The MCP contract provides minor-unit integer quotes. Reject NaN, booleans,

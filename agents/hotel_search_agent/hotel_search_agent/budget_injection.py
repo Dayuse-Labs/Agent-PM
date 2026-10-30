@@ -20,14 +20,77 @@ replace 80, never combine with it.
 from __future__ import annotations
 
 import logging
+import time
+from decimal import Decimal, InvalidOperation
 from typing import Any
 
 from b2c_common.price_comparison import comparison_budget
-from b2c_common.search_budget import native_eur_cap
+from b2c_common.search_budget import converted_eur_cap, eur_per_unit, native_eur_cap
 
 from hotel_search_agent.response_bridge import find_datapart, positive_budget
 
 _metrics_logger = logging.getLogger("dayuse.metrics")
+
+# --- MCP's own rate for a budget in another currency (2026-10-30) ----------------------------
+#
+# Prod after #175: « Cheap hotel no more than £60 » in London → 0 card twice,
+# 233 offers; « spa in Paris under £100 » → 0 card in 4 turns. MCP's
+# `priceRangeMax` is in EUR, so a pound budget never reached it: the search
+# ran without a cap, the leaf kept the 5 hotels of the first page and checked
+# them in pounds afterwards — none under £60. The cap now reaches MCP in EUR,
+# converted at the rate MCP's own quotes carry (`eur_per_unit`: the same total
+# in EUR and in the hotel's currency, on every offer), learnt from the searches
+# this process has seen, or from the page just returned (`filter_pages` then
+# runs the search once more with the cap). No outside FX feed.
+
+#: A learnt rate is used this long (seconds): MCP re-indexes daily.
+RATE_MAX_AGE_SECONDS = 12 * 3600
+#: MCP's cap gets this headroom over the converted amount: two offers of the
+#: same total in pounds can differ by a cent in euros (rounding at indexing);
+#: the cards are still checked exactly, in the budget's currency.
+MCP_CAP_HEADROOM = Decimal("1.02")
+#: The rate of each currency, from MCP's quotes: (EUR per unit, when).
+_RATES: dict[str, tuple[Decimal, float]] = {}
+#: The rate this call's budget used (str of a Decimal), for the cards' check.
+STATE_BUDGET_RATE_KEY = "temp:hotel_search_budget_rate"
+
+
+def learn_rates(structured: Any) -> None:
+    """Record MCP's rate for every hotel currency quoted in `structured`."""
+    hotels = structured.get("results") if isinstance(structured, dict) else None
+    if not isinstance(hotels, list):
+        return
+    currencies = {
+        offer.get("hotelCurrency")
+        for hotel in hotels if isinstance(hotel, dict)
+        for offer in hotel.get("offers") or [] if isinstance(offer, dict)
+    }
+    now = time.monotonic()
+    for currency in currencies:
+        if isinstance(currency, str) and currency != "EUR":
+            rate = eur_per_unit(hotels, currency)
+            if rate is not None:
+                _RATES[currency] = (rate, now)
+
+
+def known_rate(currency: str) -> Decimal | None:
+    entry = _RATES.get(currency)
+    if entry is None or time.monotonic() - entry[1] > RATE_MAX_AGE_SECONDS:
+        return None
+    return entry[0]
+
+
+def rate_for(tool_context: Any, currency: str, structured: Any = None) -> Decimal | None:
+    """The rate the cards of this call are checked at: the one its MCP cap
+    used, else the page's own quotes, else the one learnt."""
+    stamped = tool_context.state.get(STATE_BUDGET_RATE_KEY)
+    if isinstance(stamped, str):
+        try:
+            return Decimal(stamped)
+        except InvalidOperation:
+            pass
+    hotels = structured.get("results") if isinstance(structured, dict) else None
+    return eur_per_unit(hotels, currency) or known_rate(currency)
 
 
 def _profile_budget_max(tool_context: Any) -> float | None:
@@ -67,7 +130,19 @@ def inject_profile_budget(tool: Any, args: dict[str, Any], tool_context: Any) ->
         # checked on the cards (response_bridge), never converted here.
         args.pop("priceRangeMax", None)
         args.pop("priceRangeMin", None)
+        state = getattr(tool_context, "state", None)
+        if state is not None:
+            state[STATE_BUDGET_RATE_KEY] = None
         cap = native_eur_cap(profile["requested_budget"])
+        currency = profile["requested_budget"].get("currency")
+        rate = known_rate(currency) if cap is None and isinstance(currency, str) else None
+        converted = converted_eur_cap(profile["requested_budget"], rate)
+        if converted is not None and rate is not None:
+            # 2026-10-30: another currency, at MCP's own rate.
+            cap = float(int(Decimal(str(converted)) * MCP_CAP_HEADROOM * 100) / 100)
+            if state is not None:
+                state[STATE_BUDGET_RATE_KEY] = str(rate)
+            _metrics_logger.info("dayuse_metric=budget_converted agent=b2c_hotel_search source=learnt")
         if cap is not None:
             args["priceRangeMax"] = cap
         # PORT1 slice 4: "cheaper" in EUR narrows MCP's cap too — never
