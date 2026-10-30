@@ -64,6 +64,7 @@ from hotel_search_agent.response_bridge import (
     STATE_SEARCH_DATE_KEY,
     pool_before_cutoff,
     read_profile_in,
+    read_query_params,
     read_structured_payload,
     record_guards_fired,
 )
@@ -443,6 +444,25 @@ def resolve_search_date(tool: Any, args: dict[str, Any], tool_context: Any) -> N
     today = reference_today(profile_in)
     guards_fired: list[str] = []
     label = args.pop("date", None)
+    chip = date_chip(tool_context)
+    if chip is not None:
+        # 2026-10-30: a day chip the concierge offered was clicked — the day is
+        # the code's, never the model's reading of the chip's words. Both chips
+        # start from today: « ce soir quand même » stays on it (persisted),
+        # « pas de date précise » looks from it (`scan_first_open_day` persists
+        # the day it finds).
+        args["date"] = today.isoformat()
+        if chip == SAME_DAY_CHIP:
+            chip_reference: dict[str, Any] = {"resolved_from": "tonight_chip"}
+            chip_tz = profile_in.get("client_timezone")
+            if isinstance(chip_tz, str) and chip_tz:
+                chip_reference["client_tz"] = chip_tz
+            tool_context.state[STATE_RESOLVED_DATE_KEY] = {
+                "date": args["date"], "date_reference": chip_reference,
+            }
+        _stash_search_date(tool_context, args["date"], today)
+        record_guards_fired(tool_context, guards_fired)
+        return None
     if isinstance(label, dict) and label.get("type") in DATE_LABEL_TYPES:
         resolved_date, resolved_from, expression = resolve_date_label(
             label, today, guards_fired, carried=profile_in.get("date")
@@ -539,6 +559,18 @@ async def probe_next_day_after_tool(
         return None
     structured = read_structured_payload(tool_response)
     if not isinstance(structured, dict):
+        return None
+    chip = date_chip(tool_context)
+    if chip == FIRST_OPEN_DAY_CHIP and not args.get("from"):
+        # « Pas de date précise »: the first day of the next 7 with hotels
+        # close by — the scan replaces the next-day probes.
+        await scan_first_open_day(tool, args, tool_context, search_date)
+        return None
+    if chip is not None:
+        # « Ce soir quand même »: tonight's offers still open, never another
+        # day. A closed day stays said as closed (`cutoff_closed`).
+        if not structured.get("results") and pool_before_cutoff(structured) > 0:
+            tool_context.state[STATE_SEARCH_DATE_KEY] = {**search_date, "cutoff_closed": True}
         return None
     if structured.get("results"):
         # 2026-10-30: today still has offers, but maybe only far ones.
@@ -675,6 +707,148 @@ async def _probe_closer_next_day(
         "searched_date": search_date.get("date"), "offered_date": offered, "payload": payload,
     }
     _log_probe("closer_ok", started, found=1)
+
+
+# --- the day chips of a next-day answer (2026-10-30) ------------------------------------------
+
+#: `query_params.date_chip`, set by the concierge when the message IS one of the
+#: day chips it offered with cards served on the next day (a fact it checks
+#: against its own `last_suggestions`, never a reading of the words).
+DATE_CHIP_PARAM = "date_chip"
+#: « Ce soir quand même »: today, the offers still open, no next-day probe.
+SAME_DAY_CHIP = "same_day"
+#: « Pas de date précise »: the first day from today with hotels close by.
+FIRST_OPEN_DAY_CHIP = "first_open_day"
+DATE_CHIPS = (SAME_DAY_CHIP, FIRST_OPEN_DAY_CHIP)
+#: How many days « pas de date précise » looks at, today included.
+FIRST_OPEN_SCAN_DAYS = 7
+#: Days asked at once (MCP answers ~0.6 s a page; 3 in parallel stays far
+#: from its rate limit, and the 7 days take 3 rounds at most).
+FIRST_OPEN_BATCH = 3
+#: The scan's outcome, consumed by `capture_after_tool`
+#: ({searched_date, checked, found, offered_date?, payload?, pool?}).
+STATE_FIRST_OPEN_KEY = "temp:hotel_search_first_open_day"
+
+
+def date_chip(tool_context: Any) -> str | None:
+    """The day chip this turn answers (`query_params.date_chip`), or None."""
+    chip = read_query_params(tool_context).get(DATE_CHIP_PARAM)
+    return chip if chip in DATE_CHIPS else None
+
+
+def near_radius_km(tool_context: Any) -> tuple[float, float, float] | None:
+    """(lat, lon, radius) of « close by » for this search: `CLOSE_KM` around a
+    spot or a device fix (as « demain, plus près »), the local disc of a city
+    (`geo_rank.local_radius_km`: 5 km in a dense centre, wider in a sparse
+    place); None for any other anchor (an area, a region): then any offer
+    counts."""
+    from hotel_search_agent.geo_rank import local_radius_km
+    from hotel_search_agent.response_bridge import anchor_origin
+
+    origin = anchor_origin(tool_context)
+    if origin is None:
+        return None
+    kind, lat, lon = origin
+    if kind in ("poi", "gps"):
+        return lat, lon, CLOSE_KM
+    if kind == "city_centroid":
+        return lat, lon, local_radius_km(lat, lon)
+    return None
+
+
+def _near_count(hotels: Any, near: tuple[float, float, float] | None) -> int:
+    from hotel_search_agent.inventory import haversine_km
+
+    if near is None:
+        return len([h for h in hotels or [] if isinstance(h, dict)])
+    lat, lon, radius = near
+    count = 0
+    for hotel in hotels or []:
+        h_lat = hotel.get("lat") if isinstance(hotel, dict) else None
+        h_lon = hotel.get("lon") if isinstance(hotel, dict) else None
+        if isinstance(h_lat, (int, float)) and isinstance(h_lon, (int, float)) and not isinstance(h_lat, bool):
+            count += haversine_km(lat, lon, float(h_lat), float(h_lon)) <= radius
+    return count
+
+
+async def scan_first_open_day(
+    tool: Any, args: dict[str, Any], tool_context: Any, search_date: dict[str, Any]
+) -> None:
+    """« Pas de date précise » (2026-10-30): the same search, day after day
+    from today, for at most `FIRST_OPEN_SCAN_DAYS` days; the first day whose
+    page holds `MIN_CLOSE_CARDS` hotels close by (`near_radius_km`, the page
+    asked on that disc, nearest first around a spot as any spot search) is
+    the one shown, ranked like any search (its local and core pages). None
+    within the 7 days: the day with the most close hotels (the earliest on a
+    tie) is shown and said as such; no offer at all: said too.
+
+    Facts only: the counts of MCP's pages. Every call goes through
+    `extra_calls` (R2's 20 s window, the turn's deadline, the breaker): a
+    round that may not start ends the scan, and `checked` says how many days
+    were really looked at. `capture_after_tool` swaps the cards."""
+    from hotel_search_agent.extra_calls import extra_call
+    from hotel_search_agent.geo_rank import fetch_ring_pages
+
+    start = str(search_date.get("date") or "")
+    try:
+        first = date.fromisoformat(start)
+    except ValueError:
+        return
+    near = near_radius_km(tool_context)
+    scan_args = {k: v for k, v in args.items() if k != "from"}
+    anchor = near is not None and not args.get("sortBy")
+    if anchor and near is not None:
+        # A city: the page asked on its local disc, so the count is the disc's,
+        # not that of a relevance page over 20 km.
+        scan_args["radiusKm"] = near[2]
+    need = MIN_CLOSE_CARDS if near is not None else 1
+    days = [(first + timedelta(days=i)).isoformat() for i in range(FIRST_OPEN_SCAN_DAYS)]
+    started = time.monotonic()
+    pages: dict[str, dict[str, Any]] = {}
+    checked = 0
+    found: str | None = None
+    for at in range(0, len(days), FIRST_OPEN_BATCH):
+        batch = days[at: at + FIRST_OPEN_BATCH]
+        answers = await asyncio.gather(*(
+            extra_call(tool, {**scan_args, "date": day}, tool_context, kind="first_open_day") for day in batch
+        ))
+        stop = False
+        for day, (status, payload) in zip(batch, answers):
+            if status != "ok":
+                stop = True
+                break
+            checked += 1
+            pages[day] = payload or {}
+            if _near_count((payload or {}).get("results"), near) >= need:
+                found = day
+                break
+        if found or stop:
+            break
+    outcome: dict[str, Any] = {"searched_date": start, "checked": checked, "found": found is not None}
+    shown = found
+    if shown is None:
+        counts = [(_near_count(page.get("results"), near), day) for day, page in pages.items() if page.get("results")]
+        best = max(counts, key=lambda pair: (pair[0], -days.index(pair[1])), default=None)
+        shown = best[1] if best else None
+    if shown is not None:
+        outcome["offered_date"] = shown
+        outcome["payload"] = pages[shown]
+        # A city's page was asked on its local disc: its core ring (and the
+        # rest of the ranking) as for any search of that day.
+        outcome["pool"] = (
+            await fetch_ring_pages(
+                tool, {**args, "date": shown}, tool_context, kind="first_open_pool",
+                skip_km=scan_args.get("radiusKm"),
+            )
+            if anchor else []
+        )
+    tool_context.state[STATE_FIRST_OPEN_KEY] = outcome
+    _metrics_logger.info(
+        "dayuse_metric=first_open_day agent=b2c_hotel_search checked=%d found=%d offset=%s ms=%d",
+        checked, int(found is not None),
+        (date.fromisoformat(shown) - first).days if shown else "-",
+        int((time.monotonic() - started) * 1000),
+    )
 
 
 def _log_probe(status: str, started: float, found: int) -> None:

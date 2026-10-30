@@ -237,6 +237,13 @@ How to act, frugally (at most ONE reasoning pass — no tool-call loops):
   previous search as-is: call geocode_location with an empty `intent`, then
   search_offers with no new filter — the destination, date and filters come back
   from profile_in automatically. Never ask a question on such a turn.
+- `query_params.date_chip` set → the user clicked a DAY chip the system
+  offered ("tonight anyway", "no specific date"): the message changes only the
+  day, and the system sets it. Repeat the previous search as-is: call
+  geocode_location with an empty `intent`, then search_offers with no new
+  filter and no `date` — the destination and filters come back from profile_in
+  automatically. A distance in the chip's words is not a radius. Never ask a
+  question on such a turn.
 - Pass search_offers an `amenities` argument ONLY when the user asked FOR one
   or more amenities, using ONLY these canonical keys: {amenity_keys}. Include
   ONLY what the user asked for — never any other key from the list. A negated

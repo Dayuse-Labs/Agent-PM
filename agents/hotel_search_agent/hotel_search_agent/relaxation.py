@@ -349,6 +349,9 @@ async def rescue_empty_search_after_tool(
         return None
     if isinstance(state.get(STATE_DATE_FALLBACK_KEY), dict):
         return None  # the next-day probe already found the day after
+    chip = read_query_params(tool_context).get("date_chip")
+    if chip == "first_open_day":
+        return None  # « pas de date précise »: the scan of 7 days is the answer
     state[STATE_RESCUE_RAN_KEY] = True
     probed = bool(state.get(STATE_NEXT_DAY_PROBED_KEY))
     calls_left = MAX_RESCUE_CALLS - int(probed)
@@ -358,6 +361,8 @@ async def rescue_empty_search_after_tool(
     # after (the probe tried it strict). Else the day searched.
     same_day = bool(search_date.get("same_day"))
     closing = same_day and closing_today(structured)
+    if closing and chip == "same_day":
+        return None  # « ce soir quand même »: never the day after, and no relaxing reopens tonight
     day = _next_day(searched) if closing else searched
     steps = plan_steps(args, state)
     if not steps or not day:
@@ -382,7 +387,7 @@ async def rescue_empty_search_after_tool(
         if payload is not None and payload.get("results"):
             found = payload
             break
-        if not closing and same_day and closing_today(payload):
+        if not closing and same_day and closing_today(payload) and chip != "same_day":
             # The relaxed search matched hotels today, all past their cutoff
             # (Wan Chai at 21h once the slot went): the same relaxation, the
             # day after — never another relaxation on a closed day.
