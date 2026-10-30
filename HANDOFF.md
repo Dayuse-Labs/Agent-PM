@@ -6,6 +6,14 @@
 
 > 📋 **Pour savoir QUOI faire ensuite, ouvrir [`CHANTIERS.md`](CHANTIERS.md)** (état vérifié au 2026-09-14) : la liste des chantiers ouverts, chacun avec sa preuve, ses actions et un prompt prêt à coller — plus la liste de ce qu'il ne faut **pas** relancer parce que c'est déjà livré. `tasks/todo.md` est périmé et ne doit plus servir de référence.
 
+## 🚀 2026-10-30 (bis) — `hotel-search` et `concierge` déployés sur `3a8a929` (#179)
+
+**Déployé** (`DEPLOY.md`, depuis `../AgentB2C-deploy` détaché sur `origin/main` 3a8a929, arbre propre, pytest 3 752 passés / 2 skippés) : estampille `LANGFUSE_RELEASE=3a8a929` posée avec `--skip-deploys` sur les 2 services, puis `railway up --detach` (`hotel-search` SUCCESS 12:00:15Z, `concierge` SUCCESS 12:00:27Z, lancés à quelques secondes d'intervalle). `widget` reste sur `554aa30` et `faq` sur `b6f9402` : les modules de `libs/` modifiés (`clarification.py`, `search_budget.py`) ne sont pas importés par la FAQ.
+
+**Preuve** (tours synthétiques sur ai.dayuse.com) : `/readyz` → `ready` ; « a hotel in London tomorrow under 60 pounds » (en/GBP) → 5 hôtels de 47 à 58 £, distance médiane 2,2 km du centre (0 carte avant #179) ; « a day room near St Pete-Clearwater airport tomorrow » → 5 hôtels à ~16 km de l'aéroport, la réponse le dit (avant : Wichita, Kansas, à 1 750 km).
+
+**À suivre** : le repli « demain » et « demain, plus près » sur une soirée européenne réelle (non couverte par le rejeu) ; les seuils listés en « À trancher » dans #179. Retour arrière : `LANGFUSE_RELEASE=20365eb` (`--skip-deploys`) puis `railway up` des 2 services depuis un checkout détaché sur `20365eb`.
+
 ## 🖱️ 2026-10-30 — Leviers de clic : lendemain classé, lieux précis, budgets hors EUR, nombres mal lus, « demain, plus près », priorité (branche `fix/click-levers-20261030`, sur `main` d7cf58e)
 
 **Constat** : relecture des 100 conversations réelles depuis #175 croisée avec les clics Amplitude
