@@ -86,6 +86,10 @@ CONTRACT_KEYS: frozenset[str] = frozenset(
         # (the place question's), else None — the widget asks for the device's
         # position when that chip is clicked, as for /v3/chat/welcome's.
         "near_me",
+        # 2026-10-30: the kind of each chip of `suggestions` the code typed
+        # ({label: kind}, e.g. the day chips under next-day cards), {} else —
+        # the widget's Amplitude `suggestion_type` for that chip.
+        "suggestion_types",
         "session_id",
         "conversation_id",
         "response_language",
@@ -502,6 +506,7 @@ def build_chat_payload(
         "booking_card": booking_card,
         "suggestions": list(profile.last_suggestions or []),
         "near_me": _near_me_label(profile.last_suggestions, language),
+        "suggestion_types": _suggestion_types(profile),
         "session_id": session_id,
         "conversation_id": session_id,
         "response_language": language,
@@ -524,6 +529,16 @@ def build_chat_payload(
         "turn_facts": turn_facts or facade_turn_facts("unknown", status="unknown"),
     }
     return _json_safe(payload)
+
+
+def _suggestion_types(profile: SessionProfile) -> dict[str, str]:
+    """{label: kind} for the chips of this reply the code typed
+    (`profile.suggestion_kinds`), only those on screen."""
+    kinds = profile.suggestion_kinds if isinstance(profile.suggestion_kinds, dict) else {}
+    return {
+        label: kinds[label] for label in profile.last_suggestions or []
+        if isinstance(kinds.get(label), str)
+    }
 
 
 def _near_me_label(suggestions: list[str] | None, language: str) -> str | None:

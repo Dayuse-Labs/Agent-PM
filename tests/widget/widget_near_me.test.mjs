@@ -125,5 +125,5 @@ test('2026-10-29: the place question names its « près de moi » chip through t
     assert.match(html, /data-suggestion-type="recovery"[^>]*data-suggestion="Paris"/);
     // The row renderer hands the label over.
     const responses = readFileSync(new URL('handlers/responses.js', CHAT), 'utf8');
-    assert.match(responses, /suggestionsInlineHtml\(raw, 'recovery', nearMe\)/);
+    assert.match(responses, /suggestionsInlineHtml\(raw, 'recovery', nearMe, types\)/);
 });

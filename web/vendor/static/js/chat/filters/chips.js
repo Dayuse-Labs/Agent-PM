@@ -93,7 +93,7 @@ export function chipsInlineHtml(chips) {
  * into their own container; `renderSuggestionsRow` wraps it in `.suggestions`
  * when needed.
  */
-export function suggestionsInlineHtml(sugg, suggestionType, nearMeLabel = null) {
+export function suggestionsInlineHtml(sugg, suggestionType, nearMeLabel = null, types = null) {
     if (!Array.isArray(sugg) || sugg.length === 0) return '';
     const turnAttr = state.currentTurnId ? ` data-turn-id="${escapeAttr(state.currentTurnId)}"` : '';
     // 2026-10-28: the welcome view names its « near me » chip (`near_me`): that
@@ -106,7 +106,12 @@ export function suggestionsInlineHtml(sugg, suggestionType, nearMeLabel = null) 
         const nearMeAttr = isNearMe ? ' data-near-me="1"' : '';
         // The « near me » chip is tracked as its own kind, not as `welcome`
         // like the city chips next to it (review of #173).
-        const type = isNearMe ? 'near_me' : suggestionType;
+        // 2026-10-30: a chip the backend typed (`suggestion_types`) keeps its
+        // own kind (date_tonight, date_day, date_flexible…); only a known
+        // shape is used, the attribute is escaped anyway.
+        const typed = types && Object.prototype.hasOwnProperty.call(types, raw) ? types[raw] : null;
+        const known = typeof typed === 'string' && /^[a-z_]{1,32}$/.test(typed) ? typed : null;
+        const type = isNearMe ? 'near_me' : (known || suggestionType);
         return `<button class="chip chip--suggestion" data-action="apply-suggestion" data-suggestion-type="${escapeAttr(type)}"${turnAttr}${nearMeAttr} data-suggestion="${escapeAttr(raw)}">${escapeHtml(raw)}</button>`;
     }).filter(Boolean).join('');
     if (!items) return '';

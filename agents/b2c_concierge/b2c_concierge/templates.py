@@ -863,6 +863,15 @@ def date_chips(language: str) -> list[str]:
     return list(_DATE_CHIPS.get(language, _DATE_CHIPS["en"]))
 
 
+def date_chip_offset(label: str) -> int | None:
+    """The day (from today) of one of the day chips (`_DATE_CHIPS`), by its
+    exact label in any language; None for another label."""
+    for chips in _DATE_CHIPS.values():
+        if label in chips:
+            return chips.index(label)
+    return None
+
+
 def later_date_chips(language: str, served_offset: int) -> list[str]:
     """The day chips for the days AFTER the one searched (`served_offset` days
     from today): today's chip is no use once today was searched, nor once the
@@ -1175,6 +1184,138 @@ _CLOSER_TOMORROW_NO_KM: dict[str, str] = {
     "pt": "Esta noite, as ofertas ainda abertas ficam longe: aqui estão as de {day}, mais perto.",
     "nl": "Vanavond liggen de open aanbiedingen ver weg: hier zijn die voor {day}, dichterbij.",
 }
+
+
+# 2026-10-30 (S-CX6, « jour fermé → lendemain »): the cards are the next
+# day's because today's bookings are closed. The synthesis was told to say it
+# in its first sentence (`ground_truth._DATE_FALLBACK_NOTE`), which nothing
+# guaranteed: the code says it first, as for « demain, plus près ».
+_CLOSED_TODAY: dict[str, str] = {
+    "fr": "Les réservations sont fermées pour aujourd'hui : voici les offres de {day}.",
+    "en": "Bookings are closed for today: here are the offers for {day}.",
+    "es": "Las reservas para hoy están cerradas: aquí tienes las ofertas del {day}.",
+    "it": "Le prenotazioni per oggi sono chiuse: ecco le offerte di {day}.",
+    "de": "Die Buchungen für heute sind geschlossen: Hier die Angebote für {day}.",
+    "pt": "As reservas para hoje estão fechadas: aqui estão as ofertas de {day}.",
+    "nl": "De boekingen voor vandaag zijn gesloten: hier zijn de aanbiedingen voor {day}.",
+}
+
+
+def closed_today_notice(human_day: str, language: str) -> str:
+    """Today's bookings are closed; the cards are those of `human_day`."""
+    return _pick(language, _CLOSED_TODAY).format(day=human_day)
+
+
+#: The kinds of the chips a reply offers (`profile.suggestion_kinds`, then the
+#: payload's `suggestion_types`, the widget's Amplitude `suggestion_type`).
+#: Added to `contracts/amplitude_events.json`, never renamed.
+SUGGESTION_DATE_DAY = "date_day"
+SUGGESTION_DATE_TONIGHT = "date_tonight"
+SUGGESTION_DATE_FLEXIBLE = "date_flexible"
+
+# 2026-10-30: the chips of an answer whose cards are the next day's — keep
+# tonight (« demain, plus près » only: today still has offers), a later day,
+# or no day at all (the first of the next 7 with offers close by).
+_TONIGHT_ANYWAY_CHIP: dict[str, str] = {
+    "fr": "Ce soir quand même ({km} km)",
+    "en": "Tonight anyway ({km} km)",
+    "es": "Esta noche igualmente ({km} km)",
+    "it": "Stasera comunque ({km} km)",
+    "de": "Trotzdem heute Abend ({km} km)",
+    "pt": "Esta noite mesmo assim ({km} km)",
+    "nl": "Toch vanavond ({km} km)",
+}
+_TONIGHT_ANYWAY_CHIP_NO_KM: dict[str, str] = {
+    "fr": "Ce soir quand même",
+    "en": "Tonight anyway",
+    "es": "Esta noche igualmente",
+    "it": "Stasera comunque",
+    "de": "Trotzdem heute Abend",
+    "pt": "Esta noite mesmo assim",
+    "nl": "Toch vanavond",
+}
+_NO_DATE_CHIP: dict[str, str] = {
+    "fr": "Pas de date précise",
+    "en": "No specific date",
+    "es": "Sin fecha concreta",
+    "it": "Nessuna data precisa",
+    "de": "Kein bestimmtes Datum",
+    "pt": "Sem data específica",
+    "nl": "Geen vaste datum",
+}
+
+
+def _km(km: object, language: str) -> str | None:
+    if isinstance(km, (int, float)) and not isinstance(km, bool) and km > 0:
+        shown = f"{float(km):.1f}"
+        return shown.replace(".", ",") if language in ("fr", "es", "it", "de", "pt", "nl") else shown
+    return None
+
+
+def next_day_chips(language: str, *, tonight_km: object = None, tonight: bool = False) -> list[tuple[str, str]]:
+    """(label, kind) of the chips under cards served on the next day, in
+    order: « ce soir quand même (3,9 km) » when today still has offers (the
+    nearest at `tonight_km`), the days after the one served
+    (`later_date_chips`), « pas de date précise ». Never today's chip when
+    today is closed."""
+    chips: list[tuple[str, str]] = []
+    if tonight:
+        km = _km(tonight_km, language)
+        label = (
+            _pick(language, _TONIGHT_ANYWAY_CHIP).format(km=km) if km else _pick(language, _TONIGHT_ANYWAY_CHIP_NO_KM)
+        )
+        chips.append((label, SUGGESTION_DATE_TONIGHT))
+    chips += [(chip, SUGGESTION_DATE_DAY) for chip in later_date_chips(language, 1)]
+    chips.append((_pick(language, _NO_DATE_CHIP), SUGGESTION_DATE_FLEXIBLE))
+    return chips
+
+
+def other_day_notice(language: str) -> str:
+    """« Pour un autre jour, choisissez ci-dessous ou dites-le-moi. »"""
+    return _pick(language, _OTHER_DAY_CHIPS)
+
+
+# « Pas de date précise » clicked: the first of the next days with offers
+# close by (`hotel_search_agent.datetime_resolver.scan_first_open_day`).
+_FIRST_OPEN_FOUND: dict[str, str] = {
+    "fr": "Premier jour avec des offres proches : {day}.",
+    "en": "First day with offers close by: {day}.",
+    "es": "Primer día con ofertas cerca: {day}.",
+    "it": "Primo giorno con offerte vicine: {day}.",
+    "de": "Erster Tag mit Angeboten in der Nähe: {day}.",
+    "pt": "Primeiro dia com ofertas perto: {day}.",
+    "nl": "Eerste dag met aanbiedingen dichtbij: {day}.",
+}
+_FIRST_OPEN_BEST: dict[str, str] = {
+    "fr": "Sur les {n} prochains jours, aucun n'a d'offres tout près : voici celles du {day}, les plus proches trouvées.",
+    "en": "Over the next {n} days, none has offers close by: here are the ones for {day}, the closest found.",
+    "es": "En los próximos {n} días, ninguno tiene ofertas cerca: aquí tienes las del {day}, las más cercanas.",
+    "it": "Nei prossimi {n} giorni nessuno ha offerte vicine: ecco quelle di {day}, le più vicine trovate.",
+    "de": "In den nächsten {n} Tagen gibt es keine Angebote in der Nähe: Hier die für {day}, die nächsten gefundenen.",
+    "pt": "Nos próximos {n} dias, nenhum tem ofertas perto: aqui estão as de {day}, as mais próximas.",
+    "nl": "In de komende {n} dagen heeft geen enkele dag aanbiedingen dichtbij: hier zijn die voor {day}, de dichtstbijzijnde.",
+}
+_FIRST_OPEN_NONE: dict[str, str] = {
+    "fr": "Je n'ai trouvé aucune offre sur les {n} prochains jours.",
+    "en": "I found no offers over the next {n} days.",
+    "es": "No he encontrado ninguna oferta en los próximos {n} días.",
+    "it": "Non ho trovato offerte nei prossimi {n} giorni.",
+    "de": "Ich habe in den nächsten {n} Tagen keine Angebote gefunden.",
+    "pt": "Não encontrei nenhuma oferta nos próximos {n} dias.",
+    "nl": "Ik heb de komende {n} dagen geen aanbiedingen gevonden.",
+}
+
+
+def first_open_day_notice(search_date: dict, human_day: str, language: str, *, has_cards: bool) -> str:
+    """What the scan of « pas de date précise » found, said first: the day it
+    shows, or that none of the days it looked at had offers close by."""
+    days = search_date.get("first_open_days")
+    n = days if isinstance(days, int) and not isinstance(days, bool) and days > 0 else 7
+    if search_date.get("first_open_found") and has_cards:
+        return _pick(language, _FIRST_OPEN_FOUND).format(day=human_day)
+    if has_cards:
+        return _pick(language, _FIRST_OPEN_BEST).format(n=n, day=human_day)
+    return _pick(language, _FIRST_OPEN_NONE).format(n=n)
 
 
 def closer_tomorrow_notice(km: object, human_day: str, language: str) -> str:

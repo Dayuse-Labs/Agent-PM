@@ -344,17 +344,20 @@ async def await_local_pool(
     return None
 
 
-async def fetch_ring_pages(tool: Any, args: dict[str, Any], tool_context: Any, *, kind: str) -> list[Any]:
+async def fetch_ring_pages(
+    tool: Any, args: dict[str, Any], tool_context: Any, *, kind: str, skip_km: Any = None
+) -> list[Any]:
     """The local and core pages of `args` (the same search on the local disc
     and on the core ring), through `extra_calls`, in parallel: their raw
     results, launch order, [] when the search is not ranked here or none came
     back. For a search the leaf runs itself from a callback (the next-day
-    probe, 2026-10-30), next to its own call."""
+    probe, 2026-10-30), next to its own call. `skip_km`: a ring already asked
+    (the first-open-day scan asks the local disc itself)."""
     qualified = _qualifies(args, tool_context)
     if qualified is None:
         return []
     _lat, _lon, local_km, core_km = qualified
-    pages = _pages(args, local_km, core_km)
+    pages = [(name, ring) for name, ring in _pages(args, local_km, core_km) if ring != skip_km]
     if not pages:
         return []
     answers = await asyncio.gather(*(

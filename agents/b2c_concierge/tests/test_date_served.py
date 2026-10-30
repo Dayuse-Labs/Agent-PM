@@ -189,7 +189,9 @@ class TestGuardDateServed:
             monkeypatch, leg, "un hôtel à Nice aujourd'hui", tomorrow.isoformat(), scored,
             cutoff_fallback_from=today.isoformat(),
         )
-        assert answer == "Voici Hotel A."
+        # 2026-10-30: the swap is said first, in code; the guard stays silent.
+        assert answer.startswith("Les réservations sont fermées pour aujourd'hui")
+        assert "Voici Hotel A." in answer
         assert "date_served" not in scored[-1]
 
     def test_a_day_code_cannot_resolve_is_left_to_the_leaf(self, monkeypatch, leg, fake_profile_store):

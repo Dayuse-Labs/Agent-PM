@@ -219,6 +219,10 @@ class SessionProfile:
     widen_attempt_count: int = 0
     search_exhausted: bool = False
     last_suggestions: list[str] | None = None
+    # 2026-10-30: the kind of each chip of `last_suggestions` the code typed
+    # (label → `templates.SUGGESTION_*`): the widget's analytics, and the
+    # day chip a reply that IS one of those labels clicked (`clicked_suggestion_kind`).
+    suggestion_kinds: dict[str, str] | None = None
     last_clarifying_question: str | None = None
     last_results: list[dict[str, Any]] | None = None
     pending_booking: dict[str, Any] | None = None
@@ -389,6 +393,7 @@ class SessionProfile:
             "widen_attempt_count": self.widen_attempt_count,
             "search_exhausted": self.search_exhausted,
             "last_suggestions": self.last_suggestions,
+            "suggestion_kinds": self.suggestion_kinds,
             "last_clarifying_question": self.last_clarifying_question,
             "last_results": self.last_results,
             "pending_booking": self.pending_booking,
@@ -450,6 +455,7 @@ class SessionProfile:
 _CONCIERGE_ONLY_KEYS = (
     "pending_booking",
     "last_suggestions",
+    "suggestion_kinds",
     "last_clarifying_question",
     "amenity_claim_corrections",
     "last_synthesis_angle",
@@ -962,6 +968,7 @@ def record_search_outcome(
     profile.consecutive_empty_searches = (
         0 if results_count > 0 else profile.consecutive_empty_searches + 1
     )
+    profile.suggestion_kinds = None  # the chips of this answer are set below or by the caller
     if results_count > 0:
         profile.last_suggestions = None
         profile.widen_attempt_count = 0
@@ -1113,6 +1120,22 @@ def is_search_refinement_signal(
     ):
         return True
     return False
+
+
+def clicked_suggestion_kind(message: str, profile: SessionProfile) -> str | None:
+    """The kind of the chip this message IS (2026-10-30): the exact label of
+    one of the chips the last answer offered (`last_suggestions`) that the
+    code typed (`suggestion_kinds`) — a fact checked against the concierge's
+    own state, never a reading of the words. None otherwise."""
+    stripped = (message or "").strip().casefold()
+    kinds = profile.suggestion_kinds if isinstance(profile.suggestion_kinds, dict) else {}
+    if not stripped or not kinds:
+        return None
+    for label in profile.last_suggestions or []:
+        if isinstance(label, str) and label.strip().casefold() == stripped:
+            kind = kinds.get(label)
+            return kind if isinstance(kind, str) else None
+    return None
 
 
 # --- Pending search (mcp-dayuse#6) ---------------------------------------

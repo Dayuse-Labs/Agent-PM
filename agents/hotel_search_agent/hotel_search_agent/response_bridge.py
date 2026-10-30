@@ -1400,6 +1400,50 @@ def search_card_filters(
     return exclude_ids, strict_window, requested_budget, price_comparison, party_total, room_requirements
 
 
+def _first_open_day(
+    tool_context: Any, args: dict[str, Any], results: list[dict[str, Any]], structured: dict[str, Any],
+    card_filters: tuple,
+) -> tuple[list[dict[str, Any]], dict[str, Any]]:
+    """« Pas de date précise » (2026-10-30): the cards of the day the scan
+    found (`datetime_resolver.scan_first_open_day`), ranked and trimmed like
+    any search, and the search date marked `first_open_from` (the day the
+    scan started), `first_open_days` (days looked at) and `first_open_found`
+    (a day had hotels close by). Today's own cards when the scan kept today."""
+    from hotel_search_agent.datetime_resolver import STATE_FIRST_OPEN_KEY
+    from hotel_search_agent.geo_rank import ranked_payload, trim_far_cards
+
+    stashed = tool_context.state.get(STATE_FIRST_OPEN_KEY)
+    if not isinstance(stashed, dict) or not stashed.get("checked"):
+        return results, structured
+    searched = stashed.get("searched_date")
+    offered = stashed.get("offered_date") if isinstance(stashed.get("offered_date"), str) else None
+    payload = stashed.get("payload")
+    if offered and offered != searched and isinstance(payload, dict):
+        exclude_ids, strict_window, filters, host = card_filters
+        pool = stashed.get("pool") if isinstance(stashed.get("pool"), list) else []
+        ranked = ranked_payload(tool_context, args, payload, extra=pool)
+        swapped = trim_far_cards(
+            tool_context, normalize_search_results(ranked, exclude_ids, strict_window, *filters, host=host)
+        )
+        if swapped:
+            results, structured = swapped, ranked
+        else:
+            offered = searched  # the day's cards did not pass the filters: today stays
+    served = offered or searched
+    search_date: dict[str, Any] = {
+        "date": served, "same_day": served == searched, "first_open_from": searched,
+        "first_open_days": int(stashed.get("checked") or 0), "first_open_found": bool(stashed.get("found")),
+    }
+    tool_context.state[STATE_SEARCH_DATE_KEY] = search_date
+    if isinstance(served, str) and served:
+        date_reference: dict[str, Any] = {"resolved_from": "first_open_day"}
+        client_tz = read_profile_in(tool_context).get("client_timezone")
+        if isinstance(client_tz, str) and client_tz:
+            date_reference["client_tz"] = client_tz
+        tool_context.state[STATE_RESOLVED_DATE_KEY] = {"date": served, "date_reference": date_reference}
+    return results, structured
+
+
 def capture_after_tool(
     tool: Any, args: dict[str, Any], tool_context: Any, tool_response: Any
 ) -> dict[str, Any] | None:
@@ -1585,6 +1629,12 @@ def capture_after_tool(
                 results = swapped
                 structured = payload
                 _apply_date_fallback(tool_context, stashed)
+    # 2026-10-30: « pas de date précise » — the first day of the next 7 with
+    # hotels close by (`datetime_resolver.scan_first_open_day`).
+    if name == "search_offers" and not args.get("from"):
+        results, structured = _first_open_day(
+            tool_context, args, results, structured, (exclude_ids, strict_window, filters, host)
+        )
     # Point 3: still empty, and the rescue (`relaxation.py`) found offers by
     # relaxing the search step by step: serve them, and say what was relaxed.
     relaxed_keys: list[str] = []
@@ -1632,7 +1682,10 @@ def capture_after_tool(
     # Prod session 1eb2430a: a thin first page is completed from the wider
     # search `completion.py` ran — its hotels AFTER the first page's.
     first_page = len(results)
-    if name == "search_offers" and first_page < MAX_RESULTS:
+    served_day = tool_context.state.get(STATE_SEARCH_DATE_KEY)
+    other_day = isinstance(served_day, dict) and served_day.get("date") not in (None, args.get("date"))
+    # The completion ran on the day asked: never mixed into another day's cards.
+    if name == "search_offers" and first_page < MAX_RESULTS and not other_day:
         window = None if timeslot_fallback else strict_window
         results = _with_completion(tool_context, results, exclude_ids, window, filters, host)
     if timeslot_fallback:

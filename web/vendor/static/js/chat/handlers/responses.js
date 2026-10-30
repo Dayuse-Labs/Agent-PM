@@ -43,7 +43,11 @@ export function renderSuggestionsRow(data) {
     // market's cities; the backend names that chip (`near_me`) so its click
     // asks for the device's position, as the welcome's does.
     const nearMe = typeof data.near_me === 'string' ? data.near_me : null;
-    const html = suggestionsInlineHtml(raw, 'recovery', nearMe);
+    // 2026-10-30: the kind of each chip the backend typed ({label: kind}, e.g.
+    // the day chips under next-day cards), tracked as such; `recovery` else.
+    const types = data.suggestion_types && typeof data.suggestion_types === 'object'
+        ? data.suggestion_types : null;
+    const html = suggestionsInlineHtml(raw, 'recovery', nearMe, types);
     if (!html) return;
     const msg = addMessage(html, false, false, true, true);
     if (msg && msg.classList) msg.classList.add('message--actions');

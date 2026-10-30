@@ -188,7 +188,10 @@ def no_offers_line(
 
 
 # A sentence ends at . ! ? — but not after a digit ("7. Oktober", "€30.").
-_SENTENCE_END_RE = re.compile(r"(?<=[^\d\s][.!?])\s+")
+# A full stop after a year ends a sentence before a capital (« … 31 octobre
+# 2026. Hotel A … », 2026-10-30); never after a shorter number (« 3.9 km »,
+# the German ordinal « Mittwoch, 7. Oktober »).
+_SENTENCE_END_RE = re.compile(r"(?<=[^\d\s][.!?])\s+|(?<=\d{4}[.!?])\s+(?=[A-ZÀ-ÖØ-Þ])")
 _WORD_RE = re.compile(r"\w{3,}")
 
 

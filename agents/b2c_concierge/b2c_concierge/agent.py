@@ -74,7 +74,7 @@ import logging
 import os
 import re
 import time
-from datetime import date
+from datetime import date, timedelta
 from typing import Any, AsyncGenerator
 
 import httpx
@@ -167,6 +167,7 @@ from .profile import (
     apply_profile_delta,
     build_hotel_picks,
     chosen_clarification_option,
+    clicked_suggestion_kind,
     free_question_streak,
     has_search_destination,
     is_bare_affirmative,
@@ -209,6 +210,7 @@ from .turn_deadline import (
 )
 from .turn_facts import ClarificationReason, EmptyReason, TurnStatus, spine_turn_facts
 from .triage import (
+    Triage,
     decides_language,
     SERVICE,
     TEMPLATE_LANGUAGES,
@@ -1488,11 +1490,36 @@ class _B2cConcierge(BaseAgent):
         chips = templates.later_date_chips(language, offset) if results_count > 0 else []
         if chips and reference.get("resolved_from") != "month":
             profile.last_suggestions = chips
+            profile.suggestion_kinds = {chip: templates.SUGGESTION_DATE_DAY for chip in chips}
         else:
             chips = []
         return templates.date_retained_notice(
             format_date_human(served, language), language, with_chips=bool(chips)
         )
+
+    @staticmethod
+    def _next_day_chips(profile: SessionProfile, response: dict[str, Any], language: str) -> str | None:
+        """2026-10-30: the cards are the next day's — today's bookings closed
+        (`cutoff_fallback_from`, S-CX6) or tonight's open offers far from the
+        spot (`closer_from`, « demain, plus près »). Whatever the user said
+        about the day and however many times the day was announced, the chips
+        come with them: « ce soir quand même (3,9 km) » when tonight still has
+        offers, the days after the one served, « pas de date précise ». Never
+        today's chip when today is closed. Returns the line that points at
+        them; None when the cards are not the next day's."""
+        search_date = response.get("search_date")
+        if not isinstance(search_date, dict):
+            return None
+        closer = search_date.get("closer_from")
+        if not (isinstance(closer, str) and closer) and not search_date.get("cutoff_fallback_from"):
+            return None
+        chips = templates.next_day_chips(
+            language, tonight_km=search_date.get("tonight_nearest_km"), tonight=bool(closer),
+        )
+        profile.last_suggestions = [label for label, _kind in chips]
+        profile.suggestion_kinds = dict(chips)
+        profile.date_announced = True  # the day is said, by `next_day_notice`
+        return templates.other_day_notice(language)
 
     @staticmethod
     def _ack_text(
@@ -1612,11 +1639,30 @@ class _B2cConcierge(BaseAgent):
             )
             return
 
+        # 2026-10-30: the message IS a day chip the last answer offered under
+        # next-day cards (« Ce soir quand même (3,9 km) », « Pas de date
+        # précise ») — a fact read from the concierge's own state
+        # (`clicked_suggestion_kind`). The chip says what to do: the same
+        # search, on a day the code sets; no triage call (its words are not a
+        # request to read: « 3,9 km » is neither a budget nor a party).
+        date_chip = _DATE_CHIP_ACTIONS.get(clicked_suggestion_kind(message, profile) or "")
+        chip_offset = templates.date_chip_offset(message.strip()) if date_chip == "day" else None
+        if date_chip == "day" and chip_offset is None:
+            date_chip = None  # a day chip whose day the code cannot tell: read as typed
         # 2. Triage (ONE economy LLM + regex fallback). Off the session/stream.
-        triage = await classify(
-            message, budget, inv, recent_messages=recent_messages,
-            previous_question=profile.last_clarifying_question,
-        )
+        if date_chip is not None:
+            triage = Triage(
+                family="search",
+                language=profile.language or locale_response_language(profile.locale) or "en",
+                used_llm=False,
+                day_stated=True,
+            )
+            metrics_logger.info("concierge_metric=date_chip action=%s", date_chip)
+        else:
+            triage = await classify(
+                message, budget, inv, recent_messages=recent_messages,
+                previous_question=profile.last_clarifying_question,
+            )
         family = triage.family
         route = ROUTES[family]
         # P1-1: the two code-owned override signals are RE-derived here, now fed
@@ -2092,9 +2138,22 @@ class _B2cConcierge(BaseAgent):
         if route.target == LEAF_HOTEL_SEARCH:
             today = reference_today(profile.client_timezone)
             expected_date, from_message = expected_search_date(message, profile.date, today)
+            if date_chip == "same_day":
+                # « Ce soir quand même »: today, the offers still open, said by
+                # the code and held by the guard (`date_served`).
+                expected_date, from_message = today.isoformat(), True
+            elif date_chip == "first_open_day":
+                # « Pas de date précise »: the leaf finds the day (7 at most).
+                expected_date, from_message = None, False
+            elif date_chip == "day" and chip_offset is not None:
+                # « Après-demain »: that day, the rest of the search as it was
+                # (the leaf repeats it; « Dopodomani » re-geocoded « Milan »).
+                expected_date, from_message = (today + timedelta(days=chip_offset)).isoformat(), True
             if expected_date and from_message:
                 profile.date = expected_date
-                profile.date_reference = {"resolved_from": "concierge"}
+                profile.date_reference = {
+                    "resolved_from": {"same_day": "tonight_chip", "day": "day_chip"}.get(date_chip or "", "concierge")
+                }
                 if profile.client_timezone:
                     profile.date_reference["client_tz"] = profile.client_timezone
             # 2026-10-28 (Victor, reverses part of Fabien's 2026-10-20 isolated
@@ -2142,6 +2201,11 @@ class _B2cConcierge(BaseAgent):
         if route.target == LEAF_HOTEL_SEARCH and clicked_widen_chip(message):
             # The leaf widens the search ring one step (`inject_landmark_radius`).
             leaf_kwargs["query_params"] = {**(leaf_kwargs.get("query_params") or {}), "widen_area": True}
+        if route.target == LEAF_HOTEL_SEARCH and date_chip is not None:
+            # The leaf sets the day itself and runs no next-day probe on
+            # « ce soir quand même », or scans the next 7 days on « pas de date
+            # précise » (`datetime_resolver`).
+            leaf_kwargs["query_params"] = {**(leaf_kwargs.get("query_params") or {}), "date_chip": date_chip}
         relax_chip = clicked_relax_chip(message) if route.target == LEAF_HOTEL_SEARCH else None
         if relax_chip:
             # Point 3: « augmenter le budget » / « retirer un filtre », the
@@ -2421,7 +2485,13 @@ class _B2cConcierge(BaseAgent):
                 language=reply_language,
                 same_day_dead_end=same_day_dead_end,
             )
-            day_notice = self._day_notice(
+            # 2026-10-30: cards served on the next day (today closed, or
+            # « demain, plus près ») always come with their day chips; the day
+            # is said first (`next_day_notice`), so only « another day » here.
+            day_notice = (
+                self._next_day_chips(profile, response, reply_language)
+                if results_count > 0 else None
+            ) or self._day_notice(
                 profile, response, reply_language, today,
                 day_open=day_open and not leaf_fresh_date and not more_options,
                 results_count=results_count,
@@ -2447,6 +2517,8 @@ class _B2cConcierge(BaseAgent):
                 and searched_before is not None
                 and profile.last_search_signature is not None
                 and profile.last_search_signature != searched_before
+                # A day chip asked for a day, not other offers: the day is said.
+                and date_chip is None
             )
             if unchanged:
                 with observation(as_type="guardrail", name="refinement-unchanged"):
@@ -2728,17 +2800,14 @@ class _B2cConcierge(BaseAgent):
                 templates.landmark_unresolved_notice(landmark.strip(), reply_language, profile.city)
                 + f"\n\n{final_text}"
             )
-        closer = response.get("search_date") if route.target == LEAF_HOTEL_SEARCH else None
-        if isinstance(closer, dict) and closer.get("closer_from") and response.get("results"):
-            # 2026-10-30: tonight's open offers were far from the spot; the
-            # cards are the next day's, closer — said first, in code.
-            final_text = (
-                templates.closer_tomorrow_notice(
-                    closer.get("tonight_nearest_km"), format_date_human(closer.get("date") or "", reply_language),
-                    reply_language,
-                )
-                + f"\n\n{final_text}"
-            )
+        served_date = response.get("search_date") if route.target == LEAF_HOTEL_SEARCH else None
+        day_first = next_day_notice(served_date, response, reply_language)
+        if day_first:
+            # 2026-10-30: the cards are not today's (today closed, « demain,
+            # plus près », « pas de date précise ») — said first, in code; a
+            # synthesis sentence that says it again is dropped.
+            rest = drop_restated(final_text, day_first)
+            final_text = f"{day_first}\n\n{rest}" if rest else day_first
         fell_back = landmark_context.get("default_place") if isinstance(landmark_context, dict) else None
         if isinstance(fell_back, str) and fell_back.strip() and response.get("results"):
             # 2026-10-29: the answer to the place question named none, and the
@@ -2803,6 +2872,41 @@ class _B2cConcierge(BaseAgent):
         for chunk in _chunk_text(final_text):
             yield self._chunk_event(ctx, chunk)
         yield self._final(ctx, final_text)
+
+
+def next_day_notice(search_date: Any, response: dict[str, Any], language: str) -> str | None:
+    """The code's first sentence when the cards are not the day searched:
+    « demain, plus près » (`closer_from`), today's bookings closed
+    (`cutoff_fallback_from`; not when the rescue's relaxation line already
+    names the date), or the day « pas de date précise » found
+    (`first_open_from`, said also when none of the 7 days had offers)."""
+    if not isinstance(search_date, dict):
+        return None
+    served = search_date.get("date")
+    human = format_date_human(served, language) if isinstance(served, str) else ""
+    has_cards = bool(response.get("results"))
+    if search_date.get("first_open_from"):
+        return templates.first_open_day_notice(search_date, human, language, has_cards=has_cards)
+    if not has_cards or not human:
+        return None
+    if search_date.get("closer_from"):
+        return templates.closer_tomorrow_notice(search_date.get("tonight_nearest_km"), human, language)
+    if search_date.get("cutoff_fallback_from"):
+        relaxation = response.get("relaxation")
+        steps = relaxation.get("steps") if isinstance(relaxation, dict) else None
+        if isinstance(steps, list) and "next_day" in steps:
+            return None  # « …en assouplissant la date (vendredi 31 octobre 2026) »
+        return templates.closed_today_notice(human, language)
+    return None
+
+
+#: The day chips that carry an action (`profile.suggestion_kinds`), and the
+#: leaf's `query_params.date_chip` for each.
+_DATE_CHIP_ACTIONS: dict[str, str] = {
+    templates.SUGGESTION_DATE_TONIGHT: "same_day",
+    templates.SUGGESTION_DATE_FLEXIBLE: "first_open_day",
+    templates.SUGGESTION_DATE_DAY: "day",
+}
 
 
 root_agent = _B2cConcierge(
