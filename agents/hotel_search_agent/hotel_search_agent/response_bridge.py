@@ -1475,10 +1475,17 @@ def capture_after_tool(
         stashed = tool_context.state.get(STATE_DATE_FALLBACK_KEY)
         payload = stashed.get("payload") if isinstance(stashed, dict) else None
         if isinstance(payload, dict):
+            # 2026-10-30: the day after is ranked and trimmed like the day
+            # asked (`geo_rank`), with the local and core pages of the probe.
+            from hotel_search_agent.geo_rank import ranked_payload, trim_far_cards
+
+            pool = stashed.get("pool") if isinstance(stashed.get("pool"), list) else []
+            payload = ranked_payload(tool_context, args, payload, extra=pool)
             swapped = normalize_search_results(payload, exclude_ids, strict_window, *filters, host=host)
             if not swapped and strict_window is not None:
                 swapped = normalize_search_results(payload, exclude_ids, None, *filters, host=host)
                 timeslot_fallback = bool(swapped)
+            swapped = trim_far_cards(tool_context, swapped)
             if swapped:
                 results = swapped
                 structured = payload

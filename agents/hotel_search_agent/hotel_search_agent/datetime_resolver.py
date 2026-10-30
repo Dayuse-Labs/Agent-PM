@@ -43,6 +43,7 @@ Same split of responsibility as `equipment_ids.py` (the proven template):
 """
 from __future__ import annotations
 
+import asyncio
 import copy
 import logging
 import re
@@ -521,9 +522,12 @@ async def probe_next_day_after_tool(
     `from` offset either: a fallback day always starts at page 1.
 
     Budget: one extra MCP call (leaf-owned 5 s timeout) on a dead-end turn
-    only, measured ~600 ms, inside the orchestrator's 10 s leaf budget. Any
-    failure is swallowed — a rescue probe must never turn an honest empty
-    answer into a broken turn."""
+    only, measured ~600 ms, inside the orchestrator's 10 s leaf budget — plus,
+    around a city or a device fix, the local and core pages of the same day
+    after (2026-10-30, `geo_rank.fetch_ring_pages`), IN PARALLEL with it, each
+    through `extra_calls` (window, deadline, breaker). Any failure is
+    swallowed — a rescue probe must never turn an honest empty answer into a
+    broken turn."""
     if getattr(tool, "name", "") != "search_offers":
         return None
     if not isinstance(tool_response, dict) or tool_response.get("isError"):
@@ -562,8 +566,17 @@ async def probe_next_day_after_tool(
     # R2 (review of #173): through `extra_calls` — an error stops every extra
     # call of the turn and reaches the breaker; none starts past the deadline.
     from hotel_search_agent.extra_calls import extra_call
+    from hotel_search_agent.geo_rank import fetch_ring_pages
 
-    status, payload = await extra_call(tool, probe_args, tool_context, kind="next_day_probe")
+    # 2026-10-30 (prod after #175, 18 lists « today closed »: first card at
+    # 7.5 km against 1.2 km without the swap; London → Brentford, Wembley,
+    # Sutton): the day after is one page in relevance order over the whole
+    # disc. Around a city or a device fix, its local and core pages run next
+    # to it, so `capture_after_tool` ranks the day after like any search.
+    (status, payload), pool = await asyncio.gather(
+        extra_call(tool, probe_args, tool_context, kind="next_day_probe"),
+        fetch_ring_pages(tool, probe_args, tool_context, kind="next_day_pool"),
+    )
     if status == "skipped":
         return None
     # One MCP call spent on this dead end: the rescue (`relaxation.py`) counts it.
@@ -579,6 +592,7 @@ async def probe_next_day_after_tool(
         "searched_date": searched,
         "offered_date": offered,
         "payload": payload,
+        "pool": pool,
     }
     _log_probe("ok", started, found=1)
     return None

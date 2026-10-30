@@ -75,7 +75,7 @@ import os
 import time
 from typing import Any
 
-from hotel_search_agent.extra_calls import may_call, record_outcome, remaining_seconds
+from hotel_search_agent.extra_calls import extra_call, may_call, record_outcome, remaining_seconds
 from hotel_search_agent.inventory import haversine_km
 from hotel_search_agent.response_bridge import (
     STATE_NEARBY_KEY,
@@ -309,10 +309,38 @@ async def await_local_pool(
     return None
 
 
-def ranked_payload(tool_context: Any, args: dict[str, Any], structured: dict[str, Any]) -> dict[str, Any]:
+async def fetch_ring_pages(tool: Any, args: dict[str, Any], tool_context: Any, *, kind: str) -> list[Any]:
+    """The local and core pages of `args` (the same search on the local disc
+    and on the core ring), through `extra_calls`, in parallel: their raw
+    results, launch order, [] when the search is not ranked here or none came
+    back. For a search the leaf runs itself from a callback (the next-day
+    probe, 2026-10-30), next to its own call."""
+    qualified = _qualifies(args, tool_context)
+    if qualified is None:
+        return []
+    _lat, _lon, local_km, core_km = qualified
+    pages = _pages(args, local_km, core_km)
+    if not pages:
+        return []
+    answers = await asyncio.gather(*(
+        extra_call(tool, {**args, "radiusKm": ring}, tool_context, kind=kind) for _kind, ring in pages
+    ))
+    found: list[Any] = []
+    for status, payload in answers:
+        results = payload.get("results") if status == "ok" and isinstance(payload, dict) else None
+        if isinstance(results, list):
+            found.extend(results)
+    return found
+
+
+def ranked_payload(
+    tool_context: Any, args: dict[str, Any], structured: dict[str, Any], extra: list[Any] | None = None
+) -> dict[str, Any]:
     """`structured` with its `results` replaced by the ranked pool (its own
     page plus the local and core pages that came back), for a qualifying
-    search; `structured` itself otherwise."""
+    search; `structured` itself otherwise. `extra`: the pages of another call
+    than the model's own (the next-day probe's, `fetch_ring_pages`); without
+    it, the pages `await_local_pool` collected."""
     tool_context.state[STATE_GEO_RANK_KEY] = None
     qualified = _qualifies(args, tool_context)
     if qualified is None:
@@ -321,8 +349,9 @@ def ranked_payload(tool_context: Any, args: dict[str, Any], structured: dict[str
     page = structured.get("results")
     if not isinstance(page, list):
         return structured
-    extra = tool_context.state.get(STATE_GEO_POOL_KEY)
-    tool_context.state[STATE_GEO_POOL_KEY] = None
+    if extra is None:
+        extra = tool_context.state.get(STATE_GEO_POOL_KEY)
+        tool_context.state[STATE_GEO_POOL_KEY] = None
     pool = list(page) + (list(extra) if isinstance(extra, list) else [])
     ranked = rank_pool(pool, lat, lon, local_km, core_km)
     tool_context.state[STATE_GEO_RANK_KEY] = {"lat": lat, "lon": lon, "local_km": local_km}
