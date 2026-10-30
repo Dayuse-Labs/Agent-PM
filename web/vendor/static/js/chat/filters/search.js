@@ -228,7 +228,11 @@ export async function runSearchWithFilters() {
 
         // The filter path normalises the payload itself and strips suggestions;
         // pull them from the raw response so the chip row still surfaces.
-        renderSuggestionsRow({ suggestions: rawData.suggestions, near_me: rawData.near_me });
+        renderSuggestionsRow({
+            suggestions: rawData.suggestions,
+            near_me: rawData.near_me,
+            suggestion_types: rawData.suggestion_types,
+        });
 
         if (data.clarify && (!data.chips || data.chips.length === 0)) {
             renderClarify(data.clarify);

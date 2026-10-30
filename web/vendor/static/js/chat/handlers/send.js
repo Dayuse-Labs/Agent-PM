@@ -251,6 +251,7 @@ export function normalizeV3Response(data) {
             results: mapV3Hotels(data.hotels),
             suggestions: data.suggestions,
             near_me: data.near_me || null,
+            suggestion_types: data.suggestion_types || null,
             active_filters: data.active_filters || null,
             market: data.market || null,
             entry_market_country: data.entry_market_country || data.market?.country_code || null,
