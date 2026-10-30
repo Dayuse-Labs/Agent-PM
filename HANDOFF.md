@@ -6,6 +6,57 @@
 
 > 📋 **Pour savoir QUOI faire ensuite, ouvrir [`CHANTIERS.md`](CHANTIERS.md)** (état vérifié au 2026-09-14) : la liste des chantiers ouverts, chacun avec sa preuve, ses actions et un prompt prêt à coller — plus la liste de ce qu'il ne faut **pas** relancer parce que c'est déjà livré. `tasks/todo.md` est périmé et ne doit plus servir de référence.
 
+## 📅 2026-10-30 (ter) — Le lendemain dit en code, et ses puces de jour (branche `feat/date-chips-next-day-20261030`, sur `main` b981684)
+
+**Constat** : cartes servies au lendemain sans moyen simple d'en sortir. Cas 1 (jour fermé → lendemain,
+S-CX6) : seule la consigne de synthèse (`_DATE_FALLBACK_NOTE`) disait « fermé aujourd'hui », sans
+garantie, et les puces de jour ne sortaient qu'à la 1re annonce d'un jour non dit. Cas 5 (« demain,
+plus près », #179) : phrase en code, mais aucune puce pour garder ce soir ni changer de jour.
+
+**Fait** :
+1. **Annonce cas 1 en code** (`templates.closed_today_notice`, 7 langues) ; la consigne reste en filet
+   (« ne le redis pas ») ; une phrase de la synthèse qui la redit est retirée (`drop_restated`, qui
+   coupe désormais après une année suivie d'une majuscule). Pas de 2e phrase quand la ligne du
+   sauvetage nomme déjà la date (`next_day` dans `relaxation.steps`).
+2. **Puces toujours présentes sous des cartes du lendemain** (`_next_day_chips`), quoi qu'ait dit
+   l'utilisateur et même jour déjà annoncé : « Ce soir quand même (3,9 km) » (cas 5 seulement),
+   « Après-demain », « Pas de date précise » ; jamais « Aujourd'hui » au cas 1 ; ligne « Pour un
+   autre jour, choisissez ci-dessous ou dites-le-moi. ». `date_announced` inchangé ailleurs.
+3. **Clic reconnu par un fait** : le message EST le libellé d'une puce proposée (`last_suggestions`)
+   que le code a typée (`profile.suggestion_kinds`) — `clicked_suggestion_kind`, égalité de
+   libellé, aucun mot lu. Pas d'appel de triage. La feuille reçoit `query_params.date_chip` :
+   `same_day` (aujourd'hui, ni sonde J+1, ni « demain, plus près », ni marche « lendemain » du
+   sauvetage ; tenu par le garde `date_served`), `day` (le jour posé par le concierge depuis la table
+   des puces ; la recherche répétée, intent vide), `first_open_day` (`scan_first_open_day` : la même
+   recherche jour après jour depuis aujourd'hui, 7 jours, 3 en parallèle, par `extra_calls` ; 1er jour
+   avec 3 hôtels à 2 km d'un lieu précis / GPS ou dans le disque local d'une ville ; sinon le jour le
+   plus fourni, dit ; rien : dit). 1re phrase en code (`first_open_day_notice`), pas de « rien n'a
+   changé » sur une puce de jour. La complétion d'un autre jour n'est plus mêlée aux cartes.
+4. **Widget** : payload `/v3` `suggestion_types` ({libellé: type}) ; `ai_agent__suggestion_click`
+   avec `date_tonight` / `date_day` / `date_flexible` (ajoutés au contrat ; les puces de jour du
+   1er tour, jusqu'ici `recovery`, sont désormais `date_day`). Bundles reconstruits.
+
+**Preuves** : pytest 3 801 passés / 2 skippés, ruff, mypy, guardrails, 111 tests JS ; 43 tests
+nouveaux sur 49 rouges sur origin/main (les 6 verts sont des témoins), 5 tests JS sur 7. Rejeu local
+à 19 h simulée (filtre des échéances MCP propre au rejeu, hors dépôt), 13 demandes du soir × 4,
+main vs branche, Langfuse et `DATABASE_URL` coupés, jamais ai.dayuse.com : rapport hors dépôt
+`dashboard_bascule/data/investigation/replay_date_chips.md` (+ .json). 4/13 servent le lendemain :
+annonce en code 4/4 (main : LLM 3/3, sans garantie), puces 4/4 (main 0/4), aucune 2e annonce sur 33
+réponses ; « ce soir quand même » → cartes du soir sans repli ; « pas de date précise » → 1er jour dit,
+ou « aucun des 7 jours » (Madrid piscine Sol) ; balayage 0,5-2 s.
+
+**Pièges** :
+- « Maintenant » du jour fermé est l'horloge de MCP (`cutoffDeadlineUtc`) : pour un soir européen en
+  journée, filtrer les réponses `search_offers` dans un `sitecustomize` du rejeu (`REPLAY_SIM_NOW_UTC`,
+  scratchpad `datechips/`), jamais en prod.
+- Deux fichiers de test de même nom dans deux `tests/` d'agents se masquent (importlib) : le test
+  feuille s'appelle `test_leaf_date_chips_2026_10_30.py`.
+- Une puce de jour renvoyée comme texte libre est relue par la feuille : « Dopodomani » re-géocodait
+  « Milan » (question d'homonyme). D'où `date_chip=day`.
+
+**Reste** : revue (Fabien) ; déploiement `hotel-search` + `concierge` + `widget` (non fait) ; À trancher
+dans la PR (libellés, borne de 7 jours, critère « 3 hôtels proches »).
+
 ## 🚀 2026-10-30 (bis) — `hotel-search` et `concierge` déployés sur `3a8a929` (#179)
 
 **Déployé** (`DEPLOY.md`, depuis `../AgentB2C-deploy` détaché sur `origin/main` 3a8a929, arbre propre, pytest 3 752 passés / 2 skippés) : estampille `LANGFUSE_RELEASE=3a8a929` posée avec `--skip-deploys` sur les 2 services, puis `railway up --detach` (`hotel-search` SUCCESS 12:00:15Z, `concierge` SUCCESS 12:00:27Z, lancés à quelques secondes d'intervalle). `widget` reste sur `554aa30` et `faq` sur `b6f9402` : les modules de `libs/` modifiés (`clarification.py`, `search_budget.py`) ne sont pas importés par la FAQ.
