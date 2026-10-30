@@ -61,12 +61,24 @@ _SAME_DAY_CLOSED_NOTE = (
 # S-CX6: the probe found a bookable next day and those cards ARE on screen —
 # they are simply not for the day the user implicitly asked for. Presenting
 # them as today's would be worse than the dead end this replaced.
+# 2026-10-30: the code now says it before the reply (`templates.
+# closed_today_notice`); this note stays as the safety net and must not make
+# the synthesis say it a second time.
 _DATE_FALLBACK_NOTE = (
-    "MANDATORY DISCLOSURE: the hotels listed below are for {offered}, NOT for "
-    "today ({searched}). Same-day bookings were already closed, so the search "
-    "was re-run for the next day. Your FIRST sentence must say that today is "
-    "closed and that these offers are for {offered}. Never imply they are "
-    "available today.\n"
+    "MANDATORY DISCLOSURE: the hotels listed below are for {offered}, NOT for today "
+    "({searched}). Same-day bookings were already closed, so the search was "
+    "re-run for the next day. The sentence before your reply already says that "
+    "today is closed and that these offers are for {offered}: do not say it "
+    "again, and never imply they are available today.\n"
+)
+
+# 2026-10-30: « pas de date précise » — the first of the next days with
+# hotels close by (`first_open_from`), said before the reply by the code.
+_FIRST_OPEN_NOTE = (
+    "MANDATORY: the user left the day open; the system looked at the next {days} "
+    "days from {searched} and the hotels listed below are for {offered}. "
+    "{found}The sentence before your reply already says which day: do not say it "
+    "again, and never imply they are available on another day.\n"
 )
 
 
@@ -98,6 +110,18 @@ def date_context_block(response: dict[str, Any] | None, language: str = "en") ->
     if not isinstance(offered, str) or not offered:
         return ""
     offered_human = format_date_human(offered, language)
+    first_open = search_date.get("first_open_from")
+    if isinstance(first_open, str) and first_open and shortlist_hotels(response):
+        found = (
+            "It is the first of those days with hotels close by. "
+            if search_date.get("first_open_found")
+            else "None of those days had hotels close by; this is the day with the closest ones. "
+        )
+        days = search_date.get("first_open_days")
+        return _FIRST_OPEN_NOTE.format(
+            days=days if isinstance(days, int) and not isinstance(days, bool) and days > 0 else 7,
+            searched=format_date_human(first_open, language), offered=offered_human, found=found,
+        )
     closer = search_date.get("closer_from")
     if isinstance(closer, str) and closer:
         return _CLOSER_NOTE.format(offered=offered_human, searched=format_date_human(closer, language))

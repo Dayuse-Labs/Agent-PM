@@ -326,7 +326,8 @@ class TestPlaceKnown:
         answer = _run_turn(runner, session.id, "un hôtel à Nice")
 
         assert format_date_human(_TOMORROW.isoformat(), "fr") in answer
-        assert _stored(fake_profile_store, session.id).last_suggestions == ["Après-demain"]
+        # 2026-10-30: the next-day chips — never today's, closed.
+        assert _stored(fake_profile_store, session.id).last_suggestions == ["Après-demain", "Pas de date précise"]
 
     def test_the_day_is_announced_once_per_session(
         self, monkeypatch, fake_leg, fake_profile_store  # noqa: F811

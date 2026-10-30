@@ -102,6 +102,8 @@ class TestContractKeysUntouched:
                 "turn_facts",
                 # 2026-10-29: the « près de moi » chip among `suggestions`.
                 "near_me",
+                # 2026-10-30: {label: kind} of the chips the code typed.
+                "suggestion_types",
             }
         )
 
