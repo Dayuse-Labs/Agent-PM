@@ -538,7 +538,11 @@ async def probe_next_day_after_tool(
     if not isinstance(search_date, dict) or not search_date.get("same_day"):
         return None
     structured = read_structured_payload(tool_response)
-    if not isinstance(structured, dict) or structured.get("results"):
+    if not isinstance(structured, dict):
+        return None
+    if structured.get("results"):
+        # 2026-10-30: today still has offers, but maybe only far ones.
+        await _probe_closer_next_day(tool, args, tool_context, structured, search_date)
         return None
     # 2026-10-28: MCP's `total` now counts AFTER the cutoff check, the count
     # before it is `totalBeforeCutoff` (`pool_before_cutoff`); read on `total`
@@ -596,6 +600,81 @@ async def probe_next_day_after_tool(
     }
     _log_probe("ok", started, found=1)
     return None
+
+
+#: « Close » to a spot or a device fix: the site's smallest ring (2 km).
+CLOSE_KM = 2.0
+#: Fewer close cards than this today, and offers closed by today's cutoff:
+#: the next day is looked at too (`MIN_LOCAL_CARDS` of `geo_rank`).
+MIN_CLOSE_CARDS = 3
+#: The next day's page, when it holds more close hotels than today's
+#: (`_probe_closer_next_day`, consumed by `capture_after_tool`).
+STATE_CLOSER_NEXT_DAY_KEY = "temp:hotel_search_closer_next_day"
+
+
+def close_count(hotels: Any, lat: float, lon: float, *, card: bool = False) -> int:
+    """Hotels within `CLOSE_KM` of (lat, lon): MCP's `lat`/`lon`, or a card's
+    `latitude`/`longitude`."""
+    from hotel_search_agent.inventory import haversine_km
+
+    lat_key, lon_key = ("latitude", "longitude") if card else ("lat", "lon")
+    count = 0
+    for hotel in hotels or []:
+        h_lat = hotel.get(lat_key) if isinstance(hotel, dict) else None
+        h_lon = hotel.get(lon_key) if isinstance(hotel, dict) else None
+        if isinstance(h_lat, (int, float)) and isinstance(h_lon, (int, float)) and not isinstance(h_lat, bool):
+            count += haversine_km(lat, lon, float(h_lat), float(h_lon)) <= CLOSE_KM
+    return count
+
+
+async def _probe_closer_next_day(
+    tool: Any, args: dict[str, Any], tool_context: Any, structured: dict[str, Any], search_date: dict[str, Any]
+) -> None:
+    """« Demain, plus près » (2026-10-30, prod after #175: 6 conversations, 0
+    click — Arabellapark at 18h, only 3.9-4.6 km left that evening, while the
+    next day the Westin and the Four Points are 0.2-0.3 km away).
+
+    Facts only: the search ran on the session's own today with no day the
+    user stated (no fresh label, none carried), around a spot or a device fix;
+    offers were closed by today's cutoff (`totalBeforeCutoff` > `total`); fewer
+    than `MIN_CLOSE_CARDS` hotels of the page within `CLOSE_KM`. Then the same
+    search, the day after, through `extra_calls`; kept when its page holds more
+    close hotels than today's. `capture_after_tool` decides on the cards."""
+    from hotel_search_agent.extra_calls import extra_call
+    from hotel_search_agent.response_bridge import anchor_origin
+
+    state = tool_context.state
+    if state.get(STATE_RESOLVED_DATE_KEY) or read_profile_in(tool_context).get("date"):
+        return  # a day the user stated is never swapped
+    origin = anchor_origin(tool_context)
+    if origin is None or origin[0] not in ("poi", "gps"):
+        return
+    try:
+        total = int(structured.get("total") or 0)
+    except (TypeError, ValueError):
+        return
+    if pool_before_cutoff(structured) <= total:
+        return  # nothing closed by today's cutoff: today is what there is
+    _kind, lat, lon = origin
+    today_close = close_count(structured.get("results"), lat, lon)
+    if today_close >= MIN_CLOSE_CARDS:
+        return
+    try:
+        offered = (date.fromisoformat(str(search_date.get("date"))) + timedelta(days=1)).isoformat()
+    except ValueError:
+        return
+    started = time.monotonic()
+    probe_args = {k: v for k, v in args.items() if k != "from"}
+    probe_args["date"] = offered
+    status, payload = await extra_call(tool, probe_args, tool_context, kind="closer_next_day")
+    found = payload.get("results") if status == "ok" and isinstance(payload, dict) else None
+    if not found or close_count(found, lat, lon) <= today_close:
+        _log_probe("closer_none", started, found=0)
+        return
+    state[STATE_CLOSER_NEXT_DAY_KEY] = {
+        "searched_date": search_date.get("date"), "offered_date": offered, "payload": payload,
+    }
+    _log_probe("closer_ok", started, found=1)
 
 
 def _log_probe(status: str, started: float, found: int) -> None:

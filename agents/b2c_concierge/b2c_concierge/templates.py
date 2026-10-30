@@ -1155,3 +1155,32 @@ def previous_cards_notice(language: str) -> str:
     """2026-10-30: a criterion emptied the list on the same place and day;
     the previous cards are shown again, and the answer says so."""
     return _pick(language, _PREVIOUS_CARDS)
+
+
+_CLOSER_TOMORROW: dict[str, str] = {
+    "fr": "Ce soir, l'offre encore ouverte la plus proche est à {km} km : voici celles du {day}, plus près.",
+    "en": "Tonight, the closest offer still open is {km} km away: here are the ones for {day}, closer.",
+    "es": "Esta noche, la oferta abierta más cercana está a {km} km: aquí tienes las del {day}, más cerca.",
+    "it": "Stasera l'offerta ancora aperta più vicina è a {km} km: ecco quelle di {day}, più vicine.",
+    "de": "Heute Abend ist das nächste noch offene Angebot {km} km entfernt: Hier die für {day}, näher dran.",
+    "pt": "Esta noite, a oferta ainda aberta mais próxima fica a {km} km: aqui estão as de {day}, mais perto.",
+    "nl": "Vanavond ligt het dichtstbijzijnde open aanbod op {km} km: hier zijn die voor {day}, dichterbij.",
+}
+_CLOSER_TOMORROW_NO_KM: dict[str, str] = {
+    "fr": "Ce soir, les offres encore ouvertes sont loin : voici celles du {day}, plus près.",
+    "en": "Tonight, the offers still open are far away: here are the ones for {day}, closer.",
+    "es": "Esta noche, las ofertas abiertas están lejos: aquí tienes las del {day}, más cerca.",
+    "it": "Stasera le offerte ancora aperte sono lontane: ecco quelle di {day}, più vicine.",
+    "de": "Heute Abend sind die noch offenen Angebote weit weg: Hier die für {day}, näher dran.",
+    "pt": "Esta noite, as ofertas ainda abertas ficam longe: aqui estão as de {day}, mais perto.",
+    "nl": "Vanavond liggen de open aanbiedingen ver weg: hier zijn die voor {day}, dichterbij.",
+}
+
+
+def closer_tomorrow_notice(km: object, human_day: str, language: str) -> str:
+    """2026-10-30: the search ran tonight around a spot, the offers still open
+    were far, and the next day's are closer: the cards are the next day's."""
+    if isinstance(km, (int, float)) and not isinstance(km, bool) and km > 0:
+        shown = f"{float(km):.1f}".replace(".", ",") if language in ("fr", "es", "it", "de", "pt", "nl") else f"{float(km):.1f}"
+        return _pick(language, _CLOSER_TOMORROW).format(km=shown, day=human_day)
+    return _pick(language, _CLOSER_TOMORROW_NO_KM).format(day=human_day)

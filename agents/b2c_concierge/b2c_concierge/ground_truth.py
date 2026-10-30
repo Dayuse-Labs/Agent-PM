@@ -70,6 +70,16 @@ _DATE_FALLBACK_NOTE = (
 )
 
 
+# 2026-10-30: tonight's open offers were far; the cards are the next day's,
+# closer. The sentence before the reply says so (`closer_tomorrow_notice`).
+_CLOSER_NOTE = (
+    "MANDATORY: the hotels listed below are for {offered}, NOT for {searched}: the offers "
+    "still open on {searched} were far from the place asked, the next day's are closer. "
+    "The sentence before your reply already says so; never imply they are available on "
+    "{searched}.\n"
+)
+
+
 def date_context_block(response: dict[str, Any] | None, language: str = "en") -> str:
     """S-CX6: the date-truth prelude to the shortlist/empty block. Driven by the
     leaf's `search_date` DataPart key (`date` / `same_day` /
@@ -88,6 +98,9 @@ def date_context_block(response: dict[str, Any] | None, language: str = "en") ->
     if not isinstance(offered, str) or not offered:
         return ""
     offered_human = format_date_human(offered, language)
+    closer = search_date.get("closer_from")
+    if isinstance(closer, str) and closer:
+        return _CLOSER_NOTE.format(offered=offered_human, searched=format_date_human(closer, language))
     searched = search_date.get("cutoff_fallback_from")
     if isinstance(searched, str) and searched:
         return _DATE_FALLBACK_NOTE.format(

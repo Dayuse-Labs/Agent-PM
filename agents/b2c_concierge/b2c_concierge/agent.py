@@ -2293,6 +2293,7 @@ class _B2cConcierge(BaseAgent):
                 isinstance(served, str)
                 and served != expected_date
                 and search_date_part.get("cutoff_fallback_from") != expected_date
+                and search_date_part.get("closer_from") != expected_date
             ):
                 with observation(as_type="guardrail", name="enforce-date-served"):
                     mark_level("WARNING", status_message="date_served")
@@ -2725,6 +2726,17 @@ class _B2cConcierge(BaseAgent):
             # placed (`geocode_tool._without_the_landmark`).
             final_text = (
                 templates.landmark_unresolved_notice(landmark.strip(), reply_language, profile.city)
+                + f"\n\n{final_text}"
+            )
+        closer = response.get("search_date") if route.target == LEAF_HOTEL_SEARCH else None
+        if isinstance(closer, dict) and closer.get("closer_from") and response.get("results"):
+            # 2026-10-30: tonight's open offers were far from the spot; the
+            # cards are the next day's, closer — said first, in code.
+            final_text = (
+                templates.closer_tomorrow_notice(
+                    closer.get("tonight_nearest_km"), format_date_human(closer.get("date") or "", reply_language),
+                    reply_language,
+                )
                 + f"\n\n{final_text}"
             )
         fell_back = landmark_context.get("default_place") if isinstance(landmark_context, dict) else None

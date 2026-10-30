@@ -104,3 +104,20 @@ def test_a_criterion_that_empties_the_list_keeps_the_previous_cards(
     _runner, _session, answer = _turns(monkeypatch, fake_leg, payload, _EIGHTEEN)
 
     assert templates.previous_cards_notice("en") in answer
+
+
+# --- point 5: « demain, plus près » ---------------------------------------------------------
+
+from b2c_concierge.ground_truth import date_context_block  # noqa: E402
+
+
+@pytest.mark.parametrize("language", ["fr", "en", "es", "it", "de", "pt", "nl"])
+def test_the_closer_tomorrow_notice_gives_tonights_distance_and_the_day(language):
+    text = templates.closer_tomorrow_notice(3.9, "DAY", language)
+    assert "DAY" in text and ("3,9" in text or "3.9" in text)
+    assert "DAY" in templates.closer_tomorrow_notice(None, "DAY", language)
+
+
+def test_the_synthesis_is_told_the_cards_are_for_the_next_day():
+    block = date_context_block({"search_date": {"date": "2026-10-30", "closer_from": "2026-10-29"}}, "en")
+    assert block.startswith("MANDATORY") and "NOT for" in block

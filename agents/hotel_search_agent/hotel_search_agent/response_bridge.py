@@ -1198,6 +1198,44 @@ def _apply_date_fallback(tool_context: Any, stashed: dict[str, Any]) -> None:
     }
 
 
+def _closer_next_day(
+    tool_context: Any, results: list[dict[str, Any]], structured: dict[str, Any], card_filters: tuple
+) -> tuple[list[dict[str, Any]], dict[str, Any]]:
+    """Today's cards, or the next day's when they hold more close hotels
+    (same filters), with the search date marked `closer_from`."""
+    from hotel_search_agent.datetime_resolver import STATE_CLOSER_NEXT_DAY_KEY, close_count
+
+    stashed = tool_context.state.get(STATE_CLOSER_NEXT_DAY_KEY)
+    payload = stashed.get("payload") if isinstance(stashed, dict) else None
+    origin = anchor_origin(tool_context)
+    if not isinstance(payload, dict) or origin is None or not isinstance(stashed.get("offered_date"), str):
+        return results, structured
+    exclude_ids, strict_window, filters, host = card_filters
+    tomorrow = normalize_search_results(payload, exclude_ids, strict_window, *filters, host=host)
+    _kind, lat, lon = origin
+    if close_count(tomorrow, lat, lon, card=True) <= close_count(results, lat, lon, card=True):
+        return results, structured
+    distances = [
+        haversine_km(lat, lon, card["latitude"], card["longitude"]) for card in results
+        if isinstance(card.get("latitude"), (int, float)) and isinstance(card.get("longitude"), (int, float))
+    ]
+    search_date: dict[str, Any] = {"date": stashed["offered_date"], "same_day": False}
+    if isinstance(stashed.get("searched_date"), str):
+        search_date["closer_from"] = stashed["searched_date"]
+    if distances:
+        search_date["tonight_nearest_km"] = round(min(distances), 1)
+    tool_context.state[STATE_SEARCH_DATE_KEY] = search_date
+    previous = tool_context.state.get(STATE_RESOLVED_DATE_KEY)
+    date_reference: dict[str, Any] = {"resolved_from": "closer_next_day"}
+    if isinstance(previous, dict):
+        client_tz = (previous.get("date_reference") or {}).get("client_tz")
+        if isinstance(client_tz, str) and client_tz:
+            date_reference["client_tz"] = client_tz
+    tool_context.state[STATE_RESOLVED_DATE_KEY] = {"date": stashed["offered_date"], "date_reference": date_reference}
+    _metrics_logger.info("dayuse_metric=closer_next_day agent=b2c_hotel_search swapped=1")
+    return tomorrow, payload
+
+
 def record_guards_fired(tool_context: Any, names: Iterable[str]) -> None:
     """Merge deterministic guard names into the turn's OBS3 set — the SINGLE
     writer of `_STATE_GUARDS_KEY`, so both producers share one semantics
@@ -1581,6 +1619,13 @@ def capture_after_tool(
                 if "party" in steps and isinstance(rescue.get("party"), dict):
                     added["party"] = rescue["party"]
                 tool_context.state[_STATE_RELAXATION_ADDED_KEY] = added
+    # 2026-10-30: « demain, plus près » — tonight's open offers are far from
+    # the spot asked, and the next day has closer ones (`datetime_resolver.
+    # _probe_closer_next_day`): the next day's cards, said as such.
+    if name == "search_offers" and results:
+        results, structured = _closer_next_day(
+            tool_context, results, structured, (exclude_ids, strict_window, filters, host)
+        )
     # Prod session 1eb2430a: a thin first page is completed from the wider
     # search `completion.py` ran — its hotels AFTER the first page's.
     first_page = len(results)
