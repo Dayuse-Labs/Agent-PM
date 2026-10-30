@@ -644,7 +644,9 @@ def _area_match(
     return hit
 
 
-def _unresolved(subject: str, language: str | None, diagnostics: dict, guards_fired: list[str]) -> dict:
+def _unresolved(
+    subject: str, language: str | None, diagnostics: dict, guards_fired: list[str], city: str | None = None
+) -> dict:
     """The honest end of a lookup that found nothing the user named: a
     question by template (`Clarification` kind `unresolved`), never the
     "search unavailable" line. Same channel as the other place questions
@@ -654,14 +656,17 @@ def _unresolved(subject: str, language: str | None, diagnostics: dict, guards_fi
     return _fail(
         "geocode_ambiguous",
         {
-            "question": geo_resolver.unresolved_question(subject, language),
+            "question": (
+                geo_resolver.spot_unresolved_question(subject, city, language) if city
+                else geo_resolver.unresolved_question(subject, language)
+            ),
             "options": [],
             "reason": "unresolved",
             **diagnostics,
         },
         guards_fired,
         None,
-        Clarification(kind="unresolved", subject=subject),
+        Clarification(kind="unresolved", subject=subject, city=(city or "").strip() or None),
     )
 
 
@@ -1470,6 +1475,15 @@ def geocode_core(
         echoing = [c for c in candidates if echoes_request(c.place_name)]
         if echoing:
             candidates = echoing
+        # 2026-10-30 (prod after #175, « Colborne », Ontario): the town asked
+        # for was a `place`, and a neighbourhood of Hamilton of the same name
+        # (`Colborne, Dundas`) won on its hotels, 180 km from it. A bare
+        # destination is a town: when Mapbox has one of that name (a `place`
+        # or a `locality`), a neighbourhood that merely shares the name is not
+        # a candidate. Facts only: Mapbox's own feature types.
+        towns = [c for c in candidates if c.feature_type in ("place", "locality")]
+        if towns and len(towns) < len(candidates):
+            candidates = [c for c in candidates if c.feature_type != "neighborhood"]
     elif zone_kind == "neighborhood" and city_names:
         # A neighbourhood of the named city (« Westall, Clayton », Melbourne):
         # the candidate that names the neighbourhood and lies within the
@@ -1599,12 +1613,30 @@ def geocode_core(
         if not effective_zone:
             return clarify_response
 
+    def names_the_zone(place_name: str) -> bool:
+        return any(
+            _echoes(place_name, city=None, zone=name, state_hint=state_hint)
+            for name in (_names(effective_zone, *zone_aliases) or (effective_zone,))
+        )
+
     if resolution.decision == "select" and resolution.chosen is not None:
         chosen = resolution.chosen
-        if echoes_request(chosen.place_name) or (
+        # 2026-10-30 (prod after #175: « Tsim Sha Tsui », « Mong Kok » → « Hong
+        # Kong », the centre of the island across the harbour, labelled `poi`;
+        # « quartier Rogier » → « Bruxelles »): with a spot named, a candidate
+        # that echoes only the CITY is the city's centre, not the spot. It is
+        # never returned as the spot: the Search-Box tier below gets its turn,
+        # then the honest outcomes (`geocode_location`). A street or an
+        # address keeps Q20's rule (its own lookup ran first, and a street is
+        # in its city): the city's point stands in for it, as before.
+        city_only = (
+            bool(effective_zone) and not contained and zone_kind not in ("address", "street")
+            and not names_the_zone(chosen.place_name)
+        )
+        if not city_only and (echoes_request(chosen.place_name) or (
             contained
             and _echoes(chosen.place_name, city=None, zone=effective_zone, state_hint=state_hint)
-        ):
+        )):
             profile_delta = _anchor_state(
                 city=effective_city,
                 raw_user_message=raw_user_message,
@@ -2329,6 +2361,26 @@ def _place_args(
             )
             if zone and zone_place is not None and dept is None else ()
         ),
+        # 2026-10-30: what the model announced about the spot itself (its own
+        # country, state and city), kept apart from the city searched: the
+        # facts its canonical re-lookup is checked against
+        # (`_canonical_landmark`). Popped by `geocode_location`, never sent
+        # to `geocode_core`.
+        "zone_facts": (
+            {
+                "country": _iso2(zone_place.country),
+                "region": (zone_place.region or "").strip() or None,
+                "city": (zone_place.city or "").strip() or None,
+                # The city searched is one the user wrote (a city the claims
+                # kept, by its mention, naming the same city).
+                "city_said": bool(city) and any(
+                    ref.mention.strip()
+                    and _comparable(city or "") in (_comparable(ref.mention), _comparable(ref.canonical))
+                    for ref in cities
+                ),
+            }
+            if zone and zone_place is not None and dept is None else None
+        ),
     }
 
 
@@ -2369,6 +2421,7 @@ def geocode_location(
     user_words = read_user_words(tool_context)
     claims = _Claims(read_input_text(tool_context), user_words)
     args = _place_args(geo, claims, locale=locale, language_hint=language_hint)
+    zone_facts = args.pop("zone_facts", None)
     # The model often repeats a place of this turn as `metro` too (replay
     # 2026-10-28: « métropole lilloise » as a region AND as metro). A second
     # copy of a name already in the request adds no place, only a second,
@@ -2437,6 +2490,15 @@ def geocode_location(
     }
     nearby = asks_nearby(geo)
     result = geocode_core(**args, **context)
+    # 2026-10-30: the city's centre came back in place of the spot (prod after
+    # #175: the airport of Incheon → Seoul, a U-Bahn station → München): the
+    # spot is looked up once more under its own name (`_canonical_landmark`).
+    spot = (
+        _canonical_landmark(args, zone_facts, locale=locale, language_hint=language_hint)
+        if result.get("ok") and result.get("landmark_unresolved") else None
+    )
+    if spot is not None:
+        return _marked_nearby(spot, nearby)
     if _zone_homonym(result, args):
         # The homonyms of a city asked about because of the landmark next to it:
         # the city's own lookup decides (2026-10-28, see `_without_the_landmark`).
@@ -2469,7 +2531,18 @@ def geocode_location(
         if not _refused(second):
             return _marked_nearby(second, nearby)
         result = second
-    fallback = _without_the_landmark(args, context)
+    spot = _canonical_landmark(args, zone_facts, locale=locale, language_hint=language_hint)
+    if spot is not None:
+        return _marked_nearby(spot, nearby)
+    # 2026-10-30: the city alone stands in for the spot only when it is the
+    # user's city — named in the request, or the destination already searched.
+    # A city only the model attached to the spot (« Tsim Sha Tsui » → Hong
+    # Kong, whose centre is across the harbour; « St Pete-Clearwater airport »
+    # → Clearwater, Kansas) is a guess: the honest question below instead.
+    fallback = (
+        _without_the_landmark(args, context)
+        if _users_city(args, own, read_input_text(tool_context), zone_facts) else None
+    )
     if fallback is not None:
         return _marked_nearby(fallback, nearby)
     # Still nothing the user named: say so and ask, never "search unavailable".
@@ -2478,7 +2551,93 @@ def geocode_location(
         return result
     guards = sorted(set(first_guards) | set(result.get("guards_fired") or []))
     diagnostics = {k: v for k, v in (result.get("diagnostics") or {}).items() if k in ("query", "resolved_place")}
-    return _unresolved(subject, _mapbox_language(locale, language_hint), diagnostics, guards)
+    # A spot in a known city: the question asks for the spot, not the city.
+    pair = _landmark_and_city(args)
+    return _unresolved(
+        subject, _mapbox_language(locale, language_hint), diagnostics, guards,
+        city=pair[1] if pair is not None else None,
+    )
+
+
+def _canonical_landmark(
+    args: dict[str, Any], facts: Any, *, locale: str | None, language_hint: str | None
+) -> dict | None:
+    """The spot itself, looked up under its own names alone, or None
+    (2026-10-30, prod after #175, 7 conversations and no click: the airport
+    of Incheon → the centre of Seoul, 50 km away; St Pete-Clearwater airport →
+    Clearwater, Kansas; a U-Bahn station → the centre of München).
+
+    The spot was looked up next to the city (`geocode_core`), and the city's
+    point vetoed it (Incheon airport is 50 km from Seoul, `_POI_ANCHOR_MAX_KM`)
+    or aimed the lookup at a homonym. Here: ONE Search-Box lookup per name the
+    request gave the spot (its canonical name, then the user's word), with no
+    city in the query nor as a bias, scoped to the country the model announced
+    for the spot. Taken only when the answer checks against what the model
+    announced: it echoes one of those names, lies in that country, in its US
+    state when one was given, and names the spot's own city when the model
+    gave one. A spot with no announced country is never looked up this way."""
+    zone = (args.get("zone") or "").strip()
+    kind = args.get("zone_kind")
+    if not zone or not isinstance(facts, dict) or kind in _AREA_KINDS or kind in ("address", "street"):
+        return None
+    if not _is_blank(args.get("postal_code")):
+        return None
+    country = _iso2(args.get("country_code")) or facts.get("country")
+    if not country:
+        return None
+    region = facts.get("region") if country == "US" else None
+    spot_city = facts.get("city")
+    names = _names(zone, *(args.get("zone_aliases") or ()))
+    lang = _mapbox_language(locale, language_hint)
+    for name in names:
+        hit = geo_resolver.rank_landmark(
+            get_searchbox_client().forward_candidates(name, country=country, language=lang, proximity=None),
+            requested_zone=name,
+            inventory=get_inventory(),
+        )
+        if hit is None or _iso2(hit.country_code) != country:
+            continue
+        if not any(_echoes(hit.place_name, city=None, zone=n, state_hint=None) for n in names):
+            continue
+        if region and not _echoes(hit.place_name, city=None, zone=None, state_hint=region):
+            continue
+        if spot_city and not _echoes(hit.place_name, city=spot_city, zone=None, state_hint=None):
+            continue
+        if _business_named_after_the_area(hit, zone_kind=kind, names=names):
+            continue
+        _metrics_logger.info("dayuse_metric=geocode_canonical_spot agent=b2c_hotel_search status=ok")
+        return _ok(
+            hit.as_result(),
+            feature_type=hit.feature_type,
+            profile_delta={},
+            distance_origin_type="poi",
+            zone=zone,
+            zone_kind=kind if kind == "city_centre" else None,
+            guards_fired=[],
+        )
+    _metrics_logger.info("dayuse_metric=geocode_canonical_spot agent=b2c_hotel_search status=none")
+    return None
+
+
+def _users_city(args: dict[str, Any], own: dict[str, Any], said: str, facts: Any = None) -> bool:
+    """Whether the city searched with a spot is the user's own: carried from
+    an earlier turn (not this message's), a city of the request whose
+    mention the claims kept (`zone_facts.city_said`), or written in the
+    request (the leaf's input text, the earlier request included) under one
+    of its names. Facts about the text, never a reading of it."""
+    city = (args.get("city") or args.get("metro") or "").strip()
+    if not city:
+        return False
+    if _comparable(city) != _comparable(own.get("city") or own.get("metro") or ""):
+        return True  # carried in by `_fill_place_from_profile`
+    if isinstance(facts, dict) and facts.get("city_said"):
+        return True
+    text = f" {_comparable(said)} "
+    return any(
+        f" {_comparable(name)} " in text
+        for name in _names(city, *(own.get("aliases") or ()))
+        if _comparable(name)
+    )
 
 
 def _default_place(

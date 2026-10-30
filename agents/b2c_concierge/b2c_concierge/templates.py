@@ -687,6 +687,18 @@ _CLARIFY_UNRESOLVED: dict[str, str] = {
     "pt": "Não consegui localizar «{subject}». Pode indicar a cidade ou o país?",
     "nl": "Ik kon \"{subject}\" niet plaatsen. Kun je de stad of het land noemen?",
 }
+#: 2026-10-30 (prod after #175: « Tsim Sha Tsui », « Mong Kok » searched on the
+#: centre of Hong Kong island): a spot the geocoder could not place in the
+#: city the user gave. The city is known: the question asks for the spot.
+_CLARIFY_SPOT_UNRESOLVED: dict[str, str] = {
+    "fr": "Je n'ai pas réussi à situer « {subject} » à {city}. Vous pouvez me donner une adresse, une station ou un lieu proche ?",
+    "en": "I couldn't place \"{subject}\" in {city}. Could you give me an address, a station or a place nearby?",
+    "es": "No he conseguido ubicar «{subject}» en {city}. ¿Puedes darme una dirección, una estación o un lugar cercano?",
+    "it": "Non sono riuscito a localizzare «{subject}» a {city}. Puoi indicarmi un indirizzo, una stazione o un luogo vicino?",
+    "de": "Ich konnte „{subject}“ in {city} nicht finden. Kannst du mir eine Adresse, eine Station oder einen Ort in der Nähe nennen?",
+    "pt": "Não consegui localizar «{subject}» em {city}. Pode indicar um endereço, uma estação ou um lugar próximo?",
+    "nl": "Ik kon \"{subject}\" in {city} niet plaatsen. Kun je een adres, een station of een plek in de buurt noemen?",
+}
 _CLARIFY_UNRESOLVED_AGAIN: dict[str, str] = {
     "fr": "« {subject} » reste introuvable de mon côté. Donnez-moi la ville la plus proche, "
     "avec son pays si possible.",
@@ -970,6 +982,9 @@ def clarification_response(clarification: Clarification, language: str, asked: i
         table = _CLARIFY_CITY_NEEDED if asked == 1 else _CLARIFY_CITY_NEEDED_AGAIN
         return _pick(language, table).format(subject=subject)
     if clarification.kind == "unresolved":
+        if asked == 1 and clarification.city:
+            # 2026-10-30: a spot in a known city — ask for the spot.
+            return _pick(language, _CLARIFY_SPOT_UNRESOLVED).format(subject=subject, city=clarification.city)
         table = _CLARIFY_UNRESOLVED if asked == 1 else _CLARIFY_UNRESOLVED_AGAIN
         return _pick(language, table).format(subject=subject)
     table = _CLARIFY_HOMONYM if asked == 1 else _CLARIFY_HOMONYM_AGAIN
