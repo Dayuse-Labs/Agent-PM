@@ -6,6 +6,14 @@
 
 > 📋 **Pour savoir QUOI faire ensuite, ouvrir [`CHANTIERS.md`](CHANTIERS.md)** (état vérifié au 2026-09-14) : la liste des chantiers ouverts, chacun avec sa preuve, ses actions et un prompt prêt à coller — plus la liste de ce qu'il ne faut **pas** relancer parce que c'est déjà livré. `tasks/todo.md` est périmé et ne doit plus servir de référence.
 
+## 🚀 2026-10-30 — `widget` déployé sur `554aa30` (#177, chargement de la page)
+
+**Déployé** (`DEPLOY.md`, depuis `../AgentB2C-deploy` détaché sur `origin/main` 554aa30, arbre propre, pytest 3 697 passés / 2 skippés) : `widget` seul (aucun changement dans `agents/` ni `libs/` depuis 20365eb), estampille `LANGFUSE_RELEASE=554aa30` posée avec `--skip-deploys` puis `railway up --detach` (SUCCESS 08:56Z). `hotel-search` et `concierge` restent sur `20365eb`, `faq` sur `b6f9402`.
+
+**Preuve sur ai.dayuse.com** : page `agent-version=554aa30` ; `/static/dist/chat.css` et `chat.js` versionnés (`?v=`), `cache-control: public, max-age=31536000, immutable`, gzip ; `HEAD /` → 200 ; `/readyz` → `ready`. Playwright mobile 390 px : Chromium fibre load 0,36 s / 2e visite 0,03 s ; 4G lente simulée load 1,37 s (≈ 4 s avant) / 2e visite 0,17 s (1,1 s avant) ; 0 erreur console, 0 violation CSP. WebKit (iPhone 13 et Safari desktop) : photo d'accueil servie en AVIF (`hero_usa_mobile-1080.avif`, `hero_usa_desktop-1920.avif`), police WOFF2 chargée, rendu correct, 0 erreur. Tour synthétique « a hotel in Chicago tomorrow afternoon » → 200, 5 hôtels, 9,2 s.
+
+**Non vérifié** : la WebView de l'app mobile (MOB1). Retour arrière : `LANGFUSE_RELEASE=20365eb` (`--skip-deploys`) puis `railway up --service widget` depuis un checkout détaché sur `20365eb`.
+
 ## ⚡ 2026-10-29 (ter) — Chargement du widget : bundles, cache d'un an par empreinte, photo AVIF, WOFF2, HEAD (branche `perf/widget-page-load-20261029`, sur `main` 0562106)
 
 **Constat** (prod, 2026-10-29) : ~95 requêtes et ~1 Mo par ouverture ; 29 modules JS + 12 CSS non
