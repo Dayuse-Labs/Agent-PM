@@ -6,6 +6,14 @@
 
 > 📋 **Pour savoir QUOI faire ensuite, ouvrir [`CHANTIERS.md`](CHANTIERS.md)** (état vérifié au 2026-09-14) : la liste des chantiers ouverts, chacun avec sa preuve, ses actions et un prompt prêt à coller — plus la liste de ce qu'il ne faut **pas** relancer parce que c'est déjà livré. `tasks/todo.md` est périmé et ne doit plus servir de référence.
 
+## 🚀 2026-10-30 (quater) — `hotel-search`, `concierge` et `widget` déployés sur `e3194a1` (#181)
+
+**Déployé** (`DEPLOY.md`, depuis `../AgentB2C-deploy` détaché sur `origin/main` e3194a1, arbre propre, pytest 3 801 passés / 2 skippés, 111 tests JS) : estampille `LANGFUSE_RELEASE=e3194a1` posée avec `--skip-deploys` sur les 3 services, puis `railway up --detach` : `hotel-search` SUCCESS 13:25:00Z, `concierge` 13:25:11Z, `widget` 13:25:24Z (lancés à quelques secondes d'intervalle ; fenêtre d'une à deux minutes où le nouveau widget a pu recevoir des réponses sans `suggestion_types`, sans effet visible). `faq` reste sur `b6f9402` (ni `agents/faq_agent` ni `libs/` modifiés).
+
+**Preuve** (tours synthétiques sur ai.dayuse.com) : page `agent-version=e3194a1`, bundle `/static/dist/chat.js?v=5d36705844ac`, `/readyz` → `ready` ; « a day room near Marina Bay today » (SG, 21:27 heure locale) → 5 hôtels pour le jour même, le plus proche à 1,6 km : des offres étaient encore ouvertes, donc ni annonce de lendemain ni puces, comme attendu. Le cas « jour fermé » (annonce en code + puces « Ce soir quand même », « Après-demain », « Pas de date précise ») n'a pas été provoqué en prod : il est prouvé par les tests et le rejeu de #181 (`replay_date_chips.md`), à vérifier sur les conversations réelles d'une soirée européenne.
+
+**Retour arrière** : `LANGFUSE_RELEASE=3a8a929` (`hotel-search`, `concierge`) et `554aa30` (`widget`) avec `--skip-deploys`, puis `railway up` de chaque service depuis le checkout détaché correspondant.
+
 ## 📅 2026-10-30 (ter) — Le lendemain dit en code, et ses puces de jour (branche `feat/date-chips-next-day-20261030`, sur `main` b981684)
 
 **Constat** : cartes servies au lendemain sans moyen simple d'en sortir. Cas 1 (jour fermé → lendemain,
