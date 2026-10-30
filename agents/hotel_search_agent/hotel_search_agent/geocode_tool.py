@@ -2543,6 +2543,8 @@ def geocode_location(
             return _marked_nearby(second, nearby)
         result = second
     spot = _canonical_landmark(args, zone_facts, locale=locale, language_hint=language_hint)
+    if spot is None:
+        spot = _carried_spot(args, profile_in, context)
     if spot is not None:
         return _marked_nearby(spot, nearby)
     # 2026-10-30: the city alone stands in for the spot only when it is the
@@ -2628,6 +2630,26 @@ def _canonical_landmark(
         )
     _metrics_logger.info("dayuse_metric=geocode_canonical_spot agent=b2c_hotel_search status=none")
     return None
+
+
+def _carried_spot(args: dict[str, Any], profile_in: dict[str, Any], context: dict[str, Any]) -> dict | None:
+    """The spot the previous turn placed, when the one asked now cannot be
+    placed and its name echoes it (replay 2026-10-30: « Arabellapark » found
+    on turn 1, « U-Bahn Station Arabellapark » on turn 2 found nowhere — the
+    honest question would have dropped the cards around the very spot the
+    user keeps naming). The echo guard on the two names, never a reading."""
+    zone = (args.get("zone") or "").strip()
+    carried = profile_in.get("zone")
+    if not zone or not isinstance(carried, str) or not carried.strip():
+        return None
+    carried = carried.strip()
+    if _comparable(carried) == _comparable(zone) or not _echoes(carried, city=None, zone=zone, state_hint=None):
+        return None
+    again = geocode_core(**{**args, "zone": carried, "zone_aliases": ()}, **context)
+    if not again.get("ok") or again.get("landmark_unresolved") or again.get("distance_origin_type") != "poi":
+        return None
+    _metrics_logger.info("dayuse_metric=geocode_carried_spot agent=b2c_hotel_search status=ok")
+    return again
 
 
 def _users_city(args: dict[str, Any], own: dict[str, Any], said: str, facts: Any = None) -> bool:

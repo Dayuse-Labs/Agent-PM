@@ -219,7 +219,9 @@ def prioritize_cards(tool_context: Any, cards: list[dict[str, Any]], ring_km: fl
     otherwise. Stable: equal prices keep their order."""
     if tool_context.state.get(STATE_PRIORITY_KEY) != "price" or len(cards) < 2:
         return cards
-    local = ring_km if ring_km and ring_km > 0 else LOCAL_FLOOR_KM
+    # The search's own ring is the local one when it is a spot's (2-10 km);
+    # a wide ring the user gave (« 50 km max ») keeps the local disc of a city.
+    local = ring_km if ring_km and 0 < ring_km <= 2 * LOCAL_FLOOR_KM else LOCAL_FLOOR_KM
 
     def price(card: dict[str, Any]) -> float:
         cents = card.get("price_eur_cents")

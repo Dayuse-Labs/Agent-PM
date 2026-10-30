@@ -141,3 +141,26 @@ def test_a_full_page_after_the_filters_makes_no_extra_call():
     tool = _Search(lambda args: {"total": 233, "results": CHEAP + [_gbp_hotel(30, 50)]})
     _turn(tool, _ctx(GBP_60), {"lat": 51.5, "lon": -0.12, "date": "2026-10-30", "from": 0})
     assert len(tool.calls) == 1
+
+
+def test_a_filling_page_never_adds_hotels_beyond_10_km():
+    from hotel_search_agent.response_bridge import _STATE_ANCHOR_KEY
+
+    def hotel(i, start, km):
+        h = _eur_hotel(i, 90, start, 23)
+        h.update(lat=37.37, lon=-122.03 + km / 88.3)
+        return h
+
+    page = [hotel(1, 13, 1.0), *(hotel(i, 8, 1.0) for i in range(2, 6))]
+    later = {5: [hotel(6, 13, 2.0), hotel(7, 13, 14.0)], 10: [hotel(8, 13, 25.0)]}
+    for h in [*later[5], *later[10]]:
+        h["offers"][0]["startHour"] = 13
+    for h in page[1:]:
+        h["offers"][0]["endHour"] = 12
+    tool = _Search(lambda args: {"total": 30, "results": page if not args.get("from") else later[args["from"]]})
+    ctx = _ctx({})
+    ctx.state[STATE_DAYPART_KEY] = "afternoon"
+    ctx.state[_STATE_ANCHOR_KEY] = {"latitude": 37.37, "longitude": -122.03, "type": "poi"}
+    cards = _turn(tool, ctx, {"lat": 37.37, "lon": -122.03, "date": "2026-10-30", "from": 0})
+
+    assert [card["name"] for card in cards] == ["Hotel 1", "Hotel 6"]

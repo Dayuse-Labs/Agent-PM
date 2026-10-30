@@ -30,6 +30,7 @@ from typing import Any
 
 from b2c_common.search_budget import converted_eur_cap
 
+from hotel_search_agent import geo_rank
 from hotel_search_agent.budget_injection import MCP_CAP_HEADROOM, STATE_BUDGET_RATE_KEY
 from hotel_search_agent.extra_calls import extra_call
 from hotel_search_agent.response_bridge import (
@@ -53,7 +54,8 @@ def _failed(tool_response: Any) -> bool:
     )
 
 
-def _calls(args: dict[str, Any], structured: dict[str, Any], budget: Any, state: Any) -> list[tuple[str, dict]]:
+def _calls(args: dict[str, Any], structured: dict[str, Any], budget: Any, tool_context: Any) -> list[tuple[str, dict]]:
+    state = tool_context.state
     currency = budget.get("currency") if isinstance(budget, dict) else None
     rate = budget.get("eur_per_unit") if isinstance(budget, dict) else None
     if currency not in (None, "EUR") and "priceRangeMax" not in args and isinstance(rate, Decimal):
@@ -62,7 +64,14 @@ def _calls(args: dict[str, Any], structured: dict[str, Any], budget: Any, state:
             state[STATE_BUDGET_RATE_KEY] = str(rate)
             capped = {key: value for key, value in args.items() if key != "from"}
             capped["priceRangeMax"] = float(int(Decimal(str(cap)) * MCP_CAP_HEADROOM * 100) / 100)
-            return [("budget", capped)]
+            calls: list[tuple[str, dict]] = [("budget", capped)]
+            # Around a city or a device fix, the capped search's local and
+            # core pages too (`geo_rank`): the centre's hotels within the cap.
+            qualified = geo_rank._qualifies(capped, tool_context)
+            if qualified is not None:
+                _lat, _lon, local_km, core_km = qualified
+                calls += [("budget", {**capped, "radiusKm": ring}) for _kind, ring in geo_rank._pages(capped, local_km, core_km)]
+            return calls
     page = structured.get("results") or []
     try:
         total = int(structured.get("total") or 0)
@@ -97,7 +106,7 @@ async def fill_filtered_page_after_tool(
     kept = normalize_search_results(structured, exclude, window, budget, comparison, party_total, room)
     if len(kept) >= MAX_RESULTS:
         return None
-    calls = _calls(args, structured, budget, state)
+    calls = _calls(args, structured, budget, tool_context)
     if not calls:
         return None
     for _kind, call_args in calls:
@@ -115,11 +124,37 @@ async def fill_filtered_page_after_tool(
             if kind == "budget":
                 total = payload.get("total") if isinstance(payload, dict) else None
     replace = calls[0][0] == "budget"
+    if not replace:
+        found = _near_enough(tool_context, found)
     _log(calls[0][0], started, len(kept), len(found))
     if not found:
         return None
     state[STATE_FILTER_PAGES_KEY] = {"results": found, "replace": replace, **({"total": total} if replace else {})}
     return None
+
+
+#: A hotel of a filling page farther than this from the search's point is
+#: not added (prod after #175: 13 % of lists with cards beyond 10 km were
+#: clicked, 33 % below): a fuller page is not worth far cards.
+FILL_MAX_KM = 10.0
+
+
+def _near_enough(tool_context: Any, hotels: list[Any]) -> list[Any]:
+    from hotel_search_agent.inventory import haversine_km
+    from hotel_search_agent.response_bridge import anchor_origin
+
+    origin = anchor_origin(tool_context)
+    if origin is None:
+        return hotels
+    _kind, lat, lon = origin
+    kept = []
+    for hotel in hotels:
+        h_lat, h_lon = (hotel.get("lat"), hotel.get("lon")) if isinstance(hotel, dict) else (None, None)
+        if (isinstance(h_lat, (int, float)) and isinstance(h_lon, (int, float))
+                and haversine_km(lat, lon, float(h_lat), float(h_lon)) > FILL_MAX_KM):
+            continue
+        kept.append(hotel)
+    return kept
 
 
 def _log(kind: str, started: float, kept: int, found: int) -> None:

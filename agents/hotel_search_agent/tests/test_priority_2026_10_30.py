@@ -51,11 +51,22 @@ def _cards() -> list[dict]:
             {"name": "Van Der Valk Nivelles", "distance_km": 21.9, "price_eur_cents": 10100}]
 
 
-def test_a_search_on_a_ring_the_user_gave_puts_the_cheapest_first():
+def test_a_wide_ring_the_user_gave_keeps_the_local_disc_first_then_the_cheapest():
+    """« ≤ 50 km »: the 5 km disc stays the first ring (the centre's Novotel),
+    then the cheapest of the nearby ring (Le Manoir, 68 €, before 75 €)."""
     ctx = SimpleNamespace(state={STATE_PRIORITY_KEY: "price"})
     cards = prioritize_cards(ctx, _cards(), 50.0)
-    assert cards[0]["name"] == "Le Manoir De Morimont"
-    assert [c["price_eur_cents"] for c in cards] == sorted(c["price_eur_cents"] for c in cards)
+    assert [c["name"] for c in cards] == [
+        "Novotel Centre", "Le Manoir De Morimont", "ibis Styles Airport", "Van Der Valk Airport", "Van Der Valk Nivelles",
+    ]
+
+
+def test_a_spots_ring_is_one_ring_ordered_by_price():
+    ctx = SimpleNamespace(state={STATE_PRIORITY_KEY: "price"})
+    near = [{"name": "A", "distance_km": 0.3, "price_eur_cents": 13300},
+            {"name": "B", "distance_km": 0.9, "price_eur_cents": 7000},
+            {"name": "C", "distance_km": 2.5, "price_eur_cents": 10200}]
+    assert [c["name"] for c in prioritize_cards(ctx, near, 5.0)] == ["B", "C", "A"]
 
 
 def test_no_priority_keeps_the_cards_as_they_are():

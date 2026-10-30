@@ -70,7 +70,7 @@ BRUSSELS = _c("Brussels", "Bruxelles, Région de Bruxelles-Capitale, Belgique", 
 #: Florida town too few for the tier (prod chose Kansas); Hamilton's hotels sit
 #: around the Dundas neighbourhood.
 INVENTORY = {37.567: 300, 37.45: 40, 37.505: 30, 27.962: 2, 27.907: 2, 45.419: 0,
-             44.005: 0, 42.858: 1, 43.268: 40, 22.279: 138, 50.855: 58}
+             44.005: 0, 42.858: 1, 43.268: 40, 22.279: 138, 50.855: 58, 48.137: 61, 48.153: 20}
 
 
 class _V6:
@@ -245,3 +245,29 @@ def test_a_district_nobody_places_in_a_city_the_user_named_is_the_city_said_as_s
 def test_without_a_city_the_wire_shape_of_a_question_is_unchanged():
     question = Clarification(kind="unresolved", subject="Ojai")
     assert "city" not in question.model_dump(mode="json")
+
+
+MUNICH = _c("Munich", "München, Bayern, Deutschland", "DE", "Bayern", lat=48.136973, lon=11.575968)
+ARABELLAPARK = _c("Arabellapark", "Arabellapark, 81925 München, Deutschland", "DE", "", ftype="poi",
+                  lat=48.15269343, lon=11.62100352)
+STATION = {  # C007 T2: the station of the spot placed on turn 1
+    "places": [{"mention": "U-Bahn Station arabellapark", "kind": "station", "canonical": "Arabellapark station",
+                "city": "Munich", "country": "DE", "city_inferred": True}],
+    "relation": "near", "carryover": "refine",
+}
+
+
+def test_a_spot_found_nowhere_whose_name_echoes_the_previous_one_keeps_it(geo):
+    """Replay 2026-10-30: turn 1 placed « Arabellapark »; turn 2's « U-Bahn
+    Station arabellapark » is found nowhere: the spot of turn 1, not a question
+    and not the centre of München."""
+    geo({("Arabellapark station, Munich", "DE"): [MUNICH], ("Munich", "DE"): [MUNICH],
+         ("Arabellapark, Munich", "DE"): [MUNICH]},
+        {"Arabellapark": [ARABELLAPARK]})
+
+    result = _run(STATION, "Es soll so zu Fuß 10minuten von der U-Bahn Station arabellapark sein",
+                  {"city": "Munich", "zone": "Arabellapark"}, locale="de")
+
+    assert result["ok"] is True
+    assert result["resolved_place"].startswith("Arabellapark")
+    assert result["distance_origin_type"] == "poi"
