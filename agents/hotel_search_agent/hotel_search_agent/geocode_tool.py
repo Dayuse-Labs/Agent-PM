@@ -2466,11 +2466,22 @@ def geocode_location(
     if geo.near_user and not (own.get("city") or own.get("zone") or own.get("postal_code")):
         return _near_user(proximity_lat, proximity_lon)
     offered = _default_place(args, read_query_params(tool_context), proximity_lat, proximity_lon)
+    # 2026-10-30 (prod after #175, 5 conversations: « Paris », « Wien »,
+    # « Dubai », « New York », « Istanbul » — the city chips of the place
+    # question — answered with « Sans ville indiquée, voici des hôtels à … »):
+    # the model sent no place, but the user's words ARE one of the cities the
+    # question offered. That city is searched, as named: no default, no note.
+    chosen = _chosen_chip(user_words, read_query_params(tool_context)) if offered is not None else None
+    if chosen is not None and offered is not None:
+        offered = (chosen, offered[1])
     if offered is not None:
         result = geocode_core(
             city=offered[0], country_code=offered[1], locale=locale, language_hint=language_hint,
             market_country=args.get("market_country"),
         )
+        if result.get("ok") and chosen is not None:
+            _metrics_logger.info("dayuse_metric=geocode_default_place agent=b2c_hotel_search status=chip")
+            return result
         if result.get("ok"):
             result["default_place"] = offered[0]
             # A city nobody named anchors no US state: the next place the user
@@ -2656,6 +2667,21 @@ def _default_place(
     if not isinstance(city, str) or not city.strip():
         return None
     return city.strip(), _iso2(offered.get("country_code"))
+
+
+def _chosen_chip(user_words: str, query_params: dict[str, Any]) -> str | None:
+    """The city chip of the place question the user's words are, whole
+    (`query_params.place_chips`, sent with `default_place`; the offered city
+    itself counts too), or None. An equality of the message with a label the
+    concierge offered — never a reading of the words."""
+    said = _comparable(user_words or "")
+    if not said:
+        return None
+    offered = query_params.get("default_place")
+    chips = [c for c in query_params.get("place_chips") or [] if isinstance(c, str)]
+    if isinstance(offered, dict) and isinstance(offered.get("city"), str):
+        chips.append(offered["city"])
+    return next((chip.strip() for chip in chips if _comparable(chip) == said), None)
 
 
 def _mark_landmark_unresolved(result: dict, zone: str) -> dict:

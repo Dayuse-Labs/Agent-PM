@@ -1578,6 +1578,8 @@ def capture_after_tool(
                     added["amenities"] = relaxed_keys
                 if "next_day" in steps:
                     added["offered_date"] = rescue.get("offered_date")
+                if "party" in steps and isinstance(rescue.get("party"), dict):
+                    added["party"] = rescue["party"]
                 tool_context.state[_STATE_RELAXATION_ADDED_KEY] = added
     # Prod session 1eb2430a: a thin first page is completed from the wider
     # search `completion.py` ran — its hotels AFTER the first page's.
@@ -1668,7 +1670,12 @@ def capture_after_tool(
         # model already emits adults/children ~78% of the turns they are stated;
         # until this capture existed nothing read them, so they never reached
         # the profile and could not survive to the next turn.
-        budget_timeslot.update(occupancy_from_args(args))
+        relaxed_party = isinstance(tool_context.state.get(_STATE_RELAXATION_ADDED_KEY), dict) and bool(
+            tool_context.state[_STATE_RELAXATION_ADDED_KEY].get("party")
+        )
+        if not relaxed_party:
+            # 2026-10-30: a party no offer here sleeps is not carried on.
+            budget_timeslot.update(occupancy_from_args(args))
         if isinstance(relax_applied, dict) and relax_applied.get("budget"):
             # The raised cap is this search's, never the profile's.
             budget_timeslot.pop("budget_max", None)

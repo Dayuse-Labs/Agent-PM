@@ -1138,3 +1138,20 @@ def service_degraded_response(language: str) -> str:
     inner degradation net, so the step that failed is unknown — generic
     honest wording, invents nothing, never a raw 500/dead stream."""
     return _pick(language, _SERVICE_DEGRADED)
+
+
+_PREVIOUS_CARDS: dict[str, str] = {
+    "fr": "Voici à nouveau les offres affichées juste avant.",
+    "en": "Here again are the offers shown just before.",
+    "es": "Aquí tienes de nuevo las ofertas mostradas justo antes.",
+    "it": "Ecco di nuovo le offerte mostrate poco fa.",
+    "de": "Hier noch einmal die zuvor angezeigten Angebote.",
+    "pt": "Aqui estão de novo as ofertas mostradas antes.",
+    "nl": "Hier zijn opnieuw de aanbiedingen van zonet.",
+}
+
+
+def previous_cards_notice(language: str) -> str:
+    """2026-10-30: a criterion emptied the list on the same place and day;
+    the previous cards are shown again, and the answer says so."""
+    return _pick(language, _PREVIOUS_CARDS)

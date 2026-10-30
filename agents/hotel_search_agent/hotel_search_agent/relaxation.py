@@ -266,8 +266,13 @@ def _relaxed_amenities(state: Any) -> tuple[list[str], list[str]]:
 
 def plan_steps(args: dict[str, Any], state: Any) -> list[str]:
     """The applicable steps, in order (most saving first), from the arguments
-    actually sent."""
+    actually sent. 2026-10-30: the party first — « 18+ » read as 18 adults
+    (prod after #175) emptied 8 turns in a row; no relaxed ring nor slot can
+    host a party no room on the market sleeps, and the cards without it say
+    so, with a closed question (`party` on the rescue)."""
     steps: list[str] = []
+    if args.get("adults") or args.get("children"):
+        steps.append("party")
     if args.get("hotelEquipmentIds") and _relaxed_amenities(state)[0]:
         steps.append("amenities")
     if next_radius_km(args) is not None:
@@ -279,6 +284,9 @@ def plan_steps(args: dict[str, Any], state: Any) -> list[str]:
 
 def relaxed_args(args: dict[str, Any], steps: list[str], state: Any) -> dict[str, Any]:
     relaxed = {key: value for key, value in args.items() if key != "from"}
+    if "party" in steps:
+        relaxed.pop("adults", None)
+        relaxed.pop("children", None)
     if "timeslot" in steps:
         relaxed.pop("timeSlot", None)
         relaxed.pop("timeSlotMode", None)
@@ -374,8 +382,25 @@ async def rescue_empty_search_after_tool(
         rescue["amenities"] = _relaxed_amenities(state)[0]
     if "next_day" in used:
         rescue["offered_date"] = sent.get("date")
+    if "party" in used:
+        rescue["party"] = {
+            "adults": args.get("adults"), "children": args.get("children"),
+            "max_capacity": max_capacity(found.get("results")),
+        }
     state[STATE_RESCUE_KEY] = rescue
     return None
+
+
+def max_capacity(hotels: Any) -> int | None:
+    """The most people one offer of these hotels sleeps (MCP's `capacity`),
+    or None when no offer says."""
+    capacities = [
+        offer.get("capacity")
+        for hotel in hotels or [] if isinstance(hotel, dict)
+        for offer in hotel.get("offers") or [] if isinstance(offer, dict)
+    ]
+    counts = [c for c in capacities if isinstance(c, int) and not isinstance(c, bool) and c > 0]
+    return max(counts) if counts else None
 
 
 def _log(status: str, started: float, calls: int, steps: int) -> None:

@@ -70,6 +70,55 @@ _NEXT_DAY: dict[str, str] = {
     "fr": "la date ({day})", "en": "the date ({day})", "es": "la fecha ({day})", "it": "la data ({day})",
     "de": "das Datum ({day})", "pt": "a data ({day})", "nl": "de datum ({day})",
 }
+#: 2026-10-30: the party the search was filtered on (« 18+ » read as 18
+#: adults, prod after #175): no offer here sleeps it.
+_PARTY: dict[str, str] = {
+    "fr": "le nombre de personnes", "en": "the number of guests", "es": "el número de personas",
+    "it": "il numero di persone", "de": "die Personenzahl", "pt": "o número de pessoas",
+    "nl": "het aantal personen",
+}
+#: The closed question that follows: is the party really that size?
+_PARTY_CHECK: dict[str, str] = {
+    "fr": "Vous êtes bien {count} personnes ?",
+    "en": "Just to check: are you really {count} people?",
+    "es": "¿De verdad son {count} personas?",
+    "it": "Siete davvero {count} persone?",
+    "de": "Seid ihr wirklich {count} Personen?",
+    "pt": "São mesmo {count} pessoas?",
+    "nl": "Zijn jullie echt met {count} personen?",
+}
+_PARTY_MAX: dict[str, str] = {
+    "fr": "Les offres trouvées ici accueillent au plus {max} personnes par chambre.",
+    "en": "The offers found here sleep at most {max} people per room.",
+    "es": "Las ofertas encontradas aquí admiten como máximo {max} personas por habitación.",
+    "it": "Le offerte trovate qui ospitano al massimo {max} persone per camera.",
+    "de": "Die hier gefundenen Angebote sind für höchstens {max} Personen pro Zimmer.",
+    "pt": "As ofertas encontradas aqui acomodam no máximo {max} pessoas por quarto.",
+    "nl": "De gevonden aanbiedingen hier zijn voor maximaal {max} personen per kamer.",
+}
+
+
+def party_check(relaxation: Any, language: str, max_capacity: Any = None) -> str:
+    """The closed question after a search whose party no offer sleeps
+    (`party` on the leaf's rescue, or a count the code refused): « Les offres
+    trouvées ici accueillent au plus 4 personnes par chambre. Vous êtes bien
+    18 personnes ? ». Empty when there is no such party."""
+    party = relaxation.get("party") if isinstance(relaxation, dict) else None
+    if not isinstance(party, dict):
+        return ""
+    count = sum(v for v in (party.get("adults"), party.get("children"))
+                if isinstance(v, int) and not isinstance(v, bool))
+    if count <= 0:
+        return ""
+    lang = _lang(language)
+    most = party.get("max_capacity", max_capacity)
+    lead = (
+        _PARTY_MAX[lang].format(max=most)
+        if isinstance(most, int) and not isinstance(most, bool) and 0 < most < count else ""
+    )
+    return " ".join(part for part in (lead, _PARTY_CHECK[lang].format(count=count)) if part)
+
+
 _REMOVED_AMENITIES: dict[str, str] = {
     "fr": "J'ai retiré le filtre {names}.", "en": "I removed the filter for {names}.",
     "es": "He quitado el filtro {names}.", "it": "Ho rimosso il filtro {names}.",
@@ -200,7 +249,9 @@ def relaxation_line(
     steps = [step for step in relaxation.get("steps") or [] if isinstance(step, str)]
     items: list[str] = []
     for step in steps:
-        if step == "timeslot":
+        if step == "party":
+            items.append(_PARTY[lang])
+        elif step == "timeslot":
             items.append(_TIMESLOT[lang])
         elif step == "amenities":
             names = _names(relaxation.get("amenities"), lang)

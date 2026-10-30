@@ -196,7 +196,7 @@ from .profile import (
 from .profile_store import get_profile_store
 from .requested_date import date_served_notice, expected_search_date, mentions_a_date, reference_today
 from .no_offers import drop_restated, no_offers_line
-from .relaxation_notice import clicked_relax_chip, relaxation_line, relaxation_note
+from .relaxation_notice import clicked_relax_chip, party_check, relaxation_line, relaxation_note
 from .window_guard import enforce_window_disclosure, enforce_window_match, window_label
 from .routing import LEAF_FAQ, LEAF_HOTEL_SEARCH, ROUTES, bearer_token, card_url
 from .turn_deadline import (
@@ -698,6 +698,33 @@ def search_signature(search_context: Any) -> str | None:
     return json.dumps(kept, sort_keys=True, ensure_ascii=False, default=str)
 
 
+def same_place_and_day(before: str | None, now: str | None) -> bool:
+    """Two searches (`search_signature`) on the same place and day: only a
+    criterion changed."""
+    try:
+        a, b = json.loads(before or "null"), json.loads(now or "null")
+    except ValueError:
+        return False
+    if not isinstance(a, dict) or not isinstance(b, dict) or not a.get("city") and not a.get("zone"):
+        return False
+    return all(a.get(key) == b.get(key) for key in ("city", "zone", "date"))
+
+
+def cards_from_shortlist(entries: list[dict[str, Any]] | None) -> list[dict[str, Any]]:
+    """The cards of the shortlist kept in the profile (`record_search_shortlist`),
+    in the leaf's card shape, to show them again."""
+    cards: list[dict[str, Any]] = []
+    for entry in entries or []:
+        if not isinstance(entry, dict) or not entry.get("name"):
+            continue
+        card = {k: v for k, v in entry.items() if k not in ("start_time", "end_time")}
+        card.setdefault("id", entry.get("hotel_id"))
+        if entry.get("start_time") and entry.get("end_time"):
+            card["timeslots"] = [{"start": entry["start_time"], "end": entry["end_time"]}]
+        cards.append(card)
+    return cards
+
+
 def completed_note(completion: Any, shown: int, cards: list[dict[str, Any]] | None = None) -> str:
     """Prod session 1eb2430a: the leaf completed a thin first page from a wider
     search (its `completion.py`). The last `added` cards came from it, nearest
@@ -1148,6 +1175,11 @@ class _B2cConcierge(BaseAgent):
                     response.get("completion"), len(shortlist_hotels(response)), shortlist_hotels(response)
                 ),
                 relaxation_note(response.get("relaxation")),
+                (
+                    "NO offer matched THIS search: the cards are the PREVIOUS list, shown again "
+                    "under a sentence saying so. Never present them as matching what changed."
+                    if response.get("previous_cards") else ""
+                ),
             ))),
         )
 
@@ -2132,6 +2164,9 @@ class _B2cConcierge(BaseAgent):
             # a second bare question while the market can show something.
             leaf_kwargs["query_params"] = {
                 **(leaf_kwargs.get("query_params") or {}), "default_place": fallback_place,
+                # 2026-10-30: the city chips the question offered — a reply
+                # that IS one of them names that city (`geocode_tool._chosen_chip`).
+                "place_chips": market_cities(profile.entry_market_country),
             }
         context_text: str | None = None
         if route.target == LEAF_HOTEL_SEARCH and pending_clar is not None:
@@ -2416,6 +2451,17 @@ class _B2cConcierge(BaseAgent):
                 with observation(as_type="guardrail", name="refinement-unchanged"):
                     mark_level("WARNING", status_message="refinement_unchanged")
                     budget.fired.add("refinement_unchanged")
+            if (
+                results_count == 0 and not more_options and shown_before
+                and same_place_and_day(searched_before, profile.last_search_signature)
+            ):
+                # 2026-10-30 (prod after #175: « 18+ », « am besten », « 250 »
+                # read as filters, then 0 card): a criterion that empties the
+                # list on the same place and day never takes the cards away —
+                # the previous ones stay, said as such, under the « aucune
+                # offre » line of the search that ran.
+                response["results"] = cards_from_shortlist(profile.last_results)
+                response["previous_cards"] = True
             if more_options and results_count == 0:
                 # S-G5: pagination pool exhausted for the CURRENT filters (the
                 # leaf already excluded shown_hotel_ids before returning) —
@@ -2558,6 +2604,25 @@ class _B2cConcierge(BaseAgent):
 
         synth: str | None
         free_question: str | None = None
+        # 2026-10-30 (prod after #175: « 18+ » read as 18 adults, 8 empty
+        # turns; « 250 » read as 250 people): a party no offer here sleeps —
+        # the leaf showed the cards without it (`party` on its rescue), or the
+        # triage's count was refused — ends on ONE closed question, in code,
+        # and is not carried to the next search.
+        party_question = ""
+        if route.target == LEAF_HOTEL_SEARCH:
+            party_question = party_check(response.get("relaxation"), reply_language)
+            if not party_question and triage.occupancy_out_of_range and response.get("results"):
+                party_question = party_check(
+                    {"party": {"adults": triage.occupancy_out_of_range}}, reply_language,
+                    max_capacity=max(
+                        (c["capacity"] for c in response["results"]
+                         if isinstance(c, dict) and isinstance(c.get("capacity"), int)),
+                        default=None,
+                    ),
+                )
+            if party_question:
+                profile.adults = profile.children = profile.pending_party_total = None
         if route.target == LEAF_HOTEL_SEARCH and profile.pending_party_total is not None and response.get("results"):
             # PORT1 slice 5: the cards show the exact offers; no prose may
             # claim group eligibility or guess a composition — no synthesis.
@@ -2582,7 +2647,10 @@ class _B2cConcierge(BaseAgent):
                 # 2026-10-29: the FAQ answer is followed by the place question,
                 # the one question of the turn.
                 unchanged=unchanged,
-                no_question=_PLACE_FOLLOWUP_NOTE if faq_place_followup else ask_nothing,
+                no_question=(
+                    _PLACE_FOLLOWUP_NOTE if faq_place_followup
+                    else True if party_question else ask_nothing
+                ),
             )
             # QA14707 (Q27): a follow-up question only the synthesis asks is
             # still what a bare "oui" answers; the leaf's own line wins.
@@ -2597,6 +2665,8 @@ class _B2cConcierge(BaseAgent):
             profile.last_clarifying_question = None if ask_nothing else free_question
         if budget_followup:
             profile.last_clarifying_question = budget_followup  # what a bare "80" answers
+        if party_question:
+            profile.last_clarifying_question = party_question
         if route.target == LEAF_HOTEL_SEARCH:
             # The request stays open after a corrected turn (EARLIER REQUEST,
             # no YOU ASKED), and that turn still counts as one more ask.
@@ -2632,6 +2702,8 @@ class _B2cConcierge(BaseAgent):
                 templates.named_hotel_not_found_notice(named_not_found, reply_language, profile.city)
                 + f"\n\n{final_text}"
             )
+        if no_offers and response.get("previous_cards"):
+            no_offers = f"{no_offers} {templates.previous_cards_notice(reply_language)}"
         if no_offers:
             rest = drop_restated(final_text, no_offers)
             final_text = f"{no_offers}\n\n{rest}" if rest else no_offers
@@ -2699,6 +2771,8 @@ class _B2cConcierge(BaseAgent):
             )
         if currency_notice:
             final_text = f"{final_text.rstrip()}\n\n{currency_notice}"
+        if party_question:
+            final_text = f"{final_text.rstrip()}\n\n{party_question}"
         if faq_place_followup:
             # 2026-10-29 (prod: « How discreet is the booking? », a dayuse.com
             # chip, answered and left there, 3 rebounds; agent-usa: « Sure — a
