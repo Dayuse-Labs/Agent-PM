@@ -209,6 +209,9 @@ _STATE_RELAXATION_ADDED_KEY = "temp:hotel_search_relaxation_added"
 STATE_RELAX_REQUEST_KEY = "temp:hotel_search_relax_request"
 STATE_RELAX_APPLIED_KEY = "temp:hotel_search_relax_applied"
 STATE_AMENITIES_MUST_HAVE_KEY = "temp:hotel_search_amenities_must_have"
+#: 2026-10-30: what the user put first, read by the model (`priority` on
+#: search_offers, `relaxation.read_relax_request`): "price" or None.
+STATE_PRIORITY_KEY = "temp:hotel_search_priority"
 STATE_NEXT_DAY_PROBED_KEY = "temp:hotel_search_next_day_probed"
 # S-G4 per-phase instrumentation: dayuse_agent_common's tool_timing_before/after
 # already emit a `dayuse_metric=tool_call tool=geocode_location` / `tool=search_offers`
@@ -1657,6 +1660,16 @@ def capture_after_tool(
                 # come nearest first from MCP already).
                 results[:first_page] = sorted(
                     results[:first_page], key=lambda card: card.get("distance_km", math.inf)
+                )
+            from hotel_search_agent.geo_rank import STATE_GEO_RANK_KEY, prioritize_cards
+
+            if not isinstance(tool_context.state.get(STATE_GEO_RANK_KEY), dict):
+                # 2026-10-30: what the user put first, inside each ring, for a
+                # search `geo_rank` did not rank (it orders its own pool).
+                ring = args.get("radiusKm")
+                results[:first_page] = prioritize_cards(
+                    tool_context, results[:first_page],
+                    float(ring) if isinstance(ring, (int, float)) and not isinstance(ring, bool) else None,
                 )
         # The search ran at the geocoded coordinates, so the geocoded country is
         # a legitimate attribute of ITS results (a server-sent countryCode always

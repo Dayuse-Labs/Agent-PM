@@ -32,10 +32,20 @@ def test_the_model_sees_a_closed_enum():
 
 
 def test_upscale_is_four_and_five_stars():
-    ctx, args = _ctx(), {"standing": "upscale"}
+    ctx, args = _ctx(), {"standing": "upscale", "standing_evidence": "très classe"}
     enforce_standing(_SEARCH, args, ctx)
     assert args == {"starRatings": [4, 5]}
     assert ctx.state[STATE_STANDING_KEY] == "upscale"
+
+
+def test_a_standing_without_the_users_words_for_it_is_not_applied():
+    """2026-10-30 (prod after #175, « a spa like hotel … under £70 »): 4-5★
+    added by the model, 0 card in 4 turns. Unquoted or misquoted: none."""
+    for evidence in (None, "", "spa like hotel and luxury"):
+        ctx, args = _ctx(), {"standing": "upscale", "standing_evidence": evidence}
+        enforce_standing(_SEARCH, args, ctx)
+        assert "starRatings" not in args and "standing_evidence" not in args
+        assert ctx.state[STATE_STANDING_KEY] == ""
 
 
 def test_it_is_carried_from_the_profile():

@@ -69,6 +69,7 @@ from hotel_search_agent.response_bridge import (
     STATE_NEARBY_KEY,
     STATE_NEXT_DAY_PROBED_KEY,
     STATE_PREFERRED_AMENITIES_KEY,
+    STATE_PRIORITY_KEY,
     STATE_RELAX_APPLIED_KEY,
     STATE_RELAX_REQUEST_KEY,
     STATE_RESCUE_KEY,
@@ -121,6 +122,21 @@ _MUST_HAVE_PROPERTY: dict[str, Any] = {
 }
 
 
+#: 2026-10-30 (prod after #175: « le moins cher » left the cheapest card 3rd
+#: to 5th): what the user puts first. The code orders by it inside each ring
+#: of distance (`geo_rank.rank_pool`, `geo_rank.prioritize_cards`).
+PRIORITIES = ("price",)
+_PRIORITY_PROPERTY: dict[str, Any] = {
+    "type": "string",
+    "enum": list(PRIORITIES),
+    "description": (
+        "'price' ONLY when THIS request asks for the cheapest or the lowest price as "
+        "what matters most ('le moins cher', 'the cheapest', 'as cheap as possible', "
+        "'pas cher'). Omit it otherwise (a stated amount goes in priceRangeMax)."
+    ),
+}
+
+
 def inject_relaxation_declaration(callback_context: Any, llm_request: Any) -> None:
     """`before_model_callback`, after `inject_amenities_declaration`: adds the
     virtual `relax` and `amenities_must_have` params to search_offers. Same
@@ -137,6 +153,7 @@ def inject_relaxation_declaration(callback_context: Any, llm_request: Any) -> No
             properties = widened.setdefault("properties", {})
             properties["relax"] = copy.deepcopy(_RELAX_PROPERTY)
             properties["amenities_must_have"] = copy.deepcopy(_MUST_HAVE_PROPERTY)
+            properties["priority"] = copy.deepcopy(_PRIORITY_PROPERTY)
             decl.parameters_json_schema = widened
             return None
     return None
@@ -152,8 +169,10 @@ def read_relax_request(tool: Any, args: dict[str, Any], tool_context: Any) -> No
     the nearby flag the ring reads."""
     relax = args.pop("relax", None)
     must_have = args.pop("amenities_must_have", None)
+    priority = args.pop("priority", None)
     if getattr(tool, "name", "") != "search_offers":
         return None
+    tool_context.state[STATE_PRIORITY_KEY] = priority if priority in PRIORITIES else None
     actions = [relax] if relax in RELAX_ACTIONS else []
     chip = read_query_params(tool_context).get("relax")
     if chip in RELAX_ACTIONS and chip not in actions:

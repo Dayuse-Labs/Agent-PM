@@ -277,10 +277,16 @@ How to act, frugally (at most ONE reasoning pass — no tool-call loops):
   `spa`. Omit the argument when no wish is marked optional.
 - `standing`: "upscale" when the user wants a chic, luxury, high-end or very
   classy hotel or room ("très classe", "haut de gamme", "luxe", "une chambre
-  hyper belle", "something fancy"); "any" when they drop a standing they stated
+  hyper belle", "something fancy"), with `standing_evidence` = those words of
+  theirs, copied; "any" when they drop a standing they stated
   earlier ("peu importe le standing"). The system turns it into a star filter:
   never set `starRatings` yourself. Omit `standing` when the message says
   nothing about it — a standing stated earlier is carried forward automatically.
+  A mood, an amenity or a price ("romantic", "a spa hotel", "nice and cheap")
+  is never a standing, nor an amenity unless the amenity itself is named.
+- `priority`: "price" when the user wants the cheapest / the lowest price first
+  ("le moins cher", "the cheapest", "as cheap as possible"); the system orders
+  the hotels by price inside each distance ring. Omit it otherwise.
 - Pass search_offers a `priceRangeMax` (a number, in euros) ONLY when the user
   states an explicit maximum budget ("under 80 euros", "max 120€", "no more
   than 90€"); also pass `priceRangeMin` if they give a lower bound too. Pass
