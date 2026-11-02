@@ -3,9 +3,9 @@ named — a fragment of a date or an hour (« 08 » of « 08.11.26 », « 11.11.
 « 9 /13 »), a distance (« à 25 minutes » → 25), a place (« Singapore »,
 « près de moi » → 1) — and the composition question went out with no card.
 
-Two facts about the model's output, no reading of the message: the model says
-first, as a typed yes/no (`names_people`), whether the message names people;
-and a quote made of digits and punctuation alone names no one.
+The model says first, as a typed yes/no (`names_people`), whether the message
+names people; the code only checks facts about its output (the quote is in the
+message, and is not itself a date) — it never judges the words.
 """
 import pytest
 
@@ -20,10 +20,17 @@ from b2c_concierge.triage import _grounded_occupancy, _occupancy_out_of_range
     ("adesso, 2 di notte del 2 novembre", 2, "2"),
     ("18+", 18, "18+"),
 ])
-def test_a_quote_without_a_word_is_no_party_even_when_the_model_says_people(message, total, evidence):
-    raw = {"names_people": True, "adults": None, "children": None, "total": total, "evidence": evidence}
+def test_the_models_no_on_a_date_or_an_hour_is_final(message, total, evidence):
+    # The code never judges the words: the model's typed answer decides
+    # (measured on real annotated messages, HANDOFF 2026-11-02).
+    raw = {"names_people": False, "adults": None, "children": None, "total": total, "evidence": evidence}
     assert _grounded_occupancy(raw, message) is None
     assert _occupancy_out_of_range({**raw, "total": 99}, message) is None
+
+
+def test_a_quote_that_is_a_date_is_still_no_party():
+    raw = {"names_people": True, "total": 7, "evidence": "7 novembre"}
+    assert _grounded_occupancy(raw, "Samedi 7 novembre") is None
 
 
 @pytest.mark.parametrize("message,total,evidence", [

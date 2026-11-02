@@ -751,9 +751,10 @@ async def classify(message: str, budget: TurnBudget, invocation_id: str = "",
 
 
 def _party_quote(raw: Any, message: str) -> bool:
-    """Whether the model's quote can state a party: present in the message,
-    not itself a date, and naming someone — facts about the quote, the model
-    keeps reading the message."""
+    """Whether the model's party statement can be applied: the model says, as
+    a typed yes/no, that the message names people, and its quote is in the
+    message and is not itself a date (a strict format the code parses). The
+    model reads the message; the code never judges the words."""
     if not isinstance(raw, dict):
         return False
     # 2026-11-02 (prod after #179): the model filled the slot on nearly every
@@ -769,14 +770,7 @@ def _party_quote(raw: Any, message: str) -> bool:
     # Replay 2026-10-29 (« Samedi 7 novembre » → evidence « 7 novembre »,
     # total 7): a quote that is itself a date is a day, not a party. Checked
     # with the concierge's own date parser on the model's quote.
-    if parse_requested_date(evidence, date.today()) is not None:
-        return False
-    # Prod 2026-10-30 → 11-02 (after #179): the model quoted a fragment of a
-    # date or an hour — « 08 » of « 08.11.26 », « 11.11. », « 9 /13 », the
-    # « 2 » of « 2 di notte » — and the party question went out with no card.
-    # A quote made of digits and punctuation alone names no one, in any
-    # language (« 2 personnes », « zu zweit », « 二人 » all carry a letter).
-    return any(ch.isalpha() for ch in evidence)
+    return parse_requested_date(evidence, date.today()) is None
 
 
 def _grounded_occupancy(raw: Any, message: str) -> dict[str, int] | None:
