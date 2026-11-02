@@ -1,0 +1,25 @@
+{"id": "none-de-date-dotted", "message": "Das Datum ist der 11.11.", "recent_messages": ["Suche ein Tageshotel ab 8 Uhr bis 15 Uhr mit Sauna bei Stuttgart", "Umkreis bis ca. 50 km erweitern"], "previous_question": null, "expect": null}
+{"id": "none-de-date-short", "message": "Trier Zentrum am 08.11.26", "recent_messages": ["am 08.11.26 ab 11 Uhr", "Trier Zentrum"], "previous_question": null, "expect": null}
+{"id": "none-en-hour", "message": "From 4pm", "recent_messages": ["A hotel halfway between Newark and Trenton, NJ", "I need something for a later departure"], "previous_question": null, "expect": null}
+{"id": "none-it-time-range", "message": "9/13 domattina c'è?", "recent_messages": ["Mi serve una camera matrimoniale domattina dalle 9.30 alle 12.30, quanto costa?"], "previous_question": null, "expect": null}
+{"id": "none-es-hour-onward", "message": "Puede ser de 18 en adelante, aunque sea desde temprano", "recent_messages": ["Llego al aeropuerto de Los Ángeles a las 10:30 y quisiera un hotel", "Que sea hasta las 6 y con shuttle del aeropuerto"], "previous_question": null, "expect": null}
+{"id": "none-es-duration", "message": "Quiero ir 3 horas a un hotel por la tarde, de 18 a 21h", "recent_messages": null, "previous_question": null, "expect": null}
+{"id": "none-it-duration", "message": "Di notte, tipo 3 ore", "recent_messages": null, "previous_question": null, "expect": null}
+{"id": "none-fr-distance", "message": "Lausanne et 30km", "recent_messages": ["Piscine intérieure incluse"], "previous_question": "D'accord — une chambre avec piscine intérieure. Dans quelle ville cherchez-vous ?", "expect": null}
+{"id": "none-en-age", "message": "A hotel in Miami tomorrow, we are all 21 and over", "recent_messages": null, "previous_question": null, "expect": null}
+{"id": "none-en-duration", "message": "I need a room for 5 hours in Chicago tomorrow", "recent_messages": null, "previous_question": null, "expect": null}
+{"id": "none-fr-hour", "message": "À Lyon demain à partir de 14h", "recent_messages": null, "previous_question": null, "expect": null}
+{"id": "none-de-time-range", "message": "Morgen von 10 bis 16 Uhr in Köln", "recent_messages": null, "previous_question": null, "expect": null}
+{"id": "party-fr-total", "message": "Nous sommes 3, un hôtel à Paris demain après-midi", "recent_messages": null, "previous_question": null, "expect": 3}
+{"id": "party-en-split", "message": "Two adults and a child, a hotel in London tomorrow", "recent_messages": null, "previous_question": null, "expect": 3}
+{"id": "party-de-total", "message": "Wir sind zu viert, Tageshotel in München morgen", "recent_messages": null, "previous_question": null, "expect": 4}
+{"id": "party-es-total", "message": "Para dos personas, un hotel en Madrid mañana", "recent_messages": null, "previous_question": null, "expect": 2}
+{"id": "party-it-total", "message": "Siamo in 5, un hotel a Roma domani", "recent_messages": null, "previous_question": null, "expect": 5}
+{"id": "party-pt-split", "message": "Somos 2 adultos e 2 crianças, hotel em Lisboa amanhã", "recent_messages": null, "previous_question": null, "expect": 4}
+{"id": "party-nl-total", "message": "We zijn met z'n tweeën, hotel in Amsterdam morgen", "recent_messages": null, "previous_question": null, "expect": 2}
+{"id": "party-en-couple", "message": "For my wife and me, a day room in Chicago tomorrow", "recent_messages": null, "previous_question": null, "expect": 2}
+{"id": "party-fr-people", "message": "Pour 4 personnes à Marseille samedi", "recent_messages": null, "previous_question": null, "expect": 4}
+{"id": "party-en-answer", "message": "2 adults 1 child", "recent_messages": ["We are 3, a hotel in Boston tomorrow"], "previous_question": "Of these 3 guests, how many are adults and how many are children?", "expect": 3}
+{"id": "party-fr-alone", "message": "Je suis seule, un hôtel à Lyon demain", "recent_messages": null, "previous_question": null, "expect": 1}
+{"id": "party-es-with-hours", "message": "Somos 3 personas, de 14 a 18h en Barcelona", "recent_messages": null, "previous_question": null, "expect": 3}
+{"id": "party-it-with-hours", "message": "3 persone, dalle 10 alle 13 a Milano domani", "recent_messages": null, "previous_question": null, "expect": 3}
