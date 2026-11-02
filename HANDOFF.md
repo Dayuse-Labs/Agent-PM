@@ -6,6 +6,59 @@
 
 > 📋 **Pour savoir QUOI faire ensuite, ouvrir [`CHANTIERS.md`](CHANTIERS.md)** (état vérifié au 2026-09-14) : la liste des chantiers ouverts, chacun avec sa preuve, ses actions et un prompt prêt à coller — plus la liste de ce qu'il ne faut **pas** relancer parce que c'est déjà livré. `tasks/todo.md` est périmé et ne doit plus servir de référence.
 
+## 👥 2026-11-02 — Un nombre n'est un groupe que s'il compte des personnes (branche `fix/party-size-misreads-20261102`)
+
+**Constat** (audit prod du 2026-11-02, Langfuse) :
+- Depuis #173, **les 10 questions « combien d'adultes et d'enfants ? » posées étaient fausses**, dont 7 sur `e3194a1`, donc après #179. Chacune finissait le tour sur 0 carte.
+- Le triage avait cité comme preuve : « 11.11. » et « 08 » (des dates) ; « From 4pm », « 9 /13 » et « de 18 en adelante » (des heures) ; « 3 horas » et « 3 » (des durées) ; « 30km » (une distance).
+- La phrase « votre groupe de 1 personnes… » est sortie 8 fois. Sur les rejeux, sa source est « Madrid », « Monaco » ou « Un hôtel » lus comme 1 personne.
+- Deux causes :
+  - `_grounded_occupancy` accepte un compte dont la citation est dans le message et n'est pas une date ;
+  - un total à répartition inconnue vide la page par le filtre de capacité de la feuille, puis le concierge répond par la question de composition, sans carte, à chaque tour.
+
+**Fait** :
+1. **Triage** (`triage.py`) : `requested_occupancy` porte `counts` (`people` | `time` | `duration` | `day` | `distance` | `age` | `other`), ce que compte le nombre cité. La clé est omise quand le message ne donne aucun nombre de personnes. `_party_quote_ok` (partagé avec `_occupancy_out_of_range`) exige :
+   - `counts == "people"` (absent = refusé) ;
+   - une citation présente dans le message, avec au moins une lettre (« 08 », « 9 /13 », « 11.11. » ne disent pas ce qu'ils comptent) ;
+   - une citation qui n'est pas une date (comme avant).
+2. **Décisions (code)** :
+   - Un total de 1 = 1 adulte, 0 enfant (`resolve_party_update`), rien à demander.
+   - `asks_composition(total)` = 3 ou plus (`party_discovery.py`). À 2, le filtre de capacité reste et la synthèse est normale ; la répartition n'est demandée qu'avant un lien de réservation (R9, inchangé).
+   - Feuille (`response_bridge.py`) : quand le filtre de capacité vide seul la page, elle est servie sans lui, avec la relaxation `party: {total, max_capacity}`. Le concierge finit alors sur la question fermée de #179 (« Les offres trouvées ici accueillent au plus 2 personnes par chambre. Vous êtes bien 3 personnes ? ») et oublie le total.
+   - La recherche citée dit « pour 3 personnes » (`no_offers._PEOPLE`, jamais « adultes »).
+   - La branche « page vide + question de composition » d'`agent.py` est supprimée.
+3. **Mesure** : `scripts/measure_party_reading.py`, sur la vraie `classify()`, avec la fixture `evals/party_reading_inputs.jsonl` et un mode `compare` contre `evals/triage_inputs.jsonl`.
+
+**Preuves** :
+- pytest 3 824 passés / 2 skippés, ruff, mypy et guardrails OK.
+- Contre-épreuve : 20 tests nouveaux rouges sur les sources de `origin/main`. 6 témoins verts : les vrais groupes gardés, la question avant réservation, le filtre gardé quand une chambre convient.
+- Mesures live, sur luna, le modèle de triage de prod :
+
+  | Mesure | `main` | Branche |
+  |---|---|---|
+  | 8 entrées de prod exactes, rejouées depuis Langfuse (5 tirages) : faux groupes | 10/40 | **0/40** |
+  | Correction « für 2 Personen » | 5/5 | 5/5 |
+  | Fixture, formes qui ne sont pas un groupe | 34/36 | 36/36 |
+  | Fixture, vrais groupes en 7 langues | 39/39 | 39/39 |
+  | 114 entrées du triage : famille ou langue changée | — | 0 |
+
+- Local réel (Redis :6390) :
+  - « Lausanne et 30km » après la question de lieu : cartes, aucune question de groupe ;
+  - « Nous sommes 3 » à Paris : 5 cartes, la recherche citée « pour 3 personnes » et la question fermée ;
+  - « Je suis seule » : synthèse normale ;
+  - « From 4pm » : cartes.
+
+**Pièges** :
+- Une 1re version du prompt (liste d'exemples longue, surtout en espagnol) répondait en espagnol à « un hotel demain avec spa » (2 tirages sur 3) et lisait « vale » comme `ack`. Toute retouche de ce prompt se mesure avec `compare` sur les 114 entrées.
+- Hors contexte, les formes de prod ne reproduisent presque pas l'erreur (2/36 sur `main`). Il faut rejouer les entrées exactes : message, messages récents et question précédente, tirés de la génération de triage dans Langfuse. Elles sont gardées hors dépôt, car ce sont des messages d'utilisateurs.
+- zsh ne découpe pas `$VAR` en mots : `git stash push -- $SRC` n'a rien remisé. Utiliser un tableau, `"${SRC[@]}"`.
+
+**Reste** :
+- Revue (Fabien).
+- Déploiement de `hotel-search` et `concierge` (`b2c_common` touché : `party_update.py`, `party_discovery.py` ; `faq` non concernée).
+- Prouver en prod : 0 `template:party_clarification` sur 0 carte en 48 h.
+- Hors sujet, vu au passage : « From 4pm » dans une session française reçoit une réponse en anglais (langue d'un message court, CHANTIERS P4).
+
 ## 🚀 2026-10-30 (quater) — `hotel-search`, `concierge` et `widget` déployés sur `e3194a1` (#181)
 
 **Déployé** (`DEPLOY.md`, depuis `../AgentB2C-deploy` détaché sur `origin/main` e3194a1, arbre propre, pytest 3 801 passés / 2 skippés, 111 tests JS) : estampille `LANGFUSE_RELEASE=e3194a1` posée avec `--skip-deploys` sur les 3 services, puis `railway up --detach` : `hotel-search` SUCCESS 13:25:00Z, `concierge` 13:25:11Z, `widget` 13:25:24Z (lancés à quelques secondes d'intervalle ; fenêtre d'une à deux minutes où le nouveau widget a pu recevoir des réponses sans `suggestion_types`, sans effet visible). `faq` reste sur `b6f9402` (ni `agents/faq_agent` ni `libs/` modifiés).
