@@ -533,18 +533,20 @@ indentation, no prose, no code fence) with exactly these keys:
   "ideally", "preferably" → omit. "Le moins cher de
   ceux-là" picks a displayed offer: that is "pick", not "lower". Never put an
   amount here: code computes the reference.
-- "requested_occupancy": ONLY a CURRENT change to the user's party:
+- "requested_occupancy": ONLY a CURRENT change to the user's party; omit the
+  key entirely when the message states no number of people:
   {{"adults": integer or null, "children": integer or null, "total": integer or null,
+  "counts": "people" | "time" | "duration" | "day" | "distance" | "age" | "other",
   "evidence": "exact current party-size statement"}}. Omit unchanged counts.
+  "counts" says what the quoted number counts; only "people" is a party:
+  "nous sommes 3", "2 adultes", "for my wife and me" → people; "From 4pm",
+  "9 /13" → time; "3 hours" → duration; "11.11.", "le 3", "May 21" → day;
+  "30km" → distance; "18+" → age.
   "nous sommes 3" / "we are three" is total=3, NOT adults=3. Use adults/children
   ONLY for explicitly stated adult/child counts; given together with a total,
   they must agree. Removing the children is children=0 ("finalement sans les
-  enfants"); never infer children=0 from "two adults". Ages are not counts: an
-  age limit ("18+", "21+", "over 18", "under 21") is never a party size. A
-  room's capacity, an adults-only policy, a price or a duration is not a party,
-  and neither is a date: the number of a day is never a party size — "11
-  janvier", "Samedi 7 novembre", "5th november", "le 3", "May 21" carry NO
-  party (omit the key).
+  enfants"); never infer children=0 from "two adults". A room's capacity or an
+  adults-only policy is not a party either.
 - "requested_room": {{"bedding": "double" | "king" | "queen" | "twin" | "any",
   "evidence": "verbatim bed request"}} when the user CURRENTLY asks for a bed
   type: double/matrimonial = double, an explicit king or queen = that key,
@@ -740,19 +742,33 @@ async def classify(message: str, budget: TurnBudget, invocation_id: str = "",
     )
 
 
-def _grounded_occupancy(raw: Any, message: str) -> dict[str, int] | None:
-    """Validate a party update and its current quote, without parsing prose."""
-    if not isinstance(raw, dict):
-        return None
+def _party_quote_ok(raw: Any, message: str) -> bool:
+    """Whether a party statement may be read at all: the model says its number
+    counts people, and its quote is in the message, holds a word and is not a
+    date. Facts about the quote, never a reading of the message.
+
+    Prod audit 2026-11-02: since #173 the 10 composition questions asked were
+    all misreads — « 11.11. », « 08 », « From 4pm », « 9 /13 », « 3 horas »,
+    « 30km » read as 11, 8, 4, 9, 3 and 30 people. A quote of digits alone
+    (« 08 », « 9 /13 », « 11.11. ») cannot say what it counts."""
+    if not isinstance(raw, dict) or raw.get("counts") != "people":
+        return False
     evidence = raw.get("evidence")
     if (not isinstance(evidence, str) or not evidence.strip() or len(evidence) > 240
             or evidence.casefold() not in message.casefold()):
-        return None
+        return False
+    if not any(char.isalpha() for char in evidence):
+        return False
     # Replay 2026-10-29 (« Samedi 7 novembre » → evidence « 7 novembre »,
     # total 7): a quote that is itself a date is a day, not a party. Checked
     # with the concierge's own date parser on the model's quote — a fact about
     # the quote, the model keeps reading the message.
-    if parse_requested_date(evidence, date.today()) is not None:
+    return parse_requested_date(evidence, date.today()) is None
+
+
+def _grounded_occupancy(raw: Any, message: str) -> dict[str, int] | None:
+    """Validate a party update and its current quote, without parsing prose."""
+    if not _party_quote_ok(raw, message):
         return None
     update = {}
     for key in ("adults", "children", "total"):
@@ -779,13 +795,7 @@ def _occupancy_out_of_range(raw: Any, message: str) -> int | None:
     """The count of a grounded party statement the code refused for its size
     alone (above `_MAX_PARTY`), or None. Same evidence check as
     `_grounded_occupancy`: a fact about the quote, never a reading of it."""
-    if not isinstance(raw, dict):
-        return None
-    evidence = raw.get("evidence")
-    if (not isinstance(evidence, str) or not evidence.strip() or len(evidence) > 240
-            or evidence.casefold() not in message.casefold()):
-        return None
-    if parse_requested_date(evidence, date.today()) is not None:
+    if not _party_quote_ok(raw, message):
         return None
     counts = [raw.get(key) for key in ("total", "adults", "children")]
     big = [v for v in counts if type(v) is int and v > _MAX_PARTY]

@@ -46,7 +46,7 @@ def test_the_closed_question_states_the_most_a_room_sleeps():
 
 
 def test_a_party_count_beyond_any_room_is_reported_not_applied():
-    raw = {"adults": None, "children": None, "total": 250, "evidence": "250 rooms"}
+    raw = {"adults": None, "children": None, "total": 250, "counts": "people", "evidence": "250 rooms"}
     assert _occupancy_out_of_range(raw, "Ok show me 250 rooms for Nov 3") == 250
     assert _occupancy_out_of_range({**raw, "total": 4, "evidence": "4"}, "we are 4") is None
     assert _occupancy_out_of_range({**raw, "evidence": "999 rooms"}, "Ok show me 250 rooms") is None

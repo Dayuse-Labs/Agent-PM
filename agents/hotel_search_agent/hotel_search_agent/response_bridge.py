@@ -1672,6 +1672,28 @@ def capture_after_tool(
                 if "party" in steps and isinstance(rescue.get("party"), dict):
                     added["party"] = rescue["party"]
                 tool_context.state[_STATE_RELAXATION_ADDED_KEY] = added
+    # Prod audit 2026-11-02: a total whose split is unknown filters on the
+    # capacity that could host it (`possible_party`). When no offer of the page
+    # sleeps it, the page is served without it and the concierge asks the
+    # closed question (`party` on the relaxation, like the rescue's) — never an
+    # empty page answered by « how many adults and children? » (10 of 10 in
+    # prod were misread numbers: « 30km », « From 4pm »…).
+    if name == "search_offers" and not results and party_total is not None:
+        without_party = (requested_budget, price_comparison, None, room_requirements)
+        unfiltered = normalize_search_results(structured, exclude_ids, strict_window, *without_party, host=host)
+        if not unfiltered and strict_window is not None:
+            unfiltered = normalize_search_results(structured, exclude_ids, None, *without_party, host=host)
+            timeslot_fallback = bool(unfiltered)
+        if unfiltered:
+            from hotel_search_agent.geo_rank import trim_far_cards
+            from hotel_search_agent.relaxation import max_capacity
+
+            results = trim_far_cards(tool_context, unfiltered)
+            hotels = structured.get("results") if structured.get("results") is not None else structured.get("hotels")
+            tool_context.state[_STATE_RELAXATION_ADDED_KEY] = {
+                "steps": ["party"], "searched_date": args.get("date"),
+                "party": {"total": party_total, "max_capacity": max_capacity(hotels)},
+            }
     # 2026-10-30: « demain, plus près » — tonight's open offers are far from
     # the spot asked, and the next day has closer ones (`datetime_resolver.
     # _probe_closer_next_day`): the next day's cards, said as such.

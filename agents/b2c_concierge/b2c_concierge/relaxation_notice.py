@@ -100,14 +100,18 @@ _PARTY_MAX: dict[str, str] = {
 
 def party_check(relaxation: Any, language: str, max_capacity: Any = None) -> str:
     """The closed question after a search whose party no offer sleeps
-    (`party` on the leaf's rescue, or a count the code refused): « Les offres
-    trouvées ici accueillent au plus 4 personnes par chambre. Vous êtes bien
-    18 personnes ? ». Empty when there is no such party."""
+    (`party` on the leaf's rescue or on its capacity filter, or a count the
+    code refused): « Les offres trouvées ici accueillent au plus 4 personnes
+    par chambre. Vous êtes bien 18 personnes ? ». Empty when there is no such
+    party. A `total` (the composition not known yet) counts as is."""
     party = relaxation.get("party") if isinstance(relaxation, dict) else None
     if not isinstance(party, dict):
         return ""
-    count = sum(v for v in (party.get("adults"), party.get("children"))
-                if isinstance(v, int) and not isinstance(v, bool))
+    total = party.get("total")
+    count = total if isinstance(total, int) and not isinstance(total, bool) else sum(
+        v for v in (party.get("adults"), party.get("children"))
+        if isinstance(v, int) and not isinstance(v, bool)
+    )
     if count <= 0:
         return ""
     lang = _lang(language)
@@ -269,6 +273,11 @@ def relaxation_line(
         context = dict(search_context) if isinstance(search_context, dict) else {}
         if isinstance(relaxation.get("searched_date"), str):
             context["date"] = relaxation["searched_date"]
+        # A total whose split is unknown filtered the search (leaf capacity
+        # filter, 2026-11-02): it is what came back empty, so it is cited.
+        party = relaxation.get("party")
+        if isinstance(party, dict) and isinstance(party.get("total"), int):
+            context["party_total"] = party["total"]
         empty = no_offers_line(context, lang) if context else ""
         lines.append(" ".join(part for part in (empty, _RELAXED_LEAD[lang].format(items=_join(items, lang))) if part))
     return "\n\n".join(lines)

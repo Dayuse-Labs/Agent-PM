@@ -25,6 +25,10 @@ def resolve_party_update(adults: int | None, children: int | None,
         if (0 if other == "children" else 1) <= remainder <= 30:
             return {**counts, other: remainder}, None
         return counts, total
+    # Prod audit 2026-11-02: one person is one adult (a child never books
+    # alone) — nothing to ask, no « group of 1 » to discover.
+    if total == 1:
+        return {"adults": 1, "children": 0}, None
     # Repeating the known total confirms the existing composition. A DIFFERENT
     # total does not tell us whether an adult or child joined/left the group.
     if adults is not None and children is not None and adults + children == total:

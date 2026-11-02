@@ -10,7 +10,7 @@ from b2c_concierge.triage import _grounded_occupancy
     ({"total": 3}, ({"adults": 2, "children": 1}, None)),
     ({"adults": 3}, ({"adults": 3}, None)),
     ({"total": 4}, (None, 4)),
-    ({"total": 1}, (None, 1)),
+    ({"total": 1}, ({"adults": 1, "children": 0}, None)),
     ({"total": 4, "children": 1}, ({"adults": 3, "children": 1}, None)),
     ({"children": 0}, ({"children": 0}, None)),
 ])
@@ -39,9 +39,17 @@ def test_pending_total_survives_storage_and_partial_answer_resolves_it():
     {"total": 3, "children": 3},
 ])
 def test_invalid_or_contradictory_current_total_is_not_accepted(raw):
-    assert _grounded_occupancy({**raw, "evidence": "party"}, "party") is None
+    assert _grounded_occupancy({**raw, "counts": "people", "evidence": "party"}, "party") is None
 
 
 def test_current_literal_total_is_accepted_and_stale_quote_is_rejected():
-    assert _grounded_occupancy({"total": 3, "evidence": "we are three"}, "Yes, we are three") == {"total": 3}
-    assert _grounded_occupancy({"total": 3, "evidence": "we are three"}, "cheaper please") is None
+    party = {"total": 3, "counts": "people", "evidence": "we are three"}
+    assert _grounded_occupancy(party, "Yes, we are three") == {"total": 3}
+    assert _grounded_occupancy(party, "cheaper please") is None
+
+
+@pytest.mark.parametrize("adults,children,pending", [(None, None, None), (2, 1, None), (None, None, 3)])
+def test_one_person_is_one_adult_with_nothing_to_ask(adults, children, pending):
+    # Prod audit 2026-11-02: « votre groupe de 1 personnes… combien d'adultes
+    # et d'enfants ? » in 8 replies.
+    assert resolve_party_update(adults, children, pending, {"total": 1}) == ({"adults": 1, "children": 0}, None)
