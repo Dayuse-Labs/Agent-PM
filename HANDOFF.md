@@ -6,21 +6,41 @@
 
 > 📋 **Pour savoir QUOI faire ensuite, ouvrir [`CHANTIERS.md`](CHANTIERS.md)** (état vérifié au 2026-09-14) : la liste des chantiers ouverts, chacun avec sa preuve, ses actions et un prompt prêt à coller — plus la liste de ce qu'il ne faut **pas** relancer parce que c'est déjà livré. `tasks/todo.md` est périmé et ne doit plus servir de référence.
 
-## 👥 2026-11-02 — Une date ou une heure n'est jamais un groupe, et le groupe n'est plus demandé (branche `fix/party-from-dates-20261102`, sur `main` a5659b7)
+## 👥 2026-11-02 — On ne lit un groupe que si le message nomme des personnes, et on ne le demande plus (branche `fix/party-from-dates-20261102`, sur `main` a5659b7, PR #184)
 
-**Constat** (prod, 373 conversations réelles du 30/10 12:00Z au 02/11 09:00Z, traces Langfuse complètes ; revue hors dépôt `dashboard_bascule/data/investigation/review_post181/`) : la question de groupe passe de 0,3 % à 2,9 % des tours après #179. Le triage cite un morceau de date ou d'heure comme preuve : « 08 » de « trier zentrum am 08.11.26 » (→ « Wie viele der 8 Gäste… »), « 11.11. », « 9 /13 domani mattina » (→ « Di queste 9 persone… », 0 carte, feedback négatif), « 3 horas de 18 a 21h » (→ « De estas 3 personas… »). `_grounded_occupancy` ne rejetait que si la citation ENTIÈRE était une date. Les 12 réponses gabarit sans synthèse (« Here are options from the search. Suitability for your group of 2 still needs confirmation… ») viennent toutes du total sans répartition (#134, PORT1 slice 5). Décision produit (Victor) : le groupe est presque toujours 2, on ne le demande plus.
+**Récupération client** : aucune (pas de réservation touchée ; les conversations concernées ont reçu une question absurde ou 0 carte).
 
-**Fait** (1 commit) :
-1. **Triage** : `_party_quote` (partagé par `_grounded_occupancy` et `_occupancy_out_of_range`) — une citation faite seulement de chiffres et de ponctuation ne nomme personne (fait sur la citation, toutes langues : « 2 personnes », « zu zweit », « 二人 » ont une lettre ; « 18+ » tombe aussi, c'est un âge). Consigne : heures, plages horaires et durées ne sont pas un groupe ; `evidence` cite les mots qui nomment les personnes.
-2. **Concierge** : un total sans répartition adultes/enfants n'est plus jamais demandé — plus de gabarit `discovery_message` à la place de la synthèse, plus de question sur une page vide (le parcours normal répond, le sauvetage `party` de la feuille reste), plus de refus du lien (`party_composition_required` retiré). Il garde son seul rôle : les offres qui peuvent l'accueillir (`possible_party`). `party_check` (#179, « Vous êtes bien 18 personnes ? » sous les cartes) inchangé. `party_composition_question` et `discovery_message` supprimés (plus d'appelant). La valeur `party` de `clarification` reste au contrat Amplitude (ajout seul), elle n'est plus émise.
+**Cause** (prod, 373 conversations réelles du 30/10 12:00Z au 02/11 09:00Z, traces Langfuse complètes ; revue hors dépôt `dashboard_bascule/data/investigation/review_post181/`). Question de groupe 0,3 % → 2,9 % des tours après #179. Trois sources :
+1. le triage remplissait `requested_occupancy` sur presque chaque message et citait n'importe quoi : un morceau de date ou d'heure (« 08 » de 08.11.26, « 11.11. », « 9 /13 »), une distance (« À 25 minutes » → 25, « 30km » → 30), un lieu (« Singapore », « moi » → 1) ;
+2. un total sans répartition (#134) remplaçait la synthèse par « Voici des pistes… combien d'adultes et d'enfants ? », posait la question sur une page vide et bloquait le lien ; « 2 Erwachsene » après un faux 11 donnait 2 adultes + 9 enfants ;
+3. le LLM de la feuille remplissait lui-même `adults`/`children` de `search_offers` depuis le dialogue (« a family room » → 2 + 1), et `party_check` (#179) demandait « Vous êtes bien 2 personnes ? » à un couple relâché faute de capacité renseignée.
+Décision produit (Victor) : le groupe est presque toujours 2, on ne le demande plus ; règle permanente du 02/11 : aucune règle lexicale sur le langage, le modèle juge en sortie typée.
 
-**Preuves** : pytest 3 810 passés / 2 skippés, ruff, mypy, guardrails ; 10 tests nouveaux ou réécrits rouges sur origin/main (19 témoins verts). **Sonde live** du vrai `classify()` (gpt-6-luna, variables du concierge de prod, Langfuse coupé), branche contre main : « 9 /13 domani mattina » 13, 13, 9 personnes sur main → rien sur la branche ; tous les vrais groupes gardés (« für 2 personen », « per due », « family of 3 », « 2 adultes et 1 enfant », « nous sommes 4 », « zu zweit ») ; fixture `evals/triage_inputs.jsonl` (114 entrées, 2 passes par bras) : écarts main↔branche au niveau du bruit de chaque bras sur tous les champs (`wish` 8,2 contre 6-7, `price_comparison` 2,2 contre 2-3), et 2 faux groupes de main disparus (« 2 boulevard Poissonnière » = 2 personnes 2/2, « Gare du Nord 2pm » 1/2). 0 repli regex.
+**Correction** (6 commits) :
+- triage : `requested_occupancy.names_people` (oui/non typé, décidé en premier, consigne avec les cas) ; le code n'applique un groupe que sur un `true` explicite, citation présente dans le message et qui n'est pas une date (format strict, parseur du concierge). Aucun test sur les mots (un garde « citation sans lettre » a été écrit puis retiré : règle lexicale, et sans effet mesurable) ;
+- concierge : un total sans répartition n'est jamais demandé (plus de `discovery_message`, plus de question sur page vide, plus de refus de lien `party_composition_required`) ; `party_composition_question` et `discovery_message` supprimés ;
+- feuille : `inject_profile_occupancy` ignore les `adults`/`children` du LLM de la feuille — seul le groupe validé du concierge ou le profil part à MCP ; un total sans répartition qui vide une page à lui seul est retiré de cette page (`normalize_search_results`) ;
+- `party_check` ne demande « Vous êtes bien N personnes ? » que si N dépasse la capacité maximale des offres trouvées ; un groupe relâché par le sauvetage est oublié même sans question.
 
-**Pièges** :
-- Hors contexte, main ne reproduit que « 9 /13 » : les autres lectures de la prod venaient de tours avec historique (réponse à la question de lieu). Le garde de code est le filet, la consigne seule ne suffit pas.
-- « Paris 1 » donne encore `total: 1` une fois sur 3 (citation « Paris 1 », avec lettres) : sans effet, `possible_party(1)` ne retire rien.
+**Rejeu avant/après** (55 conversations réelles, 206 tours : les 39 où la prod a extrait un groupe ou posé la question + 16 témoins avec des chiffres ; deux piles locales `main` e3194a1 :8400 et branche :8410, variables de chaque service prod par `railway run`, Langfuse et `DATABASE_URL` coupés, en-tête synthétique, MCP_B2C prod en lecture seule, aucun tour vers ai.dayuse.com, position prod arrondie quand la prod l'a utilisée). C'est une mesure en situation avec les vrais modèles, sans effet de bord — pas un rejeu isolé à transports injectés (le câblage est prouvé par les tests unitaires à faux LLM / fausse feuille). Comptes par faits structurés (état du profil Redis, `turn_facts`) et gabarits exacts du code de main ; étiquette « nomme des personnes » posée à la main par message. Passe finale (code 34445b1) contre main :
 
-**Reste** : revue (Fabien) ; déploiement `concierge` seul (`libs/b2c_common` touché : `party_discovery.py`, `party_update.py`, importés par la feuille recherche pour `possible_party`/`discovery_total`, inchangés → redéployer `hotel-search` par prudence, `faq` non concerné) ; à suivre en prod : part des tours avec question de groupe (attendu ≈ 0, hors `party_check`).
+| | main | branche |
+|---|---|---|
+| Groupe réel retenu | 21/31 | 25/31 |
+| Faux groupe enregistré / dont ≥ 3 personnes | 13/170 / 6 | 1/170 / 0 |
+| Question de groupe (gabarits du code) / gabarit « pistes… à confirmer » | 6 / 17 | 0 / 0 |
+| Conversations avec ≥ 1 carte | 50/55 | 50/55 |
+| Tours « aucune offre » | 19 | 16 |
+
+Latence : +0,3 s de médiane sur la passe jouée en même temps (8,5 → 8,8 s) ; la passe finale, jouée seule à une autre heure (9,8 s), n'est pas comparable.
+
+**Évaluation du modèle** (triage seul, vrai `classify()`, gpt-6-luna, variables du concierge de prod) : 207 messages réels annotés à la main (29 nomment des personnes). ⚠️ La consigne cite des exemples tirés de ces conversations : le score sur le lot à risque est optimiste. Sur les 178 messages jugés par le LLM dans tous les bras : vrais groupes main 18/25 → branche 22/25 (avec ou sans garde lexical), faux groupes 3/153 → 1/153. **Hors échantillon** : 55 messages avec chiffres d'autres conversations, faux groupes 1/55 (« 12h » → 12) → 0/55 ; fixture `evals/triage_inputs.jsonl` (114 entrées, aucune utilisée pour la consigne) : tous les vrais groupes gardés (+ « juste moi » trouvé), faux groupes de main disparus (« 2 boulevard Poissonnière » → 2 sur 2 passes, « Gare du Nord 2pm » → 2, « Madrid »/« Monaco » → 1), **1 nouveau faux groupe** : « ok pour la deuxième » (choix d'option) → 2. Les autres champs du triage bougent au niveau du bruit main↔main. 16 délais dépassés consécutifs pendant une passe = pic OpenAI (rejoués : 0 repli, main et v3 identiques).
+
+**Régressions connues / non couvertes** : « ok pour la deuxième » lu comme un groupe de 2 (fixture, 1 passe ; sans effet sur une chambre double) ; « 4 o 5 persone », « ajouter une troisième personne ? », « on peut être deux ? » restent sans groupe (formulations incertaines, le modèle s'abstient) ; la synthèse peut encore écrire elle-même « dites-moi combien d'adultes et d'enfants » (vu 1 fois : « 4 o 5 persone ») ; un total sans répartition n'est plus vérifié avant le lien (le tunnel Dayuse prend les voyageurs). Piège de mesure : deux évaluations lancées en parallèle du rejeu ont mis 14 % des triages en délai dépassé (repli regex) — mesurer seul.
+
+**Tests** : pytest 3 818 passés / 2 skippés, ruff, mypy, guardrails ; tests nouveaux ou réécrits rouges sur origin/main.
+
+**Déploiement** : non fait (revue Fabien). À déployer : `concierge` + `hotel-search` (`occupancy.py`, `response_bridge.py`, `libs/b2c_common`), `faq` non concerné. **Vérification réelle** : à faire après déploiement — part des tours avec question de groupe (attendu ≈ 0), conversations servies, latence.
 
 ## 🚀 2026-10-30 (quater) — `hotel-search`, `concierge` et `widget` déployés sur `e3194a1` (#181)
 
