@@ -534,8 +534,15 @@ indentation, no prose, no code fence) with exactly these keys:
   ceux-là" picks a displayed offer: that is "pick", not "lower". Never put an
   amount here: code computes the reference.
 - "requested_occupancy": ONLY a CURRENT change to the user's party:
-  {{"adults": integer or null, "children": integer or null, "total": integer or null,
-  "evidence": "exact current party-size statement"}}. Omit unchanged counts.
+  {{"names_people": true or false, "adults": integer or null, "children": integer or null,
+  "total": integer or null, "evidence": "exact current party-size statement"}}.
+  Decide "names_people" FIRST: true ONLY when THIS message itself says who
+  comes — a number of persons, guests, adults or children, a couple, a family,
+  "pour deux", "zu zweit", "per due", "二人", "juste moi". false for anything
+  else, even with a number in it: a date, an hour, a duration, a distance
+  ("30km", "à 25 minutes"), a price, a number of rooms, an age limit, a place
+  ("Singapore", "près de moi"), a room type ("day room"), or a party stated in
+  an EARLIER message. When false, omit the key. Omit unchanged counts.
   "nous sommes 3" / "we are three" is total=3, NOT adults=3. Use adults/children
   ONLY for explicitly stated adult/child counts; given together with a total,
   they must agree. Removing the children is children=0 ("finalement sans les
@@ -748,6 +755,12 @@ def _party_quote(raw: Any, message: str) -> bool:
     not itself a date, and naming someone — facts about the quote, the model
     keeps reading the message."""
     if not isinstance(raw, dict):
+        return False
+    # 2026-11-02 (prod after #179): the model filled the slot on nearly every
+    # message (« Singapore », « près de moi », « à 25 minutes » → total 1, 1,
+    # 25). It now says first, as a typed yes/no, whether the message names
+    # people at all; anything but an explicit true is no party.
+    if raw.get("names_people") is not True:
         return False
     evidence = raw.get("evidence")
     if (not isinstance(evidence, str) or not evidence.strip() or len(evidence) > 240

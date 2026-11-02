@@ -67,7 +67,7 @@ def test_search_progresses_with_total_and_rejects_leaf_invented_counts(monkeypat
     fake_leg.response_payload = {"results": [{"hotel_id": 42, "name": "Example", "capacity": 2}],
                                  "profile_delta": {"adults": 2, "children": 0}}
     llm = _scripted_llm(monkeypatch, json.dumps({"family": "search", "language": "en",
-        "requested_occupancy": {"total": 2, "evidence": "two"}}), "Here is Example.")
+        "requested_occupancy": {"names_people": True, "total": 2, "evidence": "two"}}), "Here is Example.")
     text = _run_turn(runner, session.id, "for two")
     outgoing = find_datapart(fake_leg.seen_outgoing_parts)
     assert outgoing["query_params"]["party_total"] == 2
@@ -85,7 +85,7 @@ def test_an_empty_page_for_an_unknown_composition_is_answered_like_any_empty_pag
     asyncio.run(fake_profile_store.set(session.id, SessionProfile(city="Example City")))
     fake_leg.response_payload = {"results": []}
     _scripted_llm(monkeypatch, json.dumps({"family": "search", "language": "en",
-        "requested_occupancy": {"total": 4, "evidence": "four of us"}}), "Nothing here today.")
+        "requested_occupancy": {"names_people": True, "total": 4, "evidence": "four of us"}}), "Nothing here today.")
     text = _run_turn(runner, session.id, "four of us")
     assert "adults" not in text and "guests" not in text
     saved = asyncio.run(fake_profile_store.get(session.id))
@@ -98,7 +98,7 @@ def test_the_composition_answer_resolves_the_pending_total(monkeypatch, fake_leg
     asyncio.run(fake_profile_store.set(session.id, SessionProfile(city="Example City", pending_party_total=3)))
     fake_leg.response_payload = {"results": [{"hotel_id": 42, "name": "Example"}]}
     _scripted_llm(monkeypatch, json.dumps({"family": "search", "language": "en",
-        "requested_occupancy": {"children": 1, "evidence": "one child"}}), "Here is Example.")
+        "requested_occupancy": {"names_people": True, "children": 1, "evidence": "one child"}}), "Here is Example.")
     _run_turn(runner, session.id, "one child")
     outgoing = find_datapart(fake_leg.seen_outgoing_parts)
     assert outgoing["query_params"]["occupancy_update"] == {"children": 1, "adults": 2}
@@ -120,7 +120,7 @@ def test_a_total_on_a_booking_turn_goes_on_to_the_booking(monkeypatch, fake_leg,
     asyncio.run(fake_profile_store.set(session.id, SessionProfile(city="Example City", last_results=[
         {"hotel_id": 42, "name": "Example", "offer_id": "o", "offer_date": "2026-11-01"}])))
     _scripted_llm(monkeypatch, json.dumps({"family": "booking", "language": "en",
-        "requested_occupancy": {"total": 3, "evidence": "for three"}, "hotel_name": "Example"}))
+        "requested_occupancy": {"names_people": True, "total": 3, "evidence": "for three"}, "hotel_name": "Example"}))
     text = _run_turn(runner, session.id, "Book Example for three")
     assert text == "Please confirm this offer."
     assert seen["party_total"] == 3
@@ -161,7 +161,7 @@ def test_a_composition_given_on_a_booking_turn_is_kept_and_unblocks_the_link(mon
     session = _new_session(runner)
     asyncio.run(fake_profile_store.set(session.id, SessionProfile(city="Example City", pending_party_total=3)))
     _scripted_llm(monkeypatch, json.dumps({"family": "booking", "language": "en", "hotel_name": "Example",
-        "requested_occupancy": {"adults": 2, "children": 1, "evidence": "2 adults and 1 child"}}))
+        "requested_occupancy": {"names_people": True, "adults": 2, "children": 1, "evidence": "2 adults and 1 child"}}))
     _run_turn(runner, session.id, "2 adults and 1 child, book Example")
     assert seen["party"] == (2, 1, None)  # _run_booking (faked here) saves the profile
 

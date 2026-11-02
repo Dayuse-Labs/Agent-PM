@@ -46,10 +46,13 @@ def test_the_closed_question_states_the_most_a_room_sleeps():
 
 
 def test_a_party_count_beyond_any_room_is_reported_not_applied():
-    raw = {"adults": None, "children": None, "total": 250, "evidence": "250 rooms"}
-    assert _occupancy_out_of_range(raw, "Ok show me 250 rooms for Nov 3") == 250
+    raw = {"names_people": True, "adults": None, "children": None, "total": 250, "evidence": "250 people"}
+    assert _occupancy_out_of_range(raw, "Ok we are 250 people for Nov 3") == 250
     assert _occupancy_out_of_range({**raw, "total": 4, "evidence": "4"}, "we are 4") is None
-    assert _occupancy_out_of_range({**raw, "evidence": "999 rooms"}, "Ok show me 250 rooms") is None
+    assert _occupancy_out_of_range({**raw, "evidence": "999 people"}, "we are 250 people") is None
+    # 2026-11-02: « 250 rooms » names no one — the model says so, nothing is reported.
+    assert _occupancy_out_of_range({**raw, "names_people": False, "evidence": "250 rooms"},
+                                   "Ok show me 250 rooms for Nov 3") is None
 
 
 def test_only_a_criterion_changed_on_the_same_place_and_day():
@@ -80,7 +83,7 @@ def _turns(monkeypatch, fake_leg, second_payload, second_triage):  # noqa: F811
 
 
 _EIGHTEEN = ('{"family": "search", "language": "en", "requested_occupancy": '
-             '{"adults": 18, "children": null, "total": null, "evidence": "18+"}}')
+             '{"names_people": true, "adults": 18, "children": null, "total": null, "evidence": "18+"}}')
 
 
 def test_18_adults_no_room_sleeps_ends_on_one_closed_question_and_is_dropped(

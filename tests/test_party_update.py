@@ -39,9 +39,10 @@ def test_pending_total_survives_storage_and_partial_answer_resolves_it():
     {"total": 3, "children": 3},
 ])
 def test_invalid_or_contradictory_current_total_is_not_accepted(raw):
-    assert _grounded_occupancy({**raw, "evidence": "party"}, "party") is None
+    assert _grounded_occupancy({**raw, "names_people": True, "evidence": "party"}, "party") is None
 
 
 def test_current_literal_total_is_accepted_and_stale_quote_is_rejected():
-    assert _grounded_occupancy({"total": 3, "evidence": "we are three"}, "Yes, we are three") == {"total": 3}
-    assert _grounded_occupancy({"total": 3, "evidence": "we are three"}, "cheaper please") is None
+    raw = {"names_people": True, "total": 3, "evidence": "we are three"}
+    assert _grounded_occupancy(raw, "Yes, we are three") == {"total": 3}
+    assert _grounded_occupancy(raw, "cheaper please") is None

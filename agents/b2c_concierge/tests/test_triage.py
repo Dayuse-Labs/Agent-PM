@@ -633,12 +633,12 @@ def test_a_party_quoted_from_a_date_is_no_party(monkeypatch, evidence):
     # personnes… » until the end of the conversation.
     message = f"Samedi {evidence}"
     _script(monkeypatch, '{"family": "search", "language": "fr", "requested_occupancy": '
-            '{"total": 7, "evidence": "%s"}}' % evidence)
+            '{"names_people": true, "total": 7, "evidence": "%s"}}' % evidence)
     assert _classify(message).requested_occupancy is None
 
 
 def test_a_real_party_with_a_date_in_the_message_is_kept(monkeypatch):
     _script(monkeypatch, '{"family": "search", "language": "fr", "requested_occupancy": '
-            '{"adults": 2, "children": 1, "total": 3, "evidence": "2 adultes et 1 enfant"}}')
+            '{"names_people": true, "adults": 2, "children": 1, "total": 3, "evidence": "2 adultes et 1 enfant"}}')
     assert _classify("2 adultes et 1 enfant le 12 mai").requested_occupancy == {
         "adults": 2, "children": 1, "total": 3}
