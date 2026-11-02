@@ -23,7 +23,10 @@ What was measured at **0 %** is everything downstream of that emission:
 
 Precedence, owned by `inject_profile_occupancy`:
 
-    the model's value for THIS turn wins; otherwise carry the profile's forward.
+    the concierge's grounded update for THIS turn wins; otherwise carry the
+    profile's forward. The leaf model's own `adults`/`children` are ignored
+    (2026-11-02: it inferred parties from the dialogue — « a family room » →
+    2 adults + 1 child — and emptied the search).
 
 That is the **date** rule (a fresh statement supersedes), not the **amenities**
 one (`equipment_ids` unions profile and LLM keys, because filters accumulate). A
@@ -108,6 +111,14 @@ def inject_profile_occupancy(
         for key in _ARG_TO_SLOT:
             args.pop(key, None)
         return None
+    # 2026-11-02 (local replay of the prod conversations of 10-30 → 11-02):
+    # the leaf model filled `adults`/`children` from the dialogue on its own —
+    # « Dublin » after « a family room » became 2 adults + 1 child, « Traveling
+    # with my family » 2 + 1, and the search came back empty « for 2 adults ».
+    # The party is the concierge's: only its grounded update (a message the
+    # triage says names people) or the stored profile reaches MCP.
+    for key in _ARG_TO_SLOT:
+        args.pop(key, None)
     update = params.get("occupancy_update") if isinstance(params, dict) else None
     if isinstance(update, dict):
         for key in _ARG_TO_SLOT:
