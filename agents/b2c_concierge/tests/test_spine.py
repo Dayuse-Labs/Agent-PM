@@ -1140,23 +1140,7 @@ def _route_case(case_id, *, triage, seed=None, response=None, message="a hotel",
 
 
 ROUTE_FACTS_CASES = [
-    _route_case(
-        "party_question_on_a_booking_turn",
-        triage=json.dumps({
-            "family": "booking", "language": "en", "hotel_name": "Example",
-            "requested_occupancy": {"total": 3, "evidence": "for three"},
-        }),
-        seed=SessionProfile(city="Paris", last_results=[_SHOWN_OFFER]),
-        message="Book Example for three",
-        expected=("clarification", "party", "none"),
-    ),
-    _route_case(
-        "party_question_over_an_empty_page",
-        triage=_SEARCH,
-        seed=SessionProfile(city="Paris", pending_party_total=3),
-        response={"results": []},
-        expected=("clarification", "party", "none"),
-    ),
+    # 2026-11-02: the party is never asked (no « party » clarification route left).
     _route_case(
         "budget_unit_question_before_the_search",
         triage=json.dumps({

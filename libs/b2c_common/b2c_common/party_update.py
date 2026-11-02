@@ -30,16 +30,3 @@ def resolve_party_update(adults: int | None, children: int | None,
     if adults is not None and children is not None and adults + children == total:
         return {"adults": adults, "children": children}, None
     return None, total
-
-
-def party_composition_question(total: int, language: str) -> str:
-    questions = {
-        "fr": "Pour ces {total} personnes, combien y a-t-il d’adultes et d’enfants ?",
-        "en": "Of these {total} guests, how many are adults and how many are children?",
-        "de": "Wie viele der {total} Gäste sind Erwachsene und wie viele Kinder?",
-        "es": "De estas {total} personas, ¿cuántas son adultos y cuántas niños?",
-        "it": "Di queste {total} persone, quanti sono adulti e quanti bambini?",
-        "pt": "Destas {total} pessoas, quantas são adultos e quantas são crianças?",
-        "nl": "Hoeveel van deze {total} gasten zijn volwassenen en hoeveel kinderen?",
-    }
-    return questions.get(language, questions["en"]).format(total=total)

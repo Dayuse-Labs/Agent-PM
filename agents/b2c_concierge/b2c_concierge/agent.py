@@ -98,8 +98,7 @@ from b2c_common.observability import (
     stamp_langfuse_turn_session,
     trace_context_carrier,
 )
-from b2c_common.party_discovery import discovery_message
-from b2c_common.party_update import party_composition_question, resolve_party_update
+from b2c_common.party_update import resolve_party_update
 from b2c_common.room_requirements import apply_room_update
 from b2c_common.price_comparison import (
     cheaper_reference,
@@ -1928,14 +1927,13 @@ class _B2cConcierge(BaseAgent):
                 repeat_search = True
 
         # PORT1 slice 5: the party and the bed are concierge-owned. A total
-        # whose adult/child split is unknown stays pending — never guessed.
+        # whose adult/child split is unknown stays pending — never guessed,
+        # and never asked either (2026-11-02: most parties are two; the
+        # composition question blocked cards and links on dates misread as
+        # parties). It only narrows offers to those it could possibly fit.
         next_room = apply_room_update(profile.room_requirements, triage.requested_room)
         occupancy_update, next_party_total = resolve_party_update(
             profile.adults, profile.children, profile.pending_party_total, triage.requested_occupancy,
-        )
-        party_question_asked = (
-            next_party_total is not None and profile.pending_party_total == next_party_total
-            and profile.last_clarifying_question == party_composition_question(next_party_total, reply_language)
         )
 
         # 3-5. Code-owned routing.
@@ -1958,18 +1956,6 @@ class _B2cConcierge(BaseAgent):
                 profile.pending_party_total = next_party_total
                 for key, value in (occupancy_update or {}).items():
                     setattr(profile, key, value)
-            if route.target == "generate_booking_link" and next_party_total is not None:
-                # No link for a party whose adults/children are unknown.
-                profile.pending_party_total = next_party_total
-                profile.pending_booking = None
-                profile.last_clarifying_question = party_composition_question(next_party_total, reply_language)
-                await store.set(ctx.session.id, profile)
-                self._emit_turn_metric(
-                    family, "template:party_clarification", budget, t_start, "ok", inv,
-                    clarification="party",
-                )
-                yield self._final(ctx, profile.last_clarifying_question)
-                return
             if route.target == "generate_booking_link":
                 # R9 (guard #12): fully deterministic, ZERO extra LLM — see
                 # _run_booking's docstring for why a booking confirmation is
@@ -2384,21 +2370,6 @@ class _B2cConcierge(BaseAgent):
                 else templates.leaf_degraded_response(family, reply_language, profile.city),
             )
             return
-        if (route.target == LEAF_HOTEL_SEARCH and profile.pending_party_total is not None
-                and response.get("results") == []):
-            # PORT1 slice 5: an empty page for an unknown composition proves
-            # nothing about availability — ask it, never widen or exhaust.
-            profile.pending_booking = None
-            question = party_composition_question(profile.pending_party_total, reply_language)
-            profile.last_clarifying_question = question
-            await store.set(ctx.session.id, profile)
-            yield self._hotels_event(ctx, response, reply_language)
-            self._emit_turn_metric(
-                family, "template:party_clarification", budget, t_start, "ok", inv,
-                clarification="party",
-            )
-            yield self._final(ctx, question)
-            return
         budget_followup: str | None = None
         if route.target == LEAF_HOTEL_SEARCH and profile.requested_budget and "results" in response:
             # PORT1 slice 3: a dollar amount takes the code of the market the
@@ -2696,46 +2667,40 @@ class _B2cConcierge(BaseAgent):
                 )
             if party_question:
                 profile.adults = profile.children = profile.pending_party_total = None
-        if route.target == LEAF_HOTEL_SEARCH and profile.pending_party_total is not None and response.get("results"):
-            # PORT1 slice 5: the cards show the exact offers; no prose may
-            # claim group eligibility or guess a composition — no synthesis.
-            synth = discovery_message(profile.pending_party_total, reply_language, ask=not party_question_asked)
-            profile.last_clarifying_question = party_composition_question(profile.pending_party_total, reply_language)
-        else:
-            # QA14707 (Q28): the anti-loop on free questions reads the state —
-            # how many turns in a row ended on a question without a search
-            # (`pending_search.asked`), never the wording. Past
-            # CLARIFICATION_MAX_ASKS this turn asks nothing: the one synthesis
-            # call is told so, and a question line it still ends on is dropped
-            # (or a fixed template answers). No retry, no extra LLM call.
-            ask_nothing = (
-                route.target == LEAF_HOTEL_SEARCH
-                and "results" not in response
-                and free_question_streak(pending) >= templates.CLARIFICATION_MAX_ASKS
-            )
-            synth = await self._synthesize_with_guards(
-                message=message, language=reply_language, leaf_text=leaf_text, response=response,
-                profile=profile, budget=budget, invocation_id=inv, no_offers=no_offers,
-                recent_messages=recent_messages if family == "faq" else None,
-                # 2026-10-29: the FAQ answer is followed by the place question,
-                # the one question of the turn.
-                unchanged=unchanged,
-                no_question=(
-                    _PLACE_FOLLOWUP_NOTE if faq_place_followup
-                    else True if party_question else ask_nothing
-                ),
-            )
-            # QA14707 (Q27): a follow-up question only the synthesis asks is
-            # still what a bare "oui" answers; the leaf's own line wins.
-            free_question = turn_question(leaf_text, synth)
-            if ask_nothing and free_question:
-                with observation(as_type="guardrail", name="anti-clarification-loop"):
-                    mark_level("WARNING", status_message="anti_clarification_loop")
-                    budget.fired.add("anti_clarification_loop")
-                synth = without_final_question(synth) or templates.no_question_response(reply_language)
-            elif faq_place_followup and free_question:
-                synth = without_final_question_sentence(synth)
-            profile.last_clarifying_question = None if ask_nothing else free_question
+        # QA14707 (Q28): the anti-loop on free questions reads the state —
+        # how many turns in a row ended on a question without a search
+        # (`pending_search.asked`), never the wording. Past
+        # CLARIFICATION_MAX_ASKS this turn asks nothing: the one synthesis
+        # call is told so, and a question line it still ends on is dropped
+        # (or a fixed template answers). No retry, no extra LLM call.
+        ask_nothing = (
+            route.target == LEAF_HOTEL_SEARCH
+            and "results" not in response
+            and free_question_streak(pending) >= templates.CLARIFICATION_MAX_ASKS
+        )
+        synth = await self._synthesize_with_guards(
+            message=message, language=reply_language, leaf_text=leaf_text, response=response,
+            profile=profile, budget=budget, invocation_id=inv, no_offers=no_offers,
+            recent_messages=recent_messages if family == "faq" else None,
+            # 2026-10-29: the FAQ answer is followed by the place question,
+            # the one question of the turn.
+            unchanged=unchanged,
+            no_question=(
+                _PLACE_FOLLOWUP_NOTE if faq_place_followup
+                else True if party_question else ask_nothing
+            ),
+        )
+        # QA14707 (Q27): a follow-up question only the synthesis asks is
+        # still what a bare "oui" answers; the leaf's own line wins.
+        free_question = turn_question(leaf_text, synth)
+        if ask_nothing and free_question:
+            with observation(as_type="guardrail", name="anti-clarification-loop"):
+                mark_level("WARNING", status_message="anti_clarification_loop")
+                budget.fired.add("anti_clarification_loop")
+            synth = without_final_question(synth) or templates.no_question_response(reply_language)
+        elif faq_place_followup and free_question:
+            synth = without_final_question_sentence(synth)
+        profile.last_clarifying_question = None if ask_nothing else free_question
         if budget_followup:
             profile.last_clarifying_question = budget_followup  # what a bare "80" answers
         if party_question:

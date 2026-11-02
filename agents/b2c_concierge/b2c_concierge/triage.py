@@ -543,8 +543,11 @@ indentation, no prose, no code fence) with exactly these keys:
   age limit ("18+", "21+", "over 18", "under 21") is never a party size. A
   room's capacity, an adults-only policy, a price or a duration is not a party,
   and neither is a date: the number of a day is never a party size — "11
-  janvier", "Samedi 7 novembre", "5th november", "le 3", "May 21" carry NO
-  party (omit the key).
+  janvier", "Samedi 7 novembre", "5th november", "le 3", "May 21", "08.11.26",
+  "11.11." carry NO party (omit the key). Neither is an hour, a time range or
+  a length of stay: "3 horas", "3 hours", "18 a 21h", "9 /13", "2 di notte",
+  "ab 11 Uhr" carry NO party. "evidence" quotes the words that NAME the people
+  ("2 personnes", "zu zweit", "per due", "family of 3"), never a bare number.
 - "requested_room": {{"bedding": "double" | "king" | "queen" | "twin" | "any",
   "evidence": "verbatim bed request"}} when the user CURRENTLY asks for a bed
   type: double/matrimonial = double, an explicit king or queen = that key,
@@ -740,19 +743,32 @@ async def classify(message: str, budget: TurnBudget, invocation_id: str = "",
     )
 
 
-def _grounded_occupancy(raw: Any, message: str) -> dict[str, int] | None:
-    """Validate a party update and its current quote, without parsing prose."""
+def _party_quote(raw: Any, message: str) -> bool:
+    """Whether the model's quote can state a party: present in the message,
+    not itself a date, and naming someone — facts about the quote, the model
+    keeps reading the message."""
     if not isinstance(raw, dict):
-        return None
+        return False
     evidence = raw.get("evidence")
     if (not isinstance(evidence, str) or not evidence.strip() or len(evidence) > 240
             or evidence.casefold() not in message.casefold()):
-        return None
+        return False
     # Replay 2026-10-29 (« Samedi 7 novembre » → evidence « 7 novembre »,
     # total 7): a quote that is itself a date is a day, not a party. Checked
-    # with the concierge's own date parser on the model's quote — a fact about
-    # the quote, the model keeps reading the message.
+    # with the concierge's own date parser on the model's quote.
     if parse_requested_date(evidence, date.today()) is not None:
+        return False
+    # Prod 2026-10-30 → 11-02 (after #179): the model quoted a fragment of a
+    # date or an hour — « 08 » of « 08.11.26 », « 11.11. », « 9 /13 », the
+    # « 2 » of « 2 di notte » — and the party question went out with no card.
+    # A quote made of digits and punctuation alone names no one, in any
+    # language (« 2 personnes », « zu zweit », « 二人 » all carry a letter).
+    return any(ch.isalpha() for ch in evidence)
+
+
+def _grounded_occupancy(raw: Any, message: str) -> dict[str, int] | None:
+    """Validate a party update and its current quote, without parsing prose."""
+    if not isinstance(raw, dict) or not _party_quote(raw, message):
         return None
     update = {}
     for key in ("adults", "children", "total"):
@@ -779,13 +795,7 @@ def _occupancy_out_of_range(raw: Any, message: str) -> int | None:
     """The count of a grounded party statement the code refused for its size
     alone (above `_MAX_PARTY`), or None. Same evidence check as
     `_grounded_occupancy`: a fact about the quote, never a reading of it."""
-    if not isinstance(raw, dict):
-        return None
-    evidence = raw.get("evidence")
-    if (not isinstance(evidence, str) or not evidence.strip() or len(evidence) > 240
-            or evidence.casefold() not in message.casefold()):
-        return None
-    if parse_requested_date(evidence, date.today()) is not None:
+    if not isinstance(raw, dict) or not _party_quote(raw, message):
         return None
     counts = [raw.get(key) for key in ("total", "adults", "children")]
     big = [v for v in counts if type(v) is int and v > _MAX_PARTY]

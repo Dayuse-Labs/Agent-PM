@@ -1181,10 +1181,9 @@ async def _generate_booking_link_impl(
          pointing at another hotel must not confirm the stale one — it
          re-resolves the newly named one instead).
     """
-    if profile.pending_party_total is not None:
-        # PORT1 slice 5: no link for a party whose adults/children are unknown.
-        profile.pending_booking = None
-        return {"ok": False, "error": "party_composition_required"}
+    # A party whose adult/child split is unknown no longer blocks the link
+    # (2026-11-02): the offer is one it could possibly fit (`possible_party`
+    # in the offer selection), and the Dayuse tunnel takes the guests.
     pending = profile.pending_booking
     if user_confirmed and pending is not None:
         named_hit = resolve_hotel_reference(hotel_reference or "", profile.last_results)
