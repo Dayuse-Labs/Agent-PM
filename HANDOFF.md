@@ -6,6 +6,23 @@
 
 > 📋 **Pour savoir QUOI faire ensuite, ouvrir [`CHANTIERS.md`](CHANTIERS.md)** (état vérifié au 2026-09-14) : la liste des chantiers ouverts, chacun avec sa preuve, ses actions et un prompt prêt à coller — plus la liste de ce qu'il ne faut **pas** relancer parce que c'est déjà livré. `tasks/todo.md` est périmé et ne doit plus servir de référence.
 
+## 🚀 2026-11-02 — `hotel-search` et `concierge` déployés sur `ba44795` (#183)
+
+**Déployé** (`DEPLOY.md`, par Claude à la demande de Fabien), depuis `../AgentB2C-deploy` détaché sur `ba44795`, arbre propre.
+- Pré-vol : pytest 3 824 passés / 2 skippés sur `ba44795` (même arbre que la branche testée, `813410b`).
+- Estampilles posées avec `--skip-deploys` (`e3194a1` → `ba44795`), puis `up` hotel-search (SUCCESS 09:53Z) → concierge (SUCCESS 09:55Z).
+- `widget` reste sur `e3194a1` et `faq` sur `b6f9402`. Seuls `party_update.py` et `party_discovery.py` changent dans `libs/`, et la FAQ ne les importe pas.
+
+**Preuve** (widget, synthétique, sessions `synthetic-172f4718-*`, spans `b2c-concierge` et `hotel-search-agent` en release `ba44795`) :
+- « Piscine intérieure incluse » → question de lieu ; puis « Lausanne et 30km » → 1 carte (anneau élargi), aucune question de groupe.
+- « Nous sommes 3, un hôtel à Paris demain après-midi » → 5 cartes, « Aucune offre à Paris le mardi 3 novembre 2026, l'après-midi, pour 3 personnes. Voici les offres les plus proches, en assouplissant le nombre de personnes. » et la question fermée « … au plus 2 personnes par chambre. Vous êtes bien 3 personnes ? ».
+- « Je suis seule… à Lyon » → réponse normale, sans « groupe de 1 ».
+- « Un hôtel à Bordeaux demain » puis « From 4pm » → 5 cartes, aucune question de groupe.
+
+**Défaut vu en prod (petit suivi)** : sur « Nous sommes 3 », la synthèse de prod (gpt-5.2) ajoute sa propre demande avant la question fermée du code : « Dès que vous me donnez la composition exacte (3 adultes, ou 2 adultes + 1 enfant…) ». Cela fait deux demandes dans une réponse. La phrase finit par un point, donc le filtre de question finale la laisse passer. Piste : dire dans `relaxation_note` (étape `party`) que le code pose la question du groupe. Même schéma sur le chemin « 18 adultes » de #179.
+
+**À prouver sous 48 h** : 0 `template:party_clarification` sur 0 carte dans Langfuse. Retour arrière : `LANGFUSE_RELEASE=e3194a1` (`--skip-deploys`), puis `railway up` des 2 services depuis un checkout détaché sur `e3194a1`.
+
 ## 👥 2026-11-02 — Un nombre n'est un groupe que s'il compte des personnes (branche `fix/party-size-misreads-20261102`)
 
 **Constat** (audit prod du 2026-11-02, Langfuse) :
@@ -55,7 +72,7 @@
 
 **Reste** :
 - Revue (Fabien).
-- Déploiement de `hotel-search` et `concierge` (`b2c_common` touché : `party_update.py`, `party_discovery.py` ; `faq` non concernée).
+- ~~Déploiement de `hotel-search` et `concierge`~~ : mergée (#183) et déployée sur `ba44795` le 2026-11-02 (bloc 🚀 au-dessus).
 - Prouver en prod : 0 `template:party_clarification` sur 0 carte en 48 h.
 - Hors sujet, vu au passage : « From 4pm » dans une session française reçoit une réponse en anglais (langue d'un message court, CHANTIERS P4).
 
