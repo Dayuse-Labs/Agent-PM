@@ -6,6 +6,39 @@
 
 > 📋 **Pour savoir QUOI faire ensuite, ouvrir [`CHANTIERS.md`](CHANTIERS.md)** (état vérifié au 2026-09-14) : la liste des chantiers ouverts, chacun avec sa preuve, ses actions et un prompt prêt à coller — plus la liste de ce qu'il ne faut **pas** relancer parce que c'est déjà livré. `tasks/todo.md` est périmé et ne doit plus servir de référence.
 
+## 👥 2026-11-02 (bis) — La feuille n'invente plus le groupe, plus de test lexical, plus de « Vous êtes bien 2 personnes ? » (branche `fix/party-leaf-no-lexical-20261102`, sur `main` 1814b55, après #183)
+
+Reprend sur #183 ce que #184 apportait en plus (#184 est remplacée par cette branche ; son point produit — plus aucune question de composition dès 3 personnes, lien non bloqué — est laissé à trancher entre Victor et Fabien).
+
+**Récupération client** : aucune.
+
+**Cause** (rejeu des conversations prod du 30/10 → 02/11 sur `main` avec #183) : il reste 8 faux groupes sur 170 messages sans personne, surtout écrits par le LLM de la **feuille** dans `search_offers` depuis le dialogue (« Dublin » après « a family room » → 2 + 1 = 3, « Traveling with my family », « camera matrimoniale » → 2, « Troyes », « London ») ; et `party_check` demande « Vous êtes bien 2 personnes ? » à un couple dont le filtre a été relâché faute de capacité renseignée (Lausanne, 2 fois). Règle permanente de Victor (02/11) : aucun test lexical sur les mots de l'utilisateur — or #183 refuse une citation « sans lettre ».
+
+**Correction** (3 commits) :
+- feuille : `inject_profile_occupancy` ignore les `adults`/`children` du LLM de la feuille ; seul le groupe validé du concierge ou le profil part à MCP ;
+- triage : `_party_quote_ok` ne garde que `counts == "people"`, la citation présente et pas une date ; le test « au moins une lettre » est retiré, les cas prod de #183 restent testés avec le `counts` typé du modèle ;
+- `party_check` ne demande « Vous êtes bien N personnes ? » que si N dépasse la capacité maximale des offres trouvées ; un groupe relâché par le sauvetage est oublié même sans question.
+
+**Rejeu avant/après** (55 conversations réelles, 206 tours ; piles locales `main` 1814b55 et branche, variables prod par `railway run`, Langfuse et DB coupés, MCP prod en lecture, jamais ai.dayuse.com ; mesure en situation avec les vrais modèles, sans effet de bord ; comptes par état du profil, `turn_facts` et gabarits exacts du code ; étiquettes posées à la main ; 0 repli du triage dans les deux bras) :
+
+| | main (#183) | branche |
+|---|---|---|
+| Groupe réel retenu | 22/31 | 24/31 |
+| Faux groupe enregistré / dont ≥ 3 personnes | 8/170 / 1 | 1/170 / 0 |
+| Question de groupe (gabarits du code) | 3 | 0 |
+| Gabarit de composition (≥ 3 personnes, choix de #183) | 2 | 2 |
+| Conversations avec ≥ 1 carte | 50/55 | 50/55 |
+| Tours « aucune offre » | 14 | 16 (Trier sauna + piscine et « 1 Nov » : groupe identique dans les deux bras, sans lien avec le groupe) |
+| Latence médiane | 9,4 s | 9,1 s |
+
+**Évaluation du modèle** (triage seul, gpt-6-luna, joué en séquence, 0 repli) : 207 messages réels annotés — vrais groupes 23/30 (main) / 21/30, faux 2/177 / 4/177 sur un tirage ; sortie brute des deux faux en plus capturée 5 fois par bras : même comportement (« 22 etienne de jouy » → `counts: other` 10/10, « I will get a room as well » → 1 personne 3/5 et 5/5, citation avec lettres : le test retiré n'y change rien). Hors échantillon : 60 messages avec chiffres 1/60 dans les deux bras ; fixture 114 et 17 messages prod : mêmes groupes. Conclusion : le test lexical n'a aucun effet mesurable.
+
+**Régressions connues** : « I will get a room as well » → 1 personne (sans effet sur les cartes) ; « 4 o 5 persone », « ajouter une troisième personne ? » restent sans groupe.
+
+**Tests** : pytest 3 823 passés / 2 skippés, ruff, mypy, guardrails.
+
+**Déploiement** : non fait. `concierge` + `hotel-search` (`faq` non concerné). **Vérification réelle** après déploiement : 0 `template:party_clarification` sur 0 carte, part des faux groupes, conversations servies.
+
 ## 🚀 2026-11-02 — `hotel-search` et `concierge` déployés sur `ba44795` (#183)
 
 **Déployé** (`DEPLOY.md`, par Claude à la demande de Fabien), depuis `../AgentB2C-deploy` détaché sur `ba44795`, arbre propre.
