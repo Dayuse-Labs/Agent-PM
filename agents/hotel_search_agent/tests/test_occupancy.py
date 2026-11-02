@@ -98,8 +98,9 @@ class TestCarryover:
     def test_a_fresh_statement_supersedes_the_profile(self):
         # Party size does not accumulate: "actually just me" must REPLACE 2
         # adults, not union with them (the date rule, not the amenities rule).
-        args = {"adults": 1}
-        ctx = _ctx_with_profile(adults=2, children=1)
+        # The statement comes from the concierge's grounded update.
+        args = {}
+        ctx = _ctx_with_envelope({"occupancy_update": {"adults": 1}}, {"adults": 2, "children": 1})
         inject_profile_occupancy(_Tool("search_offers"), args, ctx)
         assert args["adults"] == 1
         # children was not restated this turn, so it still carries forward
@@ -117,10 +118,15 @@ class TestCarryover:
         assert "adults" not in args
         assert "children" not in args
 
-    def test_normalises_the_models_own_value_in_place(self):
-        args = {"adults": "2"}
+    def test_the_leaf_models_own_reading_never_reaches_mcp(self):
+        # 2026-11-02 replay: « Dublin » after « a family room » → the leaf model
+        # sent adults=2, children=1 on its own, and the search came back empty.
+        args = {"adults": "2", "children": 1, "lat": 53.35}
         inject_profile_occupancy(_Tool("search_offers"), args, _ctx_with_profile())
-        assert args["adults"] == 2
+        assert args == {"lat": 53.35}
+        args = {"adults": 4}
+        inject_profile_occupancy(_Tool("search_offers"), args, _ctx_with_profile(adults=2))
+        assert args == {"adults": 2}
 
 
 class TestNonInvention:
@@ -203,8 +209,8 @@ def test_zero_children_is_omitted_on_wire_but_persists_after_search():
     payload = find_datapart(emit_search_datapart(ctx).parts)
     assert payload["profile_delta"]["children"] == 0
     # A later positive request must replace the stored zero too.
-    ctx = _ctx_with_profile(adults=2, children=0)
-    args = {"children": 1}
+    ctx = _ctx_with_envelope({"occupancy_update": {"children": 1}}, {"adults": 2, "children": 0})
+    args = {}
     inject_profile_occupancy(_Tool("search_offers"), args, ctx)
     capture_after_tool(_Tool("search_offers"), args, ctx, {"structuredContent": {"results": []}, "isError": False})
     payload = find_datapart(emit_search_datapart(ctx).parts)
