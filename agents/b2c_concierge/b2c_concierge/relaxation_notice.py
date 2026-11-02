@@ -102,7 +102,9 @@ def party_check(relaxation: Any, language: str, max_capacity: Any = None) -> str
     """The closed question after a search whose party no offer sleeps
     (`party` on the leaf's rescue, or a count the code refused): « Les offres
     trouvées ici accueillent au plus 4 personnes par chambre. Vous êtes bien
-    18 personnes ? ». Empty when there is no such party."""
+    18 personnes ? ». Empty when there is no such party — and, since
+    2026-11-02, when the offers found sleep that many (« Deux adultes » relaxed
+    for want of capacity data asked « Vous êtes bien 2 personnes ? »)."""
     party = relaxation.get("party") if isinstance(relaxation, dict) else None
     if not isinstance(party, dict):
         return ""
@@ -112,11 +114,9 @@ def party_check(relaxation: Any, language: str, max_capacity: Any = None) -> str
         return ""
     lang = _lang(language)
     most = party.get("max_capacity", max_capacity)
-    lead = (
-        _PARTY_MAX[lang].format(max=most)
-        if isinstance(most, int) and not isinstance(most, bool) and 0 < most < count else ""
-    )
-    return " ".join(part for part in (lead, _PARTY_CHECK[lang].format(count=count)) if part)
+    if not (isinstance(most, int) and not isinstance(most, bool) and 0 < most < count):
+        return ""
+    return f"{_PARTY_MAX[lang].format(max=most)} {_PARTY_CHECK[lang].format(count=count)}"
 
 
 _REMOVED_AMENITIES: dict[str, str] = {

@@ -43,6 +43,10 @@ def test_the_closed_question_states_the_most_a_room_sleeps():
     text = party_check({"party": {"adults": 18, "children": None, "max_capacity": 4}}, "en")
     assert text == "The offers found here sleep at most 4 people per room. Just to check: are you really 18 people?"
     assert party_check({"steps": ["radius"]}, "en") == ""
+    # 2026-11-02 replay (« Deux adultes… sans enfant », relaxed for want of
+    # capacity data): offers that sleep that many ask nothing.
+    assert party_check({"party": {"adults": 2, "children": 0, "max_capacity": 2}}, "fr") == ""
+    assert party_check({"party": {"adults": 2, "children": None, "max_capacity": None}}, "fr") == ""
 
 
 def test_a_party_count_beyond_any_room_is_reported_not_applied():
