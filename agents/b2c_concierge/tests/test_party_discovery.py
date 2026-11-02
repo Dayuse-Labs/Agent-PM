@@ -174,3 +174,14 @@ def test_shown_offers_are_revalidated_without_re_filtering_bed_or_party(monkeypa
     profile.room_requirements, profile.pending_party_total = {"bedding": "double"}, 3
     result = _run(inline_tools.compare_hotels("Compare these hotels", profile))
     assert [h["offer_id"] for h in result["hotels"]] == ["offer-1", "offer-2"]
+
+
+def test_a_total_that_empties_the_page_does_not_hide_it():
+    # 2026-11-02 replay (« a family of 4 » at Sabiha): the total is never asked,
+    # so it may not empty a page — the page is served without it.
+    offers = [{"ratePlanUuid": "double", "price": 5000, "capacity": 2, "childrenCapacity": 0}]
+    payload = {"results": [{"hotelId": 42, "name": "Example", "offers": offers}]}
+    assert normalize_search_results(payload, party_total=4)[0]["offer_id"] == "double"
+    roomy = [*offers, {"ratePlanUuid": "family", "price": 9000, "capacity": 2, "childrenCapacity": 2}]
+    payload = {"results": [{"hotelId": 42, "name": "Example", "offers": roomy}]}
+    assert normalize_search_results(payload, party_total=4)[0]["offer_id"] == "family"

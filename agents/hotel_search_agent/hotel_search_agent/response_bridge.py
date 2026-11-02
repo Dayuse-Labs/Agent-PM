@@ -883,6 +883,14 @@ def normalize_search_results(
         hotels.append(normalize_hotel(item, exact_window, host=host))
     if exclude_ids:
         hotels = [h for h in hotels if h.get("hotel_id") not in exclude_ids]
+    if not hotels and party_total is not None:
+        # 2026-11-02: a party total whose split is unknown is never asked any
+        # more, so it may not empty a page either (« a family of 4 » at
+        # Sabiha: 0 card and nothing to answer) — the page is served without it.
+        return normalize_search_results(
+            structured, exclude_ids, exact_window, requested_budget, price_comparison,
+            None, room_requirements, host=host,
+        )
     return hotels[:MAX_RESULTS]
 
 
