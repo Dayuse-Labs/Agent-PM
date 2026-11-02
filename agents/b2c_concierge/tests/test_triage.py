@@ -1,5 +1,6 @@
 """Triage tests — regex fast-paths and the mocked LLM classify (offline)."""
 import asyncio
+import json
 from types import SimpleNamespace
 
 import pytest
@@ -620,10 +621,14 @@ class TestWishSlot:
         assert "is NEVER `ack`" in triage_module._TRIAGE_INSTRUCTION
 
 
-def test_the_prompt_says_a_day_of_the_month_is_never_a_party():
+def test_the_prompt_asks_what_the_number_counts():
     # Replay 2026-10-29 (prod S091, « 11 janvier » answering the place question):
-    # read as a party of 11, the search asked « Pour ces 11 personnes… ».
-    assert "is never a party size" in triage_module._TRIAGE_INSTRUCTION
+    # read as a party of 11, the search asked « Pour ces 11 personnes… ». Prod
+    # audit 2026-11-02: hours, durations and distances too — the model now says
+    # what the quoted number counts, and only people is a party.
+    instruction = triage_module._TRIAGE_INSTRUCTION
+    assert '"counts": "people" | "time" | "duration" | "day" | "distance"' in instruction
+    assert 'only "people" is a party' in instruction
 
 
 @pytest.mark.parametrize("evidence", ["7 novembre", "11 janvier", "5th november"])
@@ -633,12 +638,59 @@ def test_a_party_quoted_from_a_date_is_no_party(monkeypatch, evidence):
     # personnes… » until the end of the conversation.
     message = f"Samedi {evidence}"
     _script(monkeypatch, '{"family": "search", "language": "fr", "requested_occupancy": '
-            '{"total": 7, "evidence": "%s"}}' % evidence)
+            '{"total": 7, "counts": "people", "evidence": "%s"}}' % evidence)
     assert _classify(message).requested_occupancy is None
 
 
 def test_a_real_party_with_a_date_in_the_message_is_kept(monkeypatch):
     _script(monkeypatch, '{"family": "search", "language": "fr", "requested_occupancy": '
-            '{"adults": 2, "children": 1, "total": 3, "evidence": "2 adultes et 1 enfant"}}')
+            '{"adults": 2, "children": 1, "total": 3, "counts": "people", "evidence": "2 adultes et 1 enfant"}}')
     assert _classify("2 adultes et 1 enfant le 12 mai").requested_occupancy == {
         "adults": 2, "children": 1, "total": 3}
+
+
+#: Prod audit 2026-11-02: the 10 « how many adults and children? » asked since
+#: #173 were all misreads. Each message (reworded) with the count and the quote
+#: the triage gave, labelled as the model now labels it — and the digit-only
+#: quotes even when the model still says « people ».
+_PROD_MISREADS = [
+    ("Datum ist der 11.11.", {"total": 11, "counts": "day", "evidence": "11.11."}),
+    ("Datum ist der 11.11.", {"total": 11, "counts": "people", "evidence": "11.11."}),
+    ("Trier Zentrum am 08.11.26", {"total": 8, "counts": "people", "evidence": "08"}),
+    ("9 /13 domattina c'è?", {"total": 9, "counts": "people", "evidence": "9 /13"}),
+    ("Di notte, tipo 3 ore", {"total": 3, "counts": "people", "evidence": "3"}),
+    ("18+", {"adults": 18, "counts": "people", "evidence": "18+"}),
+    ("From 4pm", {"total": 4, "counts": "time", "evidence": "From 4pm"}),
+    ("Quiero ir 3 horas a un hotel", {"total": 3, "counts": "duration", "evidence": "3 horas"}),
+    ("Lausanne et 30km", {"total": 30, "counts": "distance", "evidence": "30km"}),
+    ("Puede ser de 18 en adelante", {"total": 18, "counts": "time", "evidence": "de 18 en adelante"}),
+    ("From 4pm", {"total": 4, "evidence": "From 4pm"}),
+]
+
+
+@pytest.mark.parametrize("message,occupancy", _PROD_MISREADS)
+def test_a_number_that_does_not_count_people_is_no_party(monkeypatch, message, occupancy):
+    _script(monkeypatch, '{"family": "search", "language": "en", "requested_occupancy": %s}'
+            % json.dumps(occupancy))
+    triage = _classify(message)
+    assert triage.requested_occupancy is None
+    assert triage.occupancy_out_of_range is None
+
+
+@pytest.mark.parametrize("message,occupancy,expected", [
+    ("Nous sommes 3, à Paris demain", {"total": 3, "counts": "people", "evidence": "Nous sommes 3"},
+     {"total": 3}),
+    ("Wir sind zu viert", {"total": 4, "counts": "people", "evidence": "Wir sind zu viert"}, {"total": 4}),
+    ("for my wife and me", {"total": 2, "counts": "people", "evidence": "my wife and me"}, {"total": 2}),
+])
+def test_a_party_the_model_says_counts_people_is_kept(monkeypatch, message, occupancy, expected):
+    _script(monkeypatch, '{"family": "search", "language": "en", "requested_occupancy": %s}'
+            % json.dumps(occupancy))
+    assert _classify(message).requested_occupancy == expected
+
+
+def test_a_count_beyond_any_room_goes_through_the_same_check(monkeypatch):
+    message = "Ok show me 250 rooms for Nov 3"
+    _script(monkeypatch, '{"family": "search", "language": "en", "requested_occupancy": '
+            '{"total": 250, "counts": "other", "evidence": "250 rooms"}}')
+    assert _classify(message).occupancy_out_of_range is None

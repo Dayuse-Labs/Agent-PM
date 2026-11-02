@@ -24,6 +24,17 @@ def possible_party(offer: dict, total: int) -> bool:
         type(children) is int and children >= 0 and adults + children >= total)))
 
 
+def asks_composition(total: int) -> bool:
+    """Whether the search answers with the discovery message and its question.
+
+    Prod audit 2026-11-02: « Suitability for your group of 2 still needs
+    confirmation: how many adults and children? » in 12 replies. Two people
+    fit any offer `possible_party` keeps, whatever their split: the cards keep
+    that filter and the normal answer; the split is asked before a booking
+    link only (R9)."""
+    return total >= 3
+
+
 def discovery_message(total: int, language: str, *, ask: bool = True) -> str:
     messages = {
         "fr": "Voici des pistes issues de la recherche. Leur capacité pour votre groupe de {total} personnes reste à confirmer : combien y a-t-il d’adultes et d’enfants ?",

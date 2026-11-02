@@ -65,31 +65,73 @@ def test_search_progresses_with_total_and_rejects_leaf_invented_counts(monkeypat
     runner = InMemoryRunner(root_agent)
     session = _new_session(runner)
     asyncio.run(fake_profile_store.set(session.id, SessionProfile(city="Example City")))
-    fake_leg.response_payload = {"results": [{"hotel_id": 42, "name": "Example", "capacity": 2}],
+    fake_leg.response_payload = {"results": [{"hotel_id": 42, "name": "Example", "capacity": 3}],
                                  "profile_delta": {"adults": 2, "children": 0}}
     llm = _scripted_llm(monkeypatch, json.dumps({"family": "search", "language": "en",
-        "requested_occupancy": {"total": 2, "evidence": "two"}}))
-    text = _run_turn(runner, session.id, "for two")
+        "requested_occupancy": {"total": 3, "counts": "people", "evidence": "for three"}}))
+    text = _run_turn(runner, session.id, "for three")
     outgoing = find_datapart(fake_leg.seen_outgoing_parts)
-    assert outgoing["query_params"]["party_total"] == 2
+    assert outgoing["query_params"]["party_total"] == 3
     assert "adults" not in outgoing["profile_in"] and "children" not in outgoing["profile_in"]
     saved = asyncio.run(fake_profile_store.get(session.id))
-    assert saved.pending_party_total == 2 and saved.adults is None and saved.children is None
+    assert saved.pending_party_total == 3 and saved.adults is None and saved.children is None
     assert fake_leg.call_count == 1 and len(llm.calls) == 1
     assert "options" in text and "confirmation" in text and "adults and children" in text
 
 
-def test_an_empty_page_for_an_unknown_composition_asks_it_instead_of_widening(monkeypatch, fake_leg, fake_profile_store):  # noqa: F811
+def test_two_people_get_the_normal_answer_with_their_capacity_filter(monkeypatch, fake_leg, fake_profile_store):  # noqa: F811
+    # Prod audit 2026-11-02: « Suitability for your group of 2 still needs
+    # confirmation: how many adults and children? » in 12 replies. Two people
+    # fit any offer the capacity filter keeps, whatever their split.
+    runner = InMemoryRunner(root_agent)
+    session = _new_session(runner)
+    asyncio.run(fake_profile_store.set(session.id, SessionProfile(city="Example City")))
+    fake_leg.response_payload = {"results": [{"hotel_id": 42, "name": "Example", "capacity": 2}]}
+    llm = _scripted_llm(monkeypatch, json.dumps({"family": "search", "language": "en",
+        "requested_occupancy": {"total": 2, "counts": "people", "evidence": "for two"}}), "Here is Example.")
+    text = _run_turn(runner, session.id, "for two")
+    assert find_datapart(fake_leg.seen_outgoing_parts)["query_params"]["party_total"] == 2
+    assert asyncio.run(fake_profile_store.get(session.id)).pending_party_total == 2
+    assert len(llm.calls) == 2 and "Here is Example." in text
+    assert "adults and children" not in text and "confirmation" not in text
+
+
+def test_an_empty_page_is_not_answered_by_the_composition_question(monkeypatch, fake_leg, fake_profile_store):  # noqa: F811
+    # Prod audit 2026-11-02: 10 of 10 such questions, over 0 cards, came from
+    # misread numbers (« 30km », « From 4pm »…). The leaf now serves the page
+    # without the capacity filter when that filter alone emptied it; an empty
+    # page left means MCP itself found nothing.
     runner = InMemoryRunner(root_agent)
     session = _new_session(runner)
     asyncio.run(fake_profile_store.set(session.id, SessionProfile(city="Example City")))
     fake_leg.response_payload = {"results": []}
     _scripted_llm(monkeypatch, json.dumps({"family": "search", "language": "en",
-        "requested_occupancy": {"total": 4, "evidence": "four of us"}}))
+        "requested_occupancy": {"total": 4, "counts": "people", "evidence": "four of us"}}), "No offers there.")
     text = _run_turn(runner, session.id, "four of us")
-    assert text == "Of these 4 guests, how many are adults and how many are children?"
-    saved = asyncio.run(fake_profile_store.get(session.id))
-    assert saved.consecutive_empty_searches == 0 and saved.pending_party_total == 4
+    assert "how many are adults" not in text and "adults and children" not in text
+
+
+def test_the_search_a_total_emptied_is_cited_with_that_total():
+    from b2c_concierge.relaxation_notice import relaxation_line
+
+    relaxation = {"steps": ["party"], "searched_date": "2026-11-03", "party": {"total": 3, "max_capacity": 2}}
+    line = relaxation_line(relaxation, {"city": "Paris", "date": "2026-11-03"}, "fr")
+    assert line.startswith("Aucune offre à Paris le mardi 3 novembre 2026, pour 3 personnes.")
+    assert "adultes" not in line and "le nombre de personnes" in line
+
+
+def test_a_total_no_room_sleeps_ends_on_the_closed_question_and_is_dropped(monkeypatch, fake_leg, fake_profile_store):  # noqa: F811
+    runner = InMemoryRunner(root_agent)
+    session = _new_session(runner)
+    asyncio.run(fake_profile_store.set(session.id, SessionProfile(city="Example City", pending_party_total=4)))
+    fake_leg.response_payload = {"results": [{"hotel_id": 42, "name": "Example", "capacity": 2}],
+                                 "relaxation": {"steps": ["party"], "searched_date": "2026-11-03",
+                                                "party": {"total": 4, "max_capacity": 2}}}
+    _scripted_llm(monkeypatch, json.dumps({"family": "search", "language": "en"}), "Here is Example.")
+    text = _run_turn(runner, session.id, "a hotel tomorrow")
+    assert text.endswith("Just to check: are you really 4 people?")
+    assert "adults and children" not in text
+    assert asyncio.run(fake_profile_store.get(session.id)).pending_party_total is None
 
 
 def test_the_composition_answer_resolves_the_pending_total(monkeypatch, fake_leg, fake_profile_store):  # noqa: F811
@@ -98,7 +140,7 @@ def test_the_composition_answer_resolves_the_pending_total(monkeypatch, fake_leg
     asyncio.run(fake_profile_store.set(session.id, SessionProfile(city="Example City", pending_party_total=3)))
     fake_leg.response_payload = {"results": [{"hotel_id": 42, "name": "Example"}]}
     _scripted_llm(monkeypatch, json.dumps({"family": "search", "language": "en",
-        "requested_occupancy": {"children": 1, "evidence": "one child"}}), "Here is Example.")
+        "requested_occupancy": {"children": 1, "counts": "people", "evidence": "one child"}}), "Here is Example.")
     _run_turn(runner, session.id, "one child")
     outgoing = find_datapart(fake_leg.seen_outgoing_parts)
     assert outgoing["query_params"]["occupancy_update"] == {"children": 1, "adults": 2}
@@ -107,7 +149,12 @@ def test_the_composition_answer_resolves_the_pending_total(monkeypatch, fake_leg
     assert (saved.adults, saved.children, saved.pending_party_total) == (2, 1, None)
 
 
-def test_a_total_on_a_booking_turn_asks_the_composition_before_any_link(monkeypatch, fake_leg, fake_profile_store):  # noqa: F811
+@pytest.mark.parametrize("total,words", [(3, "three"), (2, "two")])
+def test_a_total_on_a_booking_turn_asks_the_composition_before_any_link(
+    monkeypatch, fake_leg, fake_profile_store, total, words  # noqa: F811
+):
+    # Two people get no question at search time, but a booking link still
+    # needs their split (R9).
     def forbidden():
         raise AssertionError("Booking must not reach MCP before composition")
     monkeypatch.setattr(inline_tools, "_mcp_session", forbidden)
@@ -115,11 +162,11 @@ def test_a_total_on_a_booking_turn_asks_the_composition_before_any_link(monkeypa
     session = _new_session(runner)
     asyncio.run(fake_profile_store.set(session.id, SessionProfile(city="Example City", last_results=[
         {"hotel_id": 42, "name": "Example", "offer_id": "o", "offer_date": "2026-11-01"}])))
-    _scripted_llm(monkeypatch, json.dumps({"family": "booking", "language": "en",
-        "requested_occupancy": {"total": 3, "evidence": "for three"}, "hotel_name": "Example"}))
-    text = _run_turn(runner, session.id, "Book Example for three")
-    assert text == "Of these 3 guests, how many are adults and how many are children?"
-    assert asyncio.run(fake_profile_store.get(session.id)).pending_party_total == 3
+    _scripted_llm(monkeypatch, json.dumps({"family": "booking", "language": "en", "hotel_name": "Example",
+        "requested_occupancy": {"total": total, "counts": "people", "evidence": f"for {words}"}}))
+    text = _run_turn(runner, session.id, f"Book Example for {words}")
+    assert text == f"Of these {total} guests, how many are adults and how many are children?"
+    assert asyncio.run(fake_profile_store.get(session.id)).pending_party_total == total
 
 
 def test_room_preference_survives_followup(monkeypatch, fake_leg, fake_profile_store):  # noqa: F811
@@ -157,7 +204,7 @@ def test_a_composition_given_on_a_booking_turn_is_kept_and_unblocks_the_link(mon
     session = _new_session(runner)
     asyncio.run(fake_profile_store.set(session.id, SessionProfile(city="Example City", pending_party_total=3)))
     _scripted_llm(monkeypatch, json.dumps({"family": "booking", "language": "en", "hotel_name": "Example",
-        "requested_occupancy": {"adults": 2, "children": 1, "evidence": "2 adults and 1 child"}}))
+        "requested_occupancy": {"adults": 2, "children": 1, "counts": "people", "evidence": "2 adults and 1 child"}}))
     _run_turn(runner, session.id, "2 adults and 1 child, book Example")
     assert seen["party"] == (2, 1, None)  # _run_booking (faked here) saves the profile
 

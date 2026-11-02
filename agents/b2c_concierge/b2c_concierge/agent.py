@@ -98,7 +98,7 @@ from b2c_common.observability import (
     stamp_langfuse_turn_session,
     trace_context_carrier,
 )
-from b2c_common.party_discovery import discovery_message
+from b2c_common.party_discovery import asks_composition, discovery_message
 from b2c_common.party_update import party_composition_question, resolve_party_update
 from b2c_common.room_requirements import apply_room_update
 from b2c_common.price_comparison import (
@@ -2384,21 +2384,6 @@ class _B2cConcierge(BaseAgent):
                 else templates.leaf_degraded_response(family, reply_language, profile.city),
             )
             return
-        if (route.target == LEAF_HOTEL_SEARCH and profile.pending_party_total is not None
-                and response.get("results") == []):
-            # PORT1 slice 5: an empty page for an unknown composition proves
-            # nothing about availability — ask it, never widen or exhaust.
-            profile.pending_booking = None
-            question = party_composition_question(profile.pending_party_total, reply_language)
-            profile.last_clarifying_question = question
-            await store.set(ctx.session.id, profile)
-            yield self._hotels_event(ctx, response, reply_language)
-            self._emit_turn_metric(
-                family, "template:party_clarification", budget, t_start, "ok", inv,
-                clarification="party",
-            )
-            yield self._final(ctx, question)
-            return
         budget_followup: str | None = None
         if route.target == LEAF_HOTEL_SEARCH and profile.requested_budget and "results" in response:
             # PORT1 slice 3: a dollar amount takes the code of the market the
@@ -2679,7 +2664,8 @@ class _B2cConcierge(BaseAgent):
         free_question: str | None = None
         # 2026-10-30 (prod after #175: « 18+ » read as 18 adults, 8 empty
         # turns; « 250 » read as 250 people): a party no offer here sleeps —
-        # the leaf showed the cards without it (`party` on its rescue), or the
+        # the leaf showed the cards without it (`party` on its rescue, or on
+        # its capacity filter for a total whose split is unknown), or the
         # triage's count was refused — ends on ONE closed question, in code,
         # and is not carried to the next search.
         party_question = ""
@@ -2696,7 +2682,8 @@ class _B2cConcierge(BaseAgent):
                 )
             if party_question:
                 profile.adults = profile.children = profile.pending_party_total = None
-        if route.target == LEAF_HOTEL_SEARCH and profile.pending_party_total is not None and response.get("results"):
+        if (route.target == LEAF_HOTEL_SEARCH and profile.pending_party_total is not None
+                and asks_composition(profile.pending_party_total) and response.get("results")):
             # PORT1 slice 5: the cards show the exact offers; no prose may
             # claim group eligibility or guess a composition — no synthesis.
             synth = discovery_message(profile.pending_party_total, reply_language, ask=not party_question_asked)

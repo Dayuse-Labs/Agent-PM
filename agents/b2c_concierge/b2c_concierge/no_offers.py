@@ -85,6 +85,11 @@ _ADULTS: dict[str, str] = {
     "fr": "pour {} adultes", "en": "for {} adults", "es": "para {} adultos", "it": "per {} adulti",
     "de": "für {} Erwachsene", "pt": "para {} adultos", "nl": "voor {} volwassenen",
 }
+#: A party whose split is unknown (`party_total`, 2026-11-02): never « adults ».
+_PEOPLE: dict[str, str] = {
+    "fr": "pour {} personnes", "en": "for {} people", "es": "para {} personas", "it": "per {} persone",
+    "de": "für {} Personen", "pt": "para {} pessoas", "nl": "voor {} personen",
+}
 # The leaf's amenity keys (hotel_search_agent.equipment_ids.EQUIPMENT_IDS).
 _AMENITY: dict[str, dict[str, str]] = {
     "fr": {"indoor_pool": "piscine intérieure", "pool": "piscine", "spa": "spa", "gym": "salle de sport", "jacuzzi": "jacuzzi", "sauna": "sauna",
@@ -178,8 +183,11 @@ def no_offers_line(
     if context.get("standing") == "upscale":
         bits.append(_UPSCALE[lang])
     adults = context.get("adults")
+    party_total = context.get("party_total")
     if isinstance(adults, int) and adults > 1:
         bits.append(_ADULTS[lang].format(adults))
+    elif isinstance(party_total, int) and not isinstance(party_total, bool) and party_total > 1:
+        bits.append(_PEOPLE[lang].format(party_total))
     place = _place(context, lang)
     if not place and not bits:
         return ""
