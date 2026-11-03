@@ -6,6 +6,60 @@
 
 > 📋 **Pour savoir QUOI faire ensuite, ouvrir [`CHANTIERS.md`](CHANTIERS.md)** (état vérifié au 2026-09-14) : la liste des chantiers ouverts, chacun avec sa preuve, ses actions et un prompt prêt à coller — plus la liste de ce qu'il ne faut **pas** relancer parce que c'est déjà livré. `tasks/todo.md` est périmé et ne doit plus servir de référence.
 
+## 🧭 2026-11-03 — Un État écrit avec le lieu compte, une aire n'est pas une autre qui partage un mot (branche `fix/geo-explicit-state-20261103`, sur `main` 1814b55)
+
+**Récupération client** : aucune possible. Les deux conversations sont anonymes et terminées ; aucun canal pour recontacter.
+
+**Constat** (check du 03/11, 24 h après #183, traces Langfuse de la feuille en release `ba44795`) :
+- Session `2eb025cb` (02/11 12:07Z), « What is the closest day use option I have near Auburn, AL? ». L'intent porte `places[0].region = "AL"` et `city.region = "AL"`, mais pas `region_named`. Résultat : `geocode_ambiguous` avec Washington et Californie. L'utilisateur a dû réécrire « Auburn Alabama » et a laissé un feedback négatif.
+- Session `580064bf` (02/11 22:28Z), « Amelia Island » (`kind: region`), est résolue en « Amelia County, Virginia ». L'ancre VA est gardée sur 3 recherches vides, puis la conversation est perdue.
+
+**Cause** (première divergence : interprétation du code sur des champs typés déjà corrects) :
+1. `_place_args` ne lisait que `region_named`. La `region` d'un lieu était ignorée, et le niveau texte saute « al » (code ambigu, `_TEXT_UNSAFE_STATE_ABBREVS`). Sans État, le résolveur classe par inventaire : Auburn AL (0 hôtel à 25 km) n'est pas dans le palier des options, d'où une question sans Alabama. Le modèle remplit `region_named` sur la plupart des tirages : au rejeu, main échoue 1 fois sur 6 sur ce message. Le défaut de prod est un tirage.
+2. `_area_match` acceptait une aire dont le nom fait écho par son mot le plus long : « amelia » est à égalité avec « island ». Même mécanisme au rejeu : « Hilton Head Island » → Chilton County AL, « Long Island » → Island County WA.
+3. Trouvé au rejeu, après le correctif 2 : une aire trouvée par Search Box (et non par la couche administrative) n'était reportée que comme `zone`. Au tour suivant, une zone sans ville déclenche « in which city? ».
+
+**Correction** (aucune liste de mots, aucune regex sur le message) :
+1. `_Claims.region` (`geocode_tool.py`) : la `region` d'un lieu vaut État nommé quand la mention de l'utilisateur pour ce lieu, présente dans le texte d'entrée, la porte comme mot. Ce mot est le code, ou le nom de l'État tiré des données de référence `us`. Le nom canonique du lieu est retiré de la mention avant ce test : « Kansas City » ne nomme pas le Kansas, « Kansas City, Kansas » si. C'est la même vérification de citation que `written()` pour un code postal. Une région que seul le modèle connaît ne décide rien : la question d'homonymie reste.
+2. `_same_area_name` : une aire est rejetée quand son nom et celui demandé portent chacun un mot que l'autre n'a pas (miroir de `_business_named_after_the_area`). Le palier Search Box trouve alors l'île en Floride.
+3. L'aire trouvée par Search Box est reportée comme destination (`last_city` + `city_is_area`, État du lieu trouvé), comme celle de la couche administrative.
+
+**Rejeu avant/après** (Mapbox et MCP lus en live, IP locale 45.156.191.77 identique pour les deux bras ; Langfuse, `CHAT_API_KEY` et `DATABASE_URL` retirés ; Redis :6390 ; en-tête `X-Dayuse-Synthetic: 1` ; jamais ai.dayuse.com ; horloge non simulée, la décision géo n'en dépend pas) :
+- **Appels réels de l'outil** : intents exacts, arguments et texte d'entrée de la feuille, extraits des traces locales. Population touchée par le diff : les 99 appels sur une aire ou avec une `region` typée, sur 1 580. Seuls les 2 cas visés changent d'issue : Auburn → Alabama, Amelia Island → Fernandina Beach FL. La règle d'État se déclenche 8 fois sur 1 580 (Newport California, Plano TX, Tinton Falls NJ, Atlanta GA…) ; seul Auburn change d'issue, les autres étaient déjà résolus pareil par le niveau texte.
+- **Conversations complètes** : pile locale de 3 services avec les variables de prod (`railway run` par service), main contre branche, 3 passages chacun :
+
+  | Conversation | `main` | Branche |
+  |---|---|---|
+  | `2eb025cb` « near Auburn, AL? » (+ même message dans le voisin « puis CA ») | question WA/CA 1/6, Alabama 5/6 | Alabama 6/6 |
+  | `580064bf` « Amelia Island », tour 2 | Amelia County VA 3/3, 0 carte | Amelia Island FL 2/3 (1 à 5 cartes) ; 1/3 question de lieu, intent invalide du modèle (`valid=0`, avant le code modifié ; même bruit sur main : 1 intent invalide sur 45) |
+  | `580064bf` tours 3-4 (jours suivants) | VA, 0 carte 6/6 | Amelia Island FL 6/6, 1 carte, aucune question « in which city? » |
+  | Profil Redis persisté en fin de `580064bf` | `city` Amelia County, `state_anchor` VA 3/3 | `city` Amelia Island, `city_is_area`, `state_anchor` FL 3/3 |
+  | « Auburn » sans État | question 3/3 | question 3/3 |
+  | « Hotel in Springfield » sans État | question 3/3 | question 3/3 |
+  | « Auburn, WA » | question 3/3 | Washington 3/3 |
+  | « Portland, ME » | Maine 2/3, Oregon 1/3 | Maine 3/3 |
+  | « près de Springfield, MO » (FR) | question 3/3 | Missouri 3/3 |
+  | « Auburn, AL » puis « I meant Auburn, California » | CA 3/3 au tour 2 | CA 3/3 au tour 2 |
+  | « Spa day on Amelia Island, Florida » | VA 3/3 | FL 3/3 |
+  | « Amelia County, Virginia » (témoin) | VA 3/3 | VA 3/3 |
+
+- **Tests** : `agents/hotel_search_agent/tests/test_explicit_state_2026_11_03.py` (21). Contre-épreuve sur les sources d'`origin/main` : 8 rouges (les cas réels, États explicites, île, comté homonyme, tour suivant). Les témoins verts couvrent : voisins négatifs (Auburn seul, région connue du seul modèle, mention non écrite, « al » ailleurs dans le message), correction ultérieure, comté demandé, deux districts dans un nom. Les 4 cas `_Claims.region` (Kansas City…) sont des tests unitaires de la nouvelle méthode, sans équivalent sur main.
+
+**Régressions** :
+- Premier essai de la règle d'aire (« tous les mots demandés ») : 2 régressions sur les 99 appels réels, « Landkreisen Kaiserslautern und Kusel » et « 12 et 23 [arrondissements] » perdaient Kreis Kaiserslautern et Paris. La règle finale (chacun porte un mot que l'autre n'a pas) n'en a aucune. Kaiserslautern est gardé en témoin.
+- « Long Island » seul (`kind: region`) : main → Island County WA, branche → Long Island, Bahamas (relance mondiale de `_area_match` quand la portée US ne trouve rien). Faux des deux côtés. Absent des 1 580 appels réels sous cette forme (avec New York, c'est la ville qui est cherchée).
+- « Puglia » et « The Bronx » seuls : sans réponse des deux côtés (inchangé).
+
+**Pièges** :
+- `pip install` des requirements échoue hors réseau GitHub SSH (`dayuse-agent-fleet`). Réutiliser `../AgentB2C-replay-main/.venv`, avec les sources du worktree en tête de `PYTHONPATH` (le `pytest.ini` le fait).
+- Un test qui omet `entry_market_country` dans `profile_in` n'a plus de portée pays sur un tour sans lieu ; la prod l'envoie (marché en/USD → US).
+
+**Reste** :
+- Revue (Fabien), puis déploiement de `hotel-search` seul (seul `agents/hotel_search_agent` change).
+- À prouver en prod sous 48 h : aucun `geocode_ambiguous` dont l'intent porte une `region` écrite dans la mention, aucune aire résolue sur un nom qui ne partage qu'un mot. Retour arrière : `LANGFUSE_RELEASE=ba44795` (`--skip-deploys`), puis `railway up --service hotel-search` depuis un checkout détaché sur `ba44795`.
+- Hors sujet, vu au passage : dans `580064bf`, « Try day after » après « Friday November 6th » a cherché le mercredi 4 novembre (le lendemain d'aujourd'hui, pas du jour demandé).
+- Long Island seul → Bahamas : une aire introuvable dans le pays deviné ne devrait pas partir dans un autre pays avant le palier Search Box de ce pays. À trancher, car la doctrine actuelle dit « une mauvaise devinette coûte un appel, jamais la bonne réponse ».
+
 ## 🚀 2026-11-02 — `hotel-search` et `concierge` déployés sur `ba44795` (#183)
 
 **Déployé** (`DEPLOY.md`, par Claude à la demande de Fabien), depuis `../AgentB2C-deploy` détaché sur `ba44795`, arbre propre.

@@ -78,6 +78,7 @@ Détail et preuves dans les blocs datés de `HANDOFF.md`.
 | 30/10 | #179 | Leviers de clic (lendemain classé, lieux précis, budgets hors EUR, priorité prix) | Tours de recherche vides 32 → 17 ; cartes à plus de 10 km 28 % → 23,5 % ; latence inchangée |
 | 30/10 | #181 | Lendemain annoncé en code et puces de jour | Annonce garantie 4/4, puces 4/4 (main 0/4) |
 | 02/11 | #183 | Un nombre n'est un groupe que s'il compte des personnes | Faux groupes sur les entrées exactes de prod 10/40 → 0/40, vrais groupes 39/39 gardés |
+| 03/11 | `fix/geo-explicit-state-20261103` | Un État écrit avec le lieu compte (`region` typée) ; une aire qui ne partage qu'un mot est une autre aire | « Auburn, AL » : question WA/CA 1/6 → 0/6 ; « Amelia Island » : Virginie 3/3 → Floride 3/3 ; « Auburn, WA », « Springfield, MO » : question 3/3 → résolu 3/3 ; 99 appels réels touchés : 2 changements, les 2 visés |
 
 ## Livrer
 - Une PR par point, revue de Fabien, jamais de merge par l'auteur.
@@ -86,6 +87,8 @@ Détail et preuves dans les blocs datés de `HANDOFF.md`.
 - Où consigner : bloc daté de `HANDOFF.md`, jeu `b2c-prod-<date>` en `target`, leçons dans `tasks/lessons.md`.
 
 ## Pièges datés
+- 2026-11-03 : le défaut d'un tour peut n'être qu'un tirage du modèle (« Auburn, AL » échoue 1 fois sur 6 sur `main`). Rejouer d'abord l'intent exact de la trace sur le vrai outil (`geocode_location`, Mapbox live), puis la conversation entière sur plusieurs passages.
+- 2026-11-03 : `pip install` des requirements exige l'accès SSH à `dayuse-agent-fleet` ; sans lui, réutiliser un venv existant, les sources du worktree en tête de `PYTHONPATH`.
 - 2026-11-02 : le checkout principal local datait de juillet ; partir d'`origin/main`.
 - 2026-11-02 : les scripts de rejeu des conversations réelles vivaient dans un scratchpad hors dépôt ; les verser dans `evals/` s'ils servent encore.
 - 2026-11-02 : une liste d'exemples longue dans le prompt du triage l'a fait répondre dans la langue des exemples ; toute retouche se mesure avec `compare` sur les 114 entrées.
