@@ -2680,7 +2680,10 @@ class _B2cConcierge(BaseAgent):
                         default=None,
                     ),
                 )
-            if party_question:
+            relaxation = response.get("relaxation")
+            if party_question or (isinstance(relaxation, dict) and isinstance(relaxation.get("party"), dict)):
+                # 2026-11-02: a party the rescue had to relax is dropped even
+                # when no question is asked (the offers found sleep that many).
                 profile.adults = profile.children = profile.pending_party_total = None
         if (route.target == LEAF_HOTEL_SEARCH and profile.pending_party_total is not None
                 and asks_composition(profile.pending_party_total) and response.get("results")):
