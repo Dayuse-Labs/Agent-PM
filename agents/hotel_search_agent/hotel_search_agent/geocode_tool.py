@@ -1278,10 +1278,25 @@ def geocode_core(
         elif natural is not None and any(
             _echoes(natural.place_name, city=None, zone=n, state_hint=None) for n in area_names
         ):
+            # 2026-11-03 (replay of session 580064bf): carried as a zone
+            # alone, « Amelia Island » came back on the next turn (« Friday
+            # November 6th ») as a spot with no city, and the user was asked
+            # « in which city? ». It is the destination, carried as an area
+            # like the one the admin layer knows (above).
             return _ok(
                 natural.as_result(),
                 feature_type=natural.feature_type,
-                profile_delta={},
+                profile_delta={
+                    **_anchor_state(
+                        city=effective_zone,
+                        raw_user_message=raw_user_message,
+                        profile_state_context=profile_state_context,
+                        profile_location_hint=profile_location_hint,
+                        guards_fired=guards_fired,
+                        resolved=natural,
+                    ),
+                    "city_is_area": True,
+                },
                 distance_origin_type="poi",
                 zone=effective_zone,
                 guards_fired=guards_fired,

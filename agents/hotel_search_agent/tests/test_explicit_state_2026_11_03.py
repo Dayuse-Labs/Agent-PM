@@ -114,8 +114,10 @@ def v6(monkeypatch):
     return fake
 
 
-def _ctx(*texts):
-    datapart = a2a_types.Part(root=a2a_types.DataPart(data={"query_params": {}, "profile_in": {}}))
+def _ctx(*texts, profile_in=None):
+    datapart = a2a_types.Part(
+        root=a2a_types.DataPart(data={"query_params": {}, "profile_in": profile_in or {}})
+    )
     parts = [genai_types.Part(text=t) for t in texts]
     parts.append(convert_a2a_part_to_genai_part(datapart))
     return SimpleNamespace(state={}, user_content=genai_types.Content(role="user", parts=parts))
@@ -279,7 +281,24 @@ class TestAnAreaIsTheOneAskedFor:
         assert result["ok"] is True
         assert _at(result, AMELIA_ISLAND)
         assert "Virginia" not in result["resolved_place"]
-        assert result["profile_delta"].get("last_state_context") != "VA"
+        # Carried as the destination, an area, in its own state.
+        assert result["profile_delta"]["last_city"] == "Amelia Island"
+        assert result["profile_delta"]["city_is_area"] is True
+        assert result["profile_delta"]["last_state_context"] == "FL"
+
+    def test_the_next_turn_searches_the_island_again(self, v6):
+        # Replay of 580064bf, turn 3 « Friday November 6th »: no place named,
+        # the carried island is searched again — never « in which city? ».
+        profile = {"city": "Amelia Island", "city_is_area": True, "zone": "Amelia Island",
+                   "state_anchor": "FL", "entry_market_country": "US"}
+
+        result = geocode_location(intent=GeoIntent(), locale="en", profile_state_context="FL",
+                                  profile_location_hint="Amelia Island",
+                                  tool_context=_ctx("Friday November 6th", profile_in=profile))
+
+        assert result["ok"] is True
+        assert "clarification" not in result
+        assert _at(result, AMELIA_ISLAND)
 
     def test_a_county_that_only_shares_a_word_is_never_taken(self, v6):
         # Replay 2026-11-03: « Hilton Head Island » -> Chilton County, Alabama.
