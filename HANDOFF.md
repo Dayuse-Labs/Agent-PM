@@ -39,6 +39,8 @@ Reprend sur #183 ce que #184 apportait en plus (#184 est remplacée par cette br
 
 **Déploiement** : non fait. `concierge` + `hotel-search` (`faq` non concerné). **Vérification réelle** après déploiement : 0 `template:party_clarification` sur 0 carte, part des faux groupes, conversations servies.
 
+**Constat prod de #183 seule** (03/11, traces Langfuse complètes du 02/11 09:55 → 03/11 08:27 UTC, 144 conversations réelles / 317 tours, contre 374 / 858 du 30/10 12:00 → 02/11 09:55 ; groupe = `adults`/`children` reçus par `search_offers`, questions = gabarits exacts du code de `ba44795`) : question de composition 7 → 0, gabarit « pistes… à confirmer » 28 → 0, groupe ≠ 2 adultes envoyé à MCP 13 → 1, « Vous êtes bien N personnes ? » 5 → 1. Les deux restes sont ce que cette branche corrige : « I have a long layover » → Hong Kong part à MCP avec 1 adulte écrit par la feuille (21230ac1) ; couple de la puce romantique relâché à Milledgeville puis « are you really 2 people? » (90a7f07e). Le triage lit encore « per due giorni » comme 2 personnes (`counts: people`), sans effet puisque 2 est la valeur par défaut. Conversations servies 82,4 → 78,5 % (z = −1,0), rebond 12,8 → 18,1 % (z = 1,5, mix des puces : « Day room near me » 20 → 5 ouvertures, puce romantique 18 → 15 dont 8 partent à « dans quelle ville ? »), latence p50 7,6 → 8,2 s.
+
 ## 🚀 2026-11-02 — `hotel-search` et `concierge` déployés sur `ba44795` (#183)
 
 **Déployé** (`DEPLOY.md`, par Claude à la demande de Fabien), depuis `../AgentB2C-deploy` détaché sur `ba44795`, arbre propre.
