@@ -594,6 +594,27 @@ def _names(*names: str | None) -> tuple[str, ...]:
     return tuple(dict.fromkeys(n.strip() for n in names if n and n.strip()))
 
 
+def _same_area_name(candidate: GeocodeCandidate, names: tuple[str, ...]) -> bool:
+    """Whether the area Mapbox returned and one of `names` (the area asked
+    for, its other forms) are one name: every word of one of them is in the
+    other, as a word or part of one. « Bergen County » for « Bergen County »,
+    « Kreis Kaiserslautern » for « Landkreis Kaiserslautern und Landkreis
+    Kusel », « Paris » for « 12e et 23e arrondissement de Paris » — but not
+    « Amelia County » for « Amelia Island »: each carries a word the other
+    lacks. Words of Mapbox's own name against the request's, no word list —
+    the mirror of `_business_named_after_the_area`."""
+    own = _comparable(candidate.name or "")
+
+    def within(words: str, text: str) -> bool:
+        compact = text.replace(" ", "")
+        return all(word in compact for word in words.split())
+
+    return any(
+        name and (within(name, own) or within(own, name))
+        for name in (_comparable(n) for n in names)
+    )
+
+
 def _area_match(
     area: str,
     names: tuple[str, ...],
@@ -615,7 +636,15 @@ def _area_match(
     `exact` (2026-10-28): the area's name from reference data (a French
     département, `fr_departments`). Only an area of exactly that name is
     taken: « Val-de-Marne » echoes « Marne » by its longest word, and the
-    département table says which one the user's number is."""
+    département table says which one the user's number is.
+
+    2026-11-03 (prod session 580064bf, « Amelia Island »): the echo accepts
+    an area that shares only one of the words asked for (« Amelia County,
+    Virginia », 600 km from the island in Florida; replay: « Hilton Head
+    Island » → Chilton County, Alabama). An area
+    whose name and the request's each carry a word the other lacks is
+    another area (`_same_area_name`), and the Search-Box tier looks the
+    place up."""
     mapbox = get_mapbox_client()
 
     def first(candidates: list[GeocodeCandidate]) -> GeocodeCandidate | None:
@@ -628,8 +657,10 @@ def _area_match(
                 None,
             )
         for c in candidates:
-            if c.feature_type in _AREA_FEATURE_TYPES and any(
-                _echoes(c.place_name, city=None, zone=n, state_hint=None) for n in names
+            if (
+                c.feature_type in _AREA_FEATURE_TYPES
+                and _same_area_name(c, names)
+                and any(_echoes(c.place_name, city=None, zone=n, state_hint=None) for n in names)
             ):
                 return c
         return None
