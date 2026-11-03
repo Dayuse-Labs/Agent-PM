@@ -6,6 +6,28 @@
 
 > 📋 **Pour savoir QUOI faire ensuite, ouvrir [`CHANTIERS.md`](CHANTIERS.md)** (état vérifié au 2026-09-14) : la liste des chantiers ouverts, chacun avec sa preuve, ses actions et un prompt prêt à coller — plus la liste de ce qu'il ne faut **pas** relancer parce que c'est déjà livré. `tasks/todo.md` est périmé et ne doit plus servir de référence.
 
+## 🚀 2026-11-03 — `hotel-search` et `concierge` déployés sur `ceb49df` (#187, #188)
+
+**Merge** : #187 (`b618005`) et #188 (`ceb49df`) mergées par Claude à la demande explicite de Victor, **sans la revue de Fabien**. Gate local vert sur la combinaison (main + #187 + #188, même arbre que `ceb49df`) : pytest 3 844 passés / 2 skippés, ruff, mypy, guardrails. CI GitHub en attente (Actions coupées, billing). Conflit `HANDOFF.md` résolu en gardant les deux blocs.
+
+**Déployé** (`DEPLOY.md`, depuis `../AgentB2C-deploy` détaché sur `ceb49df`, arbre propre, pytest de pré-vol 3 844 passés) : estampille `LANGFUSE_RELEASE=ceb49df` posée avec `--skip-deploys` sur les 2 services, puis `railway up --detach`, `hotel-search` (SUCCESS 11:35:01Z) puis `concierge` (SUCCESS 11:35:51Z). `faq` reste sur `b6f9402` et `widget` sur `e3194a1` : ni `agents/faq_agent`, ni `libs/`, ni `web/` ne changent depuis `ba44795`.
+
+**Preuve** (widget, tours synthétiques, sessions `synthetic-*`, spans `b2c-concierge` et `hotel-search-agent` en release `ceb49df`) :
+- « What is the closest day use option I have near Auburn, AL? » → géocodé « Auburn, Alabama » d'emblée, 2 cartes (Columbus, 49 km), sans question Washington / Californie (#188).
+- « Anniversary spa day » puis « Amelia Island » → « Amelia Island, Fernandina Beach, Florida », 1 carte après élargissement annoncé, et non plus Amelia County, Virginia (#188).
+- « I have a long layover between flights » puis « Hong Kong » → 5 cartes, `search_offers` sans `adults` (avant : 1 adulte écrit par le LLM de la feuille) (#187).
+- « Nous sommes 2 adultes, un hôtel à Lausanne demain » → `adults: 2` envoyé, 5 cartes, plus de « Vous êtes bien 2 personnes ? » (#187).
+- « Nous sommes 3, un hôtel à Paris demain après-midi » → 5 cartes après assouplissement annoncé, et la question fermée reste, puisque la capacité maximale trouvée (2) est inférieure au groupe : comportement voulu. Le défaut déjà noté le 02/11 est toujours là : la synthèse ajoute sa propre demande (« chambre triple ou deux chambres ») avant la question du code.
+- « Mi serve una camera per due giorni a Roma » → 5 cartes, aucun groupe envoyé.
+
+**À prouver sous 48 h** (sur trafic réel) :
+- aucun groupe ≠ 2 écrit par la feuille ;
+- aucun « Vous êtes bien N personnes ? » quand N tient dans la capacité trouvée ;
+- aucun `geocode_ambiguous` dont l'intent porte une `region` écrite dans la mention ;
+- part des conversations servies et latence stables (78,5 % et 8,2 s de médiane sur les 24 h après #183).
+
+**Retour arrière** : `LANGFUSE_RELEASE=ba44795` (`--skip-deploys`), puis `railway up` des 2 services depuis un checkout détaché sur `ba44795`.
+
 ## 🧭 2026-11-03 — Un État écrit avec le lieu compte, une aire n'est pas une autre qui partage un mot (branche `fix/geo-explicit-state-20261103`, sur `main` 1814b55)
 
 **Récupération client** : aucune possible. Les deux conversations sont anonymes et terminées ; aucun canal pour recontacter.
