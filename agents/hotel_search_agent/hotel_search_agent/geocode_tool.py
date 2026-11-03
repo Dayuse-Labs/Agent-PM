@@ -594,6 +594,27 @@ def _names(*names: str | None) -> tuple[str, ...]:
     return tuple(dict.fromkeys(n.strip() for n in names if n and n.strip()))
 
 
+def _same_area_name(candidate: GeocodeCandidate, names: tuple[str, ...]) -> bool:
+    """Whether the area Mapbox returned and one of `names` (the area asked
+    for, its other forms) are one name: every word of one of them is in the
+    other, as a word or part of one. « Bergen County » for « Bergen County »,
+    « Kreis Kaiserslautern » for « Landkreis Kaiserslautern und Landkreis
+    Kusel », « Paris » for « 12e et 23e arrondissement de Paris » — but not
+    « Amelia County » for « Amelia Island »: each carries a word the other
+    lacks. Words of Mapbox's own name against the request's, no word list —
+    the mirror of `_business_named_after_the_area`."""
+    own = _comparable(candidate.name or "")
+
+    def within(words: str, text: str) -> bool:
+        compact = text.replace(" ", "")
+        return all(word in compact for word in words.split())
+
+    return any(
+        name and (within(name, own) or within(own, name))
+        for name in (_comparable(n) for n in names)
+    )
+
+
 def _area_match(
     area: str,
     names: tuple[str, ...],
@@ -615,7 +636,15 @@ def _area_match(
     `exact` (2026-10-28): the area's name from reference data (a French
     département, `fr_departments`). Only an area of exactly that name is
     taken: « Val-de-Marne » echoes « Marne » by its longest word, and the
-    département table says which one the user's number is."""
+    département table says which one the user's number is.
+
+    2026-11-03 (prod session 580064bf, « Amelia Island »): the echo accepts
+    an area that shares only one of the words asked for (« Amelia County,
+    Virginia », 600 km from the island in Florida; replay: « Hilton Head
+    Island » → Chilton County, Alabama). An area
+    whose name and the request's each carry a word the other lacks is
+    another area (`_same_area_name`), and the Search-Box tier looks the
+    place up."""
     mapbox = get_mapbox_client()
 
     def first(candidates: list[GeocodeCandidate]) -> GeocodeCandidate | None:
@@ -628,8 +657,10 @@ def _area_match(
                 None,
             )
         for c in candidates:
-            if c.feature_type in _AREA_FEATURE_TYPES and any(
-                _echoes(c.place_name, city=None, zone=n, state_hint=None) for n in names
+            if (
+                c.feature_type in _AREA_FEATURE_TYPES
+                and _same_area_name(c, names)
+                and any(_echoes(c.place_name, city=None, zone=n, state_hint=None) for n in names)
             ):
                 return c
         return None
@@ -1247,10 +1278,25 @@ def geocode_core(
         elif natural is not None and any(
             _echoes(natural.place_name, city=None, zone=n, state_hint=None) for n in area_names
         ):
+            # 2026-11-03 (replay of session 580064bf): carried as a zone
+            # alone, « Amelia Island » came back on the next turn (« Friday
+            # November 6th ») as a spot with no city, and the user was asked
+            # « in which city? ». It is the destination, carried as an area
+            # like the one the admin layer knows (above).
             return _ok(
                 natural.as_result(),
                 feature_type=natural.feature_type,
-                profile_delta={},
+                profile_delta={
+                    **_anchor_state(
+                        city=effective_zone,
+                        raw_user_message=raw_user_message,
+                        profile_state_context=profile_state_context,
+                        profile_location_hint=profile_location_hint,
+                        guards_fired=guards_fired,
+                        resolved=natural,
+                    ),
+                    "city_is_area": True,
+                },
                 distance_origin_type="poi",
                 zone=effective_zone,
                 guards_fired=guards_fired,
@@ -2086,6 +2132,38 @@ class _Claims:
             self.mentions_discarded += 1
         return None
 
+    def region(self, ref: Place | CityRef | None) -> str | None:
+        """The state or province the model reports for a place (`region`),
+        kept only when the user wrote it with that place: the place's
+        `mention` is in the input text, whole words, and holds the region as a
+        word of its own — its code (« Auburn, AL ») or, for a US state, the
+        state's name from reference data (« Auburn Alabama »). The place's
+        own name is taken out of the mention first: « Kansas City » names no
+        state, « Kansas City, Kansas » does. Exact words only, no similarity
+        step.
+
+        2026-11-03 (prod session 2eb025cb, « near Auburn, AL? »): the model
+        put « AL » in the place's `region` and not in `region_named`, the
+        only field read; the homonym question then offered Washington and
+        California, without Alabama. A region the model knows but the user
+        did not write (« Auburn » alone) stays out: the geocoder decides
+        homonyms, never the model's guess."""
+        if ref is None:
+            return None
+        code = (ref.region or "").strip()
+        mention = _comparable(ref.mention)
+        if not code or not mention or f" {mention} " not in self._said:
+            return None
+        key = code.lower()
+        state = US_STATE_ABBREV_TO_NAME.get(key) or US_STATE_NAME_TO_CANONICAL.get(key)
+        forms = {key} | (
+            {state.lower()} | {abbr for abbr, name in US_STATE_ABBREV_TO_NAME.items() if name == state}
+            if state else set()
+        )
+        name = _comparable(ref.canonical)
+        words = f" {mention} ".replace(f" {name} ", " ", 1) if name else f" {mention} "
+        return code if any(f" {_comparable(form)} " in words for form in forms) else None
+
     def country(self, value: str | None) -> str | None:
         """Every country value goes through `_iso2` before it becomes a hard
         filter or a soft hint: "fr" -> "FR"; a name, an alpha-3 code or noise
@@ -2214,7 +2292,8 @@ def _place_args(
       counted as `city_conflicts` (Q14);
     - `country_named` → `country_code`, the hard filter; a country not named
       (the zone place's, else a city's) → `country_guess`, a hint;
-    - `region_named` → the state tier;
+    - `region_named` → the state tier, else the `region` of the place
+      searched when the user wrote it with the place (`_Claims.region`);
     - `ambiguity.reason == "city_needed"` (DQ6, the S5 rule): no city at all,
       so `geocode_core` asks which one — the code decides the question, the
       model only flags it. `homonym` and `too_vague` are logged, not mapped:
@@ -2344,7 +2423,11 @@ def _place_args(
         "zone": zone,
         "country_code": named,
         "country_guess": guess,
-        "region_named": (geo.region_named or "").strip() or None,
+        # A state the user wrote with the place itself counts as named, when
+        # the model reported it only as the place's region (`_Claims.region`).
+        "region_named": (geo.region_named or "").strip() or next(
+            (r for r in (claims.region(ref) for ref in (city_ref, zone_place, *cities)) if r), None
+        ),
         "postal_code": postal_code,
         "zone_kind": zone_place.kind if zone and zone_place is not None else None,
         "aliases": aliases,
