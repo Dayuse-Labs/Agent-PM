@@ -744,20 +744,20 @@ async def classify(message: str, budget: TurnBudget, invocation_id: str = "",
 
 def _party_quote_ok(raw: Any, message: str) -> bool:
     """Whether a party statement may be read at all: the model says its number
-    counts people, and its quote is in the message, holds a word and is not a
-    date. Facts about the quote, never a reading of the message.
+    counts people, and its quote is in the message and is not a date (a strict
+    format). Facts about the model's output, never a reading of the message.
 
     Prod audit 2026-11-02: since #173 the 10 composition questions asked were
     all misreads — « 11.11. », « 08 », « From 4pm », « 9 /13 », « 3 horas »,
-    « 30km » read as 11, 8, 4, 9, 3 and 30 people. A quote of digits alone
-    (« 08 », « 9 /13 », « 11.11. ») cannot say what it counts."""
+    « 30km » read as 11, 8, 4, 9, 3 and 30 people. The model now says what the
+    number counts (`counts`). Rule of 2026-11-02 (Victor): no lexical test on
+    the user's words and no fallback overriding the model, so #183's « the
+    quote holds a letter » check is gone (measured: HANDOFF 2026-11-02)."""
     if not isinstance(raw, dict) or raw.get("counts") != "people":
         return False
     evidence = raw.get("evidence")
     if (not isinstance(evidence, str) or not evidence.strip() or len(evidence) > 240
             or evidence.casefold() not in message.casefold()):
-        return False
-    if not any(char.isalpha() for char in evidence):
         return False
     # Replay 2026-10-29 (« Samedi 7 novembre » → evidence « 7 novembre »,
     # total 7): a quote that is itself a date is a day, not a party. Checked

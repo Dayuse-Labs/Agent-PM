@@ -60,6 +60,41 @@
 - Hors sujet, vu au passage : dans `580064bf`, « Try day after » après « Friday November 6th » a cherché le mercredi 4 novembre (le lendemain d'aujourd'hui, pas du jour demandé).
 - Long Island seul → Bahamas : une aire introuvable dans le pays deviné ne devrait pas partir dans un autre pays avant le palier Search Box de ce pays. À trancher, car la doctrine actuelle dit « une mauvaise devinette coûte un appel, jamais la bonne réponse ».
 
+## 👥 2026-11-02 (bis) — La feuille n'invente plus le groupe, plus de test lexical, plus de « Vous êtes bien 2 personnes ? » (branche `fix/party-leaf-no-lexical-20261102`, sur `main` 1814b55, après #183)
+
+Reprend sur #183 ce que #184 apportait en plus (#184 est remplacée par cette branche ; son point produit — plus aucune question de composition dès 3 personnes, lien non bloqué — est laissé à trancher entre Victor et Fabien).
+
+**Récupération client** : aucune.
+
+**Cause** (rejeu des conversations prod du 30/10 → 02/11 sur `main` avec #183) : il reste 8 faux groupes sur 170 messages sans personne, surtout écrits par le LLM de la **feuille** dans `search_offers` depuis le dialogue (« Dublin » après « a family room » → 2 + 1 = 3, « Traveling with my family », « camera matrimoniale » → 2, « Troyes », « London ») ; et `party_check` demande « Vous êtes bien 2 personnes ? » à un couple dont le filtre a été relâché faute de capacité renseignée (Lausanne, 2 fois). Règle permanente de Victor (02/11) : aucun test lexical sur les mots de l'utilisateur — or #183 refuse une citation « sans lettre ».
+
+**Correction** (3 commits) :
+- feuille : `inject_profile_occupancy` ignore les `adults`/`children` du LLM de la feuille ; seul le groupe validé du concierge ou le profil part à MCP ;
+- triage : `_party_quote_ok` ne garde que `counts == "people"`, la citation présente et pas une date ; le test « au moins une lettre » est retiré, les cas prod de #183 restent testés avec le `counts` typé du modèle ;
+- `party_check` ne demande « Vous êtes bien N personnes ? » que si N dépasse la capacité maximale des offres trouvées ; un groupe relâché par le sauvetage est oublié même sans question.
+
+**Rejeu avant/après** (55 conversations réelles, 206 tours ; piles locales `main` 1814b55 et branche, variables prod par `railway run`, Langfuse et DB coupés, MCP prod en lecture, jamais ai.dayuse.com ; mesure en situation avec les vrais modèles, sans effet de bord ; comptes par état du profil, `turn_facts` et gabarits exacts du code ; étiquettes posées à la main ; 0 repli du triage dans les deux bras) :
+
+| | main (#183) | branche |
+|---|---|---|
+| Groupe réel retenu | 22/31 | 24/31 |
+| Faux groupe enregistré / dont ≥ 3 personnes | 8/170 / 1 | 1/170 / 0 |
+| Question de groupe (gabarits du code) | 3 | 0 |
+| Gabarit de composition (≥ 3 personnes, choix de #183) | 2 | 2 |
+| Conversations avec ≥ 1 carte | 50/55 | 50/55 |
+| Tours « aucune offre » | 14 | 16 (Trier sauna + piscine et « 1 Nov » : groupe identique dans les deux bras, sans lien avec le groupe) |
+| Latence médiane | 9,4 s | 9,1 s |
+
+**Évaluation du modèle** (triage seul, gpt-6-luna, joué en séquence, 0 repli) : 207 messages réels annotés — vrais groupes 23/30 (main) / 21/30, faux 2/177 / 4/177 sur un tirage ; sortie brute des deux faux en plus capturée 5 fois par bras : même comportement (« 22 etienne de jouy » → `counts: other` 10/10, « I will get a room as well » → 1 personne 3/5 et 5/5, citation avec lettres : le test retiré n'y change rien). Hors échantillon : 60 messages avec chiffres 1/60 dans les deux bras ; fixture 114 et 17 messages prod : mêmes groupes. Conclusion : le test lexical n'a aucun effet mesurable.
+
+**Régressions connues** : « I will get a room as well » → 1 personne (sans effet sur les cartes) ; « 4 o 5 persone », « ajouter une troisième personne ? » restent sans groupe.
+
+**Tests** : pytest 3 823 passés / 2 skippés, ruff, mypy, guardrails.
+
+**Déploiement** : non fait. `concierge` + `hotel-search` (`faq` non concerné). **Vérification réelle** après déploiement : 0 `template:party_clarification` sur 0 carte, part des faux groupes, conversations servies.
+
+**Constat prod de #183 seule** (03/11, traces Langfuse complètes du 02/11 09:55 → 03/11 08:27 UTC, 144 conversations réelles / 317 tours, contre 374 / 858 du 30/10 12:00 → 02/11 09:55 ; groupe = `adults`/`children` reçus par `search_offers`, questions = gabarits exacts du code de `ba44795`) : question de composition 7 → 0, gabarit « pistes… à confirmer » 28 → 0, groupe ≠ 2 adultes envoyé à MCP 13 → 1, « Vous êtes bien N personnes ? » 5 → 1. Les deux restes sont ce que cette branche corrige : « I have a long layover » → Hong Kong part à MCP avec 1 adulte écrit par la feuille (21230ac1) ; couple de la puce romantique relâché à Milledgeville puis « are you really 2 people? » (90a7f07e). Le triage lit encore « per due giorni » comme 2 personnes (`counts: people`), sans effet puisque 2 est la valeur par défaut. Conversations servies 82,4 → 78,5 % (z = −1,0), rebond 12,8 → 18,1 % (z = 1,5, mix des puces : « Day room near me » 20 → 5 ouvertures, puce romantique 18 → 15 dont 8 partent à « dans quelle ville ? »), latence p50 7,6 → 8,2 s.
+
 ## 🚀 2026-11-02 — `hotel-search` et `concierge` déployés sur `ba44795` (#183)
 
 **Déployé** (`DEPLOY.md`, par Claude à la demande de Fabien), depuis `../AgentB2C-deploy` détaché sur `ba44795`, arbre propre.

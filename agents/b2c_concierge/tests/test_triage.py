@@ -651,15 +651,15 @@ def test_a_real_party_with_a_date_in_the_message_is_kept(monkeypatch):
 
 #: Prod audit 2026-11-02: the 10 « how many adults and children? » asked since
 #: #173 were all misreads. Each message (reworded) with the count and the quote
-#: the triage gave, labelled as the model now labels it — and the digit-only
-#: quotes even when the model still says « people ».
+#: the triage gave, labelled as the model now labels it. The code trusts the
+#: model's typed `counts` and never tests the quote's characters (rule of
+#: 2026-11-02: no lexical test on the user's words).
 _PROD_MISREADS = [
     ("Datum ist der 11.11.", {"total": 11, "counts": "day", "evidence": "11.11."}),
-    ("Datum ist der 11.11.", {"total": 11, "counts": "people", "evidence": "11.11."}),
-    ("Trier Zentrum am 08.11.26", {"total": 8, "counts": "people", "evidence": "08"}),
-    ("9 /13 domattina c'è?", {"total": 9, "counts": "people", "evidence": "9 /13"}),
-    ("Di notte, tipo 3 ore", {"total": 3, "counts": "people", "evidence": "3"}),
-    ("18+", {"adults": 18, "counts": "people", "evidence": "18+"}),
+    ("Trier Zentrum am 08.11.26", {"total": 8, "counts": "day", "evidence": "08"}),
+    ("9 /13 domattina c'è?", {"total": 9, "counts": "time", "evidence": "9 /13"}),
+    ("Di notte, tipo 3 ore", {"total": 3, "counts": "duration", "evidence": "3"}),
+    ("18+", {"adults": 18, "counts": "age", "evidence": "18+"}),
     ("From 4pm", {"total": 4, "counts": "time", "evidence": "From 4pm"}),
     ("Quiero ir 3 horas a un hotel", {"total": 3, "counts": "duration", "evidence": "3 horas"}),
     ("Lausanne et 30km", {"total": 30, "counts": "distance", "evidence": "30km"}),
