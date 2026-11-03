@@ -248,6 +248,23 @@ class TestNoStateTheUserDidNotWrite:
 
         assert result["error"] == "geocode_ambiguous"
 
+    @pytest.mark.parametrize(
+        ("message", "mention", "canonical", "region", "expected"),
+        [
+            # A state's name inside the city's own name is not a state written.
+            ("a day room in Kansas City", "Kansas City", "Kansas City", "KS", None),
+            ("a day room in Kansas City, Kansas", "Kansas City, Kansas", "Kansas City", "KS", "KS"),
+            ("a hotel in Virginia Beach", "Virginia Beach", "Virginia Beach", "VA", None),
+            ("Auburn, AL", "Auburn, AL", "Auburn", "AL", "AL"),
+        ],
+    )
+    def test_the_places_own_name_is_not_its_state(self, message, mention, canonical, region, expected):
+        claims = geocode_tool._Claims(message, message)
+
+        place = Place(mention=mention, kind="city", canonical=canonical, region=region)
+
+        assert claims.region(place) == expected
+
     def test_the_code_elsewhere_in_the_message_is_not_the_places(self, v6):
         # « al » is a word of the message, not of the place's mention.
         result = geocode_location(intent=_city("Auburn", region="AL"), locale="es",

@@ -2137,8 +2137,10 @@ class _Claims:
         kept only when the user wrote it with that place: the place's
         `mention` is in the input text, whole words, and holds the region as a
         word of its own — its code (« Auburn, AL ») or, for a US state, the
-        state's name from reference data (« Auburn Alabama »). Exact words
-        only, no canonical step and no similarity step.
+        state's name from reference data (« Auburn Alabama »). The place's
+        own name is taken out of the mention first: « Kansas City » names no
+        state, « Kansas City, Kansas » does. Exact words only, no similarity
+        step.
 
         2026-11-03 (prod session 2eb025cb, « near Auburn, AL? »): the model
         put « AL » in the place's `region` and not in `region_named`, the
@@ -2158,7 +2160,8 @@ class _Claims:
             {state.lower()} | {abbr for abbr, name in US_STATE_ABBREV_TO_NAME.items() if name == state}
             if state else set()
         )
-        words = f" {mention} "
+        name = _comparable(ref.canonical)
+        words = f" {mention} ".replace(f" {name} ", " ", 1) if name else f" {mention} "
         return code if any(f" {_comparable(form)} " in words for form in forms) else None
 
     def country(self, value: str | None) -> str | None:
