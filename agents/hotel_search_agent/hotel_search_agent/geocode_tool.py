@@ -2117,6 +2117,35 @@ class _Claims:
             self.mentions_discarded += 1
         return None
 
+    def region(self, ref: Place | CityRef | None) -> str | None:
+        """The state or province the model reports for a place (`region`),
+        kept only when the user wrote it with that place: the place's
+        `mention` is in the input text, whole words, and holds the region as a
+        word of its own — its code (« Auburn, AL ») or, for a US state, the
+        state's name from reference data (« Auburn Alabama »). Exact words
+        only, no canonical step and no similarity step.
+
+        2026-11-03 (prod session 2eb025cb, « near Auburn, AL? »): the model
+        put « AL » in the place's `region` and not in `region_named`, the
+        only field read; the homonym question then offered Washington and
+        California, without Alabama. A region the model knows but the user
+        did not write (« Auburn » alone) stays out: the geocoder decides
+        homonyms, never the model's guess."""
+        if ref is None:
+            return None
+        code = (ref.region or "").strip()
+        mention = _comparable(ref.mention)
+        if not code or not mention or f" {mention} " not in self._said:
+            return None
+        key = code.lower()
+        state = US_STATE_ABBREV_TO_NAME.get(key) or US_STATE_NAME_TO_CANONICAL.get(key)
+        forms = {key} | (
+            {state.lower()} | {abbr for abbr, name in US_STATE_ABBREV_TO_NAME.items() if name == state}
+            if state else set()
+        )
+        words = f" {mention} "
+        return code if any(f" {_comparable(form)} " in words for form in forms) else None
+
     def country(self, value: str | None) -> str | None:
         """Every country value goes through `_iso2` before it becomes a hard
         filter or a soft hint: "fr" -> "FR"; a name, an alpha-3 code or noise
@@ -2245,7 +2274,8 @@ def _place_args(
       counted as `city_conflicts` (Q14);
     - `country_named` → `country_code`, the hard filter; a country not named
       (the zone place's, else a city's) → `country_guess`, a hint;
-    - `region_named` → the state tier;
+    - `region_named` → the state tier, else the `region` of the place
+      searched when the user wrote it with the place (`_Claims.region`);
     - `ambiguity.reason == "city_needed"` (DQ6, the S5 rule): no city at all,
       so `geocode_core` asks which one — the code decides the question, the
       model only flags it. `homonym` and `too_vague` are logged, not mapped:
@@ -2375,7 +2405,11 @@ def _place_args(
         "zone": zone,
         "country_code": named,
         "country_guess": guess,
-        "region_named": (geo.region_named or "").strip() or None,
+        # A state the user wrote with the place itself counts as named, when
+        # the model reported it only as the place's region (`_Claims.region`).
+        "region_named": (geo.region_named or "").strip() or next(
+            (r for r in (claims.region(ref) for ref in (city_ref, zone_place, *cities)) if r), None
+        ),
         "postal_code": postal_code,
         "zone_kind": zone_place.kind if zone and zone_place is not None else None,
         "aliases": aliases,
